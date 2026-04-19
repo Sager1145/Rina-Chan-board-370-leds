@@ -1,47 +1,64 @@
-# LinaBoard
+# LinaBoard battery + charging update
 
-This update applies the requested battery-display changes to the current codebase.
+This package updates the uploaded project to do the following:
 
-## Included changes
+- detect charger voltage on **ADC1 / GP27**
+- treat about **3.0 V** as non-charging and **>= 4.5 V** as charging
+- keep the previous charge state between those thresholds to avoid flicker
+- keep the normal battery page cycle at **3 pages** when not charging
+- switch to **4 pages** when charging:
+  1. battery percent
+  2. battery voltage
+  3. estimated time
+  4. charger voltage
+- keep the battery icon color tied to the battery percentage color
+- render the charger-voltage text in **white**
+- animate the battery icon column-by-column while charging
+- keep all battery flashing intervals at **0.3 s**
+- keep the last battery column flashing when the battery is full and charging
+- use a **30 s** logging interval
+- shrink learned battery min/max by **0.05 V** every **1000** discharge measurements
+- apply the **20-measurement** holdoff after each inward adjustment
+- stop discharge/runtime logging while charging
+- log charging-time history separately while charging
+- provide fallback estimates of **1H** runtime and **30M** charging time when no history exists yet
+- keep the first battery screen alive for a full cycle instead of showing too briefly
+- sample battery and charger voltages in the same averaging window so battery pages stay more even
+- show battery voltage as **x.xV** below 10 V
+- show charger voltage on the fourth page as compact white text
 
-- Battery percentage display tolerance is `0.12 V`.
-- Battery charging icon animation is separate from the text area below it, so the icon animation does not overwrite or interfere with the percent, voltage, or time text.
-- Charging animation advances **one column at a time** from **left to right**.
-- The configured timing is the **interval between lighting two adjacent columns**, not the time for the whole sweep.
-- Charging speed scales from `0.50 s` at `0%` to `0.07 s` at `90%`.
-- As the battery percentage rises, more battery columns stay lit.
-- All charging-related battery flashing uses a `0.3 s` interval.
-- When the icon is effectively full, only the **last column** flashes.
-- Battery overlay phase timing is explicitly scheduled so the percent / voltage / time cycle stays consistent instead of drifting.
-- Battery voltage text still renders compactly, with the `V` shifted one logical column to the right.
-- When charging, the battery icon keeps the same color as the battery percentage, while the voltage text is shown in white.
-- The interval edge flash bar uses the same purple color as the interval text.
-- Interval suffix rendering uses uppercase `S`.
+## Files included in the zip
 
-## Battery runtime / history features retained
+Changed:
+- config.py
+- app_state.py
+- battery_runtime.py
+- settings_store.py
+- battery_monitor.py
+- display_num.py
+- main.py
+- README.md
 
-- Runtime estimation still uses bounded JSON history data.
-- When history reaches its maximum length, the entry furthest from the current brightness / mode context is deleted first.
-- Battery check still cycles through percent, voltage, and estimated remaining time with a fixed `2 s` phase per item.
-- Every `1000` calibration measurements, learned max voltage is reduced by `0.05 V` and learned min voltage is increased by `0.05 V`.
-- After that inward adjustment, min/max learning is held off for `20` measurements.
+Unchanged copies also included for convenience:
+- board.py
+- brightness_modes.py
+- buttons.py
+- demo_faces.py
+- matrix_demos.py
+- badapple_mode.py
+- converter(3).py
 
-## Important hardware note
 
-The uploaded codebase did not include a guaranteed existing charge-detect input.
-Because of that, the charging animation uses an **optional** charger-status GPIO hook in `config.py`:
+## v4.1 fix
 
-- `CHARGE_STATUS_GPIO = None`
-- `CHARGE_STATUS_ACTIVE_LOW = True`
+- fixed the battery page-count update logic so the overlay actually switches from 3 pages to 4 pages as soon as charging is detected
 
-Set `CHARGE_STATUS_GPIO` to the Pico GPIO connected to the charger status signal if your board exposes one.
-If it remains `None`, the normal battery icon still renders, but the charging animation cannot activate because the software has no reliable way to know the pack is charging.
 
-## Files changed
+## Charge detect divider
 
-- `config.py`
-- `app_state.py`
-- `battery_monitor.py`
-- `display_num.py`
-- `main.py`
-- `README.md`
+GP27 / ADC1 charge detection is now interpreted through the external resistor divider:
+
+- R1 = 270k
+- R2 = 47k
+
+The firmware now converts the ADC pin voltage back to the real charger-side voltage before applying the 3.0 V non-charging and 4.5 V charging thresholds.

@@ -1,22 +1,3 @@
-# ---------------------------------------------------------------------------
-# battery_runtime.py
-#
-# History-based battery runtime estimation.
-#
-# This project only measures battery voltage, not current, so the estimate is
-# learned from past discharge behavior instead of coulomb counting.
-#
-# The algorithm stores a bounded history of discharge-rate samples in the JSON
-# settings file. Each sample records:
-# - discharge rate in percent per hour
-# - UI brightness at the time
-# - active mode (face / demo / Bad Apple)
-#
-# Runtime estimation uses a weighted moving average of the stored discharge-rate
-# history, preferring samples from the same mode, similar brightness, and more
-# recent entries.
-# ---------------------------------------------------------------------------
-
 from config import (
     BATTERY_HISTORY_MAX_SAMPLES,
     BATTERY_HISTORY_MIN_RATE_PCT_PER_H,
@@ -28,14 +9,12 @@ MODE_FACE = 0
 MODE_DEMO = 1
 MODE_BADAPPLE = 2
 
-
 def current_mode_code(app_state):
     if app_state.badapple_mode:
         return MODE_BADAPPLE
     if app_state.special_demo_mode:
         return MODE_DEMO
     return MODE_FACE
-
 
 def clamp_history_entry(entry):
     if not isinstance(entry, (list, tuple)) or len(entry) != 3:
@@ -46,17 +25,12 @@ def clamp_history_entry(entry):
         mode = int(entry[2])
     except Exception:
         return None
-
     if rate <= 0.0:
         return None
-    if brightness < 0:
-        brightness = 0
-    elif brightness > 100:
-        brightness = 100
+    brightness = max(0, min(100, brightness))
     if mode not in (MODE_FACE, MODE_DEMO, MODE_BADAPPLE):
         mode = MODE_FACE
     return [rate, brightness, mode]
-
 
 def sanitize_history(history):
     if not isinstance(history, list):
@@ -70,87 +44,59 @@ def sanitize_history(history):
         out = out[-BATTERY_HISTORY_MAX_SAMPLES:]
     return out
 
-
 def _history_distance(entry, brightness, mode):
     _, sample_brightness, sample_mode = entry
     mode_penalty = 2.0 if sample_mode != mode else 0.0
     bright_penalty = abs(sample_brightness - brightness) / 100.0
     return mode_penalty + bright_penalty
 
-
 def trim_history_for_current_context(history, app_state):
-    # -----------------------------------------------------------------------
-    # Keep the history bounded.
-    #
-    # When the limit is reached, remove the entry that is furthest away from
-    # the current usage context. "Furthest away" means:
-    # - different mode is penalized heavily
-    # - larger brightness mismatch is penalized next
-    # - older entries lose ties
-    # -----------------------------------------------------------------------
     if len(history) < BATTERY_HISTORY_MAX_SAMPLES:
         return False
-
     brightness = int(app_state.brightness)
     mode = current_mode_code(app_state)
-
     worst_i = 0
     worst_key = None
     for i, entry in enumerate(history):
-        key = (
-            _history_distance(entry, brightness, mode),
-            -i,
-        )
+        key = (_history_distance(entry, brightness, mode), -i)
         if worst_key is None or key > worst_key:
             worst_key = key
             worst_i = i
-
     del history[worst_i]
     return True
 
-
-def record_discharge_sample(battery_state, app_state, percent_float, dt_hours):
-    # -----------------------------------------------------------------------
-    # Convert the change since the previous calibration sample into an average
-    # discharge rate and append it to the bounded history.
-    # -----------------------------------------------------------------------
+def _record_sample(history, last_percent_attr, battery_state, app_state, percent_float, dt_hours, sign):
     changed = False
-    last_percent = battery_state.history_last_percent
-
-    if (last_percent is not None and dt_hours is not None and dt_hours > 0.0 and
-            percent_float is not None):
-        delta_pct = last_percent - percent_float
+    last_percent = getattr(battery_state, last_percent_attr)
+    if last_percent is not None and dt_hours is not None and dt_hours > 0.0 and percent_float is not None:
+        delta_pct = (last_percent - percent_float) * sign
         if delta_pct > 0.0:
             rate = delta_pct / dt_hours
             if rate >= BATTERY_HISTORY_MIN_RATE_PCT_PER_H:
-                if trim_history_for_current_context(battery_state.usage_history, app_state):
+                if trim_history_for_current_context(history, app_state):
                     changed = True
-                battery_state.usage_history.append([
-                    rate,
-                    int(app_state.brightness),
-                    current_mode_code(app_state),
-                ])
+                history.append([rate, int(app_state.brightness), current_mode_code(app_state)])
                 changed = True
-
-    if battery_state.history_last_percent != percent_float:
-        battery_state.history_last_percent = percent_float
+    if last_percent != percent_float:
+        setattr(battery_state, last_percent_attr, percent_float)
         changed = True
-
     return changed
 
+def record_discharge_sample(battery_state, app_state, percent_float, dt_hours):
+    return _record_sample(battery_state.usage_history, 'history_last_percent', battery_state, app_state, percent_float, dt_hours, +1.0)
+
+def record_charge_sample(battery_state, app_state, percent_float, dt_hours):
+    return _record_sample(battery_state.charge_history, 'charge_history_last_percent', battery_state, app_state, percent_float, dt_hours, -1.0)
 
 def _weighted_average_rate(entries, brightness, mode):
     if not entries:
         return None
-
     total_w = 0.0
     total_rate = 0.0
     n = len(entries)
-
     for i, (rate, sample_brightness, sample_mode) in enumerate(entries):
         if rate < BATTERY_HISTORY_MIN_RATE_PCT_PER_H:
             continue
-
         recency_w = 1.0 + (i / float(n))
         mode_w = BATTERY_HISTORY_SAME_MODE_WEIGHT if sample_mode == mode else 1.0
         bright_delta = abs(sample_brightness - brightness)
@@ -158,34 +104,36 @@ def _weighted_average_rate(entries, brightness, mode):
         w = recency_w * mode_w * bright_w
         total_w += w
         total_rate += rate * w
-
     if total_w <= 0.0:
         return None
     return total_rate / total_w
 
-
-def estimate_remaining_hours(battery_state, app_state, percent_float):
-    # -----------------------------------------------------------------------
-    # Estimate remaining runtime from the stored discharge-rate history.
-    # Prefers same-mode samples first, then falls back to the full history.
-    # -----------------------------------------------------------------------
-    if percent_float is None or percent_float <= 0.0:
-        return 0.0
-
-    history = battery_state.usage_history
+def _estimate_from_history(history, app_state, percent_float, inverse=False):
+    if percent_float is None:
+        return None
+    history = history or []
     if not history:
         return None
-
     brightness = int(app_state.brightness)
     mode = current_mode_code(app_state)
-
     same_mode = [entry for entry in history if entry[2] == mode]
-    if len(same_mode) >= 3:
-        avg_rate = _weighted_average_rate(same_mode, brightness, mode)
-    else:
-        avg_rate = _weighted_average_rate(history, brightness, mode)
-
+    avg_rate = _weighted_average_rate(same_mode if len(same_mode) >= 3 else history, brightness, mode)
     if avg_rate is None or avg_rate < BATTERY_HISTORY_MIN_RATE_PCT_PER_H:
         return None
+    if inverse:
+        remaining = 100.0 - max(0.0, min(100.0, percent_float))
+    else:
+        remaining = max(0.0, min(100.0, percent_float))
+    return remaining / avg_rate
 
-    return percent_float / avg_rate
+def estimate_remaining_hours(battery_state, app_state, percent_float):
+    if percent_float is None or percent_float <= 0.0:
+        return 0.0
+    return _estimate_from_history(battery_state.usage_history, app_state, percent_float, inverse=False)
+
+def estimate_charge_hours(battery_state, app_state, percent_float):
+    if percent_float is None:
+        return None
+    if percent_float >= 100.0:
+        return 0.0
+    return _estimate_from_history(battery_state.charge_history, app_state, percent_float, inverse=True)

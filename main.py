@@ -24,11 +24,6 @@
 
 import time
 
-try:
-    from machine import Pin
-except ImportError:
-    Pin = None
-
 import board
 from board import clear, show, draw_bitmap, logical_to_led_index, np, scale_color, COLS, ROWS
 
@@ -46,7 +41,7 @@ from config import *
 from app_state import AppState, BatteryState
 from settings_store import load_settings, save_settings, clamp_interval, clamp_brightness
 from battery_monitor import BatteryMonitor
-from battery_runtime import estimate_remaining_hours
+from battery_runtime import estimate_remaining_hours, estimate_charge_hours
 from brightness_modes import effective_brightness
 
 
@@ -55,24 +50,13 @@ from brightness_modes import effective_brightness
 # It owns runtime state, helpers, and the polling loop behavior.
 # ---------------------------------------------------------------------------
 class LinaBoardApp:
-    __slots__ = ("state", "battery", "buttons", "battery_monitor", "charge_pin")
+    __slots__ = ("state", "battery", "buttons", "battery_monitor")
 
     def __init__(self):
-        # Create all shared runtime objects used by the app loop.
         self.state = AppState()
         self.battery = BatteryState()
         self.buttons = ButtonBank()
         self.battery_monitor = BatteryMonitor()
-        self.charge_pin = None
-        if CHARGE_STATUS_GPIO is not None and Pin is not None:
-            try:
-                if CHARGE_STATUS_ACTIVE_LOW:
-                    self.charge_pin = Pin(CHARGE_STATUS_GPIO, Pin.IN, Pin.PULL_UP)
-                else:
-                    self.charge_pin = Pin(CHARGE_STATUS_GPIO, Pin.IN)
-            except Exception as e:
-                print("charge detect init failed:", e)
-                self.charge_pin = None
 
     # ------------------------------------------------------------------
     # Persistence / shared runtime helpers
@@ -205,14 +189,12 @@ class LinaBoardApp:
     # ------------------------------------------------------------------
     # Battery display helpers
     # ------------------------------------------------------------------
-    def is_charging(self):
-        if self.charge_pin is None:
-            return False
-        try:
-            value = self.charge_pin.value()
-        except Exception:
-            return False
-        return (value == 0) if CHARGE_STATUS_ACTIVE_LOW else (value == 1)
+    def is_charging(self, charge_v=None, previous=None):
+        if charge_v is None:
+            charge_v = self.battery_monitor.read_charge_voltage()
+        if previous is None:
+            previous = self.state.battery_display_cached_is_charging
+        return self.battery_monitor.is_charging_voltage(charge_v, previous=previous)
 
     def refresh_battery_overlay_cache(self, force=False):
         now = time.ticks_ms()
@@ -220,20 +202,34 @@ class LinaBoardApp:
                 time.ticks_diff(now, self.state.battery_next_refresh_ms) < 0):
             return False
 
-        v_bat = self.battery_monitor.read_voltage_mean(
+        v_bat, charge_v = self.battery_monitor.read_voltage_pair_mean(
             BATTERY_DISPLAY_MEAN_WINDOW_MS,
             BATTERY_DISPLAY_MEAN_SAMPLE_DELAY_MS,
         )
         pct = self.battery_monitor.percent_from_voltage(v_bat, self.battery)
         pct_float = self.battery_monitor.percent_float_from_voltage(v_bat, self.battery)
+        charging = self.is_charging(charge_v, previous=self.state.battery_display_cached_is_charging)
         if v_bat is not None:
             self.battery.last_voltage = v_bat
+        if charge_v is not None:
+            self.battery.last_charge_voltage = charge_v
         remaining_h = estimate_remaining_hours(self.battery, self.state, pct_float)
+        charge_time_h = estimate_charge_hours(self.battery, self.state, pct_float)
+
+        target_phase_count = 4 if charging else 3
+        if self.state.battery_display_phase_count != target_phase_count:
+            self.state.battery_display_phase_count = target_phase_count
+            self.state.battery_display_phase_index = 0
+            self.state.battery_display_toggle_started_ms = now
+            self.state.battery_display_next_phase_ms = time.ticks_add(now, BATTERY_DISPLAY_CYCLE_MS)
 
         self.state.battery_display_cached_voltage = v_bat
+        self.state.battery_display_cached_charge_voltage = charge_v
         self.state.battery_display_cached_percent = pct
         self.state.battery_display_cached_percent_float = pct_float
         self.state.battery_display_cached_remaining_h = remaining_h
+        self.state.battery_display_cached_charge_time_h = charge_time_h
+        self.state.battery_display_cached_is_charging = charging
         self.state.battery_next_refresh_ms = time.ticks_add(now, BATTERY_REFRESH_MS)
         return True
 
@@ -243,7 +239,8 @@ class LinaBoardApp:
         now = time.ticks_ms()
         while (self.state.battery_display_next_phase_ms and
                time.ticks_diff(now, self.state.battery_display_next_phase_ms) >= 0):
-            self.state.battery_display_phase_index = (self.state.battery_display_phase_index + 1) % 3
+            phase_count = self.state.battery_display_phase_count
+            self.state.battery_display_phase_index = (self.state.battery_display_phase_index + 1) % phase_count
             self.state.battery_display_next_phase_ms = time.ticks_add(
                 self.state.battery_display_next_phase_ms,
                 BATTERY_DISPLAY_CYCLE_MS,
@@ -254,9 +251,12 @@ class LinaBoardApp:
         self.refresh_battery_overlay_cache(force=False)
 
         v_bat = self.state.battery_display_cached_voltage
+        charge_v = self.state.battery_display_cached_charge_voltage
         pct = self.state.battery_display_cached_percent
         pct_float = self.state.battery_display_cached_percent_float
         remaining_h = self.state.battery_display_cached_remaining_h
+        charge_time_h = self.state.battery_display_cached_charge_time_h
+        charging = self.state.battery_display_cached_is_charging
 
         if pct is None:
             print("battery monitor unavailable")
@@ -264,23 +264,26 @@ class LinaBoardApp:
             return
 
         color = self.battery_monitor.color(pct)
-        cycle_index = self.state.battery_display_phase_index
-        phase_name = ("percent", "voltage", "time")[cycle_index]
-        charging = self.is_charging()
         charging_phase_ms = time.ticks_diff(time.ticks_ms(), self.state.battery_display_toggle_started_ms)
         charge_step_interval_s = self.battery_monitor.charge_animation_step_interval_s(pct)
-        flash_last_column = pct >= 90
+        flash_last_column = pct >= 100
 
-        if remaining_h is None:
-            remain_text = "unknown"
-        elif remaining_h < 1.0:
-            remain_text = "{} min".format(int(round(remaining_h * 60.0)))
+        display_count = self.state.battery_display_phase_count
+        cycle_index = self.state.battery_display_phase_index % display_count
+        phase_name = ("percent", "voltage", "time", "charge_v")[cycle_index]
+
+        display_remaining_h = remaining_h if remaining_h is not None else BATTERY_DEFAULT_USAGE_HOURS
+        display_charge_h = charge_time_h if charge_time_h is not None else BATTERY_DEFAULT_CHARGE_HOURS
+        active_time_h = display_charge_h if charging else display_remaining_h
+
+        if active_time_h < 1.0:
+            remain_text = "{} min".format(int(round(active_time_h * 60.0)))
         else:
-            remain_text = "{:.1f} h".format(remaining_h)
+            remain_text = "{:.1f} h".format(active_time_h)
 
-        print("battery display: mean={:.2f} V over {} ms ({}%), learned min={:.2f} V, learned max={:.2f} V, remaining={}, phase={}, charging={}".format(
+        print("battery display: mean={:.2f} V, charge={:.2f} V, pct={}, learned min={:.2f} V, learned max={:.2f} V, time={}, phase={}, charging={}".format(
             v_bat if v_bat is not None else 0.0,
-            BATTERY_DISPLAY_MEAN_WINDOW_MS,
+            charge_v if charge_v is not None else 0.0,
             pct,
             self.battery.min_v,
             self.battery.max_v,
@@ -301,11 +304,17 @@ class LinaBoardApp:
                 charging_phase_ms=charging_phase_ms,
                 charge_step_interval_s=charge_step_interval_s,
                 flash_last_column=flash_last_column,
-                text_color=(255, 255, 255) if charging else None,
+            )
+        elif cycle_index == 2:
+            display_num.render_battery_time(
+                active_time_h, pct, color=color, charging=charging,
+                charging_phase_ms=charging_phase_ms,
+                charge_step_interval_s=charge_step_interval_s,
+                flash_last_column=flash_last_column,
             )
         else:
-            display_num.render_battery_time(
-                remaining_h, pct, color=color, charging=charging,
+            display_num.render_charge_voltage(
+                charge_v, pct, icon_color=color, charging=charging,
                 charging_phase_ms=charging_phase_ms,
                 charge_step_interval_s=charge_step_interval_s,
                 flash_last_column=flash_last_column,
@@ -334,11 +343,13 @@ class LinaBoardApp:
             self.state.flash_active = False
             self.state.flash_kind = None
             self.state.flash_value = None
-            self.state.battery_display_toggle_started_ms = now
-            self.state.battery_display_phase_index = 0
-            self.state.battery_display_next_phase_ms = time.ticks_add(now, BATTERY_DISPLAY_CYCLE_MS)
             self.state.battery_next_refresh_ms = 0
             self.refresh_battery_overlay_cache(force=True)
+            now = time.ticks_ms()
+            self.state.battery_display_toggle_started_ms = now
+            self.state.battery_display_phase_index = 0
+            self.state.battery_display_phase_count = 4 if self.state.battery_display_cached_is_charging else 3
+            self.state.battery_display_next_phase_ms = time.ticks_add(now, BATTERY_DISPLAY_CYCLE_MS)
             self.render_battery_overlay()
             return
 
@@ -650,7 +661,7 @@ class LinaBoardApp:
         print("  display mean window  =", BATTERY_DISPLAY_MEAN_WINDOW_MS, "ms")
         print("  display toggle cycle =", BATTERY_DISPLAY_CYCLE_MS, "ms")
         print("  display tolerance    = {:.2f} V".format(BATTERY_DISPLAY_TOL_V))
-        print("  charge detect gpio   =", CHARGE_STATUS_GPIO)
+        print("  charge detect adc    =", CHARGE_DETECT_ADC_GPIO)
         self.apply_brightness()
         self.draw_current_face()
         self.apply_demo_runtime_settings(refresh_timer=False)
