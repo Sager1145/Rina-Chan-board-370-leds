@@ -4,33 +4,38 @@ This update applies the requested battery-display changes to the current codebas
 
 ## Included changes
 
-- Battery percentage display tolerance reduced from `0.17 V` to `0.12 V`.
-- Battery voltage text now renders as `x.x V`, which shifts the `V` one logical column to the right.
-- Battery overlay phase timing is now explicitly scheduled so the percent / voltage / time text cycle is more consistent.
-- Battery icon rendering supports a charging animation that is separate from the text area below it.
-- Charging animation behavior:
-  - lights columns left to right
-  - advances one column at a time
-  - interval is between adjacent column advances, not the whole sweep
-  - animation speed scales from `0.50 s` at `0%` to `0.07 s` at `90%`
-  - more filled columns remain lit as battery percentage rises
-  - when the icon is effectively full, only the last column flashes at `0.3 s`
+- Battery percentage display tolerance is `0.12 V`.
+- Battery charging icon animation is separate from the text area below it, so the icon animation does not overwrite or interfere with the percent, voltage, or time text.
+- Charging animation advances **one column at a time** from **left to right**.
+- The configured timing is the **interval between lighting two adjacent columns**, not the time for the whole sweep.
+- Charging speed scales from `0.50 s` at `0%` to `0.07 s` at `90%`.
+- As the battery percentage rises, more battery columns stay lit.
+- All charging-related battery flashing uses a `0.3 s` interval.
+- When the icon is effectively full, only the **last column** flashes.
+- Battery overlay phase timing is explicitly scheduled so the percent / voltage / time cycle stays consistent instead of drifting.
+- Battery voltage text still renders compactly, with the `V` shifted one logical column to the right.
+- When charging, the battery icon keeps the same color as the battery percentage, while the voltage text is shown in white.
+- The interval edge flash bar uses the same purple color as the interval text.
+- Interval suffix rendering uses uppercase `S`.
 
+## Battery runtime / history features retained
 
-- Battery runtime estimation is stored in JSON history and uses bounded history with context-aware trimming.
-- Battery check cycles through percent, voltage, and estimated remaining time every `2 s` per phase.
-- Interval unit now uses uppercase `S` so the suffix renders correctly on the matrix.
+- Runtime estimation still uses bounded JSON history data.
+- When history reaches its maximum length, the entry furthest from the current brightness / mode context is deleted first.
+- Battery check still cycles through percent, voltage, and estimated remaining time with a fixed `2 s` phase per item.
+- Every `1000` calibration measurements, learned max voltage is reduced by `0.05 V` and learned min voltage is increased by `0.05 V`.
+- After that inward adjustment, min/max learning is held off for `20` measurements.
 
 ## Important hardware note
 
-The current uploaded codebase did not include an existing charge-detect input.
-Because of that, this update adds an **optional** charge-status hook in `config.py`:
+The uploaded codebase did not include a guaranteed existing charge-detect input.
+Because of that, the charging animation uses an **optional** charger-status GPIO hook in `config.py`:
 
 - `CHARGE_STATUS_GPIO = None`
 - `CHARGE_STATUS_ACTIVE_LOW = True`
 
-Set `CHARGE_STATUS_GPIO` to the GPIO connected to the charger status signal if your board exposes one.
-If it remains `None`, the battery icon will still render normally, but the charging animation will not activate because the software has no reliable way to know the pack is charging.
+Set `CHARGE_STATUS_GPIO` to the Pico GPIO connected to the charger status signal if your board exposes one.
+If it remains `None`, the normal battery icon still renders, but the charging animation cannot activate because the software has no reliable way to know the pack is charging.
 
 ## Files changed
 

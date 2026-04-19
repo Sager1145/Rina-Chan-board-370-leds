@@ -148,10 +148,13 @@ class LinaBoardApp:
             level = factor * spatial
             if level <= 0.0:
                 continue
+            flash_color = EDGE_FLASH_COLOR
+            if self.state.flash_kind == "interval":
+                flash_color = display_num.MODE_COLOR
             np[idx] = scale_color((
-                int(EDGE_FLASH_COLOR[0] * level),
-                int(EDGE_FLASH_COLOR[1] * level),
-                int(EDGE_FLASH_COLOR[2] * level),
+                int(flash_color[0] * level),
+                int(flash_color[1] * level),
+                int(flash_color[2] * level),
             ))
         show()
         return True
@@ -298,6 +301,7 @@ class LinaBoardApp:
                 charging_phase_ms=charging_phase_ms,
                 charge_step_interval_s=charge_step_interval_s,
                 flash_last_column=flash_last_column,
+                text_color=(255, 255, 255) if charging else None,
             )
         else:
             display_num.render_battery_time(

@@ -358,7 +358,7 @@ def _draw_bitmap_rows(rows, color, dim_color=None, x0=0, y0=0):
                 np[idx] = dim_c
 
 
-def _render_string(text, color, icon_rows=None, char_extra_x=None):
+def _render_string(text, color, icon_rows=None, char_extra_x=None, icon_color=None):
     glyphs = [_glyph_for(ch) for ch in text]
     gap = 1
     total_w = 0
@@ -372,7 +372,7 @@ def _render_string(text, color, icon_rows=None, char_extra_x=None):
 
     clear()
     if icon_rows is not None:
-        _draw_bitmap_rows(icon_rows, color, x0=0, y0=ICON_TOP_Y)
+        _draw_bitmap_rows(icon_rows, icon_color if icon_color is not None else color, x0=0, y0=ICON_TOP_Y)
 
     c = scale_color(color)
     x = x0
@@ -520,7 +520,7 @@ def render_mode(auto, color=MODE_COLOR):
 
 def render_battery_voltage(voltage, percent=0, color=DEFAULT_COLOR, charging=False,
                            charging_phase_ms=0, charge_step_interval_s=0.5,
-                           flash_last_column=False):
+                           flash_last_column=False, text_color=None):
     icon_rows = _battery_icon_rows(
         percent,
         charging=charging,
@@ -528,11 +528,12 @@ def render_battery_voltage(voltage, percent=0, color=DEFAULT_COLOR, charging=Fal
         charge_step_interval_s=charge_step_interval_s,
         flash_last_column=flash_last_column,
     )
+    draw_color = text_color if text_color is not None else color
     if voltage is None:
-        _render_string("0.0V", color, icon_rows=icon_rows, char_extra_x={3: 1})
+        _render_string("0.0V", draw_color, icon_rows=icon_rows, char_extra_x={3: 1}, icon_color=color)
         return
     # Shift the V one column to the right without widening the whole layout.
-    _render_string("{:.1f}V".format(voltage), color, icon_rows=icon_rows, char_extra_x={3: 1})
+    _render_string("{:.1f}V".format(voltage), draw_color, icon_rows=icon_rows, char_extra_x={3: 1}, icon_color=color)
 
 
 def render_battery_time(hours_remaining, percent=0, color=DEFAULT_COLOR, charging=False,
