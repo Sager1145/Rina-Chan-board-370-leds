@@ -8,6 +8,7 @@ from config import (
     BATTERY_RELEARN_MAX_STEP_V, BATTERY_RELEARN_MIN_STEP_V,
     BATTERY_RELEARN_HOLDOFF_MEASUREMENTS, BATTERY_MIN_SPAN_V,
     BATTERY_PERCENT_CURVE, BATTERY_CHARGE_ANIM_FULL_CYCLE_S,
+    BATTERY_MEAN_UPDATE_MS, BATTERY_MEAN_SAMPLE_INTERVAL_MS,
     CHARGE_DETECT_ADC_GPIO, CHARGE_DETECT_ADC_REF_V, CHARGE_DETECT_SAMPLES,
     CHARGE_DETECT_DIVIDER_R1, CHARGE_DETECT_DIVIDER_R2,
     CHARGE_DETECT_CHARGING_MIN_V, CHARGE_DETECT_HYSTERESIS_LOW_V,
@@ -18,10 +19,27 @@ except ImportError:
     ADC = None
 
 class BatteryMonitor:
-    __slots__ = ("adc", "charge_adc")
+    __slots__ = (
+        "adc", "charge_adc",
+        "mean_window_started_ms", "mean_next_sample_ms",
+        "mean_battery_total", "mean_battery_count",
+        "mean_charge_total", "mean_charge_count",
+        "last_mean_battery_voltage", "last_mean_charge_voltage",
+        "last_mean_completed_ms",
+    )
     def __init__(self):
         self.adc = ADC(BATTERY_ADC_GPIO) if ADC is not None else None
         self.charge_adc = ADC(CHARGE_DETECT_ADC_GPIO) if ADC is not None else None
+        now = time.ticks_ms()
+        self.mean_window_started_ms = now
+        self.mean_next_sample_ms = now
+        self.mean_battery_total = 0.0
+        self.mean_battery_count = 0
+        self.mean_charge_total = 0.0
+        self.mean_charge_count = 0
+        self.last_mean_battery_voltage = None
+        self.last_mean_charge_voltage = None
+        self.last_mean_completed_ms = 0
     def _read_adc_voltage(self, adc, ref_v, samples):
         if adc is None:
             return None
@@ -42,6 +60,67 @@ class BatteryMonitor:
         if v_adc is None:
             return None
         return v_adc * (CHARGE_DETECT_DIVIDER_R1 + CHARGE_DETECT_DIVIDER_R2) / CHARGE_DETECT_DIVIDER_R2
+    def reset_mean_sampler(self, preserve_last=True):
+        now = time.ticks_ms()
+        self.mean_window_started_ms = now
+        self.mean_next_sample_ms = now
+        self.mean_battery_total = 0.0
+        self.mean_battery_count = 0
+        self.mean_charge_total = 0.0
+        self.mean_charge_count = 0
+        if not preserve_last:
+            self.last_mean_battery_voltage = None
+            self.last_mean_charge_voltage = None
+            self.last_mean_completed_ms = 0
+
+    def _finalize_mean_window(self, now=None):
+        if now is None:
+            now = time.ticks_ms()
+        self.last_mean_battery_voltage = None if self.mean_battery_count <= 0 else (self.mean_battery_total / self.mean_battery_count)
+        self.last_mean_charge_voltage = None if self.mean_charge_count <= 0 else (self.mean_charge_total / self.mean_charge_count)
+        self.last_mean_completed_ms = now
+        self.mean_window_started_ms = now
+        self.mean_next_sample_ms = now
+        self.mean_battery_total = 0.0
+        self.mean_battery_count = 0
+        self.mean_charge_total = 0.0
+        self.mean_charge_count = 0
+
+    def service_mean_sampler(self, force_sample=False):
+        if self.adc is None and self.charge_adc is None:
+            return False
+        now = time.ticks_ms()
+        mean_updated = False
+        if time.ticks_diff(now, self.mean_window_started_ms) >= BATTERY_MEAN_UPDATE_MS:
+            self._finalize_mean_window(now=now)
+            mean_updated = True
+            now = time.ticks_ms()
+
+        if (not force_sample) and time.ticks_diff(now, self.mean_next_sample_ms) < 0:
+            return mean_updated
+
+        v_bat = self.read_voltage()
+        if v_bat is not None:
+            self.mean_battery_total += v_bat
+            self.mean_battery_count += 1
+        v_charge = self.read_charge_voltage()
+        if v_charge is not None:
+            self.mean_charge_total += v_charge
+            self.mean_charge_count += 1
+
+        self.mean_next_sample_ms = time.ticks_add(now, BATTERY_MEAN_SAMPLE_INTERVAL_MS)
+        return mean_updated
+
+    def get_mean_voltage_pair(self, allow_partial=True):
+        v_bat = self.last_mean_battery_voltage
+        charge_v = self.last_mean_charge_voltage
+        if allow_partial:
+            if v_bat is None and self.mean_battery_count > 0:
+                v_bat = self.mean_battery_total / self.mean_battery_count
+            if charge_v is None and self.mean_charge_count > 0:
+                charge_v = self.mean_charge_total / self.mean_charge_count
+        return (v_bat, charge_v)
+
     def read_voltage_mean(self, window_ms, sample_delay_ms):
         if self.adc is None:
             return None
@@ -129,8 +208,12 @@ class BatteryMonitor:
         now = time.ticks_ms()
         if (not force and app_state.battery_next_log_ms and time.ticks_diff(now, app_state.battery_next_log_ms) < 0):
             return False
-        v_bat = self.read_voltage()
-        charge_v = self.read_charge_voltage()
+        self.service_mean_sampler()
+        v_bat, charge_v = self.get_mean_voltage_pair(allow_partial=True)
+        if v_bat is None:
+            v_bat = self.read_voltage()
+        if charge_v is None:
+            charge_v = self.read_charge_voltage()
         previous_charge_v = battery_state.last_charge_voltage
         app_state.battery_next_log_ms = time.ticks_add(now, BATTERY_LOG_INTERVAL_MS)
         if v_bat is None:

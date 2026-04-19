@@ -22,6 +22,7 @@
 # ---------------------------------------------------------------------------
 
 
+import gc
 import time
 
 import board
@@ -189,12 +190,15 @@ class LinaBoardApp:
         self.state.battery_visual_next_refresh_ms = 0
         self.render_current_visual(force=True)
 
+    def service_battery_sampling(self, force_sample=False):
+        return self.battery_monitor.service_mean_sampler(force_sample=force_sample)
+
     # ------------------------------------------------------------------
     # Battery display helpers
     # ------------------------------------------------------------------
     def is_charging(self, charge_v=None, previous=None):
         if charge_v is None:
-            charge_v = self.battery_monitor.read_charge_voltage()
+            _, charge_v = self.battery_monitor.get_mean_voltage_pair(allow_partial=True)
         if previous is None:
             previous = self.state.battery_display_cached_is_charging
         return self.battery_monitor.is_charging_voltage(charge_v, previous=previous)
@@ -222,8 +226,8 @@ class LinaBoardApp:
                 time.ticks_diff(now, self.state.battery_next_refresh_ms) < 0):
             return False
 
-        v_bat = self.battery_monitor.read_voltage()
-        charge_v = self.battery_monitor.read_charge_voltage()
+        self.service_battery_sampling(force_sample=force)
+        v_bat, charge_v = self.battery_monitor.get_mean_voltage_pair(allow_partial=True)
 
         if v_bat is None:
             v_bat = self.state.battery_display_cached_voltage
@@ -248,6 +252,16 @@ class LinaBoardApp:
                 self.state.battery_display_toggle_started_ms = now
                 self.state.battery_display_next_phase_ms = time.ticks_add(now, BATTERY_DISPLAY_CYCLE_MS)
 
+        old_cache = (
+            self.state.battery_display_cached_voltage,
+            self.state.battery_display_cached_charge_voltage,
+            self.state.battery_display_cached_percent,
+            self.state.battery_display_cached_percent_float,
+            self.state.battery_display_cached_remaining_h,
+            self.state.battery_display_cached_charge_time_h,
+            self.state.battery_display_cached_is_charging,
+        )
+
         self.state.battery_display_cached_voltage = v_bat
         self.state.battery_display_cached_charge_voltage = charge_v
         self.state.battery_display_cached_percent = pct
@@ -256,7 +270,17 @@ class LinaBoardApp:
         self.state.battery_display_cached_charge_time_h = charge_time_h
         self.state.battery_display_cached_is_charging = charging
         self.state.battery_next_refresh_ms = time.ticks_add(now, BATTERY_REFRESH_MS)
-        return True
+
+        new_cache = (
+            v_bat,
+            charge_v,
+            pct,
+            pct_float,
+            remaining_h,
+            charge_time_h,
+            charging,
+        )
+        return force or (new_cache != old_cache)
 
     def update_battery_display_phase(self):
         if not self.state.battery_display_active:
@@ -528,6 +552,7 @@ class LinaBoardApp:
         self.state.b6_long_fired = False
         self.state.edge_flash_active = False
         self.apply_brightness()
+        gc.collect()
 
         if not badapple_mode.PLAYER.enter():
             self.state.badapple_mode = False
@@ -670,15 +695,14 @@ class LinaBoardApp:
             return
 
         now = time.ticks_ms()
-        if gp in (BTN_BRIGHT_DN, BTN_BRIGHT_UP):
+        if gp in (BTN_BRIGHT_DN, BTN_BRIGHT_UP) and combo_b4_b5:
             if time.ticks_diff(now, self.state.brightness_reset_ignore_until_ms) < 0:
                 return
-            if combo_b4_b5:
-                if not self.state.brightness_reset_combo_latched:
-                    self.state.brightness_reset_combo_latched = True
-                    self.reset_brightness()
-                    self.state.brightness_reset_ignore_until_ms = time.ticks_add(now, BRIGHTNESS_RESET_IGNORE_MS)
-                return
+            if not self.state.brightness_reset_combo_latched:
+                self.state.brightness_reset_combo_latched = True
+                self.reset_brightness()
+                self.state.brightness_reset_ignore_until_ms = time.ticks_add(now, BRIGHTNESS_RESET_IGNORE_MS)
+            return
 
         if self.state.badapple_mode:
             if gp == BTN_BRIGHT_DN:
@@ -740,13 +764,15 @@ class LinaBoardApp:
         self.print_startup_info()
         load_settings(self.state, self.battery)
         print("  learned min/max      = {:.2f} / {:.2f} V".format(self.battery.min_v, self.battery.max_v))
-        print("  display mean window  =", BATTERY_DISPLAY_MEAN_WINDOW_MS, "ms")
+        print("  display mean update  =", BATTERY_MEAN_UPDATE_MS, "ms")
+        print("  mean sample interval =", BATTERY_MEAN_SAMPLE_INTERVAL_MS, "ms")
         print("  display toggle cycle =", BATTERY_DISPLAY_CYCLE_MS, "ms")
         print("  display tolerance    = {:.2f} V".format(BATTERY_DISPLAY_TOL_V))
         print("  charge detect adc    =", CHARGE_DETECT_ADC_GPIO)
         self.apply_brightness()
         self.draw_current_face()
         self.apply_demo_runtime_settings(refresh_timer=False)
+        self.service_battery_sampling(force_sample=True)
 
     def run(self):
         self.initialize()
@@ -770,7 +796,6 @@ class LinaBoardApp:
             combo_active = self.check_special_demo_combo() or combo_active
             combo_active = self.check_badapple_combo() or combo_active
 
-            self.battery_monitor.update_calibration(self.battery, self.state, self.save_settings)
             self.check_b6_hold()
             self.service_battery_overlay()
 
@@ -789,6 +814,11 @@ class LinaBoardApp:
                 self.render_flash_overlay_with_edge()
             elif self.state.edge_flash_active and not self.state.flash_active:
                 self.state.edge_flash_active = False
+
+            allow_background_sampling = (not self.state.badapple_mode) or self.state.battery_display_active
+            if allow_background_sampling:
+                self.service_battery_sampling()
+                self.battery_monitor.update_calibration(self.battery, self.state, self.save_settings)
 
             if self.state.badapple_mode:
                 if not self.state.flash_active and not self.state.battery_display_active:
