@@ -184,6 +184,8 @@ class LinaBoardApp:
         if not self.state.battery_display_active:
             return
         self.state.battery_display_active = False
+        self.state.battery_display_single_shot = False
+        self.state.battery_display_expires_ms = 0
         self.render_current_visual(force=True)
 
     # ------------------------------------------------------------------
@@ -195,6 +197,22 @@ class LinaBoardApp:
         if previous is None:
             previous = self.state.battery_display_cached_is_charging
         return self.battery_monitor.is_charging_voltage(charge_v, previous=previous)
+
+    def show_battery_percent_short(self):
+        self.state.battery_display_active = True
+        self.state.battery_display_single_shot = True
+        self.state.flash_active = False
+        self.state.flash_kind = None
+        self.state.flash_value = None
+        self.state.battery_next_refresh_ms = 0
+        self.refresh_battery_overlay_cache(force=True)
+        now = time.ticks_ms()
+        self.state.battery_display_toggle_started_ms = now
+        self.state.battery_display_phase_index = 0
+        self.state.battery_display_phase_count = 1
+        self.state.battery_display_next_phase_ms = 0
+        self.state.battery_display_expires_ms = time.ticks_add(now, BATTERY_SHORT_SHOW_MS)
+        self.render_battery_overlay()
 
     def refresh_battery_overlay_cache(self, force=False):
         now = time.ticks_ms()
@@ -216,12 +234,13 @@ class LinaBoardApp:
         remaining_h = estimate_remaining_hours(self.battery, self.state, pct_float)
         charge_time_h = estimate_charge_hours(self.battery, self.state, pct_float)
 
-        target_phase_count = 4 if charging else 3
-        if self.state.battery_display_phase_count != target_phase_count:
-            self.state.battery_display_phase_count = target_phase_count
-            self.state.battery_display_phase_index = 0
-            self.state.battery_display_toggle_started_ms = now
-            self.state.battery_display_next_phase_ms = time.ticks_add(now, BATTERY_DISPLAY_CYCLE_MS)
+        if not self.state.battery_display_single_shot:
+            target_phase_count = 4 if charging else 3
+            if self.state.battery_display_phase_count != target_phase_count:
+                self.state.battery_display_phase_count = target_phase_count
+                self.state.battery_display_phase_index = 0
+                self.state.battery_display_toggle_started_ms = now
+                self.state.battery_display_next_phase_ms = time.ticks_add(now, BATTERY_DISPLAY_CYCLE_MS)
 
         self.state.battery_display_cached_voltage = v_bat
         self.state.battery_display_cached_charge_voltage = charge_v
@@ -237,6 +256,8 @@ class LinaBoardApp:
         if not self.state.battery_display_active:
             return
         now = time.ticks_ms()
+        if self.state.battery_display_single_shot:
+            return
         while (self.state.battery_display_next_phase_ms and
                time.ticks_diff(now, self.state.battery_display_next_phase_ms) >= 0):
             phase_count = self.state.battery_display_phase_count
@@ -266,11 +287,15 @@ class LinaBoardApp:
         color = self.battery_monitor.color(pct)
         charging_phase_ms = time.ticks_diff(time.ticks_ms(), self.state.battery_display_toggle_started_ms)
         charge_step_interval_s = self.battery_monitor.charge_animation_step_interval_s(pct)
-        flash_last_column = pct >= 100
+        flash_last_column = False
 
         display_count = self.state.battery_display_phase_count
         cycle_index = self.state.battery_display_phase_index % display_count
-        phase_name = ("percent", "voltage", "time", "charge_v")[cycle_index]
+        if self.state.battery_display_single_shot:
+            phase_name = "percent_short"
+            cycle_index = 0
+        else:
+            phase_name = ("percent", "voltage", "time", "charge_v")[cycle_index]
 
         display_remaining_h = remaining_h if remaining_h is not None else BATTERY_DEFAULT_USAGE_HOURS
         display_charge_h = charge_time_h if charge_time_h is not None else BATTERY_DEFAULT_CHARGE_HOURS
@@ -291,12 +316,15 @@ class LinaBoardApp:
             phase_name,
             charging))
 
+        animate_icon = (not self.state.battery_display_single_shot) and charging
+
         if cycle_index == 0:
             display_num.render_battery_percent(
                 pct, color=color, charging=charging,
                 charging_phase_ms=charging_phase_ms,
                 charge_step_interval_s=charge_step_interval_s,
                 flash_last_column=flash_last_column,
+                animate=animate_icon,
             )
         elif cycle_index == 1:
             display_num.render_battery_voltage(
@@ -304,6 +332,7 @@ class LinaBoardApp:
                 charging_phase_ms=charging_phase_ms,
                 charge_step_interval_s=charge_step_interval_s,
                 flash_last_column=flash_last_column,
+                animate=animate_icon,
             )
         elif cycle_index == 2:
             display_num.render_battery_time(
@@ -311,6 +340,7 @@ class LinaBoardApp:
                 charging_phase_ms=charging_phase_ms,
                 charge_step_interval_s=charge_step_interval_s,
                 flash_last_column=flash_last_column,
+                animate=animate_icon,
             )
         else:
             display_num.render_charge_voltage(
@@ -318,6 +348,7 @@ class LinaBoardApp:
                 charging_phase_ms=charging_phase_ms,
                 charge_step_interval_s=charge_step_interval_s,
                 flash_last_column=flash_last_column,
+                animate=animate_icon,
             )
 
     def start_b6_press(self):
@@ -371,7 +402,7 @@ class LinaBoardApp:
                     self.stop_battery_display()
                 else:
                     if not self.buttons.is_down(BTN_AUTO) and not self.buttons.is_down(BTN_NEXT):
-                        self.reset_brightness()
+                        self.show_battery_percent_short()
                 self.state.b6_pending = False
                 self.state.b6_long_fired = False
         return b6_now
@@ -563,7 +594,7 @@ class LinaBoardApp:
 
     def reset_brightness(self):
         old_val = self.state.brightness
-        self.state.brightness = DEFAULT_BRIGHTNESS
+        self.state.brightness = 50
         self.apply_brightness()
         if self.state.brightness != old_val:
             self.save_settings()
@@ -595,14 +626,26 @@ class LinaBoardApp:
     def handle_press(self, gp):
         combo_b3_b6 = self.buttons.is_down(BTN_AUTO) and self.buttons.is_down(BTN_BRIGHT_RST)
         combo_b2_b6 = self.buttons.is_down(BTN_NEXT) and self.buttons.is_down(BTN_BRIGHT_RST)
+        combo_b4_b5 = self.buttons.is_down(BTN_BRIGHT_DN) and self.buttons.is_down(BTN_BRIGHT_UP)
         if combo_b3_b6 or combo_b2_b6:
             return
 
+        now = time.ticks_ms()
+        if gp in (BTN_BRIGHT_DN, BTN_BRIGHT_UP):
+            if time.ticks_diff(now, self.state.brightness_reset_ignore_until_ms) < 0:
+                return
+            if combo_b4_b5:
+                if not self.state.brightness_reset_combo_latched:
+                    self.state.brightness_reset_combo_latched = True
+                    self.reset_brightness()
+                    self.state.brightness_reset_ignore_until_ms = time.ticks_add(now, BRIGHTNESS_RESET_IGNORE_MS)
+                return
+
         if self.state.badapple_mode:
             if gp == BTN_BRIGHT_DN:
-                self.adjust_brightness(-BRIGHTNESS_STEP)
-            elif gp == BTN_BRIGHT_UP:
                 self.adjust_brightness(+BRIGHTNESS_STEP)
+            elif gp == BTN_BRIGHT_UP:
+                self.adjust_brightness(-BRIGHTNESS_STEP)
             elif gp == BTN_BRIGHT_RST:
                 self.start_b6_press()
             return
@@ -611,21 +654,21 @@ class LinaBoardApp:
         if gp == BTN_PREV:
             if b3_held:
                 self.state.b3_consumed = True
-                self.adjust_interval(-INTERVAL_STEP_S)
+                self.adjust_interval(+INTERVAL_STEP_S)
             else:
                 self.cycle_face(-1)
         elif gp == BTN_NEXT:
             if b3_held:
                 self.state.b3_consumed = True
-                self.adjust_interval(+INTERVAL_STEP_S)
+                self.adjust_interval(-INTERVAL_STEP_S)
             else:
                 self.cycle_face(+1)
         elif gp == BTN_AUTO:
             self.state.b3_consumed = False
         elif gp == BTN_BRIGHT_DN:
-            self.adjust_brightness(-BRIGHTNESS_STEP)
-        elif gp == BTN_BRIGHT_UP:
             self.adjust_brightness(+BRIGHTNESS_STEP)
+        elif gp == BTN_BRIGHT_UP:
+            self.adjust_brightness(-BRIGHTNESS_STEP)
         elif gp == BTN_BRIGHT_RST:
             self.start_b6_press()
 
@@ -691,9 +734,17 @@ class LinaBoardApp:
             self.battery_monitor.update_calibration(self.battery, self.state, self.save_settings)
             self.check_b6_hold()
 
+            if (self.state.brightness_reset_combo_latched and
+                    not self.buttons.is_down(BTN_BRIGHT_DN) and
+                    not self.buttons.is_down(BTN_BRIGHT_UP)):
+                self.state.brightness_reset_combo_latched = False
+
             prev_b3_down = self.check_b3_release(prev_b3_down)
             prev_b6_down = self.check_b6_release(prev_b6_down)
 
+            if self.state.battery_display_active and self.state.battery_display_single_shot:
+                if time.ticks_diff(time.ticks_ms(), self.state.battery_display_expires_ms) >= 0:
+                    self.stop_battery_display()
             if not self.state.battery_display_active:
                 self.end_flash_if_expired()
 

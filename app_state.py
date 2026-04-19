@@ -17,7 +17,8 @@ class AppState:
         "battery_display_active", "battery_next_refresh_ms",
         "battery_display_toggle_started_ms", "battery_display_phase_index",
         "battery_display_phase_count",
-        "battery_display_next_phase_ms", "battery_display_cached_voltage",
+        "battery_display_next_phase_ms", "battery_display_expires_ms",
+        "battery_display_single_shot", "battery_display_cached_voltage",
         "battery_display_cached_percent", "battery_display_cached_percent_float",
         "battery_display_cached_remaining_h", "battery_display_cached_charge_voltage",
         "battery_display_cached_charge_time_h", "battery_display_cached_is_charging",
@@ -26,6 +27,7 @@ class AppState:
         "combo_press_started_ms", "combo_long_fired",
         "badapple_mode",
         "badapple_combo_press_started_ms", "badapple_combo_long_fired",
+        "brightness_reset_ignore_until_ms", "brightness_reset_combo_latched",
         "battery_next_log_ms",
     )
     def __init__(self):
@@ -49,6 +51,8 @@ class AppState:
         self.battery_display_phase_index = 0
         self.battery_display_phase_count = 3
         self.battery_display_next_phase_ms = 0
+        self.battery_display_expires_ms = 0
+        self.battery_display_single_shot = False
         self.battery_display_cached_voltage = None
         self.battery_display_cached_percent = None
         self.battery_display_cached_percent_float = None
@@ -65,6 +69,8 @@ class AppState:
         self.badapple_mode = False
         self.badapple_combo_press_started_ms = None
         self.badapple_combo_long_fired = False
+        self.brightness_reset_ignore_until_ms = 0
+        self.brightness_reset_combo_latched = False
         self.battery_next_log_ms = 0
 
 class BatteryState:
