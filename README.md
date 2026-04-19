@@ -16,6 +16,11 @@ This update applies the requested battery-display changes to the current codebas
   - more filled columns remain lit as battery percentage rises
   - when the icon is effectively full, only the last column flashes at `0.3 s`
 
+
+- Battery runtime estimation is stored in JSON history and uses bounded history with context-aware trimming.
+- Battery check cycles through percent, voltage, and estimated remaining time every `2 s` per phase.
+- Interval unit now uses uppercase `S` so the suffix renders correctly on the matrix.
+
 ## Important hardware note
 
 The current uploaded codebase did not include an existing charge-detect input.

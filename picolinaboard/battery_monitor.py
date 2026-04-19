@@ -237,7 +237,6 @@ class BatteryMonitor:
         return int(round(pct))
 
     @staticmethod
-    @staticmethod
     def charge_animation_step_interval_s(percent):
         # -------------------------------------------------------------------
         # Charging animation speed.

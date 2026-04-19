@@ -15,6 +15,7 @@
 from board import (
     COLS, ROWS, logical_to_led_index, np, clear, show, scale_color,
 )
+from config import BATTERY_CHARGE_LAST_COLUMN_FLASH_MS
 
 _FONT = {
     "0": [
@@ -357,7 +358,7 @@ def _draw_bitmap_rows(rows, color, dim_color=None, x0=0, y0=0):
                 np[idx] = dim_c
 
 
-def _render_string(text, color, icon_rows=None):
+def _render_string(text, color, icon_rows=None, char_extra_x=None):
     glyphs = [_glyph_for(ch) for ch in text]
     gap = 1
     total_w = 0
@@ -375,14 +376,15 @@ def _render_string(text, color, icon_rows=None):
 
     c = scale_color(color)
     x = x0
-    for (rows, w) in glyphs:
+    char_extra_x = char_extra_x or {}
+    for gi, (rows, w) in enumerate(glyphs):
         for ry in range(GLYPH_H):
             line = rows[ry] if ry < len(rows) else ""
             for rx in range(w):
                 ch = line[rx] if rx < len(line) else "."
                 if ch != "#":
                     continue
-                px = x + rx
+                px = x + rx + int(char_extra_x.get(gi, 0))
                 py = y0 + ry
                 idx = logical_to_led_index(px, py)
                 if idx is None:
@@ -445,7 +447,8 @@ def _battery_icon_rows(percent, charging=False, charging_phase_ms=0,
     anim_lit_cols = filled_cols
     if charging:
         if filled_cols >= inner_cols:
-            flash_on = (int(charging_phase_ms) // 300) % 2 == 0 if flash_last_column else True
+            flash_on = ((int(charging_phase_ms) // BATTERY_CHARGE_LAST_COLUMN_FLASH_MS) % 2 == 0
+                        if flash_last_column else True)
             anim_lit_cols = inner_cols - (0 if flash_on else 1)
         else:
             step_ms = max(1, int(charge_step_interval_s * 1000))
@@ -465,7 +468,7 @@ def _battery_icon_rows(percent, charging=False, charging_phase_ms=0,
 
 
 def render_interval(seconds, color=MODE_COLOR):
-    _render_string(_format_interval(seconds) + "s", color, icon_rows=CLOCK_ICON)
+    _render_string(_format_interval(seconds) + "S", color, icon_rows=CLOCK_ICON)
 
 
 def render_brightness_percent(percent, color=BRIGHTNESS_COLOR):
@@ -526,10 +529,10 @@ def render_battery_voltage(voltage, percent=0, color=DEFAULT_COLOR, charging=Fal
         flash_last_column=flash_last_column,
     )
     if voltage is None:
-        _render_string("0.0 V", color, icon_rows=icon_rows)
+        _render_string("0.0V", color, icon_rows=icon_rows, char_extra_x={3: 1})
         return
-    # Shift the V one column to the right by inserting a space before it.
-    _render_string("{:.1f} V".format(voltage), color, icon_rows=icon_rows)
+    # Shift the V one column to the right without widening the whole layout.
+    _render_string("{:.1f}V".format(voltage), color, icon_rows=icon_rows, char_extra_x={3: 1})
 
 
 def render_battery_time(hours_remaining, percent=0, color=DEFAULT_COLOR, charging=False,
