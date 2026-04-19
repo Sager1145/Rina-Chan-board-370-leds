@@ -29,6 +29,9 @@ from config import (
     BATTERY_RELEARN_HOLDOFF_MEASUREMENTS,
     BATTERY_MIN_SPAN_V,
     BATTERY_PERCENT_CURVE,
+    BATTERY_CHARGE_ANIM_INTERVAL_EMPTY_S,
+    BATTERY_CHARGE_ANIM_INTERVAL_NEAR_FULL_S,
+    BATTERY_CHARGE_ANIM_NEAR_FULL_PERCENT,
 )
 
 # ---------------------------------------------------------------------------
@@ -232,6 +235,21 @@ class BatteryMonitor:
         if pct is None:
             return None
         return int(round(pct))
+
+    @staticmethod
+    @staticmethod
+    def charge_animation_step_interval_s(percent):
+        # -------------------------------------------------------------------
+        # Charging animation speed.
+        # The interval is between lighting adjacent columns, not the whole run.
+        # 0%  -> 0.50 s
+        # 90% -> 0.07 s
+        # >=90% stays at the near-full interval.
+        # -------------------------------------------------------------------
+        p = max(0.0, min(float(percent if percent is not None else 0.0), float(BATTERY_CHARGE_ANIM_NEAR_FULL_PERCENT)))
+        t = p / float(BATTERY_CHARGE_ANIM_NEAR_FULL_PERCENT)
+        return (BATTERY_CHARGE_ANIM_INTERVAL_EMPTY_S +
+                ((BATTERY_CHARGE_ANIM_INTERVAL_NEAR_FULL_S - BATTERY_CHARGE_ANIM_INTERVAL_EMPTY_S) * t))
 
     @staticmethod
     def color(percent):

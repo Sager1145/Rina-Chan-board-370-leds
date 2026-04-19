@@ -418,7 +418,8 @@ def _sun_icon_rows(percent):
     return SUN_ICON_3
 
 
-def _battery_icon_rows(percent):
+def _battery_icon_rows(percent, charging=False, charging_phase_ms=0,
+                       charge_step_interval_s=0.5, flash_last_column=False):
     p = int(percent)
     if p < 0:
         p = 0
@@ -434,27 +435,30 @@ def _battery_icon_rows(percent):
     inner_left = 7
     inner_cols = 8
 
-    # Fill rule:
-    # - below 10%  -> empty
-    # - above 90%  -> full
-    # - between    -> fill column-by-column
     if p < 10:
         filled_cols = 0
     elif p > 90:
         filled_cols = inner_cols
     else:
-        # 10 -> 0 columns
-        # 11..20 -> 1 column
-        # 21..30 -> 2 columns
-        # ...
-        # 81..90 -> 8 columns
         filled_cols = ((p - 10) * inner_cols + 79) // 80
+
+    anim_lit_cols = filled_cols
+    if charging:
+        if filled_cols >= inner_cols:
+            flash_on = (int(charging_phase_ms) // 300) % 2 == 0 if flash_last_column else True
+            anim_lit_cols = inner_cols - (0 if flash_on else 1)
+        else:
+            step_ms = max(1, int(charge_step_interval_s * 1000))
+            extra_span = inner_cols - filled_cols
+            if extra_span > 0:
+                anim_step = (int(charging_phase_ms) // step_ms) % extra_span
+                anim_lit_cols = filled_cols + anim_step + 1
 
     for y in inner_rows:
         row = list(rows[y])
         for i in range(inner_cols):
             x = inner_left + i
-            row[x] = "#" if i < filled_cols else "."
+            row[x] = "#" if i < anim_lit_cols else "."
         rows[y] = "".join(row)
 
     return rows
@@ -469,9 +473,17 @@ def render_brightness_percent(percent, color=BRIGHTNESS_COLOR):
                    icon_rows=_sun_icon_rows(percent))
 
 
-def render_battery_percent(percent, color=DEFAULT_COLOR):
+def render_battery_percent(percent, color=DEFAULT_COLOR, charging=False,
+                           charging_phase_ms=0, charge_step_interval_s=0.5,
+                           flash_last_column=False):
     _render_string("{}%".format(int(percent)), color,
-                   icon_rows=_battery_icon_rows(percent))
+                   icon_rows=_battery_icon_rows(
+                       percent,
+                       charging=charging,
+                       charging_phase_ms=charging_phase_ms,
+                       charge_step_interval_s=charge_step_interval_s,
+                       flash_last_column=flash_last_column,
+                   ))
 
 
 def render_percent(percent, color=DEFAULT_COLOR):
@@ -503,18 +515,34 @@ def render_mode(auto, color=MODE_COLOR):
     rows = _BIG_A if auto else _BIG_M
     _render_big_glyph(rows, _BIG_W, _BIG_H, color)
 
-def render_battery_voltage(voltage, percent=0, color=DEFAULT_COLOR):
+def render_battery_voltage(voltage, percent=0, color=DEFAULT_COLOR, charging=False,
+                           charging_phase_ms=0, charge_step_interval_s=0.5,
+                           flash_last_column=False):
+    icon_rows = _battery_icon_rows(
+        percent,
+        charging=charging,
+        charging_phase_ms=charging_phase_ms,
+        charge_step_interval_s=charge_step_interval_s,
+        flash_last_column=flash_last_column,
+    )
     if voltage is None:
-        _render_string("0.0V", color, icon_rows=_battery_icon_rows(percent))
+        _render_string("0.0 V", color, icon_rows=icon_rows)
         return
-    # Keep this compact enough to fit on the 22-column matrix.
-    _render_string("{:.1f}V".format(voltage), color,
-                   icon_rows=_battery_icon_rows(percent))
+    # Shift the V one column to the right by inserting a space before it.
+    _render_string("{:.1f} V".format(voltage), color, icon_rows=icon_rows)
 
 
-def render_battery_time(hours_remaining, percent=0, color=DEFAULT_COLOR):
+def render_battery_time(hours_remaining, percent=0, color=DEFAULT_COLOR, charging=False,
+                        charging_phase_ms=0, charge_step_interval_s=0.5,
+                        flash_last_column=False):
     if hours_remaining is None:
-        _render_string("--", color, icon_rows=_battery_icon_rows(percent))
+        _render_string("--", color, icon_rows=_battery_icon_rows(
+            percent,
+            charging=charging,
+            charging_phase_ms=charging_phase_ms,
+            charge_step_interval_s=charge_step_interval_s,
+            flash_last_column=flash_last_column,
+        ))
         return
 
     if hours_remaining <= 0.0:
@@ -537,4 +565,10 @@ def render_battery_time(hours_remaining, percent=0, color=DEFAULT_COLOR):
             else:
                 text = "{}.{}H".format(whole, frac)
 
-    _render_string(text, color, icon_rows=_battery_icon_rows(percent))
+    _render_string(text, color, icon_rows=_battery_icon_rows(
+        percent,
+        charging=charging,
+        charging_phase_ms=charging_phase_ms,
+        charge_step_interval_s=charge_step_interval_s,
+        flash_last_column=flash_last_column,
+    ))

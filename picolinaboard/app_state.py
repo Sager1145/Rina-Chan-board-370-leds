@@ -38,7 +38,10 @@ class AppState:
         "b6_pending", "b6_press_started_ms", "b6_long_fired",
         # Battery overlay state.
         "battery_display_active", "battery_next_refresh_ms",
-        "battery_display_toggle_started_ms",
+        "battery_display_toggle_started_ms", "battery_display_phase_index",
+        "battery_display_next_phase_ms", "battery_display_cached_voltage",
+        "battery_display_cached_percent", "battery_display_cached_percent_float",
+        "battery_display_cached_remaining_h",
         # Top / bottom edge limit flash state.
         "edge_flash_active", "edge_flash_edge", "edge_flash_started_ms",
         # Demo-mode enable flag.
@@ -74,6 +77,12 @@ class AppState:
         self.battery_display_active = False
         self.battery_next_refresh_ms = 0
         self.battery_display_toggle_started_ms = 0
+        self.battery_display_phase_index = 0
+        self.battery_display_next_phase_ms = 0
+        self.battery_display_cached_voltage = None
+        self.battery_display_cached_percent = None
+        self.battery_display_cached_percent_float = None
+        self.battery_display_cached_remaining_h = None
         self.edge_flash_active = False
         self.edge_flash_edge = None
         self.edge_flash_started_ms = 0

@@ -87,7 +87,20 @@ BATTERY_DIVIDER_R1 = 100000
 BATTERY_DIVIDER_R2 = 57000
 BATTERY_DEFAULT_MIN_V = 6.6
 BATTERY_DEFAULT_MAX_V = 8.0
-BATTERY_DISPLAY_TOL_V = 0.17
+BATTERY_DISPLAY_TOL_V = 0.12
+
+# Optional charge-status input.
+# Set CHARGE_STATUS_GPIO to a Pico GPIO wired to the charger status signal.
+# Leave as None if no dedicated charge-detect signal is wired.
+CHARGE_STATUS_GPIO = None
+CHARGE_STATUS_ACTIVE_LOW = True
+
+# Charging animation timing for the battery icon.
+# The interval is the time between advancing two adjacent columns.
+BATTERY_CHARGE_ANIM_INTERVAL_EMPTY_S = 0.50
+BATTERY_CHARGE_ANIM_INTERVAL_NEAR_FULL_S = 0.07
+BATTERY_CHARGE_ANIM_NEAR_FULL_PERCENT = 90
+BATTERY_CHARGE_LAST_COLUMN_FLASH_MS = 300
 
 # Edge flash timing and color when a min/max limit is hit.
 EDGE_FLASH_ATTACK_MS = 45
