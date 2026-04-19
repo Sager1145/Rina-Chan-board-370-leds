@@ -82,28 +82,52 @@ def _format_interval(seconds):
 def _sun_icon_rows(percent):
     return SUN_ICON_1
 
+def _battery_fill_cols(percent):
+    p = max(0, min(100, int(percent)))
+    inner_cols = 8
+    if p < 10:
+        return 0
+    if p > 90:
+        return inner_cols
+    return ((p - 10) * inner_cols + 79) // 80
+
 def _battery_icon_rows(percent, charging=False, charging_phase_ms=0, charge_step_interval_s=1.0, flash_last_column=False, animate=True):
-    p=max(0,min(100,int(percent)))
-    rows=BATTERY_ICON[:]
-    inner_rows=(2,3,4); inner_left=7; inner_cols=8
-    filled_cols = 0 if p < 10 else inner_cols if p > 90 else ((p - 10) * inner_cols + 79) // 80
+    rows = BATTERY_ICON[:]
+    inner_rows = (2, 3, 4)
+    inner_left = 7
+    inner_cols = 8
+    filled_cols = _battery_fill_cols(percent)
 
     if charging and animate:
-        animated_cols = filled_cols if filled_cols > 0 else 1
-        cycle_ms=max(1,int(charge_step_interval_s*1000))
-        anim_col=((int(charging_phase_ms) * animated_cols) // cycle_ms) % animated_cols
-        for y in inner_rows:
-            row=list(rows[y])
-            for i in range(inner_cols):
-                row[inner_left+i]="#" if i == anim_col else "."
-            rows[y]="".join(row)
-        return rows
+        target_cols = filled_cols if filled_cols > 0 else 1
+        if int(percent) >= 100:
+            lit_cols = inner_cols
+            flash_col = inner_cols - 1
+        else:
+            step_ms = max(1, int(charge_step_interval_s * 1000))
+            anim_step = int(charging_phase_ms) // step_ms
+            lit_cols = min((anim_step % target_cols) + 1, target_cols)
+            flash_col = lit_cols - 1
+    else:
+        lit_cols = filled_cols
+        flash_col = (lit_cols - 1) if (flash_last_column and lit_cols > 0) else None
+
+    flash_on = True
+    if flash_col is not None:
+        flash_period_ms = max(1, int(BATTERY_CHARGE_LAST_COLUMN_FLASH_MS))
+        flash_on = ((int(charging_phase_ms) // flash_period_ms) % 2) == 0
 
     for y in inner_rows:
-        row=list(rows[y])
+        row = list(rows[y])
         for i in range(inner_cols):
-            row[inner_left+i]="#" if i < filled_cols else "."
-        rows[y]="".join(row)
+            x = inner_left + i
+            ch = "."
+            if i < lit_cols:
+                ch = "#"
+            if flash_col is not None and i == flash_col:
+                ch = "#" if flash_on else "."
+            row[x] = ch
+        rows[y] = "".join(row)
     return rows
 
 def render_interval(seconds,color=MODE_COLOR): _render_string(_format_interval(seconds)+"S", color, icon_rows=CLOCK_ICON)
