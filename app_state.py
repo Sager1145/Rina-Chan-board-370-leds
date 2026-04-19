@@ -15,6 +15,7 @@ class AppState:
         "flash_active", "flash_expires_ms", "flash_kind", "flash_value",
         "b6_pending", "b6_press_started_ms", "b6_long_fired",
         "battery_display_active", "battery_next_refresh_ms",
+        "battery_visual_next_refresh_ms",
         "battery_display_toggle_started_ms", "battery_display_phase_index",
         "battery_display_phase_count",
         "battery_display_next_phase_ms", "battery_display_expires_ms",
@@ -47,6 +48,7 @@ class AppState:
         self.b6_long_fired = False
         self.battery_display_active = False
         self.battery_next_refresh_ms = 0
+        self.battery_visual_next_refresh_ms = 0
         self.battery_display_toggle_started_ms = 0
         self.battery_display_phase_index = 0
         self.battery_display_phase_count = 3
