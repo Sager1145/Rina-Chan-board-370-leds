@@ -60,14 +60,6 @@ BATTERY_PERCENT_CURVE = (
     # (the learned/recorded endpoints). The clamp band BATTERY_DISPLAY_TOL_V
     # snaps readings within 0.12 V of each endpoint to 0% / 100%, so the
     # recorded min/max always correspond to 0% / 100% respectively.
-    #   x=0.000 -> 6.20 V =   0%      x=0.611 -> 7.30 V =  26%
-    #   x=0.222 -> 6.60 V =   3%      x=0.667 -> 7.40 V =  35%
-    #   x=0.389 -> 6.90 V =   7%      x=0.722 -> 7.50 V =  45%
-    #   x=0.444 -> 7.00 V =  10%      x=0.778 -> 7.60 V =  58%
-    #   x=0.500 -> 7.10 V =  14%      x=0.833 -> 7.70 V =  70%
-    #   x=0.556 -> 7.20 V =  18%      x=0.889 -> 7.80 V =  82%
-    #                                  x=0.944 -> 7.90 V =  92%
-    #                                  x=1.000 -> 8.00 V = 100%
     (0.000,   0.0),
     (0.222,   3.0),
     (0.389,   7.0),
@@ -112,7 +104,7 @@ CHARGE_DETECT_SAMPLES = 16
 CHARGE_DETECT_DIVIDER_R1 = 270000
 CHARGE_DETECT_DIVIDER_R2 = 47000
 CHARGE_DETECT_NON_CHARGING_V = 3.0
-CHARGE_DETECT_CHARGING_MIN_V = 4.5
+CHARGE_DETECT_CHARGING_MIN_V = 4.0
 CHARGE_DISPLAY_THRESHOLD_V = 4.5
 CHARGE_DETECT_HYSTERESIS_LOW_V = 3.0
 

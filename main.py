@@ -234,13 +234,22 @@ class LinaBoardApp:
         if charge_v is None:
             charge_v = self.state.battery_display_cached_charge_voltage
 
-        pct = self.battery_monitor.percent_from_voltage(v_bat, self.battery)
-        pct_float = self.battery_monitor.percent_float_from_voltage(v_bat, self.battery)
-        charging = self.is_charging(charge_v, previous=self.state.battery_display_cached_is_charging)
+        # For the charging/not-charging decision, read the charge ADC
+        # instantaneously instead of relying on the 1-second mean. The mean
+        # lags by up to a full window; on an unplug event we need to flip
+        # within one poll tick so the display stops showing the charging
+        # animation and the charger-voltage phase. A single fresh sample is
+        # good enough here because the charge detect pin has a hard pull
+        # (either 5 V from VBUS or 0 V via R2), not a noisy analog signal.
+        instant_charge_v = self.battery_monitor.read_charge_voltage()
+        charging_sample = instant_charge_v if instant_charge_v is not None else charge_v
+        charging = self.is_charging(charging_sample, previous=self.state.battery_display_cached_is_charging)
         if v_bat is not None:
             self.battery.last_voltage = v_bat
         if charge_v is not None:
             self.battery.last_charge_voltage = charge_v
+        pct = self.battery_monitor.percent_from_voltage(v_bat, self.battery)
+        pct_float = self.battery_monitor.percent_float_from_voltage(v_bat, self.battery)
         remaining_h = estimate_remaining_hours(self.battery, self.state, pct_float)
         charge_time_h = estimate_charge_hours(self.battery, self.state, pct_float)
 
@@ -248,6 +257,12 @@ class LinaBoardApp:
             target_phase_count = 4 if charging else 3
             if self.state.battery_display_phase_count != target_phase_count:
                 self.state.battery_display_phase_count = target_phase_count
+                # If we just stopped charging and the user was on phase 3
+                # (the charger-voltage screen, which only exists while
+                # charging), jump back to phase 0 so we stop displaying a
+                # stale charger voltage for a disconnected charger. For the
+                # reverse direction (discharge -> charging), also reset so
+                # the cycle starts cleanly from the percent phase.
                 self.state.battery_display_phase_index = 0
                 self.state.battery_display_toggle_started_ms = now
                 self.state.battery_display_next_phase_ms = time.ticks_add(now, BATTERY_DISPLAY_CYCLE_MS)
@@ -304,8 +319,26 @@ class LinaBoardApp:
         now = time.ticks_ms()
 
         if self.state.battery_display_single_shot:
+            # Check for expiry first
             if time.ticks_diff(now, self.state.battery_display_expires_ms) >= 0:
                 self.stop_battery_display()
+                return
+            # Fast-path charging-state check on every poll tick so an
+            # unplug / replug during the 2 s single-shot window flips the
+            # display immediately, without waiting for the 100 ms cache
+            # cadence.
+            instant_charge_v = self.battery_monitor.read_charge_voltage()
+            charging_instant = self.battery_monitor.is_charging_voltage(
+                instant_charge_v,
+                previous=self.state.battery_display_cached_is_charging,
+            )
+            charge_state_flipped = (charging_instant != self.state.battery_display_cached_is_charging)
+            cache_due = (not self.state.battery_next_refresh_ms or
+                         time.ticks_diff(now, self.state.battery_next_refresh_ms) >= 0)
+            if charge_state_flipped:
+                cache_due = True
+            if cache_due and self.refresh_battery_overlay_cache(force=charge_state_flipped):
+                self.render_battery_overlay(refresh_phase=False, refresh_cache=False, log_status=True)
             return
 
         cache_due = (not self.state.battery_next_refresh_ms or
@@ -315,9 +348,23 @@ class LinaBoardApp:
         phase_due = (self.state.battery_display_next_phase_ms and
                      time.ticks_diff(now, self.state.battery_display_next_phase_ms) >= 0)
 
+        # Fast-path charging-state check: read the charge ADC on every poll
+        # tick (not just on the 100 ms cache cadence) so the icon animation
+        # stops the instant the charger is unplugged. When the state flips
+        # we force a cache refresh on this same tick so the new charging
+        # flag is picked up by the renderer immediately.
+        instant_charge_v = self.battery_monitor.read_charge_voltage()
+        charging_instant = self.battery_monitor.is_charging_voltage(
+            instant_charge_v,
+            previous=self.state.battery_display_cached_is_charging,
+        )
+        charge_state_flipped = (charging_instant != self.state.battery_display_cached_is_charging)
+        if charge_state_flipped:
+            cache_due = True
+
         cache_changed = False
         if cache_due:
-            cache_changed = self.refresh_battery_overlay_cache(force=False)
+            cache_changed = self.refresh_battery_overlay_cache(force=charge_state_flipped)
             now = time.ticks_ms()
 
         phase_changed = False

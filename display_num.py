@@ -99,15 +99,24 @@ def _battery_icon_rows(percent, charging=False, charging_phase_ms=0, charge_step
     filled_cols = _battery_fill_cols(percent)
 
     if charging and animate:
-        target_cols = filled_cols if filled_cols > 0 else 1
-        if int(percent) >= 100:
-            lit_cols = inner_cols
-            flash_col = inner_cols - 1
+        p = int(percent)
+        if p < 10:
+            # Below 10%: a single column (col 0) blinks on and off.
+            # No sweep. Uses the same flash half-period as the discharging
+            # low-battery flash for consistency.
+            flash_period_ms = max(1, int(BATTERY_CHARGE_LAST_COLUMN_FLASH_MS))
+            on = ((int(charging_phase_ms) // flash_period_ms) % 2) == 0
+            lit_cols = 1 if on else 0
+            flash_col = None
         else:
+            # 10%-90%: solid sweep 1, 2, 3, ..., target, then back to 1.
+            # Above 90%: target is the full 8 columns, same sweep mechanic.
+            # At/above 100%: same as >90% (all eight columns participate).
+            target_cols = inner_cols if p > 90 else max(1, filled_cols)
             step_ms = max(1, int(charge_step_interval_s * 1000))
             anim_step = int(charging_phase_ms) // step_ms
-            lit_cols = min((anim_step % target_cols) + 1, target_cols)
-            flash_col = lit_cols - 1
+            lit_cols = (anim_step % target_cols) + 1
+            flash_col = None
     else:
         lit_cols = filled_cols
         flash_col = (lit_cols - 1) if (flash_last_column and lit_cols > 0) else None
