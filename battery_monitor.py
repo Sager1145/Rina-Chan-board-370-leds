@@ -7,6 +7,7 @@ from config import (
     BATTERY_LOG_INTERVAL_MS, BATTERY_RELEARN_EVERY_MEASUREMENTS,
     BATTERY_RELEARN_MAX_STEP_V, BATTERY_RELEARN_MIN_STEP_V,
     BATTERY_RELEARN_HOLDOFF_MEASUREMENTS, BATTERY_MIN_SPAN_V,
+    BATTERY_RELEARN_MAX_CONSECUTIVE,
     BATTERY_PERCENT_CURVE, BATTERY_CHARGE_ANIM_FULL_CYCLE_S,
     BATTERY_MEAN_UPDATE_MS, BATTERY_MEAN_SAMPLE_INTERVAL_MS,
     CHARGE_DETECT_ADC_GPIO, CHARGE_DETECT_ADC_REF_V, CHARGE_DETECT_SAMPLES,
@@ -26,6 +27,7 @@ class BatteryMonitor:
         "mean_charge_total", "mean_charge_count",
         "last_mean_battery_voltage", "last_mean_charge_voltage",
         "last_mean_completed_ms",
+        "_charge_none_streak",
     )
     def __init__(self):
         self.adc = ADC(BATTERY_ADC_GPIO) if ADC is not None else None
@@ -40,6 +42,7 @@ class BatteryMonitor:
         self.last_mean_battery_voltage = None
         self.last_mean_charge_voltage = None
         self.last_mean_completed_ms = 0
+        self._charge_none_streak = 0
     def _read_adc_voltage(self, adc, ref_v, samples):
         if adc is None:
             return None
@@ -52,7 +55,15 @@ class BatteryMonitor:
         v_adc = self._read_adc_voltage(self.adc, BATTERY_ADC_REF_V, BATTERY_SAMPLES)
         if v_adc is None:
             return None
-        return v_adc * (BATTERY_DIVIDER_R1 + BATTERY_DIVIDER_R2) / BATTERY_DIVIDER_R2
+        v_bat = v_adc * (BATTERY_DIVIDER_R1 + BATTERY_DIVIDER_R2) / BATTERY_DIVIDER_R2
+        # Sanity bounds: a floating ADC pin (broken R1 joint, etc.) can read
+        # ~0 V and silently corrupt min_v; a shorted divider or overvoltage
+        # can exceed the physically possible ceiling. Reject both rather than
+        # letting them poison the learned calibration.
+        v_max_possible = BATTERY_ADC_REF_V * (BATTERY_DIVIDER_R1 + BATTERY_DIVIDER_R2) / BATTERY_DIVIDER_R2
+        if v_bat < 1.0 or v_bat > v_max_possible + 0.1:
+            return None
+        return v_bat
     def read_charge_voltage_adc(self):
         return self._read_adc_voltage(self.charge_adc, CHARGE_DETECT_ADC_REF_V, CHARGE_DETECT_SAMPLES)
     def read_charge_voltage(self):
@@ -166,15 +177,36 @@ class BatteryMonitor:
         return (mean_bat, mean_charge)
     @staticmethod
     def inward_adjust_calibration(battery_state):
-        min_v = battery_state.min_v + BATTERY_RELEARN_MIN_STEP_V
-        max_v = battery_state.max_v - BATTERY_RELEARN_MAX_STEP_V
-        if max_v - min_v < BATTERY_MIN_SPAN_V:
+        # Per-side inward adjust. Each side steps in by its configured
+        # amount only if that side hasn't already been inward-adjusted
+        # BATTERY_RELEARN_MAX_CONSECUTIVE times without a new real extreme.
+        # A frozen side stays exactly where it is until a new real min
+        # (for min_v) or new real max (for max_v) resets its counter in
+        # update_calibration.
+        new_min_v = battery_state.min_v
+        new_max_v = battery_state.max_v
+        min_advanced = False
+        max_advanced = False
+        if battery_state.inward_min_count < BATTERY_RELEARN_MAX_CONSECUTIVE:
+            new_min_v = battery_state.min_v + BATTERY_RELEARN_MIN_STEP_V
+            min_advanced = True
+        if battery_state.inward_max_count < BATTERY_RELEARN_MAX_CONSECUTIVE:
+            new_max_v = battery_state.max_v - BATTERY_RELEARN_MAX_STEP_V
+            max_advanced = True
+        # Span floor: if the two sides would collapse into each other,
+        # recenter on the midpoint. This is a last-ditch safety and
+        # should essentially never fire given the per-side caps.
+        if new_max_v - new_min_v < BATTERY_MIN_SPAN_V:
             center = (battery_state.min_v + battery_state.max_v) / 2.0
             half = BATTERY_MIN_SPAN_V / 2.0
-            min_v = center - half
-            max_v = center + half
-        battery_state.min_v = min_v
-        battery_state.max_v = max_v
+            new_min_v = center - half
+            new_max_v = center + half
+        battery_state.min_v = new_min_v
+        battery_state.max_v = new_max_v
+        if min_advanced:
+            battery_state.inward_min_count += 1
+        if max_advanced:
+            battery_state.inward_max_count += 1
         battery_state.relearn_holdoff_counts = BATTERY_RELEARN_HOLDOFF_MEASUREMENTS
     @staticmethod
     def percent_float_from_voltage(v_bat, battery_state):
@@ -185,15 +217,23 @@ class BatteryMonitor:
         if (v_max - v_min) <= 0.01:
             v_min = BATTERY_DEFAULT_MIN_V
             v_max = BATTERY_DEFAULT_MAX_V
-        display_min = v_min + BATTERY_DISPLAY_TOL_V
-        display_max = v_max - BATTERY_DISPLAY_TOL_V
-        if display_max <= display_min:
-            display_min = v_min; display_max = v_max
-        if v_bat <= display_min:
+        # The recorded min/max voltages define the endpoints: 0% at v_min,
+        # 100% at v_max. BATTERY_DISPLAY_TOL_V is an early-clamp band near
+        # each end so the readout snaps cleanly to 0% / 100% instead of
+        # hovering at "3%" or "98%" when the pack is effectively empty/full.
+        tol = BATTERY_DISPLAY_TOL_V
+        # Guard against a pathologically narrow span where 2*tol would
+        # collapse or invert the middle region.
+        if (v_max - v_min) <= 2.0 * tol:
+            tol = 0.0
+        if v_bat <= v_min + tol:
             return 0.0
-        if v_bat >= display_max:
+        if v_bat >= v_max - tol:
             return 100.0
-        x = (v_bat - display_min) / (display_max - display_min)
+        # Normalize against the full [v_min, v_max] span so the
+        # BATTERY_PERCENT_CURVE x-axis (0.0 -> 1.0) maps directly onto
+        # min voltage -> max voltage.
+        x = (v_bat - v_min) / (v_max - v_min)
         prev_x, prev_y = BATTERY_PERCENT_CURVE[0]
         for next_x, next_y in BATTERY_PERCENT_CURVE[1:]:
             if x <= next_x:
@@ -233,8 +273,21 @@ class BatteryMonitor:
             if battery_state.history_last_percent is not None:
                 battery_state.history_last_percent = percent_float
                 changed = True
+            # A new real maximum always wins, even during the post-inward-adjust
+            # holdoff. The holdoff only exists to suppress noise-level rewidening,
+            # not to throw away a reading that genuinely exceeds the stored max.
+            # A genuine new max also resets the max-side inward counter so the
+            # side is eligible for inward adjustments again.
+            if v_bat > battery_state.max_v:
+                battery_state.max_v = v_bat
+                battery_state.inward_max_count = 0
+                changed = True
+            if battery_state.relearn_holdoff_counts > 0:
+                battery_state.relearn_holdoff_counts -= 1
+                changed = True
         else:
-            battery_state.measure_count += 1
+            if not force:
+                battery_state.measure_count += 1
             if record_discharge_sample(battery_state, app_state, percent_float, dt_h):
                 changed = True
             if battery_state.charge_history_last_percent is not None:
@@ -243,14 +296,18 @@ class BatteryMonitor:
             if (battery_state.measure_count % BATTERY_RELEARN_EVERY_MEASUREMENTS) == 0:
                 self.inward_adjust_calibration(battery_state)
                 changed = True
+            # A new real minimum always wins, even during the post-inward-adjust
+            # holdoff. The holdoff only exists to suppress noise-level rewidening,
+            # not to throw away a reading that genuinely undershoots the stored min.
+            # A genuine new min also resets the min-side inward counter so the
+            # side is eligible for inward adjustments again.
+            if v_bat < battery_state.min_v:
+                battery_state.min_v = v_bat
+                battery_state.inward_min_count = 0
+                changed = True
             if battery_state.relearn_holdoff_counts > 0:
                 battery_state.relearn_holdoff_counts -= 1
                 changed = True
-            else:
-                if v_bat < battery_state.min_v:
-                    battery_state.min_v = v_bat; changed = True
-                if v_bat > battery_state.max_v:
-                    battery_state.max_v = v_bat; changed = True
         if changed:
             save_cb()
         print("battery log: current={:.2f} V, charge_ext={:.2f} V, charge_adc={:.2f} V, charging={}, min={:.2f} V, max={:.2f} V, count={}, holdoff={}, use_hist={}, chg_hist={}".format(v_bat, charge_v if charge_v is not None else 0.0, self.read_charge_voltage_adc() if self.charge_adc is not None else 0.0, charging, battery_state.min_v, battery_state.max_v, battery_state.measure_count, battery_state.relearn_holdoff_counts, len(battery_state.usage_history), len(battery_state.charge_history)))
@@ -259,10 +316,16 @@ class BatteryMonitor:
     def percent_from_voltage(v_bat, battery_state):
         pct = BatteryMonitor.percent_float_from_voltage(v_bat, battery_state)
         return None if pct is None else int(round(pct))
-    @staticmethod
-    def is_charging_voltage(charge_v, previous=False):
+    def is_charging_voltage(self, charge_v, previous=False):
         if charge_v is None:
+            self._charge_none_streak += 1
+            # A single dropped sample shouldn't flip the state, but if we
+            # get several Nones in a row, stop trusting the stale 'previous'
+            # and report not-charging rather than latching forever.
+            if self._charge_none_streak >= 3:
+                return False
             return bool(previous)
+        self._charge_none_streak = 0
         if charge_v >= CHARGE_DETECT_CHARGING_MIN_V:
             return True
         if charge_v <= CHARGE_DETECT_HYSTERESIS_LOW_V:

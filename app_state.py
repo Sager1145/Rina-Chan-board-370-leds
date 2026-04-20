@@ -79,6 +79,7 @@ class BatteryState:
     __slots__ = (
         "last_voltage", "last_charge_voltage", "min_v", "max_v",
         "measure_count", "relearn_holdoff_counts",
+        "inward_min_count", "inward_max_count",
         "usage_history", "history_last_percent",
         "charge_history", "charge_history_last_percent",
     )
@@ -89,6 +90,14 @@ class BatteryState:
         self.max_v = BATTERY_DEFAULT_MAX_V
         self.measure_count = 0
         self.relearn_holdoff_counts = 0
+        # Per-side consecutive-inward-adjust counters. Each starts at 0,
+        # increments every time its side is pulled inward without a new
+        # real extreme, and resets to 0 when a new real extreme on that
+        # side is recorded. When a counter reaches
+        # BATTERY_RELEARN_MAX_CONSECUTIVE, that side is frozen until the
+        # next new real extreme.
+        self.inward_min_count = 0
+        self.inward_max_count = 0
         self.usage_history = []
         self.history_last_percent = None
         self.charge_history = []

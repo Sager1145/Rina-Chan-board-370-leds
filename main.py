@@ -624,8 +624,11 @@ class LinaBoardApp:
                 self.start_edge_flash("top")
             self.stop_battery_display()
             display_num.render_interval(self.state.demo_interval_s)
-            self.overlay_edge_flash()
+            # flash_kind must be set before overlay_edge_flash() so the first
+            # rendered frame of the edge flash gets the interval tint
+            # (MODE_COLOR / purple) instead of the default blue.
             self.start_or_extend_flash("interval", self.state.demo_interval_s)
+            self.overlay_edge_flash()
             return
 
         old_val = self.state.interval_s
@@ -638,8 +641,11 @@ class LinaBoardApp:
             self.start_edge_flash("top")
         self.stop_battery_display()
         display_num.render_interval(self.state.interval_s)
-        self.overlay_edge_flash()
+        # flash_kind must be set before overlay_edge_flash() so the first
+        # rendered frame of the edge flash gets the interval tint
+        # (MODE_COLOR / purple) instead of the default blue.
         self.start_or_extend_flash("interval", self.state.interval_s)
+        self.overlay_edge_flash()
 
     def adjust_brightness(self, delta):
         old_val = self.state.brightness

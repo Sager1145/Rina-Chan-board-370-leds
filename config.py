@@ -38,23 +38,50 @@ BATTERY_MEAN_UPDATE_MS = 1000
 BATTERY_MEAN_SAMPLE_INTERVAL_MS = 20
 BATTERY_DISPLAY_CYCLE_MS = 2000
 BATTERY_LOG_INTERVAL_MS = 30000
-BATTERY_RELEARN_EVERY_MEASUREMENTS = 1000
+BATTERY_RELEARN_EVERY_MEASUREMENTS = 2000
 BATTERY_RELEARN_MAX_STEP_V = 0.05
 BATTERY_RELEARN_MIN_STEP_V = 0.05
 BATTERY_RELEARN_HOLDOFF_MEASUREMENTS = 20
+# Maximum number of consecutive inward adjustments per side (min / max)
+# without observing a new real extreme on that side. Once a side hits
+# this cap it freezes in place until a genuine new min (or max) is
+# recorded, which resets that side's counter.
+BATTERY_RELEARN_MAX_CONSECUTIVE = 2
 BATTERY_MIN_SPAN_V = 0.20
 
 BATTERY_PERCENT_CURVE = (
-    (0.00, 0.0),
-    (0.08, 4.0),
-    (0.18, 12.0),
-    (0.30, 26.0),
-    (0.45, 45.0),
-    (0.60, 63.0),
-    (0.74, 79.0),
-    (0.86, 91.0),
-    (0.94, 97.0),
-    (1.00, 100.0),
+    # Maps normalized voltage x in [0.0, 1.0] (where 0 = v_min, 1 = v_max)
+    # to battery percent. Shape is tuned against published 2S LiPo open-
+    # circuit voltage (OCV) vs. state-of-charge tables: steep voltage cliff
+    # near empty, steep rise through the middle plateau (where real SoC
+    # moves fast with small voltage changes), mild taper at the top.
+    #
+    # The voltage comments assume the intended range v_min=6.2 V, v_max=8.0 V
+    # (the learned/recorded endpoints). The clamp band BATTERY_DISPLAY_TOL_V
+    # snaps readings within 0.12 V of each endpoint to 0% / 100%, so the
+    # recorded min/max always correspond to 0% / 100% respectively.
+    #   x=0.000 -> 6.20 V =   0%      x=0.611 -> 7.30 V =  26%
+    #   x=0.222 -> 6.60 V =   3%      x=0.667 -> 7.40 V =  35%
+    #   x=0.389 -> 6.90 V =   7%      x=0.722 -> 7.50 V =  45%
+    #   x=0.444 -> 7.00 V =  10%      x=0.778 -> 7.60 V =  58%
+    #   x=0.500 -> 7.10 V =  14%      x=0.833 -> 7.70 V =  70%
+    #   x=0.556 -> 7.20 V =  18%      x=0.889 -> 7.80 V =  82%
+    #                                  x=0.944 -> 7.90 V =  92%
+    #                                  x=1.000 -> 8.00 V = 100%
+    (0.000,   0.0),
+    (0.222,   3.0),
+    (0.389,   7.0),
+    (0.444,  10.0),
+    (0.500,  14.0),
+    (0.556,  18.0),
+    (0.611,  26.0),
+    (0.667,  35.0),
+    (0.722,  45.0),
+    (0.778,  58.0),
+    (0.833,  70.0),
+    (0.889,  82.0),
+    (0.944,  92.0),
+    (1.000, 100.0),
 )
 
 BATTERY_HISTORY_MAX_SAMPLES = 96
@@ -69,9 +96,15 @@ BATTERY_ADC_REF_V = 3.3
 BATTERY_SAMPLES = 16
 BATTERY_DIVIDER_R1 = 100000
 BATTERY_DIVIDER_R2 = 57000
-BATTERY_DEFAULT_MIN_V = 6.6
+BATTERY_DEFAULT_MIN_V = 6.2
 BATTERY_DEFAULT_MAX_V = 8.0
 BATTERY_DISPLAY_TOL_V = 0.12
+# Bump this whenever BATTERY_DEFAULT_MIN_V / BATTERY_DEFAULT_MAX_V or
+# BATTERY_PERCENT_CURVE change in a way that makes previously learned
+# min_v / max_v (and the stored usage/charge history based on them)
+# incompatible. On boot, if the stored version differs from this one,
+# the calibration will be reset to defaults.
+BATTERY_CAL_VERSION = 4
 
 CHARGE_DETECT_ADC_GPIO = 27
 CHARGE_DETECT_ADC_REF_V = 3.3
@@ -87,7 +120,7 @@ CHARGE_DETECT_HYSTERESIS_LOW_V = 3.0
 BATTERY_CHARGE_ANIM_INTERVAL_EMPTY_S = 0.2
 BATTERY_CHARGE_ANIM_INTERVAL_NEAR_FULL_S = 0.2
 BATTERY_CHARGE_ANIM_NEAR_FULL_PERCENT = 90
-BATTERY_CHARGE_ANIM_FULL_CYCLE_S = 1.0
+BATTERY_CHARGE_ANIM_FULL_CYCLE_S = 0.2
 BATTERY_CHARGE_LAST_COLUMN_FLASH_MS = 300
 
 EDGE_FLASH_ATTACK_MS = 45
