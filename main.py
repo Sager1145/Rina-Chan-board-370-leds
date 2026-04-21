@@ -69,6 +69,7 @@ class LinaBoardApp:
         board.set_max_brightness(effective_brightness(
             self.state.brightness,
             badapple_mode=self.state.badapple_mode,
+            demo_mode=self.state.special_demo_mode,
         ))
 
     def draw_current_face(self):
@@ -544,6 +545,7 @@ class LinaBoardApp:
         self.state.b6_pending = False
         self.state.b6_long_fired = False
         self.state.edge_flash_active = False
+        self.apply_brightness()
         matrix_demos.DEMOS.enter()
         self.apply_demo_runtime_settings(refresh_timer=True)
 
@@ -711,7 +713,7 @@ class LinaBoardApp:
 
     def reset_brightness(self):
         old_val = self.state.brightness
-        self.state.brightness = 50
+        self.state.brightness = DEFAULT_BRIGHTNESS
         self.apply_brightness()
         if self.state.brightness != old_val:
             self.save_settings()
@@ -806,7 +808,7 @@ class LinaBoardApp:
         print("linaboard: starting")
         print("  default face interval=", DEFAULT_INTERVAL_S, "s")
         print("  default demo interval=", DEMO_DEFAULT_INTERVAL_S, "s")
-        print("  default brightness   =", DEFAULT_BRIGHTNESS, "/255")
+        print("  default brightness   =", DEFAULT_BRIGHTNESS, "%")
         print("  button GPIOs         =", self.buttons.gpios())
         print("  battery adc gpio     =", BATTERY_ADC_GPIO)
         print("  divider              = 100k top, 57k bottom")

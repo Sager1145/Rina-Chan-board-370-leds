@@ -20,10 +20,15 @@ INTERVAL_MAX_S = 10.0
 DEMO_DEFAULT_INTERVAL_S = 5.0
 DEMO_DEFAULT_AUTO = True
 
-DEFAULT_BRIGHTNESS = 50
-BRIGHTNESS_STEP = 10
-BRIGHTNESS_MIN = 10
+# UI-facing brightness is stored as a percent in 5% steps, 5..100.
+# BRIGHTNESS_MAX_CHANNEL is the actual per-channel LED ceiling at 100%.
+# At 100%, the board caps each of R/G/B to BRIGHTNESS_MAX_CHANNEL (170).
+# At any other percent p, the effective cap is round(p * 170 / 100).
+DEFAULT_BRIGHTNESS = 30
+BRIGHTNESS_STEP = 5
+BRIGHTNESS_MIN = 5
 BRIGHTNESS_MAX = 100
+BRIGHTNESS_MAX_CHANNEL = 170
 
 FLASH_HOLD_MS = 1000
 BATTERY_SHORT_SHOW_MS = 2000
@@ -129,4 +134,9 @@ BADAPPLE_PART_MODULES = (
 )
 BADAPPLE_ON_COLOR = (255, 255, 255)
 BADAPPLE_OFF_COLOR = (0, 0, 0)
-BADAPPLE_BRIGHTNESS_DIVISOR = 2
+# Bad Apple and the matrix demo mode both run at 1/3 of the effective
+# face-mode brightness cap. The UI-facing brightness percent stays the
+# same; only the physical channel cap is reduced while these modes are
+# active.
+BADAPPLE_BRIGHTNESS_DIVISOR = 3
+DEMO_BRIGHTNESS_DIVISOR = 3

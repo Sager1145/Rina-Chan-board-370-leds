@@ -40,21 +40,26 @@ FRAME_TIME_MS = 1000.0 / TARGET_FPS
 # ---------------------------------------------------------------------------
 # Runtime brightness cap.
 #
-# The UI uses 10..100 to represent brightness steps, and that number is used
-# directly as the maximum allowed per-channel LED value.
+# The UI uses a percent (5..100) in 5% steps. That percent is mapped into a
+# raw per-channel LED cap by brightness_modes.effective_brightness() before
+# being passed to set_max_brightness(). At 100% the cap is 170 (so the
+# physical maximum the board ever drives is 170,170,170). Bad Apple and the
+# matrix demo mode run at 1/3 of that cap.
 #
 # Example:
-# - 50% -> cap each channel to at most 50
-# - 100% -> cap each channel to at most 100
+# - UI 100% -> cap each channel to at most 170
+# - UI  50% -> cap each channel to at most  85
+# - UI  30% -> cap each channel to at most  51
+# - UI   5% -> cap each channel to at most   8
 #
-# HARD_CAP is the absolute ceiling.
+# HARD_CAP is the absolute ceiling (170).
 # FLOOR is the minimum allowed value.
 # DEFAULT is the boot-time default.
 # MAX_BRIGHTNESS is the current runtime brightness cap.
 # ---------------------------------------------------------------------------
-MAX_BRIGHTNESS_HARD_CAP = 100
-MAX_BRIGHTNESS_FLOOR = 10
-MAX_BRIGHTNESS_DEFAULT = 50
+MAX_BRIGHTNESS_HARD_CAP = 170
+MAX_BRIGHTNESS_FLOOR = 1
+MAX_BRIGHTNESS_DEFAULT = 51  # 30% of 170, rounded
 MAX_BRIGHTNESS = MAX_BRIGHTNESS_DEFAULT
 
 
