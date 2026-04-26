@@ -30,6 +30,11 @@ DNS_PACKETS_PER_POLL = getattr(config, 'DNS_PACKETS_PER_POLL', 4)
 UDP_RECV_BYTES = getattr(config, 'UDP_RECV_BYTES', 768)
 HTTP_BODY_RECV_BYTES = getattr(config, 'HTTP_BODY_RECV_BYTES', 512)
 HTTP_HEADER_MAX_BYTES = getattr(config, 'HTTP_HEADER_MAX_BYTES', 4096)
+CORS_HEADERS = (
+    'Access-Control-Allow-Origin: *\r\n'
+    'Access-Control-Allow-Methods: GET, POST, OPTIONS, HEAD\r\n'
+    'Access-Control-Allow-Headers: Content-Type, Cache-Control\r\n'
+)
 
 
 def _url_decode(s):
@@ -621,7 +626,7 @@ class ProtocolServer:
         # uploaded under webui/assets/{music,video,voice}. They are not required
         # for LED timeline playback; they only let the browser play media from
         # the board when enough flash is available.
-        rel = str(path or '').lstrip('/')
+        rel = _url_decode(str(path or '').lstrip('/'))
         rel = rel.replace('..', '').replace('\\', '/')
         fs_path = 'webui/' + rel
         if rel.endswith('.ogg'):
@@ -665,7 +670,7 @@ class ProtocolServer:
         self._send_file(conn, path, content_type, head_only=head_only)
 
     def _send_lite_page(self, conn):
-        body = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rina Lite</title><style>body{font-family:system-ui;background:#0f1218;color:#edf2ff;margin:0;padding:16px}button,input{font:inherit;margin:4px;padding:8px;border-radius:8px;border:1px solid #30384a;background:#202838;color:#edf2ff}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#171c25;padding:8px;border-radius:8px}</style></head><body><h2>RinaChanBoard Lite</h2><p>Full UI: <a href="/" style="color:#75f0a9">/</a> | Full UI uses plain HTML/JS: <a href="/?v=205" style="color:#75f0a9">/?v=205</a></p><button onclick="go(\'/api/ping\')">Ping</button><button onclick="go(\'/api/status\')">Status</button><button onclick="go(\'/api/wifi/scan?t=\'+Date.now())">Wi-Fi Scan</button><br><input id="cmd" value="requestManualMode" style="width:90%"><br><button onclick="send()">Send Command</button><pre id="out">ready</pre><script>async function go(p){out.textContent=\'GET \'+p;try{let r=await fetch(p,{cache:\'no-store\'});out.textContent=await r.text()}catch(e){out.textContent=\'ERR \'+e}}async function send(){let body=new URLSearchParams({msg:cmd.value,wait:\'1\'});try{let r=await fetch(\'/api/send\',{method:\'POST\',headers:{\'Content-Type\':\'application/x-www-form-urlencoded\'},body});out.textContent=await r.text()}catch(e){out.textContent=\'ERR \'+e}}</script></body></html>'
+        body = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rina Lite</title><style>body{font-family:system-ui;background:#0f1218;color:#edf2ff;margin:0;padding:16px}button,input{font:inherit;margin:4px;padding:8px;border-radius:8px;border:1px solid #30384a;background:#202838;color:#edf2ff}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#171c25;padding:8px;border-radius:8px}</style></head><body><h2>RinaChanBoard Lite</h2><p>Full UI: <a href="/" style="color:#75f0a9">/</a> | Full UI uses plain HTML/JS: <a href="/?v=208" style="color:#75f0a9">/?v=208</a></p><button onclick="go(\'/api/ping\')">Ping</button><button onclick="go(\'/api/status\')">Status</button><button onclick="go(\'/api/wifi/scan?t=\'+Date.now())">Wi-Fi Scan</button><br><input id="cmd" value="requestManualMode" style="width:90%"><br><button onclick="send()">Send Command</button><pre id="out">ready</pre><script>async function go(p){out.textContent=\'GET \'+p;try{let r=await fetch(p,{cache:\'no-store\'});out.textContent=await r.text()}catch(e){out.textContent=\'ERR \'+e}}async function send(){let body=new URLSearchParams({msg:cmd.value,wait:\'1\'});try{let r=await fetch(\'/api/send\',{method:\'POST\',headers:{\'Content-Type\':\'application/x-www-form-urlencoded\'},body});out.textContent=await r.text()}catch(e){out.textContent=\'ERR \'+e}}</script></body></html>'
         self._send(conn, 200, 'text/html; charset=utf-8', body)
 
     def _send_file(self, conn, path, content_type, content_encoding=None, head_only=False):
@@ -673,7 +678,7 @@ class ProtocolServer:
         try:
             size = self._file_size(path)
             log.info('HTTP', 'send file begin', path=path, bytes=size, gzip=content_encoding or '', chunk=HTTP_SEND_CHUNK_BYTES)
-            header = 'HTTP/1.1 200 OK\r\nContent-Type: %s\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\n' % content_type
+            header = 'HTTP/1.1 200 OK\r\nContent-Type: %s\r\nConnection: close\r\n%sCache-Control: no-store\r\n' % (content_type, CORS_HEADERS)
             if size >= 0:
                 header += 'Content-Length: %d\r\n' % size
             if content_encoding:
@@ -709,7 +714,7 @@ class ProtocolServer:
         if isinstance(body, str):
             body = body.encode('utf-8')
         reason = {200: 'OK', 204: 'No Content', 400: 'Bad Request', 404: 'Not Found', 405: 'Method Not Allowed', 413: 'Payload Too Large', 500: 'Internal Server Error', 503: 'Service Unavailable', 504: 'Gateway Timeout'}.get(status, 'OK')
-        header = 'HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\n\r\n' % (status, reason, content_type, len(body))
+        header = 'HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: close\r\n%sCache-Control: no-store\r\n\r\n' % (status, reason, content_type, len(body), CORS_HEADERS)
         log.info('HTTP', 'send response', status=status, bytes=len(body), ctype=content_type)
         if self._send_bytes(conn, header.encode()):
             self._send_bytes(conn, body)

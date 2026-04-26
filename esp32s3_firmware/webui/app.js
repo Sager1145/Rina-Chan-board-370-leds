@@ -1,23 +1,17 @@
-console.log('[RinaChanBoard] app.js loaded v2.0.6');
-// PC local-file helper. On ESP32 HTTP this does nothing; from file:// it
-// redirects /api calls to the board AP. Override with ?api=http://x.x.x.x.
+console.log('[RinaChanBoard] app.js loaded v2.0.8');
+// Local files and localhost are preview-only. Hardware control is enabled only
+// when the page itself is served by the ESP32 host.
 (function(){
-  const nativeFetch = window.fetch.bind(window);
-  function apiBase(){
-    if (location.protocol !== 'file:') return '';
-    const q = new URLSearchParams(location.search).get('api');
-    if (q) localStorage.setItem('rina_api_base', q);
-    return (localStorage.getItem('rina_api_base') || 'http://192.168.4.1').replace(/\/$/, '');
+  function isLocalHost(){
+    return /^(localhost|127\.0\.0\.1|::1)$/i.test(location.hostname || '');
   }
-  window.setRinaApiBase = function(url){
-    localStorage.setItem('rina_api_base', String(url || '').replace(/\/$/, ''));
-    return localStorage.getItem('rina_api_base');
-  };
-  window.fetch = function(input, opts){
-    const base = apiBase();
-    if (base && typeof input === 'string' && input.charAt(0) === '/') input = base + input;
-    return nativeFetch(input, opts);
-  };
+  function hardwareMode(){
+    return (location.protocol === 'http:' || location.protocol === 'https:') && !isLocalHost();
+  }
+  window.rinaHardwareMode = hardwareMode;
+  window.rinaPreviewMode = function(){ return !hardwareMode(); };
+  window.rinaApiBase = function(){ return hardwareMode() ? location.origin : 'local-preview'; };
+  window.rinaDeviceUrl = function(input){ return input; };
 })();
 // DATA_BUNDLE_BEGIN
 // ─── face_bitmaps.js ───
@@ -3538,6 +3532,8 @@ const UNITY_FPS = 30;
 const SAVE_KEY = 'rina_clean_saved_faces_v1';
 const $ = id => document.getElementById(id);
 const qa = sel => Array.from(document.querySelectorAll(sel));
+function hardwareMode(){ return !!(window.rinaHardwareMode && window.rinaHardwareMode()); }
+function previewMode(){ return !hardwareMode(); }
 function toggleButtonValue(id){
   const el = $(id);
   if (!el) return false;
@@ -3587,6 +3583,8 @@ let mediaBlobUrl = '';
 let mediaToken = 0;
 let mediaSilentFrame = 0;
 let mediaLastFrame = 0;
+let scrollPreviewTimer = null;
+let scrollPreviewOffset = 0;
 
 function log(msg){
   const box = $('log');
@@ -3649,6 +3647,7 @@ window.addEventListener('error', ev => debug('window error', ev.message || Strin
 window.addEventListener('unhandledrejection', ev => debug('promise rejection', ev.reason && (ev.reason.stack || ev.reason.message || String(ev.reason))));
 function cleanHex(s){ return String(s || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase(); }
 function pad2(n){ return String(Math.max(0, Math.floor(n || 0))).padStart(2, '0'); }
+function sleep(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
 function rowPad(row){ return Math.floor((COLS - ROW_LENS[row]) / 2); }
 function isRealCell(row, col){ const p = rowPad(row); return row >= 0 && row < ROWS && col >= p && col < p + ROW_LENS[row]; }
 function realCells(){ const out=[]; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(isRealCell(r,c)) out.push([r,c]); return out; }
@@ -3656,27 +3655,73 @@ function bitIndex(row, col){ return row * COLS + col; }
 function toByte(n){ return Number(n || 0).toString(16).padStart(2, '0').toUpperCase(); }
 function safeJson(text, fallback){ try { return JSON.parse(text); } catch (_) { return fallback; } }
 function commandContentType(reply){ const s = String(reply || '').trim(); return s.charAt(0) === '{' || s.charAt(0) === '['; }
+function localRequestReply(cmd){
+  cmd = String(cmd || '');
+  if (cmd === 'requestSavedFaces370') return JSON.stringify(localFaces().map(faceForFirmware));
+  if (cmd === 'requestFace370') return 'M370:' + bitsToM370(gridBits);
+  if (cmd === 'requestFace') return bitsToLegacyHex(gridBits);
+  if (cmd === 'requestColor') return '#' + cleanHex(($('colorHex') && $('colorHex').value) || 'f971d4').slice(0, 6).padEnd(6, '0');
+  if (cmd === 'requestBright') return String(parseInt(($('bright') && $('bright').value) || '16', 10) || 16);
+  if (cmd === 'requestVersion') return 'local-preview';
+  if (cmd === 'requestBattery') return JSON.stringify({percent:null, battery_voltage:null, charge_voltage:null, charging:false, remaining_minutes:null, charge_minutes:null, preview:true});
+  if (cmd === 'requestManualMode' || cmd === 'requestControlMode') return JSON.stringify({manual_control_mode:false, control_mode:'preview', preview:true});
+  if (cmd === 'requestEspStatus') return JSON.stringify({mode:'preview', ip:'local', version:'local-preview', runtime:{type:'preview'}});
+  return 'preview ok';
+}
+function localApiText(path, opts){
+  const method = (opts && opts.method) || 'GET';
+  const url = new URL(String(path || '/'), 'http://local-preview');
+  debug('preview api', method + ' ' + url.pathname);
+  if (url.pathname === '/api/ping') return JSON.stringify({ok:true, message:'local preview', mode:'preview'});
+  if (url.pathname === '/api/status') return JSON.stringify({mode:'preview', ip:'local', ap_ip:'', udp_port:0, rssi:0, manual_control_mode:false, control_mode:'preview', runtime:{type:'preview'}});
+  if (url.pathname === '/api/faces') return JSON.stringify(localFaces().map(faceForFirmware));
+  if (url.pathname === '/api/wifi/status') return JSON.stringify({mode:'preview', can_configure:false, sta_connected:false, sta_ssid:'', sta_ip:'', ap_active:false, ap_ip:'', rssi:0, sta_ssid_cfg:'', ap_ssid_cfg:'RinaChanBoard-S3'});
+  if (url.pathname === '/api/wifi/scan') return JSON.stringify({ok:true, networks:[]});
+  if (url.pathname === '/api/wifi/save') return JSON.stringify({ok:false, preview:true, message:'preview only'});
+  if (url.pathname === '/api/request') return localRequestReply(url.searchParams.get('cmd') || '');
+  if (url.pathname === '/api/send') {
+    let msg = '';
+    try {
+      const body = opts && opts.body;
+      const form = body instanceof URLSearchParams ? body : new URLSearchParams(String(body || ''));
+      msg = form.get('msg') || form.get('plain') || '';
+    } catch (_) {}
+    return localRequestReply(msg);
+  }
+  if (url.pathname === '/api/binary') return cleanHex(url.searchParams.get('hex') || '') || 'preview ok';
+  return 'preview ok';
+}
 
 async function apiText(path, opts){
-  const method = (opts && opts.method) || 'GET';
-  debug('api request', method + ' ' + path);
-  try {
-    const r = await fetch(path, opts || {});
-    const t = await r.text();
-    debug('api response', method + ' ' + path + ' -> ' + r.status + ' ' + t.slice(0, 160));
-    if (!r.ok) throw new Error(t || r.statusText);
-    return t;
-  } catch (error) {
-    debug('api error', method + ' ' + path + ' ' + (error && error.message ? error.message : error));
-    throw error;
+  const fetchOpts = Object.assign({}, opts || {});
+  const retries = Math.max(0, parseInt(fetchOpts.retries || '0', 10) || 0);
+  delete fetchOpts.retries;
+  const method = fetchOpts.method || 'GET';
+  const target = (typeof window.rinaDeviceUrl === 'function') ? window.rinaDeviceUrl(path) : path;
+  if (previewMode()) return localApiText(path, fetchOpts);
+  debug('api request', method + ' ' + path + (target !== path ? ' -> ' + target : ''));
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(path, fetchOpts);
+      const t = await r.text();
+      debug('api response', method + ' ' + path + ' -> ' + r.status + ' ' + t.slice(0, 160));
+      if (!r.ok) throw new Error(t || r.statusText);
+      return t;
+    } catch (error) {
+      debug('api error', method + ' ' + path + ' ' + (error && error.message ? error.message : error));
+      if (attempt >= retries) throw error;
+      await sleep(150 * (attempt + 1));
+      debug('api retry', method + ' ' + path + ' #' + (attempt + 2));
+    }
   }
 }
 async function apiJson(path, opts){ const text = await apiText(path, opts); try { return JSON.parse(text); } catch (e) { throw new Error('JSON parse failed: ' + text.slice(0, 180)); } }
-async function postForm(path, params){
-  return apiText(path, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams(params), cache:'no-store'});
+async function postForm(path, params, retries){
+  return apiText(path, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams(params), cache:'no-store', retries: retries || 0});
 }
 async function sendText(msg, wait){
-  const t = await postForm('/api/send', {msg, wait: wait ? '1' : '0'});
+  const runtimeCommand = /^(scrollText|timeline370|runtimeStop)/.test(String(msg || ''));
+  const t = await postForm('/api/send', {msg, wait: wait ? '1' : '0'}, runtimeCommand ? 2 : 0);
   const shown = String(msg || '').length > 180 ? String(msg).slice(0, 180) + '...' : String(msg || '');
   log((wait ? 'RX ' : 'TX ') + shown + (wait ? ' => ' + t : ''));
   return t;
@@ -3926,6 +3971,13 @@ function faceForFirmware(face){
   return out;
 }
 async function loadFaces(){
+  if (previewMode()) {
+    savedFaces = localFaces();
+    log('本地预览保存表情：' + savedFaces.length);
+    selectedFaceIndex = Math.min(selectedFaceIndex, Math.max(0, savedFaces.length - 1));
+    renderSavedFaces();
+    return;
+  }
   try {
     const list = await apiJson('/api/faces');
     savedFaces = (Array.isArray(list) ? list : []).map(normalizeFaceItem);
@@ -4209,6 +4261,7 @@ async function downloadBright(){ $('bright').value = String(parseInt(await req('
 async function requestVersion(){ $('versionOut').textContent = await req('requestVersion'); }
 async function requestEspStatus(){ $('espOut').textContent = await req('requestEspStatus'); }
 async function updateStatus(){
+  applyRunModeUi();
   try {
     const s = await apiJson('/api/status');
     $('status').textContent = 'mode=' + s.mode + ' ip=' + s.ip + ' ap=' + (s.ap_ip || '') + ' udp=' + s.udp_port + ' rssi=' + s.rssi;
@@ -4269,15 +4322,38 @@ function previewScrollText(){
   const text = String($('scrollText').value || '');
   renderBits($('scrollPreview'), textToBits(text, Math.max(0, COLS - 6)), false);
 }
+function stopLocalScrollPreview(){
+  if (scrollPreviewTimer) {
+    clearInterval(scrollPreviewTimer);
+    scrollPreviewTimer = null;
+  }
+}
+function startLocalScrollPreview(speed, text){
+  stopLocalScrollPreview();
+  scrollPreviewOffset = 0;
+  const maxOffset = COLS + text.length * 6 + 8;
+  const tick = function(){
+    renderBits($('scrollPreview'), textToBits(text, scrollPreviewOffset), false);
+    scrollPreviewOffset = (scrollPreviewOffset + 1) % Math.max(1, maxOffset);
+  };
+  tick();
+  scrollPreviewTimer = setInterval(tick, speed);
+}
 async function startScrollText(){
   stopUnityMedia(false);
   const speed = Math.max(40, Math.min(1000, parseInt($('scrollSpeed').value || '120', 10) || 120));
   const text = String($('scrollText').value || '').replace(/[\r\n\t|]/g, ' ').slice(0, 96);
   previewScrollText();
+  if (previewMode()) {
+    startLocalScrollPreview(speed, text);
+    log('滚动文字本地预览：' + text);
+    return;
+  }
   await sendText('scrollText370|' + speed + '|' + text, true);
 }
 async function stopScrollText(doFirmwareStop){
-  if (doFirmwareStop !== false) await sendText('runtimeStop|scroll', false);
+  stopLocalScrollPreview();
+  if (hardwareMode() && doFirmwareStop !== false) await sendText('scrollTextStop370', true);
 }
 
 function db(){ return window.RINA_UNITY_DB || {}; }
@@ -4366,7 +4442,7 @@ function applyUnityFrame(frame, send){
   const bits = unityFaceToBits(cur.timeline[idx].face);
   renderBits($('unityMediaPreview'), bits, false);
   const hx = bitsToM370(bits);
-  if (send && typeof window.sendText === 'function') sendText('M370:' + hx, false).catch(e => log('preview send failed: ' + e.message));
+  if (send && hardwareMode() && typeof window.sendText === 'function') sendText('M370:' + hx, false).catch(e => log('preview send failed: ' + e.message));
   const last = cur.timeline.length ? cur.timeline[cur.timeline.length - 1].frame || 0 : 0;
   if ($('unityMediaTime')) $('unityMediaTime').textContent = Math.floor((frame || 0) / UNITY_FPS) + 's / ' + Math.floor(last / UNITY_FPS) + 's';
   return hx;
@@ -4403,9 +4479,11 @@ function sourceAssetPath(kind, key, item){
   return '';
 }
 function mediaSource(){
+  if (previewMode()) return '';
   const cur = currentMedia();
   const selected = $('unityMediaSelect') ? $('unityMediaSelect').selectedIndex : 0;
-  return sourceAssetPath(cur.kind, cur.key, mediaAsset(cur.kind, cur.key, selected));
+  const src = sourceAssetPath(cur.kind, cur.key, mediaAsset(cur.kind, cur.key, selected));
+  return (src && src.charAt(0) === '/' && typeof window.rinaDeviceUrl === 'function') ? window.rinaDeviceUrl(src) : src;
 }
 function showMediaElement(kind, url){
   const audio = $('unityMediaAudio'), video = $('unityMediaVideo');
@@ -4419,7 +4497,7 @@ function showMediaElement(kind, url){
   try { el.currentTime = 0; el.play().catch(()=>{}); } catch (_) {}
   return el;
 }
-async function sendFirmwareTimeline(cur, loop){
+function buildFirmwareTimeline(cur){
   const entries = [];
   let lastHex = '';
   for (const row of cur.timeline) {
@@ -4429,35 +4507,53 @@ async function sendFirmwareTimeline(cur, loop){
   if (entries.length && entries[0].frame > 0) entries.unshift({frame: 0, hex: entries[0].hex});
   const last = cur.timeline.length ? cur.timeline[cur.timeline.length - 1].frame || 0 : 0;
   const name = (cur.kind + ':' + cur.key).replace(/[|;,\r\n]/g, ' ').slice(0, 48);
+  return {entries, last, name, loaded: entries.length};
+}
+async function sendFirmwareTimeline(cur, loop){
+  const plan = buildFirmwareTimeline(cur);
+  const entries = plan.entries;
+  const last = plan.last;
+  const name = plan.name;
   await sendText('timeline370Clear', true);
   await sendText('timeline370Begin|' + UNITY_FPS + '|' + last + '|' + (loop ? '1' : '0') + '|' + entries.length + '|' + name, true);
   let chunk = '';
+  let loaded = 0;
   for (const e of entries) {
     const part = String(e.frame) + ',' + e.hex + ';';
-    if ((chunk + part).length > 640) { await sendText('timeline370Chunk|' + chunk, true); chunk = ''; }
+    if ((chunk + part).length > 640) {
+      const reply = await sendText('timeline370Chunk|' + chunk, true);
+      const info = safeJson(reply, {});
+      if (info && info.loaded != null) loaded = Number(info.loaded) || loaded;
+      chunk = '';
+    }
     chunk += part;
   }
-  if (chunk) await sendText('timeline370Chunk|' + chunk, true);
-  return {entries, last, name};
+  if (chunk) {
+    const reply = await sendText('timeline370Chunk|' + chunk, true);
+    const info = safeJson(reply, {});
+    if (info && info.loaded != null) loaded = Number(info.loaded) || loaded;
+  }
+  if (loaded && loaded < entries.length) throw new Error('时间轴上传不完整：' + loaded + '/' + entries.length);
+  return {entries, last, name, loaded: loaded || entries.length};
 }
 function stopUnityMedia(doFirmwareStop){
   if (mediaTimer) { clearInterval(mediaTimer); mediaTimer = null; }
   if (mediaElement) { try { mediaElement.pause(); } catch (_) {} }
   if (mediaBlobUrl && mediaBlobUrl.startsWith('blob:')) { try { URL.revokeObjectURL(mediaBlobUrl); } catch (_) {} }
   mediaElement = null; mediaBlobUrl = ''; mediaSilentFrame = 0; mediaLastFrame = 0; mediaToken++;
-  if (doFirmwareStop !== false) sendText('runtimeStop|media', false).catch(e => log('停止媒体失败：' + e.message));
+  if (hardwareMode() && doFirmwareStop !== false) sendText('runtimeStop|media', false).catch(e => log('停止媒体失败：' + e.message));
 }
 async function playUnityMedia(){
   const cur = currentMedia();
   if (!cur.timeline.length) { alert('没有时间轴数据'); return; }
   stopUnityMedia(false);
   const loop = toggleButtonValue('unityMediaLoop');
-  const sent = await sendFirmwareTimeline(cur, loop);
+  const sent = previewMode() ? buildFirmwareTimeline(cur) : await sendFirmwareTimeline(cur, loop);
   mediaBlobUrl = mediaSource();
   mediaElement = showMediaElement(cur.kind, mediaBlobUrl);
   mediaLastFrame = sent.last;
   const token = ++mediaToken;
-  await sendText('timeline370Play', true);
+  if (hardwareMode()) await sendText('timeline370Play', true);
   mediaTimer = setInterval(() => {
     if (token !== mediaToken) return;
     let frame = mediaElement && mediaBlobUrl && !mediaElement.paused ? Math.floor((mediaElement.currentTime || 0) * UNITY_FPS) : mediaSilentFrame++;
@@ -4467,7 +4563,7 @@ async function playUnityMedia(){
     }
     applyUnityFrame(frame, false);
   }, Math.max(20, Math.floor(1000 / UNITY_FPS)));
-  log('Unity 时间轴已发送：' + sent.entries.length + ' keyframes, ' + sent.name);
+  log((previewMode() ? 'Unity 本地预览：' : 'Unity 时间轴已发送：') + sent.loaded + '/' + sent.entries.length + ' keyframes, ' + sent.name);
 }
 
 async function sendFaceLiteBinary(){ await sendHex([+$('leye').value, +$('reye').value, +$('mouth').value, +$('cheek').value].map(toByte).join(''), false); }
@@ -4538,6 +4634,24 @@ function wifiTogglePw(){
   btn.textContent = pw.type === 'password' ? '显示' : '隐藏';
 }
 
+function currentRunMode(){
+  return hardwareMode() ? 'device' : 'preview';
+}
+function applyRunModeUi(){
+  const mode = currentRunMode();
+  const hostEl = $('host');
+  if (hostEl) hostEl.textContent = location.host || 'local file';
+  const badge = $('runModeBadge');
+  if (badge) {
+    badge.textContent = mode === 'device' ? 'DEVICE / 设备控制' : 'PREVIEW / 本地预览';
+    badge.className = 'pill ' + (mode === 'device' ? 'ok' : 'warn');
+  }
+  const out = $('runModeOut');
+  if (out) out.textContent = JSON.stringify({mode, host: location.host || 'local file', api: hardwareMode() ? location.origin : null}, null, 2);
+  const play = $('playUnityMedia');
+  if (play) play.textContent = hardwareMode() ? '发送并播放' : '预览播放';
+}
+
 function fillSelectors(){
   const faces = window.RINA_FACES || {};
   makeOptions($('leye'), (faces.leye || []).length);
@@ -4561,13 +4675,13 @@ function bind(){
   bindToggleButton('saveFaceLocked', false);
   bindToggleButton('unityMediaLoop', false);
   bindToggleButton('eyeSyncBox', false, function(on){ if (on && $('leye') && $('reye')) $('reye').value = $('leye').value; faceFromSelectors(); });
-  $('host').textContent = location.host || 'local file';
+  applyRunModeUi();
   on('clearDebugLog', 'click', 'clearDebugLog', () => { const box = $('debugLog'); if (box) box.textContent = ''; });
   onAll('[data-tab]', 'click', 'tab', (ev, btn) => {
     qa('[data-tab]').forEach(b => b.classList.remove('active'));
     qa('.tab').forEach(t => t.classList.remove('show'));
     btn.classList.add('active'); $(btn.dataset.tab).classList.add('show');
-    sendText('runtimeStop|tabSwitch', false).catch(function(){});
+    if (hardwareMode()) sendText('runtimeStop|tabSwitch', false).catch(function(){});
     if (btn.dataset.tab === 'tab-wifi') wifiRefreshStatus();
     if (btn.dataset.tab === 'tab-saved') loadFaces();
   });
