@@ -1,8 +1,24 @@
+# ---------------------------------------------------------------------------
+# board_370.py
+#
+# ESP32-S3 + 370-LED Rina-Chan-board hardware layer.
+# Source hardware information is taken from Rina-Chan-board-370-leds/board.py:
+#   - WS2812 data GPIO: GPIO2
+#   - LED count: 370
+#   - virtual display geometry: 22 columns x 18 rows
+#   - physical row lengths: 18,20,20,20,22x9,20,20,20,18,16
+#
+# This module renders the original RinaChanBoard-main 16x18 logical face into
+# the center of that 22x18 physical matrix.
+# ---------------------------------------------------------------------------
+
 from machine import Pin
 from neopixel import NeoPixel
 import time
+
 LED_PIN = 2
 NUM_LEDS = 370
+
 ROW_LENGTHS = (
     18,
     20, 20, 20,
@@ -16,24 +32,39 @@ COLS = 22
 SERPENTINE = True
 FLIP_X = False
 FLIP_Y = False
+
+# RinaChanBoard-main wire protocol is a 16x18 logical face.  The original
+# 256-LED board had the two outer columns as invalid padding.  We preserve that
+# logical state and center it on the 370-board.
 SRC_ROWS = 16
 SRC_COLS = 18
 SRC_TO_DST_ROW_OFFSET = 1
 SRC_TO_DST_COL_OFFSET = 2
 SRC_INVALID_COLS = (0, 17)
+
+# Safety cap from the 370-LED MicroPython project.  It prevents accidental full
+# current across 370 LEDs while keeping the RinaChanBoard brightness byte API.
 APPLY_370_SAFETY_CAP = True
 MAX_CHANNEL_HARD_CAP = 170
+
 _row_starts = []
 _acc = 0
 for _w in ROW_LENGTHS:
     _row_starts.append(_acc)
     _acc += _w
 assert _acc == NUM_LEDS, "ROW_LENGTHS must sum to NUM_LEDS"
+
 np = NeoPixel(Pin(LED_PIN, Pin.OUT), NUM_LEDS)
+
+
 def ticks_ms():
     return time.ticks_ms()
+
+
 def sleep_ms(ms):
     time.sleep_ms(ms)
+
+
 def logical_to_led_index(x, y):
     if x < 0 or x >= COLS or y < 0 or y >= ROWS:
         return None
@@ -41,14 +72,18 @@ def logical_to_led_index(x, y):
         x = COLS - 1 - x
     if FLIP_Y:
         y = ROWS - 1 - y
+
     row_width = ROW_LENGTHS[y]
     left_pad = (COLS - row_width) // 2
     if x < left_pad or x >= left_pad + row_width:
         return None
+
     local_x = x - left_pad
     if SERPENTINE and (y & 1):
         local_x = row_width - 1 - local_x
     return _row_starts[y] + local_x
+
+
 def src_to_led_index(row, col):
     if row < 0 or row >= SRC_ROWS or col < 0 or col >= SRC_COLS:
         return None
@@ -56,6 +91,8 @@ def src_to_led_index(row, col):
         return None
     return logical_to_led_index(col + SRC_TO_DST_COL_OFFSET,
                                 row + SRC_TO_DST_ROW_OFFSET)
+
+
 def _scale_uniform_to_cap(rgb, cap):
     r, g, b = rgb
     r = max(0, min(255, int(r)))
@@ -66,7 +103,10 @@ def _scale_uniform_to_cap(rgb, cap):
         return (r, g, b)
     scale = cap / m
     return (int(r * scale), int(g * scale), int(b * scale))
+
+
 def apply_brightness(rgb, bright):
+    # FastLED-style global brightness first, then the 370-board current cap.
     if bright < 0:
         bright = 0
     elif bright > 255:
@@ -78,15 +118,22 @@ def apply_brightness(rgb, bright):
     if APPLY_370_SAFETY_CAP:
         return _scale_uniform_to_cap((r, g, b), MAX_CHANNEL_HARD_CAP)
     return (max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
+
+
 def clear(write=False):
     off = (0, 0, 0)
     for i in range(NUM_LEDS):
         np[i] = off
     if write:
         np.write()
+
+
 def show():
     np.write()
+
+
 def draw_face_matrix(face, color, bright=255, write=True):
+    """Draw a 16x18 logical RinaChanBoard-main face on the 370-LED board."""
     on = apply_brightness(color, bright)
     off = (0, 0, 0)
     clear(False)
@@ -100,12 +147,16 @@ def draw_face_matrix(face, color, bright=255, write=True):
                 np[idx] = on
     if write:
         show()
+
+
 def fill_valid(rgb, bright=255, write=True):
     c = apply_brightness(rgb, bright)
     for i in range(NUM_LEDS):
         np[i] = c
     if write:
         show()
+
+
 def hardware_summary():
     return "ESP32-S3 GPIO{} WS2812, {} LEDs, virtual {}x{}, src {}x{} centered +{}r +{}c".format(
         LED_PIN, NUM_LEDS, COLS, ROWS, SRC_COLS, SRC_ROWS,

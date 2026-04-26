@@ -1,10 +1,15 @@
-STA_SSID = ""
-STA_PASSWORD = ""
-AP_SSID = "RinaChanBoard-S3-AP"
-AP_PASSWORD = "12345678"
-AP_AUTHMODE = 3
-AP_COMPAT_OPEN = False
-AP_CHANNEL = 1
-AP_HIDDEN = False
-AP_MAX_CLIENTS = 4
-AP_COUNTRY = "US"
+# wifi_config.py
+# ESP32-S3 native Wi-Fi configuration.
+# Leave WIFI_SSID empty to use only the fallback AP.
+
+WIFI_SSID = ""
+WIFI_PASSWORD = ""
+
+AP_SSID = "RinaChanBoard-ESP32S3"
+AP_PASSWORD = "12345678"  # empty = use built-in default "rinachan" (WPA2); set a value to override
+AP_CHANNEL = 6
+AP_AUTHMODE = 0    # 0 = let firmware apply default WPA2; 3 = WPA2-PSK when AP_PASSWORD set
+
+HTTP_PORT = 80
+UDP_PORT = 1234
+REMOTE_UDP_PORT = 4321

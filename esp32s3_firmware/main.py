@@ -1,824 +1,1107 @@
+# ---------------------------------------------------------------------------
+# main.py
+#
+# Integrated RinaChanBoard controller for ESP32-S3 + 370 LEDs.
+#
+# Features managed here:
+# - normal face mode
+# - special matrix demo mode
+# # - shared brightness handling
+# - battery display overlay
+# - interval / mode / brightness overlay text
+# - long-press combo handling
+# - loading / saving persistent settings
+#
+# Mode rules:
+# - face mode and demo mode share the same brightness value directly
+# - Bad Apple uses half of that shared brightness internally
+# - B6+B2 long press toggles Bad Apple on and off
+# # # ---------------------------------------------------------------------------
+
+
 import gc
 import time
-import ujson as json
-import logger as log
+
+# Memory-safe import order for RP2040 MicroPython:
+# import/compile the protocol module before the large UI helper modules.
+# MicroPython compiles .py modules into bytecode on import, so free heap and
+# fragmentation at import time matter. Keep matrix demo and fallback demo faces
+# out of RAM in this no-demo build.
+gc.collect()
+
 import board
+from board import clear, show, draw_bitmap, logical_to_led_index, np, scale_color, COLS, ROWS
+gc.collect()
+
+from rina_protocol import RinaProtocol, REMOTE_UDP_PORT, VERSION
+gc.collect()
+
+import saved_faces_370
+gc.collect()
 import display_num
-import display_text
-from battery import BatteryMonitor, battery_color
-from buttons import ButtonBank
-from config import *
-from default_faces import DEFAULT_START_INDEX
-from face_codec import (
-    normalize_bitmap, legacy_hex_to_bitmap, legacy_bits_to_grid,
-    legacy_grid_to_bitmap, m370_hex_to_bitmap, bitmap_to_m370_hex,
-    bitmap_to_legacy_hex,
+gc.collect()
+from buttons import (
+    ButtonBank,
+    BTN_PREV, BTN_NEXT, BTN_AUTO,
+    BTN_BRIGHT_DN, BTN_BRIGHT_UP, BTN_BRIGHT_RST,
 )
-from face_parts import compose_part_bitmap
-from network_manager import NetworkManager
-from saved_faces import SavedFaceStore
-from settings_store import load_settings, save_settings, clamp_brightness, clamp_interval
-def ticks_ms():
-    return time.ticks_ms()
-def add_ms(t, ms):
-    return time.ticks_add(t, int(ms))
-def diff_ms(a, b):
-    return time.ticks_diff(a, b)
-def _short_cmd(cmd, limit=150):
-    s = str(cmd or '').replace('\r', ' ').replace('\n', ' ')
-    return s[:limit] + ('...' if len(s) > limit else '')
-def _clamp_color_channel(value):
-    try:
-        v = int(value)
-    except Exception:
-        v = 0
-    if v < 0:
-        return 0
-    if v > 255:
-        return 255
-    return v
-def _normalize_rgb(value, default=DEFAULT_COLOR):
-    if isinstance(value, (list, tuple)) and len(value) >= 3:
-        return (_clamp_color_channel(value[0]), _clamp_color_channel(value[1]), _clamp_color_channel(value[2]))
-    return default
-def _runtime_dim_color(rgb):
-    return dim_color_from_rgb(_normalize_rgb(rgb))
-class RinaChanApp:
-    __slots__ = (
-        'settings','faces','face_index','auto','interval_s','brightness','color','dim_color',
-        'manual_control_mode','control_mode','battery','buttons','network','server',
-        'runtime_type','runtime_name','runtime_started_ms','runtime_reason',
-        'scroll_text','scroll_speed_ms','scroll_x','scroll_next_ms',
-        'timeline','timeline_fps','timeline_last_frame','timeline_loop','timeline_expected_count','timeline_name','timeline_current_frame',
-        'next_auto_ms','flash_until_ms','flash_kind',
-        'battery_overlay_active','battery_overlay_single','battery_overlay_until_ms','battery_overlay_next_phase_ms','battery_overlay_phase','battery_visual_next_ms',
-        'prev_b3_down','prev_b6_down','b3_consumed','b6_pending','b6_press_started_ms','b6_long_fired',
-        'demo_combo_started_ms','demo_combo_fired','ip_combo_started_ms','ip_combo_fired','brightness_combo_latched','_servicing_buttons'
-    )
+gc.collect()
+
+from config import *
+from app_state import AppState, BatteryState
+from settings_store import load_settings, save_settings, clamp_interval, clamp_brightness
+from battery_monitor import BatteryMonitor
+from battery_runtime import estimate_remaining_hours, estimate_charge_hours
+from brightness_modes import effective_brightness
+gc.collect()
+
+from esp32s3_network import ESP32S3Network
+from webui_runtime import WebUIRuntime
+gc.collect()
+
+FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.6.0 no bridge no MatrixDemo no BadApple no boot animation"
+
+
+# ---------------------------------------------------------------------------
+# Main application object.
+# It owns runtime state, helpers, and the polling loop behavior.
+# ---------------------------------------------------------------------------
+class LinaBoardApp:
+    __slots__ = ("state", "battery", "buttons", "battery_monitor", "network_poll", "proto", "link", "button_face_active", "web_runtime")
+
     def __init__(self):
-        self.settings = load_settings()
-        self.faces = SavedFaceStore()
-        self.face_index = int(self.settings.get('face_index', DEFAULT_START_INDEX))
-        if self.face_index < 0 or self.face_index >= self.faces.count():
-            self.face_index = DEFAULT_START_INDEX if DEFAULT_START_INDEX < self.faces.count() else 0
-        self.auto = bool(self.settings.get('auto', False))
-        self.interval_s = clamp_interval(self.settings.get('interval_s', DEFAULT_INTERVAL_S))
-        self.brightness = clamp_brightness(self.settings.get('brightness', DEFAULT_BRIGHTNESS))
-        self.color = _normalize_rgb(self.settings.get('color', DEFAULT_COLOR))
-        self.dim_color = _runtime_dim_color(self.color)
-        self.manual_control_mode = bool(self.settings.get('manual_control_mode', False))
-        self.control_mode = 'manual' if self.manual_control_mode else 'web'
-        self.battery = BatteryMonitor(self.settings)
+        self.state = AppState()
+        self.battery = BatteryState()
         self.buttons = ButtonBank()
-        self.network = None
-        self.server = None
-        self.runtime_type = None
-        self.runtime_name = ''
-        self.runtime_started_ms = 0
-        self.runtime_reason = ''
-        self.scroll_text = ''
-        self.scroll_speed_ms = 90
-        self.scroll_x = COLS
-        self.scroll_next_ms = 0
-        self.timeline = {}
-        self.timeline_fps = 30.0
-        self.timeline_last_frame = 0
-        self.timeline_loop = False
-        self.timeline_expected_count = 0
-        self.timeline_name = ''
-        self.timeline_current_frame = 0
-        self.next_auto_ms = add_ms(ticks_ms(), int(self.interval_s * 1000))
-        self.flash_until_ms = 0
-        self.flash_kind = None
-        self.battery_overlay_active = False
-        self.battery_overlay_single = False
-        self.battery_overlay_until_ms = 0
-        self.battery_overlay_next_phase_ms = 0
-        self.battery_overlay_phase = 0
-        self.battery_visual_next_ms = 0
-        self.prev_b3_down = False
-        self.prev_b6_down = False
-        self.b3_consumed = False
-        self.b6_pending = False
-        self.b6_press_started_ms = 0
-        self.b6_long_fired = False
-        self.demo_combo_started_ms = None
-        self.demo_combo_fired = False
-        self.ip_combo_started_ms = None
-        self.ip_combo_fired = False
-        self.brightness_combo_latched = False
-        self._servicing_buttons = False
-    def save_runtime_settings(self):
-        data = {
-            'face_index': self.face_index,
-            'auto': self.auto,
-            'interval_s': self.interval_s,
-            'brightness': self.brightness,
-            'manual_control_mode': self.manual_control_mode,
-            'color': list(self.color),
-        }
-        data.update(self.battery.export_state())
-        self.settings = data
-        save_settings(data)
+        self.battery_monitor = BatteryMonitor()
+        self.network_poll = None
+        self.proto = None
+        self.link = None
+        self.button_face_active = False
+        self.web_runtime = WebUIRuntime(self)
+
+    # ------------------------------------------------------------------
+    # Persistence / shared runtime helpers
+    # ------------------------------------------------------------------
+    def save_settings(self):
+        save_settings(self.state, self.battery)
+
     def apply_brightness(self):
-        board.set_max_brightness(board.brightness_percent_to_cap(self.brightness))
-    def state_json(self):
-        return {
-            'version': VERSION,
-            'ip': self.network.ip if self.network else '0.0.0.0',
-            'ssid': self.network.ssid if self.network else '',
-            'face_index': self.face_index,
-            'face_count': self.faces.count(),
-            'auto': self.auto,
-            'interval_s': self.interval_s,
-            'brightness': self.brightness,
-            'color': '#%02x%02x%02x' % self.color,
-            'runtime': self.runtime_status_obj(),
-            'manual_control_mode': self.manual_control_mode,
-            'control_mode': 'manual' if self.manual_control_mode else 'web',
-            'buttons': list(BUTTON_PINS),
-        }
-    def runtime_status_obj(self):
-        return {
-            'active': self.runtime_type is not None,
-            'type': self.runtime_type or 'none',
-            'name': self.runtime_name,
-            'frame': self.timeline_current_frame if self.runtime_type == 'timeline' else None,
-            'loaded_frames': len(self.timeline),
-        }
-    def current_bitmap(self):
-        rows = []
-        for y in range(ROWS):
-            chars = []
-            for x in range(COLS):
-                idx = board.logical_to_led_index(x, y)
-                if idx is None:
-                    chars.append('.')
-                else:
-                    rgb = board.get_pixel_index(idx)
-                    chars.append('#' if rgb and (rgb[0] or rgb[1] or rgb[2]) else '.')
-            rows.append(''.join(chars))
-        return rows
-    def battery_status_json(self):
-        return json.dumps(self.battery.snapshot())
-    def manual_control_status_json(self):
-        return json.dumps({
-            'manual_control_mode': self.manual_control_mode,
-            'control_mode': 'manual' if self.manual_control_mode else 'web',
-        })
-    def legacy_state_json(self):
-        bm = self.current_bitmap()
-        snap = self.battery.snapshot()
-        return {
-            'version': VERSION,
-            'color': '#%02x%02x%02x' % self.color,
-            'bright': int(max(0, min(255, (self.brightness * 255 + 50) // 100))),
-            'brightness': self.brightness,
-            'manual_control_mode': self.manual_control_mode,
-            'control_mode': 'manual' if self.manual_control_mode else 'web',
-            'face': bitmap_to_legacy_hex(bm),
-            'face370': 'M370:' + bitmap_to_m370_hex(bm),
-            'battery': snap,
-            'runtime': self.runtime_status_obj(),
-        }
-    def set_display_color(self, rgb, write=True, persist=True):
-        self.color = _normalize_rgb(rgb)
-        self.dim_color = _runtime_dim_color(self.color)
-        if write:
-            board.update_color(self.color)
-        if persist:
-            self.save_runtime_settings()
-        return self.color
-    def draw_saved_face(self, index=None):
-        if index is not None:
-            self.face_index = int(index) % max(1, self.faces.count())
-        item = self.faces.get(self.face_index)
-        if not item:
-            board.clear(True)
-            return
-        board.draw_bitmap(normalize_bitmap(item.get('data')), on_color=self.color, dim_color=self.dim_color)
-    def render_current_visual(self):
-        if self.runtime_type:
-            return
-        if self.battery_overlay_active:
-            self.render_battery_overlay(force=True)
-        else:
-            self.draw_saved_face()
-    def show_overlay_text(self, kind, value=None):
-        self.flash_kind = kind
-        self.flash_until_ms = add_ms(ticks_ms(), FLASH_HOLD_MS)
-        if kind == 'brightness':
-            display_num.render_brightness_percent(self.brightness, color=self.color)
-        elif kind == 'interval':
-            display_num.render_interval(self.interval_s, color=self.color)
-        elif kind == 'mode':
-            display_num.render_mode(self.auto, color=self.color)
-        elif kind == 'manual':
-            display_text.draw_centered('MAN' if self.manual_control_mode else 'WEB', color=self.color)
-        elif kind == 'info':
-            display_text.draw_centered(str(value or 'OK'), color=BLUE)
-    def stop_overlay_if_expired(self):
-        if self.flash_until_ms and diff_ms(ticks_ms(), self.flash_until_ms) >= 0:
-            self.flash_until_ms = 0
-            self.flash_kind = None
-            if not self.battery_overlay_active:
-                self.draw_saved_face()
-    def render_battery_overlay(self, force=False):
-        now = ticks_ms()
-        if (not force) and self.battery_visual_next_ms and diff_ms(now, self.battery_visual_next_ms) < 0:
-            return
-        snap = self.battery.snapshot()
-        pct = 0 if snap.get('percent') is None else snap.get('percent')
-        col = battery_color(pct)
-        charging = bool(snap.get('charging'))
-        charge_ms = now % 1000
-        flash_last_col = charging and ((now // BATTERY_CHARGE_FLASH_MS) & 1) == 0
-        phase_count = 4 if charging else 3
-        if self.battery_overlay_phase >= phase_count:
-            self.battery_overlay_phase = 0
-        if self.battery_overlay_phase == 0:
-            display_num.render_battery_percent(int(pct), color=col, charging=charging, charging_phase_ms=charge_ms, charge_step_interval_s=0.3, flash_last_column=flash_last_col, animate=charging)
-        elif self.battery_overlay_phase == 1:
-            display_num.render_battery_voltage(snap.get('battery_voltage'), int(pct), color=col, charging=charging, charging_phase_ms=charge_ms, charge_step_interval_s=0.3, flash_last_column=flash_last_col, animate=charging)
-        elif self.battery_overlay_phase == 2:
-            display_num.render_battery_time(snap.get('estimated_hours'), int(pct), color=col, charging=charging, charging_phase_ms=charge_ms, charge_step_interval_s=0.3, flash_last_column=flash_last_col, animate=charging)
-        else:
-            display_num.render_charge_voltage(snap.get('charge_voltage'), int(pct), icon_color=col, charging=charging, charging_phase_ms=charge_ms, charge_step_interval_s=0.3, flash_last_column=flash_last_col, animate=charging)
-        self.battery_visual_next_ms = add_ms(now, BATTERY_ANIMATION_REFRESH_MS)
-    def start_battery_overlay(self, single=False):
-        self.stop_runtime('battery')
-        self.battery_overlay_active = True
-        self.battery_overlay_single = bool(single)
-        self.battery_overlay_phase = 0
-        now = ticks_ms()
-        self.battery_overlay_until_ms = add_ms(now, 2000) if single else 0
-        self.battery_overlay_next_phase_ms = add_ms(now, BATTERY_DISPLAY_CYCLE_MS)
-        self.battery_visual_next_ms = 0
-        self.render_battery_overlay(force=True)
-    def stop_battery_overlay(self):
-        if self.battery_overlay_active:
-            self.battery_overlay_active = False
-            self.battery_overlay_single = False
-            self.draw_saved_face()
-    def service_battery_overlay(self):
-        if not self.battery_overlay_active:
-            return
-        now = ticks_ms()
-        if self.battery_overlay_single and diff_ms(now, self.battery_overlay_until_ms) >= 0:
-            self.stop_battery_overlay()
-            return
-        if diff_ms(now, self.battery_overlay_next_phase_ms) >= 0:
-            self.battery_overlay_phase += 1
-            self.battery_overlay_next_phase_ms = add_ms(now, BATTERY_DISPLAY_CYCLE_MS)
-            self.battery_visual_next_ms = 0
-        self.render_battery_overlay()
-    def stop_runtime(self, reason=''):
-        if self.runtime_type:
-            print('runtime stop:', self.runtime_type, reason)
-        self.runtime_type = None
-        self.runtime_name = ''
-        self.runtime_reason = reason
-    def start_scroll(self, speed_ms, text):
-        self.stop_battery_overlay()
-        self.runtime_type = 'scroll'
-        self.runtime_name = 'scrollText370'
-        self.runtime_started_ms = ticks_ms()
-        self.scroll_speed_ms = max(20, int(float(speed_ms)))
-        self.scroll_text = str(text)
-        self.scroll_x = COLS
-        self.scroll_next_ms = 0
-        print('scroll:', self.scroll_speed_ms, self.scroll_text)
-    def service_scroll(self):
-        now = ticks_ms()
-        if self.scroll_next_ms and diff_ms(now, self.scroll_next_ms) < 0:
-            return
-        display_text.draw_text_at(self.scroll_text, self.scroll_x, y0=5, color=self.color)
-        self.scroll_x -= 1
-        if self.scroll_x < -display_text.text_width(self.scroll_text):
-            self.scroll_x = COLS
-        self.scroll_next_ms = add_ms(now, self.scroll_speed_ms)
-    def timeline_begin(self, fps, last_frame, loop, count, name):
-        self.stop_runtime('timeline begin')
-        self.timeline = {}
-        self.timeline_fps = max(1.0, float(fps))
-        self.timeline_last_frame = int(last_frame)
-        self.timeline_loop = str(loop).lower() in ('1', 'true', 'yes', 'loop')
-        self.timeline_expected_count = min(MAX_TIMELINE_FRAMES, int(count))
-        self.timeline_name = str(name)[:48]
-        gc.collect()
-    def timeline_chunk(self, payload):
-        added = 0
-        for part in payload.split(';'):
-            if not part:
-                continue
-            if ',' not in part:
-                continue
-            frame_s, hexdata = part.split(',', 1)
+        board.set_max_brightness(effective_brightness(
+            self.state.brightness,
+            badapple_mode=False,
+            demo_mode=False,
+        ))
+
+    def _current_home_color(self):
+        if self.proto is not None and hasattr(self.proto, "color"):
             try:
-                frame = int(frame_s)
+                return self.proto.color
             except Exception:
-                continue
-            if len(self.timeline) >= MAX_TIMELINE_FRAMES and frame not in self.timeline:
-                continue
-            hexdata = ''.join(hexdata.strip().split())
-            if len(hexdata) > MAX_TIMELINE_FRAME_HEX:
-                hexdata = hexdata[:MAX_TIMELINE_FRAME_HEX]
-            self.timeline[frame] = hexdata
-            added += 1
-        return added
-    def timeline_play(self):
-        if not self.timeline:
-            return False
-        self.stop_battery_overlay()
-        self.runtime_type = 'timeline'
-        self.runtime_name = self.timeline_name or 'timeline370'
-        self.runtime_started_ms = ticks_ms()
-        self.timeline_current_frame = 0
-        return True
-    def timeline_preview(self, frame):
-        frame = int(frame)
-        if frame in self.timeline:
-            board.draw_frame_hex(self.timeline[frame], on_color=self.color)
-            self.timeline_current_frame = frame
-            return True
-        return False
-    def service_timeline(self):
-        now = ticks_ms()
-        elapsed_s = max(0, diff_ms(now, self.runtime_started_ms) / 1000.0)
-        frame = int(elapsed_s * self.timeline_fps)
-        if frame > self.timeline_last_frame:
-            if self.timeline_loop and self.timeline_last_frame > 0:
-                frame = frame % (self.timeline_last_frame + 1)
-                self.runtime_started_ms = now - int((frame / self.timeline_fps) * 1000)
-            else:
-                self.stop_runtime('timeline finished')
-                self.draw_saved_face()
-                return
-        if frame == self.timeline_current_frame and frame != 0:
-            return
-        self.timeline_current_frame = frame
-        key = frame
-        if key not in self.timeline:
-            while key > 0 and key not in self.timeline:
-                key -= 1
-        if key in self.timeline:
-            board.draw_frame_hex(self.timeline[key], on_color=self.color)
-    def service_runtime(self):
-        if self.runtime_type == 'scroll':
-            self.service_scroll()
-        elif self.runtime_type == 'timeline':
-            self.service_timeline()
-    def set_manual_mode(self, on):
-        self.manual_control_mode = bool(on)
-        self.control_mode = 'manual' if self.manual_control_mode else 'web'
-        self.save_runtime_settings()
-    def network_control_entered(self, cmd):
-        if not (cmd.startswith('request') or cmd.startswith('runtimeStatus')):
-            if self.manual_control_mode and not (cmd.startswith('manualMode') or cmd.startswith('manualControlMode') or cmd.startswith('setManualMode')):
-                self.set_manual_mode(False)
-        ordinary = (
-            'brightness|', 'color|', 'bitmap370Json|', 'fullFaceHex370|',
-            'partFace370|', 'prevFace370', 'nextFace370', 'toggleAuto370',
-            'manualMode|', 'manualControlMode|', 'setManualMode|'
-        )
-        if cmd.startswith(ordinary):
-            self.stop_runtime('network control')
-    def button_control_entered(self):
-        if not self.manual_control_mode:
-            self.set_manual_mode(True)
-        self.stop_runtime('button')
-    def cycle_face(self, delta):
-        if self.faces.count() <= 0:
-            return
-        self.stop_battery_overlay()
-        self.face_index = (self.face_index + int(delta)) % self.faces.count()
-        self.draw_saved_face()
-        self.save_runtime_settings()
-    def adjust_interval(self, delta):
-        self.interval_s = clamp_interval(self.interval_s + float(delta))
-        self.next_auto_ms = add_ms(ticks_ms(), int(self.interval_s * 1000))
-        self.show_overlay_text('interval')
-        self.save_runtime_settings()
-    def adjust_brightness(self, delta):
-        self.brightness = clamp_brightness(self.brightness + int(delta))
-        self.apply_brightness()
-        self.show_overlay_text('brightness')
-        self.save_runtime_settings()
-    def reset_brightness(self):
-        self.brightness = DEFAULT_BRIGHTNESS
-        self.apply_brightness()
-        self.show_overlay_text('brightness')
-        self.save_runtime_settings()
-    def toggle_auto(self):
-        self.auto = not self.auto
-        self.next_auto_ms = add_ms(ticks_ms(), int(self.interval_s * 1000))
-        self.show_overlay_text('mode')
-        self.save_runtime_settings()
-    def handle_command(self, cmd, source='local'):
-        if cmd is None:
-            return 'ERR empty'
-        cmd = str(cmd).strip()
-        if not cmd:
-            return 'ERR empty'
-        log.info('CMD', 'begin', source=source, cmd=_short_cmd(cmd))
-        self.network_control_entered(cmd) if source in ('http', 'udp') else None
+                pass
+        return (66, 0, 36)
+
+    def _dimmed_home_color(self, color):
         try:
-            low = cmd.lower()
-            if cmd == 'requestSavedFaces370':
-                out = self.faces.to_json()
-                log.info('CMD', 'saved faces reply', count=self.faces.count(), bytes=len(out))
-                return out
-            if cmd == 'requestFace':
-                return bitmap_to_legacy_hex(self.current_bitmap())
-            if cmd == 'requestFace370':
-                return 'M370:' + bitmap_to_m370_hex(self.current_bitmap())
-            if cmd == 'requestColor':
-                return '#%02x%02x%02x' % self.color
-            if cmd == 'requestBright':
-                return str(int(max(0, min(255, (self.brightness * 255 + 50) // 100))))
-            if cmd == 'requestVersion':
-                return VERSION
-            if cmd == 'requestBattery':
-                return self.battery_status_json()
-            if cmd == 'requestState':
-                return json.dumps(self.legacy_state_json())
-            if cmd == 'requestEspStatus':
-                status = self.network.status() if self.network else {}
-                status.update({'version': VERSION, 'runtime': self.runtime_status_obj()})
-                return json.dumps(status)
-            if cmd in ('runtimeStatus', 'requestRuntimeStatus'):
-                return json.dumps(self.runtime_status_obj())
-            if cmd.startswith('runtimeStop'):
-                reason = cmd.split('|', 1)[1] if '|' in cmd else ''
-                log.info('RUNTIME', 'stop command', reason=reason)
-                self.stop_runtime(reason)
-                self.draw_saved_face()
-                return 'ok'
-            if cmd == 'requestManualMode' or cmd == 'requestControlMode':
-                return json.dumps({'manual_control_mode': self.manual_control_mode, 'control_mode': 'manual' if self.manual_control_mode else 'web'})
-            if cmd.startswith('manualMode|'):
-                v = cmd.split('|', 1)[1]
-                self.set_manual_mode((not self.manual_control_mode) if v == 'toggle' else bool(int(v)))
-                log.info('CMD', 'manual mode set', enabled=self.manual_control_mode)
-                self.show_overlay_text('manual')
-                return 'ok'
-            if cmd.startswith('setManualMode|'):
-                v = cmd.split('|', 1)[1]
-                self.set_manual_mode((not self.manual_control_mode) if v == 'toggle' else bool(int(v)))
-                self.show_overlay_text('manual')
-                return 'ok'
-            if cmd.startswith('manualControlMode|'):
-                self.set_manual_mode(bool(int(cmd.split('|', 1)[1])))
-                self.show_overlay_text('manual')
-                return 'ok'
-            if cmd.startswith('#') and len(cmd) >= 7:
-                self.set_display_color((int(cmd[1:3], 16), int(cmd[3:5], 16), int(cmd[5:7], 16)), write=True, persist=True)
-                log.info('CMD', 'color set', r=self.color[0], g=self.color[1], b=self.color[2])
-                self.save_runtime_settings()
-                return 'ok'
-            if (cmd.startswith('B') or cmd.startswith('b')) and len(cmd) == 4 and cmd[1:].isdigit():
-                self.brightness = clamp_brightness(int(int(cmd[1:]) * 100 / 255))
-                self.apply_brightness()
-                log.info('CMD', 'brightness set', brightness=self.brightness)
-                self.save_runtime_settings()
-                return 'ok'
-            if low.startswith('m370:'):
-                self.stop_runtime('M370')
-                bm = m370_hex_to_bitmap(cmd[5:])
-                board.draw_bitmap(bm, on_color=self.color, dim_color=self.dim_color)
-                log.info('CMD', 'bitmap drawn')
-                return 'ok'
-            if len(cmd) == 72 and all(c in '0123456789abcdefABCDEF' for c in cmd):
-                self.stop_runtime('legacy face hex')
-                board.draw_bitmap(legacy_hex_to_bitmap(cmd), on_color=self.color, dim_color=self.dim_color)
-                return 'ok'
-            if cmd.startswith('saveFaces370Json|'):
-                payload = cmd.split('|', 1)[1]
-                self.faces.set_all(payload)
-                if self.face_index >= self.faces.count():
-                    self.face_index = max(0, self.faces.count() - 1)
-                self.save_runtime_settings()
-                return 'ok'
-            if cmd.startswith('addFace370Json|'):
-                idx = self.faces.add(json.loads(cmd.split('|', 1)[1]))
-                log.info('FACES', 'add face', index=idx, count=self.faces.count())
-                return json.dumps({'ok': True, 'index': idx})
-            if cmd.startswith('selectFace370|'):
-                self.stop_runtime('selectFace370')
-                self.stop_battery_overlay()
-                idx = int(cmd.split('|', 1)[1])
-                self.draw_saved_face(idx)
-                log.info('FACES', 'select face', index=idx)
-                self.save_runtime_settings()
-                return 'ok'
-            if cmd.startswith('deleteFace370Index|'):
-                ok, msg = self.faces.delete(int(cmd.split('|', 1)[1]))
-                if self.face_index >= self.faces.count():
-                    self.face_index = max(0, self.faces.count() - 1)
-                self.draw_saved_face()
-                log.info('FACES', 'delete face', index=cmd.split('|', 1)[1], ok=ok, count=self.faces.count())
-                return 'ok' if ok else 'ERR ' + msg
-            if cmd.startswith('moveFace370|'):
-                _, src, dst = cmd.split('|', 2)
-                self.faces.move(src, dst)
-                log.info('FACES', 'move face', src=src, dst=dst)
-                return 'ok'
-            if cmd.startswith('lockFace370|'):
-                _, idx, val = cmd.split('|', 2)
-                self.faces.lock(idx, val)
-                log.info('FACES', 'lock face', index=idx, value=val)
-                return 'ok'
-            if cmd.startswith('typeFace370|'):
-                _, idx, typ = cmd.split('|', 2)
-                self.faces.set_type(idx, typ)
-                log.info('FACES', 'type face', index=idx, type=typ)
-                return 'ok'
-            if cmd.startswith('renameFace370Index|'):
-                _, idx, name = cmd.split('|', 2)
-                self.faces.rename(idx, name)
-                log.info('FACES', 'rename face', index=idx, name=name)
-                return 'ok'
-            if cmd.startswith('updateFace370|'):
-                parts = cmd.split('|')
-                self.faces.update_meta(parts[1], parts[2] if len(parts) > 2 else None, parts[3] if len(parts) > 3 else None, parts[4] if len(parts) > 4 else None)
-                return 'ok'
-            if cmd.startswith('scrollText370|'):
-                _, speed, text = cmd.split('|', 2)
-                log.info('SCROLL', 'start command', speed=speed, chars=len(text))
-                self.start_scroll(speed, text)
-                return 'ok'
-            if cmd == 'scrollTextStop370':
-                self.stop_runtime('scroll stop')
-                self.draw_saved_face()
-                return 'ok'
-            if cmd.startswith('timeline370Begin|'):
-                _, fps, last_frame, loop, count, name = cmd.split('|', 5)
-                log.info('TIMELINE', 'begin command', fps=fps, last=last_frame, loop=loop, count=count, name=name)
-                self.timeline_begin(fps, last_frame, loop, count, name)
-                return 'ok'
-            if cmd.startswith('timeline370Chunk|'):
-                added = self.timeline_chunk(cmd.split('|', 1)[1])
-                log.info('TIMELINE', 'chunk command', added=added, loaded=len(self.timeline), expected=self.timeline_expected_count)
-                return json.dumps({'ok': True, 'added': added, 'loaded': len(self.timeline)})
-            if cmd == 'timeline370Play':
-                ok = self.timeline_play()
-                log.info('TIMELINE', 'play command', ok=ok, loaded=len(self.timeline), last=self.timeline_last_frame)
-                return 'ok' if ok else 'ERR no timeline frames'
-            if cmd.startswith('timeline370Preview|'):
-                return 'ok' if self.timeline_preview(cmd.split('|', 1)[1]) else 'ERR frame not loaded'
-            if cmd == 'timeline370Stop':
-                self.stop_runtime('timeline stop')
-                self.draw_saved_face()
-                return 'ok'
-            if cmd == 'timeline370Clear':
-                self.stop_runtime('timeline clear')
-                self.timeline = {}
-                gc.collect()
-                return 'ok'
-            if cmd.startswith('brightness|'):
-                self.brightness = clamp_brightness(int(cmd.split('|', 1)[1]))
-                self.apply_brightness()
-                self.show_overlay_text('brightness')
-                self.save_runtime_settings()
-                return 'ok'
-            if cmd.startswith('color|'):
-                _, r, g, b = cmd.split('|', 3)
-                self.set_display_color((int(r), int(g), int(b)), write=True, persist=True)
-                return 'ok'
-            if cmd.startswith('fullFaceHex370|'):
-                self.stop_runtime('fullFaceHex370')
-                bm = legacy_hex_to_bitmap(cmd.split('|', 1)[1])
-                board.draw_bitmap(bm, on_color=self.color, dim_color=self.dim_color)
-                return 'ok'
-            if cmd.startswith('bitmap370Json|'):
-                self.stop_runtime('bitmap370Json')
-                board.draw_bitmap(normalize_bitmap(cmd.split('|', 1)[1]), on_color=self.color, dim_color=self.dim_color)
-                return 'ok'
-            if cmd.startswith('partFace370|'):
-                _, le, re, mo, ch = cmd.split('|', 4)
-                bm = compose_part_bitmap(int(le), int(re), int(mo), int(ch))
-                board.draw_bitmap(bm, on_color=self.color, dim_color=self.dim_color)
-                return 'ok'
-            if cmd in ('prevFace370', 'facePrev'):
-                self.cycle_face(-1); return 'ok'
-            if cmd in ('nextFace370', 'faceNext'):
-                self.cycle_face(+1); return 'ok'
-            if cmd == 'toggleAuto370':
-                self.toggle_auto(); return 'ok'
-            log.warn('CMD', 'unknown', source=source, cmd=_short_cmd(cmd))
-            return 'ERR unknown command: ' + cmd[:80]
-        except Exception as e:
-            log.exception('CMD', 'command error cmd=' + _short_cmd(cmd), e)
-            return 'ERR ' + str(e)
-    def handle_legacy_udp(self, data):
-        ln = len(data)
-        log.info('CMD', 'legacy udp begin', bytes=ln)
-        self.network_control_entered('legacyUdp')
-        self.stop_runtime('legacy udp')
-        if ln == 36:
-            bm = legacy_grid_to_bitmap(legacy_bits_to_grid(data, offset_rows=0))
-            board.draw_bitmap(bm, on_color=self.color, dim_color=self.dim_color)
-            return 'ok legacy FACE_FULL'
-        if ln == 16:
-            bm = legacy_grid_to_bitmap(legacy_bits_to_grid(data, offset_rows=4))
-            board.draw_bitmap(bm, on_color=self.color, dim_color=self.dim_color)
-            return 'ok legacy FACE_TEXT_LITE'
-        if ln == 4:
-            bm = compose_part_bitmap(data[0], data[1], data[2], data[3])
-            board.draw_bitmap(bm, on_color=self.color, dim_color=self.dim_color)
-            return 'ok legacy FACE_LITE'
-        if ln == 3:
-            self.set_display_color((data[0], data[1], data[2]), write=True, persist=True)
-            return 'ok legacy COLOR'
-        if ln == 1:
-            self.brightness = clamp_brightness(int(data[0] * 100 / 255))
-            self.apply_brightness()
-            self.save_runtime_settings()
-            return 'ok legacy BRIGHT'
-        return 'ERR legacy length %d' % ln
-    def on_protocol_color_updated(self, rgb):
-        self.set_display_color(rgb, write=False, persist=True)
-    def start_b6_press(self):
-        self.b6_pending = True
-        self.b6_press_started_ms = ticks_ms()
-        self.b6_long_fired = False
-    def check_b6_hold_release(self):
-        b6 = self.buttons.is_down(BTN_BATTERY)
-        if self.b6_pending and b6 and not self.buttons.is_down(BTN_AUTO) and not self.buttons.is_down(BTN_NEXT):
-            if (not self.b6_long_fired) and diff_ms(ticks_ms(), self.b6_press_started_ms) >= B6_LONG_PRESS_MS:
-                self.b6_long_fired = True
-                self.start_battery_overlay(single=False)
-        if self.prev_b6_down and not b6:
-            if self.b6_pending:
-                if self.b6_long_fired:
-                    self.stop_battery_overlay()
-                else:
-                    self.start_battery_overlay(single=True)
-                self.b6_pending = False
-                self.b6_long_fired = False
-        self.prev_b6_down = b6
-    def check_b3_release(self):
-        b3 = self.buttons.is_down(BTN_AUTO)
-        if self.prev_b3_down and not b3:
-            if not self.b3_consumed and not self.demo_combo_fired:
-                self.toggle_auto()
-            self.b3_consumed = False
-            self.demo_combo_fired = False
-        self.prev_b3_down = b3
-    def check_combos(self):
-        now = ticks_ms()
-        b2 = self.buttons.is_down(BTN_NEXT)
-        b3 = self.buttons.is_down(BTN_AUTO)
-        b4 = self.buttons.is_down(BTN_BRIGHT_DN)
-        b5 = self.buttons.is_down(BTN_BRIGHT_UP)
-        b6 = self.buttons.is_down(BTN_BATTERY)
-        if b4 and b5:
-            if not self.brightness_combo_latched:
-                self.button_control_entered()
-                self.brightness_combo_latched = True
-                self.reset_brightness()
-            return True
-        else:
-            self.brightness_combo_latched = False
-        if b3 and b6:
-            self.b3_consumed = True
-            self.b6_pending = False
-            if self.demo_combo_started_ms is None:
-                self.demo_combo_started_ms = now
-                self.demo_combo_fired = False
-            elif (not self.demo_combo_fired) and diff_ms(now, self.demo_combo_started_ms) >= SPECIAL_COMBO_LONG_PRESS_MS:
-                self.demo_combo_fired = True
-                self.button_control_entered()
-                self.show_overlay_text('info', 'DEMO OFF')
-            return True
-        self.demo_combo_started_ms = None
-        if b2 and b6:
-            self.b6_pending = False
-            if self.ip_combo_started_ms is None:
-                self.ip_combo_started_ms = now
-                self.ip_combo_fired = False
-            elif (not self.ip_combo_fired) and diff_ms(now, self.ip_combo_started_ms) >= SPECIAL_COMBO_LONG_PRESS_MS:
-                self.ip_combo_fired = True
-                self.button_control_entered()
-                label = self.network.label() if self.network else 'NO IP'
-                self.start_scroll(IP_SCROLL_SPEED_MS, label)
-            return True
-        self.ip_combo_started_ms = None
-        return False
-    def handle_button_press(self, gp):
-        self.button_control_entered()
-        if self.buttons.is_down(BTN_AUTO) and gp in (BTN_PREV, BTN_NEXT):
-            self.b3_consumed = True
-            self.adjust_interval(-INTERVAL_STEP_S if gp == BTN_PREV else INTERVAL_STEP_S)
-            return
-        if gp == BTN_PREV:
-            self.cycle_face(-1)
-        elif gp == BTN_NEXT:
-            self.cycle_face(+1)
-        elif gp == BTN_AUTO:
-            self.b3_consumed = False
-        elif gp == BTN_BRIGHT_DN:
-            self.adjust_brightness(-BRIGHTNESS_STEP)
-        elif gp == BTN_BRIGHT_UP:
-            self.adjust_brightness(+BRIGHTNESS_STEP)
-        elif gp == BTN_BATTERY:
-            self.start_b6_press()
-    def service_buttons(self):
-        if self._servicing_buttons:
-            return
-        self._servicing_buttons = True
-        try:
-            combo = self.check_combos()
-            for gp in self.buttons.poll():
-                if combo:
-                    continue
-                self.handle_button_press(gp)
-                self.next_auto_ms = add_ms(ticks_ms(), int(self.interval_s * 1000))
-            self.check_combos()
-            self.check_b6_hold_release()
-            self.check_b3_release()
-        finally:
-            self._servicing_buttons = False
-    def urgent_poll(self):
-        self.service_buttons()
-        self.stop_overlay_if_expired()
-    def service_auto(self):
-        if self.runtime_type or self.battery_overlay_active or self.flash_until_ms:
-            self.next_auto_ms = add_ms(ticks_ms(), int(self.interval_s * 1000))
-            return
-        if self.auto and diff_ms(ticks_ms(), self.next_auto_ms) >= 0:
-            self.face_index = (self.face_index + 1) % max(1, self.faces.count())
-            self.draw_saved_face()
-            self.next_auto_ms = add_ms(ticks_ms(), int(self.interval_s * 1000))
-            self.save_runtime_settings()
-    def initialize(self):
-        print('RinaChanBoard ESP32-S3 370 native fused')
-        print('version:', VERSION)
-        print('LED GPIO:', LED_PIN, 'BATT_ADC:', BATT_ADC_PIN, 'CHG_ADC:', CHG_ADC_PIN, 'buttons:', BUTTON_PINS)
-        print('saved faces:', self.faces.count(), 'default start:', DEFAULT_START_INDEX)
-        self.apply_brightness()
-        self.draw_saved_face()
-        self.battery.service_mean_sampler(force=True)
-        ProtocolServer = None
-        gc.collect()
-        try:
-            print('mem before protocol server import:', gc.mem_free())
+            return (max(0, int(color[0]) // 3),
+                    max(0, int(color[1]) // 3),
+                    max(0, int(color[2]) // 3))
         except Exception:
-            pass
-        try:
-            from protocol_server import ProtocolServer as _ProtocolServer
-            ProtocolServer = _ProtocolServer
-        except MemoryError as e:
-            print('protocol server import memory failed; AP will still stay up:', e)
-            gc.collect()
-        except Exception as e:
-            print('protocol server import failed; AP will still stay up:', e)
-            gc.collect()
-        try:
-            print('mem after protocol server import:', gc.mem_free())
-        except Exception:
-            pass
-        self.network = NetworkManager()
-        self.network.begin()
-        gc.collect()
-        if ProtocolServer is not None:
+            return (24, 0, 14)
+
+    def draw_current_face(self):
+        # Button B1/B2 and A/M auto/manual now use the shared saved-custom-face
+        # list.  The list is seeded with every face from the original Python
+        # demo_faces.py file and can be extended by WebUI save operations.
+        face = saved_faces_370.get(self.state.face_idx)
+        face_hex = face.get("hex", "")
+        if self.proto is not None and hasattr(self.proto, "update_physical_face_hex"):
             try:
-                self.server = ProtocolServer(self)
-                self.server.begin()
-            except MemoryError as e:
-                print('protocol server disabled by memory pressure; AP remains active:', e)
-                self.server = None
-                gc.collect()
-            except Exception as e:
-                print('protocol server disabled by startup error; AP remains active:', e)
-                self.server = None
-                gc.collect()
+                self.proto.update_physical_face_hex(face_hex, notify=False)
+                self.button_face_active = True
+                return
+            except Exception as exc:
+                print("saved face draw via protocol failed:", exc)
+
+        # Fallback for very early boot if protocol is unavailable.
+        # Do not load the old demo face module in the normal boot path; this firmware build
+        # uses saved_faces_370 as the only face source to save RP2040 heap.
+        clear()
+        show()
+        self.button_face_active = True
+
+    def render_current_visual(self, force=False):
+        self.draw_current_face()
+
+    # ------------------------------------------------------------------
+    # Flash / overlay rendering
+    # ------------------------------------------------------------------
+    def start_edge_flash(self, edge):
+        self.state.edge_flash_active = True
+        self.state.edge_flash_edge = edge
+        self.state.edge_flash_started_ms = time.ticks_ms()
+
+    def edge_flash_factor(self, elapsed_ms):
+        if elapsed_ms < 0 or elapsed_ms > EDGE_FLASH_TOTAL_MS:
+            return 0.0
+        if elapsed_ms <= EDGE_FLASH_ATTACK_MS:
+            return elapsed_ms / float(EDGE_FLASH_ATTACK_MS)
+        t = (elapsed_ms - EDGE_FLASH_ATTACK_MS) / float(EDGE_FLASH_DECAY_MS)
+        return 1.0 - t
+
+    def overlay_edge_flash(self):
+        if not self.state.edge_flash_active:
+            return False
+
+        elapsed = time.ticks_diff(time.ticks_ms(), self.state.edge_flash_started_ms)
+        factor = self.edge_flash_factor(elapsed)
+        if factor <= 0.0:
+            self.state.edge_flash_active = False
+            return False
+
+        y = 0 if self.state.edge_flash_edge == "top" else (ROWS - 1)
+        center = (COLS - 1) / 2.0
+        max_dist = center if center > 0 else 1.0
+
+        for x in range(COLS):
+            idx = logical_to_led_index(x, y)
+            if idx is None:
+                continue
+            dist = abs(x - center)
+            spatial = 1.0 - (dist / max_dist)
+            if spatial < 0.20:
+                spatial = 0.20
+            level = factor * spatial
+            if level <= 0.0:
+                continue
+            flash_color = EDGE_FLASH_COLOR
+            if self.state.flash_kind == "interval":
+                flash_color = display_num.MODE_COLOR
+            np[idx] = scale_color((
+                int(flash_color[0] * level),
+                int(flash_color[1] * level),
+                int(flash_color[2] * level),
+            ))
+        show()
+        return True
+
+    def render_flash_overlay_base(self):
+        if self.state.flash_kind == "interval":
+            display_num.render_interval(self.state.flash_value)
+        elif self.state.flash_kind == "brightness":
+            display_num.render_brightness_percent(self.state.flash_value)
+        elif self.state.flash_kind == "mode":
+            display_num.render_mode(self.state.flash_value)
+
+    def render_flash_overlay_with_edge(self):
+        if not self.state.flash_active:
+            return
+        self.render_flash_overlay_base()
+        self.overlay_edge_flash()
+
+    def start_or_extend_flash(self, kind=None, value=None):
+        self.state.flash_active = True
+        self.state.flash_kind = kind
+        self.state.flash_value = value
+        self.state.flash_expires_ms = time.ticks_add(time.ticks_ms(), FLASH_HOLD_MS)
+
+    def end_flash_if_expired(self):
+        if not self.state.flash_active:
+            return False
+        if time.ticks_diff(time.ticks_ms(), self.state.flash_expires_ms) >= 0:
+            self.state.flash_active = False
+            self.state.flash_kind = None
+            self.state.flash_value = None
+            self.render_current_visual(force=True)
+            return True
+        return False
+
+    def cancel_flash_and_redraw(self):
+        self.state.flash_active = False
+        self.state.flash_kind = None
+        self.state.flash_value = None
+        self.render_current_visual(force=True)
+
+    def stop_battery_display(self):
+        if not self.state.battery_display_active:
+            return
+        self.state.battery_display_active = False
+        self.state.battery_display_single_shot = False
+        self.state.battery_display_expires_ms = 0
+        self.state.battery_visual_next_refresh_ms = 0
+        self.render_current_visual(force=True)
+
+    def service_battery_sampling(self, force_sample=False):
+        return self.battery_monitor.service_mean_sampler(force_sample=force_sample)
+
+    # ------------------------------------------------------------------
+    # Battery display helpers
+    # ------------------------------------------------------------------
+    def is_charging(self, charge_v=None, previous=None):
+        if charge_v is None:
+            _, charge_v = self.battery_monitor.get_mean_voltage_pair(allow_partial=True)
+        if previous is None:
+            previous = self.state.battery_display_cached_is_charging
+        return self.battery_monitor.is_charging_voltage(charge_v, previous=previous)
+
+    def show_battery_percent_short(self):
+        self.state.battery_display_active = True
+        self.state.battery_display_single_shot = True
+        self.state.flash_active = False
+        self.state.flash_kind = None
+        self.state.flash_value = None
+        self.state.battery_next_refresh_ms = 0
+        self.state.battery_visual_next_refresh_ms = 0
+        self.refresh_battery_overlay_cache(force=True)
+        now = time.ticks_ms()
+        self.state.battery_display_toggle_started_ms = now
+        self.state.battery_display_phase_index = 0
+        self.state.battery_display_phase_count = 1
+        self.state.battery_display_next_phase_ms = 0
+        self.state.battery_display_expires_ms = time.ticks_add(now, BATTERY_SHORT_SHOW_MS)
+        self.render_battery_overlay(refresh_phase=False, refresh_cache=False)
+
+    def refresh_battery_overlay_cache(self, force=False):
+        now = time.ticks_ms()
+        if (not force and self.state.battery_next_refresh_ms and
+                time.ticks_diff(now, self.state.battery_next_refresh_ms) < 0):
+            return False
+
+        self.service_battery_sampling(force_sample=force)
+        v_bat, charge_v = self.battery_monitor.get_mean_voltage_pair(allow_partial=True)
+
+        if v_bat is None:
+            v_bat = self.state.battery_display_cached_voltage
+        if charge_v is None:
+            charge_v = self.state.battery_display_cached_charge_voltage
+
+        # For the charging/not-charging decision, read the charge ADC
+        # instantaneously instead of relying on the 1-second mean. The mean
+        # lags by up to a full window; on an unplug event we need to flip
+        # within one poll tick so the display stops showing the charging
+        # animation and the charger-voltage phase. A single fresh sample is
+        # good enough here because the charge detect pin has a hard pull
+        # (either 5 V from VBUS or 0 V via R2), not a noisy analog signal.
+        instant_charge_v = self.battery_monitor.read_charge_voltage()
+        charging_sample = instant_charge_v if instant_charge_v is not None else charge_v
+        charging = self.is_charging(charging_sample, previous=self.state.battery_display_cached_is_charging)
+        if v_bat is not None:
+            self.battery.last_voltage = v_bat
+        if charge_v is not None:
+            self.battery.last_charge_voltage = charge_v
+        pct = self.battery_monitor.percent_from_voltage(v_bat, self.battery)
+        pct_float = self.battery_monitor.percent_float_from_voltage(v_bat, self.battery)
+        remaining_h = estimate_remaining_hours(self.battery, self.state, pct_float)
+        charge_time_h = estimate_charge_hours(self.battery, self.state, pct_float)
+
+        if not self.state.battery_display_single_shot:
+            target_phase_count = 4 if charging else 3
+            if self.state.battery_display_phase_count != target_phase_count:
+                self.state.battery_display_phase_count = target_phase_count
+                # If we just stopped charging and the user was on phase 3
+                # (the charger-voltage screen, which only exists while
+                # charging), jump back to phase 0 so we stop displaying a
+                # stale charger voltage for a disconnected charger. For the
+                # reverse direction (discharge -> charging), also reset so
+                # the cycle starts cleanly from the percent phase.
+                self.state.battery_display_phase_index = 0
+                self.state.battery_display_toggle_started_ms = now
+                self.state.battery_display_next_phase_ms = time.ticks_add(now, BATTERY_DISPLAY_CYCLE_MS)
+
+        old_cache = (
+            self.state.battery_display_cached_voltage,
+            self.state.battery_display_cached_charge_voltage,
+            self.state.battery_display_cached_percent,
+            self.state.battery_display_cached_percent_float,
+            self.state.battery_display_cached_remaining_h,
+            self.state.battery_display_cached_charge_time_h,
+            self.state.battery_display_cached_is_charging,
+        )
+
+        self.state.battery_display_cached_voltage = v_bat
+        self.state.battery_display_cached_charge_voltage = charge_v
+        self.state.battery_display_cached_percent = pct
+        self.state.battery_display_cached_percent_float = pct_float
+        self.state.battery_display_cached_remaining_h = remaining_h
+        self.state.battery_display_cached_charge_time_h = charge_time_h
+        self.state.battery_display_cached_is_charging = charging
+        self.state.battery_next_refresh_ms = time.ticks_add(now, BATTERY_REFRESH_MS)
+
+        new_cache = (
+            v_bat,
+            charge_v,
+            pct,
+            pct_float,
+            remaining_h,
+            charge_time_h,
+            charging,
+        )
+        return force or (new_cache != old_cache)
+
+    def update_battery_display_phase(self):
+        if not self.state.battery_display_active:
+            return
+        now = time.ticks_ms()
+        if self.state.battery_display_single_shot:
+            return
+        while (self.state.battery_display_next_phase_ms and
+               time.ticks_diff(now, self.state.battery_display_next_phase_ms) >= 0):
+            phase_count = self.state.battery_display_phase_count
+            self.state.battery_display_phase_index = (self.state.battery_display_phase_index + 1) % phase_count
+            self.state.battery_display_next_phase_ms = time.ticks_add(
+                self.state.battery_display_next_phase_ms,
+                BATTERY_DISPLAY_CYCLE_MS,
+            )
+
+    def service_battery_overlay(self):
+        if not self.state.battery_display_active:
+            return
+
+        now = time.ticks_ms()
+
+        if self.state.battery_display_single_shot:
+            # Check for expiry first
+            if time.ticks_diff(now, self.state.battery_display_expires_ms) >= 0:
+                self.stop_battery_display()
+                return
+            # Fast-path charging-state check on every poll tick so an
+            # unplug / replug during the 2 s single-shot window flips the
+            # display immediately, without waiting for the 100 ms cache
+            # cadence.
+            instant_charge_v = self.battery_monitor.read_charge_voltage()
+            charging_instant = self.battery_monitor.is_charging_voltage(
+                instant_charge_v,
+                previous=self.state.battery_display_cached_is_charging,
+            )
+            charge_state_flipped = (charging_instant != self.state.battery_display_cached_is_charging)
+            cache_due = (not self.state.battery_next_refresh_ms or
+                         time.ticks_diff(now, self.state.battery_next_refresh_ms) >= 0)
+            if charge_state_flipped:
+                cache_due = True
+            if cache_due and self.refresh_battery_overlay_cache(force=charge_state_flipped):
+                self.render_battery_overlay(refresh_phase=False, refresh_cache=False, log_status=True)
+            return
+
+        cache_due = (not self.state.battery_next_refresh_ms or
+                     time.ticks_diff(now, self.state.battery_next_refresh_ms) >= 0)
+        visual_due = (not self.state.battery_visual_next_refresh_ms or
+                      time.ticks_diff(now, self.state.battery_visual_next_refresh_ms) >= 0)
+        phase_due = (self.state.battery_display_next_phase_ms and
+                     time.ticks_diff(now, self.state.battery_display_next_phase_ms) >= 0)
+
+        # Fast-path charging-state check: read the charge ADC on every poll
+        # tick (not just on the 100 ms cache cadence) so the icon animation
+        # stops the instant the charger is unplugged. When the state flips
+        # we force a cache refresh on this same tick so the new charging
+        # flag is picked up by the renderer immediately.
+        instant_charge_v = self.battery_monitor.read_charge_voltage()
+        charging_instant = self.battery_monitor.is_charging_voltage(
+            instant_charge_v,
+            previous=self.state.battery_display_cached_is_charging,
+        )
+        charge_state_flipped = (charging_instant != self.state.battery_display_cached_is_charging)
+        if charge_state_flipped:
+            cache_due = True
+
+        cache_changed = False
+        if cache_due:
+            cache_changed = self.refresh_battery_overlay_cache(force=charge_state_flipped)
+            now = time.ticks_ms()
+
+        phase_changed = False
+        if phase_due:
+            old_phase = self.state.battery_display_phase_index
+            self.update_battery_display_phase()
+            phase_changed = (self.state.battery_display_phase_index != old_phase)
+            now = time.ticks_ms()
+
+        animate_due = self.state.battery_display_cached_is_charging and visual_due
+        if cache_changed or phase_changed or animate_due:
+            self.render_battery_overlay(refresh_phase=False, refresh_cache=False, log_status=(cache_changed or phase_changed))
+            self.state.battery_visual_next_refresh_ms = time.ticks_add(now, BATTERY_ANIMATION_REFRESH_MS)
+
+    def render_battery_overlay(self, refresh_phase=True, refresh_cache=True, log_status=True):
+        if refresh_phase:
+            self.update_battery_display_phase()
+        if refresh_cache:
+            self.refresh_battery_overlay_cache(force=False)
+
+        v_bat = self.state.battery_display_cached_voltage
+        charge_v = self.state.battery_display_cached_charge_voltage
+        pct = self.state.battery_display_cached_percent
+        pct_float = self.state.battery_display_cached_percent_float
+        remaining_h = self.state.battery_display_cached_remaining_h
+        charge_time_h = self.state.battery_display_cached_charge_time_h
+        charging = self.state.battery_display_cached_is_charging
+
+        if pct is None:
+            print("battery monitor unavailable")
+            display_num.render_battery_percent(0, color=(255, 0, 0))
+            return
+
+        color = self.battery_monitor.color(pct)
+        charging_phase_ms = time.ticks_diff(time.ticks_ms(), self.state.battery_display_toggle_started_ms)
+        charge_step_interval_s = self.battery_monitor.charge_animation_step_interval_s(pct)
+        flash_last_column = False
+
+        display_count = self.state.battery_display_phase_count
+        cycle_index = self.state.battery_display_phase_index % display_count
+        if self.state.battery_display_single_shot:
+            phase_name = "percent_short"
+            cycle_index = 0
+        else:
+            phase_name = ("percent", "voltage", "time", "charge_v")[cycle_index]
+
+        display_remaining_h = remaining_h if remaining_h is not None else BATTERY_DEFAULT_USAGE_HOURS
+        display_charge_h = charge_time_h if charge_time_h is not None else BATTERY_DEFAULT_CHARGE_HOURS
+        active_time_h = display_charge_h if charging else display_remaining_h
+
+        if active_time_h < 1.0:
+            remain_text = "{} min".format(int(round(active_time_h * 60.0)))
+        else:
+            remain_text = "{:.1f} h".format(active_time_h)
+
+        if log_status:
+            print("battery display: mean={:.2f} V, charge={:.2f} V, pct={}, learned min={:.2f} V, learned max={:.2f} V, time={}, phase={}, charging={}".format(
+                v_bat if v_bat is not None else 0.0,
+                charge_v if charge_v is not None else 0.0,
+                pct,
+                self.battery.min_v,
+                self.battery.max_v,
+                remain_text,
+                phase_name,
+                charging))
+
+        animate_icon = (not self.state.battery_display_single_shot) and charging
+
+        if cycle_index == 0:
+            display_num.render_battery_percent(
+                pct, color=color, charging=charging,
+                charging_phase_ms=charging_phase_ms,
+                charge_step_interval_s=charge_step_interval_s,
+                flash_last_column=flash_last_column,
+                animate=animate_icon,
+            )
+        elif cycle_index == 1:
+            display_num.render_battery_voltage(
+                v_bat, pct, color=color, charging=charging,
+                charging_phase_ms=charging_phase_ms,
+                charge_step_interval_s=charge_step_interval_s,
+                flash_last_column=flash_last_column,
+                animate=animate_icon,
+            )
+        elif cycle_index == 2:
+            display_num.render_battery_time(
+                active_time_h, pct, color=color, charging=charging,
+                charging_phase_ms=charging_phase_ms,
+                charge_step_interval_s=charge_step_interval_s,
+                flash_last_column=flash_last_column,
+                animate=animate_icon,
+            )
+        else:
+            display_num.render_charge_voltage(
+                charge_v, pct, icon_color=color, charging=charging,
+                charging_phase_ms=charging_phase_ms,
+                charge_step_interval_s=charge_step_interval_s,
+                flash_last_column=flash_last_column,
+                animate=animate_icon,
+            )
+
+    def start_b6_press(self):
+        self.state.b6_pending = True
+        self.state.b6_press_started_ms = time.ticks_ms()
+        self.state.b6_long_fired = False
+
+    def check_b6_hold(self):
+        if not self.state.b6_pending:
+            return
+        if self.buttons.is_down(BTN_AUTO):
+            return
+        if self.buttons.is_down(BTN_NEXT):
+            return
+        if not self.buttons.is_down(BTN_BRIGHT_RST):
+            return
+
+        now = time.ticks_ms()
+        if (not self.state.b6_long_fired and
+                time.ticks_diff(now, self.state.b6_press_started_ms) >= B6_LONG_PRESS_MS):
+            self.state.b6_long_fired = True
+            self.state.battery_display_active = True
+            self.state.flash_active = False
+            self.state.flash_kind = None
+            self.state.flash_value = None
+            self.state.battery_next_refresh_ms = 0
+            self.state.battery_visual_next_refresh_ms = 0
+            self.refresh_battery_overlay_cache(force=True)
+            now = time.ticks_ms()
+            self.state.battery_display_toggle_started_ms = now
+            self.state.battery_display_phase_index = 0
+            self.state.battery_display_phase_count = 4 if self.state.battery_display_cached_is_charging else 3
+            self.state.battery_display_next_phase_ms = time.ticks_add(now, BATTERY_DISPLAY_CYCLE_MS)
+            self.render_battery_overlay(refresh_phase=False, refresh_cache=False)
+
+    def check_b6_release(self, prev_b6_down):
+        b6_now = self.buttons.is_down(BTN_BRIGHT_RST)
+        if prev_b6_down and not b6_now:
+            if self.state.ip_combo_latched:
+                self.state.b6_pending = False
+                self.state.b6_long_fired = False
+                return b6_now
+            if self.state.badapple_combo_long_fired:
+                self.state.b6_pending = False
+                self.state.b6_long_fired = False
+                self.state.badapple_combo_long_fired = False
+                return b6_now
+            if self.state.b6_pending:
+                if self.state.battery_display_active or self.state.b6_long_fired:
+                    self.stop_battery_display()
+                else:
+                    if not self.buttons.is_down(BTN_AUTO) and not self.buttons.is_down(BTN_NEXT):
+                        self.show_battery_percent_short()
+                self.state.b6_pending = False
+                self.state.b6_long_fired = False
+        return b6_now
+
+    # ------------------------------------------------------------------
+    # IP/SSID display overlay: B2 + B6 scrolls the current ESP STA IP and SSID.
+    # It uses the full 22x18 irregular 370-LED physical matrix.
+    # Hidden/padded cells are not real LEDs and remain dark.
+    # ------------------------------------------------------------------
+    def start_ip_display(self):
         try:
-            print('mem after server begin:', gc.mem_free())
+            ip = self.link.get_ip() if self.link is not None else None
         except Exception:
-            pass
+            ip = None
+        try:
+            ssid = self.link.get_ssid() if self.link is not None and hasattr(self.link, "get_ssid") else None
+        except Exception:
+            ssid = None
+        if not ip:
+            print("ip display: no STA IP known yet")
+            return
+        text = str(ip)
+        if ssid:
+            text = str(ip) + "  " + str(ssid)
+        now = time.ticks_ms()
+        self.state.ip_scroll_text = text
+        self.state.ip_scroll_offset = 0
+        self.state.ip_scroll_next_ms = time.ticks_add(now, 120)
+        # Duration scales with text length; enough time for at least one pass.
+        self.state.ip_display_expires_ms = time.ticks_add(now, max(9000, len(text) * 650))
+        self.state.ip_display_active = True
+        self.state.flash_active = False
+        self.state.edge_flash_active = False
+        self.state.battery_display_active = False
+        self.state.battery_display_single_shot = False
+        display_num.render_scrolling_text_window(text, 0)
+        print("ip display scroll:", text)
+
+    def service_ip_display(self):
+        if not self.state.ip_display_active:
+            return
+        now = time.ticks_ms()
+        if time.ticks_diff(now, self.state.ip_display_expires_ms) >= 0:
+            self.state.ip_display_active = False
+            self.draw_current_face()
+            return
+        if time.ticks_diff(now, self.state.ip_scroll_next_ms) >= 0:
+            text = self.state.ip_scroll_text or ""
+            display_num.render_scrolling_text_window(text, self.state.ip_scroll_offset)
+            self.state.ip_scroll_offset = (self.state.ip_scroll_offset + 1) % max(1, len(text) * 6 + 22)
+            self.state.ip_scroll_next_ms = time.ticks_add(now, 120)
+
+    def check_ip_combo(self):
+        b2_down = self.buttons.is_down(BTN_NEXT)
+        b6_down = self.buttons.is_down(BTN_BRIGHT_RST)
+        if b2_down and b6_down:
+            if not self.state.ip_combo_latched:
+                self.state.ip_combo_latched = True
+                self.state.b6_pending = False
+                self.state.b6_long_fired = False
+                self.start_ip_display()
+            return True
+        self.state.ip_combo_latched = False
+        return False
+
+    # ------------------------------------------------------------------
+    # Mode management
+    # ------------------------------------------------------------------
+    def apply_demo_runtime_settings(self, refresh_timer=True):
+        # Matrix demo is disabled in this build; keep this as a no-op so the
+        # large matrix_demos module is not imported and compiled during boot.
+        return
+
+    def stop_special_demo_mode(self, redraw_face=True):
+        if not self.state.special_demo_mode:
+            return
+        self.state.special_demo_mode = False
+        self.apply_brightness()
+        if redraw_face:
+            self.draw_current_face()
+
+    def start_special_demo_mode(self):
+        # Matrix demo is intentionally unavailable.
+        self.state.special_demo_mode = False
+        return
+
+    def toggle_special_demo_mode(self):
+        self.stop_special_demo_mode(redraw_face=True)
+        print("special demo mode = disabled")
+
+    def check_special_demo_combo(self):
+        # Matrix demo button control is completely disabled in this build.
+        # B3+B6 is consumed so it never toggles auto mode or B6 battery mode,
+        # but it does not enter any demo renderer.
+        b3_down = self.buttons.is_down(BTN_AUTO)
+        b6_down = self.buttons.is_down(BTN_BRIGHT_RST)
+        if b3_down and b6_down:
+            self.state.b3_consumed = True
+            self.state.b6_pending = False
+            self.state.b6_long_fired = False
+            self.state.combo_press_started_ms = None
+            self.state.combo_long_fired = False
+            return True
+        self.state.combo_press_started_ms = None
+        self.state.combo_long_fired = False
+        self.state.special_demo_mode = False
+        return False
+
+    def check_badapple_combo(self):
+        # Bad Apple is intentionally excluded in this integrated build.
+        self.state.badapple_combo_press_started_ms = None
+        self.state.badapple_combo_long_fired = False
+        return False
+
+    # ------------------------------------------------------------------
+    # User actions
+    # ------------------------------------------------------------------
+    def cycle_face(self, delta):
+        self.stop_webui_runtime(redraw=False)
+        self.state.special_demo_mode = False
+        self.state.face_idx = (self.state.face_idx + delta) % max(1, saved_faces_370.count())
+        self.stop_battery_display()
+        self.cancel_flash_and_redraw()
+
+    def adjust_interval(self, delta):
+        self.state.special_demo_mode = False
+        old_val = self.state.interval_s
+        self.state.interval_s = clamp_interval(self.state.interval_s + delta)
+        if self.state.interval_s != old_val:
+            self.save_settings()
+        if delta < 0 and self.state.interval_s <= INTERVAL_MIN_S:
+            self.start_edge_flash("bottom")
+        elif delta > 0 and self.state.interval_s >= INTERVAL_MAX_S:
+            self.start_edge_flash("top")
+        self.stop_battery_display()
+        display_num.render_interval(self.state.interval_s)
+        # flash_kind must be set before overlay_edge_flash() so the first
+        # rendered frame of the edge flash gets the interval tint
+        # (MODE_COLOR / purple) instead of the default blue.
+        self.start_or_extend_flash("interval", self.state.interval_s)
+        self.overlay_edge_flash()
+
+
+    def sync_protocol_brightness_from_buttons(self):
+        # Keep web/API brightness in sync after hardware button changes.
+        if self.proto is not None and hasattr(self.proto, "bright"):
+            try:
+                self.proto.bright = int(effective_brightness(self.state.brightness, badapple_mode=False, demo_mode=False))
+            except Exception as exc:
+                print("brightness state sync failed:", exc)
+
+    def adjust_brightness(self, delta):
+        old_val = self.state.brightness
+        self.state.brightness = clamp_brightness(self.state.brightness + delta)
+        self.apply_brightness()
+        self.sync_protocol_brightness_from_buttons()
+        if self.state.brightness != old_val:
+            self.save_settings()
+        if delta < 0 and self.state.brightness <= BRIGHTNESS_MIN:
+            self.start_edge_flash("bottom")
+        elif delta > 0 and self.state.brightness >= BRIGHTNESS_MAX:
+            self.start_edge_flash("top")
+        self.stop_battery_display()
+        display_num.render_brightness_percent(self.state.brightness)
+        self.overlay_edge_flash()
+        self.start_or_extend_flash("brightness", self.state.brightness)
+
+    def reset_brightness(self):
+        old_val = self.state.brightness
+        self.state.brightness = DEFAULT_BRIGHTNESS
+        self.apply_brightness()
+        self.sync_protocol_brightness_from_buttons()
+        if self.state.brightness != old_val:
+            self.save_settings()
+        self.stop_battery_display()
+        display_num.render_brightness_percent(self.state.brightness)
+        self.start_or_extend_flash("brightness", self.state.brightness)
+
+    def set_manual_control_mode(self, enabled=True, redraw=False, source=""):
+        enabled = bool(enabled)
+        if enabled:
+            # Manual mode means physical/button ownership.  Stop WebUI-owned
+            # animations and force saved-face cycling into manual (M) mode.
+            self.stop_webui_runtime(redraw=False)
+            self.state.special_demo_mode = False
+            self.state.auto = False
+            self.state.flash_active = False
+            self.state.edge_flash_active = False
+            self.state.battery_display_active = False
+            self.state.battery_display_single_shot = False
+            self.state.ip_display_active = False
+            self.state.b6_pending = False
+            self.state.b6_long_fired = False
+        self.state.manual_control_mode = enabled
+        print("manual_control_mode =", enabled, source)
+        if redraw:
+            self.draw_current_face()
+        return self.state.manual_control_mode
+
+    def enter_manual_control_from_button(self, gp=None):
+        # Every physical button press transfers authority back to local/manual
+        # control.  The specific button action then continues as before.
+        src = "button" if gp is None else "button GPIO{}".format(gp)
+        self.set_manual_control_mode(True, redraw=False, source=src)
+
+    def exit_manual_control_from_network(self, source="network"):
+        if self.state.manual_control_mode:
+            print("manual_control_mode = False", source)
+        self.state.manual_control_mode = False
+        return False
+
+    def manual_control_status_json(self):
+        return "{\"manual_control_mode\":" + ("true" if self.state.manual_control_mode else "false") + ",\"auto\":" + ("true" if self.state.auto else "false") + "}"
+
+    def toggle_auto(self):
+        self.set_manual_control_mode(True, redraw=False, source="button auto-toggle")
+        self.stop_webui_runtime(redraw=False)
+        self.state.special_demo_mode = False
+        self.state.auto = not self.state.auto
+        self.save_settings()
+        print("auto =", self.state.auto)
+        self.stop_battery_display()
+        display_num.render_mode(self.state.auto)
+        self.start_or_extend_flash("mode", self.state.auto)
+
+    # ------------------------------------------------------------------
+    # Button routing
+    # ------------------------------------------------------------------
+    def handle_press(self, gp):
+        combo_b3_b6 = self.buttons.is_down(BTN_AUTO) and self.buttons.is_down(BTN_BRIGHT_RST)
+        combo_b2_b6 = self.buttons.is_down(BTN_NEXT) and self.buttons.is_down(BTN_BRIGHT_RST)  # B2+B6 shows STA IP
+        combo_b4_b5 = self.buttons.is_down(BTN_BRIGHT_DN) and self.buttons.is_down(BTN_BRIGHT_UP)
+        if combo_b3_b6 or combo_b2_b6:
+            self.enter_manual_control_from_button(gp)
+            return
+
+        self.enter_manual_control_from_button(gp)
+        now = time.ticks_ms()
+        if gp in (BTN_BRIGHT_DN, BTN_BRIGHT_UP) and combo_b4_b5:
+            if time.ticks_diff(now, self.state.brightness_reset_ignore_until_ms) < 0:
+                return
+            if not self.state.brightness_reset_combo_latched:
+                self.state.brightness_reset_combo_latched = True
+                self.reset_brightness()
+                self.state.brightness_reset_ignore_until_ms = time.ticks_add(now, BRIGHTNESS_RESET_IGNORE_MS)
+            return
+
+        b3_held = self.buttons.is_down(BTN_AUTO)
+        if gp == BTN_PREV:
+            if b3_held:
+                self.state.b3_consumed = True
+                self.adjust_interval(+INTERVAL_STEP_S)
+            else:
+                self.cycle_face(-1)
+        elif gp == BTN_NEXT:
+            if b3_held:
+                self.state.b3_consumed = True
+                self.adjust_interval(-INTERVAL_STEP_S)
+            else:
+                self.cycle_face(+1)
+        elif gp == BTN_AUTO:
+            self.state.b3_consumed = False
+        elif gp == BTN_BRIGHT_DN:
+            self.adjust_brightness(+BRIGHTNESS_STEP)
+        elif gp == BTN_BRIGHT_UP:
+            self.adjust_brightness(-BRIGHTNESS_STEP)
+        elif gp == BTN_BRIGHT_RST:
+            self.start_b6_press()
+
+    def check_b3_release(self, prev_b3_down):
+        b3_now = self.buttons.is_down(BTN_AUTO)
+        if prev_b3_down and not b3_now:
+            if self.state.combo_long_fired:
+                self.state.b3_consumed = False
+                return b3_now
+            if not self.state.b3_consumed:
+                self.toggle_auto()
+            self.state.b3_consumed = False
+        return b3_now
+
+    # ------------------------------------------------------------------
+    # WebUI firmware-side runtime integration
+    # ------------------------------------------------------------------
+    def handle_webui_runtime_command(self, command):
+        return self.web_runtime.handle_command(command)
+
+    def select_saved_face(self, index, redraw=True):
+        self.exit_manual_control_from_network("selectFace370")
+        self.stop_webui_runtime(redraw=False)
+        self.state.special_demo_mode = False
+        self.state.auto = False
+        try:
+            idx = int(index)
+        except Exception:
+            idx = 0
+        count = max(1, saved_faces_370.count())
+        self.state.face_idx = idx % count
+        self.stop_battery_display()
+        if redraw:
+            self.draw_current_face()
+        return saved_faces_370.get(self.state.face_idx)
+
+    def on_saved_faces_changed(self, selected_index=None, redraw=False):
+        count = max(1, saved_faces_370.count())
+        if selected_index is not None:
+            try:
+                self.state.face_idx = int(selected_index) % count
+            except Exception:
+                self.state.face_idx = 0
+        elif self.state.face_idx >= count:
+            self.state.face_idx = count - 1
+        if redraw:
+            self.draw_current_face()
+        return saved_faces_370.get(self.state.face_idx)
+
+    def stop_webui_runtime(self, redraw=True):
+        try:
+            return self.web_runtime.stop(redraw=redraw)
+        except Exception as exc:
+            print("webui runtime stop failed:", exc)
+            return False
+
+    # ------------------------------------------------------------------
+    # Network / protocol integration
+    # ------------------------------------------------------------------
+    def attach_network(self, link, proto):
+        self.link = link
+        self.proto = proto
+        def _poll():
+            # Service both HTTP API requests and UDP packets from the native
+            # ESP32-S3 network layer. Limit the number of packets per loop so
+            # LED animation timing still gets CPU time.
+            for _ in range(4):
+                pkt = link.get_packet()
+                if pkt is None:
+                    return
+                link_id, remote_ip, remote_port, payload = pkt
+                try:
+                    proto.handle_packet(payload, remote_ip, remote_port, link_id)
+                except Exception as exc:
+                    print("packet error:", exc)
+                    try:
+                        proto.send(remote_ip, REMOTE_UDP_PORT, b"Command Error!", link_id)
+                    except Exception as send_exc:
+                        print("send error:", send_exc)
+        self.network_poll = _poll
+
+    def service_network(self):
+        if self.network_poll is not None:
+            self.network_poll()
+
+    def on_network_control(self):
+        self.exit_manual_control_from_network("network control")
+        self.stop_webui_runtime(redraw=False)
+        self.button_face_active = False
+        self.state.special_demo_mode = False
+        self.state.auto = False
+        self.state.flash_active = False
+        self.state.edge_flash_active = False
+        self.state.battery_display_active = False
+        self.state.battery_display_single_shot = False
+        self.state.ip_display_active = False
+        self.state.b6_pending = False
+        self.state.b6_long_fired = False
+
+    def on_protocol_color_updated(self, color):
+        # Home/Web color is authoritative.  Button-selected faces redraw with
+        # this color, so web mode and button mode stay visually synchronized.
+        if self.button_face_active and self.proto is not None and getattr(self.proto, "display_mode", "legacy") == "physical":
+            try:
+                self.draw_current_face()
+            except Exception:
+                pass
+
+    def on_protocol_brightness_updated(self, bright):
+        # Web brightness is a raw 10..128 protocol value.  Map it to the
+        # board's percent brightness so later button-mode renders use the
+        # same visible brightness range.
+        try:
+            pct = int((int(bright) * 100 + 85) // 170)
+        except Exception:
+            return
+        if pct < BRIGHTNESS_MIN:
+            pct = BRIGHTNESS_MIN
+        if pct > BRIGHTNESS_MAX:
+            pct = BRIGHTNESS_MAX
+        if self.state.brightness != pct:
+            self.state.brightness = pct
+            self.apply_brightness()
+            self.save_settings()
+
+    def battery_status_json(self):
+        self.service_battery_sampling(force_sample=True)
+        v_bat, charge_v = self.battery_monitor.get_mean_voltage_pair(allow_partial=True)
+        if v_bat is None:
+            v_bat = self.battery.last_voltage
+        if charge_v is None:
+            charge_v = self.battery.last_charge_voltage
+        pct = self.battery_monitor.percent_from_voltage(v_bat, self.battery)
+        pct_float = self.battery_monitor.percent_float_from_voltage(v_bat, self.battery)
+        charging = self.battery_monitor.is_charging_voltage(charge_v, previous=self.state.battery_display_cached_is_charging)
+        rem = estimate_remaining_hours(self.battery, self.state, pct_float)
+        chg = estimate_charge_hours(self.battery, self.state, pct_float)
+        def jnum(x, digits=3):
+            if x is None:
+                return "null"
+            try:
+                return ("%0.*f" % (digits, float(x)))
+            except Exception:
+                return "null"
+        return ("{"
+                "\"battery_v\":" + jnum(v_bat, 3) + ","
+                "\"charge_v\":" + jnum(charge_v, 3) + ","
+                "\"percent\":" + str(int(pct)) + ","
+                "\"percent_float\":" + jnum(pct_float, 2) + ","
+                "\"charging\":" + ("true" if charging else "false") + ","
+                "\"remaining_h\":" + jnum(rem, 2) + ","
+                "\"charge_time_h\":" + jnum(chg, 2) + ","
+                "\"min_v\":" + jnum(self.battery.min_v, 3) + ","
+                "\"max_v\":" + jnum(self.battery.max_v, 3) + "}")
+
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
+    def print_startup_info(self):
+        print(FIRMWARE_BANNER)
+        print("Firmware version:", VERSION)
+        print("linaboard: starting")
+        print("  default face interval=", DEFAULT_INTERVAL_S, "s")
+        print("  matrix demo        = disabled")
+        print("  default brightness   =", DEFAULT_BRIGHTNESS, "%")
+        print("  button GPIOs         =", self.buttons.gpios())
+        print("  battery adc gpio     =", BATTERY_ADC_GPIO)
+        print("  divider              = 100k top, 57k bottom")
+        print("  B3+B6 matrix demo = disabled/consumed")
+        print("  B2+B6 scroll IP/SSID = enabled")
+        print("  saved custom faces  =", saved_faces_370.count(), "faces; B1/B2 and A/M cycle this list")
+        print("  webui runtime       = firmware-side scroll text + Unity timeline playback")
+        print("  face manager store  = ESP32-S3 firmware source of truth; WebUI pulls/syncs list")
+        print("  manual control mode = buttons enter; network/WebUI exits; WebUI home can enter/exit")
+        print("  bad apple           = excluded in this build")
+
+    def initialize(self):
+        self.print_startup_info()
+        load_settings(self.state, self.battery)
+        print("  learned min/max      = {:.2f} / {:.2f} V".format(self.battery.min_v, self.battery.max_v))
+        print("  display mean update  =", BATTERY_MEAN_UPDATE_MS, "ms")
+        print("  mean sample interval =", BATTERY_MEAN_SAMPLE_INTERVAL_MS, "ms")
+        print("  display toggle cycle =", BATTERY_DISPLAY_CYCLE_MS, "ms")
+        print("  display tolerance    = {:.2f} V".format(BATTERY_DISPLAY_TOL_V))
+        print("  charge detect adc    =", CHARGE_DETECT_ADC_GPIO)
+        print("  network             = ESP32-S3 native Wi-Fi + HTTP + UDP, no ESP8258 bridge")
+        self.apply_brightness()
+        print("  startup LED animation = disabled")
+        # Draw the current saved face immediately.  No initLED/WIFI/UDP/READY
+        # boot/status animation is shown on the LED matrix.
+        self.draw_current_face()
+        self.service_battery_sampling(force_sample=True)
+
     def run(self):
         self.initialize()
-        last_save_ms = ticks_ms()
+
+        now = time.ticks_ms()
+        next_auto_ms = time.ticks_add(now, int(self.state.interval_s * 1000))
+        self.state.battery_next_log_ms = now
+        self.battery_monitor.update_calibration(self.battery, self.state, self.save_settings, force=True)
+
+        prev_b3_down = False
+        prev_b6_down = False
+
         while True:
-            self.service_buttons()
-            if self.server:
-                self.server.poll()
-            self.battery.service_mean_sampler()
-            if self.battery.update_learning_and_history() and diff_ms(ticks_ms(), last_save_ms) > 5000:
-                self.save_runtime_settings()
-                last_save_ms = ticks_ms()
+            self.service_network()
+            combo_active = self.check_special_demo_combo()
+            combo_active = self.check_badapple_combo() or combo_active
+            combo_active = self.check_ip_combo() or combo_active
+
+            for gp in self.buttons.poll():
+                self.handle_press(gp)
+                next_auto_ms = time.ticks_add(time.ticks_ms(), int(self.state.interval_s * 1000))
+
+            combo_active = self.check_special_demo_combo() or combo_active
+            combo_active = self.check_badapple_combo() or combo_active
+            combo_active = self.check_ip_combo() or combo_active
+
+            self.check_b6_hold()
             self.service_battery_overlay()
-            self.stop_overlay_if_expired()
-            self.service_runtime()
-            self.service_auto()
-            time.sleep_ms(POLL_PERIOD_MS)
+            self.service_ip_display()
+            self.web_runtime.service()
+
+            if (self.state.brightness_reset_combo_latched and
+                    not self.buttons.is_down(BTN_BRIGHT_DN) and
+                    not self.buttons.is_down(BTN_BRIGHT_UP)):
+                self.state.brightness_reset_combo_latched = False
+
+            prev_b3_down = self.check_b3_release(prev_b3_down)
+            prev_b6_down = self.check_b6_release(prev_b6_down)
+
+            if not self.state.battery_display_active and not self.state.ip_display_active:
+                self.end_flash_if_expired()
+
+            if self.state.flash_active and self.state.edge_flash_active:
+                self.render_flash_overlay_with_edge()
+            elif self.state.edge_flash_active and not self.state.flash_active:
+                self.state.edge_flash_active = False
+
+            self.service_battery_sampling()
+            self.battery_monitor.update_calibration(self.battery, self.state, self.save_settings)
+
+
+            if self.state.auto and not self.web_runtime.active() and not self.state.flash_active and not self.state.battery_display_active and not self.state.ip_display_active:
+                now = time.ticks_ms()
+                if time.ticks_diff(now, next_auto_ms) >= 0:
+                    self.state.face_idx = (self.state.face_idx + 1) % max(1, saved_faces_370.count())
+                    self.draw_current_face()
+                    next_auto_ms = time.ticks_add(now, int(self.state.interval_s * 1000))
+
+            if self.web_runtime.active() or self.state.flash_active or self.state.battery_display_active or self.state.ip_display_active or combo_active:
+                next_auto_ms = time.ticks_add(time.ticks_ms(), int(self.state.interval_s * 1000))
+
+            time.sleep(POLL_PERIOD_MS / 1000.0)
+
+
+# ---------------------------------------------------------------------------
+# Boot entry point. Load saved settings, apply brightness, draw the saved
+# face immediately, then enter the main polling loop forever.
+# ---------------------------------------------------------------------------
 def main():
-    app = RinaChanApp()
+    print("ESP32-S3 native: Wi-Fi + HTTP + UDP + LED in one firmware")
+    print("LED:", board.hardware_summary())
+    app = LinaBoardApp()
+    link = ESP32S3Network(log_limit=160)
+    link.start()
+    proto = RinaProtocol(app=app)
+    proto.set_sender(lambda ip, port, data, link_id=0: link.send_udp(data, ip, port, link_id))
+    proto.log_provider = link.recent_log
+    app.attach_network(link, proto)
+    link.ping()
     app.run()
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        board.clear(True)
-        print('stopped')
+        clear()
+        show()
+        print("stopped.")
