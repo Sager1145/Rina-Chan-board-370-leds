@@ -59,7 +59,7 @@ from esp32s3_network import ESP32S3Network
 from webui_runtime import WebUIRuntime
 gc.collect()
 
-FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.6.9 Unity empty key fix asset bundles no bridge no MatrixDemo no BadApple no boot animation"
+FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.6.2 WebUI/static-log fix no bridge no MatrixDemo no BadApple no boot animation"
 
 
 # ---------------------------------------------------------------------------
@@ -435,7 +435,7 @@ class LinaBoardApp:
         charging = self.state.battery_display_cached_is_charging
 
         if pct is None:
-            print("battery monitor unavailable")
+            # Battery serial log disabled.
             display_num.render_battery_percent(0, color=(255, 0, 0))
             return
 
@@ -461,8 +461,10 @@ class LinaBoardApp:
         else:
             remain_text = "{:.1f} h".format(active_time_h)
 
-        # Battery overlay serial spam removed in v1.6.2; keep the UI display
-        # active but do not print every display/cache refresh to the REPL.
+        if log_status:
+            # Battery serial log disabled; overlay still refreshes normally.
+            pass
+
         animate_icon = (not self.state.battery_display_single_shot) and charging
 
         if cycle_index == 0:
@@ -727,6 +729,19 @@ class LinaBoardApp:
         display_num.render_brightness_percent(self.state.brightness)
         self.start_or_extend_flash("brightness", self.state.brightness)
 
+    def force_m_mode(self, source="network", persist=True):
+        # M/A fix: any actual external/WebUI control owns the LEDs and must
+        # cancel saved-face auto cycling.  This is the same user-visible M
+        # state as the B3 A/M toggle, but it does not draw the big "M"
+        # overlay because that would overwrite the WebUI command output.
+        was_auto = bool(self.state.auto)
+        self.state.auto = False
+        if was_auto:
+            print("auto = False (M mode)", source)
+            if persist:
+                self.save_settings()
+        return False
+
     def set_manual_control_mode(self, enabled=True, redraw=False, source=""):
         enabled = bool(enabled)
         if enabled:
@@ -734,7 +749,7 @@ class LinaBoardApp:
             # animations and force saved-face cycling into manual (M) mode.
             self.stop_webui_runtime(redraw=False)
             self.state.special_demo_mode = False
-            self.state.auto = False
+            self.force_m_mode(source or "manual control", persist=False)
             self.state.flash_active = False
             self.state.edge_flash_active = False
             self.state.battery_display_active = False
@@ -755,16 +770,9 @@ class LinaBoardApp:
         self.set_manual_control_mode(True, redraw=False, source=src)
 
     def exit_manual_control_from_network(self, source="network"):
-        # Any external/WebUI control cancels saved-face auto cycling.
-        # This forces the A/M display logic back to M mode without writing
-        # settings on every web packet.  Button B3 still owns persistent
-        # A/M toggling through toggle_auto().
-        if self.state.auto:
-            print("auto = False", source)
         if self.state.manual_control_mode:
             print("manual_control_mode = False", source)
         self.state.manual_control_mode = False
-        self.state.auto = False
         return False
 
     def manual_control_status_json(self):
@@ -840,22 +848,13 @@ class LinaBoardApp:
     # WebUI firmware-side runtime integration
     # ------------------------------------------------------------------
     def handle_webui_runtime_command(self, command):
-        # Runtime status is a read-only query.  Every other WebUI runtime
-        # command (scroll start/stop, timeline load/play/stop/clear/preview)
-        # is an external control and must force A/M back to M mode.
-        try:
-            low = str(command or "").strip().lower()
-        except Exception:
-            low = ""
-        if low != "runtimestatus":
-            self.exit_manual_control_from_network("webui runtime command")
         return self.web_runtime.handle_command(command)
 
     def select_saved_face(self, index, redraw=True):
         self.exit_manual_control_from_network("selectFace370")
         self.stop_webui_runtime(redraw=False)
         self.state.special_demo_mode = False
-        self.state.auto = False
+        self.force_m_mode("selectFace370", persist=True)
         try:
             idx = int(index)
         except Exception:
@@ -921,7 +920,7 @@ class LinaBoardApp:
         self.stop_webui_runtime(redraw=False)
         self.button_face_active = False
         self.state.special_demo_mode = False
-        self.state.auto = False
+        self.force_m_mode("network/WebUI control", persist=True)
         self.state.flash_active = False
         self.state.edge_flash_active = False
         self.state.battery_display_active = False
@@ -997,25 +996,17 @@ class LinaBoardApp:
         print("  matrix demo        = disabled")
         print("  default brightness   =", DEFAULT_BRIGHTNESS, "%")
         print("  button GPIOs         =", self.buttons.gpios())
-        print("  battery adc gpio     =", BATTERY_ADC_GPIO)
-        print("  divider              = 100k top, 57k bottom")
         print("  B3+B6 matrix demo = disabled/consumed")
         print("  B2+B6 scroll IP/SSID = enabled")
         print("  saved custom faces  =", saved_faces_370.count(), "faces; B1/B2 and A/M cycle this list")
         print("  webui runtime       = firmware-side scroll text + Unity timeline playback")
         print("  face manager store  = ESP32-S3 firmware source of truth; WebUI pulls/syncs list")
-        print("  A/M behavior        = button toggles A/M; any WebUI/network control forces M")
+        print("  manual control mode = buttons enter; network/WebUI exits; WebUI home can enter/exit")
         print("  bad apple           = excluded in this build")
 
     def initialize(self):
         self.print_startup_info()
         load_settings(self.state, self.battery)
-        print("  learned min/max      = {:.2f} / {:.2f} V".format(self.battery.min_v, self.battery.max_v))
-        print("  display mean update  =", BATTERY_MEAN_UPDATE_MS, "ms")
-        print("  mean sample interval =", BATTERY_MEAN_SAMPLE_INTERVAL_MS, "ms")
-        print("  display toggle cycle =", BATTERY_DISPLAY_CYCLE_MS, "ms")
-        print("  display tolerance    = {:.2f} V".format(BATTERY_DISPLAY_TOL_V))
-        print("  charge detect adc    =", CHARGE_DETECT_ADC_GPIO)
         print("  network             = ESP32-S3 native Wi-Fi + HTTP + UDP, no ESP8258 bridge")
         self.apply_brightness()
         print("  startup LED animation = disabled")

@@ -14,7 +14,7 @@
 import board
 import saved_faces_370
 import emoji_db
-VERSION = "1.6.9-esp32s3-native-unity-empty-key-fix"
+VERSION = "1.6.2-esp32s3-webui-logfix"
 
 LOCAL_UDP_PORT = 1234
 REMOTE_UDP_PORT = 4321
@@ -460,10 +460,12 @@ class RinaProtocol:
             else:
                 target = not (val in ("0", "false", "off", "exit", "web", "network"))
             try:
-                if target:
-                    enabled = self.app.set_manual_control_mode(True, redraw=True, source="webui manual button")
-                else:
-                    enabled = self.app.exit_manual_control_from_network("webui manual button")
+                enabled = self.app.set_manual_control_mode(target, redraw=target, source="webui manual button")
+                if not target and hasattr(self.app, "on_network_control"):
+                    # Exiting the WebUI manual-control lock is still a WebUI
+                    # control action, so force the saved-face A/M state back
+                    # to M even when it does not draw a face.
+                    self.app.on_network_control()
                 self.reply(remote_ip, remote_port, ("manualMode|" + ("1" if enabled else "0")).encode(), link_id)
             except Exception as exc:
                 self.reply(remote_ip, remote_port, ("ERR:" + str(exc)).encode(), link_id)
@@ -479,6 +481,11 @@ class RinaProtocol:
                 low.startswith("timeline370preview|") or
                 low == "timeline370stop" or low.startswith("timeline370stop|") or
                 low == "timeline370clear" or low.startswith("timeline370clear|")):
+            if low != "runtimestatus" and self.app is not None and hasattr(self.app, "force_m_mode"):
+                try:
+                    self.app.force_m_mode("webui runtime command", persist=True)
+                except Exception as exc:
+                    print("M/A mode reset failed:", exc)
             if self.app is not None and hasattr(self.app, "handle_webui_runtime_command"):
                 try:
                     reply = self.app.handle_webui_runtime_command(s)

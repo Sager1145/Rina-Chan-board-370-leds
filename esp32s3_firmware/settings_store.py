@@ -68,7 +68,7 @@ def load_settings(app_state, battery_state):
         # defaults so stale learned values don't poison the new curve.
         stored_cal_version = data.get("battery_cal_version", 0)
         if stored_cal_version != BATTERY_CAL_VERSION:
-            print("battery: calibration version changed ({} -> {}), resetting to defaults".format(stored_cal_version, BATTERY_CAL_VERSION))
+            # Battery calibration reset is intentionally silent on serial.
             battery_state.min_v = BATTERY_DEFAULT_MIN_V
             battery_state.max_v = BATTERY_DEFAULT_MAX_V
             battery_state.measure_count = 0

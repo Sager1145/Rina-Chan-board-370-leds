@@ -275,8 +275,7 @@ class BatteryMonitor:
                     battery_state.max_v = v_bat; changed = True
         if changed:
             save_cb()
-        # Battery serial spam removed in v1.6.2. The latest values remain
-        # available through requestBattery/requestState and the WebUI panel.
+        # Battery serial log disabled; keep UART output focused on WebUI/network diagnostics.
         return True
     @staticmethod
     def percent_from_voltage(v_bat, battery_state):
