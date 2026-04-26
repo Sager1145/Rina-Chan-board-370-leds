@@ -56,7 +56,7 @@ from battery_module import BatteryModule
 from unity_module import UnityModule
 gc.collect()
 
-FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.7.0 modular AP+protocol callbacks + asset shards + battery module"
+FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.7.4-rnt-command-only modular AP+protocol callbacks + RNT2 command-only playback + low-blocking HTTP + battery module"
 
 
 class LinaBoardApp:

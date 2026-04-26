@@ -26,7 +26,9 @@ MAX_UDP_PAYLOAD = 1472
 MAX_HTTP_BODY = 32768
 WEBUI_GZIP_FILE = "webui_index.html.gz"
 HTTP_TIMEOUT_MS = 1500
-STATIC_CHUNK_SIZE = 1024
+STATIC_CHUNK_SIZE = 512
+HTTP_SEND_SLICE_SIZE = 256
+HTTP_SEND_TIMEOUT_S = 0.25
 
 
 def _ticks_ms():
@@ -39,6 +41,16 @@ def _ticks_diff(a, b):
 
 def _ticks_add(a, b):
     return time.ticks_add(a, b) if hasattr(time, "ticks_add") else (a + b)
+
+
+def _yield_network():
+    try:
+        time.sleep_ms(0)
+    except Exception:
+        try:
+            time.sleep(0)
+        except Exception:
+            pass
 
 
 def _safe_str(v):
@@ -340,6 +352,11 @@ class ESP32S3Network:
             except Exception as exc:
                 print("!!! [API Parse] POST 数据解析失败 path={} error={}".format(path, exc))
 
+        if method == "OPTIONS":
+            self._send_response(client, 200, "text/plain; charset=utf-8", b"OK")
+            try: client.close()
+            except Exception: pass
+            return
         if path in ("/", "/fwlink", "/wifi", "/0wifi"):
             self._serve_webui(client)
             return
@@ -452,16 +469,27 @@ class ESP32S3Network:
         if isinstance(data, str):
             data = data.encode()
         try:
+            client.settimeout(HTTP_SEND_TIMEOUT_S)
+        except Exception:
+            pass
+        try:
             view = memoryview(data)
             sent = 0
             total = len(view)
+            # Never hand a large remaining memoryview to send().  On ESP32 AP, a
+            # slow/disconnected phone can otherwise pin the single firmware loop
+            # until the socket times out, which looks like an AP freeze.
             while sent < total:
-                n = client.send(view[sent:])
+                end = sent + HTTP_SEND_SLICE_SIZE
+                if end > total:
+                    end = total
+                n = client.send(view[sent:end])
                 if n is None:
                     return True
                 if n <= 0:
                     raise OSError("send returned {}".format(n))
                 sent += n
+                _yield_network()
             return True
         except OSError as exc:
             print("!!! [Socket Error] 发送数据给客户端时断开，错误码: {}".format(exc))
@@ -488,6 +516,8 @@ class ESP32S3Network:
             return "text/css; charset=utf-8"
         if p.endswith(".json") or p.endswith(".json.gz"):
             return "application/json; charset=utf-8"
+        if p.endswith(".rnt") or p.endswith(".txt") or p.endswith(".md"):
+            return "text/plain; charset=utf-8"
         if p.endswith(".png"):
             return "image/png"
         if p.endswith(".ico"):
@@ -552,7 +582,7 @@ class ESP32S3Network:
                 header += "Content-Length: {}\r\n".format(size)
             if _safe_str(filepath).lower().endswith(".gz"):
                 header += "Content-Encoding: gzip\r\n"
-            header += "Cache-Control: no-store\r\nConnection: close\r\n\r\n"
+            header += "Cache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
             if not self._safe_send(client, header.encode(), filepath + " header"):
                 return
             while True:
@@ -561,6 +591,7 @@ class ESP32S3Network:
                     break
                 if not self._safe_send(client, chunk, filepath):
                     break
+                _yield_network()
         finally:
             try: f.close()
             except Exception: pass
@@ -576,7 +607,7 @@ class ESP32S3Network:
         if isinstance(body, str):
             body = body.encode()
         reason = {200:"OK",400:"Bad Request",404:"Not Found",413:"Payload Too Large",500:"Internal Server Error",503:"Busy",504:"Gateway Timeout"}.get(code, "OK")
-        head = "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".format(code, reason, ctype, len(body))
+        head = "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n".format(code, reason, ctype, len(body))
         if not self._safe_send(client, head.encode(), "response header"):
             return False
         if body:

@@ -1,5 +1,5 @@
 param(
-    [string]$ZipPath = ".\esp32s3_firmware_modular_1_7_0.zip",
+    [string]$ZipPath = ".\esp32s3_firmware_rnt_stream_loader_1_7_3.zip",
     [string]$Port = "auto",
     [switch]$InstallMpremote,
     [switch]$NoClean

@@ -18,7 +18,7 @@ import saved_faces_370
 import emoji_db
 import display_num
 from config import INTERVAL_STEP_S, BRIGHTNESS_STEP, BATTERY_DISPLAY_CYCLE_MS
-VERSION = "1.7.0-modular"
+VERSION = "1.7.4-rnt-command-only"
 
 LOCAL_UDP_PORT = 1234
 REMOTE_UDP_PORT = 4321
@@ -651,6 +651,7 @@ class RinaProtocol:
         if (low == "runtimestatus" or low == "runtimestop" or low.startswith("runtimestop|") or
                 low == "scrolltextstop370" or low.startswith("scrolltextstop370|") or
                 low.startswith("scrolltext370|") or
+                low.startswith("timeline370loadrnt|") or low.startswith("timeline370asset|") or
                 low.startswith("timeline370begin|") or low.startswith("timeline370chunk|") or
                 low == "timeline370play" or low.startswith("timeline370play|") or
                 low.startswith("timeline370preview|") or
