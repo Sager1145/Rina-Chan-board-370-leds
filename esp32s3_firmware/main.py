@@ -1,6 +1,7 @@
 import gc
 import time
 import ujson as json
+import logger as log
 
 import board
 import display_num
@@ -31,6 +32,11 @@ def add_ms(t, ms):
 
 def diff_ms(a, b):
     return time.ticks_diff(a, b)
+
+
+def _short_cmd(cmd, limit=150):
+    s = str(cmd or '').replace('\r', ' ').replace('\n', ' ')
+    return s[:limit] + ('...' if len(s) > limit else '')
 
 
 class RinaChanApp:
@@ -437,11 +443,14 @@ class RinaChanApp:
         cmd = str(cmd).strip()
         if not cmd:
             return 'ERR empty'
+        log.info('CMD', 'begin', source=source, cmd=_short_cmd(cmd))
         self.network_control_entered(cmd) if source in ('http', 'udp') else None
         try:
             low = cmd.lower()
             if cmd == 'requestSavedFaces370':
-                return self.faces.to_json()
+                out = self.faces.to_json()
+                log.info('CMD', 'saved faces reply', count=self.faces.count(), bytes=len(out))
+                return out
             if cmd == 'requestFace':
                 return bitmap_to_legacy_hex(self.current_bitmap())
             if cmd == 'requestFace370':
@@ -464,6 +473,7 @@ class RinaChanApp:
                 return json.dumps(self.runtime_status_obj())
             if cmd.startswith('runtimeStop'):
                 reason = cmd.split('|', 1)[1] if '|' in cmd else ''
+                log.info('RUNTIME', 'stop command', reason=reason)
                 self.stop_runtime(reason)
                 self.draw_saved_face()
                 return 'ok'
@@ -472,6 +482,7 @@ class RinaChanApp:
             if cmd.startswith('manualMode|'):
                 v = cmd.split('|', 1)[1]
                 self.set_manual_mode((not self.manual_control_mode) if v == 'toggle' else bool(int(v)))
+                log.info('CMD', 'manual mode set', enabled=self.manual_control_mode)
                 self.show_overlay_text('manual')
                 return 'ok'
             if cmd.startswith('setManualMode|'):
@@ -486,17 +497,20 @@ class RinaChanApp:
             if cmd.startswith('#') and len(cmd) >= 7:
                 self.color = (int(cmd[1:3], 16), int(cmd[3:5], 16), int(cmd[5:7], 16))
                 board.update_color(self.color)
+                log.info('CMD', 'color set', r=self.color[0], g=self.color[1], b=self.color[2])
                 self.save_runtime_settings()
                 return 'ok'
             if (cmd.startswith('B') or cmd.startswith('b')) and len(cmd) == 4 and cmd[1:].isdigit():
                 self.brightness = clamp_brightness(int(int(cmd[1:]) * 100 / 255))
                 self.apply_brightness()
+                log.info('CMD', 'brightness set', brightness=self.brightness)
                 self.save_runtime_settings()
                 return 'ok'
             if low.startswith('m370:'):
                 self.stop_runtime('M370')
                 bm = m370_hex_to_bitmap(cmd[5:])
                 board.draw_bitmap(bm, on_color=self.color, dim_color=self.dim_color)
+                log.info('CMD', 'bitmap drawn')
                 return 'ok'
             if len(cmd) == 72 and all(c in '0123456789abcdefABCDEF' for c in cmd):
                 self.stop_runtime('legacy face hex')
@@ -511,12 +525,14 @@ class RinaChanApp:
                 return 'ok'
             if cmd.startswith('addFace370Json|'):
                 idx = self.faces.add(json.loads(cmd.split('|', 1)[1]))
+                log.info('FACES', 'add face', index=idx, count=self.faces.count())
                 return json.dumps({'ok': True, 'index': idx})
             if cmd.startswith('selectFace370|'):
                 self.stop_runtime('selectFace370')
                 self.stop_battery_overlay()
                 idx = int(cmd.split('|', 1)[1])
                 self.draw_saved_face(idx)
+                log.info('FACES', 'select face', index=idx)
                 self.save_runtime_settings()
                 return 'ok'
             if cmd.startswith('deleteFace370Index|'):
@@ -524,22 +540,27 @@ class RinaChanApp:
                 if self.face_index >= self.faces.count():
                     self.face_index = max(0, self.faces.count() - 1)
                 self.draw_saved_face()
+                log.info('FACES', 'delete face', index=cmd.split('|', 1)[1], ok=ok, count=self.faces.count())
                 return 'ok' if ok else 'ERR ' + msg
             if cmd.startswith('moveFace370|'):
                 _, src, dst = cmd.split('|', 2)
                 self.faces.move(src, dst)
+                log.info('FACES', 'move face', src=src, dst=dst)
                 return 'ok'
             if cmd.startswith('lockFace370|'):
                 _, idx, val = cmd.split('|', 2)
                 self.faces.lock(idx, val)
+                log.info('FACES', 'lock face', index=idx, value=val)
                 return 'ok'
             if cmd.startswith('typeFace370|'):
                 _, idx, typ = cmd.split('|', 2)
                 self.faces.set_type(idx, typ)
+                log.info('FACES', 'type face', index=idx, type=typ)
                 return 'ok'
             if cmd.startswith('renameFace370Index|'):
                 _, idx, name = cmd.split('|', 2)
                 self.faces.rename(idx, name)
+                log.info('FACES', 'rename face', index=idx, name=name)
                 return 'ok'
             if cmd.startswith('updateFace370|'):
                 parts = cmd.split('|')
@@ -547,6 +568,7 @@ class RinaChanApp:
                 return 'ok'
             if cmd.startswith('scrollText370|'):
                 _, speed, text = cmd.split('|', 2)
+                log.info('SCROLL', 'start command', speed=speed, chars=len(text))
                 self.start_scroll(speed, text)
                 return 'ok'
             if cmd == 'scrollTextStop370':
@@ -555,13 +577,17 @@ class RinaChanApp:
                 return 'ok'
             if cmd.startswith('timeline370Begin|'):
                 _, fps, last_frame, loop, count, name = cmd.split('|', 5)
+                log.info('TIMELINE', 'begin command', fps=fps, last=last_frame, loop=loop, count=count, name=name)
                 self.timeline_begin(fps, last_frame, loop, count, name)
                 return 'ok'
             if cmd.startswith('timeline370Chunk|'):
                 added = self.timeline_chunk(cmd.split('|', 1)[1])
+                log.info('TIMELINE', 'chunk command', added=added, loaded=len(self.timeline), expected=self.timeline_expected_count)
                 return json.dumps({'ok': True, 'added': added, 'loaded': len(self.timeline)})
             if cmd == 'timeline370Play':
-                return 'ok' if self.timeline_play() else 'ERR no timeline frames'
+                ok = self.timeline_play()
+                log.info('TIMELINE', 'play command', ok=ok, loaded=len(self.timeline), last=self.timeline_last_frame)
+                return 'ok' if ok else 'ERR no timeline frames'
             if cmd.startswith('timeline370Preview|'):
                 return 'ok' if self.timeline_preview(cmd.split('|', 1)[1]) else 'ERR frame not loaded'
             if cmd == 'timeline370Stop':
@@ -605,13 +631,15 @@ class RinaChanApp:
                 self.cycle_face(+1); return 'ok'
             if cmd == 'toggleAuto370':
                 self.toggle_auto(); return 'ok'
+            log.warn('CMD', 'unknown', source=source, cmd=_short_cmd(cmd))
             return 'ERR unknown command: ' + cmd[:80]
         except Exception as e:
-            print('command error:', cmd, e)
+            log.exception('CMD', 'command error cmd=' + _short_cmd(cmd), e)
             return 'ERR ' + str(e)
 
     def handle_legacy_udp(self, data):
         ln = len(data)
+        log.info('CMD', 'legacy udp begin', bytes=ln)
         self.network_control_entered('legacyUdp')
         self.stop_runtime('legacy udp')
         if ln == 36:

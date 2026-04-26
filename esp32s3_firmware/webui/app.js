@@ -1,4 +1,4 @@
-
+console.log('[RinaChanBoard] app.js loaded v2.0.6');
 // PC local-file helper. On ESP32 HTTP this does nothing; from file:// it
 // redirects /api calls to the board AP. Override with ?api=http://x.x.x.x.
 (function(){
@@ -3538,6 +3538,44 @@ const UNITY_FPS = 30;
 const SAVE_KEY = 'rina_clean_saved_faces_v1';
 const $ = id => document.getElementById(id);
 const qa = sel => Array.from(document.querySelectorAll(sel));
+function toggleButtonValue(id){
+  const el = $(id);
+  if (!el) return false;
+  if (el.tagName === 'INPUT' && el.type === 'checkbox') return !!el.checked;
+  return el.getAttribute('aria-pressed') === 'true' || el.classList.contains('active') || el.dataset.checked === '1';
+}
+function setToggleButtonValue(id, on){
+  const el = $(id);
+  if (!el) return;
+  const value = !!on;
+  if (el.tagName === 'INPUT' && el.type === 'checkbox') {
+    el.checked = value;
+    return;
+  }
+  el.dataset.checked = value ? '1' : '0';
+  el.setAttribute('aria-pressed', value ? 'true' : 'false');
+  el.classList.toggle('active', value);
+  if (id === 'saveFaceLocked') el.textContent = value ? '已锁定' : '锁定';
+  else if (id === 'unityMediaLoop') el.textContent = value ? 'Loop 开' : 'Loop';
+  else if (id === 'eyeSyncBox') el.textContent = value ? '左右眼同步：开' : '左右眼同步';
+}
+function bindToggleButton(id, initial, afterChange){
+  const el = $(id);
+  if (!el) return;
+  setToggleButtonValue(id, toggleButtonValue(id) || !!initial);
+  const eventName = (el.tagName === 'INPUT' && el.type === 'checkbox') ? 'change' : 'click';
+  el.addEventListener(eventName, action(id + 'Toggle', function(){
+    if (!(el.tagName === 'INPUT' && el.type === 'checkbox')) setToggleButtonValue(id, !toggleButtonValue(id));
+    else setToggleButtonValue(id, !!el.checked);
+    if (typeof afterChange === 'function') afterChange(toggleButtonValue(id));
+  }));
+}
+function selectedSaveType(fallback){
+  if (fallback === 'custom' || fallback === 'part') return fallback;
+  const el = $('saveFaceType');
+  return el && (el.value === 'custom' || el.value === 'part') ? el.value : 'custom';
+}
+
 
 let gridBits = Array(ROWS * COLS).fill(0);
 let savedFaces = [];
@@ -3563,19 +3601,29 @@ function debug(msg, data){
   if (box) box.textContent = line + '\n' + box.textContent.slice(0, 16000);
   try { console.debug(line); } catch (_) {}
 }
+const actionBusy = Object.create(null);
 function action(label, fn){
   return function(ev){
     debug('button', label);
+    if (actionBusy[label]) { debug('button ignored while busy', label); return undefined; }
+    let result;
     try {
-      const result = fn.call(this, ev);
+      result = fn.call(this, ev);
       if (result && typeof result.then === 'function') {
-        result.catch(error => {
+        actionBusy[label] = true;
+        if (this && this.classList) this.classList.add('busy');
+        return result.catch(error => {
           debug('action error: ' + label, error && (error.stack || error.message || String(error)));
           log(label + ' failed: ' + (error && error.message ? error.message : error));
+        }).finally(() => {
+          actionBusy[label] = false;
+          if (this && this.classList) this.classList.remove('busy');
         });
       }
       return result;
     } catch (error) {
+      actionBusy[label] = false;
+      if (this && this.classList) this.classList.remove('busy');
       debug('action error: ' + label, error && (error.stack || error.message || String(error)));
       log(label + ' failed: ' + (error && error.message ? error.message : error));
       return undefined;
@@ -3623,13 +3671,14 @@ async function apiText(path, opts){
     throw error;
   }
 }
-async function apiJson(path, opts){ return JSON.parse(await apiText(path, opts)); }
+async function apiJson(path, opts){ const text = await apiText(path, opts); try { return JSON.parse(text); } catch (e) { throw new Error('JSON parse failed: ' + text.slice(0, 180)); } }
 async function postForm(path, params){
-  return apiText(path, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams(params)});
+  return apiText(path, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams(params), cache:'no-store'});
 }
 async function sendText(msg, wait){
   const t = await postForm('/api/send', {msg, wait: wait ? '1' : '0'});
-  log((wait ? 'RX ' : 'TX ') + msg + (wait ? ' => ' + t : ''));
+  const shown = String(msg || '').length > 180 ? String(msg).slice(0, 180) + '...' : String(msg || '');
+  log((wait ? 'RX ' : 'TX ') + shown + (wait ? ' => ' + t : ''));
   return t;
 }
 async function sendHex(hex, wait, format){
@@ -3705,7 +3754,29 @@ function faceToBits(item){
 }
 function updateHexField(){ const el = $('faceHex'); if (el) el.value = 'M370:' + bitsToM370(gridBits); }
 function setEditorBits(bits){ gridBits = bits.slice(0, ROWS * COLS); renderEditor(); updateHexField(); }
-function setColorsByString(value){ setEditorBits(String(value || '').toUpperCase().startsWith('M370:') || cleanHex(value).length >= PHY_HEX_LEN ? m370ToBits(value) : legacyHexToBits(value)); }
+function bitmapTextToBits(text){
+  const lines = [];
+  String(text || '').split(/\r?\n/).forEach(function(raw){
+    let line = String(raw || '').trim();
+    const quoted = line.match(/[\"']([.#\+]{8,40})[\"']/);
+    if (quoted) line = quoted[1];
+    if (/^[.#\+]{8,40}$/.test(line)) lines.push(line);
+  });
+  if (!lines.length) return null;
+  const bits = Array(ROWS * COLS).fill(0);
+  for (let r=0; r<Math.min(ROWS, lines.length); r++) {
+    const row = lines[r];
+    for (let c=0; c<Math.min(COLS, row.length); c++) {
+      if (isRealCell(r, c) && (row[c] === '#' || row[c] === '+')) bits[bitIndex(r,c)] = 1;
+    }
+  }
+  return bits;
+}
+function setColorsByString(value){
+  const bitmapBits = bitmapTextToBits(value);
+  if (bitmapBits) { setEditorBits(bitmapBits); return; }
+  setEditorBits(String(value || '').toUpperCase().startsWith('M370:') || cleanHex(value).length >= PHY_HEX_LEN ? m370ToBits(value) : legacyHexToBits(value));
+}
 
 function renderBits(container, bits, editable){
   if (!container) return;
@@ -3713,7 +3784,7 @@ function renderBits(container, bits, editable){
   for (let r=0; r<ROWS; r++) for (let c=0; c<COLS; c++) {
     const real = isRealCell(r, c);
     const node = editable ? document.createElement('button') : document.createElement('span');
-    node.className = (editable ? 'led ' : 'miniLed ') + (real ? '' : 'hidden ') + (real && bits[bitIndex(r,c)] ? 'on' : '');
+    node.className = (editable ? 'led ' : 'miniLed ') + (real ? '' : 'hidden ') + (c === Math.floor(COLS/2)-1 ? 'midCol ' : '') + (r === Math.floor(ROWS/2)-1 ? 'midRow ' : '') + (real && bits[bitIndex(r,c)] ? 'on' : '');
     if (real && editable) {
       node.type = 'button';
       node.title = 'row ' + r + ', col ' + c;
@@ -3790,7 +3861,7 @@ function buildPartThumb(group, idx, selectId){
   box.appendChild(label);
   box.addEventListener('click', () => {
     $(selectId).value = String(idx);
-    if (selectId === 'leye' && $('eyeSyncBox') && $('eyeSyncBox').checked) $('reye').value = String(idx);
+    if (selectId === 'leye' && toggleButtonValue('eyeSyncBox')) $('reye').value = String(idx);
     faceFromSelectors();
   });
   return box;
@@ -3815,7 +3886,7 @@ function randomizeParts(upload){
   const pick = group => Math.floor(Math.random() * ((faces[group] || []).length + 1));
   const le = pick('leye');
   $('leye').value = String(le);
-  $('reye').value = String(($('eyeSyncBox') && $('eyeSyncBox').checked) ? le : pick('reye'));
+  $('reye').value = String((toggleButtonValue('eyeSyncBox')) ? le : pick('reye'));
   $('mouth').value = String(pick('mouth'));
   $('cheek').value = String(pick('cheek'));
   faceFromSelectors();
@@ -3867,6 +3938,18 @@ async function loadFaces(){
   selectedFaceIndex = Math.min(selectedFaceIndex, Math.max(0, savedFaces.length - 1));
   renderSavedFaces();
 }
+let dragSrcIdx = null;
+function moveFace(from, to) {
+  if (from === to || from < 0 || to < 0 || from >= savedFaces.length || to >= savedFaces.length) return;
+  const item = savedFaces.splice(from, 1)[0];
+  savedFaces.splice(to, 0, item);
+  if (selectedFaceIndex === from) selectedFaceIndex = to;
+  else if (from < selectedFaceIndex && to >= selectedFaceIndex) selectedFaceIndex--;
+  else if (from > selectedFaceIndex && to <= selectedFaceIndex) selectedFaceIndex++;
+  storeLocalFaces(savedFaces);
+  renderSavedFaces();
+  sendText('moveFace370|' + from + '|' + to, true).catch(function(e){ log('排序失败: ' + e.message); });
+}
 function renderSavedFaces(){
   const sel = $('savedFaces');
   const count = $('savedFacesCount');
@@ -3874,32 +3957,135 @@ function renderSavedFaces(){
   if (count) count.textContent = savedFaces.length + ' 个';
   if (sel) {
     sel.innerHTML = '';
-    savedFaces.forEach((face, i) => {
+    savedFaces.forEach(function(face, i){
       const o = document.createElement('option');
       o.value = String(i);
-      o.textContent = pad2(i + 1) + ' ' + displayFaceName(face, i) + ' [' + (face.type || 'custom') + ']';
+      const pfx = (face.type === 'default' || face.builtin) ? '*' : '';
+      o.textContent = pfx + pad2(i + 1) + ' ' + displayFaceName(face, i) + ' [' + (face.type || 'custom') + ']';
       sel.appendChild(o);
     });
     sel.value = String(selectedFaceIndex);
   }
   if (list) {
     list.innerHTML = '';
-    savedFaces.forEach((face, i) => {
+    savedFaces.forEach(function(face, i){
+      const isDef = face.type === 'default' || face.builtin;
       const row = document.createElement('div');
-      row.className = 'faceRow ' + (i === selectedFaceIndex ? 'active' : '');
-      const name = document.createElement('div');
-      name.textContent = pad2(i + 1) + ' ' + displayFaceName(face, i);
-      const typ = document.createElement('span');
-      typ.className = 'pill';
-      typ.textContent = face.type || 'custom';
-      const lock = document.createElement('span');
-      lock.className = 'pill ' + (face.locked ? 'warn' : '');
-      lock.textContent = face.locked ? 'locked' : 'open';
-      const load = document.createElement('button');
-      load.type = 'button'; load.className = 'btn'; load.textContent = '载入';
-      load.addEventListener('click', () => { selectedFaceIndex = i; loadSelectedFace(); });
-      row.addEventListener('click', () => { selectedFaceIndex = i; renderSavedFaces(); previewSelectedFace(); });
-      row.appendChild(name); row.appendChild(typ); row.appendChild(lock); row.appendChild(load);
+      row.className = 'faceRow' + (i === selectedFaceIndex ? ' active' : '');
+      row.draggable = true;
+      row.dataset.index = String(i);
+
+      const num = document.createElement('div');
+      num.className = 'num';
+      num.textContent = (isDef ? '*' : '') + pad2(i + 1);
+
+      const fname = document.createElement('div');
+      fname.className = 'fname';
+      fname.textContent = displayFaceName(face, i);
+      fname.title = displayFaceName(face, i) + ' [' + (face.type || 'custom') + ']';
+
+      const lockBtn = document.createElement('button');
+      lockBtn.type = 'button';
+      lockBtn.className = 'btn sm' + (face.locked ? ' warn' : '');
+      lockBtn.textContent = face.locked ? '锁定' : '解锁';
+      if (isDef) lockBtn.disabled = true;
+      lockBtn.addEventListener('click', function(e){
+        e.stopPropagation();
+        selectedFaceIndex = i;
+        toggleSelectedLock();
+      });
+
+      const typeBtn = document.createElement('button');
+      typeBtn.type = 'button';
+      typeBtn.className = 'btn sm';
+      typeBtn.textContent = isDef ? '默认' : face.type === 'part' ? '部件' : '自定';
+      if (isDef) typeBtn.disabled = true;
+      typeBtn.addEventListener('click', function(e){
+        e.stopPropagation();
+        if (isDef) return;
+        selectedFaceIndex = i;
+        var newType = face.type === 'custom' ? 'part' : 'custom';
+        face.type = newType;
+        storeLocalFaces(savedFaces);
+        renderSavedFaces();
+        sendText('typeFace370|' + i + '|' + newType, true).catch(function(){ log('属性切换失败'); });
+      });
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'btn sm danger';
+      delBtn.textContent = '删除';
+      if (face.locked || isDef) delBtn.disabled = true;
+      delBtn.addEventListener('click', function(e){
+        e.stopPropagation();
+        selectedFaceIndex = i;
+        deleteSelectedFace();
+      });
+
+      const handle = document.createElement('div');
+      handle.className = 'dragHandle';
+      handle.textContent = '⋮';
+      handle.title = '拖拽排序';
+
+      row.addEventListener('click', function(){
+        selectedFaceIndex = i;
+        renderSavedFaces();
+        previewSelectedFace();
+        sendText('selectFace370|' + i, false).catch(function(e){ log('选择失败: ' + e.message); });
+      });
+
+      row.addEventListener('dragstart', function(e){
+        dragSrcIdx = i;
+        e.dataTransfer.effectAllowed = 'move';
+        setTimeout(function(){ row.classList.add('dragging'); }, 0);
+      });
+      row.addEventListener('dragover', function(e){
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        qa('.faceRow.drag-over').forEach(function(r){ r.classList.remove('drag-over'); });
+        if (dragSrcIdx !== null && dragSrcIdx !== i) row.classList.add('drag-over');
+      });
+      row.addEventListener('dragleave', function(){ row.classList.remove('drag-over'); });
+      row.addEventListener('drop', function(e){
+        e.preventDefault();
+        qa('.faceRow.drag-over').forEach(function(r){ r.classList.remove('drag-over'); });
+        if (dragSrcIdx !== null && dragSrcIdx !== i) moveFace(dragSrcIdx, i);
+        dragSrcIdx = null;
+      });
+      row.addEventListener('dragend', function(){
+        qa('.faceRow.dragging').forEach(function(r){ r.classList.remove('dragging'); });
+        qa('.faceRow.drag-over').forEach(function(r){ r.classList.remove('drag-over'); });
+        dragSrcIdx = null;
+      });
+
+      var touchStartY = 0;
+      handle.addEventListener('touchstart', function(e){
+        dragSrcIdx = i;
+        touchStartY = e.touches[0].clientY;
+        row.classList.add('dragging');
+        e.preventDefault();
+      }, {passive: false});
+      handle.addEventListener('touchmove', function(e){ e.preventDefault(); }, {passive: false});
+      handle.addEventListener('touchend', function(e){
+        row.classList.remove('dragging');
+        qa('.faceRow.drag-over').forEach(function(r){ r.classList.remove('drag-over'); });
+        if (dragSrcIdx === null) return;
+        var touch = e.changedTouches[0];
+        var el = document.elementFromPoint(touch.clientX, touch.clientY);
+        var targetRow = el && el.closest('.faceRow');
+        if (targetRow && targetRow.dataset.index != null) {
+          var targetIdx = +targetRow.dataset.index;
+          if (!isNaN(targetIdx) && targetIdx !== dragSrcIdx) moveFace(dragSrcIdx, targetIdx);
+        }
+        dragSrcIdx = null;
+      });
+
+      row.appendChild(num);
+      row.appendChild(fname);
+      row.appendChild(lockBtn);
+      row.appendChild(typeBtn);
+      row.appendChild(delBtn);
+      row.appendChild(handle);
       list.appendChild(row);
     });
   }
@@ -3916,11 +4102,14 @@ function loadSelectedFace(){
   if (!face) return;
   setEditorBits(faceToBits(face));
   renderSavedFaces();
+  sendText('selectFace370|' + selectedFaceIndex, false).catch(function(e){ log('载入表情失败: ' + e.message); });
 }
-async function addCurrentFace(){
-  const name = prompt('表情名称', '自定义表情 ' + pad2(savedFaces.length + 1));
+async function addCurrentFace(typeOverride){
+  const typ = selectedSaveType(typeOverride);
+  const baseName = typ === 'part' ? '表情部件 ' : '自定义表情 ';
+  const name = prompt('表情名称', baseName + pad2(savedFaces.length + 1));
   if (name == null) return;
-  const item = {name: String(name).trim() || '自定义表情', type: $('saveFaceType').value || 'custom', locked: $('saveFaceLocked').checked, data: bitsToBitmap(gridBits)};
+  const item = {name: String(name).trim() || baseName.trim(), type: typ, locked: toggleButtonValue('saveFaceLocked'), data: bitsToBitmap(gridBits)};
   savedFaces.push(normalizeFaceItem(item, savedFaces.length));
   selectedFaceIndex = savedFaces.length - 1;
   storeLocalFaces(savedFaces);
@@ -3931,6 +4120,17 @@ async function addCurrentFace(){
   } catch (error) {
     log('保存到固件失败，仅保存到本地：' + error.message);
   }
+}
+async function saveCustomFaceToSharedStore(){
+  const sel = $('saveFaceType');
+  if (sel) sel.value = 'custom';
+  return addCurrentFace('custom');
+}
+async function savePartFaceToSharedStore(){
+  faceFromSelectors();
+  const sel = $('saveFaceType');
+  if (sel) sel.value = 'part';
+  return addCurrentFace('part');
 }
 async function renameSelectedFace(){
   const face = savedFaces[selectedFaceIndex];
@@ -4012,7 +4212,7 @@ async function updateStatus(){
   try {
     const s = await apiJson('/api/status');
     $('status').textContent = 'mode=' + s.mode + ' ip=' + s.ip + ' ap=' + (s.ap_ip || '') + ' udp=' + s.udp_port + ' rssi=' + s.rssi;
-    if (s.runtime) updateManualModeUi(!!s.runtime.manual_control_mode, s.runtime);
+    updateManualModeUi(!!s.manual_control_mode, s);
   } catch (error) {
     $('status').textContent = 'status error: ' + error.message;
   }
@@ -4065,7 +4265,10 @@ function textToBits(text, offset){
   }
   return bits;
 }
-function previewScrollText(){ renderBits($('scrollPreview'), textToBits($('scrollText').value, 0), false); }
+function previewScrollText(){
+  const text = String($('scrollText').value || '');
+  renderBits($('scrollPreview'), textToBits(text, Math.max(0, COLS - 6)), false);
+}
 async function startScrollText(){
   stopUnityMedia(false);
   const speed = Math.max(40, Math.min(1000, parseInt($('scrollSpeed').value || '120', 10) || 120));
@@ -4159,21 +4362,24 @@ function updateMediaSelect(){
 function applyUnityFrame(frame, send){
   const cur = currentMedia();
   const idx = findTimelineIndex(cur.timeline, frame || 0);
-  if (idx < 0) return null;
+  if (idx < 0) { log('Unity 没有可预览帧'); return null; }
   const bits = unityFaceToBits(cur.timeline[idx].face);
   renderBits($('unityMediaPreview'), bits, false);
   const hx = bitsToM370(bits);
   if (send && typeof window.sendText === 'function') sendText('M370:' + hx, false).catch(e => log('preview send failed: ' + e.message));
   const last = cur.timeline.length ? cur.timeline[cur.timeline.length - 1].frame || 0 : 0;
-  $('unityMediaTime').textContent = Math.floor((frame || 0) / UNITY_FPS) + 's / ' + Math.floor(last / UNITY_FPS) + 's';
+  if ($('unityMediaTime')) $('unityMediaTime').textContent = Math.floor((frame || 0) / UNITY_FPS) + 's / ' + Math.floor(last / UNITY_FPS) + 's';
   return hx;
 }
 function chooseUnityMedia(send){
   stopUnityMedia(false);
-  applyUnityFrame(0, send !== false);
   const cur = currentMedia();
+  const firstFrame = (cur.timeline && cur.timeline.length) ? (cur.timeline[0].frame || 0) : 0;
+  const hx = applyUnityFrame(firstFrame, send !== false);
+  log('Unity 预览：' + cur.kind + ':' + cur.key + ' frame=' + firstFrame + (hx ? ' hex=' + hx.slice(0, 16) + '...' : ''));
   const selected = $('unityMediaSelect') ? $('unityMediaSelect').selectedIndex : 0;
-  $('unityMediaInfo').textContent = JSON.stringify({
+  const infoEl = $('unityMediaInfo');
+  if (infoEl) infoEl.textContent = JSON.stringify({
     kind: cur.kind,
     key: cur.key,
     label: mediaLabel(cur.kind, cur.key, selected),
@@ -4181,10 +4387,25 @@ function chooseUnityMedia(send){
     frames: cur.timeline.length
   }, null, 2);
 }
+function sourceAssetPath(kind, key, item){
+  item = item || {};
+  if (item.music_src) return item.music_src;
+  if (item.video_src) return item.video_src;
+  if (item.audio_src) return item.audio_src;
+  if (item.src) return item.src;
+  if (item.url) return item.url;
+  if (kind === 'music' && key) return '/assets/music/music_' + encodeURIComponent(key) + '.ogg';
+  if (kind === 'video' && key) return '/assets/video/video_' + encodeURIComponent(key) + '.mp4';
+  if (kind === 'voice') {
+    const n = String(key || '').match(/(\d+)/);
+    if (n) return '/assets/voice/voice_' + n[1] + '.ogg';
+  }
+  return '';
+}
 function mediaSource(){
-  const file = $('unityMediaFile').files && $('unityMediaFile').files[0];
-  if (file) return URL.createObjectURL(file);
-  return String($('unityMediaUrl').value || '').trim();
+  const cur = currentMedia();
+  const selected = $('unityMediaSelect') ? $('unityMediaSelect').selectedIndex : 0;
+  return sourceAssetPath(cur.kind, cur.key, mediaAsset(cur.kind, cur.key, selected));
 }
 function showMediaElement(kind, url){
   const audio = $('unityMediaAudio'), video = $('unityMediaVideo');
@@ -4205,13 +4426,15 @@ async function sendFirmwareTimeline(cur, loop){
     const hx = bitsToM370(unityFaceToBits(row.face));
     if (hx !== lastHex) { entries.push({frame: row.frame || 0, hex: hx}); lastHex = hx; }
   }
+  if (entries.length && entries[0].frame > 0) entries.unshift({frame: 0, hex: entries[0].hex});
   const last = cur.timeline.length ? cur.timeline[cur.timeline.length - 1].frame || 0 : 0;
   const name = (cur.kind + ':' + cur.key).replace(/[|;,\r\n]/g, ' ').slice(0, 48);
+  await sendText('timeline370Clear', true);
   await sendText('timeline370Begin|' + UNITY_FPS + '|' + last + '|' + (loop ? '1' : '0') + '|' + entries.length + '|' + name, true);
   let chunk = '';
   for (const e of entries) {
     const part = String(e.frame) + ',' + e.hex + ';';
-    if ((chunk + part).length > 1180) { await sendText('timeline370Chunk|' + chunk, true); chunk = ''; }
+    if ((chunk + part).length > 640) { await sendText('timeline370Chunk|' + chunk, true); chunk = ''; }
     chunk += part;
   }
   if (chunk) await sendText('timeline370Chunk|' + chunk, true);
@@ -4228,7 +4451,7 @@ async function playUnityMedia(){
   const cur = currentMedia();
   if (!cur.timeline.length) { alert('没有时间轴数据'); return; }
   stopUnityMedia(false);
-  const loop = !!$('unityMediaLoop').checked;
+  const loop = toggleButtonValue('unityMediaLoop');
   const sent = await sendFirmwareTimeline(cur, loop);
   mediaBlobUrl = mediaSource();
   mediaElement = showMediaElement(cur.kind, mediaBlobUrl);
@@ -4269,7 +4492,7 @@ async function wifiRefreshStatus(){
     const s = await apiJson('/api/wifi/status');
     wifiCanConfigure = !!s.can_configure;
     out.textContent = (s.sta_connected ? 'STA: 已连接 SSID=' + s.sta_ssid + ' IP=' + s.sta_ip : 'STA: 未连接') + '\nAP: ' + (s.ap_ssid_cfg || s.ap_ssid || 'RinaChanBoard-S3') + ' IP=' + (s.ap_ip || '192.168.4.1');
-    $('wifiModeNote').textContent = wifiCanConfigure ? '当前通过 AP 热点访问，可修改 Wi-Fi。' : '当前不是 AP 配置模式，Wi-Fi 配置只读。';
+    $('wifiModeNote').textContent = wifiCanConfigure ? '设备 AP 已开启，可扫描并修改 Wi-Fi。' : '当前 Wi-Fi 配置只读。';
     if (s.sta_ssid_cfg && !$('wifiSsid').value) $('wifiSsid').value = s.sta_ssid_cfg;
     if (s.ap_ssid_cfg && !$('wifiApSsid').value) $('wifiApSsid').value = s.ap_ssid_cfg;
     applyWifiLock();
@@ -4281,12 +4504,14 @@ async function wifiScan(){
   const box = $('wifiScanResults'), btn = $('wifiScanBtn');
   btn.disabled = true; btn.textContent = '扫描中...'; box.style.display = 'block'; box.textContent = '扫描中...';
   try {
-    const data = await apiJson('/api/wifi/scan');
+    const data = await apiJson('/api/wifi/scan?t=' + Date.now());
     const nets = data.networks || [];
+    const err = nets.find(n => n && n.error);
+    if (err) throw new Error(err.error);
     box.innerHTML = nets.length ? '' : '<span class="small">未发现网络</span>';
     nets.forEach(n => {
       const row = document.createElement('button');
-      row.type = 'button'; row.className = 'btn'; row.style.margin = '2px'; row.textContent = n.ssid + '  ' + n.rssi + ' dBm';
+      row.type = 'button'; row.className = 'btn'; row.style.margin = '2px'; row.textContent = n.ssid + '  ' + n.rssi + ' dBm' + (n.channel ? '  ch' + n.channel : '');
       row.addEventListener('click', () => { $('wifiSsid').value = n.ssid; box.style.display = 'none'; $('wifiPassword').focus(); });
       box.appendChild(row);
     });
@@ -4333,15 +4558,18 @@ function fillSelectors(){
   updateMediaSelect();
 }
 function bind(){
+  bindToggleButton('saveFaceLocked', false);
+  bindToggleButton('unityMediaLoop', false);
+  bindToggleButton('eyeSyncBox', false, function(on){ if (on && $('leye') && $('reye')) $('reye').value = $('leye').value; faceFromSelectors(); });
   $('host').textContent = location.host || 'local file';
-  $('ipInput').value = location.hostname || '192.168.4.1';
-  on('openIp', 'click', 'openIp', () => { const ip = $('ipInput').value.trim(); if (ip) location.href = 'http://' + ip + '/'; });
   on('clearDebugLog', 'click', 'clearDebugLog', () => { const box = $('debugLog'); if (box) box.textContent = ''; });
   onAll('[data-tab]', 'click', 'tab', (ev, btn) => {
     qa('[data-tab]').forEach(b => b.classList.remove('active'));
     qa('.tab').forEach(t => t.classList.remove('show'));
     btn.classList.add('active'); $(btn.dataset.tab).classList.add('show');
+    sendText('runtimeStop|tabSwitch', false).catch(function(){});
     if (btn.dataset.tab === 'tab-wifi') wifiRefreshStatus();
+    if (btn.dataset.tab === 'tab-saved') loadFaces();
   });
   on('refreshStatus', 'click', 'refreshStatus', updateStatus);
   on('readVersion', 'click', 'readVersion', requestVersion);
@@ -4363,15 +4591,17 @@ function bind(){
   on('downloadFace', 'click', 'downloadFace', downloadFace);
   on('loadHexToEditor', 'click', 'loadHexToEditor', () => setColorsByString($('faceHex').value));
   on('sendLegacyBinary', 'click', 'sendLegacyBinary', sendFaceFullBinary);
-  ['leye','reye','mouth','cheek'].forEach(id => on(id, 'change', id + 'Change', () => { if (id === 'leye' && $('eyeSyncBox').checked) $('reye').value = $('leye').value; faceFromSelectors(); }));
+  on('saveCustomFace', 'click', 'saveCustomFace', saveCustomFaceToSharedStore);
+  ['leye','reye','mouth','cheek'].forEach(id => on(id, 'change', id + 'Change', () => { if (id === 'leye' && toggleButtonValue('eyeSyncBox') && $('reye')) $('reye').value = $('leye').value; faceFromSelectors(); }));
   on('buildFace', 'click', 'buildFace', faceFromSelectors);
   on('uploadPartFace', 'click', 'uploadPartFace', () => { faceFromSelectors(); return uploadFace(); });
   on('randomPartBtn', 'click', 'randomPart', () => randomizeParts(false));
   on('randomUploadPartBtn', 'click', 'randomUploadPart', () => randomizeParts(true));
   on('sendFaceLiteBinary', 'click', 'sendFaceLiteBinary', sendFaceLiteBinary);
+  on('savePartFace', 'click', 'savePartFace', savePartFaceToSharedStore);
   on('reloadFaces', 'click', 'reloadFaces', loadFaces);
   on('saveCurrentFace', 'click', 'saveCurrentFace', addCurrentFace);
-  on('savedFaces', 'change', 'savedFacesChange', () => { selectedFaceIndex = +$('savedFaces').value || 0; renderSavedFaces(); });
+  on('savedFaces', 'change', 'savedFacesChange', () => { selectedFaceIndex = +$('savedFaces').value || 0; renderSavedFaces(); sendText('selectFace370|' + selectedFaceIndex, false).catch(function(){}); });
   on('loadCustomFace', 'click', 'loadCustomFace', loadSelectedFace);
   on('renameCustomFace', 'click', 'renameCustomFace', renameSelectedFace);
   on('toggleLockFace', 'click', 'toggleLockFace', toggleSelectedLock);
@@ -4398,7 +4628,7 @@ function init(){
   bind();
   renderEditor();
   renderPartGalleries();
-  renderBits($('scrollPreview'), Array(ROWS * COLS).fill(0), false);
+  previewScrollText();
   $('dbInfo').textContent = JSON.stringify({
     ascii: (db().ascii || []).length,
     faceModules: Object.keys(db().faceModules || {}).length,
@@ -4418,7 +4648,7 @@ Object.assign(window, {
   invertFace: () => setEditorBits(gridBits.map((b, i) => isRealCell(Math.floor(i / COLS), i % COLS) ? (b ? 0 : 1) : 0)),
   uploadFace, downloadFace, uploadColor, downloadColor, uploadBright, downloadBright, requestVersion,
   requestEspStatus, requestBatteryJson, autoSyncAll, faceFromSelectors, sendFaceLiteBinary,
-  sendTextLite, sendFaceFullBinary, startScrollText, stopScrollText, previewScrollText,
+  sendTextLite, sendFaceFullBinary, saveCustomFaceToSharedStore, savePartFaceToSharedStore, startScrollText, stopScrollText, previewScrollText,
   chooseUnityMedia, playUnityMedia, stopUnityMedia, wifiRefreshStatus, wifiScan, wifiSave, wifiTogglePw,
   requestManualMode, setManualMode, toggleManualMode
 });

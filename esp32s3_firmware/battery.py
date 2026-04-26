@@ -148,8 +148,11 @@ class BatteryMonitor:
             return None
         return v * (BATTERY_DIVIDER_R1 + BATTERY_DIVIDER_R2) / BATTERY_DIVIDER_R2
 
+    def read_charge_adc_voltage(self):
+        return self._read_adc_voltage(self.chg_adc, CHARGE_DETECT_ADC_REF_V, CHARGE_DETECT_SAMPLES)
+
     def read_charge_voltage(self):
-        v = self._read_adc_voltage(self.chg_adc, CHARGE_DETECT_ADC_REF_V, CHARGE_DETECT_SAMPLES)
+        v = self.read_charge_adc_voltage()
         if v is None:
             return None
         return v * (CHARGE_DETECT_DIVIDER_R1 + CHARGE_DETECT_DIVIDER_R2) / CHARGE_DETECT_DIVIDER_R2
@@ -235,7 +238,7 @@ class BatteryMonitor:
                     self.inward_min_count += 1
                     changed = True
         now = _ticks_ms()
-        if pct is not None and _ticks_diff(now, self.last_log_ms) >= 30000:
+        if pct is not None and _ticks_diff(now, self.last_log_ms) >= BATTERY_LOG_INTERVAL_MS:
             hist = self.charge_history if charging else self.usage_history
             hist.append([now, round(float(pct), 2)])
             while len(hist) > BATTERY_HISTORY_MAX_SAMPLES:
@@ -244,6 +247,22 @@ class BatteryMonitor:
                 self.charge_history_last_percent = pct
             else:
                 self.history_last_percent = pct
+            try:
+                charge_adc = self.read_charge_adc_voltage()
+                print("battery log: current={:.2f} V, charge_ext={:.2f} V, charge_adc={:.2f} V, charging={}, min={:.2f} V, max={:.2f} V, count={}, holdoff={}, use_hist={}, chg_hist={}".format(
+                    vb if vb is not None else 0.0,
+                    vc if vc is not None else 0.0,
+                    charge_adc if charge_adc is not None else 0.0,
+                    charging,
+                    self.min_v,
+                    self.max_v,
+                    self.measure_count,
+                    0,
+                    len(self.usage_history),
+                    len(self.charge_history),
+                ))
+            except Exception as e:
+                print("battery log failed:", e)
             self.last_log_ms = now
             changed = True
         return changed

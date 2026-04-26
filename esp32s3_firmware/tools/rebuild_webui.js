@@ -90,13 +90,14 @@ h2{font-size:16px;margin:0 0 10px}
 nav{display:flex;gap:6px;overflow:auto;padding-top:8px}
 nav button,.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #344055;border-radius:8px;background:var(--panel2);color:var(--text);padding:9px 12px;cursor:pointer;min-height:36px;text-decoration:none;line-height:1.15}
 nav button:hover,.btn:hover{border-color:#4b5b78;background:#2a354a}
-nav button.active,.btn.primary{background:var(--accent);color:#1d101a;font-weight:700}
+nav button.active,.btn.primary,.btn.toggle.active,.btn[aria-pressed="true"]{background:var(--accent);color:#1d101a;font-weight:700}
 .btn.danger{background:#3a1720;color:#ffb8c4}
 .btn:disabled,input:disabled,select:disabled{opacity:.55;cursor:not-allowed}
 main{padding:14px;max-width:1180px;margin:auto}
 .tab{display:none}.tab.show{display:block}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+.grid2>*{min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;min-width:0}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
 label{color:var(--muted);font-size:13px}
 input,select,textarea{background:#0d1119;color:var(--text);border:1px solid #344055;border-radius:8px;padding:9px;min-height:38px}
@@ -104,7 +105,7 @@ textarea{width:100%;min-height:86px;font-family:ui-monospace,Consolas,monospace}
 .wide{min-width:260px;flex:1}.mono{font-family:ui-monospace,Consolas,monospace}.small{font-size:12px;color:var(--muted)}
 .pill{border-radius:999px;background:#242c3b;padding:4px 8px;color:var(--muted);font-size:12px}
 .pill.ok{color:var(--ok)}.pill.warn{color:var(--warn)}
-.out{white-space:pre-wrap;background:#0d1119;border-radius:8px;border:1px solid #344055;padding:9px;min-height:38px}
+.out{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;overflow:auto;max-width:100%;width:100%;background:#0d1119;border-radius:8px;border:1px solid #344055;padding:9px;min-height:38px;max-height:300px}
 .log{white-space:pre-wrap;background:#080b10;border:1px solid var(--line);border-radius:8px;padding:10px;height:220px;overflow:auto;font-size:12px}
 .debugLog{height:320px}
 a{color:#8fd3ff}
@@ -219,6 +220,7 @@ const body = String.raw`
           <button class="btn" id="invertFace" type="button">反相</button>
           <button class="btn primary" id="uploadFace" type="button">发送</button>
           <button class="btn" id="downloadFace" type="button">读取</button>
+          <button class="btn primary" id="saveCustomFace" type="button">保存到列表</button>
         </div>
         <div id="grid" class="matrix"></div>
       </div>
@@ -243,12 +245,13 @@ const body = String.raw`
           <label>脸颊</label><select id="cheek"></select>
         </div>
         <div class="row">
-          <label class="pill"><input id="eyeSyncBox" type="checkbox"> 左右眼同步</label>
+          <button class="btn toggle" id="eyeSyncBox" type="button" aria-pressed="false">左右眼同步</button>
           <button class="btn" id="buildFace" type="button">预览组合</button>
           <button class="btn" id="randomPartBtn" type="button">随机</button>
           <button class="btn primary" id="randomUploadPartBtn" type="button">随机并发送</button>
           <button class="btn primary" id="uploadPartFace" type="button">发送组合</button>
           <button class="btn" id="sendFaceLiteBinary" type="button">发送 4-byte Face_Lite</button>
+          <button class="btn primary" id="savePartFace" type="button">保存到列表</button>
         </div>
       </div>
       <div class="card"><h2>左眼</h2><div id="leyeGallery" class="partGallery"></div></div>
@@ -265,7 +268,7 @@ const body = String.raw`
           <button class="btn" id="reloadFaces" type="button">从固件读取</button>
           <button class="btn primary" id="saveCurrentFace" type="button">保存当前编辑器</button>
           <select id="saveFaceType"><option value="custom">自定义表情</option><option value="part">表情部件</option></select>
-          <label class="pill"><input id="saveFaceLocked" type="checkbox"> 锁定</label>
+          <button class="btn toggle" id="saveFaceLocked" type="button" aria-pressed="false">锁定</button>
           <span id="savedFacesCount" class="pill">0 个</span>
         </div>
         <select id="savedFaces" class="wide"></select>
@@ -316,7 +319,7 @@ const body = String.raw`
           <button class="btn" id="chooseUnityMedia" type="button">载入第 0 帧</button>
           <button class="btn primary" id="playUnityMedia" type="button">发送并播放</button>
           <button class="btn" id="stopUnityMedia" type="button">停止</button>
-          <label class="pill"><input id="unityMediaLoop" type="checkbox"> Loop</label>
+          <button class="btn toggle" id="unityMediaLoop" type="button" aria-pressed="false">Loop</button>
           <span class="pill mono" id="unityMediaTime">00:00</span>
         </div>
         <audio id="unityMediaAudio" controls style="display:none;width:100%"></audio>
@@ -440,6 +443,44 @@ const UNITY_FPS = 30;
 const SAVE_KEY = 'rina_clean_saved_faces_v1';
 const $ = id => document.getElementById(id);
 const qa = sel => Array.from(document.querySelectorAll(sel));
+function toggleButtonValue(id){
+  const el = $(id);
+  if (!el) return false;
+  if (el.tagName === 'INPUT' && el.type === 'checkbox') return !!el.checked;
+  return el.getAttribute('aria-pressed') === 'true' || el.classList.contains('active') || el.dataset.checked === '1';
+}
+function setToggleButtonValue(id, on){
+  const el = $(id);
+  if (!el) return;
+  const value = !!on;
+  if (el.tagName === 'INPUT' && el.type === 'checkbox') {
+    el.checked = value;
+    return;
+  }
+  el.dataset.checked = value ? '1' : '0';
+  el.setAttribute('aria-pressed', value ? 'true' : 'false');
+  el.classList.toggle('active', value);
+  if (id === 'saveFaceLocked') el.textContent = value ? '已锁定' : '锁定';
+  else if (id === 'unityMediaLoop') el.textContent = value ? 'Loop 开' : 'Loop';
+  else if (id === 'eyeSyncBox') el.textContent = value ? '左右眼同步：开' : '左右眼同步';
+}
+function bindToggleButton(id, initial, afterChange){
+  const el = $(id);
+  if (!el) return;
+  setToggleButtonValue(id, toggleButtonValue(id) || !!initial);
+  const eventName = (el.tagName === 'INPUT' && el.type === 'checkbox') ? 'change' : 'click';
+  el.addEventListener(eventName, action(id + 'Toggle', function(){
+    if (!(el.tagName === 'INPUT' && el.type === 'checkbox')) setToggleButtonValue(id, !toggleButtonValue(id));
+    else setToggleButtonValue(id, !!el.checked);
+    if (typeof afterChange === 'function') afterChange(toggleButtonValue(id));
+  }));
+}
+function selectedSaveType(fallback){
+  if (fallback === 'custom' || fallback === 'part') return fallback;
+  const el = $('saveFaceType');
+  return el && (el.value === 'custom' || el.value === 'part') ? el.value : 'custom';
+}
+
 
 let gridBits = Array(ROWS * COLS).fill(0);
 let savedFaces = [];
@@ -692,7 +733,7 @@ function buildPartThumb(group, idx, selectId){
   box.appendChild(label);
   box.addEventListener('click', () => {
     $(selectId).value = String(idx);
-    if (selectId === 'leye' && $('eyeSyncBox') && $('eyeSyncBox').checked) $('reye').value = String(idx);
+    if (selectId === 'leye' && toggleButtonValue('eyeSyncBox')) $('reye').value = String(idx);
     faceFromSelectors();
   });
   return box;
@@ -717,7 +758,7 @@ function randomizeParts(upload){
   const pick = group => Math.floor(Math.random() * ((faces[group] || []).length + 1));
   const le = pick('leye');
   $('leye').value = String(le);
-  $('reye').value = String(($('eyeSyncBox') && $('eyeSyncBox').checked) ? le : pick('reye'));
+  $('reye').value = String((toggleButtonValue('eyeSyncBox')) ? le : pick('reye'));
   $('mouth').value = String(pick('mouth'));
   $('cheek').value = String(pick('cheek'));
   faceFromSelectors();
@@ -819,10 +860,12 @@ function loadSelectedFace(){
   setEditorBits(faceToBits(face));
   renderSavedFaces();
 }
-async function addCurrentFace(){
-  const name = prompt('表情名称', '自定义表情 ' + pad2(savedFaces.length + 1));
+async function addCurrentFace(typeOverride){
+  const typ = selectedSaveType(typeOverride);
+  const baseName = typ === 'part' ? '表情部件 ' : '自定义表情 ';
+  const name = prompt('表情名称', baseName + pad2(savedFaces.length + 1));
   if (name == null) return;
-  const item = {name: String(name).trim() || '自定义表情', type: $('saveFaceType').value || 'custom', locked: $('saveFaceLocked').checked, data: bitsToBitmap(gridBits)};
+  const item = {name: String(name).trim() || baseName.trim(), type: typ, locked: toggleButtonValue('saveFaceLocked'), data: bitsToBitmap(gridBits)};
   savedFaces.push(normalizeFaceItem(item, savedFaces.length));
   selectedFaceIndex = savedFaces.length - 1;
   storeLocalFaces(savedFaces);
@@ -833,6 +876,17 @@ async function addCurrentFace(){
   } catch (error) {
     log('保存到固件失败，仅保存到本地：' + error.message);
   }
+}
+async function saveCustomFaceToSharedStore(){
+  const sel = $('saveFaceType');
+  if (sel) sel.value = 'custom';
+  return addCurrentFace('custom');
+}
+async function savePartFaceToSharedStore(){
+  faceFromSelectors();
+  const sel = $('saveFaceType');
+  if (sel) sel.value = 'part';
+  return addCurrentFace('part');
 }
 async function renameSelectedFace(){
   const face = savedFaces[selectedFaceIndex];
@@ -967,7 +1021,7 @@ function textToBits(text, offset){
   }
   return bits;
 }
-function previewScrollText(){ renderBits($('scrollPreview'), textToBits($('scrollText').value, 0), false); }
+function previewScrollText(){ renderBits($('scrollPreview'), textToBits($('scrollText').value, COLS), false); }
 async function startScrollText(){
   stopUnityMedia(false);
   const speed = Math.max(40, Math.min(1000, parseInt($('scrollSpeed').value || '120', 10) || 120));
@@ -1067,15 +1121,17 @@ function applyUnityFrame(frame, send){
   const hx = bitsToM370(bits);
   if (send && typeof window.sendText === 'function') sendText('M370:' + hx, false).catch(e => log('preview send failed: ' + e.message));
   const last = cur.timeline.length ? cur.timeline[cur.timeline.length - 1].frame || 0 : 0;
-  $('unityMediaTime').textContent = Math.floor((frame || 0) / UNITY_FPS) + 's / ' + Math.floor(last / UNITY_FPS) + 's';
+  if ($('unityMediaTime')) $('unityMediaTime').textContent = Math.floor((frame || 0) / UNITY_FPS) + 's / ' + Math.floor(last / UNITY_FPS) + 's';
   return hx;
 }
 function chooseUnityMedia(send){
   stopUnityMedia(false);
-  applyUnityFrame(0, send !== false);
   const cur = currentMedia();
+  const firstFrame = (cur.timeline && cur.timeline.length) ? (cur.timeline[0].frame || 0) : 0;
+  applyUnityFrame(firstFrame, send !== false);
   const selected = $('unityMediaSelect') ? $('unityMediaSelect').selectedIndex : 0;
-  $('unityMediaInfo').textContent = JSON.stringify({
+  const infoEl = $('unityMediaInfo');
+  if (infoEl) infoEl.textContent = JSON.stringify({
     kind: cur.kind,
     key: cur.key,
     label: mediaLabel(cur.kind, cur.key, selected),
@@ -1107,6 +1163,7 @@ async function sendFirmwareTimeline(cur, loop){
     const hx = bitsToM370(unityFaceToBits(row.face));
     if (hx !== lastHex) { entries.push({frame: row.frame || 0, hex: hx}); lastHex = hx; }
   }
+  if (entries.length && entries[0].frame > 0) entries.unshift({frame: 0, hex: entries[0].hex});
   const last = cur.timeline.length ? cur.timeline[cur.timeline.length - 1].frame || 0 : 0;
   const name = (cur.kind + ':' + cur.key).replace(/[|;,\r\n]/g, ' ').slice(0, 48);
   await sendText('timeline370Begin|' + UNITY_FPS + '|' + last + '|' + (loop ? '1' : '0') + '|' + entries.length + '|' + name, true);
@@ -1130,7 +1187,7 @@ async function playUnityMedia(){
   const cur = currentMedia();
   if (!cur.timeline.length) { alert('没有时间轴数据'); return; }
   stopUnityMedia(false);
-  const loop = !!$('unityMediaLoop').checked;
+  const loop = toggleButtonValue('unityMediaLoop');
   const sent = await sendFirmwareTimeline(cur, loop);
   mediaBlobUrl = mediaSource();
   mediaElement = showMediaElement(cur.kind, mediaBlobUrl);
@@ -1235,6 +1292,9 @@ function fillSelectors(){
   updateMediaSelect();
 }
 function bind(){
+  bindToggleButton('saveFaceLocked', false);
+  bindToggleButton('unityMediaLoop', false);
+  bindToggleButton('eyeSyncBox', false, function(on){ if (on && $('leye') && $('reye')) $('reye').value = $('leye').value; faceFromSelectors(); });
   $('host').textContent = location.host || 'local file';
   $('ipInput').value = location.hostname || '192.168.4.1';
   on('openIp', 'click', 'openIp', () => { const ip = $('ipInput').value.trim(); if (ip) location.href = 'http://' + ip + '/'; });
@@ -1265,12 +1325,14 @@ function bind(){
   on('downloadFace', 'click', 'downloadFace', downloadFace);
   on('loadHexToEditor', 'click', 'loadHexToEditor', () => setColorsByString($('faceHex').value));
   on('sendLegacyBinary', 'click', 'sendLegacyBinary', sendFaceFullBinary);
-  ['leye','reye','mouth','cheek'].forEach(id => on(id, 'change', id + 'Change', () => { if (id === 'leye' && $('eyeSyncBox').checked) $('reye').value = $('leye').value; faceFromSelectors(); }));
+  on('saveCustomFace', 'click', 'saveCustomFace', saveCustomFaceToSharedStore);
+  ['leye','reye','mouth','cheek'].forEach(id => on(id, 'change', id + 'Change', () => { if (id === 'leye' && toggleButtonValue('eyeSyncBox') && $('reye')) $('reye').value = $('leye').value; faceFromSelectors(); }));
   on('buildFace', 'click', 'buildFace', faceFromSelectors);
   on('uploadPartFace', 'click', 'uploadPartFace', () => { faceFromSelectors(); return uploadFace(); });
   on('randomPartBtn', 'click', 'randomPart', () => randomizeParts(false));
   on('randomUploadPartBtn', 'click', 'randomUploadPart', () => randomizeParts(true));
   on('sendFaceLiteBinary', 'click', 'sendFaceLiteBinary', sendFaceLiteBinary);
+  on('savePartFace', 'click', 'savePartFace', savePartFaceToSharedStore);
   on('reloadFaces', 'click', 'reloadFaces', loadFaces);
   on('saveCurrentFace', 'click', 'saveCurrentFace', addCurrentFace);
   on('savedFaces', 'change', 'savedFacesChange', () => { selectedFaceIndex = +$('savedFaces').value || 0; renderSavedFaces(); });
@@ -1320,7 +1382,7 @@ Object.assign(window, {
   invertFace: () => setEditorBits(gridBits.map((b, i) => isRealCell(Math.floor(i / COLS), i % COLS) ? (b ? 0 : 1) : 0)),
   uploadFace, downloadFace, uploadColor, downloadColor, uploadBright, downloadBright, requestVersion,
   requestEspStatus, requestBatteryJson, autoSyncAll, faceFromSelectors, sendFaceLiteBinary,
-  sendTextLite, sendFaceFullBinary, startScrollText, stopScrollText, previewScrollText,
+  sendTextLite, sendFaceFullBinary, saveCustomFaceToSharedStore, savePartFaceToSharedStore, startScrollText, stopScrollText, previewScrollText,
   chooseUnityMedia, playUnityMedia, stopUnityMedia, wifiRefreshStatus, wifiScan, wifiSave, wifiTogglePw,
   requestManualMode, setManualMode, toggleManualMode
 });

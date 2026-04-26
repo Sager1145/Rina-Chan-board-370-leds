@@ -5,6 +5,7 @@ except Exception:
     network = None
 
 import config
+import logger as log
 try:
     import wifi_config
 except Exception:
@@ -20,6 +21,7 @@ AP_HIDDEN = getattr(config, 'AP_HIDDEN', False)
 AP_MAX_CLIENTS = getattr(config, 'AP_MAX_CLIENTS', 4)
 AP_COUNTRY = getattr(config, 'AP_COUNTRY', 'US')
 AP_COMPAT_OPEN = getattr(config, 'AP_COMPAT_OPEN', False)
+AP_ALWAYS_ON = getattr(config, 'AP_ALWAYS_ON', True)
 AP_START_RETRIES = getattr(config, 'AP_START_RETRIES', 3)
 AP_START_WAIT_MS = getattr(config, 'AP_START_WAIT_MS', 1500)
 AP_RESTART_DELAY_MS = getattr(config, 'AP_RESTART_DELAY_MS', 300)
@@ -84,11 +86,22 @@ class NetworkManager:
             except Exception as e:
                 print('STA disable failed:', e)
 
+        sta_connected = False
         if self.sta.isconnected():
-            self.ip = self.sta.ifconfig()[0]
+            sta_connected = True
+            sta_ip = self.sta.ifconfig()[0]
+            self.ip = sta_ip
             self.ssid = sta_ssid
             self.mode = 'sta'
-            print('WiFi STA connected:', sta_ssid, self.ip)
+            print('WiFi STA connected:', sta_ssid, sta_ip)
+            # Keep the board's fallback AP alive so phones can always open
+            # http://192.168.4.1/ even after station Wi-Fi is configured.
+            if AP_ALWAYS_ON:
+                ap_ok = self._start_ap(ap_ssid, ap_pass, ap_open, ap_channel, ap_hidden, ap_max_clients)
+                self.ip = sta_ip
+                self.ssid = sta_ssid
+                self.mode = 'sta+ap' if ap_ok else 'sta'
+                return True
             return True
 
         return self._start_ap(ap_ssid, ap_pass, ap_open, ap_channel, ap_hidden, ap_max_clients)
@@ -186,6 +199,10 @@ class NetworkManager:
             if self.ap is not None:
                 out['ap_active'] = self.ap.active()
                 out['ap_ifconfig'] = self.ap.ifconfig()
+                try:
+                    out['ap_ip'] = self.ap.ifconfig()[0]
+                except Exception:
+                    out['ap_ip'] = AP_IP
                 out['ap_station_count'] = self.ap_station_count()
         except Exception as e:
             out['ap_error'] = str(e)
@@ -194,23 +211,47 @@ class NetworkManager:
                 out['sta_active'] = self.sta.active()
                 out['sta_connected'] = self.sta.isconnected()
                 out['sta_status'] = self.sta.status()
+                try:
+                    out['sta_ip'] = self.sta.ifconfig()[0] if self.sta.isconnected() else ''
+                except Exception:
+                    out['sta_ip'] = ''
         except Exception as e:
             out['sta_error'] = str(e)
         return out
 
     def scan(self):
         if self.sta is None:
+            log.warn('WIFI', 'scan skipped: STA object missing')
             return []
         try:
+            log.info('WIFI', 'scan start', sta_active=self.sta.active())
             if not self.sta.active():
                 self.sta.active(True)
-                self._sleep_ms(200)
+                self._sleep_ms(350)
+            try:
+                import gc
+                gc.collect()
+            except Exception:
+                pass
             items = self.sta.scan()
             out = []
+            seen = set()
             for item in items:
                 ssid = item[0].decode() if isinstance(item[0], bytes) else str(item[0])
-                out.append({'ssid': ssid, 'rssi': item[3], 'auth': item[4]})
+                if not ssid:
+                    continue
+                key = ssid
+                rssi = int(item[3]) if len(item) > 3 else -999
+                auth = int(item[4]) if len(item) > 4 else 0
+                channel = int(item[2]) if len(item) > 2 else 0
+                if key in seen:
+                    # Keep duplicate AP names out of the small mobile UI.
+                    continue
+                seen.add(key)
+                out.append({'ssid': ssid, 'rssi': rssi, 'auth': auth, 'channel': channel})
             out.sort(key=lambda x: x.get('rssi', -999), reverse=True)
+            log.info('WIFI', 'scan done', count=len(out))
             return out
         except Exception as e:
+            log.exception('WIFI', 'scan failed', e)
             return [{'error': str(e)}]

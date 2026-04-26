@@ -1,0 +1,31 @@
+{
+  "note": "Optional media assets from 738NGX/RinaChanBoard Unity Resources. Upload only selected files if ESP32-S3 flash capacity is sufficient; LED timeline playback works without these media files.",
+  "source_repo": "https://github.com/738NGX/RinaChanBoard",
+  "source_root": "RinaChanBoardOperationCenter/Assets/Resources",
+  "target_root": "webui/assets",
+  "mapping": {
+    "Music/*.ogg": "webui/assets/music/*.ogg",
+    "Video/*.mp4": "webui/assets/video/*.mp4",
+    "Voice/*.ogg": "webui/assets/voice/*.ogg"
+  },
+  "music": [
+    "webui/assets/music/music_lumf.ogg",
+    "webui/assets/music/music_solo0.ogg",
+    "webui/assets/music/music_solo1.ogg",
+    "webui/assets/music/music_solo2.ogg",
+    "webui/assets/music/music_solo3.ogg",
+    "webui/assets/music/music_solo4.ogg",
+    "webui/assets/music/music_solo5.ogg",
+    "webui/assets/music/music_tkmk.ogg"
+  ],
+  "video": [
+    "webui/assets/video/video_C&R01.mp4",
+    "webui/assets/video/video_C&R02.mp4",
+    "webui/assets/video/video_C&R11.mp4",
+    "webui/assets/video/video_C&R12.mp4",
+    "webui/assets/video/video_TVS101.mp4",
+    "webui/assets/video/video_TVS102.mp4",
+    "webui/assets/video/video_TVS103.mp4"
+  ],
+  "voice_pattern": "webui/assets/voice/voice_<id>.ogg"
+}
