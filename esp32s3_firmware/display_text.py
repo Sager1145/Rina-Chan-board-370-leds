@@ -1,5 +1,4 @@
-from config import COLS, ROWS, PINK, DIM, OFF, LOG_DRAW_VERBOSE, LOG_FRAME_VERBOSE
-import logger as log
+from config import COLS, ROWS, PINK, DIM, OFF
 import board
 
 FONT = {
@@ -61,8 +60,6 @@ def text_width(text):
 
 
 def draw_text_at(text, x0, y0=5, color=PINK, dim_color=DIM, clear_first=True, do_show=True):
-    if LOG_FRAME_VERBOSE or (LOG_DRAW_VERBOSE and log.every('display_text.draw', 1000)):
-        log.debug('TEXT', 'draw text', text=str(text)[:60], x0=x0, y0=y0, show=do_show, clear=clear_first)
     if clear_first:
         board.clear(False)
     x = int(x0)
@@ -85,5 +82,4 @@ def draw_text_at(text, x0, y0=5, color=PINK, dim_color=DIM, clear_first=True, do
 
 
 def draw_centered(text, y0=5, color=PINK):
-    log.info('TEXT', 'draw centered', text=str(text)[:60], y0=y0)
     draw_text_at(text, (COLS - text_width(text)) // 2, y0=y0, color=color)

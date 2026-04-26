@@ -2,7 +2,7 @@
 # Target from the provided ESP32-S3 report: LED GPIO2, CHG_ADC GPIO1,
 # BATT_ADC GPIO10, buttons GPIO15/16/17/42/41/40, 370 LED irregular matrix.
 
-VERSION = "2.0.4-esp32s3-native-370-fused-responsive"
+VERSION = "2.0.0-esp32s3-native-370-fused"
 
 # Hardware pins
 LED_PIN = 2
@@ -32,23 +32,12 @@ SETTINGS_FILE = "settings370.json"
 FACES_FILE = "faces370.json"
 WEBUI_FILE = "webui/index.html"
 
-
 # Serial logging.
 # Levels: 0=off, 1=error, 2=warn, 3=info, 4=debug, 5=trace.
-# Default DEBUG logs all user-facing activities, protocol traffic, buttons,
-# storage, Wi-Fi, battery mean updates, and runtime state changes. Set to 5
-# only when you need very noisy per-frame tracing.
 LOG_LEVEL = 3
 LOG_INCLUDE_FREE_MEM = True
 LOG_RATE_LIMIT_DEFAULT_MS = 0
-LOG_HEARTBEAT_MS = 5000
-# Keep activity logs, but remove high-frequency protocol/body/frame logs by default.
-# Set these to True only while debugging a specific protocol/rendering problem.
 LOG_PROTOCOL_VERBOSE = False
-LOG_BATTERY_MEAN = False
-LOG_BUTTON_RAW_EDGE = True
-LOG_DRAW_VERBOSE = False
-LOG_FRAME_VERBOSE = False
 
 # Network / protocol.
 HTTP_PORT = 80
@@ -56,29 +45,24 @@ UDP_PORT = 1234
 UDP_REPLY_PORT = 4321
 DNS_PORT = 53
 ENABLE_CAPTIVE_DNS = True
+AP_IP = "192.168.4.1"
 MAX_HTTP_BODY = 32768
-HTTP_CLIENT_TIMEOUT_MS = 80
-HTTP_SEND_CHUNK_BYTES = 512
-SERVER_POLLS_PER_LOOP = 2
+HTTP_CLIENT_TIMEOUT_MS = 120
+HTTP_SEND_CHUNK_BYTES = 768
 UDP_PACKETS_PER_POLL = 4
 DNS_PACKETS_PER_POLL = 4
-DEFERRED_SETTINGS_SAVE_MS = 750
 MAX_TIMELINE_FRAMES = 900
 MAX_TIMELINE_FRAME_HEX = NUM_LEDS * 6
 
 # Wi-Fi defaults. Edit wifi_config.py for your real STA network.
-# Default AP is WPA/WPA2 secured for better phone compatibility.
-# SSID: RINA-S3, password: 12345678, URL: http://192.168.4.1
-# Set AP_COMPAT_OPEN=True in wifi_config.py only if secured AP fails.
-AP_SSID = "RINA-S3"
+AP_SSID = "RinaChanBoard-S3"
 AP_PASSWORD = "12345678"
 AP_AUTHMODE = 3
 AP_COMPAT_OPEN = False
-AP_CHANNEL = 1
+AP_CHANNEL = 6
 AP_HIDDEN = False
 AP_MAX_CLIENTS = 4
-AP_COUNTRY = "CA"
-AP_IP = "192.168.4.1"
+AP_COUNTRY = "US"
 AP_NETMASK = "255.255.255.0"
 AP_GATEWAY = "192.168.4.1"
 AP_DNS = "192.168.4.1"
@@ -108,28 +92,30 @@ INTERVAL_MIN_S = 0.5
 INTERVAL_MAX_S = 10.0
 INTERVAL_STEP_S = 0.5
 
-POLL_PERIOD_MS = 1
-FLASH_HOLD_MS = 800
-BUTTON_DEBOUNCE_MS = 18
+POLL_PERIOD_MS = 10
+FLASH_HOLD_MS = 1000
+BUTTON_DEBOUNCE_MS = 25
 BUTTON_REPEAT_INITIAL_MS = 400
 BUTTON_REPEAT_PERIOD_MS = 140
 B6_LONG_PRESS_MS = 700
 SPECIAL_COMBO_LONG_PRESS_MS = 2000
 IP_SCROLL_SPEED_MS = 90
 
-# Battery / charge measurement. The resistor values are inherited from the
-# Pico code and can be changed here if the ESP32-S3 board divider changes.
-BATTERY_ADC_REF_V = 3.3
-BATTERY_SAMPLES = 4
+# Battery / charge measurement.
+# These *_ADC_REF_V values are fallback full-scale values for raw read_u16()
+# conversion at 11 dB attenuation.  MicroPython read_uv(), when available, is
+# used first because it applies ESP32 eFuse ADC calibration.
+BATTERY_ADC_REF_V = 3.10
+BATTERY_SAMPLES = 16
 BATTERY_DIVIDER_R1 = 100000
 BATTERY_DIVIDER_R2 = 57000
 BATTERY_DEFAULT_MIN_V = 6.2
 BATTERY_DEFAULT_MAX_V = 8.0
 BATTERY_DISPLAY_TOL_V = 0.12
-BATTERY_CAL_VERSION = 5
+BATTERY_CAL_VERSION = 6
 
-CHARGE_DETECT_ADC_REF_V = 3.3
-CHARGE_DETECT_SAMPLES = 4
+CHARGE_DETECT_ADC_REF_V = 3.10
+CHARGE_DETECT_SAMPLES = 16
 CHARGE_DETECT_DIVIDER_R1 = 270000
 CHARGE_DETECT_DIVIDER_R2 = 47000
 CHARGE_DETECT_CHARGING_MIN_V = 4.0
@@ -137,7 +123,7 @@ CHARGE_DETECT_HYSTERESIS_LOW_V = 3.0
 CHARGE_DISPLAY_THRESHOLD_V = 4.5
 
 BATTERY_MEAN_UPDATE_MS = 1000
-BATTERY_MEAN_SAMPLE_INTERVAL_MS = 100
+BATTERY_MEAN_SAMPLE_INTERVAL_MS = 20
 BATTERY_DISPLAY_CYCLE_MS = 2000
 BATTERY_ANIMATION_REFRESH_MS = 100
 BATTERY_CHARGE_FLASH_MS = 300

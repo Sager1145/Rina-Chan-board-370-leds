@@ -6,7 +6,6 @@ except Exception:
     Pin = None
 
 from config import *
-import logger as log
 
 
 def _ticks_ms():
@@ -92,7 +91,6 @@ class BatteryMonitor:
         self.last_mean_charge_voltage = None
         self.last_charging = False
         self.last_log_ms = now
-        log.info('BATTERY', 'init', batt_gpio=BATT_ADC_PIN, chg_gpio=CHG_ADC_PIN, min_v=self.min_v, max_v=self.max_v, measure_count=self.measure_count)
 
     def _make_adc(self, gpio):
         if ADC is None:
@@ -103,7 +101,7 @@ class BatteryMonitor:
             try:
                 adc = ADC(gpio)
             except Exception as e:
-                log.exception('BATTERY', 'ADC init failed GPIO {}'.format(gpio), e)
+                print('ADC init failed on GPIO', gpio, e)
                 return None
         try:
             adc.atten(ADC.ATTN_11DB)
@@ -113,14 +111,29 @@ class BatteryMonitor:
             adc.width(ADC.WIDTH_12BIT)
         except Exception:
             pass
-        log.info('BATTERY', 'ADC init ok', gpio=gpio)
         return adc
 
     def _read_adc_voltage(self, adc, ref_v, samples):
         if adc is None:
             return None
-        total = 0
         count = int(samples)
+        try:
+            read_uv = adc.read_uv
+        except AttributeError:
+            read_uv = None
+        if read_uv is not None:
+            total_uv = 0
+            ok = 0
+            for _ in range(count):
+                try:
+                    total_uv += read_uv()
+                    ok += 1
+                except Exception:
+                    ok = 0
+                    break
+            if ok:
+                return (total_uv / ok) / 1000000.0
+        total = 0
         for _ in range(count):
             try:
                 total += adc.read_u16()
@@ -145,12 +158,8 @@ class BatteryMonitor:
         now = _ticks_ms()
         updated = False
         if _ticks_diff(now, self.mean_window_started_ms) >= BATTERY_MEAN_UPDATE_MS:
-            battery_samples = self.mean_battery_count
-            charge_samples = self.mean_charge_count
             self.last_mean_battery_voltage = None if self.mean_battery_count <= 0 else self.mean_battery_total / self.mean_battery_count
             self.last_mean_charge_voltage = None if self.mean_charge_count <= 0 else self.mean_charge_total / self.mean_charge_count
-            if LOG_BATTERY_MEAN:
-                log.info('BATTERY', 'mean window', battery_v=self.last_mean_battery_voltage, charge_v=self.last_mean_charge_voltage, battery_samples=battery_samples, charge_samples=charge_samples)
             self.mean_battery_total = 0.0
             self.mean_charge_total = 0.0
             self.mean_battery_count = 0
@@ -201,40 +210,30 @@ class BatteryMonitor:
             return False
         pct = percent_from_voltage(vb, self.min_v, self.max_v)
         charging = self.is_charging_voltage(vc)
-        if charging != self.last_charging:
-            log.info('BATTERY', 'charging state changed', charging=charging, charge_v=vc, battery_v=vb, percent=pct)
         self.last_charging = charging
         self.measure_count += 1
         changed = False
         if vb > self.max_v:
-            old = self.max_v
             self.max_v = vb
             self.inward_max_count = 0
             changed = True
-            log.info('BATTERY', 'new max voltage', old=old, new=self.max_v, percent=pct)
         if vb < self.min_v:
-            old = self.min_v
             self.min_v = vb
             self.inward_min_count = 0
             changed = True
-            log.info('BATTERY', 'new min voltage', old=old, new=self.min_v, percent=pct)
         if self.measure_count % BATTERY_RELEARN_EVERY_MEASUREMENTS == 0:
             if (not charging) and self.inward_max_count < BATTERY_RELEARN_MAX_CONSECUTIVE:
                 new_max = max(vb, self.max_v - BATTERY_RELEARN_MAX_STEP_V)
                 if new_max > self.min_v + BATTERY_MIN_SPAN_V and new_max < self.max_v:
-                    old = self.max_v
                     self.max_v = new_max
                     self.inward_max_count += 1
                     changed = True
-                    log.info('BATTERY', 'relearn max inward', old=old, new=self.max_v, inward_count=self.inward_max_count)
             if charging and self.inward_min_count < BATTERY_RELEARN_MAX_CONSECUTIVE:
                 new_min = min(vb, self.min_v + BATTERY_RELEARN_MIN_STEP_V)
                 if new_min < self.max_v - BATTERY_MIN_SPAN_V and new_min > self.min_v:
-                    old = self.min_v
                     self.min_v = new_min
                     self.inward_min_count += 1
                     changed = True
-                    log.info('BATTERY', 'relearn min inward', old=old, new=self.min_v, inward_count=self.inward_min_count)
         now = _ticks_ms()
         if pct is not None and _ticks_diff(now, self.last_log_ms) >= 30000:
             hist = self.charge_history if charging else self.usage_history
@@ -246,7 +245,6 @@ class BatteryMonitor:
             else:
                 self.history_last_percent = pct
             self.last_log_ms = now
-            log.info('BATTERY', 'history sample', charging=charging, percent=pct, battery_v=vb, charge_v=vc, usage_len=len(self.usage_history), charge_len=len(self.charge_history))
             changed = True
         return changed
 
@@ -270,8 +268,6 @@ class BatteryMonitor:
         vb, vc = self.get_mean_pair(True)
         charging = self.is_charging_voltage(vc)
         pct = percent_from_voltage(vb, self.min_v, self.max_v)
-        if log.every('battery.snapshot', 5000):
-            log.debug('BATTERY', 'snapshot', battery_v=vb, charge_v=vc, charging=charging, percent=pct, min_v=self.min_v, max_v=self.max_v)
         return {
             'battery_voltage': vb,
             'charge_voltage': vc,

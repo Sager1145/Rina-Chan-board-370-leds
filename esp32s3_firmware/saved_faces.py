@@ -7,7 +7,6 @@ except ImportError:
 from config import FACES_FILE, ROWS, COLS
 from default_faces import DEFAULT_SAVED_FACES, DEFAULT_START_INDEX
 from face_codec import normalize_bitmap
-import logger as log
 
 _DEFAULT_IDS = set([f.get('default_id') for f in DEFAULT_SAVED_FACES])
 
@@ -78,13 +77,11 @@ class SavedFaceStore:
                 with open(self.path, 'r') as f:
                     faces = json.load(f)
             except Exception as e:
-                log.exception('FACES', 'load failed', e)
+                print('faces load failed:', e)
                 faces = None
         if not isinstance(faces, list):
-            log.warn('FACES', 'using builtin defaults', file=self.path)
             faces = _clone(DEFAULT_SAVED_FACES)
         self.faces = self._merge_defaults(faces)
-        log.info('FACES', 'load complete', file=self.path, count=len(self.faces))
         self.save()
         return self.faces
 
@@ -101,13 +98,11 @@ class SavedFaceStore:
         for d in DEFAULT_SAVED_FACES:
             if d.get('default_id') not in seen_defaults:
                 output.append(_forced_default(d))
-        log.debug('FACES', 'merge defaults', incoming=len(incoming), output=len(output), defaults_seen=len(seen_defaults))
         return output
 
     def save(self):
         with open(self.path, 'w') as f:
             json.dump(self.faces, f)
-        log.debug('FACES', 'save ok', file=self.path, count=len(self.faces))
 
     def to_json(self):
         return json.dumps(self.faces)
@@ -126,7 +121,6 @@ class SavedFaceStore:
         if not isinstance(items, list):
             raise ValueError('saved faces JSON must be a list')
         self.faces = self._merge_defaults(items)
-        log.info('FACES', 'replace all', count=len(self.faces))
         self.save()
         return True
 
@@ -138,33 +132,25 @@ class SavedFaceStore:
         item.pop('builtin', None)
         self.faces.append(item)
         self.save()
-        idx = len(self.faces) - 1
-        log.info('FACES', 'add', index=idx, name=item.get('name'), type=item.get('type'))
-        return idx
+        return len(self.faces) - 1
 
     def delete(self, index):
         index = int(index)
         if index < 0 or index >= len(self.faces):
-            log.warn('FACES', 'delete rejected', index=index, reason='index out of range')
             return False, 'index out of range'
         item = self.faces[index]
         if item.get('type') == 'default' or item.get('builtin') or item.get('default_id') in _DEFAULT_IDS:
-            log.warn('FACES', 'delete rejected', index=index, name=item.get('name'), reason='default locked')
             return False, 'default face is locked and cannot be deleted'
         if item.get('locked'):
-            log.warn('FACES', 'delete rejected', index=index, name=item.get('name'), reason='locked')
             return False, 'locked face cannot be deleted'
-        name = item.get('name')
         del self.faces[index]
         self.save()
-        log.info('FACES', 'delete ok', index=index, name=name, count=len(self.faces))
         return True, 'ok'
 
     def move(self, src, dst):
         src = int(src); dst = int(dst)
         n = len(self.faces)
         if src < 0 or src >= n:
-            log.warn('FACES', 'move rejected', src=src, dst=dst, count=n)
             return False
         if dst < 0:
             dst = 0
@@ -173,15 +159,12 @@ class SavedFaceStore:
         item = self.faces.pop(src)
         self.faces.insert(dst, item)
         self.save()
-        log.info('FACES', 'move ok', src=src, dst=dst, count=n)
         return True
 
     def rename(self, index, name):
         index = int(index)
-        old = self.faces[index].get('name')
         self.faces[index]['name'] = str(name)[:48]
         self.save()
-        log.info('FACES', 'rename', index=index, old=old, new=self.faces[index].get('name'))
         return True
 
     def lock(self, index, locked):
@@ -192,7 +175,6 @@ class SavedFaceStore:
         else:
             item['locked'] = bool(int(locked)) if isinstance(locked, str) else bool(locked)
         self.save()
-        log.info('FACES', 'lock', index=index, locked=item.get('locked'), name=item.get('name'))
         return True
 
     def set_type(self, index, typ):
@@ -202,10 +184,8 @@ class SavedFaceStore:
         item = self.faces[index]
         if item.get('type') == 'default' or item.get('builtin'):
             raise ValueError('cannot change default face type')
-        old = item.get('type')
         item['type'] = typ
         self.save()
-        log.info('FACES', 'set type', index=index, old=old, new=typ, name=item.get('name'))
         return True
 
     def update_meta(self, index, name=None, typ=None, locked=None):
@@ -217,5 +197,4 @@ class SavedFaceStore:
         if locked is not None:
             self.lock(index, locked)
         self.save()
-        log.debug('FACES', 'update meta', index=index, name=name, type=typ, locked=locked)
         return True

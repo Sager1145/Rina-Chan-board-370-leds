@@ -4,7 +4,6 @@ from config import (
     LEGACY_ROW_OFFSET, LEGACY_COL_OFFSET,
 )
 import board
-import logger as log
 
 
 def blank_bitmap():
@@ -12,7 +11,6 @@ def blank_bitmap():
 
 
 def normalize_bitmap(data):
-    src_type = type(data).__name__
     if isinstance(data, str):
         text = data.strip()
         if text.startswith('['):
@@ -31,7 +29,6 @@ def normalize_bitmap(data):
             ch = row[x] if x < len(row) else '.'
             out.append('#' if ch == '#' else ('+' if ch == '+' else '.'))
         rows.append(''.join(out))
-    log.trace('FACE_CODEC', 'normalize bitmap', src_type=src_type, rows=len(rows))
     return rows
 
 
@@ -82,8 +79,75 @@ def legacy_grid_to_bitmap(grid, row_offset=LEGACY_ROW_OFFSET, col_offset=LEGACY_
 
 
 def legacy_hex_to_bitmap(hexstr, offset_rows=0, row_offset=LEGACY_ROW_OFFSET, col_offset=LEGACY_COL_OFFSET):
-    log.info('FACE_CODEC', 'legacy hex to bitmap', hex_len=len(str(hexstr)), offset_rows=offset_rows, row_offset=row_offset, col_offset=col_offset)
     return legacy_grid_to_bitmap(legacy_hex_to_grid(hexstr, offset_rows=offset_rows), row_offset, col_offset)
+
+
+def m370_hex_to_bitmap(hexstr):
+    s = str(hexstr or '').strip()
+    if s.upper().startswith('M370:'):
+        s = s[5:]
+    bits = ''
+    for c in ''.join(s.split()):
+        try:
+            v = int(c, 16)
+        except Exception:
+            continue
+        bits += '1' if (v & 8) else '0'
+        bits += '1' if (v & 4) else '0'
+        bits += '1' if (v & 2) else '0'
+        bits += '1' if (v & 1) else '0'
+    out = [['.' for _ in range(COLS)] for _ in range(ROWS)]
+    k = 0
+    for y in range(ROWS):
+        for x in range(COLS):
+            if not board.is_real_cell(x, y):
+                continue
+            if k < len(bits) and bits[k] == '1':
+                out[y][x] = '#'
+            k += 1
+    return [''.join(r) for r in out]
+
+
+def bitmap_to_m370_hex(bitmap):
+    bm = normalize_bitmap(bitmap)
+    bits = ''
+    for y in range(ROWS):
+        row = bm[y] if y < len(bm) else ''
+        for x in range(COLS):
+            if not board.is_real_cell(x, y):
+                continue
+            ch = row[x] if x < len(row) else '.'
+            bits += '1' if ch in ('#', '+') else '0'
+    while len(bits) % 4:
+        bits += '0'
+    out = ''
+    for i in range(0, len(bits), 4):
+        try:
+            out += '{:X}'.format(int(bits[i:i + 4], 2))
+        except Exception:
+            out += '0'
+    return out
+
+
+def bitmap_to_legacy_hex(bitmap):
+    bm = normalize_bitmap(bitmap)
+    bits = ''
+    for y in range(LEGACY_SRC_HEIGHT):
+        yy = y + LEGACY_ROW_OFFSET
+        row = bm[yy] if 0 <= yy < len(bm) else ''
+        for x in range(LEGACY_SRC_WIDTH):
+            xx = x + LEGACY_COL_OFFSET
+            ch = row[xx] if 0 <= xx < len(row) else '.'
+            bits += '1' if ch in ('#', '+') else '0'
+    while len(bits) % 8:
+        bits += '0'
+    out = ''
+    for i in range(0, len(bits), 8):
+        try:
+            out += '{:02X}'.format(int(bits[i:i + 8], 2))
+        except Exception:
+            out += '00'
+    return out
 
 
 def draw_bitmap_data(data, on_color, dim_color):
@@ -97,5 +161,4 @@ def bitmap_to_points(bitmap):
         for x, ch in enumerate(row):
             if ch != '.' and board.is_real_cell(x, y):
                 points.append([x, y, 'dim' if ch == '+' else 'on'])
-    log.debug('FACE_CODEC', 'bitmap to points', count=len(points))
     return points

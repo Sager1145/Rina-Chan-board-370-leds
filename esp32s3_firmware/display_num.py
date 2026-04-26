@@ -1,6 +1,5 @@
 from board import COLS, ROWS, logical_to_led_index, clear, show, scale_color, set_pixel_index
-from config import BATTERY_CHARGE_FLASH_MS as BATTERY_CHARGE_LAST_COLUMN_FLASH_MS, LOG_DRAW_VERBOSE, LOG_FRAME_VERBOSE
-import logger as log
+from config import BATTERY_CHARGE_FLASH_MS as BATTERY_CHARGE_LAST_COLUMN_FLASH_MS
 
 _FONT = {
     "0": [".###.","#...#","#..##","#.#.#","##..#","#...#",".###."],
@@ -140,22 +139,11 @@ def _battery_icon_rows(percent, charging=False, charging_phase_ms=0, charge_step
         rows[y] = "".join(row)
     return rows
 
-def render_interval(seconds,color=MODE_COLOR):
-    log.info('DISPLAY', 'render interval', seconds=seconds)
-    _render_string(_format_interval(seconds)+"S", color, icon_rows=CLOCK_ICON)
-
-def render_brightness_percent(percent,color=BRIGHTNESS_COLOR):
-    log.info('DISPLAY', 'render brightness', percent=percent)
-    _render_string("{}%".format(int(percent)), color, icon_rows=_sun_icon_rows(percent))
-
+def render_interval(seconds,color=MODE_COLOR): _render_string(_format_interval(seconds)+"S", color, icon_rows=CLOCK_ICON)
+def render_brightness_percent(percent,color=BRIGHTNESS_COLOR): _render_string("{}%".format(int(percent)), color, icon_rows=_sun_icon_rows(percent))
 def render_battery_percent(percent,color=DEFAULT_COLOR,charging=False,charging_phase_ms=0,charge_step_interval_s=1.0,flash_last_column=False,animate=True):
-    if LOG_FRAME_VERBOSE or log.every('display.battery_percent', 1000):
-        log.debug('DISPLAY', 'render battery percent', percent=percent, charging=charging, animate=animate)
     _render_string("{}%".format(int(percent)), color, icon_rows=_battery_icon_rows(percent, charging, charging_phase_ms, charge_step_interval_s, flash_last_column, animate=animate))
-
-def render_percent(percent,color=DEFAULT_COLOR):
-    log.info('DISPLAY', 'render percent', percent=percent)
-    _render_string("{}%".format(int(percent)), color)
+def render_percent(percent,color=DEFAULT_COLOR): _render_string("{}%".format(int(percent)), color)
 def _render_big_glyph(rows,w,h,color):
     c=scale_color(color); x0=(COLS-w)//2; y0=(ROWS-h)//2; clear()
     for ry in range(h):
@@ -165,13 +153,8 @@ def _render_big_glyph(rows,w,h,color):
             idx=logical_to_led_index(x0+rx, y0+ry)
             if idx is not None: set_pixel_index(idx, c)
     show()
-def render_mode(auto,color=MODE_COLOR):
-    log.info('DISPLAY', 'render mode', auto=auto)
-    _render_big_glyph(_BIG_A if auto else _BIG_M,_BIG_W,_BIG_H,color)
-
+def render_mode(auto,color=MODE_COLOR): _render_big_glyph(_BIG_A if auto else _BIG_M,_BIG_W,_BIG_H,color)
 def render_battery_voltage(voltage, percent=0, color=DEFAULT_COLOR, charging=False, charging_phase_ms=0, charge_step_interval_s=1.0, flash_last_column=False, text_color=None, animate=True):
-    if LOG_FRAME_VERBOSE or log.every('display.battery_voltage', 1000):
-        log.debug('DISPLAY', 'render battery voltage', voltage=voltage, percent=percent, charging=charging)
     icon_rows=_battery_icon_rows(percent, charging, charging_phase_ms, charge_step_interval_s, flash_last_column, animate=animate)
     draw_color=text_color if text_color is not None else color
     if voltage is None:
@@ -182,8 +165,6 @@ def render_battery_voltage(voltage, percent=0, color=DEFAULT_COLOR, charging=Fal
         text = "{:.1f}V".format(voltage)
     _render_string(text, draw_color, icon_rows=icon_rows, char_extra_x={3:1}, icon_color=color)
 def render_battery_time(hours_remaining, percent=0, color=DEFAULT_COLOR, charging=False, charging_phase_ms=0, charge_step_interval_s=1.0, flash_last_column=False, animate=True):
-    if LOG_FRAME_VERBOSE or log.every('display.battery_time', 1000):
-        log.debug('DISPLAY', 'render battery time', hours=hours_remaining, percent=percent, charging=charging)
     if hours_remaining is None:
         text="--"
     elif hours_remaining <= 0.0:
@@ -198,8 +179,6 @@ def render_battery_time(hours_remaining, percent=0, color=DEFAULT_COLOR, chargin
             text="{}H".format(whole) if frac==0 else "{}.{}H".format(whole,frac)
     _render_string(text, color, icon_rows=_battery_icon_rows(percent, charging, charging_phase_ms, charge_step_interval_s, flash_last_column, animate=animate))
 def render_charge_voltage(voltage, percent=0, icon_color=DEFAULT_COLOR, charging=False, charging_phase_ms=0, charge_step_interval_s=1.0, flash_last_column=False, animate=True):
-    if LOG_FRAME_VERBOSE or log.every('display.charge_voltage', 1000):
-        log.debug('DISPLAY', 'render charge voltage', voltage=voltage, percent=percent, charging=charging)
     icon_rows=_battery_icon_rows(percent, charging, charging_phase_ms, charge_step_interval_s, flash_last_column, animate=animate)
     if voltage is None:
         text="0.0"

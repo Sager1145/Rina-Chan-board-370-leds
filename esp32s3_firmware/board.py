@@ -4,11 +4,10 @@ try:
 except ImportError:
     NeoPixel = None
 
-import logger as log
 from config import (
     LED_PIN, NUM_LEDS, ROW_LENGTHS, ROWS, COLS,
     SERPENTINE, FLIP_X, FLIP_Y,
-    BRIGHTNESS_MAX_CHANNEL, OFF, PINK, DIM, LOG_DRAW_VERBOSE, LOG_FRAME_VERBOSE,
+    BRIGHTNESS_MAX_CHANNEL, OFF, PINK, DIM,
 )
 
 ROW_STARTS = []
@@ -22,7 +21,6 @@ _pin = Pin(LED_PIN, Pin.OUT)
 np = NeoPixel(_pin, NUM_LEDS) if NeoPixel else None
 _raw = bytearray(NUM_LEDS * 3)
 _brightness_cap = int(BRIGHTNESS_MAX_CHANNEL * 0.30)
-log.info('BOARD', 'init', led_pin=LED_PIN, leds=NUM_LEDS, rows=ROWS, cols=COLS, serpentine=SERPENTINE, neopixel=bool(np))
 
 
 def set_max_brightness(value):
@@ -32,12 +30,7 @@ def set_max_brightness(value):
         value = 1
     if value > BRIGHTNESS_MAX_CHANNEL:
         value = BRIGHTNESS_MAX_CHANNEL
-    old = _brightness_cap
     _brightness_cap = value
-    if old != value:
-        log.info('BOARD', 'brightness cap changed', old=old, new=value)
-    else:
-        log.debug('BOARD', 'brightness cap unchanged', value=value)
     return value
 
 
@@ -100,8 +93,6 @@ def set_pixel(x, y, rgb):
 
 
 def clear(write=False):
-    if LOG_DRAW_VERBOSE and log.every('board.clear', 500):
-        log.debug('BOARD', 'clear', write=write)
     for i in range(len(_raw)):
         _raw[i] = 0
     if write:
@@ -109,8 +100,6 @@ def clear(write=False):
 
 
 def fill(rgb, write=False):
-    if LOG_DRAW_VERBOSE:
-        log.debug('BOARD', 'fill', rgb=rgb, write=write)
     for i in range(NUM_LEDS):
         set_pixel_index(i, rgb)
     if write:
@@ -129,11 +118,7 @@ def scale_color(rgb, cap=None):
 
 def show():
     if np is None:
-        if LOG_DRAW_VERBOSE and log.every('board.show.none', 2000):
-            log.warn('BOARD', 'show skipped no NeoPixel')
         return
-    if LOG_FRAME_VERBOSE and log.every('board.show', 1000):
-        log.trace('BOARD', 'show frame', cap=_brightness_cap)
     cap = _brightness_cap
     for i in range(NUM_LEDS):
         j = i * 3
@@ -151,8 +136,6 @@ def show():
 
 
 def update_color(rgb, write=True):
-    if LOG_DRAW_VERBOSE:
-        log.info('BOARD', 'update color', rgb=rgb, write=write)
     for i in range(NUM_LEDS):
         j = i * 3
         if _raw[j] or _raw[j + 1] or _raw[j + 2]:
@@ -164,12 +147,6 @@ def update_color(rgb, write=True):
 
 
 def draw_bitmap(bitmap, on_color=PINK, dim_color=DIM, off_color=OFF, do_show=True, clear_first=True):
-    if LOG_DRAW_VERBOSE:
-        try:
-            rows = len(bitmap)
-        except Exception:
-            rows = -1
-        log.debug('BOARD', 'draw bitmap', rows=rows, show=do_show, clear=clear_first)
     if clear_first:
         clear(False)
     for y, row in enumerate(bitmap):
@@ -193,8 +170,6 @@ def draw_bitmap(bitmap, on_color=PINK, dim_color=DIM, off_color=OFF, do_show=Tru
 
 def draw_physical_rgb_hex(hexstr, do_show=True):
     hexstr = ''.join(str(hexstr).strip().split())
-    if LOG_DRAW_VERBOSE:
-        log.info('BOARD', 'draw RGB hex', hex_len=len(hexstr), show=do_show)
     clear(False)
     n = min(NUM_LEDS, len(hexstr) // 6)
     for i in range(n):
@@ -212,8 +187,6 @@ def draw_physical_rgb_hex(hexstr, do_show=True):
 
 def draw_physical_bits_hex(hexstr, on_color=PINK, do_show=True):
     hexstr = ''.join(str(hexstr).strip().split())
-    if LOG_DRAW_VERBOSE:
-        log.info('BOARD', 'draw bits hex', hex_len=len(hexstr), show=do_show)
     clear(False)
     bit_index = 0
     for c in hexstr:
@@ -233,12 +206,38 @@ def draw_physical_bits_hex(hexstr, on_color=PINK, do_show=True):
         show()
 
 
+def draw_m370_bits_hex(hexstr, on_color=PINK, do_show=True):
+    hexstr = ''.join(str(hexstr).strip().split())
+    clear(False)
+    bits = ''
+    for c in hexstr:
+        try:
+            v = int(c, 16)
+        except Exception:
+            continue
+        bits += '1' if (v & 8) else '0'
+        bits += '1' if (v & 4) else '0'
+        bits += '1' if (v & 2) else '0'
+        bits += '1' if (v & 1) else '0'
+    bit_index = 0
+    for y in range(ROWS):
+        for x in range(COLS):
+            idx = logical_to_led_index(x, y)
+            if idx is None:
+                continue
+            if bit_index < len(bits) and bits[bit_index] == '1':
+                set_pixel_index(idx, on_color)
+            bit_index += 1
+    if do_show:
+        show()
+
+
 def draw_frame_hex(hexstr, on_color=PINK, do_show=True):
     s = ''.join(str(hexstr).strip().split())
     if len(s) >= NUM_LEDS * 6:
         draw_physical_rgb_hex(s, do_show=do_show)
     else:
-        draw_physical_bits_hex(s, on_color=on_color, do_show=do_show)
+        draw_m370_bits_hex(s, on_color=on_color, do_show=do_show)
 
 
 def wheel(pos):

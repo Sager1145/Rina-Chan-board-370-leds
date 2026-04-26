@@ -1,9 +1,8 @@
 import time
 from machine import Pin
-import logger as log
 from config import (
     BUTTON_PINS, BTN_PREV, BTN_NEXT, BTN_AUTO, BTN_BRIGHT_DN, BTN_BRIGHT_UP, BTN_BATTERY,
-    BUTTON_DEBOUNCE_MS, BUTTON_REPEAT_INITIAL_MS, BUTTON_REPEAT_PERIOD_MS, LOG_BUTTON_RAW_EDGE,
+    BUTTON_DEBOUNCE_MS, BUTTON_REPEAT_INITIAL_MS, BUTTON_REPEAT_PERIOD_MS,
 )
 
 DEFAULT_REPEAT_GPIOS = (BTN_PREV, BTN_NEXT, BTN_BRIGHT_DN, BTN_BRIGHT_UP)
@@ -25,7 +24,6 @@ class ButtonBank:
             self._last_change_ms[gp] = now
             self._press_started_ms[gp] = None
             self._next_repeat_ms[gp] = None
-        log.info('BUTTON', 'init', gpios=gpios, repeat=repeat_gpios, debounce_ms=BUTTON_DEBOUNCE_MS)
 
     def poll(self):
         fired = []
@@ -37,8 +35,6 @@ class ButtonBank:
                     self._last_state[gp] = v
                     self._last_change_ms[gp] = now
                     if v == 0:
-                        if LOG_BUTTON_RAW_EDGE:
-                            log.info('BUTTON', 'press', gpio=gp)
                         fired.append(gp)
                         self._press_started_ms[gp] = now
                         if gp in self._repeat_gpios:
@@ -46,18 +42,11 @@ class ButtonBank:
                         else:
                             self._next_repeat_ms[gp] = None
                     else:
-                        held = None
-                        if self._press_started_ms.get(gp) is not None:
-                            held = time.ticks_diff(now, self._press_started_ms[gp])
-                        if LOG_BUTTON_RAW_EDGE:
-                            log.info('BUTTON', 'release', gpio=gp, held_ms=held)
                         self._press_started_ms[gp] = None
                         self._next_repeat_ms[gp] = None
                 continue
             if v == 0 and self._next_repeat_ms[gp] is not None:
                 if time.ticks_diff(now, self._next_repeat_ms[gp]) >= 0:
-                    if LOG_BUTTON_RAW_EDGE:
-                        log.debug('BUTTON', 'repeat', gpio=gp)
                     fired.append(gp)
                     self._next_repeat_ms[gp] = time.ticks_add(now, BUTTON_REPEAT_PERIOD_MS)
         return fired

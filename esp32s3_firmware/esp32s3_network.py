@@ -23,7 +23,7 @@ except Exception:
 
 MAX_UDP_PAYLOAD = 1472
 MAX_HTTP_BODY = 32768
-WEBUI_GZIP_FILE = "webui_index.html.gz"
+WEBUI_FILE = "webui/index.html"
 HTTP_TIMEOUT_MS = 1500
 
 
@@ -517,14 +517,13 @@ class ESP32S3Network:
 
     def _serve_webui(self, client):
         try:
-            f = open(WEBUI_GZIP_FILE, "rb")
+            f = open(WEBUI_FILE, "rb")
         except Exception:
-            self._send_response(client, 404, "text/plain; charset=utf-8", b"webui_index.html.gz missing")
+            self._send_response(client, 404, "text/plain; charset=utf-8", b"webui/index.html missing")
             client.close(); return
         try:
             client.send(b"HTTP/1.1 200 OK\r\n")
             client.send(b"Content-Type: text/html; charset=utf-8\r\n")
-            client.send(b"Content-Encoding: gzip\r\n")
             client.send(b"Cache-Control: no-store\r\n")
             client.send(b"Connection: close\r\n\r\n")
             while True:
