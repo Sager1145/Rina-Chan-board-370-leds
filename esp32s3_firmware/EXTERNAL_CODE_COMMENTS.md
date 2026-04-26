@@ -1221,3 +1221,95 @@ WebUI 可见标题与资源版本从 `1.6.4-mobile-layout` 更新为：
 ```powershell
 .\esp32s3_firmware_mobile_compact_controls.zip
 ```
+
+
+---
+
+## 15. v1.6.6 Wi-Fi/AP 独立边界重构
+
+### 修改目的
+
+本版本把 Wi-Fi / AP 相关逻辑从 `esp32s3_network.py` 中独立出去，避免后续修改 WebUI、HTTP API、UDP、动画、LED、资源加载时误改 AP/STA 初始化流程，导致手机无法连接热点或 ESP32-S3 Wi-Fi 驱动崩溃。
+
+### 新增文件
+
+| 文件 | 作用 |
+|---|---|
+| `esp32s3_wifi_ap.py` | 运行期 Wi-Fi/AP 管理模块。集中处理 `network.WLAN`、`AP_IF`、`STA_IF`、`wifi_config.py`、AP 启动、STA 连接、Wi-Fi 扫描、Wi-Fi 配置保存、Wi-Fi 状态 JSON。 |
+| `esp32s3_wifi_boot.py` | 极小 early-boot Wi-Fi 内存预留模块。`boot.py` 不再直接调用 `network.WLAN()`，只调用此模块的 `reserve_wifi_memory()`。 |
+
+### 模块边界
+
+以后除非明确修 Wi-Fi/AP，不要修改以下文件：
+
+- `esp32s3_wifi_ap.py`
+- `esp32s3_wifi_boot.py`
+- `wifi_config.py`
+- `boot.py` 中调用 `reserve_wifi_memory()` 的部分
+
+`esp32s3_network.py` 现在只负责：
+
+- UDP socket 收发
+- HTTP socket / 静态文件发送
+- WebUI API 路由
+- 把 `/api/wifi/status`、`/api/wifi/scan`、`/api/wifi/save` 委托给 `ESP32S3WifiAP`
+
+### 保留的 Wi-Fi 安全规则
+
+`esp32s3_wifi_ap.py` 保留之前为 ESP32-S3 稳定性做的限制：
+
+1. 不调用 `AP_IF.config(pm=...)`。
+2. 不在运行期做 `AP_IF.active(False)` 再 `active(True)` 的重启式 AP 初始化。
+3. AP 启动顺序保持为：
+   - `network.WLAN(network.AP_IF)`
+   - `active(True)`
+   - 固定 `ifconfig(("192.168.4.1", "255.255.255.0", "192.168.4.1", "8.8.8.8"))`
+   - `config(essid=..., password=..., channel=..., authmode=...)`
+4. STA 只在 `WIFI_SSID` 非空时启用。
+5. `AP_PASSWORD` 为空时仍保留运行期默认 WPA2 fallback：`rinachan`，用于降低手机拒绝 open AP 的概率。
+
+### 对外接口保持不变
+
+WebUI/API 路径保持不变：
+
+- `/api/wifi/status`
+- `/api/wifi/scan`
+- `/api/wifi/save`
+- `/api/status`
+- `/api/send`
+- `/api/request`
+- `/api/binary`
+
+上传脚本 `upload_esp32s3_firmware.ps1` 已更新：
+
+- 默认 ZIP 名改为 `esp32s3_firmware_wifi_isolated.zip`
+- 清理旧文件列表中加入：
+  - `esp32s3_wifi_ap.py`
+  - `esp32s3_wifi_boot.py`
+
+### 版本标识
+
+- `rina_protocol.py`：`VERSION = "1.6.6-esp32s3-wifi-isolated"`
+- `/api/status`：`firmware = "1.6.6-esp32s3-wifi-isolated"`
+- `main.py` banner：`1.6.6 WiFi/AP isolated`
+
+### 验证
+
+已做静态检查：
+
+- `esp32s3_network.py` 不再直接 import `network`
+- `esp32s3_network.py` 不再直接 import/use `wifi_config.py`
+- `esp32s3_network.py` 不再出现 `network.WLAN(...)`
+- `boot.py` 不再直接调用 `network.WLAN(...)`
+- Python 语法编译检查通过：
+  - `boot.py`
+  - `esp32s3_network.py`
+  - `esp32s3_wifi_ap.py`
+  - `esp32s3_wifi_boot.py`
+  - `main.py`
+  - `rina_protocol.py`
+
+### 后续开发规则
+
+如果后续只是改 LED、动画、WebUI 样式、资源、按钮、M/A 模式、HTTP 普通 API，不要触碰 `esp32s3_wifi_*.py`。  
+如果确实需要改 Wi-Fi/AP，请优先只改 `esp32s3_wifi_ap.py`，并重新确认手机能连接 `RinaChanBoard-ESP32S3` 热点。

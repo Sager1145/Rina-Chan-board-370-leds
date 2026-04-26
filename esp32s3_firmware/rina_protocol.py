@@ -14,7 +14,7 @@
 import board
 import saved_faces_370
 import emoji_db
-VERSION = "1.6.2-esp32s3-webui-logfix"
+VERSION = "1.6.6-esp32s3-wifi-isolated"
 
 LOCAL_UDP_PORT = 1234
 REMOTE_UDP_PORT = 4321

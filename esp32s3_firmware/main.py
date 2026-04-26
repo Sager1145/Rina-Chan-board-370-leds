@@ -59,7 +59,7 @@ from esp32s3_network import ESP32S3Network
 from webui_runtime import WebUIRuntime
 gc.collect()
 
-FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.6.2 WebUI/static-log fix no bridge no MatrixDemo no BadApple no boot animation"
+FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.6.6 WiFi/AP isolated no bridge no MatrixDemo no BadApple no boot animation"
 
 
 # ---------------------------------------------------------------------------

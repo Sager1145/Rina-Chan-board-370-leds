@@ -1,15 +1,15 @@
 # ---------------------------------------------------------------------------
 # esp32s3_network.py
 #
-# Native ESP32-S3 networking layer for the single-chip refactor.
-# It replaces the old ESP8258 UART bridge with direct Wi-Fi, HTTP API and UDP
-# packet handling running on the same MicroPython firmware as the LED logic.
+# Native ESP32-S3 socket/API layer for the single-chip refactor.
+# Wi-Fi/AP driver handling is intentionally isolated in esp32s3_wifi_ap.py and
+# esp32s3_wifi_boot.py. This file should only handle HTTP/UDP routing and
+# delegate Wi-Fi routes to ESP32S3WifiAP.
 # ---------------------------------------------------------------------------
 
 import gc
 import time
 import socket
-import network
 try:
     import os
 except Exception:
@@ -20,10 +20,7 @@ except Exception:
     machine = None
 
 from rina_protocol import LOCAL_UDP_PORT, REMOTE_UDP_PORT, HTTP_PSEUDO_IP, HTTP_PSEUDO_PORT
-try:
-    import wifi_config
-except Exception:
-    wifi_config = None
+from esp32s3_wifi_ap import ESP32S3WifiAP
 
 MAX_UDP_PAYLOAD = 1472
 MAX_HTTP_BODY = 32768
@@ -132,15 +129,13 @@ def _bytes_to_hex(data):
 
 class ESP32S3Network:
     __slots__ = (
-        "sta", "ap", "udp", "http", "packets", "log", "log_limit",
+        "wifi", "udp", "http", "packets", "log", "log_limit",
         "udp_rx", "udp_tx", "http_rx", "start_ms", "last_status_ms",
         "pending_client", "pending_format", "pending_deadline_ms",
-        "sta_ip", "sta_ssid", "ap_ip", "ssid_label",
     )
 
     def __init__(self, log_limit=160):
-        self.sta = None
-        self.ap = None
+        self.wifi = ESP32S3WifiAP(self._remember)
         self.udp = None
         self.http = None
         self.packets = []
@@ -154,10 +149,6 @@ class ESP32S3Network:
         self.pending_client = None
         self.pending_format = "text"
         self.pending_deadline_ms = 0
-        self.sta_ip = None
-        self.sta_ssid = None
-        self.ap_ip = None
-        self.ssid_label = None
 
     def _remember(self, prefix, text):
         line = "[{:>8} ms] {} {}".format(_ticks_ms(), prefix, _safe_str(text).replace("\n", " | "))
@@ -170,16 +161,13 @@ class ESP32S3Network:
         return "\n".join(self.log[-60:])
 
     def get_ip(self):
-        return self.sta_ip or self.ap_ip
+        return self.wifi.get_ip()
 
     def get_ssid(self):
-        return self.sta_ssid or self.ssid_label
+        return self.wifi.get_ssid()
 
     def _cfg(self, name, default=None):
-        try:
-            return getattr(wifi_config, name, default)
-        except Exception:
-            return default
+        return self.wifi.cfg(name, default)
 
     def start(self):
         self._remember("[NET]", "ESP32-S3 native network start")
@@ -189,87 +177,9 @@ class ESP32S3Network:
         self._status_log()
         return True
 
-    # Default AP password used when AP_PASSWORD is empty.
-    # Android 10+ and iOS 14+ refuse or warn on open (authmode=0) networks,
-    # which stops phones from connecting at all.  A fixed WPA2 password avoids
-    # the security block without requiring the user to configure anything.
-    _AP_DEFAULT_PASSWORD = "rinachan"
-
     def _start_wifi(self):
-        ssid = self._cfg("WIFI_SSID", "") or ""
-        password = self._cfg("WIFI_PASSWORD", "") or ""
-        ap_ssid = self._cfg("AP_SSID", "RinaChanBoard-ESP32S3") or "RinaChanBoard-ESP32S3"
-        ap_password = self._cfg("AP_PASSWORD", "") or ""
-        ap_channel = int(self._cfg("AP_CHANNEL", 6) or 6)
-        ap_authmode = int(self._cfg("AP_AUTHMODE", 0) or 0)
-
-        # If no password was configured, use the built-in default so that
-        # modern mobile OSes see a WPA2 network instead of an open one.
-        if not ap_password:
-            ap_password = self._AP_DEFAULT_PASSWORD
-            ap_authmode = 3  # WPA2-PSK
-
-        gc.collect()  # defragment heap before WiFi stack allocation
-        self.ap = network.WLAN(network.AP_IF)
-        self.ap.active(True)
-
-        # Fix the AP subnet explicitly so the built-in DHCP server always
-        # hands out 192.168.4.x addresses with a reachable DNS.  Without this,
-        # iOS and Android captive-portal probes fail and the phone may drop the
-        # connection immediately after associating.
-        try:
-            self.ap.ifconfig(("192.168.4.1", "255.255.255.0", "192.168.4.1", "8.8.8.8"))
-        except Exception:
-            pass
-
-        # Do not call AP_IF.config(pm=...) on ESP32-S3 MicroPython/ESP-IDF
-        # builds.  On some v1.28.0 + IDF 5.5.x images this can hard-crash the
-        # Wi-Fi driver before Python can catch the exception.  Keep AP startup
-        # conservative: active(True) -> ifconfig() -> essid/password only.
-
-        try:
-            self.ap.config(essid=ap_ssid, password=ap_password,
-                           channel=ap_channel, authmode=ap_authmode)
-        except Exception:
-            try:
-                self.ap.config(essid=ap_ssid)
-            except Exception:
-                pass
-        try:
-            self.ap_ip = self.ap.ifconfig()[0]
-        except Exception:
-            self.ap_ip = "192.168.4.1"
-        self.ssid_label = ap_ssid
-        self._remember("[NET]", "AP ssid={} pw={} ip={}".format(
-            ap_ssid, ap_password, self.ap_ip))
-
-        self.sta = network.WLAN(network.STA_IF)
-        if ssid:
-            self.sta.active(True)
-            try:
-                self.sta.config(dhcp_hostname="RinaChanBoard")
-            except Exception:
-                pass
-            self._remember("[NET]", "STA connecting ssid={}".format(ssid))
-            try:
-                self.sta.connect(ssid, password)
-                deadline = _ticks_add(_ticks_ms(), 15000)
-                while not self.sta.isconnected() and _ticks_diff(deadline, _ticks_ms()) > 0:
-                    time.sleep_ms(100) if hasattr(time, "sleep_ms") else time.sleep(0.1)
-                if self.sta.isconnected():
-                    self.sta_ip = self.sta.ifconfig()[0]
-                    self.sta_ssid = ssid
-                    self._remember("[NET]", "STA connected ip={}".format(self.sta_ip))
-                else:
-                    self._remember("[NET]", "STA connect timeout; AP remains active")
-            except Exception as exc:
-                self._remember("[NET]", "STA connect failed: {}".format(exc))
-        else:
-            try:
-                self.sta.active(False)
-            except Exception:
-                pass
-            self._remember("[NET]", "STA disabled; edit wifi_config.py to join router Wi-Fi")
+        # AP/STA behavior is intentionally isolated in esp32s3_wifi_ap.py.
+        return self.wifi.start()
 
     def _start_udp(self):
         port = int(self._cfg("UDP_PORT", LOCAL_UDP_PORT) or LOCAL_UDP_PORT)
@@ -295,8 +205,9 @@ class ESP32S3Network:
         self._remember("[NET]", "HTTP listening port={} routes=/ /api/status /api/send /api/request /api/binary /api/wifi/status /api/wifi/scan /api/wifi/save".format(port))
 
     def _status_log(self):
+        w = self.wifi.values()
         self._remember("[STATUS]", "mode=ESP32S3_NATIVE; sta_ip={}; ap_ip={}; udp_rx={}; udp_tx={}; http_rx={}; heap={}".format(
-            self.sta_ip, self.ap_ip, self.udp_rx, self.udp_tx, self.http_rx, self._free_heap()))
+            w.get("sta_ip", ""), w.get("ap_ip", ""), self.udp_rx, self.udp_tx, self.http_rx, self._free_heap()))
 
     def _free_heap(self):
         try:
@@ -678,138 +589,40 @@ class ESP32S3Network:
         except Exception: pass
 
     def _api_wifi_status(self, client, client_addr=None):
-        sta_connected = False
-        sta_ip = ""
-        sta_ssid = self.sta_ssid or ""
-        sta_status_code = 0
-        rssi = 0
-        try:
-            if self.sta is not None:
-                sta_connected = bool(self.sta.isconnected())
-                sta_status_code = int(self.sta.status())
-                if sta_connected:
-                    sta_ip = self.sta.ifconfig()[0]
-                    try: rssi = int(self.sta.status('rssi'))
-                    except Exception: rssi = 0
-        except Exception:
-            pass
-        ap_ssid_cfg = self._cfg("AP_SSID", "RinaChanBoard-ESP32S3") or "RinaChanBoard-ESP32S3"
-        sta_ssid_cfg = self._cfg("WIFI_SSID", "") or ""
-        ap_ip = self.ap_ip or ""
-        try:
-            if self.ap is not None:
-                ap_ip = self.ap.ifconfig()[0]
-        except Exception:
-            pass
-        remote_ip = ""
-        try:
-            remote_ip = client_addr[0]
-        except Exception:
-            remote_ip = ""
-        can_configure = remote_ip.startswith("192.168.4.") or remote_ip in ("127.0.0.1", "")
-        body = ("{"
-                "\"ok\":true,"
-                "\"can_configure\":" + ("true" if can_configure else "false") + ","
-                "\"client_ip\":\"" + _json_escape(remote_ip) + "\","
-                "\"sta_connected\":" + ("true" if sta_connected else "false") + ","
-                "\"sta_status\":" + str(sta_status_code) + ","
-                "\"sta_ip\":\"" + _json_escape(sta_ip) + "\","
-                "\"sta_ssid\":\"" + _json_escape(sta_ssid) + "\","
-                "\"sta_ssid_cfg\":\"" + _json_escape(sta_ssid_cfg) + "\","
-                "\"ap_ip\":\"" + _json_escape(ap_ip) + "\","
-                "\"ap_ssid\":\"" + _json_escape(self.ssid_label or ap_ssid_cfg) + "\","
-                "\"ap_ssid_cfg\":\"" + _json_escape(ap_ssid_cfg) + "\","
-                "\"rssi\":" + str(int(rssi or 0)) + "}")
-        self._json_response(client, body)
+        self._json_response(client, self.wifi.wifi_status_json(client_addr))
 
     def _api_wifi_scan(self, client):
-        nets = []
-        try:
-            if self.sta is None:
-                self.sta = network.WLAN(network.STA_IF)
-            try:
-                self.sta.active(True)
-            except Exception:
-                pass
-            raw = self.sta.scan()
-            for item in raw:
-                try:
-                    ssid = item[0]
-                    if isinstance(ssid, bytes):
-                        ssid = ssid.decode("utf-8", "replace")
-                    channel = int(item[2])
-                    rssi = int(item[3])
-                    auth = int(item[4])
-                    hidden = int(item[5]) if len(item) > 5 else 0
-                    if ssid:
-                        nets.append((rssi, ssid, channel, auth, hidden))
-                except Exception:
-                    pass
-            nets.sort(reverse=True)
-        except Exception as exc:
-            print("!!! [API Crash] Wi-Fi 扫描失败: {}".format(exc))
-        parts = []
-        for rssi, ssid, channel, auth, hidden in nets[:20]:
-            parts.append("{\"ssid\":\"" + _json_escape(ssid) + "\",\"rssi\":" + str(rssi) + ",\"channel\":" + str(channel) + ",\"auth\":" + str(auth) + ",\"hidden\":" + str(hidden) + "}")
-        self._json_response(client, "{\"ok\":true,\"networks\":[" + ",".join(parts) + "]}")
-
-    def _py_string(self, value):
-        return repr(_safe_str(value))
+        self._json_response(client, self.wifi.scan_json())
 
     def _api_wifi_save(self, client, args):
-        ssid = _safe_str(args.get("ssid", "")).strip()
-        password = _safe_str(args.get("password", ""))
-        ap_ssid = _safe_str(args.get("ap_ssid", "RinaChanBoard-ESP32S3")).strip() or "RinaChanBoard-ESP32S3"
-        ap_password = _safe_str(args.get("ap_password", ""))
-        try:
-            ap_channel = int(args.get("ap_channel", "6") or 6)
-        except Exception:
-            ap_channel = 6
-        if ap_channel < 1: ap_channel = 1
-        if ap_channel > 13: ap_channel = 13
-        ap_authmode = 3 if ap_password else 0
-        try:
-            with open("wifi_config.py", "w") as f:
-                f.write("# Auto-generated by RinaChanBoard WebUI.\n")
-                f.write("WIFI_SSID = {}\n".format(self._py_string(ssid)))
-                f.write("WIFI_PASSWORD = {}\n".format(self._py_string(password)))
-                f.write("AP_SSID = {}\n".format(self._py_string(ap_ssid)))
-                f.write("AP_PASSWORD = {}\n".format(self._py_string(ap_password)))
-                f.write("AP_CHANNEL = {}\n".format(int(ap_channel)))
-                f.write("AP_AUTHMODE = {}\n".format(int(ap_authmode)))
-                f.write("HTTP_PORT = 80\n")
-                f.write("UDP_PORT = {}\n".format(LOCAL_UDP_PORT))
-            self._json_response(client, "{\"ok\":true,\"message\":\"Wi-Fi 配置已保存，设备即将重启。\"}")
+        ok, body, should_reset = self.wifi.save_config_json(args, LOCAL_UDP_PORT)
+        if ok:
+            self._json_response(client, body)
             time.sleep_ms(300) if hasattr(time, "sleep_ms") else time.sleep(0.3)
-            if machine is not None:
+            if should_reset and machine is not None:
                 machine.reset()
-        except Exception as exc:
-            print("!!! [API Crash] 保存 Wi-Fi 配置失败: {}".format(exc))
-            self._send_response(client, 500, "application/json; charset=utf-8", "{\"ok\":false,\"error\":\"" + _json_escape(exc) + "\"}")
-            try: client.close()
-            except Exception: pass
+            return
+        self._send_response(client, 500, "application/json; charset=utf-8", body)
+        try: client.close()
+        except Exception: pass
 
     def status_text(self):
-        sta_status = "CONNECTED" if (self.sta is not None and self.sta.isconnected()) else "DISCONNECTED"
+        w = self.wifi.values()
+        sta_status = "CONNECTED" if w.get("sta_connected") else "DISCONNECTED"
         return "mode=ESP32S3_NATIVE; sta_status={}; ssid={}; ip={}; ap_ip={}; udp_port={}; udp_rx={}; udp_tx={}; http_rx={}; heap={}".format(
-            sta_status, self.sta_ssid or "", self.sta_ip or "", self.ap_ip or "", LOCAL_UDP_PORT, self.udp_rx, self.udp_tx, self.http_rx, self._free_heap())
+            sta_status, w.get("sta_ssid", ""), w.get("sta_ip", ""), w.get("ap_ip", ""), LOCAL_UDP_PORT, self.udp_rx, self.udp_tx, self.http_rx, self._free_heap())
 
     def _api_status(self, client):
-        sta_status = "CONNECTED" if (self.sta is not None and self.sta.isconnected()) else "DISCONNECTED"
-        rssi = 0
-        try:
-            if self.sta is not None and self.sta.isconnected():
-                rssi = self.sta.status('rssi')
-        except Exception:
-            rssi = 0
+        w = self.wifi.values()
+        sta_status = "CONNECTED" if w.get("sta_connected") else "DISCONNECTED"
         body = ("{"
-                "\"firmware\":\"1.6.2-esp32s3-webui-logfix\","
+                "\"firmware\":\"1.6.6-esp32s3-wifi-isolated\","
                 "\"mode\":\"ESP32S3_NATIVE\","
                 "\"sta_status\":\"" + sta_status + "\","
-                "\"ssid\":\"" + _json_escape(self.sta_ssid or self.ssid_label or "") + "\","
-                "\"ip\":\"" + _json_escape(self.sta_ip or self.ap_ip or "") + "\","
-                "\"ap_ip\":\"" + _json_escape(self.ap_ip or "") + "\","
-                "\"rssi\":" + str(int(rssi or 0)) + ","
+                "\"ssid\":\"" + _json_escape(w.get("sta_ssid", "") or w.get("ap_ssid", "")) + "\","
+                "\"ip\":\"" + _json_escape(w.get("sta_ip", "") or w.get("ap_ip", "")) + "\","
+                "\"ap_ip\":\"" + _json_escape(w.get("ap_ip", "")) + "\","
+                "\"rssi\":" + str(int(w.get("rssi", 0) or 0)) + ","
                 "\"udp_port\":" + str(LOCAL_UDP_PORT) + ","
                 "\"udp_rx\":" + str(self.udp_rx) + ","
                 "\"udp_tx\":" + str(self.udp_tx) + ","

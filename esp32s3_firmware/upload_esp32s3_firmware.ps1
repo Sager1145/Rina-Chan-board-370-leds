@@ -1,5 +1,5 @@
 param(
-    [string]$ZipPath = ".\esp32s3_firmware_mobile_compact_controls.zip",
+    [string]$ZipPath = ".\esp32s3_firmware_wifi_isolated.zip",
     [string]$Port = "auto",
     [switch]$InstallMpremote,
     [switch]$NoClean
@@ -106,7 +106,7 @@ try {
         $deleteNames = @(
             "app_state.py", "battery_monitor.py", "battery_runtime.py", "board.py", "board_370.py",
             "boot.py", "brightness_modes.py", "buttons.py", "config.py", "demo_faces.py", "display_num.py",
-            "emoji_db.py", "esp32s3_network.py", "main.py", "matrix_demos.py", "rina_protocol.py",
+            "emoji_db.py", "esp32s3_network.py", "esp32s3_wifi_ap.py", "esp32s3_wifi_boot.py", "main.py", "matrix_demos.py", "rina_protocol.py",
             "saved_faces_370.py", "settings_store.py", "webui_index.html.gz", "webui_runtime.py", "wifi_config.py",
             "EXTERNAL_CODE_COMMENTS.md", "upload_esp32s3_firmware.ps1", "__pycache__"
         )
