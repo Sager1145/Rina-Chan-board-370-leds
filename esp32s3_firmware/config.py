@@ -1,140 +1,159 @@
-# ---------------------------------------------------------------------------
-# config.py
-#
-# Central project constants.
-# ---------------------------------------------------------------------------
+# RinaChanBoard ESP32-S3 native 370 LED configuration.
+# Target from the provided ESP32-S3 report: LED GPIO2, CHG_ADC GPIO1,
+# BATT_ADC GPIO10, buttons GPIO15/16/17/42/41/40, 370 LED irregular matrix.
 
-POLL_PERIOD_MS = 10
-SETTINGS_FILE = "linaboard_settings.json"
+VERSION = "2.0.4-esp32s3-native-370-fused-responsive"
 
-DEFAULT_FACE = 0
-NUM_FACES = 11  # seeded saved_faces_370 list; kept for legacy callers
+# Hardware pins
+LED_PIN = 2
+CHG_ADC_PIN = 1
+BATT_ADC_PIN = 10
+BUTTON_PINS = (15, 16, 17, 42, 41, 40)
+BTN_PREV, BTN_NEXT, BTN_AUTO, BTN_BRIGHT_DN, BTN_BRIGHT_UP, BTN_BATTERY = BUTTON_PINS
 
-DEFAULT_INTERVAL_S = 1.0
-INTERVAL_STEP_S = 0.5
-INTERVAL_MIN_S = 0.5
-INTERVAL_MAX_S = 10.0
+# Matrix geometry
+NUM_LEDS = 370
+ROW_LENGTHS = [18, 20, 20, 20, 22, 22, 22, 22, 22, 22, 22, 22, 22, 20, 20, 20, 18, 16]
+ROWS = len(ROW_LENGTHS)
+COLS = max(ROW_LENGTHS)
+SERPENTINE = True
+FLIP_X = False
+FLIP_Y = False
+assert sum(ROW_LENGTHS) == NUM_LEDS
 
-DEMO_DEFAULT_INTERVAL_S = 5.0
-DEMO_DEFAULT_AUTO = True
+# Legacy 18x16 face mapping from the older packages into 22x18 native matrix.
+LEGACY_SRC_WIDTH = 18
+LEGACY_SRC_HEIGHT = 16
+LEGACY_ROW_OFFSET = 1
+LEGACY_COL_OFFSET = 2
 
-# UI-facing brightness is stored as a percent in 5% steps, 5..100.
-# BRIGHTNESS_MAX_CHANNEL is the actual per-channel LED ceiling at 100%.
-# At 100%, the board caps each of R/G/B to BRIGHTNESS_MAX_CHANNEL (170).
-# At any other percent p, the effective cap is round(p * 170 / 100).
+# Files on ESP32-S3 flash.
+SETTINGS_FILE = "settings370.json"
+FACES_FILE = "faces370.json"
+WEBUI_FILE = "webui/index.html"
+
+
+# Serial logging.
+# Levels: 0=off, 1=error, 2=warn, 3=info, 4=debug, 5=trace.
+# Default DEBUG logs all user-facing activities, protocol traffic, buttons,
+# storage, Wi-Fi, battery mean updates, and runtime state changes. Set to 5
+# only when you need very noisy per-frame tracing.
+LOG_LEVEL = 3
+LOG_INCLUDE_FREE_MEM = True
+LOG_RATE_LIMIT_DEFAULT_MS = 0
+LOG_HEARTBEAT_MS = 5000
+# Keep activity logs, but remove high-frequency protocol/body/frame logs by default.
+# Set these to True only while debugging a specific protocol/rendering problem.
+LOG_PROTOCOL_VERBOSE = False
+LOG_BATTERY_MEAN = False
+LOG_BUTTON_RAW_EDGE = True
+LOG_DRAW_VERBOSE = False
+LOG_FRAME_VERBOSE = False
+
+# Network / protocol.
+HTTP_PORT = 80
+UDP_PORT = 1234
+UDP_REPLY_PORT = 4321
+DNS_PORT = 53
+ENABLE_CAPTIVE_DNS = True
+MAX_HTTP_BODY = 32768
+HTTP_CLIENT_TIMEOUT_MS = 80
+HTTP_SEND_CHUNK_BYTES = 512
+SERVER_POLLS_PER_LOOP = 2
+UDP_PACKETS_PER_POLL = 4
+DNS_PACKETS_PER_POLL = 4
+DEFERRED_SETTINGS_SAVE_MS = 750
+MAX_TIMELINE_FRAMES = 900
+MAX_TIMELINE_FRAME_HEX = NUM_LEDS * 6
+
+# Wi-Fi defaults. Edit wifi_config.py for your real STA network.
+# Default AP is WPA/WPA2 secured for better phone compatibility.
+# SSID: RINA-S3, password: 12345678, URL: http://192.168.4.1
+# Set AP_COMPAT_OPEN=True in wifi_config.py only if secured AP fails.
+AP_SSID = "RINA-S3"
+AP_PASSWORD = "12345678"
+AP_AUTHMODE = 3
+AP_COMPAT_OPEN = False
+AP_CHANNEL = 1
+AP_HIDDEN = False
+AP_MAX_CLIENTS = 4
+AP_COUNTRY = "CA"
+AP_IP = "192.168.4.1"
+AP_NETMASK = "255.255.255.0"
+AP_GATEWAY = "192.168.4.1"
+AP_DNS = "192.168.4.1"
+AP_START_RETRIES = 3
+AP_START_WAIT_MS = 1500
+AP_RESTART_DELAY_MS = 300
+
+# Colors and brightness.
+PINK = (66, 0, 36)
+DIM = (24, 0, 14)
+WHITE = (120, 120, 120)
+RED = (120, 0, 0)
+ORANGE = (120, 40, 0)
+GREEN = (0, 120, 24)
+BLUE = (0, 80, 140)
+PURPLE = (90, 0, 120)
+OFF = (0, 0, 0)
+
+BRIGHTNESS_MAX_CHANNEL = 170
 DEFAULT_BRIGHTNESS = 30
-BRIGHTNESS_STEP = 5
 BRIGHTNESS_MIN = 5
 BRIGHTNESS_MAX = 100
-BRIGHTNESS_MAX_CHANNEL = 170
+BRIGHTNESS_STEP = 5
 
-FLASH_HOLD_MS = 1000
-BATTERY_SHORT_SHOW_MS = 2000
-BRIGHTNESS_RESET_IGNORE_MS = 300
+DEFAULT_INTERVAL_S = 1.0
+INTERVAL_MIN_S = 0.5
+INTERVAL_MAX_S = 10.0
+INTERVAL_STEP_S = 0.5
+
+POLL_PERIOD_MS = 1
+FLASH_HOLD_MS = 800
+BUTTON_DEBOUNCE_MS = 18
+BUTTON_REPEAT_INITIAL_MS = 400
+BUTTON_REPEAT_PERIOD_MS = 140
 B6_LONG_PRESS_MS = 700
 SPECIAL_COMBO_LONG_PRESS_MS = 2000
-BADAPPLE_COMBO_LONG_PRESS_MS = 2000
+IP_SCROLL_SPEED_MS = 90
 
-BATTERY_REFRESH_MS = 100
-BATTERY_ANIMATION_REFRESH_MS = 50
-BATTERY_MEAN_UPDATE_MS = 1000
-BATTERY_MEAN_SAMPLE_INTERVAL_MS = 20
-BATTERY_DISPLAY_CYCLE_MS = 2000
-BATTERY_LOG_INTERVAL_MS = 30000
-BATTERY_RELEARN_EVERY_MEASUREMENTS = 2000
-BATTERY_RELEARN_MAX_STEP_V = 0.05
-BATTERY_RELEARN_MIN_STEP_V = 0.05
-BATTERY_RELEARN_HOLDOFF_MEASUREMENTS = 20
-# Maximum number of consecutive inward adjustments per side (min / max)
-# without observing a new real extreme on that side. Once a side hits
-# this cap it freezes in place until a genuine new min (or max) is
-# recorded, which resets that side's counter.
-BATTERY_RELEARN_MAX_CONSECUTIVE = 2
-BATTERY_MIN_SPAN_V = 0.20
-
-BATTERY_PERCENT_CURVE = (
-    # Maps normalized voltage x in [0.0, 1.0] (where 0 = v_min, 1 = v_max)
-    # to battery percent. Shape is tuned against published 2S LiPo open-
-    # circuit voltage (OCV) vs. state-of-charge tables: steep voltage cliff
-    # near empty, steep rise through the middle plateau (where real SoC
-    # moves fast with small voltage changes), mild taper at the top.
-    #
-    # The voltage comments assume the intended range v_min=6.2 V, v_max=8.0 V
-    # (the learned/recorded endpoints). The clamp band BATTERY_DISPLAY_TOL_V
-    # snaps readings within 0.12 V of each endpoint to 0% / 100%, so the
-    # recorded min/max always correspond to 0% / 100% respectively.
-    (0.000,   0.0),
-    (0.222,   3.0),
-    (0.389,   7.0),
-    (0.444,  10.0),
-    (0.500,  14.0),
-    (0.556,  18.0),
-    (0.611,  26.0),
-    (0.667,  35.0),
-    (0.722,  45.0),
-    (0.778,  58.0),
-    (0.833,  70.0),
-    (0.889,  82.0),
-    (0.944,  92.0),
-    (1.000, 100.0),
-)
-
-BATTERY_HISTORY_MAX_SAMPLES = 96
-BATTERY_HISTORY_MIN_RATE_PCT_PER_H = 0.25
-BATTERY_HISTORY_SAME_MODE_WEIGHT = 2.5
-BATTERY_HISTORY_BRIGHTNESS_WINDOW = 20
-BATTERY_DEFAULT_USAGE_HOURS = 1.0
-BATTERY_DEFAULT_CHARGE_HOURS = 0.5
-
-BATTERY_ADC_GPIO = 10
+# Battery / charge measurement. The resistor values are inherited from the
+# Pico code and can be changed here if the ESP32-S3 board divider changes.
 BATTERY_ADC_REF_V = 3.3
-BATTERY_SAMPLES = 16
+BATTERY_SAMPLES = 4
 BATTERY_DIVIDER_R1 = 100000
 BATTERY_DIVIDER_R2 = 57000
 BATTERY_DEFAULT_MIN_V = 6.2
 BATTERY_DEFAULT_MAX_V = 8.0
 BATTERY_DISPLAY_TOL_V = 0.12
-# Bump this whenever BATTERY_DEFAULT_MIN_V / BATTERY_DEFAULT_MAX_V or
-# BATTERY_PERCENT_CURVE change in a way that makes previously learned
-# min_v / max_v (and the stored usage/charge history based on them)
-# incompatible. On boot, if the stored version differs from this one,
-# the calibration will be reset to defaults.
-BATTERY_CAL_VERSION = 4
+BATTERY_CAL_VERSION = 5
 
-CHARGE_DETECT_ADC_GPIO = 1
 CHARGE_DETECT_ADC_REF_V = 3.3
-CHARGE_DETECT_SAMPLES = 16
+CHARGE_DETECT_SAMPLES = 4
 CHARGE_DETECT_DIVIDER_R1 = 270000
 CHARGE_DETECT_DIVIDER_R2 = 47000
-CHARGE_DETECT_NON_CHARGING_V = 3.0
 CHARGE_DETECT_CHARGING_MIN_V = 4.0
-CHARGE_DISPLAY_THRESHOLD_V = 4.5
 CHARGE_DETECT_HYSTERESIS_LOW_V = 3.0
+CHARGE_DISPLAY_THRESHOLD_V = 4.5
 
+BATTERY_MEAN_UPDATE_MS = 1000
+BATTERY_MEAN_SAMPLE_INTERVAL_MS = 100
+BATTERY_DISPLAY_CYCLE_MS = 2000
+BATTERY_ANIMATION_REFRESH_MS = 100
+BATTERY_CHARGE_FLASH_MS = 300
+BATTERY_RELEARN_EVERY_MEASUREMENTS = 1000
+BATTERY_RELEARN_MAX_STEP_V = 0.05
+BATTERY_RELEARN_MIN_STEP_V = 0.05
+BATTERY_RELEARN_MAX_CONSECUTIVE = 2
+BATTERY_MIN_SPAN_V = 0.20
+BATTERY_HISTORY_MAX_SAMPLES = 96
+BATTERY_HISTORY_MIN_RATE_PCT_PER_H = 0.25
+BATTERY_DEFAULT_USAGE_HOURS = 1.0
+BATTERY_DEFAULT_CHARGE_HOURS = 0.5
 
-BATTERY_CHARGE_ANIM_INTERVAL_EMPTY_S = 0.2
-BATTERY_CHARGE_ANIM_INTERVAL_NEAR_FULL_S = 0.2
-BATTERY_CHARGE_ANIM_NEAR_FULL_PERCENT = 90
-BATTERY_CHARGE_ANIM_FULL_CYCLE_S = 0.2
-BATTERY_CHARGE_LAST_COLUMN_FLASH_MS = 300
-
-EDGE_FLASH_ATTACK_MS = 45
-EDGE_FLASH_DECAY_MS = 260
-EDGE_FLASH_TOTAL_MS = EDGE_FLASH_ATTACK_MS + EDGE_FLASH_DECAY_MS
-EDGE_FLASH_COLOR = (0, 120, 255)
-
-BADAPPLE_PART_MODULES = (
-    'badapple_part0', 'badapple_part1', 'badapple_part2', 'badapple_part3',
-    'badapple_part4', 'badapple_part5', 'badapple_part6', 'badapple_part7',
-    'badapple_part8', 'badapple_part9', 'badapple_part10', 'badapple_part11',
-    'badapple_part12', 'badapple_part13', 'badapple_part14', 'badapple_part15',
-    'badapple_part16',
+BATTERY_PERCENT_CURVE = (
+    (0.000, 0.0), (0.222, 3.0), (0.389, 7.0), (0.444, 10.0),
+    (0.500, 14.0), (0.556, 18.0), (0.611, 26.0), (0.667, 35.0),
+    (0.722, 45.0), (0.778, 58.0), (0.833, 70.0), (0.889, 82.0),
+    (0.944, 92.0), (1.000, 100.0),
 )
-BADAPPLE_ON_COLOR = (255, 255, 255)
-BADAPPLE_OFF_COLOR = (0, 0, 0)
-# Bad Apple and the matrix demo mode both run at 1/3 of the effective
-# face-mode brightness cap. The UI-facing brightness percent stays the
-# same; only the physical channel cap is reduced while these modes are
-# active.
-BADAPPLE_BRIGHTNESS_DIVISOR = 3
-DEMO_BRIGHTNESS_DIVISOR = 3

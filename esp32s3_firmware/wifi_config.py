@@ -1,15 +1,16 @@
-# wifi_config.py
-# ESP32-S3 native Wi-Fi configuration.
-# Leave WIFI_SSID empty to use only the fallback AP.
+# Optional station Wi-Fi credentials.
+# Leave STA_SSID empty to run AP-only mode.
+STA_SSID = ""
+STA_PASSWORD = ""
 
-WIFI_SSID = ""
-WIFI_PASSWORD = ""
-
-AP_SSID = "RinaChanBoard-ESP32S3"
-AP_PASSWORD = ""  # empty string = open AP
-AP_CHANNEL = 6
-AP_AUTHMODE = 0    # 0=open; use 3 for WPA2-PSK when AP_PASSWORD is set
-
-HTTP_PORT = 80
-UDP_PORT = 1234
-REMOTE_UDP_PORT = 4321
+# Phone-compatible fallback AP settings.
+# Default is WPA/WPA2 secured because some phones reject open APs with no internet.
+# Connect phone to SSID RINA-S3, password 12345678, then open http://192.168.4.1
+# If secured AP fails, set AP_COMPAT_OPEN=True and upload again.
+AP_SSID = "RINA-S3"
+AP_PASSWORD = "12345678"
+AP_COMPAT_OPEN = False
+AP_CHANNEL = 1
+AP_HIDDEN = False
+AP_MAX_CLIENTS = 4
+AP_COUNTRY = "CA"

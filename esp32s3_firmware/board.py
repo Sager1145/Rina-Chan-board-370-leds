@@ -1,502 +1,177 @@
-# ---------------------------------------------------------------------------
-# board.py
-#
-# Shared board configuration and drawing primitives for the LED matrix.
-# This file defines:
-# - hardware pin / LED count
-# - matrix geometry and coordinate mapping
-# - brightness limiting
-# - common color helpers
-# - drawing helpers for bitmaps and pixel grids
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# MicroPython hardware imports:
-# - Pin: GPIO control
-# - NeoPixel: WS2812B LED strip control
-# - time: timing / sleep helpers
-# ---------------------------------------------------------------------------
 from machine import Pin
-from neopixel import NeoPixel
-import time
+try:
+    from neopixel import NeoPixel
+except ImportError:
+    NeoPixel = None
 
-# ---------------------------------------------------------------------------
-# Timing helpers.
-#
-# MicroPython normally exposes ticks_ms()/sleep_ms() through time/utime.
-# A previous build called board.sleep_ms() during the original boot-face
-# animation, but this 370 LED board.py did not export that wrapper, causing
-# boot to stop with: AttributeError: module object has no attribute sleep_ms.
-# ---------------------------------------------------------------------------
-def ticks_ms():
-    if hasattr(time, "ticks_ms"):
-        return time.ticks_ms()
-    return int(time.time() * 1000)
+import logger as log
+from config import (
+    LED_PIN, NUM_LEDS, ROW_LENGTHS, ROWS, COLS,
+    SERPENTINE, FLIP_X, FLIP_Y,
+    BRIGHTNESS_MAX_CHANNEL, OFF, PINK, DIM, LOG_DRAW_VERBOSE, LOG_FRAME_VERBOSE,
+)
 
-
-def sleep_ms(ms):
-    try:
-        ms = int(ms)
-    except Exception:
-        ms = 0
-    if hasattr(time, "sleep_ms"):
-        time.sleep_ms(ms)
-    else:
-        time.sleep(ms / 1000.0)
-
-# ---------------------------------------------------------------------------
-# Hardware configuration.
-# LED_PIN is the ESP32-S3 GPIO used for WS2812B data.
-# NUM_LEDS is the total number of LEDs in the matrix.
-# ---------------------------------------------------------------------------
-LED_PIN = 2
-NUM_LEDS = 370
-
-# ---------------------------------------------------------------------------
-# Animation timing defaults.
-# TARGET_FPS is the intended frame rate.
-# FRAME_TIME_S and FRAME_TIME_MS are derived helpers.
-# ---------------------------------------------------------------------------
-TARGET_FPS = 60
-FRAME_TIME_S = 1.0 / TARGET_FPS
-FRAME_TIME_MS = 1000.0 / TARGET_FPS
-
-# ---------------------------------------------------------------------------
-# Runtime brightness cap.
-#
-# The UI uses a percent (5..100) in 5% steps. That percent is mapped into a
-# raw per-channel LED cap by brightness_modes.effective_brightness() before
-# being passed to set_max_brightness(). At 100% the cap is 170 (so the
-# physical maximum the board ever drives is 170,170,170). Bad Apple and the
-# matrix demo mode run at 1/3 of that cap.
-#
-# Example:
-# - UI 100% -> cap each channel to at most 170
-# - UI  50% -> cap each channel to at most  85
-# - UI  30% -> cap each channel to at most  51
-# - UI   5% -> cap each channel to at most   8
-#
-# HARD_CAP is the absolute ceiling (170).
-# FLOOR is the minimum allowed value.
-# DEFAULT is the boot-time default.
-# MAX_BRIGHTNESS is the current runtime brightness cap.
-# ---------------------------------------------------------------------------
-MAX_BRIGHTNESS_HARD_CAP = 170
-MAX_BRIGHTNESS_FLOOR = 1
-MAX_BRIGHTNESS_DEFAULT = 51  # 30% of 170, rounded
-MAX_BRIGHTNESS = MAX_BRIGHTNESS_DEFAULT
-
-
-# ---------------------------------------------------------------------------
-# Set the runtime brightness cap.
-# The value is clamped into the allowed range [FLOOR, HARD_CAP].
-# Returns the final applied value.
-# ---------------------------------------------------------------------------
-def set_max_brightness(value):
-    global MAX_BRIGHTNESS
-    if value < MAX_BRIGHTNESS_FLOOR:
-        value = MAX_BRIGHTNESS_FLOOR
-    elif value > MAX_BRIGHTNESS_HARD_CAP:
-        value = MAX_BRIGHTNESS_HARD_CAP
-    MAX_BRIGHTNESS = value
-    return MAX_BRIGHTNESS
-
-
-# ---------------------------------------------------------------------------
-# Read the current runtime brightness cap.
-# ---------------------------------------------------------------------------
-def get_max_brightness():
-    return MAX_BRIGHTNESS
-
-
-# ---------------------------------------------------------------------------
-# Geometry definition of the irregular 18-row matrix.
-#
-# Each row has a specific number of physical LEDs. The widest row is 22 LEDs.
-# Rows are centered inside a virtual 22-column grid so drawing code can use
-# simple (x, y) coordinates.
-# ---------------------------------------------------------------------------
-ROW_LENGTHS = [
-    18,
-    20, 20, 20,
-    22, 22, 22, 22, 22, 22, 22, 22, 22,
-    20, 20, 20,
-    18,
-    16,
-]
-
-# ---------------------------------------------------------------------------
-# Convenience geometry constants.
-# ROWS = number of rows
-# COLS = width of the virtual logical grid
-# ---------------------------------------------------------------------------
-ROWS = len(ROW_LENGTHS)
-COLS = max(ROW_LENGTHS)
-
-# ---------------------------------------------------------------------------
-# Orientation / wiring flags.
-#
-# SERPENTINE:
-#   True means odd rows are wired in reverse order.
-# FLIP_X / FLIP_Y:
-#   Optional logical flips if the display is mounted differently.
-# ---------------------------------------------------------------------------
-SERPENTINE = True
-FLIP_X = False
-FLIP_Y = False
-
-# ---------------------------------------------------------------------------
-# Precompute the starting strip index for each row.
-#
-# Example:
-# - ROW_STARTS[y] gives the first physical LED index of row y.
-# This makes logical-to-physical coordinate mapping much faster.
-# ---------------------------------------------------------------------------
 ROW_STARTS = []
 _acc = 0
 for _w in ROW_LENGTHS:
     ROW_STARTS.append(_acc)
     _acc += _w
+assert _acc == NUM_LEDS
 
-# ---------------------------------------------------------------------------
-# Safety check: the row lengths must add up exactly to the LED count.
-# ---------------------------------------------------------------------------
-assert _acc == NUM_LEDS, "ROW_LENGTHS must sum to NUM_LEDS"
-
-# ---------------------------------------------------------------------------
-# Create the single global NeoPixel object used by the whole project.
-# ---------------------------------------------------------------------------
-np = NeoPixel(Pin(LED_PIN, Pin.OUT), NUM_LEDS)
-
-# ---------------------------------------------------------------------------
-# Immediately flush one all-black frame to the strip.
-#
-# Creating NeoPixel reconfigures GPIO2 from its ESP32-S3 boot strapping
-# state to RMT output mode.  That transition produces a brief pin glitch
-# (HIGH → OUT-low → RMT-idle-high) which the TXS0108E level shifter
-# faithfully amplifies to 5 V and passes to the WS2812 DIN line.  The
-# LEDs can latch the transient as one frame of garbage before main.py's
-# loop issues the first real np.write().
-#
-# Sending a reset + 370×(0,0,0) here forces all LEDs to black and
-# discards whatever the RMT initialisation injected.
-# ---------------------------------------------------------------------------
-for _i in range(NUM_LEDS):
-    np[_i] = (0, 0, 0)
-np.write()
-del _i
+_pin = Pin(LED_PIN, Pin.OUT)
+np = NeoPixel(_pin, NUM_LEDS) if NeoPixel else None
+_raw = bytearray(NUM_LEDS * 3)
+_brightness_cap = int(BRIGHTNESS_MAX_CHANNEL * 0.30)
+log.info('BOARD', 'init', led_pin=LED_PIN, leds=NUM_LEDS, rows=ROWS, cols=COLS, serpentine=SERPENTINE, neopixel=bool(np))
 
 
-# ---------------------------------------------------------------------------
-# Frame pacing helper.
-#
-# This class regulates rendering speed to approximately TARGET_FPS.
-# Call tick() once per frame to sleep for the remaining frame budget.
-# ---------------------------------------------------------------------------
-class FramePacer:
-    """Frame-rate regulator. Call tick() once per frame."""
-
-    __slots__ = ("_fps", "_frame_ms", "_start", "_next")
-
-    # -----------------------------------------------------------------------
-    # Initialize the pacer.
-    # If ticks_ms is available, the pacer uses precise millisecond timing.
-    # Otherwise it falls back to sleep-based pacing only.
-    # -----------------------------------------------------------------------
-    def __init__(self, fps=TARGET_FPS):
-        self._fps = fps
-        self._frame_ms = 1000.0 / fps
-        if hasattr(time, "ticks_ms"):
-            self._start = time.ticks_ms()
-            self._next = self._start + int(self._frame_ms)
-        else:
-            self._start = None
-            self._next = None
-
-    # -----------------------------------------------------------------------
-    # Wait until the next frame boundary.
-    # -----------------------------------------------------------------------
-    def tick(self):
-        if self._next is None:
-            time.sleep(1.0 / self._fps)
-            return
-
-        now = time.ticks_ms()
-        remaining = time.ticks_diff(self._next, now)
-        if remaining > 0:
-            time.sleep(remaining / 1000.0)
-
-        self._next = (
-            time.ticks_add(self._next, int(self._frame_ms))
-            if hasattr(time, "ticks_add")
-            else self._next + int(self._frame_ms)
-        )
-
-    # -----------------------------------------------------------------------
-    # Return elapsed time since construction, in seconds.
-    # -----------------------------------------------------------------------
-    def elapsed_s(self):
-        if self._start is None:
-            return 0.0
-        return time.ticks_diff(time.ticks_ms(), self._start) / 1000.0
-
-    # -----------------------------------------------------------------------
-    # Return True if the specified duration has elapsed.
-    # -----------------------------------------------------------------------
-    def done(self, duration_s):
-        if duration_s is None or self._start is None:
-            return False
-        return time.ticks_diff(time.ticks_ms(), self._start) >= duration_s * 1000
+def set_max_brightness(value):
+    global _brightness_cap
+    value = int(value)
+    if value < 1:
+        value = 1
+    if value > BRIGHTNESS_MAX_CHANNEL:
+        value = BRIGHTNESS_MAX_CHANNEL
+    old = _brightness_cap
+    _brightness_cap = value
+    if old != value:
+        log.info('BOARD', 'brightness cap changed', old=old, new=value)
+    else:
+        log.debug('BOARD', 'brightness cap unchanged', value=value)
+    return value
 
 
-# ---------------------------------------------------------------------------
-# Color helper: clamp a color to the current brightness cap.
-#
-# Instead of clipping only the channel that exceeds the cap, this scales the
-# whole RGB tuple uniformly. That preserves hue better.
-# ---------------------------------------------------------------------------
-def scale_color(rgb):
-    r, g, b = rgb
-    m = max(r, g, b)
-    cap = MAX_BRIGHTNESS
-
-    if m <= cap:
-        return (
-            max(0, min(255, r)),
-            max(0, min(255, g)),
-            max(0, min(255, b)),
-        )
-
-    s = cap / m
-    return (int(r * s), int(g * s), int(b * s))
+def get_max_brightness():
+    return _brightness_cap
 
 
-# ---------------------------------------------------------------------------
-# Adafruit-style color wheel helper.
-# Maps pos in [0,255] to a rainbow RGB color.
-# ---------------------------------------------------------------------------
-def wheel(pos):
-    pos = pos & 0xFF
-    if pos < 85:
-        return (255 - pos * 3, pos * 3, 0)
-    if pos < 170:
-        pos -= 85
-        return (0, 255 - pos * 3, pos * 3)
-    pos -= 170
-    return (pos * 3, 0, 255 - pos * 3)
+def brightness_percent_to_cap(percent):
+    percent = max(0, min(100, int(percent)))
+    return max(1, int((BRIGHTNESS_MAX_CHANNEL * percent + 50) // 100))
 
 
-# ---------------------------------------------------------------------------
-# Convert HSV in [0,1] ranges into RGB in [0,255].
-# Output is not brightness-capped yet.
-# ---------------------------------------------------------------------------
-def hsv_to_rgb(h, s, v):
-    if s <= 0.0:
-        x = int(v * 255)
-        return (x, x, x)
-
-    i = int(h * 6.0)
-    f = h * 6.0 - i
-    p = int(255 * v * (1.0 - s))
-    q = int(255 * v * (1.0 - s * f))
-    t = int(255 * v * (1.0 - s * (1.0 - f)))
-    v = int(255 * v)
-    i %= 6
-
-    if i == 0:
-        return (v, t, p)
-    if i == 1:
-        return (q, v, p)
-    if i == 2:
-        return (p, v, t)
-    if i == 3:
-        return (p, q, v)
-    if i == 4:
-        return (t, p, v)
-    return (v, p, q)
-
-
-# ---------------------------------------------------------------------------
-# Map a logical (x, y) coordinate in the virtual 22x18 grid to a physical
-# LED strip index. Returns None if the coordinate lies outside the shaped
-# matrix for that row.
-# ---------------------------------------------------------------------------
 def logical_to_led_index(x, y):
-    # Reject out-of-bounds coordinates.
     if x < 0 or x >= COLS or y < 0 or y >= ROWS:
         return None
-
-    # Apply optional logical flips.
     if FLIP_X:
         x = COLS - 1 - x
     if FLIP_Y:
         y = ROWS - 1 - y
-
-    # Compute the valid x-range for this row.
     row_width = ROW_LENGTHS[y]
     left_pad = (COLS - row_width) // 2
-
-    # Reject coordinates that fall into padded empty space.
     if x < left_pad or x >= left_pad + row_width:
         return None
-
-    # Convert logical x into row-local x.
     local_x = x - left_pad
-
-    # Reverse odd rows if the strip is serpentine-wired.
-    if SERPENTINE and (y % 2 == 1):
+    if SERPENTINE and (y & 1):
         local_x = row_width - 1 - local_x
-
-    # Return the final physical strip index.
     return ROW_STARTS[y] + local_x
 
 
-# ---------------------------------------------------------------------------
-# Clear the entire LED strip to black.
-# If write=True, send the cleared frame to the LEDs immediately.
-# ---------------------------------------------------------------------------
+def is_real_cell(x, y):
+    return logical_to_led_index(x, y) is not None
+
+
+def _clamp(v):
+    if v < 0:
+        return 0
+    if v > 255:
+        return 255
+    return int(v)
+
+
+def set_pixel_index(i, rgb):
+    if i is None or i < 0 or i >= NUM_LEDS:
+        return
+    j = i * 3
+    _raw[j] = _clamp(rgb[0])
+    _raw[j + 1] = _clamp(rgb[1])
+    _raw[j + 2] = _clamp(rgb[2])
+
+
+def get_pixel_index(i):
+    if i is None or i < 0 or i >= NUM_LEDS:
+        return OFF
+    j = i * 3
+    return (_raw[j], _raw[j + 1], _raw[j + 2])
+
+
+def set_pixel(x, y, rgb):
+    set_pixel_index(logical_to_led_index(int(x), int(y)), rgb)
+
+
 def clear(write=False):
-    off = (0, 0, 0)
-    for i in range(NUM_LEDS):
-        np[i] = off
+    if LOG_DRAW_VERBOSE and log.every('board.clear', 500):
+        log.debug('BOARD', 'clear', write=write)
+    for i in range(len(_raw)):
+        _raw[i] = 0
     if write:
-        np.write()
+        show()
 
 
-# ---------------------------------------------------------------------------
-# Push the current pixel buffer to the LEDs.
-# ---------------------------------------------------------------------------
+def fill(rgb, write=False):
+    if LOG_DRAW_VERBOSE:
+        log.debug('BOARD', 'fill', rgb=rgb, write=write)
+    for i in range(NUM_LEDS):
+        set_pixel_index(i, rgb)
+    if write:
+        show()
+
+
+def scale_color(rgb, cap=None):
+    if cap is None:
+        cap = _brightness_cap
+    return (
+        min(int(rgb[0]), cap),
+        min(int(rgb[1]), cap),
+        min(int(rgb[2]), cap),
+    )
+
+
 def show():
+    if np is None:
+        if LOG_DRAW_VERBOSE and log.every('board.show.none', 2000):
+            log.warn('BOARD', 'show skipped no NeoPixel')
+        return
+    if LOG_FRAME_VERBOSE and log.every('board.show', 1000):
+        log.trace('BOARD', 'show frame', cap=_brightness_cap)
+    cap = _brightness_cap
+    for i in range(NUM_LEDS):
+        j = i * 3
+        r = _raw[j]
+        g = _raw[j + 1]
+        b = _raw[j + 2]
+        if r > cap:
+            r = cap
+        if g > cap:
+            g = cap
+        if b > cap:
+            b = cap
+        np[i] = (r, g, b)
     np.write()
 
 
-# ---------------------------------------------------------------------------
-# Set one logical pixel to a color, after brightness scaling.
-# If the logical coordinate does not map to a physical LED, do nothing.
-# ---------------------------------------------------------------------------
-def set_pixel(x, y, rgb):
-    idx = logical_to_led_index(x, y)
-    if idx is None:
-        return
-    np[idx] = scale_color(rgb)
-
-
-# ---------------------------------------------------------------------------
-# Fill the entire physical strip with one color.
-# ---------------------------------------------------------------------------
-def fill(rgb):
-    c = scale_color(rgb)
+def update_color(rgb, write=True):
+    if LOG_DRAW_VERBOSE:
+        log.info('BOARD', 'update color', rgb=rgb, write=write)
     for i in range(NUM_LEDS):
-        np[i] = c
+        j = i * 3
+        if _raw[j] or _raw[j + 1] or _raw[j + 2]:
+            _raw[j] = _clamp(rgb[0])
+            _raw[j + 1] = _clamp(rgb[1])
+            _raw[j + 2] = _clamp(rgb[2])
+    if write:
+        show()
 
 
-# ---------------------------------------------------------------------------
-# Fill all valid logical pixels with one color.
-# This skips padded logical positions that do not correspond to a real LED.
-# ---------------------------------------------------------------------------
-def fill_logical(rgb):
-    c = scale_color(rgb)
-    for y in range(ROWS):
-        for x in range(COLS):
-            idx = logical_to_led_index(x, y)
-            if idx is not None:
-                np[idx] = c
-
-
-# ---------------------------------------------------------------------------
-# Linear interpolation between numeric values a and b.
-# t=0 returns a, t=1 returns b.
-# ---------------------------------------------------------------------------
-def lerp(a, b, t):
-    if t <= 0.0:
-        return a
-    if t >= 1.0:
-        return b
-    return a + (b - a) * t
-
-
-# ---------------------------------------------------------------------------
-# Blend two RGB colors linearly by parameter t.
-# ---------------------------------------------------------------------------
-def blend(c1, c2, t):
-    if t <= 0.0:
-        return c1
-    if t >= 1.0:
-        return c2
-    return (
-        int(c1[0] + (c2[0] - c1[0]) * t),
-        int(c1[1] + (c2[1] - c1[1]) * t),
-        int(c1[2] + (c2[2] - c1[2]) * t),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Dim an RGB color by a scalar factor.
-# factor <= 0 produces black.
-# factor >= 1 returns the original color.
-# ---------------------------------------------------------------------------
-def dim(rgb, factor):
-    if factor <= 0.0:
-        return (0, 0, 0)
-    if factor >= 1.0:
-        return rgb
-    return (
-        int(rgb[0] * factor),
-        int(rgb[1] * factor),
-        int(rgb[2] * factor),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Apply gamma correction to an RGB tuple.
-# Useful if a perceptually smoother brightness response is needed.
-# ---------------------------------------------------------------------------
-def gamma_correct(rgb, gamma=2.2):
-    r, g, b = rgb
-    return (
-        int(((r / 255) ** gamma) * 255),
-        int(((g / 255) ** gamma) * 255),
-        int(((b / 255) ** gamma) * 255),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Compute a radial falloff factor for a point (x, y).
-# Returns a value in [0,1], where the center is brightest and the edge is 0.
-# ---------------------------------------------------------------------------
-def radial_factor(x, y, cx=None, cy=None, radius=None):
-    if cx is None:
-        cx = (COLS - 1) / 2.0
-    if cy is None:
-        cy = (ROWS - 1) / 2.0
-    if radius is None:
-        radius = (cx * cx + cy * cy) ** 0.5
-
-    dx = x - cx
-    dy = y - cy
-    d = (dx * dx + dy * dy) ** 0.5
-
-    if d >= radius:
-        return 0.0
-    return 1.0 - (d / radius)
-
-
-# ---------------------------------------------------------------------------
-# Render an ASCII-art bitmap to the display.
-#
-# Characters:
-# - '#' -> on_color
-# - '+' -> dim_color
-# - anything else -> off_color
-# ---------------------------------------------------------------------------
-def draw_bitmap(bitmap, on_color=(66, 0, 36), dim_color=(24, 0, 14),
-                off_color=(0, 0, 0), do_show=True):
-    on_c = scale_color(on_color)
-    dim_c = scale_color(dim_color)
-    off_c = scale_color(off_color)
-
-    clear()
-
+def draw_bitmap(bitmap, on_color=PINK, dim_color=DIM, off_color=OFF, do_show=True, clear_first=True):
+    if LOG_DRAW_VERBOSE:
+        try:
+            rows = len(bitmap)
+        except Exception:
+            rows = -1
+        log.debug('BOARD', 'draw bitmap', rows=rows, show=do_show, clear=clear_first)
+    if clear_first:
+        clear(False)
     for y, row in enumerate(bitmap):
         if y >= ROWS:
             break
@@ -506,154 +181,72 @@ def draw_bitmap(bitmap, on_color=(66, 0, 36), dim_color=(24, 0, 14),
             idx = logical_to_led_index(x, y)
             if idx is None:
                 continue
-
-            if ch == "#":
-                np[idx] = on_c
-            elif ch == "+":
-                np[idx] = dim_c
-            else:
-                np[idx] = off_c
-
+            if ch == '#':
+                set_pixel_index(idx, on_color)
+            elif ch == '+':
+                set_pixel_index(idx, dim_color)
+            elif off_color is not None and not clear_first:
+                set_pixel_index(idx, off_color)
     if do_show:
-        np.write()
+        show()
 
 
-# ---------------------------------------------------------------------------
-# Blend between two ASCII-art bitmaps.
-# Each cell color is looked up from bitmap_a and bitmap_b, then blended by t.
-# ---------------------------------------------------------------------------
-def draw_bitmap_blend(bitmap_a, bitmap_b, t, on_color=(66, 0, 36),
-                      dim_color=(24, 0, 14), off_color=(0, 0, 0),
-                      do_show=True):
-    on_c = scale_color(on_color)
-    dim_c = scale_color(dim_color)
-    off_c = scale_color(off_color)
-
-    # -----------------------------------------------------------------------
-    # Helper to convert one bitmap cell into a concrete RGB color.
-    # -----------------------------------------------------------------------
-    def cell_color(bitmap, y, x):
-        if y >= len(bitmap):
-            return off_c
-        row = bitmap[y]
-        if x >= len(row):
-            return off_c
-
-        ch = row[x]
-        if ch == "#":
-            return on_c
-        if ch == "+":
-            return dim_c
-        return off_c
-
-    clear()
-
-    for y in range(ROWS):
-        for x in range(COLS):
-            idx = logical_to_led_index(x, y)
-            if idx is None:
-                continue
-            ca = cell_color(bitmap_a, y, x)
-            cb = cell_color(bitmap_b, y, x)
-            np[idx] = blend(ca, cb, t)
-
-    if do_show:
-        np.write()
-
-
-# ---------------------------------------------------------------------------
-# Draw a grid of symbolic keys using a palette dictionary.
-#
-# grid:
-#   2D array of keys
-# palette:
-#   dict mapping each key to an RGB color
-# Missing keys default to off/black.
-# ---------------------------------------------------------------------------
-def draw_pixel_grid(grid, palette, do_show=True):
-    off_c = (0, 0, 0)
-    clear()
-
-    for y, row in enumerate(grid):
-        if y >= ROWS:
-            break
-        for x, key in enumerate(row):
-            if x >= COLS:
-                break
-            idx = logical_to_led_index(x, y)
-            if idx is None:
-                continue
-            col = palette.get(key, off_c)
-            np[idx] = scale_color(col)
-
-    if do_show:
-        np.write()
-
-# ---------------------------------------------------------------------------
-# RinaChanBoard-main 16x18 protocol compatibility layer.
-# The physical board is the full Rina-Chan-board-370-leds matrix: 22x18,
-# 370 LEDs, irregular row lengths from this file.  Legacy RinaChanBoard-main
-# packets are 18 columns x 16 rows and are centered on the 370-LED board.
-# ---------------------------------------------------------------------------
-SRC_ROWS = 16
-SRC_COLS = 18
-SRC_TO_DST_ROW_OFFSET = 1
-SRC_TO_DST_COL_OFFSET = 2
-SRC_INVALID_COLS = (0, 17)
-
-
-def hardware_summary():
-    return "ESP32-S3 GPIO{} WS2812, {} LEDs, physical {}x{} irregular 370 matrix, row_lengths={}, legacy src {}x{} centered +{}r +{}c".format(
-        LED_PIN, NUM_LEDS, COLS, ROWS, ROW_LENGTHS, SRC_COLS, SRC_ROWS,
-        SRC_TO_DST_ROW_OFFSET, SRC_TO_DST_COL_OFFSET)
-
-
-def src_to_led_index(row, col):
-    if row < 0 or row >= SRC_ROWS or col < 0 or col >= SRC_COLS:
-        return None
-    if col in SRC_INVALID_COLS:
-        return None
-    return logical_to_led_index(col + SRC_TO_DST_COL_OFFSET,
-                                row + SRC_TO_DST_ROW_OFFSET)
-
-
-def _fastled_byte_scale(rgb, bright):
-    if bright < 0:
-        bright = 0
-    elif bright > 255:
-        bright = 255
-    r, g, b = rgb
-    return ((int(r) * bright) // 255,
-            (int(g) * bright) // 255,
-            (int(b) * bright) // 255)
-
-
-def draw_src_face_matrix(face, color, bright=255, write=True):
-    """Draw a legacy 16x18 RinaChanBoard-main face centered on the 22x18 370 board."""
-    on = scale_color(_fastled_byte_scale(color, bright))
+def draw_physical_rgb_hex(hexstr, do_show=True):
+    hexstr = ''.join(str(hexstr).strip().split())
+    if LOG_DRAW_VERBOSE:
+        log.info('BOARD', 'draw RGB hex', hex_len=len(hexstr), show=do_show)
     clear(False)
-    for row in range(SRC_ROWS):
-        frow = face[row]
-        for col in range(SRC_COLS):
-            if not frow[col]:
-                continue
-            idx = src_to_led_index(row, col)
-            if idx is not None:
-                np[idx] = on
-    if write:
+    n = min(NUM_LEDS, len(hexstr) // 6)
+    for i in range(n):
+        chunk = hexstr[i * 6:i * 6 + 6]
+        try:
+            r = int(chunk[0:2], 16)
+            g = int(chunk[2:4], 16)
+            b = int(chunk[4:6], 16)
+        except Exception:
+            r = g = b = 0
+        set_pixel_index(i, (r, g, b))
+    if do_show:
         show()
 
 
-def draw_face_matrix(face, color, bright=255, write=True):
-    draw_src_face_matrix(face, color, bright, write)
-
-
-def fill_valid(rgb, bright=255, write=True):
-    c = scale_color(_fastled_byte_scale(rgb, bright))
-    for y in range(ROWS):
-        for x in range(COLS):
-            idx = logical_to_led_index(x, y)
-            if idx is not None:
-                np[idx] = c
-    if write:
+def draw_physical_bits_hex(hexstr, on_color=PINK, do_show=True):
+    hexstr = ''.join(str(hexstr).strip().split())
+    if LOG_DRAW_VERBOSE:
+        log.info('BOARD', 'draw bits hex', hex_len=len(hexstr), show=do_show)
+    clear(False)
+    bit_index = 0
+    for c in hexstr:
+        try:
+            v = int(c, 16)
+        except Exception:
+            continue
+        for bit in (3, 2, 1, 0):
+            if bit_index >= NUM_LEDS:
+                break
+            if v & (1 << bit):
+                set_pixel_index(bit_index, on_color)
+            bit_index += 1
+        if bit_index >= NUM_LEDS:
+            break
+    if do_show:
         show()
+
+
+def draw_frame_hex(hexstr, on_color=PINK, do_show=True):
+    s = ''.join(str(hexstr).strip().split())
+    if len(s) >= NUM_LEDS * 6:
+        draw_physical_rgb_hex(s, do_show=do_show)
+    else:
+        draw_physical_bits_hex(s, on_color=on_color, do_show=do_show)
+
+
+def wheel(pos):
+    pos = int(pos) & 255
+    if pos < 85:
+        return (255 - pos * 3, pos * 3, 0)
+    if pos < 170:
+        pos -= 85
+        return (0, 255 - pos * 3, pos * 3)
+    pos -= 170
+    return (pos * 3, 0, 255 - pos * 3)

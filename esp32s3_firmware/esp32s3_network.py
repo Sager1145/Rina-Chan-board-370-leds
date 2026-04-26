@@ -184,6 +184,12 @@ class ESP32S3Network:
         self._status_log()
         return True
 
+    # Default AP password used when AP_PASSWORD is empty.
+    # Android 10+ and iOS 14+ refuse or warn on open (authmode=0) networks,
+    # which stops phones from connecting at all.  A fixed WPA2 password avoids
+    # the security block without requiring the user to configure anything.
+    _AP_DEFAULT_PASSWORD = "rinachan"
+
     def _start_wifi(self):
         ssid = self._cfg("WIFI_SSID", "") or ""
         password = self._cfg("WIFI_PASSWORD", "") or ""
@@ -192,13 +198,39 @@ class ESP32S3Network:
         ap_channel = int(self._cfg("AP_CHANNEL", 6) or 6)
         ap_authmode = int(self._cfg("AP_AUTHMODE", 0) or 0)
 
+        # If no password was configured, use the built-in default so that
+        # modern mobile OSes see a WPA2 network instead of an open one.
+        if not ap_password:
+            ap_password = self._AP_DEFAULT_PASSWORD
+            ap_authmode = 3  # WPA2-PSK
+
+        gc.collect()  # defragment heap before WiFi stack allocation
         self.ap = network.WLAN(network.AP_IF)
         self.ap.active(True)
+
+        # Fix the AP subnet explicitly so the built-in DHCP server always
+        # hands out 192.168.4.x addresses with a reachable DNS.  Without this,
+        # iOS and Android captive-portal probes fail and the phone may drop the
+        # connection immediately after associating.
         try:
-            if ap_password:
-                self.ap.config(essid=ap_ssid, password=ap_password, channel=ap_channel, authmode=ap_authmode or 3)
-            else:
-                self.ap.config(essid=ap_ssid, channel=ap_channel, authmode=0)
+            self.ap.ifconfig(("192.168.4.1", "255.255.255.0", "192.168.4.1", "8.8.8.8"))
+        except Exception:
+            pass
+
+        # Disable AP power-save mode.  The default PS mode on ESP32-S3 skips
+        # beacon frames to save power, which causes phones to lose the AP
+        # during the WPA2 four-way handshake and fail to associate.
+        try:
+            self.ap.config(pm=network.WIFI_PS_NONE)
+        except Exception:
+            try:
+                self.ap.config(pm=0)
+            except Exception:
+                pass
+
+        try:
+            self.ap.config(essid=ap_ssid, password=ap_password,
+                           channel=ap_channel, authmode=ap_authmode)
         except Exception:
             try:
                 self.ap.config(essid=ap_ssid)
@@ -209,7 +241,8 @@ class ESP32S3Network:
         except Exception:
             self.ap_ip = "192.168.4.1"
         self.ssid_label = ap_ssid
-        self._remember("[NET]", "AP ssid={} ip={}".format(ap_ssid, self.ap_ip))
+        self._remember("[NET]", "AP ssid={} pw={} ip={}".format(
+            ap_ssid, ap_password, self.ap_ip))
 
         self.sta = network.WLAN(network.STA_IF)
         if ssid:
