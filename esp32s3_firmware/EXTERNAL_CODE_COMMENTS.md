@@ -1,6 +1,6 @@
 # ESP32-S3 RinaChanBoard 固件外置注释
 
-- 源 ZIP：`esp32s3_firmware_mobile_compact_controls.zip`
+- 源 ZIP：`esp32s3_firmware_play_stop_before_upload_fix.zip`
 - 注释生成时间：2026-04-26
 - 注释方式：**不改动源码文件**；所有解释都集中在本 `.md` 文件。
 - 行号说明：下面的行号基于本次上传 ZIP 解压后的当前源码。
@@ -9,9 +9,25 @@
 
 这套固件是一个运行在 ESP32-S3 MicroPython 上的 370 颗 WS2812 LED 矩阵控制程序。主功能包括：实体按键换脸/调亮度/调间隔、电池电量和充电状态显示、AP/STA 网络、HTTP Web 控制台、UDP/文本协议兼容、M370 真实矩阵表情管理、WebUI 固件侧滚动文字与 Unity 时间轴播放。
 
-**本次 M/A 修复**：新增 `LinaBoardApp.force_m_mode()`，所有实际 Web/网络控制都会把保存表情自动轮播 `auto` 置为 `False`，即回到 M 模式；此动作会保存到 `linaboard_settings.json`，但不会绘制大号 `M` 覆盖层，避免盖掉网页刚发送的表情/颜色/滚动文字/时间轴画面。
+**本次 GPIO M/A 与播放同步修复**：实体 GPIO 按钮进入手动控制时，浏览器端会在状态同步或 runtimeStatus 检测后停止 Unity 媒体本地计时器；切换 Tab、上传表情/部件/颜色/亮度时 `rinaStopActivePlayback()` 会向固件发送 `runtimeStop`，避免浏览器已停但固件时间轴继续渲染。新增 `buttonSim|<action>` 协议和首页“虚拟按钮面板”，可从 WebUI 触发 B1/B2/B3/B4/B5/B6 及组合按钮等效动作。
 
 当前 `main.py` 的启动横幅写明本构建是 **no MatrixDemo / no BadApple**：相关文件和配置仍保留在项目中，但主启动路径不导入 `matrix_demos.py`、`demo_faces.py` 或 BadApple part 模块，以降低启动时堆内存压力。
+
+### 1.1 v1.6.8 GPIO M/A runtime sync 变更
+
+- `rina_protocol.py`：新增 `buttonSim|prevface/nextface/toggleauto/intervalup/intervaldown/brightup/brightdown/brightreset/batteryshort/batterydetail/showip`。
+- `webui_index.html.gz`：首页新增“虚拟按钮面板”，全部按钮通过 `sendText('buttonSim|' + action, true)` 发送到固件。
+- `webui_index.html.gz`：`stopActivePlayback()` 现在调用 `stopScrollText(true)` / `stopUnityMedia(true)`，切换 Tab 或上传内容时会同步发送固件停止命令。
+- `main.py`：修复实体 B3 A/M 切换在按下瞬间被 `force_m_mode()` 预先置 M，导致松手后只能切到 A 的问题；现在 B3 会保留按下前状态并在释放时正确取反。
+- `webui_index.html.gz`：`uploadFace()`、`uploadFacePartPreview()`、`sendFaceLiteBinary()`、`sendFaceFullBinary()`、`uploadColor()`、`uploadBright()` 发送前都会先停止当前播放/滚动。
+- `webui_index.html.gz`：Unity 固件时间轴播放期间每约 60 帧查询一次 `runtimeStatus`，如果固件端 `timeline_playing=false`，浏览器端自动停止本地计时器。
+- Wi-Fi/AP 独立模块未改动。
+
+### 1.2 v1.6.9 Unity 新媒体播放前停止旧时间轴
+
+- `webui_index.html.gz`：固件 runtime 版 `window.playUnityMedia()` 在上传新 timeline 前调用 `window.stopUnityMedia(true)`，先发送 `runtimeStop|media`，避免旧 Unity 时间轴在新 timeline chunk 上传期间继续渲染到 LED。
+- `webui_index.html.gz`：旧 modules.js 兼容层 `window.playUnityMedia()` 同步改为 `window.stopUnityMedia(true)`，保证 fallback 路径行为一致。
+- 本次不改 Wi-Fi/AP 独立模块，不改实体 GPIO 按钮固件逻辑。
 
 ## 2. 文件职责索引
 
@@ -30,15 +46,15 @@
 | `battery_monitor.py` | 310 行 | 电池采样和校准逻辑：ADC 电压读取、1 秒均值窗口、百分比曲线、充电检测、颜色映射。 |
 | `emoji_db.py` | 130 行 | 原版 RinaChanBoard 表情部件数据库：左右眼、嘴巴、脸颊 bitpack 数据和布局常量。 |
 | `saved_faces_370.py` | 344 行 | 370 物理矩阵表情库：默认表情、WebUI 保存/重命名/删除/排序/锁定，JSON 作为固件端真值。 |
-| `rina_protocol.py` | 744 行 | 协议兼容层：支持原版二进制 UDP、微信小程序文本协议、M370 物理矩阵扩展、WebUI 管理命令；WebUI runtime/manual-mode 控制也会触发 M/A 回 M。 |
+| `rina_protocol.py` | 881 行 | 协议兼容层：支持原版二进制 UDP、微信小程序文本协议、M370 物理矩阵扩展、WebUI 管理命令；新增 `buttonSim|` 虚拟 GPIO 按钮命令；WebUI runtime/manual-mode 控制也会触发 M/A 回 M。 |
 | `esp32s3_network.py` | 620 行 | ESP32-S3 原生网络层：同时启用 AP/STA、UDP 服务、HTTP 控制台/API，状态接口版本更新为 1.6.1。 |
 | `webui_runtime.py` | 384 行 | WebUI 动画运行时：把滚动文字和 Unity 时间轴播放从浏览器计时迁移到固件主循环；启动滚动/时间轴时强制 A/M 回 M。 |
-| `main.py` | 1119 行 | 主应用入口和调度循环：连接状态、按键路由、显示覆盖层、电池服务、WebUI、协议、自动换脸；新增 force_m_mode() 统一处理网页控制回 M。 |
+| `main.py` | 1114 行 | 主应用入口和调度循环：连接状态、按键路由、显示覆盖层、电池服务、WebUI、协议、自动换脸；`force_m_mode()` 统一处理网页控制回 M。 |
 | `demo_faces.py` | 298 行 | 旧版内置 ASCII 表情帧；当前 no-demo 构建不在主启动路径导入，用于保留/迁移参考。 |
 | `matrix_demos.py` | 473 行 | 旧版矩阵演示动画控制器；当前 main.py 中演示模式被禁用，不在主启动路径导入。 |
 | `wifi_config.py` | 16 行 | Wi-Fi/AP 配置文件：STA SSID/密码、AP SSID/密码、HTTP/UDP 端口。 |
-| `webui_index.html.gz` | 5203 行（解压后） | 压缩的内置 Web 控制台：HTML/CSS/JS 合并后 gzip，由 HTTP 根路径直接返回。 |
-| `upload_esp32s3_firmware.ps1` | 114 行 | Windows PowerShell 上传脚本：解压本 ZIP，使用 mpremote 上传固件源码并 reset ESP32-S3；默认不上传本脚本和外置注释。 |
+| `webui_index.html.gz` | 5343 行（解压后） | 压缩的内置 Web 控制台：HTML/CSS/JS 合并后 gzip，由 HTTP 根路径直接返回；含 GPIO M/A 播放同步和虚拟按钮面板。 |
+| `upload_esp32s3_firmware.ps1` | 142 行 | Windows PowerShell 上传脚本：解压本 ZIP，使用 mpremote 上传固件源码并 reset ESP32-S3；默认不上传本脚本和外置注释。 |
 | `__pycache__/` | 目录 | CPython 运行缓存，不属于 MicroPython 固件逻辑；烧录到 ESP32-S3 时通常不需要。 |
 
 ## 3. 硬件与 IO 注释
@@ -1289,9 +1305,9 @@ WebUI/API 路径保持不变：
 
 ### 版本标识
 
-- `rina_protocol.py`：`VERSION = "1.6.6-esp32s3-wifi-isolated"`
-- `/api/status`：`firmware = "1.6.6-esp32s3-wifi-isolated"`
-- `main.py` banner：`1.6.6 WiFi/AP isolated`
+- `rina_protocol.py`：`VERSION = "1.6.7-mobile-face-manager-responsive"`
+- `/api/status`：`firmware = "1.6.7-mobile-face-manager-responsive"`
+- `main.py` banner：`1.6.7 mobile face-manager responsive + WiFi/AP isolated`
 
 ### 验证
 
@@ -1313,3 +1329,66 @@ WebUI/API 路径保持不变：
 
 如果后续只是改 LED、动画、WebUI 样式、资源、按钮、M/A 模式、HTTP 普通 API，不要触碰 `esp32s3_wifi_*.py`。  
 如果确实需要改 Wi-Fi/AP，请优先只改 `esp32s3_wifi_ap.py`，并重新确认手机能连接 `RinaChanBoard-ESP32S3` 热点。
+
+---
+
+## 16. v1.6.7 mobile face-manager responsive layout fix
+
+### 目标
+
+修复移动端“表情管理器”列表在 320-375px viewport 下横向撑破 `.card` 的问题，同时增加按钮文字防溢出安全网。此版本只改 WebUI 布局相关代码，不修改已独立出来的 Wi-Fi/AP 模块。
+
+### 改动文件
+
+| 文件 | 改动 |
+|---|---|
+| `webui_index.html.gz` | 重新生成，内含表情管理器响应式 CSS 与按钮 class 更新。 |
+| `upload_esp32s3_firmware.ps1` | 默认 ZIP 名改为 `esp32s3_firmware_mobile_facemanager_fix.zip`。 |
+| `main.py` | banner 版本更新到 v1.6.7。 |
+| `rina_protocol.py` | `VERSION` 更新到 `1.6.7-mobile-face-manager-responsive`。 |
+| `esp32s3_network.py` | `/api/status` 固件版本字符串更新。 |
+
+### 表情管理器布局修复细节
+
+1. `.faceManagerWrap` 增加 `min-width:0; max-width:100%; overflow:hidden`，避免子 grid 直接撑破卡片。
+2. `.faceManagerList` 增加 `overflow-x:auto`、`-webkit-overflow-scrolling:touch`、`overscroll-behavior-x:contain`，用于中等窄屏横向滚动兜底。
+3. 桌面/平板 6 列布局从：
+   - `72px minmax(120px,1fr) 62px 86px 62px 48px`
+   调整为：
+   - `60px minmax(120px,1fr) 62px 96px 62px 52px`
+4. `.faceManagerHead` 和 `.faceManagerRow` 增加 `min-width:500px`，在需要横向滚动时保持按钮和文字不被压扁。
+5. `.faceManagerRow .btn` 增加：
+   - `max-width:100%`
+   - `min-width:0`
+   - `overflow:hidden`
+   - `white-space:nowrap`
+   - `text-overflow:ellipsis`
+6. “自定义”列从 86px 增加到 96px，同时按钮横向 padding 从 9px 降到 7px。
+7. `.faceNo` padding 从 `8px 4px` 降为 `7px 3px`，并加入文本 ellipsis 防护。
+8. 拖拽按钮 `.dragHandle` 增加 `min-width:44px`，移动端断点下 `min-height:44px`，更接近触屏最小目标。
+9. 新增 `@media (max-width:560px)`：
+   - 隐藏 `.faceManagerHead`
+   - 每个 `.faceManagerRow` 改成 2 行 3 列堆叠布局：
+     - 第一行：编号 / 名称 / 拖拽
+     - 第二行：锁定 / 自定义或部件 / 删除
+   - 行宽改为 `width:100%; min-width:0`，彻底避免 320-375px 手机屏幕横向撑破卡片。
+
+### JS class 更新
+
+`buildRow()` 中给按钮增加稳定 class，方便 CSS grid-area 定位：
+
+- `lockBtn`
+- `typeBtn`
+- `delBtn`
+- `dragHandle` 保持不变
+
+### Wi-Fi/AP 边界保持
+
+本次未修改：
+
+- `esp32s3_wifi_ap.py`
+- `esp32s3_wifi_boot.py`
+- `wifi_config.py`
+- `boot.py`
+
+后续如果只是继续调 WebUI 样式，不要碰 Wi-Fi/AP 文件。

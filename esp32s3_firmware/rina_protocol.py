@@ -11,10 +11,14 @@
 # original RinaChanBoard-main 16x18 logical face centered on the 370-LED board.
 # ---------------------------------------------------------------------------
 
+import time
+
 import board
 import saved_faces_370
 import emoji_db
-VERSION = "1.6.6-esp32s3-wifi-isolated"
+import display_num
+from config import INTERVAL_STEP_S, BRIGHTNESS_STEP, BATTERY_DISPLAY_CYCLE_MS
+VERSION = "1.6.8-gpio-ma-runtime-sync"
 
 LOCAL_UDP_PORT = 1234
 REMOTE_UDP_PORT = 4321
@@ -168,6 +172,124 @@ class RinaProtocol:
                 self.app.on_network_control()
             except Exception as exc:
                 print("app network-control hook failed:", exc)
+
+    def _button_sim_network_takeover(self, source="webui button sim", stop_runtime=True, force_m=True):
+        app = self.app
+        if app is None:
+            return
+        if hasattr(app, "exit_manual_control_from_network"):
+            try:
+                app.exit_manual_control_from_network(source)
+            except Exception as exc:
+                print("buttonSim manual-exit failed:", exc)
+        if stop_runtime and hasattr(app, "stop_webui_runtime"):
+            try:
+                app.stop_webui_runtime(redraw=False)
+            except Exception as exc:
+                print("buttonSim runtime-stop failed:", exc)
+        if force_m and hasattr(app, "force_m_mode"):
+            try:
+                app.force_m_mode(source, persist=True)
+            except Exception as exc:
+                print("buttonSim M mode failed:", exc)
+
+    def _handle_button_sim(self, action):
+        # Virtual GPIO button actions for the WebUI.  These intentionally use
+        # network ownership (exit_manual_control_from_network) instead of the
+        # physical-button ownership path, so a WebUI button press remains a WebUI
+        # control action while matching the visible GPIO button effect.
+        app = self.app
+        if app is None:
+            raise ValueError("no app")
+        action = str(action or "").strip().lower()
+
+        if action == "prevface":
+            self._button_sim_network_takeover("buttonSim prevface")
+            app.state.special_demo_mode = False
+            app.state.face_idx = (app.state.face_idx - 1) % max(1, saved_faces_370.count())
+            app.stop_battery_display()
+            app.cancel_flash_and_redraw()
+            return "face=" + str(app.state.face_idx)
+
+        if action == "nextface":
+            self._button_sim_network_takeover("buttonSim nextface")
+            app.state.special_demo_mode = False
+            app.state.face_idx = (app.state.face_idx + 1) % max(1, saved_faces_370.count())
+            app.stop_battery_display()
+            app.cancel_flash_and_redraw()
+            return "face=" + str(app.state.face_idx)
+
+        if action == "toggleauto":
+            self._button_sim_network_takeover("buttonSim toggleauto", force_m=False)
+            app.state.special_demo_mode = False
+            app.state.auto = not app.state.auto
+            app.save_settings()
+            app.stop_battery_display()
+            display_num.render_mode(app.state.auto)
+            app.start_or_extend_flash("mode", app.state.auto)
+            return "auto=" + ("A" if app.state.auto else "M")
+
+        if action == "intervalup":
+            self._button_sim_network_takeover("buttonSim intervalup")
+            app.adjust_interval(+INTERVAL_STEP_S)
+            return "interval=" + str(app.state.interval_s)
+
+        if action == "intervaldown":
+            self._button_sim_network_takeover("buttonSim intervaldown")
+            app.adjust_interval(-INTERVAL_STEP_S)
+            return "interval=" + str(app.state.interval_s)
+
+        if action == "brightup":
+            self._button_sim_network_takeover("buttonSim brightup")
+            app.adjust_brightness(+BRIGHTNESS_STEP)
+            return "brightness=" + str(app.state.brightness)
+
+        if action == "brightdown":
+            self._button_sim_network_takeover("buttonSim brightdown")
+            app.adjust_brightness(-BRIGHTNESS_STEP)
+            return "brightness=" + str(app.state.brightness)
+
+        if action == "brightreset":
+            self._button_sim_network_takeover("buttonSim brightreset")
+            app.reset_brightness()
+            return "brightness=" + str(app.state.brightness)
+
+        if action == "batteryshort":
+            self._button_sim_network_takeover("buttonSim batteryshort")
+            app.show_battery_percent_short()
+            return "battery_short"
+
+        if action == "batterydetail":
+            self._button_sim_network_takeover("buttonSim batterydetail")
+            if app.state.battery_display_active:
+                app.stop_battery_display()
+                return "battery_off"
+            app.state.battery_display_active = True
+            app.state.battery_display_single_shot = False
+            app.state.flash_active = False
+            app.state.edge_flash_active = False
+            app.state.battery_next_refresh_ms = 0
+            app.state.battery_visual_next_refresh_ms = 0
+            app.refresh_battery_overlay_cache(force=True)
+            now = time.ticks_ms()
+            app.state.battery_display_toggle_started_ms = now
+            app.state.battery_display_phase_index = 0
+            charging = app.state.battery_display_cached_is_charging
+            app.state.battery_display_phase_count = 4 if charging else 3
+            app.state.battery_display_next_phase_ms = time.ticks_add(now, BATTERY_DISPLAY_CYCLE_MS)
+            app.render_battery_overlay(refresh_phase=False, refresh_cache=False)
+            return "battery_on"
+
+        if action == "showip":
+            self._button_sim_network_takeover("buttonSim showip")
+            if app.state.ip_display_active:
+                app.state.ip_display_active = False
+                app.draw_current_face()
+                return "ip_off"
+            app.start_ip_display()
+            return "ip_on"
+
+        raise ValueError("unknown action: " + action)
 
     def _bright_color(self):
         r, g, b = self.color
@@ -442,6 +564,21 @@ class RinaProtocol:
 
         # Manual control authority commands.  Physical buttons enter manual
         # mode; normal network/WebUI drawing commands exit it.
+        # Web button simulation: virtual GPIO button actions.
+        # buttonSim|<action> triggers the same visible action as the physical
+        # buttons while keeping ownership on the WebUI/network side.
+        if low.startswith("buttonsim|"):
+            action = low.split("|", 1)[1].strip() if "|" in low else ""
+            if self.app is None:
+                self.reply(remote_ip, remote_port, b"ERR:no app", link_id)
+                return True
+            try:
+                result = self._handle_button_sim(action)
+                self.reply(remote_ip, remote_port, ("OK:" + str(result)).encode(), link_id)
+            except Exception as exc:
+                self.reply(remote_ip, remote_port, ("ERR:" + str(exc)).encode(), link_id)
+            return True
+
         if low == "requestmanualmode" or low == "requestcontrolmode":
             if self.app is not None and hasattr(self.app, "manual_control_status_json"):
                 self.reply(remote_ip, remote_port, self.app.manual_control_status_json().encode(), link_id)

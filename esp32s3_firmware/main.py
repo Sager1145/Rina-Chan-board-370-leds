@@ -59,7 +59,7 @@ from esp32s3_network import ESP32S3Network
 from webui_runtime import WebUIRuntime
 gc.collect()
 
-FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.6.6 WiFi/AP isolated no bridge no MatrixDemo no BadApple no boot animation"
+FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.6.8 GPIO M/A runtime sync + virtual buttons + WiFi/AP isolated no bridge no MatrixDemo no BadApple no boot animation"
 
 
 # ---------------------------------------------------------------------------
@@ -779,10 +779,15 @@ class LinaBoardApp:
         return "{\"manual_control_mode\":" + ("true" if self.state.manual_control_mode else "false") + ",\"auto\":" + ("true" if self.state.auto else "false") + "}"
 
     def toggle_auto(self):
+        # Preserve the A/M state that existed before the B3 press.  Entering
+        # manual-control mode intentionally forces M for ordinary GPIO actions,
+        # but B3 itself is the A/M toggle; if we force M before computing the
+        # toggle, B3 can only ever switch to A.
+        old_auto = bool(self.state.auto)
         self.set_manual_control_mode(True, redraw=False, source="button auto-toggle")
         self.stop_webui_runtime(redraw=False)
         self.state.special_demo_mode = False
-        self.state.auto = not self.state.auto
+        self.state.auto = not old_auto
         self.save_settings()
         print("auto =", self.state.auto)
         self.stop_battery_display()
@@ -798,6 +803,13 @@ class LinaBoardApp:
         combo_b4_b5 = self.buttons.is_down(BTN_BRIGHT_DN) and self.buttons.is_down(BTN_BRIGHT_UP)
         if combo_b3_b6 or combo_b2_b6:
             self.enter_manual_control_from_button(gp)
+            return
+
+        # Do not force M on the initial B3 down event.  The A/M state must be
+        # toggled on B3 release using the state that existed before the press.
+        # Other GPIO actions still immediately take local/manual ownership.
+        if gp == BTN_AUTO:
+            self.state.b3_consumed = False
             return
 
         self.enter_manual_control_from_button(gp)
@@ -824,8 +836,6 @@ class LinaBoardApp:
                 self.adjust_interval(-INTERVAL_STEP_S)
             else:
                 self.cycle_face(+1)
-        elif gp == BTN_AUTO:
-            self.state.b3_consumed = False
         elif gp == BTN_BRIGHT_DN:
             self.adjust_brightness(+BRIGHTNESS_STEP)
         elif gp == BTN_BRIGHT_UP:

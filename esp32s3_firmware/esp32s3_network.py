@@ -616,7 +616,7 @@ class ESP32S3Network:
         w = self.wifi.values()
         sta_status = "CONNECTED" if w.get("sta_connected") else "DISCONNECTED"
         body = ("{"
-                "\"firmware\":\"1.6.6-esp32s3-wifi-isolated\","
+                "\"firmware\":\"1.6.7-mobile-face-manager-responsive\","
                 "\"mode\":\"ESP32S3_NATIVE\","
                 "\"sta_status\":\"" + sta_status + "\","
                 "\"ssid\":\"" + _json_escape(w.get("sta_ssid", "") or w.get("ap_ssid", "")) + "\","
