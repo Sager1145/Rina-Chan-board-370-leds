@@ -275,7 +275,8 @@ class BatteryMonitor:
                     battery_state.max_v = v_bat; changed = True
         if changed:
             save_cb()
-        print("battery log: current={:.2f} V, charge_ext={:.2f} V, charge_adc={:.2f} V, charging={}, min={:.2f} V, max={:.2f} V, count={}, holdoff={}, use_hist={}, chg_hist={}".format(v_bat, charge_v if charge_v is not None else 0.0, self.read_charge_voltage_adc() if self.charge_adc is not None else 0.0, charging, battery_state.min_v, battery_state.max_v, battery_state.measure_count, battery_state.relearn_holdoff_counts, len(battery_state.usage_history), len(battery_state.charge_history)))
+        # Battery serial spam removed in v1.6.2. The latest values remain
+        # available through requestBattery/requestState and the WebUI panel.
         return True
     @staticmethod
     def percent_from_voltage(v_bat, battery_state):

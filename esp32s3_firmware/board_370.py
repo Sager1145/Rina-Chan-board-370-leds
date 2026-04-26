@@ -19,6 +19,14 @@ import time
 LED_PIN = 2
 NUM_LEDS = 370
 
+# TXS0108E/WS2812 stability constants. board_370.py is a fallback hardware
+# layer, but it must use the same guarded write path as board.py so clear(True)
+# or show() can never bypass the reset/idle-low protection.
+LED_SIGNAL_IDLE_LOW_MS = 5
+LED_WRITE_RESET_GAP_US = 500
+LED_PRE_WRITE_IDLE_LOW_US = 50
+LED_BOOT_CLEAR_FRAMES = 2
+
 ROW_LENGTHS = (
     18,
     20, 20, 20,
@@ -54,7 +62,45 @@ for _w in ROW_LENGTHS:
     _acc += _w
 assert _acc == NUM_LEDS, "ROW_LENGTHS must sum to NUM_LEDS"
 
-np = NeoPixel(Pin(LED_PIN, Pin.OUT), NUM_LEDS)
+def _sleep_ms(ms):
+    try:
+        time.sleep_ms(int(ms))
+    except Exception:
+        time.sleep(int(ms) / 1000.0)
+
+
+def _sleep_us(us):
+    try:
+        time.sleep_us(int(us))
+    except Exception:
+        time.sleep(int(us) / 1000000.0)
+
+
+_led_pin = Pin(LED_PIN, Pin.OUT, value=0)
+_sleep_ms(LED_SIGNAL_IDLE_LOW_MS)
+np = NeoPixel(_led_pin, NUM_LEDS)
+
+
+def _force_led_signal_low():
+    try:
+        _led_pin.value(0)
+    except Exception:
+        pass
+
+
+def _write_np_safely():
+    _sleep_us(LED_WRITE_RESET_GAP_US)
+    _force_led_signal_low()
+    _sleep_us(LED_PRE_WRITE_IDLE_LOW_US)
+    np.write()
+    _sleep_us(LED_WRITE_RESET_GAP_US)
+
+
+for _i in range(NUM_LEDS):
+    np[_i] = (0, 0, 0)
+for _ in range(LED_BOOT_CLEAR_FRAMES):
+    _write_np_safely()
+del _i
 
 
 def ticks_ms():
@@ -125,11 +171,11 @@ def clear(write=False):
     for i in range(NUM_LEDS):
         np[i] = off
     if write:
-        np.write()
+        _write_np_safely()
 
 
 def show():
-    np.write()
+    _write_np_safely()
 
 
 def draw_face_matrix(face, color, bright=255, write=True):

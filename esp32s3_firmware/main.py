@@ -59,7 +59,7 @@ from esp32s3_network import ESP32S3Network
 from webui_runtime import WebUIRuntime
 gc.collect()
 
-FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.6.0 no bridge no MatrixDemo no BadApple no boot animation"
+FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.6.9 Unity empty key fix asset bundles no bridge no MatrixDemo no BadApple no boot animation"
 
 
 # ---------------------------------------------------------------------------
@@ -461,17 +461,8 @@ class LinaBoardApp:
         else:
             remain_text = "{:.1f} h".format(active_time_h)
 
-        if log_status:
-            print("battery display: mean={:.2f} V, charge={:.2f} V, pct={}, learned min={:.2f} V, learned max={:.2f} V, time={}, phase={}, charging={}".format(
-                v_bat if v_bat is not None else 0.0,
-                charge_v if charge_v is not None else 0.0,
-                pct,
-                self.battery.min_v,
-                self.battery.max_v,
-                remain_text,
-                phase_name,
-                charging))
-
+        # Battery overlay serial spam removed in v1.6.2; keep the UI display
+        # active but do not print every display/cache refresh to the REPL.
         animate_icon = (not self.state.battery_display_single_shot) and charging
 
         if cycle_index == 0:
@@ -764,9 +755,16 @@ class LinaBoardApp:
         self.set_manual_control_mode(True, redraw=False, source=src)
 
     def exit_manual_control_from_network(self, source="network"):
+        # Any external/WebUI control cancels saved-face auto cycling.
+        # This forces the A/M display logic back to M mode without writing
+        # settings on every web packet.  Button B3 still owns persistent
+        # A/M toggling through toggle_auto().
+        if self.state.auto:
+            print("auto = False", source)
         if self.state.manual_control_mode:
             print("manual_control_mode = False", source)
         self.state.manual_control_mode = False
+        self.state.auto = False
         return False
 
     def manual_control_status_json(self):
@@ -842,6 +840,15 @@ class LinaBoardApp:
     # WebUI firmware-side runtime integration
     # ------------------------------------------------------------------
     def handle_webui_runtime_command(self, command):
+        # Runtime status is a read-only query.  Every other WebUI runtime
+        # command (scroll start/stop, timeline load/play/stop/clear/preview)
+        # is an external control and must force A/M back to M mode.
+        try:
+            low = str(command or "").strip().lower()
+        except Exception:
+            low = ""
+        if low != "runtimestatus":
+            self.exit_manual_control_from_network("webui runtime command")
         return self.web_runtime.handle_command(command)
 
     def select_saved_face(self, index, redraw=True):
@@ -997,7 +1004,7 @@ class LinaBoardApp:
         print("  saved custom faces  =", saved_faces_370.count(), "faces; B1/B2 and A/M cycle this list")
         print("  webui runtime       = firmware-side scroll text + Unity timeline playback")
         print("  face manager store  = ESP32-S3 firmware source of truth; WebUI pulls/syncs list")
-        print("  manual control mode = buttons enter; network/WebUI exits; WebUI home can enter/exit")
+        print("  A/M behavior        = button toggles A/M; any WebUI/network control forces M")
         print("  bad apple           = excluded in this build")
 
     def initialize(self):

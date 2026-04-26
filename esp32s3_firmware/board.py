@@ -20,6 +20,13 @@ from machine import Pin
 from neopixel import NeoPixel
 import time
 
+# TXS0108E/WS2812 stability: keep the data line low before the RMT/neopixel
+# driver takes ownership and insert an explicit reset gap around frame writes.
+LED_SIGNAL_IDLE_LOW_MS = 5
+LED_WRITE_RESET_GAP_US = 500
+LED_PRE_WRITE_IDLE_LOW_US = 50
+LED_BOOT_CLEAR_FRAMES = 2
+
 # ---------------------------------------------------------------------------
 # Timing helpers.
 #
@@ -166,24 +173,50 @@ assert _acc == NUM_LEDS, "ROW_LENGTHS must sum to NUM_LEDS"
 # ---------------------------------------------------------------------------
 # Create the single global NeoPixel object used by the whole project.
 # ---------------------------------------------------------------------------
-np = NeoPixel(Pin(LED_PIN, Pin.OUT), NUM_LEDS)
+# Force DIN low before NeoPixel/RMT initialisation. With a TXS0108E in the
+# path, GPIO mode transitions can be amplified into a short 5 V pulse; holding
+# the line low gives every WS2812 a clean reset/idle interval first.
+_led_pin = Pin(LED_PIN, Pin.OUT, value=0)
+sleep_ms(LED_SIGNAL_IDLE_LOW_MS)
+np = NeoPixel(_led_pin, NUM_LEDS)
+
+
+def _sleep_us(us):
+    try:
+        time.sleep_us(int(us))
+    except Exception:
+        time.sleep(int(us) / 1000000.0)
+
+
+def _force_led_signal_low():
+    # Keep the data line in a defined idle-low state before the NeoPixel/RMT
+    # engine takes ownership of GPIO2. This suppresses the short GPIO handoff
+    # edge that TXS0108E-style auto-direction translators can amplify into a
+    # false WS2812 data pulse.
+    try:
+        _led_pin.value(0)
+    except Exception:
+        pass
+
+
+def _write_np_safely():
+    # WS2812 needs a low reset gap between frames. TXS0108E adds an
+    # edge-detecting one-shot in the path, so this uses a longer 500 us reset
+    # gap plus a final explicit 50 us idle-low assertion before every write.
+    _sleep_us(LED_WRITE_RESET_GAP_US)
+    _force_led_signal_low()
+    _sleep_us(LED_PRE_WRITE_IDLE_LOW_US)
+    np.write()
+    _sleep_us(LED_WRITE_RESET_GAP_US)
+
 
 # ---------------------------------------------------------------------------
-# Immediately flush one all-black frame to the strip.
-#
-# Creating NeoPixel reconfigures GPIO2 from its ESP32-S3 boot strapping
-# state to RMT output mode.  That transition produces a brief pin glitch
-# (HIGH → OUT-low → RMT-idle-high) which the TXS0108E level shifter
-# faithfully amplifies to 5 V and passes to the WS2812 DIN line.  The
-# LEDs can latch the transient as one frame of garbage before main.py's
-# loop issues the first real np.write().
-#
-# Sending a reset + 370×(0,0,0) here forces all LEDs to black and
-# discards whatever the RMT initialisation injected.
+# Immediately flush more than one all-black frame to the strip.
 # ---------------------------------------------------------------------------
 for _i in range(NUM_LEDS):
     np[_i] = (0, 0, 0)
-np.write()
+for _ in range(LED_BOOT_CLEAR_FRAMES):
+    _write_np_safely()
 del _i
 
 
@@ -360,14 +393,14 @@ def clear(write=False):
     for i in range(NUM_LEDS):
         np[i] = off
     if write:
-        np.write()
+        _write_np_safely()
 
 
 # ---------------------------------------------------------------------------
 # Push the current pixel buffer to the LEDs.
 # ---------------------------------------------------------------------------
 def show():
-    np.write()
+    _write_np_safely()
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +548,7 @@ def draw_bitmap(bitmap, on_color=(66, 0, 36), dim_color=(24, 0, 14),
                 np[idx] = off_c
 
     if do_show:
-        np.write()
+        show()
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +591,7 @@ def draw_bitmap_blend(bitmap_a, bitmap_b, t, on_color=(66, 0, 36),
             np[idx] = blend(ca, cb, t)
 
     if do_show:
-        np.write()
+        show()
 
 
 # ---------------------------------------------------------------------------
@@ -587,7 +620,7 @@ def draw_pixel_grid(grid, palette, do_show=True):
             np[idx] = scale_color(col)
 
     if do_show:
-        np.write()
+        show()
 
 # ---------------------------------------------------------------------------
 # RinaChanBoard-main 16x18 protocol compatibility layer.

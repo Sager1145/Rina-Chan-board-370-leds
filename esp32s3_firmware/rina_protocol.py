@@ -14,7 +14,7 @@
 import board
 import saved_faces_370
 import emoji_db
-VERSION = "1.6.0-esp32s3-native"
+VERSION = "1.6.9-esp32s3-native-unity-empty-key-fix"
 
 LOCAL_UDP_PORT = 1234
 REMOTE_UDP_PORT = 4321
@@ -460,7 +460,10 @@ class RinaProtocol:
             else:
                 target = not (val in ("0", "false", "off", "exit", "web", "network"))
             try:
-                enabled = self.app.set_manual_control_mode(target, redraw=target, source="webui manual button")
+                if target:
+                    enabled = self.app.set_manual_control_mode(True, redraw=True, source="webui manual button")
+                else:
+                    enabled = self.app.exit_manual_control_from_network("webui manual button")
                 self.reply(remote_ip, remote_port, ("manualMode|" + ("1" if enabled else "0")).encode(), link_id)
             except Exception as exc:
                 self.reply(remote_ip, remote_port, ("ERR:" + str(exc)).encode(), link_id)

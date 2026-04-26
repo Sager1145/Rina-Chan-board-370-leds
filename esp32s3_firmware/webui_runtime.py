@@ -319,48 +319,53 @@ class WebUIRuntime:
     # ------------------------------------------------------------------
     def handle_command(self, command):
         s = str(command or "").strip()
-        low = s.lower()
-        if low == "runtimestatus":
-            return self.status_json()
-        if low == "runtimestop" or low.startswith("runtimestop|"):
-            self.stop(redraw=True)
-            return "OK"
-        if low == "scrolltextstop370" or low.startswith("scrolltextstop370|"):
-            self.stop(redraw=True)
-            return "OK"
-        if low.startswith("scrolltext370|"):
-            parts = s.split("|", 2)
-            if len(parts) < 3:
-                return "ERR:scrollText370 needs speed and text"
-            self.start_scroll(parts[2], parts[1])
-            return "OK"
-        if low.startswith("timeline370begin|"):
-            parts = s.split("|", 5)
-            if len(parts) < 5:
-                return "ERR:timeline370Begin needs fps,last,loop,count"
-            name = parts[5] if len(parts) >= 6 else ""
-            self.begin_timeline(parts[1], parts[2], str(parts[3]).strip() in ("1", "true", "on", "yes"), parts[4], name)
-            return "OK"
-        if low.startswith("timeline370chunk|"):
-            chunk = s.split("|", 1)[1] if "|" in s else ""
-            added = self.add_timeline_chunk(chunk)
-            return "OK:{}".format(added)
-        if low == "timeline370play" or low.startswith("timeline370play|"):
-            return "OK" if self.play_timeline() else "ERR:no timeline"
-        if low.startswith("timeline370preview|"):
-            frame = s.split("|", 1)[1] if "|" in s else "0"
-            return "OK" if self.preview_timeline(frame) else "ERR:no timeline"
-        if low == "timeline370stop" or low.startswith("timeline370stop|"):
-            self.stop(redraw=True)
-            return "OK"
-        if low == "timeline370clear" or low.startswith("timeline370clear|"):
-            self.stop(redraw=True)
-            self.timeline = []
-            self.timeline_expected = 0
-            self.timeline_last_frame = 0
-            self.timeline_name = ""
-            return "OK"
-        return "ERR:unknown runtime command"
+        print(">>> [API Command] 收到前端指令: {}".format(s[:160]))
+        try:
+            low = s.lower()
+            if low == "runtimestatus":
+                return self.status_json()
+            if low == "runtimestop" or low.startswith("runtimestop|"):
+                self.stop(redraw=True)
+                return "OK"
+            if low == "scrolltextstop370" or low.startswith("scrolltextstop370|"):
+                self.stop(redraw=True)
+                return "OK"
+            if low.startswith("scrolltext370|"):
+                parts = s.split("|", 2)
+                if len(parts) < 3:
+                    return "ERR:scrollText370 needs speed and text"
+                self.start_scroll(parts[2], parts[1])
+                return "OK"
+            if low.startswith("timeline370begin|"):
+                parts = s.split("|", 5)
+                if len(parts) < 5:
+                    return "ERR:timeline370Begin needs fps,last,loop,count"
+                name = parts[5] if len(parts) >= 6 else ""
+                self.begin_timeline(parts[1], parts[2], str(parts[3]).strip() in ("1", "true", "on", "yes"), parts[4], name)
+                return "OK"
+            if low.startswith("timeline370chunk|"):
+                chunk = s.split("|", 1)[1] if "|" in s else ""
+                added = self.add_timeline_chunk(chunk)
+                return "OK:{}".format(added)
+            if low == "timeline370play" or low.startswith("timeline370play|"):
+                return "OK" if self.play_timeline() else "ERR:no timeline"
+            if low.startswith("timeline370preview|"):
+                frame = s.split("|", 1)[1] if "|" in s else "0"
+                return "OK" if self.preview_timeline(frame) else "ERR:no timeline"
+            if low == "timeline370stop" or low.startswith("timeline370stop|"):
+                self.stop(redraw=True)
+                return "OK"
+            if low == "timeline370clear" or low.startswith("timeline370clear|"):
+                self.stop(redraw=True)
+                self.timeline = []
+                self.timeline_expected = 0
+                self.timeline_last_frame = 0
+                self.timeline_name = ""
+                return "OK"
+            return "ERR:unknown runtime command"
+        except Exception as e:
+            print("!!! [API Crash] 处理前端指令时发生严重错误: {}".format(e))
+            return "ERR:" + str(e)
 
     def status_json(self):
         return ("{"
