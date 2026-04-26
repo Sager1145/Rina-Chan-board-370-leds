@@ -1,6 +1,6 @@
 # ESP32-S3 RinaChanBoard 固件外置注释
 
-- 源 ZIP：`esp32s3_firmware_mafix_1_6_1.zip`
+- 源 ZIP：`esp32s3_firmware_mobile_compact_controls.zip`
 - 注释生成时间：2026-04-26
 - 注释方式：**不改动源码文件**；所有解释都集中在本 `.md` 文件。
 - 行号说明：下面的行号基于本次上传 ZIP 解压后的当前源码。
@@ -1075,7 +1075,7 @@ WebUI 行为：
 默认 ZIP 名称更新为：
 
 ```powershell
-.\esp32s3_firmware_assets_lazyload.zip
+.\esp32s3_firmware_mobile_layout.zip
 ```
 
 ### 12.5 本次资源统计
@@ -1090,3 +1090,134 @@ WebUI 行为：
 | Video 条目 / 时间轴 | 7 / 7 |
 
 压缩后 WebUI 主文件从原先的大型内嵌 Unity DB 改为约 59 KB 的 `webui_index.html.gz`；Unity 帧序列资源被拆成多个小型 `.json.gz`，只在需要时加载。
+
+---
+
+## 13. v1.6.4 手机端布局修复
+
+本次只修改 WebUI 布局与注释，不改 ESP32-S3 网络、UDP、LED、按钮或资源按需加载逻辑。
+
+### 13.1 修改文件
+
+| 文件 | 修改 |
+|---|---|
+| `webui_index.html.gz` | 解包后修改 HTML/CSS，再重新 gzip 压缩。 |
+| `EXTERNAL_CODE_COMMENTS.md` | 添加本节说明。 |
+
+### 13.2 移动端 CSS 规则
+
+在页面主 `<style>` 内添加 `MOBILE_LAYOUT_FIX_1_6_4`，核心规则：
+
+- `html, body { overflow-x:hidden; max-width:100vw; }`，防止手机端出现横向滚动条。
+- `@media (max-width:600px)` 下强制 `.grid2` 变成单列：`grid-template-columns:1fr!important`。
+- 手机端 `.row` 改成纵向排列并拉伸内部控件，密集按钮群不再横向挤压。
+- 手机端 `input/select/textarea` 使用 `min-width:0!important; width:100%!important; max-width:100%!important`，覆盖固定宽度与行内宽度导致的溢出。
+- 手机端 `.saveList`、`.wideSelect` 同样强制 `min-width:0` 与 `width:100%`。
+
+### 13.3 行内 `min-width` 修复
+
+以下行内样式已从固定最小宽度改成可收缩宽度：
+
+| 元素 | 原样式 | 新样式 |
+|---|---|---|
+| `#scrollText` | `min-width:320px` | `min-width:0; width:100%` |
+| `#unityMediaSelect.wideSelect` | `min-width:320px` | `min-width:0; width:100%` |
+| `#unityMediaUrl` | `min-width:300px` | `min-width:0; width:100%` |
+
+同样修改了 `buildMediaTab()` 动态重建 Unity 媒体页面时使用的字符串模板，避免切换页面后固定宽度样式重新出现。
+
+### 13.4 LED 矩阵缩放
+
+手机端 `#grid` 与 `.miniGrid370` 都使用 22 列自适应 cell：
+
+```css
+--mobile-matrix-cell: max(7px, calc((100vw - 112px) / 22));
+```
+
+这里使用 `112px` 而不是更小余量，是为了同时扣除页面 padding、卡片 padding、矩阵自身 padding 与 21 个列间 gap，确保 320px 级别手机屏幕也不会溢出。
+
+### 13.5 动态样式补丁
+
+`ensureStableCss()` 会在页面加载后再插入一段带 `!important` 的 `.miniGrid370` 固定 12px 样式。为避免它覆盖主 `<style>` 中的手机端修复，本次在 `ensureStableCss()` 注入的动态 CSS 中同步加入 `MOBILE_LAYOUT_FIX_1_6_4_DYNAMIC` 媒体查询。
+
+这保证以下场景均保持手机适配：
+
+- 自定义 370 LED 编辑器。
+- 表情部件完整预览。
+- Unity voice/music/video 时间轴预览。
+- Unity 媒体页面被 JS 动态重建后。
+
+### 13.6 版本显示
+
+WebUI 可见标题与资源版本从 `1.6.3-assets-lazyload` 更新为 `1.6.4-mobile-layout`，用于确认手机布局修复版已加载。
+
+### 13.7 上传脚本默认 ZIP 名称
+
+`upload_esp32s3_firmware.ps1` 的默认 `ZipPath` 已同步更新为：
+
+```powershell
+.\esp32s3_firmware_mobile_layout.zip
+```
+
+因此把本 ZIP 与脚本放在同一目录时，可以直接运行脚本上传；也可以手动传入 `-ZipPath` 指向其它文件名。
+
+---
+
+## 14. v1.6.5 手机端控件紧凑排列修复
+
+本次只修改 WebUI 布局与注释，不改 ESP32-S3 网络、UDP、LED、按钮、资源按需加载或固件播放逻辑。
+
+### 14.1 修改目标
+
+上一版 `v1.6.4-mobile-layout` 为了防止手机端横向溢出，把移动端 `.row` 改为纵向排列，并把 `input/select/textarea` 与 `.row .btn` 大量设置为 `width:100%` 或拉伸到整列宽度。这样虽然不会溢出，但按钮、输入框、下拉菜单都变成和 column 一样宽，视觉上过大且排列不够紧凑。
+
+本版改为：
+
+- `.grid2` 在手机端继续保持单列，保证每张 `.card` 占满可用宽度。
+- `.row` 在手机端恢复横向 flex + wrap：控件按内容宽度排列，空间不够时自动换行。
+- 按钮恢复内容宽度：`flex:0 0 auto; width:auto!important`。
+- 普通输入框和下拉菜单恢复内容宽度，同时保留 `max-width:100%` 防止撑破卡片。
+- 较长输入框如 `#ipInput`、`#scrollText`、`#unityMediaUrl` 使用 `width:min(320px,100%)` 与 `flex:0 1 320px`，在宽屏/横屏时接近原大小，在窄屏时自动收缩。
+- `.wideSelect`、`#unityMediaSelect`、`.saveList` 使用可收缩的 320px flex-basis，不再强制撑满整列。
+- `input[type="range"]` 改为 `flex:0 1 220px`，不再强制整行 100%。
+- `textarea` 继续保持 `width:100%`，因为多行文本框按卡片宽度显示更符合编辑场景。
+
+### 14.2 行内样式回收
+
+以下元素上一版被改成 `style="min-width:0; width:100%"`，本版改成 `style="min-width:0; max-width:100%"`，具体宽度交给移动端 CSS 控制：
+
+| 元素 | v1.6.4 样式 | v1.6.5 样式 |
+|---|---|---|
+| `#scrollText` | `min-width:0; width:100%` | `min-width:0; max-width:100%` |
+| `#unityMediaSelect.wideSelect` | `min-width:0; width:100%` | `min-width:0; max-width:100%` |
+| `#unityMediaUrl` | `min-width:0; width:100%` | `min-width:0; max-width:100%` |
+
+`buildMediaTab()` 动态重建 Unity 媒体页面时使用的字符串模板也同步修改，避免切换页面或重建 tab 后回到整列宽度。
+
+### 14.3 保留的手机端修复
+
+以下 v1.6.4 的修复继续保留：
+
+- `html, body { overflow-x:hidden; max-width:100vw; }`。
+- 手机端 `.grid2 { grid-template-columns:1fr!important; }`。
+- `#grid` 370 LED 编辑矩阵自适应 cell 缩放。
+- `.miniGrid370` 预览矩阵自适应 cell 缩放。
+- `ensureStableCss()` 动态 CSS 中同步的手机端矩阵缩放规则。
+
+### 14.4 版本显示
+
+WebUI 可见标题与资源版本从 `1.6.4-mobile-layout` 更新为：
+
+```text
+1.6.5-mobile-compact-controls
+```
+
+用于确认当前加载的是“手机端紧凑控件排列”版本。
+
+### 14.5 上传脚本默认 ZIP 名称
+
+`upload_esp32s3_firmware.ps1` 的默认 `ZipPath` 已同步更新为：
+
+```powershell
+.\esp32s3_firmware_mobile_compact_controls.zip
+```

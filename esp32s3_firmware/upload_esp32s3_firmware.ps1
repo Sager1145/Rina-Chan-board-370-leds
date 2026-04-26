@@ -1,5 +1,5 @@
 param(
-    [string]$ZipPath = ".\esp32s3_firmware_assets_lazyload.zip",
+    [string]$ZipPath = ".\esp32s3_firmware_mobile_compact_controls.zip",
     [string]$Port = "auto",
     [switch]$InstallMpremote,
     [switch]$NoClean
