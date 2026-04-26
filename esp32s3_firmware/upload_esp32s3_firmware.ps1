@@ -1,5 +1,5 @@
 param(
-    [string]$ZipPath = ".\esp32s3_firmware_play_stop_before_upload_fix.zip",
+    [string]$ZipPath = ".\esp32s3_firmware_asset_shards_fix.zip",
     [string]$Port = "auto",
     [switch]$InstallMpremote,
     [switch]$NoClean

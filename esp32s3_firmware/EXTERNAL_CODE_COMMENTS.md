@@ -1,6 +1,6 @@
 # ESP32-S3 RinaChanBoard 固件外置注释
 
-- 源 ZIP：`esp32s3_firmware_play_stop_before_upload_fix.zip`
+- 源 ZIP：`esp32s3_firmware_asset_shards_fix.zip`
 - 注释生成时间：2026-04-26
 - 注释方式：**不改动源码文件**；所有解释都集中在本 `.md` 文件。
 - 行号说明：下面的行号基于本次上传 ZIP 解压后的当前源码。
@@ -9,9 +9,26 @@
 
 这套固件是一个运行在 ESP32-S3 MicroPython 上的 370 颗 WS2812 LED 矩阵控制程序。主功能包括：实体按键换脸/调亮度/调间隔、电池电量和充电状态显示、AP/STA 网络、HTTP Web 控制台、UDP/文本协议兼容、M370 真实矩阵表情管理、WebUI 固件侧滚动文字与 Unity 时间轴播放。
 
-**本次 GPIO M/A 与播放同步修复**：实体 GPIO 按钮进入手动控制时，浏览器端会在状态同步或 runtimeStatus 检测后停止 Unity 媒体本地计时器；切换 Tab、上传表情/部件/颜色/亮度时 `rinaStopActivePlayback()` 会向固件发送 `runtimeStop`，避免浏览器已停但固件时间轴继续渲染。新增 `buttonSim|<action>` 协议和首页“虚拟按钮面板”，可从 WebUI 触发 B1/B2/B3/B4/B5/B6 及组合按钮等效动作。
+**本次 Unity asset shard 修复**：Unity 语音 / 歌曲 / 影像时间轴已从整包 JSON.gz 拆为单项目 shard，WebUI 点击预览/播放时只 fetch 当前项目，停止播放、离开页面或切换类型/项目时 unload 浏览器端 timeline 缓存。上版 GPIO M/A、播放同步、虚拟按钮面板、Wi-Fi/AP 独立模块继续保留。
 
 当前 `main.py` 的启动横幅写明本构建是 **no MatrixDemo / no BadApple**：相关文件和配置仍保留在项目中，但主启动路径不导入 `matrix_demos.py`、`demo_faces.py` 或 BadApple part 模块，以降低启动时堆内存压力。
+
+
+### 1.2 v1.6.9 Unity asset shard 变更
+
+本版把 Unity 语音 / 歌曲 / 影像时间轴从 3 个大包：
+
+- `assets/unity_voice_timeline.json.gz`
+- `assets/unity_music_timeline.json.gz`
+- `assets/unity_video_timeline.json.gz`
+
+拆成单项目 shard：
+
+- `assets/unity_voice/<key>.json.gz`
+- `assets/unity_music/<key>.json.gz`
+- `assets/unity_video/<key>.json.gz`
+
+WebUI 不再一次 fetch 整个 voice/music/video 时间轴包。点击预览或播放时只加载当前选择项目对应的 shard；`stopUnityMedia(true)`、离开 media tab、切换类型/项目时会清掉浏览器端 `voiceTimelines/musicTimelines/videoTimelines` 缓存，并清除 timeline fetch cache。这样可避免 ESP32-S3 AP 同时发送大 JSON.gz 文件和 timeline370Chunk 时出现 `ETIMEDOUT` / fetch 失败。
 
 ### 1.1 v1.6.8 GPIO M/A runtime sync 变更
 

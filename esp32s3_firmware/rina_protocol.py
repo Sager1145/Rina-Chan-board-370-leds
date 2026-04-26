@@ -18,7 +18,7 @@ import saved_faces_370
 import emoji_db
 import display_num
 from config import INTERVAL_STEP_S, BRIGHTNESS_STEP, BATTERY_DISPLAY_CYCLE_MS
-VERSION = "1.6.8-gpio-ma-runtime-sync"
+VERSION = "1.6.9-asset-shards"
 
 LOCAL_UDP_PORT = 1234
 REMOTE_UDP_PORT = 4321
