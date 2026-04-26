@@ -18,7 +18,7 @@ import saved_faces_370
 import emoji_db
 import display_num
 from config import INTERVAL_STEP_S, BRIGHTNESS_STEP, BATTERY_DISPLAY_CYCLE_MS
-VERSION = "1.6.9-asset-shards"
+VERSION = "1.7.0-modular"
 
 LOCAL_UDP_PORT = 1234
 REMOTE_UDP_PORT = 4321
@@ -144,6 +144,7 @@ class RinaProtocol:
         self.sender = sender
         self.log_provider = log_provider
         self.app = app
+        self.callbacks = {}
 
     # ------------------------------------------------------------------
     # Reply helpers
@@ -167,6 +168,13 @@ class RinaProtocol:
     # Rendering / state helpers
     # ------------------------------------------------------------------
     def _notify_external_control(self):
+        cb = self._get_callback("network_control")
+        if cb is not None:
+            try:
+                cb()
+                return
+            except Exception as exc:
+                print("callback network-control hook failed:", exc)
         if self.app is not None and hasattr(self.app, "on_network_control"):
             try:
                 self.app.on_network_control()
@@ -313,6 +321,24 @@ class RinaProtocol:
     def set_sender(self, sender):
         self.sender = sender
 
+    def set_callbacks(self, **callbacks):
+        # Optional callback bridge used by the modular main loop.  rina_protocol
+        # remains the packet router; feature ownership stays in the app modules.
+        self.callbacks = callbacks or {}
+        return self
+
+    def _get_callback(self, name):
+        try:
+            return self.callbacks.get(name, None)
+        except Exception:
+            return None
+
+    def _call_callback(self, name, *args, **kwargs):
+        cb = self._get_callback(name)
+        if cb is None:
+            return None
+        return cb(*args, **kwargs)
+
     def show_hex_face(self, hex_string, delay_ms=0):
         self.face = self.decode_hex_string(hex_string)
         self.display_mode = "legacy"
@@ -455,7 +481,13 @@ class RinaProtocol:
 
     def update_color(self, data):
         self.color = (data[0] & 0xFF, data[1] & 0xFF, data[2] & 0xFF)
-        if self.app is not None and hasattr(self.app, "on_protocol_color_updated"):
+        cb = self._get_callback("on_protocol_color_updated")
+        if cb is not None:
+            try:
+                cb(self.color)
+            except Exception as exc:
+                print("callback color-sync hook failed:", exc)
+        elif self.app is not None and hasattr(self.app, "on_protocol_color_updated"):
             try:
                 self.app.on_protocol_color_updated(self.color)
             except Exception as exc:
@@ -464,7 +496,13 @@ class RinaProtocol:
 
     def update_brightness(self, bright):
         self.bright = bright & 0xFF
-        if self.app is not None and hasattr(self.app, "on_protocol_brightness_updated"):
+        cb = self._get_callback("on_protocol_brightness_updated")
+        if cb is not None:
+            try:
+                cb(self.bright)
+            except Exception as exc:
+                print("callback brightness-sync hook failed:", exc)
+        elif self.app is not None and hasattr(self.app, "on_protocol_brightness_updated"):
             try:
                 self.app.on_protocol_brightness_updated(self.bright)
             except Exception as exc:

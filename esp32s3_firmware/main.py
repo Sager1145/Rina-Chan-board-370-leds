@@ -1,389 +1,322 @@
 # ---------------------------------------------------------------------------
 # main.py
 #
-# Entry point for the modular RinaChanBoard ESP32-S3 370-LED controller.
+# Modular RinaChanBoard controller for ESP32-S3 + 370 LEDs.
 #
-# This file creates all modules, wires their callbacks, and runs the main
-# polling loop.  All business logic lives in the individual modules:
+# main.py is now only the application entry point, module composition root, and
+# main loop scheduler.  Feature logic lives in dedicated modules:
+# - face_module.py      saved faces / physical 370 face drawing
+# - color_module.py     protocol color + brightness synchronization
+# - scroll_module.py    IP/SSID scrolling overlay
+# - wifi_module.py      Wi-Fi/UDP/HTTP polling glue
+# - gpio_module.py      hardware button routing
+# - home_module.py      home mode, A/M mode, brightness/interval overlays
+# - battery_module.py   battery percent/voltage/time/charging animation
+# - unity_module.py     firmware-side WebUI runtime bridge
 #
-#   color_module.py   — centralized color management
-#   face_module.py    — expression / face display
-#   scroll_module.py  — scrolling text (IP + WebUI)
-#   battery_module.py — battery display overlay
-#   unity_module.py   — Unity timeline playback
-#   gpio_module.py    — button input & combos
-#   home_module.py    — flash overlay, brightness, A/M mode
-#   wifi_module.py    — WiFi network & packet routing
-#
-# Shared files used by multiple modules:
-#   board.py, config.py, app_state.py, display_num.py,
-#   settings_store.py, brightness_modes.py, buttons.py,
-#   battery_monitor.py, battery_runtime.py, saved_faces_370.py,
-#   emoji_db.py, rina_protocol.py
+# rina_protocol.py is intentionally kept as a separate protocol/router layer.
+# It calls back into this facade; the facade delegates to feature modules.
 # ---------------------------------------------------------------------------
 
 import gc
 import time
 
+# Memory-safe import order for ESP32-S3 MicroPython: import lower-level helpers
+# before feature modules so large UI helpers are compiled after core protocol
+# constants are available.
 gc.collect()
+
 import board
+from board import clear, show
 gc.collect()
 
 from rina_protocol import RinaProtocol, VERSION
 gc.collect()
 
-from config import POLL_PERIOD_MS
+import saved_faces_370
+gc.collect()
+from buttons import ButtonBank, BTN_BRIGHT_DN, BTN_BRIGHT_UP
+gc.collect()
+
+from config import *
 from app_state import AppState, BatteryState
 from settings_store import load_settings, save_settings
+from battery_monitor import BatteryMonitor
+from esp32s3_network import ESP32S3Network
+from webui_runtime import WebUIRuntime
 gc.collect()
 
-from color_module import ColorModule
-gc.collect()
 from face_module import FaceModule
-gc.collect()
+from color_module import ColorModule
 from scroll_module import ScrollModule
-gc.collect()
+from wifi_module import WiFiModule
+from gpio_module import GPIOModule
+from home_module import HomeModule
 from battery_module import BatteryModule
-gc.collect()
 from unity_module import UnityModule
 gc.collect()
-from gpio_module import GPIOModule
-gc.collect()
-from home_module import HomeModule
-gc.collect()
-from wifi_module import WiFiModule
-gc.collect()
 
-FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED modular v1.7.0"
+FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.7.0 modular AP+protocol callbacks + asset shards + battery module"
 
 
-# ---------------------------------------------------------------------------
-# Module wiring — connects callbacks between modules
-# ---------------------------------------------------------------------------
-def wire_modules(state, battery_state, color, face, scroll, battery, unity, gpio, home, wifi, proto):
-    """Connect all inter-module callbacks."""
-
-    # -- Save settings helper --
-    def _save():
-        save_settings(state, battery_state)
-
-    home.set_save_fn(_save)
-    home.set_modules(face, scroll, battery, unity)
-
-    # -- Face module --
-    face.set_protocol(proto)
-    face.set_on_stop_overlays(lambda: home.stop_all_overlays())
-
-    # -- Scroll module --
-    scroll.set_on_prepare(lambda: home.prepare_for_runtime())
-    scroll.set_on_stop_done(lambda: face.draw_current())
-
-    # -- Battery module --
-    battery.set_on_redraw_face(lambda: face.render_current_visual(force=True))
-
-    # -- Unity module --
-    unity.set_protocol(proto)
-    unity.set_on_prepare(lambda: home.prepare_for_runtime())
-    unity.set_on_stop_done(lambda: face.draw_current())
-
-    # -- Color module --
-    color.on_change(lambda c: home.on_protocol_color_updated(c))
-
-    # -- GPIO module callbacks --
-    def _on_cycle_face(delta):
-        scroll.stop(redraw=False)
-        unity.stop(redraw=False)
-        state.special_demo_mode = False
-        face.cycle(delta)
-        battery.stop()
-        home.cancel_flash_and_redraw()
-
-    def _on_adjust_interval(delta):
-        home.adjust_interval(delta)
-
-    def _on_adjust_brightness(delta):
-        home.adjust_brightness(delta, proto)
-
-    def _on_reset_brightness():
-        home.reset_brightness(proto)
-
-    def _on_toggle_auto():
-        home.toggle_auto()
-
-    def _on_show_battery_short():
-        battery.show_short()
-
-    def _on_show_battery_detail():
-        battery.show_detail()
-
-    def _on_stop_battery():
-        battery.stop()
-
-    def _on_show_ip():
-        ip = wifi.get_ip()
-        ssid = wifi.get_ssid()
-        scroll.start_ip_display(ip, ssid)
-
-    def _on_enter_manual(gp):
-        src = "button" if gp is None else "button GPIO{}".format(gp)
-        home.enter_manual_control(src)
-
-    gpio.on_cycle_face = _on_cycle_face
-    gpio.on_adjust_interval = _on_adjust_interval
-    gpio.on_adjust_brightness = _on_adjust_brightness
-    gpio.on_reset_brightness = _on_reset_brightness
-    gpio.on_toggle_auto = _on_toggle_auto
-    gpio.on_show_battery_short = _on_show_battery_short
-    gpio.on_show_battery_detail = _on_show_battery_detail
-    gpio.on_stop_battery = _on_stop_battery
-    gpio.on_show_ip = _on_show_ip
-    gpio.on_enter_manual = _on_enter_manual
-
-
-# ---------------------------------------------------------------------------
-# Application wrapper — holds all modules and the main loop
-# ---------------------------------------------------------------------------
 class LinaBoardApp:
-    """Thin wrapper that holds module references for protocol compatibility."""
-
     __slots__ = (
-        "state", "battery_state",
-        "color", "face", "scroll", "battery", "unity", "gpio", "home", "wifi",
-        "proto",
+        "state", "battery", "buttons", "battery_monitor", "network_poll",
+        "proto", "link", "button_face_active", "web_runtime",
+        "face_module", "color_module", "scroll_module", "wifi_module",
+        "gpio_module", "home_module", "battery_module", "unity_module",
     )
 
     def __init__(self):
         self.state = AppState()
-        self.battery_state = BatteryState()
-        self.color = ColorModule()
-        self.face = FaceModule(self.state)
-        self.scroll = ScrollModule(self.state, self.color)
-        self.battery = BatteryModule(self.state, self.battery_state)
-        self.unity = UnityModule()
-        self.gpio = GPIOModule(self.state)
-        self.home = HomeModule(self.state, self.battery_state, self.color)
-        self.wifi = WiFiModule(log_limit=160)
+        self.battery = BatteryState()
+        self.buttons = ButtonBank()
+        self.battery_monitor = BatteryMonitor()
+        self.network_poll = None
         self.proto = None
+        self.link = None
+        self.button_face_active = False
+        self.web_runtime = WebUIRuntime(self)
+
+        # Feature modules.  They receive this facade and communicate back via
+        # app callbacks instead of importing one another directly.
+        self.face_module = FaceModule(self)
+        self.color_module = ColorModule(self)
+        self.scroll_module = ScrollModule(self)
+        self.wifi_module = WiFiModule(self)
+        self.gpio_module = GPIOModule(self)
+        self.home_module = HomeModule(self)
+        self.battery_module = BatteryModule(self)
+        self.unity_module = UnityModule(self)
 
     # ------------------------------------------------------------------
-    # Protocol-facing compatibility API
-    # These methods are called by rina_protocol.py and must exist on `app`.
-    # They delegate to the appropriate module.
+    # Persistence shared by all modules
     # ------------------------------------------------------------------
-    @property
-    def button_face_active(self):
-        return self.face.button_face_active
+    def save_settings(self):
+        save_settings(self.state, self.battery)
 
-    @button_face_active.setter
-    def button_face_active(self, v):
-        self.face.button_face_active = v
+    # ------------------------------------------------------------------
+    # Face module facade
+    # ------------------------------------------------------------------
+    def draw_current_face(self):
+        return self.face_module.draw_current_face()
 
-    def on_network_control(self):
-        self.home.on_network_control()
+    def render_current_visual(self, force=False):
+        return self.face_module.render_current_visual(force=force)
 
-    def exit_manual_control_from_network(self, source="network"):
-        self.home.exit_manual_control(source)
-
-    def force_m_mode(self, source="network", persist=True):
-        self.home.force_m_mode(source, persist)
-
-    def stop_webui_runtime(self, redraw=True):
-        stopped_scroll = self.scroll.stop(redraw=False)
-        stopped_unity = self.unity.stop(redraw=False)
-        if (stopped_scroll or stopped_unity) and redraw:
-            self.face.draw_current()
-        return stopped_scroll or stopped_unity
-
-    def handle_webui_runtime_command(self, command):
-        return self._dispatch_runtime_command(command)
+    def cycle_face(self, delta):
+        return self.face_module.cycle_face(delta)
 
     def select_saved_face(self, index, redraw=True):
-        self.exit_manual_control_from_network("selectFace370")
-        self.stop_webui_runtime(redraw=False)
-        self.state.special_demo_mode = False
-        self.force_m_mode("selectFace370", persist=True)
-        self.battery.stop()
-        return self.face.select(index, redraw=redraw)
+        return self.face_module.select_saved_face(index, redraw=redraw)
 
     def on_saved_faces_changed(self, selected_index=None, redraw=False):
-        return self.face.on_faces_changed(selected_index, redraw)
+        return self.face_module.on_saved_faces_changed(selected_index=selected_index, redraw=redraw)
 
-    def on_protocol_color_updated(self, color_tuple):
-        self.color.set(color_tuple[0], color_tuple[1], color_tuple[2])
+    # ------------------------------------------------------------------
+    # Color module facade
+    # ------------------------------------------------------------------
+    def _current_home_color(self):
+        return self.color_module._current_home_color()
+
+    def _dimmed_home_color(self, color):
+        return self.color_module._dimmed_home_color(color)
+
+    def on_protocol_color_updated(self, color):
+        return self.color_module.on_protocol_color_updated(color)
 
     def on_protocol_brightness_updated(self, bright):
-        self.home.on_protocol_brightness_updated(bright)
+        return self.color_module.on_protocol_brightness_updated(bright)
 
-    def battery_status_json(self):
-        return self.battery.status_json()
+    # ------------------------------------------------------------------
+    # Home / mode module facade
+    # ------------------------------------------------------------------
+    def apply_brightness(self):
+        return self.home_module.apply_brightness()
 
-    def manual_control_status_json(self):
-        return self.home.manual_control_status_json()
+    def start_edge_flash(self, edge):
+        return self.home_module.start_edge_flash(edge)
 
-    def set_manual_control_mode(self, enabled, redraw=False, source=""):
-        result = self.home.set_manual_control_mode(enabled, redraw, source)
-        if not enabled:
-            self.on_network_control()
-        return result
+    def edge_flash_factor(self, elapsed_ms):
+        return self.home_module.edge_flash_factor(elapsed_ms)
 
-    def draw_current_face(self):
-        self.face.draw_current()
+    def overlay_edge_flash(self):
+        return self.home_module.overlay_edge_flash()
 
-    def cancel_flash_and_redraw(self):
-        self.home.cancel_flash_and_redraw()
+    def render_flash_overlay_base(self):
+        return self.home_module.render_flash_overlay_base()
 
-    def stop_battery_display(self):
-        self.battery.stop()
-
-    def show_battery_percent_short(self):
-        self.battery.show_short()
-
-    def refresh_battery_overlay_cache(self, force=False):
-        return self.battery._refresh_cache(force=force)
-
-    def render_battery_overlay(self, refresh_phase=True, refresh_cache=True):
-        self.battery._render(refresh_phase=refresh_phase, refresh_cache=refresh_cache)
+    def render_flash_overlay_with_edge(self):
+        return self.home_module.render_flash_overlay_with_edge()
 
     def start_or_extend_flash(self, kind=None, value=None):
-        self.home.start_or_extend_flash(kind, value)
+        return self.home_module.start_or_extend_flash(kind=kind, value=value)
+
+    def end_flash_if_expired(self):
+        return self.home_module.end_flash_if_expired()
+
+    def cancel_flash_and_redraw(self):
+        return self.home_module.cancel_flash_and_redraw()
+
+    def apply_demo_runtime_settings(self, refresh_timer=True):
+        return self.home_module.apply_demo_runtime_settings(refresh_timer=refresh_timer)
+
+    def stop_special_demo_mode(self, redraw_face=True):
+        return self.home_module.stop_special_demo_mode(redraw_face=redraw_face)
+
+    def start_special_demo_mode(self):
+        return self.home_module.start_special_demo_mode()
+
+    def toggle_special_demo_mode(self):
+        return self.home_module.toggle_special_demo_mode()
+
+    def check_special_demo_combo(self):
+        return self.home_module.check_special_demo_combo()
+
+    def check_badapple_combo(self):
+        return self.home_module.check_badapple_combo()
 
     def adjust_interval(self, delta):
-        self.home.adjust_interval(delta)
+        return self.home_module.adjust_interval(delta)
+
+    def sync_protocol_brightness_from_buttons(self):
+        return self.home_module.sync_protocol_brightness_from_buttons()
 
     def adjust_brightness(self, delta):
-        self.home.adjust_brightness(delta, self.proto)
+        return self.home_module.adjust_brightness(delta)
 
     def reset_brightness(self):
-        self.home.reset_brightness(self.proto)
+        return self.home_module.reset_brightness()
 
+    def force_m_mode(self, source="network", persist=True):
+        return self.home_module.force_m_mode(source=source, persist=persist)
+
+    def set_manual_control_mode(self, enabled=True, redraw=False, source=""):
+        return self.home_module.set_manual_control_mode(enabled=enabled, redraw=redraw, source=source)
+
+    def enter_manual_control_from_button(self, gp=None):
+        return self.home_module.enter_manual_control_from_button(gp=gp)
+
+    def exit_manual_control_from_network(self, source="network"):
+        return self.home_module.exit_manual_control_from_network(source=source)
+
+    def manual_control_status_json(self):
+        return self.home_module.manual_control_status_json()
+
+    def toggle_auto(self):
+        return self.home_module.toggle_auto()
+
+    # ------------------------------------------------------------------
+    # Battery module facade
+    # ------------------------------------------------------------------
+    def stop_battery_display(self):
+        return self.battery_module.stop_battery_display()
+
+    def service_battery_sampling(self, force_sample=False):
+        return self.battery_module.service_battery_sampling(force_sample=force_sample)
+
+    def is_charging(self, charge_v=None, previous=None):
+        return self.battery_module.is_charging(charge_v=charge_v, previous=previous)
+
+    def show_battery_percent_short(self):
+        return self.battery_module.show_battery_percent_short()
+
+    def refresh_battery_overlay_cache(self, force=False):
+        return self.battery_module.refresh_battery_overlay_cache(force=force)
+
+    def update_battery_display_phase(self):
+        return self.battery_module.update_battery_display_phase()
+
+    def service_battery_overlay(self):
+        return self.battery_module.service_battery_overlay()
+
+    def render_battery_overlay(self, refresh_phase=True, refresh_cache=True, log_status=True):
+        return self.battery_module.render_battery_overlay(refresh_phase=refresh_phase, refresh_cache=refresh_cache, log_status=log_status)
+
+    def start_b6_press(self):
+        return self.battery_module.start_b6_press()
+
+    def check_b6_hold(self):
+        return self.battery_module.check_b6_hold()
+
+    def check_b6_release(self, prev_b6_down):
+        return self.battery_module.check_b6_release(prev_b6_down)
+
+    def battery_status_json(self):
+        return self.battery_module.battery_status_json()
+
+    # ------------------------------------------------------------------
+    # Scroll module facade
+    # ------------------------------------------------------------------
     def start_ip_display(self):
-        ip = self.wifi.get_ip()
-        ssid = self.wifi.get_ssid()
-        self.scroll.start_ip_display(ip, ssid)
+        return self.scroll_module.start_ip_display()
 
-    def save_settings(self):
-        save_settings(self.state, self.battery_state)
+    def service_ip_display(self):
+        return self.scroll_module.service_ip_display()
 
-    # ------------------------------------------------------------------
-    # WebUI runtime command dispatcher
-    # ------------------------------------------------------------------
-    def _dispatch_runtime_command(self, command):
-        s = str(command or "").strip()
-        preview = s if len(s) <= 160 else (s[:160] + "...({} chars)".format(len(s)))
-        print(">>> [API Command] 收到前端指令: {}".format(preview))
-
-        try:
-            return self._dispatch_impl(s)
-        except Exception as exc:
-            print("!!! [API Crash] 处理前端指令时发生严重错误: {}".format(exc))
-            return "ERR:runtime crash {}".format(exc)
-
-    def _dispatch_impl(self, s):
-        low = s.lower()
-
-        # --- Status ---
-        if low == "runtimestatus":
-            return self._runtime_status_json()
-
-        # --- Stop all ---
-        if low == "runtimestop" or low.startswith("runtimestop|"):
-            self.scroll.stop(redraw=True)
-            self.unity.stop(redraw=True)
-            return "OK"
-
-        # --- Scroll text ---
-        if low == "scrolltextstop370" or low.startswith("scrolltextstop370|"):
-            self.scroll.stop(redraw=True)
-            return "OK"
-        if low.startswith("scrolltext370|"):
-            parts = s.split("|", 2)
-            if len(parts) < 3:
-                return "ERR:scrollText370 needs speed and text"
-            self.unity.stop(redraw=False)
-            self.scroll.start_webui_scroll(parts[2], parts[1])
-            return "OK"
-
-        # --- Timeline ---
-        if low.startswith("timeline370begin|"):
-            parts = s.split("|", 5)
-            if len(parts) < 5:
-                return "ERR:timeline370Begin needs fps,last,loop,count"
-            self.scroll.stop(redraw=False)
-            name = parts[5] if len(parts) >= 6 else ""
-            self.unity.begin(
-                parts[1], parts[2],
-                str(parts[3]).strip() in ("1", "true", "on", "yes"),
-                parts[4], name
-            )
-            return "OK"
-        if low.startswith("timeline370chunk|"):
-            chunk = s.split("|", 1)[1] if "|" in s else ""
-            added = self.unity.add_chunk(chunk)
-            return "OK:{}".format(added)
-        if low == "timeline370play" or low.startswith("timeline370play|"):
-            self.scroll.stop(redraw=False)
-            return "OK" if self.unity.play() else "ERR:no timeline"
-        if low.startswith("timeline370preview|"):
-            frame = s.split("|", 1)[1] if "|" in s else "0"
-            return "OK" if self.unity.preview(frame) else "ERR:no timeline"
-        if low == "timeline370stop" or low.startswith("timeline370stop|"):
-            self.unity.stop(redraw=True)
-            return "OK"
-        if low == "timeline370clear" or low.startswith("timeline370clear|"):
-            self.unity.clear()
-            return "OK"
-
-        return "ERR:unknown runtime command"
-
-    def _runtime_status_json(self):
-        """Combined status of scroll + unity modules."""
-        scroll_active = self.scroll.webui_active
-        unity_active = self.unity.active()
-        active = scroll_active or unity_active
-        if scroll_active:
-            mode = "scroll"
-        elif unity_active:
-            mode = "timeline"
-        else:
-            mode = "idle"
-        # Unity status fields
-        uj = self.unity.status_json()
-        # Merge scroll info
-        scroll_text = self.scroll.webui_text or ""
-        scroll_text = scroll_text.replace('\\', '\\\\').replace('"', '\\"')
-        return ("{"
-                "\"active\":" + ("true" if active else "false") + ","
-                "\"mode\":\"" + mode + "\","
-                "\"scroll_text\":\"" + scroll_text + "\","
-                "\"timeline_name\":\"" + (self.unity.timeline_name or "").replace('"', '\\"') + "\","
-                "\"timeline_frames\":" + str(len(self.unity.timeline)) + ","
-                "\"timeline_expected\":" + str(int(self.unity.timeline_expected)) + ","
-                "\"timeline_last_frame\":" + str(int(self.unity.timeline_last_frame)) + ","
-                "\"timeline_fps\":" + str(int(self.unity.timeline_fps)) + ","
-                "\"timeline_loop\":" + ("true" if self.unity.timeline_loop else "false") + ","
-                "\"timeline_playing\":" + ("true" if self.unity.timeline_playing else "false") +
-                "}")
+    def check_ip_combo(self):
+        return self.scroll_module.check_ip_combo()
 
     # ------------------------------------------------------------------
-    # Initialization & main loop
+    # GPIO module facade
+    # ------------------------------------------------------------------
+    def handle_press(self, gp):
+        return self.gpio_module.handle_press(gp)
+
+    def check_b3_release(self, prev_b3_down):
+        return self.gpio_module.check_b3_release(prev_b3_down)
+
+    # ------------------------------------------------------------------
+    # Unity/WebUI runtime facade
+    # ------------------------------------------------------------------
+    def handle_webui_runtime_command(self, command):
+        return self.unity_module.handle_webui_runtime_command(command)
+
+    def stop_webui_runtime(self, redraw=True):
+        return self.unity_module.stop_webui_runtime(redraw=redraw)
+
+    # ------------------------------------------------------------------
+    # Wi-Fi / protocol facade
+    # ------------------------------------------------------------------
+    def attach_network(self, link, proto):
+        return self.wifi_module.attach_network(link, proto)
+
+    def service_network(self):
+        return self.wifi_module.service_network()
+
+    def on_network_control(self):
+        return self.wifi_module.on_network_control()
+
+    # ------------------------------------------------------------------
+    # Main loop
     # ------------------------------------------------------------------
     def print_startup_info(self):
-        import saved_faces_370
         print(FIRMWARE_BANNER)
         print("Firmware version:", VERSION)
         print("linaboard: starting")
-        print("  button GPIOs         =", self.gpio.gpios())
-        print("  saved custom faces  =", saved_faces_370.count(), "faces")
-        print("  modules: color, face, scroll, battery, unity, gpio, home, wifi")
-        print("  protocol layer: rina_protocol.py (unified dispatch)")
+        print("  module layout       = main loop + protocol router + feature modules")
+        print("  protocol layer      = rina_protocol.py with callback bridge")
+        print("  battery display     = battery_module.py")
+        print("  default face interval=", DEFAULT_INTERVAL_S, "s")
+        print("  matrix demo         = disabled")
+        print("  default brightness  =", DEFAULT_BRIGHTNESS, "%")
+        print("  button GPIOs        =", self.buttons.gpios())
+        print("  B3+B6 matrix demo   = disabled/consumed")
+        print("  B2+B6 scroll IP/SSID= enabled")
+        print("  saved custom faces  =", saved_faces_370.count(), "faces; B1/B2 and A/M cycle this list")
+        print("  webui runtime       = firmware-side scroll text + Unity timeline playback")
+        print("  face manager store  = ESP32-S3 firmware source of truth; WebUI pulls/syncs list")
+        print("  manual control mode = buttons enter; network/WebUI exits; WebUI home can enter/exit")
+        print("  bad apple           = excluded in this build")
 
     def initialize(self):
         self.print_startup_info()
-        load_settings(self.state, self.battery_state)
-        print("  network             = ESP32-S3 native Wi-Fi + HTTP + UDP")
-        self.home.apply_brightness()
-        self.face.draw_current()
-        self.battery.service_sampling(force=True)
+        load_settings(self.state, self.battery)
+        print("  network             = ESP32-S3 native Wi-Fi + HTTP + UDP, no ESP8258 bridge")
+        self.apply_brightness()
+        print("  startup LED animation = disabled")
+        self.draw_current_face()
+        self.service_battery_sampling(force_sample=True)
 
     def run(self):
         self.initialize()
@@ -391,79 +324,93 @@ class LinaBoardApp:
         now = time.ticks_ms()
         next_auto_ms = time.ticks_add(now, int(self.state.interval_s * 1000))
         self.state.battery_next_log_ms = now
-        self.battery.update_calibration(self.save_settings, force=True)
+        self.battery_monitor.update_calibration(self.battery, self.state, self.save_settings, force=True)
+
+        prev_b3_down = False
+        prev_b6_down = False
 
         while True:
-            # 1. Network
-            self.wifi.service()
+            self.service_network()
+            combo_active = self.check_special_demo_combo()
+            combo_active = self.check_badapple_combo() or combo_active
+            combo_active = self.check_ip_combo() or combo_active
 
-            # 2. GPIO (buttons + combos)
-            combo_active, pressed_any = self.gpio.service()
-            if pressed_any:
-                next_auto_ms = time.ticks_add(
-                    time.ticks_ms(), int(self.state.interval_s * 1000)
-                )
+            for gp in self.buttons.poll():
+                self.handle_press(gp)
+                next_auto_ms = time.ticks_add(time.ticks_ms(), int(self.state.interval_s * 1000))
 
-            # 3. Battery overlay
-            self.battery.service_overlay()
+            combo_active = self.check_special_demo_combo() or combo_active
+            combo_active = self.check_badapple_combo() or combo_active
+            combo_active = self.check_ip_combo() or combo_active
 
-            # 4. Scroll (IP + WebUI)
-            self.scroll.service()
+            self.check_b6_hold()
+            self.service_battery_overlay()
+            self.service_ip_display()
+            self.web_runtime.service()
 
-            # 5. Unity timeline
-            self.unity.service()
+            if (self.state.brightness_reset_combo_latched and
+                    not self.buttons.is_down(BTN_BRIGHT_DN) and
+                    not self.buttons.is_down(BTN_BRIGHT_UP)):
+                self.state.brightness_reset_combo_latched = False
 
-            # 6. Home (flash expiry + edge flash)
-            self.home.service()
+            prev_b3_down = self.check_b3_release(prev_b3_down)
+            prev_b6_down = self.check_b6_release(prev_b6_down)
 
-            # 7. Battery sampling + calibration
-            self.battery.service_sampling()
-            self.battery.update_calibration(self.save_settings)
+            if not self.state.battery_display_active and not self.state.ip_display_active:
+                self.end_flash_if_expired()
 
-            # 8. Auto-cycle faces
-            any_overlay = (
-                self.scroll.active() or self.unity.active() or
-                self.state.flash_active or self.state.battery_display_active or
-                self.state.ip_display_active
-            )
-            if not any_overlay:
-                new_auto = self.face.service_auto_cycle(next_auto_ms)
-                if new_auto is not None:
-                    next_auto_ms = new_auto
+            if self.state.flash_active and self.state.edge_flash_active:
+                self.render_flash_overlay_with_edge()
+            elif self.state.edge_flash_active and not self.state.flash_active:
+                self.state.edge_flash_active = False
 
-            if any_overlay or combo_active:
-                next_auto_ms = time.ticks_add(
-                    time.ticks_ms(), int(self.state.interval_s * 1000)
-                )
+            self.service_battery_sampling()
+            self.battery_monitor.update_calibration(self.battery, self.state, self.save_settings)
+
+            if (self.state.auto and not self.web_runtime.active() and
+                    not self.state.flash_active and not self.state.battery_display_active and
+                    not self.state.ip_display_active):
+                now = time.ticks_ms()
+                if time.ticks_diff(now, next_auto_ms) >= 0:
+                    self.state.face_idx = (self.state.face_idx + 1) % max(1, saved_faces_370.count())
+                    self.draw_current_face()
+                    next_auto_ms = time.ticks_add(now, int(self.state.interval_s * 1000))
+
+            if (self.web_runtime.active() or self.state.flash_active or
+                    self.state.battery_display_active or self.state.ip_display_active or combo_active):
+                next_auto_ms = time.ticks_add(time.ticks_ms(), int(self.state.interval_s * 1000))
 
             time.sleep(POLL_PERIOD_MS / 1000.0)
 
 
 # ---------------------------------------------------------------------------
-# Boot entry point
+# Boot entry point.
 # ---------------------------------------------------------------------------
 def main():
-    print("ESP32-S3 native: Wi-Fi + HTTP + UDP + LED modular firmware")
+    print("ESP32-S3 native: Wi-Fi + HTTP + UDP + LED in one firmware")
     print("LED:", board.hardware_summary())
-
     app = LinaBoardApp()
-
-    # Create and attach protocol
+    link = ESP32S3Network(log_limit=160)
+    link.start()
     proto = RinaProtocol(app=app)
-    app.proto = proto
-
-    # WiFi + protocol
-    app.wifi.start()
-    app.wifi.attach_protocol(proto)
-
-    # Wire all module callbacks
-    wire_modules(
-        app.state, app.battery_state,
-        app.color, app.face, app.scroll, app.battery,
-        app.unity, app.gpio, app.home, app.wifi, proto,
+    proto.set_sender(lambda ip, port, data, link_id=0: link.send_udp(data, ip, port, link_id))
+    proto.set_callbacks(
+        network_control=app.on_network_control,
+        manual_control_status_json=app.manual_control_status_json,
+        set_manual_control_mode=app.set_manual_control_mode,
+        exit_manual_control_from_network=app.exit_manual_control_from_network,
+        stop_webui_runtime=app.stop_webui_runtime,
+        force_m_mode=app.force_m_mode,
+        handle_webui_runtime_command=app.handle_webui_runtime_command,
+        select_saved_face=app.select_saved_face,
+        on_saved_faces_changed=app.on_saved_faces_changed,
+        battery_status_json=app.battery_status_json,
+        on_protocol_color_updated=app.on_protocol_color_updated,
+        on_protocol_brightness_updated=app.on_protocol_brightness_updated,
     )
-
-    app.wifi.ping()
+    proto.log_provider = link.recent_log
+    app.attach_network(link, proto)
+    link.ping()
     app.run()
 
 
@@ -471,6 +418,6 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        board.clear()
-        board.show()
+        clear()
+        show()
         print("stopped.")

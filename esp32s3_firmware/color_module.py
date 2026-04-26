@@ -1,63 +1,56 @@
 # ---------------------------------------------------------------------------
 # color_module.py
 #
-# Centralized color management for all display modes.
-# Every module that needs colors (face, scroll, battery, home flash, etc.)
-# reads from this module so a single color change propagates everywhere.
+# Protocol color and brightness synchronization callbacks.
 # ---------------------------------------------------------------------------
 
+from config import *
+from brightness_modes import effective_brightness
+from settings_store import clamp_brightness
 
-class ColorModule:
-    """Owns the current home/display color and notifies listeners on change."""
+from app_module_base import AppModule
 
-    __slots__ = ("home_color", "_callbacks")
 
-    # Protocol default color (#f971d4 pink)
-    DEFAULT_HOME_COLOR = (249, 113, 212)
+class ColorModule(AppModule):
 
-    # Display-overlay colors used by various modules
-    DEFAULT_COLOR = (0, 120, 255)       # battery, numbers
-    BRIGHTNESS_COLOR = (0, 120, 255)    # brightness overlay
-    MODE_COLOR = (180, 0, 255)          # A/M mode, interval
-    EDGE_FLASH_COLOR = (0, 120, 255)    # edge flash default
-
-    def __init__(self):
-        self.home_color = self.DEFAULT_HOME_COLOR
-        self._callbacks = []
-
-    # ------------------------------------------------------------------
-    # Read
-    # ------------------------------------------------------------------
-    def get(self):
-        """Return the current home color as (R, G, B)."""
-        return self.home_color
-
-    def dimmed(self, color=None):
-        """Return a 1/3 dimmed version of a color (default: home_color)."""
-        c = color if color is not None else self.home_color
-        return (max(0, int(c[0]) // 3),
-                max(0, int(c[1]) // 3),
-                max(0, int(c[2]) // 3))
-
-    # ------------------------------------------------------------------
-    # Write
-    # ------------------------------------------------------------------
-    def set(self, r, g, b):
-        """Update the home color and notify all listeners."""
-        self.home_color = (int(r) & 0xFF, int(g) & 0xFF, int(b) & 0xFF)
-        for cb in self._callbacks:
+    def _current_home_color(self):
+        if self.proto is not None and hasattr(self.proto, "color"):
             try:
-                cb(self.home_color)
-            except Exception as exc:
-                print("color callback failed:", exc)
+                return self.proto.color
+            except Exception:
+                pass
+        return (66, 0, 36)
 
-    def set_from_bytes(self, data):
-        """Set color from a 3-byte sequence [R, G, B]."""
-        self.set(data[0], data[1], data[2])
+    def _dimmed_home_color(self, color):
+        try:
+            return (max(0, int(color[0]) // 3),
+                    max(0, int(color[1]) // 3),
+                    max(0, int(color[2]) // 3))
+        except Exception:
+            return (24, 0, 14)
 
-    # ------------------------------------------------------------------
-    # Callback registration
-    # ------------------------------------------------------------------
-    def on_change(self, callback):
-        """Register a callback: callback(color_tuple) called on every set()."""
-        self._callbacks.append(callback)
+    def on_protocol_color_updated(self, color):
+        # Home/Web color is authoritative.  Button-selected faces redraw with
+        # this color, so web mode and button mode stay visually synchronized.
+        if self.button_face_active and self.proto is not None and getattr(self.proto, "display_mode", "legacy") == "physical":
+            try:
+                self.draw_current_face()
+            except Exception:
+                pass
+
+    def on_protocol_brightness_updated(self, bright):
+        # Web brightness is a raw 10..128 protocol value.  Map it to the
+        # board's percent brightness so later button-mode renders use the
+        # same visible brightness range.
+        try:
+            pct = int((int(bright) * 100 + 85) // 170)
+        except Exception:
+            return
+        if pct < BRIGHTNESS_MIN:
+            pct = BRIGHTNESS_MIN
+        if pct > BRIGHTNESS_MAX:
+            pct = BRIGHTNESS_MAX
+        if self.state.brightness != pct:
+            self.state.brightness = pct
+            self.apply_brightness()
+            self.save_settings()

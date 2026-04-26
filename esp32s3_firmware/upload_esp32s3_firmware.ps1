@@ -1,5 +1,5 @@
 param(
-    [string]$ZipPath = ".\esp32s3_firmware_asset_shards_fix.zip",
+    [string]$ZipPath = ".\esp32s3_firmware_modular_1_7_0.zip",
     [string]$Port = "auto",
     [switch]$InstallMpremote,
     [switch]$NoClean
@@ -107,6 +107,7 @@ try {
             "app_state.py", "battery_monitor.py", "battery_runtime.py", "board.py", "board_370.py",
             "boot.py", "brightness_modes.py", "buttons.py", "config.py", "demo_faces.py", "display_num.py",
             "emoji_db.py", "esp32s3_network.py", "esp32s3_wifi_ap.py", "esp32s3_wifi_boot.py", "main.py", "matrix_demos.py", "rina_protocol.py",
+            "app_module_base.py", "battery_module.py", "color_module.py", "face_module.py", "gpio_module.py", "home_module.py", "scroll_module.py", "unity_module.py", "wifi_module.py",
             "saved_faces_370.py", "settings_store.py", "webui_index.html.gz", "webui_runtime.py", "wifi_config.py",
             "EXTERNAL_CODE_COMMENTS.md", "upload_esp32s3_firmware.ps1", "__pycache__"
         )

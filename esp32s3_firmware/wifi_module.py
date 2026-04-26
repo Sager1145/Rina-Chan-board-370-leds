@@ -1,44 +1,23 @@
 # ---------------------------------------------------------------------------
 # wifi_module.py
 #
-# WiFi network module.
-# Wraps ESP32S3Network for WiFi connection, UDP/HTTP server, and packet
-# routing to the protocol layer.
+# Wi-Fi / UDP / HTTP polling integration module.
 # ---------------------------------------------------------------------------
 
-from esp32s3_network import ESP32S3Network
 from rina_protocol import REMOTE_UDP_PORT
 
+from app_module_base import AppModule
 
-class WiFiModule:
-    """WiFi connection, packet routing, and IP/SSID query."""
 
-    __slots__ = ("link", "proto", "_poll_fn")
+class WiFiModule(AppModule):
 
-    def __init__(self, log_limit=160):
-        self.link = ESP32S3Network(log_limit=log_limit)
-        self.proto = None
-        self._poll_fn = None
-
-    def start(self):
-        self.link.start()
-
-    def ping(self):
-        self.link.ping()
-
-    # ------------------------------------------------------------------
-    # Protocol attachment
-    # ------------------------------------------------------------------
-    def attach_protocol(self, proto):
-        """Attach protocol handler and build the polling function."""
+    def attach_network(self, link, proto):
+        self.link = link
         self.proto = proto
-        proto.set_sender(
-            lambda ip, port, data, link_id=0: self.link.send_udp(data, ip, port, link_id)
-        )
-        proto.log_provider = self.link.recent_log
-        link = self.link
-
         def _poll():
+            # Service both HTTP API requests and UDP packets from the native
+            # ESP32-S3 network layer. Limit the number of packets per loop so
+            # LED animation timing still gets CPU time.
             for _ in range(4):
                 pkt = link.get_packet()
                 if pkt is None:
@@ -52,29 +31,22 @@ class WiFiModule:
                         proto.send(remote_ip, REMOTE_UDP_PORT, b"Command Error!", link_id)
                     except Exception as send_exc:
                         print("send error:", send_exc)
+        self.network_poll = _poll
 
-        self._poll_fn = _poll
+    def service_network(self):
+        if self.network_poll is not None:
+            self.network_poll()
 
-    # ------------------------------------------------------------------
-    # Service (called every tick from main loop)
-    # ------------------------------------------------------------------
-    def service(self):
-        if self._poll_fn is not None:
-            self._poll_fn()
-
-    # ------------------------------------------------------------------
-    # Query
-    # ------------------------------------------------------------------
-    def get_ip(self):
-        try:
-            return self.link.get_ip() if self.link is not None else None
-        except Exception:
-            return None
-
-    def get_ssid(self):
-        try:
-            if self.link is not None and hasattr(self.link, "get_ssid"):
-                return self.link.get_ssid()
-        except Exception:
-            pass
-        return None
+    def on_network_control(self):
+        self.exit_manual_control_from_network("network control")
+        self.stop_webui_runtime(redraw=False)
+        self.button_face_active = False
+        self.state.special_demo_mode = False
+        self.force_m_mode("network/WebUI control", persist=True)
+        self.state.flash_active = False
+        self.state.edge_flash_active = False
+        self.state.battery_display_active = False
+        self.state.battery_display_single_shot = False
+        self.state.ip_display_active = False
+        self.state.b6_pending = False
+        self.state.b6_long_fired = False

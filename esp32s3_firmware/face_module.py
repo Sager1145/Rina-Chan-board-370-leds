@@ -1,39 +1,23 @@
 # ---------------------------------------------------------------------------
 # face_module.py
 #
-# Expression / face management module.
-# Handles face cycling (prev/next), auto-rotation, drawing the current face
-# to the LED matrix, and face selection from the saved-faces list.
+# Saved-face selection and drawing module.
 # ---------------------------------------------------------------------------
 
-import time
-import saved_faces_370
 import board
+from board import clear, show
+
+import saved_faces_370
+
+from app_module_base import AppModule
 
 
-class FaceModule:
-    """Manages saved-face display, cycling, and auto-rotation."""
+class FaceModule(AppModule):
 
-    __slots__ = (
-        "state", "proto", "button_face_active",
-        "_on_stop_overlays",
-    )
-
-    def __init__(self, state):
-        self.state = state
-        self.proto = None
-        self.button_face_active = False
-        # Callback: called when a face action needs overlays cleared
-        self._on_stop_overlays = None
-
-    def set_protocol(self, proto):
-        self.proto = proto
-
-    # ------------------------------------------------------------------
-    # Drawing
-    # ------------------------------------------------------------------
-    def draw_current(self):
-        """Draw the face at state.face_idx using the protocol renderer."""
+    def draw_current_face(self):
+        # Button B1/B2 and A/M auto/manual now use the shared saved-custom-face
+        # list.  The list is seeded with every face from the original Python
+        # demo_faces.py file and can be extended by WebUI save operations.
         face = saved_faces_370.get(self.state.face_idx)
         face_hex = face.get("hex", "")
         if self.proto is not None and hasattr(self.proto, "update_physical_face_hex"):
@@ -43,48 +27,45 @@ class FaceModule:
                 return
             except Exception as exc:
                 print("saved face draw via protocol failed:", exc)
-        # Fallback: clear display
-        board.clear()
-        board.show()
+
+        # Fallback for very early boot if protocol is unavailable.
+        # Do not load the old demo face module in the normal boot path; this firmware build
+        # uses saved_faces_370 as the only face source to save RP2040 heap.
+        clear()
+        show()
         self.button_face_active = True
 
     def render_current_visual(self, force=False):
-        """Re-render whatever should be on screen (currently just the face)."""
-        self.draw_current()
+        self.draw_current_face()
 
     # ------------------------------------------------------------------
-    # Cycling
+    # Flash / overlay rendering
     # ------------------------------------------------------------------
-    def cycle(self, delta):
-        """Cycle face index by delta (+1 or -1)."""
-        self.state.face_idx = (
-            (self.state.face_idx + delta) % max(1, saved_faces_370.count())
-        )
 
-    def cycle_and_draw(self, delta, stop_overlays=True):
-        """Cycle and immediately draw. Optionally stop overlays first."""
-        if stop_overlays and self._on_stop_overlays:
-            self._on_stop_overlays()
-        self.cycle(delta)
-        self.draw_current()
+    def cycle_face(self, delta):
+        self.stop_webui_runtime(redraw=False)
+        self.state.special_demo_mode = False
+        self.state.face_idx = (self.state.face_idx + delta) % max(1, saved_faces_370.count())
+        self.stop_battery_display()
+        self.cancel_flash_and_redraw()
 
-    # ------------------------------------------------------------------
-    # Selection (from network / WebUI)
-    # ------------------------------------------------------------------
-    def select(self, index, redraw=True):
-        """Select a specific face by index. Returns the face dict."""
+    def select_saved_face(self, index, redraw=True):
+        self.exit_manual_control_from_network("selectFace370")
+        self.stop_webui_runtime(redraw=False)
+        self.state.special_demo_mode = False
+        self.force_m_mode("selectFace370", persist=True)
         try:
             idx = int(index)
         except Exception:
             idx = 0
         count = max(1, saved_faces_370.count())
         self.state.face_idx = idx % count
+        self.stop_battery_display()
         if redraw:
-            self.draw_current()
+            self.draw_current_face()
         return saved_faces_370.get(self.state.face_idx)
 
-    def on_faces_changed(self, selected_index=None, redraw=False):
-        """Called when the saved-face list is modified externally."""
+    def on_saved_faces_changed(self, selected_index=None, redraw=False):
         count = max(1, saved_faces_370.count())
         if selected_index is not None:
             try:
@@ -94,25 +75,5 @@ class FaceModule:
         elif self.state.face_idx >= count:
             self.state.face_idx = count - 1
         if redraw:
-            self.draw_current()
+            self.draw_current_face()
         return saved_faces_370.get(self.state.face_idx)
-
-    # ------------------------------------------------------------------
-    # Auto-cycle service (called from main loop)
-    # ------------------------------------------------------------------
-    def service_auto_cycle(self, next_auto_ms):
-        """If auto mode, cycle when interval expires. Returns new deadline or None."""
-        if not self.state.auto:
-            return None
-        now = time.ticks_ms()
-        if time.ticks_diff(now, next_auto_ms) >= 0:
-            self.cycle(1)
-            self.draw_current()
-            return time.ticks_add(now, int(self.state.interval_s * 1000))
-        return None
-
-    # ------------------------------------------------------------------
-    # Callback setters
-    # ------------------------------------------------------------------
-    def set_on_stop_overlays(self, callback):
-        self._on_stop_overlays = callback
