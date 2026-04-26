@@ -1,11 +1,3 @@
-# ---------------------------------------------------------------------------
-# esp32s3_network.py
-#
-# Native ESP32-S3 networking layer for the single-chip refactor.
-# It replaces the old ESP8258 UART bridge with direct Wi-Fi, HTTP API and UDP
-# packet handling running on the same MicroPython firmware as the LED logic.
-# ---------------------------------------------------------------------------
-
 import gc
 import time
 import socket
@@ -14,38 +6,26 @@ try:
     import machine
 except Exception:
     machine = None
-
 from rina_protocol import LOCAL_UDP_PORT, REMOTE_UDP_PORT, HTTP_PSEUDO_IP, HTTP_PSEUDO_PORT
 try:
     import wifi_config
 except Exception:
     wifi_config = None
-
 MAX_UDP_PAYLOAD = 1472
 MAX_HTTP_BODY = 32768
 WEBUI_FILE = "webui/index.html"
 HTTP_TIMEOUT_MS = 1500
-
-
 def _ticks_ms():
     return time.ticks_ms() if hasattr(time, "ticks_ms") else int(time.time() * 1000)
-
-
 def _ticks_diff(a, b):
     return time.ticks_diff(a, b) if hasattr(time, "ticks_diff") else (a - b)
-
-
 def _ticks_add(a, b):
     return time.ticks_add(a, b) if hasattr(time, "ticks_add") else (a + b)
-
-
 def _safe_str(v):
     try:
         return str(v)
     except Exception:
         return ""
-
-
 def _url_decode(s):
     if isinstance(s, bytes):
         try:
@@ -77,8 +57,6 @@ def _url_decode(s):
         return out.decode("utf-8", "replace")
     except Exception:
         return str(out)
-
-
 def _parse_query(qs):
     out = {}
     if not qs:
@@ -92,15 +70,11 @@ def _parse_query(qs):
             k, v = part, ""
         out[_url_decode(k)] = _url_decode(v)
     return out
-
-
 def _json_escape(s):
     s = _safe_str(s)
     s = s.replace("\\", "\\\\").replace('"', '\\"')
     s = s.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
     return s
-
-
 def _hex_to_bytes(hex_text):
     vals = []
     hexchars = "0123456789abcdefABCDEF"
@@ -115,16 +89,12 @@ def _hex_to_bytes(hex_text):
     for i in range(0, len(vals), 2):
         b[i // 2] = int(vals[i] + vals[i + 1], 16)
     return bytes(b)
-
-
 def _bytes_to_hex(data):
     digits = "0123456789ABCDEF"
     parts = []
     for b in data:
         parts.append(digits[(b >> 4) & 0x0F] + digits[b & 0x0F])
     return " ".join(parts)
-
-
 class ESP32S3Network:
     __slots__ = (
         "sta", "ap", "udp", "http", "packets", "log", "log_limit",
@@ -132,7 +102,6 @@ class ESP32S3Network:
         "pending_client", "pending_format", "pending_deadline_ms",
         "sta_ip", "sta_ssid", "ap_ip", "ssid_label",
     )
-
     def __init__(self, log_limit=160):
         self.sta = None
         self.ap = None
@@ -153,29 +122,23 @@ class ESP32S3Network:
         self.sta_ssid = None
         self.ap_ip = None
         self.ssid_label = None
-
     def _remember(self, prefix, text):
         line = "[{:>8} ms] {} {}".format(_ticks_ms(), prefix, _safe_str(text).replace("\n", " | "))
         if len(self.log) >= self.log_limit:
             self.log.pop(0)
         self.log.append(line)
         print(line)
-
     def recent_log(self):
         return "\n".join(self.log[-60:])
-
     def get_ip(self):
         return self.sta_ip or self.ap_ip
-
     def get_ssid(self):
         return self.sta_ssid or self.ssid_label
-
     def _cfg(self, name, default=None):
         try:
             return getattr(wifi_config, name, default)
         except Exception:
             return default
-
     def start(self):
         self._remember("[NET]", "ESP32-S3 native network start")
         self._start_wifi()
@@ -183,13 +146,7 @@ class ESP32S3Network:
         self._start_http()
         self._status_log()
         return True
-
-    # Default AP password used when AP_PASSWORD is empty.
-    # Android 10+ and iOS 14+ refuse or warn on open (authmode=0) networks,
-    # which stops phones from connecting at all.  A fixed WPA2 password avoids
-    # the security block without requiring the user to configure anything.
     _AP_DEFAULT_PASSWORD = "rinachan"
-
     def _start_wifi(self):
         ssid = self._cfg("WIFI_SSID", "") or ""
         password = self._cfg("WIFI_PASSWORD", "") or ""
@@ -197,29 +154,16 @@ class ESP32S3Network:
         ap_password = self._cfg("AP_PASSWORD", "") or ""
         ap_channel = int(self._cfg("AP_CHANNEL", 6) or 6)
         ap_authmode = int(self._cfg("AP_AUTHMODE", 0) or 0)
-
-        # If no password was configured, use the built-in default so that
-        # modern mobile OSes see a WPA2 network instead of an open one.
         if not ap_password:
             ap_password = self._AP_DEFAULT_PASSWORD
-            ap_authmode = 3  # WPA2-PSK
-
-        gc.collect()  # defragment heap before WiFi stack allocation
+            ap_authmode = 3
+        gc.collect()
         self.ap = network.WLAN(network.AP_IF)
         self.ap.active(True)
-
-        # Fix the AP subnet explicitly so the built-in DHCP server always
-        # hands out 192.168.4.x addresses with a reachable DNS.  Without this,
-        # iOS and Android captive-portal probes fail and the phone may drop the
-        # connection immediately after associating.
         try:
             self.ap.ifconfig(("192.168.4.1", "255.255.255.0", "192.168.4.1", "8.8.8.8"))
         except Exception:
             pass
-
-        # Disable AP power-save mode.  The default PS mode on ESP32-S3 skips
-        # beacon frames to save power, which causes phones to lose the AP
-        # during the WPA2 four-way handshake and fail to associate.
         try:
             self.ap.config(pm=network.WIFI_PS_NONE)
         except Exception:
@@ -227,7 +171,6 @@ class ESP32S3Network:
                 self.ap.config(pm=0)
             except Exception:
                 pass
-
         try:
             self.ap.config(essid=ap_ssid, password=ap_password,
                            channel=ap_channel, authmode=ap_authmode)
@@ -243,7 +186,6 @@ class ESP32S3Network:
         self.ssid_label = ap_ssid
         self._remember("[NET]", "AP ssid={} pw={} ip={}".format(
             ap_ssid, ap_password, self.ap_ip))
-
         self.sta = network.WLAN(network.STA_IF)
         if ssid:
             self.sta.active(True)
@@ -271,7 +213,6 @@ class ESP32S3Network:
             except Exception:
                 pass
             self._remember("[NET]", "STA disabled; edit wifi_config.py to join router Wi-Fi")
-
     def _start_udp(self):
         port = int(self._cfg("UDP_PORT", LOCAL_UDP_PORT) or LOCAL_UDP_PORT)
         self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -282,7 +223,6 @@ class ESP32S3Network:
         self.udp.bind(("0.0.0.0", port))
         self.udp.setblocking(False)
         self._remember("[NET]", "UDP listening port={}".format(port))
-
     def _start_http(self):
         port = int(self._cfg("HTTP_PORT", 80) or 80)
         self.http = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -294,18 +234,15 @@ class ESP32S3Network:
         self.http.listen(3)
         self.http.setblocking(False)
         self._remember("[NET]", "HTTP listening port={} routes=/ /api/status /api/send /api/request /api/binary".format(port))
-
     def _status_log(self):
         self._remember("[STATUS]", "mode=ESP32S3_NATIVE; sta_ip={}; ap_ip={}; udp_rx={}; udp_tx={}; http_rx={}; heap={}".format(
             self.sta_ip, self.ap_ip, self.udp_rx, self.udp_tx, self.http_rx, self._free_heap()))
-
     def _free_heap(self):
         try:
             import gc
             return gc.mem_free()
         except Exception:
             return 0
-
     def poll(self):
         self._service_pending_timeout()
         self._poll_udp()
@@ -315,13 +252,11 @@ class ESP32S3Network:
             self.last_status_ms = now
             self._status_log()
         return len(self.packets)
-
     def get_packet(self):
         self.poll()
         if self.packets:
             return self.packets.pop(0)
         return None
-
     def _poll_udp(self):
         if self.udp is None:
             return
@@ -339,7 +274,6 @@ class ESP32S3Network:
             ip, port = addr[0], int(addr[1])
             self.packets.append((0, ip, port, data))
             self._remember("[UDP]", "RX {}:{} len={}".format(ip, port, len(data)))
-
     def _poll_http_once(self):
         if self.http is None or self.pending_client is not None:
             return
@@ -362,7 +296,6 @@ class ESP32S3Network:
                 client.close()
             except Exception:
                 pass
-
     def _read_http_request(self, client):
         try:
             client.settimeout(0.15)
@@ -409,7 +342,6 @@ class ESP32S3Network:
                 break
             body += chunk
         return method, target, headers, body[:clen]
-
     def _handle_http_client(self, client, addr):
         req = self._read_http_request(client)
         if req is None:
@@ -427,7 +359,6 @@ class ESP32S3Network:
                 args.update(post_args)
             except Exception:
                 pass
-
         if path in ("/", "/fwlink", "/wifi", "/0wifi"):
             self._serve_webui(client)
             return
@@ -482,7 +413,6 @@ class ESP32S3Network:
             return
         self._send_response(client, 404, "text/plain; charset=utf-8", b"Not found")
         client.close()
-
     def _queue_http_command(self, client, data, wait_reply, fmt="text"):
         if self.pending_client is not None:
             self._send_response(client, 503, "text/plain; charset=utf-8", b"busy")
@@ -498,7 +428,6 @@ class ESP32S3Network:
         self.pending_deadline_ms = _ticks_add(_ticks_ms(), HTTP_TIMEOUT_MS)
         self.packets.append((0, HTTP_PSEUDO_IP, HTTP_PSEUDO_PORT, data))
         self._remember("[HTTP]", "queued command len={} fmt={}".format(len(data), self.pending_format))
-
     def _service_pending_timeout(self):
         if self.pending_client is None:
             return
@@ -514,7 +443,6 @@ class ESP32S3Network:
             client.close()
         except Exception:
             pass
-
     def _serve_webui(self, client):
         try:
             f = open(WEBUI_FILE, "rb")
@@ -537,7 +465,6 @@ class ESP32S3Network:
             try: client.close()
             except Exception: pass
             gc.collect()
-
     def _send_response(self, client, code, ctype, body):
         if isinstance(body, str):
             body = body.encode()
@@ -546,12 +473,10 @@ class ESP32S3Network:
         client.send(head.encode())
         if body:
             client.send(body)
-
     def status_text(self):
         sta_status = "CONNECTED" if (self.sta is not None and self.sta.isconnected()) else "DISCONNECTED"
         return "mode=ESP32S3_NATIVE; sta_status={}; ssid={}; ip={}; ap_ip={}; udp_port={}; udp_rx={}; udp_tx={}; http_rx={}; heap={}".format(
             sta_status, self.sta_ssid or "", self.sta_ip or "", self.ap_ip or "", LOCAL_UDP_PORT, self.udp_rx, self.udp_tx, self.http_rx, self._free_heap())
-
     def _api_status(self, client):
         sta_status = "CONNECTED" if (self.sta is not None and self.sta.isconnected()) else "DISCONNECTED"
         rssi = 0
@@ -575,7 +500,6 @@ class ESP32S3Network:
                 "\"heap\":" + str(int(self._free_heap())) + "}")
         self._send_response(client, 200, "application/json; charset=utf-8", body.encode())
         client.close()
-
     def send_udp(self, data, remote_ip=None, remote_port=REMOTE_UDP_PORT, link_id=0):
         if data is None:
             data = b""
@@ -613,7 +537,6 @@ class ESP32S3Network:
         except Exception as exc:
             self._remember("[UDP]", "TX failed {}:{} {}".format(ip, port, exc))
             return False
-
     def ping(self):
         self._remember("[NET]", "native network alive")
         return True

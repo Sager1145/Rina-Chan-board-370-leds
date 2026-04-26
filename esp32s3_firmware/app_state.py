@@ -1,12 +1,8 @@
-# ---------------------------------------------------------------------------
-# app_state.py
-# ---------------------------------------------------------------------------
 from config import (
     DEFAULT_FACE, DEFAULT_INTERVAL_S, DEFAULT_BRIGHTNESS,
     DEMO_DEFAULT_AUTO, DEMO_DEFAULT_INTERVAL_S,
     BATTERY_DEFAULT_MIN_V, BATTERY_DEFAULT_MAX_V,
 )
-
 class AppState:
     __slots__ = (
         "face_idx", "auto", "interval_s", "brightness",
@@ -41,8 +37,6 @@ class AppState:
         self.auto = False
         self.interval_s = DEFAULT_INTERVAL_S
         self.brightness = DEFAULT_BRIGHTNESS
-        # Runtime authority flag: physical buttons put the board in manual
-        # control mode; network/WebUI control exits manual mode.
         self.manual_control_mode = False
         self.demo_auto = DEMO_DEFAULT_AUTO
         self.demo_interval_s = DEMO_DEFAULT_INTERVAL_S
@@ -91,7 +85,6 @@ class AppState:
         self.ip_scroll_offset = 0
         self.ip_scroll_next_ms = 0
         self.ip_combo_latched = False
-
 class BatteryState:
     __slots__ = (
         "last_voltage", "last_charge_voltage", "min_v", "max_v",
@@ -107,12 +100,6 @@ class BatteryState:
         self.max_v = BATTERY_DEFAULT_MAX_V
         self.measure_count = 0
         self.relearn_holdoff_counts = 0
-        # Per-side consecutive-inward-adjust counters. Each starts at 0,
-        # increments every time its side is pulled inward without a new
-        # real extreme, and resets to 0 when a new real extreme on that
-        # side is recorded. When a counter reaches
-        # BATTERY_RELEARN_MAX_CONSECUTIVE, that side is frozen until the
-        # next new real extreme.
         self.inward_min_count = 0
         self.inward_max_count = 0
         self.usage_history = []

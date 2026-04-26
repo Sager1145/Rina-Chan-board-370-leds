@@ -3,26 +3,21 @@ try:
     from neopixel import NeoPixel
 except ImportError:
     NeoPixel = None
-
 from config import (
     LED_PIN, NUM_LEDS, ROW_LENGTHS, ROWS, COLS,
     SERPENTINE, FLIP_X, FLIP_Y,
     BRIGHTNESS_MAX_CHANNEL, OFF, PINK, DIM,
 )
-
 ROW_STARTS = []
 _acc = 0
 for _w in ROW_LENGTHS:
     ROW_STARTS.append(_acc)
     _acc += _w
 assert _acc == NUM_LEDS
-
 _pin = Pin(LED_PIN, Pin.OUT)
 np = NeoPixel(_pin, NUM_LEDS) if NeoPixel else None
 _raw = bytearray(NUM_LEDS * 3)
 _brightness_cap = int(BRIGHTNESS_MAX_CHANNEL * 0.30)
-
-
 def set_max_brightness(value):
     global _brightness_cap
     value = int(value)
@@ -32,17 +27,11 @@ def set_max_brightness(value):
         value = BRIGHTNESS_MAX_CHANNEL
     _brightness_cap = value
     return value
-
-
 def get_max_brightness():
     return _brightness_cap
-
-
 def brightness_percent_to_cap(percent):
     percent = max(0, min(100, int(percent)))
     return max(1, int((BRIGHTNESS_MAX_CHANNEL * percent + 50) // 100))
-
-
 def logical_to_led_index(x, y):
     if x < 0 or x >= COLS or y < 0 or y >= ROWS:
         return None
@@ -58,20 +47,14 @@ def logical_to_led_index(x, y):
     if SERPENTINE and (y & 1):
         local_x = row_width - 1 - local_x
     return ROW_STARTS[y] + local_x
-
-
 def is_real_cell(x, y):
     return logical_to_led_index(x, y) is not None
-
-
 def _clamp(v):
     if v < 0:
         return 0
     if v > 255:
         return 255
     return int(v)
-
-
 def set_pixel_index(i, rgb):
     if i is None or i < 0 or i >= NUM_LEDS:
         return
@@ -79,33 +62,23 @@ def set_pixel_index(i, rgb):
     _raw[j] = _clamp(rgb[0])
     _raw[j + 1] = _clamp(rgb[1])
     _raw[j + 2] = _clamp(rgb[2])
-
-
 def get_pixel_index(i):
     if i is None or i < 0 or i >= NUM_LEDS:
         return OFF
     j = i * 3
     return (_raw[j], _raw[j + 1], _raw[j + 2])
-
-
 def set_pixel(x, y, rgb):
     set_pixel_index(logical_to_led_index(int(x), int(y)), rgb)
-
-
 def clear(write=False):
     for i in range(len(_raw)):
         _raw[i] = 0
     if write:
         show()
-
-
 def fill(rgb, write=False):
     for i in range(NUM_LEDS):
         set_pixel_index(i, rgb)
     if write:
         show()
-
-
 def scale_color(rgb, cap=None):
     if cap is None:
         cap = _brightness_cap
@@ -114,8 +87,6 @@ def scale_color(rgb, cap=None):
         min(int(rgb[1]), cap),
         min(int(rgb[2]), cap),
     )
-
-
 def show():
     if np is None:
         return
@@ -133,8 +104,6 @@ def show():
             b = cap
         np[i] = (r, g, b)
     np.write()
-
-
 def update_color(rgb, write=True):
     for i in range(NUM_LEDS):
         j = i * 3
@@ -144,8 +113,6 @@ def update_color(rgb, write=True):
             _raw[j + 2] = _clamp(rgb[2])
     if write:
         show()
-
-
 def draw_bitmap(bitmap, on_color=PINK, dim_color=DIM, off_color=OFF, do_show=True, clear_first=True):
     if clear_first:
         clear(False)
@@ -166,8 +133,6 @@ def draw_bitmap(bitmap, on_color=PINK, dim_color=DIM, off_color=OFF, do_show=Tru
                 set_pixel_index(idx, off_color)
     if do_show:
         show()
-
-
 def draw_physical_rgb_hex(hexstr, do_show=True):
     hexstr = ''.join(str(hexstr).strip().split())
     clear(False)
@@ -183,8 +148,6 @@ def draw_physical_rgb_hex(hexstr, do_show=True):
         set_pixel_index(i, (r, g, b))
     if do_show:
         show()
-
-
 def draw_physical_bits_hex(hexstr, on_color=PINK, do_show=True):
     hexstr = ''.join(str(hexstr).strip().split())
     clear(False)
@@ -204,8 +167,6 @@ def draw_physical_bits_hex(hexstr, on_color=PINK, do_show=True):
             break
     if do_show:
         show()
-
-
 def draw_m370_bits_hex(hexstr, on_color=PINK, do_show=True):
     hexstr = ''.join(str(hexstr).strip().split())
     clear(False)
@@ -230,16 +191,12 @@ def draw_m370_bits_hex(hexstr, on_color=PINK, do_show=True):
             bit_index += 1
     if do_show:
         show()
-
-
 def draw_frame_hex(hexstr, on_color=PINK, do_show=True):
     s = ''.join(str(hexstr).strip().split())
     if len(s) >= NUM_LEDS * 6:
         draw_physical_rgb_hex(s, do_show=do_show)
     else:
         draw_m370_bits_hex(s, on_color=on_color, do_show=do_show)
-
-
 def wheel(pos):
     pos = int(pos) & 255
     if pos < 85:

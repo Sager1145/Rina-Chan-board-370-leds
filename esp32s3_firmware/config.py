@@ -1,19 +1,9 @@
-# RinaChanBoard ESP32-S3 native 370 LED configuration.
-# Target from the provided ESP32-S3 report: LED GPIO2, CHG_ADC GPIO1,
-# BATT_ADC GPIO10, buttons GPIO15/16/17/42/41/40, 370 LED irregular matrix.
-
-VERSION = "2.0.6-esp32s3-native-370-checked"
-
-# Hardware pins
+VERSION = "2.0.10-esp32s3-native-370-ap-stable"
 LED_PIN = 2
 CHG_ADC_PIN = 1
 BATT_ADC_PIN = 10
 BUTTON_PINS = (15, 16, 17, 42, 41, 40)
 BTN_PREV, BTN_NEXT, BTN_AUTO, BTN_BRIGHT_DN, BTN_BRIGHT_UP, BTN_BATTERY = BUTTON_PINS
-
-# Compatibility aliases for older helper modules kept in the package.
-# The active ESP32-S3 runtime uses main.py + battery.py, but these aliases
-# keep imported legacy helpers from failing when they are tested independently.
 DEFAULT_FACE = 7
 DEMO_DEFAULT_AUTO = False
 DEMO_DEFAULT_INTERVAL_S = 1.0
@@ -26,9 +16,6 @@ BATTERY_RELEARN_HOLDOFF_MEASUREMENTS = 20
 BATTERY_CHARGE_ANIM_FULL_CYCLE_S = 1.0
 BATTERY_HISTORY_SAME_MODE_WEIGHT = 2.5
 BATTERY_HISTORY_BRIGHTNESS_WINDOW = 20
-
-
-# Matrix geometry
 NUM_LEDS = 370
 ROW_LENGTHS = [18, 20, 20, 20, 22, 22, 22, 22, 22, 22, 22, 22, 22, 20, 20, 20, 18, 16]
 ROWS = len(ROW_LENGTHS)
@@ -37,51 +24,44 @@ SERPENTINE = True
 FLIP_X = False
 FLIP_Y = False
 assert sum(ROW_LENGTHS) == NUM_LEDS
-
-# Legacy 18x16 face mapping from the older packages into 22x18 native matrix.
 LEGACY_SRC_WIDTH = 18
 LEGACY_SRC_HEIGHT = 16
 LEGACY_ROW_OFFSET = 1
 LEGACY_COL_OFFSET = 2
-
-# Files on ESP32-S3 flash.
 SETTINGS_FILE = "settings370.json"
 FACES_FILE = "faces370.json"
 WEBUI_FILE = "webui/index.html"
-
-# Serial logging.
-# Levels: 0=off, 1=error, 2=warn, 3=info, 4=debug, 5=trace.
+APP_JS_FILE = "webui/app.js"
+APP_JS_GZIP_FILE = "webui/app.js.gz"
 LOG_LEVEL = 3
 LOG_INCLUDE_FREE_MEM = True
 LOG_RATE_LIMIT_DEFAULT_MS = 0
 LOG_PROTOCOL_VERBOSE = False
-
-# Network / protocol.
 HTTP_PORT = 80
 UDP_PORT = 1234
 UDP_REPLY_PORT = 4321
 DNS_PORT = 53
-ENABLE_CAPTIVE_DNS = True
+ENABLE_CAPTIVE_DNS = False
 AP_IP = "192.168.4.1"
-MAX_HTTP_BODY = 32768
-HTTP_CLIENT_TIMEOUT_MS = 30000
-HTTP_SEND_CHUNK_BYTES = 512
-HTTP_SEND_RETRY_COUNT = 80
+MAX_HTTP_BODY = 8192
+HTTP_CLIENT_TIMEOUT_MS = 3000
+HTTP_SEND_CHUNK_BYTES = 256
+HTTP_SEND_RETRY_COUNT = 24
 HTTP_SEND_RETRY_DELAY_MS = 8
+HTTP_SEND_TIMEOUT_MS = 5000
 UDP_PACKETS_PER_POLL = 1
 DNS_PACKETS_PER_POLL = 1
 UDP_RECV_BYTES = 768
 HTTP_BODY_RECV_BYTES = 512
-HTTP_HEADER_MAX_BYTES = 4096
-MAX_TIMELINE_FRAMES = 900
+HTTP_HEADER_MAX_BYTES = 2048
+MAX_TIMELINE_FRAMES = 300
 MAX_TIMELINE_FRAME_HEX = NUM_LEDS * 6
-
-# Wi-Fi defaults. Edit wifi_config.py for your real STA network.
-AP_SSID = "RinaChanBoard-S3"
+AP_SSID = "RinaChanBoard-S3-AP"
 AP_PASSWORD = "12345678"
 AP_AUTHMODE = 3
+AP_AUTHMODE_FALLBACKS = (3, 4, 2)
 AP_COMPAT_OPEN = False
-AP_CHANNEL = 6
+AP_CHANNEL = 1
 AP_HIDDEN = False
 AP_MAX_CLIENTS = 4
 AP_ALWAYS_ON = True
@@ -90,12 +70,29 @@ AP_NETMASK = "255.255.255.0"
 AP_GATEWAY = "192.168.4.1"
 AP_DNS = "192.168.4.1"
 AP_START_RETRIES = 3
-AP_START_WAIT_MS = 1500
-AP_RESTART_DELAY_MS = 300
-
-# Colors and brightness.
-PINK = (66, 0, 36)
-DIM = (24, 0, 14)
+AP_START_WAIT_MS = 3000
+AP_RESTART_DELAY_MS = 600
+AP_STABILIZE_MS = 1400
+DEFAULT_COLOR_HEX = "f971d4"
+def _rgb_from_hex(hex_text):
+    h = str(hex_text or DEFAULT_COLOR_HEX).strip().lstrip('#')[:6]
+    if len(h) != 6:
+        h = DEFAULT_COLOR_HEX
+    try:
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    except Exception:
+        return (249, 113, 212)
+def dim_color_from_rgb(rgb):
+    try:
+        r, g, b = int(rgb[0]), int(rgb[1]), int(rgb[2])
+    except Exception:
+        r, g, b = _rgb_from_hex(DEFAULT_COLOR_HEX)
+    return (max(1, r // 3) if r else 0,
+            max(1, g // 3) if g else 0,
+            max(1, b // 3) if b else 0)
+DEFAULT_COLOR = _rgb_from_hex(DEFAULT_COLOR_HEX)
+PINK = DEFAULT_COLOR
+DIM = dim_color_from_rgb(DEFAULT_COLOR)
 WHITE = (120, 120, 120)
 RED = (120, 0, 0)
 ORANGE = (120, 40, 0)
@@ -103,18 +100,15 @@ GREEN = (0, 120, 24)
 BLUE = (0, 80, 140)
 PURPLE = (90, 0, 120)
 OFF = (0, 0, 0)
-
 BRIGHTNESS_MAX_CHANNEL = 170
 DEFAULT_BRIGHTNESS = 30
 BRIGHTNESS_MIN = 5
 BRIGHTNESS_MAX = 100
 BRIGHTNESS_STEP = 5
-
 DEFAULT_INTERVAL_S = 1.0
 INTERVAL_MIN_S = 0.5
 INTERVAL_MAX_S = 10.0
 INTERVAL_STEP_S = 0.5
-
 POLL_PERIOD_MS = 10
 FLASH_HOLD_MS = 1000
 BUTTON_DEBOUNCE_MS = 25
@@ -123,11 +117,6 @@ BUTTON_REPEAT_PERIOD_MS = 140
 B6_LONG_PRESS_MS = 700
 SPECIAL_COMBO_LONG_PRESS_MS = 2000
 IP_SCROLL_SPEED_MS = 90
-
-# Battery / charge measurement.
-# These *_ADC_REF_V values are fallback full-scale values for raw read_u16()
-# conversion at 11 dB attenuation.  MicroPython read_uv(), when available, is
-# used first because it applies ESP32 eFuse ADC calibration.
 BATTERY_ADC_REF_V = 3.10
 BATTERY_SAMPLES = 16
 BATTERY_DIVIDER_R1 = 100000
@@ -136,7 +125,6 @@ BATTERY_DEFAULT_MIN_V = 6.2
 BATTERY_DEFAULT_MAX_V = 8.0
 BATTERY_DISPLAY_TOL_V = 0.12
 BATTERY_CAL_VERSION = 6
-
 CHARGE_DETECT_ADC_REF_V = 3.10
 CHARGE_DETECT_SAMPLES = 16
 CHARGE_DETECT_DIVIDER_R1 = 270000
@@ -144,7 +132,6 @@ CHARGE_DETECT_DIVIDER_R2 = 47000
 CHARGE_DETECT_CHARGING_MIN_V = 4.0
 CHARGE_DETECT_HYSTERESIS_LOW_V = 3.0
 CHARGE_DISPLAY_THRESHOLD_V = 4.5
-
 BATTERY_MEAN_UPDATE_MS = 1000
 BATTERY_MEAN_SAMPLE_INTERVAL_MS = 20
 BATTERY_DISPLAY_CYCLE_MS = 2000
@@ -159,7 +146,6 @@ BATTERY_HISTORY_MAX_SAMPLES = 96
 BATTERY_HISTORY_MIN_RATE_PCT_PER_H = 0.25
 BATTERY_DEFAULT_USAGE_HOURS = 1.0
 BATTERY_DEFAULT_CHARGE_HOURS = 0.5
-
 BATTERY_PERCENT_CURVE = (
     (0.000, 0.0), (0.222, 3.0), (0.389, 7.0), (0.444, 10.0),
     (0.500, 14.0), (0.556, 18.0), (0.611, 26.0), (0.667, 35.0),

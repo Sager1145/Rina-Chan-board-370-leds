@@ -4,18 +4,11 @@ try:
 except Exception:
     ADC = None
     Pin = None
-
 from config import *
-
-
 def _ticks_ms():
     return time.ticks_ms() if hasattr(time, 'ticks_ms') else int(time.time() * 1000)
-
-
 def _ticks_diff(a, b):
     return time.ticks_diff(a, b) if hasattr(time, 'ticks_diff') else (a - b)
-
-
 def _interp_percent(x):
     prev_x, prev_y = BATTERY_PERCENT_CURVE[0]
     for nx, ny in BATTERY_PERCENT_CURVE[1:]:
@@ -27,8 +20,6 @@ def _interp_percent(x):
             return prev_y + (ny - prev_y) * t
         prev_x, prev_y = nx, ny
     return BATTERY_PERCENT_CURVE[-1][1]
-
-
 def percent_from_voltage(v, min_v, max_v):
     if v is None:
         return None
@@ -45,13 +36,10 @@ def percent_from_voltage(v, min_v, max_v):
     if v >= dmax:
         return 100.0
     return _interp_percent((v - dmin) / (dmax - dmin))
-
-
 def battery_color(percent):
     if percent is None:
         return BLUE
     p = float(percent)
-    # Full red at 10%, full orange at 30%, still green at 50%.
     if p <= 10:
         return RED
     if p < 30:
@@ -61,8 +49,6 @@ def battery_color(percent):
         t = (p - 30.0) / 20.0
         return (int(ORANGE[0] + (GREEN[0] - ORANGE[0]) * t), int(ORANGE[1] + (GREEN[1] - ORANGE[1]) * t), int(ORANGE[2] + (GREEN[2] - ORANGE[2]) * t))
     return GREEN
-
-
 class BatteryMonitor:
     def __init__(self, state=None):
         self.state = state if state is not None else {}
@@ -91,7 +77,6 @@ class BatteryMonitor:
         self.last_mean_charge_voltage = None
         self.last_charging = False
         self.last_log_ms = now
-
     def _make_adc(self, gpio):
         if ADC is None:
             return None
@@ -112,7 +97,6 @@ class BatteryMonitor:
         except Exception:
             pass
         return adc
-
     def _read_adc_voltage(self, adc, ref_v, samples):
         if adc is None:
             return None
@@ -141,22 +125,18 @@ class BatteryMonitor:
                 total += adc.read() * 16
         raw = total / count
         return (raw / 65535.0) * ref_v
-
     def read_battery_voltage(self):
         v = self._read_adc_voltage(self.adc, BATTERY_ADC_REF_V, BATTERY_SAMPLES)
         if v is None:
             return None
         return v * (BATTERY_DIVIDER_R1 + BATTERY_DIVIDER_R2) / BATTERY_DIVIDER_R2
-
     def read_charge_adc_voltage(self):
         return self._read_adc_voltage(self.chg_adc, CHARGE_DETECT_ADC_REF_V, CHARGE_DETECT_SAMPLES)
-
     def read_charge_voltage(self):
         v = self.read_charge_adc_voltage()
         if v is None:
             return None
         return v * (CHARGE_DETECT_DIVIDER_R1 + CHARGE_DETECT_DIVIDER_R2) / CHARGE_DETECT_DIVIDER_R2
-
     def service_mean_sampler(self, force=False):
         now = _ticks_ms()
         updated = False
@@ -181,7 +161,6 @@ class BatteryMonitor:
             self.mean_charge_count += 1
         self.mean_next_sample_ms = time.ticks_add(now, BATTERY_MEAN_SAMPLE_INTERVAL_MS) if hasattr(time, 'ticks_add') else now + BATTERY_MEAN_SAMPLE_INTERVAL_MS
         return updated
-
     def get_mean_pair(self, allow_partial=True):
         vb = self.last_mean_battery_voltage
         vc = self.last_mean_charge_voltage
@@ -191,7 +170,6 @@ class BatteryMonitor:
             if vc is None and self.mean_charge_count:
                 vc = self.mean_charge_total / self.mean_charge_count
         return vb, vc
-
     def is_charging_voltage(self, charge_v=None, previous=None):
         if charge_v is None:
             _, charge_v = self.get_mean_pair(True)
@@ -202,11 +180,9 @@ class BatteryMonitor:
         if previous:
             return charge_v >= CHARGE_DETECT_HYSTERESIS_LOW_V
         return charge_v >= CHARGE_DETECT_CHARGING_MIN_V
-
     def percent(self):
         vb, _ = self.get_mean_pair(True)
         return percent_from_voltage(vb, self.min_v, self.max_v)
-
     def update_learning_and_history(self):
         vb, vc = self.get_mean_pair(True)
         if vb is None:
@@ -266,7 +242,6 @@ class BatteryMonitor:
             self.last_log_ms = now
             changed = True
         return changed
-
     def estimate_hours(self, charging=False):
         hist = self.charge_history if charging else self.usage_history
         if len(hist) >= 2:
@@ -281,7 +256,6 @@ class BatteryMonitor:
                     target = 100.0 - pct if charging else pct
                     return max(0.0, target / rate)
         return BATTERY_DEFAULT_CHARGE_HOURS if charging else BATTERY_DEFAULT_USAGE_HOURS
-
     def snapshot(self):
         self.service_mean_sampler()
         vb, vc = self.get_mean_pair(True)
@@ -297,7 +271,6 @@ class BatteryMonitor:
             'measure_count': self.measure_count,
             'estimated_hours': self.estimate_hours(charging),
         }
-
     def export_state(self):
         return {
             'battery_cal_version': BATTERY_CAL_VERSION,

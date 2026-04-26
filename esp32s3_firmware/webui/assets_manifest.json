@@ -27,5 +27,14 @@
     "webui/assets/video/video_TVS102.mp4",
     "webui/assets/video/video_TVS103.mp4"
   ],
-  "voice_pattern": "webui/assets/voice/voice_<id>.ogg"
+  "voice_pattern": "webui/assets/voice/voice_<id>.ogg",
+  "unity_db_lazy": {
+    "target_root": "webui/assets/unity_pack",
+    "manifest": "webui/assets/unity_pack/manifest.json.gz",
+    "strategy": "lazy-load-timeline-packages",
+    "original_timeline_files": 158,
+    "package_files": 15,
+    "installed_asset_files": 16,
+    "note": "Small Unity timeline files are merged into multiple gzip packages. The WebUI fetches one package on demand, keeps only the selected timeline in RAM, and unloads other selected timelines when switching media."
+  }
 }

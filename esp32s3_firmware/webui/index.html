@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>RinaChanBoard Web UI</title>
-  <style>:root{--bg:#0f1218;--panel:#171c25;--panel2:#202838;--line:#30384a;--text:#edf2ff;--muted:#9da9bd;--accent:#f971d4;--ok:#75f0a9;--warn:#ffd166;--bad:#ff6b6b}
+  <style>:root{--bg:#0f1218;--panel:#171c25;--panel2:#202838;--line:#30384a;--text:#edf2ff;--muted:#9da9bd;--accent:#f971d4;--accent-soft:#f971d455;--ok:#75f0a9;--warn:#ffd166;--bad:#ff6b6b}
 *{box-sizing:border-box}
 body{margin:0;background:#0f1218;color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,"Microsoft YaHei",sans-serif}
 button{font:inherit}
@@ -26,6 +26,7 @@ main{padding:14px;max-width:1180px;margin:auto}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
 label{color:var(--muted);font-size:13px}
 input,select,textarea{background:#0d1119;color:var(--text);border:1px solid #344055;border-radius:8px;padding:9px;min-height:38px}
+input[type=range]{accent-color:var(--accent);padding:0;min-height:24px}.brightnessSlider{min-width:220px;flex:1 1 220px}
 textarea{width:100%;min-height:86px;font-family:ui-monospace,Consolas,monospace}
 .wide{min-width:260px;flex:1}.mono{font-family:ui-monospace,Consolas,monospace}.small{font-size:12px;color:var(--muted)}
 .pill{border-radius:999px;background:#242c3b;padding:4px 8px;color:var(--muted);font-size:12px}
@@ -42,11 +43,11 @@ a{color:#8fd3ff}
 .miniLed{width:10px;height:10px;border-radius:3px;background:#202838}.miniLed.on{background:var(--accent);box-shadow:0 0 5px var(--accent)}.miniLed.hidden{visibility:hidden}
 .partGallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:8px;margin-top:10px}
 .partThumb{border:1px solid var(--line);background:#10151f;border-radius:8px;padding:8px;cursor:pointer;text-align:center;color:var(--muted)}
-.partThumb.active{border-color:var(--accent);box-shadow:0 0 0 2px #f971d455;color:var(--text)}
-.partPixels{display:grid;gap:2px;justify-content:center;margin:4px auto 6px}.partPix{width:8px;height:7px;border-radius:3px;background:#202838}.partPix.on{background:var(--accent)}
+.partThumb.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);color:var(--text)}
+.partPixels{display:grid;gap:2px;justify-content:center;margin:4px auto 6px}.partPix{width:9px;height:9px;border-radius:3px;background:#202838}.partPix.on{background:var(--accent)}.partFullPreview{grid-template-columns:repeat(22,12px);gap:3px;padding:10px}.partFullPreview .miniLed{width:12px;height:12px;border-radius:4px}
 .faceList{display:grid;gap:6px;max-height:420px;overflow:auto}.faceRow{display:grid;grid-template-columns:30px 1fr auto auto auto 22px;gap:4px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:#10151f;cursor:pointer;user-select:none;transition:border-color .15s,background .15s}.faceRow:hover{background:#161d2b}.faceRow.active{border-color:var(--accent);background:#1a1528}.faceRow.drag-over{border-top:2px solid var(--accent)}.faceRow.dragging{opacity:.4}.faceRow .num{font-size:11px;color:var(--muted);font-family:ui-monospace,Consolas,monospace;text-align:center}.faceRow .fname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.dragHandle{cursor:grab;color:var(--muted);font-size:16px;text-align:center;line-height:1;letter-spacing:-2px}.dragHandle:active{cursor:grabbing}.btn.sm{padding:3px 7px;min-height:24px;font-size:11px;border-radius:6px}.btn.warn{background:#2e2816;color:var(--warn);border-color:#4a3c1a}.btn.warn:hover{background:#3a3218;border-color:#5a4c2a}
 .batteryGrid{display:grid;grid-template-columns:max-content 1fr;gap:8px 12px;align-items:center}.batteryGrid .k{color:var(--muted);font-size:12px}.batteryBar{height:12px;background:#252d3e;border-radius:999px;overflow:hidden}.batteryBar span{display:block;height:100%;width:0;background:var(--ok)}
-.mediaPreview{display:none;width:100%;max-height:280px;background:#05070b;border-radius:8px}.btn.busy{opacity:.75;pointer-events:none}@media(max-width:600px){main{padding:10px}.wide{min-width:0;width:100%}.row{align-items:stretch}.row>.btn,.row>input,.row>select{flex:1 1 auto}.matrix{grid-template-columns:repeat(22,13px);gap:3px}.led{width:13px;height:13px}.faceRow{grid-template-columns:24px 1fr auto auto auto 18px}}</style>
+.mediaPreview{display:none;width:100%;max-height:280px;background:#05070b;border-radius:8px}.btn.busy{opacity:.75;pointer-events:none}@media(max-width:600px){main{padding:10px}.wide{min-width:0;width:100%}.row{align-items:stretch}.row>.btn,.row>input,.row>select{flex:1 1 auto}.brightnessSlider{min-width:100%;flex-basis:100%}.matrix{grid-template-columns:repeat(22,13px);gap:3px}.led{width:13px;height:13px}.partFullPreview{grid-template-columns:repeat(22,10px)}.partFullPreview .miniLed{width:10px;height:10px}.faceRow{grid-template-columns:24px 1fr auto auto auto 18px}}</style>
 </head>
 <body>
 <header>
@@ -108,7 +109,8 @@ a{color:#8fd3ff}
       <div class="card">
         <h2>亮度</h2>
         <div class="row">
-          <input type="number" id="bright" min="0" max="255" value="16">
+          <input type="number" id="bright" min="1" max="128" value="16">
+          <input type="range" id="brightSlider" min="1" max="128" value="16" class="brightnessSlider" aria-label="亮度滑条 1 到 128">
           <button class="btn" data-bright="16" type="button">16</button>
           <button class="btn" data-bright="32" type="button">32</button>
           <button class="btn" data-bright="64" type="button">64</button>
@@ -179,6 +181,11 @@ a{color:#8fd3ff}
           <button class="btn" id="sendFaceLiteBinary" type="button">发送 4-byte Face_Lite</button>
           <button class="btn primary" id="savePartFace" type="button">保存到列表</button>
         </div>
+      </div>
+      <div class="card">
+        <h2>全 LED 预览</h2>
+        <div id="partFacePreview" class="miniGrid370 partFullPreview"></div>
+        <p class="small">显示当前左眼、右眼、嘴和脸颊组合后的完整 370 LED 点阵。</p>
       </div>
       <div class="card"><h2>左眼</h2><div id="leyeGallery" class="partGallery"></div></div>
       <div class="card"><h2>右眼</h2><div id="reyeGallery" class="partGallery"></div></div>
@@ -323,7 +330,7 @@ a{color:#8fd3ff}
       </div>
     </div>
   </section>
-<div id="bootHint" style="position:fixed;right:8px;bottom:8px;padding:6px 8px;border-radius:8px;background:#171c25;color:#9da9bd;font:12px system-ui;z-index:9999">WebUI v2.0.8</div></main>
-<script src="app.js?v=208" defer></script>
+<div id="bootHint" style="position:fixed;right:8px;bottom:8px;padding:6px 8px;border-radius:8px;background:#171c25;color:#9da9bd;font:12px system-ui;z-index:9999">WebUI v2.0.9</div></main>
+<script src="app.js?v=212" defer></script>
 </body>
 </html>

@@ -18,11 +18,6 @@ try:
 except ImportError:
     ADC = None
     Pin = None
-
-# ESP32-S3 ADC compatibility helper.  MicroPython accepts ADC(Pin(gpio))
-# on ESP32-class ports.  If attenuation APIs exist, use the widest 11 dB
-# range so voltage-divider outputs up to the 3.3 V domain do not clip at
-# the default low ADC range.
 def _make_adc(gpio):
     if ADC is None:
         return None
@@ -39,7 +34,6 @@ def _make_adc(gpio):
     except Exception:
         pass
     return adc
-
 class BatteryMonitor:
     __slots__ = (
         "adc", "charge_adc",
@@ -94,7 +88,6 @@ class BatteryMonitor:
             self.last_mean_battery_voltage = None
             self.last_mean_charge_voltage = None
             self.last_mean_completed_ms = 0
-
     def _finalize_mean_window(self, now=None):
         if now is None:
             now = time.ticks_ms()
@@ -107,7 +100,6 @@ class BatteryMonitor:
         self.mean_battery_count = 0
         self.mean_charge_total = 0.0
         self.mean_charge_count = 0
-
     def service_mean_sampler(self, force_sample=False):
         if self.adc is None and self.charge_adc is None:
             return False
@@ -117,10 +109,8 @@ class BatteryMonitor:
             self._finalize_mean_window(now=now)
             mean_updated = True
             now = time.ticks_ms()
-
         if (not force_sample) and time.ticks_diff(now, self.mean_next_sample_ms) < 0:
             return mean_updated
-
         v_bat = self.read_voltage()
         if v_bat is not None:
             self.mean_battery_total += v_bat
@@ -129,10 +119,8 @@ class BatteryMonitor:
         if v_charge is not None:
             self.mean_charge_total += v_charge
             self.mean_charge_count += 1
-
         self.mean_next_sample_ms = time.ticks_add(now, BATTERY_MEAN_SAMPLE_INTERVAL_MS)
         return mean_updated
-
     def get_mean_voltage_pair(self, allow_partial=True):
         v_bat = self.last_mean_battery_voltage
         charge_v = self.last_mean_charge_voltage
@@ -142,7 +130,6 @@ class BatteryMonitor:
             if charge_v is None and self.mean_charge_count > 0:
                 charge_v = self.mean_charge_total / self.mean_charge_count
         return (v_bat, charge_v)
-
     def read_voltage_mean(self, window_ms, sample_delay_ms):
         if self.adc is None:
             return None
@@ -160,7 +147,6 @@ class BatteryMonitor:
     def read_charge_voltage_mean(self, window_ms, sample_delay_ms):
         _, charge_v = self.read_voltage_pair_mean(window_ms, sample_delay_ms)
         return charge_v
-
     def read_voltage_pair_mean(self, window_ms, sample_delay_ms):
         if self.adc is None and self.charge_adc is None:
             return (None, None)
@@ -285,9 +271,6 @@ class BatteryMonitor:
     def is_charging_voltage(charge_v, previous=False):
         if charge_v is None:
             return bool(previous)
-        # Strictly above CHARGE_DETECT_CHARGING_MIN_V -> charging.
-        # At or below CHARGE_DETECT_HYSTERESIS_LOW_V -> not charging.
-        # In between: hold the previous state to prevent flicker near the edge.
         if charge_v > CHARGE_DETECT_CHARGING_MIN_V:
             return True
         if charge_v <= CHARGE_DETECT_HYSTERESIS_LOW_V:

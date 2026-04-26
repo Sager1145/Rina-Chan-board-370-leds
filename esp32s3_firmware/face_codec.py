@@ -4,12 +4,8 @@ from config import (
     LEGACY_ROW_OFFSET, LEGACY_COL_OFFSET,
 )
 import board
-
-
 def blank_bitmap():
     return ['.' * COLS for _ in range(ROWS)]
-
-
 def normalize_bitmap(data):
     if isinstance(data, str):
         text = data.strip()
@@ -30,8 +26,6 @@ def normalize_bitmap(data):
             out.append('#' if ch == '#' else ('+' if ch == '+' else '.'))
         rows.append(''.join(out))
     return rows
-
-
 def legacy_bits_to_grid(bit_bytes, offset_rows=0):
     grid = [[0 for _ in range(LEGACY_SRC_WIDTH)] for _ in range(LEGACY_SRC_HEIGHT)]
     bit_index = 0
@@ -47,8 +41,6 @@ def legacy_bits_to_grid(bit_bytes, offset_rows=0):
                 grid[row][col] = 1 if (byte & (1 << bit)) else 0
             bit_index += 1
     return grid
-
-
 def legacy_hex_to_grid(hexstr, offset_rows=0):
     s = ''.join(str(hexstr).strip().split())
     data = bytearray()
@@ -60,8 +52,6 @@ def legacy_hex_to_grid(hexstr, offset_rows=0):
         except Exception:
             data.append(0)
     return legacy_bits_to_grid(data, offset_rows=offset_rows)
-
-
 def legacy_grid_to_bitmap(grid, row_offset=LEGACY_ROW_OFFSET, col_offset=LEGACY_COL_OFFSET):
     out = [['.' for _ in range(COLS)] for _ in range(ROWS)]
     for y in range(min(LEGACY_SRC_HEIGHT, len(grid))):
@@ -76,12 +66,8 @@ def legacy_grid_to_bitmap(grid, row_offset=LEGACY_ROW_OFFSET, col_offset=LEGACY_
             if row[x]:
                 out[yy][xx] = '#'
     return [''.join(r) for r in out]
-
-
 def legacy_hex_to_bitmap(hexstr, offset_rows=0, row_offset=LEGACY_ROW_OFFSET, col_offset=LEGACY_COL_OFFSET):
     return legacy_grid_to_bitmap(legacy_hex_to_grid(hexstr, offset_rows=offset_rows), row_offset, col_offset)
-
-
 def m370_hex_to_bitmap(hexstr):
     s = str(hexstr or '').strip()
     if s.upper().startswith('M370:'):
@@ -106,8 +92,6 @@ def m370_hex_to_bitmap(hexstr):
                 out[y][x] = '#'
             k += 1
     return [''.join(r) for r in out]
-
-
 def bitmap_to_m370_hex(bitmap):
     bm = normalize_bitmap(bitmap)
     bits = ''
@@ -127,8 +111,6 @@ def bitmap_to_m370_hex(bitmap):
         except Exception:
             out += '0'
     return out
-
-
 def bitmap_to_legacy_hex(bitmap):
     bm = normalize_bitmap(bitmap)
     bits = ''
@@ -148,12 +130,8 @@ def bitmap_to_legacy_hex(bitmap):
         except Exception:
             out += '00'
     return out
-
-
 def draw_bitmap_data(data, on_color, dim_color):
     board.draw_bitmap(normalize_bitmap(data), on_color=on_color, dim_color=dim_color)
-
-
 def bitmap_to_points(bitmap):
     bm = normalize_bitmap(bitmap)
     points = []

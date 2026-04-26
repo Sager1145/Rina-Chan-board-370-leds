@@ -1,6 +1,5 @@
 from config import COLS, ROWS, PINK, DIM, OFF
 import board
-
 FONT = {
 ' ': ['...','...','...','...','...','...','...'],
 '.': ['.','.', '.', '.', '.', '.', '#'],
@@ -45,20 +44,14 @@ FONT = {
 'Y': ['#...#','.#.#.','..#..','..#..','..#..','..#..','..#..'],
 'Z': ['#####','....#','...#.','..#..','.#...','#....','#####'],
 }
-
-
 def glyph(ch):
     return FONT.get(ch.upper(), FONT.get(' ', ['...'] * 7))
-
-
 def text_width(text):
     w = 0
     for ch in text:
         g = glyph(ch)
         w += len(g[0]) + 1
     return max(0, w - 1)
-
-
 def draw_text_at(text, x0, y0=5, color=PINK, dim_color=DIM, clear_first=True, do_show=True):
     if clear_first:
         board.clear(False)
@@ -79,7 +72,5 @@ def draw_text_at(text, x0, y0=5, color=PINK, dim_color=DIM, clear_first=True, do
         x += gw + 1
     if do_show:
         board.show()
-
-
 def draw_centered(text, y0=5, color=PINK):
     draw_text_at(text, (COLS - text_width(text)) // 2, y0=y0, color=color)

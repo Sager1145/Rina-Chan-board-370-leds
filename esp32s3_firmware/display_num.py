@@ -1,6 +1,5 @@
 from board import COLS, ROWS, logical_to_led_index, clear, show, scale_color, set_pixel_index
-from config import BATTERY_CHARGE_FLASH_MS as BATTERY_CHARGE_LAST_COLUMN_FLASH_MS
-
+from config import BATTERY_CHARGE_FLASH_MS as BATTERY_CHARGE_LAST_COLUMN_FLASH_MS, DEFAULT_COLOR as CONFIG_DEFAULT_COLOR
 _FONT = {
     "0": [".###.","#...#","#..##","#.#.#","##..#","#...#",".###."],
     "1": [".##..","#.#..","..#..","..#..","..#..","..#..","#####"],
@@ -20,9 +19,9 @@ _FONT = {
 _DOT=[".",".",".",".",".",".","#"]
 _PCT_3=["#.#","..#",".#.",".#.","#..","#.#","..."]
 GLYPH_H=7
-DEFAULT_COLOR=(0,120,255)
-BRIGHTNESS_COLOR=(0,120,255)
-MODE_COLOR=(180,0,255)
+DEFAULT_COLOR=CONFIG_DEFAULT_COLOR
+BRIGHTNESS_COLOR=CONFIG_DEFAULT_COLOR
+MODE_COLOR=CONFIG_DEFAULT_COLOR
 _BIG_A=["...####...","..######..",".##....##.",".##....##.",".##....##.",".##....##.",".########.",".########.",".##....##.",".##....##.",".##....##.",".##....##.",".##....##."]
 _BIG_M=["##......##","###....###","####..####","##.####.##","##..##..##","##......##","##......##","##......##","##......##","##......##","##......##","##......##","##......##"]
 _BIG_W=len(_BIG_A[0]); _BIG_H=len(_BIG_A)
@@ -33,14 +32,12 @@ SUN_ICON_3=["......................",".......########.##....","....##.########..
 BATTERY_ICON=["......................","......#########.......","......#........#......","......#........#......","......#........#......","......#########.......","......................","......................","......................","......................","......................","......................","......................","......................","......................","......................","......................","......................"]
 ICON_TOP_Y=0
 TEXT_Y_WITH_ICON=9
-
 def _blank_bitmap(h,w): return ["."*w for _ in range(h)]
 def _glyph_for(ch):
     if ch==".": return (_DOT,1)
     if ch=="%": return (_PCT_3,3)
     g=_FONT.get(ch)
     return (_blank_bitmap(7,5),5) if g is None else (g,len(g[0]) if g else 0)
-
 def _draw_bitmap_rows(rows,color,dim_color=None,x0=0,y0=0):
     on_c=scale_color(color)
     if dim_color is None: dim_color=(color[0]//3,color[1]//3,color[2]//3)
@@ -53,7 +50,6 @@ def _draw_bitmap_rows(rows,color,dim_color=None,x0=0,y0=0):
             if idx is None: continue
             if ch=="#": set_pixel_index(idx, on_c)
             elif ch=="+": set_pixel_index(idx, dim_c)
-
 def _render_string(text,color,icon_rows=None,char_extra_x=None,icon_color=None):
     glyphs=[_glyph_for(ch) for ch in text]
     gap=1; total_w=0
@@ -74,14 +70,11 @@ def _render_string(text,color,icon_rows=None,char_extra_x=None,icon_color=None):
                 if idx is not None: set_pixel_index(idx, c)
         x += w + gap
     show()
-
 def _format_interval(seconds):
     tenths=int(round(seconds*10)); whole=tenths//10; frac=tenths%10
     return "10" if whole==10 and frac==0 else "{}.{}".format(whole, frac)
-
 def _sun_icon_rows(percent):
     return SUN_ICON_1
-
 def _battery_fill_cols(percent):
     p = max(0, min(100, int(percent)))
     inner_cols = 8
@@ -90,28 +83,20 @@ def _battery_fill_cols(percent):
     if p > 90:
         return inner_cols
     return ((p - 10) * inner_cols + 79) // 80
-
 def _battery_icon_rows(percent, charging=False, charging_phase_ms=0, charge_step_interval_s=1.0, flash_last_column=False, animate=True):
     rows = BATTERY_ICON[:]
     inner_rows = (2, 3, 4)
     inner_left = 7
     inner_cols = 8
     filled_cols = _battery_fill_cols(percent)
-
     if charging and animate:
         p = int(percent)
         if p < 10:
-            # Below 10%: a single column (col 0) blinks on and off.
-            # No sweep. Uses the same flash half-period as the discharging
-            # low-battery flash for consistency.
             flash_period_ms = max(1, int(BATTERY_CHARGE_LAST_COLUMN_FLASH_MS))
             on = ((int(charging_phase_ms) // flash_period_ms) % 2) == 0
             lit_cols = 1 if on else 0
             flash_col = None
         else:
-            # 10%-90%: solid sweep 1, 2, 3, ..., target, then back to 1.
-            # Above 90%: target is the full 8 columns, same sweep mechanic.
-            # At/above 100%: same as >90% (all eight columns participate).
             target_cols = inner_cols if p > 90 else max(1, filled_cols)
             step_ms = max(1, int(charge_step_interval_s * 1000))
             anim_step = int(charging_phase_ms) // step_ms
@@ -120,12 +105,10 @@ def _battery_icon_rows(percent, charging=False, charging_phase_ms=0, charge_step
     else:
         lit_cols = filled_cols
         flash_col = (lit_cols - 1) if (flash_last_column and lit_cols > 0) else None
-
     flash_on = True
     if flash_col is not None:
         flash_period_ms = max(1, int(BATTERY_CHARGE_LAST_COLUMN_FLASH_MS))
         flash_on = ((int(charging_phase_ms) // flash_period_ms) % 2) == 0
-
     for y in inner_rows:
         row = list(rows[y])
         for i in range(inner_cols):
@@ -138,7 +121,6 @@ def _battery_icon_rows(percent, charging=False, charging_phase_ms=0, charge_step
             row[x] = ch
         rows[y] = "".join(row)
     return rows
-
 def render_interval(seconds,color=MODE_COLOR): _render_string(_format_interval(seconds)+"S", color, icon_rows=CLOCK_ICON)
 def render_brightness_percent(percent,color=BRIGHTNESS_COLOR): _render_string("{}%".format(int(percent)), color, icon_rows=_sun_icon_rows(percent))
 def render_battery_percent(percent,color=DEFAULT_COLOR,charging=False,charging_phase_ms=0,charge_step_interval_s=1.0,flash_last_column=False,animate=True):

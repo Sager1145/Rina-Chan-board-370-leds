@@ -3,30 +3,20 @@ try:
     import os
 except ImportError:
     os = None
-
 from config import FACES_FILE, ROWS, COLS
 from default_faces import DEFAULT_SAVED_FACES, DEFAULT_START_INDEX
 from face_codec import normalize_bitmap
-
 _DEFAULT_IDS = set([f.get('default_id') for f in DEFAULT_SAVED_FACES])
-
-
 def _exists(path):
     try:
         open(path, 'r').close()
         return True
     except Exception:
         return False
-
-
 def _clone(obj):
     return json.loads(json.dumps(obj))
-
-
 def _sanitize_data(data):
     return normalize_bitmap(data)
-
-
 def _sanitize_item(item, fallback_name='Face'):
     if not isinstance(item, dict):
         item = {}
@@ -41,11 +31,7 @@ def _sanitize_item(item, fallback_name='Face'):
         out['builtin'] = True
     out['data'] = _sanitize_data(item.get('data') or [])
     return out
-
-
 def _forced_default(item):
-    # Preserve user-renamed default face names if possible, but force identity,
-    # data, locked=True, and type=default so defaults cannot be deleted by sync.
     did = item.get('default_id')
     base = None
     for d in DEFAULT_SAVED_FACES:
@@ -62,14 +48,11 @@ def _forced_default(item):
     out['builtin'] = True
     out['data'] = _sanitize_data(base.get('data'))
     return out
-
-
 class SavedFaceStore:
     def __init__(self, path=FACES_FILE):
         self.path = path
         self.faces = []
         self.load()
-
     def load(self):
         faces = None
         if _exists(self.path):
@@ -84,7 +67,6 @@ class SavedFaceStore:
         self.faces = self._merge_defaults(faces)
         self.save()
         return self.faces
-
     def _merge_defaults(self, incoming):
         output = []
         seen_defaults = set()
@@ -99,22 +81,17 @@ class SavedFaceStore:
             if d.get('default_id') not in seen_defaults:
                 output.append(_forced_default(d))
         return output
-
     def save(self):
         with open(self.path, 'w') as f:
             json.dump(self.faces, f)
-
     def to_json(self):
         return json.dumps(self.faces)
-
     def count(self):
         return len(self.faces)
-
     def get(self, index):
         if not self.faces:
             return None
         return self.faces[int(index) % len(self.faces)]
-
     def set_all(self, items):
         if isinstance(items, str):
             items = json.loads(items)
@@ -123,7 +100,6 @@ class SavedFaceStore:
         self.faces = self._merge_defaults(items)
         self.save()
         return True
-
     def add(self, item):
         item = _sanitize_item(item, 'Custom %02d' % (len(self.faces) + 1))
         if item.get('default_id') in _DEFAULT_IDS or item.get('type') == 'default':
@@ -133,7 +109,6 @@ class SavedFaceStore:
         self.faces.append(item)
         self.save()
         return len(self.faces) - 1
-
     def delete(self, index):
         index = int(index)
         if index < 0 or index >= len(self.faces):
@@ -146,7 +121,6 @@ class SavedFaceStore:
         del self.faces[index]
         self.save()
         return True, 'ok'
-
     def move(self, src, dst):
         src = int(src); dst = int(dst)
         n = len(self.faces)
@@ -160,13 +134,11 @@ class SavedFaceStore:
         self.faces.insert(dst, item)
         self.save()
         return True
-
     def rename(self, index, name):
         index = int(index)
         self.faces[index]['name'] = str(name)[:48]
         self.save()
         return True
-
     def lock(self, index, locked):
         index = int(index)
         item = self.faces[index]
@@ -176,7 +148,6 @@ class SavedFaceStore:
             item['locked'] = bool(int(locked)) if isinstance(locked, str) else bool(locked)
         self.save()
         return True
-
     def set_type(self, index, typ):
         index = int(index)
         if typ not in ('custom', 'part'):
@@ -187,7 +158,6 @@ class SavedFaceStore:
         item['type'] = typ
         self.save()
         return True
-
     def update_meta(self, index, name=None, typ=None, locked=None):
         index = int(index)
         if name is not None:
