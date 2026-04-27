@@ -5,15 +5,11 @@ from config import (
     BATTERY_HISTORY_BRIGHTNESS_WINDOW,
 )
 
+# Only one display mode exists now that matrix demo and Bad Apple are removed.
 MODE_FACE = 0
-MODE_DEMO = 1
-MODE_BADAPPLE = 2
 
 def current_mode_code(app_state):
-    if app_state.badapple_mode:
-        return MODE_BADAPPLE
-    if app_state.special_demo_mode:
-        return MODE_DEMO
+    # All modes are now MODE_FACE; kept as a function for history compatibility.
     return MODE_FACE
 
 def clamp_history_entry(entry):
@@ -28,8 +24,8 @@ def clamp_history_entry(entry):
     if rate <= 0.0:
         return None
     brightness = max(0, min(100, brightness))
-    if mode not in (MODE_FACE, MODE_DEMO, MODE_BADAPPLE):
-        mode = MODE_FACE
+    # Collapse any legacy mode codes (demo=1, badapple=2) to face mode.
+    mode = MODE_FACE
     return [rate, brightness, mode]
 
 def sanitize_history(history):

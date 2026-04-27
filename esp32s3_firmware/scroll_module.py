@@ -2,6 +2,9 @@
 # scroll_module.py
 #
 # Scrolling IP/SSID display module.
+#
+# Text is rendered using the global display color supplied by color_module
+# so the scrolling IP/SSID share the same color as all other display modes.
 # ---------------------------------------------------------------------------
 
 import time
@@ -40,7 +43,9 @@ class ScrollModule(AppModule):
         self.state.edge_flash_active = False
         self.state.battery_display_active = False
         self.state.battery_display_single_shot = False
-        display_num.render_scrolling_text_window(text, 0)
+        # Use global display color so IP scroll matches the current mode color.
+        color = self.get_color()
+        display_num.render_scrolling_text_window(text, 0, color=color)
         print("ip display scroll:", text)
 
     def service_ip_display(self):
@@ -53,7 +58,8 @@ class ScrollModule(AppModule):
             return
         if time.ticks_diff(now, self.state.ip_scroll_next_ms) >= 0:
             text = self.state.ip_scroll_text or ""
-            display_num.render_scrolling_text_window(text, self.state.ip_scroll_offset)
+            color = self.get_color()
+            display_num.render_scrolling_text_window(text, self.state.ip_scroll_offset, color=color)
             self.state.ip_scroll_offset = (self.state.ip_scroll_offset + 1) % max(1, len(text) * 6 + 22)
             self.state.ip_scroll_next_ms = time.ticks_add(now, 120)
 
@@ -69,7 +75,3 @@ class ScrollModule(AppModule):
             return True
         self.state.ip_combo_latched = False
         return False
-
-    # ------------------------------------------------------------------
-    # Mode management
-    # ------------------------------------------------------------------

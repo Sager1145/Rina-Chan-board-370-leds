@@ -3,7 +3,6 @@
 # ---------------------------------------------------------------------------
 from config import (
     DEFAULT_FACE, DEFAULT_INTERVAL_S, DEFAULT_BRIGHTNESS,
-    DEMO_DEFAULT_AUTO, DEMO_DEFAULT_INTERVAL_S,
     BATTERY_DEFAULT_MIN_V, BATTERY_DEFAULT_MAX_V,
 )
 
@@ -11,7 +10,6 @@ class AppState:
     __slots__ = (
         "face_idx", "auto", "interval_s", "brightness",
         "manual_control_mode",
-        "demo_auto", "demo_interval_s",
         "b3_consumed",
         "flash_active", "flash_expires_ms", "flash_kind", "flash_value",
         "b6_pending", "b6_press_started_ms", "b6_long_fired",
@@ -25,10 +23,6 @@ class AppState:
         "battery_display_cached_remaining_h", "battery_display_cached_charge_voltage",
         "battery_display_cached_charge_time_h", "battery_display_cached_is_charging",
         "edge_flash_active", "edge_flash_edge", "edge_flash_started_ms",
-        "special_demo_mode",
-        "combo_press_started_ms", "combo_long_fired",
-        "badapple_mode",
-        "badapple_combo_press_started_ms", "badapple_combo_long_fired",
         "brightness_reset_ignore_until_ms", "brightness_reset_combo_latched",
         "battery_next_log_ms",
         "ip_display_active", "ip_display_octets", "ip_display_phase_index",
@@ -44,8 +38,6 @@ class AppState:
         # Runtime authority flag: physical buttons put the board in manual
         # control mode; network/WebUI control exits manual mode.
         self.manual_control_mode = False
-        self.demo_auto = DEMO_DEFAULT_AUTO
-        self.demo_interval_s = DEMO_DEFAULT_INTERVAL_S
         self.b3_consumed = False
         self.flash_active = False
         self.flash_expires_ms = 0
@@ -73,12 +65,6 @@ class AppState:
         self.edge_flash_active = False
         self.edge_flash_edge = None
         self.edge_flash_started_ms = 0
-        self.special_demo_mode = False
-        self.combo_press_started_ms = None
-        self.combo_long_fired = False
-        self.badapple_mode = False
-        self.badapple_combo_press_started_ms = None
-        self.badapple_combo_long_fired = False
         self.brightness_reset_ignore_until_ms = 0
         self.brightness_reset_combo_latched = False
         self.battery_next_log_ms = 0

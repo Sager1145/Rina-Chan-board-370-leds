@@ -213,7 +213,6 @@ class RinaProtocol:
 
         if action == "prevface":
             self._button_sim_network_takeover("buttonSim prevface")
-            app.state.special_demo_mode = False
             app.state.face_idx = (app.state.face_idx - 1) % max(1, saved_faces_370.count())
             app.stop_battery_display()
             app.cancel_flash_and_redraw()
@@ -221,7 +220,6 @@ class RinaProtocol:
 
         if action == "nextface":
             self._button_sim_network_takeover("buttonSim nextface")
-            app.state.special_demo_mode = False
             app.state.face_idx = (app.state.face_idx + 1) % max(1, saved_faces_370.count())
             app.stop_battery_display()
             app.cancel_flash_and_redraw()
@@ -229,7 +227,6 @@ class RinaProtocol:
 
         if action == "toggleauto":
             self._button_sim_network_takeover("buttonSim toggleauto", force_m=False)
-            app.state.special_demo_mode = False
             app.state.auto = not app.state.auto
             app.save_settings()
             app.stop_battery_display()

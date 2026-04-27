@@ -335,11 +335,6 @@ class BatteryModule(AppModule):
                 self.state.b6_pending = False
                 self.state.b6_long_fired = False
                 return b6_now
-            if self.state.badapple_combo_long_fired:
-                self.state.b6_pending = False
-                self.state.b6_long_fired = False
-                self.state.badapple_combo_long_fired = False
-                return b6_now
             if self.state.b6_pending:
                 if self.state.battery_display_active or self.state.b6_long_fired:
                     self.stop_battery_display()

@@ -44,7 +44,6 @@ class FaceModule(AppModule):
 
     def cycle_face(self, delta):
         self.stop_webui_runtime(redraw=False)
-        self.state.special_demo_mode = False
         self.state.face_idx = (self.state.face_idx + delta) % max(1, saved_faces_370.count())
         self.stop_battery_display()
         self.cancel_flash_and_redraw()
@@ -52,7 +51,6 @@ class FaceModule(AppModule):
     def select_saved_face(self, index, redraw=True):
         self.exit_manual_control_from_network("selectFace370")
         self.stop_webui_runtime(redraw=False)
-        self.state.special_demo_mode = False
         self.force_m_mode("selectFace370", persist=True)
         try:
             idx = int(index)

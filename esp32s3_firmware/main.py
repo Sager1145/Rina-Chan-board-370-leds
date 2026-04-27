@@ -3,27 +3,25 @@
 #
 # Modular RinaChanBoard controller for ESP32-S3 + 370 LEDs.
 #
-# main.py is now only the application entry point, module composition root, and
-# main loop scheduler.  Feature logic lives in dedicated modules:
-# - face_module.py      saved faces / physical 370 face drawing
-# - color_module.py     protocol color + brightness synchronization
-# - scroll_module.py    IP/SSID scrolling overlay
-# - wifi_module.py      Wi-Fi/UDP/HTTP polling glue
-# - gpio_module.py      hardware button routing
-# - home_module.py      home mode, A/M mode, brightness/interval overlays
-# - battery_module.py   battery percent/voltage/time/charging animation
-# - unity_module.py     firmware-side WebUI runtime bridge
+# Application entry point, module composition root, and main loop scheduler.
+# Feature logic lives in dedicated modules:
 #
-# rina_protocol.py is intentionally kept as a separate protocol/router layer.
+#   color_module.py    Global color + brightness authority (all modes read here)
+#   face_module.py     Saved faces / physical 370 face drawing
+#   scroll_module.py   IP/SSID scrolling overlay
+#   wifi_module.py     Wi-Fi / UDP / HTTP polling glue
+#   gpio_module.py     Hardware button routing
+#   home_module.py     Home mode, A/M toggle, flash overlays, interval
+#   battery_module.py  Battery percent/voltage/time/charging animation
+#   unity_module.py    Firmware-side WebUI runtime bridge
+#
+# rina_protocol.py is kept as a separate protocol/router layer.
 # It calls back into this facade; the facade delegates to feature modules.
 # ---------------------------------------------------------------------------
 
 import gc
 import time
 
-# Memory-safe import order for ESP32-S3 MicroPython: import lower-level helpers
-# before feature modules so large UI helpers are compiled after core protocol
-# constants are available.
 gc.collect()
 
 import board
@@ -46,8 +44,8 @@ from esp32s3_network import ESP32S3Network
 from webui_runtime import WebUIRuntime
 gc.collect()
 
-from face_module import FaceModule
 from color_module import ColorModule
+from face_module import FaceModule
 from scroll_module import ScrollModule
 from wifi_module import WiFiModule
 from gpio_module import GPIOModule
@@ -56,14 +54,17 @@ from battery_module import BatteryModule
 from unity_module import UnityModule
 gc.collect()
 
-FIRMWARE_BANNER = "RinaChanBoard ESP32-S3 370LED native WebUI 1.7.4-rnt-command-only modular AP+protocol callbacks + RNT2 command-only playback + low-blocking HTTP + battery module"
+FIRMWARE_BANNER = (
+    "RinaChanBoard ESP32-S3 370LED modular 1.8.0 "
+    "color_module-authority brightness-sync AP+protocol+RNT2 battery"
+)
 
 
 class LinaBoardApp:
     __slots__ = (
         "state", "battery", "buttons", "battery_monitor", "network_poll",
         "proto", "link", "button_face_active", "web_runtime",
-        "face_module", "color_module", "scroll_module", "wifi_module",
+        "color_module", "face_module", "scroll_module", "wifi_module",
         "gpio_module", "home_module", "battery_module", "unity_module",
     )
 
@@ -78,10 +79,10 @@ class LinaBoardApp:
         self.button_face_active = False
         self.web_runtime = WebUIRuntime(self)
 
-        # Feature modules.  They receive this facade and communicate back via
-        # app callbacks instead of importing one another directly.
-        self.face_module = FaceModule(self)
+        # Feature modules receive this facade and communicate via callbacks
+        # rather than importing one another directly.
         self.color_module = ColorModule(self)
+        self.face_module = FaceModule(self)
         self.scroll_module = ScrollModule(self)
         self.wifi_module = WiFiModule(self)
         self.gpio_module = GPIOModule(self)
@@ -94,6 +95,37 @@ class LinaBoardApp:
     # ------------------------------------------------------------------
     def save_settings(self):
         save_settings(self.state, self.battery)
+
+    # ------------------------------------------------------------------
+    # Color module facade  (global color + brightness authority)
+    # ------------------------------------------------------------------
+    def get_color(self):
+        return self.color_module.get_color()
+
+    def get_dimmed_color(self):
+        return self.color_module.get_dimmed_color()
+
+    # Backward-compat aliases used by webui_runtime and any legacy caller.
+    def _current_home_color(self):
+        return self.color_module.get_color()
+
+    def _dimmed_home_color(self, color):
+        return self.color_module.get_dimmed_color()
+
+    def apply_brightness(self):
+        return self.color_module.apply_brightness()
+
+    def sync_protocol_brightness_from_buttons(self):
+        return self.color_module.sync_protocol_brightness_from_buttons()
+
+    def set_brightness(self, pct, save=True, sync_protocol=True):
+        return self.color_module.set_brightness(pct, save=save, sync_protocol=sync_protocol)
+
+    def on_protocol_color_updated(self, color):
+        return self.color_module.on_protocol_color_updated(color)
+
+    def on_protocol_brightness_updated(self, bright):
+        return self.color_module.on_protocol_brightness_updated(bright)
 
     # ------------------------------------------------------------------
     # Face module facade
@@ -114,26 +146,8 @@ class LinaBoardApp:
         return self.face_module.on_saved_faces_changed(selected_index=selected_index, redraw=redraw)
 
     # ------------------------------------------------------------------
-    # Color module facade
-    # ------------------------------------------------------------------
-    def _current_home_color(self):
-        return self.color_module._current_home_color()
-
-    def _dimmed_home_color(self, color):
-        return self.color_module._dimmed_home_color(color)
-
-    def on_protocol_color_updated(self, color):
-        return self.color_module.on_protocol_color_updated(color)
-
-    def on_protocol_brightness_updated(self, bright):
-        return self.color_module.on_protocol_brightness_updated(bright)
-
-    # ------------------------------------------------------------------
     # Home / mode module facade
     # ------------------------------------------------------------------
-    def apply_brightness(self):
-        return self.home_module.apply_brightness()
-
     def start_edge_flash(self, edge):
         return self.home_module.start_edge_flash(edge)
 
@@ -158,29 +172,11 @@ class LinaBoardApp:
     def cancel_flash_and_redraw(self):
         return self.home_module.cancel_flash_and_redraw()
 
-    def apply_demo_runtime_settings(self, refresh_timer=True):
-        return self.home_module.apply_demo_runtime_settings(refresh_timer=refresh_timer)
-
-    def stop_special_demo_mode(self, redraw_face=True):
-        return self.home_module.stop_special_demo_mode(redraw_face=redraw_face)
-
-    def start_special_demo_mode(self):
-        return self.home_module.start_special_demo_mode()
-
-    def toggle_special_demo_mode(self):
-        return self.home_module.toggle_special_demo_mode()
-
     def check_special_demo_combo(self):
         return self.home_module.check_special_demo_combo()
 
-    def check_badapple_combo(self):
-        return self.home_module.check_badapple_combo()
-
     def adjust_interval(self, delta):
         return self.home_module.adjust_interval(delta)
-
-    def sync_protocol_brightness_from_buttons(self):
-        return self.home_module.sync_protocol_brightness_from_buttons()
 
     def adjust_brightness(self, delta):
         return self.home_module.adjust_brightness(delta)
@@ -267,7 +263,7 @@ class LinaBoardApp:
         return self.gpio_module.check_b3_release(prev_b3_down)
 
     # ------------------------------------------------------------------
-    # Unity/WebUI runtime facade
+    # Unity / WebUI runtime facade
     # ------------------------------------------------------------------
     def handle_webui_runtime_command(self, command):
         return self.unity_module.handle_webui_runtime_command(command)
@@ -294,27 +290,25 @@ class LinaBoardApp:
         print(FIRMWARE_BANNER)
         print("Firmware version:", VERSION)
         print("linaboard: starting")
-        print("  module layout       = main loop + protocol router + feature modules")
+        print("  module layout       = main + protocol router + feature modules")
+        print("  color authority     = color_module (color + brightness for all modes)")
         print("  protocol layer      = rina_protocol.py with callback bridge")
         print("  battery display     = battery_module.py")
         print("  default face interval=", DEFAULT_INTERVAL_S, "s")
-        print("  matrix demo         = disabled")
         print("  default brightness  =", DEFAULT_BRIGHTNESS, "%")
         print("  button GPIOs        =", self.buttons.gpios())
-        print("  B3+B6 matrix demo   = disabled/consumed")
-        print("  B2+B6 scroll IP/SSID= enabled")
+        print("  B3+B6 combo         = consumed (no action)")
+        print("  B2+B6 scroll IP/SSID= enabled (uses global display color)")
         print("  saved custom faces  =", saved_faces_370.count(), "faces; B1/B2 and A/M cycle this list")
         print("  webui runtime       = firmware-side scroll text + Unity timeline playback")
         print("  face manager store  = ESP32-S3 firmware source of truth; WebUI pulls/syncs list")
-        print("  manual control mode = buttons enter; network/WebUI exits; WebUI home can enter/exit")
-        print("  bad apple           = excluded in this build")
+        print("  manual control mode = buttons enter; network/WebUI exits")
 
     def initialize(self):
         self.print_startup_info()
         load_settings(self.state, self.battery)
-        print("  network             = ESP32-S3 native Wi-Fi + HTTP + UDP, no ESP8258 bridge")
+        print("  network             = ESP32-S3 native Wi-Fi + HTTP + UDP")
         self.apply_brightness()
-        print("  startup LED animation = disabled")
         self.draw_current_face()
         self.service_battery_sampling(force_sample=True)
 
@@ -332,7 +326,6 @@ class LinaBoardApp:
         while True:
             self.service_network()
             combo_active = self.check_special_demo_combo()
-            combo_active = self.check_badapple_combo() or combo_active
             combo_active = self.check_ip_combo() or combo_active
 
             for gp in self.buttons.poll():
@@ -340,7 +333,6 @@ class LinaBoardApp:
                 next_auto_ms = time.ticks_add(time.ticks_ms(), int(self.state.interval_s * 1000))
 
             combo_active = self.check_special_demo_combo() or combo_active
-            combo_active = self.check_badapple_combo() or combo_active
             combo_active = self.check_ip_combo() or combo_active
 
             self.check_b6_hold()

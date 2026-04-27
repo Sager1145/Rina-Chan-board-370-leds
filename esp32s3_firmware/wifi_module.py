@@ -41,7 +41,6 @@ class WiFiModule(AppModule):
         self.exit_manual_control_from_network("network control")
         self.stop_webui_runtime(redraw=False)
         self.button_face_active = False
-        self.state.special_demo_mode = False
         self.force_m_mode("network/WebUI control", persist=True)
         self.state.flash_active = False
         self.state.edge_flash_active = False

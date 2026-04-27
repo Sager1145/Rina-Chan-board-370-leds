@@ -4,7 +4,7 @@ except ImportError:
     import json
 
 from config import (
-    SETTINGS_FILE, DEFAULT_INTERVAL_S, DEMO_DEFAULT_INTERVAL_S,
+    SETTINGS_FILE, DEFAULT_INTERVAL_S,
     DEFAULT_BRIGHTNESS, BATTERY_DEFAULT_MIN_V, BATTERY_DEFAULT_MAX_V,
     INTERVAL_MIN_S, INTERVAL_MAX_S, BRIGHTNESS_MIN, BRIGHTNESS_MAX,
     BATTERY_RELEARN_HOLDOFF_MEASUREMENTS, BATTERY_CAL_VERSION,
@@ -30,8 +30,6 @@ def save_settings(app_state, battery_state):
         "auto": app_state.auto,
         "interval_s": app_state.interval_s,
         "brightness": app_state.brightness,
-        "demo_auto": app_state.demo_auto,
-        "demo_interval_s": app_state.demo_interval_s,
         "battery_cal_version": BATTERY_CAL_VERSION,
         "battery_min_v": battery_state.min_v,
         "battery_max_v": battery_state.max_v,
@@ -60,15 +58,12 @@ def load_settings(app_state, battery_state):
         app_state.auto = bool(data.get("auto", False))
         app_state.interval_s = clamp_interval(float(data.get("interval_s", DEFAULT_INTERVAL_S)))
         app_state.brightness = clamp_brightness(int(data.get("brightness", DEFAULT_BRIGHTNESS)))
-        app_state.demo_auto = bool(data.get("demo_auto", True))
-        app_state.demo_interval_s = clamp_interval(float(data.get("demo_interval_s", DEMO_DEFAULT_INTERVAL_S)))
         # If the stored calibration version doesn't match the current one
         # (e.g. after a firmware update that changed the voltage range or
         # the percent curve), reset all battery calibration fields to
         # defaults so stale learned values don't poison the new curve.
         stored_cal_version = data.get("battery_cal_version", 0)
         if stored_cal_version != BATTERY_CAL_VERSION:
-            # Battery calibration reset is intentionally silent on serial.
             battery_state.min_v = BATTERY_DEFAULT_MIN_V
             battery_state.max_v = BATTERY_DEFAULT_MAX_V
             battery_state.measure_count = 0

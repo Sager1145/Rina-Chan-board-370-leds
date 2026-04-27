@@ -139,7 +139,6 @@ class WebUIRuntime:
             except Exception as exc:
                 print("manual mode exit failed:", exc)
         st = self.app.state
-        st.special_demo_mode = False
         if hasattr(self.app, "force_m_mode"):
             try:
                 self.app.force_m_mode("webui runtime", persist=True)
@@ -220,13 +219,13 @@ class WebUIRuntime:
     def _render_scroll(self):
         color = None
         try:
-            color = self.app._current_home_color()
+            color = self.app.get_color()
         except Exception:
             color = None
-        if color is None:
-            display_num.render_scrolling_text_window(self.scroll_text, self.scroll_offset)
-        else:
-            display_num.render_scrolling_text_window(self.scroll_text, self.scroll_offset, color=color)
+        display_num.render_scrolling_text_window(
+            self.scroll_text, self.scroll_offset,
+            color=color if color is not None else display_num.MODE_COLOR,
+        )
 
     def _service_scroll(self, now):
         if not self.scroll_next_ms or _ticks_diff(now, self.scroll_next_ms) >= 0:

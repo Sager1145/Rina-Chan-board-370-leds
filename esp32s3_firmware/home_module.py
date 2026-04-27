@@ -1,7 +1,11 @@
 # ---------------------------------------------------------------------------
 # home_module.py
 #
-# Home mode, brightness, interval, overlay flash, and A/M ownership module.
+# Home mode, A/M ownership, interval, overlay flash module.
+#
+# Brightness and color are owned by color_module; calls to
+# self.apply_brightness() and self.sync_protocol_brightness_from_buttons()
+# are forwarded there automatically via the AppModule proxy.
 # ---------------------------------------------------------------------------
 
 import time
@@ -11,7 +15,6 @@ from board import logical_to_led_index, np, scale_color, show, COLS, ROWS
 import display_num
 from config import *
 from settings_store import clamp_interval, clamp_brightness
-from brightness_modes import effective_brightness
 from buttons import BTN_AUTO, BTN_BRIGHT_RST
 
 from app_module_base import AppModule
@@ -19,12 +22,9 @@ from app_module_base import AppModule
 
 class HomeModule(AppModule):
 
-    def apply_brightness(self):
-        board.set_max_brightness(effective_brightness(
-            self.state.brightness,
-            badapple_mode=False,
-            demo_mode=False,
-        ))
+    # ------------------------------------------------------------------
+    # Edge flash overlay
+    # ------------------------------------------------------------------
 
     def start_edge_flash(self, edge):
         self.state.edge_flash_active = True
@@ -75,6 +75,10 @@ class HomeModule(AppModule):
         show()
         return True
 
+    # ------------------------------------------------------------------
+    # Flash overlay (brightness / interval / mode feedback)
+    # ------------------------------------------------------------------
+
     def render_flash_overlay_base(self):
         if self.state.flash_kind == "interval":
             display_num.render_interval(self.state.flash_value)
@@ -112,81 +116,28 @@ class HomeModule(AppModule):
         self.state.flash_value = None
         self.render_current_visual(force=True)
 
-    def apply_demo_runtime_settings(self, refresh_timer=True):
-        # Matrix demo is disabled in this build; keep this as a no-op so the
-        # large matrix_demos module is not imported and compiled during boot.
-        return
-
-    def stop_special_demo_mode(self, redraw_face=True):
-        if not self.state.special_demo_mode:
-            return
-        self.state.special_demo_mode = False
-        self.apply_brightness()
-        if redraw_face:
-            self.draw_current_face()
-
-    def start_special_demo_mode(self):
-        # Matrix demo is intentionally unavailable.
-        self.state.special_demo_mode = False
-        return
-
-    def toggle_special_demo_mode(self):
-        self.stop_special_demo_mode(redraw_face=True)
-        print("special demo mode = disabled")
+    # ------------------------------------------------------------------
+    # B3 + B6 combo guard
+    #
+    # Holding B3+B6 simultaneously is consumed here so it can never
+    # accidentally fire the B6 battery display or the B3 A/M toggle.
+    # No demo mode exists; this is purely a guard.
+    # ------------------------------------------------------------------
 
     def check_special_demo_combo(self):
-        # Matrix demo button control is completely disabled in this build.
-        # B3+B6 is consumed so it never toggles auto mode or B6 battery mode,
-        # but it does not enter any demo renderer.
         b3_down = self.buttons.is_down(BTN_AUTO)
         b6_down = self.buttons.is_down(BTN_BRIGHT_RST)
         if b3_down and b6_down:
+            # Consume both buttons so neither fires its solo action.
             self.state.b3_consumed = True
             self.state.b6_pending = False
             self.state.b6_long_fired = False
-            self.state.combo_press_started_ms = None
-            self.state.combo_long_fired = False
             return True
-        self.state.combo_press_started_ms = None
-        self.state.combo_long_fired = False
-        self.state.special_demo_mode = False
-        return False
-
-    def check_badapple_combo(self):
-        # Bad Apple is intentionally excluded in this integrated build.
-        self.state.badapple_combo_press_started_ms = None
-        self.state.badapple_combo_long_fired = False
         return False
 
     # ------------------------------------------------------------------
-    # User actions
+    # Brightness (delegates apply/sync to color_module via app proxy)
     # ------------------------------------------------------------------
-
-    def adjust_interval(self, delta):
-        self.state.special_demo_mode = False
-        old_val = self.state.interval_s
-        self.state.interval_s = clamp_interval(self.state.interval_s + delta)
-        if self.state.interval_s != old_val:
-            self.save_settings()
-        if delta < 0 and self.state.interval_s <= INTERVAL_MIN_S:
-            self.start_edge_flash("bottom")
-        elif delta > 0 and self.state.interval_s >= INTERVAL_MAX_S:
-            self.start_edge_flash("top")
-        self.stop_battery_display()
-        display_num.render_interval(self.state.interval_s)
-        # flash_kind must be set before overlay_edge_flash() so the first
-        # rendered frame of the edge flash gets the interval tint
-        # (MODE_COLOR / purple) instead of the default blue.
-        self.start_or_extend_flash("interval", self.state.interval_s)
-        self.overlay_edge_flash()
-
-    def sync_protocol_brightness_from_buttons(self):
-        # Keep web/API brightness in sync after hardware button changes.
-        if self.proto is not None and hasattr(self.proto, "bright"):
-            try:
-                self.proto.bright = int(effective_brightness(self.state.brightness, badapple_mode=False, demo_mode=False))
-            except Exception as exc:
-                print("brightness state sync failed:", exc)
 
     def adjust_brightness(self, delta):
         old_val = self.state.brightness
@@ -215,11 +166,30 @@ class HomeModule(AppModule):
         display_num.render_brightness_percent(self.state.brightness)
         self.start_or_extend_flash("brightness", self.state.brightness)
 
+    # ------------------------------------------------------------------
+    # Interval
+    # ------------------------------------------------------------------
+
+    def adjust_interval(self, delta):
+        old_val = self.state.interval_s
+        self.state.interval_s = clamp_interval(self.state.interval_s + delta)
+        if self.state.interval_s != old_val:
+            self.save_settings()
+        if delta < 0 and self.state.interval_s <= INTERVAL_MIN_S:
+            self.start_edge_flash("bottom")
+        elif delta > 0 and self.state.interval_s >= INTERVAL_MAX_S:
+            self.start_edge_flash("top")
+        self.stop_battery_display()
+        display_num.render_interval(self.state.interval_s)
+        self.start_or_extend_flash("interval", self.state.interval_s)
+        self.overlay_edge_flash()
+
+    # ------------------------------------------------------------------
+    # A/M mode and manual control
+    # ------------------------------------------------------------------
+
     def force_m_mode(self, source="network", persist=True):
-        # M/A fix: any actual external/WebUI control owns the LEDs and must
-        # cancel saved-face auto cycling.  This is the same user-visible M
-        # state as the B3 A/M toggle, but it does not draw the big "M"
-        # overlay because that would overwrite the WebUI command output.
+        """Cancel auto cycling without showing the M overlay (used by WebUI)."""
         was_auto = bool(self.state.auto)
         self.state.auto = False
         if was_auto:
@@ -231,10 +201,9 @@ class HomeModule(AppModule):
     def set_manual_control_mode(self, enabled=True, redraw=False, source=""):
         enabled = bool(enabled)
         if enabled:
-            # Manual mode means physical/button ownership.  Stop WebUI-owned
-            # animations and force saved-face cycling into manual (M) mode.
+            # Manual mode = physical/button authority.  Stop WebUI animations
+            # and cancel auto cycling.
             self.stop_webui_runtime(redraw=False)
-            self.state.special_demo_mode = False
             self.force_m_mode(source or "manual control", persist=False)
             self.state.flash_active = False
             self.state.edge_flash_active = False
@@ -250,8 +219,6 @@ class HomeModule(AppModule):
         return self.state.manual_control_mode
 
     def enter_manual_control_from_button(self, gp=None):
-        # Every physical button press transfers authority back to local/manual
-        # control.  The specific button action then continues as before.
         src = "button" if gp is None else "button GPIO{}".format(gp)
         self.set_manual_control_mode(True, redraw=False, source=src)
 
@@ -262,24 +229,23 @@ class HomeModule(AppModule):
         return False
 
     def manual_control_status_json(self):
-        return "{\"manual_control_mode\":" + ("true" if self.state.manual_control_mode else "false") + ",\"auto\":" + ("true" if self.state.auto else "false") + "}"
+        return (
+            "{\"manual_control_mode\":"
+            + ("true" if self.state.manual_control_mode else "false")
+            + ",\"auto\":"
+            + ("true" if self.state.auto else "false")
+            + "}"
+        )
 
     def toggle_auto(self):
-        # Preserve the A/M state that existed before the B3 press.  Entering
-        # manual-control mode intentionally forces M for ordinary GPIO actions,
-        # but B3 itself is the A/M toggle; if we force M before computing the
-        # toggle, B3 can only ever switch to A.
+        # Preserve the A/M state that existed before the B3 press so that
+        # entering manual-control mode doesn't prevent B3 from toggling to A.
         old_auto = bool(self.state.auto)
         self.set_manual_control_mode(True, redraw=False, source="button auto-toggle")
         self.stop_webui_runtime(redraw=False)
-        self.state.special_demo_mode = False
         self.state.auto = not old_auto
         self.save_settings()
         print("auto =", self.state.auto)
         self.stop_battery_display()
         display_num.render_mode(self.state.auto)
         self.start_or_extend_flash("mode", self.state.auto)
-
-    # ------------------------------------------------------------------
-    # Button routing
-    # ------------------------------------------------------------------

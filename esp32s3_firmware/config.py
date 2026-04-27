@@ -15,9 +15,6 @@ INTERVAL_STEP_S = 0.5
 INTERVAL_MIN_S = 0.5
 INTERVAL_MAX_S = 10.0
 
-DEMO_DEFAULT_INTERVAL_S = 5.0
-DEMO_DEFAULT_AUTO = True
-
 # UI-facing brightness is stored as a percent in 5% steps, 5..100.
 # BRIGHTNESS_MAX_CHANNEL is the actual per-channel LED ceiling at 100%.
 # At 100%, the board caps each of R/G/B to BRIGHTNESS_MAX_CHANNEL (170).
@@ -32,8 +29,6 @@ FLASH_HOLD_MS = 1000
 BATTERY_SHORT_SHOW_MS = 2000
 BRIGHTNESS_RESET_IGNORE_MS = 300
 B6_LONG_PRESS_MS = 700
-SPECIAL_COMBO_LONG_PRESS_MS = 2000
-BADAPPLE_COMBO_LONG_PRESS_MS = 2000
 
 BATTERY_REFRESH_MS = 100
 BATTERY_ANIMATION_REFRESH_MS = 50
@@ -111,7 +106,6 @@ CHARGE_DETECT_CHARGING_MIN_V = 4.0
 CHARGE_DISPLAY_THRESHOLD_V = 4.5
 CHARGE_DETECT_HYSTERESIS_LOW_V = 3.0
 
-
 BATTERY_CHARGE_ANIM_INTERVAL_EMPTY_S = 0.2
 BATTERY_CHARGE_ANIM_INTERVAL_NEAR_FULL_S = 0.2
 BATTERY_CHARGE_ANIM_NEAR_FULL_PERCENT = 90
@@ -122,19 +116,3 @@ EDGE_FLASH_ATTACK_MS = 45
 EDGE_FLASH_DECAY_MS = 260
 EDGE_FLASH_TOTAL_MS = EDGE_FLASH_ATTACK_MS + EDGE_FLASH_DECAY_MS
 EDGE_FLASH_COLOR = (0, 120, 255)
-
-BADAPPLE_PART_MODULES = (
-    'badapple_part0', 'badapple_part1', 'badapple_part2', 'badapple_part3',
-    'badapple_part4', 'badapple_part5', 'badapple_part6', 'badapple_part7',
-    'badapple_part8', 'badapple_part9', 'badapple_part10', 'badapple_part11',
-    'badapple_part12', 'badapple_part13', 'badapple_part14', 'badapple_part15',
-    'badapple_part16',
-)
-BADAPPLE_ON_COLOR = (255, 255, 255)
-BADAPPLE_OFF_COLOR = (0, 0, 0)
-# Bad Apple and the matrix demo mode both run at 1/3 of the effective
-# face-mode brightness cap. The UI-facing brightness percent stays the
-# same; only the physical channel cap is reduced while these modes are
-# active.
-BADAPPLE_BRIGHTNESS_DIVISOR = 3
-DEMO_BRIGHTNESS_DIVISOR = 3
