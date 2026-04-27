@@ -1,8 +1,10 @@
 # Auto-generated from RinaChanBoard-main/src/emoji_set.cpp.
 # Each bitmap row is packed MSB-first into one byte.
 
+# Variable: EMPTY8 stores the collection of values used later in this module.
 EMPTY8 = (0, 0, 0, 0, 0, 0, 0, 0)
 
+# Variable: LEYE stores the collection of values used later in this module.
 LEYE = (
     (0, 0, 0, 0, 0, 0, 0, 0),  # 0
     (0, 0, 0, 48, 48, 48, 48, 0),  # 1
@@ -34,6 +36,7 @@ LEYE = (
     (0, 0, 108, 146, 130, 68, 40, 16),  # 27
 )
 
+# Variable: REYE stores the collection of values used later in this module.
 REYE = (
     (0, 0, 0, 0, 0, 0, 0, 0),  # 0
     (0, 0, 0, 12, 12, 12, 12, 0),  # 1
@@ -65,6 +68,7 @@ REYE = (
     (0, 0, 54, 73, 65, 34, 20, 8),  # 27
 )
 
+# Variable: MOUTH stores the collection of values used later in this module.
 MOUTH = (
     (0, 0, 0, 0, 0, 0, 0, 0),  # 0
     (0, 0, 0, 0, 126, 0, 0, 0),  # 1
@@ -101,6 +105,7 @@ MOUTH = (
     (0, 0, 0, 2, 82, 44, 0, 0),  # 32
 )
 
+# Variable: CHEEK stores the collection of values used later in this module.
 CHEEK = (
     (0, 0, 0, 0),  # 0
     (0, 6, 0, 0),  # 1
@@ -110,20 +115,37 @@ CHEEK = (
     (0, 7, 0, 7),  # 5
 )
 
+# Variable: MAX_LEYE_COUNT stores the configured literal value.
 MAX_LEYE_COUNT = 27
+# Variable: MAX_REYE_COUNT stores the configured literal value.
 MAX_REYE_COUNT = 27
+# Variable: MAX_MOUTH_COUNT stores the configured literal value.
 MAX_MOUTH_COUNT = 32
+# Variable: MAX_CHEEK_COUNT stores the configured literal value.
 MAX_CHEEK_COUNT = 5
+# Variable: L_EYE_START_ROW stores the configured literal value.
 L_EYE_START_ROW = 0
+# Variable: L_EYE_START_COL stores the configured literal value.
 L_EYE_START_COL = 0
+# Variable: R_EYE_START_ROW stores the configured literal value.
 R_EYE_START_ROW = 0
+# Variable: R_EYE_START_COL stores the configured literal value.
 R_EYE_START_COL = 10
+# Variable: EYE_SIZE stores the configured literal value.
 EYE_SIZE = 8
+# Variable: MOUTH_START_ROW stores the configured literal value.
 MOUTH_START_ROW = 8
+# Variable: MOUTH_START_COL stores the configured literal value.
 MOUTH_START_COL = 5
+# Variable: MOUTH_SIZE stores the configured literal value.
 MOUTH_SIZE = 8
+# Variable: L_CHEEK_START_ROW stores the configured literal value.
 L_CHEEK_START_ROW = 8
+# Variable: L_CHEEK_START_COL stores the configured literal value.
 L_CHEEK_START_COL = 0
+# Variable: R_CHEEK_START_ROW stores the configured literal value.
 R_CHEEK_START_ROW = 8
+# Variable: R_CHEEK_START_COL stores the configured literal value.
 R_CHEEK_START_COL = 14
+# Variable: CHEEK_SIZE stores the configured literal value.
 CHEEK_SIZE = 4
