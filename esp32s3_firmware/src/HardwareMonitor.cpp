@@ -32,12 +32,17 @@ HardwareMonitor::HardwareMonitor()
       },
       buttonQueue_(nullptr),
       scanTimer_(nullptr),
+      dataMux_(portMUX_INITIALIZER_UNLOCKED),
       debouncedMask_(0),
       activeComboMask_(0),
       batteryAdcMv_(0),
       batteryMv_(0),
       chargeAdcMv_(0),
       chargeMv_(0),
+      batteryPercent_(0),
+      batteryPercentInitialized_(false),
+      charging_(false),
+      chargingInitialized_(false),
       begun_(false),
       stats_() {
 }
@@ -87,35 +92,68 @@ bool HardwareMonitor::pollButtonEvent(ButtonEvent& event) {
 }
 
 uint32_t HardwareMonitor::batteryMilliVolts() const {
-    return batteryMv_;
+    portENTER_CRITICAL(&dataMux_);
+    const uint32_t value = batteryMv_;
+    portEXIT_CRITICAL(&dataMux_);
+    return value;
 }
 
 uint32_t HardwareMonitor::batteryAdcMilliVolts() const {
-    return batteryAdcMv_;
+    portENTER_CRITICAL(&dataMux_);
+    const uint32_t value = batteryAdcMv_;
+    portEXIT_CRITICAL(&dataMux_);
+    return value;
 }
 
 uint32_t HardwareMonitor::chargeMilliVolts() const {
-    return chargeMv_;
+    portENTER_CRITICAL(&dataMux_);
+    const uint32_t value = chargeMv_;
+    portEXIT_CRITICAL(&dataMux_);
+    return value;
 }
 
 uint32_t HardwareMonitor::chargeAdcMilliVolts() const {
-    return chargeAdcMv_;
+    portENTER_CRITICAL(&dataMux_);
+    const uint32_t value = chargeAdcMv_;
+    portEXIT_CRITICAL(&dataMux_);
+    return value;
 }
 
 float HardwareMonitor::batteryVoltage() const {
-    return batteryMv_ / 1000.0f;
+    return batteryMilliVolts() / 1000.0f;
 }
 
 float HardwareMonitor::chargeVoltage() const {
-    return chargeMv_ / 1000.0f;
+    return chargeMilliVolts() / 1000.0f;
+}
+
+uint8_t HardwareMonitor::batteryPercent() const {
+    portENTER_CRITICAL(&dataMux_);
+    const uint8_t value = batteryPercent_;
+    portEXIT_CRITICAL(&dataMux_);
+    return value;
+}
+
+bool HardwareMonitor::isCharging() const {
+    portENTER_CRITICAL(&dataMux_);
+    const bool value = charging_;
+    portEXIT_CRITICAL(&dataMux_);
+    return value;
 }
 
 uint8_t HardwareMonitor::currentButtonMask() const {
-    return debouncedMask_;
+    portENTER_CRITICAL(&dataMux_);
+    const uint8_t value = debouncedMask_;
+    portEXIT_CRITICAL(&dataMux_);
+    return value;
 }
 
-const HardwareMonitorStats& HardwareMonitor::stats() const {
-    return stats_;
+HardwareMonitorStats HardwareMonitor::stats() const {
+    HardwareMonitorStats copy;
+    portENTER_CRITICAL(&dataMux_);
+    copy = stats_;
+    portEXIT_CRITICAL(&dataMux_);
+    return copy;
 }
 
 const char* HardwareMonitor::buttonName(ButtonId button) {
@@ -182,6 +220,18 @@ uint32_t HardwareMonitor::applyDivider(uint32_t adcMv, uint32_t r1, uint32_t r2)
     return (static_cast<uint64_t>(adcMv) * (r1 + r2) + (r2 / 2U)) / r2;
 }
 
+uint16_t HardwareMonitor::voltageToPercentTenths(uint32_t mv) {
+    if (mv <= config::BATTERY_DEFAULT_MIN_MV) {
+        return 0;
+    }
+    if (mv >= config::BATTERY_DEFAULT_MAX_MV) {
+        return 1000;
+    }
+
+    const uint32_t span = config::BATTERY_DEFAULT_MAX_MV - config::BATTERY_DEFAULT_MIN_MV;
+    return static_cast<uint16_t>(((mv - config::BATTERY_DEFAULT_MIN_MV) * 1000U + (span / 2U)) / span);
+}
+
 uint16_t HardwareMonitor::medianMean16(uint8_t gpio) const {
     std::array<uint16_t, config::BATTERY_SAMPLES> samples{};
 
@@ -203,11 +253,16 @@ void HardwareMonitor::timerTick() {
     const uint32_t nowMs = millis();
     scanButtons(nowMs);
     sampleAdc();
+
+    portENTER_CRITICAL(&dataMux_);
     ++stats_.scanCount;
+    portEXIT_CRITICAL(&dataMux_);
 }
 
 void HardwareMonitor::scanButtons(uint32_t nowMs) {
+    portENTER_CRITICAL(&dataMux_);
     uint8_t downMask = debouncedMask_;
+    portEXIT_CRITICAL(&dataMux_);
 
     for (auto& button : buttons_) {
         const bool rawDown = config::BUTTON_ACTIVE_LOW ? (digitalRead(button.pin) == LOW) : (digitalRead(button.pin) == HIGH);
@@ -251,8 +306,12 @@ void HardwareMonitor::scanButtons(uint32_t nowMs) {
         }
     }
 
+    portENTER_CRITICAL(&dataMux_);
     debouncedMask_ = downMask;
-    updateComboState(debouncedMask_, nowMs);
+    const uint8_t stableMask = debouncedMask_;
+    portEXIT_CRITICAL(&dataMux_);
+
+    updateComboState(stableMask, nowMs);
 }
 
 void HardwareMonitor::sampleAdc() {
@@ -264,13 +323,40 @@ void HardwareMonitor::sampleAdc() {
     const uint32_t batteryMv = applyDivider(batteryAdcMv, config::BATTERY_DIVIDER_R1, config::BATTERY_DIVIDER_R2);
     const uint32_t chargeMv = applyDivider(chargeAdcMv, config::CHARGE_DETECT_DIVIDER_R1, config::CHARGE_DETECT_DIVIDER_R2);
 
+    portENTER_CRITICAL(&dataMux_);
     batteryAdcMv_ = smoothIir(batteryAdcMv_, batteryAdcMv);
     chargeAdcMv_ = smoothIir(chargeAdcMv_, chargeAdcMv);
     batteryMv_ = smoothIir(batteryMv_, batteryMv);
     chargeMv_ = smoothIir(chargeMv_, chargeMv);
+
+    const uint16_t measuredTenths = voltageToPercentTenths(batteryMv_);
+    if (!batteryPercentInitialized_) {
+        batteryPercent_ = static_cast<uint8_t>((measuredTenths + 5U) / 10U);
+        batteryPercentInitialized_ = true;
+    } else {
+        const int16_t displayedTenths = static_cast<int16_t>(batteryPercent_) * 10;
+        const int16_t delta = static_cast<int16_t>(measuredTenths) - displayedTenths;
+        if (delta >= config::BATTERY_PERCENT_HYSTERESIS_TENTHS ||
+            delta <= -static_cast<int16_t>(config::BATTERY_PERCENT_HYSTERESIS_TENTHS)) {
+            batteryPercent_ = static_cast<uint8_t>((measuredTenths + 5U) / 10U);
+        }
+    }
+
+    if (!chargingInitialized_) {
+        charging_ = chargeMv_ >= config::CHARGE_DETECT_CHARGING_MIN_MV;
+        chargingInitialized_ = true;
+    } else if (charging_) {
+        if (chargeMv_ <= config::CHARGE_DETECT_HYSTERESIS_LOW_MV) {
+            charging_ = false;
+        }
+    } else if (chargeMv_ >= config::CHARGE_DETECT_CHARGING_MIN_MV) {
+        charging_ = true;
+    }
+
     stats_.lastBatteryRaw = batteryRaw;
     stats_.lastChargeRaw = chargeRaw;
     ++stats_.adcSampleCount;
+    portEXIT_CRITICAL(&dataMux_);
 }
 
 void HardwareMonitor::emitButtonEvent(
@@ -291,9 +377,13 @@ void HardwareMonitor::emitButtonEvent(
     event.timestampMs = nowMs;
 
     if (xQueueSend(buttonQueue_, &event, 0) == pdTRUE) {
+        portENTER_CRITICAL(&dataMux_);
         ++stats_.buttonEventCount;
+        portEXIT_CRITICAL(&dataMux_);
     } else {
+        portENTER_CRITICAL(&dataMux_);
         ++stats_.queueOverflowCount;
+        portEXIT_CRITICAL(&dataMux_);
     }
 }
 

@@ -1,5 +1,6 @@
 #include "NetworkManager.h"
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 
@@ -8,6 +9,8 @@
 #include <LittleFS.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
+
+#include "FixedJsonAllocator.h"
 
 namespace rina {
 namespace {
@@ -178,6 +181,7 @@ void addCommonHeaders(AsyncWebServerResponse* response) {
 NetworkManager::NetworkManager()
     : server_(config::HTTP_PORT),
       udp_(),
+      dns_(),
       commandQueue_(nullptr),
       statsMux_(portMUX_INITIALIZER_UNLOCKED),
       runtimeMux_(portMUX_INITIALIZER_UNLOCKED),
@@ -190,7 +194,10 @@ NetworkManager::NetworkManager()
 }
 
 bool NetworkManager::begin() {
-    if (stats_.apStarted && stats_.httpStarted && stats_.udpStarted) {
+    if (stats_.apStarted &&
+        stats_.httpStarted &&
+        stats_.udpStarted &&
+        (!config::CAPTIVE_PORTAL_ENABLED || stats_.dnsStarted)) {
         return true;
     }
 
@@ -234,12 +241,21 @@ bool NetworkManager::begin() {
         udp_.onPacket(&NetworkManager::udpThunk, this);
     }
 
+    bool dnsOk = !config::CAPTIVE_PORTAL_ENABLED;
+    if (config::CAPTIVE_PORTAL_ENABLED) {
+        dnsOk = dns_.listen(config::DNS_PORT);
+        if (dnsOk) {
+            dns_.onPacket(&NetworkManager::dnsThunk, this);
+        }
+    }
+
     portENTER_CRITICAL(&statsMux_);
     stats_.httpStarted = true;
     stats_.udpStarted = udpOk;
+    stats_.dnsStarted = dnsOk;
     portEXIT_CRITICAL(&statsMux_);
 
-    return udpOk;
+    return udpOk && dnsOk;
 }
 
 bool NetworkManager::pollCommand(protocol::Command& out) {
@@ -289,6 +305,13 @@ void NetworkManager::udpThunk(void* arg, AsyncUDPPacket& packet) {
     auto* self = static_cast<NetworkManager*>(arg);
     if (self != nullptr) {
         self->handleUdpPacket(packet);
+    }
+}
+
+void NetworkManager::dnsThunk(void* arg, AsyncUDPPacket& packet) {
+    auto* self = static_cast<NetworkManager*>(arg);
+    if (self != nullptr) {
+        self->handleDnsPacket(packet);
     }
 }
 
@@ -363,18 +386,22 @@ void NetworkManager::handleStatus(AsyncWebServerRequest* request) {
     const NetworkStats statsCopy = stats();
     const NetworkRuntimeSnapshot runtimeCopy = runtimeSnapshot();
 
-    AsyncResponseStream* response = request->beginResponseStream(kApplicationJson);
-    if (response == nullptr) {
-        request->send(500, kTextPlain, "status allocation failed");
-        return;
-    }
-
-    JsonDocument doc;
+    FixedJsonAllocator<config::NETWORK_STATUS_JSON_POOL_BYTES> allocator;
+    JsonDocument doc(&allocator);
     doc["version"] = config::VERSION;
     doc["protocol"] = config::PROTOCOL_VERSION;
     doc["mode"] = "ap";
     doc["ssid"] = config::AP_SSID;
-    doc["ip"] = WiFi.softAPIP().toString();
+    char ipText[16]{};
+    snprintf(
+        ipText,
+        sizeof(ipText),
+        "%u.%u.%u.%u",
+        apIp_[0],
+        apIp_[1],
+        apIp_[2],
+        apIp_[3]);
+    doc["ip"] = ipText;
     doc["stations"] = WiFi.softAPgetStationNum();
     doc["bright"] = runtimeCopy.brightnessPct;
     doc["bright_pct"] = runtimeCopy.brightnessPct;
@@ -393,6 +420,7 @@ void NetworkManager::handleStatus(AsyncWebServerRequest* request) {
     net["ap"] = statsCopy.apStarted;
     net["http"] = statsCopy.httpStarted;
     net["udp"] = statsCopy.udpStarted;
+    net["dns"] = statsCopy.dnsStarted;
     net["http_requests"] = statsCopy.httpRequests;
     net["webui_requests"] = statsCopy.webuiRequests;
     net["status_requests"] = statsCopy.statusRequests;
@@ -402,6 +430,8 @@ void NetworkManager::handleStatus(AsyncWebServerRequest* request) {
     net["udp_packets"] = statsCopy.udpPackets;
     net["udp_bytes"] = statsCopy.udpBytes;
     net["udp_replies"] = statsCopy.udpReplies;
+    net["dns_packets"] = statsCopy.dnsPackets;
+    net["dns_replies"] = statsCopy.dnsReplies;
     net["m370_ok"] = statsCopy.m370Accepted;
     net["m370_bad"] = statsCopy.m370Rejected;
     net["m370_dequeued"] = statsCopy.m370Dequeued;
@@ -411,6 +441,17 @@ void NetworkManager::handleStatus(AsyncWebServerRequest* request) {
     net["last_m370_ms"] = statsCopy.lastM370Ms;
     net["last_udp_ms"] = statsCopy.lastUdpMs;
     net["next_poll_ms"] = 5000;
+
+    if (doc.overflowed()) {
+        sendPlain(request, 500, "status json pool overflow");
+        return;
+    }
+
+    AsyncResponseStream* response = request->beginResponseStream(kApplicationJson);
+    if (response == nullptr) {
+        request->send(500, kTextPlain, "status allocation failed");
+        return;
+    }
 
     addCommonHeaders(response);
     response->addHeader("Cache-Control", kNoStore);
@@ -429,9 +470,19 @@ void NetworkManager::handleApiRequest(AsyncWebServerRequest* request) {
         return;
     }
 
-    const String cmd = request->getParam("cmd")->value();
+    const AsyncWebParameter* cmdParam = request->getParam("cmd");
+    if (cmdParam == nullptr) {
+        sendPlain(request, 400, "ERR:missing-cmd");
+        return;
+    }
+
+    const auto& cmd = cmdParam->value();
     const uint8_t* data = reinterpret_cast<const uint8_t*>(cmd.c_str());
     const size_t len = cmd.length();
+    if (len > config::HTTP_CMD_MAX_BYTES) {
+        sendPlain(request, 413, "ERR:cmd-too-large");
+        return;
+    }
 
     if (packetEquals(data, len, kUdpTest)) {
         sendPlain(request, 200, kUdpTestReply);
@@ -444,7 +495,7 @@ void NetworkManager::handleApiRequest(AsyncWebServerRequest* request) {
         return;
     }
 
-    if (cmd == "requestState" || cmd == "runtimeStatus") {
+    if (packetEquals(data, len, "requestState") || packetEquals(data, len, "runtimeStatus")) {
         handleStatus(request);
         return;
     }
@@ -466,8 +517,8 @@ void NetworkManager::handleNotFound(AsyncWebServerRequest* request) {
     ++stats_.notFoundRequests;
     portEXIT_CRITICAL(&statsMux_);
 
-    const String path = request->url();
-    if (path == "/api/wifi" || path.startsWith("/api/wifi/")) {
+    const char* path = request->url().c_str();
+    if (strcmp(path, "/api/wifi") == 0 || strncmp(path, "/api/wifi/", sizeof("/api/wifi/") - 1U) == 0) {
         portENTER_CRITICAL(&statsMux_);
         ++stats_.wifiBoundaryRejects;
         portEXIT_CRITICAL(&statsMux_);
@@ -539,6 +590,101 @@ bool NetworkManager::enqueueM370(const uint8_t* data, size_t len, uint32_t remot
     ++stats_.m370Accepted;
     stats_.lastM370Ms = command.receivedMs;
     portEXIT_CRITICAL(&statsMux_);
+    return true;
+}
+
+void NetworkManager::handleDnsPacket(AsyncUDPPacket& packet) {
+    portENTER_CRITICAL(&statsMux_);
+    ++stats_.dnsPackets;
+    portEXIT_CRITICAL(&statsMux_);
+
+    std::array<uint8_t, config::DNS_RX_BUF_SIZE> response{};
+    size_t responseLen = 0;
+    if (!buildDnsResponse(packet.data(), packet.length(), response.data(), response.size(), responseLen)) {
+        return;
+    }
+
+    packet.write(response.data(), responseLen);
+
+    portENTER_CRITICAL(&statsMux_);
+    ++stats_.dnsReplies;
+    portEXIT_CRITICAL(&statsMux_);
+}
+
+bool NetworkManager::buildDnsResponse(
+    const uint8_t* data,
+    size_t len,
+    uint8_t* out,
+    size_t outCapacity,
+    size_t& outLen) const {
+    outLen = 0;
+
+    if (data == nullptr || out == nullptr || len < 12U || outCapacity < 28U) {
+        return false;
+    }
+
+    const uint16_t qdCount = (static_cast<uint16_t>(data[4]) << 8) | data[5];
+    if (qdCount == 0) {
+        return false;
+    }
+
+    size_t pos = 12U;
+    while (pos < len && data[pos] != 0) {
+        const uint8_t labelLen = data[pos];
+        if ((labelLen & 0xc0U) != 0 || labelLen > 63U) {
+            return false;
+        }
+        pos += static_cast<size_t>(labelLen) + 1U;
+        if (pos >= len) {
+            return false;
+        }
+    }
+
+    const size_t questionEnd = pos + 1U + 4U;
+    if (questionEnd > len) {
+        return false;
+    }
+
+    const size_t questionLen = questionEnd - 12U;
+    const size_t needed = 12U + questionLen + 16U;
+    if (needed > outCapacity) {
+        return false;
+    }
+
+    out[0] = data[0];
+    out[1] = data[1];
+    out[2] = 0x81;
+    out[3] = 0x80;
+    out[4] = 0x00;
+    out[5] = 0x01;
+    out[6] = 0x00;
+    out[7] = 0x01;
+    out[8] = 0x00;
+    out[9] = 0x00;
+    out[10] = 0x00;
+    out[11] = 0x00;
+
+    memcpy(out + 12U, data + 12U, questionLen);
+
+    const size_t answer = 12U + questionLen;
+    out[answer] = 0xc0;
+    out[answer + 1U] = 0x0c;
+    out[answer + 2U] = 0x00;
+    out[answer + 3U] = 0x01;
+    out[answer + 4U] = 0x00;
+    out[answer + 5U] = 0x01;
+    out[answer + 6U] = 0x00;
+    out[answer + 7U] = 0x00;
+    out[answer + 8U] = 0x00;
+    out[answer + 9U] = 0x3c;
+    out[answer + 10U] = 0x00;
+    out[answer + 11U] = 0x04;
+    out[answer + 12U] = apIp_[0];
+    out[answer + 13U] = apIp_[1];
+    out[answer + 14U] = apIp_[2];
+    out[answer + 15U] = apIp_[3];
+
+    outLen = needed;
     return true;
 }
 

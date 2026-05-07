@@ -15,18 +15,6 @@ uint8_t clampByte(uint32_t value) {
     return value > 255U ? 255U : static_cast<uint8_t>(value);
 }
 
-uint8_t batteryPercentFromMv(uint32_t mv) {
-    const uint32_t minMv = static_cast<uint32_t>(config::BATTERY_DEFAULT_MIN_V * 1000.0f);
-    const uint32_t maxMv = static_cast<uint32_t>(config::BATTERY_DEFAULT_MAX_V * 1000.0f);
-    if (mv <= minMv) {
-        return 0;
-    }
-    if (mv >= maxMv) {
-        return 100;
-    }
-    return static_cast<uint8_t>(((mv - minMv) * 100U + ((maxMv - minMv) / 2U)) / (maxMv - minMv));
-}
-
 bool startsWith(const char* line, size_t len, const char* prefix) {
     size_t i = 0;
     while (prefix[i] != '\0') {
@@ -528,7 +516,7 @@ void AppLogic::composeAndSubmit(uint32_t nowMs) {
         applyBatteryOverlay();
     }
 
-    display_->setFrame(composedFrame_);
+    display_->submitBaseFrame(composedFrame_);
 
     const uint32_t elapsedUs = micros() - startUs;
     stats_.lastComposeUs = elapsedUs;
@@ -582,7 +570,7 @@ void AppLogic::applyBatteryOverlay() {
         return;
     }
 
-    const uint8_t percent = batteryPercentFromMv(hardware_->batteryMilliVolts());
+    const uint8_t percent = hardware_->batteryPercent();
     const size_t row = config::ROWS - 1U;
     const size_t len = config::ROW_LENGTHS[row];
     const size_t fill = (static_cast<size_t>(percent) * len + 99U) / 100U;

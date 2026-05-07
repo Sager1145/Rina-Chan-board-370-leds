@@ -19,6 +19,7 @@ DisplayEngine::DisplayEngine()
       framebuffer_{},
       staging_{},
       frameMutex_(nullptr),
+      statsMux_(portMUX_INITIALIZER_UNLOCKED),
       brightnessPct_(config::DEFAULT_BRIGHTNESS_PCT),
       brightnessCap_(config::MAX_BRIGHTNESS_DEFAULT),
       powerBudgetMa_(config::POWER_BUDGET_MA_DEFAULT),
@@ -42,9 +43,6 @@ void DisplayEngine::begin() {
 
     pixels_.Begin();
     pixels_.Dirty();
-    if (pixels_.CanShow()) {
-        pixels_.Show(false);
-    }
 
     nextFrameDueUs_ = micros();
     begun_ = true;
@@ -59,12 +57,12 @@ bool DisplayEngine::renderTick(uint32_t nowUs) {
         return false;
     }
 
-    if (static_cast<int32_t>(nowUs - nextFrameDueUs_) < 0) {
+    if (static_cast<int32_t>((nowUs + config::FRAME_SCHEDULER_TOLERANCE_US) - nextFrameDueUs_) < 0) {
         return false;
     }
 
     if (!pixels_.CanShow()) {
-        ++stats_.droppedFrameCount;
+        recordDroppedFrame();
         advanceDeadline(nowUs);
         return false;
     }
@@ -72,7 +70,7 @@ bool DisplayEngine::renderTick(uint32_t nowUs) {
     const uint32_t startUs = micros();
 
     if (!lockFrame(pdMS_TO_TICKS(2))) {
-        ++stats_.droppedFrameCount;
+        recordDroppedFrame();
         advanceDeadline(nowUs);
         return false;
     }
@@ -89,12 +87,14 @@ bool DisplayEngine::renderTick(uint32_t nowUs) {
     pixels_.Show(false);
 
     const uint32_t elapsedUs = micros() - startUs;
+    portENTER_CRITICAL(&statsMux_);
     stats_.lastRenderUs = elapsedUs;
     if (elapsedUs > stats_.maxRenderUs) {
         stats_.maxRenderUs = elapsedUs;
     }
-
     ++stats_.frameCounter;
+    portEXIT_CRITICAL(&statsMux_);
+
     advanceDeadline(nowUs);
     return true;
 }
@@ -120,11 +120,32 @@ void DisplayEngine::fill(uint8_t r, uint8_t g, uint8_t b) {
     unlockFrame();
 }
 
-void DisplayEngine::setFrame(const FrameBuffer& frame) {
+void DisplayEngine::submitBaseFrame(const FrameBuffer& frame) {
     if (!lockFrame()) {
         return;
     }
-    framebuffer_ = frame;
+    setFrameLocked(frame);
+    unlockFrame();
+}
+
+void DisplayEngine::submitOverlay(const FrameBuffer& overlay) {
+    if (!lockFrame()) {
+        return;
+    }
+
+    for (size_t i = 0; i < config::NUM_LEDS; ++i) {
+        const size_t base = i * 3U;
+        const bool visible =
+            overlay[base] != 0 ||
+            overlay[base + 1U] != 0 ||
+            overlay[base + 2U] != 0;
+        if (visible) {
+            framebuffer_[base] = overlay[base];
+            framebuffer_[base + 1U] = overlay[base + 1U];
+            framebuffer_[base + 2U] = overlay[base + 2U];
+        }
+    }
+
     unlockFrame();
 }
 
@@ -198,9 +219,11 @@ void DisplayEngine::applyBrightness() {
 
 void DisplayEngine::applyFrameDps() {
     const uint32_t estimatedMa = estimateCurrentMa(staging_);
+    portENTER_CRITICAL(&statsMux_);
     stats_.lastEstimatedCurrentMa = estimatedMa;
     stats_.lastOutputCurrentMa = estimatedMa;
     stats_.lastDpsScaleQ16 = kQ16One;
+    portEXIT_CRITICAL(&statsMux_);
 
     if (estimatedMa == 0 || estimatedMa <= powerBudgetMa_) {
         return;
@@ -213,9 +236,12 @@ void DisplayEngine::applyFrameDps() {
         staging_[i] = scaleByteQ16(staging_[i], scaleQ16);
     }
 
+    const uint32_t outputMa = estimateCurrentMa(staging_);
+    portENTER_CRITICAL(&statsMux_);
     stats_.lastDpsScaleQ16 = scaleQ16;
-    stats_.lastOutputCurrentMa = estimateCurrentMa(staging_);
+    stats_.lastOutputCurrentMa = outputMa;
     ++stats_.dpsLimitedFrameCount;
+    portEXIT_CRITICAL(&statsMux_);
 }
 
 bool DisplayEngine::canShow() const {
@@ -238,24 +264,16 @@ uint32_t DisplayEngine::powerBudgetMa() const {
     return powerBudgetMa_;
 }
 
-const DisplayEngineStats& DisplayEngine::stats() const {
-    return stats_;
+DisplayEngineStats DisplayEngine::stats() const {
+    DisplayEngineStats copy;
+    portENTER_CRITICAL(&statsMux_);
+    copy = stats_;
+    portEXIT_CRITICAL(&statsMux_);
+    return copy;
 }
 
 const char* DisplayEngine::driverName() const {
     return "NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>";
-}
-
-DisplayEngine::FrameBuffer& DisplayEngine::framebuffer() {
-    return framebuffer_;
-}
-
-const DisplayEngine::FrameBuffer& DisplayEngine::framebuffer() const {
-    return framebuffer_;
-}
-
-const DisplayEngine::FrameBuffer& DisplayEngine::staging() const {
-    return staging_;
 }
 
 uint8_t DisplayEngine::clampBrightnessPct(uint8_t pct) {
@@ -284,7 +302,7 @@ uint32_t DisplayEngine::estimateCurrentMa(const FrameBuffer& frame) {
 }
 
 void DisplayEngine::drawDemoFrame() {
-    const uint8_t phase = static_cast<uint8_t>((stats_.frameCounter * 5U) & 0xffU);
+    const uint8_t phase = static_cast<uint8_t>((stats().frameCounter * 5U) & 0xffU);
 
     for (size_t i = 0; i < config::NUM_LEDS; ++i) {
         const uint8_t wave = static_cast<uint8_t>((i * 7U + phase) & 0xffU);
@@ -294,6 +312,10 @@ void DisplayEngine::drawDemoFrame() {
         framebuffer_[base + 1] = wave;
         framebuffer_[base + 2] = static_cast<uint8_t>(255U - wave);
     }
+}
+
+void DisplayEngine::setFrameLocked(const FrameBuffer& frame) {
+    framebuffer_ = frame;
 }
 
 void DisplayEngine::pushStagingToBus() {
@@ -318,8 +340,14 @@ void DisplayEngine::advanceDeadline(uint32_t nowUs) {
 
     if (static_cast<int32_t>(nowUs - nextFrameDueUs_) >= 0) {
         nextFrameDueUs_ = nowUs + config::FRAME_PERIOD_US;
-        ++stats_.droppedFrameCount;
+        recordDroppedFrame();
     }
+}
+
+void DisplayEngine::recordDroppedFrame() {
+    portENTER_CRITICAL(&statsMux_);
+    ++stats_.droppedFrameCount;
+    portEXIT_CRITICAL(&statsMux_);
 }
 
 bool DisplayEngine::lockFrame(TickType_t ticks) const {

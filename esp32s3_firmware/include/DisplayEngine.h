@@ -37,7 +37,8 @@ public:
 
     void clear();
     void fill(uint8_t r, uint8_t g, uint8_t b);
-    void setFrame(const FrameBuffer& frame);
+    void submitBaseFrame(const FrameBuffer& frame);
+    void submitOverlay(const FrameBuffer& overlay);
     void setPixel(size_t index, uint8_t r, uint8_t g, uint8_t b);
     void setDemoMode(bool enabled);
 
@@ -53,12 +54,8 @@ public:
     uint8_t brightnessPct() const;
     uint8_t brightnessCap() const;
     uint32_t powerBudgetMa() const;
-    const DisplayEngineStats& stats() const;
+    DisplayEngineStats stats() const;
     const char* driverName() const;
-
-    FrameBuffer& framebuffer();
-    const FrameBuffer& framebuffer() const;
-    const FrameBuffer& staging() const;
 
 private:
     static uint8_t clampBrightnessPct(uint8_t pct);
@@ -66,8 +63,10 @@ private:
     static uint32_t estimateCurrentMa(const FrameBuffer& frame);
 
     void drawDemoFrame();
+    void setFrameLocked(const FrameBuffer& frame);
     void pushStagingToBus();
     void advanceDeadline(uint32_t nowUs);
+    void recordDroppedFrame();
     bool lockFrame(TickType_t ticks = portMAX_DELAY) const;
     void unlockFrame() const;
 
@@ -75,6 +74,7 @@ private:
     FrameBuffer framebuffer_;
     FrameBuffer staging_;
     mutable SemaphoreHandle_t frameMutex_;
+    mutable portMUX_TYPE statsMux_;
     uint8_t brightnessPct_;
     uint8_t brightnessCap_;
     uint32_t powerBudgetMa_;

@@ -18,6 +18,7 @@ struct NetworkStats {
     bool apStarted = false;
     bool httpStarted = false;
     bool udpStarted = false;
+    bool dnsStarted = false;
     uint32_t httpRequests = 0;
     uint32_t webuiRequests = 0;
     uint32_t statusRequests = 0;
@@ -27,6 +28,8 @@ struct NetworkStats {
     uint32_t udpPackets = 0;
     uint32_t udpBytes = 0;
     uint32_t udpReplies = 0;
+    uint32_t dnsPackets = 0;
+    uint32_t dnsReplies = 0;
     uint32_t m370Accepted = 0;
     uint32_t m370Rejected = 0;
     uint32_t m370Dequeued = 0;
@@ -63,6 +66,7 @@ public:
 
 private:
     static void udpThunk(void* arg, AsyncUDPPacket& packet);
+    static void dnsThunk(void* arg, AsyncUDPPacket& packet);
 
     void configureRoutes();
     void handleWebUi(AsyncWebServerRequest* request);
@@ -70,6 +74,8 @@ private:
     void handleApiRequest(AsyncWebServerRequest* request);
     void handleNotFound(AsyncWebServerRequest* request);
     void handleUdpPacket(AsyncUDPPacket& packet);
+    void handleDnsPacket(AsyncUDPPacket& packet);
+    bool buildDnsResponse(const uint8_t* data, size_t len, uint8_t* out, size_t outCapacity, size_t& outLen) const;
     bool enqueueM370(const uint8_t* data, size_t len, uint32_t remoteIp, uint16_t remotePort);
     bool enqueueTextCommand(const uint8_t* data, size_t len, uint32_t remoteIp, uint16_t remotePort);
     bool enqueueCommand(const protocol::Command& command);
@@ -78,6 +84,7 @@ private:
 
     AsyncWebServer server_;
     AsyncUDP udp_;
+    AsyncUDP dns_;
     QueueHandle_t commandQueue_;
     mutable portMUX_TYPE statsMux_;
     mutable portMUX_TYPE runtimeMux_;

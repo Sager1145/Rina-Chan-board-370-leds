@@ -10,6 +10,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "freertos/timers.h"
 
 namespace rina {
@@ -80,8 +81,10 @@ public:
     void setIntervalDebounced(float intervalS);
     void setPowerBudgetDebounced(uint32_t powerBudgetMa);
 
+    void setIoTaskHandle(TaskHandle_t task);
+    void serviceIo();
     bool flushNow();
-    const AssetManagerStats& stats() const;
+    AssetManagerStats stats() const;
 
     static uint8_t clampBrightnessPct(uint8_t pct);
     static uint8_t capFromPct(uint8_t pct);
@@ -98,9 +101,11 @@ private:
 
     mutable SemaphoreHandle_t mutex_;
     TimerHandle_t dirtyTimer_;
+    TaskHandle_t ioTask_;
     RuntimeSettings settings_;
     AssetManagerStats stats_;
     bool dirty_;
+    bool flushPending_;
     uint32_t firstDirtyMs_;
     uint32_t lastDirtyMs_;
     uint32_t dirtyGeneration_;

@@ -6,6 +6,8 @@
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 
+#include "FixedJsonAllocator.h"
+
 namespace rina {
 namespace {
 
@@ -153,9 +155,11 @@ void RntLineReader::discardUntilLineEnd() {
 AssetManager::AssetManager()
     : mutex_(nullptr),
       dirtyTimer_(nullptr),
+      ioTask_(nullptr),
       settings_(),
       stats_(),
       dirty_(false),
+      flushPending_(false),
       firstDirtyMs_(0),
       lastDirtyMs_(0),
       dirtyGeneration_(0) {
@@ -196,7 +200,12 @@ bool AssetManager::begin(bool formatOnFail) {
 }
 
 bool AssetManager::mounted() const {
-    return stats_.mounted;
+    if (mutex_ == nullptr || !lock()) {
+        return false;
+    }
+    const bool value = stats_.mounted;
+    unlock();
+    return value;
 }
 
 RuntimeSettings AssetManager::settings() const {
@@ -283,6 +292,30 @@ void AssetManager::setPowerBudgetDebounced(uint32_t powerBudgetMa) {
     unlock();
 }
 
+void AssetManager::setIoTaskHandle(TaskHandle_t task) {
+    if (!lock()) {
+        return;
+    }
+    ioTask_ = task;
+    unlock();
+}
+
+void AssetManager::serviceIo() {
+    bool shouldFlush = false;
+
+    if (!lock()) {
+        return;
+    }
+
+    shouldFlush = flushPending_;
+    flushPending_ = false;
+    unlock();
+
+    if (shouldFlush) {
+        (void)flushNow();
+    }
+}
+
 bool AssetManager::flushNow() {
     RuntimeSettings snapshot;
     uint32_t generation = 0;
@@ -309,6 +342,7 @@ bool AssetManager::flushNow() {
             stats_.lastFlushMs = millis();
             if (generation == dirtyGeneration_) {
                 dirty_ = false;
+                flushPending_ = false;
                 stats_.settingsDirty = false;
             }
         } else {
@@ -320,8 +354,15 @@ bool AssetManager::flushNow() {
     return ok;
 }
 
-const AssetManagerStats& AssetManager::stats() const {
-    return stats_;
+AssetManagerStats AssetManager::stats() const {
+    AssetManagerStats copy;
+    if (mutex_ == nullptr) {
+        return stats_;
+    }
+    (void)lock();
+    copy = stats_;
+    unlock();
+    return copy;
 }
 
 uint8_t AssetManager::clampBrightnessPct(uint8_t pct) {
@@ -355,10 +396,11 @@ bool AssetManager::loadSettingsFromFs(RuntimeSettings& out) {
         return false;
     }
 
-    JsonDocument doc;
+    FixedJsonAllocator<config::SETTINGS_JSON_POOL_BYTES> allocator;
+    JsonDocument doc(&allocator);
     const DeserializationError err = deserializeJson(doc, file);
     file.close();
-    if (err) {
+    if (err || doc.overflowed()) {
         return false;
     }
 
@@ -384,7 +426,8 @@ bool AssetManager::writeSettingsAtomic(const RuntimeSettings& settings) {
         return false;
     }
 
-    JsonDocument doc;
+    FixedJsonAllocator<config::SETTINGS_JSON_POOL_BYTES> allocator;
+    JsonDocument doc(&allocator);
     doc["schema_version"] = settings.schemaVersion;
     doc["version"] = config::VERSION;
     doc["brightness_pct"] = settings.brightnessPct;
@@ -393,6 +436,12 @@ bool AssetManager::writeSettingsAtomic(const RuntimeSettings& settings) {
     doc["auto"] = settings.autoMode;
     doc["interval_s"] = settings.intervalS;
     doc["power_budget_ma"] = settings.powerBudgetMa;
+
+    if (doc.overflowed()) {
+        file.close();
+        LittleFS.remove(config::SETTINGS_TMP_FILE);
+        return false;
+    }
 
     const size_t written = serializeJson(doc, file);
     file.println();
@@ -428,6 +477,7 @@ void AssetManager::markDirtyLocked(uint32_t nowMs) {
 
 void AssetManager::serviceDirtyQueue() {
     bool shouldFlush = false;
+    TaskHandle_t ioTask = nullptr;
 
     if (!lock(0)) {
         return;
@@ -438,12 +488,16 @@ void AssetManager::serviceDirtyQueue() {
         const bool quietEnough = (nowMs - lastDirtyMs_) >= config::FLASH_FLUSH_DEBOUNCE_MS;
         const bool tooOld = (nowMs - firstDirtyMs_) >= config::MAX_DIRTY_DURATION_MS;
         shouldFlush = quietEnough || tooOld;
+        if (shouldFlush) {
+            flushPending_ = true;
+            ioTask = ioTask_;
+        }
     }
 
     unlock();
 
-    if (shouldFlush) {
-        (void)flushNow();
+    if (shouldFlush && ioTask != nullptr) {
+        xTaskNotifyGive(ioTask);
     }
 }
 

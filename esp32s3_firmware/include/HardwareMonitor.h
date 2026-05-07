@@ -60,8 +60,10 @@ public:
     uint32_t chargeAdcMilliVolts() const;
     float batteryVoltage() const;
     float chargeVoltage() const;
+    uint8_t batteryPercent() const;
+    bool isCharging() const;
     uint8_t currentButtonMask() const;
-    const HardwareMonitorStats& stats() const;
+    HardwareMonitorStats stats() const;
 
     static const char* buttonName(ButtonId button);
     static const char* eventName(ButtonEventType type);
@@ -87,6 +89,7 @@ private:
     static uint8_t popcount8(uint8_t value);
     static uint32_t rawToAdcMilliVolts(uint16_t raw);
     static uint32_t applyDivider(uint32_t adcMv, uint32_t r1, uint32_t r2);
+    static uint16_t voltageToPercentTenths(uint32_t mv);
 
     uint16_t medianMean16(uint8_t gpio) const;
     void timerTick();
@@ -98,12 +101,17 @@ private:
     std::array<ButtonRuntime, 6> buttons_;
     QueueHandle_t buttonQueue_;
     TimerHandle_t scanTimer_;
+    mutable portMUX_TYPE dataMux_;
     uint8_t debouncedMask_;
     uint8_t activeComboMask_;
     uint32_t batteryAdcMv_;
     uint32_t batteryMv_;
     uint32_t chargeAdcMv_;
     uint32_t chargeMv_;
+    uint8_t batteryPercent_;
+    bool batteryPercentInitialized_;
+    bool charging_;
+    bool chargingInitialized_;
     bool begun_;
     HardwareMonitorStats stats_;
 };

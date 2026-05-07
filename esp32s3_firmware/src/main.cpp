@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_task_wdt.h>
 #include "AppLogic.h"
 #include "AssetManager.h"
 #include "Config.h"
@@ -33,7 +34,7 @@ void logDisplayStats() {
         return;
     }
 
-    const auto& stats = displayEngine.stats();
+    const auto stats = displayEngine.stats();
     const uint32_t fps = stats.frameCounter - lastFrameCount;
     lastFrameCount = stats.frameCounter;
     lastLogMs = nowMs;
@@ -58,12 +59,13 @@ void logHardwareStatus() {
     }
     lastLogMs = nowMs;
 
-    const auto& stats = hardwareMonitor.stats();
+    const auto stats = hardwareMonitor.stats();
     Serial.printf(
-        "hw battery=%.3fV adc=%lumV charge=%.3fV charge_adc=%lumV buttons=0x%02x raw=(%u,%u) adc_samples=%lu q_ovf=%lu\r\n",
+        "hw battery=%.3fV adc=%lumV charge=%.3fV charging=%u charge_adc=%lumV buttons=0x%02x raw=(%u,%u) adc_samples=%lu q_ovf=%lu\r\n",
         hardwareMonitor.batteryVoltage(),
         static_cast<unsigned long>(hardwareMonitor.batteryAdcMilliVolts()),
         hardwareMonitor.chargeVoltage(),
+        hardwareMonitor.isCharging(),
         static_cast<unsigned long>(hardwareMonitor.chargeAdcMilliVolts()),
         hardwareMonitor.currentButtonMask(),
         stats.lastBatteryRaw,
@@ -82,7 +84,7 @@ void logAssetStatus() {
     lastLogMs = nowMs;
 
     const auto settings = assetManager.settings();
-    const auto& stats = assetManager.stats();
+    const auto stats = assetManager.stats();
     Serial.printf(
         "asset mounted=%u loaded=%u dirty=%u brightness=%u cap=%u face=%u flush=%lu/%lu fail=%lu\r\n",
         stats.mounted,
@@ -107,13 +109,15 @@ void logNetworkStatus() {
 
     const auto stats = networkManager.stats();
     Serial.printf(
-        "net ap=%u http=%u udp=%u clients=%u http_req=%lu udp_pkt=%lu m370=%lu/%lu q_ovf=%lu\r\n",
+        "net ap=%u http=%u udp=%u dns=%u clients=%u http_req=%lu udp_pkt=%lu dns_pkt=%lu m370=%lu/%lu q_ovf=%lu\r\n",
         stats.apStarted,
         stats.httpStarted,
         stats.udpStarted,
+        stats.dnsStarted,
         WiFi.softAPgetStationNum(),
         static_cast<unsigned long>(stats.httpRequests),
         static_cast<unsigned long>(stats.udpPackets),
+        static_cast<unsigned long>(stats.dnsPackets),
         static_cast<unsigned long>(stats.m370Accepted),
         static_cast<unsigned long>(stats.m370Rejected),
         static_cast<unsigned long>(stats.queueOverflow));
@@ -144,13 +148,19 @@ void logAppLogicStatus() {
 }
 
 void renderTaskMain(void*) {
+    esp_task_wdt_add(nullptr);
     TickType_t wake = xTaskGetTickCount();
+    uint32_t delayAccumulatorUs = 0;
 
     while (true) {
         if (displayEngine.renderTick()) {
             logDisplayStats();
         }
-        vTaskDelayUntil(&wake, pdMS_TO_TICKS(1));
+        esp_task_wdt_reset();
+        delayAccumulatorUs += rina::config::FRAME_PERIOD_US;
+        const uint32_t delayMs = delayAccumulatorUs / 1000UL;
+        delayAccumulatorUs -= delayMs * 1000UL;
+        vTaskDelayUntil(&wake, pdMS_TO_TICKS(delayMs));
     }
 }
 
@@ -158,30 +168,49 @@ void networkTaskMain(void*) {
     if (!networkManager.begin()) {
         Serial.println("NetworkManager failed to start AP/HTTP/UDP");
     } else {
+        const IPAddress ip = WiFi.softAPIP();
         Serial.printf(
-            "NetworkManager AP ssid=%s ip=%s http=%u udp=%u\r\n",
+            "NetworkManager AP ssid=%s ip=%u.%u.%u.%u http=%u udp=%u\r\n",
             rina::config::AP_SSID,
-            WiFi.softAPIP().toString().c_str(),
+            ip[0],
+            ip[1],
+            ip[2],
+            ip[3],
             rina::config::HTTP_PORT,
             rina::config::LOCAL_UDP_PORT);
     }
 
+    esp_task_wdt_add(nullptr);
     TickType_t wake = xTaskGetTickCount();
     while (true) {
         networkManager.setRuntimeSnapshot(appLogic.networkSnapshot());
         logNetworkStatus();
+        esp_task_wdt_reset();
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(rina::config::NETWORK_TASK_PERIOD_MS));
     }
 }
 
+void assetIoTaskMain(void*) {
+    assetManager.setIoTaskHandle(xTaskGetCurrentTaskHandle());
+    esp_task_wdt_add(nullptr);
+
+    while (true) {
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(rina::config::ASSET_IO_TASK_PERIOD_MS));
+        assetManager.serviceIo();
+        logAssetStatus();
+        esp_task_wdt_reset();
+    }
+}
+
 void appLogicTaskMain(void*) {
+    esp_task_wdt_add(nullptr);
     TickType_t wake = xTaskGetTickCount();
 
     while (true) {
         appLogic.tick();
         logHardwareStatus();
-        logAssetStatus();
         logAppLogicStatus();
+        esp_task_wdt_reset();
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(rina::config::APP_LOGIC_TICK_MS));
     }
 }
@@ -212,6 +241,18 @@ bool startCoreTasks() {
     }
 
     ok = xTaskCreatePinnedToCore(
+        assetIoTaskMain,
+        "AssetIoTask",
+        rina::config::ASSET_IO_TASK_STACK_WORDS,
+        nullptr,
+        rina::config::ASSET_IO_TASK_PRIORITY,
+        &AssetIoTask,
+        rina::config::ASSET_IO_TASK_CORE);
+    if (ok != pdPASS) {
+        return false;
+    }
+
+    ok = xTaskCreatePinnedToCore(
         appLogicTaskMain,
         "AppLogicTask",
         rina::config::APP_LOGIC_TASK_STACK_WORDS,
@@ -227,11 +268,15 @@ bool startCoreTasks() {
 void setup() {
     Serial.begin(115200);
 
+    if (esp_task_wdt_init((rina::config::WDT_TIMEOUT_MS + 999U) / 1000U, true) != ESP_OK) {
+        Serial.println("Task watchdog initialization failed");
+    }
+
     if (!assetManager.begin(false)) {
         Serial.println("AssetManager failed to mount LittleFS; upload the data image with `pio run -t uploadfs`");
     } else {
         const auto settings = assetManager.settings();
-        const auto& stats = assetManager.stats();
+        const auto stats = assetManager.stats();
         Serial.printf(
             "settings loaded=%u brightness=%u cap=%u face=%u auto=%u interval=%.2fs power=%lumA\r\n",
             stats.settingsLoaded,
