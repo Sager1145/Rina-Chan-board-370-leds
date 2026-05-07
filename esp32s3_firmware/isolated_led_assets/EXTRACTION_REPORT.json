@@ -1,0 +1,22 @@
+{
+  "asset_counts": {
+    "color": 53,
+    "default_face": 11,
+    "ascii_glyph": 95,
+    "face_module": 93,
+    "legacy_component": 95,
+    "display_font_glyph": 14,
+    "display_special_glyph": 2,
+    "scroll_font_glyph": 43,
+    "icon": 7,
+    "timeline_rnt": 158
+  },
+  "total_indexed": 571,
+  "source_files_scanned": [
+    "assets/color_info.json",
+    "assets/unity_core.json",
+    "saved_faces_370.py",
+    "emoji_db.py",
+    "display_num.py"
+  ]
+}

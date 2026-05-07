@@ -1,0 +1,129 @@
+{
+  "format": "isolated-led-assets-bundled-v1",
+  "generated_utc": "2026-05-07T09:31:00Z",
+  "bundle_max_bytes": 32768,
+  "index_max_target_bytes": 32768,
+  "root": "isolated_led_assets",
+  "bundled_categories": [
+    "colors",
+    "faces",
+    "face_modules",
+    "icons",
+    "legacy_flyakari_components",
+    "text",
+    "voice"
+  ],
+  "bundle_files": [
+    {
+      "category": "colors",
+      "bundle": "resources/bundles/colors_bundle_00.bin",
+      "bytes": 371,
+      "items": 53,
+      "sha1": "464af5eaeb673608fb8375b09958dd5772f100ec"
+    },
+    {
+      "category": "faces",
+      "bundle": "resources/bundles/faces_bundle_00.bin",
+      "bytes": 5588,
+      "items": 22,
+      "sha1": "61f4b693f411140cc416cf990d4e009379b9b6fe"
+    },
+    {
+      "category": "face_modules",
+      "bundle": "resources/bundles/face_modules_bundle_00.bin",
+      "bytes": 24307,
+      "items": 186,
+      "sha1": "139cd8c7e79edf92e738ebc62dfd5a7dd977e47c"
+    },
+    {
+      "category": "icons",
+      "bundle": "resources/bundles/icons_bundle_00.bin",
+      "bytes": 7962,
+      "items": 28,
+      "sha1": "df8b1d1466e292bb2cd366a72cb7315d064d93ba"
+    },
+    {
+      "category": "legacy_flyakari_components",
+      "bundle": "resources/bundles/legacy_flyakari_components_bundle_00.bin",
+      "bytes": 23232,
+      "items": 190,
+      "sha1": "68360559759e0e87014cddbf5c122cf0dd6336f3"
+    },
+    {
+      "category": "text",
+      "bundle": "resources/bundles/text_bundle_00.bin",
+      "bytes": 32656,
+      "items": 302,
+      "sha1": "5aff97ae229ca27f34e0f19aebee64d2f1624ff5"
+    },
+    {
+      "category": "text",
+      "bundle": "resources/bundles/text_bundle_01.bin",
+      "bytes": 636,
+      "items": 6,
+      "sha1": "8e973ccc11edb8f0b2712ba96c5434ce6f6eca31"
+    },
+    {
+      "category": "voice",
+      "bundle": "resources/bundles/voice_bundle_00.bin",
+      "bytes": 31925,
+      "items": 35,
+      "sha1": "c949e23f8c21bb8dee6d1c3aa7962274863c706e"
+    },
+    {
+      "category": "voice",
+      "bundle": "resources/bundles/voice_bundle_01.bin",
+      "bytes": 31870,
+      "items": 32,
+      "sha1": "d18bf29e1b2821580553d2c52fedd87cb70d2a56"
+    },
+    {
+      "category": "voice",
+      "bundle": "resources/bundles/voice_bundle_02.bin",
+      "bytes": 32620,
+      "items": 35,
+      "sha1": "a5ca52cdc26a8e2d9cd2f1899e0ff676439d4449"
+    },
+    {
+      "category": "voice",
+      "bundle": "resources/bundles/voice_bundle_03.bin",
+      "bytes": 32121,
+      "items": 37,
+      "sha1": "9f118ff8eec5d9aef2eabc5ef6afd3e6e6c5dbb7"
+    },
+    {
+      "category": "voice",
+      "bundle": "resources/bundles/voice_bundle_04.bin",
+      "bytes": 3505,
+      "items": 4,
+      "sha1": "97eb9effc93b4db90ef281aaf57492f361527834"
+    }
+  ],
+  "database_timeline_parts": [
+    {
+      "kind": "music",
+      "path": "resources/database/timeline_index_music_00.json",
+      "count": 8,
+      "bytes": 1677
+    },
+    {
+      "kind": "video",
+      "path": "resources/database/timeline_index_video_00.json",
+      "count": 7,
+      "bytes": 1445
+    },
+    {
+      "kind": "voice",
+      "path": "resources/database/timeline_index_voice_00.json",
+      "count": 143,
+      "bytes": 29268
+    }
+  ],
+  "file_count": 61,
+  "max_file_bytes": 33162,
+  "notes": [
+    "Small assets are stored as raw-byte bundles with per-category JSON indexes.",
+    "Music/video RNT files remain individual for streaming.",
+    "Use bundle index offset/length/sha1 to read a logical asset without loading the whole manifest."
+  ]
+}

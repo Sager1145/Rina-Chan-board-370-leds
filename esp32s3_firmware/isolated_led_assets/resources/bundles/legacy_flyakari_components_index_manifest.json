@@ -1,0 +1,21 @@
+{
+  "category": "legacy_flyakari_components",
+  "items": 190,
+  "index_parts": [
+    {
+      "path": "resources/bundles/legacy_flyakari_components_index_00.json",
+      "items": 90,
+      "bytes": 32411
+    },
+    {
+      "path": "resources/bundles/legacy_flyakari_components_index_01.json",
+      "items": 91,
+      "bytes": 32620
+    },
+    {
+      "path": "resources/bundles/legacy_flyakari_components_index_02.json",
+      "items": 9,
+      "bytes": 3204
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "category": "voice",
+  "items": 143,
+  "index_parts": [
+    {
+      "path": "resources/bundles/voice_index_00.json",
+      "items": 118,
+      "bytes": 32589
+    },
+    {
+      "path": "resources/bundles/voice_index_01.json",
+      "items": 25,
+      "bytes": 6897
+    }
+  ]
+}

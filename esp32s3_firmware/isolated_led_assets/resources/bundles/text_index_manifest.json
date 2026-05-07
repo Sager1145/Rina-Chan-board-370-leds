@@ -1,0 +1,21 @@
+{
+  "category": "text",
+  "items": 308,
+  "index_parts": [
+    {
+      "path": "resources/bundles/text_index_00.json",
+      "items": 105,
+      "bytes": 32548
+    },
+    {
+      "path": "resources/bundles/text_index_01.json",
+      "items": 104,
+      "bytes": 32490
+    },
+    {
+      "path": "resources/bundles/text_index_02.json",
+      "items": 99,
+      "bytes": 31845
+    }
+  ]
+}
