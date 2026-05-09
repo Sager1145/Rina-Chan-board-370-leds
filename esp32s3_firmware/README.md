@@ -7,7 +7,7 @@ This PlatformIO firmware starts an ESP32-S3 AP, serves `data/index.html` and `da
 - `GET/POST /api/saved_faces` for the unified `saved_faces.json`.
 - `GET /api/status` for runtime state.
 
-LED output is a simple 370 LED WS2812/NeoPixel chain on `GPIO2`. M370 bit `0..369` maps directly to LED `0..369`. Brightness is clamped to the project raw range `10..200`; the WebUI percentage is still `raw / 255`, so the capped maximum displays as about `78%`.
+LED output is a 370 LED WS2812/NeoPixel chain on `GPIO2` with serpentine physical wiring: logical row 0 is forward, logical row 1 is reversed, and so on. M370 bit `0..369` remains the logical row-major display order; the firmware maps those logical bits to the physical serpentine LED index before writing NeoPixel data. Brightness is clamped to the project raw range `10..200`; the WebUI percentage is still `raw / 255`, so the capped maximum displays as about `78%`.
 
 `/api/frame` only applies the M370 mask plus `reason` / `playback`. Color and brightness are global renderer state and should be changed through `/api/command`.
 
@@ -27,4 +27,5 @@ After boot, connect to:
 - Password: `rinachan`
 - URL: `http://192.168.1.14/`
 
-Default startup face: `face_07_triangle_eyes_frown`.
+Default startup brightness: `50/255`.
+After the startup sequence completes, the board displays the default face: `face_07_triangle_eyes_frown`.

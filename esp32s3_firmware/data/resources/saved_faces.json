@@ -104,7 +104,10 @@
     "m370HexChars": 93,
     "m370PayloadBits": 370,
     "m370PaddingBits": 2,
-    "bitOrder": "canonical logical row-major over valid physical LED positions only; each hex nibble is MSB-first; final 2 bits are zero padding"
+    "bitOrder": "canonical logical row-major over valid matrix cells; each hex nibble is MSB-first; final 2 bits are zero padding; firmware maps logical cells to physical serpentine LEDs on output",
+    "serpentine": true,
+    "serpentine_odd_rows_reversed": true,
+    "physicalWiring": "serpentine"
   },
   "startupDefaultId": "face_07_triangle_eyes_frown",
   "defaultFaceIndex": 7,

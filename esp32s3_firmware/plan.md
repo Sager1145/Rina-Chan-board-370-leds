@@ -113,7 +113,7 @@
 
 ### 1.3 M370 编码规则
 
-`M370` 是 370 LED 的真实物理输出协议，不再使用 16×18 FaceString 作为最终下位机协议。
+`M370` 是 370 LED 的逻辑画面输出协议，不再使用 16×18 FaceString 作为最终下位机协议；固件在写入 NeoPixel 前负责把逻辑 row-major bit 映射到物理蛇形走线。
 
 ```text
 M370:<93 hex>
@@ -589,6 +589,7 @@ updateAdc()
 setColor('#f971d4','boot') -> POST /api/command set_color
 setBrightness(50,'boot') -> POST /api/command set_brightness
 loadFaceLibrary() -> GET /api/saved_faces 或 /resources/saved_faces.json -> 解析同一个 faces[] 中的 default/custom/parts
+startup sequence complete -> apply startupDefaultId/default face -> POST /api/frame M370
 render all UI/state/log/matrices/M370 views/firmware status
 ```
 
@@ -2026,7 +2027,7 @@ POST /api/saved_faces
    - `src/main.cpp`
    - `README.md`
 2. 当前固件为单文件最小实现，先满足 AP WebServer、M370 接收、LED 输出和统一表情库读写；后续如继续模块化，可再拆为前文规划的 `M370`、`LedRenderer`、`WebApi` 等模块。
-3. LED 当前使用 `Adafruit NeoPixel` 驱动，370 颗 WS2812/NeoPixel 串接在 `GPIO2`，`M370` bit `0..369` 直接映射到 LED `0..369`。
+3. LED 当前使用 `Adafruit NeoPixel` 驱动，370 颗 WS2812/NeoPixel 串接在 `GPIO2`，物理走线为蛇形：逻辑第 0 行正向，第 1 行反向，后续交替。`M370` bit `0..369` 保持逻辑 row-major 顺序，固件输出时再映射到物理蛇形 LED index。
 4. AP 配置已落地：
    - SSID：`RinaChanBoard-ESP32S3`
    - 密码：`rinachan`
@@ -2091,3 +2092,79 @@ POST /api/saved_faces
 1. 当前固件是最小帧接收器，尚未实现物理按钮扫描、ADC 采样、DPS 电流限制、自动表情切换或文字滚动 packed binary 上传播放器。
 2. `button` 指令当前只记录到状态中；实际 LED 变化仍由 WebUI 生成 M370 后通过 `/api/frame` 输出。
 3. README 已记录当前烧录流程、AP 信息、GPIO2 LED 输出、亮度范围、frame/command 边界和 LittleFS 故障提示。
+
+
+---
+
+## LED 画板映射验证报告（自动生成）
+
+> 验证时间：2026-05-09
+> 验证范围：`data/index.html` 画板编辑器 ↔ M370 编码 ↔ 固件解码 ↔ 物理 LED 输出的完整链路
+
+### 验证结论：逻辑 M370 映射正确，物理蛇形输出映射已修复
+
+---
+
+### 1. row_lengths 与 row_valid_x_ranges 一致性 ✓
+
+每行的 `row_lengths[y]` 值与 `row_valid_x_ranges[y]` 的 `x1 - x0 + 1` 完全一致，18 行全部通过。
+`sum(row_lengths) = 18+20+20+20+(22x9)+20+20+20+18+16 = 370 = TOTAL_LEDS` ✓
+
+### 2. XY_TO_INDEX 构建顺序 ✓
+
+逻辑扫描顺序：row 0->17，每行 x0->x1 正向；物理蛇形翻转只在固件 NeoPixel 输出层执行。
+构建后 ledIndex = 370 ✓，无效格数量 = 396-370 = 26 ✓
+
+### 3. 画板编辑器 -> M370 编码链路 ✓
+
+```
+用户点击画板 (x,y) 格子
+  -> cell.dataset.idx = XY_TO_INDEX[y][x]
+  -> editFrame[idx] = true
+  -> frameToM370: bits[idx] = '1'  (MSB-first 打包)
+  -> M370 第 idx 个 bit = 1
+```
+
+frame[idx] 直接对应 M370 的第 idx 个 bit，不存在二次映射或偏移。
+
+### 4. 固件端解码链路 ✓
+
+```cpp
+// applyM370(): bit[n] = (nibble[n/4] >> (3 - n%4)) & 1  (MSB-first 展开)
+// showCurrentFrame(): strip.setPixelColor(logicalToPhysicalLedIndex(i), frameBit(i) ? rgb : 0)
+```
+
+HTML 编码与固件解码保持逻辑 row-major 对称；固件输出层负责逻辑到物理蛇形走线的最终映射 ✓
+
+### 5. 已修复：物理 LED 蛇形走线映射
+
+**位置**：`src/main.cpp` 的 `logicalToPhysicalLedIndex()`、`data/index.html` 的 `EXPRESSION_PARTS.matrix.serpentine = true`
+
+**处理**：
+- M370 仍作为逻辑画面协议：370 个有效格按 row-major 编码，93 hex，MSB-first。
+- 固件写入 NeoPixel 前调用 `logicalToPhysicalLedIndex()`，将逻辑索引映射到蛇形物理索引。
+- 蛇形规则为 0 基奇数行反向，也就是第 2、4、6... 行反向。
+- WebUI 的 legacy `strip_indices` fallback 会把物理蛇形索引映射回逻辑 M370 cell。
+
+**影响评估**：既修复实物显示方向，又不需要迁移现有 `saved_faces.json` 与部件 `m370` 数据。
+
+**修复结果**：已将 `serpentine` 恢复为 `true`，并在固件输出层实际使用蛇形物理映射。
+
+### 6. 物理接线前提（代码层无法验证）
+
+整个映射正确性关键前提：物理 LED strip 的接线顺序必须是从 row 0 开始蛇形连续焊接。
+即：LED #0 = (x=2, y=0)，LED #17 = (x=19, y=0)，LED #18 = (x=20, y=1)，LED #37 = (x=1, y=1)，后续逐行交替。
+
+### 7. 汇总
+
+| 检查项 | 结论 |
+|-------|------|
+| row_lengths 与 x_ranges 一致 | ✓ 正确 |
+| sum(row_lengths) = 370 | ✓ 正确 |
+| 无效格数量 = 26 | ✓ 正确 |
+| XY_TO_INDEX 构建顺序 | ✓ 逻辑 row-major |
+| frameToM370 编码 | ✓ MSB-first，无偏移 |
+| 固件 applyM370 解码 | ✓ 与 HTML 编码对称 |
+| 画板点击->物理 LED 映射 | ✓ 经固件蛇形映射后一一对应 |
+| `serpentine: true` 元数据 | ✓ 与物理走线一致 |
+| 物理接线顺序 | 🔲 需实机确认 |

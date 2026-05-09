@@ -20,10 +20,28 @@ constexpr uint16_t LED_PIN = 2;
 constexpr uint16_t LED_COUNT = 370;
 constexpr uint16_t M370_HEX_CHARS = 93;
 constexpr uint16_t M370_BITS = 370;
+constexpr uint8_t MATRIX_ROWS = 18;
+constexpr bool SERPENTINE_WIRING = true;
+constexpr bool SERPENTINE_ODD_ROWS_REVERSED = true;
+constexpr uint8_t ROW_LENGTHS[MATRIX_ROWS] = {
+    18, 20, 20, 20, 22, 22, 22, 22, 22,
+    22, 22, 22, 22, 20, 20, 20, 18, 16
+};
+constexpr uint16_t ROW_OFFSETS[MATRIX_ROWS] = {
+    0, 18, 38, 58, 78, 100, 122, 144, 166,
+    188, 210, 232, 254, 276, 296, 316, 336, 354
+};
+static_assert(ROW_OFFSETS[MATRIX_ROWS - 1] + ROW_LENGTHS[MATRIX_ROWS - 1] == LED_COUNT,
+              "matrix row layout must cover exactly LED_COUNT logical cells");
 constexpr uint8_t DEFAULT_BRIGHTNESS = 50;
 constexpr uint8_t MIN_BRIGHTNESS = 10;
 constexpr uint8_t MAX_BRIGHTNESS = 200;
 constexpr char DEFAULT_COLOR[] = "#f971d4";
+constexpr char DEFAULT_MODE[] = "manual";
+constexpr char DEFAULT_PLAYBACK[] = "idle";
+constexpr char STARTUP_FACE_REASON[] = "startup_sequence_complete_saved_face";
+constexpr char LITTLEFS_BASE_PATH[] = "/littlefs";
+constexpr char LITTLEFS_PARTITION_LABEL[] = "littlefs";
 constexpr char SAVED_FACES_PATH[] = "/resources/saved_faces.json";
 
 WebServer server(HTTP_PORT);
@@ -36,8 +54,8 @@ struct RuntimeState {
     uint8_t colorG = 0x71;
     uint8_t colorB = 0xd4;
     uint8_t brightness = DEFAULT_BRIGHTNESS;
-    String mode = "manual";
-    String playback = "idle";
+    String mode = DEFAULT_MODE;
+    String playback = DEFAULT_PLAYBACK;
     String lastM370;
     String lastReason = "boot";
     String lastCommand;
@@ -86,11 +104,31 @@ bool frameBit(uint16_t index) {
     return (frameBits[index >> 3] & (1U << (index & 7U))) != 0;
 }
 
+uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
+    if (!SERPENTINE_WIRING || logicalIndex >= LED_COUNT) {
+        return logicalIndex;
+    }
+
+    for (uint8_t row = 0; row < MATRIX_ROWS; ++row) {
+        const uint16_t rowStart = ROW_OFFSETS[row];
+        const uint8_t rowLength = ROW_LENGTHS[row];
+        if (logicalIndex < rowStart || logicalIndex >= rowStart + rowLength) {
+            continue;
+        }
+
+        const uint16_t localX = logicalIndex - rowStart;
+        const bool reverseRow = SERPENTINE_ODD_ROWS_REVERSED && ((row & 1U) != 0);
+        return reverseRow ? rowStart + (rowLength - 1U - localX) : logicalIndex;
+    }
+
+    return logicalIndex;
+}
+
 void showCurrentFrame() {
     strip.setBrightness(state.brightness);
     const uint32_t rgb = strip.Color(state.colorR, state.colorG, state.colorB);
-    for (uint16_t i = 0; i < LED_COUNT; ++i) {
-        strip.setPixelColor(i, frameBit(i) ? rgb : 0);
+    for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
+        strip.setPixelColor(logicalToPhysicalLedIndex(logical), frameBit(logical) ? rgb : 0);
     }
     strip.show();
 }
@@ -275,7 +313,7 @@ void showFilesystemErrorPattern() {
     state.colorR = 0xff;
     state.colorG = 0x00;
     state.colorB = 0x00;
-    state.brightness = 40;
+    state.brightness = DEFAULT_BRIGHTNESS;
     memset(frameBits, 0, sizeof(frameBits));
     for (uint16_t i = 0; i < 12 && i < LED_COUNT; ++i) {
         setFrameBit(i, true);
@@ -322,7 +360,7 @@ void handleOptions() {
 }
 
 void handleApiStatus() {
-    DynamicJsonDocument doc(1536);
+    DynamicJsonDocument doc(2048);
     doc["ok"] = true;
     doc["device"] = "RinaChanBoard";
     doc["uptimeMs"] = millis() - state.bootMs;
@@ -336,6 +374,9 @@ void handleApiStatus() {
     matrix["leds"] = LED_COUNT;
     matrix["m370HexChars"] = M370_HEX_CHARS;
     matrix["gpio"] = LED_PIN;
+    matrix["m370BitOrder"] = "logical_row_major";
+    matrix["physicalWiring"] = SERPENTINE_WIRING ? "serpentine" : "linear";
+    matrix["serpentineOddRowsReversed"] = SERPENTINE_ODD_ROWS_REVERSED;
 
     JsonObject renderer = doc.createNestedObject("renderer");
     renderer["color"] = state.colorHex;
@@ -694,7 +735,11 @@ bool loadStartupFace() {
 
     String error;
     const char* m370 = selected["m370"] | "";
-    if (!applyM370(m370, "boot_saved_face", error)) {
+    state.brightness = DEFAULT_BRIGHTNESS;
+    state.mode = DEFAULT_MODE;
+    state.playback = DEFAULT_PLAYBACK;
+    state.paused = false;
+    if (!applyM370(m370, STARTUP_FACE_REASON, error)) {
         Serial.printf("startup M370 failed: %s\n", error.c_str());
         return false;
     }
@@ -753,6 +798,10 @@ void setup() {
     state.bootMs = millis();
 
     strip.begin();
+    state.brightness = DEFAULT_BRIGHTNESS;
+    state.mode = DEFAULT_MODE;
+    state.playback = DEFAULT_PLAYBACK;
+    state.paused = false;
     strip.setBrightness(state.brightness);
     strip.clear();
     strip.show();
@@ -760,7 +809,7 @@ void setup() {
     String colorError;
     setColor(DEFAULT_COLOR, colorError);
 
-    fsMounted = LittleFS.begin(false);
+    fsMounted = LittleFS.begin(false, LITTLEFS_BASE_PATH, 10, LITTLEFS_PARTITION_LABEL);
     if (!fsMounted) {
         Serial.println("LittleFS mount failed. Upload data with: pio run -t uploadfs");
         showFilesystemErrorPattern();
