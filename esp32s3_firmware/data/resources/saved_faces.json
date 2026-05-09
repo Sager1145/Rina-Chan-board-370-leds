@@ -1,0 +1,318 @@
+{
+  "format": "rina_faces_370_v2",
+  "version": 2,
+  "category": "unified_saved_faces",
+  "matrix": {
+    "cols": 22,
+    "rows": 18,
+    "leds": 370,
+    "num_leds": 370,
+    "row_lengths": [
+      18,
+      20,
+      20,
+      20,
+      22,
+      22,
+      22,
+      22,
+      22,
+      22,
+      22,
+      22,
+      22,
+      20,
+      20,
+      20,
+      18,
+      16
+    ],
+    "row_valid_x_ranges": [
+      [
+        2,
+        19
+      ],
+      [
+        1,
+        20
+      ],
+      [
+        1,
+        20
+      ],
+      [
+        1,
+        20
+      ],
+      [
+        0,
+        21
+      ],
+      [
+        0,
+        21
+      ],
+      [
+        0,
+        21
+      ],
+      [
+        0,
+        21
+      ],
+      [
+        0,
+        21
+      ],
+      [
+        0,
+        21
+      ],
+      [
+        0,
+        21
+      ],
+      [
+        0,
+        21
+      ],
+      [
+        0,
+        21
+      ],
+      [
+        1,
+        20
+      ],
+      [
+        1,
+        20
+      ],
+      [
+        1,
+        20
+      ],
+      [
+        2,
+        19
+      ],
+      [
+        3,
+        18
+      ]
+    ],
+    "m370HexChars": 93,
+    "m370PayloadBits": 370,
+    "m370PaddingBits": 2,
+    "bitOrder": "canonical logical row-major over valid physical LED positions only; each hex nibble is MSB-first; final 2 bits are zero padding"
+  },
+  "startupDefaultId": "face_07_triangle_eyes_frown",
+  "defaultFaceIndex": 7,
+  "updatedAt": "2026-05-09T09:50:14Z",
+  "source": {
+    "defaultFacesImportedFrom": "default_faces_370_m370.json",
+    "defaultFaceCount": 11,
+    "userFaceCount": 0,
+    "generatedAtUtc": "2026-05-09T08:51:53+00:00"
+  },
+  "faces": [
+    {
+      "id": "face_00_surprised_winking_with_mouth",
+      "name": "surprised / winking with mouth",
+      "type": "default",
+      "m370": "M370:0000000000700408804044020020080100200000001002000000006180027900080400402004f20030c0000000000",
+      "order": 0,
+      "editable": true,
+      "deletable": false,
+      "locked": true,
+      "is_startup_default": false,
+      "sourceFile": "saved_faces.json",
+      "sourceIndex": 0,
+      "savedAt": "2026-05-09T08:51:53+00:00",
+      "updatedAt": null,
+      "call": null,
+      "on_count": 40,
+      "note": "M370 is a binary mask; color and brightness are controlled by WebUI/firmware renderer."
+    },
+    {
+      "id": "face_01_glasses_eyed_square_mouth",
+      "name": "glasses-eyed, square mouth",
+      "type": "default",
+      "m370": "M370:00000000000000000000300301a0160780780c00e000014000020000000000000ffc00402003fc000000000000000",
+      "order": 1,
+      "editable": true,
+      "deletable": false,
+      "locked": true,
+      "is_startup_default": false,
+      "sourceFile": "saved_faces.json",
+      "sourceIndex": 1,
+      "savedAt": "2026-05-09T08:51:53+00:00",
+      "updatedAt": null,
+      "call": null,
+      "on_count": 46,
+      "note": "M370 is a binary mask; color and brightness are controlled by WebUI/firmware renderer."
+    },
+    {
+      "id": "face_02_confused_raised_eyebrows",
+      "name": "confused / raised eyebrows",
+      "type": "default",
+      "m370": "M370:0000000000000000000000000000000800041e01e000000000000a00140000000408001f800000000000000000000",
+      "order": 2,
+      "editable": true,
+      "deletable": false,
+      "locked": true,
+      "is_startup_default": false,
+      "sourceFile": "saved_faces.json",
+      "sourceIndex": 2,
+      "savedAt": "2026-05-09T08:51:53+00:00",
+      "updatedAt": null,
+      "call": null,
+      "on_count": 22,
+      "note": "M370 is a binary mask; color and brightness are controlled by WebUI/firmware renderer."
+    },
+    {
+      "id": "face_03_sad_diagonal_eyes_downturned_mouth",
+      "name": "sad diagonal eyes, downturned mouth",
+      "type": "default",
+      "m370": "M370:000000000000000000003000c0c00c0300400c00c00000c000000a001401fe0004080010800090000600000000000",
+      "order": 3,
+      "editable": true,
+      "deletable": false,
+      "locked": true,
+      "is_startup_default": false,
+      "sourceFile": "saved_faces.json",
+      "sourceIndex": 3,
+      "savedAt": "2026-05-09T08:51:53+00:00",
+      "updatedAt": null,
+      "call": null,
+      "on_count": 37,
+      "note": "M370 is a binary mask; color and brightness are controlled by WebUI/firmware renderer."
+    },
+    {
+      "id": "face_04_neutral_blocky_eyes_smirk",
+      "name": "neutral blocky eyes, smirk",
+      "type": "default",
+      "m370": "M370:00000000000000000000300300c00c0300300c00c000000000000a00140201000408001f800000000000000000000",
+      "order": 4,
+      "editable": true,
+      "deletable": false,
+      "locked": true,
+      "is_startup_default": false,
+      "sourceFile": "saved_faces.json",
+      "sourceIndex": 4,
+      "savedAt": "2026-05-09T08:51:53+00:00",
+      "updatedAt": null,
+      "call": null,
+      "on_count": 30,
+      "note": "M370 is a binary mask; color and brightness are controlled by WebUI/firmware renderer."
+    },
+    {
+      "id": "face_05_squinting_happy",
+      "name": "squinting happy",
+      "type": "default",
+      "m370": "M370:00000000000000000000000000c00c03c0f006018000000000000540a800840003f00010800204000000000000000",
+      "order": 5,
+      "editable": true,
+      "deletable": false,
+      "locked": true,
+      "is_startup_default": false,
+      "sourceFile": "saved_faces.json",
+      "sourceIndex": 5,
+      "savedAt": "2026-05-09T08:51:53+00:00",
+      "updatedAt": null,
+      "call": null,
+      "on_count": 34,
+      "note": "M370 is a binary mask; color and brightness are controlled by WebUI/firmware renderer."
+    },
+    {
+      "id": "face_06_wide_eyebrows_tiny_mouth",
+      "name": "wide eyebrows, tiny mouth",
+      "type": "default",
+      "m370": "M370:0000000000000000000000000000000fc0fc000028000040000000000000780002100020400204003fc0000000000",
+      "order": 6,
+      "editable": true,
+      "deletable": false,
+      "locked": true,
+      "is_startup_default": false,
+      "sourceFile": "saved_faces.json",
+      "sourceIndex": 6,
+      "savedAt": "2026-05-09T08:51:53+00:00",
+      "updatedAt": null,
+      "call": null,
+      "on_count": 33,
+      "note": "M370 is a binary mask; color and brightness are controlled by WebUI/firmware renderer."
+    },
+    {
+      "id": "face_07_triangle_eyes_frown",
+      "name": "triangle eyes, frown",
+      "type": "default",
+      "m370": "M370:00000000000000000000100200a014044088000000000000000005002829fe5004080010800090000600000000000",
+      "order": 7,
+      "editable": true,
+      "deletable": false,
+      "locked": true,
+      "is_startup_default": true,
+      "sourceFile": "saved_faces.json",
+      "sourceIndex": 7,
+      "savedAt": "2026-05-09T08:51:53+00:00",
+      "updatedAt": null,
+      "call": null,
+      "on_count": 34,
+      "note": "M370 is a binary mask; color and brightness are controlled by WebUI/firmware renderer."
+    },
+    {
+      "id": "face_08_stoic_vertical_eyes_frown",
+      "name": "stoic vertical eyes, frown",
+      "type": "default",
+      "m370": "M370:000000000000000000001806006018018060060180000000000005002801fe0004080010800090000600000000000",
+      "order": 8,
+      "editable": true,
+      "deletable": false,
+      "locked": true,
+      "is_startup_default": false,
+      "sourceFile": "saved_faces.json",
+      "sourceIndex": 8,
+      "savedAt": "2026-05-09T08:51:53+00:00",
+      "updatedAt": null,
+      "call": null,
+      "on_count": 36,
+      "note": "M370 is a binary mask; color and brightness are controlled by WebUI/firmware renderer."
+    },
+    {
+      "id": "face_09_x_eyes_frown",
+      "name": "X-eyes, frown",
+      "type": "default",
+      "m370": "M370:00000000000000000000c000c0c00c0080400c00c0c000c0000005002829fe5004080010800090000600000000000",
+      "order": 9,
+      "editable": true,
+      "deletable": false,
+      "locked": true,
+      "is_startup_default": false,
+      "sourceFile": "saved_faces.json",
+      "sourceIndex": 9,
+      "savedAt": "2026-05-09T08:51:53+00:00",
+      "updatedAt": null,
+      "call": null,
+      "on_count": 42,
+      "note": "M370 is a binary mask; color and brightness are controlled by WebUI/firmware renderer."
+    },
+    {
+      "id": "face_10_qiangqiang",
+      "name": "qiangqiang",
+      "type": "default",
+      "m370": "M370:0000000001c423a242451212208844042108108420000001084200000000fc0004080040200402004020040801f80",
+      "order": 10,
+      "editable": true,
+      "deletable": false,
+      "locked": true,
+      "is_startup_default": false,
+      "sourceFile": "saved_faces.json",
+      "sourceIndex": 10,
+      "savedAt": "2026-05-09T08:51:53+00:00",
+      "updatedAt": null,
+      "call": null,
+      "on_count": 58,
+      "note": "M370 is a binary mask; color and brightness are controlled by WebUI/firmware renderer."
+    }
+  ]
+}

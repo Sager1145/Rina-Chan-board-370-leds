@@ -1,0 +1,20 @@
+EXTERNAL CODE COMMENTS - RinaChanBoard saved_faces default migration
+
+Change summary:
+- Migrated all 11 default M370 faces into data/resources/saved_faces.json using format rina_faces_370_v2.
+- Marked default faces with type="default", locked=true, editable=true, deletable=false.
+- Set startupDefaultId to face_07_triangle_eyes_frown, matching default face index/id 7.
+- Kept custom and parts faces in the same saved_faces.json schema for future user saves.
+- Updated WebUI to treat /api/saved_faces and resources/saved_faces.json as the single source of truth.
+- Removed the duplicate initFaceManagerControls definition so local open/save buttons remain bound.
+- Updated the boot log and plan.md to remove references to HTML-embedded default faces and split default/user face APIs.
+
+Behavioral rules:
+- type="default": cannot be deleted; can be renamed and reordered; name/order persist to saved_faces.json.
+- type="custom" and type="parts": can be saved, renamed, reordered, and deleted.
+- All ordering is represented by each face.order in the same saved_faces.json file.
+
+Validation performed:
+- saved_faces.json parses as JSON.
+- All 11 default faces have valid M370 payloads: M370:<93 lowercase hex chars>.
+- node --check succeeded for the extracted WebUI JavaScript.

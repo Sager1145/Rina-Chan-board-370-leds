@@ -1,0 +1,1742 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>RinaChanBoard ESP32-S3 370 LED WebUI - M370 Firmware Interface</title>
+<style>
+  @font-face{font-family:"DotGothic16";src:local("DotGothic16"),local("DotGothic16 Regular"),url("../resources/fonts/DotGothic16-Regular.ttf") format("truetype"),url("/resources/fonts/DotGothic16-Regular.ttf") format("truetype");font-display:swap;}
+  :root{
+    --bg:#0f1117;
+    --panel:#161a24;
+    --panel2:#1e2430;
+    --text:#f4f7fb;
+    --muted:#9aa6b2;
+    --line:#2b3344;
+    --accent:#f971d4;
+    --accent2:#77d7ff;
+    --danger:#ff5b6e;
+    --ok:#59d98e;
+    --warn:#ffd166;
+    --cell:18px;
+    --gap:4px;
+    --led-color:#f971d4;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;overflow-x:hidden;}
+  body{padding:0;}
+  button,input,select,textarea{font:inherit;color:var(--text)}
+  button{border:1px solid var(--line);background:var(--panel2);border-radius:12px;padding:9px 13px;min-height:40px;cursor:pointer;transition:.12s transform,.12s border-color,.12s background;}
+  button.compact-btn{min-width:44px;padding:9px 10px;font-weight:800;}
+  button:hover{transform:translateY(-1px);border-color:var(--accent2)}
+  button.primary{background:linear-gradient(135deg,#f971d4,#8f74ff);border-color:transparent;color:#fff;font-weight:700}
+  button.ok{background:#163824;border-color:#216b3f;color:#b8ffd4}
+  button.warn{background:#3c3215;border-color:#7a6220;color:#ffe3a1}
+  button.danger{background:#3a1820;border-color:#7b2b3b;color:#ffd0d8}
+  button.ghost{background:transparent}
+  button.active{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent)}
+  input,select,textarea{background:#0c0f15;border:1px solid var(--line);border-radius:10px;padding:9px 10px;min-height:40px;outline:none;}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent2);}
+  input[type="range"]{padding:0;width:100%;accent-color:var(--accent)}
+  textarea{width:100%;min-height:90px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;}
+  #scroll-text{min-height:42px;max-height:none;resize:none;overflow:hidden;line-height:1.45;white-space:pre-wrap;word-break:break-word;font-family:DotGothic16,"Fusion Pixel 16px","WenQuanYi Bitmap Song","Shinonome16","GNU Unifont",system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;font-size:16px;}
+  a{color:var(--accent2)}
+  .sidebar{position:relative;z-index:2147482999;overflow:visible;border-right:0;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#151927,#0f1117);padding:14px 18px;display:grid;grid-template-columns:minmax(240px,1fr) minmax(260px,520px);gap:14px;align-items:center;}
+  .top-page-nav{position:sticky;top:0;z-index:2147483000;isolation:isolate;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#151927,#10141e);padding:10px 14px;box-shadow:0 12px 30px #00000045;}
+  .top-page-nav .nav-shell{width:min(520px,100%);margin:0 auto;}
+  .app{display:block;min-height:calc(100vh - 160px);}
+  .brand{display:flex;gap:12px;align-items:center;margin-bottom:0;}
+  .logo{width:42px;height:42px;border-radius:14px;background:radial-gradient(circle at 35% 35%,#fff,#f971d4 35%,#4b36a8 78%);box-shadow:0 0 30px #f971d455;}
+  .brand h1{font-size:17px;margin:0;line-height:1.25}
+  .brand p{font-size:12px;color:var(--muted);margin:3px 0 0;}
+  .offline{border:1px solid #3d4660;background:#111827;border-radius:14px;padding:10px;margin:0;color:#ced8e6;font-size:12px;line-height:1.45}
+  .nav-shell{position:relative;margin-top:12px;z-index:2147483001;}
+  .nav-toggle{width:100%;min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;padding:12px 13px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#1a2030,#111722);box-shadow:0 12px 30px #00000035;color:var(--text);font-weight:700;outline:none;}
+  .nav-toggle:hover{transform:translateY(-1px);border-color:var(--accent2);background:linear-gradient(180deg,#20283a,#121a27);}
+  .nav-toggle:focus-visible{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 25%,transparent),0 18px 46px #00000060;}
+  .nav-toggle .label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;}
+  .menu-icon{display:inline-grid;gap:4px;flex:0 0 auto;}
+  .menu-icon span{display:block;width:18px;height:2px;border-radius:999px;background:currentColor;}
+  .nav-caret,.select-caret{color:var(--muted);transition:.12s transform,.12s color;}
+  .nav-toggle:hover .nav-caret,.nav-toggle:focus-visible .nav-caret,.select-shell:hover .select-caret,.select-shell:focus-within .select-caret{color:var(--accent2);}
+  .nav-toggle.active .nav-caret,.select-shell.open .select-caret{transform:rotate(180deg);}
+  .nav{display:none;position:absolute;top:calc(100% + 8px);left:0;right:0;z-index:2147483002;gap:8px;padding:8px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,#1a2030,#111722);box-shadow:0 18px 46px #00000090;max-height:min(70vh,430px);overflow:auto;}
+  .nav.open{display:grid;}
+  .nav button,.select-option{min-height:46px;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 13px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#192030,#101622);box-shadow:0 8px 22px #00000028;color:var(--text);font-weight:700;outline:none;}
+  .nav button:hover,.select-option:hover{transform:translateY(-1px);border-color:var(--accent2);background:linear-gradient(180deg,#20283a,#121a27);}
+  .nav button:focus-visible,.select-option:focus-visible{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 25%,transparent),0 14px 32px #00000055;}
+  .nav button.active,.select-option.active{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent),0 12px 30px #00000035;}
+  .nav .num{color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap;}
+  .select-shell{position:relative;width:100%;min-width:0;z-index:50;}
+  .select-shell.open{z-index:2147482500;}
+  .select-shell select{position:absolute!important;left:0;top:0;width:1px!important;height:1px!important;min-height:1px!important;opacity:0!important;pointer-events:none!important;appearance:none;-webkit-appearance:none;}
+  .select-toggle{width:100%;min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;padding:12px 13px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#1a2030,#111722);box-shadow:0 12px 30px #00000035;color:var(--text);font-weight:700;outline:none;}
+  .select-toggle:hover{transform:translateY(-1px);border-color:var(--accent2);background:linear-gradient(180deg,#20283a,#121a27);}
+  .select-toggle:focus-visible{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 25%,transparent),0 18px 46px #00000060;}
+  .select-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;}
+  .select-caret{position:static;right:auto;top:auto;pointer-events:none;font-size:13px;line-height:1;}
+  .select-menu{display:none;position:absolute;top:calc(100% + 8px);left:0;right:0;z-index:2147482501;gap:8px;padding:8px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,#1a2030,#111722);box-shadow:0 18px 46px #00000090;max-height:min(60vh,380px);overflow:auto;}
+  .select-shell.open .select-menu{display:grid;}
+  .select-option span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .select-option .num{color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap;}
+  .content{padding:18px;max-width:1480px;width:100%;margin:0 auto;min-width:0;overflow-x:hidden;}
+  .page{display:none;animation:fade .16s ease-out;}
+  .page.active{display:block;}
+  @keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .hero{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;margin-bottom:16px;}
+  .hero h2{font-size:26px;margin:0 0 6px;}
+  .hero p{margin:0;color:var(--muted);line-height:1.55}
+  .badge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:6px 10px;background:var(--panel);font-size:12px;color:#ccd7e5;margin:3px;white-space:nowrap;}
+  .grid{display:grid;gap:14px;min-width:0;}
+  .cols-2{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}
+  .cols-3{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .cols-4{grid-template-columns:repeat(4,minmax(0,1fr));}
+  .card{background:linear-gradient(180deg,var(--panel),#121621);border:1px solid var(--line);border-radius:18px;padding:15px;box-shadow:0 12px 32px #00000035;min-width:0;}
+  .card h3{margin:0 0 12px;font-size:16px;display:flex;align-items:center;gap:8px;}
+  .card h4{margin:14px 0 8px;font-size:14px;color:#dfe7f3;}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .inline-toggle{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:9px 13px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);color:var(--text);font-size:13px;white-space:nowrap;cursor:pointer;}
+  .inline-toggle input{display:none;}
+  .toggle-button{white-space:nowrap;}
+  .toggle-button.active{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent);}
+  .control-panel{display:grid;gap:13px;}
+  .basic-layout{display:grid;grid-template-columns:minmax(340px,420px) minmax(0,1fr);gap:14px;align-items:start;container-type:inline-size;}
+  .basic-preview-card{min-width:0;height:100%;}
+  .basic-preview-card .matrix-wrap{min-height:0;}
+  .control-section{display:grid;gap:10px;border-top:1px solid var(--line);padding-top:12px;}
+  .brightness-row{display:grid;grid-template-columns:auto minmax(160px,1fr) auto;gap:10px;align-items:center;}
+  .equal-fields{display:grid;grid-template-columns:repeat(2,minmax(120px,160px));gap:10px;align-items:end;}
+  .equal-fields .field{min-width:0;}
+  .equal-fields input{width:100%;}
+  .button-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .button-row button{white-space:nowrap;}
+  .status-merged{max-height:260px;overflow:auto;}
+  .stack{display:grid;gap:10px;overflow-x:auto;overflow-y:visible;max-width:100%;scrollbar-width:thin;}
+  .field{display:grid;gap:6px;min-width:120px;}
+  .field label{font-size:12px;color:var(--muted)}
+  .kv{display:grid;grid-template-columns:170px 1fr;gap:8px 10px;font-size:13px;align-items:center;}
+  .kv .k{color:var(--muted)}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .small{font-size:12px;color:var(--muted);line-height:1.45}
+  .hint{font-size:12px;color:#d7e0ee;background:#111827;border:1px solid #2c3448;border-radius:12px;padding:10px;line-height:1.5}
+  .warning{display:none;border:1px solid #80621b;background:#2b210f;color:#ffe5a4;border-radius:12px;padding:9px 10px;font-size:12px;}
+  .warning.show{display:block;}
+  .color-swatch{width:34px;height:34px;border-radius:11px;border:1px solid rgba(255,255,255,.35);background:var(--led-color);box-shadow:0 0 24px color-mix(in srgb,var(--led-color) 55%,transparent)}
+  .color-button{display:flex;align-items:center;gap:8px;min-width:165px;justify-content:flex-start;}
+  .color-dot{width:16px;height:16px;border-radius:50%;border:1px solid #ffffff77;display:inline-block;}
+  .color-dropdown-grid{display:grid;grid-template-columns:1fr;gap:10px;align-items:stretch;max-width:420px;}
+  .color-dropdown-grid .select-shell{min-height:46px;}
+  .matrix-wrap{overflow:hidden;width:100%;max-width:100%;padding:12px;border-radius:16px;background:#0b0e14;border:1px solid #283044;}
+  .matrix-wrap.fill-column{display:flex;justify-content:center;align-items:center;}
+  .matrix{display:grid;grid-template-columns:repeat(22,var(--cell));grid-template-rows:repeat(18,var(--cell));gap:var(--gap);width:fit-content;max-width:100%;margin:0 auto;touch-action:none;user-select:none;-webkit-user-select:none;}
+  .led{width:var(--cell);height:var(--cell);border-radius:5px;background:#202635;border:1px solid #30394c;box-shadow:inset 0 0 3px #000;}
+  .led.on{background:var(--led-color);border-color:color-mix(in srgb,var(--led-color) 75%,#fff);box-shadow:0 0 10px color-mix(in srgb,var(--led-color) 80%,transparent), inset 0 0 4px #fff8;}
+  .led.invalid{visibility:hidden;pointer-events:none;}
+  .led.editable{cursor:crosshair;}
+  .matrix.compact{--cell:9px;--gap:2px;}
+  .matrix.micro{--cell:5px;--gap:1px;}
+  .part-list{display:flex;flex-wrap:nowrap;gap:8px;max-height:none;overflow-x:auto;overflow-y:hidden;padding:8px 8px 12px;scrollbar-width:thin;}
+  .part-card{display:grid;grid-template-columns:1fr;grid-template-rows:auto auto;gap:5px;justify-items:center;align-items:center;text-align:center;padding:0!important;border:0!important;background:transparent!important;border-radius:0!important;min-width:60px;width:60px;max-width:60px;min-height:0!important;overflow:visible;flex:0 0 60px;box-shadow:none!important;}
+  .part-card:hover{transform:translateY(-1px);border-color:transparent!important;background:transparent!important;}
+  .part-card.active{border:0!important;background:transparent!important;box-shadow:none!important;}
+  .part-card.active .part-mini{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 35%,transparent),0 0 16px color-mix(in srgb,var(--accent) 25%,transparent);}
+  .part-card .part-meta{min-width:0;overflow:visible;display:grid;place-items:center;gap:0;align-content:center;line-height:1;}
+  .part-card .part-display-id{display:block;font-size:16px;line-height:1.05;font-weight:700;white-space:nowrap;overflow:visible;text-overflow:clip;margin:0;padding:0;}
+  .part-card .small{display:none!important;}
+  .part-mini{display:grid;grid-template-columns:repeat(8,5px);grid-template-rows:repeat(8,5px);gap:1px;background:#07090d;padding:5px;border-radius:8px;border:1px solid #2b3344;flex:0 0 58px;width:58px;height:58px;align-content:center;justify-content:center;box-sizing:border-box;overflow:visible;}
+  .pix{width:5px;height:5px;border-radius:1px;background:#18202d;}
+  .pix.on{background:var(--led-color);box-shadow:0 0 6px var(--led-color)}
+  .list{display:grid;gap:8px;}
+  .saved-row{display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;align-items:stretch;}
+  .saved-index{display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:#0b0e14;border-radius:12px;color:var(--muted);font-weight:800;}
+  .list-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--line);background:#10141d;border-radius:12px;padding:10px;min-width:0;}
+  .saved-face-card{grid-template-columns:auto minmax(0,1fr) auto;}
+  .saved-row.drag-over .list-item{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 20%,transparent);}
+  .drag-handle{align-self:stretch;min-width:34px;padding:8px 9px;cursor:grab;color:#dbe7f5;background:#0b0e14;}
+  .drag-handle:active{cursor:grabbing;}
+  .saved-name-input{width:100%;min-height:36px;font-weight:800;background:#0b0e14;}
+  .saved-meta{margin-top:4px;}
+  .face-source-badge{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:3px 8px;font-size:12px;font-weight:800;background:#111827;color:#d9e4f2;white-space:nowrap;}
+  .face-source-badge.default{border-color:#7a6220;color:#ffe3a1;background:#2b210f;}
+  .face-source-badge.custom{border-color:#216b3f;color:#b8ffd4;background:#163824;}
+  .face-source-badge.parts{border-color:#4f3a87;color:#ded1ff;background:#211838;}
+  .saved-name-input[readonly]{opacity:.85;cursor:not-allowed;border-style:dashed;}
+  .log{height:270px;overflow:auto;background:#070a0f;border:1px solid var(--line);border-radius:12px;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;white-space:pre-wrap;color:#b8c5d6;}
+  .pill-select{display:flex;gap:8px;flex-wrap:wrap;}
+  .divider{height:1px;background:var(--line);margin:8px 0;}
+  .status-dot{width:9px;height:9px;border-radius:50%;background:var(--ok);display:inline-block;box-shadow:0 0 10px var(--ok)}
+  @media (max-width:1100px){.basic-layout{grid-template-columns:1fr;}}
+  @media (max-width:980px){
+    .top-page-nav{padding:8px 12px;}
+    .app{min-height:0;}
+    .sidebar{grid-template-columns:1fr;padding:12px;}
+    .nav{position:absolute;max-height:min(70vh,420px);}
+    .content{padding:12px;}
+    .cols-2,.cols-3,.cols-4{grid-template-columns:1fr;}
+    .hero{display:grid;}
+    :root{--cell:14px;--gap:3px;}
+  }
+  @media (max-width:520px){.kv{grid-template-columns:1fr}.color-button{min-width:100%}.color-dropdown-grid{grid-template-columns:1fr}.equal-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.brightness-row{grid-template-columns:auto minmax(90px,1fr) auto}:root{--cell:12px;--gap:2px;}}
+  @media (max-width:640px){.saved-row{grid-template-columns:34px minmax(0,1fr)}.saved-face-card{grid-template-columns:auto minmax(0,1fr)}.saved-face-card>.row{grid-column:1 / -1}.part-list{display:flex;flex-wrap:nowrap}.part-card{grid-template-columns:1fr;width:60px;min-width:60px;max-width:60px;}}
+</style>
+</head>
+<body>
+<aside class="sidebar">
+    <div class="brand"><div class="logo"></div><div><h1>RinaChanBoard 370 LED</h1><p>ESP32-S3 WebUI M370 firmware interface</p></div></div>
+    <div class="offline"><b>固件接口模式</b><br>HTML 负责生成 M370 与状态 JSON；固件仅接收 M370 帧和亮度、颜色、模式、暂停、按钮等辅助指令。</div>
+  </aside>
+<!-- Page selector dropdown is positioned below the top header, but kept on the highest UI layer.
+     z-index values are near the maximum practical range so the menu remains
+     above cards, matrices, and preview/control panels. -->
+<div class="top-page-nav">
+  <div class="nav-shell" id="nav-shell">
+    <button class="nav-toggle" id="nav-toggle" type="button" aria-expanded="false" aria-controls="nav">
+      <span class="menu-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+      <span class="label" id="current-page-label">6.1 基础功能页面</span>
+      <span class="nav-caret" aria-hidden="true">▾</span>
+    </button>
+    <div class="nav" id="nav" role="menu" aria-hidden="true"></div>
+  </div>
+</div>
+<div class="app">
+
+  <main class="content">
+    <section class="page active" id="page-basic">
+      <div class="hero"><div><h2>6.1 基础功能页面</h2></div><div class="row"><span class="badge"><span class="status-dot"></span> AP-only Firmware API</span><span class="badge mono">192.168.1.14</span></div></div>
+      <div class="basic-layout">
+        <div class="card control-panel">
+          <h3>颜色 / 亮度 / 保存表情 / A-M 模式</h3>
+          <div class="control-section" style="border-top:0;padding-top:0">
+            <h4>颜色控制</h4>
+            <div class="row"><div class="color-swatch" id="color-swatch"></div><div class="field"><label>当前颜色</label><input id="color-input" value="#f971d4" maxlength="7"></div><button class="primary" id="apply-color">应用颜色</button></div>
+            <div class="color-dropdown-grid">
+              <div class="field"><label>父颜色</label><div class="select-shell"><select id="parent-color-select"></select><span class="select-caret" aria-hidden="true">▾</span></div></div>
+              <div class="field"><label>子颜色</label><div class="select-shell"><select id="child-color-select"></select><span class="select-caret" aria-hidden="true">▾</span></div></div>
+            </div>
+            
+          </div>
+          <div class="control-section">
+            <h4>亮度控制</h4>
+            <div class="brightness-row"><button class="compact-btn" id="brightness-minus">−8</button><input id="brightness-range" type="range" min="10" max="200" step="1" value="50"><button class="compact-btn" id="brightness-plus">+8</button></div>
+            <div class="equal-fields"><div class="field"><label>raw 亮度</label><input id="brightness-input" type="number" min="10" max="200" value="50"></div><div class="field"><label>百分比参考</label><input id="brightness-percent" readonly value="20%"></div></div>
+            <div class="button-row" id="brightness-presets"></div>
+          </div>
+          <div class="control-section">
+            <h4>保存表情切换 / A-M 模式</h4>
+            <div class="button-row"><button id="face-prev">B2 上一个</button><button id="face-next">B1 下一个</button><button class="primary" id="mode-toggle">B3 切换 A/M</button></div>
+            <div class="button-row"><button id="interval-down">B3+B1 间隔 −</button><button id="interval-up">B3+B2 间隔 +</button><div class="field"><label>自动切换间隔 ms</label><input id="auto-interval" type="number" value="3000" min="500" step="100"></div></div>
+          </div>
+          
+        </div>
+        <div class="card basic-preview-card"><h3>370 LED 只读预览</h3><div class="matrix-wrap fill-column"><div class="matrix" id="matrix-basic"></div></div></div>
+      </div>
+    </section>
+
+    <section class="page" id="page-custom">
+      <div class="hero"><div><h2>6.2 自定义表情页面</h2></div></div>
+      <div class="grid cols-2">
+        <div class="card stack">
+          <h3>自定义画板</h3>
+          <div class="row"><button class="active" data-tool="on">画亮</button><button data-tool="off">擦除</button><button data-tool="toggle">切换</button><button id="custom-clear">清空</button><button id="custom-fill">全亮</button><button id="custom-invert">反转</button></div>
+          <div class="matrix-wrap fill-column"><div class="matrix" id="matrix-custom-edit"></div></div>
+          <div class="row"><button class="primary" id="custom-send">发送 M370 到固件</button><button id="custom-copy">复制 M370</button><button id="custom-export">更新导出文本</button></div>
+        </div>
+        <div class="card stack face-manager-panel" data-manager="custom">
+          <h3>M370 / 保存管理</h3>
+          <textarea id="custom-m370" spellcheck="false"></textarea>
+          <div class="row"><button id="custom-import">从文本导入到画板</button><button id="custom-save" class="ok">保存自定义表情</button><div class="field"><label>保存名称</label><input id="custom-name" value="custom_face"></div></div>
+          <h4>统一 saved_faces.json</h4>
+          <div class="row"><button class="faces-json-load" type="button">读取 saved_faces.json</button><button class="faces-json-open-local" type="button">打开本地 saved_faces.json</button><button class="faces-json-save-local" type="button">保存到已打开文件</button><button class="faces-json-download-all" type="button">下载 saved_faces.json</button><button class="faces-json-import-btn" type="button">导入 saved_faces.json</button><input class="faces-json-import-file" type="file" accept="application/json" hidden></div>
+          <div class="hint">默认表情和用户保存表情全部来自同一个 <span class="mono">/resources/saved_faces.json</span>；<span class="mono">type:"default"</span> 的表情不可删除，但可以重命名和手动排序；排序 <span class="mono">order</span> 与名称覆盖都写回同一个文件。</div>
+          <h4>统一表情列表</h4><div class="list face-library-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-parts">
+      <div class="hero"><div><h2>6.3 表情部件组合页面</h2></div><div class="row"><button class="primary" id="parts-apply">发送组合 M370</button><button id="parts-random">随机</button><button id="parts-reset">默认</button><button id="parts-symmetry-toggle" class="toggle-button" type="button" title="开启后左右眼按显示编号同步，手动选择和随机均生效" aria-pressed="false">左右眼对称</button></div></div>
+      <div class="grid cols-2">
+        <div class="card stack"><h3>组合预览</h3><div class="matrix-wrap fill-column"><div class="matrix" id="matrix-parts"></div></div><div class="row"><span class="badge mono" id="parts-call"></span><button id="parts-copy-m370">复制组合 M370</button></div></div>
+      </div>
+      <div class="grid" style="margin-top:14px" id="part-groups"></div>
+      <div class="card stack face-manager-panel" data-manager="parts" style="margin-top:14px">
+        <h3>M370 / 保存管理</h3>
+        <textarea id="parts-m370-text" spellcheck="false"></textarea>
+        <div class="row"><button id="parts-import-m370">从文本导入到当前输出</button><button id="parts-save-bottom" class="ok">保存部件表情</button><div class="field"><label>保存名称</label><input id="parts-name" value="parts_face"></div><button id="parts-copy-m370-bottom">复制组合 M370</button></div>
+        <h4>统一 saved_faces.json</h4>
+        <div class="row"><button class="faces-json-load" type="button">读取 saved_faces.json</button><button class="faces-json-open-local" type="button">打开本地 saved_faces.json</button><button class="faces-json-save-local" type="button">保存到已打开文件</button><button class="faces-json-download-all" type="button">下载 saved_faces.json</button><button class="faces-json-import-btn" type="button">导入 saved_faces.json</button><input class="faces-json-import-file" type="file" accept="application/json" hidden></div>
+        <div class="hint">默认表情、自定义表情、部件表情全部保存在同一个 saved_faces.json；默认表情由 type:"default" 标识，不可删除，但可重命名和手动排序，顺序保存在同一文件的 order 字段。</div>
+        <h4>统一表情列表</h4><div class="list face-library-list"></div>
+      </div>
+    </section>
+
+    <section class="page" id="page-scroll">
+      <div class="hero"><div><h2>6.4 文字滚动页面</h2></div></div>
+      <div class="grid cols-2">
+        <div class="card stack">
+          <h3>文字滚动控制</h3>
+          <div class="field"><label>滚动文字</label><textarea id="scroll-text" rows="1" spellcheck="false">RinaChanBoard 370 LED 中文 こんにちは 璃奈ちゃんボード</textarea></div>
+          <div class="row"><div class="field"><label>速度 px/s</label><input id="scroll-speed" type="number" value="18" min="1" max="120"></div></div>
+          <div class="row"><button id="scroll-generate" class="ok">生成文字滚动</button><button class="primary" id="scroll-play">播放</button><button id="scroll-pause">暂停</button><button id="scroll-stop">停止/清屏</button><button id="scroll-step">单帧推进</button></div>
+          <div class="kv"><span class="k">状态</span><span id="scroll-state">idle</span><span class="k">当前帧</span><span id="scroll-frame-index">0</span></div>
+        </div>
+        <div class="card stack"><h3>文字滚动 370 LED 预览</h3><div class="matrix-wrap fill-column"><div class="matrix" id="matrix-scroll"></div></div></div>
+      </div>
+    </section>
+
+    <section class="page" id="page-debug">
+      <div class="hero"><div><h2>6.5 调试页面</h2></div></div>
+      <div class="grid cols-2">
+        <div class="card control-panel">
+          <h3>主控制 / 状态信息</h3>
+          <div class="kv status-merged" id="state-kv"></div>
+          <div class="warning" id="dps-warning">⚠️ 功率限制激活：当前帧估算超过 40W，实际固件会压低输出亮度。</div>
+          <div class="hint">亮度控制、保存表情切换和 A/M 模式操作控件位于 6.1 基础功能页面；本面板只显示统一状态，不重复主操作入口。</div>
+        </div>
+        <div class="card stack">
+          <h3>GPIO / 按钮辅助指令</h3>
+          <div class="row"><button data-gpio="B1">B1 下一个</button><button data-gpio="B2">B2 上一个</button><button data-gpio="B3">B3 A/M</button><button data-gpio="B4">B4 亮度-</button><button data-gpio="B5">B5 亮度+</button><button data-gpio="B6S">B6 短按电量</button><button data-gpio="B6L">B6 长按详情</button></div>
+          <div class="row"><button data-gpio="B3B1">B3+B1 间隔-</button><button data-gpio="B3B2">B3+B2 间隔+</button><button data-gpio="B6B3">B6+B3 网络信息</button></div>
+          <h4>LED / 协议测试</h4>
+          <div class="row"><button id="debug-all-off">全黑</button><button id="debug-all-on">全亮</button><button id="debug-checker">棋盘</button><button id="debug-border">边框</button><button id="debug-current-face">当前保存表情</button></div>
+          <textarea id="debug-m370" placeholder="输入 93 hex 或 M370:&lt;93 hex&gt;"></textarea>
+          <div class="row"><button id="debug-apply-m370">解析并应用 M370</button><button id="debug-copy-status">复制状态 JSON</button><button class="danger" id="debug-reset-storage">清空用户表情</button></div>
+        </div>
+        <div class="card stack">
+          <h3>状态 / ADC / 网络</h3>
+          <div class="kv" id="debug-kv"></div>
+          <div class="row"><div class="field"><label>ADC 调试 Vbat</label><input id="battery-v" type="number" value="7.42" step="0.01"></div><div class="field"><label>ADC 调试 Vcharge</label><input id="charge-v" type="number" value="5.10" step="0.01"></div><button id="update-adc">更新 ADC 状态</button></div>
+          <div class="matrix-wrap fill-column"><div class="matrix compact" id="matrix-debug"></div></div>
+        </div>
+        <div class="card stack">
+          <h3>通信日志</h3>
+          <div class="row"><input id="serial-input" placeholder="辅助命令 JSON，例如 {&quot;cmd&quot;:&quot;pause&quot;}"><button id="serial-send">发送辅助命令</button><button id="log-clear">清空日志</button><button id="log-download">下载日志</button></div>
+          <div class="log" id="log"></div>
+        </div>
+        <div class="card stack">
+          <h3>固件接口</h3>
+          <div class="kv" id="firmware-kv"></div>
+          <div class="row"><button id="firmware-ping">读取固件状态</button><button id="firmware-pause">发送暂停指令</button></div>
+          <div class="hint">LED 输出只发送 <span class="mono">M370:&lt;93 hex&gt;</span>；颜色、亮度、模式、暂停、按钮、ADC/status 等通过辅助 JSON 指令发送。</div>
+        </div>
+        <div class="card stack">
+          <h3>资源 / 系统</h3>
+          <div class="kv" id="resource-kv"></div>
+          <div class="hint">表情部件资源由 HTML 处理并合成为 M370；默认表情和用户保存表情都从同一个 /resources/saved_faces.json 读取，通过 /api/saved_faces 写回固件文件；type:"default" 项不可删除，但可重命名和排序。</div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<script>
+'use strict';
+const EXPRESSION_PARTS = {"format":"rina_expression_parts_370_runtime_v4","version":4,"matrix":{"cols":22,"rows":18,"num_leds":370,"row_lengths":[18,20,20,20,22,22,22,22,22,22,22,22,22,20,20,20,18,16],"row_valid_x_ranges":[[2,19],[1,20],[1,20],[1,20],[0,21],[0,21],[0,21],[0,21],[0,21],[0,21],[0,21],[0,21],[0,21],[1,20],[1,20],[1,20],[2,19],[3,18]],"serpentine":true},"encoding":{"row_hex":"local bitmap rows; bit7 is local x=0; use only size[0] bits","m370":"93 hex chars; 370 valid cells scanned row-major by row_lengths and padded to 372 bits","strip_indices":"physical LED indices already mapped for this component"},"layout":{"eye_left":[{"x":2,"y":1,"w":8,"h":8,"mirror_x":false,"role":"left_eye"}],"eye_right":[{"x":12,"y":1,"w":8,"h":8,"mirror_x":false,"role":"right_eye"}],"mouth":[{"x":7,"y":9,"w":8,"h":8,"mirror_x":false,"role":"mouth"}],"cheek":[{"x":2,"y":9,"w":4,"h":4,"mirror_x":true,"role":"left_cheek"},{"x":16,"y":9,"w":4,"h":4,"mirror_x":false,"role":"right_cheek"}]},"call":{"fields":{"leye":"left eye ID","reye":"right eye ID","mouth":"mouth ID","cheek":"cheek ID"},"default_face":{"leye":101,"reye":201,"mouth":301,"cheek":400},"ids":{"leye":["0","101","102","103","104","105","106","107","108","109","110","111","112","113","114","115","116","117","118","119","120","121","122","123","124","125","126","127"],"reye":["0","201","202","203","204","205","206","207","208","209","210","211","212","213","214","215","216","217","218","219","220","221","222","223","224","225","226","227"],"mouth":["0","301","302","303","304","305","306","307","308","309","310","311","312","313","314","315","316","317","318","319","320","321","322","323","324","325","326","327","328","329","330","331","332"],"cheek":["400","401","402","403","404","405"]},"map":{"leye":{"0":"0","101":"101","102":"102","103":"103","104":"104","105":"105","106":"106","107":"107","108":"108","109":"109","110":"110","111":"111","112":"112","113":"113","114":"114","115":"115","116":"116","117":"117","118":"118","119":"119","120":"120","121":"121","122":"122","123":"123","124":"124","125":"125","126":"126","127":"127"},"reye":{"0":"0","201":"201","202":"202","203":"203","204":"204","205":"205","206":"206","207":"207","208":"208","209":"209","210":"210","211":"211","212":"212","213":"213","214":"214","215":"215","216":"216","217":"217","218":"218","219":"219","220":"220","221":"221","222":"222","223":"223","224":"224","225":"225","226":"226","227":"227"},"mouth":{"0":"0","301":"301","302":"302","303":"303","304":"304","305":"305","306":"306","307":"307","308":"308","309":"309","310":"310","311":"311","312":"312","313":"313","314":"314","315":"315","316":"316","317":"317","318":"318","319":"319","320":"320","321":"321","322":"322","323":"323","324":"324","325":"325","326":"326","327":"327","328":"328","329":"329","330":"330","331":"331","332":"332"},"cheek":{"400":"0","401":"401","402":"402","403":"403","404":"404","405":"405","0":"0"}},"compose":"Resolve call IDs through call.map, OR selected parts by m370 or strip_indices, then apply selected color and global brightness."},"groups":{"empty":["0"],"eye_left":["101","102","103","104","105","106","107","108","109","110","111","112","113","114","115","116","117","118","119","120","121","122","123","124","125","126","127"],"eye_right":["201","202","203","204","205","206","207","208","209","210","211","212","213","214","215","216","217","218","219","220","221","222","223","224","225","226","227"],"mouth":["301","302","303","304","305","306","307","308","309","310","311","312","313","314","315","316","317","318","319","320","321","322","323","324","325","326","327","328","329","330","331","332"],"cheek":["401","402","403","404","405"]},"counts":{"stored_unique_parts":92,"callable_ids":93,"stored_by_group":{"empty":1,"eye_left":27,"eye_right":27,"mouth":32,"cheek":5},"callable_by_group":{"empty":1,"eye_left":27,"eye_right":27,"mouth":32,"cheek":6},"deduped_call_ids":["400"]},"parts":{"0":{"id":0,"name":"empty_000","type":"empty","size":[8,8],"row_hex":["00","00","00","00","00","00","00","00"],"preview":["........","........","........","........","........","........","........","........"],"placement":[],"m370":"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","strip_indices":[],"lit_count":0,"bbox":null},"101":{"id":101,"name":"left_eye_101","type":"eye_left","size":[8,8],"row_hex":["00","00","00","30","30","30","30","00"],"preview":["........","........","........","..##....","..##....","..##....","..##....","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000000000300000C0000300000C0000000000000000000000000000000000000000000000000000000","strip_indices":[82,83,116,117,126,127,160,161],"lit_count":8,"bbox":[4,4,5,7]},"102":{"id":102,"name":"left_eye_102","type":"eye_left","size":[8,8],"row_hex":["00","00","40","30","30","30","30","00"],"preview":["........","........",".#......","..##....","..##....","..##....","..##....","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000080000300000C0000300000C0000000000000000000000000000000000000000000000000000000","strip_indices":[75,82,83,116,117,126,127,160,161],"lit_count":9,"bbox":[3,3,5,7]},"103":{"id":103,"name":"left_eye_103","type":"eye_left","size":[8,8],"row_hex":["00","00","00","10","28","44","00","00"],"preview":["........","........","........","...#....","..#.#...",".#...#..","........","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000000000100000A000044000000000000000000000000000000000000000000000000000000000000","strip_indices":[83,115,117,125,129],"lit_count":5,"bbox":[3,4,7,6]},"104":{"id":104,"name":"left_eye_104","type":"eye_left","size":[8,8],"row_hex":["00","00","00","18","24","42","00","00"],"preview":["........","........","........","...##...","..#..#..",".#....#.","........","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"000000000000000000001800009000042000000000000000000000000000000000000000000000000000000000000","strip_indices":[83,84,114,117,125,130],"lit_count":6,"bbox":[3,4,8,6]},"105":{"id":105,"name":"left_eye_105","type":"eye_left","size":[8,8],"row_hex":["00","00","10","28","44","82","00","00"],"preview":["........","........","...#....","..#.#...",".#...#..","#.....#.","........","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"000000000000000200002800011000082000000000000000000000000000000000000000000000000000000000000","strip_indices":[73,82,84,114,118,124,130],"lit_count":7,"bbox":[2,3,8,6]},"106":{"id":106,"name":"left_eye_106","type":"eye_left","size":[8,8],"row_hex":["00","00","60","18","04","18","60","00"],"preview":["........","........",".##.....","...##...",".....#..","...##...",".##.....","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"000000000000000C00001800001000018000180000000000000000000000000000000000000000000000000000000","strip_indices":[74,75,83,84,114,127,128,161,162],"lit_count":9,"bbox":[3,3,7,7]},"107":{"id":107,"name":"left_eye_107","type":"eye_left","size":[8,8],"row_hex":["00","00","00","60","18","04","78","00"],"preview":["........","........","........",".##.....","...##...",".....#..",".####...","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"0000000000000000000060000060000040001E0000000000000000000000000000000000000000000000000000000","strip_indices":[81,82,115,116,129,159,160,161,162],"lit_count":9,"bbox":[3,4,7,7]},"108":{"id":108,"name":"left_eye_108","type":"eye_left","size":[8,8],"row_hex":["00","00","00","00","00","7E","00","00"],"preview":["........","........","........","........","........",".######.","........","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000000000000000000007E000000000000000000000000000000000000000000000000000000000000","strip_indices":[125,126,127,128,129,130],"lit_count":6,"bbox":[3,6,8,6]},"109":{"id":109,"name":"left_eye_109","type":"eye_left","size":[8,8],"row_hex":["00","00","00","00","00","7E","A0","40"],"preview":["........","........","........","........","........",".######.","#.#.....",".#......"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000000000000000000007E000280000400000000000000000000000000000000000000000000000000","strip_indices":[125,126,127,128,129,130,161,163,169],"lit_count":9,"bbox":[2,6,8,8]},"110":{"id":110,"name":"left_eye_110","type":"eye_left","size":[8,8],"row_hex":["00","00","00","00","00","40","3C","00"],"preview":["........","........","........","........","........",".#......","..####..","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"0000000000000000000000000000000400000F0000000000000000000000000000000000000000000000000000000","strip_indices":[125,158,159,160,161],"lit_count":5,"bbox":[3,6,7,7]},"111":{"id":111,"name":"left_eye_111","type":"eye_left","size":[8,8],"row_hex":["00","00","00","00","00","44","38","00"],"preview":["........","........","........","........","........",".#...#..","..###...","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"0000000000000000000000000000000440000E0000000000000000000000000000000000000000000000000000000","strip_indices":[125,129,159,160,161],"lit_count":5,"bbox":[3,6,7,7]},"112":{"id":112,"name":"left_eye_112","type":"eye_left","size":[8,8],"row_hex":["00","00","00","42","24","18","00","00"],"preview":["........","........","........",".#....#.","..#..#..","...##...","........","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"000000000000000000004200009000018000000000000000000000000000000000000000000000000000000000000","strip_indices":[81,86,114,117,127,128],"lit_count":6,"bbox":[3,4,8,6]},"113":{"id":113,"name":"left_eye_113","type":"eye_left","size":[8,8],"row_hex":["00","00","00","00","60","1E","00","00"],"preview":["........","........","........","........",".##.....","...####.","........","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000000000000001800001E000000000000000000000000000000000000000000000000000000000000","strip_indices":[117,118,127,128,129,130],"lit_count":6,"bbox":[3,5,8,6]},"114":{"id":114,"name":"left_eye_114","type":"eye_left","size":[8,8],"row_hex":["00","00","00","00","70","0C","00","00"],"preview":["........","........","........","........",".###....","....##..","........","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000000000000001C00000C000000000000000000000000000000000000000000000000000000000000","strip_indices":[116,117,118,128,129],"lit_count":5,"bbox":[3,5,7,6]},"115":{"id":115,"name":"left_eye_115","type":"eye_left","size":[8,8],"row_hex":["00","00","00","00","60","10","0C","00"],"preview":["........","........","........","........",".##.....","...#....","....##..","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"000000000000000000000000018000010000030000000000000000000000000000000000000000000000000000000","strip_indices":[117,118,127,158,159],"lit_count":5,"bbox":[3,5,7,7]},"116":{"id":116,"name":"left_eye_116","type":"eye_left","size":[8,8],"row_hex":["00","00","00","00","30","3C","18","00"],"preview":["........","........","........","........","..##....","..####..","...##...","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000000000000000C00003C000060000000000000000000000000000000000000000000000000000000","strip_indices":[116,117,126,127,128,129,159,160],"lit_count":8,"bbox":[4,5,7,7]},"117":{"id":117,"name":"left_eye_117","type":"eye_left","size":[8,8],"row_hex":["00","00","08","10","70","30","30","00"],"preview":["........","........","....#...","...#....",".###....","..##....","..##....","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000010000100001C0000300000C0000000000000000000000000000000000000000000000000000000","strip_indices":[72,83,116,117,118,126,127,160,161],"lit_count":9,"bbox":[3,3,6,7]},"118":{"id":118,"name":"left_eye_118","type":"eye_left","size":[8,8],"row_hex":["00","00","40","20","38","30","30","00"],"preview":["........","........",".#......","..#.....","..###...","..##....","..##....","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000080000200000E0000300000C0000000000000000000000000000000000000000000000000000000","strip_indices":[75,82,115,116,117,126,127,160,161],"lit_count":9,"bbox":[3,3,6,7]},"119":{"id":119,"name":"left_eye_119","type":"eye_left","size":[8,8],"row_hex":["00","00","00","30","68","78","30","00"],"preview":["........","........","........","..##....",".##.#...",".####...","..##....","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000000000300001A0000780000C0000000000000000000000000000000000000000000000000000000","strip_indices":[82,83,115,117,118,125,126,127,128,160,161],"lit_count":11,"bbox":[3,4,6,7]},"120":{"id":120,"name":"left_eye_120","type":"eye_left","size":[8,8],"row_hex":["00","00","00","30","68","78","B0","40"],"preview":["........","........","........","..##....",".##.#...",".####...","#.##....",".#......"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000000000300001A0000780002C0000400000000000000000000000000000000000000000000000000","strip_indices":[82,83,115,117,118,125,126,127,128,160,161,163,169],"lit_count":13,"bbox":[2,4,6,8]},"121":{"id":121,"name":"left_eye_121","type":"eye_left","size":[8,8],"row_hex":["00","00","00","30","70","78","30","00"],"preview":["........","........","........","..##....",".###....",".####...","..##....","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000000000300001C0000780000C0000000000000000000000000000000000000000000000000000000","strip_indices":[82,83,116,117,118,125,126,127,128,160,161],"lit_count":11,"bbox":[3,4,6,7]},"122":{"id":122,"name":"left_eye_122","type":"eye_left","size":[8,8],"row_hex":["00","00","38","44","08","10","00","10"],"preview":["........","........","..###...",".#...#..","....#...","...#....","........","...#...."],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"000000000000000700004400002000010000000000100000000000000000000000000000000000000000000000000","strip_indices":[72,73,74,81,85,115,127,171],"lit_count":8,"bbox":[3,3,7,8]},"123":{"id":123,"name":"left_eye_123","type":"eye_left","size":[8,8],"row_hex":["00","00","44","28","10","28","44","00"],"preview":["........","........",".#...#..","..#.#...","...#....","..#.#...",".#...#..","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"000000000000000880002800004000028000110000000000000000000000000000000000000000000000000000000","strip_indices":[71,75,82,84,116,126,128,158,162],"lit_count":9,"bbox":[3,3,7,7]},"124":{"id":124,"name":"left_eye_124","type":"eye_left","size":[8,8],"row_hex":["00","00","10","38","7C","38","10","00"],"preview":["........","........","...#....","..###...",".#####..","..###...","...#....","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"00000000000000020000380001F000038000040000000000000000000000000000000000000000000000000000000","strip_indices":[73,82,83,84,114,115,116,117,118,126,127,128,160],"lit_count":13,"bbox":[3,3,7,7]},"125":{"id":125,"name":"left_eye_125","type":"eye_left","size":[8,8],"row_hex":["00","00","38","44","44","44","38","00"],"preview":["........","........","..###...",".#...#..",".#...#..",".#...#..","..###...","........"],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"0000000000000007000044000110000440000E0000000000000000000000000000000000000000000000000000000","strip_indices":[72,73,74,81,85,114,118,125,129,159,160,161],"lit_count":12,"bbox":[3,3,7,7]},"126":{"id":126,"name":"left_eye_126","type":"eye_left","size":[8,8],"row_hex":["00","10","28","44","82","44","28","10"],"preview":["........","...#....","..#.#...",".#...#..","#.....#.",".#...#..","..#.#...","...#...."],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"0000000000200005000044000208000440000A0000100000000000000000000000000000000000000000000000000","strip_indices":[42,72,74,81,85,113,119,125,129,159,161,171],"lit_count":12,"bbox":[2,2,8,8]},"127":{"id":127,"name":"left_eye_127","type":"eye_left","size":[8,8],"row_hex":["00","00","6C","92","82","44","28","10"],"preview":["........","........",".##.##..","#..#..#.","#.....#.",".#...#..","..#.#...","...#...."],"placement":[{"x":2,"y":1,"mirror_x":false}],"m370":"000000000000000D800092000208000440000A0000100000000000000000000000000000000000000000000000000","strip_indices":[71,72,74,75,80,83,86,113,119,125,129,159,161,171],"lit_count":14,"bbox":[2,3,8,8]},"201":{"id":201,"name":"right_eye_201","type":"eye_right","size":[8,8],"row_hex":["00","00","00","0C","0C","0C","0C","00"],"preview":["........","........","........","....##..","....##..","....##..","....##..","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"00000000000000000000000300000C0000300000C0000000000000000000000000000000000000000000000000000","strip_indices":[94,95,104,105,138,139,148,149],"lit_count":8,"bbox":[16,4,17,7]},"202":{"id":202,"name":"right_eye_202","type":"eye_right","size":[8,8],"row_hex":["00","00","02","0C","0C","0C","0C","00"],"preview":["........","........","......#.","....##..","....##..","....##..","....##..","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"00000000000000000010000300000C0000300000C0000000000000000000000000000000000000000000000000000","strip_indices":[60,94,95,104,105,138,139,148,149],"lit_count":9,"bbox":[16,3,18,7]},"203":{"id":203,"name":"right_eye_203","type":"eye_right","size":[8,8],"row_hex":["00","00","00","08","14","22","00","00"],"preview":["........","........","........","....#...","...#.#..","..#...#.","........","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"000000000000000000000002000014000088000000000000000000000000000000000000000000000000000000000","strip_indices":[94,104,106,136,140],"lit_count":5,"bbox":[14,4,18,6]},"204":{"id":204,"name":"right_eye_204","type":"eye_right","size":[8,8],"row_hex":["00","00","00","18","24","42","00","00"],"preview":["........","........","........","...##...","..#..#..",".#....#.","........","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"000000000000000000000006000024000108000000000000000000000000000000000000000000000000000000000","strip_indices":[93,94,104,107,135,140],"lit_count":6,"bbox":[13,4,18,6]},"205":{"id":205,"name":"right_eye_205","type":"eye_right","size":[8,8],"row_hex":["00","00","08","14","22","41","00","00"],"preview":["........","........","....#...","...#.#..","..#...#.",".#.....#","........","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"000000000000000000400005000022000104000000000000000000000000000000000000000000000000000000000","strip_indices":[62,93,95,103,107,135,141],"lit_count":7,"bbox":[13,3,19,6]},"206":{"id":206,"name":"right_eye_206","type":"eye_right","size":[8,8],"row_hex":["00","00","06","18","20","18","06","00"],"preview":["........","........",".....##.","...##...","..#.....","...##...",".....##.","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"000000000000000000300006000020000060000060000000000000000000000000000000000000000000000000000","strip_indices":[60,61,93,94,107,137,138,147,148],"lit_count":9,"bbox":[14,3,18,7]},"207":{"id":207,"name":"right_eye_207","type":"eye_right","size":[8,8],"row_hex":["00","00","00","06","18","20","1E","00"],"preview":["........","........","........",".....##.","...##...","..#.....","...####.","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"0000000000000000000000018000180000800001E0000000000000000000000000000000000000000000000000000","strip_indices":[95,96,105,106,136,147,148,149,150],"lit_count":9,"bbox":[14,4,18,7]},"208":{"id":208,"name":"right_eye_208","type":"eye_right","size":[8,8],"row_hex":["00","00","00","00","00","7E","00","00"],"preview":["........","........","........","........","........",".######.","........","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"0000000000000000000000000000000001F8000000000000000000000000000000000000000000000000000000000","strip_indices":[135,136,137,138,139,140],"lit_count":6,"bbox":[13,6,18,6]},"209":{"id":209,"name":"right_eye_209","type":"eye_right","size":[8,8],"row_hex":["00","00","00","00","00","7E","05","02"],"preview":["........","........","........","........","........",".######.",".....#.#","......#."],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"0000000000000000000000000000000001F8000050000080000000000000000000000000000000000000000000000","strip_indices":[135,136,137,138,139,140,146,148,184],"lit_count":9,"bbox":[13,6,19,8]},"210":{"id":210,"name":"right_eye_210","type":"eye_right","size":[8,8],"row_hex":["00","00","00","00","00","02","3C","00"],"preview":["........","........","........","........","........","......#.","..####..","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"0000000000000000000000000000000000080003C0000000000000000000000000000000000000000000000000000","strip_indices":[140,148,149,150,151],"lit_count":5,"bbox":[14,6,18,7]},"211":{"id":211,"name":"right_eye_211","type":"eye_right","size":[8,8],"row_hex":["00","00","00","00","00","22","1C","00"],"preview":["........","........","........","........","........","..#...#.","...###..","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"0000000000000000000000000000000000880001C0000000000000000000000000000000000000000000000000000","strip_indices":[136,140,148,149,150],"lit_count":5,"bbox":[14,6,18,7]},"212":{"id":212,"name":"right_eye_212","type":"eye_right","size":[8,8],"row_hex":["00","00","00","42","24","18","00","00"],"preview":["........","........","........",".#....#.","..#..#..","...##...","........","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"000000000000000000000010800024000060000000000000000000000000000000000000000000000000000000000","strip_indices":[91,96,104,107,137,138],"lit_count":6,"bbox":[13,4,18,6]},"213":{"id":213,"name":"right_eye_213","type":"eye_right","size":[8,8],"row_hex":["00","00","00","00","06","78","00","00"],"preview":["........","........","........","........",".....##.",".####...","........","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"0000000000000000000000000000060001E0000000000000000000000000000000000000000000000000000000000","strip_indices":[103,104,135,136,137,138],"lit_count":6,"bbox":[13,5,18,6]},"214":{"id":214,"name":"right_eye_214","type":"eye_right","size":[8,8],"row_hex":["00","00","00","00","0E","30","00","00"],"preview":["........","........","........","........","....###.","..##....","........","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"00000000000000000000000000000E0000C0000000000000000000000000000000000000000000000000000000000","strip_indices":[103,104,105,136,137],"lit_count":5,"bbox":[14,5,18,6]},"215":{"id":215,"name":"right_eye_215","type":"eye_right","size":[8,8],"row_hex":["00","00","00","00","06","08","30","00"],"preview":["........","........","........","........",".....##.","....#...","..##....","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"000000000000000000000000000006000020000300000000000000000000000000000000000000000000000000000","strip_indices":[103,104,138,150,151],"lit_count":5,"bbox":[14,5,18,7]},"216":{"id":216,"name":"right_eye_216","type":"eye_right","size":[8,8],"row_hex":["00","00","00","00","0C","3C","18","00"],"preview":["........","........","........","........","....##..","..####..","...##...","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"00000000000000000000000000000C0000F0000180000000000000000000000000000000000000000000000000000","strip_indices":[104,105,136,137,138,139,149,150],"lit_count":8,"bbox":[14,5,17,7]},"217":{"id":217,"name":"right_eye_217","type":"eye_right","size":[8,8],"row_hex":["00","00","10","08","0E","0C","0C","00"],"preview":["........","........","...#....","....#...","....###.","....##..","....##..","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"00000000000000000080000200000E0000300000C0000000000000000000000000000000000000000000000000000","strip_indices":[63,94,103,104,105,138,139,148,149],"lit_count":9,"bbox":[15,3,18,7]},"218":{"id":218,"name":"right_eye_218","type":"eye_right","size":[8,8],"row_hex":["00","00","02","04","1C","0C","0C","00"],"preview":["........","........","......#.",".....#..","...###..","....##..","....##..","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"00000000000000000010000100001C0000300000C0000000000000000000000000000000000000000000000000000","strip_indices":[60,95,104,105,106,138,139,148,149],"lit_count":9,"bbox":[15,3,18,7]},"219":{"id":219,"name":"right_eye_219","type":"eye_right","size":[8,8],"row_hex":["00","00","00","0C","16","1E","0C","00"],"preview":["........","........","........","....##..","...#.##.","...####.","....##..","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"0000000000000000000000030000160000780000C0000000000000000000000000000000000000000000000000000","strip_indices":[94,95,103,104,106,137,138,139,140,148,149],"lit_count":11,"bbox":[15,4,18,7]},"220":{"id":220,"name":"right_eye_220","type":"eye_right","size":[8,8],"row_hex":["00","00","00","0C","16","1E","0D","02"],"preview":["........","........","........","....##..","...#.##.","...####.","....##.#","......#."],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"0000000000000000000000030000160000780000D0000080000000000000000000000000000000000000000000000","strip_indices":[94,95,103,104,106,137,138,139,140,146,148,149,184],"lit_count":13,"bbox":[15,4,19,8]},"221":{"id":221,"name":"right_eye_221","type":"eye_right","size":[8,8],"row_hex":["00","00","00","0C","0E","1E","0C","00"],"preview":["........","........","........","....##..","....###.","...####.","....##..","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"00000000000000000000000300000E0000780000C0000000000000000000000000000000000000000000000000000","strip_indices":[94,95,103,104,105,137,138,139,140,148,149],"lit_count":11,"bbox":[15,4,18,7]},"222":{"id":222,"name":"right_eye_222","type":"eye_right","size":[8,8],"row_hex":["00","00","08","08","08","08","00","08"],"preview":["........","........","....#...","....#...","....#...","....#...","........","....#..."],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"000000000000000000400002000008000020000000000200000000000000000000000000000000000000000000000","strip_indices":[62,94,105,138,182],"lit_count":5,"bbox":[16,3,16,8]},"223":{"id":223,"name":"right_eye_223","type":"eye_right","size":[8,8],"row_hex":["00","00","22","14","08","14","22","00"],"preview":["........","........","..#...#.","...#.#..","....#...","...#.#..","..#...#.","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"000000000000000001100005000008000050000220000000000000000000000000000000000000000000000000000","strip_indices":[60,64,93,95,105,137,139,147,151],"lit_count":9,"bbox":[14,3,18,7]},"224":{"id":224,"name":"right_eye_224","type":"eye_right","size":[8,8],"row_hex":["00","00","08","1C","3E","1C","08","00"],"preview":["........","........","....#...","...###..","..#####.","...###..","....#...","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"00000000000000000040000700003E000070000080000000000000000000000000000000000000000000000000000","strip_indices":[62,93,94,95,103,104,105,106,107,137,138,139,149],"lit_count":13,"bbox":[14,3,18,7]},"225":{"id":225,"name":"right_eye_225","type":"eye_right","size":[8,8],"row_hex":["00","00","1C","22","22","22","1C","00"],"preview":["........","........","...###..","..#...#.","..#...#.","..#...#.","...###..","........"],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"000000000000000000E000088000220000880001C0000000000000000000000000000000000000000000000000000","strip_indices":[61,62,63,92,96,103,107,136,140,148,149,150],"lit_count":12,"bbox":[14,3,18,7]},"226":{"id":226,"name":"right_eye_226","type":"eye_right","size":[8,8],"row_hex":["00","08","14","22","41","22","14","08"],"preview":["........","....#...","...#.#..","..#...#.",".#.....#","..#...#.","...#.#..","....#..."],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"000000000000040000A00008800041000088000140000200000000000000000000000000000000000000000000000","strip_indices":[53,61,63,92,96,102,108,136,140,148,150,182],"lit_count":12,"bbox":[13,2,19,8]},"227":{"id":227,"name":"right_eye_227","type":"eye_right","size":[8,8],"row_hex":["00","00","36","49","41","22","14","08"],"preview":["........","........","..##.##.",".#..#..#",".#.....#","..#...#.","...#.#..","....#..."],"placement":[{"x":12,"y":1,"mirror_x":false}],"m370":"000000000000000001B00012400041000088000140000200000000000000000000000000000000000000000000000","strip_indices":[60,61,63,64,91,94,97,102,108,136,140,148,150,182],"lit_count":14,"bbox":[13,3,19,8]},"301":{"id":301,"name":"mouth_301","type":"mouth","size":[8,8],"row_hex":["00","00","00","00","7E","00","00","00"],"preview":["........","........","........","........",".######.","........","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"00000000000000000000000000000000000000000000000000000000000000000000001F800000000000000000000","strip_indices":[283,284,285,286,287,288],"lit_count":6,"bbox":[8,13,13,13]},"302":{"id":302,"name":"mouth_302","type":"mouth","size":[8,8],"row_hex":["00","00","00","81","7E","00","00","00"],"preview":["........","........","........","#......#",".######.","........","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"00000000000000000000000000000000000000000000000000000000000000000408001F800000000000000000000","strip_indices":[261,268,283,284,285,286,287,288],"lit_count":8,"bbox":[7,12,14,13]},"303":{"id":303,"name":"mouth_303","type":"mouth","size":[8,8],"row_hex":["00","00","00","00","7E","81","00","00"],"preview":["........","........","........","........",".######.","#......#","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"00000000000000000000000000000000000000000000000000000000000000000000001F800204000000000000000","strip_indices":[283,284,285,286,287,288,302,309],"lit_count":8,"bbox":[7,13,14,14]},"304":{"id":304,"name":"mouth_304","type":"mouth","size":[8,8],"row_hex":["00","00","00","81","42","3C","00","00"],"preview":["........","........","........","#......#",".#....#.","..####..","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"0000000000000000000000000000000000000000000000000000000000000000040800108000F0000000000000000","strip_indices":[261,268,283,288,304,305,306,307],"lit_count":8,"bbox":[7,12,14,14]},"305":{"id":305,"name":"mouth_305","type":"mouth","size":[8,8],"row_hex":["00","00","81","42","24","18","00","00"],"preview":["........","........","#......#",".#....#.","..#..#..","...##...","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000001020002100009000060000000000000000","strip_indices":[239,246,262,267,284,287,305,306],"lit_count":8,"bbox":[7,11,14,14]},"306":{"id":306,"name":"mouth_306","type":"mouth","size":[8,8],"row_hex":["00","00","00","42","24","18","00","00"],"preview":["........","........","........",".#....#.","..#..#..","...##...","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000000002100009000060000000000000000","strip_indices":[262,267,284,287,305,306],"lit_count":6,"bbox":[8,12,13,14]},"307":{"id":307,"name":"mouth_307","type":"mouth","size":[8,8],"row_hex":["00","00","18","24","42","81","00","00"],"preview":["........","........","...##...","..#..#..",".#....#.","#......#","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000300001200010800204000000000000000","strip_indices":[242,243,263,266,283,288,302,309],"lit_count":8,"bbox":[7,11,14,14]},"308":{"id":308,"name":"mouth_308","type":"mouth","size":[8,8],"row_hex":["00","00","00","18","24","42","00","00"],"preview":["........","........","........","...##...","..#..#..",".#....#.","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000000000C00009000108000000000000000","strip_indices":[264,265,284,287,303,308],"lit_count":6,"bbox":[8,12,13,14]},"309":{"id":309,"name":"mouth_309","type":"mouth","size":[8,8],"row_hex":["00","00","02","85","46","3C","00","00"],"preview":["........","........","......#.","#....#.#",".#...##.","..####..","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"0000000000000000000000000000000000000000000000000000000000000400042800118000F0000000000000000","strip_indices":[240,261,266,268,283,284,288,304,305,306,307],"lit_count":11,"bbox":[7,11,14,14]},"310":{"id":310,"name":"mouth_310","type":"mouth","size":[8,8],"row_hex":["00","00","FF","81","42","24","18","00"],"preview":["........","........","########","#......#",".#....#.","..#..#..","...##...","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000001FE0004080010800090000600000000000","strip_indices":[239,240,241,242,243,244,245,246,261,268,283,288,304,307,325,326],"lit_count":16,"bbox":[7,11,14,15]},"311":{"id":311,"name":"mouth_311","type":"mouth","size":[8,8],"row_hex":["00","00","FF","81","81","42","3C","00"],"preview":["........","........","########","#......#","#......#",".#....#.","..####..","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000001FE0004080020400108000F00000000000","strip_indices":[239,240,241,242,243,244,245,246,261,268,282,289,303,308,324,325,326,327],"lit_count":18,"bbox":[7,11,14,15]},"312":{"id":312,"name":"mouth_312","type":"mouth","size":[8,8],"row_hex":["00","00","3C","42","42","24","18","00"],"preview":["........","........","..####..",".#....#.",".#....#.","..#..#..","...##...","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000780002100010800090000600000000000","strip_indices":[241,242,243,244,262,267,283,288,304,307,325,326],"lit_count":12,"bbox":[8,11,13,15]},"313":{"id":313,"name":"mouth_313","type":"mouth","size":[8,8],"row_hex":["00","00","7E","42","24","18","00","00"],"preview":["........","........",".######.",".#....#.","..#..#..","...##...","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000FC0002100009000060000000000000000","strip_indices":[240,241,242,243,244,245,262,267,284,287,305,306],"lit_count":12,"bbox":[8,11,13,14]},"314":{"id":314,"name":"mouth_314","type":"mouth","size":[8,8],"row_hex":["00","00","3C","42","81","81","FF","00"],"preview":["........","........","..####..",".#....#.","#......#","#......#","########","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000780002100020400204003FC0000000000","strip_indices":[241,242,243,244,262,267,282,289,302,309,322,323,324,325,326,327,328,329],"lit_count":18,"bbox":[7,11,14,15]},"315":{"id":315,"name":"mouth_315","type":"mouth","size":[8,8],"row_hex":["00","00","3C","42","42","81","7E","00"],"preview":["........","........","..####..",".#....#.",".#....#.","#......#",".######.","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000780002100010800204001F80000000000","strip_indices":[241,242,243,244,262,267,283,288,302,309,323,324,325,326,327,328],"lit_count":16,"bbox":[7,11,14,15]},"316":{"id":316,"name":"mouth_316","type":"mouth","size":[8,8],"row_hex":["00","00","18","24","42","42","24","18"],"preview":["........","........","...##...","..#..#..",".#....#.",".#....#.","..#..#..","...##..."],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"00000000000000000000000000000000000000000000000000000000000030000120001080010800090000C000000","strip_indices":[242,243,263,266,283,288,303,308,324,327,344,345],"lit_count":12,"bbox":[8,11,13,16]},"317":{"id":317,"name":"mouth_317","type":"mouth","size":[8,8],"row_hex":["00","18","24","24","24","24","18","00"],"preview":["........","...##...","..#..#..","..#..#..","..#..#..","..#..#..","...##...","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"0000000000000000000000000000000000000000000000000000000C0000480001200009000090000600000000000","strip_indices":[220,221,241,244,263,266,284,287,304,307,325,326],"lit_count":12,"bbox":[9,10,12,15]},"318":{"id":318,"name":"mouth_318","type":"mouth","size":[8,8],"row_hex":["18","24","24","24","24","24","18","00"],"preview":["...##...","..#..#..","..#..#..","..#..#..","..#..#..","..#..#..","...##...","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000030000120000480001200009000090000600000000000","strip_indices":[198,199,219,222,241,244,263,266,284,287,304,307,325,326],"lit_count":14,"bbox":[9,9,12,15]},"319":{"id":319,"name":"mouth_319","type":"mouth","size":[8,8],"row_hex":["00","00","18","24","24","18","00","00"],"preview":["........","........","...##...","..#..#..","..#..#..","...##...","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000300001200009000060000000000000000","strip_indices":[242,243,263,266,284,287,305,306],"lit_count":8,"bbox":[9,11,12,14]},"320":{"id":320,"name":"mouth_320","type":"mouth","size":[8,8],"row_hex":["00","00","00","FF","81","FF","00","00"],"preview":["........","........","........","########","#......#","########","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000000007F800204003FC000000000000000","strip_indices":[261,262,263,264,265,266,267,268,282,289,302,303,304,305,306,307,308,309],"lit_count":18,"bbox":[7,12,14,14]},"321":{"id":321,"name":"mouth_321","type":"mouth","size":[8,8],"row_hex":["00","00","00","FF","81","7E","00","00"],"preview":["........","........","........","########","#......#",".######.","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000000007F800204001F8000000000000000","strip_indices":[261,262,263,264,265,266,267,268,282,289,303,304,305,306,307,308],"lit_count":16,"bbox":[7,12,14,14]},"322":{"id":322,"name":"mouth_322","type":"mouth","size":[8,8],"row_hex":["00","00","00","7E","81","FF","00","00"],"preview":["........","........","........",".######.","#......#","########","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000000003F000204003FC000000000000000","strip_indices":[262,263,264,265,266,267,282,289,302,303,304,305,306,307,308,309],"lit_count":16,"bbox":[7,12,14,14]},"323":{"id":323,"name":"mouth_323","type":"mouth","size":[8,8],"row_hex":["00","00","00","7E","42","3C","00","00"],"preview":["........","........","........",".######.",".#....#.","..####..","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000000003F000108000F0000000000000000","strip_indices":[262,263,264,265,266,267,283,288,304,305,306,307],"lit_count":12,"bbox":[8,12,13,14]},"324":{"id":324,"name":"mouth_324","type":"mouth","size":[8,8],"row_hex":["00","00","00","3C","42","7E","00","00"],"preview":["........","........","........","..####..",".#....#.",".######.","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000000001E000108001F8000000000000000","strip_indices":[263,264,265,266,283,288,303,304,305,306,307,308],"lit_count":12,"bbox":[8,12,13,14]},"325":{"id":325,"name":"mouth_325","type":"mouth","size":[8,8],"row_hex":["00","00","00","7E","42","7E","00","00"],"preview":["........","........","........",".######.",".#....#.",".######.","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000000003F000108001F8000000000000000","strip_indices":[262,263,264,265,266,267,283,288,303,304,305,306,307,308],"lit_count":14,"bbox":[8,12,13,14]},"326":{"id":326,"name":"mouth_326","type":"mouth","size":[8,8],"row_hex":["00","00","81","42","7E","42","81","00"],"preview":["........","........","#......#",".#....#.",".######.",".#....#.","#......#","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"00000000000000000000000000000000000000000000000000000000000102000210001F800108002040000000000","strip_indices":[239,246,262,267,283,284,285,286,287,288,303,308,322,329],"lit_count":14,"bbox":[7,11,14,15]},"327":{"id":327,"name":"mouth_327","type":"mouth","size":[8,8],"row_hex":["00","00","66","99","81","99","66","00"],"preview":["........","........",".##..##.","#..##..#","#......#","#..##..#",".##..##.","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000CC0004C80020400264001980000000000","strip_indices":[240,241,244,245,261,264,265,268,282,289,302,305,306,309,323,324,327,328],"lit_count":18,"bbox":[7,11,14,15]},"328":{"id":328,"name":"mouth_328","type":"mouth","size":[8,8],"row_hex":["00","00","00","66","99","00","00","00"],"preview":["........","........","........",".##..##.","#..##..#","........","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000000003300026400000000000000000000","strip_indices":[262,263,266,267,282,285,286,289],"lit_count":8,"bbox":[7,12,14,13]},"329":{"id":329,"name":"mouth_329","type":"mouth","size":[8,8],"row_hex":["00","00","00","24","5A","00","00","00"],"preview":["........","........","........","..#..#..",".#.##.#.","........","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000000001200016800000000000000000000","strip_indices":[263,266,283,285,286,288],"lit_count":6,"bbox":[8,12,13,13]},"330":{"id":330,"name":"mouth_330","type":"mouth","size":[8,8],"row_hex":["00","00","00","42","5A","24","00","00"],"preview":["........","........","........",".#....#.",".#.##.#.","..#..#..","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000000002100016800090000000000000000","strip_indices":[262,267,283,285,286,288,304,307],"lit_count":8,"bbox":[8,12,13,14]},"331":{"id":331,"name":"mouth_331","type":"mouth","size":[8,8],"row_hex":["00","00","42","5A","24","00","00","00"],"preview":["........","........",".#....#.",".#.##.#.","..#..#..","........","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000000000000840002D00009000000000000000000000","strip_indices":[240,245,262,264,265,267,284,287],"lit_count":8,"bbox":[8,11,13,13]},"332":{"id":332,"name":"mouth_332","type":"mouth","size":[8,8],"row_hex":["00","00","00","02","52","2C","00","00"],"preview":["........","........","........","......#.",".#.#..#.","..#.##..","........","........"],"placement":[{"x":7,"y":9,"mirror_x":false}],"m370":"0000000000000000000000000000000000000000000000000000000000000000001000148000B0000000000000000","strip_indices":[267,283,286,288,304,306,307],"lit_count":7,"bbox":[8,12,13,14]},"401":{"id":401,"name":"cheek_401","type":"cheek","size":[4,4],"row_hex":["00","60","00","00"],"preview":["....",".##.","....","...."],"placement":[{"x":2,"y":9,"mirror_x":true},{"x":16,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000000000006001800000000000000000000000000000000000","strip_indices":[213,214,227,228],"lit_count":4,"bbox":[3,10,18,10]},"402":{"id":402,"name":"cheek_402","type":"cheek","size":[4,4],"row_hex":["00","50","00","00"],"preview":["....",".#.#","....","...."],"placement":[{"x":2,"y":9,"mirror_x":true},{"x":16,"y":9,"mirror_x":false}],"m370":"00000000000000000000000000000000000000000000000000000A001400000000000000000000000000000000000","strip_indices":[212,214,227,229],"lit_count":4,"bbox":[2,10,19,10]},"403":{"id":403,"name":"cheek_403","type":"cheek","size":[4,4],"row_hex":["50","A0","00","00"],"preview":[".#.#","#.#.","....","...."],"placement":[{"x":2,"y":9,"mirror_x":true},{"x":16,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000002800505002800000000000000000000000000000000000","strip_indices":[190,192,205,207,213,215,226,228],"lit_count":8,"bbox":[2,9,19,10]},"404":{"id":404,"name":"cheek_404","type":"cheek","size":[4,4],"row_hex":["A0","50","00","00"],"preview":["#.#.",".#.#","....","...."],"placement":[{"x":2,"y":9,"mirror_x":true},{"x":16,"y":9,"mirror_x":false}],"m370":"000000000000000000000000000000000000000000000001400A0A001400000000000000000000000000000000000","strip_indices":[191,193,204,206,212,214,227,229],"lit_count":8,"bbox":[2,9,19,10]},"405":{"id":405,"name":"cheek_405","type":"cheek","size":[4,4],"row_hex":["00","70","00","70"],"preview":["....",".###","....",".###"],"placement":[{"x":2,"y":9,"mirror_x":true},{"x":16,"y":9,"mirror_x":false}],"m370":"00000000000000000000000000000000000000000000000000000E001C000000E001C000000000000000000000000","strip_indices":[212,213,214,227,228,229,256,257,258,271,272,273],"lit_count":12,"bbox":[2,10,19,12]}}};
+
+const PAGES = [
+  ['basic','6.1','基础功能'], ['custom','6.2','自定义表情'], ['parts','6.3','表情部件'],
+  ['scroll','6.4','文字滚动'], ['debug','6.5','调试']
+];
+
+const MATRIX = EXPRESSION_PARTS.matrix;
+const ROW_RANGES = MATRIX.row_valid_x_ranges;
+const TOTAL_LEDS = MATRIX.num_leds;
+const COLS = MATRIX.cols;
+const ROWS = MATRIX.rows;
+const FACE_LIBRARY_RESOURCE = '/resources/saved_faces.json';
+const FACE_LIBRARY_RELATIVE_RESOURCE = 'resources/saved_faces.json';
+const FACE_LIBRARY_FILENAME = 'saved_faces.json';
+const FACE_SCHEMA_FORMAT = 'rina_faces_370_v2';
+const DEFAULT_STARTUP_FACE_ID = 'face_07_triangle_eyes_frown';
+const API_ENDPOINTS = Object.freeze({
+  frame:'/api/frame',
+  command:'/api/command',
+  savedFaces:'/api/saved_faces',
+  status:'/api/status'
+});
+const FRAME_PERIOD_MS = 1000 / 30;
+
+const parent_color_groups = [
+  {id:0, name:'默认璃奈粉色', color:'f971d4', desc:'父级颜色按钮，仅提供父级色'},
+  {id:1, name:"μ's-洋红色", color:'e4007f', desc:"μ's 子颜色组"},
+  {id:2, name:'Aqours-水蓝色', color:'00a1e8', desc:'Aqours / Saint Snow / 子团体颜色组'},
+  {id:3, name:'虹咲学园-金色', color:'f8b656', desc:'虹咲 / 子团体颜色组'},
+  {id:4, name:'Liella!-紫色', color:'a5469b', desc:'Liella! / 子团体颜色组'},
+  {id:5, name:'蓮ノ空-粉色', color:'fb8a9b', desc:'蓮ノ空 子颜色组'}
+];
+const child_color_groups = {
+  1:[['高坂穗乃果-橙色','f38500'],['绚濑绘里-水蓝色','7aeeff'],['南小鸟-白色','cebfbf'],['园田海未-蓝色','1769ff'],['星空凛-黄色','fff832'],['西木野真姬-红色','ff503e'],['东条希-紫罗兰色','c455f6'],['小泉花阳-绿色','6ae673'],['矢泽妮可-粉色','ff4f91']],
+  2:[['高海千歌-蜜柑色','ff9547'],['樱内梨子-樱花粉色','ff9eac'],['松浦果南-祖母绿色','27c1b7'],['黑泽黛雅-红色','db0839'],['渡边曜-亮蓝色','66c0ff'],['津岛善子-白色','c1cad4'],['国木田花丸-黄色','ffd010'],['小原鞠莉-紫罗兰色','c252c6'],['黑泽露比-粉色','ff6fbe'],['CYaRon!-橙色','ffa434'],['AZALEA-粉色','ff5a79'],['Guilty Kiss-紫色','825deb'],['YYY-绿色','53ab7f'],['鹿角圣良-天蓝色','00ccff'],['鹿角理亚-纯白色','bbbbbb'],['Saint Snow-红色','cb3935']],
+  3:[['上原步梦-浅粉色','ed7d95'],['中须霞-蜡笔黄色','e7d600'],['樱坂雫-浅蓝色','01b7ed'],['朝香果林-皇室蓝色','485ec6'],['宫下爱-超橙色','ff5800'],['近江彼方-堇色','a664a0'],['优木雪菜-猩红色','d81c2f'],['艾玛·维尔德-浅绿色','84c36e'],['天王寺璃奈-纸白色','9ca5b9'],['三船栞子-翡翠色','37b484'],['米雅·泰勒-白金银色','a9a898'],['钟岚珠-玫瑰金色','f8c8c4'],['DiverDiva-银紫色','ab76f7'],['A·ZU·NA-意大利红色','ff0042'],['QU4RTZ-奶茶色','d9db83'],['R3BIRTH-坦桑蓝色','424a9d']],
+  4:[['涩谷香音-金盏花色','ff7f27'],['唐可可-蜡笔蓝色','a0fff9'],['岚千砂都-桃粉色','ff6e90'],['平安名堇-蜜瓜绿色','74f466'],['叶月恋-宝石蓝色','0000a0'],['樱小路希奈子-玉米黄色','fff442'],['米女芽衣-胭脂红色','ff3535'],['若菜四季-冰绿白色','b2ffdd'],['鬼冢夏美-鬼夏粉色','ff51c4'],['薇恩·玛格丽特-优雅紫色','e49dfd'],['鬼冢冬毬-烟熏蓝色','4cd2e2'],['CatChu!-红色','e8243c'],['KALEIDOSCORE-浅紫色','bcbcde'],['5yncri5e!-黄色','ffe840']],
+  5:[['日野下花帆-太阳色','f8b500'],['村野沙耶香-冰蓝色','5383c3'],['乙宗梢-人鱼绿色','68be8d'],['夕雾缀理-我的红色','ba2636'],['大泽瑠璃乃-瑠璃粉色','e7609e'],['藤岛慈-天使白色','c8c2c6'],['百生吟子-天之原色','a2d7dd'],['徒町小铃-长庚星色','fad764'],['安养寺姬芽-糖果紫色','9d8de2'],['Cerise Bouquet-玫瑰色','da645f'],['DOLLCHESTRA-蓝色','163bca'],['Mira-Cra Park!-黄色','f3b171']]
+};
+
+const XY_TO_INDEX = Array.from({length:ROWS}, () => Array(COLS).fill(-1));
+const INDEX_TO_XY = [];
+let ledIndex = 0;
+for (let y=0; y<ROWS; y++) {
+  const [x0,x1] = ROW_RANGES[y];
+  for (let x=x0; x<=x1; x++) {
+    XY_TO_INDEX[y][x] = ledIndex;
+    INDEX_TO_XY[ledIndex] = [x,y];
+    ledIndex++;
+  }
+}
+
+let state = {
+  mode:'手动', faceIndex:0, brightness:50, color:'#f971d4', parentColorId:0,
+  selectedChildColor:null, colorSelection:'parent',
+  playback:'idle', apIp:'192.168.1.14', autoInterval:3000,
+  refreshPolicy:'dirty-frame / 按需刷新', lastRefreshReason:'init', refreshCount:0,
+  textScrollActive:false, actualFps:0, dpsActive:false,
+  batteryV:7.42, batteryPercent:68, chargeV:5.10, charging:true
+};
+let currentFrame = blankFrame();
+let editFrame = blankFrame();
+let partsFrame = blankFrame();
+let scrollFrame = blankFrame();
+let selectedTool = 'on';
+let selectedCall = {leye:'101', reye:'201', mouth:'301', cheek:'400'};
+let partsSymmetry = false;
+let defaultFaces = [];
+let userFaces = [];
+let faceLibraryDocument = null;
+let faceLibraryFileHandle = null;
+let dragFaceIndex = null;
+let logs = [];
+let frameSendInFlight = false;
+let pendingFramePacket = null;
+let lastApiErrorLogAt = 0;
+const firmware = {
+  online:false,
+  lastRequest:'—',
+  lastStatus:'not connected',
+  lastError:'—',
+  frameEndpoint:API_ENDPOINTS.frame,
+  commandEndpoint:API_ENDPOINTS.command,
+  savedFacesEndpoint:API_ENDPOINTS.savedFaces,
+  savedFacesPath:FACE_LIBRARY_RESOURCE,
+  faceLibrarySource:FACE_LIBRARY_FILENAME,
+  sentFrames:0,
+  sentCommands:0,
+  savedFacesSync:'not loaded'
+};
+let matrixViews = [];
+let scroll = {timer:null, active:false, paused:false, offset:0, frameIndex:0, frames:[], signature:'', dirty:true, frameCounter:0, fpsStarted:performance.now(), measuredFps:0};
+const TEXT_SCROLL_FONT_MODEL = 'font_fusion_v3_fixed_16x16_dotgothic_tight_spacing';
+const TEXT_SCROLL_GLYPH_CELL = 16;
+const TEXT_SCROLL_GLYPH_TOP = 1;
+const TEXT_SCROLL_GLYPH_Y = TEXT_SCROLL_GLYPH_TOP + TEXT_SCROLL_GLYPH_CELL / 2;
+const TEXT_SCROLL_CHAR_SPACING = 2;
+const TEXT_SCROLL_SPACE_COLUMNS = 4;
+const TEXT_SCROLL_ALPHA_THRESHOLD = 32;
+const TEXT_SCROLL_LUMA_THRESHOLD = 32;
+const TEXT_FONT_STACKS = {
+  latin:'"DotGothic16","DotGothic16 Regular","Fusion Pixel 16px Monospaced","Fusion Pixel 16px Proportional","GNU Unifont","Unifont JP",ui-monospace,Menlo,Consolas,monospace',
+  kana:'"DotGothic16","Fusion Pixel 16px Proportional","Shinonome","GNU Unifont","Unifont JP","Yu Gothic","Meiryo",sans-serif',
+  cjk:'"DotGothic16","Fusion Pixel 16px Proportional","WenQuanYi Bitmap Song","Shinonome","GNU Unifont","Unifont JP","Noto Sans CJK SC","Noto Sans CJK JP","Microsoft YaHei","Yu Gothic","Meiryo",sans-serif',
+  fallback:'"DotGothic16","GNU Unifont","Unifont JP","Noto Sans CJK SC","Noto Sans CJK JP","Microsoft YaHei","Yu Gothic","Meiryo",system-ui,sans-serif'
+};
+function codePointOfChar(ch){return ch.codePointAt(0) || 0;}
+function isKana(cp){return (cp>=0x3040&&cp<=0x30FF)||(cp>=0x31F0&&cp<=0x31FF)||(cp>=0xFF66&&cp<=0xFF9F);}
+function isCjk(cp){return (cp>=0x3400&&cp<=0x4DBF)||(cp>=0x4E00&&cp<=0x9FFF)||(cp>=0xF900&&cp<=0xFAFF)||(cp>=0x20000&&cp<=0x2FA1F);}
+function isAsciiLike(cp){return cp>=0x20&&cp<=0x7E;}
+function profileForChar(ch){
+  const cp = codePointOfChar(ch);
+  const base = {fontSize:TEXT_SCROLL_GLYPH_CELL, advance:TEXT_SCROLL_GLYPH_CELL, y:TEXT_SCROLL_GLYPH_Y};
+  if (ch === ' ') return {...base, kind:'space', stack:TEXT_FONT_STACKS.latin};
+  if (isAsciiLike(cp)) return {...base, kind:'latin', stack:TEXT_FONT_STACKS.latin};
+  if (isKana(cp)) return {...base, kind:'kana', stack:TEXT_FONT_STACKS.kana};
+  if (isCjk(cp)) return {...base, kind:'cjk', stack:TEXT_FONT_STACKS.cjk};
+  return {...base, kind:'fallback', stack:TEXT_FONT_STACKS.fallback};
+}
+function $(id){return document.getElementById(id)}
+function clamp(n,min,max){return Math.max(min, Math.min(max, Number(n)||0));}
+function blankFrame(){return Array(TOTAL_LEDS).fill(false);}
+function cloneFrame(frame){return frame.slice(0,TOTAL_LEDS).map(Boolean);}
+function onCount(frame){let c=0; for (const v of frame) if (v) c++; return c;}
+function normalizeHexColor(v){
+  v = String(v || '').trim();
+  if (!v.startsWith('#')) v = '#'+v;
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v.toLowerCase();
+  return null;
+}
+function hexToRgb(hex){hex=normalizeHexColor(hex)||'#000000';return {r:parseInt(hex.slice(1,3),16),g:parseInt(hex.slice(3,5),16),b:parseInt(hex.slice(5,7),16)};}
+function frameToM370(frame){
+  let bits = frame.slice(0,TOTAL_LEDS).map(v=>v?'1':'0').join('') + '00';
+  let out = '';
+  for (let i=0; i<bits.length; i+=4) out += parseInt(bits.slice(i,i+4),2).toString(16).toUpperCase();
+  return 'M370:' + out.padEnd(93,'0').slice(0,93);
+}
+function m370ToFrame(text){
+  let s = String(text||'').trim();
+  if (s.toUpperCase().startsWith('M370:')) s = s.slice(5);
+  s = s.replace(/\s+/g,'');
+  if (!/^[0-9a-fA-F]{93}$/.test(s)) throw new Error('M370 必须是 93 个 hex 字符，或 M370:<93 hex>');
+  let bits = '';
+  for (const ch of s) bits += parseInt(ch,16).toString(2).padStart(4,'0');
+  return bits.slice(0,TOTAL_LEDS).split('').map(b=>b==='1');
+}
+function copyText(text){
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).catch(()=>fallbackCopy(text));
+  else fallbackCopy(text);
+}
+function fallbackCopy(text){const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();}
+function log(msg){
+  const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  logs.push(line);
+  if (logs.length>500) logs.shift();
+  renderLog();
+}
+function renderLog(){const el=$('log'); if (el){el.textContent = logs.join('\n'); el.scrollTop=el.scrollHeight;}}
+
+function isOfflineHtmlMode(){
+  return location.protocol === 'file:' || location.origin === 'null';
+}
+function setFirmwareStatus(patch){
+  Object.assign(firmware, patch || {});
+  if (typeof renderState === 'function') renderState();
+}
+function apiUrl(path){
+  const p = String(path || '');
+  if (/^https?:\/\//i.test(p)) return p;
+  if (isOfflineHtmlMode()) {
+    // file:// cannot address ESP32 relative APIs. Keep these calls as no-op failures
+    // so the HTML remains usable offline after the user imports or opens saved_faces.json.
+    return null;
+  }
+  return p.startsWith('/') ? p : '/' + p;
+}
+async function apiGet(path){
+  const url = apiUrl(path);
+  firmware.lastRequest = `GET ${path}`;
+  renderState();
+  if (!url) {
+    firmware.online = false;
+    firmware.lastStatus = 'offline html mode';
+    firmware.lastError = `offline: ${path}`;
+    throw new Error(`offline html mode: ${path}`);
+  }
+  const res = await fetch(url, {method:'GET', cache:'no-store'});
+  firmware.online = res.ok;
+  firmware.lastStatus = `${res.status} ${res.statusText || ''}`.trim();
+  if (!res.ok) {
+    firmware.lastError = firmware.lastStatus;
+    throw new Error(firmware.lastStatus);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
+}
+async function apiPost(path, payload){
+  const url = apiUrl(path);
+  firmware.lastRequest = `POST ${path}`;
+  renderState();
+  if (!url) {
+    firmware.online = false;
+    firmware.lastStatus = 'offline html mode';
+    firmware.lastError = `offline: ${path}`;
+    throw new Error(`offline html mode: ${path}`);
+  }
+  const res = await fetch(url, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload || {})
+  });
+  firmware.online = res.ok;
+  firmware.lastStatus = `${res.status} ${res.statusText || ''}`.trim();
+  if (!res.ok) {
+    firmware.lastError = firmware.lastStatus;
+    throw new Error(firmware.lastStatus);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : {ok:true};
+}
+function shouldLogApiError(){
+  const now = performance.now();
+  if (now - lastApiErrorLogAt > 2500) { lastApiErrorLogAt = now; return true; }
+  return false;
+}
+function sendAuxCommand(cmd, payload={}, source='webui'){
+  firmware.sentCommands++;
+  const packet = {cmd, source, ts:Date.now(), payload};
+  setFirmwareStatus({lastRequest:`POST ${API_ENDPOINTS.command}`, lastStatus:isOfflineHtmlMode()?'queued offline':'queued'});
+  apiPost(API_ENDPOINTS.command, packet)
+    .catch(err=>{setFirmwareStatus({lastStatus:isOfflineHtmlMode()?'offline html mode':'command failed', lastError:err.message}); if(!isOfflineHtmlMode() && shouldLogApiError()) log(`辅助指令发送失败: ${err.message}`);});
+  return packet;
+}
+function queueFirmwareFrame(frame, reason='frame_update', playback='idle'){
+  const m370 = frameToM370(frame);
+  pendingFramePacket = {type:'m370_frame', m370, reason, mode:playback, at:Date.now()};
+  if (frameSendInFlight) return;
+  const sendNext = () => {
+    const packet = pendingFramePacket;
+    pendingFramePacket = null;
+    if (!packet) { frameSendInFlight = false; return; }
+    frameSendInFlight = true;
+    firmware.sentFrames++;
+    setFirmwareStatus({lastRequest:`POST ${API_ENDPOINTS.frame}`, lastStatus:isOfflineHtmlMode()?'queued offline':'queued'});
+    apiPost(API_ENDPOINTS.frame, packet)
+      .catch(err=>{setFirmwareStatus({lastStatus:isOfflineHtmlMode()?'offline html mode':'frame failed', lastError:err.message}); if(!isOfflineHtmlMode() && shouldLogApiError()) log(`M370 帧发送失败: ${err.message}`);})
+      .finally(()=>sendNext());
+  };
+  sendNext();
+}
+
+function orPartIntoFrame(frame, part){
+  // Canonical WebUI/M370 path: use part.m370 because it is 370-bit row-major data.
+  // strip_indices are physical strip positions and must not be used to generate WebUI M370 frames.
+  if (part && typeof part.m370 === 'string') {
+    const partFrame = m370ToFrame(part.m370);
+    for (let i=0; i<TOTAL_LEDS; i++) if (partFrame[i]) frame[i] = true;
+    return;
+  }
+  // Fallback only for malformed legacy assets.
+  for (const idx of (part?.strip_indices || [])) if (idx>=0 && idx<TOTAL_LEDS) frame[idx] = true;
+}
+function composePartsFrame(){
+  const frame = blankFrame();
+  for (const key of ['leye','reye','mouth','cheek']) {
+    const requested = String(selectedCall[key] ?? '0');
+    const resolved = resolvePartId(key, requested);
+    const part = EXPRESSION_PARTS.parts[resolved] || EXPRESSION_PARTS.parts['0'];
+    orPartIntoFrame(frame, part);
+  }
+  partsFrame = frame;
+  renderMatrices();
+  renderPartsStatus();
+  return frame;
+}
+function resolvePartId(callKey, id){
+  const map = EXPRESSION_PARTS.call?.map?.[callKey] || {};
+  const resolved = String(map[String(id)] ?? id ?? '0');
+  return EXPRESSION_PARTS.parts[resolved] ? resolved : '0';
+}
+function classifyOutputMode(reason='', playback=null){
+  const p = String(playback || '');
+  const r = String(reason || '');
+  if (p === 'scroll' || p === 'scroll_step' || r.startsWith('text_scroll_')) return 'scroll';
+  if (r.startsWith('custom_')) return 'custom';
+  if (r.startsWith('parts_')) return 'parts';
+  if (r.startsWith('debug_')) return 'debug';
+  if (r.includes('saved_face') || r.includes('B1') || r.includes('B2')) return 'face';
+  return p || 'static';
+}
+function terminateOtherActivities(targetMode='static', reason='mode_change'){
+  const ended = [];
+  const previousPlayback = state.playback;
+
+  // One-way guard rule:
+  // Starting/sending another mode is a hard interruption, not a temporary pause.
+  // Nothing stopped here is automatically resumed after the new mode ends.
+  if (targetMode !== 'face' && state.mode === '自动') {
+    state.mode = '手动';
+    ended.push('auto_saved_face');
+  }
+
+  if (targetMode !== 'scroll' && (scroll.timer || scroll.active || state.textScrollActive || previousPlayback === 'scroll')) {
+    if (scroll.timer) clearInterval(scroll.timer);
+    scroll.timer = null;
+    scroll.active = false;
+    scroll.paused = false;
+    state.textScrollActive = false;
+    if (state.playback === 'scroll') state.playback = 'idle';
+    ended.push('text_scroll');
+  }
+
+  if (ended.length) {
+    state.refreshPolicy = targetMode === 'scroll' ? 'text_scroll_30fps' : 'dirty-frame / 按需刷新';
+    updateScrollUi();
+    renderState();
+    log(`防冲突：${reason} 前终止 ${ended.join(' / ')}；不会自动恢复`);
+    sendAuxCommand('terminate_other_activities', {targetMode, ended}, reason);
+  }
+  return ended;
+}
+function guardBeforeOutput(reason='mode_change', playback=null){
+  return terminateOtherActivities(classifyOutputMode(reason, playback), reason);
+}
+function setCurrentFrame(frame, reason='manual_update', playback=null){
+  guardBeforeOutput(reason, playback);
+  currentFrame = cloneFrame(frame);
+  state.lastRefreshReason = reason;
+  state.refreshCount++;
+  if (playback !== null) state.playback = playback;
+  updateDps();
+  renderMatrices();
+  renderState();
+  updateM370Views();
+  queueFirmwareFrame(currentFrame, reason, state.playback);
+}
+function updateDps(){
+  const rgb = hexToRgb(state.color);
+  const colorFactor = (rgb.r + rgb.g + rgb.b) / (255*3);
+  const estimatedW = onCount(currentFrame) * 0.06 * 5 * (state.brightness / 255) * colorFactor;
+  state.dpsActive = estimatedW > 40;
+  const warn = $('dps-warning');
+  if (warn) warn.classList.toggle('show', state.dpsActive);
+}
+function setColor(hex, source='color_change'){
+  const c = normalizeHexColor(hex);
+  if (!c) { alert('颜色必须是 #RRGGBB 或 RRGGBB'); return; }
+  state.color = c;
+  document.documentElement.style.setProperty('--led-color', c);
+  $('color-input').value = c;
+  $('color-swatch').style.background = c;
+  updateDps();
+  renderMatrices();
+  renderState();
+  log(`颜色更新 ${c} (${source})`);
+  sendAuxCommand('set_color', {hex:c}, source);
+}
+function setBrightness(v, source='brightness_change'){
+  state.brightness = clamp(v,10,200);
+  $('brightness-range').value = state.brightness;
+  $('brightness-input').value = state.brightness;
+  $('brightness-percent').value = Math.round(state.brightness/255*100)+'%';
+  updateDps();
+  renderState();
+  log(`亮度更新 raw=${state.brightness} (${source})`);
+  sendAuxCommand('set_brightness', {raw:state.brightness}, source);
+}
+function setNavMenuOpen(open){
+  const nav = $('nav');
+  const toggle = $('nav-toggle');
+  if (!nav || !toggle) return;
+  nav.classList.toggle('open', open);
+  toggle.classList.toggle('active', open);
+  toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  nav.setAttribute('aria-hidden', open ? 'false' : 'true');
+}
+function updateCurrentPageLabel(id){
+  const item = PAGES.find(([pid]) => pid === id);
+  const label = $('current-page-label');
+  if (item && label) label.textContent = `${item[1]} ${item[2]}`;
+}
+function modeForPage(id){
+  if (id === 'scroll') return 'scroll';
+  if (id === 'custom') return 'custom';
+  if (id === 'parts') return 'parts';
+  if (id === 'debug') return 'debug';
+  return 'face';
+}
+function switchPage(id){
+  terminateOtherActivities(modeForPage(id), `switch_page_${id}`);
+  for (const [pid] of PAGES) {
+    $('page-'+pid).classList.toggle('active', pid===id);
+    const b = document.querySelector(`.nav button[data-page="${pid}"]`);
+    if (b) b.classList.toggle('active', pid===id);
+  }
+  updateCurrentPageLabel(id);
+  setNavMenuOpen(false);
+  if (id === 'scroll') requestAnimationFrame(autoResizeScrollTextInput);
+}
+
+function initNav(){
+  const nav = $('nav'); nav.innerHTML='';
+  const toggle = $('nav-toggle');
+  if (toggle) toggle.onclick = (ev) => {
+    ev.stopPropagation();
+    setNavMenuOpen(!nav.classList.contains('open'));
+  };
+  nav.onclick = (ev) => ev.stopPropagation();
+  for (const [id,num,name] of PAGES) {
+    const b = document.createElement('button');
+    b.dataset.page = id;
+    b.setAttribute('role', 'menuitem');
+    b.innerHTML = `<span>${name}</span><span class="num">${num}</span>`;
+    if (id==='basic') b.classList.add('active');
+    b.onclick = () => switchPage(id);
+    nav.appendChild(b);
+  }
+  updateCurrentPageLabel('basic');
+  document.addEventListener('click', (ev) => {
+    if (!$('nav-shell')?.contains(ev.target)) setNavMenuOpen(false);
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') setNavMenuOpen(false);
+  });
+}
+
+function closeCustomSelects(exceptShell=null){
+  document.querySelectorAll('.select-shell.open').forEach(shell => {
+    if (shell !== exceptShell) {
+      shell.classList.remove('open');
+      const btn = shell.querySelector('.select-toggle');
+      const menu = shell.querySelector('.select-menu');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+      if (menu) menu.setAttribute('aria-hidden', 'true');
+    }
+  });
+}
+function splitDropdownLabel(text){
+  const raw = String(text || '').trim();
+  const match = raw.match(/^(.*?)\s{2,}(.+)$/);
+  if (match) return [match[1].trim(), match[2].trim()];
+  return [raw, ''];
+}
+function ensureCustomSelect(select){
+  if (!select) return null;
+  const shell = select.closest('.select-shell');
+  if (!shell) return null;
+  let toggle = shell.querySelector('.select-toggle');
+  let menu = shell.querySelector('.select-menu');
+  if (!toggle) {
+    toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'select-toggle';
+    toggle.setAttribute('aria-haspopup', 'menu');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.innerHTML = '<span class="select-label"></span><span class="select-caret" aria-hidden="true">▾</span>';
+    shell.insertBefore(toggle, select.nextSibling);
+    const oldCaret = shell.querySelector(':scope > .select-caret');
+    if (oldCaret && oldCaret !== toggle.querySelector('.select-caret')) oldCaret.remove();
+    toggle.onclick = (ev) => {
+      ev.stopPropagation();
+      const willOpen = !shell.classList.contains('open');
+      closeCustomSelects(shell);
+      shell.classList.toggle('open', willOpen);
+      toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+      const m = shell.querySelector('.select-menu');
+      if (m) m.setAttribute('aria-hidden', willOpen ? 'false' : 'true');
+    };
+  }
+  if (!menu) {
+    menu = document.createElement('div');
+    menu.className = 'select-menu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-hidden', 'true');
+    shell.appendChild(menu);
+    menu.onclick = (ev) => ev.stopPropagation();
+  }
+  return {shell, toggle, menu};
+}
+function refreshSelectDropdown(idOrSelect){
+  const select = typeof idOrSelect === 'string' ? $(idOrSelect) : idOrSelect;
+  const ui = ensureCustomSelect(select);
+  if (!select || !ui) return;
+  const selected = select.options[select.selectedIndex] || select.options[0];
+  const label = ui.toggle.querySelector('.select-label');
+  if (label) label.textContent = selected ? selected.textContent.trim() : '选择';
+  ui.menu.innerHTML = '';
+  Array.from(select.options).forEach((opt) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'select-option';
+    b.setAttribute('role', 'menuitem');
+    b.dataset.value = opt.value;
+    const [main, detail] = splitDropdownLabel(opt.textContent);
+    b.innerHTML = `<span>${main}</span>${detail ? `<span class="num">${detail}</span>` : ''}`;
+    b.classList.toggle('active', opt.value === select.value);
+    b.onclick = (ev) => {
+      ev.stopPropagation();
+      select.value = opt.value;
+      select.dispatchEvent(new Event('change', {bubbles:true}));
+      ui.shell.classList.remove('open');
+      ui.toggle.setAttribute('aria-expanded', 'false');
+      ui.menu.setAttribute('aria-hidden', 'true');
+      refreshAllCustomSelects();
+    };
+    ui.menu.appendChild(b);
+  });
+}
+function refreshAllCustomSelects(){
+  document.querySelectorAll('.select-shell select').forEach(sel => refreshSelectDropdown(sel));
+}
+function initCustomSelectDropdowns(){
+  document.querySelectorAll('.select-shell select').forEach(sel => {
+    ensureCustomSelect(sel);
+    sel.addEventListener('change', () => requestAnimationFrame(refreshAllCustomSelects));
+  });
+  refreshAllCustomSelects();
+  document.addEventListener('click', () => closeCustomSelects());
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') closeCustomSelects();
+  });
+}
+
+function initMatrix(id, frameProvider, editable=false, editHandler=null, compact=false){
+  const el = $(id); if (!el) return;
+  el.innerHTML='';
+  if (compact) el.classList.add('compact');
+  for (let y=0; y<ROWS; y++) {
+    for (let x=0; x<COLS; x++) {
+      const idx = XY_TO_INDEX[y][x];
+      const cell = document.createElement('div');
+      cell.className = 'led' + (idx<0?' invalid':'') + (editable && idx>=0?' editable':'');
+      if (idx>=0) { cell.dataset.idx = idx; cell.dataset.x=x; cell.dataset.y=y; }
+      el.appendChild(cell);
+    }
+  }
+  const view = {el, frameProvider, compact: !!compact}; matrixViews.push(view);
+  if (editable) attachDrawing(el, editHandler);
+  fitMatrix(view);
+}
+function fitMatrix(view){
+  const wrap = view.el.closest('.matrix-wrap');
+  if (!wrap) return;
+  const cs = getComputedStyle(view.el);
+  const gap = parseFloat(cs.getPropertyValue('--gap')) || (view.compact ? 2 : 3);
+  const inner = Math.max(120, wrap.clientWidth - 24);
+  const maxCell = view.compact ? 12 : 22;
+  const minCell = view.compact ? 4 : 5;
+  const cell = Math.floor((inner - gap * (COLS - 1)) / COLS);
+  view.el.style.setProperty('--cell', clamp(cell, minCell, maxCell) + 'px');
+}
+function fitAllMatrices(){ matrixViews.forEach(fitMatrix); }
+let matrixResizeObserver = null;
+function observeMatrixWraps(){
+  if (matrixResizeObserver || typeof ResizeObserver === 'undefined') return;
+  matrixResizeObserver = new ResizeObserver(() => { fitAllMatrices(); renderMatrices(); });
+  document.querySelectorAll('.matrix-wrap').forEach(el => matrixResizeObserver.observe(el));
+  window.addEventListener('resize', () => { fitAllMatrices(); renderMatrices(); }, {passive:true});
+}
+function renderMatrices(){
+  for (const view of matrixViews) {
+    const frame = view.frameProvider();
+    const cells = view.el.children;
+    for (let y=0, n=0; y<ROWS; y++) {
+      for (let x=0; x<COLS; x++, n++) {
+        const idx = XY_TO_INDEX[y][x];
+        if (idx>=0) cells[n].classList.toggle('on', !!frame[idx]);
+      }
+    }
+  }
+}
+function attachDrawing(el, editHandler){
+  let drawing = false;
+  let paintValue = true;
+  const getCell = (ev) => {
+    const p = ev.touches ? ev.touches[0] : ev;
+    const target = document.elementFromPoint(p.clientX, p.clientY);
+    return target && target.closest && target.closest('.led.editable');
+  };
+  const apply = (ev, first=false) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const cell = getCell(ev); if (!cell || !cell.dataset.idx) return;
+    const idx = Number(cell.dataset.idx);
+    if (first) {
+      if (selectedTool === 'toggle') paintValue = !editFrame[idx];
+      else paintValue = selectedTool === 'on';
+    }
+    editHandler(idx, paintValue, selectedTool);
+  };
+  const down = ev => { drawing=true; apply(ev,true); };
+  const move = ev => { if (drawing) apply(ev,false); };
+  const up = ev => { drawing=false; };
+  el.addEventListener('pointerdown', down);
+  el.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  el.addEventListener('touchstart', down, {passive:false});
+  el.addEventListener('touchmove', move, {passive:false});
+  window.addEventListener('touchend', up, {passive:false});
+}
+
+function renderState(){
+  const library = getAllFaces();
+  const currentFace = library[state.faceIndex] || {name:'—', type:'—'};
+  const kv = $('state-kv');
+  if (kv) kv.innerHTML = kvRows([
+    ['当前模式', state.mode], ['当前表情序号', `${library.length ? state.faceIndex+1 : 0} / ${library.length}`], ['当前表情名称', currentFace.name], ['当前表情属性', faceTypeLabel(currentFace.type)],
+    ['当前亮度', `${state.brightness}/255`], ['当前颜色', state.color], ['当前播放状态', state.playback], ['当前 AP IP', state.apIp],
+    ['刷新策略', state.refreshPolicy], ['最近刷新原因', state.lastRefreshReason], ['刷新计数', state.refreshCount]
+  ]);
+  const dk = $('debug-kv');
+  if (dk) dk.innerHTML = kvRows([
+    ['LED 数量', TOTAL_LEDS], ['矩阵', `${COLS}x${ROWS} / 不规则 370`], ['M370 长度', '93 hex + M370:'],
+    ['亮度 raw', `${state.brightness}`], ['DPS 状态', state.dpsActive?'active':'inactive'], ['播放状态', state.playback],
+    ['文字 30fps', state.textScrollActive?'active':'inactive'], ['实际 FPS', state.actualFps.toFixed(1)],
+    ['Vbat', `${state.batteryV.toFixed(2)} V / ${state.batteryPercent}%`], ['Vcharge', `${state.chargeV.toFixed(2)} V / ${state.charging?'charging':'not charging'}`],
+    ['AP SSID', 'RinaChanBoard-ESP32S3'], ['AP 密码', 'rinachan'], ['AP IP', state.apIp]
+  ]);
+  const rk = $('resource-kv');
+  if (rk) rk.innerHTML = kvRows([
+    ['JSON format', EXPRESSION_PARTS.format], ['version', EXPRESSION_PARTS.version], ['stored_unique_parts', EXPRESSION_PARTS.counts.stored_unique_parts],
+    ['callable_ids', EXPRESSION_PARTS.counts.callable_ids], ['eye_left', EXPRESSION_PARTS.counts.stored_by_group.eye_left], ['eye_right', EXPRESSION_PARTS.counts.stored_by_group.eye_right],
+    ['mouth', EXPRESSION_PARTS.counts.stored_by_group.mouth], ['cheek', EXPRESSION_PARTS.counts.callable_by_group.cheek], ['default_faces', defaultFaces.length], ['user_saved_faces', userFaces.length],
+    ['interface_mode', 'HTML generates M370 / firmware receives commands'], ['face_library_json', firmware.savedFacesPath], ['parts_compose', 'm370 row-major canonical'], ['parts_eye_symmetry', partsSymmetry ? 'on / same display index' : 'off'], ['preview_scale', 'ResizeObserver fit/no horizontal scroll'], ['basic_layout', 'wide side-by-side']
+  ]);
+}
+function kvRows(rows){return rows.map(([k,v])=>`<span class="k">${escapeHtml(k)}</span><span>${escapeHtml(String(v))}</span>`).join('');}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function updateM370Views(){
+  if($('custom-m370')) $('custom-m370').value = frameToM370(editFrame);
+  if($('parts-m370-text')) $('parts-m370-text').value = frameToM370(partsFrame);
+}
+
+function initColors(){
+  const parentSelect = $('parent-color-select');
+  if (!parentSelect) return;
+  parentSelect.innerHTML = '';
+  for (const g of parent_color_groups) {
+    const opt = document.createElement('option');
+    opt.value = String(g.id);
+    opt.textContent = `${g.id}. ${g.name}  #${g.color.toUpperCase()}`;
+    parentSelect.appendChild(opt);
+  }
+  parentSelect.value = String(state.parentColorId ?? 0);
+  parentSelect.onchange = () => {
+    state.parentColorId = Number(parentSelect.value);
+    state.selectedChildColor = null;
+    state.colorSelection = 'parent';
+    const parentColor = parent_color_groups.find(g=>g.id===state.parentColorId)?.color || parent_color_groups[0].color;
+    setColor('#' + parentColor, 'parent_color_dropdown');
+    renderChildColors();
+  };
+  renderChildColors();
+  refreshSelectDropdown('parent-color-select');
+}
+function renderParentColorButtons(){
+  const parentSelect = $('parent-color-select');
+  if (parentSelect) parentSelect.value = String(state.parentColorId ?? 0);
+  refreshSelectDropdown('parent-color-select');
+}
+function renderChildColors(){
+  const childSelect = $('child-color-select');
+  if (!childSelect) return;
+  childSelect.innerHTML = '';
+  const parent = parent_color_groups.find(g=>g.id===state.parentColorId) || parent_color_groups[0];
+  const useParent = document.createElement('option');
+  useParent.value = '__parent__';
+  useParent.textContent = `使用父颜色：${parent.name}  #${parent.color.toUpperCase()}`;
+  childSelect.appendChild(useParent);
+  const rows = child_color_groups[state.parentColorId] || [];
+  for (const [name,color] of rows) {
+    const opt = document.createElement('option');
+    opt.value = ('#' + color).toLowerCase();
+    opt.textContent = `${name}  #${color.toUpperCase()}`;
+    childSelect.appendChild(opt);
+  }
+  childSelect.value = (state.colorSelection === 'child' && state.selectedChildColor) ? state.selectedChildColor : '__parent__';
+  childSelect.onchange = () => {
+    const v = childSelect.value;
+    if (v === '__parent__') {
+      state.selectedChildColor = null;
+      state.colorSelection = 'parent';
+      setColor('#' + parent.color, 'child_dropdown_use_parent');
+    } else {
+      state.selectedChildColor = v;
+      state.colorSelection = 'child';
+      setColor(v, 'child_color_dropdown');
+    }
+    renderParentColorButtons();
+    refreshAllCustomSelects();
+  };
+  refreshSelectDropdown('child-color-select');
+}
+
+function initBrightness(){
+  $('brightness-minus').onclick=()=>setBrightness(state.brightness-8,'B4/WebUI -');
+  $('brightness-plus').onclick=()=>setBrightness(state.brightness+8,'B5/WebUI +');
+  $('brightness-range').oninput=e=>setBrightness(e.target.value,'slider');
+  $('brightness-input').onchange=e=>setBrightness(e.target.value,'raw_input');
+  const presets = [10,25,50,80,128,160,200];
+  const box=$('brightness-presets'); box.innerHTML='';
+  for (const p of presets){const b=document.createElement('button'); b.textContent=p; b.onclick=()=>setBrightness(p,'preset'); box.appendChild(b);}
+}
+function initBasicControls(){
+  $('apply-color').onclick=()=>{state.selectedChildColor=null; state.colorSelection='custom'; setColor($('color-input').value,'custom_input'); renderParentColorButtons(); renderChildColors();};
+  $('face-prev').onclick=prevFace;
+  $('face-next').onclick=nextFace;
+  $('mode-toggle').onclick=()=>toggleMode('WebUI B3');
+  $('interval-down').onclick=()=>adjustInterval(-500);
+  $('interval-up').onclick=()=>adjustInterval(500);
+  $('auto-interval').onchange=e=>{state.autoInterval=clamp(e.target.value,500,60000); e.target.value=state.autoInterval; renderState(); log(`自动切换间隔设置为 ${state.autoInterval} ms`); sendAuxCommand('set_auto_interval', {ms:state.autoInterval}, 'auto_interval_input');};
+  if($('copy-current-m370')) $('copy-current-m370').onclick=()=>{copyText(frameToM370(currentFrame)); log('复制当前输出数据');};
+}
+function toggleMode(source){guardBeforeOutput('am_mode_toggle','face'); state.mode = state.mode === '自动' ? '手动' : '自动'; renderState(); log(`A/M 模式切换为 ${state.mode} (${source})`); sendAuxCommand('set_mode', {mode:state.mode}, source);}
+function adjustInterval(delta){state.autoInterval=clamp(state.autoInterval+delta,500,60000); $('auto-interval').value=state.autoInterval; renderState(); log(`自动切换间隔 ${delta>0?'+':'-'} -> ${state.autoInterval} ms`); sendAuxCommand('set_auto_interval', {ms:state.autoInterval}, 'auto_interval_change');}
+function nextFace(){const library=getAllFaces(); if(!library.length)return; state.faceIndex=(state.faceIndex+1)%library.length; applySavedFace(state.faceIndex,'B1/WebUI next');}
+function prevFace(){const library=getAllFaces(); if(!library.length)return; state.faceIndex=(state.faceIndex-1+library.length)%library.length; applySavedFace(state.faceIndex,'B2/WebUI prev');}
+function applySavedFace(i, reason='saved_face_apply'){
+  const library=getAllFaces();
+  const face=library[i]; if(!face)return;
+  state.faceIndex=i; setCurrentFrame(m370ToFrame(face.m370), reason, 'idle'); renderSavedFaces(); log(`应用表情 #${i+1}: ${face.name} / ${faceTypeLabel(face.type)}`);
+}
+
+function initCustom(){
+  document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{selectedTool=b.dataset.tool; document.querySelectorAll('[data-tool]').forEach(x=>x.classList.toggle('active',x===b));});
+  $('custom-clear').onclick=()=>{editFrame=blankFrame(); renderMatrices(); updateM370Views(); log('自定义画板清空');};
+  $('custom-fill').onclick=()=>{editFrame=blankFrame().map(()=>true); renderMatrices(); updateM370Views(); log('自定义画板全亮');};
+  $('custom-invert').onclick=()=>{editFrame=editFrame.map(v=>!v); renderMatrices(); updateM370Views(); log('自定义画板反转');};
+  $('custom-send').onclick=()=>{setCurrentFrame(editFrame,'custom_face_send','idle'); log('自定义 M370 已发送到固件接口');};
+  $('custom-copy').onclick=()=>{copyText(frameToM370(editFrame)); log('复制自定义 M370');};
+  $('custom-export').onclick=()=>{updateM370Views(); log('更新自定义 M370 导出文本');};
+  $('custom-import').onclick=()=>{try{editFrame=m370ToFrame($('custom-m370').value); renderMatrices(); updateM370Views(); log('导入自定义 M370 成功');}catch(e){alert(e.message);}};
+  $('custom-save').onclick=()=>saveFace($('custom-name').value || 'custom_face', editFrame, 'custom');
+  initFaceManagerControls();
+}
+function editCell(idx, value, tool){
+  editFrame[idx] = !!value;
+  renderMatrices(); updateM370Views();
+}
+
+
+function preferredStartupDefaultId(faces){
+  const list = Array.isArray(faces) ? faces : [];
+  return list.find(f=>f.id===DEFAULT_STARTUP_FACE_ID)?.id || list.find(f=>f.is_startup_default)?.id || list.find(f=>f.type==='default')?.id || list[0]?.id || null;
+}
+async function loadFaceLibrary(){
+  const doc = await loadUnifiedFacesDocument();
+  faceLibraryDocument = normalizeFaceDocument(doc, 'custom');
+  splitFaceLibraryDocument(faceLibraryDocument);
+  const library = getAllFaces();
+  if (library.length) {
+    const startupId = faceLibraryDocument?.startupDefaultId;
+    const startupIndex = startupId ? library.findIndex(f=>f.id===startupId) : -1;
+    state.faceIndex = startupIndex >= 0 ? startupIndex : clamp(state.faceIndex, 0, library.length - 1);
+  } else {
+    state.faceIndex = 0;
+  }
+  renderSavedFaces();
+  renderState();
+  return library;
+}
+async function fetchJsonDocument(path){
+  const res = await fetch(path, {cache:'no-store'});
+  if(!res.ok) throw new Error(`${res.status} ${res.statusText || ''}`.trim());
+  return res.json();
+}
+async function loadUnifiedFacesDocument(){
+  const empty = {format:FACE_SCHEMA_FORMAT, version:2, category:'unified_saved_faces', matrix:{leds:TOTAL_LEDS, m370HexChars:93}, startupDefaultId:DEFAULT_STARTUP_FACE_ID, updatedAt:null, faces:[]};
+  try{
+    const apiDoc = await apiGet(API_ENDPOINTS.savedFaces);
+    setFirmwareStatus({savedFacesSync:'loaded from /api/saved_faces'});
+    return apiDoc;
+  }catch(apiErr){
+    const candidates = location.protocol === 'file:' ? [FACE_LIBRARY_RELATIVE_RESOURCE, FACE_LIBRARY_FILENAME] : [FACE_LIBRARY_RESOURCE, FACE_LIBRARY_RELATIVE_RESOURCE, FACE_LIBRARY_FILENAME];
+    for(const path of candidates){
+      try{
+        const doc = await fetchJsonDocument(path);
+        setFirmwareStatus({savedFacesSync:`loaded from ${path}`});
+        return doc;
+      }catch(fileErr){}
+    }
+    setFirmwareStatus({savedFacesSync: location.protocol === 'file:' ? 'file:// cannot auto-read JSON; import saved_faces.json' : 'saved_faces.json not found'});
+    log(location.protocol === 'file:' ? '浏览器 file:// 通常不能自动读取旁边的 saved_faces.json；请点击“导入 saved_faces.json”。' : 'saved_faces.json 未读取到，使用空表情库。');
+    return empty;
+  }
+}
+function splitFaceLibraryDocument(doc){
+  const faces = Array.isArray(doc?.faces) ? doc.faces : [];
+  defaultFaces = faces.filter(f=>f.type === 'default').map((f,i)=>({
+    ...f,
+    type:'default',
+    editable:true,
+    deletable:false,
+    locked:true,
+    is_startup_default:!!f.is_startup_default || f.id === DEFAULT_STARTUP_FACE_ID,
+    sourceFile:FACE_LIBRARY_FILENAME,
+    order:Number.isFinite(Number(f.order)) ? Number(f.order) : i
+  }));
+  userFaces = faces.filter(f=>f.type !== 'default').map((f,i)=>({
+    ...f,
+    type:normalizeFaceType(f.type),
+    editable:true,
+    deletable:true,
+    locked:false,
+    is_startup_default:false,
+    sourceFile:FACE_LIBRARY_FILENAME,
+    order:Number.isFinite(Number(f.order)) ? Number(f.order) : 10000+i
+  }));
+}
+function normalizeFaceDocument(doc, fallbackType='custom'){
+  const out = (doc && typeof doc === 'object' && !Array.isArray(doc)) ? {...doc} : {format:FACE_SCHEMA_FORMAT, version:2, faces:Array.isArray(doc)?doc:[]};
+  out.format = FACE_SCHEMA_FORMAT;
+  out.version = Number(out.version || 2);
+  out.category = 'unified_saved_faces';
+  out.matrix = out.matrix || {leds:TOTAL_LEDS, m370HexChars:93};
+  out.faces = Array.isArray(out.faces) ? out.faces : [];
+  out.faces = out.faces.map((f,i)=>normalizeFace(f,i,fallbackType)).filter(Boolean);
+  out.startupDefaultId = preferredStartupDefaultId(out.faces);
+  out.updatedAt = out.updatedAt || null;
+  return out;
+}
+function displayNameFromId(id){
+  return String(id || 'face').replace(/^face_?/, '').replace(/_/g,' ').replace(/\b\w/g, c=>c.toUpperCase());
+}
+function normalizeFace(f,i=0,fallbackType='custom'){
+  if(!f || typeof f !== 'object') return null;
+  const m370 = String(f.m370 || '').trim();
+  try{m370ToFrame(m370)}catch(e){return null;}
+  const type = normalizeFaceType(f.type || f.source || fallbackType);
+  const id = String(f.id || `${type}_${i+1}`);
+  return {
+    id,
+    name:String(f.name || displayNameFromId(id)).slice(0,64),
+    type,
+    m370:frameToM370(m370ToFrame(m370)),
+    order:Number.isFinite(Number(f.order)) ? Number(f.order) : i,
+    editable:true,
+    deletable:type !== 'default',
+    locked:type === 'default' ? true : !!f.locked,
+    is_startup_default:!!f.is_startup_default || id === DEFAULT_STARTUP_FACE_ID,
+    sourceFile:FACE_LIBRARY_FILENAME,
+    savedAt:f.savedAt || f.createdAt || null,
+    updatedAt:f.updatedAt || null,
+    call:f.call || null
+  };
+}
+function normalizeFaceType(v){
+  const s=String(v||'custom').toLowerCase();
+  if(s.includes('default')) return 'default';
+  if(s.includes('part')) return 'parts';
+  if(s.includes('custom')) return 'custom';
+  return 'custom';
+}
+function faceTypeLabel(type){
+  return type === 'default' ? '默认表情' : type === 'parts' ? '部件表情' : type === 'custom' ? '自定义表情' : '保存表情';
+}
+function getAllFaces(){
+  return [...defaultFaces, ...userFaces].map((f,idx)=>({...f, _stableIndex:idx})).sort((a,b)=>(Number(a.order)||0)-(Number(b.order)||0) || String(a.id).localeCompare(String(b.id)));
+}
+function reassignOrderFromLibrary(library){
+  const defaultById = new Map(defaultFaces.map(f=>[f.id,f]));
+  const userById = new Map(userFaces.map(f=>[f.id,f]));
+  library.forEach((f,i)=>{
+    const target = f.type === 'default' ? defaultById.get(f.id) : userById.get(f.id);
+    if(target) target.order = i;
+  });
+  defaultFaces = [...defaultFaces].sort((a,b)=>a.order-b.order);
+  userFaces = [...userFaces].sort((a,b)=>a.order-b.order);
+}
+function buildUnifiedFaceDocument(){
+  const faces = getAllFaces().map((f,i)=>{
+    const normalized = normalizeFace({...f, order:i}, i, f.type || 'custom');
+    if(!normalized) return null;
+    normalized.editable = true;
+    normalized.deletable = normalized.type !== 'default';
+    normalized.sourceFile = FACE_LIBRARY_FILENAME;
+    return normalized;
+  }).filter(Boolean);
+  return {
+    format:FACE_SCHEMA_FORMAT,
+    version:2,
+    category:'unified_saved_faces',
+    matrix:{leds:TOTAL_LEDS, m370HexChars:93},
+    startupDefaultId:preferredStartupDefaultId(faces),
+    updatedAt:new Date().toISOString(),
+    faces
+  };
+}
+async function saveFaceLibraryToLocalFile(){
+  if(!faceLibraryFileHandle) throw new Error('尚未打开本地 saved_faces.json。请先点击“打开本地 saved_faces.json”，或使用下载/导入流程。');
+  if(!window.showOpenFilePicker && !faceLibraryFileHandle.createWritable) throw new Error('当前浏览器不支持 File System Access API。请使用“下载 saved_faces.json”。');
+  const writable = await faceLibraryFileHandle.createWritable();
+  await writable.write(JSON.stringify(faceLibraryDocument || buildUnifiedFaceDocument(), null, 2));
+  await writable.close();
+  setFirmwareStatus({savedFacesSync:'saved to opened local saved_faces.json'});
+  log('已保存到已打开的本地 saved_faces.json');
+}
+async function openLocalFaceLibraryFile(){
+  if(!window.showOpenFilePicker){
+    alert('当前浏览器不支持直接打开并写回本地文件。请使用“导入 saved_faces.json”与“下载 saved_faces.json”。');
+    return;
+  }
+  const [handle] = await window.showOpenFilePicker({
+    multiple:false,
+    types:[{description:'Rina saved_faces.json', accept:{'application/json':['.json']}}]
+  });
+  faceLibraryFileHandle = handle;
+  const file = await handle.getFile();
+  await importFacesJsonText(await file.text(), 'open_local_saved_faces_json');
+  setFirmwareStatus({savedFacesSync:`opened local ${file.name}`});
+  log(`已打开本地 ${file.name}；之后排序/重命名会优先写回这个文件。`);
+}
+async function persistFaceDocuments(reason='save_faces'){
+  faceLibraryDocument = buildUnifiedFaceDocument();
+  splitFaceLibraryDocument(faceLibraryDocument);
+  if(faceLibraryFileHandle){
+    try{
+      await saveFaceLibraryToLocalFile();
+    }catch(localErr){
+      setFirmwareStatus({savedFacesSync:'local save failed; trying firmware API'});
+      log(`本地 saved_faces.json 写入失败：${localErr.message}`);
+    }
+  }
+  setFirmwareStatus({savedFacesSync:'saving unified saved_faces.json'});
+  return apiPost(API_ENDPOINTS.savedFaces, {path:FACE_LIBRARY_RESOURCE, document:faceLibraryDocument, reason})
+    .then(()=>setFirmwareStatus({savedFacesSync:'saved to firmware saved_faces.json'}))
+    .catch(()=>setFirmwareStatus({savedFacesSync: faceLibraryFileHandle ? 'saved locally; firmware offline' : 'save failed/offline; use JSON download/import'}))
+    .finally(()=>{log(`saved_faces.json 已同步：默认 ${defaultFaces.length} 项，用户 ${userFaces.length} 项`); renderState();});
+}
+function downloadJsonFile(filename, doc){
+  const blob = new Blob([JSON.stringify(doc,null,2)], {type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click(); URL.revokeObjectURL(a.href);
+}
+function downloadFacesJson(){downloadJsonFile('saved_faces.json', buildUnifiedFaceDocument()); log('已导出统一 saved_faces.json');}
+async function importFacesJsonText(text, reason='import_saved_faces_json'){
+  faceLibraryDocument = normalizeFaceDocument(JSON.parse(text), 'custom');
+  splitFaceLibraryDocument(faceLibraryDocument);
+  state.faceIndex = 0;
+  renderSavedFaces(); renderState();
+  await persistFaceDocuments(reason);
+  log(`已导入统一 saved_faces.json：默认 ${defaultFaces.length} 项，用户 ${userFaces.length} 项`);
+}
+async function importFacesJsonFile(file){
+  await importFacesJsonText(await file.text(), 'import_saved_faces_json');
+}
+function initFaceManagerControls(){
+  document.querySelectorAll('.faces-json-load').forEach(b=>{if(b.dataset.bound)return; b.dataset.bound='1'; b.onclick=()=>loadFaceLibrary();});
+  document.querySelectorAll('.faces-json-open-local').forEach(b=>{if(b.dataset.bound)return; b.dataset.bound='1'; b.onclick=()=>openLocalFaceLibraryFile().catch(err=>alert(err.message));});
+  document.querySelectorAll('.faces-json-save-local').forEach(b=>{if(b.dataset.bound)return; b.dataset.bound='1'; b.onclick=()=>{faceLibraryDocument=buildUnifiedFaceDocument(); saveFaceLibraryToLocalFile().catch(err=>alert(err.message));};});
+  document.querySelectorAll('.faces-json-download-all').forEach(b=>{if(b.dataset.bound)return; b.dataset.bound='1'; b.onclick=downloadFacesJson;});
+  document.querySelectorAll('.faces-json-import-btn').forEach(b=>{if(b.dataset.bound)return; b.dataset.bound='1'; b.onclick=()=>b.parentElement.querySelector('.faces-json-import-file')?.click();});
+  document.querySelectorAll('.faces-json-import-file').forEach(inp=>{if(inp.dataset.bound)return; inp.dataset.bound='1'; inp.onchange=e=>{const file=e.target.files?.[0]; if(file) importFacesJsonFile(file).catch(err=>alert(err.message)); e.target.value='';};});
+}
+function saveFace(name, frame, type){
+  const faceType = normalizeFaceType(type);
+  if(faceType === 'default') throw new Error('不能通过保存按钮新建默认表情；默认表情只能来自 saved_faces.json 的 type:"default" 项。');
+  const clean = String(name||'face').trim().slice(0,64) || 'face';
+  const nextOrder = Math.max(-1, ...getAllFaces().map(f=>Number(f.order)||0)) + 1;
+  userFaces.push({id:`${faceType}_${Date.now()}`, name:clean, type:faceType, m370:frameToM370(frame), order:nextOrder, editable:true, deletable:true, sourceFile:FACE_LIBRARY_FILENAME, savedAt:new Date().toISOString(), updatedAt:new Date().toISOString(), call:faceType==='parts' ? {...selectedCall} : null});
+  state.faceIndex = getAllFaces().findIndex(f=>f.id===userFaces[userFaces.length-1].id);
+  renderSavedFaces(); renderState(); log(`保存${faceTypeLabel(faceType)}: ${clean}`); persistFaceDocuments('save_user_face');
+}
+function renderSavedFaces(){
+  const lists=document.querySelectorAll('.face-library-list');
+  if(!lists.length)return;
+  const library=getAllFaces();
+  lists.forEach(box=>{
+    box.innerHTML='';
+    if(!library.length){ box.innerHTML = '<div class="hint">saved_faces.json 当前为空或未读取。导入包含 type:"default" 的 saved_faces.json 后会显示默认表情；保存自定义/部件表情会写入同一个文件。</div>'; return; }
+    library.forEach((f,i)=>box.appendChild(createFaceRow(f,i,library.length)));
+  });
+  renderState();
+}
+function createFaceRow(f,i,total){
+  const row=document.createElement('div'); row.className='saved-row'; row.dataset.index=i; row.dataset.faceId=f.id;
+  const index=document.createElement('div'); index.className='saved-index'; index.textContent=String(i+1);
+  const item=document.createElement('div'); item.className='list-item saved-face-card';
+
+  const handle=document.createElement('button'); handle.className='drag-handle'; handle.type='button'; handle.draggable=true; handle.title='拖拽排序'; handle.textContent='☰';
+  handle.addEventListener('dragstart', e=>{dragFaceIndex=i; row.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', String(i));});
+  handle.addEventListener('dragend', ()=>{dragFaceIndex=null; document.querySelectorAll('.saved-row').forEach(x=>x.classList.remove('dragging','drag-over'));});
+
+  const body=document.createElement('div'); body.className='saved-face-body';
+  const nameInput=document.createElement('input'); nameInput.className='saved-name-input'; nameInput.value=f.name || `face_${i+1}`; nameInput.maxLength=64; nameInput.readOnly = false; nameInput.title=f.type === 'default' ? '默认表情可重命名、可排序，但不可删除；回车或失焦保存' : '直接编辑名称后回车或失焦保存';
+  const commitName=()=>{const next=nameInput.value.trim().slice(0,64) || f.name || `face_${i+1}`; const list = f.type==='default' ? defaultFaces : userFaces; const target=list.find(x=>x.id===f.id); if(target && target.name!==next){target.name=next; target.updatedAt=new Date().toISOString(); persistFaceDocuments(f.type==='default'?'rename_default_face':'rename_user_face'); renderState(); log(`重命名${faceTypeLabel(target.type)} #${i+1}: ${next}`);} nameInput.value=next;};
+  nameInput.addEventListener('change', commitName);
+  nameInput.addEventListener('blur', commitName);
+  nameInput.addEventListener('keydown', e=>{if(e.key==='Enter') nameInput.blur();});
+  const meta=document.createElement('div'); meta.className='small saved-meta';
+  const badgeClass = f.type === 'default' ? 'default' : f.type === 'parts' ? 'parts' : 'custom';
+  meta.innerHTML = `<span class="face-source-badge ${badgeClass}">${faceTypeLabel(f.type)}</span> · ${f.sourceFile || FACE_LIBRARY_FILENAME} · ${onCount(m370ToFrame(f.m370))} LED`;
+  body.appendChild(nameInput); body.appendChild(meta);
+
+  const actions=document.createElement('div'); actions.className='row';
+  const buttons=[['应用',()=>applySavedFace(i,'face_library_list')],['↑',()=>moveFace(i,-1), i<=0],['↓',()=>moveFace(i,1), i>=total-1],['重命名',()=>{nameInput.focus(); nameInput.select();}, false]];
+  if(f.type !== 'default') buttons.push(['删除',()=>deleteFace(i), false]);
+  else buttons.push(['不可删除',()=>{}, true]);
+  buttons.forEach(([t,fn,disabled])=>{const b=document.createElement('button'); b.type='button'; b.textContent=t; b.disabled=!!disabled; b.onclick=fn; actions.appendChild(b);});
+
+  row.addEventListener('dragover', e=>{e.preventDefault(); row.classList.add('drag-over');});
+  row.addEventListener('dragleave', ()=>row.classList.remove('drag-over'));
+  row.addEventListener('drop', e=>{e.preventDefault(); row.classList.remove('drag-over'); const from=dragFaceIndex ?? Number(e.dataTransfer.getData('text/plain')); reorderFace(from, i);});
+
+  item.appendChild(handle); item.appendChild(body); item.appendChild(actions);
+  row.appendChild(index); row.appendChild(item); return row;
+}
+function moveFace(i,d){reorderFace(i,i+d);}
+function reorderFace(from,to){
+  const library=getAllFaces();
+  from=Number(from);to=Number(to);
+  if(!Number.isInteger(from)||!Number.isInteger(to)||from<0||to<0||from>=library.length||to>=library.length||from===to)return;
+  const [moved]=library.splice(from,1); library.splice(to,0,moved);
+  reassignOrderFromLibrary(library);
+  state.faceIndex=to;
+  persistFaceDocuments('reorder_faces');
+  renderSavedFaces(); log(`表情排序 ${from+1} -> ${to+1}`);
+}
+function deleteFace(i){
+  const library=getAllFaces();
+  const face=library[i]; if(!face)return;
+  if(face.type === 'default'){alert('默认表情不可删除，但可以排序和重命名。'); return;}
+  if(!confirm(`删除该${faceTypeLabel(face.type)}？`))return;
+  userFaces = userFaces.filter(f=>f.id!==face.id);
+  state.faceIndex=getAllFaces().length ? clamp(state.faceIndex,0,getAllFaces().length-1) : 0;
+  persistFaceDocuments('delete_user_face'); renderSavedFaces(); log(`删除${faceTypeLabel(face.type)} #${i+1}`);
+}
+
+function composeFrameFromCall(call){
+  const frame=blankFrame();
+  for (const key of ['leye','reye','mouth','cheek']) {
+    const resolved = resolvePartId(key, String(call[key] ?? '0'));
+    const part = EXPRESSION_PARTS.parts[resolved] || EXPRESSION_PARTS.parts['0'];
+    orPartIntoFrame(frame, part);
+  }
+  return frame;
+}
+function initParts(){
+  const groups=$('part-groups'); groups.innerHTML='';
+  const labels={leye:'leye 左眼',reye:'reye 右眼',mouth:'mouth 嘴巴',cheek:'cheek 脸颊'};
+  for (const key of ['leye','reye','mouth','cheek']) {
+    const card=document.createElement('div'); card.className='card stack';
+    card.innerHTML=`<h3>${labels[key]}</h3><div class="part-list" id="parts-list-${key}"></div>`;
+    groups.appendChild(card);
+    const list=card.querySelector('.part-list');
+    EXPRESSION_PARTS.call.ids[key].forEach((id,displayIndex)=>{
+      const resolved=resolvePartId(key,id);
+      const part=EXPRESSION_PARTS.parts[resolved] || EXPRESSION_PARTS.parts['0'];
+      const assetName = part.name || `asset_${resolved}`;
+      const btn=document.createElement('button'); btn.className='part-card' + (key==='cheek' ? ' cheek-card' : ''); btn.dataset.key=key; btn.dataset.id=id; btn.title=`显示编号 ${displayIndex} / 调用 ID ${id} / asset ${assetName}`;
+      const metaHtml = `<div class="part-meta"><b class="part-display-id">${displayIndex}</b></div>`;
+      btn.innerHTML=`${miniPreviewHtml(part)}${metaHtml}`;
+      btn.onclick=()=>selectPart(key, String(id));
+      list.appendChild(btn);
+    });
+  }
+  $('parts-apply').onclick=()=>{setCurrentFrame(partsFrame,'parts_compose_send','idle'); log('组合 M370 已发送到固件接口');};
+  $('parts-random').onclick=randomParts;
+  $('parts-symmetry-toggle').onclick=()=>{partsSymmetry=!partsSymmetry; if(partsSymmetry) syncSymmetricEyesFrom('leye'); composePartsFrame(); renderPartButtons(); log(`左右眼对称 ${partsSymmetry?'开启':'关闭'}`);};
+  $('parts-reset').onclick=()=>{selectedCall={leye:'101',reye:'201',mouth:'301',cheek:'400'}; if(partsSymmetry) syncSymmetricEyesFrom('leye'); composePartsFrame(); renderPartButtons(); log('表情部件恢复默认');};
+  $('parts-copy-m370').onclick=()=>{copyText(frameToM370(partsFrame)); log('复制组合 M370');};
+  $('parts-copy-m370-bottom').onclick=()=>{copyText(frameToM370(partsFrame)); log('复制组合 M370');};
+  $('parts-save-bottom').onclick=()=>saveFace($('parts-name').value || `parts_${selectedCall.leye}_${selectedCall.reye}_${selectedCall.mouth}_${selectedCall.cheek}`, partsFrame, 'parts');
+  $('parts-import-m370').onclick=()=>{try{setCurrentFrame(m370ToFrame($('parts-m370-text').value),'parts_m370_import','idle'); log('部件页 M370 文本已应用到当前输出');}catch(e){alert(e.message);}};
+  initFaceManagerControls();
+  composePartsFrame(); renderPartButtons();
+}
+function getPartDisplayIndex(key, id){
+  return EXPRESSION_PARTS.call.ids[key].findIndex(x => String(x) === String(id));
+}
+function callIdAtDisplayIndex(key, index){
+  const ids = EXPRESSION_PARTS.call.ids[key] || [];
+  return String(ids[clamp(index, 0, ids.length - 1)] ?? ids[0] ?? '0');
+}
+function syncSymmetricEyesFrom(sourceKey){
+  const src = sourceKey === 'reye' ? 'reye' : 'leye';
+  const idx = getPartDisplayIndex(src, selectedCall[src]);
+  const safeIdx = idx >= 0 ? idx : 0;
+  selectedCall.leye = callIdAtDisplayIndex('leye', safeIdx);
+  selectedCall.reye = callIdAtDisplayIndex('reye', safeIdx);
+}
+function selectPart(key, id){
+  selectedCall[key] = String(id);
+  if(partsSymmetry && (key === 'leye' || key === 'reye')) syncSymmetricEyesFrom(key);
+  composePartsFrame();
+  renderPartButtons();
+}
+function miniPreviewHtml(part){
+  const rows = previewRows(part);
+  let s='<div class="part-mini">';
+  for(let y=0;y<8;y++){for(let x=0;x<8;x++){s+=`<span class="pix${rows[y] && rows[y][x]==='#'?' on':''}"></span>`;}}
+  return s+'</div>';
+}
+function previewRows(part){
+  const size=part.size||[8,8];
+  const w=clamp(size[0]||8,1,8), h=clamp(size[1]||8,1,8);
+  const out=Array.from({length:8},()=>'.'.repeat(8).split(''));
+  const ox=Math.floor((8-w)/2), oy=Math.floor((8-h)/2);
+  if (part.preview && part.preview.length>=h && part.preview.every(r=>String(r).length>=w)) {
+    for(let y=0;y<h;y++){
+      const row=String(part.preview[y]||'').padEnd(w,'.').slice(0,w);
+      for(let x=0;x<w;x++) if(row[x]==='#') out[oy+y][ox+x]='#';
+    }
+    return out.map(r=>r.join(''));
+  }
+  for(let y=0;y<h;y++){
+    const raw=(part.row_hex||[])[y]||'00';
+    const bits=parseInt(raw,16);
+    for(let x=0;x<w;x++) if(bits & (1<<(7-x))) out[oy+y][ox+x]='#';
+  }
+  return out.map(r=>r.join(''));
+}
+function renderPartButtons(){
+  for (const key of ['leye','reye','mouth','cheek']) {
+    document.querySelectorAll(`[data-key="${key}"]`).forEach(b=>b.classList.toggle('active', b.dataset.id===String(selectedCall[key])));
+  }
+  const sym=$('parts-symmetry-toggle'); if(sym){ sym.classList.toggle('active', !!partsSymmetry); sym.setAttribute('aria-pressed', partsSymmetry ? 'true' : 'false'); }
+}
+function renderPartsStatus(){
+  const callText = `leye=${selectedCall.leye}, reye=${selectedCall.reye}, mouth=${selectedCall.mouth}, cheek=${selectedCall.cheek}`;
+  $('parts-call').textContent = callText;
+}
+function randomParts(){
+  if (partsSymmetry) {
+    const maxEyeIndex = Math.min(EXPRESSION_PARTS.call.ids.leye.length, EXPRESSION_PARTS.call.ids.reye.length) - 1;
+    const eyeIndex = 1 + Math.floor(Math.random() * Math.max(1, maxEyeIndex));
+    selectedCall.leye = callIdAtDisplayIndex('leye', eyeIndex);
+    selectedCall.reye = callIdAtDisplayIndex('reye', eyeIndex);
+  } else {
+    for (const key of ['leye','reye']) {
+      let arr=EXPRESSION_PARTS.call.ids[key].filter(id => String(id) !== '0');
+      selectedCall[key]=String(arr[Math.floor(Math.random()*arr.length)]);
+    }
+  }
+  for (const key of ['mouth','cheek']) {
+    let arr=EXPRESSION_PARTS.call.ids[key].slice();
+    if (key !== 'cheek') arr = arr.filter(id => String(id) !== '0');
+    // cheek=400 is an explicit empty cheek call and remains valid for random.
+    selectedCall[key]=String(arr[Math.floor(Math.random()*arr.length)]);
+  }
+  composePartsFrame(); renderPartButtons(); log(partsSymmetry ? '随机选择表情部件（左右眼同编号，嘴巴不选 0，脸颊允许 400）' : '随机选择表情部件（眼睛/嘴巴不选 0，脸颊允许 400）');
+}
+
+
+function autoResizeScrollTextInput(){
+  const el = $('scroll-text');
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.max(42, el.scrollHeight + 2) + 'px';
+}
+function initScroll(){
+  autoResizeScrollTextInput();
+  $('scroll-generate').onclick=()=>{guardBeforeOutput('text_scroll_generate', 'scroll'); prepareTextScrollTimeline(true);};
+  $('scroll-play').onclick=startScroll;
+  $('scroll-pause').onclick=pauseScroll;
+  $('scroll-stop').onclick=stopScroll;
+  $('scroll-step').onclick=()=>{guardBeforeOutput('text_scroll_manual_step', 'scroll'); prepareTextScrollTimeline(false); advanceScroll(1/30, true);};
+  ['scroll-text','scroll-speed'].forEach(id=>{
+    const el=$(id); if(!el) return;
+    el.addEventListener('input', () => { if (id === 'scroll-text') autoResizeScrollTextInput(); markScrollDirty(); });
+    el.addEventListener('change', () => { if (id === 'scroll-text') autoResizeScrollTextInput(); markScrollDirty(); });
+  });
+  $('scroll-text').addEventListener('paste', () => requestAnimationFrame(autoResizeScrollTextInput));
+  window.addEventListener('resize', () => requestAnimationFrame(autoResizeScrollTextInput));
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(autoResizeScrollTextInput).catch(()=>{});
+}
+function markScrollDirty(){
+  scroll.dirty = true;
+  scroll.signature = '';
+  if(scroll.active){ prepareTextScrollTimeline(true); }
+  updateScrollUi();
+}
+function startScroll(){
+  guardBeforeOutput('text_scroll_start', 'scroll');
+  const text=$('scroll-text').value;
+  if(!text.trim()){alert('空文本不进入 30fps 刷新循环'); return;}
+  prepareTextScrollTimeline(false);
+  if(!scroll.frames.length){alert('没有可播放的文字帧'); return;}
+  if(scroll.timer)clearInterval(scroll.timer);
+  scroll.active=true; scroll.paused=false; state.textScrollActive=true; state.playback='scroll'; state.refreshPolicy='text_scroll_30fps';
+  scroll.fpsStarted=performance.now(); scroll.frameCounter=0;
+  scroll.timer=setInterval(()=>advanceScroll(1/30, false), FRAME_PERIOD_MS);
+  log(`文字滚动开始 30fps，预生成 ${scroll.frames.length} 帧`); updateScrollUi(); renderState();
+}
+function pauseScroll(){
+  if(scroll.timer)clearInterval(scroll.timer); scroll.timer=null; scroll.paused=true; scroll.active=false; state.textScrollActive=false; state.refreshPolicy='dirty-frame / 按需刷新'; state.playback='scroll_paused'; state.lastRefreshReason='text_scroll_paused';
+  log('文字滚动暂停，停止 30fps 循环并保留当前帧'); updateScrollUi(); renderState();
+}
+function stopScroll(){
+  if(scroll.timer)clearInterval(scroll.timer); scroll.timer=null; scroll.active=false; scroll.paused=false; scroll.offset=0; scroll.frameIndex=0; state.textScrollActive=false; state.refreshPolicy='dirty-frame / 按需刷新'; scrollFrame=blankFrame(); setCurrentFrame(scrollFrame,'text_scroll_stopped_clear','idle'); updateScrollUi(); log('文字滚动停止并清屏');
+}
+function advanceScroll(dt, manual){
+  prepareTextScrollTimeline(false);
+  if(!scroll.frames.length) return;
+  const speed=clamp($('scroll-speed').value,1,120);
+  scroll.offset += speed*dt;
+  if(manual) scroll.offset += 1;
+  while(scroll.offset>=scroll.frames.length) scroll.offset-=scroll.frames.length;
+  scroll.frameIndex = Math.floor(scroll.offset) % scroll.frames.length;
+  scrollFrame = cloneFrame(scroll.frames[scroll.frameIndex]);
+  setCurrentFrame(scrollFrame, manual?'text_scroll_manual_step':'text_scroll_30fps', manual?'scroll_step':'scroll');
+  scroll.frameCounter++;
+  const now=performance.now();
+  if(now-scroll.fpsStarted>=1000){scroll.measuredFps = scroll.frameCounter*1000/(now-scroll.fpsStarted); state.actualFps=scroll.measuredFps; scroll.frameCounter=0; scroll.fpsStarted=now;}
+  updateScrollUi();
+}
+function scrollSignature(){
+  return JSON.stringify({text:$('scroll-text').value, model:TEXT_SCROLL_FONT_MODEL, threshold:TEXT_SCROLL_ALPHA_THRESHOLD});
+}
+function prepareTextScrollTimeline(force){
+  const text=$('scroll-text').value || '';
+  if(!text.trim()) { scroll.frames=[]; scroll.frameIndex=0; scroll.offset=0; scroll.dirty=false; updateScrollUi(); return; }
+  const sig=scrollSignature();
+  if(!force && !scroll.dirty && scroll.signature===sig && scroll.frames.length) return;
+  const source=buildTextScrollCanvas(text);
+  const maxOffset=Math.max(1, source.width-COLS);
+  const frames=[];
+  for(let offset=0; offset<=maxOffset; offset++){
+    const frame=extractFrameFromTextImage(source, offset, TEXT_SCROLL_ALPHA_THRESHOLD);
+    frames.push(frame);
+  }
+  scroll.frames=frames; scroll.signature=sig; scroll.dirty=false;
+  scroll.offset = Math.min(scroll.offset, Math.max(0, frames.length-1));
+  scroll.frameIndex = Math.min(Math.floor(scroll.offset), Math.max(0, frames.length-1));
+  scrollFrame = cloneFrame(frames[scroll.frameIndex] || blankFrame());
+  setCurrentFrame(scrollFrame, 'text_scroll_generated_m370_timeline', state.playback==='scroll'?'scroll':'idle');
+  log(`文字滚动已生成：${frames.length} 帧，约 ${(frames.length*47/1024).toFixed(1)} KB packed`);
+  updateScrollUi();
+}
+function buildTextScrollCanvas(text){
+  const key = `${text}@@${TEXT_SCROLL_FONT_MODEL}`;
+  if (buildTextScrollCanvas.cacheKey === key && buildTextScrollCanvas.cache) return buildTextScrollCanvas.cache;
+  const rawChars = Array.from(text || ' ');
+  const glyphs = rawChars.map(ch => buildTextGlyph(ch));
+  const leadingBlank = COLS + 4;
+  const trailingBlank = COLS + 4;
+  let contentWidth = 0;
+  for (let i=0; i<glyphs.length; i++) {
+    contentWidth += glyphs[i].width;
+    const next = glyphs[i+1];
+    if (next && !glyphs[i].isSpace && !next.isSpace) contentWidth += TEXT_SCROLL_CHAR_SPACING;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(COLS * 2 + 8, leadingBlank + contentWidth + trailingBlank);
+  canvas.height = ROWS;
+  const ctx = canvas.getContext('2d', {willReadFrequently:true});
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.imageSmoothingEnabled = false;
+  let x = leadingBlank;
+  for (let i=0; i<glyphs.length; i++) {
+    const g = glyphs[i];
+    if (!g.isSpace && g.width > 0) {
+      ctx.drawImage(g.canvas, g.trimLeft, 0, g.width, ROWS, x, 0, g.width, ROWS);
+    }
+    x += g.width;
+    const next = glyphs[i+1];
+    if (next && !g.isSpace && !next.isSpace) x += TEXT_SCROLL_CHAR_SPACING;
+  }
+  const image = ctx.getImageData(0,0,canvas.width,canvas.height);
+  buildTextScrollCanvas.cacheKey = key;
+  buildTextScrollCanvas.cache = {canvas, image, width: canvas.width, glyphs, contentWidth};
+  return buildTextScrollCanvas.cache;
+}
+function buildTextGlyph(ch){
+  const cp = codePointOfChar(ch);
+  if (ch === ' ') {
+    return {ch, isSpace:true, width:TEXT_SCROLL_SPACE_COLUMNS, trimLeft:0, canvas:null, profile:profileForChar(ch)};
+  }
+  const cacheKey = `${ch}@@${TEXT_SCROLL_FONT_MODEL}`;
+  buildTextGlyph.cache = buildTextGlyph.cache || new Map();
+  if (buildTextGlyph.cache.has(cacheKey)) return buildTextGlyph.cache.get(cacheKey);
+  const p = profileForChar(ch);
+  const canvas = document.createElement('canvas');
+  canvas.width = TEXT_SCROLL_GLYPH_CELL;
+  canvas.height = ROWS;
+  const ctx = canvas.getContext('2d', {willReadFrequently:true});
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.imageSmoothingEnabled = false;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, TEXT_SCROLL_GLYPH_TOP, TEXT_SCROLL_GLYPH_CELL, TEXT_SCROLL_GLYPH_CELL);
+  ctx.clip();
+  ctx.font = `normal ${p.fontSize}px ${p.stack}`;
+  ctx.fillText(ch, 0, p.y);
+  ctx.restore();
+  const image = ctx.getImageData(0,0,canvas.width,canvas.height);
+  const bounds = findGlyphBounds(image, canvas.width, canvas.height, TEXT_SCROLL_ALPHA_THRESHOLD, TEXT_SCROLL_LUMA_THRESHOLD);
+  const latinLike = isAsciiLike(cp) && ch !== ' ';
+  const trimLeft = bounds ? (latinLike ? bounds.minX : 0) : 0;
+  const trimRight = bounds ? (latinLike ? bounds.maxX : TEXT_SCROLL_GLYPH_CELL - 1) : (latinLike ? Math.max(0, Math.min(7, TEXT_SCROLL_GLYPH_CELL - 1)) : TEXT_SCROLL_GLYPH_CELL - 1);
+  const width = Math.max(1, Math.min(TEXT_SCROLL_GLYPH_CELL, trimRight - trimLeft + 1));
+  const glyph = {ch, isSpace:false, width, trimLeft, canvas, profile:p, bounds};
+  buildTextGlyph.cache.set(cacheKey, glyph);
+  return glyph;
+}
+function findGlyphBounds(imageData, w, h, alphaThreshold, lumaThreshold){
+  const data = imageData.data;
+  let minX=w, maxX=-1, minY=h, maxY=-1;
+  for(let y=0; y<h; y++){
+    for(let x=0; x<w; x++){
+      const pos=(y*w+x)*4;
+      const a=data[pos+3];
+      const luma=Math.max(data[pos], data[pos+1], data[pos+2]);
+      if(a>alphaThreshold && luma>lumaThreshold){
+        if(x<minX) minX=x;
+        if(x>maxX) maxX=x;
+        if(y<minY) minY=y;
+        if(y>maxY) maxY=y;
+      }
+    }
+  }
+  if(maxX<minX || maxY<minY) return null;
+  return {minX,maxX,minY,maxY};
+}
+function extractFrameFromTextImage(source, offset, threshold){
+  const img = source.image.data;
+  const sx0 = Math.floor(offset);
+  const f=blankFrame();
+  for(let idx=0; idx<TOTAL_LEDS; idx++){
+    const [x,y]=INDEX_TO_XY[idx];
+    const sx = sx0 + x;
+    const pos = (sx>=0 && sx<source.width) ? (y*source.width+sx)*4 : -1;
+    const a = pos>=0 ? img[pos+3] : 0;
+    const luma = pos>=0 ? Math.max(img[pos], img[pos+1], img[pos+2]) : 0;
+    f[idx]=a>threshold && luma>TEXT_SCROLL_LUMA_THRESHOLD;
+  }
+  return f;
+}
+function updateScrollUi(){
+  if($('scroll-state')) $('scroll-state').textContent = state.textScrollActive ? (scroll.paused ? 'paused' : 'playing') : 'idle';
+  if($('scroll-frame-index')) $('scroll-frame-index').textContent = scroll.frames.length ? `${scroll.frameIndex+1} / ${scroll.frames.length}` : '0';
+}
+
+function initDebug(){
+  document.querySelectorAll('[data-gpio]').forEach(b=>b.onclick=()=>simulateGpio(b.dataset.gpio));
+  $('debug-all-off').onclick=()=>setCurrentFrame(blankFrame(),'debug_all_off','idle');
+  $('debug-all-on').onclick=()=>setCurrentFrame(blankFrame().map(()=>true),'debug_all_on','idle');
+  $('debug-checker').onclick=()=>{const f=blankFrame(); for(let i=0;i<TOTAL_LEDS;i++){const [x,y]=INDEX_TO_XY[i]; f[i]=(x+y)%2===0;} setCurrentFrame(f,'debug_checker','idle');};
+  $('debug-border').onclick=()=>{const f=blankFrame(); for(let i=0;i<TOTAL_LEDS;i++){const [x,y]=INDEX_TO_XY[i]; const [a,b]=ROW_RANGES[y]; f[i]=y===0||y===ROWS-1||x===a||x===b;} setCurrentFrame(f,'debug_border','idle');};
+  $('debug-current-face').onclick=()=>{if(getAllFaces().length) applySavedFace(state.faceIndex,'debug_current_face'); else alert('统一 saved_faces.json 均为空');};
+  $('debug-apply-m370').onclick=()=>{try{setCurrentFrame(m370ToFrame($('debug-m370').value),'debug_m370_apply','idle'); log('调试页解析 M370 成功');}catch(e){alert(e.message);}};
+  $('debug-copy-status').onclick=()=>{copyText(JSON.stringify({state, firmware, currentM370:frameToM370(currentFrame), selectedCall, savedFacesPath:FACE_LIBRARY_RESOURCE, faces:getAllFaces()},null,2)); log('复制状态 JSON');};
+  $('debug-reset-storage').onclick=()=>{if(confirm('清空所有非默认表情？type:"default" 的默认表情会保留。')){userFaces=[];logs=[];persistFaceDocuments('clear_user_saved_faces');renderSavedFaces();renderLog();renderState();log('已清空用户表情；type:"default" 默认表情保留。');}};
+  $('update-adc').onclick=updateAdc;
+  $('serial-send').onclick=()=>{const v=$('serial-input').value.trim(); if(v){const payload=safeJsonParse(v,{raw:v}); sendAuxCommand(payload.cmd || 'raw_aux_command', payload, 'debug_aux_input'); log(`AUX> ${v}`);} $('serial-input').value='';};
+  $('log-clear').onclick=()=>{logs=[]; renderLog();};
+  $('log-download').onclick=downloadLog;
+  $('firmware-ping').onclick=()=>apiGet(API_ENDPOINTS.status).then(data=>{log('固件状态: '+JSON.stringify(data));}).catch(e=>log('读取固件状态失败: '+e.message));
+  $('firmware-pause').onclick=()=>sendAuxCommand('pause', {target:'all'}, 'debug_pause_button');
+}
+
+function simulateGpio(code){
+  sendAuxCommand('button', {button:code}, 'debug_button');
+  if(code==='B1') nextFace(); else if(code==='B2') prevFace(); else if(code==='B3') toggleMode('GPIO B3');
+  else if(code==='B4') setBrightness(state.brightness-8,'GPIO B4'); else if(code==='B5') setBrightness(state.brightness+8,'GPIO B5');
+  else if(code==='B6S') { guardBeforeOutput('battery_overlay','overlay'); state.playback='battery'; log(`B6 短按：显示电池 ${state.batteryPercent}% 2 秒`); renderState(); }
+  else if(code==='B6L') { guardBeforeOutput('battery_detail_overlay','overlay'); state.playback='battery_detail'; log(`B6 长按：Vbat=${state.batteryV.toFixed(2)}V, Vcharge=${state.chargeV.toFixed(2)}V`); renderState(); }
+  else if(code==='B3B1') adjustInterval(-500); else if(code==='B3B2') adjustInterval(500);
+  else if(code==='B6B3') { guardBeforeOutput('network_info_overlay','overlay'); state.playback='network_info'; log('B6+B3：显示网络信息页面 overlay'); renderState(); }
+}
+function updateAdc(){
+  state.batteryV = Number($('battery-v').value)||0;
+  state.chargeV = Number($('charge-v').value)||0;
+  state.charging = state.chargeV > 4.0;
+  state.batteryPercent = Math.round(clamp((state.batteryV-6.2)/(8.0-6.2)*100,0,100));
+  renderState(); log(`ADC 调试值更新 Vbat=${state.batteryV.toFixed(2)}V, Vcharge=${state.chargeV.toFixed(2)}V`); sendAuxCommand('adc_debug_override', {vbat:state.batteryV, vcharge:state.chargeV}, 'debug_adc');
+}
+function downloadLog(){
+  const blob = new Blob([logs.join('\n')], {type:'text/plain'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='rina_370_firmware_log.txt'; a.click(); URL.revokeObjectURL(a.href);
+}
+
+async function boot(){
+  initNav();
+  initMatrix('matrix-basic', () => currentFrame);
+  initMatrix('matrix-custom-edit', () => editFrame, true, editCell);
+  initMatrix('matrix-parts', () => partsFrame);
+  initMatrix('matrix-scroll', () => scrollFrame);
+  initMatrix('matrix-debug', () => currentFrame, false, null, true);
+  observeMatrixWraps();
+  fitAllMatrices();
+  initBrightness(); initColors(); initBasicControls(); initCustom(); initParts(); initScroll(); initDebug(); initCustomSelectDropdowns();
+  partsFrame = composeFrameFromCall(selectedCall);
+  currentFrame = cloneFrame(partsFrame);
+  editFrame = cloneFrame(partsFrame);
+  updateAdc(); setColor('#f971d4','boot'); setBrightness(50,'boot');
+  await loadFaceLibrary();
+  const startupLibrary = getAllFaces();
+  if (startupLibrary.length) {
+    const startupFace = startupLibrary[state.faceIndex] || startupLibrary[0];
+    currentFrame = m370ToFrame(startupFace.m370);
+    editFrame = cloneFrame(currentFrame);
+    state.lastRefreshReason = 'saved_faces_default_boot';
+    state.playback = 'idle';
+    updateDps();
+    log(`已载入启动默认表情：${startupFace.name} / ${faceTypeLabel(startupFace.type)}`);
+  }
+  renderSavedFaces(); renderLog(); updateScrollUi(); renderPartButtons(); renderMatrices(); updateM370Views(); renderState();
+  log('WebUI 初始化完成：默认表情来自统一 saved_faces.json，可排序和重命名但不可删除；固件接口接收 M370 与辅助指令。');
+}
+boot();
+</script>
+</body>
+</html>
