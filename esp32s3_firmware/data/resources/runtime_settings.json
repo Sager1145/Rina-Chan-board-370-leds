@@ -1,0 +1,7 @@
+{
+  "format": "rina_runtime_settings_v1",
+  "version": 1,
+  "mode": "manual",
+  "autoIntervalMs": 3000,
+  "updatedAtMs": 0
+}

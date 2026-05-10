@@ -9,7 +9,7 @@
 
 namespace {
 
-constexpr char AP_SSID[] = "RinaChanBoard-ESP32S3";
+constexpr char AP_SSID[] = "RinaChanBoard-V2";
 constexpr char AP_PASSWORD[] = "rinachan";
 const IPAddress AP_IP(192, 168, 1, 14);
 const IPAddress AP_GATEWAY(192, 168, 1, 14);
@@ -18,8 +18,15 @@ const IPAddress AP_SUBNET(255, 255, 255, 0);
 constexpr uint16_t HTTP_PORT = 80;
 constexpr uint16_t LED_PIN = 2;
 constexpr uint16_t LED_COUNT = 370;
+constexpr uint8_t BUTTON_B1_PIN = 17;
+constexpr uint8_t BUTTON_B2_PIN = 16;
+constexpr uint8_t BUTTON_B3_PIN = 15;
+constexpr uint8_t BUTTON_B4_PIN = 40;
+constexpr uint8_t BUTTON_B5_PIN = 41;
+constexpr uint8_t BUTTON_B6_PIN = 42;
 constexpr uint16_t M370_HEX_CHARS = 93;
 constexpr uint16_t M370_BITS = 370;
+constexpr uint16_t FRAME_BYTES = (LED_COUNT + 7) / 8;
 constexpr uint8_t MATRIX_ROWS = 18;
 constexpr bool SERPENTINE_WIRING = true;
 constexpr bool SERPENTINE_ODD_ROWS_REVERSED = true;
@@ -36,6 +43,19 @@ static_assert(ROW_OFFSETS[MATRIX_ROWS - 1] + ROW_LENGTHS[MATRIX_ROWS - 1] == LED
 constexpr uint8_t DEFAULT_BRIGHTNESS = 50;
 constexpr uint8_t MIN_BRIGHTNESS = 10;
 constexpr uint8_t MAX_BRIGHTNESS = 200;
+constexpr uint32_t DEFAULT_AUTO_INTERVAL_MS = 3000;
+constexpr uint32_t MIN_AUTO_INTERVAL_MS = 500;
+constexpr uint32_t MAX_AUTO_INTERVAL_MS = 10000;
+constexpr uint32_t AUTO_INTERVAL_BUTTON_STEP_MS = 500;
+constexpr int8_t BRIGHTNESS_BUTTON_STEP = 8;
+constexpr uint32_t BUTTON_DEBOUNCE_MS = 25;
+constexpr uint32_t FACE_REPEAT_DELAY_MS = 650;
+constexpr uint32_t FACE_REPEAT_MS = 350;
+constexpr uint32_t BRIGHTNESS_REPEAT_DELAY_MS = 450;
+constexpr uint32_t BRIGHTNESS_REPEAT_MS = 120;
+constexpr uint16_t MAX_AUTO_FACES = 128;
+constexpr uint16_t MAX_SCROLL_FRAMES = 512;
+constexpr uint16_t DEFAULT_SCROLL_INTERVAL_MS = 33;
 constexpr char DEFAULT_COLOR[] = "#f971d4";
 constexpr char DEFAULT_MODE[] = "manual";
 constexpr char DEFAULT_PLAYBACK[] = "idle";
@@ -43,6 +63,7 @@ constexpr char STARTUP_FACE_REASON[] = "startup_sequence_complete_saved_face";
 constexpr char LITTLEFS_BASE_PATH[] = "/littlefs";
 constexpr char LITTLEFS_PARTITION_LABEL[] = "littlefs";
 constexpr char SAVED_FACES_PATH[] = "/resources/saved_faces.json";
+constexpr char SETTINGS_PATH[] = "/resources/runtime_settings.json";
 
 WebServer server(HTTP_PORT);
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -54,6 +75,7 @@ struct RuntimeState {
     uint8_t colorG = 0x71;
     uint8_t colorB = 0xd4;
     uint8_t brightness = DEFAULT_BRIGHTNESS;
+    uint8_t defaultBrightness = DEFAULT_BRIGHTNESS;
     String mode = DEFAULT_MODE;
     String playback = DEFAULT_PLAYBACK;
     String lastM370;
@@ -66,11 +88,65 @@ struct RuntimeState {
     uint32_t commandsAccepted = 0;
     uint32_t commandsRejected = 0;
     uint32_t savedFacesWrites = 0;
+    uint32_t settingsWrites = 0;
     uint32_t bootMs = 0;
+    uint32_t autoIntervalMs = DEFAULT_AUTO_INTERVAL_MS;
+    uint32_t lastAutoSwitchMs = 0;
+    uint16_t autoFaceIndex = 0;
+    bool firmwareScrollActive = false;
+    bool firmwareScrollPaused = false;
+    bool restoreAutoAfterScroll = false;
+    uint16_t scrollFrameCount = 0;
+    uint16_t scrollFrameIndex = 0;
+    uint16_t scrollIntervalMs = DEFAULT_SCROLL_INTERVAL_MS;
+    uint32_t lastScrollFrameMs = 0;
 };
 
 RuntimeState state;
-uint8_t frameBits[(LED_COUNT + 7) / 8] = {};
+uint8_t frameBits[FRAME_BYTES] = {};
+uint8_t scrollFrameBits[MAX_SCROLL_FRAMES][FRAME_BYTES] = {};
+
+struct RuntimeFace {
+    String id;
+    String name;
+    String m370;
+    int32_t order = 0;
+    uint16_t jsonIndex = 0;
+    bool isDefault = false;
+    bool isStartupDefault = false;
+};
+
+RuntimeFace autoFaces[MAX_AUTO_FACES];
+uint16_t autoFaceCount = 0;
+
+struct ButtonRuntime {
+    const char* code;
+    uint8_t pin;
+    bool rawPressed = false;
+    bool pressed = false;
+    bool comboConsumed = false;
+    uint32_t lastRawChangeMs = 0;
+    uint32_t pressedAtMs = 0;
+    uint32_t lastRepeatMs = 0;
+
+    ButtonRuntime(const char* buttonCode, uint8_t gpioPin) : code(buttonCode), pin(gpioPin) {}
+};
+
+ButtonRuntime buttons[] = {
+    {"B1", BUTTON_B1_PIN},
+    {"B2", BUTTON_B2_PIN},
+    {"B3", BUTTON_B3_PIN},
+    {"B4", BUTTON_B4_PIN},
+    {"B5", BUTTON_B5_PIN},
+    {"B6", BUTTON_B6_PIN},
+};
+constexpr uint8_t BUTTON_COUNT = sizeof(buttons) / sizeof(buttons[0]);
+
+bool loadSavedFaces(bool applyStartupFace);
+bool loadRuntimeSettings();
+bool saveRuntimeSettings();
+bool runButtonAction(const String& button, const String& source);
+void stopFirmwareScroll(bool restoreAuto);
 
 size_t jsonCapacityFor(size_t sourceBytes) {
     const size_t estimated = sourceBytes * 2 + 4096;
@@ -251,6 +327,31 @@ bool applyM370(const String& input, const String& reason, String& error) {
     return true;
 }
 
+bool m370ToPackedBits(const String& input, uint8_t* outBits, String& error) {
+    String normalized;
+    if (!normalizeM370(input, normalized, error)) {
+        return false;
+    }
+
+    memset(outBits, 0, FRAME_BYTES);
+    const String payload = normalized.substring(5);
+    for (uint16_t bit = 0; bit < M370_BITS; ++bit) {
+        const int nibble = hexNibble(payload.charAt(bit / 4));
+        const bool on = (nibble & (1 << (3 - (bit % 4)))) != 0;
+        if (on) {
+            outBits[bit >> 3] |= 1U << (bit & 7U);
+        }
+    }
+    return true;
+}
+
+void applyPackedFrame(const uint8_t* packedBits, const String& reason) {
+    memcpy(frameBits, packedBits, FRAME_BYTES);
+    state.lastReason = reason;
+    ++state.framesAccepted;
+    showCurrentFrame();
+}
+
 bool setColor(const String& input, String& error) {
     String value = input;
     value.trim();
@@ -281,6 +382,136 @@ void setBrightness(int raw) {
     raw = constrain(raw, MIN_BRIGHTNESS, MAX_BRIGHTNESS);
     state.brightness = static_cast<uint8_t>(raw);
     showCurrentFrame();
+}
+
+bool isAutoMode() {
+    return state.mode == "auto";
+}
+
+String normalizedMode(const char* input) {
+    String mode = input ? String(input) : String();
+    mode.trim();
+    if (mode == "自动" || mode == "A") {
+        return "auto";
+    }
+    if (mode == "手动" || mode == "M") {
+        return "manual";
+    }
+    mode.toLowerCase();
+    if (mode == "auto" || mode == "a") {
+        return "auto";
+    }
+    if (mode == "manual" || mode == "m") {
+        return "manual";
+    }
+    return mode;
+}
+
+bool setMode(const char* input, bool persistSettings = true) {
+    const String mode = normalizedMode(input);
+    if (mode == "auto") {
+        state.mode = "auto";
+        state.playback = "auto_saved_face";
+        state.paused = false;
+        state.lastAutoSwitchMs = millis();
+    } else if (mode == "manual") {
+        state.mode = "manual";
+        if (persistSettings) {
+            state.restoreAutoAfterScroll = false;
+        }
+        if (state.playback == "auto_saved_face") {
+            state.playback = DEFAULT_PLAYBACK;
+        }
+    } else {
+        return false;
+    }
+    if (persistSettings) {
+        saveRuntimeSettings();
+    }
+    return true;
+}
+
+void setAutoInterval(uint32_t ms, bool persistSettings = true) {
+    state.autoIntervalMs = constrain(ms, MIN_AUTO_INTERVAL_MS, MAX_AUTO_INTERVAL_MS);
+    if (persistSettings) {
+        saveRuntimeSettings();
+    }
+}
+
+bool ensureResourcesDirectory() {
+    if (!fsMounted) {
+        return false;
+    }
+    if (LittleFS.exists("/resources")) {
+        return true;
+    }
+    return LittleFS.mkdir("/resources");
+}
+
+bool saveRuntimeSettings() {
+    if (!fsMounted) {
+        return false;
+    }
+    if (!ensureResourcesDirectory()) {
+        Serial.println("Failed to ensure /resources for runtime settings");
+        return false;
+    }
+
+    DynamicJsonDocument doc(384);
+    doc["format"] = "rina_runtime_settings_v1";
+    doc["version"] = 1;
+    doc["mode"] = state.mode;
+    doc["autoIntervalMs"] = state.autoIntervalMs;
+    doc["updatedAtMs"] = millis();
+
+    File file = LittleFS.open(SETTINGS_PATH, "w");
+    if (!file) {
+        Serial.println("Failed to open runtime_settings.json for write");
+        return false;
+    }
+    serializeJson(doc, file);
+    file.close();
+    ++state.settingsWrites;
+    return true;
+}
+
+bool loadRuntimeSettings() {
+    if (!fsMounted) {
+        return false;
+    }
+    if (!LittleFS.exists(SETTINGS_PATH)) {
+        Serial.println("runtime_settings.json not found; writing defaults");
+        saveRuntimeSettings();
+        return false;
+    }
+
+    File file = LittleFS.open(SETTINGS_PATH, "r");
+    if (!file) {
+        Serial.println("Failed to open runtime_settings.json");
+        return false;
+    }
+
+    DynamicJsonDocument doc(768);
+    DeserializationError err = deserializeJson(doc, file, DeserializationOption::NestingLimit(8));
+    file.close();
+    if (err) {
+        Serial.printf("runtime_settings.json parse failed: %s\n", err.c_str());
+        return false;
+    }
+
+    const char* mode = doc["mode"] | DEFAULT_MODE;
+    if (!setMode(mode, false)) {
+        setMode(DEFAULT_MODE, false);
+    }
+    if (doc["autoIntervalMs"].is<uint32_t>()) {
+        setAutoInterval(doc["autoIntervalMs"].as<uint32_t>(), false);
+    } else if (doc["auto_interval_ms"].is<uint32_t>()) {
+        setAutoInterval(doc["auto_interval_ms"].as<uint32_t>(), false);
+    }
+    Serial.printf("Runtime settings loaded: mode=%s autoIntervalMs=%lu\n",
+                  state.mode.c_str(),
+                  static_cast<unsigned long>(state.autoIntervalMs));
+    return true;
 }
 
 bool serveStaticFile(String path) {
@@ -360,7 +591,7 @@ void handleOptions() {
 }
 
 void handleApiStatus() {
-    DynamicJsonDocument doc(2048);
+    DynamicJsonDocument doc(3072);
     doc["ok"] = true;
     doc["device"] = "RinaChanBoard";
     doc["uptimeMs"] = millis() - state.bootMs;
@@ -381,24 +612,43 @@ void handleApiStatus() {
     JsonObject renderer = doc.createNestedObject("renderer");
     renderer["color"] = state.colorHex;
     renderer["brightness"] = state.brightness;
+    renderer["defaultBrightness"] = state.defaultBrightness;
     renderer["brightnessMin"] = MIN_BRIGHTNESS;
     renderer["brightnessMax"] = MAX_BRIGHTNESS;
     renderer["mode"] = state.mode;
     renderer["playback"] = state.playback;
     renderer["paused"] = state.paused;
+    renderer["autoIntervalMs"] = state.autoIntervalMs;
+    renderer["autoFaceCount"] = autoFaceCount;
+    renderer["autoFaceIndex"] = state.autoFaceIndex;
+    renderer["firmwareScrollActive"] = state.firmwareScrollActive;
+    renderer["firmwareScrollPaused"] = state.firmwareScrollPaused;
+    renderer["restoreAutoAfterScroll"] = state.restoreAutoAfterScroll;
+    renderer["scrollFrameCount"] = state.scrollFrameCount;
+    renderer["scrollFrameIndex"] = state.scrollFrameIndex;
+    renderer["scrollIntervalMs"] = state.scrollIntervalMs;
+    if (autoFaceCount > 0 && state.autoFaceIndex < autoFaceCount) {
+        renderer["autoFaceId"] = autoFaces[state.autoFaceIndex].id;
+        renderer["autoFaceName"] = autoFaces[state.autoFaceIndex].name;
+    }
+    renderer["lastM370"] = state.lastM370;
     renderer["lit"] = countLitLeds();
     renderer["lastReason"] = state.lastReason;
 
     JsonObject endpoints = doc.createNestedObject("endpoints");
     endpoints["frame"] = "/api/frame";
     endpoints["command"] = "/api/command";
+    endpoints["scroll"] = "/api/scroll";
     endpoints["savedFaces"] = "/api/saved_faces";
+    endpoints["settings"] = "/api/status";
     endpoints["status"] = "/api/status";
 
     JsonObject storage = doc.createNestedObject("storage");
     storage["mounted"] = fsMounted;
     storage["savedFacesPath"] = SAVED_FACES_PATH;
     storage["savedFacesExists"] = fsMounted && LittleFS.exists(SAVED_FACES_PATH);
+    storage["settingsPath"] = SETTINGS_PATH;
+    storage["settingsExists"] = fsMounted && LittleFS.exists(SETTINGS_PATH);
     if (fsMounted) {
         storage["totalBytes"] = static_cast<uint32_t>(LittleFS.totalBytes());
         storage["usedBytes"] = static_cast<uint32_t>(LittleFS.usedBytes());
@@ -410,6 +660,7 @@ void handleApiStatus() {
     stats["commandsAccepted"] = state.commandsAccepted;
     stats["commandsRejected"] = state.commandsRejected;
     stats["savedFacesWrites"] = state.savedFacesWrites;
+    stats["settingsWrites"] = state.settingsWrites;
 
     sendJsonDocument(200, doc);
 }
@@ -448,22 +699,360 @@ void handleApiFrame() {
     if (strlen(mode) == 0) {
         mode = doc["playback"] | "idle";
     }
-    state.playback = mode;
     const String reason = doc["reason"] | "api_frame";
+    if (strcmp(mode, "scroll") != 0 && strcmp(mode, "scroll_step") != 0) {
+        stopFirmwareScroll(false);
+    }
+    if (reason.startsWith("custom_") || reason.startsWith("parts_")) {
+        setMode("manual", true);
+    }
+    state.playback = mode;
     if (!applyM370(m370, reason, error)) {
         sendError(400, error);
         return;
     }
 
-    DynamicJsonDocument reply(640);
+    DynamicJsonDocument reply(768);
     reply["ok"] = true;
     reply["accepted"] = true;
     reply["leds"] = LED_COUNT;
     reply["color"] = state.colorHex;
     reply["brightness"] = state.brightness;
     reply["reason"] = state.lastReason;
+    reply["mode"] = state.mode;
+    reply["autoIntervalMs"] = state.autoIntervalMs;
+    reply["autoFaceIndex"] = state.autoFaceIndex;
+    reply["m370"] = state.lastM370;
     reply["lit"] = countLitLeds();
     sendJsonDocument(200, reply);
+}
+
+void stopFirmwareScroll(bool restoreAuto) {
+    const bool shouldRestoreAuto = restoreAuto && state.restoreAutoAfterScroll;
+    state.firmwareScrollActive = false;
+    state.firmwareScrollPaused = false;
+    state.restoreAutoAfterScroll = false;
+    state.lastScrollFrameMs = 0;
+    if (state.playback == "scroll" || state.playback == "scroll_paused") {
+        state.playback = DEFAULT_PLAYBACK;
+    }
+    if (shouldRestoreAuto) {
+        setMode("auto", false);
+    }
+}
+
+void startFirmwareScroll(uint16_t intervalMs) {
+    if (state.scrollFrameCount == 0) {
+        return;
+    }
+    state.restoreAutoAfterScroll = isAutoMode();
+    if (state.restoreAutoAfterScroll) {
+        state.mode = "manual";
+    }
+    state.scrollIntervalMs = constrain(intervalMs, static_cast<uint16_t>(10), static_cast<uint16_t>(1000));
+    state.scrollFrameIndex = 0;
+    state.lastScrollFrameMs = millis();
+    state.firmwareScrollActive = true;
+    state.firmwareScrollPaused = false;
+    state.paused = false;
+    state.playback = "scroll";
+    applyPackedFrame(scrollFrameBits[0], "firmware_text_scroll_start");
+}
+
+void handleApiScroll() {
+    if (server.method() == HTTP_OPTIONS) {
+        handleOptions();
+        return;
+    }
+    if (server.method() != HTTP_POST) {
+        sendError(405, "method not allowed");
+        return;
+    }
+
+    const String body = requestBody();
+    if (body.isEmpty()) {
+        sendError(400, "empty JSON body");
+        return;
+    }
+
+    DynamicJsonDocument doc(jsonCapacityFor(body.length()));
+    DeserializationError err = deserializeJson(doc, body, DeserializationOption::NestingLimit(16));
+    if (err) {
+        sendError(400, String("invalid JSON: ") + err.c_str());
+        return;
+    }
+
+    JsonArray frames = doc["frames"].as<JsonArray>();
+    if (frames.isNull()) {
+        sendError(400, "frames must be an array");
+        return;
+    }
+
+    stopFirmwareScroll(false);
+    uint16_t count = 0;
+    String error;
+    for (JsonVariant frame : frames) {
+        if (count >= MAX_SCROLL_FRAMES) {
+            break;
+        }
+        const char* m370 = frame | "";
+        if (!m370ToPackedBits(String(m370), scrollFrameBits[count], error)) {
+            sendError(400, String("invalid scroll frame ") + count + ": " + error);
+            state.scrollFrameCount = 0;
+            return;
+        }
+        ++count;
+    }
+
+    if (count == 0) {
+        sendError(400, "frames must include at least one valid M370 frame");
+        return;
+    }
+
+    state.scrollFrameCount = count;
+    state.scrollFrameIndex = 0;
+    const uint16_t intervalMs = doc["intervalMs"].is<uint16_t>()
+                                    ? doc["intervalMs"].as<uint16_t>()
+                                    : DEFAULT_SCROLL_INTERVAL_MS;
+    if (doc["start"] | true) {
+        startFirmwareScroll(intervalMs);
+    } else {
+        state.scrollIntervalMs = constrain(intervalMs, static_cast<uint16_t>(10), static_cast<uint16_t>(1000));
+    }
+
+    DynamicJsonDocument reply(768);
+    reply["ok"] = true;
+    reply["frames"] = state.scrollFrameCount;
+    reply["started"] = state.firmwareScrollActive;
+    reply["mode"] = state.mode;
+    reply["playback"] = state.playback;
+    reply["restoreAutoAfterScroll"] = state.restoreAutoAfterScroll;
+    reply["scrollIntervalMs"] = state.scrollIntervalMs;
+    sendJsonDocument(200, reply);
+}
+
+bool ensureSavedFacesLoaded() {
+    if (autoFaceCount > 0) {
+        return true;
+    }
+    return loadSavedFaces(false) && autoFaceCount > 0;
+}
+
+bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playback) {
+    if (!ensureSavedFacesLoaded()) {
+        Serial.println("No saved faces available for button action");
+        return false;
+    }
+
+    state.autoFaceIndex = index % autoFaceCount;
+    if (playback) {
+        state.playback = playback;
+    }
+
+    String error;
+    if (!applyM370(autoFaces[state.autoFaceIndex].m370, reason, error)) {
+        Serial.printf("saved face apply failed: %s\n", error.c_str());
+        return false;
+    }
+    Serial.printf("Applied saved face %u/%u via %s: %s\n",
+                  state.autoFaceIndex + 1,
+                  autoFaceCount,
+                  reason.c_str(),
+                  autoFaces[state.autoFaceIndex].id.c_str());
+    return true;
+}
+
+bool applyRelativeSavedFace(int8_t delta, const String& reason) {
+    if (!ensureSavedFacesLoaded()) {
+        return false;
+    }
+    int32_t next = static_cast<int32_t>(state.autoFaceIndex) + delta;
+    while (next < 0) {
+        next += autoFaceCount;
+    }
+    next %= autoFaceCount;
+    return applySavedFaceIndex(static_cast<uint16_t>(next), reason, DEFAULT_PLAYBACK);
+}
+
+bool runButtonAction(const String& button, const String& source) {
+    String code = button;
+    code.trim();
+    code.toUpperCase();
+    if (code.isEmpty()) {
+        return false;
+    }
+
+    state.lastButton = code;
+    if (code == "B1") {
+        return applyRelativeSavedFace(1, source + "_B1_next_saved_face");
+    }
+    if (code == "B2") {
+        return applyRelativeSavedFace(-1, source + "_B2_prev_saved_face");
+    }
+    if (code == "B3") {
+        return setMode(isAutoMode() ? "manual" : "auto");
+    }
+    if (code == "B4") {
+        setBrightness(static_cast<int>(state.brightness) - BRIGHTNESS_BUTTON_STEP);
+        state.lastReason = source + "_B4_brightness_down";
+        return true;
+    }
+    if (code == "B5") {
+        setBrightness(static_cast<int>(state.brightness) + BRIGHTNESS_BUTTON_STEP);
+        state.lastReason = source + "_B5_brightness_up";
+        return true;
+    }
+    if (code == "B3B1") {
+        setAutoInterval(state.autoIntervalMs > AUTO_INTERVAL_BUTTON_STEP_MS
+                            ? state.autoIntervalMs - AUTO_INTERVAL_BUTTON_STEP_MS
+                            : MIN_AUTO_INTERVAL_MS);
+        state.lastReason = source + "_B3B1_auto_interval_down";
+        return true;
+    }
+    if (code == "B3B2") {
+        setAutoInterval(state.autoIntervalMs + AUTO_INTERVAL_BUTTON_STEP_MS);
+        state.lastReason = source + "_B3B2_auto_interval_up";
+        return true;
+    }
+    if (code == "B6B3") {
+        state.playback = "network_info";
+        state.lastReason = source + "_B6B3_network_info";
+        return true;
+    }
+    if (code == "B6S" || code == "B6L") {
+        // Battery overlay is intentionally left to the future battery monitor path.
+        state.lastReason = source + "_" + code + "_battery_unhandled";
+        return true;
+    }
+    return false;
+}
+
+ButtonRuntime* buttonByCode(const char* code) {
+    for (uint8_t i = 0; i < BUTTON_COUNT; ++i) {
+        if (strcmp(buttons[i].code, code) == 0) {
+            return &buttons[i];
+        }
+    }
+    return nullptr;
+}
+
+bool isHardwareButtonPressed(const char* code) {
+    ButtonRuntime* button = buttonByCode(code);
+    return button && button->pressed;
+}
+
+void markButtonComboConsumed(const char* code) {
+    ButtonRuntime* button = buttonByCode(code);
+    if (button) {
+        button->comboConsumed = true;
+    }
+}
+
+void fireHardwareButtonAction(const char* code) {
+    if (!runButtonAction(String(code), "gpio")) {
+        Serial.printf("GPIO button action ignored: %s\n", code);
+    }
+}
+
+void handleHardwareButtonPress(ButtonRuntime& button, uint32_t now) {
+    button.pressedAtMs = now;
+    button.lastRepeatMs = now;
+    button.comboConsumed = false;
+
+    if ((strcmp(button.code, "B3") == 0 && isHardwareButtonPressed("B6")) ||
+        (strcmp(button.code, "B6") == 0 && isHardwareButtonPressed("B3"))) {
+        markButtonComboConsumed("B3");
+        markButtonComboConsumed("B6");
+        fireHardwareButtonAction("B6B3");
+        return;
+    }
+
+    if (strcmp(button.code, "B1") == 0 && isHardwareButtonPressed("B3")) {
+        button.comboConsumed = true;
+        markButtonComboConsumed("B3");
+        fireHardwareButtonAction("B3B1");
+        return;
+    }
+    if (strcmp(button.code, "B2") == 0 && isHardwareButtonPressed("B3")) {
+        button.comboConsumed = true;
+        markButtonComboConsumed("B3");
+        fireHardwareButtonAction("B3B2");
+        return;
+    }
+
+    if (strcmp(button.code, "B1") == 0 || strcmp(button.code, "B2") == 0 ||
+        strcmp(button.code, "B4") == 0 || strcmp(button.code, "B5") == 0) {
+        fireHardwareButtonAction(button.code);
+    }
+}
+
+void handleHardwareButtonRelease(ButtonRuntime& button) {
+    if (strcmp(button.code, "B3") == 0 && !button.comboConsumed) {
+        fireHardwareButtonAction("B3");
+    }
+    button.comboConsumed = false;
+}
+
+void serviceHardwareButtonRepeats(uint32_t now) {
+    for (uint8_t i = 0; i < BUTTON_COUNT; ++i) {
+        ButtonRuntime& button = buttons[i];
+        if (!button.pressed || button.comboConsumed) {
+            continue;
+        }
+
+        const bool faceButton = strcmp(button.code, "B1") == 0 || strcmp(button.code, "B2") == 0;
+        const bool brightnessButton = strcmp(button.code, "B4") == 0 || strcmp(button.code, "B5") == 0;
+        if (!faceButton && !brightnessButton) {
+            continue;
+        }
+        if (faceButton && isHardwareButtonPressed("B3")) {
+            continue;
+        }
+
+        const uint32_t repeatDelay = faceButton ? FACE_REPEAT_DELAY_MS : BRIGHTNESS_REPEAT_DELAY_MS;
+        const uint32_t repeatEvery = faceButton ? FACE_REPEAT_MS : BRIGHTNESS_REPEAT_MS;
+        if (now - button.pressedAtMs < repeatDelay || now - button.lastRepeatMs < repeatEvery) {
+            continue;
+        }
+
+        button.lastRepeatMs = now;
+        fireHardwareButtonAction(button.code);
+    }
+}
+
+void initHardwareButtons() {
+    for (uint8_t i = 0; i < BUTTON_COUNT; ++i) {
+        pinMode(buttons[i].pin, INPUT_PULLUP);
+        buttons[i].rawPressed = digitalRead(buttons[i].pin) == LOW;
+        buttons[i].pressed = buttons[i].rawPressed;
+        buttons[i].lastRawChangeMs = millis();
+        buttons[i].pressedAtMs = buttons[i].pressed ? buttons[i].lastRawChangeMs : 0;
+        buttons[i].lastRepeatMs = buttons[i].pressedAtMs;
+        buttons[i].comboConsumed = false;
+    }
+}
+
+void serviceHardwareButtons() {
+    const uint32_t now = millis();
+    for (uint8_t i = 0; i < BUTTON_COUNT; ++i) {
+        ButtonRuntime& button = buttons[i];
+        const bool rawPressed = digitalRead(button.pin) == LOW;
+        if (rawPressed != button.rawPressed) {
+            button.rawPressed = rawPressed;
+            button.lastRawChangeMs = now;
+        }
+        if (now - button.lastRawChangeMs < BUTTON_DEBOUNCE_MS || rawPressed == button.pressed) {
+            continue;
+        }
+
+        button.pressed = rawPressed;
+        if (button.pressed) {
+            handleHardwareButtonPress(button, now);
+        } else {
+            handleHardwareButtonRelease(button);
+        }
+    }
+    serviceHardwareButtonRepeats(now);
 }
 
 void handleApiCommand() {
@@ -509,9 +1098,33 @@ void handleApiCommand() {
         if (strlen(mode) == 0) {
             mode = doc["mode"] | "";
         }
-        if (strlen(mode) > 0) {
-            state.mode = String(mode);
+        if (strlen(mode) == 0 || !setMode(mode)) {
+            ++state.commandsRejected;
+            sendError(400, "invalid mode");
+            return;
         }
+    } else if (cmd == "set_auto_interval") {
+        uint32_t ms = state.autoIntervalMs;
+        if (payload["ms"].is<uint32_t>()) {
+            ms = payload["ms"].as<uint32_t>();
+        } else if (doc["ms"].is<uint32_t>()) {
+            ms = doc["ms"].as<uint32_t>();
+        }
+        setAutoInterval(ms);
+    } else if (cmd == "pause_scroll") {
+        if (state.firmwareScrollActive) {
+            state.firmwareScrollPaused = true;
+            state.playback = "scroll_paused";
+        }
+    } else if (cmd == "resume_scroll") {
+        if (state.scrollFrameCount > 0) {
+            state.firmwareScrollActive = true;
+            state.firmwareScrollPaused = false;
+            state.lastScrollFrameMs = millis();
+            state.playback = "scroll";
+        }
+    } else if (cmd == "stop_scroll") {
+        stopFirmwareScroll(true);
     } else if (cmd == "pause") {
         state.paused = true;
         state.playback = "paused";
@@ -519,9 +1132,27 @@ void handleApiCommand() {
         state.paused = false;
         state.playback = "idle";
     } else if (cmd == "button") {
-        state.lastButton = String(payload["button"] | "");
-    } else if (cmd == "set_auto_interval" || cmd == "terminate_other_activities" ||
-               cmd == "adc_debug_override" || cmd == "raw_aux_command") {
+        const char* button = payload["button"] | "";
+        if (strlen(button) == 0) {
+            button = doc["button"] | "";
+        }
+        if (!runButtonAction(String(button), "api_button")) {
+            ++state.commandsRejected;
+            sendError(400, "unsupported button or no saved faces available");
+            return;
+        }
+    } else if (cmd == "terminate_other_activities") {
+        const char* targetMode = payload["targetMode"] | "";
+        if (strcmp(targetMode, "scroll") != 0) {
+            stopFirmwareScroll(false);
+        }
+        if (strcmp(targetMode, "face") != 0 && strcmp(targetMode, "scroll") != 0) {
+            setMode("manual", true);
+        } else if (strcmp(targetMode, "scroll") == 0 && isAutoMode()) {
+            state.restoreAutoAfterScroll = true;
+            state.mode = "manual";
+        }
+    } else if (cmd == "adc_debug_override" || cmd == "raw_aux_command") {
         // Accepted for WebUI compatibility; this minimal firmware stores only the last command.
     } else {
         // Keep unknown commands non-fatal so the debug page can experiment.
@@ -530,14 +1161,28 @@ void handleApiCommand() {
 
     ++state.commandsAccepted;
 
-    DynamicJsonDocument reply(640);
+    DynamicJsonDocument reply(1024);
     reply["ok"] = true;
     reply["cmd"] = cmd;
     reply["color"] = state.colorHex;
     reply["brightness"] = state.brightness;
     reply["mode"] = state.mode;
+    reply["autoIntervalMs"] = state.autoIntervalMs;
     reply["playback"] = state.playback;
     reply["paused"] = state.paused;
+    reply["autoFaceIndex"] = state.autoFaceIndex;
+    reply["firmwareScrollActive"] = state.firmwareScrollActive;
+    reply["firmwareScrollPaused"] = state.firmwareScrollPaused;
+    reply["restoreAutoAfterScroll"] = state.restoreAutoAfterScroll;
+    reply["scrollFrameCount"] = state.scrollFrameCount;
+    reply["scrollFrameIndex"] = state.scrollFrameIndex;
+    reply["scrollIntervalMs"] = state.scrollIntervalMs;
+    if (autoFaceCount > 0 && state.autoFaceIndex < autoFaceCount) {
+        reply["autoFaceId"] = autoFaces[state.autoFaceIndex].id;
+        reply["autoFaceName"] = autoFaces[state.autoFaceIndex].name;
+    }
+    reply["m370"] = state.lastM370;
+    reply["lastReason"] = state.lastReason;
     sendJsonDocument(200, reply);
 }
 
@@ -640,6 +1285,7 @@ void handleSavedFacesPost() {
     serializeJson(document, file);
     file.close();
     ++state.savedFacesWrites;
+    loadSavedFaces(false);
 
     DynamicJsonDocument reply(384);
     reply["ok"] = true;
@@ -676,13 +1322,14 @@ void handleNotFound() {
     sendError(404, "not found: " + server.uri());
 }
 
-bool loadStartupFace() {
+bool loadSavedFaces(bool applyStartupFace) {
     if (!fsMounted) {
-        Serial.println("LittleFS not mounted; startup face cannot be loaded");
+        Serial.println("LittleFS not mounted; saved faces cannot be loaded");
         return false;
     }
     if (!LittleFS.exists(SAVED_FACES_PATH)) {
         Serial.println("No saved_faces.json; LED output starts blank");
+        autoFaceCount = 0;
         return false;
     }
 
@@ -697,55 +1344,111 @@ bool loadStartupFace() {
     file.close();
     if (err) {
         Serial.printf("saved_faces.json parse failed: %s\n", err.c_str());
+        autoFaceCount = 0;
         return false;
     }
 
     const String startupId = doc["startupDefaultId"] | "";
     JsonArray faces = doc["faces"].as<JsonArray>();
-    JsonObject selected;
-    JsonObject firstDefault;
-    JsonObject firstFace;
+    String previousFaceId;
+    const uint16_t previousFaceIndex = state.autoFaceIndex;
+    if (autoFaceCount > 0 && state.autoFaceIndex < autoFaceCount) {
+        previousFaceId = autoFaces[state.autoFaceIndex].id;
+    }
+    autoFaceCount = 0;
+    uint16_t jsonIndex = 0;
 
     for (JsonObject face : faces) {
-        if (firstFace.isNull()) {
-            firstFace = face;
+        const char* m370 = face["m370"] | "";
+        String normalized;
+        String error;
+        if (!normalizeM370(m370, normalized, error)) {
+            Serial.printf("Skipping invalid saved face: %s\n", error.c_str());
+            ++jsonIndex;
+            continue;
         }
-        const char* type = face["type"] | "";
-        if (strcmp(type, "default") == 0 && firstDefault.isNull()) {
-            firstDefault = face;
-        }
-        const char* id = face["id"] | "";
-        if ((!startupId.isEmpty() && startupId == id) || face["is_startup_default"].as<bool>()) {
-            selected = face;
+        if (autoFaceCount >= MAX_AUTO_FACES) {
             break;
         }
+
+        RuntimeFace& runtime = autoFaces[autoFaceCount++];
+        runtime.id = String(face["id"] | "");
+        runtime.name = String(face["name"] | runtime.id.c_str());
+        runtime.m370 = normalized;
+        runtime.order = face["order"].is<int32_t>() ? face["order"].as<int32_t>() : static_cast<int32_t>(jsonIndex);
+        runtime.jsonIndex = jsonIndex;
+        runtime.isDefault = strcmp(face["type"] | "", "default") == 0;
+        runtime.isStartupDefault = face["is_startup_default"].as<bool>();
+        ++jsonIndex;
     }
 
-    if (selected.isNull()) {
-        if (!firstDefault.isNull()) {
-            selected = firstDefault;
-        } else {
-            selected = firstFace;
+    if (autoFaceCount == 0) {
+        Serial.println("saved_faces.json has no valid faces");
+        return false;
+    }
+
+    for (uint16_t i = 0; i < autoFaceCount; ++i) {
+        for (uint16_t j = i + 1; j < autoFaceCount; ++j) {
+            const bool shouldSwap =
+                autoFaces[j].order < autoFaces[i].order ||
+                (autoFaces[j].order == autoFaces[i].order &&
+                 autoFaces[j].jsonIndex < autoFaces[i].jsonIndex);
+            if (shouldSwap) {
+                RuntimeFace tmp = autoFaces[i];
+                autoFaces[i] = autoFaces[j];
+                autoFaces[j] = tmp;
+            }
         }
     }
-    if (selected.isNull()) {
-        Serial.println("saved_faces.json has no faces");
-        return false;
+
+    int selectedIndex = -1;
+    int firstDefaultIndex = -1;
+    int firstFaceIndex = autoFaceCount > 0 ? 0 : -1;
+    for (uint16_t i = 0; i < autoFaceCount; ++i) {
+        if (autoFaces[i].isDefault && firstDefaultIndex < 0) {
+            firstDefaultIndex = i;
+        }
+        if (selectedIndex < 0) {
+            if (!applyStartupFace && !previousFaceId.isEmpty() && previousFaceId == autoFaces[i].id) {
+                selectedIndex = i;
+            } else if (applyStartupFace &&
+                       ((!startupId.isEmpty() && startupId == autoFaces[i].id) || autoFaces[i].isStartupDefault)) {
+                selectedIndex = i;
+            }
+        }
+    }
+    if (selectedIndex < 0) {
+        if (!applyStartupFace && previousFaceIndex < autoFaceCount) {
+            selectedIndex = previousFaceIndex;
+        } else {
+            selectedIndex = firstDefaultIndex >= 0 ? firstDefaultIndex : firstFaceIndex;
+        }
+    }
+    state.autoFaceIndex = static_cast<uint16_t>(selectedIndex);
+    Serial.printf("Loaded %u saved faces for firmware auto mode\n", autoFaceCount);
+
+    if (applyStartupFace) {
+        String error;
+        const String bootMode = state.mode;
+        const uint32_t bootIntervalMs = state.autoIntervalMs;
+        state.defaultBrightness = DEFAULT_BRIGHTNESS;
+        state.brightness = state.defaultBrightness;
+        state.playback = DEFAULT_PLAYBACK;
+        state.paused = false;
+        if (!applyM370(autoFaces[state.autoFaceIndex].m370, STARTUP_FACE_REASON, error)) {
+            Serial.printf("startup M370 failed: %s\n", error.c_str());
+            return false;
+        }
+        state.autoIntervalMs = bootIntervalMs;
+        setMode(bootMode.c_str(), false);
+        Serial.printf("Loaded startup face index: %u\n", state.autoFaceIndex);
     }
 
-    String error;
-    const char* m370 = selected["m370"] | "";
-    state.brightness = DEFAULT_BRIGHTNESS;
-    state.mode = DEFAULT_MODE;
-    state.playback = DEFAULT_PLAYBACK;
-    state.paused = false;
-    if (!applyM370(m370, STARTUP_FACE_REASON, error)) {
-        Serial.printf("startup M370 failed: %s\n", error.c_str());
-        return false;
-    }
-
-    Serial.printf("Loaded startup face: %s\n", (const char*)(selected["id"] | ""));
     return true;
+}
+
+bool loadStartupFace() {
+    return loadSavedFaces(true);
 }
 
 void startAccessPoint() {
@@ -782,12 +1485,56 @@ void startWebServer() {
     server.on("/api/status", HTTP_OPTIONS, handleOptions);
     server.on("/api/frame", HTTP_POST, handleApiFrame);
     server.on("/api/frame", HTTP_OPTIONS, handleOptions);
+    server.on("/api/scroll", handleApiScroll);
     server.on("/api/command", HTTP_POST, handleApiCommand);
     server.on("/api/command", HTTP_OPTIONS, handleOptions);
     server.on("/api/saved_faces", handleApiSavedFaces);
     server.onNotFound(handleNotFound);
     server.begin();
     Serial.printf("HTTP server listening on http://%s/\n", WiFi.softAPIP().toString().c_str());
+}
+
+void serviceAutoPlayback() {
+    if (!isAutoMode() || state.paused || autoFaceCount == 0) {
+        return;
+    }
+
+    const uint32_t now = millis();
+    if (state.lastAutoSwitchMs == 0) {
+        state.lastAutoSwitchMs = now;
+        return;
+    }
+    if (now - state.lastAutoSwitchMs < state.autoIntervalMs) {
+        return;
+    }
+
+    state.lastAutoSwitchMs = now;
+    state.autoFaceIndex = (state.autoFaceIndex + 1) % autoFaceCount;
+    String error;
+    state.playback = "auto_saved_face";
+    if (!applyM370(autoFaces[state.autoFaceIndex].m370, "firmware_auto_saved_face", error)) {
+        Serial.printf("auto face apply failed: %s\n", error.c_str());
+    }
+}
+
+void serviceFirmwareScroll() {
+    if (!state.firmwareScrollActive || state.firmwareScrollPaused || state.scrollFrameCount == 0) {
+        return;
+    }
+
+    const uint32_t now = millis();
+    if (state.lastScrollFrameMs == 0) {
+        state.lastScrollFrameMs = now;
+        return;
+    }
+    if (now - state.lastScrollFrameMs < state.scrollIntervalMs) {
+        return;
+    }
+
+    state.lastScrollFrameMs = now;
+    state.scrollFrameIndex = (state.scrollFrameIndex + 1) % state.scrollFrameCount;
+    state.playback = "scroll";
+    applyPackedFrame(scrollFrameBits[state.scrollFrameIndex], "firmware_text_scroll");
 }
 
 }  // namespace
@@ -805,6 +1552,7 @@ void setup() {
     strip.setBrightness(state.brightness);
     strip.clear();
     strip.show();
+    initHardwareButtons();
 
     String colorError;
     setColor(DEFAULT_COLOR, colorError);
@@ -814,6 +1562,7 @@ void setup() {
         Serial.println("LittleFS mount failed. Upload data with: pio run -t uploadfs");
         showFilesystemErrorPattern();
     } else {
+        loadRuntimeSettings();
         loadStartupFace();
     }
 
@@ -823,5 +1572,8 @@ void setup() {
 
 void loop() {
     server.handleClient();
+    serviceHardwareButtons();
+    serviceFirmwareScroll();
+    serviceAutoPlayback();
     delay(2);
 }

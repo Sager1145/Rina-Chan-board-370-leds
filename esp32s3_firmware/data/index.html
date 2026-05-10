@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>RinaChanBoard ESP32-S3 370 LED WebUI - M370 Firmware Interface</title>
 <style>
-  @font-face{font-family:"DotGothic16";src:local("DotGothic16"),local("DotGothic16 Regular"),url("../resources/fonts/DotGothic16-Regular.ttf") format("truetype"),url("/resources/fonts/DotGothic16-Regular.ttf") format("truetype");font-display:swap;}
+  @font-face{font-family:"DotGothic16";src:local("DotGothic16"),local("DotGothic16 Regular"),url("/resources/fonts/DotGothic16-Regular.woff2") format("woff2");font-display:swap;}
   :root{
     --bg:#0f1117;
     --panel:#161a24;
@@ -21,14 +21,17 @@
     --cell:18px;
     --gap:4px;
     --led-color:#f971d4;
+    --control-height:44px;
   }
   *{box-sizing:border-box}
   html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;overflow-x:hidden;-webkit-text-size-adjust:100%;}
   body{padding:0;overscroll-behavior-x:none;}
   button,input,select,textarea{font:inherit;color:var(--text)}
-  button,input,select,textarea,.nav-toggle,.select-toggle{touch-action:manipulation;}
-  button{border:1px solid var(--line);background:var(--panel2);border-radius:12px;padding:10px 14px;min-height:44px;cursor:pointer;transition:.12s transform,.12s border-color,.12s background;-webkit-tap-highlight-color:transparent;}
-  button.compact-btn{min-width:44px;padding:9px 10px;font-weight:800;}
+  button,input,select,textarea,.brand-nav-toggle,.select-toggle{touch-action:manipulation;}
+  button{border:1px solid var(--line);background:var(--panel2);border-radius:12px;padding:10px 14px;min-height:var(--control-height);cursor:pointer;transition:.12s transform,.12s border-color,.12s background;-webkit-tap-highlight-color:transparent;}
+  button:active:not(:disabled){transform:scale(.96) translateY(1px);filter:brightness(.88);transition-duration:.05s;}
+  .part-card:active .part-mini{transform:scale(.93);transition:.05s;}
+  button.compact-btn{min-width:var(--control-height);padding:9px 10px;font-weight:800;}
   button:hover{transform:translateY(-1px);border-color:var(--accent2)}
   button.primary{background:linear-gradient(135deg,#f971d4,#8f74ff);border-color:transparent;color:#fff;font-weight:700}
   button.ok{background:#163824;border-color:#216b3f;color:#b8ffd4}
@@ -36,38 +39,48 @@
   button.danger{background:#3a1820;border-color:#7b2b3b;color:#ffd0d8}
   button.ghost{background:transparent}
   button.active{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent)}
-  input,select,textarea{background:#0c0f15;border:1px solid var(--line);border-radius:10px;padding:9px 10px;min-height:40px;outline:none;}
+  input,select,textarea{background:#0c0f15;border:1px solid var(--line);border-radius:10px;padding:9px 10px;min-height:var(--control-height);outline:none;}
   input:focus,select:focus,textarea:focus{border-color:var(--accent2);}
-  input[type="range"]{padding:0;width:100%;height:44px;accent-color:var(--accent);touch-action:pan-y;}
+  input[type="range"]{padding:0;width:100%;height:var(--control-height);accent-color:var(--accent);touch-action:pan-y;}
   textarea{width:100%;min-height:90px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;}
   #scroll-text{min-height:42px;max-height:none;resize:none;overflow:hidden;line-height:1.45;white-space:pre-wrap;word-break:break-word;font-family:DotGothic16,"Fusion Pixel 16px","WenQuanYi Bitmap Song","Shinonome16","GNU Unifont",system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;font-size:16px;}
   a{color:var(--accent2)}
-  .sidebar{position:relative;z-index:2147482999;overflow:visible;border-right:0;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#151927,#0f1117);padding:14px 18px;display:grid;grid-template-columns:minmax(240px,1fr) minmax(260px,520px);gap:14px;align-items:center;}
-  .top-page-nav{position:sticky;top:0;z-index:2147483000;isolation:isolate;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#151927,#10141e);padding:10px 14px;box-shadow:0 12px 30px #00000045;}
-  .top-page-nav .nav-shell{width:min(520px,100%);margin:0 auto;}
+  .sidebar{position:relative;z-index:2147482999;overflow:visible;border-right:0;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#151927,#0f1117);padding:14px 18px;display:grid;grid-template-columns:1fr;gap:14px;align-items:center;}
+  .top-page-nav{position:absolute;left:0;right:0;z-index:2147483000;isolation:isolate;max-height:0;overflow:hidden;opacity:0;transform:translateY(-18px);pointer-events:none;border-bottom:1px solid transparent;background:linear-gradient(180deg,#151927,#10141e);padding:0 14px;box-shadow:none;transition:max-height .34s cubic-bezier(.16,1,.3,1),opacity .22s cubic-bezier(.33,1,.68,1),transform .34s cubic-bezier(.16,1,.3,1),padding .34s cubic-bezier(.16,1,.3,1),border-color .34s cubic-bezier(.16,1,.3,1),box-shadow .34s cubic-bezier(.16,1,.3,1);will-change:max-height,opacity,transform;}
+  .top-page-nav.open{max-height:70vh;opacity:1;transform:translateY(0);pointer-events:auto;border-bottom-color:var(--line);padding:10px 14px;box-shadow:0 12px 30px #00000045;}
+  .top-page-nav .nav-shell{width:min(980px,100%);margin:0 auto;}
   .app{display:block;min-height:calc(100vh - 160px);}
-  .brand{display:flex;gap:12px;align-items:center;margin-bottom:0;}
+  .brand{display:flex;gap:12px;align-items:center;margin-bottom:0;min-width:0;}
+  .brand-copy{min-width:0;}
   .logo{width:42px;height:42px;border-radius:14px;background:radial-gradient(circle at 35% 35%,#fff,#f971d4 35%,#4b36a8 78%);box-shadow:0 0 30px #f971d455;}
-  .brand h1{font-size:17px;margin:0;line-height:1.25}
-  .brand p{font-size:12px;color:var(--muted);margin:3px 0 0;}
-  .offline{border:1px solid #3d4660;background:#111827;border-radius:14px;padding:10px;margin:0;color:#ced8e6;font-size:12px;line-height:1.45}
+  .brand h1{font-size:17px;margin:0;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .brand p{font-size:12px;color:var(--muted);margin:3px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .brand-nav-toggle{margin-left:auto;flex:0 0 var(--control-height);width:var(--control-height);height:var(--control-height);display:inline-grid;place-items:center;padding:0;border-radius:12px;background:linear-gradient(180deg,#1a2030,#111722);box-shadow:0 12px 30px #00000035;color:var(--text);outline:none;}
+  .brand-nav-toggle:hover{border-color:var(--accent2);background:linear-gradient(180deg,#20283a,#121a27);}
+  .brand-nav-toggle:focus-visible{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 25%,transparent),0 18px 46px #00000060;}
+  .brand-nav-toggle.active{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent),0 12px 30px #00000035;}
   .nav-shell{position:relative;margin-top:12px;z-index:2147483001;}
-  .nav-toggle,.select-toggle{width:100%;min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;padding:12px 13px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#1a2030,#111722);box-shadow:0 12px 30px #00000035;color:var(--text);font-weight:700;outline:none;}
-  .nav-toggle:hover,.select-toggle:hover{transform:translateY(-1px);border-color:var(--accent2);background:linear-gradient(180deg,#20283a,#121a27);}
-  .nav-toggle:focus-visible,.select-toggle:focus-visible{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 25%,transparent),0 18px 46px #00000060;}
-  .nav-toggle .label,.select-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;}
+  .select-toggle{width:100%;min-height:var(--control-height);display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;padding:12px 13px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#1a2030,#111722);box-shadow:0 12px 30px #00000035;color:var(--text);font-weight:700;outline:none;}
+  .select-toggle:hover{transform:translateY(-1px);border-color:var(--accent2);background:linear-gradient(180deg,#20283a,#121a27);}
+  .select-toggle:focus-visible{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 25%,transparent),0 18px 46px #00000060;}
+  .select-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;}
   .menu-icon{display:inline-grid;gap:4px;flex:0 0 auto;}
   .menu-icon span{display:block;width:18px;height:2px;border-radius:999px;background:currentColor;}
-  .nav-caret,.select-caret{color:var(--muted);transition:.12s transform,.12s color;}
-  .nav-toggle:hover .nav-caret,.nav-toggle:focus-visible .nav-caret,.select-shell:hover .select-caret,.select-shell:focus-within .select-caret{color:var(--accent2);}
-  .nav-toggle.active .nav-caret,.select-shell.open .select-caret{transform:rotate(180deg);}
-  .nav,.select-menu{display:none;position:absolute;top:calc(100% + 8px);left:0;right:0;gap:8px;padding:8px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,#1a2030,#111722);box-shadow:0 18px 46px #00000090;overflow:auto;}
-  .nav{z-index:2147483002;max-height:min(70vh,430px);}
-  .nav.open,.select-shell.open .select-menu{display:grid;}
-  .nav button,.select-option{min-height:46px;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 13px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#192030,#101622);box-shadow:0 8px 22px #00000028;color:var(--text);font-weight:700;outline:none;}
-  .nav button:hover,.select-option:hover{transform:translateY(-1px);border-color:var(--accent2);background:linear-gradient(180deg,#20283a,#121a27);}
-  .nav button:focus-visible,.select-option:focus-visible{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 25%,transparent),0 14px 32px #00000055;}
-  .nav button.active,.select-option.active{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent),0 12px 30px #00000035;}
+  .select-caret{color:var(--muted);transition:.12s transform,.12s color;}
+  .select-shell:hover .select-caret,.select-shell:focus-within .select-caret{color:var(--accent2);}
+  .select-shell.open .select-caret{transform:rotate(180deg);}
+  .nav{display:grid;gap:8px;padding:8px;position:static;z-index:2147483002;grid-template-columns:1fr;max-height:min(52vh,360px);overflow:auto;}
+  .select-menu{display:none;gap:8px;padding:8px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,#1a2030,#111722);box-shadow:0 18px 46px #00000090;overflow:auto;}
+  .select-menu{position:absolute;top:calc(100% + 8px);left:0;right:0;}
+  .select-shell.open .select-menu{display:grid;}
+  .nav button{min-height:var(--control-height);text-align:left;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px;border:0;border-radius:12px;background:var(--panel2);box-shadow:none;color:var(--text);font-weight:700;outline:none;}
+  .nav button:hover{transform:translateY(-1px);background:#273040;}
+  .nav button:focus-visible{outline:2px solid color-mix(in srgb,var(--accent2) 45%,transparent);outline-offset:2px;}
+  .nav button.active{background:linear-gradient(135deg,#f971d4,#8f74ff);box-shadow:none;color:#fff;}
+  .select-option{min-height:46px;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 13px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#192030,#101622);box-shadow:0 8px 22px #00000028;color:var(--text);font-weight:700;outline:none;}
+  .select-option:hover{transform:translateY(-1px);border-color:var(--accent2);background:linear-gradient(180deg,#20283a,#121a27);}
+  .select-option:focus-visible{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 25%,transparent),0 14px 32px #00000055;}
+  .select-option.active{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent),0 12px 30px #00000035;}
   .nav .num{color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap;}
   .select-shell{position:relative;width:100%;min-width:0;z-index:50;}
   .select-shell.open{z-index:2147482500;}
@@ -77,6 +90,7 @@
   .select-option span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .select-option .num{color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap;}
   .content{padding:18px;max-width:1480px;width:100%;margin:0 auto;min-width:0;overflow-x:hidden;}
+  @media (min-width:1471px){body[data-page="parts"] .content,body[data-page="debug"] .content{max-width:2209px;}}
   .page{display:none;animation:fade .16s ease-out;}
   .page.active{display:block;}
   @keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
@@ -84,33 +98,60 @@
   .hero h2{font-size:26px;margin:0 0 6px;}
   .hero p{margin:0;color:var(--muted);line-height:1.55}
   .badge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:6px 10px;background:var(--panel);font-size:12px;color:#ccd7e5;margin:3px;white-space:nowrap;}
-  .grid{display:grid;gap:14px;min-width:0;}
+  .grid{display:grid;gap:14px;align-items:start;min-width:0;}
   .cols-2{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}
   .cols-3{grid-template-columns:repeat(3,minmax(0,1fr));}
   .cols-4{grid-template-columns:repeat(4,minmax(0,1fr));}
   .card{background:linear-gradient(180deg,var(--panel),#121621);border:1px solid var(--line);border-radius:18px;padding:15px;box-shadow:0 12px 32px #00000035;min-width:0;}
   .card h3{margin:0 0 12px;font-size:16px;display:flex;align-items:center;gap:8px;}
   .card h4{margin:14px 0 8px;font-size:14px;color:#dfe7f3;}
-  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
-  .inline-toggle{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:9px 13px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);color:var(--text);font-size:13px;white-space:nowrap;cursor:pointer;}
+  .row{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
+  .inline-toggle{display:inline-flex;align-items:center;gap:8px;min-height:var(--control-height);padding:9px 13px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);color:var(--text);font-size:13px;white-space:nowrap;cursor:pointer;}
   .inline-toggle input{display:none;}
   .toggle-button{white-space:nowrap;}
   .toggle-button.active{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent);}
   .control-panel{display:grid;gap:13px;}
-  .basic-layout{display:grid;grid-template-columns:minmax(340px,420px) minmax(0,1fr);gap:14px;align-items:start;container-type:inline-size;}
-  .basic-preview-card{min-width:0;height:100%;}
+  .basic-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start;container-type:inline-size;}
+  .basic-layout>.card:first-child{order:2;}
+  .basic-layout>.basic-preview-card{order:1;}
+  .basic-preview-card{min-width:0;}
   .basic-preview-card .matrix-wrap{min-height:0;}
   .control-section{display:grid;gap:10px;border-top:1px solid var(--line);padding-top:12px;}
   .control-section.flush{border-top:0;padding-top:0;}
   .mt-14{margin-top:14px;}
-  .brightness-row{display:grid;grid-template-columns:auto minmax(160px,1fr) auto;gap:10px;align-items:center;}
+  .slider-step-row{display:flex;justify-content:flex-end;gap:10px;align-items:center;}
+  .slider-step-row button{white-space:nowrap;}
+  .slider-step-row .compact-btn{min-width:74px;}
+  .slider-step-row .push-right{margin-left:auto;}
+  .brightness-row{display:grid;grid-template-columns:minmax(160px,1fr) minmax(82px,110px);gap:10px;align-items:center;}
+  .brightness-row .slider-number{width:100%;min-width:0;text-align:center;}
   .equal-fields{display:grid;grid-template-columns:repeat(2,minmax(120px,160px));gap:10px;align-items:end;}
   .equal-fields .field{min-width:0;}
   .equal-fields input{width:100%;}
-  .button-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .button-row{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
   .button-row button{white-space:nowrap;}
+  .mode-button-row{justify-content:flex-start;flex-wrap:wrap;overflow:visible;scrollbar-width:auto;}
+  .mode-button-row button{height:var(--control-height);min-height:var(--control-height);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;padding:0 14px;line-height:1;}
+  .mode-button-row #face-prev,.mode-button-row #face-next{width:var(--control-height);min-width:var(--control-height);padding:0;font-size:19px;}
+  .mode-button-row .compact-btn{min-width:74px;padding:0 12px;}
+  .mode-button-row .toggle-button{min-width:86px;}
   .status-merged{max-height:260px;overflow:auto;}
   .stack{display:grid;gap:10px;overflow-x:auto;overflow-y:visible;max-width:100%;scrollbar-width:thin;}
+  .parts-outer-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start;}
+  .parts-left-col{display:grid;gap:14px;align-content:start;min-width:0;}
+  .parts-manager-col{min-width:0;}
+  #part-groups{min-width:0;}
+  @media (min-width:1471px){.parts-outer-layout{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);}
+    .parts-left-col{display:contents;}
+    #parts-preview-card{grid-column:1;grid-row:1;}
+    #part-groups{grid-column:2;grid-row:1;}
+    .parts-manager-col{grid-column:3;grid-row:1;}}
+  @media (max-width:980px){.parts-outer-layout{grid-template-columns:1fr;}}
+  .parts-page-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start;}
+  .debug-layout{column-count:2;column-gap:14px;}
+  .debug-layout>.card{width:100%;margin:0 0 14px;break-inside:avoid;page-break-inside:avoid;}
+  @media (min-width:1471px){.debug-layout{column-count:3;}}
+  @media (max-width:980px){.debug-layout{column-count:1;}}
   .field{display:grid;gap:6px;min-width:120px;}
   .field label{font-size:12px;color:var(--muted)}
   .kv{display:grid;grid-template-columns:170px 1fr;gap:8px 10px;font-size:13px;align-items:center;}
@@ -120,11 +161,11 @@
   .hint{font-size:12px;color:#d7e0ee;background:#111827;border:1px solid #2c3448;border-radius:12px;padding:10px;line-height:1.5}
   .warning{display:none;border:1px solid #80621b;background:#2b210f;color:#ffe5a4;border-radius:12px;padding:9px 10px;font-size:12px;}
   .warning.show{display:block;}
-  .color-swatch{width:34px;height:34px;border-radius:11px;border:1px solid rgba(255,255,255,.35);background:var(--led-color);box-shadow:0 0 24px color-mix(in srgb,var(--led-color) 55%,transparent)}
+  .color-swatch{width:var(--control-height);height:var(--control-height);flex:0 0 var(--control-height);border-radius:12px;border:1px solid rgba(255,255,255,.35);background:var(--led-color);box-shadow:0 0 24px color-mix(in srgb,var(--led-color) 55%,transparent)}
   .color-button{display:flex;align-items:center;gap:8px;min-width:165px;justify-content:flex-start;}
   .color-dot{width:16px;height:16px;border-radius:50%;border:1px solid #ffffff77;display:inline-block;}
   .color-dropdown-grid{display:grid;grid-template-columns:1fr;gap:10px;align-items:stretch;max-width:420px;}
-  .color-dropdown-grid .select-shell{min-height:46px;}
+  .color-dropdown-grid .select-shell{min-height:var(--control-height);}
   .matrix-wrap{overflow:hidden;width:100%;max-width:100%;padding:12px;border-radius:16px;background:#0b0e14;border:1px solid #283044;}
   .matrix-wrap.fill-column{display:flex;justify-content:center;align-items:center;}
   .matrix{display:grid;grid-template-columns:repeat(22,var(--cell));grid-template-rows:repeat(18,var(--cell));gap:var(--gap);width:fit-content;max-width:100%;margin:0 auto;touch-action:pan-y;user-select:none;-webkit-user-select:none;}
@@ -147,11 +188,19 @@
   .pix{width:5px;height:5px;border-radius:1px;background:#18202d;}
   .pix.on{background:var(--led-color);box-shadow:0 0 6px var(--led-color)}
   .list{display:grid;gap:8px;}
+  .face-manager-panel{container-type:inline-size;}
   .face-library-list{overscroll-behavior:contain;}
   .saved-row{display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;align-items:stretch;}
   .saved-index{display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:#0b0e14;border-radius:12px;color:var(--muted);font-weight:800;}
   .list-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--line);background:#10141d;border-radius:12px;padding:10px;min-width:0;}
   .saved-face-card{grid-template-columns:auto minmax(0,1fr) auto;}
+  .saved-face-body{min-width:0;}
+  .face-action-bar{display:flex;gap:5px;align-items:center;flex-wrap:nowrap;flex-shrink:0;}
+  .face-action-bar button{min-height:34px;padding:5px 8px;font-size:13px;border-radius:9px;white-space:nowrap;}
+  .face-action-bar .icon-btn{display:inline-flex;align-items:center;justify-content:center;line-height:1;min-height:34px;min-width:34px;padding:5px 7px;font-size:15px;border-radius:9px;}
+  .face-action-bar .btn-delete{border-color:#7b2b3b;color:#ffd0d8;background:#3a1820;}
+  .face-action-bar .btn-delete:active:not(:disabled){background:#5a1a24;}
+  .face-action-bar button:disabled{opacity:.38;pointer-events:none;}
   .saved-row.drag-over .list-item{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 20%,transparent);}
   .drag-handle{align-self:stretch;min-width:44px;padding:8px 9px;cursor:grab;color:#dbe7f5;background:#0b0e14;touch-action:none;user-select:none;-webkit-user-select:none;}
   .drag-handle:active{cursor:grabbing;}
@@ -167,27 +216,44 @@
   .pill-select{display:flex;gap:8px;flex-wrap:wrap;}
   .divider{height:1px;background:var(--line);margin:8px 0;}
   .status-dot{width:9px;height:9px;border-radius:50%;background:var(--ok);display:inline-block;box-shadow:0 0 10px var(--ok)}
-  @media (max-width:1100px){.basic-layout{grid-template-columns:1fr;}}
+  @media (min-width:981px){.matrix-wrap{--matrix-max-height:600px;max-height:600px;}}
+  @container (max-width:560px){
+    .saved-row{grid-template-columns:38px minmax(0,1fr);gap:8px;}
+    .saved-index{font-size:13px;}
+    .saved-face-card{grid-template-columns:44px minmax(0,1fr);grid-template-areas:"drag body" "actions actions";gap:8px;}
+    .saved-face-card>.drag-handle{grid-area:drag;min-height:44px;width:auto;}
+    .saved-face-card>.saved-face-body{grid-area:body;}
+    .saved-face-card>.face-action-bar{grid-area:actions;width:100%;justify-content:flex-start;}
+    .saved-face-card>.face-action-bar .icon-btn{width:38px;min-width:38px;padding-inline:7px;}
+    .saved-face-card .saved-meta{display:none;}
+    .saved-name-input{min-height:44px;}
+  }
+  @media (max-width:980px){.basic-layout{grid-template-columns:1fr;}
+  .basic-layout>.card:first-child,.basic-layout>.basic-preview-card{order:unset;}}
   @media (max-width:980px){
-    .top-page-nav{padding:8px 12px;}
+    .top-page-nav{padding:0 12px;}
+    .top-page-nav.open{padding:8px 12px;}
     .app{min-height:0;}
     .sidebar{grid-template-columns:1fr;padding:12px;}
-    .nav{position:absolute;max-height:min(70vh,420px);}
+    .nav{position:static;max-height:min(70vh,420px);}
     .content{padding:12px;}
     .cols-2,.cols-3,.cols-4{grid-template-columns:1fr;}
+    .parts-page-grid{grid-template-columns:1fr;}
     .hero{display:grid;}
     :root{--cell:14px;--gap:3px;}
   }
-  @media (max-width:520px){.kv{grid-template-columns:1fr}.color-button{min-width:100%}.color-dropdown-grid{grid-template-columns:1fr}.equal-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.brightness-row{grid-template-columns:auto minmax(90px,1fr) auto}:root{--cell:12px;--gap:2px;}}
-  @media (hover:none){button:hover,.nav-toggle:hover,.select-toggle:hover,.nav button:hover,.select-option:hover,.part-card:hover{transform:none;}}
+  @media (max-width:520px){.kv{grid-template-columns:1fr}.color-button{min-width:100%}.color-dropdown-grid{grid-template-columns:1fr}.equal-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.brightness-row{grid-template-columns:minmax(70px,1fr) minmax(74px,92px);gap:8px}.slider-step-row{gap:8px}:root{--cell:12px;--gap:2px;}}
+  @media (hover:none){button:hover,.brand-nav-toggle:hover,.select-toggle:hover,.nav button:hover,.select-option:hover,.part-card:hover{transform:none;}}
   @media (max-width:640px){
-    button{min-height:46px;}
+    :root{--control-height:46px;}
     .saved-row{grid-template-columns:38px minmax(0,1fr);gap:8px;}
     .saved-index{font-size:13px;}
-    .saved-face-card{grid-template-columns:minmax(0,1fr);gap:8px;}
-    .saved-face-card>.drag-handle{grid-row:1;grid-column:1;min-height:46px;width:100%;}
-    .saved-face-card>.row{grid-column:1 / -1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;}
-    .saved-face-card>.row button{width:100%;min-width:0;padding-inline:8px;}
+    .saved-face-card{grid-template-columns:44px minmax(0,1fr);grid-template-areas:"drag body" "actions actions";gap:8px;}
+    .saved-face-card>.drag-handle{grid-area:drag;min-height:44px;width:auto;}
+    .saved-face-card>.saved-face-body{grid-area:body;}
+    .saved-face-card>.face-action-bar{grid-area:actions;width:100%;justify-content:flex-start;}
+    .saved-face-card>.face-action-bar .icon-btn{width:38px;min-width:38px;padding-inline:7px;}
+    .saved-face-card .saved-meta{display:none;}
     .saved-name-input{min-height:44px;}
     .part-list{display:flex;flex-wrap:nowrap}
     .part-card{grid-template-columns:1fr;width:60px;min-width:60px;max-width:60px;}
@@ -196,19 +262,19 @@
 </head>
 <body>
 <aside class="sidebar">
-    <div class="brand"><div class="logo"></div><div><h1>RinaChanBoard 370 LED</h1><p>ESP32-S3 WebUI M370 firmware interface</p></div></div>
-    <div class="offline"><b>固件接口模式</b><br>HTML 负责生成 M370 与状态 JSON；固件仅接收 M370 帧和亮度、颜色、模式、暂停、按钮等辅助指令。</div>
+    <div class="brand">
+      <div class="logo"></div>
+      <div class="brand-copy"><h1>RinaChanBoard 370 LED</h1><p>ESP32-S3 WebUI M370 firmware interface</p></div>
+      <button class="brand-nav-toggle" id="brand-nav-toggle" type="button" aria-expanded="false" aria-controls="top-page-nav" aria-label="打开页面切换器">
+        <span class="menu-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+      </button>
+    </div>
   </aside>
-<!-- Page selector dropdown is positioned below the top header, but kept on the highest UI layer.
-     z-index values are near the maximum practical range so the menu remains
-     above cards, matrices, and preview/control panels. -->
-<div class="top-page-nav">
+<!-- Page selector top bar is opened from the brand hamburger, but kept on the highest UI layer.
+     z-index values are near the maximum practical range so it remains above
+     cards, matrices, and preview/control panels. -->
+<div class="top-page-nav" id="top-page-nav" aria-hidden="true">
   <div class="nav-shell" id="nav-shell">
-    <button class="nav-toggle" id="nav-toggle" type="button" aria-expanded="false" aria-controls="nav">
-      <span class="menu-icon" aria-hidden="true"><span></span><span></span><span></span></span>
-      <span class="label" id="current-page-label">6.1 基础功能页面</span>
-      <span class="nav-caret" aria-hidden="true">▾</span>
-    </button>
     <div class="nav" id="nav" role="menu" aria-hidden="true"></div>
   </div>
 </div>
@@ -231,14 +297,15 @@
           </div>
           <div class="control-section">
             <h4>亮度控制</h4>
-            <div class="brightness-row"><button class="compact-btn" id="brightness-minus">−8</button><input id="brightness-range" type="range" min="10" max="200" step="1" value="50"><button class="compact-btn" id="brightness-plus">+8</button></div>
-            <div class="equal-fields"><div class="field"><label>raw 亮度</label><input id="brightness-input" type="number" min="10" max="200" value="50"></div><div class="field"><label>百分比参考</label><input id="brightness-percent" readonly value="20%"></div></div>
+            <div class="slider-step-row"><button id="brightness-reset-default" type="button">重置默认亮度</button><button class="compact-btn push-right" id="brightness-minus">−8</button><button class="compact-btn" id="brightness-plus">+8</button></div>
+            <div class="brightness-row"><input id="brightness-range" type="range" min="10" max="200" step="1" value="50"><input class="slider-number" id="brightness-input" type="number" min="10" max="200" value="50" aria-label="raw 亮度"></div>
             <div class="button-row" id="brightness-presets"></div>
           </div>
           <div class="control-section">
             <h4>保存表情切换 / A-M 模式</h4>
-            <div class="button-row"><button id="face-prev">B2 上一个</button><button id="face-next">B1 下一个</button><button class="primary" id="mode-toggle">B3 切换 A/M</button></div>
-            <div class="button-row"><button id="interval-down">B3+B1 间隔 −</button><button id="interval-up">B3+B2 间隔 +</button><div class="field"><label>自动切换间隔 ms</label><input id="auto-interval" type="number" value="3000" min="500" step="100"></div></div>
+            <div class="button-row mode-button-row"><button id="face-prev" type="button" aria-label="上一个" title="上一个">←</button><button id="face-next" type="button" aria-label="下一个" title="下一个">→</button><button class="toggle-button" id="mode-toggle" type="button" aria-pressed="false">M 手动</button><button class="compact-btn push-right" id="interval-down" type="button">−0.5</button><button class="compact-btn" id="interval-up" type="button">+0.5</button></div>
+            <div class="brightness-row"><input id="auto-interval-range" type="range" min="0.5" max="10" step="0.1" value="3"><input class="slider-number" id="auto-interval" type="number" value="3" min="0.5" max="10" step="0.1" aria-label="自动切换间隔 秒"></div>
+            <div class="button-row" id="auto-interval-presets"></div>
           </div>
           
         </div>
@@ -247,13 +314,11 @@
     </section>
 
     <section class="page" id="page-custom">
-      <div class="hero"><div><h2>6.2 自定义表情页面</h2></div></div>
+      <div class="hero"><div><h2>6.2 自定义表情页面</h2></div><div class="row"><button class="primary" id="custom-send">发送 M370 到固件</button><button id="custom-copy">复制 M370</button><button id="custom-export">更新导出文本</button><button id="custom-clear">清空</button><button id="custom-fill">全亮</button><button id="custom-invert">反转</button></div></div>
       <div class="grid cols-2">
         <div class="card stack">
           <h3>自定义画板</h3>
-          <div class="row"><button class="active" data-tool="toggle">切换</button><button id="custom-clear">清空</button><button id="custom-fill">全亮</button><button id="custom-invert">反转</button></div>
           <div class="matrix-wrap fill-column"><div class="matrix" id="matrix-custom-edit"></div></div>
-          <div class="row"><button class="primary" id="custom-send">发送 M370 到固件</button><button id="custom-copy">复制 M370</button><button id="custom-export">更新导出文本</button></div>
         </div>
         <div class="card stack face-manager-panel" data-manager="custom">
           <h3>M370 / 保存管理</h3>
@@ -268,25 +333,28 @@
     </section>
 
     <section class="page" id="page-parts">
-      <div class="hero"><div><h2>6.3 表情部件组合页面</h2></div><div class="row"><button class="primary" id="parts-apply">发送组合 M370</button><button id="parts-random">随机</button><button id="parts-reset">默认</button><button id="parts-symmetry-toggle" class="toggle-button" type="button" title="开启后左右眼按显示编号同步，手动选择和随机均生效" aria-pressed="false">左右眼对称</button></div></div>
-      <div class="grid cols-2">
-        <div class="card stack"><h3>组合预览</h3><div class="matrix-wrap fill-column"><div class="matrix" id="matrix-parts"></div></div><div class="row"><span class="badge mono" id="parts-call"></span><button id="parts-copy-m370">复制组合 M370</button></div></div>
-      </div>
-      <div class="grid mt-14" id="part-groups"></div>
-      <div class="card stack face-manager-panel mt-14" data-manager="parts">
-        <h3>M370 / 保存管理</h3>
-        <textarea id="parts-m370-text" spellcheck="false"></textarea>
-        <div class="row"><button id="parts-import-m370">从文本导入到当前输出</button><button id="parts-save-bottom" class="ok">保存部件表情</button><div class="field"><label>保存名称</label><input id="parts-name" value="parts_face"></div><button id="parts-copy-m370-bottom">复制组合 M370</button></div>
-        <h4>统一 saved_faces.json</h4>
-        <div class="row"><button class="faces-json-load" type="button">读取 saved_faces.json</button><button class="faces-json-open-local" type="button">打开本地 saved_faces.json</button><button class="faces-json-save-local" type="button">保存到已打开文件</button><button class="faces-json-download-all" type="button">下载 saved_faces.json</button><button class="faces-json-import-btn" type="button">导入 saved_faces.json</button><input class="faces-json-import-file" type="file" accept="application/json" hidden></div>
-        <div class="hint">默认表情、自定义表情、部件表情全部保存在同一个 saved_faces.json；默认表情由 type:"default" 标识，不可删除，但可重命名和手动排序，顺序保存在同一文件的 order 字段。</div>
-        <h4>统一表情列表</h4><div class="list face-library-list"></div>
+      <div class="hero"><div><h2>6.3 表情部件组合页面</h2></div><div class="row"><button class="primary" id="parts-apply">发送 M370 到固件</button><button id="parts-copy-m370">复制 M370</button><button id="parts-random">随机</button><button id="parts-reset">默认</button><button id="parts-symmetry-toggle" class="toggle-button" type="button" title="开启后左右眼按显示编号同步，手动选择和随机均生效" aria-pressed="false">左右眼对称</button></div></div>
+      <div class="parts-outer-layout">
+        <div class="parts-left-col">
+          <div class="card stack" id="parts-preview-card"><h3>组合预览</h3><div class="matrix-wrap fill-column"><div class="matrix" id="matrix-parts"></div></div></div>
+          <div class="grid" id="part-groups"></div>
+        </div>
+        <div class="card stack face-manager-panel parts-manager-col" data-manager="parts">
+          <h3>M370 / 保存管理</h3>
+          <textarea id="parts-m370-text" spellcheck="false"></textarea>
+          <div class="row"><button id="parts-import-m370">从文本导入到当前输出</button><button id="parts-save-bottom" class="ok">保存部件表情</button><div class="field"><label>保存名称</label><input id="parts-name" value="parts_face"></div><button id="parts-copy-m370-bottom">复制 M370</button></div>
+          <h4>统一 saved_faces.json</h4>
+          <div class="row"><button class="faces-json-load" type="button">读取 saved_faces.json</button><button class="faces-json-open-local" type="button">打开本地 saved_faces.json</button><button class="faces-json-save-local" type="button">保存到已打开文件</button><button class="faces-json-download-all" type="button">下载 saved_faces.json</button><button class="faces-json-import-btn" type="button">导入 saved_faces.json</button><input class="faces-json-import-file" type="file" accept="application/json" hidden></div>
+          <div class="hint">默认表情、自定义表情、部件表情全部保存在同一个 saved_faces.json；默认表情由 type:"default" 标识，不可删除，但可重命名和手动排序，顺序保存在同一文件的 order 字段。</div>
+          <h4>统一表情列表</h4><div class="list face-library-list"></div>
+        </div>
       </div>
     </section>
 
     <section class="page" id="page-scroll">
       <div class="hero"><div><h2>6.4 文字滚动页面</h2></div></div>
       <div class="grid cols-2">
+        <div class="card stack"><h3>文字滚动 370 LED 预览</h3><div class="matrix-wrap fill-column"><div class="matrix" id="matrix-scroll"></div></div></div>
         <div class="card stack">
           <h3>文字滚动控制</h3>
           <div class="field"><label>滚动文字</label><textarea id="scroll-text" rows="1" spellcheck="false">RinaChanBoard 370 LED 中文 こんにちは 璃奈ちゃんボード</textarea></div>
@@ -294,13 +362,12 @@
           <div class="row"><button id="scroll-generate" class="ok">生成文字滚动</button><button class="primary" id="scroll-play">播放</button><button id="scroll-pause">暂停</button><button id="scroll-stop">停止/清屏</button><button id="scroll-step">单帧推进</button></div>
           <div class="kv"><span class="k">状态</span><span id="scroll-state">idle</span><span class="k">当前帧</span><span id="scroll-frame-index">0</span></div>
         </div>
-        <div class="card stack"><h3>文字滚动 370 LED 预览</h3><div class="matrix-wrap fill-column"><div class="matrix" id="matrix-scroll"></div></div></div>
       </div>
     </section>
 
     <section class="page" id="page-debug">
       <div class="hero"><div><h2>6.5 调试页面</h2></div></div>
-      <div class="grid cols-2">
+      <div class="debug-layout">
         <div class="card control-panel">
           <h3>主控制 / 状态信息</h3>
           <div class="kv status-merged" id="state-kv"></div>
@@ -320,7 +387,7 @@
           <h3>状态 / ADC / 网络</h3>
           <div class="kv" id="debug-kv"></div>
           <div class="row"><div class="field"><label>ADC 调试 Vbat</label><input id="battery-v" type="number" value="7.42" step="0.01"></div><div class="field"><label>ADC 调试 Vcharge</label><input id="charge-v" type="number" value="5.10" step="0.01"></div><button id="update-adc">更新 ADC 状态</button></div>
-          <div class="matrix-wrap fill-column"><div class="matrix compact" id="matrix-debug"></div></div>
+          <div class="matrix-wrap fill-column"><div class="matrix" id="matrix-debug"></div></div>
         </div>
         <div class="card stack">
           <h3>通信日志</h3>
@@ -363,14 +430,20 @@ const FACE_SCHEMA_FORMAT = 'rina_faces_370_v2';
 const DEFAULT_STARTUP_FACE_ID = 'face_07_triangle_eyes_frown';
 const DEFAULT_LED_COLOR = '#f971d4';
 const DEFAULT_LED_BRIGHTNESS = 50;
+const AUTO_INTERVAL_MIN_MS = 500;
+const AUTO_INTERVAL_MAX_MS = 10000;
+const AUTO_INTERVAL_BUTTON_STEP_MS = 500;
+const AUTO_INTERVAL_PRESETS_MS = [500,1000,2000,3000,5000,7500,10000];
 const STARTUP_FACE_REASON = 'startup_sequence_complete_saved_face';
 const API_ENDPOINTS = Object.freeze({
   frame:'/api/frame',
   command:'/api/command',
+  scroll:'/api/scroll',
   savedFaces:'/api/saved_faces',
   status:'/api/status'
 });
 const FRAME_PERIOD_MS = 1000 / 30;
+const FIRMWARE_SCROLL_MAX_FRAMES = 512;
 
 const parent_color_groups = [
   {id:0, name:'默认璃奈粉色', color:'f971d4', desc:'父级颜色按钮，仅提供父级色'},
@@ -418,18 +491,17 @@ for (let logical=0; logical<TOTAL_LEDS; logical++) {
 }
 
 let state = {
-  mode:'手动', faceIndex:0, brightness:DEFAULT_LED_BRIGHTNESS, color:DEFAULT_LED_COLOR, parentColorId:0,
+  mode:'manual', faceIndex:0, brightness:DEFAULT_LED_BRIGHTNESS, defaultBrightness:DEFAULT_LED_BRIGHTNESS, color:DEFAULT_LED_COLOR, parentColorId:0,
   selectedChildColor:null, colorSelection:'parent',
   playback:'idle', apIp:'192.168.1.14', autoInterval:3000,
   refreshPolicy:'dirty-frame / 按需刷新', lastRefreshReason:'init', refreshCount:0,
-  textScrollActive:false, actualFps:0, dpsActive:false,
+  textScrollActive:false, actualFps:0, dpsActive:false, restoreAutoAfterScroll:false,
   batteryV:7.42, batteryPercent:68, chargeV:5.10, charging:true
 };
 let currentFrame = blankFrame();
 let editFrame = blankFrame();
 let partsFrame = blankFrame();
 let scrollFrame = blankFrame();
-let selectedTool = 'toggle';
 let selectedCall = {leye:'101', reye:'201', mouth:'301', cheek:'400'};
 let partsSymmetry = false;
 let defaultFaces = [];
@@ -441,6 +513,8 @@ let logs = [];
 let frameSendInFlight = false;
 let pendingFramePacket = null;
 let lastApiErrorLogAt = 0;
+let brightnessChangedByUser = false;
+let firmwareStatusPollTimer = null;
 const firmware = {
   online:false,
   lastRequest:'—',
@@ -456,7 +530,7 @@ const firmware = {
   savedFacesSync:'not loaded'
 };
 let matrixViews = [];
-let scroll = {timer:null, active:false, paused:false, offset:0, frameIndex:0, frames:[], signature:'', dirty:true, frameCounter:0, fpsStarted:performance.now(), measuredFps:0};
+let scroll = {timer:null, active:false, paused:false, firmwareBacked:false, uploading:false, offset:0, frameIndex:0, frames:[], signature:'', dirty:true, frameCounter:0, fpsStarted:performance.now(), measuredFps:0};
 function safeJsonParse(text, fallback={}){try{return JSON.parse(text);}catch(e){return fallback;}}
 const boundControls = new WeakMap();
 function bindControls(selector, eventName, handler){
@@ -469,10 +543,12 @@ function bindControls(selector, eventName, handler){
     el.addEventListener(eventName, handler);
   });
 }
-const TEXT_SCROLL_FONT_MODEL = 'font_fusion_v3_fixed_16x16_dotgothic_tight_spacing';
+const TEXT_SCROLL_FONT_MODEL = 'font_dotgothic16_alphabetic_v4_16x16';
 const TEXT_SCROLL_GLYPH_CELL = 16;
 const TEXT_SCROLL_GLYPH_TOP = 1;
-const TEXT_SCROLL_GLYPH_Y = TEXT_SCROLL_GLYPH_TOP + TEXT_SCROLL_GLYPH_CELL / 2;
+// DotGothic16: UPM=1000, sTypoAscender=880. baseline = GLYPH_TOP + round(880/1000*16) = 1+14 = 15
+// With textBaseline='alphabetic' at y=15, ink falls in rows ~1..17 (em: 0.92..16.92px)
+const TEXT_SCROLL_GLYPH_BASELINE = TEXT_SCROLL_GLYPH_TOP + Math.round(880 / 1000 * TEXT_SCROLL_GLYPH_CELL); // 15
 const TEXT_SCROLL_CHAR_SPACING = 2;
 const TEXT_SCROLL_SPACE_COLUMNS = 4;
 const TEXT_SCROLL_ALPHA_THRESHOLD = 32;
@@ -489,7 +565,7 @@ function isCjk(cp){return (cp>=0x3400&&cp<=0x4DBF)||(cp>=0x4E00&&cp<=0x9FFF)||(c
 function isAsciiLike(cp){return cp>=0x20&&cp<=0x7E;}
 function profileForChar(ch){
   const cp = codePointOfChar(ch);
-  const base = {fontSize:TEXT_SCROLL_GLYPH_CELL, advance:TEXT_SCROLL_GLYPH_CELL, y:TEXT_SCROLL_GLYPH_Y};
+  const base = {fontSize:TEXT_SCROLL_GLYPH_CELL, advance:TEXT_SCROLL_GLYPH_CELL};
   if (ch === ' ') return {...base, kind:'space', stack:TEXT_FONT_STACKS.latin};
   if (isAsciiLike(cp)) return {...base, kind:'latin', stack:TEXT_FONT_STACKS.latin};
   if (isKana(cp)) return {...base, kind:'kana', stack:TEXT_FONT_STACKS.kana};
@@ -602,12 +678,91 @@ function shouldLogApiError(){
   if (now - lastApiErrorLogAt > 2500) { lastApiErrorLogAt = now; return true; }
   return false;
 }
+function applyFirmwareRuntimeState(data, source='firmware_status'){
+  if(!data || typeof data !== 'object') return;
+  const renderer = data.renderer || data;
+  let stateChanged = false;
+  let faceChanged = false;
+  let frameChanged = false;
+
+  if(data.ap?.ip){ state.apIp = data.ap.ip; stateChanged = true; }
+
+  const modeValue = renderer.mode ?? data.mode;
+  if(modeValue){
+    const nextMode = isAutoModeValue(modeValue) ? 'auto' : 'manual';
+    if(state.mode !== nextMode){ state.mode = nextMode; stateChanged = true; }
+  }
+
+  const intervalValue = Number(renderer.autoIntervalMs ?? data.autoIntervalMs);
+  if(Number.isFinite(intervalValue)){
+    const nextInterval = normalizeAutoIntervalMs(intervalValue);
+    if(state.autoInterval !== nextInterval){ state.autoInterval = nextInterval; stateChanged = true; }
+  }
+
+  if(typeof renderer.restoreAutoAfterScroll === 'boolean'){
+    state.restoreAutoAfterScroll = renderer.restoreAutoAfterScroll;
+  }
+
+  const brightnessValue = Number(renderer.brightness ?? data.brightness);
+  if(Number.isFinite(brightnessValue)){
+    const nextBrightness = clamp(brightnessValue, 10, 200);
+    if(state.brightness !== nextBrightness){
+      state.brightness = nextBrightness;
+      if($('brightness-range')) $('brightness-range').value = state.brightness;
+      if($('brightness-input')) $('brightness-input').value = state.brightness;
+      updateDps();
+      stateChanged = true;
+    }
+  }
+
+  const faceIndexValue = Number(renderer.autoFaceIndex ?? data.autoFaceIndex);
+  if(Number.isFinite(faceIndexValue)){
+    const library = getAllFaces();
+    const maxIndex = Math.max(0, library.length - 1);
+    const nextFaceIndex = clamp(faceIndexValue, 0, maxIndex);
+    if(state.faceIndex !== nextFaceIndex){ state.faceIndex = nextFaceIndex; stateChanged = true; faceChanged = true; }
+  }
+
+  const firmwareM370 = renderer.lastM370 || renderer.m370 || data.m370;
+  if(typeof firmwareM370 === 'string' && firmwareM370.trim()){
+    try{
+      currentFrame = m370ToFrame(firmwareM370);
+      state.lastRefreshReason = renderer.lastReason || data.lastReason || source;
+      frameChanged = true;
+      stateChanged = true;
+    }catch(e){}
+  }
+
+  syncAutoIntervalUi();
+  if(faceChanged) renderSavedFaces();
+  if(frameChanged){ renderMatrices(); updateM370Views(); }
+  if(stateChanged) renderState();
+}
 function sendAuxCommand(cmd, payload={}, source='webui'){
   firmware.sentCommands++;
   const packet = {cmd, source, ts:Date.now(), payload};
   setFirmwareStatus({lastRequest:`POST ${API_ENDPOINTS.command}`, lastStatus:isOfflineHtmlMode()?'queued offline':'queued'});
-  apiPost(API_ENDPOINTS.command, packet)
+  packet.promise = apiPost(API_ENDPOINTS.command, packet)
+    .then(data=>{applyFirmwareRuntimeState(data, source); return data;})
     .catch(err=>{setFirmwareStatus({lastStatus:isOfflineHtmlMode()?'offline html mode':'command failed', lastError:err.message}); if(!isOfflineHtmlMode() && shouldLogApiError()) log(`辅助指令发送失败: ${err.message}`);});
+  return packet;
+}
+function sendButtonCommand(button, source='webui_button', fallback=null){
+  if(isOfflineHtmlMode()){
+    if(fallback) fallback();
+    return {cmd:'button', source, payload:{button}, offline:true};
+  }
+  firmware.sentCommands++;
+  const packet = {cmd:'button', source, ts:Date.now(), payload:{button}};
+  setFirmwareStatus({lastRequest:`POST ${API_ENDPOINTS.command}`, lastStatus:'queued'});
+  packet.promise = apiPost(API_ENDPOINTS.command, packet)
+    .then(data=>{applyFirmwareRuntimeState(data, source); return data;})
+    .catch(err=>{
+      setFirmwareStatus({lastStatus:'button command failed', lastError:err.message});
+      if(shouldLogApiError()) log(`button command failed; using local fallback: ${err.message}`);
+      if(fallback) fallback();
+      return null;
+    });
   return packet;
 }
 function queueFirmwareFrame(frame, reason='frame_update', playback='idle'){
@@ -626,6 +781,18 @@ function queueFirmwareFrame(frame, reason='frame_update', playback='idle'){
       .finally(()=>sendNext());
   };
   sendNext();
+}
+
+function setScrollPreviewFrame(frame, reason='text_scroll_preview', playback='scroll'){
+  scrollFrame = cloneFrame(frame);
+  currentFrame = cloneFrame(frame);
+  state.lastRefreshReason = reason;
+  state.refreshCount++;
+  if (playback !== null) state.playback = playback;
+  updateDps();
+  renderMatrices();
+  renderState();
+  updateM370Views();
 }
 
 function orPartIntoFrame(frame, part){
@@ -652,7 +819,6 @@ function composePartsFrame(){
   }
   partsFrame = frame;
   renderMatrices();
-  renderPartsStatus();
   return frame;
 }
 function resolvePartId(callKey, id){
@@ -677,9 +843,12 @@ function terminateOtherActivities(targetMode='static', reason='mode_change'){
   // One-way guard rule:
   // Starting/sending another mode is a hard interruption, not a temporary pause.
   // Nothing stopped here is automatically resumed after the new mode ends.
-  if (targetMode !== 'face' && state.mode === '自动') {
-    state.mode = '手动';
+  if (targetMode !== 'face' && isAutoModeValue(state.mode)) {
+    state.restoreAutoAfterScroll = targetMode === 'scroll';
+    state.mode = 'manual';
     ended.push('auto_saved_face');
+  } else if (targetMode !== 'scroll') {
+    state.restoreAutoAfterScroll = false;
   }
 
   if (targetMode !== 'scroll' && (scroll.timer || scroll.active || state.textScrollActive || previousPlayback === 'scroll')) {
@@ -687,6 +856,8 @@ function terminateOtherActivities(targetMode='static', reason='mode_change'){
     scroll.timer = null;
     scroll.active = false;
     scroll.paused = false;
+    scroll.firmwareBacked = false;
+    scroll.uploading = false;
     state.textScrollActive = false;
     if (state.playback === 'scroll') state.playback = 'idle';
     ended.push('text_scroll');
@@ -737,29 +908,74 @@ function setColor(hex, source='color_change'){
   log(`颜色更新 ${c} (${source})`);
   sendAuxCommand('set_color', {hex:c}, source);
 }
-function setBrightness(v, source='brightness_change'){
+function applyBrightnessLocal(v){
   state.brightness = clamp(v,10,200);
-  $('brightness-range').value = state.brightness;
-  $('brightness-input').value = state.brightness;
-  $('brightness-percent').value = Math.round(state.brightness/255*100)+'%';
+  if ($('brightness-range')) $('brightness-range').value = state.brightness;
+  if ($('brightness-input')) $('brightness-input').value = state.brightness;
   updateDps();
   renderState();
+}
+function setBrightness(v, source='brightness_change'){
+  brightnessChangedByUser = true;
+  applyBrightnessLocal(v);
   log(`亮度更新 raw=${state.brightness} (${source})`);
   sendAuxCommand('set_brightness', {raw:state.brightness}, source);
 }
+function syncBrightnessFromFirmwareStatus(data, source='firmware_status'){
+  const raw = Number(data?.renderer?.defaultBrightness ?? data?.renderer?.default_brightness ?? data?.defaultBrightness ?? data?.default_brightness ?? data?.renderer?.brightness ?? data?.brightness);
+  if (!Number.isFinite(raw)) return false;
+  const nextBrightness = clamp(raw,10,200);
+  if (!brightnessChangedByUser && state.defaultBrightness === nextBrightness && state.brightness === nextBrightness) return false;
+  state.defaultBrightness = nextBrightness;
+  if (brightnessChangedByUser) return false;
+  applyBrightnessLocal(state.defaultBrightness);
+  log(`亮度从固件同步 raw=${state.brightness} (${source})`);
+  return true;
+}
+async function syncRuntimeStateFromFirmware(source='webui_load'){
+  try {
+    const data = await apiGet(API_ENDPOINTS.status);
+    applyFirmwareRuntimeState(data, source);
+    if (data?.ap?.ip) state.apIp = data.ap.ip;
+    if (data?.renderer?.mode) state.mode = isAutoModeValue(data.renderer.mode) ? 'auto' : 'manual';
+    const fwInterval = Number(data?.renderer?.autoIntervalMs ?? data?.autoIntervalMs);
+    if (Number.isFinite(fwInterval)) state.autoInterval = normalizeAutoIntervalMs(fwInterval);
+    syncBrightnessFromFirmwareStatus(data, source);
+    syncAutoIntervalUi();
+    renderState();
+  } catch (err) {
+    state.defaultBrightness = DEFAULT_LED_BRIGHTNESS;
+    if (!isOfflineHtmlMode() && shouldLogApiError()) log(`读取固件亮度状态失败: ${err.message}`);
+  }
+}
+function startFirmwareStatusPolling(){
+  if(firmwareStatusPollTimer || isOfflineHtmlMode()) return;
+  firmwareStatusPollTimer = setInterval(()=>syncRuntimeStateFromFirmware('firmware_poll'), 2000);
+}
 function setNavMenuOpen(open){
   const nav = $('nav');
-  const toggle = $('nav-toggle');
-  if (!nav || !toggle) return;
+  const toggle = $('brand-nav-toggle');
+  const topNav = $('top-page-nav');
+  if (!nav || !toggle || !topNav) return;
+  topNav.classList.toggle('open', open);
   nav.classList.toggle('open', open);
   toggle.classList.toggle('active', open);
   toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  topNav.setAttribute('aria-hidden', open ? 'false' : 'true');
   nav.setAttribute('aria-hidden', open ? 'false' : 'true');
+  topNav.inert = !open;
+  nav.querySelectorAll('button').forEach(btn => { btn.tabIndex = open ? 0 : -1; });
+  updateCurrentPageLabel(document.body.dataset.page || 'basic');
 }
 function updateCurrentPageLabel(id){
   const item = PAGES.find(([pid]) => pid === id);
-  const label = $('current-page-label');
-  if (item && label) label.textContent = `${item[1]} ${item[2]}`;
+  const pageText = item ? `${item[1]} ${item[2]}` : '';
+  const toggle = $('brand-nav-toggle');
+  if (pageText && toggle) {
+    const open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.title = pageText;
+    toggle.setAttribute('aria-label', `${open ? '关闭' : '打开'}页面切换器：${pageText}`);
+  }
 }
 function modeForPage(id){
   if (id === 'scroll') return 'scroll';
@@ -770,6 +986,7 @@ function modeForPage(id){
 }
 function switchPage(id){
   terminateOtherActivities(modeForPage(id), `switch_page_${id}`);
+  document.body.dataset.page = id;
   for (const [pid] of PAGES) {
     $('page-'+pid).classList.toggle('active', pid===id);
     const b = document.querySelector(`.nav button[data-page="${pid}"]`);
@@ -782,7 +999,7 @@ function switchPage(id){
 
 function initNav(){
   const nav = $('nav'); nav.innerHTML='';
-  const toggle = $('nav-toggle');
+  const toggle = $('brand-nav-toggle');
   if (toggle) toggle.onclick = (ev) => {
     ev.stopPropagation();
     setNavMenuOpen(!nav.classList.contains('open'));
@@ -798,6 +1015,8 @@ function initNav(){
     nav.appendChild(b);
   }
   updateCurrentPageLabel('basic');
+  document.body.dataset.page = 'basic';
+  setNavMenuOpen(false);
   document.addEventListener('click', (ev) => {
     if (!$('nav-shell')?.contains(ev.target)) setNavMenuOpen(false);
   });
@@ -926,12 +1145,21 @@ function initMatrix(id, frameProvider, editable=false, editHandler=null, compact
 function fitMatrix(view){
   const wrap = view.el.closest('.matrix-wrap');
   if (!wrap) return;
+  const wrapStyle = getComputedStyle(wrap);
   const cs = getComputedStyle(view.el);
   const gap = parseFloat(cs.getPropertyValue('--gap')) || (view.compact ? 2 : 3);
-  const inner = Math.max(120, wrap.clientWidth - 24);
-  const maxCell = view.compact ? 12 : 22;
+  const paddingX = (parseFloat(wrapStyle.paddingLeft) || 0) + (parseFloat(wrapStyle.paddingRight) || 0);
+  const paddingY = (parseFloat(wrapStyle.paddingTop) || 0) + (parseFloat(wrapStyle.paddingBottom) || 0);
+  const borderY = (parseFloat(wrapStyle.borderTopWidth) || 0) + (parseFloat(wrapStyle.borderBottomWidth) || 0);
+  const inner = Math.max(120, wrap.clientWidth - paddingX);
+  const maxWrapHeight = parseFloat(wrapStyle.getPropertyValue('--matrix-max-height'));
+  const heightLimited = Number.isFinite(maxWrapHeight) && maxWrapHeight > 0;
+  const innerHeight = heightLimited ? Math.max(120, maxWrapHeight - paddingY - borderY) : Infinity;
+  const cellByWidth = Math.floor((inner - gap * (COLS - 1)) / COLS);
+  const cellByHeight = heightLimited ? Math.floor((innerHeight - gap * (ROWS - 1)) / ROWS) : Infinity;
+  const maxCell = view.compact ? 12 : (heightLimited ? 48 : 22);
   const minCell = view.compact ? 4 : 5;
-  const cell = Math.floor((inner - gap * (COLS - 1)) / COLS);
+  const cell = Math.min(cellByWidth, cellByHeight, maxCell);
   view.el.style.setProperty('--cell', clamp(cell, minCell, maxCell) + 'px');
 }
 function fitAllMatrices(){ matrixViews.forEach(fitMatrix); }
@@ -967,6 +1195,7 @@ function attachDrawing(el, editHandler){
 function renderState(){
   const library = getAllFaces();
   const currentFace = library[state.faceIndex] || {name:'—', type:'—'};
+  updateModeToggleUi();
   const kv = $('state-kv');
   if (kv) kv.innerHTML = kvRows([
     ['当前模式', state.mode], ['当前表情序号', `${library.length ? state.faceIndex+1 : 0} / ${library.length}`], ['当前表情名称', currentFace.name], ['当前表情属性', faceTypeLabel(currentFace.type)],
@@ -1060,26 +1289,77 @@ function renderChildColors(){
 function initBrightness(){
   $('brightness-minus').onclick=()=>setBrightness(state.brightness-8,'B4/WebUI -');
   $('brightness-plus').onclick=()=>setBrightness(state.brightness+8,'B5/WebUI +');
+  $('brightness-reset-default').onclick=()=>resetBrightnessDefault();
   $('brightness-range').oninput=e=>setBrightness(e.target.value,'slider');
   $('brightness-input').onchange=e=>setBrightness(e.target.value,'raw_input');
   const presets = [10,25,50,80,128,160,200];
   const box=$('brightness-presets'); box.innerHTML='';
   for (const p of presets){const b=document.createElement('button'); b.textContent=p; b.onclick=()=>setBrightness(p,'preset'); box.appendChild(b);}
 }
+function resetBrightnessDefault(){
+  const value = Number.isFinite(Number(state.defaultBrightness)) ? state.defaultBrightness : DEFAULT_LED_BRIGHTNESS;
+  setBrightness(value, 'default_brightness_reset');
+}
 function initBasicControls(){
   $('apply-color').onclick=()=>{state.selectedChildColor=null; state.colorSelection='custom'; setColor($('color-input').value,'custom_input'); renderParentColorButtons(); renderChildColors();};
   $('face-prev').onclick=prevFace;
   $('face-next').onclick=nextFace;
   $('mode-toggle').onclick=()=>toggleMode('WebUI B3');
-  $('interval-down').onclick=()=>adjustInterval(-500);
-  $('interval-up').onclick=()=>adjustInterval(500);
-  $('auto-interval').onchange=e=>{state.autoInterval=clamp(e.target.value,500,60000); e.target.value=state.autoInterval; renderState(); log(`自动切换间隔设置为 ${state.autoInterval} ms`); sendAuxCommand('set_auto_interval', {ms:state.autoInterval}, 'auto_interval_input');};
+  $('interval-down').onclick=()=>adjustInterval(-AUTO_INTERVAL_BUTTON_STEP_MS);
+  $('interval-up').onclick=()=>adjustInterval(AUTO_INTERVAL_BUTTON_STEP_MS);
+  $('auto-interval-range').oninput=e=>setAutoIntervalSeconds(e.target.value,'auto_interval_slider');
+  $('auto-interval').onchange=e=>setAutoIntervalSeconds(e.target.value,'auto_interval_input');
+  const intervalBox=$('auto-interval-presets'); intervalBox.innerHTML='';
+  for (const ms of AUTO_INTERVAL_PRESETS_MS) {
+    const b=document.createElement('button');
+    b.textContent=`${formatIntervalSeconds(ms)} 秒`;
+    b.onclick=()=>setAutoIntervalMs(ms,'auto_interval_preset');
+    intervalBox.appendChild(b);
+  }
+  syncAutoIntervalUi();
   if($('copy-current-m370')) $('copy-current-m370').onclick=()=>{copyText(frameToM370(currentFrame)); log('复制当前输出数据');};
 }
-function toggleMode(source){guardBeforeOutput('am_mode_toggle','face'); state.mode = state.mode === '自动' ? '手动' : '自动'; renderState(); log(`A/M 模式切换为 ${state.mode} (${source})`); sendAuxCommand('set_mode', {mode:state.mode}, source);}
-function adjustInterval(delta){state.autoInterval=clamp(state.autoInterval+delta,500,60000); $('auto-interval').value=state.autoInterval; renderState(); log(`自动切换间隔 ${delta>0?'+':'-'} -> ${state.autoInterval} ms`); sendAuxCommand('set_auto_interval', {ms:state.autoInterval}, 'auto_interval_change');}
-function nextFace(){const library=getAllFaces(); if(!library.length)return; state.faceIndex=(state.faceIndex+1)%library.length; applySavedFace(state.faceIndex,'B1/WebUI next');}
-function prevFace(){const library=getAllFaces(); if(!library.length)return; state.faceIndex=(state.faceIndex-1+library.length)%library.length; applySavedFace(state.faceIndex,'B2/WebUI prev');}
+function isAutoModeValue(v){return v === '自动' || v === '?芸' || v === 'auto' || v === 'A';}
+function modePayloadValue(){return isAutoModeValue(state.mode) ? 'auto' : 'manual';}
+function updateModeToggleUi(){
+  const btn = $('mode-toggle');
+  if (!btn) return;
+  const isAuto = isAutoModeValue(state.mode);
+  btn.classList.toggle('active', isAuto);
+  btn.setAttribute('aria-pressed', isAuto ? 'true' : 'false');
+  btn.textContent = isAuto ? 'A 自动' : 'M 手动';
+}
+function toggleModeLocal(source){
+  guardBeforeOutput('am_mode_toggle','face');
+  state.mode = isAutoModeValue(state.mode) ? 'manual' : 'auto';
+  renderState();
+  log(`A/M 模式切换为 ${state.mode} (${source})`);
+  sendAuxCommand('set_mode', {mode:modePayloadValue(), label:state.mode}, source);
+}
+function toggleMode(source){
+  sendButtonCommand('B3', source, ()=>toggleModeLocal(source));
+}
+function formatIntervalSeconds(ms){return (ms/1000).toFixed(ms % 1000 ? 1 : 0);}
+function normalizeAutoIntervalMs(ms){return Math.round(clamp(ms,AUTO_INTERVAL_MIN_MS,AUTO_INTERVAL_MAX_MS)/100)*100;}
+function syncAutoIntervalUi(){
+  const ms = normalizeAutoIntervalMs(state.autoInterval);
+  const seconds = formatIntervalSeconds(ms);
+  if ($('auto-interval-range')) $('auto-interval-range').value = seconds;
+  if ($('auto-interval')) $('auto-interval').value = seconds;
+}
+function setAutoIntervalMs(ms, source='auto_interval_change'){
+  state.autoInterval = normalizeAutoIntervalMs(ms);
+  syncAutoIntervalUi();
+  renderState();
+  log(`自动切换间隔设置为 ${formatIntervalSeconds(state.autoInterval)} 秒 (${state.autoInterval} ms)`);
+  sendAuxCommand('set_auto_interval', {ms:state.autoInterval}, source);
+}
+function setAutoIntervalSeconds(seconds, source='auto_interval_input'){setAutoIntervalMs(Number(seconds)*1000, source);}
+function adjustInterval(delta){setAutoIntervalMs(state.autoInterval+delta, 'auto_interval_change');}
+function nextFaceLocal(){const library=getAllFaces(); if(!library.length)return; state.faceIndex=(state.faceIndex+1)%library.length; applySavedFace(state.faceIndex,'B1/WebUI next');}
+function prevFaceLocal(){const library=getAllFaces(); if(!library.length)return; state.faceIndex=(state.faceIndex-1+library.length)%library.length; applySavedFace(state.faceIndex,'B2/WebUI prev');}
+function nextFace(){sendButtonCommand('B1','B1/WebUI next', nextFaceLocal);}
+function prevFace(){sendButtonCommand('B2','B2/WebUI prev', prevFaceLocal);}
 function applySavedFace(i, reason='saved_face_apply'){
   const library=getAllFaces();
   const face=library[i]; if(!face)return;
@@ -1087,7 +1367,6 @@ function applySavedFace(i, reason='saved_face_apply'){
 }
 
 function initCustom(){
-  document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tool]').forEach(x=>x.classList.toggle('active',x===b));});
   $('custom-clear').onclick=()=>{editFrame=blankFrame(); renderMatrices(); updateM370Views(); log('自定义画板清空');};
   $('custom-fill').onclick=()=>{editFrame=blankFrame().map(()=>true); renderMatrices(); updateM370Views(); log('自定义画板全亮');};
   $('custom-invert').onclick=()=>{editFrame=editFrame.map(v=>!v); renderMatrices(); updateM370Views(); log('自定义画板反转');};
@@ -1399,24 +1678,41 @@ function createFaceRow(f,i,total){
   const index=document.createElement('div'); index.className='saved-index'; index.textContent=String(i+1);
   const item=document.createElement('div'); item.className='list-item saved-face-card';
 
-  const handle=document.createElement('button'); handle.className='drag-handle'; handle.type='button'; handle.draggable=false; handle.title='拖拽排序'; handle.textContent='☰';
+  // 拖拽手柄
+  const handle=document.createElement('button'); handle.className='drag-handle'; handle.type='button'; handle.draggable=false; handle.title='拖拽排序'; handle.textContent='⠿';
   attachFaceReorderHandle(handle, row, i);
+
+  // 中间：命名框 + 元数据徽章
   const body=document.createElement('div'); body.className='saved-face-body';
-  const nameInput=document.createElement('input'); nameInput.className='saved-name-input'; nameInput.value=f.name || `face_${i+1}`; nameInput.maxLength=64; nameInput.readOnly = false; nameInput.title=f.type === 'default' ? '默认表情可重命名、可排序，但不可删除；回车或失焦保存' : '直接编辑名称后回车或失焦保存';
-  const commitName=()=>{const next=nameInput.value.trim().slice(0,64) || f.name || `face_${i+1}`; const list = f.type==='default' ? defaultFaces : userFaces; const target=list.find(x=>x.id===f.id); if(target && target.name!==next){target.name=next; target.updatedAt=new Date().toISOString(); persistFaceDocuments(f.type==='default'?'rename_default_face':'rename_user_face'); renderState(); log(`重命名${faceTypeLabel(target.type)} #${i+1}: ${next}`);} nameInput.value=next;};
+  const nameInput=document.createElement('input'); nameInput.className='saved-name-input'; nameInput.value=f.name || `face_${i+1}`; nameInput.maxLength=64; nameInput.readOnly=false; nameInput.title=f.type==='default'?'默认表情可重命名、可排序，但不可删除；回车或失焦保存':'直接编辑名称后回车或失焦保存';
+  const commitName=()=>{const next=nameInput.value.trim().slice(0,64)||f.name||`face_${i+1}`; const list=f.type==='default'?defaultFaces:userFaces; const target=list.find(x=>x.id===f.id); if(target&&target.name!==next){target.name=next; target.updatedAt=new Date().toISOString(); persistFaceDocuments(f.type==='default'?'rename_default_face':'rename_user_face'); renderState(); log(`重命名${faceTypeLabel(target.type)} #${i+1}: ${next}`);} nameInput.value=next;};
   nameInput.addEventListener('change', commitName);
   nameInput.addEventListener('blur', commitName);
   nameInput.addEventListener('keydown', e=>{if(e.key==='Enter') nameInput.blur();});
   const meta=document.createElement('div'); meta.className='small saved-meta';
-  const badgeClass = f.type === 'default' ? 'default' : f.type === 'parts' ? 'parts' : 'custom';
-  meta.innerHTML = `<span class="face-source-badge ${badgeClass}">${faceTypeLabel(f.type)}</span> · ${f.sourceFile || FACE_LIBRARY_FILENAME} · ${onCount(m370ToFrame(f.m370))} LED`;
+  const badgeClass=f.type==='default'?'default':f.type==='parts'?'parts':'custom';
+  meta.innerHTML=`<span class="face-source-badge ${badgeClass}">${faceTypeLabel(f.type)}</span> · ${onCount(m370ToFrame(f.m370))} LED`;
   body.appendChild(nameInput); body.appendChild(meta);
 
-  const actions=document.createElement('div'); actions.className='row';
-  const buttons=[['应用',()=>applySavedFace(i,'face_library_list')],['↑',()=>moveFace(i,-1), i<=0],['↓',()=>moveFace(i,1), i>=total-1],['重命名',()=>{nameInput.focus(); nameInput.select();}, false]];
-  if(f.type !== 'default') buttons.push(['删除',()=>deleteFace(i), false]);
-  else buttons.push(['不可删除',()=>{}, true]);
-  buttons.forEach(([t,fn,disabled])=>{const b=document.createElement('button'); b.type='button'; b.textContent=t; b.disabled=!!disabled; b.onclick=fn; actions.appendChild(b);});
+  // 右侧操作栏：上传💡 ↑ ↓ ✏️ 🗑️
+  const actions=document.createElement('div'); actions.className='face-action-bar';
+
+  const mkBtn=(label,title,cls,fn,disabled)=>{
+    const b=document.createElement('button'); b.type='button'; b.title=title;
+    b.className='icon-btn'+(cls?' '+cls:''); b.textContent=label;
+    b.disabled=!!disabled; b.onclick=fn; return b;
+  };
+
+  actions.appendChild(mkBtn('💡','上传到固件（应用表情）','',()=>applySavedFace(i,'face_library_list')));
+  actions.appendChild(mkBtn('↑','上移',''  ,()=>moveFace(i,-1), i<=0));
+  actions.appendChild(mkBtn('↓','下移',''  ,()=>moveFace(i,1),  i>=total-1));
+  actions.appendChild(mkBtn('✏️','重命名','',()=>{nameInput.focus(); nameInput.select();}));
+  if(f.type!=='default'){
+    actions.appendChild(mkBtn('🗑️','删除','btn-delete',()=>deleteFace(i)));
+  } else {
+    const nd=mkBtn('🗑️','默认表情不可删除','btn-delete',()=>{},true); nd.style.opacity='.35'; actions.appendChild(nd);
+  }
+
   item.appendChild(handle); item.appendChild(body); item.appendChild(actions);
   row.appendChild(index); row.appendChild(item); return row;
 }
@@ -1469,11 +1765,11 @@ function initParts(){
       list.appendChild(btn);
     });
   }
-  $('parts-apply').onclick=()=>{setCurrentFrame(partsFrame,'parts_compose_send','idle'); log('组合 M370 已发送到固件接口');};
+  $('parts-apply').onclick=()=>{setCurrentFrame(partsFrame,'parts_compose_send','idle'); log('M370 已发送到固件接口');};
   $('parts-random').onclick=randomParts;
   $('parts-symmetry-toggle').onclick=()=>{partsSymmetry=!partsSymmetry; if(partsSymmetry) syncSymmetricEyesFrom('leye'); composePartsFrame(); renderPartButtons(); log(`左右眼对称 ${partsSymmetry?'开启':'关闭'}`);};
   $('parts-reset').onclick=()=>{selectedCall={leye:'101',reye:'201',mouth:'301',cheek:'400'}; if(partsSymmetry) syncSymmetricEyesFrom('leye'); composePartsFrame(); renderPartButtons(); log('表情部件恢复默认');};
-  const _copyPartsM370=()=>{copyText(frameToM370(partsFrame)); log('复制组合 M370');};
+  const _copyPartsM370=()=>{copyText(frameToM370(partsFrame)); log('复制 M370');};
   $('parts-copy-m370').onclick=_copyPartsM370;
   $('parts-copy-m370-bottom').onclick=_copyPartsM370;
   $('parts-save-bottom').onclick=()=>saveFace($('parts-name').value || `parts_${selectedCall.leye}_${selectedCall.reye}_${selectedCall.mouth}_${selectedCall.cheek}`, partsFrame, 'parts');
@@ -1532,10 +1828,6 @@ function renderPartButtons(){
   }
   const sym=$('parts-symmetry-toggle'); if(sym){ sym.classList.toggle('active', !!partsSymmetry); sym.setAttribute('aria-pressed', partsSymmetry ? 'true' : 'false'); }
 }
-function renderPartsStatus(){
-  const callText = `leye=${selectedCall.leye}, reye=${selectedCall.reye}, mouth=${selectedCall.mouth}, cheek=${selectedCall.cheek}`;
-  $('parts-call').textContent = callText;
-}
 function randomParts(){
   if (partsSymmetry) {
     const maxEyeIndex = Math.min(EXPRESSION_PARTS.call.ids.leye.length, EXPRESSION_PARTS.call.ids.reye.length) - 1;
@@ -1566,7 +1858,7 @@ function autoResizeScrollTextInput(){
 }
 function initScroll(){
   autoResizeScrollTextInput();
-  $('scroll-generate').onclick=()=>{guardBeforeOutput('text_scroll_generate', 'scroll'); prepareTextScrollTimeline(true);};
+  $('scroll-generate').onclick=()=>{prepareTextScrollTimeline(true);};
   $('scroll-play').onclick=startScroll;
   $('scroll-pause').onclick=pauseScroll;
   $('scroll-stop').onclick=stopScroll;
@@ -1586,6 +1878,33 @@ function markScrollDirty(){
   if(scroll.active){ prepareTextScrollTimeline(true); }
   updateScrollUi();
 }
+function buildFirmwareScrollFrames(){
+  const source = scroll.frames;
+  if(!source.length) return [];
+  const speed = clamp($('scroll-speed').value, 1, 120);
+  const step = Math.max(1 / 30, speed / 30);
+  const steps = Math.min(FIRMWARE_SCROLL_MAX_FRAMES, Math.max(1, Math.ceil(source.length / step)));
+  const frames = [];
+  let offset = 0;
+  for(let i=0; i<steps; i++){
+    frames.push(frameToM370(source[Math.floor(offset) % source.length]));
+    offset += step;
+    while(offset >= source.length) offset -= source.length;
+  }
+  return frames;
+}
+async function uploadFirmwareScrollTimeline(){
+  const frames = buildFirmwareScrollFrames();
+  if(!frames.length) throw new Error('no scroll frames');
+  const data = await apiPost(API_ENDPOINTS.scroll, {
+    frames,
+    intervalMs: Math.round(FRAME_PERIOD_MS),
+    start: true,
+    source: 'webui_text_scroll'
+  });
+  applyFirmwareRuntimeState(data, 'text_scroll_upload');
+  return data;
+}
 function startScroll(){
   guardBeforeOutput('text_scroll_start', 'scroll');
   const text=$('scroll-text').value;
@@ -1593,17 +1912,31 @@ function startScroll(){
   prepareTextScrollTimeline(false);
   if(!scroll.frames.length){alert('没有可播放的文字帧'); return;}
   if(scroll.timer)clearInterval(scroll.timer);
-  scroll.active=true; scroll.paused=false; state.textScrollActive=true; state.playback='scroll'; state.refreshPolicy='text_scroll_30fps';
+  scroll.active=true; scroll.paused=false; scroll.firmwareBacked=false; scroll.uploading=true; state.textScrollActive=true; state.playback='scroll'; state.refreshPolicy='text_scroll_firmware';
   scroll.fpsStarted=performance.now(); scroll.frameCounter=0;
+  uploadFirmwareScrollTimeline()
+    .then(data=>{scroll.firmwareBacked=true; scroll.uploading=false; log(`文字滚动已上传到固件独立运行：${data?.frames || scroll.frames.length} 帧`); updateScrollUi(); renderState();})
+    .catch(err=>{scroll.firmwareBacked=false; scroll.uploading=false; log(`文字滚动固件上传失败，暂用 WebUI 实时发送：${err.message}`);});
   scroll.timer=setInterval(()=>advanceScroll(1/30, false), FRAME_PERIOD_MS);
   log(`文字滚动开始 30fps，预生成 ${scroll.frames.length} 帧`); updateScrollUi(); renderState();
 }
 function pauseScroll(){
+  sendAuxCommand('pause_scroll', {}, 'text_scroll_paused');
   if(scroll.timer)clearInterval(scroll.timer); scroll.timer=null; scroll.paused=true; scroll.active=false; state.textScrollActive=false; state.refreshPolicy='dirty-frame / 按需刷新'; state.playback='scroll_paused'; state.lastRefreshReason='text_scroll_paused';
   log('文字滚动暂停，停止 30fps 循环并保留当前帧'); updateScrollUi(); renderState();
 }
 function stopScroll(){
-  if(scroll.timer)clearInterval(scroll.timer); scroll.timer=null; scroll.active=false; scroll.paused=false; scroll.offset=0; scroll.frameIndex=0; state.textScrollActive=false; state.refreshPolicy='dirty-frame / 按需刷新'; scrollFrame=blankFrame(); setCurrentFrame(scrollFrame,'text_scroll_stopped_clear','idle'); updateScrollUi(); log('文字滚动停止并清屏');
+  const shouldRestoreAuto = state.restoreAutoAfterScroll;
+  if(scroll.timer)clearInterval(scroll.timer);
+  scroll.timer=null; scroll.active=false; scroll.paused=false; scroll.firmwareBacked=false; scroll.uploading=false; scroll.offset=0; scroll.frameIndex=0;
+  state.textScrollActive=false; state.refreshPolicy='dirty-frame / 按需刷新';
+  scrollFrame=blankFrame(); currentFrame=blankFrame();
+  state.playback='idle'; state.lastRefreshReason='text_scroll_stopped';
+  if(shouldRestoreAuto) state.mode='auto';
+  state.restoreAutoAfterScroll=false;
+  sendAuxCommand('stop_scroll', {}, 'text_scroll_stopped');
+  renderMatrices(); updateM370Views(); updateScrollUi(); renderState(); log('文字滚动停止');
+  return;
 }
 function advanceScroll(dt, manual){
   prepareTextScrollTimeline(false);
@@ -1614,7 +1947,9 @@ function advanceScroll(dt, manual){
   while(scroll.offset>=scroll.frames.length) scroll.offset-=scroll.frames.length;
   scroll.frameIndex = Math.floor(scroll.offset) % scroll.frames.length;
   scrollFrame = cloneFrame(scroll.frames[scroll.frameIndex]);
-  setCurrentFrame(scrollFrame, manual?'text_scroll_manual_step':'text_scroll_30fps', manual?'scroll_step':'scroll');
+  if(scroll.firmwareBacked && !manual) setScrollPreviewFrame(scrollFrame, 'text_scroll_firmware_preview', 'scroll');
+  else if(scroll.uploading && !manual) setScrollPreviewFrame(scrollFrame, 'text_scroll_uploading_preview', 'scroll');
+  else setCurrentFrame(scrollFrame, manual?'text_scroll_manual_step':'text_scroll_30fps', manual?'scroll_step':'scroll');
   scroll.frameCounter++;
   const now=performance.now();
   if(now-scroll.fpsStarted>=1000){scroll.measuredFps = scroll.frameCounter*1000/(now-scroll.fpsStarted); state.actualFps=scroll.measuredFps; scroll.frameCounter=0; scroll.fpsStarted=now;}
@@ -1639,7 +1974,7 @@ function prepareTextScrollTimeline(force){
   scroll.offset = Math.min(scroll.offset, Math.max(0, frames.length-1));
   scroll.frameIndex = Math.min(Math.floor(scroll.offset), Math.max(0, frames.length-1));
   scrollFrame = cloneFrame(frames[scroll.frameIndex] || blankFrame());
-  setCurrentFrame(scrollFrame, 'text_scroll_generated_m370_timeline', state.playback==='scroll'?'scroll':'idle');
+  setScrollPreviewFrame(scrollFrame, 'text_scroll_generated_m370_timeline', state.playback==='scroll'?'scroll':'idle');
   log(`文字滚动已生成：${frames.length} 帧，约 ${(frames.length*47/1024).toFixed(1)} KB packed`);
   updateScrollUi();
 }
@@ -1665,8 +2000,9 @@ function buildTextScrollCanvas(text){
   let x = leadingBlank;
   for (let i=0; i<glyphs.length; i++) {
     const g = glyphs[i];
-    if (!g.isSpace && g.width > 0) {
-      ctx.drawImage(g.canvas, g.trimLeft, 0, g.width, ROWS, x, 0, g.width, ROWS);
+    if (!g.isSpace && g.width > 0 && g.glyphH > 0) {
+      // 水平裁剪到实际墨迹，垂直按 DotGothic16 原生像素格网位置绘制
+      ctx.drawImage(g.canvas, g.trimLeft, g.trimTop, g.width, g.glyphH, x, g.dstY, g.width, g.glyphH);
     }
     x += g.width;
     const next = glyphs[i+1];
@@ -1678,42 +2014,45 @@ function buildTextScrollCanvas(text){
   return buildTextScrollCanvas.cache;
 }
 function buildTextGlyph(ch){
-  const cp = codePointOfChar(ch);
   if (ch === ' ') {
-    return {ch, isSpace:true, width:TEXT_SCROLL_SPACE_COLUMNS, trimLeft:0, canvas:null, profile:profileForChar(ch)};
+    return {ch, isSpace:true, width:TEXT_SCROLL_SPACE_COLUMNS, trimLeft:0, trimTop:0, glyphH:0, dstY:TEXT_SCROLL_GLYPH_TOP, canvas:null, profile:profileForChar(ch)};
   }
   const cacheKey = `${ch}@@${TEXT_SCROLL_FONT_MODEL}`;
   buildTextGlyph.cache = buildTextGlyph.cache || new Map();
   if (buildTextGlyph.cache.size > 512) buildTextGlyph.cache.clear();
   if (buildTextGlyph.cache.has(cacheKey)) return buildTextGlyph.cache.get(cacheKey);
   const p = profileForChar(ch);
+  // 使用 DotGothic16 的真实像素网格：
+  // sTypoAscender=880, UPM=1000 → baseline 在 GLYPH_TOP + round(880/1000 * 16) = 15
+  // textBaseline='alphabetic' 时，字形墨迹落在 row ~1..17（ROWS=18 内）
+  // 用 32px 高的中间 canvas 避免任何上方裁剪（usWinAscent=18.56px 时浏览器可能向上偏移）
+  const RENDER_H = 32;
   const canvas = document.createElement('canvas');
   canvas.width = TEXT_SCROLL_GLYPH_CELL;
-  canvas.height = ROWS;
+  canvas.height = RENDER_H;
   const ctx = canvas.getContext('2d', {willReadFrequently:true});
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.clearRect(0,0,canvas.width,RENDER_H);
   ctx.fillStyle = '#fff';
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 1;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  ctx.textBaseline = 'middle';
-  ctx.textAlign = 'left';
   ctx.imageSmoothingEnabled = false;
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, TEXT_SCROLL_GLYPH_TOP, TEXT_SCROLL_GLYPH_CELL, TEXT_SCROLL_GLYPH_CELL);
-  ctx.clip();
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
   ctx.font = `normal ${p.fontSize}px ${p.stack}`;
-  ctx.fillText(ch, 0, p.y);
-  ctx.restore();
-  const image = ctx.getImageData(0,0,canvas.width,canvas.height);
-  const bounds = findGlyphBounds(image, canvas.width, canvas.height, TEXT_SCROLL_ALPHA_THRESHOLD, TEXT_SCROLL_LUMA_THRESHOLD);
-  const latinLike = isAsciiLike(cp) && ch !== ' ';
-  const trimLeft = bounds ? (latinLike ? bounds.minX : 0) : 0;
-  const trimRight = bounds ? (latinLike ? bounds.maxX : TEXT_SCROLL_GLYPH_CELL - 1) : (latinLike ? Math.max(0, Math.min(7, TEXT_SCROLL_GLYPH_CELL - 1)) : TEXT_SCROLL_GLYPH_CELL - 1);
+  ctx.fillText(ch, 0, TEXT_SCROLL_GLYPH_BASELINE);
+  const image = ctx.getImageData(0,0,canvas.width,RENDER_H);
+  const bounds = findGlyphBounds(image, canvas.width, RENDER_H, TEXT_SCROLL_ALPHA_THRESHOLD, TEXT_SCROLL_LUMA_THRESHOLD);
+  // 水平：实际墨迹 bounds 裁剪
+  const trimLeft  = bounds ? bounds.minX : 0;
+  const trimRight = bounds ? bounds.maxX : (TEXT_SCROLL_GLYPH_CELL - 1);
   const width = Math.max(1, Math.min(TEXT_SCROLL_GLYPH_CELL, trimRight - trimLeft + 1));
-  const glyph = {ch, isSpace:false, width, trimLeft, canvas, profile:p, bounds};
+  // 垂直：以字形墨迹顶端为源，目标固定在 GLYPH_TOP，保留字体原本的基线位置关系
+  // DotGothic16 em top ≈ baseline - sTypoAscender/UPM*size = 15 - 14.08 ≈ 0.92 → trimTop ≈ 1 = GLYPH_TOP
+  const emTopY  = Math.round(TEXT_SCROLL_GLYPH_BASELINE - (880/1000) * TEXT_SCROLL_GLYPH_CELL); // ≈ 1
+  const trimTop = bounds ? bounds.minY : emTopY;
+  const trimBot = bounds ? bounds.maxY : (emTopY + TEXT_SCROLL_GLYPH_CELL - 1);
+  const glyphH  = Math.max(1, Math.min(ROWS - TEXT_SCROLL_GLYPH_TOP, trimBot - trimTop + 1));
+  // dstY：将 trimTop 映射到 emTopY 位置（保持字体格网，不强制居中）
+  const dstY    = TEXT_SCROLL_GLYPH_TOP + (trimTop - emTopY);
+  const glyph = {ch, isSpace:false, width, trimLeft, trimTop, glyphH, dstY, canvas, profile:p, bounds};
   buildTextGlyph.cache.set(cacheKey, glyph);
   return glyph;
 }
@@ -1774,13 +2113,14 @@ function initDebug(){
 }
 
 function simulateGpio(code){
-  sendAuxCommand('button', {button:code}, 'debug_button');
   if(code==='B1') nextFace(); else if(code==='B2') prevFace(); else if(code==='B3') toggleMode('GPIO B3');
-  else if(code==='B4') setBrightness(state.brightness-8,'GPIO B4'); else if(code==='B5') setBrightness(state.brightness+8,'GPIO B5');
+  else if(code==='B4') sendButtonCommand('B4','GPIO B4', ()=>setBrightness(state.brightness-8,'GPIO B4'));
+  else if(code==='B5') sendButtonCommand('B5','GPIO B5', ()=>setBrightness(state.brightness+8,'GPIO B5'));
   else if(code==='B6S') { guardBeforeOutput('battery_overlay','overlay'); state.playback='battery'; log(`B6 短按：显示电池 ${state.batteryPercent}% 2 秒`); renderState(); }
   else if(code==='B6L') { guardBeforeOutput('battery_detail_overlay','overlay'); state.playback='battery_detail'; log(`B6 长按：Vbat=${state.batteryV.toFixed(2)}V, Vcharge=${state.chargeV.toFixed(2)}V`); renderState(); }
-  else if(code==='B3B1') adjustInterval(-500); else if(code==='B3B2') adjustInterval(500);
-  else if(code==='B6B3') { guardBeforeOutput('network_info_overlay','overlay'); state.playback='network_info'; log('B6+B3：显示网络信息页面 overlay'); renderState(); }
+  else if(code==='B3B1') sendButtonCommand('B3B1','GPIO B3B1', ()=>adjustInterval(-AUTO_INTERVAL_BUTTON_STEP_MS));
+  else if(code==='B3B2') sendButtonCommand('B3B2','GPIO B3B2', ()=>adjustInterval(AUTO_INTERVAL_BUTTON_STEP_MS));
+  else if(code==='B6B3') sendButtonCommand('B6B3','GPIO B6B3', ()=>{ guardBeforeOutput('network_info_overlay','overlay'); state.playback='network_info'; log('B6+B3：显示网络信息页面 overlay'); renderState(); });
 }
 function downloadLog(){
   const blob = new Blob([logs.join('\n')], {type:'text/plain'});
@@ -1802,10 +2142,10 @@ function updateAdc(){
 (function boot(){
   initNav();
   initMatrix('matrix-basic',   ()=>currentFrame);
-  initMatrix('matrix-custom',  ()=>editFrame,  true, (idx,v)=>{editFrame[idx]=v; renderMatrices(); updateM370Views();});
+  initMatrix('matrix-custom-edit', ()=>editFrame, true, (idx,v)=>{editFrame[idx]=v; renderMatrices(); updateM370Views();});
   initMatrix('matrix-parts',   ()=>partsFrame);
   initMatrix('matrix-scroll',  ()=>scrollFrame);
-  initMatrix('matrix-debug',   ()=>currentFrame, false, null, true);
+  initMatrix('matrix-debug',   ()=>currentFrame, true);
   observeMatrixWraps();
   fitAllMatrices();
   initBrightness();
@@ -1816,18 +2156,18 @@ function updateAdc(){
   initScroll();
   initDebug();
   initCustomSelectDropdowns();
-  initFaceManagerControls();
   composePartsFrame();
-  currentFrame = partsFrame.slice();
-  editFrame = partsFrame.slice();
+  currentFrame = cloneFrame(partsFrame);
+  editFrame = cloneFrame(partsFrame);
   updateAdc();
-  setColor(DEFAULT_LED_COLOR, 'boot');
-  setBrightness(DEFAULT_LED_BRIGHTNESS, 'boot');
+  setColor('#f971d4','boot');
+  syncRuntimeStateFromFirmware('webui_load');
+  startFirmwareStatusPolling();
   loadFaceLibrary();
+  renderState();
+  renderLog();
   renderMatrices();
   updateM370Views();
-  renderLog();
-  renderState();
   log('WebUI 初始化完成');
 })();
 </script>
