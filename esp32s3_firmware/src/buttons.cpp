@@ -59,17 +59,19 @@ static bool handleModeButtonAction(const String& source) {
     // scroll frame from lingering.
     stopFirmwareScroll(false, false);
     state.restoreAutoAfterScroll = false;
-    if (hadOtherPlayback) {
-        applyBlankFrame(source + "_B3_clear_before_saved_face");
-        delay(LED_STOP_CLEAR_BLANK_HOLD_MS);
-    }
 
     if (!setMode(targetAuto ? "auto" : "manual", true)) return false;
 
-    const bool faceApplied = applyCurrentSavedFaceForMode(
-        source + (targetAuto ? "_B3_auto_current_saved_face" : "_B3_manual_current_saved_face"),
-        targetAuto
-    );
+    const String restoreReason = source +
+        (targetAuto ? "_B3_auto_current_saved_face" : "_B3_manual_current_saved_face");
+
+    if (hadOtherPlayback) {
+        applyBlankFrame(source + "_B3_clear_before_saved_face");
+        scheduleCurrentSavedFaceRestoreAfterBlank(targetAuto, restoreReason);
+        return true;
+    }
+
+    const bool faceApplied = applyCurrentSavedFaceForMode(restoreReason, targetAuto);
     if (!faceApplied) {
         Serial.println("B3/M-A switched mode but no saved face was available to apply");
     }

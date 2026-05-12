@@ -1,3 +1,14 @@
+## 2026-05-11 停止/清屏非阻塞恢复默认表情修复
+
+本次修复点：
+
+1. `stopFirmwareScroll(..., clearDisplay=true)` 不再在 HTTP/API 调用路径里执行 `delay(LED_STOP_CLEAR_BLANK_HOLD_MS)`；现在只写入空帧并登记 deferred restore。
+2. `loop()` 新增 `serviceDeferredFaceRestore()`，在空帧锁存等待时间到达后恢复启动默认保存表情。
+3. WebUI/API 的 `stop_scroll` 返回不再被 90ms 空帧等待阻塞；状态里新增 `deferredFaceRestoreActive` 便于确认是否处于空帧后恢复等待阶段。
+4. 网页或 GPIO 的 M/A 按钮退出文字滚动/覆盖显示时，也改为“空帧 -> 延后恢复当前保存表情”，不再在 `runButtonAction()` / HTTP button 命令路径里阻塞 90ms。
+5. 新滚动上传、切换模式、停止滚动或启动滚动时会取消旧的 deferred restore，避免旧的延后恢复动作覆盖新的用户操作。
+6. 根目录只保留唯一运行脚本 `run_rinachan_unifont.ps1`，删除旧的字体专用 runner，避免用户运行错误脚本。
+
 ## 2026-05-11 文字滚动 Ark12 合并字体 / 繁体优先 / 冗余字体清理
 
 本次覆盖规则：

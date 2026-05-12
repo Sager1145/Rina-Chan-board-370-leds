@@ -4,6 +4,10 @@
 #include "led_renderer.h"
 #include "storage.h"   // for ensureSavedFacesLoaded, saveRuntimeSettings
 
+static constexpr uint8_t DEFERRED_RESTORE_NONE            = 0;
+static constexpr uint8_t DEFERRED_RESTORE_STARTUP_DEFAULT = 1;
+static constexpr uint8_t DEFERRED_RESTORE_CURRENT_FACE    = 2;
+
 // ---------------------------------------------------------------------------
 // Mode helpers
 // ---------------------------------------------------------------------------
@@ -142,7 +146,64 @@ bool applyStartupDefaultFaceAfterScrollStop(bool restoreAutoMode) {
     return true;
 }
 
+void cancelDeferredFaceRestore() {
+    state.deferredFaceRestoreActive   = false;
+    state.deferredFaceRestoreKind     = DEFERRED_RESTORE_NONE;
+    state.deferredFaceRestoreAutoMode = false;
+    state.deferredFaceRestoreDueMs    = 0;
+    state.deferredFaceRestoreReason   = String();
+}
+
+static void scheduleDeferredFaceRestore(uint8_t kind, bool autoMode, const String& reason) {
+    state.deferredFaceRestoreActive   = true;
+    state.deferredFaceRestoreKind     = kind;
+    state.deferredFaceRestoreAutoMode = autoMode;
+    state.deferredFaceRestoreDueMs    = millis() + LED_STOP_CLEAR_BLANK_HOLD_MS;
+    state.deferredFaceRestoreReason   = reason;
+}
+
+void scheduleStartupDefaultFaceRestoreAfterBlank(bool autoMode) {
+    scheduleDeferredFaceRestore(DEFERRED_RESTORE_STARTUP_DEFAULT,
+                                autoMode,
+                                "firmware_text_scroll_stop_default_saved_face");
+}
+
+void scheduleCurrentSavedFaceRestoreAfterBlank(bool autoMode, const String& reason) {
+    scheduleDeferredFaceRestore(DEFERRED_RESTORE_CURRENT_FACE, autoMode, reason);
+}
+
+void serviceDeferredFaceRestore() {
+    if (!state.deferredFaceRestoreActive) return;
+
+    const uint32_t now = millis();
+    if (static_cast<int32_t>(now - state.deferredFaceRestoreDueMs) < 0) return;
+
+    const uint8_t kind     = state.deferredFaceRestoreKind;
+    const bool    autoMode = state.deferredFaceRestoreAutoMode;
+    const String  reason   = state.deferredFaceRestoreReason;
+
+    // Clear the pending marker before applying the face.  If the apply path
+    // fails or schedules another render, this service routine will not repeat
+    // the same deferred action indefinitely.
+    cancelDeferredFaceRestore();
+
+    if (state.firmwareScrollActive || state.firmwareScrollPaused) {
+        return;
+    }
+
+    if (kind == DEFERRED_RESTORE_STARTUP_DEFAULT) {
+        applyStartupDefaultFaceAfterScrollStop(autoMode);
+    } else if (kind == DEFERRED_RESTORE_CURRENT_FACE) {
+        const bool faceApplied = applyCurrentSavedFaceForMode(reason, autoMode);
+        if (!faceApplied) {
+            Serial.println("Deferred saved-face restore failed: no saved face available");
+        }
+    }
+}
+
 void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
+    cancelDeferredFaceRestore();
+
     bool shouldRestoreAuto = false;
     lockScroll();
     shouldRestoreAuto               = restoreAuto && state.restoreAutoAfterScroll;
@@ -161,21 +222,20 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
     unlockScroll();
 
     if (clearDisplay) {
-        // Two-stage visible sequence:
+        // Two-stage visible sequence without blocking the caller:
         // 1) Push an all-off frame so the current scroll frame is cleared.
-        // 2) After the render task has latched that frame, restore the default face.
-        // Without this small yield the two render requests can coalesce and the
-        // user may see the old scroll frame instead of the default expression.
+        // 2) Let loop() restore the default face after the blank frame has
+        //    had enough time to latch through the BSS138 / WS2812 chain.
         applyBlankFrame("firmware_text_scroll_stop_clear");
-        delay(LED_STOP_CLEAR_BLANK_HOLD_MS);
-        const bool defaultApplied = applyStartupDefaultFaceAfterScrollStop(shouldRestoreAuto);
-        if (defaultApplied) delay(LED_STOP_CLEAR_DEFAULT_SETTLE_MS);
+        scheduleStartupDefaultFaceRestoreAfterBlank(shouldRestoreAuto);
     } else if (shouldRestoreAuto) {
         setMode("auto", false);
     }
 }
 
 void startFirmwareScroll(uint16_t intervalMs) {
+    cancelDeferredFaceRestore();
+
     uint8_t firstFrame[FRAME_BYTES];
     bool    hasFirstFrame = false;
 

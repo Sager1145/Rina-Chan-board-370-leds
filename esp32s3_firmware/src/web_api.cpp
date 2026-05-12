@@ -164,6 +164,7 @@ static void handleApiStatus() {
     renderer["firmwareScrollActive"]    = firmwareScrollActive;
     renderer["firmwareScrollPaused"]    = firmwareScrollPaused;
     renderer["restoreAutoAfterScroll"]  = restoreAutoAfterScroll;
+    renderer["deferredFaceRestoreActive"] = state.deferredFaceRestoreActive;
     renderer["scrollFrameCount"]        = scrollFrameCount;
     renderer["scrollFrameIndex"]        = scrollFrameIndex;
     renderer["scrollIntervalMs"]        = scrollIntervalMs;
@@ -405,6 +406,7 @@ static void handleApiCommand() {
         else if (doc["raw"].is<int>())            raw = doc["raw"].as<int>();
         setBrightness(raw);
     } else if (cmd == "set_mode") {
+        cancelDeferredFaceRestore();
         const char* mode = payload["mode"] | "";
         if (strlen(mode) == 0) mode = doc["mode"] | "";
         if (strlen(mode) == 0 || !setMode(mode)) {
@@ -508,6 +510,7 @@ static void handleApiCommand() {
     reply["firmwareScrollActive"] = state.firmwareScrollActive;
     reply["firmwareScrollPaused"] = state.firmwareScrollPaused;
     reply["restoreAutoAfterScroll"] = state.restoreAutoAfterScroll;
+    reply["deferredFaceRestoreActive"] = state.deferredFaceRestoreActive;
     reply["scrollFrameCount"]     = state.scrollFrameCount;
     reply["scrollFrameIndex"]     = state.scrollFrameIndex;
     reply["scrollIntervalMs"]     = state.scrollIntervalMs;

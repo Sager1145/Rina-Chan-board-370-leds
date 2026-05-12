@@ -68,25 +68,24 @@
   .brand-nav-toggle:focus-visible{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 25%,transparent),0 18px 46px #00000060;}
   .brand-nav-toggle.active{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent),0 12px 30px #00000035;}
   .nav-shell{position:relative;margin-top:12px;z-index:2147483001;}
-  .select-toggle{width:100%;min-height:var(--control-height);display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;padding:12px 13px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#1a2030,#111722);box-shadow:0 12px 30px #00000035;color:var(--text);font-weight:700;outline:none;}
-  .select-toggle:hover{transform:translateY(-1px);border-color:var(--accent2);background:linear-gradient(180deg,#20283a,#121a27);}
+  .select-toggle{width:100%;max-width:100%;box-sizing:border-box;min-height:var(--control-height);display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;padding:12px 13px;border:1px solid var(--line);border-radius:14px;background:#141926;box-shadow:0 12px 30px #00000035;color:var(--text);font-weight:700;outline:none;}
+  .select-toggle:hover{transform:translateY(-1px);border-color:var(--accent2);background:#1c2438;}
   .select-toggle:focus-visible{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 25%,transparent),0 18px 46px #00000060;}
-  .select-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700;}
+  .select-label{flex:1;min-width:0;overflow:visible;word-break:break-word;font-weight:700;}
   .menu-icon{display:inline-grid;gap:4px;flex:0 0 auto;}
   .menu-icon span{display:block;width:18px;height:2px;border-radius:999px;background:currentColor;}
   .select-caret{color:var(--muted);transition:.12s transform,.12s color;}
   .select-shell:hover .select-caret,.select-shell:focus-within .select-caret{color:var(--accent2);}
   .select-shell.open .select-caret{transform:rotate(180deg);}
   .nav{display:grid;gap:8px;padding:8px;position:static;z-index:2147483002;grid-template-columns:1fr;max-height:min(52vh,360px);overflow:auto;}
-  .select-menu{display:none;gap:8px;padding:8px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,#1a2030,#111722);box-shadow:0 18px 46px #00000090;overflow:auto;}
-  .select-menu{position:absolute;top:calc(100% + 8px);left:0;right:0;}
-  .select-shell.open .select-menu{display:grid;}
+  .select-menu{display:none;gap:8px;padding:8px;border:1px solid var(--line);border-radius:16px;background:#141926;box-shadow:0 18px 46px #00000090;overflow:auto;}
+  .select-menu{position:fixed;top:0;left:0;}
   .nav button{min-height:var(--control-height);text-align:left;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px;border:0;border-radius:12px;background:var(--panel2);box-shadow:none;color:var(--text);font-weight:700;outline:none;}
   .nav button:hover{transform:translateY(-1px);background:#273040;}
   .nav button:focus-visible{outline:2px solid color-mix(in srgb,var(--accent2) 45%,transparent);outline-offset:2px;}
   .nav button.active{background:linear-gradient(135deg,#f971d4,#8f74ff);box-shadow:none;color:#fff;}
-  .select-option{min-height:46px;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 13px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#192030,#101622);box-shadow:0 8px 22px #00000028;color:var(--text);font-weight:700;outline:none;}
-  .select-option:hover{transform:translateY(-1px);border-color:var(--accent2);background:linear-gradient(180deg,#20283a,#121a27);}
+  .select-option{min-height:46px;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 13px;border:1px solid var(--line);border-radius:14px;background:#111520;box-shadow:0 8px 22px #00000028;color:var(--text);font-weight:700;outline:none;}
+  .select-option:hover{transform:translateY(-1px);border-color:var(--accent2);background:#1c2438;}
   .select-option:focus-visible{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 25%,transparent),0 14px 32px #00000055;}
   .select-option.active{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent),0 12px 30px #00000035;}
   .nav .num{color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap;}
@@ -110,7 +109,7 @@
   .cols-2{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}
   .cols-3{grid-template-columns:repeat(3,minmax(0,1fr));}
   .cols-4{grid-template-columns:repeat(4,minmax(0,1fr));}
-  .card{background:linear-gradient(180deg,var(--panel),#121621);border:1px solid var(--line);border-radius:18px;padding:15px;box-shadow:0 12px 32px #00000035;min-width:0;}
+  .card{background:linear-gradient(180deg,var(--panel),#121621);border:1px solid var(--line);border-radius:18px;padding:15px;box-shadow:0 12px 32px #00000035;min-width:320px;}
   .card h3{margin:0 0 12px;font-size:16px;display:flex;align-items:center;gap:8px;}
   .card h4{margin:14px 0 8px;font-size:14px;color:#dfe7f3;}
   .row{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
@@ -263,6 +262,59 @@
     .saved-name-input{min-height:44px;}
     .part-list{display:flex;flex-wrap:nowrap}
     .part-card{grid-template-columns:1fr;width:60px;min-width:60px;max-width:60px;}
+  }
+  /* ── 320px 最小宽度适配：确保所有元素在最窄屏幕下正常显示 ── */
+  @media (max-width:980px){
+    /* 卡片在手机端允许缩到屏幕宽度，不强制320px */
+    .card{min-width:0;}
+    /* brightness-row 最小列宽放宽，防止在窄屏溢出 */
+    .brightness-row{grid-template-columns:minmax(0,1fr) minmax(74px,92px);}
+    /* field 最小宽度放宽 */
+    .field{min-width:0;}
+    /* slider-step-row 允许换行 */
+    .slider-step-row{flex-wrap:wrap;}
+    /* button-row compact-btn 最小宽度适配 */
+    .slider-step-row .compact-btn{min-width:60px;}
+    /* hero 区域文字防溢出 */
+    .hero h2{font-size:20px;word-break:break-word;}
+    /* content 在最小屏加紧 padding */
+    .content{padding:8px;}
+    /* sidebar 加紧 padding */
+    .sidebar{padding:10px;}
+    /* kv 键宽缩减 */
+    .kv{grid-template-columns:120px 1fr;}
+  }
+  @media (max-width:400px){
+    /* 在接近320px时进一步压缩 */
+    .content{padding:6px;}
+    .sidebar{padding:8px;}
+    .card{padding:10px;border-radius:14px;}
+    .kv{grid-template-columns:1fr;gap:4px 0;}
+    .kv .k{font-weight:700;}
+    .hero h2{font-size:18px;}
+    .brand h1{font-size:14px;}
+    .brand p{font-size:11px;}
+    /* 按钮组允许换行 */
+    .mode-button-row{gap:6px;}
+    .mode-button-row button{padding:0 10px;}
+    .button-row{gap:6px;}
+    /* 行内元素换行 */
+    .row{gap:6px;}
+    /* select-toggle 内文字省略 */
+    .select-label{font-size:14px;}
+    /* 表单控件高度紧凑 */
+    :root{--control-height:42px;}
+    /* brightness-row 强制单列 */
+    .brightness-row{grid-template-columns:1fr;gap:6px;}
+    .brightness-row .slider-number{text-align:left;}
+    /* equal-fields 保持双列但允许缩 */
+    .equal-fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
+    /* color-dropdown-grid 确保不超出 */
+    .color-dropdown-grid{max-width:100%;}
+    /* log 高度压缩 */
+    .log{height:180px;}
+    /* 矩阵 cell 缩小 */
+    :root{--cell:10px;--gap:2px;}
   }
 </style>
 </head>
@@ -1186,14 +1238,38 @@ function initNav(){
   });
 }
 
+function positionSelectMenu(shell){
+  const toggle = shell.querySelector('.select-toggle');
+  const menu = shell._selectMenu;
+  if (!toggle || !menu) return;
+  const r = toggle.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const menuW = Math.min(r.width, vw - 16);
+  // position below by default; flip above if not enough room
+  const spaceBelow = vh - r.bottom - 8;
+  const spaceAbove = r.top - 8;
+  menu.style.width = menuW + 'px';
+  menu.style.left = Math.max(8, Math.min(r.left, vw - menuW - 8)) + 'px';
+  // We need to know menu height — set max-height then measure
+  menu.style.maxHeight = Math.min(0.6*vh, 380) + 'px';
+  if (spaceBelow >= 80 || spaceBelow >= spaceAbove) {
+    menu.style.top = (r.bottom + 8) + 'px';
+    menu.style.bottom = 'auto';
+  } else {
+    const menuH = Math.min(menu.scrollHeight, Math.min(0.6*vh, 380));
+    menu.style.top = (r.top - 8 - menuH) + 'px';
+    menu.style.bottom = 'auto';
+  }
+}
 function closeCustomSelects(exceptShell=null){
   document.querySelectorAll('.select-shell.open').forEach(shell => {
     if (shell !== exceptShell) {
       shell.classList.remove('open');
       const btn = shell.querySelector('.select-toggle');
-      const menu = shell.querySelector('.select-menu');
+      const menu = shell._selectMenu;
       if (btn) btn.setAttribute('aria-expanded', 'false');
-      if (menu) menu.setAttribute('aria-hidden', 'true');
+      if (menu) { menu.setAttribute('aria-hidden', 'true'); menu.style.display = 'none'; }
     }
   });
 }
@@ -1225,17 +1301,26 @@ function ensureCustomSelect(select){
       closeCustomSelects(shell);
       shell.classList.toggle('open', willOpen);
       toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-      const m = shell.querySelector('.select-menu');
-      if (m) m.setAttribute('aria-hidden', willOpen ? 'false' : 'true');
+      const m = shell._selectMenu;
+      if (m) {
+        m.setAttribute('aria-hidden', willOpen ? 'false' : 'true');
+        if (willOpen) { m.style.display = 'grid'; positionSelectMenu(shell); }
+        else { m.style.display = 'none'; }
+      }
     };
   }
-  if (!menu) {
+  if (!shell._selectMenu) {
     menu = document.createElement('div');
     menu.className = 'select-menu';
     menu.setAttribute('role', 'menu');
     menu.setAttribute('aria-hidden', 'true');
-    shell.appendChild(menu);
+    menu.style.display = 'none';
+    document.body.appendChild(menu);
+    shell._selectMenu = menu;
+    menu._shell = shell;
     menu.onclick = (ev) => ev.stopPropagation();
+  } else {
+    menu = shell._selectMenu;
   }
   return {shell, toggle, menu};
 }
@@ -1271,6 +1356,7 @@ function refreshSelectDropdown(idOrSelect){
       ui.shell.classList.remove('open');
       ui.toggle.setAttribute('aria-expanded', 'false');
       ui.menu.setAttribute('aria-hidden', 'true');
+      ui.menu.style.display = 'none';
       refreshAllCustomSelects();
     };
     ui.menu.appendChild(b);
@@ -1289,6 +1375,12 @@ function initCustomSelectDropdowns(){
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') closeCustomSelects();
   });
+  // reposition open menus on scroll/resize
+  const reposition = () => {
+    document.querySelectorAll('.select-shell.open').forEach(shell => positionSelectMenu(shell));
+  };
+  window.addEventListener('resize', reposition, {passive:true});
+  window.addEventListener('scroll', reposition, {passive:true, capture:true});
 }
 
 function initMatrix(id, frameProvider, editable=false, editHandler=null, compact=false){

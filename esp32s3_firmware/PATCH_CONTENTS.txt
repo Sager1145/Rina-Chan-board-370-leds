@@ -16,6 +16,16 @@ esp32s3_firmware/data/index.html
 esp32s3_firmware/data/resources/fonts/README.md
   Documents generated runtime font resources. No font binary is distributed in this patch.
 
+
+esp32s3_firmware/src/state.h
+esp32s3_firmware/src/faces.h
+esp32s3_firmware/src/faces.cpp
+esp32s3_firmware/src/buttons.cpp
+esp32s3_firmware/src/main.cpp
+esp32s3_firmware/src/web_api.cpp
+esp32s3_firmware/src/config.h
+  Makes stop/clear and M/A blank-frame restoration non-blocking: blank frame is pushed immediately, default/current saved face restore is deferred from loop(), and stale deferred restores are cancelled when playback changes.
+
 esp32s3_firmware/README.md
 esp32s3_firmware/README_ARK12_MERGE.txt
 esp32s3_firmware/EXTERNAL_CODE_COMMENTS.txt

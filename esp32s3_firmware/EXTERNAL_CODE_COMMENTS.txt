@@ -39,3 +39,17 @@ Redundant font resources intentionally removed from the deliverable/runtime tree
 
 Important rendering note:
 - Ark Pixel includes rare vertical-form glyphs with bitmap heights above 12 rows. WebUI renderers clip glyph bitmaps to the LED/text buffer and must not assume every glyph is exactly 12 rows.
+
+Non-blocking stop-clear / M-A restore update:
+- src/state.h
+  - Adds deferredFaceRestore* runtime fields for pending post-blank face restoration.
+- src/faces.cpp / src/faces.h
+  - Adds cancelDeferredFaceRestore(), scheduleStartupDefaultFaceRestoreAfterBlank(), scheduleCurrentSavedFaceRestoreAfterBlank(), and serviceDeferredFaceRestore().
+  - stopFirmwareScroll(..., clearDisplay=true) now pushes the blank frame and schedules the default-face restore instead of blocking the caller with delay().
+  - startFirmwareScroll() cancels stale deferred restores before starting a new scroll playback.
+- src/buttons.cpp
+  - B3 / M-A exits text-scroll or overlay playback through the same non-blocking blank-then-restore path.
+- src/main.cpp
+  - Calls serviceDeferredFaceRestore() from loop().
+- src/web_api.cpp
+  - Exposes renderer.deferredFaceRestoreActive in status/command replies and cancels stale deferred restores on explicit set_mode.

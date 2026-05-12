@@ -44,6 +44,15 @@ struct RuntimeState {
     uint16_t scrollFrameIndex      = 0;
     uint16_t scrollIntervalMs      = DEFAULT_SCROLL_INTERVAL_MS;
     uint32_t lastScrollFrameMs     = 0;
+
+    // Deferred face restore after an explicit all-off clear frame.
+    // Used to avoid delay() inside HTTP / button handlers while still
+    // giving the LED render task enough time to physically latch blank.
+    bool     deferredFaceRestoreActive  = false;
+    uint8_t  deferredFaceRestoreKind    = 0;
+    bool     deferredFaceRestoreAutoMode = false;
+    uint32_t deferredFaceRestoreDueMs   = 0;
+    String   deferredFaceRestoreReason;
 };
 
 // ---------------------------------------------------------------------------

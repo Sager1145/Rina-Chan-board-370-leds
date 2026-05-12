@@ -71,6 +71,7 @@ void setup() {
 void loop() {
     webServerTick();
     serviceHardwareButtons();
+    serviceDeferredFaceRestore();
     serviceAutoPlayback();
     delay(1);
 }

@@ -39,6 +39,14 @@ int16_t findStartupDefaultFaceIndex();
 // After stopping scroll, restore the startup default face in the requested mode.
 bool applyStartupDefaultFaceAfterScrollStop(bool restoreAutoMode);
 
+// Cancel / schedule / service deferred restores that must happen after an
+// all-off frame has had time to latch.  serviceDeferredFaceRestore() is called
+// from loop(), so HTTP handlers never block for the blank-frame hold time.
+void cancelDeferredFaceRestore();
+void scheduleStartupDefaultFaceRestoreAfterBlank(bool autoMode);
+void scheduleCurrentSavedFaceRestoreAfterBlank(bool autoMode, const String& reason);
+void serviceDeferredFaceRestore();
+
 // ---------------------------------------------------------------------------
 // Scroll lifecycle
 // ---------------------------------------------------------------------------
