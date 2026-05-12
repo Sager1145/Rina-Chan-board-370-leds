@@ -51,6 +51,7 @@
   input:focus,select:focus,textarea:focus{border-color:var(--accent2);}
   input[type="range"]{padding:0;width:100%;height:var(--control-height);accent-color:var(--accent);touch-action:pan-y;}
   textarea{width:100%;min-height:90px;resize:vertical;font-family:var(--ui-font)!important;font-size:16px;}
+  #custom-m370,#parts-m370-text{min-height:0;resize:none;overflow:hidden;white-space:pre-wrap;word-break:break-all;}
   #scroll-text{min-height:42px;max-height:none;resize:none;overflow:hidden;line-height:1.2;white-space:pre-wrap;word-break:break-word;font-family:var(--scroll-font)!important;font-size:12px!important;font-synthesis:none;}
   a{color:var(--accent2)}
   .sidebar{position:relative;z-index:2147482999;overflow:visible;border-right:0;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#151927,#0f1117);padding:14px 18px;display:grid;grid-template-columns:1fr;gap:14px;align-items:center;}
@@ -173,7 +174,7 @@
   .color-dropdown-grid{display:grid;grid-template-columns:1fr;gap:10px;align-items:stretch;max-width:420px;}
   .color-dropdown-grid .select-shell{min-height:var(--control-height);}
   .matrix-wrap{overflow:hidden;width:100%;max-width:100%;padding:12px;border-radius:16px;background:#0b0e14;border:1px solid #283044;}
-  .matrix-wrap.fill-column{display:flex;justify-content:center;align-items:center;}
+  .matrix-wrap.fill-column{display:flex;justify-content:center;align-items:center;border:none;border-radius:0;background:transparent;padding:0;}
   .matrix{display:grid;grid-template-columns:repeat(22,var(--cell));grid-template-rows:repeat(18,var(--cell));gap:var(--gap);width:fit-content;max-width:100%;margin:0 auto;touch-action:pan-y;user-select:none;-webkit-user-select:none;}
   .led{width:var(--cell);height:var(--cell);border-radius:5px;background:#202635;border:1px solid #30394c;box-shadow:inset 0 0 3px #000;}
   .led.on{background:var(--led-color);border-color:color-mix(in srgb,var(--led-color) 75%,#fff);box-shadow:0 0 10px color-mix(in srgb,var(--led-color) 80%,transparent), inset 0 0 4px #fff8;}
@@ -384,7 +385,7 @@
           <div class="row"><button id="custom-import">从文本导入到画板</button><button id="custom-save" class="ok">保存自定义表情</button><div class="field"><label>保存名称</label><input id="custom-name" value="custom_face"></div></div>
           <h4>统一 saved_faces.json</h4>
           <div class="row"><button class="faces-json-load" type="button">读取 saved_faces.json</button><button class="faces-json-open-local" type="button">打开本地 saved_faces.json</button><button class="faces-json-save-local" type="button">保存到已打开文件</button><button class="faces-json-download-all" type="button">下载 saved_faces.json</button><button class="faces-json-import-btn" type="button">导入 saved_faces.json</button><input class="faces-json-import-file" type="file" accept="application/json" hidden></div>
-          <div class="hint">默认表情和用户保存表情全部来自同一个 <span class="mono">/resources/saved_faces.json</span>；<span class="mono">type:"default"</span> 的表情不可删除，但可以重命名和手动排序；排序 <span class="mono">order</span> 与名称覆盖都写回同一个文件。</div>
+
           <h4>统一表情列表</h4><div class="list face-library-list"></div>
         </div>
       </div>
@@ -403,8 +404,7 @@
           <div class="row"><button id="parts-import-m370">从文本导入到当前输出</button><button id="parts-save-bottom" class="ok">保存部件表情</button><div class="field"><label>保存名称</label><input id="parts-name" value="parts_face"></div><button id="parts-copy-m370-bottom">复制 M370</button></div>
           <h4>统一 saved_faces.json</h4>
           <div class="row"><button class="faces-json-load" type="button">读取 saved_faces.json</button><button class="faces-json-open-local" type="button">打开本地 saved_faces.json</button><button class="faces-json-save-local" type="button">保存到已打开文件</button><button class="faces-json-download-all" type="button">下载 saved_faces.json</button><button class="faces-json-import-btn" type="button">导入 saved_faces.json</button><input class="faces-json-import-file" type="file" accept="application/json" hidden></div>
-          <div class="hint">默认表情、自定义表情、部件表情全部保存在同一个 saved_faces.json；默认表情由 type:"default" 标识，不可删除，但可重命名和手动排序，顺序保存在同一文件的 order 字段。</div>
-          <h4>统一表情列表</h4><div class="list face-library-list"></div>
+<h4>统一表情列表</h4><div class="list face-library-list"></div>
         </div>
       </div>
     </section>
@@ -631,6 +631,11 @@ async function ensureWebUiFontReady(){
     }
   }
   applyWebUiFont();
+  // GNU Unifont 影响 textarea 字符的实际宽高，加载完成后必须重新测量，
+  // 否则会保留用 fallback 字体或字体未加载时算出的旧高度（最糟糕的情况
+  // 是页面当时是 display:none，scrollHeight=0，导致 height:0px 装不下文字）。
+  if(typeof autoResizeM370Textareas === 'function') autoResizeM370Textareas();
+  if(typeof autoResizeScrollTextInput === 'function') autoResizeScrollTextInput();
 }
 function observeWebUiFont(){
   if(uiFontObserverStarted || !document.body || !window.MutationObserver) return;
@@ -1208,6 +1213,8 @@ function switchPage(id){
   updateCurrentPageLabel(id);
   setNavMenuOpen(false);
   if (id === 'scroll') requestAnimationFrame(autoResizeScrollTextInput);
+  if (id === 'custom') requestAnimationFrame(()=>{ const a=$('custom-m370'); if(a) autoResizeTextarea(a); });
+  if (id === 'parts')  requestAnimationFrame(()=>{ const a=$('parts-m370-text'); if(a) autoResizeTextarea(a); });
 }
 
 function initNav(){
@@ -1481,9 +1488,29 @@ function renderState(){
 }
 function kvRows(rows){return rows.map(([k,v])=>`<span class="k">${escapeHtml(k)}</span><span>${escapeHtml(String(v))}</span>`).join('');}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function autoResizeTextarea(el){
+  if(!el) return;
+  // If the element (or any ancestor) is display:none, offsetParent is null and
+  // scrollHeight returns 0. Bail out instead of collapsing height to 0px; we
+  // will be called again from switchPage() once the page is shown.
+  if(el.offsetParent === null && el !== document.body){
+    el.dataset.pendingAutoresize = '1';
+    return;
+  }
+  el.style.overflow='visible';
+  el.style.height='auto';
+  const h=el.scrollHeight;
+  el.style.overflow='hidden';
+  el.style.height=Math.max(h, 1)+'px';
+  delete el.dataset.pendingAutoresize;
+}
+function autoResizeM370Textareas(){
+  const a = $('custom-m370'); if(a) autoResizeTextarea(a);
+  const b = $('parts-m370-text'); if(b) autoResizeTextarea(b);
+}
 function updateM370Views(){
-  if($('custom-m370')) $('custom-m370').value = frameToM370(editFrame);
-  if($('parts-m370-text')) $('parts-m370-text').value = frameToM370(partsFrame);
+  if($('custom-m370')){ $('custom-m370').value = frameToM370(editFrame); requestAnimationFrame(()=>autoResizeTextarea($('custom-m370'))); }
+  if($('parts-m370-text')){ $('parts-m370-text').value = frameToM370(partsFrame); requestAnimationFrame(()=>autoResizeTextarea($('parts-m370-text'))); }
 }
 
 function initColors(){
@@ -1902,7 +1929,7 @@ function renderSavedFaces(){
   const library=getAllFaces();
   lists.forEach(box=>{
     box.innerHTML='';
-    if(!library.length){ box.innerHTML = '<div class="hint">saved_faces.json 当前为空或未读取。导入包含 type:"default" 的 saved_faces.json 后会显示默认表情；保存自定义/部件表情会写入同一个文件。</div>'; return; }
+    if(!library.length){ box.innerHTML = ''; return; }
     library.forEach((f,i)=>{
       const row = createFaceRow(f,i,library.length);
       row.classList.toggle('active', i === state.faceIndex);
