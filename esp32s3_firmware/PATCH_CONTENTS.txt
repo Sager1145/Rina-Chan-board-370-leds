@@ -1,0 +1,23 @@
+Patch contents
+==============
+
+esp32s3_firmware/run_rinachan_unifont.ps1
+  Single root runner. Prepares/builds fonts, removes redundant font files/cache directories, probes Python modules via temporary .py file, then runs PlatformIO build/upload.
+
+esp32s3_firmware/tools/build_ark12_merged.py
+  Builds the merged Ark12 bitmap JSON for LED text-scroll: zh_cn -> ja -> zh_tw.
+
+esp32s3_firmware/tools/build_unifont_webui_subset_from_png.py
+  Builds data/resources/fonts/unifont.woff2 from the official GNU Unifont PNG sheet downloaded into .font_cache.
+
+esp32s3_firmware/data/index.html
+  Keeps WebUI on GNU Unifont, while #scroll-text and LED text-scroll rasterizer use Ark12.
+
+esp32s3_firmware/data/resources/fonts/README.md
+  Documents generated runtime font resources. No font binary is distributed in this patch.
+
+esp32s3_firmware/README.md
+esp32s3_firmware/README_ARK12_MERGE.txt
+esp32s3_firmware/EXTERNAL_CODE_COMMENTS.txt
+esp32s3_firmware/plan.md
+  Documentation synchronized with the patch.

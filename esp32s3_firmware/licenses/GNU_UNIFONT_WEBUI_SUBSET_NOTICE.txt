@@ -1,0 +1,15 @@
+GNU Unifont WebUI subset notice
+
+File generated for this firmware package:
+  data/resources/fonts/unifont.woff2
+
+Generation source bundled in this package:
+  tools/assets/unifont-17.0.04.png
+  tools/build_unifont_webui_subset_from_png.py
+
+Upstream project:
+  GNU Unifont / Unifoundry
+  https://unifoundry.com/unifont/index.html
+
+License note:
+  GNU Unifont is distributed under the SIL Open Font License 1.1 and GPLv2+ with the GNU font embedding exception. Keep this notice with redistributed builds.

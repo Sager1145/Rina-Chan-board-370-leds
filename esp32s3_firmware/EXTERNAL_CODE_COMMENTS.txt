@@ -1,20 +1,41 @@
-EXTERNAL CODE COMMENTS - RinaChanBoard saved_faces default migration
+External code comments for Ark12 Traditional-priority text-scroll font package
 
-Change summary:
-- Migrated all 11 default M370 faces into data/resources/saved_faces.json using format rina_faces_370_v2.
-- Marked default faces with type="default", locked=true, editable=true, deletable=false.
-- Set startupDefaultId to face_07_triangle_eyes_frown, matching default face index/id 7.
-- Kept custom and parts faces in the same saved_faces.json schema for future user saves.
-- Updated WebUI to treat /api/saved_faces and resources/saved_faces.json as the single source of truth.
-- Removed the duplicate initFaceManagerControls definition so local open/save buttons remain bound.
-- Updated the boot log and plan.md to remove references to HTML-embedded default faces and split default/user face APIs.
+Files:
+- run_rinachan_unifont.ps1
+  - The only root PowerShell runner in this package.
+  - Does not unzip/extract the package; it is intended to run from inside the extracted esp32s3_firmware folder.
+  - Ensures the normal WebUI font file data/resources/fonts/unifont.woff2 exists. If it is missing, the script downloads the official GNU Unifont PNG sheet into .font_cache and builds a small WebUI WOFF2 subset locally.
+  - Ensures Python font-build dependencies are present for Unifont subset generation: pillow, fonttools, brotli. If they are missing and -NoDownload is not set, the script installs them with pip --user.
+  - Uses a temporary Python probe file instead of py -c inline code when checking modules, avoiding PowerShell/native stderr parsing failures such as File "<string>", line 5.
+  - Verifies or rebuilds the text-scroll-only Ark12 resources.
+  - Rebuild path downloads or reuses official Ark Pixel 12px monospaced BDF and WOFF2 release archives.
+  - Runs tools/build_ark12_merged.py to build data/resources/fonts/ark12.json with merge priority: zh_cn, ja, zh_tw.
+  - Copies the zh_tw WOFF2 variant to data/resources/fonts/ark12.woff2 so browser-rendered text-scroll input prefers Traditional Chinese regional glyphs.
+  - Removes legacy/redundant font files from data/resources/fonts before build/upload checks.
 
-Behavioral rules:
-- type="default": cannot be deleted; can be renamed and reordered; name/order persist to saved_faces.json.
-- type="custom" and type="parts": can be saved, renamed, reordered, and deleted.
-- All ordering is represented by each face.order in the same saved_faces.json file.
+- tools/build_unifont_webui_subset_from_png.py
+  - Builds data/resources/fonts/unifont.woff2 from an official GNU Unifont BMP PNG sheet supplied by the PowerShell runner.
+  - Uses only glyphs needed by the current WebUI plus stable UI ranges for ASCII, Latin-1, punctuation, arrows, geometric symbols, kana, CJK punctuation, and fullwidth forms.
+  - Keeps the normal WebUI font as GNU Unifont without distributing a font binary in this patch.
 
-Validation performed:
-- saved_faces.json parses as JSON.
-- All 11 default faces have valid M370 payloads: M370:<93 lowercase hex chars>.
-- node --check succeeded for the extracted WebUI JavaScript.
+- tools/build_ark12_merged.py
+  - Parses BDF glyphs into rina_ark_pixel_font_bitmap_v1 JSON entries.
+  - Emits compact glyph tuples as [advance, width, height, xOffset, yOffset, dstY, rowsHex].
+  - Merge priority is low-to-high: zh_cn, ja, zh_tw.
+  - Later sources overwrite earlier sources for the same Unicode codepoint; zh_tw is the final conflict authority.
+  - Validates representative English, symbols, Simplified Chinese, Traditional Chinese, and Japanese sample text.
+
+LittleFS font resources generated/kept at runtime:
+- data/resources/fonts/unifont.woff2: normal WebUI font only.
+- data/resources/fonts/ark12.woff2: text-scroll textarea browser font only.
+- data/resources/fonts/ark12.json: text-scroll LED bitmap rasterizer font only.
+
+Redundant font resources intentionally removed from the deliverable/runtime tree:
+- extracted per-language Ark BDF/WOFF2 folders.
+- duplicate .font_cache/bdf and .font_cache/woff2 folders.
+- ark12_merged_trad_priority.json duplicate copy.
+- ark12_merged_trad_priority_report.txt.
+- legacy u8g2/rinafont/old long-name Unifont resources.
+
+Important rendering note:
+- Ark Pixel includes rare vertical-form glyphs with bitmap heights above 12 rows. WebUI renderers clip glyph bitmaps to the LED/text buffer and must not assume every glyph is exactly 12 rows.
