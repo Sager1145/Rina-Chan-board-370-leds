@@ -29,21 +29,17 @@ bool applyRelativeSavedFace(int8_t delta, const String& reason);
 // Apply the face currently pointed to by state.autoFaceIndex for the given mode.
 bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode);
 
+// Toggle manual/auto mode from the B3/M-A action and restore an appropriate face.
+bool toggleModeFromButtonAction(const String& source);
+
 // ---------------------------------------------------------------------------
 // Scroll stop / startup face restore
 // ---------------------------------------------------------------------------
-
-// Find the index of the startup-default face (-1 if none available).
-int16_t findStartupDefaultFaceIndex();
-
-// After stopping scroll, restore the startup default face in the requested mode.
-bool applyStartupDefaultFaceAfterScrollStop(bool restoreAutoMode);
 
 // Cancel / schedule / service deferred restores that must happen after an
 // all-off frame has had time to latch.  serviceDeferredFaceRestore() is called
 // from loop(), so HTTP handlers never block for the blank-frame hold time.
 void cancelDeferredFaceRestore();
-void scheduleStartupDefaultFaceRestoreAfterBlank(bool autoMode);
 void scheduleCurrentSavedFaceRestoreAfterBlank(bool autoMode, const String& reason);
 void serviceDeferredFaceRestore();
 
@@ -64,6 +60,7 @@ void startFirmwareScroll(uint16_t intervalMs);
 
 // Returns true when playback is some non-face activity (scroll, custom, etc.)
 // that should be interrupted before switching faces.
+bool isScrollPlayback(const String& playback);
 bool playbackIsNonFaceActivity();
 
 // ---------------------------------------------------------------------------

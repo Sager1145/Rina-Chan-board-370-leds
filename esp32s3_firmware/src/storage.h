@@ -10,9 +10,6 @@
 // Returns true on success.
 bool mountFilesystem();
 
-// Ensure /resources directory exists.
-bool ensureResourcesDirectory();
-
 // ---------------------------------------------------------------------------
 // Runtime settings  (mode, autoIntervalMs)
 // ---------------------------------------------------------------------------

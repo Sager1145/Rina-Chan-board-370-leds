@@ -1,5 +1,6 @@
 #include "scroll.h"
 #include "state.h"
+#include "sync.h"
 #include "config.h"
 #include "led_renderer.h"
 
@@ -7,7 +8,7 @@
 // Scroll render task  (pinned to Core 1)
 // ---------------------------------------------------------------------------
 
-void scrollRenderTask(void* parameter) {
+static void scrollRenderTask(void* parameter) {
     (void)parameter;
     uint8_t nextFrame[FRAME_BYTES];
 
@@ -36,8 +37,10 @@ void scrollRenderTask(void* parameter) {
 
                 state.scrollFrameIndex  = (state.scrollFrameIndex + steps) % state.scrollFrameCount;
                 state.lastScrollFrameMs += rawSteps * intervalMs;
-                // Guard against runaway drift after a long suspension
-                if (now - state.lastScrollFrameMs > static_cast<uint32_t>(intervalMs) * 4U) {
+                // Reset the scroll clock after a long suspension so playback
+                // resumes smoothly instead of chasing stale elapsed time.
+                if (now - state.lastScrollFrameMs >
+                    static_cast<uint32_t>(intervalMs) * SCROLL_DRIFT_RESET_INTERVALS) {
                     state.lastScrollFrameMs = now;
                 }
                 memcpy(nextFrame, scrollFrameBits[state.scrollFrameIndex], FRAME_BYTES);

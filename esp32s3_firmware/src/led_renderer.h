@@ -61,9 +61,8 @@ void setBrightness(int raw);
 void requestLedRender();
 bool consumeLedRenderRequest();
 
-// Convenience wrappers used inside frameMutex-held sections.
+// Convenience wrapper used inside frameMutex-held sections.
 void showCurrentFrameNoLock();
-void showCurrentFrame();
 
 // ---------------------------------------------------------------------------
 // Physical render  (called only from the render task on Core 1)

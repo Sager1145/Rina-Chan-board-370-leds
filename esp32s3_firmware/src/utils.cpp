@@ -26,3 +26,9 @@ bool parseColorHex(const String& input, uint8_t& r, uint8_t& g, uint8_t& b) {
     b = static_cast<uint8_t>(strtoul(value.substring(4, 6).c_str(), nullptr, 16));
     return true;
 }
+
+String formatColorHex(uint8_t r, uint8_t g, uint8_t b) {
+    char buf[8];
+    snprintf(buf, sizeof(buf), "#%02x%02x%02x", r, g, b);
+    return String(buf);
+}

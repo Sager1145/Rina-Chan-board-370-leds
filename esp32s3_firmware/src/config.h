@@ -24,6 +24,23 @@ constexpr uint8_t  BUTTON_B5_PIN         = 41;
 constexpr uint8_t  BUTTON_B6_PIN         = 42;
 
 // ---------------------------------------------------------------------------
+// Power monitor ADC
+// ---------------------------------------------------------------------------
+constexpr uint8_t  BATTERY_ADC_PIN       = 10;
+constexpr uint8_t  CHARGE_ADC_PIN        = 1;
+constexpr float    BATTERY_DIVIDER_R1_K  = 100.0f;
+constexpr float    BATTERY_DIVIDER_R2_K  = 57.0f;
+constexpr float    CHARGE_DIVIDER_R1_K   = 270.0f;
+constexpr float    CHARGE_DIVIDER_R2_K   = 47.0f;
+constexpr float    BATTERY_EMPTY_V       = 6.2f;
+constexpr float    BATTERY_FULL_V        = 8.0f;
+constexpr float    CHARGE_PRESENT_V      = 4.0f;
+constexpr uint8_t  POWER_ADC_SAMPLES     = 16;
+constexpr uint8_t  POWER_ADC_TRIM_COUNT  = 4;
+constexpr uint32_t BATTERY_SAMPLE_MS     = 10000;
+constexpr uint32_t CHARGE_SAMPLE_MS      = 1000;
+
+// ---------------------------------------------------------------------------
 // LED matrix geometry
 // ---------------------------------------------------------------------------
 constexpr uint16_t M370_HEX_CHARS        = 93;
@@ -67,7 +84,8 @@ constexpr uint16_t MAX_AUTO_FACES                = 128;
 constexpr uint16_t MAX_SCROLL_FRAMES             = 2048;
 constexpr uint16_t MIN_SCROLL_INTERVAL_MS        = 8;
 constexpr uint16_t MAX_SCROLL_INTERVAL_MS        = 1000;
-constexpr uint16_t DEFAULT_SCROLL_INTERVAL_MS    = 50;
+constexpr uint16_t DEFAULT_SCROLL_INTERVAL_MS    = 100;
+constexpr uint8_t  SCROLL_DRIFT_RESET_INTERVALS  = 4;
 
 // ---------------------------------------------------------------------------
 // Button debounce / repeat

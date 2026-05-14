@@ -13,13 +13,10 @@ struct RuntimeState {
     uint8_t  colorG              = 0x71;
     uint8_t  colorB              = 0xd4;
     uint8_t  brightness          = DEFAULT_BRIGHTNESS;
-    uint8_t  defaultBrightness   = DEFAULT_BRIGHTNESS;
     String   mode                = DEFAULT_MODE;
     String   playback            = DEFAULT_PLAYBACK;
     String   lastM370;
     String   lastReason          = "boot";
-    String   lastCommand;
-    String   lastButton;
     bool     paused              = false;
 
     // Stats
@@ -95,11 +92,3 @@ extern uint32_t           lastLedShowUs;
 
 // Logical-to-physical LED index lookup table
 extern uint16_t           logicalToPhysicalMap[LED_COUNT];
-
-// ---------------------------------------------------------------------------
-// Mutex helpers
-// ---------------------------------------------------------------------------
-void lockFrame();
-void unlockFrame();
-void lockScroll();
-void unlockScroll();

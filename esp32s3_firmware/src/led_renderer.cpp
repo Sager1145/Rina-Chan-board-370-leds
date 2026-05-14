@@ -1,5 +1,6 @@
 #include "led_renderer.h"
 #include "state.h"
+#include "sync.h"
 #include "utils.h"
 #include <Adafruit_NeoPixel.h>
 
@@ -12,16 +13,19 @@ static Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 static uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
     if (logicalIndex >= LED_COUNT) return logicalIndex;
+    if (!SERPENTINE_WIRING) return logicalIndex;
     for (uint8_t row = 0; row < MATRIX_ROWS; ++row) {
         const uint16_t rowStart  = ROW_OFFSETS[row];
         const uint8_t  rowLength = ROW_LENGTHS[row];
         if (logicalIndex < rowStart || logicalIndex >= rowStart + rowLength) continue;
         const uint16_t localX    = logicalIndex - rowStart;
-        const bool     reverseRow = (row & 1U) != 0;
+        const bool     reverseRow = SERPENTINE_ODD_ROWS_REVERSED && ((row & 1U) != 0);
         return reverseRow ? rowStart + (rowLength - 1U - localX) : logicalIndex;
     }
     return logicalIndex;
 }
+
+static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* outBits);
 
 // ---------------------------------------------------------------------------
 // LED index map
@@ -54,7 +58,6 @@ bool consumeLedRenderRequest() {
 }
 
 void showCurrentFrameNoLock() { requestLedRender(); }
-void showCurrentFrame()       { requestLedRender(); }
 
 // ---------------------------------------------------------------------------
 // Frame bit helpers
@@ -89,7 +92,7 @@ uint16_t countLitLeds() {
 
 void renderCurrentFrameToLedStrip() {
     uint8_t localFrame[FRAME_BYTES];
-    uint8_t brightness = DEFAULT_BRIGHTNESS;
+    uint8_t brightness;
     uint8_t colorR = 0, colorG = 0, colorB = 0;
 
     lockFrame();
@@ -202,14 +205,17 @@ bool m370ToPackedBits(const String& input, uint8_t* outBits, String& error) {
     String normalized;
     if (!normalizeM370(input, normalized, error)) return false;
 
+    decodeNormalizedM370ToPackedBits(normalized, outBits);
+    return true;
+}
+
+static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* outBits) {
     memset(outBits, 0, FRAME_BYTES);
-    const String payload = normalized.substring(5);
     for (uint16_t bit = 0; bit < M370_BITS; ++bit) {
-        const int  nibble = hexNibble(payload.charAt(bit / 4));
+        const int  nibble = hexNibble(normalized.charAt(5 + bit / 4));
         const bool on     = (nibble & (1 << (3 - (bit % 4)))) != 0;
         if (on) outBits[bit >> 3] |= 1U << (bit & 7U);
     }
-    return true;
 }
 
 String blankM370() {
@@ -234,41 +240,35 @@ bool applyM370(const String& input, const String& reason, String& error) {
     // frame mutex.  This keeps the critical section as short as a memcpy so the
     // render task (Core 1) is never blocked for a full 370-iteration decode loop.
     uint8_t packed[FRAME_BYTES];
-    const String payload = normalized.substring(5);
-    memset(packed, 0, FRAME_BYTES);
-    for (uint16_t bit = 0; bit < M370_BITS; ++bit) {
-        const int  nibble = hexNibble(payload.charAt(bit / 4));
-        const bool on     = (nibble & (1 << (3 - (bit % 4)))) != 0;
-        if (on) packed[bit >> 3] |= 1U << (bit & 7U);
-    }
+    decodeNormalizedM370ToPackedBits(normalized, packed);
 
-    lockFrame();
-    memcpy(frameBits, packed, FRAME_BYTES);
-    state.lastM370   = normalized;
-    state.lastReason = reason;
-    ++state.framesAccepted;
-    showCurrentFrameNoLock();
-    unlockFrame();
+    withFrameLock([&]() {
+        memcpy(frameBits, packed, FRAME_BYTES);
+        state.lastM370   = normalized;
+        state.lastReason = reason;
+        ++state.framesAccepted;
+        showCurrentFrameNoLock();
+    });
     return true;
 }
 
 void applyPackedFrame(const uint8_t* packedBits, const String& reason) {
-    lockFrame();
-    memcpy(frameBits, packedBits, FRAME_BYTES);
-    state.lastReason = reason;
-    ++state.framesAccepted;
-    showCurrentFrameNoLock();
-    unlockFrame();
+    withFrameLock([&]() {
+        memcpy(frameBits, packedBits, FRAME_BYTES);
+        state.lastReason = reason;
+        ++state.framesAccepted;
+        showCurrentFrameNoLock();
+    });
 }
 
 void applyBlankFrame(const String& reason) {
-    lockFrame();
-    memset(frameBits, 0, FRAME_BYTES);
-    state.lastM370   = blankM370();
-    state.lastReason = reason;
-    ++state.framesAccepted;
-    showCurrentFrameNoLock();
-    unlockFrame();
+    withFrameLock([&]() {
+        memset(frameBits, 0, FRAME_BYTES);
+        state.lastM370   = blankM370();
+        state.lastReason = reason;
+        ++state.framesAccepted;
+        showCurrentFrameNoLock();
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -278,9 +278,7 @@ void applyBlankFrame(const String& reason) {
 void setColorStateNoRender(const String& input) {
     uint8_t r, g, b;
     if (!parseColorHex(input, r, g, b)) return;
-    char buf[8];
-    snprintf(buf, sizeof(buf), "#%02x%02x%02x", r, g, b);
-    state.colorHex = buf;
+    state.colorHex = formatColorHex(r, g, b);
     state.colorR   = r;
     state.colorG   = g;
     state.colorB   = b;
@@ -292,22 +290,20 @@ bool setColor(const String& input, String& error) {
         error = "color must be #RRGGBB or RRGGBB (hex)";
         return false;
     }
-    char buf[8];
-    snprintf(buf, sizeof(buf), "#%02x%02x%02x", r, g, b);
-    lockFrame();
-    state.colorHex = buf;
-    state.colorR   = r;
-    state.colorG   = g;
-    state.colorB   = b;
-    showCurrentFrameNoLock();
-    unlockFrame();
+    withFrameLock([&]() {
+        state.colorHex = formatColorHex(r, g, b);
+        state.colorR   = r;
+        state.colorG   = g;
+        state.colorB   = b;
+        showCurrentFrameNoLock();
+    });
     return true;
 }
 
 void setBrightness(int raw) {
     raw = constrain(raw, MIN_BRIGHTNESS, MAX_BRIGHTNESS);
-    lockFrame();
-    state.brightness = static_cast<uint8_t>(raw);
-    showCurrentFrameNoLock();
-    unlockFrame();
+    withFrameLock([&]() {
+        state.brightness = static_cast<uint8_t>(raw);
+        showCurrentFrameNoLock();
+    });
 }

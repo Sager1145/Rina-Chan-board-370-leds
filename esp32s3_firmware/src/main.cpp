@@ -1,6 +1,4 @@
 #include <Arduino.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
 
 #include "config.h"
 #include "state.h"
@@ -10,6 +8,7 @@
 #include "scroll.h"
 #include "buttons.h"
 #include "web_api.h"
+#include "power_monitor.h"
 
 // ---------------------------------------------------------------------------
 // setup
@@ -59,6 +58,9 @@ void setup() {
     // Initialize hardware buttons
     initHardwareButtons();
 
+    // Initialize battery / charge ADC monitoring
+    initPowerMonitor();
+
     // Start networking and HTTP server
     startAccessPoint();
     startWebServer();
@@ -71,6 +73,7 @@ void setup() {
 void loop() {
     webServerTick();
     serviceHardwareButtons();
+    servicePowerMonitor();
     serviceDeferredFaceRestore();
     serviceAutoPlayback();
     delay(1);

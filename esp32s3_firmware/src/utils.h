@@ -10,3 +10,6 @@ size_t jsonCapacityFor(size_t sourceBytes);
 // Parse and validate a 6-digit hex color string ("#RRGGBB" or "RRGGBB").
 // On success writes r/g/b components and returns true.
 bool parseColorHex(const String& input, uint8_t& r, uint8_t& g, uint8_t& b);
+
+// Format RGB components as a lowercase "#rrggbb" string.
+String formatColorHex(uint8_t r, uint8_t g, uint8_t b);

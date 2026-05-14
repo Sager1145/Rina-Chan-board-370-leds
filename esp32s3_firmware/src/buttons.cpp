@@ -29,6 +29,14 @@ static ButtonRuntime* buttonByCode(const char* code) {
     return nullptr;
 }
 
+static bool isFaceRepeatButton(const ButtonRuntime& button) {
+    return strcmp(button.code, "B1") == 0 || strcmp(button.code, "B2") == 0;
+}
+
+static bool isBrightnessRepeatButton(const ButtonRuntime& button) {
+    return strcmp(button.code, "B4") == 0 || strcmp(button.code, "B5") == 0;
+}
+
 static bool isHardwareButtonPressed(const char* code) {
     ButtonRuntime* b = buttonByCode(code);
     return b && b->pressed;
@@ -46,39 +54,6 @@ static void fireHardwareButtonAction(const char* code) {
 }
 
 // ---------------------------------------------------------------------------
-// Mode toggle (B3 / M-A)
-// ---------------------------------------------------------------------------
-
-static bool handleModeButtonAction(const String& source) {
-    const bool targetAuto    = !isAutoMode();
-    const bool hadOtherPlayback = playbackIsNonFaceActivity();
-
-    // B3 also serves as an emergency exit from text scroll / overlays.
-    // When leaving another playback mode: push all-off, then restore the
-    // current saved-face index in the requested mode.  This prevents the old
-    // scroll frame from lingering.
-    stopFirmwareScroll(false, false);
-    state.restoreAutoAfterScroll = false;
-
-    if (!setMode(targetAuto ? "auto" : "manual", true)) return false;
-
-    const String restoreReason = source +
-        (targetAuto ? "_B3_auto_current_saved_face" : "_B3_manual_current_saved_face");
-
-    if (hadOtherPlayback) {
-        applyBlankFrame(source + "_B3_clear_before_saved_face");
-        scheduleCurrentSavedFaceRestoreAfterBlank(targetAuto, restoreReason);
-        return true;
-    }
-
-    const bool faceApplied = applyCurrentSavedFaceForMode(restoreReason, targetAuto);
-    if (!faceApplied) {
-        Serial.println("B3/M-A switched mode but no saved face was available to apply");
-    }
-    return true;
-}
-
-// ---------------------------------------------------------------------------
 // runButtonAction  (public)
 // ---------------------------------------------------------------------------
 
@@ -88,9 +63,7 @@ bool runButtonAction(const String& button, const String& source) {
     code.toUpperCase();
     if (code.isEmpty()) return false;
 
-    state.lastButton = code;
-
-    if (code == "B3") return handleModeButtonAction(source);
+    if (code == "B3") return toggleModeFromButtonAction(source);
 
     if (code == "B1" || code == "B2") {
         // Cancel scroll / other active playback first, then navigate faces.
@@ -124,16 +97,6 @@ bool runButtonAction(const String& button, const String& source) {
         return true;
     }
 
-    if (code == "B6B3") {
-        state.playback   = "network_info";
-        state.lastReason = source + "_B6B3_network_info";
-        return true;
-    }
-    if (code == "B6S" || code == "B6L") {
-        state.lastReason = source + "_" + code + "_battery_unhandled";
-        return true;
-    }
-
     return false;
 }
 
@@ -146,14 +109,6 @@ static void handleHardwareButtonPress(ButtonRuntime& button, uint32_t now) {
     button.lastRepeatMs  = now;
     button.comboConsumed = false;
 
-    // Combo: B3 + B6
-    if ((strcmp(button.code, "B3") == 0 && isHardwareButtonPressed("B6")) ||
-        (strcmp(button.code, "B6") == 0 && isHardwareButtonPressed("B3"))) {
-        markButtonComboConsumed("B3");
-        markButtonComboConsumed("B6");
-        fireHardwareButtonAction("B6B3");
-        return;
-    }
     // Combo: B3 + B1
     if (strcmp(button.code, "B1") == 0 && isHardwareButtonPressed("B3")) {
         button.comboConsumed = true;
@@ -170,8 +125,7 @@ static void handleHardwareButtonPress(ButtonRuntime& button, uint32_t now) {
     }
 
     // Single press (fire immediately for face nav and brightness)
-    if (strcmp(button.code, "B1") == 0 || strcmp(button.code, "B2") == 0 ||
-        strcmp(button.code, "B4") == 0 || strcmp(button.code, "B5") == 0) {
+    if (isFaceRepeatButton(button) || isBrightnessRepeatButton(button)) {
         fireHardwareButtonAction(button.code);
     }
 }
@@ -189,8 +143,8 @@ static void serviceHardwareButtonRepeats(uint32_t now) {
         ButtonRuntime& button = buttons[i];
         if (!button.pressed || button.comboConsumed) continue;
 
-        const bool faceButton       = strcmp(button.code, "B1") == 0 || strcmp(button.code, "B2") == 0;
-        const bool brightnessButton = strcmp(button.code, "B4") == 0 || strcmp(button.code, "B5") == 0;
+        const bool faceButton       = isFaceRepeatButton(button);
+        const bool brightnessButton = isBrightnessRepeatButton(button);
         if (!faceButton && !brightnessButton) continue;
         if (faceButton && isHardwareButtonPressed("B3")) continue;
 

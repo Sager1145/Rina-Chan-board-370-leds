@@ -18,7 +18,7 @@ bool mountFilesystem() {
     return fsMounted;
 }
 
-bool ensureResourcesDirectory() {
+static bool ensureResourcesDirectory() {
     if (!fsMounted) return false;
     if (LittleFS.exists("/resources")) return true;
     return LittleFS.mkdir("/resources");
@@ -80,8 +80,6 @@ bool loadRuntimeSettings() {
 
     if (doc["autoIntervalMs"].is<uint32_t>()) {
         setAutoInterval(doc["autoIntervalMs"].as<uint32_t>(), false);
-    } else if (doc["auto_interval_ms"].is<uint32_t>()) {
-        setAutoInterval(doc["auto_interval_ms"].as<uint32_t>(), false);
     }
 
     Serial.printf("Runtime settings loaded: mode=%s autoIntervalMs=%lu\n",
@@ -137,7 +135,10 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
         error = "LittleFS is not mounted";
         return 0;
     }
-    ensureResourcesDirectory();
+    if (!ensureResourcesDirectory()) {
+        error = "failed to ensure /resources for saved_faces.json";
+        return 0;
+    }
 
     File file = LittleFS.open(SAVED_FACES_PATH, "w");
     if (!file) {
@@ -242,7 +243,6 @@ bool loadSavedFaces(bool applyStartupFace) {
     // Select which face index to use
     int selectedIndex     = -1;
     int firstDefaultIndex = -1;
-    int firstFaceIndex    = autoFaceCount > 0 ? 0 : -1;
     for (uint16_t i = 0; i < autoFaceCount; ++i) {
         if (autoFaces[i].isDefault && firstDefaultIndex < 0) firstDefaultIndex = i;
         if (selectedIndex < 0) {
@@ -259,25 +259,20 @@ bool loadSavedFaces(bool applyStartupFace) {
     if (selectedIndex < 0) {
         selectedIndex = (!applyStartupFace && previousFaceIndex < autoFaceCount)
                             ? previousFaceIndex
-                            : (firstDefaultIndex >= 0 ? firstDefaultIndex : firstFaceIndex);
+                            : (firstDefaultIndex >= 0 ? firstDefaultIndex : 0);
     }
     state.autoFaceIndex = static_cast<uint16_t>(selectedIndex);
     Serial.printf("Loaded %u saved faces for firmware auto mode\n", autoFaceCount);
 
     if (applyStartupFace) {
         String error;
-        const String   bootMode       = state.mode;
-        const uint32_t bootIntervalMs = state.autoIntervalMs;
-        state.defaultBrightness = DEFAULT_BRIGHTNESS;
-        state.brightness        = state.defaultBrightness;
-        state.playback          = DEFAULT_PLAYBACK;
-        state.paused            = false;
+        state.brightness = DEFAULT_BRIGHTNESS;
+        state.playback   = DEFAULT_PLAYBACK;
+        state.paused     = false;
         if (!applyM370(autoFaces[state.autoFaceIndex].m370, STARTUP_FACE_REASON, error)) {
             Serial.printf("startup M370 failed: %s\n", error.c_str());
             return false;
         }
-        state.autoIntervalMs = bootIntervalMs;
-        setMode(bootMode.c_str(), false);
         Serial.printf("Loaded startup face index: %u\n", state.autoFaceIndex);
     }
 

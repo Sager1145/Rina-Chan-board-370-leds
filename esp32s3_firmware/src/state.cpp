@@ -18,16 +18,3 @@ volatile bool     ledRenderRequested  = false;
 uint32_t          lastLedShowUs       = 0;
 
 uint16_t          logicalToPhysicalMap[LED_COUNT] = {};
-
-void lockFrame() {
-    if (frameMutex) xSemaphoreTake(frameMutex, portMAX_DELAY);
-}
-void unlockFrame() {
-    if (frameMutex) xSemaphoreGive(frameMutex);
-}
-void lockScroll() {
-    if (scrollMutex) xSemaphoreTake(scrollMutex, portMAX_DELAY);
-}
-void unlockScroll() {
-    if (scrollMutex) xSemaphoreGive(scrollMutex);
-}

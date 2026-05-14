@@ -1,5 +1,6 @@
 #include "faces.h"
 #include "state.h"
+#include "sync.h"
 #include "config.h"
 #include "led_renderer.h"
 #include "storage.h"   // for ensureSavedFacesLoaded, saveRuntimeSettings
@@ -54,11 +55,15 @@ void setAutoInterval(uint32_t ms, bool persistSettings) {
 // Playback state query
 // ---------------------------------------------------------------------------
 
+bool isScrollPlayback(const String& playback) {
+    return playback == "scroll" ||
+           playback == "scroll_paused" ||
+           playback == "scroll_step";
+}
+
 bool playbackIsNonFaceActivity() {
     if (state.firmwareScrollActive || state.firmwareScrollPaused) return true;
-    if (state.playback == "scroll" ||
-        state.playback == "scroll_paused" ||
-        state.playback == "scroll_step") return true;
+    if (isScrollPlayback(state.playback)) return true;
     if (state.lastReason.startsWith("text_scroll_") ||
         state.lastReason.startsWith("custom_") ||
         state.lastReason.startsWith("parts_") ||
@@ -108,11 +113,37 @@ bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode) {
     return applied;
 }
 
+bool toggleModeFromButtonAction(const String& source) {
+    const bool targetAuto       = !isAutoMode();
+    const bool hadOtherPlayback = playbackIsNonFaceActivity();
+
+    // B3 also serves as an emergency exit from text scroll / overlays.
+    stopFirmwareScroll(false, false);
+    state.restoreAutoAfterScroll = false;
+
+    if (!setMode(targetAuto ? "auto" : "manual", true)) return false;
+
+    const String restoreReason = source +
+        (targetAuto ? "_B3_auto_current_saved_face" : "_B3_manual_current_saved_face");
+
+    if (hadOtherPlayback) {
+        applyBlankFrame(source + "_B3_clear_before_saved_face");
+        scheduleCurrentSavedFaceRestoreAfterBlank(targetAuto, restoreReason);
+        return true;
+    }
+
+    const bool faceApplied = applyCurrentSavedFaceForMode(restoreReason, targetAuto);
+    if (!faceApplied) {
+        Serial.println("B3/M-A switched mode but no saved face was available to apply");
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Scroll stop / startup face restore
 // ---------------------------------------------------------------------------
 
-int16_t findStartupDefaultFaceIndex() {
+static int16_t findStartupDefaultFaceIndex() {
     if (!ensureSavedFacesLoaded()) return -1;
 
     int16_t firstDefaultIndex = -1;
@@ -125,7 +156,7 @@ int16_t findStartupDefaultFaceIndex() {
     return firstDefaultIndex >= 0 ? firstDefaultIndex : 0;
 }
 
-bool applyStartupDefaultFaceAfterScrollStop(bool restoreAutoMode) {
+static bool applyStartupDefaultFaceAfterScrollStop(bool restoreAutoMode) {
     setMode(restoreAutoMode ? "auto" : "manual", false);
     state.paused = false;
 
@@ -162,7 +193,7 @@ static void scheduleDeferredFaceRestore(uint8_t kind, bool autoMode, const Strin
     state.deferredFaceRestoreReason   = reason;
 }
 
-void scheduleStartupDefaultFaceRestoreAfterBlank(bool autoMode) {
+static void scheduleStartupDefaultFaceRestoreAfterBlank(bool autoMode) {
     scheduleDeferredFaceRestore(DEFERRED_RESTORE_STARTUP_DEFAULT,
                                 autoMode,
                                 "firmware_text_scroll_stop_default_saved_face");
@@ -205,21 +236,19 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
     cancelDeferredFaceRestore();
 
     bool shouldRestoreAuto = false;
-    lockScroll();
-    shouldRestoreAuto               = restoreAuto && state.restoreAutoAfterScroll;
-    state.firmwareScrollActive      = false;
-    state.firmwareScrollPaused      = false;
-    state.restoreAutoAfterScroll    = false;
-    state.lastScrollFrameMs         = 0;
-    state.scrollFrameCount          = 0;
-    state.scrollFrameIndex          = 0;
-    state.paused                    = false;
-    if (state.playback == "scroll" ||
-        state.playback == "scroll_paused" ||
-        state.playback == "scroll_step") {
-        state.playback = DEFAULT_PLAYBACK;
-    }
-    unlockScroll();
+    withScrollLock([&]() {
+        shouldRestoreAuto               = restoreAuto && state.restoreAutoAfterScroll;
+        state.firmwareScrollActive      = false;
+        state.firmwareScrollPaused      = false;
+        state.restoreAutoAfterScroll    = false;
+        state.lastScrollFrameMs         = 0;
+        state.scrollFrameCount          = 0;
+        state.scrollFrameIndex          = 0;
+        state.paused                    = false;
+        if (isScrollPlayback(state.playback)) {
+            state.playback = DEFAULT_PLAYBACK;
+        }
+    });
 
     if (clearDisplay) {
         // Two-stage visible sequence without blocking the caller:
@@ -239,21 +268,21 @@ void startFirmwareScroll(uint16_t intervalMs) {
     uint8_t firstFrame[FRAME_BYTES];
     bool    hasFirstFrame = false;
 
-    lockScroll();
-    if (state.scrollFrameCount > 0) {
-        state.restoreAutoAfterScroll = state.restoreAutoAfterScroll || isAutoMode();
-        if (state.restoreAutoAfterScroll) state.mode = "manual";
-        state.scrollIntervalMs   = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
-        state.scrollFrameIndex   = 0;
-        state.lastScrollFrameMs  = millis();
-        state.firmwareScrollActive  = true;
-        state.firmwareScrollPaused  = false;
-        state.paused             = false;
-        state.playback           = "scroll";
-        memcpy(firstFrame, scrollFrameBits[0], FRAME_BYTES);
-        hasFirstFrame = true;
-    }
-    unlockScroll();
+    withScrollLock([&]() {
+        if (state.scrollFrameCount > 0) {
+            state.restoreAutoAfterScroll = state.restoreAutoAfterScroll || isAutoMode();
+            if (state.restoreAutoAfterScroll) state.mode = "manual";
+            state.scrollIntervalMs   = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+            state.scrollFrameIndex   = 0;
+            state.lastScrollFrameMs  = millis();
+            state.firmwareScrollActive  = true;
+            state.firmwareScrollPaused  = false;
+            state.paused             = false;
+            state.playback           = "scroll";
+            memcpy(firstFrame, scrollFrameBits[0], FRAME_BYTES);
+            hasFirstFrame = true;
+        }
+    });
 
     if (hasFirstFrame) applyPackedFrame(firstFrame, "firmware_text_scroll_start");
 }
