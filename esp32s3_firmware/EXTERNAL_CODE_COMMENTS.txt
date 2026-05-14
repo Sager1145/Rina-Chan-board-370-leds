@@ -150,3 +150,9 @@ Firmware hardware-bus isolation update:
   - Protects runtime_settings.json and saved_faces.json filesystem metadata checks, opens, JSON deserialization, JSON serialization, and closes with hardwareBusMutex.
 - src/power_monitor.cpp
   - Extends the same hardware-bus protection to battery_calib.json reads/writes so calibration persistence cannot overlap a WS2812 strip.show().
+
+Firmware ADC EMA smoothing update:
+- src/power_monitor.cpp
+  - Adds BATTERY_EMA_ALPHA = 0.05 and CHARGE_EMA_ALPHA = 0.20 one-pole EMA filters on the calculated battery and charge voltages.
+  - First valid sample is applied directly so startup readings converge immediately; subsequent samples are blended to absorb ADC noise and WS2812 load-transient voltage sag/rebound.
+  - batteryPercent remains calculated directly from the smoothed voltage on every sample. No monotonic discharge/charge percentage lock is added, so percentage can still rise or fall according to the filtered voltage.

@@ -96,3 +96,10 @@ esp32s3_firmware/src/power_monitor.cpp
 esp32s3_firmware/EXTERNAL_CODE_COMMENTS.txt
 esp32s3_firmware/PATCH_CONTENTS.txt
   Documentation synchronized with the hardware-bus isolation update.
+
+esp32s3_firmware/src/power_monitor.cpp
+  Adds EMA low-pass smoothing for battery voltage and charge-detect voltage only. Battery percentage is still recalculated directly from smoothed voltage; no monotonic percentage lock is included.
+
+esp32s3_firmware/EXTERNAL_CODE_COMMENTS.txt
+esp32s3_firmware/PATCH_CONTENTS.txt
+  Documentation synchronized with the ADC EMA smoothing update.

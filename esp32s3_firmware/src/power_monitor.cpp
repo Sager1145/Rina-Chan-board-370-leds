@@ -10,6 +10,13 @@
 
 PowerStatus powerStatus;
 
+// EMA low-pass filters for ADC-derived voltages.
+// Lower alpha = smoother output and slower response. These filters stabilize
+// battery / charge readings under WS2812B load transients without adding any
+// monotonic percentage lock.
+constexpr float BATTERY_EMA_ALPHA = 0.05f;
+constexpr float CHARGE_EMA_ALPHA  = 0.20f;
+
 static float dividerScale(float r1k, float r2k) {
     return (r1k + r2k) / r2k;
 }
@@ -203,7 +210,15 @@ static void sampleBattery(uint32_t now) {
     const uint16_t adcMv = readTrimmedAdcMilliVolts(BATTERY_ADC_PIN);
     const float vadc = static_cast<float>(adcMv) / 1000.0f;
     powerStatus.batteryAdcMv = adcMv;
-    powerStatus.vbat = vadc * BATTERY_CAL_SCALE + BATTERY_CAL_OFFSET_V;
+
+    const float instantVbat = vadc * BATTERY_CAL_SCALE + BATTERY_CAL_OFFSET_V;
+    if (!powerStatus.batteryValid || !isfinite(powerStatus.vbat)) {
+        powerStatus.vbat = instantVbat;
+    } else {
+        powerStatus.vbat = (powerStatus.vbat * (1.0f - BATTERY_EMA_ALPHA)) +
+                            (instantVbat * BATTERY_EMA_ALPHA);
+    }
+
     updateBatteryCalibration(powerStatus.vbat, powerStatus.charging, now);
     powerStatus.batteryPercent = batteryPercentFromVoltage(powerStatus.vbat);
     powerStatus.batteryValid = true;
@@ -214,7 +229,15 @@ static void sampleCharge(uint32_t now) {
     const uint16_t adcMv = readTrimmedAdcMilliVolts(CHARGE_ADC_PIN);
     const float vadc = static_cast<float>(adcMv) / 1000.0f;
     powerStatus.chargeAdcMv = adcMv;
-    powerStatus.vcharge = vadc * CHARGE_CAL_SCALE + CHARGE_CAL_OFFSET_V;
+
+    const float instantVcharge = vadc * CHARGE_CAL_SCALE + CHARGE_CAL_OFFSET_V;
+    if (!powerStatus.chargeValid || !isfinite(powerStatus.vcharge)) {
+        powerStatus.vcharge = instantVcharge;
+    } else {
+        powerStatus.vcharge = (powerStatus.vcharge * (1.0f - CHARGE_EMA_ALPHA)) +
+                               (instantVcharge * CHARGE_EMA_ALPHA);
+    }
+
     powerStatus.charging = powerStatus.vcharge > CHARGE_PRESENT_V;
     powerStatus.chargeValid = true;
     powerStatus.lastChargeMs = now;
