@@ -141,7 +141,9 @@ void renderCurrentFrameToLedStrip() {
     // otherwise push the first LED's T0H/T1H decision into an ambiguous region
     // during rapid successive refreshes.
     delayMicroseconds(LED_SIGNAL_RESET_US);
+    lockHardwareBus();
     strip.show();
+    unlockHardwareBus();
     lastLedShowUs = micros();
     // Post-show reset: begin the latch window immediately so that subsequent
     // render requests or the scroll task's wakeup do not accidentally clock a
@@ -158,7 +160,9 @@ void ledStripBegin() {
     strip.setBrightness(DEFAULT_BRIGHTNESS);
     strip.clear();
     delayMicroseconds(LED_SIGNAL_RESET_US);
+    lockHardwareBus();
     strip.show();
+    unlockHardwareBus();
     lastLedShowUs = micros();
     // Post-show reset: mirror the same idle-low window used by
     // renderCurrentFrameToLedStrip() so that the first real frame rendered

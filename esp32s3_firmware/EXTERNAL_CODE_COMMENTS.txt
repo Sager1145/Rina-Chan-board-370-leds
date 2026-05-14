@@ -133,3 +133,20 @@ WebUI proportional LED matrix edge-gap scaling update:
   - Replaces the fixed LED preview wrapper inset with --matrix-edge-gap, derived from the active matrix --cell value.
   - fitMatrix() now reserves the proportional edge gap in the same formula that calculates --cell, so shrinking a card shrinks both the LED cells and the transparent distance from the LED matrix boundary to the preview card's matrix area.
   - The LED matrix remains borderless: no wrapper border/background/shadow is reintroduced.
+
+Firmware hardware-bus isolation update:
+- src/state.h / src/state.cpp
+  - Adds hardwareBusMutex as the shared FreeRTOS mutex for mutually excluding LittleFS SPI flash access and WS2812 physical waveform output.
+- src/sync.h / src/sync.cpp
+  - Adds lockHardwareBus(), unlockHardwareBus(), and withHardwareBusLock() helper wrappers.
+- src/main.cpp
+  - Creates hardwareBusMutex during setup() before LED strip initialization, filesystem mounting, saved-face loading, or task startup.
+- src/led_renderer.cpp
+  - Wraps every strip.show() call with hardwareBusMutex, including boot clear and normal render output, so WS2812 waveform transmission owns the hardware bus while active.
+- src/web_api.cpp
+  - Replaces blocking server.streamFile() usage with streamFileChunked(): 1 KB LittleFS read slices protected by hardwareBusMutex, followed by server.sendContent() and delay(1) to yield to the render task between slices.
+  - Protects LittleFS exists/open/size/close operations used by static WebUI serving and saved_faces.json GET.
+- src/storage.cpp
+  - Protects runtime_settings.json and saved_faces.json filesystem metadata checks, opens, JSON deserialization, JSON serialization, and closes with hardwareBusMutex.
+- src/power_monitor.cpp
+  - Extends the same hardware-bus protection to battery_calib.json reads/writes so calibration persistence cannot overlap a WS2812 strip.show().

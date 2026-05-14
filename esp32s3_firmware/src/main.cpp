@@ -20,8 +20,9 @@ void setup() {
     state.bootMs = millis();
 
     // FreeRTOS primitives
-    frameMutex  = xSemaphoreCreateMutex();
-    scrollMutex = xSemaphoreCreateMutex();
+    frameMutex       = xSemaphoreCreateMutex();
+    scrollMutex      = xSemaphoreCreateMutex();
+    hardwareBusMutex = xSemaphoreCreateMutex();
 
     // Build logical→physical LED index map
     initLedIndexMap();

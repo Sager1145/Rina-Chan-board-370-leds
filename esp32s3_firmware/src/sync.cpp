@@ -16,3 +16,12 @@ void lockScroll() {
 void unlockScroll() {
     if (scrollMutex) xSemaphoreGive(scrollMutex);
 }
+
+
+void lockHardwareBus() {
+    if (hardwareBusMutex) xSemaphoreTake(hardwareBusMutex, portMAX_DELAY);
+}
+
+void unlockHardwareBus() {
+    if (hardwareBusMutex) xSemaphoreGive(hardwareBusMutex);
+}

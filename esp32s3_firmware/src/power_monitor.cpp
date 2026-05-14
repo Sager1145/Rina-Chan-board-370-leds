@@ -1,6 +1,7 @@
 #include "power_monitor.h"
 #include "config.h"
 #include "state.h"
+#include "sync.h"
 
 #include <algorithm>
 #include <ArduinoJson.h>
@@ -79,16 +80,26 @@ static bool loadBatteryCalibration(uint32_t now) {
     powerStatus.lastCalibMinMs = now;
     powerStatus.batteryCalibLoaded = false;
 
-    if (!fsMounted || !LittleFS.exists(BATTERY_CALIB_PATH)) {
+    bool calibExists = false;
+    if (fsMounted) {
+        lockHardwareBus();
+        calibExists = LittleFS.exists(BATTERY_CALIB_PATH);
+        unlockHardwareBus();
+    }
+    if (!fsMounted || !calibExists) {
         return false;
     }
 
+    lockHardwareBus();
     File file = LittleFS.open(BATTERY_CALIB_PATH, "r");
+    unlockHardwareBus();
     if (!file) return false;
 
     DynamicJsonDocument doc(512);
+    lockHardwareBus();
     DeserializationError err = deserializeJson(doc, file, DeserializationOption::NestingLimit(6));
     file.close();
+    unlockHardwareBus();
     if (err) {
         Serial.printf("battery_calib.json parse failed: %s\n", err.c_str());
         return false;
@@ -106,7 +117,11 @@ static bool loadBatteryCalibration(uint32_t now) {
 
 static bool saveBatteryCalibration(uint32_t now) {
     if (!fsMounted) return false;
-    if (!LittleFS.exists("/resources") && !LittleFS.mkdir("/resources")) {
+    bool resourcesOk = false;
+    lockHardwareBus();
+    resourcesOk = LittleFS.exists("/resources") || LittleFS.mkdir("/resources");
+    unlockHardwareBus();
+    if (!resourcesOk) {
         Serial.println("Failed to ensure /resources for battery calibration");
         return false;
     }
@@ -122,13 +137,17 @@ static bool saveBatteryCalibration(uint32_t now) {
     doc["last_min_ms"] = powerStatus.lastCalibMinMs;
     doc["updated_at_ms"] = now;
 
+    lockHardwareBus();
     File file = LittleFS.open(BATTERY_CALIB_PATH, "w");
+    unlockHardwareBus();
     if (!file) {
         Serial.println("Failed to open battery_calib.json for write");
         return false;
     }
+    lockHardwareBus();
     serializeJson(doc, file);
     file.close();
+    unlockHardwareBus();
     powerStatus.batteryCalibDirty = false;
     powerStatus.batteryCalibDirtySinceMs = 0;
     powerStatus.batteryCalibLoaded = true;

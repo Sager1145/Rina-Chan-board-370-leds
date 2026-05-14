@@ -4,6 +4,7 @@
 #include "utils.h"
 #include "led_renderer.h"
 #include "faces.h"
+#include "sync.h"
 #include <LittleFS.h>
 
 // ---------------------------------------------------------------------------
@@ -20,8 +21,11 @@ bool mountFilesystem() {
 
 static bool ensureResourcesDirectory() {
     if (!fsMounted) return false;
-    if (LittleFS.exists("/resources")) return true;
-    return LittleFS.mkdir("/resources");
+    bool ok = false;
+    lockHardwareBus();
+    ok = LittleFS.exists("/resources") || LittleFS.mkdir("/resources");
+    unlockHardwareBus();
+    return ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,34 +46,46 @@ bool saveRuntimeSettings() {
     doc["autoIntervalMs"] = state.autoIntervalMs;
     doc["updatedAtMs"]    = millis();
 
+    lockHardwareBus();
     File file = LittleFS.open(SETTINGS_PATH, "w");
+    unlockHardwareBus();
     if (!file) {
         Serial.println("Failed to open runtime_settings.json for write");
         return false;
     }
+    lockHardwareBus();
     serializeJson(doc, file);
     file.close();
+    unlockHardwareBus();
     ++state.settingsWrites;
     return true;
 }
 
 bool loadRuntimeSettings() {
     if (!fsMounted) return false;
-    if (!LittleFS.exists(SETTINGS_PATH)) {
+    bool settingsExists = false;
+    lockHardwareBus();
+    settingsExists = LittleFS.exists(SETTINGS_PATH);
+    unlockHardwareBus();
+    if (!settingsExists) {
         Serial.println("runtime_settings.json not found; writing defaults");
         saveRuntimeSettings();
         return false;
     }
 
+    lockHardwareBus();
     File file = LittleFS.open(SETTINGS_PATH, "r");
+    unlockHardwareBus();
     if (!file) {
         Serial.println("Failed to open runtime_settings.json");
         return false;
     }
 
     DynamicJsonDocument doc(768);
+    lockHardwareBus();
     DeserializationError err = deserializeJson(doc, file, DeserializationOption::NestingLimit(8));
     file.close();
+    unlockHardwareBus();
     if (err) {
         Serial.printf("runtime_settings.json parse failed: %s\n", err.c_str());
         return false;
@@ -140,13 +156,17 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
         return 0;
     }
 
+    lockHardwareBus();
     File file = LittleFS.open(SAVED_FACES_PATH, "w");
+    unlockHardwareBus();
     if (!file) {
         error = "failed to write saved_faces.json";
         return 0;
     }
+    lockHardwareBus();
     const size_t written = serializeJson(document, file);
     file.close();
+    unlockHardwareBus();
     ++state.savedFacesWrites;
     return written;
 }
@@ -165,21 +185,33 @@ bool loadSavedFaces(bool applyStartupFace) {
         Serial.println("LittleFS not mounted; saved faces cannot be loaded");
         return false;
     }
-    if (!LittleFS.exists(SAVED_FACES_PATH)) {
+    bool savedFacesExists = false;
+    lockHardwareBus();
+    savedFacesExists = LittleFS.exists(SAVED_FACES_PATH);
+    unlockHardwareBus();
+    if (!savedFacesExists) {
         Serial.println("No saved_faces.json; LED output starts blank");
         autoFaceCount = 0;
         return false;
     }
 
+    lockHardwareBus();
     File file = LittleFS.open(SAVED_FACES_PATH, "r");
+    unlockHardwareBus();
     if (!file) {
         Serial.println("Failed to open saved_faces.json");
         return false;
     }
 
-    DynamicJsonDocument doc(jsonCapacityFor(file.size()));
+    lockHardwareBus();
+    const size_t savedFacesSize = file.size();
+    unlockHardwareBus();
+
+    DynamicJsonDocument doc(jsonCapacityFor(savedFacesSize));
+    lockHardwareBus();
     DeserializationError err = deserializeJson(doc, file, DeserializationOption::NestingLimit(32));
     file.close();
+    unlockHardwareBus();
     if (err) {
         Serial.printf("saved_faces.json parse failed: %s\n", err.c_str());
         autoFaceCount = 0;

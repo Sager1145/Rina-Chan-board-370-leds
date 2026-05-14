@@ -42,6 +42,56 @@ static void addCorsHeaders() {
     server.sendHeader("Cache-Control",                "no-store");
 }
 
+static bool littleFsExistsLocked(const String& path) {
+    bool exists = false;
+    lockHardwareBus();
+    exists = LittleFS.exists(path);
+    unlockHardwareBus();
+    return exists;
+}
+
+static File littleFsOpenLocked(const String& path, const char* mode) {
+    lockHardwareBus();
+    File file = LittleFS.open(path, mode);
+    unlockHardwareBus();
+    return file;
+}
+
+static size_t fileSizeLocked(File& file) {
+    lockHardwareBus();
+    const size_t size = file.size();
+    unlockHardwareBus();
+    return size;
+}
+
+static void closeFileLocked(File& file) {
+    lockHardwareBus();
+    file.close();
+    unlockHardwareBus();
+}
+
+static void streamFileChunked(File& file, const String& contentType) {
+    server.setContentLength(fileSizeLocked(file));
+    server.send(200, contentType, "");
+
+    uint8_t buffer[1024];
+    while (true) {
+        size_t bytesRead = 0;
+        bool hasData = false;
+
+        lockHardwareBus();
+        hasData = file.available();
+        if (hasData) {
+            bytesRead = file.read(buffer, sizeof(buffer));
+        }
+        unlockHardwareBus();
+
+        if (!hasData || bytesRead == 0) break;
+        server.sendContent(reinterpret_cast<const char*>(buffer), bytesRead);
+        delay(1);
+    }
+}
+
 static void sendJsonDocument(int status, JsonDocument& doc) {
     String out;
     serializeJson(doc, out);
@@ -217,12 +267,12 @@ static bool serveStaticFile(String path) {
     if (!fsMounted) return false;
     if (path == "/") path = "/index.html";
     if (path.endsWith("/")) path += "index.html";
-    if (!LittleFS.exists(path)) return false;
-    File file = LittleFS.open(path, "r");
+    if (!littleFsExistsLocked(path)) return false;
+    File file = littleFsOpenLocked(path, "r");
     if (!file) return false;
     addCorsHeaders();
-    server.streamFile(file, contentTypeFor(path));
-    file.close();
+    streamFileChunked(file, contentTypeFor(path));
+    closeFileLocked(file);
     return true;
 }
 
@@ -353,12 +403,14 @@ static void handleApiStatus() {
     JsonObject storage = doc.createNestedObject("storage");
     storage["mounted"]           = fsMounted;
     storage["savedFacesPath"]    = SAVED_FACES_PATH;
-    storage["savedFacesExists"]  = fsMounted && LittleFS.exists(SAVED_FACES_PATH);
+    storage["savedFacesExists"]  = fsMounted && littleFsExistsLocked(SAVED_FACES_PATH);
     storage["settingsPath"]      = SETTINGS_PATH;
-    storage["settingsExists"]    = fsMounted && LittleFS.exists(SETTINGS_PATH);
+    storage["settingsExists"]    = fsMounted && littleFsExistsLocked(SETTINGS_PATH);
     if (fsMounted && !scrolling && !summaryOnly) {
+        lockHardwareBus();
         storage["totalBytes"] = static_cast<uint32_t>(LittleFS.totalBytes());
         storage["usedBytes"]  = static_cast<uint32_t>(LittleFS.usedBytes());
+        unlockHardwareBus();
     } else if (summaryOnly) {
         storage["capacitySkippedInSummary"] = true;
     } else if (scrolling) {
@@ -697,14 +749,14 @@ static void handleApiCommand() {
 
 static void handleSavedFacesGet() {
     if (!fsMounted) { sendError(503, "LittleFS is not mounted; run pio run -t uploadfs"); return; }
-    if (!LittleFS.exists(SAVED_FACES_PATH)) {
+    if (!littleFsExistsLocked(SAVED_FACES_PATH)) {
         sendError(404, "saved_faces.json not found; run pio run -t uploadfs"); return;
     }
-    File file = LittleFS.open(SAVED_FACES_PATH, "r");
+    File file = littleFsOpenLocked(SAVED_FACES_PATH, "r");
     if (!file) { sendError(500, "failed to open saved_faces.json"); return; }
     addCorsHeaders();
-    server.streamFile(file, "application/json; charset=utf-8");
-    file.close();
+    streamFileChunked(file, "application/json; charset=utf-8");
+    closeFileLocked(file);
 }
 
 static void handleSavedFacesPost() {

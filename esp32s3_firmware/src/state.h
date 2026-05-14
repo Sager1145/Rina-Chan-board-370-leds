@@ -83,6 +83,7 @@ extern bool               fsMounted;
 // FreeRTOS primitives
 extern SemaphoreHandle_t  frameMutex;
 extern SemaphoreHandle_t  scrollMutex;
+extern SemaphoreHandle_t  hardwareBusMutex;
 extern TaskHandle_t       scrollTaskHandle;
 
 // LED render request (written from any core, consumed by render task)

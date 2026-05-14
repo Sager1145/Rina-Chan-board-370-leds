@@ -81,3 +81,18 @@ esp32s3_firmware/data/index.html
 esp32s3_firmware/EXTERNAL_CODE_COMMENTS.txt
 esp32s3_firmware/plan.md
   Documentation synchronized with the proportional LED matrix edge-gap scaling update.
+
+esp32s3_firmware/src/state.h
+esp32s3_firmware/src/state.cpp
+esp32s3_firmware/src/sync.h
+esp32s3_firmware/src/sync.cpp
+esp32s3_firmware/src/main.cpp
+esp32s3_firmware/src/led_renderer.cpp
+esp32s3_firmware/src/web_api.cpp
+esp32s3_firmware/src/storage.cpp
+esp32s3_firmware/src/power_monitor.cpp
+  Adds hardwareBusMutex isolation between LittleFS SPI flash access and WS2812 strip.show(), replaces blocking streamFile() responses with 1 KB locked read slices plus delay(1), and protects JSON file read/write paths.
+
+esp32s3_firmware/EXTERNAL_CODE_COMMENTS.txt
+esp32s3_firmware/PATCH_CONTENTS.txt
+  Documentation synchronized with the hardware-bus isolation update.

@@ -11,6 +11,7 @@ bool              fsMounted           = false;
 
 SemaphoreHandle_t frameMutex          = nullptr;
 SemaphoreHandle_t scrollMutex         = nullptr;
+SemaphoreHandle_t hardwareBusMutex    = nullptr;
 TaskHandle_t      scrollTaskHandle    = nullptr;
 
 portMUX_TYPE      ledRenderRequestMux = portMUX_INITIALIZER_UNLOCKED;
