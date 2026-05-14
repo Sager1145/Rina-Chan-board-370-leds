@@ -34,4 +34,50 @@ esp32s3_firmware/plan.md
 
 esp32s3_firmware/data/index.html
 esp32s3_firmware/src/web_api.cpp
-  Adds preload-first WebUI startup: /api/status?summary=1 is read before visible UI initialization, color/brightness/power/A-M/playback state is applied first, and startup explicitly skips LED preview/M370.
+  Adds preload-first WebUI startup: /api/status?runtimeOnly=1&noFrame=1 is read before visible UI initialization, color/brightness/power/A-M/playback state is applied first, and startup explicitly skips LED preview/M370.
+
+
+esp32s3_firmware/data/index.html
+esp32s3_firmware/src/web_api.cpp
+  Adds a determinate centered boot progress bar, uses a direct fast runtime-only status fetch during boot, and makes /api/status?runtimeOnly=1 return before matrix/endpoints/storage/stats serialization.
+
+esp32s3_firmware/data/index.html
+  Unifies all LED preview window sizing with the 6.1 read-only preview profile, including shared CSS sizing variables, hidden-page default sizing, and page-switch refitting.
+
+esp32s3_firmware/data/index.html
+  Moves LED text-scroll output down by 2 rows and refines the shared LED preview implementation: common bordered preview frames, 280px/500px min/max height, width+height based ResizeObserver fitting, and border-box LED cells to prevent cutoff at 320px viewport width.
+
+
+esp32s3_firmware/data/index.html
+  Revises LED preview sizing to remove the visible matrix wrapper frame, apply min/max height only on .card.led-preview-card, and refit actual LED cell sizes from card space instead of scaling only the outer wrapper.
+
+esp32s3_firmware/EXTERNAL_CODE_COMMENTS.txt
+esp32s3_firmware/plan.md
+  Documentation synchronized with the no-outer-frame/card-only LED preview sizing revision.
+
+## 2026-05-14 matrix 缩放恢复为历史 HTML 方式
+- 所有主矩阵预览继续共用 `.matrix-wrap` + `.matrix` + `.led` 结构。
+- 缩放逻辑恢复为历史 HTML 的 `fitMatrix()` 模式：从 `.matrix-wrap` 的可用内容宽度/高度计算 `--cell`，缩放 LED cell 本身，而不是缩放外框。
+- `.matrix-wrap` 保持透明、无 border、无 padding、无 background；尺寸上限/下限继续只作用在外层 preview card。
+- `ResizeObserver` 恢复为只观察 `.matrix-wrap`，与历史实现一致，避免 card/reserved-height 额外推导导致尺寸异常。
+
+esp32s3_firmware/data/index.html
+  Fixes live LED matrix preview scaling by actually starting matrix resize observation, observing preview cards/wrappers, and using requestAnimationFrame-scheduled refits during resize/orientation/visualViewport changes so LED cells resize immediately without a page refresh.
+
+esp32s3_firmware/EXTERNAL_CODE_COMMENTS.txt
+esp32s3_firmware/plan.md
+  Documentation synchronized with the live LED preview scaling fix.
+
+esp32s3_firmware/data/index.html
+  Refines LED matrix preview scaling to use fractional --cell values for smooth live resizing, removes vertical min-size constraints from preview cards, keeps the minimum constraint horizontal-only via --led-preview-min-width, keeps the maximum constraint vertical-only via --led-preview-max-height, and adds equal transparent insets around the matrix inside each preview card without restoring any visible LED outer frame.
+
+esp32s3_firmware/EXTERNAL_CODE_COMMENTS.txt
+esp32s3_firmware/plan.md
+  Documentation synchronized with the smooth card-based LED preview scaling revision.
+
+esp32s3_firmware/data/index.html
+  Makes the borderless LED matrix edge inset proportional to the live --cell value. fitMatrix() now reserves the proportional inset while calculating --cell and updates --matrix-edge-gap on each wrapper, so the matrix-to-card spacing shrinks and grows with the LED cells instead of staying fixed.
+
+esp32s3_firmware/EXTERNAL_CODE_COMMENTS.txt
+esp32s3_firmware/plan.md
+  Documentation synchronized with the proportional LED matrix edge-gap scaling update.

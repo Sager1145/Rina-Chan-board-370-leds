@@ -276,12 +276,14 @@ static void handleApiStatus() {
         scrollIntervalMs       = state.scrollIntervalMs;
     });
 
-    const bool scrolling = firmwareScrollActive || firmwareScrollPaused;
-    const bool summaryOnly = server.hasArg("summary") || server.hasArg("noFrame") || server.hasArg("runtimeOnly");
-    DynamicJsonDocument doc((scrolling || summaryOnly) ? 4096 : 6144);
+    const bool scrolling   = firmwareScrollActive || firmwareScrollPaused;
+    const bool runtimeOnly = server.hasArg("runtimeOnly");
+    const bool summaryOnly = runtimeOnly || server.hasArg("summary") || server.hasArg("noFrame");
+    DynamicJsonDocument doc((runtimeOnly || scrolling || summaryOnly) ? 4096 : 6144);
     doc["ok"]     = true;
     doc["device"] = "RinaChanBoard";
     doc["uptimeMs"] = millis() - state.bootMs;
+    if (runtimeOnly) doc["runtimeOnly"] = true;
 
     JsonObject ap = doc.createNestedObject("ap");
     ap["ssid"]    = AP_SSID;
@@ -289,14 +291,6 @@ static void handleApiStatus() {
     ap["clients"] = WiFi.softAPgetStationNum();
 
     addPowerStatus(doc.createNestedObject("power"));
-
-    JsonObject matrix = doc.createNestedObject("matrix");
-    matrix["leds"]                   = LED_COUNT;
-    matrix["m370HexChars"]           = M370_HEX_CHARS;
-    matrix["gpio"]                   = LED_PIN;
-    matrix["m370BitOrder"]           = "logical_row_major";
-    matrix["physicalWiring"]         = SERPENTINE_WIRING ? "serpentine" : "linear";
-    matrix["serpentineOddRowsReversed"] = SERPENTINE_ODD_ROWS_REVERSED;
 
     JsonObject renderer = doc.createNestedObject("renderer");
     renderer["color"]                   = state.colorHex;
@@ -330,6 +324,23 @@ static void handleApiStatus() {
         renderer["lastM370Deferred"] = true;
     }
     renderer["lastReason"] = state.lastReason;
+
+    // The WebUI boot path uses runtimeOnly=1&noFrame=1.  Return immediately
+    // after runtime state so the first visible page can be built from current
+    // firmware color/brightness/power/mode without paying for matrix, storage,
+    // statistics, or last-frame serialization.
+    if (runtimeOnly) {
+        sendJsonDocument(200, doc);
+        return;
+    }
+
+    JsonObject matrix = doc.createNestedObject("matrix");
+    matrix["leds"]                   = LED_COUNT;
+    matrix["m370HexChars"]           = M370_HEX_CHARS;
+    matrix["gpio"]                   = LED_PIN;
+    matrix["m370BitOrder"]           = "logical_row_major";
+    matrix["physicalWiring"]         = SERPENTINE_WIRING ? "serpentine" : "linear";
+    matrix["serpentineOddRowsReversed"] = SERPENTINE_ODD_ROWS_REVERSED;
 
     JsonObject endpoints = doc.createNestedObject("endpoints");
     endpoints["frame"]      = "/api/frame";

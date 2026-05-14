@@ -57,11 +57,79 @@ Non-blocking stop-clear / M-A restore update:
 WebUI preload-first runtime-state update:
 - data/index.html
   - Adds a boot-phase gate so the visible UI is not shown until required firmware runtime state has been fetched or a fallback path has been selected.
-  - Calls /api/status?summary=1 before normal UI initialization.
+  - Calls /api/status?runtimeOnly=1&noFrame=1 before normal UI initialization.
   - Applies the first firmware status with skipFrame=true, so startup sync reads color, brightness, power, mode, playback, interval, and face index without consuming lastM370/M370 LED preview data.
   - Initializes color and brightness controls from the preloaded state without sending set_color/set_brightness back to the firmware during page load.
   - After saved_faces.json is loaded, uses the firmware autoFaceIndex for a local saved-face preview when preload succeeded; falls back to the configured startup default only when firmware preload failed or the page is opened offline.
 - src/web_api.cpp
   - /api/status now supports summary/noFrame/runtimeOnly query parameters.
-  - Summary status omits renderer.lastM370 and renderer.lit and marks renderer.lastM370Skipped=true.
+  - Summary/noFrame status omits renderer.lastM370 and renderer.lit and marks renderer.lastM370Skipped=true.
+  - runtimeOnly status returns immediately after the runtime state fields used by the boot preload path, skipping matrix/endpoints/storage/stats and the LED preview fields.
   - Summary status also skips LittleFS capacity totals to keep the pre-page-load request lightweight.
+
+
+WebUI boot progress/runtime-only acceleration update:
+- data/index.html
+  - Replaces the animated boot bar with a determinate progress bar, percent label, and stage label.
+  - Keeps the boot overlay fixed to the full dynamic viewport and centers the boot card within the entire WebUI window.
+  - Uses bootFastJsonGet() for the first firmware status read so boot preload does not trigger normal apiGet() renderState work.
+  - First preload endpoint is /api/status?runtimeOnly=1&noFrame=1 with a 2500ms timeout.
+  - Progress stages advance through firmware runtime read, local state application, control initialization, saved_faces loading, first render, and ready.
+- src/web_api.cpp
+  - runtimeOnly status sends only the fields needed by WebUI startup runtime sync and returns before matrix/endpoints/storage/stats serialization.
+  - runtimeOnly/noFrame continues to skip renderer.lastM370 and renderer.lit, preserving the no-LED-preview startup policy.
+
+WebUI unified LED preview sizing update:
+- data/index.html
+  - Adds a shared LED preview sizing profile based on the 6.1 read-only LED preview window.
+  - All main matrix previews/editors now use the same default/min/max cell sizing profile: basic, custom editor, parts preview, text-scroll preview, and debug preview.
+  - fitMatrix() reads sizing limits from CSS variables instead of scattering hard-coded values.
+  - Hidden page matrices keep the shared default cell size during startup instead of collapsing to their minimum size when their container reports 0px width.
+  - switchPage() refits and rerenders matrices after the newly selected page becomes visible.
+
+WebUI text-scroll vertical offset and adaptive LED preview frame update:
+- data/index.html
+  - textScrollVerticalOffset() now adds a +2 row vertical shift on top of the centered Ark12 bitmap baseline, moving LED text-scroll output downward by two matrix rows.
+  - The scroll timeline signature includes the vertical offset, so cached scroll frames are regenerated after this layout change.
+  - All main LED preview/edit matrices keep the shared initMatrix()/fitMatrix()/ResizeObserver implementation.
+  - .matrix-wrap.fill-column now uses a common bordered preview frame instead of transparent/no-border wrappers.
+  - Shared preview frame height is clamped to a 280px minimum and 500px maximum.
+  - fitMatrix() calculates cell size from both actual wrapper width and height after subtracting padding and borders, preventing the LED grid from being clipped by the preview border.
+  - .led uses box-sizing:border-box so its own border remains inside the calculated grid cell.
+
+
+WebUI LED preview no-outer-frame / card-only sizing revision:
+- data/index.html
+  - Removes the visible border/background/padding from .matrix-wrap and .matrix-wrap.fill-column so LED matrices no longer have an extra outer frame.
+  - Moves the 280px minimum and 500px maximum preview height constraints onto .card.led-preview-card.
+  - Keeps matrix initialization unified through initMatrix(), fitMatrix(), and ResizeObserver for the basic, custom, parts, text-scroll, and debug previews.
+  - fitMatrix() now calculates the LED --cell value from the card content box and matrix area instead of resizing only the wrapper, so the actual .led elements scale with the available card size.
+  - ResizeObserver watches preview cards as well as matrix wrappers to refit immediately when the card size changes.
+
+## 2026-05-14 matrix 缩放恢复为历史 HTML 方式
+- 所有主矩阵预览继续共用 `.matrix-wrap` + `.matrix` + `.led` 结构。
+- 缩放逻辑恢复为历史 HTML 的 `fitMatrix()` 模式：从 `.matrix-wrap` 的可用内容宽度/高度计算 `--cell`，缩放 LED cell 本身，而不是缩放外框。
+- `.matrix-wrap` 保持透明、无 border、无 padding、无 background；尺寸上限/下限继续只作用在外层 preview card。
+- `ResizeObserver` 恢复为只观察 `.matrix-wrap`，与历史实现一致，避免 card/reserved-height 额外推导导致尺寸异常。
+
+## 2026-05-14 LED matrix 预览实时缩放修复
+
+- 修复 `observeMatrixWraps()` 定义后没有被启动的问题；WebUI 初始化矩阵后立即注册实时缩放观察。
+- 新增 `scheduleMatrixFitRender()`，用 `requestAnimationFrame` 节流 `fitAllMatrices()` + `renderMatrices()`，窗口拖动/旋转/视觉视窗变化时逐帧更新 `--cell`。
+- `ResizeObserver` 同时观察 `.matrix-wrap`、`.led-preview-card` 和 `.debug-measure-card`，card 尺寸变化时不需要刷新页面即可重新缩放 LED 本身。
+- `switchPage()` 与 boot overlay 关闭后都会排队多帧 refit，避免隐藏页面或初次显示时使用旧尺寸。
+
+WebUI smooth LED matrix card scaling update:
+- data/index.html
+  - LED preview matrices now use fractional CSS --cell values instead of Math.floor integer cell sizes, so dragging/resizing the window scales the LED grid continuously instead of stepping one pixel at a time.
+  - .matrix-wrap remains visually transparent: no LED outer border/background/shadow is reintroduced.
+  - A uniform transparent inset is applied around the LED matrix so the matrix edge stays evenly spaced from the preview card's matrix area.
+  - Preview minimum sizing is horizontal-only through --led-preview-min-width; the previous 280px minimum height constraint was removed.
+  - Preview maximum sizing is vertical-only through --led-preview-max-height, so wide cards are height-limited without imposing a separate maximum width rule.
+  - ResizeObserver and viewport resize hooks continue to refit all matrices in requestAnimationFrame.
+
+WebUI proportional LED matrix edge-gap scaling update:
+- data/index.html
+  - Replaces the fixed LED preview wrapper inset with --matrix-edge-gap, derived from the active matrix --cell value.
+  - fitMatrix() now reserves the proportional edge gap in the same formula that calculates --cell, so shrinking a card shrinks both the LED cells and the transparent distance from the LED matrix boundary to the preview card's matrix area.
+  - The LED matrix remains borderless: no wrapper border/background/shadow is reintroduced.
