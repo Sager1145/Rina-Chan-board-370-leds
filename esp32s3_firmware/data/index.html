@@ -7,8 +7,8 @@
 <link rel="preload" href="/resources/fonts/unifont.woff2?v=20260511-continue-unifont1" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/resources/fonts/ark12.woff2?v=20260511-ark12-merged-trad1" as="font" type="font/woff2" crossorigin>
 <style>
-  @font-face{font-family:"GNU Unifont";src:url("resources/fonts/unifont.woff2?v=20260511-continue-unifont1") format("woff2"),url("/resources/fonts/unifont.woff2?v=20260511-continue-unifont1") format("woff2");font-weight:400;font-style:normal;font-display:block;}
-  @font-face{font-family:"Ark Pixel 12px Monospaced";src:url("resources/fonts/ark12.woff2?v=20260511-ark12-merged-trad1") format("woff2"),url("/resources/fonts/ark12.woff2?v=20260511-ark12-merged-trad1") format("woff2");font-weight:400;font-style:normal;font-display:block;}
+  @font-face{font-family:"GNU Unifont";src:url("/resources/fonts/unifont.woff2?v=20260511-continue-unifont1") format("woff2");font-weight:400;font-style:normal;font-display:block;}
+  @font-face{font-family:"Ark Pixel 12px Monospaced";src:url("/resources/fonts/ark12.woff2?v=20260511-ark12-merged-trad1") format("woff2");font-weight:400;font-style:normal;font-display:block;}
   :root{
     --ui-font:"GNU Unifont";
     --scroll-font:"Ark Pixel 12px Monospaced";
@@ -75,12 +75,11 @@
   .select-label{flex:1;min-width:0;overflow:visible;word-break:break-word;font-weight:700;}
   .menu-icon{display:inline-grid;gap:4px;flex:0 0 auto;}
   .menu-icon span{display:block;width:18px;height:2px;border-radius:999px;background:currentColor;}
-  .select-caret{color:var(--muted);transition:.12s transform,.12s color;}
+  .select-caret{color:var(--muted);transition:.12s transform,.12s color;position:static;right:auto;top:auto;pointer-events:none;font-size:13px;line-height:1;}
   .select-shell:hover .select-caret,.select-shell:focus-within .select-caret{color:var(--accent2);}
   .select-shell.open .select-caret{transform:rotate(180deg);}
   .nav{display:grid;gap:8px;padding:8px;position:static;z-index:2147483002;grid-template-columns:1fr;max-height:min(52vh,360px);overflow:auto;}
-  .select-menu{display:none;gap:8px;padding:8px;border:1px solid var(--line);border-radius:16px;background:#141926;box-shadow:0 18px 46px #00000090;overflow:auto;}
-  .select-menu{position:fixed;top:0;left:0;}
+  .select-menu{display:none;gap:8px;padding:8px;border:1px solid var(--line);border-radius:16px;background:#141926;box-shadow:0 18px 46px #00000090;overflow:auto;position:fixed;top:0;left:0;z-index:2147482501;max-height:min(60vh,380px);}
   .nav button{min-height:var(--control-height);text-align:left;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px;border:0;border-radius:12px;background:var(--panel2);box-shadow:none;color:var(--text);font-weight:700;outline:none;}
   .nav button:hover{transform:translateY(-1px);background:#273040;}
   .nav button:focus-visible{outline:2px solid color-mix(in srgb,var(--accent2) 45%,transparent);outline-offset:2px;}
@@ -93,12 +92,19 @@
   .select-shell{position:relative;width:100%;min-width:0;z-index:50;}
   .select-shell.open{z-index:2147482500;}
   .select-shell select{position:absolute!important;left:0;top:0;width:1px!important;height:1px!important;min-height:1px!important;opacity:0!important;pointer-events:none!important;appearance:none;-webkit-appearance:none;}
-  .select-caret{position:static;right:auto;top:auto;pointer-events:none;font-size:13px;line-height:1;}
-  .select-menu{z-index:2147482501;max-height:min(60vh,380px);}
   .select-option span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .select-option .num{color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap;}
   .content{padding:18px;max-width:1480px;width:100%;margin:0 auto;min-width:0;overflow-x:hidden;}
-  @media (min-width:1471px){body[data-page="parts"] .content,body[data-page="debug"] .content{max-width:2209px;}}
+  @media (min-width:1471px){
+  body[data-page="parts"] .content,body[data-page="debug"] .content{max-width:2209px;}
+  .parts-outer-layout{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);}
+  .parts-left-col{display:contents;}
+  #parts-preview-card{grid-column:1;grid-row:1;}
+  #part-groups{grid-column:2;grid-row:1;}
+  .parts-manager-col{grid-column:3;grid-row:1;}
+  .debug-layout{column-count:3;}
+}
+
   .page{display:none;animation:fade .16s ease-out;}
   .page.active{display:block;}
   @keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
@@ -149,17 +155,46 @@
   .parts-left-col{display:grid;gap:14px;align-content:start;min-width:0;}
   .parts-manager-col{min-width:0;}
   #part-groups{min-width:0;}
-  @media (min-width:1471px){.parts-outer-layout{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);}
-    .parts-left-col{display:contents;}
-    #parts-preview-card{grid-column:1;grid-row:1;}
-    #part-groups{grid-column:2;grid-row:1;}
-    .parts-manager-col{grid-column:3;grid-row:1;}}
-  @media (max-width:980px){.parts-outer-layout{grid-template-columns:1fr;}}
+  
+  @media (max-width:980px){
+  .parts-outer-layout{grid-template-columns:1fr;}
+  .debug-layout{column-count:1;}
+  .basic-layout{grid-template-columns:1fr;}
+  .basic-layout>.card:first-child,.basic-layout>.basic-preview-card{order:unset;}
+  .top-page-nav{padding:0 12px;}
+  .top-page-nav.open{padding:8px 12px;}
+  .app{min-height:0;}
+  .sidebar{grid-template-columns:1fr;padding:12px;}
+  .nav{position:static;max-height:min(70vh,420px);}
+  .content{padding:12px;}
+  .cols-2,.cols-3,.cols-4{grid-template-columns:1fr;}
+  .hero{display:grid;}
+  :root{--cell:14px;--gap:3px;}
+  /* 卡片在手机端允许缩到屏幕宽度，不强制320px */
+  .card{min-width:0;}
+  /* brightness-row 最小列宽放宽，防止在窄屏溢出 */
+  .brightness-row{grid-template-columns:minmax(0,1fr) minmax(74px,92px);}
+  /* field 最小宽度放宽 */
+  .field{min-width:0;}
+  /* slider-step-row 允许换行 */
+  .slider-step-row{flex-wrap:wrap;}
+  /* button-row compact-btn 最小宽度适配 */
+  .slider-step-row .compact-btn{min-width:60px;}
+  /* hero 区域文字防溢出 */
+  .hero h2{font-size:20px;word-break:break-word;}
+  /* content 在最小屏加紧 padding */
+  .content{padding:8px;}
+  /* sidebar 加紧 padding */
+  .sidebar{padding:10px;}
+  /* kv 键宽缩减 */
+  .kv{grid-template-columns:120px 1fr;}
+}
+
 
   .debug-layout{column-count:2;column-gap:14px;}
   .debug-layout>.card{width:100%;margin:0 0 14px;break-inside:avoid;page-break-inside:avoid;}
-  @media (min-width:1471px){.debug-layout{column-count:3;}}
-  @media (max-width:980px){.debug-layout{column-count:1;}}
+  
+  
   .field{display:grid;gap:6px;min-width:120px;}
   .field label{font-size:12px;color:var(--muted)}
   .kv{display:grid;grid-template-columns:170px 1fr;gap:8px 10px;font-size:13px;align-items:center;}
@@ -235,19 +270,8 @@
     .saved-face-card .saved-meta{display:none;}
     .saved-name-input{min-height:44px;}
   }
-  @media (max-width:980px){.basic-layout{grid-template-columns:1fr;}
-  .basic-layout>.card:first-child,.basic-layout>.basic-preview-card{order:unset;}}
-  @media (max-width:980px){
-    .top-page-nav{padding:0 12px;}
-    .top-page-nav.open{padding:8px 12px;}
-    .app{min-height:0;}
-    .sidebar{grid-template-columns:1fr;padding:12px;}
-    .nav{position:static;max-height:min(70vh,420px);}
-    .content{padding:12px;}
-    .cols-2,.cols-3,.cols-4{grid-template-columns:1fr;}
-    .hero{display:grid;}
-    :root{--cell:14px;--gap:3px;}
-  }
+  
+  
   @media (max-width:520px){.kv{grid-template-columns:1fr}.color-dropdown-grid{grid-template-columns:1fr}.equal-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.brightness-row{grid-template-columns:minmax(70px,1fr) minmax(74px,92px);gap:8px}.slider-step-row{gap:8px}:root{--cell:12px;--gap:2px;}}
   @media (hover:none){button:hover,.brand-nav-toggle:hover,.select-toggle:hover,.nav button:hover,.select-option:hover,.part-card:hover{transform:none;}}
   @media (max-width:640px){
@@ -265,28 +289,9 @@
     .part-card{grid-template-columns:1fr;width:60px;min-width:60px;max-width:60px;}
   }
   /* ── 320px 最小宽度适配：确保所有元素在最窄屏幕下正常显示 ── */
-  @media (max-width:980px){
-    /* 卡片在手机端允许缩到屏幕宽度，不强制320px */
-    .card{min-width:0;}
-    /* brightness-row 最小列宽放宽，防止在窄屏溢出 */
-    .brightness-row{grid-template-columns:minmax(0,1fr) minmax(74px,92px);}
-    /* field 最小宽度放宽 */
-    .field{min-width:0;}
-    /* slider-step-row 允许换行 */
-    .slider-step-row{flex-wrap:wrap;}
-    /* button-row compact-btn 最小宽度适配 */
-    .slider-step-row .compact-btn{min-width:60px;}
-    /* hero 区域文字防溢出 */
-    .hero h2{font-size:20px;word-break:break-word;}
-    /* content 在最小屏加紧 padding */
-    .content{padding:8px;}
-    /* sidebar 加紧 padding */
-    .sidebar{padding:10px;}
-    /* kv 键宽缩减 */
-    .kv{grid-template-columns:120px 1fr;}
-  }
+  
   @media (max-width:400px){
-    /* 在接近320px时进一步压缩 */
+  /* 在接近320px时进一步压缩 */
     .content{padding:6px;}
     .sidebar{padding:8px;}
     .card{padding:10px;border-radius:14px;}
@@ -304,7 +309,7 @@
     /* select-toggle 内文字省略 */
     .select-label{font-size:14px;}
     /* 表单控件高度紧凑 */
-    :root{--control-height:42px;}
+    
     /* brightness-row 强制单列 */
     .brightness-row{grid-template-columns:1fr;gap:6px;}
     .brightness-row .slider-number{text-align:left;}
@@ -315,8 +320,8 @@
     /* log 高度压缩 */
     .log{height:180px;}
     /* 矩阵 cell 缩小 */
-    :root{--cell:10px;--gap:2px;}
-  }
+  :root{--control-height:42px;--cell:10px;--gap:2px}
+}
 </style>
 </head>
 <body>
@@ -1485,6 +1490,16 @@ function renderState(){
     ['mouth', EXPRESSION_PARTS.counts.stored_by_group.mouth], ['cheek', EXPRESSION_PARTS.counts.callable_by_group.cheek], ['default_faces', defaultFaces.length], ['user_saved_faces', userFaces.length],
     ['interface_mode', 'HTML generates M370 / firmware receives commands'], ['face_library_json', firmware.savedFacesPath], ['physical_wiring', SERPENTINE_WIRING ? 'serpentine / odd rows reversed' : 'linear'], ['parts_compose', 'm370 logical row-major canonical'], ['parts_eye_symmetry', partsSymmetry ? 'on / same display index' : 'off'], ['preview_scale', 'ResizeObserver fit/no horizontal scroll'], ['basic_layout', 'wide side-by-side']
   ]);
+  const fk = $('firmware-kv');
+  if (fk) fk.innerHTML = kvRows([
+    ['online', firmware.online ? '✓ connected' : '✗ offline'],
+    ['lastRequest', firmware.lastRequest],
+    ['lastStatus', firmware.lastStatus],
+    ['lastError', firmware.lastError],
+    ['sentFrames', String(firmware.sentFrames)],
+    ['sentCommands', String(firmware.sentCommands)],
+    ['savedFacesSync', firmware.savedFacesSync]
+  ]);
 }
 function kvRows(rows){return rows.map(([k,v])=>`<span class="k">${escapeHtml(k)}</span><span>${escapeHtml(String(v))}</span>`).join('');}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -2524,77 +2539,94 @@ function initDebug(){
   $('debug-border').onclick=()=>{const f=blankFrame(); for(let i=0;i<TOTAL_LEDS;i++){const [x,y]=INDEX_TO_XY[i]; const [a,b]=ROW_RANGES[y]; f[i]=y===0||y===ROWS-1||x===a||x===b;} setCurrentFrame(f,'debug_border','idle');};
   $('debug-current-face').onclick=()=>{if(getAllFaces().length) applySavedFace(state.faceIndex,'debug_current_face'); else alert('统一 saved_faces.json 均为空');};
   $('debug-apply-m370').onclick=()=>{try{setCurrentFrame(m370ToFrame($('debug-m370').value),'debug_m370_apply','idle'); log('调试页解析 M370 成功');}catch(e){alert(e.message);}};
-  $('debug-copy-status').onclick=()=>{copyText(JSON.stringify({state, firmware, currentM370:frameToM370(currentFrame), selectedCall, savedFacesPath:FACE_LIBRARY_RESOURCE, faces:getAllFaces()},null,2)); log('复制状态 JSON');};
-  $('debug-reset-storage').onclick=()=>{if(confirm('清空所有非默认表情？type:"default" 的默认表情会保留。')){userFaces=[];logs=[];persistFaceDocuments('clear_user_saved_faces');renderSavedFaces();renderLog();renderState();log('已清空用户表情；type:"default" 默认表情保留。');}};
-  $('update-adc').onclick=updateAdc;
-  $('serial-send').onclick=()=>{const v=$('serial-input').value.trim(); if(v){const payload=safeJsonParse(v,{raw:v}); sendAuxCommand(payload.cmd || 'raw_aux_command', payload, 'debug_aux_input'); log(`AUX> ${v}`);} $('serial-input').value='';};
-  $('log-clear').onclick=()=>{logs=[]; renderLog();};
-  $('log-download').onclick=downloadLog;
-  $('firmware-ping').onclick=()=>apiGet(API_ENDPOINTS.status).then(data=>{log('固件状态: '+JSON.stringify(data));}).catch(e=>log('读取固件状态失败: '+e.message));
-  $('firmware-pause').onclick=()=>sendAuxCommand('pause', {target:'all'}, 'debug_pause_button');
+  $('debug-copy-status').onclick=()=>{
+    const obj={state:{...state},firmware:{...firmware},faces:{default:defaultFaces.length,user:userFaces.length}};
+    copyText(JSON.stringify(obj,null,2));
+    log('状态 JSON 已复制到剪贴板');
+  };
+  $('debug-reset-storage').onclick=()=>{
+    if(!confirm('确认清空全部用户保存表情？此操作不可撤销。'))return;
+    userFaces=[];
+    persistFaceDocuments('debug_reset_user_faces');
+    renderSavedFaces(); renderState();
+    log('用户表情已清空');
+  };
+  $('serial-send').onclick=()=>{
+    const raw=($('serial-input')?.value||'').trim();
+    if(!raw)return;
+    let payload={};
+    try{payload=JSON.parse(raw);}catch(e){alert('JSON 格式错误：'+e.message);return;}
+    sendAuxCommand(payload.cmd||'aux',payload,'serial_input');
+    log('发送辅助指令: '+raw);
+  };
+  $('log-clear').onclick=()=>{logs=[];renderLog();log('日志已清空');};
+  $('log-download').onclick=()=>{
+    const blob=new Blob([logs.join('\n')],{type:'text/plain'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='rina_webui_log.txt';a.click();URL.revokeObjectURL(a.href);
+  };
+  $('firmware-ping').onclick=()=>syncRuntimeStateFromFirmware('firmware_ping');
+  $('firmware-pause').onclick=()=>{sendAuxCommand('pause',{},'firmware_pause_button');log('已发送暂停指令到固件');};
+  $('update-adc').onclick=()=>{
+    const vbat=parseFloat($('battery-v').value)||state.batteryV;
+    const vcharge=parseFloat($('charge-v').value)||state.chargeV;
+    state.batteryV=vbat;state.chargeV=vcharge;
+    state.charging=vcharge>4.5;
+    state.batteryPercent=Math.round(clamp((vbat-6.0)/(8.4-6.0)*100,0,100));
+    renderState();
+    sendAuxCommand('update_adc',{vbat,vcharge},'debug_adc_update');
+    log('ADC 调试更新：Vbat='+vbat.toFixed(2)+'V，Vcharge='+vcharge.toFixed(2)+'V');
+  };
 }
-
-function simulateGpio(code){
-  if(code==='B1') nextFace(); else if(code==='B2') prevFace(); else if(code==='B3') toggleMode('GPIO B3');
-  else if(code==='B4') sendButtonCommand('B4','GPIO B4', ()=>setBrightness(state.brightness-8,'GPIO B4'));
-  else if(code==='B5') sendButtonCommand('B5','GPIO B5', ()=>setBrightness(state.brightness+8,'GPIO B5'));
-  else if(code==='B6S') { guardBeforeOutput('battery_overlay','overlay'); state.playback='battery'; log(`B6 短按：显示电池 ${state.batteryPercent}% 2 秒`); renderState(); }
-  else if(code==='B6L') { guardBeforeOutput('battery_detail_overlay','overlay'); state.playback='battery_detail'; log(`B6 长按：Vbat=${state.batteryV.toFixed(2)}V, Vcharge=${state.chargeV.toFixed(2)}V`); renderState(); }
-  else if(code==='B3B1') sendButtonCommand('B3B1','GPIO B3B1', ()=>adjustInterval(-AUTO_INTERVAL_BUTTON_STEP_MS));
-  else if(code==='B3B2') sendButtonCommand('B3B2','GPIO B3B2', ()=>adjustInterval(AUTO_INTERVAL_BUTTON_STEP_MS));
-  else if(code==='B6B3') sendButtonCommand('B6B3','GPIO B6B3', ()=>{ guardBeforeOutput('network_info_overlay','overlay'); state.playback='network_info'; log('B6+B3：显示网络信息页面 overlay'); renderState(); });
+function simulateGpio(button){
+  const map={
+    'B1':()=>nextFaceLocal(),
+    'B2':()=>prevFaceLocal(),
+    'B3':()=>toggleModeLocal('gpio_B3'),
+    'B4':()=>setBrightness(state.brightness-8,'gpio_B4'),
+    'B5':()=>setBrightness(state.brightness+8,'gpio_B5'),
+    'B6S':()=>log('B6 短按：电量 '+state.batteryPercent+'% / '+state.batteryV.toFixed(2)+'V'),
+    'B6L':()=>log('B6 长按详情：Vbat='+state.batteryV.toFixed(2)+'V Vcharge='+state.chargeV.toFixed(2)+'V charging='+state.charging),
+    'B3B1':()=>adjustInterval(-AUTO_INTERVAL_BUTTON_STEP_MS),
+    'B3B2':()=>adjustInterval(AUTO_INTERVAL_BUTTON_STEP_MS),
+    'B6B3':()=>log('网络信息：AP IP='+state.apIp+' SSID=RinaChanBoard-ESP32S3 密码=rinachan')
+  };
+  sendButtonCommand(button,'gpio_'+button,map[button]||null);
+  log('GPIO 模拟：'+button);
 }
-function downloadLog(){
-  const blob = new Blob([logs.join('\n')], {type:'text/plain'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `rinachan_log_${Date.now()}.txt`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-function updateAdc(){
-  state.batteryV = Number($('battery-v').value)||0;
-  state.chargeV = Number($('charge-v').value)||0;
-  state.batteryPercent = Math.round(clamp((state.batteryV - 6.0) / (8.4 - 6.0) * 100, 0, 100));
-  state.charging = state.chargeV > 4.5;
-  sendAuxCommand('adc_debug_override', {vbat:state.batteryV, vcharge:state.chargeV}, 'adc_debug_input');
-  renderState();
-  log(`ADC 调试更新: Vbat=${state.batteryV.toFixed(2)}V (${state.batteryPercent}%), Vcharge=${state.chargeV.toFixed(2)}V, charging=${state.charging}`);
-}
-(function boot(){
-  ensureTextScrollBrowserFontReady();
+document.addEventListener('DOMContentLoaded',async()=>{
   ensureWebUiFontReady();
   observeWebUiFont();
   initNav();
-  initMatrix('matrix-basic',   ()=>currentFrame);
-  initMatrix('matrix-custom-edit', ()=>editFrame, true, (idx,v)=>{editFrame[idx]=v; renderMatrices(); updateM370Views();});
-  initMatrix('matrix-parts',   ()=>partsFrame);
-  initMatrix('matrix-scroll',  ()=>scrollFrame);
-  initMatrix('matrix-debug',   ()=>currentFrame);
+  initCustomSelectDropdowns();
+  initMatrix('matrix-basic',()=>currentFrame,false,null,false);
+  initMatrix('matrix-custom-edit',()=>editFrame,true,editCell,false);
+  initMatrix('matrix-parts',()=>partsFrame,false,null,false);
+  initMatrix('matrix-scroll',()=>scrollFrame,false,null,false);
+  initMatrix('matrix-debug',()=>currentFrame,false,null,false);
   observeMatrixWraps();
-  fitAllMatrices();
-  initBrightness();
   initColors();
+  initBrightness();
   initBasicControls();
   initCustom();
   initParts();
   initScroll();
   initDebug();
-  initCustomSelectDropdowns();
-  composePartsFrame();
-  currentFrame = cloneFrame(partsFrame);
-  editFrame = cloneFrame(partsFrame);
-  updateAdc();
-  setColor('#f971d4','boot');
-  syncRuntimeStateFromFirmware('webui_load');
-  startFirmwareStatusPolling();
-  loadFaceLibrary();
   renderState();
-  renderLog();
-  renderMatrices();
   updateM370Views();
-  log('WebUI 初始化完成');
-})();
+  try{
+    await loadFaceLibrary();
+    const lib=getAllFaces();
+    if(lib.length){
+      const idx=startupDefaultFaceIndex();
+      if(idx>=0){state.faceIndex=idx;currentFrame=m370ToFrame(lib[idx].m370);editFrame=cloneFrame(currentFrame);scrollFrame=cloneFrame(currentFrame);}
+    }
+  }catch(e){log('表情库加载失败：'+e.message);}
+  renderMatrices();
+  renderSavedFaces();
+  renderState();
+  syncRuntimeStateFromFirmware('page_load');
+  startFirmwareStatusPolling();
+});
 </script>
 </body>
 </html>
