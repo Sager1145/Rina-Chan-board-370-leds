@@ -2872,8 +2872,254 @@ function buildTextScrollBitmap(text){
   return buildTextScrollBitmap.cache;
 }
 function getArkGlyph(cp){
-  let g = arkPixelFont.glyphs.get(cp);
+  const codepoint = Number(cp) || 0;
+  let g = arkPixelFont.glyphs.get(codepoint);
   if(g) return g;
   const missing = arkPixelFont.glyphs.get(TEXT_SCROLL_MISSING_GLYPH_CP);
-  if(missing) return {...missing, missingFor:cp};
-  throw new Error(`Ark Pixel Font 缺少 U+${cp.toStr
+  if(missing) return {...missing, missingFor:codepoint};
+  throw new Error(`Ark Pixel Font 缺少 U+${codepoint.toString(16).toUpperCase().padStart(4,'0')}`);
+}
+
+function normalizeGlyphRows(rows, width, height){
+  const out = [];
+  const w = Math.max(0, Number(width) || 0);
+  const h = Math.max(0, Number(height) || 0);
+  const source = Array.isArray(rows) ? rows : [];
+  for(let y=0; y<h; y++){
+    let row = String(source[y] || '');
+    if(/^[01]+$/.test(row)){
+      out.push(row.padEnd(w, '0').slice(0, w));
+      continue;
+    }
+    // Defensive fallback for older packed rows that may still be hex strings.
+    let bits = '';
+    const clean = row.replace(/[^0-9a-fA-F]/g, '');
+    for(const ch of clean) bits += parseInt(ch, 16).toString(2).padStart(4, '0');
+    out.push(bits.padEnd(w, '0').slice(0, w));
+  }
+  return out;
+}
+
+function buildTextGlyph(ch){
+  if(!buildTextGlyph.cache) buildTextGlyph.cache = new Map();
+  const cp = codePointOfChar(ch || ' ');
+  if(buildTextGlyph.cache.has(cp)) return buildTextGlyph.cache.get(cp);
+
+  if(!String(ch || '').trim()){
+    const spaceGlyph = {
+      cp,
+      char:ch,
+      isSpace:true,
+      advance:TEXT_SCROLL_SPACE_COLUMNS,
+      width:0,
+      height:0,
+      xOffset:0,
+      yOffset:0,
+      dstY:0,
+      rows:[]
+    };
+    buildTextGlyph.cache.set(cp, spaceGlyph);
+    return spaceGlyph;
+  }
+
+  const raw = getArkGlyph(cp);
+  const width = Math.max(0, Number(raw.width) || 0);
+  const height = Math.max(0, Number(raw.height) || (Array.isArray(raw.rows) ? raw.rows.length : arkPixelFont.lineHeight || 12));
+  const glyph = {
+    cp,
+    char:ch,
+    isSpace:false,
+    advance:Math.max(1, Number(raw.advance) || arkPixelFont.defaultAdvance || width || 12),
+    width,
+    height,
+    xOffset:Number(raw.xOffset || 0),
+    yOffset:Number(raw.yOffset || 0),
+    dstY:Number(raw.dstY || 0),
+    rows:normalizeGlyphRows(raw.rows, width, height),
+    missingFor:raw.missingFor
+  };
+  buildTextGlyph.cache.set(cp, glyph);
+  return glyph;
+}
+
+function glyphPixel(glyph, x, y){
+  if(!glyph || !glyph.rows || y < 0 || y >= glyph.rows.length) return false;
+  const row = String(glyph.rows[y] || '');
+  return row[x] === '1';
+}
+
+function blitGlyphBitmap(bitmap, x0, glyph){
+  if(!bitmap || !bitmap.length || !glyph || glyph.isSpace) return;
+  const baseY = textScrollVerticalOffset() + (Number(glyph.dstY) || 0) + (Number(glyph.yOffset) || 0);
+  const baseX = Math.round(x0 + (Number(glyph.xOffset) || 0));
+  for(let gy=0; gy<glyph.height; gy++){
+    const y = baseY + gy;
+    if(y < 0 || y >= ROWS) continue;
+    const row = bitmap[y];
+    for(let gx=0; gx<glyph.width; gx++){
+      if(!glyphPixel(glyph, gx, gy)) continue;
+      const x = baseX + gx;
+      if(x >= 0 && x < row.length) row[x] = true;
+    }
+  }
+}
+
+function extractFrameFromTextImage(source, offset){
+  const frame = blankFrame();
+  if(!source || !Array.isArray(source.bitmap)) return frame;
+  const start = Math.max(0, Number(offset) || 0);
+  for(let y=0; y<ROWS; y++){
+    const srcRow = source.bitmap[y] || [];
+    const [x0, x1] = ROW_RANGES[y];
+    for(let x=x0; x<=x1; x++){
+      const idx = XY_TO_INDEX[y][x];
+      if(idx < 0) continue;
+      const srcX = start + x;
+      frame[idx] = !!srcRow[srcX];
+    }
+  }
+  return frame;
+}
+
+function updateScrollUi(){
+  const stateEl = $('scroll-state');
+  const indexEl = $('scroll-frame-index');
+  const pauseBtn = $('scroll-pause');
+  const playBtn = $('scroll-play');
+  const progressWrap = $('scroll-upload-progress');
+  const progressBar = $('scroll-upload-bar');
+  const progressLabel = $('scroll-upload-label');
+
+  const firmwarePlaying = scroll.firmwareBacked || state.textScrollActive || isScrollPlaybackValue(state.playback);
+  const label = scroll.uploading ? 'uploading'
+    : (scroll.paused || state.playback === 'scroll_paused') ? 'paused'
+    : (scroll.active || state.playback === 'scroll') ? 'playing'
+    : scroll.dirty ? 'dirty/idle'
+    : 'idle';
+
+  if(stateEl) stateEl.textContent = label;
+  if(indexEl) indexEl.textContent = `${scroll.frameIndex || 0} / ${scroll.frames?.length || 0}`;
+  if(pauseBtn){
+    const enabled = firmwarePlaying || scroll.active || scroll.paused;
+    pauseBtn.disabled = !enabled;
+    pauseBtn.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+    const isPaused = scroll.paused || state.playback === 'scroll_paused';
+    pauseBtn.classList.toggle('active', !isPaused && enabled);
+    pauseBtn.setAttribute('aria-pressed', (!isPaused && enabled) ? 'true' : 'false');
+    pauseBtn.textContent = isPaused ? '继续' : '暂停';
+  }
+  if(playBtn){
+    playBtn.disabled = !!scroll.uploading;
+    playBtn.textContent = scroll.uploading ? '发送中…' : '发送';
+  }
+  if(progressWrap){
+    const visible = !!scroll.uploading || (scroll.uploadProgress > 0 && scroll.uploadProgress < 1.001) || !!scroll.uploadLabel;
+    progressWrap.hidden = !visible;
+  }
+  if(progressBar) progressBar.value = Math.round(clamp(scroll.uploadProgress || 0, 0, 1) * 100);
+  if(progressLabel) progressLabel.textContent = scroll.uploadLabel || '等待发送';
+}
+
+function initializeMatrixViews(){
+  matrixViews = [];
+  initMatrix('matrix-basic', () => currentFrame, false, null, false);
+  initMatrix('matrix-custom-edit', () => editFrame, true, editCell, false);
+  initMatrix('matrix-parts', () => partsFrame, false, null, false);
+  initMatrix('matrix-scroll', () => scrollFrame, false, null, false);
+  initMatrix('matrix-debug', () => currentFrame, false, null, false);
+}
+
+function initializeDebugControls(){
+  setClickHandlers([
+    ['debug-all-off', () => setCurrentFrame(blankFrame(), 'debug_all_off', 'idle')],
+    ['debug-all-on', () => setCurrentFrame(blankFrame().map(()=>true), 'debug_all_on', 'idle')],
+    ['debug-checker', () => setCurrentFrame(makePatternFrame('checker'), 'debug_checker', 'idle')],
+    ['debug-border', () => setCurrentFrame(makePatternFrame('border'), 'debug_border', 'idle')],
+    ['debug-current-face', () => applySavedFace(state.faceIndex, 'debug_current_face')],
+    ['debug-apply-m370', () => {
+      try{ setCurrentFrame(m370ToFrame($('debug-m370')?.value || ''), 'debug_apply_m370', 'idle'); }
+      catch(err){ alert(err.message); }
+    }],
+    ['debug-copy-status', () => navigator.clipboard?.writeText(JSON.stringify(state, null, 2))],
+    ['debug-reset-storage', () => { if(confirm('清空用户表情？默认 type:default 表情不会删除。')){ userFaces=[]; persistFaceDocuments('debug_reset_user_faces'); renderSavedFaces(); renderState(); } }],
+    ['update-adc', () => {
+      state.batteryV = Number($('battery-v')?.value || state.batteryV);
+      state.chargeV = Number($('charge-v')?.value || state.chargeV);
+      state.charging = Number(state.chargeV || 0) > 4.0;
+      renderState();
+    }],
+    ['serial-send', () => {
+      const raw = $('serial-input')?.value || '{}';
+      try{ sendAuxCommand('manual_json', JSON.parse(raw), 'debug_manual_json'); }
+      catch(err){ alert(`JSON 格式错误：${err.message}`); }
+    }],
+    ['log-clear', () => { logs=[]; renderLog(); }],
+    ['log-download', () => downloadJsonFile('rina_webui_log.txt', logs.join('\n'))],
+    ['firmware-ping', () => syncRuntimeStateFromFirmware('firmware_ping')],
+    ['firmware-pause', () => sendAuxCommand('pause_scroll', {}, 'debug_firmware_pause')]
+  ]);
+}
+
+function makePatternFrame(kind){
+  const frame = blankFrame();
+  for(let y=0; y<ROWS; y++){
+    const [x0,x1] = ROW_RANGES[y];
+    for(let x=x0; x<=x1; x++){
+      const idx = XY_TO_INDEX[y][x];
+      if(idx < 0) continue;
+      if(kind === 'checker') frame[idx] = ((x + y) & 1) === 0;
+      else if(kind === 'border') frame[idx] = y === 0 || y === ROWS - 1 || x === x0 || x === x1;
+    }
+  }
+  return frame;
+}
+
+async function bootstrapWebUi(){
+  try{
+    ensureWebUiFontReady().catch(err=>console.warn('WebUI font bootstrap failed', err));
+    observeWebUiFont();
+    initNav();
+    initializeMatrixViews();
+    initColors();
+    initBrightness();
+    initBasicControls();
+    initCustom();
+    initParts();
+    initScroll();
+    initializeDebugControls();
+    initCustomSelectDropdowns();
+    applyBrightnessLocal(state.brightness);
+    setColor(state.color, 'bootstrap');
+    syncAutoIntervalUi();
+    updateM370Views();
+    updateScrollUi();
+    renderMatrices();
+    renderState();
+    fitAllMatrices();
+    startFirmwareStatusPolling();
+    startPowerStatusPolling();
+    await loadFaceLibrary();
+    if(getAllFaces().length){
+      applyStartupDefaultFaceLocal('bootstrap_default_face');
+    }
+    renderSavedFaces();
+    renderMatrices();
+    renderState();
+    log('WebUI 修复尾部已加载：脚本闭合、Ark glyph rasterizer、滚动预览和启动流程已恢复。');
+  }catch(err){
+    console.error('WebUI bootstrap failed', err);
+    const msg = `WebUI 初始化失败：${err.message || err}`;
+    try{ log(msg); }catch(_){ console.error(msg); }
+    const logEl = $('log');
+    if(logEl) logEl.textContent = msg;
+  }
+}
+
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', bootstrapWebUi, {once:true});
+}else{
+  bootstrapWebUi();
+}
+</script>
+</body>
+</html>
