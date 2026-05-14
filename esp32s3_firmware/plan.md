@@ -2815,3 +2815,99 @@ Firmware text-scroll RAM cache limit update:
   - Removes EXTERNAL_CODE_COMMENTS.txt from generated-font text scanning because external comment files are no longer part of code/project outputs.
 - Delivery hygiene
   - Removes EXTERNAL_CODE_COMMENTS.txt and PATCH_CONTENTS.txt from the output package. Explanatory comments should live directly in code using the relevant language's comment syntax.
+
+## 2026-05-14 WebUI 首屏加载不等待 saved_faces / LED 预览矩阵
+
+### 目标
+- WebUI 首屏加载阶段只读取轻量 runtime 状态：颜色、亮度、电池/充电、A/M 模式、播放状态和滚动缓存上限。
+- 首屏显示前不读取 `saved_faces.json`。
+- 首屏显示前不读取完整 `/api/status` 中的 LED 预览矩阵 / `lastM370`。
+- `saved_faces.json` 和 LED 预览矩阵在页面显示完成后异步读取，不阻塞 boot overlay 关闭。
+
+### 实现
+- `bootstrapWebUi()` 保留 `preloadFirmwareRuntimeState()` 的 `GET /api/status?runtimeOnly=1&noFrame=1`。
+- 删除首屏阶段的 `await loadFaceLibrary()`，改为 `runPostBootDeferredReads()` 在 `finishBootVisibility()` 后异步执行。
+- `runPostBootDeferredReads()` 页面可见后依次执行：
+  1. `loadFaceLibrary()` 读取 `/api/saved_faces` 或本地 `saved_faces.json`。
+  2. `syncRuntimeStateFromFirmware('post_load_matrix_preview')` 读取完整 status，用于同步 LED 预览矩阵 / `lastM370`。
+  3. 如果完整 status 读取失败且不是滚动播放状态，则按固件 face index 或默认表情做本地 fallback。
+- `syncRuntimeStateFromFirmware()` 现在返回 `true/false`，便于 deferred loader 判断矩阵预览是否读取成功。
+
+### 结果
+- 首屏 WebUI 更快显示。
+- 大文件 `saved_faces.json` 与完整 status 的 M370/矩阵内容不会阻塞页面加载。
+- 页面显示后仍会自动补齐保存表情列表和当前 LED 预览。
+
+## 2026-05-14 文字滚动上传完成后再设置帧率
+
+### 目标
+- 修复文字滚动上传过程中修改/输入帧率不生效的问题。
+- 帧数据上传阶段只负责把 M370 帧写入固件 RAM 缓存。
+- 帧率/间隔数据必须在全部帧 chunk 上传完成并得到固件确认后，再作为单独控制指令发送。
+
+### 实现
+- `data/index.html`
+  - `uploadFirmwareScrollTimeline()` 上传 `/api/scroll` chunk 时不再携带 `fps` / `intervalMs`。
+  - 所有 chunk 都使用 `start:false`，最后一个 chunk 也不会直接启动播放。
+  - 全部帧上传完成后，重新读取当前帧率输入框，计算最终 `intervalMs`。
+  - 之后发送 `POST /api/command` 的 `start_scroll` 指令，payload 中携带最终 `fps` / `intervalMs`，再启动固件滚动。
+- `src/web_api.cpp`
+  - `/api/scroll` 只有在请求体显式包含 `fps` 或 `intervalMs` 时才更新 `scrollIntervalMs`，避免帧 chunk 上传阶段覆盖已设置的播放间隔。
+  - 新增 `start_scroll` API command，用于在 RAM 帧缓存写入完成后按最终帧率启动播放。
+  - 新增 `scrollIntervalFromCommand()`，统一解析 `fps` / `intervalMs`，并同时兼容 JSON 整数与浮点 fps。
+
+### 结果
+- 上传大段文字时，即使用户在上传期间修改 fps，最终生效的是帧上传完成后输入框中的最新帧率。
+- 固件不会在最后一个帧 chunk 到达时用旧帧率提前开始滚动。
+- 帧数据上传与播放参数上传解耦，后续扩展更多播放参数时也可以沿用这个顺序。
+
+## 2026-05-14 保存表情列表拖拽柄/编号/操作按钮样式调整
+
+### 目标
+- 保存表情列表中的拖拽柄从盲文点阵符号改成三条横线的拖拽样式。
+- 保存表情序号不显示外框，字号增大，提高可读性。
+- 操作按钮使用图标化 emoji：应用使用灯泡，重命名使用铅笔，删除使用垃圾桶。
+- 操作按钮始终保持同一行，应用按钮靠右，其余按钮靠左。
+
+### 实现
+- `data/index.html`
+  - `.drag-handle` 改为纯 CSS 三横线：使用 `::before` 和 `linear-gradient` 绘制，不再依赖 `⠿` 文本字符。
+  - `.saved-index` 移除 border/background/border-radius，设置更大的 `font-size` 和 `font-weight`。
+  - `.face-action-bar` 改为不换行 flex 行，必要时横向滚动，避免窄宽度下按钮断行。
+  - `.btn-apply` 使用 `margin-left:auto`，让应用按钮在操作栏最右侧。
+  - `createFaceRow()` 中按钮文本改为 `💡`、`✏️`、`🗑️`，并保留 `title` / `aria-label` 作为可访问说明。
+
+### 结果
+- 拖拽柄视觉上是标准三横线样式。
+- 保存表情编号更像列表序号，不再像一个按钮/徽章。
+- 上移、下移、重命名、删除保留在左侧；应用按钮独立靠右。
+- 操作按钮不会因为排列变化自动换到第二行。
+
+## 2026-05-14 GPIO B1/B2/B3 中断文字滚动后同步 WebUI 6.4 预览
+
+### 目标
+- 当实体 GPIO B1/B2/B3 在文字滚动模式中被按下时，固件停止文字滚动并切换到对应保存表情/当前表情。
+- WebUI 6.4 文字滚动页面需要收到这个停止信息，立即停止本地预览计时器和上传/播放状态。
+- 6.4 的 LED 预览矩阵不能停留在文字滚动帧或空白帧，应显示固件当前表情预览。
+
+### 实现
+- `src/state.h`
+  - 新增 `scrollStopEventSeq`、`scrollStopEventMs`、`scrollStopEventButton`、`scrollStopEventSource`、`scrollStopEventReason`。
+  - 这些字段作为轻量事件序号，不保存到 flash，只用于 WebUI 轮询识别实体按钮打断滚动。
+- `src/buttons.cpp`
+  - B1/B2/B3 从 GPIO 来源触发，并且触发前处于 firmware scroll/scroll preview 状态时，动作成功后递增 `scrollStopEventSeq`。
+  - B1/B2 仍然停止滚动后切换上一个/下一个保存表情。
+  - B3 仍然停止滚动后切换 A/M，并通过原有延迟恢复逻辑显示当前保存表情。
+- `src/web_api.cpp`
+  - `/api/status` 的 `renderer.scrollStopEvent` 返回上述事件信息，runtime-only 状态也会包含该轻量事件。
+  - `/api/command` 回复也返回 `scrollStopEvent`，便于调试和保持返回结构一致。
+- `data/index.html`
+  - 6.4 页面在文字滚动运行中使用 `GET /api/status?runtimeOnly=1&noFrame=1` 做较高频轻量轮询，不读取 `lastM370`，避免增加矩阵/flash 负载。
+  - 检测到新的 GPIO B1/B2/B3 scroll stop event 后，先停止 WebUI 的本地滚动预览状态。
+  - 再延迟读取一次完整 `/api/status`，获取固件当前 `lastM370`，并把 6.4 预览矩阵切换到当前表情。
+  - `resetScrollControlsAfterButton()` 新增 `preserveCurrentFrame` 选项，避免完整状态已经同步表情帧后又被清成空白。
+
+### 结果
+- 实体 B1/B2/B3 按钮可以可靠打断文字滚动。
+- WebUI 6.4 不需要等 10 秒完整轮询才知道滚动已停止。
+- 6.4 页面停止预览后会显示固件当前表情，而不是继续显示旧滚动帧或空白帧。

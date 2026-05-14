@@ -251,22 +251,28 @@
   .pix{width:5px;height:5px;border-radius:1px;background:#18202d;}
   .pix.on{background:var(--led-color);box-shadow:0 0 6px var(--led-color)}
   .list{display:grid;gap:8px;}
-  .face-manager-panel{container-type:inline-size;}
+  .face-manager-panel{container-type:inline-size;--face-control-size:44px;}
   .face-library-list{overscroll-behavior:contain;}
   .saved-row{display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;align-items:stretch;}
-  .saved-index{display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:#0b0e14;border-radius:12px;color:var(--muted);font-weight:800;}
+  .saved-index{display:flex;align-items:center;justify-content:center;border:0;background:transparent;border-radius:0;color:#dbe7f5;font-size:20px;line-height:1;font-weight:900;font-variant-numeric:tabular-nums;}
   .list-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--line);background:#10141d;border-radius:12px;padding:10px;min-width:0;}
-  .saved-face-card{grid-template-columns:auto minmax(0,1fr) auto;}
+  .saved-face-card{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"drag body" "drag actions";gap:8px 10px;}
+  .saved-face-card>.drag-handle{grid-area:drag;}
+  .saved-face-card>.saved-face-body{grid-area:body;}
+  .saved-face-card>.face-action-bar{grid-area:actions;}
   .saved-face-body{min-width:0;}
-  .face-action-bar{display:flex;gap:5px;align-items:center;flex-wrap:nowrap;flex-shrink:0;}
-  .face-action-bar button{min-height:34px;padding:5px 8px;font-size:13px;border-radius:9px;white-space:nowrap;}
-  .face-action-bar .icon-btn{display:inline-flex;align-items:center;justify-content:center;line-height:1;min-height:34px;min-width:34px;padding:5px 7px;font-size:15px;border-radius:9px;}
+  .face-action-bar{display:flex;gap:5px;align-items:center;flex-wrap:nowrap;flex-shrink:1;min-width:0;width:100%;padding:2px 0;overflow-x:auto;overflow-y:visible;scrollbar-width:none;}
+  .face-action-bar::-webkit-scrollbar{display:none;}
+  .face-action-bar button{min-height:var(--face-control-size);padding:5px 8px;font-size:13px;border-radius:9px;white-space:nowrap;}
+  .face-action-bar .icon-btn{display:inline-flex;align-items:center;justify-content:center;line-height:1;width:var(--face-control-size);height:var(--face-control-size);min-width:var(--face-control-size);min-height:var(--face-control-size);padding:0;font-size:17px;border-radius:9px;flex:0 0 var(--face-control-size);box-sizing:border-box;}
+  .face-action-bar .btn-apply{margin-left:auto;}
   .face-action-bar .btn-delete{border-color:#7b2b3b;color:#ffd0d8;background:#3a1820;}
   .face-action-bar .btn-delete:active:not(:disabled){background:#5a1a24;}
   .face-action-bar button:disabled{opacity:.38;pointer-events:none;}
   .saved-row.drag-over .list-item{border-color:var(--accent2);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent2) 20%,transparent);}
   .saved-row.active .list-item{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 28%,transparent),0 0 18px color-mix(in srgb,var(--accent) 16%,transparent);}
-  .drag-handle{align-self:stretch;min-width:44px;padding:8px 9px;cursor:grab;color:#dbe7f5;background:#0b0e14;touch-action:none;user-select:none;-webkit-user-select:none;}
+  .drag-handle{align-self:start;width:var(--face-control-size);height:var(--face-control-size);min-width:var(--face-control-size);min-height:var(--face-control-size);padding:0;cursor:grab;color:#dbe7f5;background:#0b0e14;touch-action:none;user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:center;box-sizing:border-box;flex:0 0 var(--face-control-size);}
+  .drag-handle::before{content:"";display:block;width:18px;height:12px;background:linear-gradient(to bottom,currentColor 0 2px,transparent 2px 5px,currentColor 5px 7px,transparent 7px 10px,currentColor 10px 12px);border-radius:1px;}
   .drag-handle:active{cursor:grabbing;}
   .saved-row.dragging .list-item{opacity:.9;border-color:var(--accent);}
   .saved-name-input{width:100%;min-height:36px;font-weight:800;background:#0b0e14;}
@@ -292,12 +298,12 @@
   @media (min-width:981px){.matrix-wrap{--matrix-max-height:var(--led-preview-max-height);}}
   @container (max-width:560px){
     .saved-row{grid-template-columns:38px minmax(0,1fr);gap:8px;}
-    .saved-index{font-size:13px;}
-    .saved-face-card{grid-template-columns:44px minmax(0,1fr);grid-template-areas:"drag body" "actions actions";gap:8px;}
-    .saved-face-card>.drag-handle{grid-area:drag;min-height:44px;width:auto;}
+    .saved-index{font-size:18px;}
+    .saved-face-card{grid-template-columns:var(--face-control-size) minmax(0,1fr);grid-template-areas:"drag body" "actions actions";gap:8px;}
+    .saved-face-card>.drag-handle{grid-area:drag;width:var(--face-control-size);height:var(--face-control-size);}
     .saved-face-card>.saved-face-body{grid-area:body;}
-    .saved-face-card>.face-action-bar{grid-area:actions;width:100%;justify-content:flex-start;}
-    .saved-face-card>.face-action-bar .icon-btn{width:38px;min-width:38px;padding-inline:7px;}
+    .saved-face-card>.face-action-bar{grid-area:actions;width:100%;}
+    .saved-face-card>.face-action-bar .icon-btn{width:var(--face-control-size);min-width:var(--face-control-size);}
     .saved-face-card .saved-meta{display:none;}
     .saved-name-input{min-height:44px;}
   }
@@ -591,6 +597,8 @@ const SCROLL_FPS_MAX = 120;
 const FIRMWARE_SCROLL_MAX_FRAMES_DEFAULT = 3072;
 let firmwareScrollMaxFrames = FIRMWARE_SCROLL_MAX_FRAMES_DEFAULT;
 const SCROLL_UPLOAD_CHUNK_FRAMES = 24;
+const RUNTIME_STATUS_QUERY = '?runtimeOnly=1&noFrame=1';
+const SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS = 140;
 
 const parent_color_groups = [
   {id:0, name:'默认璃奈粉色', color:'f971d4', desc:'父级颜色按钮，仅提供父级色'},
@@ -664,6 +672,10 @@ let lastApiErrorLogAt = 0;
 let brightnessChangedByUser = false;
 let firmwareStatusPollTimer = null;
 let lastFirmwareStatusPollAt = 0;
+let lastScrollStopEventSeq = 0;
+let firmwareScrollStopFullSyncTimer = null;
+let firmwareRuntimeSummaryInFlight = false;
+let firmwareFullStatusInFlight = false;
 let powerStatusPollTimer = null;
 let lastPowerStatusRefreshAt = 0;
 let powerStatusRefreshInFlight = false;
@@ -1077,6 +1089,27 @@ function applyPowerData(powerData){
 function shouldApplyPowerFromStatusSource(source){
   return source === 'page_load' || source === 'firmware_ping' || String(source || '').startsWith('power_') || String(source || '').startsWith('basic_');
 }
+function scrollStopEventFromStatus(data, renderer){
+  const event = renderer?.scrollStopEvent || data?.scrollStopEvent || null;
+  if(!event || typeof event !== 'object') return null;
+  const seq = Number(event.seq || 0);
+  if(!Number.isFinite(seq) || seq <= 0) return null;
+  return {
+    seq,
+    ms:Number(event.ms || 0),
+    button:String(event.button || '').toUpperCase(),
+    source:String(event.source || ''),
+    reason:String(event.reason || '')
+  };
+}
+function scheduleFirmwareScrollStopFullSync(source='firmware_scroll_stop_full_status', delayMs=SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS){
+  if(isOfflineHtmlMode()) return;
+  if(firmwareScrollStopFullSyncTimer) clearTimeout(firmwareScrollStopFullSyncTimer);
+  firmwareScrollStopFullSyncTimer = setTimeout(()=>{
+    firmwareScrollStopFullSyncTimer = null;
+    syncRuntimeStateFromFirmware(source);
+  }, Math.max(0, Number(delayMs) || 0));
+}
 function applyFirmwareRuntimeState(data, source='firmware_status', options={}){
   if(!data || typeof data !== 'object') return;
   const skipFrame = !!options.skipFrame;
@@ -1188,10 +1221,30 @@ function applyFirmwareRuntimeState(data, source='firmware_status', options={}){
   syncAutoIntervalUi();
   if(faceChanged) renderSavedFaces();
   if(frameChanged){ renderMatrices(); updateM370Views(); }
+
   const firmwareReason = String(renderer.lastReason || data.lastReason || '');
-  const firmwareButtonReset = firmwareReason.startsWith('gpio_') && /(^|_)B[123](_|$)/.test(firmwareReason);
-  if(isScrollPageActive() && String(source).startsWith('firmware_poll') && ((wasScrollBeforeFirmwareSync && !state.textScrollActive && !scroll.firmwareBacked) || firmwareButtonReset)){
-    resetScrollControlsAfterButton('firmware_gpio_button');
+  const event = scrollStopEventFromStatus(data, renderer);
+  const newButtonStopEvent = !!event &&
+    event.seq > lastScrollStopEventSeq &&
+    event.source === 'gpio' &&
+    ['B1','B2','B3'].includes(event.button);
+  if(event && event.seq > lastScrollStopEventSeq) lastScrollStopEventSeq = event.seq;
+
+  const fallbackButtonStop = wasScrollBeforeFirmwareSync &&
+    firmwareReason.startsWith('gpio_') &&
+    /(^|_)B[123](_|$)/.test(firmwareReason);
+  const stoppedAfterScroll = wasScrollBeforeFirmwareSync && !state.textScrollActive && !scroll.firmwareBacked;
+  const shouldStopScrollPreview = isScrollPageActive() &&
+    String(source).startsWith('firmware_poll') &&
+    (newButtonStopEvent || stoppedAfterScroll || fallbackButtonStop);
+
+  if(shouldStopScrollPreview){
+    const hasCurrentFacePreview = frameChanged && !state.textScrollActive && !scroll.firmwareBacked;
+    resetScrollControlsAfterButton(newButtonStopEvent ? `firmware_gpio_${event.button}` : 'firmware_gpio_button', {preserveCurrentFrame:hasCurrentFacePreview});
+    if(!hasCurrentFacePreview){
+      const delay = renderer.deferredFaceRestoreActive ? SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS : 20;
+      scheduleFirmwareScrollStopFullSync('firmware_poll_scroll_stop_full_status', delay);
+    }
   }
   if(stateChanged) renderState();
 }
@@ -1387,7 +1440,7 @@ function setBrightness(v, source='brightness_change'){
   sendAuxCommand('set_brightness', {raw:state.brightness}, source);
 }
 
-const BOOT_STATUS_ENDPOINT = `${API_ENDPOINTS.status}?runtimeOnly=1&noFrame=1`;
+const BOOT_STATUS_ENDPOINT = `${API_ENDPOINTS.status}${RUNTIME_STATUS_QUERY}`;
 const BOOT_STATUS_TIMEOUT_MS = 2500;
 let bootRuntimeSnapshot = {attempted:false, ok:false, error:'', data:null};
 let bootProgressValue = 0;
@@ -1475,24 +1528,50 @@ async function preloadFirmwareRuntimeState(){
   }
 }
 async function syncRuntimeStateFromFirmware(source='webui_load'){
+  if(firmwareFullStatusInFlight) return false;
+  firmwareFullStatusInFlight = true;
   try {
     lastFirmwareStatusPollAt = performance.now();
     const data = await apiGet(API_ENDPOINTS.status);
     applyFirmwareRuntimeState(data, source);
     renderState();
+    return true;
   } catch (err) {
     state.defaultBrightness = DEFAULT_LED_BRIGHTNESS;
-    if (!isOfflineHtmlMode() && shouldLogApiError()) log(`读取固件亮度状态失败: ${err.message}`);
+    if (!isOfflineHtmlMode() && shouldLogApiError()) log(`读取固件运行/预览状态失败: ${err.message}`);
+    return false;
+  } finally {
+    firmwareFullStatusInFlight = false;
+  }
+}
+async function syncRuntimeSummaryFromFirmware(source='firmware_poll_runtime_summary'){
+  if(firmwareRuntimeSummaryInFlight) return false;
+  firmwareRuntimeSummaryInFlight = true;
+  try {
+    lastFirmwareStatusPollAt = performance.now();
+    const data = await apiGet(`${API_ENDPOINTS.status}${RUNTIME_STATUS_QUERY}`);
+    applyFirmwareRuntimeState(data, source, {skipFrame:true});
+    return true;
+  } catch (err) {
+    if (!isOfflineHtmlMode() && shouldLogApiError()) log(`读取固件轻量状态失败: ${err.message}`);
+    return false;
+  } finally {
+    firmwareRuntimeSummaryInFlight = false;
   }
 }
 function startFirmwareStatusPolling(){
   if(firmwareStatusPollTimer || isOfflineHtmlMode()) return;
   firmwareStatusPollTimer = setInterval(()=>{
     const firmwareIsScrolling = state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
-    const minInterval = firmwareIsScrolling ? 10000 : 2000;
+    const scrollPageNeedsFastStopNotice = firmwareIsScrolling && isScrollPageActive();
+    const minInterval = scrollPageNeedsFastStopNotice ? 550 : (firmwareIsScrolling ? 10000 : 2000);
     if(performance.now() - lastFirmwareStatusPollAt < minInterval) return;
-    syncRuntimeStateFromFirmware(firmwareIsScrolling ? 'firmware_poll_scroll_throttled' : 'firmware_poll');
-  }, 1000);
+    if(scrollPageNeedsFastStopNotice){
+      syncRuntimeSummaryFromFirmware('firmware_poll_scroll_runtime');
+    } else {
+      syncRuntimeStateFromFirmware(firmwareIsScrolling ? 'firmware_poll_scroll_throttled' : 'firmware_poll');
+    }
+  }, 500);
 }
 async function refreshPowerStatusFromFirmware(source='power_timer', force=false){
   if(isOfflineHtmlMode() || powerStatusRefreshInFlight) return;
@@ -2568,7 +2647,7 @@ function createFaceRow(f,i,total){
   const item=document.createElement('div'); item.className='list-item saved-face-card';
 
   // 拖拽手柄
-  const handle=document.createElement('button'); handle.className='drag-handle'; handle.type='button'; handle.draggable=false; handle.title='拖拽排序'; handle.textContent='⠿';
+  const handle=document.createElement('button'); handle.className='drag-handle'; handle.type='button'; handle.draggable=false; handle.title='拖拽排序'; handle.setAttribute('aria-label','拖拽排序');
   attachFaceReorderHandle(handle, row, i);
 
   // 中间：命名框 + 元数据徽章
@@ -2588,19 +2667,20 @@ function createFaceRow(f,i,total){
 
   const mkBtn=(label,title,cls,fn,disabled)=>{
     const b=document.createElement('button'); b.type='button'; b.title=title;
+    b.setAttribute('aria-label', title);
     b.className='icon-btn'+(cls?' '+cls:''); b.textContent=label;
     b.disabled=!!disabled; b.onclick=fn; return b;
   };
 
-  actions.appendChild(mkBtn('应用','上传到固件（应用表情）','',()=>applySavedFace(i,'face_library_list')));
   actions.appendChild(mkBtn('↑','上移',''  ,()=>moveFace(i,-1), i<=0));
   actions.appendChild(mkBtn('↓','下移',''  ,()=>moveFace(i,1),  i>=total-1));
-  actions.appendChild(mkBtn('改','重命名','',()=>{nameInput.focus(); nameInput.select();}));
+  actions.appendChild(mkBtn('✏️','重命名','',()=>{nameInput.focus(); nameInput.select();}));
   if(f.type!=='default'){
-    actions.appendChild(mkBtn('删','删除','btn-delete',()=>deleteFace(i)));
+    actions.appendChild(mkBtn('🗑️','删除','btn-delete',()=>deleteFace(i)));
   } else {
-    const nd=mkBtn('删','默认表情不可删除','btn-delete',()=>{},true); nd.style.opacity='.35'; actions.appendChild(nd);
+    const nd=mkBtn('🗑️','默认表情不可删除','btn-delete',()=>{},true); nd.style.opacity='.35'; actions.appendChild(nd);
   }
+  actions.appendChild(mkBtn('💡','上传到固件（应用表情）','btn-apply',()=>applySavedFace(i,'face_library_list')));
 
   item.appendChild(handle); item.appendChild(body); item.appendChild(actions);
   row.appendChild(index); row.appendChild(item); return row;
@@ -2876,7 +2956,8 @@ function resetScrollPreviewToFirstFrame(reason='text_scroll_start_reset_preview'
   setScrollPreviewFrame(scrollFrame, reason, playback);
   updateScrollUi();
 }
-function resetScrollControlsAfterButton(reason='gpio_button'){
+function resetScrollControlsAfterButton(reason='gpio_button', options={}){
+  const preserveCurrentFrame = !!options.preserveCurrentFrame;
   if(scroll.timer) clearInterval(scroll.timer);
   scroll.timer = null;
   scroll.active = false;
@@ -2889,7 +2970,11 @@ function resetScrollControlsAfterButton(reason='gpio_button'){
   if(isScrollPlaybackValue(state.playback)) state.playback = 'idle';
   state.lastRefreshReason = `${reason}_reset_scroll_ui`;
   resetScrollUploadProgress();
-  scrollFrame = blankFrame();
+  if(preserveCurrentFrame){
+    scrollFrame = cloneFrame(currentFrame);
+  } else {
+    scrollFrame = blankFrame();
+  }
   renderMatrices();
   updateScrollUi();
   renderState();
@@ -2916,8 +3001,6 @@ async function uploadFirmwareScrollTimeline(){
     setScrollUploadProgress(0.04 + progress * 0.30, `编码 ${Math.round(progress * 100)}%`);
   });
   if(!frames.length) throw new Error('no scroll frames');
-  const intervalMs = getScrollFrameIntervalMs();
-  const fps = getScrollFps();
   const totalChunks = Math.ceil(frames.length / SCROLL_UPLOAD_CHUNK_FRAMES);
   let data = null;
   setScrollUploadProgress(0.36, `分批上传到固件 RAM 0/${totalChunks}`);
@@ -2925,33 +3008,38 @@ async function uploadFirmwareScrollTimeline(){
     const start = chunkIndex * SCROLL_UPLOAD_CHUNK_FRAMES;
     const chunkFrames = frames.slice(start, start + SCROLL_UPLOAD_CHUNK_FRAMES);
     const isFirstChunk = chunkIndex === 0;
-    const isLastChunk = chunkIndex === totalChunks - 1;
     data = await apiPostWithUploadProgress(API_ENDPOINTS.scroll, {
       frames: chunkFrames,
-      fps,
-      intervalMs,
       stepLedPerFrame:1,
-      start: isLastChunk,
+      start: false,
       append: !isFirstChunk,
       chunkIndex,
       chunkFrames: chunkFrames.length,
       totalFrames: frames.length,
-      source: 'webui_text_scroll',
+      source: 'webui_text_scroll_frames_only',
       storage: 'ram',
       persist: false,
       saveToFlash: false
     }, progress => {
       const chunkProgress = (chunkIndex + progress) / totalChunks;
       setScrollUploadProgress(
-        0.36 + chunkProgress * 0.58,
+        0.36 + chunkProgress * 0.50,
         `分批上传到固件 RAM ${chunkIndex + 1}/${totalChunks}`
       );
     });
     await sleepMs(20);
   }
+
+  const fps = getScrollFps();
+  const intervalMs = Math.max(1, Math.round(1000 / fps));
+  setScrollUploadProgress(0.90, `帧数据已完成，设置 ${fps} fps`);
+  data = await apiPost(API_ENDPOINTS.command, {
+    cmd: 'start_scroll',
+    payload: {fps, intervalMs, source:'webui_text_scroll_after_frames'}
+  });
+  applyFirmwareRuntimeState(data, 'text_scroll_upload_start_after_frames');
   setScrollUploadProgress(0.98, '启动滚动播放');
-  applyFirmwareRuntimeState(data, 'text_scroll_upload');
-  return data;
+  return Object.assign({frames: frames.length, fps, scrollIntervalMs: intervalMs}, data || {});
 }
 async function startScroll(){
   const text = sanitizeScrollTextInput(true);
@@ -3314,6 +3402,34 @@ function makePatternFrame(kind){
   return frame;
 }
 
+let postBootDeferredReadStarted = false;
+async function runPostBootDeferredReads(bootOk=false){
+  if(postBootDeferredReadStarted) return;
+  postBootDeferredReadStarted = true;
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  const bootPlaybackIsScroll = state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
+  try{
+    setFirmwareStatus({savedFacesSync:'loading after WebUI ready'});
+    log('WebUI 已显示：开始异步读取 saved_faces.json 与 LED 预览矩阵。');
+    await loadFaceLibrary();
+  }catch(err){
+    setFirmwareStatus({savedFacesSync:'deferred load failed'});
+    if(shouldLogApiError()) log(`延后读取 saved_faces.json 失败：${err.message}`);
+  }
+
+  const matrixSynced = await syncRuntimeStateFromFirmware('post_load_matrix_preview');
+  if(!matrixSynced && getAllFaces().length && !bootPlaybackIsScroll){
+    if(bootOk) applyKnownFaceIndexLocal('post_load_face_index_fallback');
+    else applyStartupDefaultFaceLocal('post_load_default_face_fallback');
+  }
+  renderSavedFaces();
+  renderMatrices();
+  renderState();
+  scheduleMatrixFitRender(3);
+}
+
 async function bootstrapWebUi(){
   let bootOk = false;
   try{
@@ -3321,7 +3437,7 @@ async function bootstrapWebUi(){
     await preloadFirmwareRuntimeState();
     bootOk = !!bootRuntimeSnapshot.ok;
 
-    setBootProgress(72, '正在初始化页面控件。', '建立导航、矩阵、颜色、亮度、按钮和滚动文字控件');
+    setBootProgress(72, '正在初始化页面控件。', '建立导航、矩阵容器、颜色、亮度、按钮和滚动文字控件');
     ensureWebUiFontReady().catch(err=>console.warn('WebUI font bootstrap failed', err));
     observeWebUiFont();
     initNav();
@@ -3336,39 +3452,33 @@ async function bootstrapWebUi(){
     initializeDebugControls();
     initCustomSelectDropdowns();
 
-    setBootProgress(80, '正在把固件状态写入页面控件。', '同步颜色、亮度、A/M 模式和播放状态控件');
+    setBootProgress(82, '正在把轻量固件状态写入页面控件。', '只同步颜色、亮度、电池、A/M 模式和播放状态');
     applyBrightnessLocal(state.brightness);
     setColor(state.color, 'firmware_sync');
     syncAutoIntervalUi();
     updateM370Views();
     updateScrollUi();
+    setFirmwareStatus({savedFacesSync:'deferred until WebUI ready'});
 
-    setBootProgress(86, '正在读取保存表情列表。', '读取 /api/saved_faces 或本地 saved_faces.json');
-    await loadFaceLibrary();
-    setBootProgress(92, '正在确定首屏表情状态。', '按固件表情序号或本地默认表情建立首屏');
-    if(getAllFaces().length){
-      const bootPlaybackIsScroll = state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
-      if(bootOk && !bootPlaybackIsScroll){
-        applyKnownFaceIndexLocal('startup_from_firmware_face_index_no_m370');
-      }else if(!bootOk){
-        applyStartupDefaultFaceLocal('bootstrap_default_face');
-      }
-    }
-
-    setBootProgress(96, '正在完成首屏渲染。', '渲染表情列表、矩阵和状态栏');
+    setBootProgress(92, '正在完成首屏渲染；saved_faces 和 LED 预览矩阵将在页面显示后读取。', '首屏不等待 saved_faces / M370');
     renderSavedFaces();
     renderMatrices();
     renderState();
     fitAllMatrices();
-    startFirmwareStatusPolling();
-    startPowerStatusPolling();
-    setBootProgress(100, '读取完成，正在显示 WebUI。', '完成');
+
+    setBootProgress(100, 'WebUI 已准备显示。', '完成首屏加载');
     await new Promise(resolve => requestAnimationFrame(resolve));
     finishBootVisibility();
     scheduleMatrixFitRender(4);
+
+    startFirmwareStatusPolling();
+    startPowerStatusPolling();
+    runPostBootDeferredReads(bootOk).catch(err=>{
+      if(shouldLogApiError()) log(`延后读取 saved_faces/预览矩阵失败：${err.message}`);
+    });
     log(bootOk
-      ? 'WebUI 启动：已先读取 runtime-only 固件运行状态；首次加载跳过 LED 预览/M370。'
-      : 'WebUI 启动：固件预读取失败/离线，已使用本地默认状态加载。');
+      ? 'WebUI 启动：首屏只读取 runtime-only 固件运行状态；saved_faces 与 LED 预览矩阵已改为页面显示后异步读取。'
+      : 'WebUI 启动：固件预读取失败/离线，已先显示本地默认页面；saved_faces 与预览矩阵会在页面显示后尝试读取。');
   }catch(err){
     console.error('WebUI bootstrap failed', err);
     const msg = `WebUI 初始化失败：${err.message || err}`;
@@ -3379,6 +3489,7 @@ async function bootstrapWebUi(){
     await new Promise(resolve => requestAnimationFrame(resolve));
     finishBootVisibility();
     scheduleMatrixFitRender(4);
+    runPostBootDeferredReads(bootOk).catch(()=>{});
   }
 }
 

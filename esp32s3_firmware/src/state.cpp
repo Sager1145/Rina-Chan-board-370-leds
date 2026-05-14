@@ -1,21 +1,30 @@
 #include "state.h"
 
-RuntimeState      state;
-RuntimeFace       autoFaces[MAX_AUTO_FACES];
-uint16_t          autoFaceCount       = 0;
+RuntimeStore& RuntimeStore::instance() {
+    static RuntimeStore store;
+    return store;
+}
 
-uint8_t           frameBits[FRAME_BYTES]                      = {};
-uint8_t           scrollFrameBits[MAX_SCROLL_FRAMES][FRAME_BYTES] = {};
+RuntimeState& runtimeState() {
+    return RuntimeStore::instance().state();
+}
 
-bool              fsMounted           = false;
+RuntimeFace* runtimeAutoFaces() {
+    return RuntimeStore::instance().autoFaces();
+}
 
-SemaphoreHandle_t frameMutex          = nullptr;
-SemaphoreHandle_t scrollMutex         = nullptr;
-SemaphoreHandle_t hardwareBusMutex    = nullptr;
-TaskHandle_t      scrollTaskHandle    = nullptr;
+uint16_t& runtimeAutoFaceCount() {
+    return RuntimeStore::instance().autoFaceCount();
+}
 
-portMUX_TYPE      ledRenderRequestMux = portMUX_INITIALIZER_UNLOCKED;
-volatile bool     ledRenderRequested  = false;
-uint32_t          lastLedShowUs       = 0;
+uint8_t* runtimeFrameBits() {
+    return RuntimeStore::instance().frameBits();
+}
 
-uint16_t          logicalToPhysicalMap[LED_COUNT] = {};
+uint8_t* runtimeScrollFrameBits(uint16_t index) {
+    return RuntimeStore::instance().scrollFrameBits(index);
+}
+
+bool& runtimeFsMounted() {
+    return RuntimeStore::instance().fsMounted();
+}

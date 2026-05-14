@@ -88,12 +88,12 @@ static bool loadBatteryCalibration(uint32_t now) {
     powerStatus.batteryCalibLoaded = false;
 
     bool calibExists = false;
-    if (fsMounted) {
+    if (runtimeFsMounted()) {
         lockHardwareBus();
         calibExists = LittleFS.exists(BATTERY_CALIB_PATH);
         unlockHardwareBus();
     }
-    if (!fsMounted || !calibExists) {
+    if (!runtimeFsMounted() || !calibExists) {
         return false;
     }
 
@@ -123,7 +123,7 @@ static bool loadBatteryCalibration(uint32_t now) {
 }
 
 static bool saveBatteryCalibration(uint32_t now) {
-    if (!fsMounted) return false;
+    if (!runtimeFsMounted()) return false;
     bool resourcesOk = false;
     lockHardwareBus();
     resourcesOk = LittleFS.exists("/resources") || LittleFS.mkdir("/resources");

@@ -1,11 +1,17 @@
 #include "led_renderer.h"
 #include "state.h"
 #include "sync.h"
+#include "scroll.h"
 #include "utils.h"
 #include <Adafruit_NeoPixel.h>
 
 // Strip is owned by this module; other modules interact through the helpers.
 static Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+static uint16_t logicalToPhysicalMap[LED_COUNT] = {};
+static portMUX_TYPE ledRenderRequestMux = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool ledRenderRequested = false;
+static uint32_t lastLedShowUs = 0;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -45,7 +51,7 @@ void requestLedRender() {
     portENTER_CRITICAL(&ledRenderRequestMux);
     ledRenderRequested = true;
     portEXIT_CRITICAL(&ledRenderRequestMux);
-    if (scrollTaskHandle) xTaskNotifyGive(scrollTaskHandle);
+    notifyScrollRenderTask();
 }
 
 bool consumeLedRenderRequest() {
@@ -66,12 +72,12 @@ void showCurrentFrameNoLock() { requestLedRender(); }
 void setFrameBit(uint16_t index, bool on) {
     const uint16_t byteIndex = index >> 3;
     const uint8_t  bitMask   = 1U << (index & 7U);
-    if (on) frameBits[byteIndex] |=  bitMask;
-    else    frameBits[byteIndex] &= ~bitMask;
+    if (on) runtimeFrameBits()[byteIndex] |=  bitMask;
+    else    runtimeFrameBits()[byteIndex] &= ~bitMask;
 }
 
 bool frameBit(uint16_t index) {
-    return (frameBits[index >> 3] & (1U << (index & 7U))) != 0;
+    return (runtimeFrameBits()[index >> 3] & (1U << (index & 7U))) != 0;
 }
 
 bool packedFrameBit(const uint8_t* bits, uint16_t index) {
@@ -96,11 +102,11 @@ void renderCurrentFrameToLedStrip() {
     uint8_t colorR = 0, colorG = 0, colorB = 0;
 
     lockFrame();
-    memcpy(localFrame, frameBits, FRAME_BYTES);
-    brightness = state.brightness;
-    colorR     = state.colorR;
-    colorG     = state.colorG;
-    colorB     = state.colorB;
+    memcpy(localFrame, runtimeFrameBits(), FRAME_BYTES);
+    brightness = runtimeState().brightness;
+    colorR     = runtimeState().colorR;
+    colorG     = runtimeState().colorG;
+    colorB     = runtimeState().colorB;
     unlockFrame();
 
     // --- Timing: enforce minimum inter-frame gap FIRST ---
@@ -236,7 +242,7 @@ String blankM370() {
 bool applyM370(const String& input, const String& reason, String& error) {
     String normalized;
     if (!normalizeM370(input, normalized, error)) {
-        ++state.framesRejected;
+        ++runtimeState().framesRejected;
         return false;
     }
 
@@ -247,10 +253,10 @@ bool applyM370(const String& input, const String& reason, String& error) {
     decodeNormalizedM370ToPackedBits(normalized, packed);
 
     withFrameLock([&]() {
-        memcpy(frameBits, packed, FRAME_BYTES);
-        state.lastM370   = normalized;
-        state.lastReason = reason;
-        ++state.framesAccepted;
+        memcpy(runtimeFrameBits(), packed, FRAME_BYTES);
+        runtimeState().lastM370   = normalized;
+        runtimeState().lastReason = reason;
+        ++runtimeState().framesAccepted;
         showCurrentFrameNoLock();
     });
     return true;
@@ -258,19 +264,19 @@ bool applyM370(const String& input, const String& reason, String& error) {
 
 void applyPackedFrame(const uint8_t* packedBits, const String& reason) {
     withFrameLock([&]() {
-        memcpy(frameBits, packedBits, FRAME_BYTES);
-        state.lastReason = reason;
-        ++state.framesAccepted;
+        memcpy(runtimeFrameBits(), packedBits, FRAME_BYTES);
+        runtimeState().lastReason = reason;
+        ++runtimeState().framesAccepted;
         showCurrentFrameNoLock();
     });
 }
 
 void applyBlankFrame(const String& reason) {
     withFrameLock([&]() {
-        memset(frameBits, 0, FRAME_BYTES);
-        state.lastM370   = blankM370();
-        state.lastReason = reason;
-        ++state.framesAccepted;
+        memset(runtimeFrameBits(), 0, FRAME_BYTES);
+        runtimeState().lastM370   = blankM370();
+        runtimeState().lastReason = reason;
+        ++runtimeState().framesAccepted;
         showCurrentFrameNoLock();
     });
 }
@@ -282,10 +288,10 @@ void applyBlankFrame(const String& reason) {
 void setColorStateNoRender(const String& input) {
     uint8_t r, g, b;
     if (!parseColorHex(input, r, g, b)) return;
-    state.colorHex = formatColorHex(r, g, b);
-    state.colorR   = r;
-    state.colorG   = g;
-    state.colorB   = b;
+    runtimeState().colorHex = formatColorHex(r, g, b);
+    runtimeState().colorR   = r;
+    runtimeState().colorG   = g;
+    runtimeState().colorB   = b;
 }
 
 bool setColor(const String& input, String& error) {
@@ -295,10 +301,10 @@ bool setColor(const String& input, String& error) {
         return false;
     }
     withFrameLock([&]() {
-        state.colorHex = formatColorHex(r, g, b);
-        state.colorR   = r;
-        state.colorG   = g;
-        state.colorB   = b;
+        runtimeState().colorHex = formatColorHex(r, g, b);
+        runtimeState().colorR   = r;
+        runtimeState().colorG   = g;
+        runtimeState().colorB   = b;
         showCurrentFrameNoLock();
     });
     return true;
@@ -307,7 +313,7 @@ bool setColor(const String& input, String& error) {
 void setBrightness(int raw) {
     raw = constrain(raw, MIN_BRIGHTNESS, MAX_BRIGHTNESS);
     withFrameLock([&]() {
-        state.brightness = static_cast<uint8_t>(raw);
+        runtimeState().brightness = static_cast<uint8_t>(raw);
         showCurrentFrameNoLock();
     });
 }

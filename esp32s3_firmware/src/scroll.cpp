@@ -3,10 +3,13 @@
 #include "sync.h"
 #include "config.h"
 #include "led_renderer.h"
+#include <freertos/task.h>
 
 // ---------------------------------------------------------------------------
 // Scroll render task  (pinned to Core 1)
 // ---------------------------------------------------------------------------
+
+static TaskHandle_t sScrollTaskHandle = nullptr;
 
 static void scrollRenderTask(void* parameter) {
     (void)parameter;
@@ -22,29 +25,29 @@ static void scrollRenderTask(void* parameter) {
         bool hasScrollFrame        = false;
 
         lockScroll();
-        if (state.firmwareScrollActive && !state.firmwareScrollPaused && state.scrollFrameCount > 0) {
+        if (runtimeState().firmwareScrollActive && !runtimeState().firmwareScrollPaused && runtimeState().scrollFrameCount > 0) {
             const uint32_t now = millis();
-            if (state.lastScrollFrameMs == 0) state.lastScrollFrameMs = now;
+            if (runtimeState().lastScrollFrameMs == 0) runtimeState().lastScrollFrameMs = now;
 
             const uint16_t intervalMs = constrain(
-                state.scrollIntervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
-            const uint32_t elapsedMs = now - state.lastScrollFrameMs;
+                runtimeState().scrollIntervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+            const uint32_t elapsedMs = now - runtimeState().lastScrollFrameMs;
 
             if (elapsedMs >= intervalMs) {
                 const uint32_t rawSteps = elapsedMs / intervalMs;
-                uint32_t steps = rawSteps % state.scrollFrameCount;
+                uint32_t steps = rawSteps % runtimeState().scrollFrameCount;
                 if (steps == 0) steps = 1;
 
-                state.scrollFrameIndex  = (state.scrollFrameIndex + steps) % state.scrollFrameCount;
-                state.lastScrollFrameMs += rawSteps * intervalMs;
+                runtimeState().scrollFrameIndex  = (runtimeState().scrollFrameIndex + steps) % runtimeState().scrollFrameCount;
+                runtimeState().lastScrollFrameMs += rawSteps * intervalMs;
                 // Reset the scroll clock after a long suspension so playback
                 // resumes smoothly instead of chasing stale elapsed time.
-                if (now - state.lastScrollFrameMs >
+                if (now - runtimeState().lastScrollFrameMs >
                     static_cast<uint32_t>(intervalMs) * SCROLL_DRIFT_RESET_INTERVALS) {
-                    state.lastScrollFrameMs = now;
+                    runtimeState().lastScrollFrameMs = now;
                 }
-                memcpy(nextFrame, scrollFrameBits[state.scrollFrameIndex], FRAME_BYTES);
-                ++state.framesAccepted;
+                memcpy(nextFrame, runtimeScrollFrameBits(runtimeState().scrollFrameIndex), FRAME_BYTES);
+                ++runtimeState().framesAccepted;
                 hasScrollFrame = true;
                 shouldRender   = true;
             }
@@ -58,13 +61,13 @@ static void scrollRenderTask(void* parameter) {
             //       non-scroll frame (mainTaskRenderPending).
             //
             // If the main task called applyM370/applyBlankFrame between
-            // unlockScroll() and here it has already written frameBits and either
+            // unlockScroll() and here it has already written runtimeFrameBits() and either
             // cleared firmwareScrollActive or set mainTaskRenderPending. In either
             // case we must not overwrite it with the stale scroll snapshot —
             // that would cause exactly one garbage/flash frame on the LEDs.
             lockFrame();
-            if (state.firmwareScrollActive && !mainTaskRenderPending) {
-                memcpy(frameBits, nextFrame, FRAME_BYTES);
+            if (runtimeState().firmwareScrollActive && !mainTaskRenderPending) {
+                memcpy(runtimeFrameBits(), nextFrame, FRAME_BYTES);
             } else {
                 // Main task frame takes priority; drop this scroll step silently.
                 // shouldRender stays true if mainTaskRenderPending so the
@@ -87,7 +90,7 @@ static void scrollRenderTask(void* parameter) {
 // ---------------------------------------------------------------------------
 
 void startScrollRenderTask() {
-    if (scrollTaskHandle) return;
+    if (sScrollTaskHandle) return;
 
     const BaseType_t ok = xTaskCreatePinnedToCore(
         scrollRenderTask,
@@ -95,12 +98,16 @@ void startScrollRenderTask() {
         LED_RENDER_TASK_STACK_BYTES,
         nullptr,
         LED_RENDER_TASK_PRIORITY,
-        &scrollTaskHandle,
+        &sScrollTaskHandle,
         LED_RENDER_TASK_CORE
     );
 
     if (ok != pdPASS) {
-        scrollTaskHandle = nullptr;
+        sScrollTaskHandle = nullptr;
         Serial.println("Failed to start LED scroll render task; firmware scroll unavailable");
     }
+}
+
+void notifyScrollRenderTask() {
+    if (sScrollTaskHandle) xTaskNotifyGive(sScrollTaskHandle);
 }

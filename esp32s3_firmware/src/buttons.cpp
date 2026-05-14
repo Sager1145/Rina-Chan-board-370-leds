@@ -53,6 +53,24 @@ static void fireHardwareButtonAction(const char* code) {
     }
 }
 
+static bool isScrollInterruptButton(const String& code) {
+    return code == "B1" || code == "B2" || code == "B3";
+}
+
+static bool isFirmwareScrollOrPreviewActive() {
+    return runtimeState().firmwareScrollActive ||
+           runtimeState().firmwareScrollPaused ||
+           isScrollPlayback(runtimeState().playback);
+}
+
+static void markScrollStoppedByButton(const String& code, const String& source) {
+    ++runtimeState().scrollStopEventSeq;
+    runtimeState().scrollStopEventMs     = millis();
+    runtimeState().scrollStopEventButton = code;
+    runtimeState().scrollStopEventSource = source;
+    runtimeState().scrollStopEventReason = runtimeState().lastReason;
+}
+
 // ---------------------------------------------------------------------------
 // runButtonAction  (public)
 // ---------------------------------------------------------------------------
@@ -63,37 +81,53 @@ bool runButtonAction(const String& button, const String& source) {
     code.toUpperCase();
     if (code.isEmpty()) return false;
 
-    if (code == "B3") return toggleModeFromButtonAction(source);
+    const bool shouldNotifyScrollStop = isScrollInterruptButton(code) &&
+                                        source == "gpio" &&
+                                        isFirmwareScrollOrPreviewActive();
+
+    if (code == "B3") {
+        const bool handled = toggleModeFromButtonAction(source);
+        if (handled && shouldNotifyScrollStop) markScrollStoppedByButton(code, source);
+        return handled;
+    }
 
     if (code == "B1" || code == "B2") {
         // Cancel scroll / other active playback first, then navigate faces.
         stopFirmwareScroll(false);
-        state.restoreAutoAfterScroll = false;
+        runtimeState().restoreAutoAfterScroll = false;
     }
-    if (code == "B1") return applyRelativeSavedFace( 1, source + "_B1_next_saved_face");
-    if (code == "B2") return applyRelativeSavedFace(-1, source + "_B2_prev_saved_face");
+    if (code == "B1") {
+        const bool handled = applyRelativeSavedFace( 1, source + "_B1_next_saved_face");
+        if (handled && shouldNotifyScrollStop) markScrollStoppedByButton(code, source);
+        return handled;
+    }
+    if (code == "B2") {
+        const bool handled = applyRelativeSavedFace(-1, source + "_B2_prev_saved_face");
+        if (handled && shouldNotifyScrollStop) markScrollStoppedByButton(code, source);
+        return handled;
+    }
 
     if (code == "B4") {
-        setBrightness(static_cast<int>(state.brightness) - BRIGHTNESS_BUTTON_STEP);
-        state.lastReason = source + "_B4_brightness_down";
+        setBrightness(static_cast<int>(runtimeState().brightness) - BRIGHTNESS_BUTTON_STEP);
+        runtimeState().lastReason = source + "_B4_brightness_down";
         return true;
     }
     if (code == "B5") {
-        setBrightness(static_cast<int>(state.brightness) + BRIGHTNESS_BUTTON_STEP);
-        state.lastReason = source + "_B5_brightness_up";
+        setBrightness(static_cast<int>(runtimeState().brightness) + BRIGHTNESS_BUTTON_STEP);
+        runtimeState().lastReason = source + "_B5_brightness_up";
         return true;
     }
 
     if (code == "B3B1") {
-        setAutoInterval(state.autoIntervalMs > AUTO_INTERVAL_BUTTON_STEP_MS
-                            ? state.autoIntervalMs - AUTO_INTERVAL_BUTTON_STEP_MS
+        setAutoInterval(runtimeState().autoIntervalMs > AUTO_INTERVAL_BUTTON_STEP_MS
+                            ? runtimeState().autoIntervalMs - AUTO_INTERVAL_BUTTON_STEP_MS
                             : MIN_AUTO_INTERVAL_MS);
-        state.lastReason = source + "_B3B1_auto_interval_down";
+        runtimeState().lastReason = source + "_B3B1_auto_interval_down";
         return true;
     }
     if (code == "B3B2") {
-        setAutoInterval(state.autoIntervalMs + AUTO_INTERVAL_BUTTON_STEP_MS);
-        state.lastReason = source + "_B3B2_auto_interval_up";
+        setAutoInterval(runtimeState().autoIntervalMs + AUTO_INTERVAL_BUTTON_STEP_MS);
+        runtimeState().lastReason = source + "_B3B2_auto_interval_up";
         return true;
     }
 

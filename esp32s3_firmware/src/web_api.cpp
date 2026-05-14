@@ -320,10 +320,10 @@ static bool jsonStringField(const String& body, const char* key, String& value) 
 
 static void pauseFirmwareScrollIfActive(bool& changed) {
     withScrollLock([&]() {
-        if (state.firmwareScrollActive) {
-            state.firmwareScrollPaused = true;
-            state.paused               = true;
-            state.playback             = "scroll_paused";
+        if (runtimeState().firmwareScrollActive) {
+            runtimeState().firmwareScrollPaused = true;
+            runtimeState().paused               = true;
+            runtimeState().playback             = "scroll_paused";
             changed                    = true;
         }
     });
@@ -331,19 +331,19 @@ static void pauseFirmwareScrollIfActive(bool& changed) {
 
 static void resumeFirmwareScrollIfCached(bool& changed, bool requirePaused = false) {
     withScrollLock([&]() {
-        if (state.scrollFrameCount > 0 && (!requirePaused || state.firmwareScrollPaused)) {
-            state.firmwareScrollActive  = true;
-            state.firmwareScrollPaused  = false;
-            state.lastScrollFrameMs     = millis();
-            state.paused                = false;
-            state.playback              = "scroll";
+        if (runtimeState().scrollFrameCount > 0 && (!requirePaused || runtimeState().firmwareScrollPaused)) {
+            runtimeState().firmwareScrollActive  = true;
+            runtimeState().firmwareScrollPaused  = false;
+            runtimeState().lastScrollFrameMs     = millis();
+            runtimeState().paused                = false;
+            runtimeState().playback              = "scroll";
             changed                     = true;
         }
     });
 }
 
 static bool serveStaticFile(String path) {
-    if (!fsMounted) return false;
+    if (!runtimeFsMounted()) return false;
     if (path == "/") path = "/index.html";
     if (path.endsWith("/")) path += "index.html";
     if (!littleFsExistsLocked(path)) return false;
@@ -382,12 +382,12 @@ static void handleApiStatus() {
     uint16_t scrollIntervalMs       = DEFAULT_SCROLL_INTERVAL_MS;
 
     withScrollLock([&]() {
-        firmwareScrollActive   = state.firmwareScrollActive;
-        firmwareScrollPaused   = state.firmwareScrollPaused;
-        restoreAutoAfterScroll = state.restoreAutoAfterScroll;
-        scrollFrameCount       = state.scrollFrameCount;
-        scrollFrameIndex       = state.scrollFrameIndex;
-        scrollIntervalMs       = state.scrollIntervalMs;
+        firmwareScrollActive   = runtimeState().firmwareScrollActive;
+        firmwareScrollPaused   = runtimeState().firmwareScrollPaused;
+        restoreAutoAfterScroll = runtimeState().restoreAutoAfterScroll;
+        scrollFrameCount       = runtimeState().scrollFrameCount;
+        scrollFrameIndex       = runtimeState().scrollFrameIndex;
+        scrollIntervalMs       = runtimeState().scrollIntervalMs;
     });
 
     const bool scrolling   = firmwareScrollActive || firmwareScrollPaused;
@@ -396,7 +396,7 @@ static void handleApiStatus() {
     DynamicJsonDocument doc((runtimeOnly || scrolling || summaryOnly) ? 4096 : 6144);
     doc["ok"]     = true;
     doc["device"] = "RinaChanBoard";
-    doc["uptimeMs"] = millis() - state.bootMs;
+    doc["uptimeMs"] = millis() - runtimeState().bootMs;
     if (runtimeOnly) doc["runtimeOnly"] = true;
 
     JsonObject ap = doc.createNestedObject("ap");
@@ -407,37 +407,44 @@ static void handleApiStatus() {
     addPowerStatus(doc.createNestedObject("power"));
 
     JsonObject renderer = doc.createNestedObject("renderer");
-    renderer["color"]                   = state.colorHex;
-    renderer["brightness"]              = state.brightness;
+    renderer["color"]                   = runtimeState().colorHex;
+    renderer["brightness"]              = runtimeState().brightness;
     renderer["brightnessMin"]           = MIN_BRIGHTNESS;
     renderer["brightnessMax"]           = MAX_BRIGHTNESS;
-    renderer["mode"]                    = state.mode;
-    renderer["playback"]                = state.playback;
-    renderer["paused"]                  = state.paused;
-    renderer["autoIntervalMs"]          = state.autoIntervalMs;
-    renderer["autoFaceCount"]           = autoFaceCount;
-    renderer["autoFaceIndex"]           = state.autoFaceIndex;
+    renderer["mode"]                    = runtimeState().mode;
+    renderer["playback"]                = runtimeState().playback;
+    renderer["paused"]                  = runtimeState().paused;
+    renderer["autoIntervalMs"]          = runtimeState().autoIntervalMs;
+    renderer["autoFaceCount"]           = runtimeAutoFaceCount();
+    renderer["autoFaceIndex"]           = runtimeState().autoFaceIndex;
     renderer["firmwareScrollActive"]    = firmwareScrollActive;
     renderer["firmwareScrollPaused"]    = firmwareScrollPaused;
     renderer["restoreAutoAfterScroll"]  = restoreAutoAfterScroll;
-    renderer["deferredFaceRestoreActive"] = state.deferredFaceRestoreActive;
+    renderer["deferredFaceRestoreActive"] = runtimeState().deferredFaceRestoreActive;
     renderer["scrollFrameCount"]        = scrollFrameCount;
     renderer["scrollFrameIndex"]        = scrollFrameIndex;
     renderer["scrollIntervalMs"]        = scrollIntervalMs;
     renderer["scrollMaxFrames"]         = MAX_SCROLL_FRAMES;
-    if (autoFaceCount > 0 && state.autoFaceIndex < autoFaceCount) {
-        renderer["autoFaceId"]   = autoFaces[state.autoFaceIndex].id;
-        renderer["autoFaceName"] = autoFaces[state.autoFaceIndex].name;
+    if (runtimeAutoFaceCount() > 0 && runtimeState().autoFaceIndex < runtimeAutoFaceCount()) {
+        renderer["autoFaceId"]   = runtimeAutoFaces()[runtimeState().autoFaceIndex].id;
+        renderer["autoFaceName"] = runtimeAutoFaces()[runtimeState().autoFaceIndex].name;
     }
     if (!scrolling && !summaryOnly) {
-        renderer["lastM370"] = state.lastM370;
+        renderer["lastM370"] = runtimeState().lastM370;
         renderer["lit"]      = countLitLeds();
     } else if (summaryOnly) {
         renderer["lastM370Skipped"] = true;
     } else {
         renderer["lastM370Deferred"] = true;
     }
-    renderer["lastReason"] = state.lastReason;
+    renderer["lastReason"] = runtimeState().lastReason;
+
+    JsonObject scrollStopEvent = renderer.createNestedObject("scrollStopEvent");
+    scrollStopEvent["seq"]    = runtimeState().scrollStopEventSeq;
+    scrollStopEvent["ms"]     = runtimeState().scrollStopEventMs;
+    scrollStopEvent["button"] = runtimeState().scrollStopEventButton;
+    scrollStopEvent["source"] = runtimeState().scrollStopEventSource;
+    scrollStopEvent["reason"] = runtimeState().scrollStopEventReason;
 
     // The WebUI boot path uses runtimeOnly=1&noFrame=1.  Return immediately
     // after runtime state so the first visible page can be built from current
@@ -465,12 +472,12 @@ static void handleApiStatus() {
     endpoints["status"]     = "/api/status";
 
     JsonObject storage = doc.createNestedObject("storage");
-    storage["mounted"]           = fsMounted;
+    storage["mounted"]           = runtimeFsMounted();
     storage["savedFacesPath"]    = SAVED_FACES_PATH;
-    storage["savedFacesExists"]  = fsMounted && littleFsExistsLocked(SAVED_FACES_PATH);
+    storage["savedFacesExists"]  = runtimeFsMounted() && littleFsExistsLocked(SAVED_FACES_PATH);
     storage["settingsPath"]      = SETTINGS_PATH;
-    storage["settingsExists"]    = fsMounted && littleFsExistsLocked(SETTINGS_PATH);
-    if (fsMounted && !scrolling && !summaryOnly) {
+    storage["settingsExists"]    = runtimeFsMounted() && littleFsExistsLocked(SETTINGS_PATH);
+    if (runtimeFsMounted() && !scrolling && !summaryOnly) {
         lockHardwareBus();
         storage["totalBytes"] = static_cast<uint32_t>(LittleFS.totalBytes());
         storage["usedBytes"]  = static_cast<uint32_t>(LittleFS.usedBytes());
@@ -482,12 +489,12 @@ static void handleApiStatus() {
     }
 
     JsonObject stats = doc.createNestedObject("stats");
-    stats["framesAccepted"]    = state.framesAccepted;
-    stats["framesRejected"]    = state.framesRejected;
-    stats["commandsAccepted"]  = state.commandsAccepted;
-    stats["commandsRejected"]  = state.commandsRejected;
-    stats["savedFacesWrites"]  = state.savedFacesWrites;
-    stats["settingsWrites"]    = state.settingsWrites;
+    stats["framesAccepted"]    = runtimeState().framesAccepted;
+    stats["framesRejected"]    = runtimeState().framesRejected;
+    stats["commandsAccepted"]  = runtimeState().commandsAccepted;
+    stats["commandsRejected"]  = runtimeState().commandsRejected;
+    stats["savedFacesWrites"]  = runtimeState().savedFacesWrites;
+    stats["settingsWrites"]    = runtimeState().settingsWrites;
 
     sendJsonDocument(200, doc);
 }
@@ -508,7 +515,7 @@ static void handleApiFrame() {
 
     const char* m370 = doc["m370"] | "";
     if (strlen(m370) == 0) {
-        ++state.framesRejected;
+        ++runtimeState().framesRejected;
         sendError(400, "missing m370");
         return;
     }
@@ -523,7 +530,7 @@ static void handleApiFrame() {
     if (reason.startsWith("custom_") || reason.startsWith("parts_")) {
         setMode("manual", true);
     }
-    state.playback = mode;
+    runtimeState().playback = mode;
 
     if (!applyM370(m370, reason, error)) { sendError(400, error); return; }
 
@@ -531,13 +538,13 @@ static void handleApiFrame() {
     reply["ok"]            = true;
     reply["accepted"]      = true;
     reply["leds"]          = LED_COUNT;
-    reply["color"]         = state.colorHex;
-    reply["brightness"]    = state.brightness;
-    reply["reason"]        = state.lastReason;
-    reply["mode"]          = state.mode;
-    reply["autoIntervalMs"] = state.autoIntervalMs;
-    reply["autoFaceIndex"] = state.autoFaceIndex;
-    reply["m370"]          = state.lastM370;
+    reply["color"]         = runtimeState().colorHex;
+    reply["brightness"]    = runtimeState().brightness;
+    reply["reason"]        = runtimeState().lastReason;
+    reply["mode"]          = runtimeState().mode;
+    reply["autoIntervalMs"] = runtimeState().autoIntervalMs;
+    reply["autoFaceIndex"] = runtimeState().autoFaceIndex;
+    reply["m370"]          = runtimeState().lastM370;
     reply["lit"]           = countLitLeds();
     sendJsonDocument(200, reply);
 }
@@ -549,14 +556,17 @@ static void handleApiScroll() {
     const String body = requestBody();
     if (body.isEmpty()) { sendError(400, "empty JSON body"); return; }
 
-    uint16_t intervalMs = DEFAULT_SCROLL_INTERVAL_MS;
+    uint16_t intervalMs = runtimeState().scrollIntervalMs;
+    bool     hasExplicitTiming = false;
     uint32_t intervalValue = 0;
     if (jsonUintField(body, "intervalMs", intervalValue) && intervalValue > 0) {
         intervalMs = static_cast<uint16_t>(intervalValue > 65535UL ? 65535UL : intervalValue);
+        hasExplicitTiming = true;
     } else {
         float fps = 0.0f;
         if (jsonFloatField(body, "fps", fps) && fps > 0.0f) {
             intervalMs = static_cast<uint16_t>(roundf(1000.0f / fps));
+            hasExplicitTiming = true;
         }
     }
 
@@ -592,12 +602,12 @@ static void handleApiScroll() {
     if (!appendFrames) {
         stopFirmwareScroll(false);
         withScrollLock([]() {
-            state.scrollFrameCount = 0;
-            state.scrollFrameIndex = 0;
+            runtimeState().scrollFrameCount = 0;
+            runtimeState().scrollFrameIndex = 0;
         });
     } else {
         withScrollLock([&]() {
-            baseIndex = state.scrollFrameCount;
+            baseIndex = runtimeState().scrollFrameCount;
         });
     }
 
@@ -626,9 +636,9 @@ static void handleApiScroll() {
             sendError(413, String("too many scroll frames; firmware cache max is ") + MAX_SCROLL_FRAMES);
             return;
         }
-        if (!m370ToPackedBits(m370, scrollFrameBits[targetIndex], error)) {
+        if (!m370ToPackedBits(m370, runtimeScrollFrameBits(targetIndex), error)) {
             sendError(400, String("invalid scroll frame ") + targetIndex + ": " + error);
-            withScrollLock([]() { state.scrollFrameCount = 0; });
+            withScrollLock([]() { runtimeState().scrollFrameCount = 0; });
             return;
         }
         ++count;
@@ -640,29 +650,31 @@ static void handleApiScroll() {
     }
 
     withScrollLock([&]() {
-        state.scrollFrameCount = baseIndex + count;
-        state.scrollFrameIndex = 0;
-        state.scrollIntervalMs = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+        runtimeState().scrollFrameCount = baseIndex + count;
+        runtimeState().scrollFrameIndex = 0;
+        if (hasExplicitTiming) {
+            runtimeState().scrollIntervalMs = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+        }
     });
 
     if (shouldStart) startFirmwareScroll(intervalMs);
 
     DynamicJsonDocument reply(768);
     reply["ok"]                   = true;
-    reply["frames"]               = state.scrollFrameCount;
+    reply["frames"]               = runtimeState().scrollFrameCount;
     reply["chunkFrames"]          = count;
     reply["chunkIndex"]           = chunkIndex;
     reply["totalFrames"]          = totalFrames;
     reply["append"]               = appendFrames;
-    reply["started"]              = state.firmwareScrollActive;
+    reply["started"]              = runtimeState().firmwareScrollActive;
     reply["source"]               = source;
     reply["storage"]              = "ram";
     reply["persist"]              = false;
     reply["saveToFlash"]          = false;
-    reply["mode"]                 = state.mode;
-    reply["playback"]             = state.playback;
-    reply["restoreAutoAfterScroll"] = state.restoreAutoAfterScroll;
-    reply["scrollIntervalMs"]     = state.scrollIntervalMs;
+    reply["mode"]                 = runtimeState().mode;
+    reply["playback"]             = runtimeState().playback;
+    reply["restoreAutoAfterScroll"] = runtimeState().restoreAutoAfterScroll;
+    reply["scrollIntervalMs"]     = runtimeState().scrollIntervalMs;
     reply["scrollMaxFrames"]      = MAX_SCROLL_FRAMES;
     reply["stepLedPerFrame"]      = 1;
     sendJsonDocument(200, reply);
@@ -679,7 +691,7 @@ static bool commandSetColor(DynamicJsonDocument& doc, JsonVariant payload, Strin
 
 static bool commandSetBrightness(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
-    int raw = state.brightness;
+    int raw = runtimeState().brightness;
     if      (payload["raw"].is<int>())        raw = payload["raw"].as<int>();
     else if (payload["brightness"].is<int>()) raw = payload["brightness"].as<int>();
     else if (doc["raw"].is<int>())            raw = doc["raw"].as<int>();
@@ -700,28 +712,64 @@ static bool commandSetMode(DynamicJsonDocument& doc, JsonVariant payload, String
 
 static bool commandSetAutoInterval(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
-    uint32_t ms = state.autoIntervalMs;
+    uint32_t ms = runtimeState().autoIntervalMs;
     if      (payload["ms"].is<uint32_t>()) ms = payload["ms"].as<uint32_t>();
     else if (doc["ms"].is<uint32_t>())     ms = doc["ms"].as<uint32_t>();
     setAutoInterval(ms);
     return true;
 }
 
+static bool scrollIntervalFromCommand(DynamicJsonDocument& doc, JsonVariant payload, uint16_t& intervalMs) {
+    uint32_t rawInterval = 0;
+    if (payload["intervalMs"].is<uint32_t>()) {
+        rawInterval = payload["intervalMs"].as<uint32_t>();
+    } else if (doc["intervalMs"].is<uint32_t>()) {
+        rawInterval = doc["intervalMs"].as<uint32_t>();
+    }
+
+    if (rawInterval > 0) {
+        intervalMs = static_cast<uint16_t>(rawInterval > 65535UL ? 65535UL : rawInterval);
+        return true;
+    }
+
+    float fps = 0.0f;
+    if (payload["fps"].is<float>() || payload["fps"].is<int>()) {
+        fps = payload["fps"].as<float>();
+    } else if (doc["fps"].is<float>() || doc["fps"].is<int>()) {
+        fps = doc["fps"].as<float>();
+    }
+
+    if (fps > 0.0f) {
+        intervalMs = static_cast<uint16_t>(roundf(1000.0f / fps));
+        return true;
+    }
+
+    return false;
+}
+
 static bool commandSetScrollInterval(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
-    uint16_t iMs = state.scrollIntervalMs;
-    if (payload["intervalMs"].is<uint16_t>()) {
-        iMs = payload["intervalMs"].as<uint16_t>();
-    } else if (payload["fps"].is<float>()) {
-        const float fps = payload["fps"].as<float>();
-        if (fps > 0.0f) iMs = static_cast<uint16_t>(roundf(1000.0f / fps));
-    } else if (doc["intervalMs"].is<uint16_t>()) {
-        iMs = doc["intervalMs"].as<uint16_t>();
-    }
+    uint16_t iMs = runtimeState().scrollIntervalMs;
+    scrollIntervalFromCommand(doc, payload, iMs);
     withScrollLock([&]() {
-        state.scrollIntervalMs  = constrain(iMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
-        state.lastScrollFrameMs = millis();
+        runtimeState().scrollIntervalMs  = constrain(iMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+        runtimeState().lastScrollFrameMs = millis();
     });
+    return true;
+}
+
+static bool commandStartScroll(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    uint16_t iMs = runtimeState().scrollIntervalMs;
+    scrollIntervalFromCommand(doc, payload, iMs);
+    bool hasCachedFrames = false;
+    withScrollLock([&]() {
+        hasCachedFrames = runtimeState().scrollFrameCount > 0;
+    });
+    if (!hasCachedFrames) {
+        error = "no cached scroll frames";
+        return false;
+    }
+    startFirmwareScroll(iMs);
     return true;
 }
 
@@ -732,10 +780,10 @@ static bool commandScrollStep(DynamicJsonDocument& doc, JsonVariant payload, Str
     uint8_t steppedFrame[FRAME_BYTES];
     bool    hasSteppedFrame = false;
     withScrollLock([&]() {
-        if (state.scrollFrameCount > 0) {
-            state.scrollFrameIndex = (state.scrollFrameIndex + 1) % state.scrollFrameCount;
-            state.playback         = "scroll_step";
-            memcpy(steppedFrame, scrollFrameBits[state.scrollFrameIndex], FRAME_BYTES);
+        if (runtimeState().scrollFrameCount > 0) {
+            runtimeState().scrollFrameIndex = (runtimeState().scrollFrameIndex + 1) % runtimeState().scrollFrameCount;
+            runtimeState().playback         = "scroll_step";
+            memcpy(steppedFrame, runtimeScrollFrameBits(runtimeState().scrollFrameIndex), FRAME_BYTES);
             hasSteppedFrame = true;
         }
     });
@@ -780,8 +828,8 @@ static bool commandPause(DynamicJsonDocument& doc, JsonVariant payload, String& 
     bool pausedScroll = false;
     pauseFirmwareScrollIfActive(pausedScroll);
     if (!pausedScroll) {
-        state.paused   = true;
-        state.playback = "paused";
+        runtimeState().paused   = true;
+        runtimeState().playback = "paused";
     }
     return true;
 }
@@ -793,8 +841,8 @@ static bool commandResume(DynamicJsonDocument& doc, JsonVariant payload, String&
     bool resumedScroll = false;
     resumeFirmwareScrollIfCached(resumedScroll, true);
     if (!resumedScroll) {
-        state.paused   = false;
-        state.playback = DEFAULT_PLAYBACK;
+        runtimeState().paused   = false;
+        runtimeState().playback = DEFAULT_PLAYBACK;
     }
     return true;
 }
@@ -817,8 +865,8 @@ static bool commandTerminateOtherActivities(DynamicJsonDocument& doc, JsonVarian
     if (strcmp(targetMode, "face") != 0 && strcmp(targetMode, "scroll") != 0) {
         setMode("manual", true);
     } else if (strcmp(targetMode, "scroll") == 0 && isAutoMode()) {
-        state.restoreAutoAfterScroll = true;
-        state.mode                   = "manual";
+        runtimeState().restoreAutoAfterScroll = true;
+        runtimeState().mode                   = "manual";
     }
     return true;
 }
@@ -834,6 +882,7 @@ static const ApiCommandRoute API_COMMAND_ROUTES[] = {
     {"set_mode",                   commandSetMode},
     {"set_auto_interval",          commandSetAutoInterval},
     {"set_scroll_interval",        commandSetScrollInterval},
+    {"start_scroll",               commandStartScroll},
     {"scroll_step",                commandScrollStep},
     {"pause_scroll",               commandPauseScroll},
     {"resume_scroll",              commandResumeScroll},
@@ -855,7 +904,7 @@ static void handleApiCommand() {
     String error;
     DynamicJsonDocument doc(2048);
     if (!parseJsonBody(doc, error)) {
-        ++state.commandsRejected;
+        ++runtimeState().commandsRejected;
         sendError(400, error);
         return;
     }
@@ -863,54 +912,60 @@ static void handleApiCommand() {
     const String  cmd     = doc["cmd"] | "";
     JsonVariant   payload = doc["payload"];
     if (cmd.isEmpty()) {
-        ++state.commandsRejected;
+        ++runtimeState().commandsRejected;
         sendError(400, "missing cmd");
         return;
     }
 
     const ApiCommandRoute* route = findApiCommandRoute(cmd);
     if (route == nullptr) {
-        ++state.commandsRejected;
+        ++runtimeState().commandsRejected;
         sendError(400, String("unknown command: ") + cmd);
         return;
     }
 
     if (!route->handler(doc, payload, error)) {
-        ++state.commandsRejected;
+        ++runtimeState().commandsRejected;
         sendError(400, error);
         return;
     }
 
-    ++state.commandsAccepted;
+    ++runtimeState().commandsAccepted;
 
     DynamicJsonDocument reply(1024);
     reply["ok"]                   = true;
     reply["cmd"]                  = cmd;
-    reply["color"]                = state.colorHex;
-    reply["brightness"]           = state.brightness;
-    reply["mode"]                 = state.mode;
-    reply["autoIntervalMs"]       = state.autoIntervalMs;
-    reply["playback"]             = state.playback;
-    reply["paused"]               = state.paused;
-    reply["autoFaceIndex"]        = state.autoFaceIndex;
-    reply["firmwareScrollActive"] = state.firmwareScrollActive;
-    reply["firmwareScrollPaused"] = state.firmwareScrollPaused;
-    reply["restoreAutoAfterScroll"] = state.restoreAutoAfterScroll;
-    reply["deferredFaceRestoreActive"] = state.deferredFaceRestoreActive;
-    reply["scrollFrameCount"]     = state.scrollFrameCount;
-    reply["scrollFrameIndex"]     = state.scrollFrameIndex;
-    reply["scrollIntervalMs"]     = state.scrollIntervalMs;
-    if (autoFaceCount > 0 && state.autoFaceIndex < autoFaceCount) {
-        reply["autoFaceId"]   = autoFaces[state.autoFaceIndex].id;
-        reply["autoFaceName"] = autoFaces[state.autoFaceIndex].name;
+    reply["color"]                = runtimeState().colorHex;
+    reply["brightness"]           = runtimeState().brightness;
+    reply["mode"]                 = runtimeState().mode;
+    reply["autoIntervalMs"]       = runtimeState().autoIntervalMs;
+    reply["playback"]             = runtimeState().playback;
+    reply["paused"]               = runtimeState().paused;
+    reply["autoFaceIndex"]        = runtimeState().autoFaceIndex;
+    reply["firmwareScrollActive"] = runtimeState().firmwareScrollActive;
+    reply["firmwareScrollPaused"] = runtimeState().firmwareScrollPaused;
+    reply["restoreAutoAfterScroll"] = runtimeState().restoreAutoAfterScroll;
+    reply["deferredFaceRestoreActive"] = runtimeState().deferredFaceRestoreActive;
+    reply["scrollFrameCount"]     = runtimeState().scrollFrameCount;
+    reply["scrollFrameIndex"]     = runtimeState().scrollFrameIndex;
+    reply["scrollIntervalMs"]     = runtimeState().scrollIntervalMs;
+    JsonObject scrollStopEvent = reply.createNestedObject("scrollStopEvent");
+    scrollStopEvent["seq"]    = runtimeState().scrollStopEventSeq;
+    scrollStopEvent["ms"]     = runtimeState().scrollStopEventMs;
+    scrollStopEvent["button"] = runtimeState().scrollStopEventButton;
+    scrollStopEvent["source"] = runtimeState().scrollStopEventSource;
+    scrollStopEvent["reason"] = runtimeState().scrollStopEventReason;
+    if (runtimeAutoFaceCount() > 0 && runtimeState().autoFaceIndex < runtimeAutoFaceCount()) {
+        reply["autoFaceId"]   = runtimeAutoFaces()[runtimeState().autoFaceIndex].id;
+        reply["autoFaceName"] = runtimeAutoFaces()[runtimeState().autoFaceIndex].name;
     }
-    reply["m370"]       = state.lastM370;
-    reply["lastReason"] = state.lastReason;
+    reply["m370"]       = runtimeState().lastM370;
+    reply["lastReason"] = runtimeState().lastReason;
     sendJsonDocument(200, reply);
 }
 
 static void handleSavedFacesGet() {
-    if (!fsMounted) { sendError(503, "LittleFS is not mounted; run pio run -t uploadfs"); return; }
+    if (!runtimeFsMounted()) { sendError(503, "LittleFS is not mounted; run pio run -t uploadfs"); return; }
     if (!littleFsExistsLocked(SAVED_FACES_PATH)) {
         sendError(404, "saved_faces.json not found; run pio run -t uploadfs"); return;
     }
@@ -922,7 +977,7 @@ static void handleSavedFacesGet() {
 }
 
 static void handleSavedFacesPost() {
-    if (!fsMounted) { sendError(503, "LittleFS is not mounted; cannot write saved_faces.json"); return; }
+    if (!runtimeFsMounted()) { sendError(503, "LittleFS is not mounted; cannot write saved_faces.json"); return; }
 
     const String body = requestBody();
     if (body.isEmpty()) { sendError(400, "empty JSON body"); return; }
@@ -951,7 +1006,7 @@ static void handleSavedFacesPost() {
     reply["requestPath"] = requestPath;
     reply["reason"] = reason;
     reply["bytes"]  = written;
-    reply["writes"] = state.savedFacesWrites;
+    reply["writes"] = runtimeState().savedFacesWrites;
     sendJsonDocument(200, reply);
 }
 
@@ -964,7 +1019,7 @@ static void handleApiSavedFaces() {
 
 static void handleNotFound() {
     if (server.method() == HTTP_GET && serveStaticFile(server.uri())) return;
-    if (server.method() == HTTP_GET && !fsMounted) { sendFilesystemErrorPage(); return; }
+    if (server.method() == HTTP_GET && !runtimeFsMounted()) { sendFilesystemErrorPage(); return; }
     sendError(404, "not found: " + server.uri());
 }
 
@@ -974,14 +1029,14 @@ static void handleNotFound() {
 
 void showFilesystemErrorPattern() {
     withFrameLock([]() {
-        state.colorHex   = "#ff0000";
-        state.colorR     = 0xff;
-        state.colorG     = 0x00;
-        state.colorB     = 0x00;
-        state.brightness = DEFAULT_BRIGHTNESS;
-        memset(frameBits, 0, sizeof(frameBits));
+        runtimeState().colorHex   = "#ff0000";
+        runtimeState().colorR     = 0xff;
+        runtimeState().colorG     = 0x00;
+        runtimeState().colorB     = 0x00;
+        runtimeState().brightness = DEFAULT_BRIGHTNESS;
+        memset(runtimeFrameBits(), 0, FRAME_BYTES);
         for (uint16_t i = 0; i < 12 && i < LED_COUNT; ++i) setFrameBit(i, true);
-        state.lastReason = "littlefs_mount_failed";
+        runtimeState().lastReason = "littlefs_mount_failed";
         showCurrentFrameNoLock();
     });
 }
@@ -1001,7 +1056,7 @@ void startAccessPoint() {
 void startWebServer() {
     auto serveRoot = []() {
         if (!serveStaticFile("/")) {
-            if (!fsMounted) sendFilesystemErrorPage();
+            if (!runtimeFsMounted()) sendFilesystemErrorPage();
             else sendError(404, "index.html not found; run pio run -t uploadfs");
         }
     };

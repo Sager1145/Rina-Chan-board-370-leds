@@ -14,7 +14,7 @@ static constexpr uint8_t DEFERRED_RESTORE_CURRENT_FACE    = 2;
 // ---------------------------------------------------------------------------
 
 bool isAutoMode() {
-    return state.mode == "auto";
+    return runtimeState().mode == "auto";
 }
 
 String normalizedMode(const char* input) {
@@ -31,14 +31,14 @@ String normalizedMode(const char* input) {
 bool setMode(const char* input, bool persistSettings) {
     const String mode = normalizedMode(input);
     if (mode == "auto") {
-        state.mode              = "auto";
-        state.playback          = "auto_saved_face";
-        state.paused            = false;
-        state.lastAutoSwitchMs  = millis();
+        runtimeState().mode              = "auto";
+        runtimeState().playback          = "auto_saved_face";
+        runtimeState().paused            = false;
+        runtimeState().lastAutoSwitchMs  = millis();
     } else if (mode == "manual") {
-        state.mode = "manual";
-        if (persistSettings) state.restoreAutoAfterScroll = false;
-        if (state.playback == "auto_saved_face") state.playback = DEFAULT_PLAYBACK;
+        runtimeState().mode = "manual";
+        if (persistSettings) runtimeState().restoreAutoAfterScroll = false;
+        if (runtimeState().playback == "auto_saved_face") runtimeState().playback = DEFAULT_PLAYBACK;
     } else {
         return false;
     }
@@ -47,7 +47,7 @@ bool setMode(const char* input, bool persistSettings) {
 }
 
 void setAutoInterval(uint32_t ms, bool persistSettings) {
-    state.autoIntervalMs = constrain(ms, MIN_AUTO_INTERVAL_MS, MAX_AUTO_INTERVAL_MS);
+    runtimeState().autoIntervalMs = constrain(ms, MIN_AUTO_INTERVAL_MS, MAX_AUTO_INTERVAL_MS);
     if (persistSettings) saveRuntimeSettings();
 }
 
@@ -62,13 +62,13 @@ bool isScrollPlayback(const String& playback) {
 }
 
 bool playbackIsNonFaceActivity() {
-    if (state.firmwareScrollActive || state.firmwareScrollPaused) return true;
-    if (isScrollPlayback(state.playback)) return true;
-    if (state.lastReason.startsWith("text_scroll_") ||
-        state.lastReason.startsWith("custom_") ||
-        state.lastReason.startsWith("parts_") ||
-        state.lastReason.startsWith("debug_")) return true;
-    if (state.playback == DEFAULT_PLAYBACK || state.playback == "auto_saved_face") return false;
+    if (runtimeState().firmwareScrollActive || runtimeState().firmwareScrollPaused) return true;
+    if (isScrollPlayback(runtimeState().playback)) return true;
+    if (runtimeState().lastReason.startsWith("text_scroll_") ||
+        runtimeState().lastReason.startsWith("custom_") ||
+        runtimeState().lastReason.startsWith("parts_") ||
+        runtimeState().lastReason.startsWith("debug_")) return true;
+    if (runtimeState().playback == DEFAULT_PLAYBACK || runtimeState().playback == "auto_saved_face") return false;
     return true;
 }
 
@@ -82,34 +82,34 @@ bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playb
         return false;
     }
 
-    state.autoFaceIndex = index % autoFaceCount;
-    if (playback) state.playback = playback;
+    runtimeState().autoFaceIndex = index % runtimeAutoFaceCount();
+    if (playback) runtimeState().playback = playback;
 
     String error;
-    if (!applyM370(autoFaces[state.autoFaceIndex].m370, reason, error)) {
+    if (!applyM370(runtimeAutoFaces()[runtimeState().autoFaceIndex].m370, reason, error)) {
         Serial.printf("saved face apply failed: %s\n", error.c_str());
         return false;
     }
     Serial.printf("Applied saved face %u/%u via %s: %s\n",
-                  state.autoFaceIndex + 1, autoFaceCount,
-                  reason.c_str(), autoFaces[state.autoFaceIndex].id.c_str());
+                  runtimeState().autoFaceIndex + 1, runtimeAutoFaceCount(),
+                  reason.c_str(), runtimeAutoFaces()[runtimeState().autoFaceIndex].id.c_str());
     return true;
 }
 
 bool applyRelativeSavedFace(int8_t delta, const String& reason) {
     if (!ensureSavedFacesLoaded()) return false;
-    int32_t next = static_cast<int32_t>(state.autoFaceIndex) + delta;
-    while (next < 0) next += autoFaceCount;
-    next %= autoFaceCount;
+    int32_t next = static_cast<int32_t>(runtimeState().autoFaceIndex) + delta;
+    while (next < 0) next += runtimeAutoFaceCount();
+    next %= runtimeAutoFaceCount();
     return applySavedFaceIndex(static_cast<uint16_t>(next), reason, DEFAULT_PLAYBACK);
 }
 
 bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode) {
     if (!ensureSavedFacesLoaded()) return false;
     const char*    playback = autoMode ? "auto_saved_face" : DEFAULT_PLAYBACK;
-    const uint16_t index    = autoFaceCount > 0 ? state.autoFaceIndex % autoFaceCount : 0;
+    const uint16_t index    = runtimeAutoFaceCount() > 0 ? runtimeState().autoFaceIndex % runtimeAutoFaceCount() : 0;
     const bool     applied  = applySavedFaceIndex(index, reason, playback);
-    if (applied && autoMode) state.lastAutoSwitchMs = millis();
+    if (applied && autoMode) runtimeState().lastAutoSwitchMs = millis();
     return applied;
 }
 
@@ -119,7 +119,7 @@ bool toggleModeFromButtonAction(const String& source) {
 
     // B3 also serves as an emergency exit from text scroll / overlays.
     stopFirmwareScroll(false, false);
-    state.restoreAutoAfterScroll = false;
+    runtimeState().restoreAutoAfterScroll = false;
 
     if (!setMode(targetAuto ? "auto" : "manual", true)) return false;
 
@@ -147,9 +147,9 @@ static int16_t findStartupDefaultFaceIndex() {
     if (!ensureSavedFacesLoaded()) return -1;
 
     int16_t firstDefaultIndex = -1;
-    for (uint16_t i = 0; i < autoFaceCount; ++i) {
-        if (autoFaces[i].isStartupDefault) return static_cast<int16_t>(i);
-        if (autoFaces[i].isDefault && firstDefaultIndex < 0) {
+    for (uint16_t i = 0; i < runtimeAutoFaceCount(); ++i) {
+        if (runtimeAutoFaces()[i].isStartupDefault) return static_cast<int16_t>(i);
+        if (runtimeAutoFaces()[i].isDefault && firstDefaultIndex < 0) {
             firstDefaultIndex = static_cast<int16_t>(i);
         }
     }
@@ -158,12 +158,12 @@ static int16_t findStartupDefaultFaceIndex() {
 
 static bool applyStartupDefaultFaceAfterScrollStop(bool restoreAutoMode) {
     setMode(restoreAutoMode ? "auto" : "manual", false);
-    state.paused = false;
+    runtimeState().paused = false;
 
     const int16_t defaultIndex = findStartupDefaultFaceIndex();
     if (defaultIndex < 0) {
         Serial.println("No saved default face available after text scroll stop; leaving blank frame");
-        state.playback = DEFAULT_PLAYBACK;
+        runtimeState().playback = DEFAULT_PLAYBACK;
         return false;
     }
 
@@ -173,24 +173,24 @@ static bool applyStartupDefaultFaceAfterScrollStop(bool restoreAutoMode) {
                              playback)) {
         return false;
     }
-    state.lastAutoSwitchMs = millis();
+    runtimeState().lastAutoSwitchMs = millis();
     return true;
 }
 
 void cancelDeferredFaceRestore() {
-    state.deferredFaceRestoreActive   = false;
-    state.deferredFaceRestoreKind     = DEFERRED_RESTORE_NONE;
-    state.deferredFaceRestoreAutoMode = false;
-    state.deferredFaceRestoreDueMs    = 0;
-    state.deferredFaceRestoreReason   = String();
+    runtimeState().deferredFaceRestoreActive   = false;
+    runtimeState().deferredFaceRestoreKind     = DEFERRED_RESTORE_NONE;
+    runtimeState().deferredFaceRestoreAutoMode = false;
+    runtimeState().deferredFaceRestoreDueMs    = 0;
+    runtimeState().deferredFaceRestoreReason   = String();
 }
 
 static void scheduleDeferredFaceRestore(uint8_t kind, bool autoMode, const String& reason) {
-    state.deferredFaceRestoreActive   = true;
-    state.deferredFaceRestoreKind     = kind;
-    state.deferredFaceRestoreAutoMode = autoMode;
-    state.deferredFaceRestoreDueMs    = millis() + LED_STOP_CLEAR_BLANK_HOLD_MS;
-    state.deferredFaceRestoreReason   = reason;
+    runtimeState().deferredFaceRestoreActive   = true;
+    runtimeState().deferredFaceRestoreKind     = kind;
+    runtimeState().deferredFaceRestoreAutoMode = autoMode;
+    runtimeState().deferredFaceRestoreDueMs    = millis() + LED_STOP_CLEAR_BLANK_HOLD_MS;
+    runtimeState().deferredFaceRestoreReason   = reason;
 }
 
 static void scheduleStartupDefaultFaceRestoreAfterBlank(bool autoMode) {
@@ -204,21 +204,21 @@ void scheduleCurrentSavedFaceRestoreAfterBlank(bool autoMode, const String& reas
 }
 
 void serviceDeferredFaceRestore() {
-    if (!state.deferredFaceRestoreActive) return;
+    if (!runtimeState().deferredFaceRestoreActive) return;
 
     const uint32_t now = millis();
-    if (static_cast<int32_t>(now - state.deferredFaceRestoreDueMs) < 0) return;
+    if (static_cast<int32_t>(now - runtimeState().deferredFaceRestoreDueMs) < 0) return;
 
-    const uint8_t kind     = state.deferredFaceRestoreKind;
-    const bool    autoMode = state.deferredFaceRestoreAutoMode;
-    const String  reason   = state.deferredFaceRestoreReason;
+    const uint8_t kind     = runtimeState().deferredFaceRestoreKind;
+    const bool    autoMode = runtimeState().deferredFaceRestoreAutoMode;
+    const String  reason   = runtimeState().deferredFaceRestoreReason;
 
     // Clear the pending marker before applying the face.  If the apply path
     // fails or schedules another render, this service routine will not repeat
     // the same deferred action indefinitely.
     cancelDeferredFaceRestore();
 
-    if (state.firmwareScrollActive || state.firmwareScrollPaused) {
+    if (runtimeState().firmwareScrollActive || runtimeState().firmwareScrollPaused) {
         return;
     }
 
@@ -237,16 +237,16 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
 
     bool shouldRestoreAuto = false;
     withScrollLock([&]() {
-        shouldRestoreAuto               = restoreAuto && state.restoreAutoAfterScroll;
-        state.firmwareScrollActive      = false;
-        state.firmwareScrollPaused      = false;
-        state.restoreAutoAfterScroll    = false;
-        state.lastScrollFrameMs         = 0;
-        state.scrollFrameCount          = 0;
-        state.scrollFrameIndex          = 0;
-        state.paused                    = false;
-        if (isScrollPlayback(state.playback)) {
-            state.playback = DEFAULT_PLAYBACK;
+        shouldRestoreAuto               = restoreAuto && runtimeState().restoreAutoAfterScroll;
+        runtimeState().firmwareScrollActive      = false;
+        runtimeState().firmwareScrollPaused      = false;
+        runtimeState().restoreAutoAfterScroll    = false;
+        runtimeState().lastScrollFrameMs         = 0;
+        runtimeState().scrollFrameCount          = 0;
+        runtimeState().scrollFrameIndex          = 0;
+        runtimeState().paused                    = false;
+        if (isScrollPlayback(runtimeState().playback)) {
+            runtimeState().playback = DEFAULT_PLAYBACK;
         }
     });
 
@@ -269,17 +269,17 @@ void startFirmwareScroll(uint16_t intervalMs) {
     bool    hasFirstFrame = false;
 
     withScrollLock([&]() {
-        if (state.scrollFrameCount > 0) {
-            state.restoreAutoAfterScroll = state.restoreAutoAfterScroll || isAutoMode();
-            if (state.restoreAutoAfterScroll) state.mode = "manual";
-            state.scrollIntervalMs   = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
-            state.scrollFrameIndex   = 0;
-            state.lastScrollFrameMs  = millis();
-            state.firmwareScrollActive  = true;
-            state.firmwareScrollPaused  = false;
-            state.paused             = false;
-            state.playback           = "scroll";
-            memcpy(firstFrame, scrollFrameBits[0], FRAME_BYTES);
+        if (runtimeState().scrollFrameCount > 0) {
+            runtimeState().restoreAutoAfterScroll = runtimeState().restoreAutoAfterScroll || isAutoMode();
+            if (runtimeState().restoreAutoAfterScroll) runtimeState().mode = "manual";
+            runtimeState().scrollIntervalMs   = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+            runtimeState().scrollFrameIndex   = 0;
+            runtimeState().lastScrollFrameMs  = millis();
+            runtimeState().firmwareScrollActive  = true;
+            runtimeState().firmwareScrollPaused  = false;
+            runtimeState().paused             = false;
+            runtimeState().playback           = "scroll";
+            memcpy(firstFrame, runtimeScrollFrameBits(0), FRAME_BYTES);
             hasFirstFrame = true;
         }
     });
@@ -292,20 +292,20 @@ void startFirmwareScroll(uint16_t intervalMs) {
 // ---------------------------------------------------------------------------
 
 void serviceAutoPlayback() {
-    if (!isAutoMode() || state.paused || autoFaceCount == 0) return;
+    if (!isAutoMode() || runtimeState().paused || runtimeAutoFaceCount() == 0) return;
 
     const uint32_t now = millis();
-    if (state.lastAutoSwitchMs == 0) {
-        state.lastAutoSwitchMs = now;
+    if (runtimeState().lastAutoSwitchMs == 0) {
+        runtimeState().lastAutoSwitchMs = now;
         return;
     }
-    if (now - state.lastAutoSwitchMs < state.autoIntervalMs) return;
+    if (now - runtimeState().lastAutoSwitchMs < runtimeState().autoIntervalMs) return;
 
-    state.lastAutoSwitchMs  = now;
-    state.autoFaceIndex     = (state.autoFaceIndex + 1) % autoFaceCount;
-    state.playback          = "auto_saved_face";
+    runtimeState().lastAutoSwitchMs  = now;
+    runtimeState().autoFaceIndex     = (runtimeState().autoFaceIndex + 1) % runtimeAutoFaceCount();
+    runtimeState().playback          = "auto_saved_face";
     String error;
-    if (!applyM370(autoFaces[state.autoFaceIndex].m370, "firmware_auto_saved_face", error)) {
+    if (!applyM370(runtimeAutoFaces()[runtimeState().autoFaceIndex].m370, "firmware_auto_saved_face", error)) {
         Serial.printf("auto face apply failed: %s\n", error.c_str());
     }
 }

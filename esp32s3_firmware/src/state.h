@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
+#include <freertos/portmacro.h>
 #include "config.h"
 
 // ---------------------------------------------------------------------------
@@ -42,6 +42,14 @@ struct RuntimeState {
     uint16_t scrollIntervalMs      = DEFAULT_SCROLL_INTERVAL_MS;
     uint32_t lastScrollFrameMs     = 0;
 
+    // WebUI notification marker for GPIO B1/B2/B3 interrupting firmware scroll.
+    // The frontend polls this lightweight sequence while the 6.4 scroll page is active.
+    uint32_t scrollStopEventSeq       = 0;
+    uint32_t scrollStopEventMs        = 0;
+    String   scrollStopEventButton;
+    String   scrollStopEventSource;
+    String   scrollStopEventReason;
+
     // Deferred face restore after an explicit all-off clear frame.
     // Used to avoid delay() inside HTTP / button handlers while still
     // giving the LED render task enough time to physically latch blank.
@@ -66,30 +74,49 @@ struct RuntimeFace {
 };
 
 // ---------------------------------------------------------------------------
-// Shared globals  (defined in state.cpp)
+// RuntimeStore
 // ---------------------------------------------------------------------------
-extern RuntimeState       state;
-extern RuntimeFace        autoFaces[MAX_AUTO_FACES];
-extern uint16_t           autoFaceCount;
+// Centralizes mutable runtime storage so modules no longer link directly
+// against exposed extern globals.  Access is still intentionally lightweight:
+// locking policy stays in the caller/helper that owns the operation.
+class RuntimeStore final {
+public:
+    static RuntimeStore& instance();
 
-// Frame buffer (packed bits, logical order)
-extern uint8_t            frameBits[FRAME_BYTES];
-// Scroll frame cache
-extern uint8_t            scrollFrameBits[MAX_SCROLL_FRAMES][FRAME_BYTES];
+    RuntimeState& state() { return state_; }
+    const RuntimeState& state() const { return state_; }
 
-// LittleFS mount flag
-extern bool               fsMounted;
+    RuntimeFace* autoFaces() { return autoFaces_; }
+    const RuntimeFace* autoFaces() const { return autoFaces_; }
 
-// FreeRTOS primitives
-extern SemaphoreHandle_t  frameMutex;
-extern SemaphoreHandle_t  scrollMutex;
-extern SemaphoreHandle_t  hardwareBusMutex;
-extern TaskHandle_t       scrollTaskHandle;
+    uint16_t& autoFaceCount() { return autoFaceCount_; }
+    const uint16_t& autoFaceCount() const { return autoFaceCount_; }
 
-// LED render request (written from any core, consumed by render task)
-extern portMUX_TYPE       ledRenderRequestMux;
-extern volatile bool      ledRenderRequested;
-extern uint32_t           lastLedShowUs;
+    uint8_t* frameBits() { return frameBits_; }
+    const uint8_t* frameBits() const { return frameBits_; }
 
-// Logical-to-physical LED index lookup table
-extern uint16_t           logicalToPhysicalMap[LED_COUNT];
+    uint8_t* scrollFrameBits(uint16_t index) { return scrollFrameBits_[index]; }
+    const uint8_t* scrollFrameBits(uint16_t index) const { return scrollFrameBits_[index]; }
+
+    bool& fsMounted() { return fsMounted_; }
+    const bool& fsMounted() const { return fsMounted_; }
+
+private:
+    RuntimeStore() = default;
+    RuntimeStore(const RuntimeStore&) = delete;
+    RuntimeStore& operator=(const RuntimeStore&) = delete;
+
+    RuntimeState state_;
+    RuntimeFace  autoFaces_[MAX_AUTO_FACES] = {};
+    uint16_t     autoFaceCount_ = 0;
+    uint8_t      frameBits_[FRAME_BYTES] = {};
+    uint8_t      scrollFrameBits_[MAX_SCROLL_FRAMES][FRAME_BYTES] = {};
+    bool         fsMounted_ = false;
+};
+
+RuntimeState& runtimeState();
+RuntimeFace* runtimeAutoFaces();
+uint16_t& runtimeAutoFaceCount();
+uint8_t* runtimeFrameBits();
+uint8_t* runtimeScrollFrameBits(uint16_t index);
+bool& runtimeFsMounted();

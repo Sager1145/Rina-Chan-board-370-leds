@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "state.h"
+#include "sync.h"
 #include "led_renderer.h"
 #include "storage.h"
 #include "faces.h"
@@ -9,6 +10,7 @@
 #include "buttons.h"
 #include "web_api.h"
 #include "power_monitor.h"
+#include <freertos/task.h>
 
 // ---------------------------------------------------------------------------
 // setup
@@ -17,12 +19,12 @@
 void setup() {
     Serial.begin(115200);
     delay(200);
-    state.bootMs = millis();
+    runtimeState().bootMs = millis();
 
     // FreeRTOS primitives
-    frameMutex       = xSemaphoreCreateMutex();
-    scrollMutex      = xSemaphoreCreateMutex();
-    hardwareBusMutex = xSemaphoreCreateMutex();
+    if (!initSyncPrimitives()) {
+        Serial.println("Failed to create one or more FreeRTOS mutexes");
+    }
 
     // Build logical→physical LED index map
     initLedIndexMap();

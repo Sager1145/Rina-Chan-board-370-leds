@@ -1,27 +1,39 @@
 #include "sync.h"
-#include "state.h"
+#include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+
+static SemaphoreHandle_t sFrameMutex       = nullptr;
+static SemaphoreHandle_t sScrollMutex      = nullptr;
+static SemaphoreHandle_t sHardwareBusMutex = nullptr;
+
+bool initSyncPrimitives() {
+    if (!sFrameMutex) sFrameMutex = xSemaphoreCreateMutex();
+    if (!sScrollMutex) sScrollMutex = xSemaphoreCreateMutex();
+    if (!sHardwareBusMutex) sHardwareBusMutex = xSemaphoreCreateMutex();
+    return sFrameMutex && sScrollMutex && sHardwareBusMutex;
+}
 
 void lockFrame() {
-    if (frameMutex) xSemaphoreTake(frameMutex, portMAX_DELAY);
+    if (sFrameMutex) xSemaphoreTake(sFrameMutex, portMAX_DELAY);
 }
 
 void unlockFrame() {
-    if (frameMutex) xSemaphoreGive(frameMutex);
+    if (sFrameMutex) xSemaphoreGive(sFrameMutex);
 }
 
 void lockScroll() {
-    if (scrollMutex) xSemaphoreTake(scrollMutex, portMAX_DELAY);
+    if (sScrollMutex) xSemaphoreTake(sScrollMutex, portMAX_DELAY);
 }
 
 void unlockScroll() {
-    if (scrollMutex) xSemaphoreGive(scrollMutex);
+    if (sScrollMutex) xSemaphoreGive(sScrollMutex);
 }
 
-
 void lockHardwareBus() {
-    if (hardwareBusMutex) xSemaphoreTake(hardwareBusMutex, portMAX_DELAY);
+    if (sHardwareBusMutex) xSemaphoreTake(sHardwareBusMutex, portMAX_DELAY);
 }
 
 void unlockHardwareBus() {
-    if (hardwareBusMutex) xSemaphoreGive(hardwareBusMutex);
+    if (sHardwareBusMutex) xSemaphoreGive(sHardwareBusMutex);
 }

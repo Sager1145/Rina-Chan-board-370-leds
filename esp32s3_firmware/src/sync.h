@@ -4,6 +4,8 @@
 // FreeRTOS synchronization helpers
 // ---------------------------------------------------------------------------
 
+bool initSyncPrimitives();
+
 void lockFrame();
 void unlockFrame();
 void lockScroll();
@@ -24,7 +26,6 @@ void withScrollLock(Fn fn) {
     fn();
     unlockScroll();
 }
-
 
 template <typename Fn>
 void withHardwareBusLock(Fn fn) {
