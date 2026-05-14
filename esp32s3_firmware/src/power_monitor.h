@@ -8,10 +8,17 @@ struct PowerStatus {
     bool     charging         = false;
     bool     batteryValid     = false;
     bool     chargeValid      = false;
+    float    batteryCalibMaxV = NAN;
+    float    batteryCalibMinV = NAN;
+    bool     batteryCalibLoaded = false;
+    bool     batteryCalibDirty  = false;
     uint16_t batteryAdcMv     = 0;
     uint16_t chargeAdcMv      = 0;
     uint32_t lastBatteryMs    = 0;
     uint32_t lastChargeMs     = 0;
+    uint32_t lastCalibMaxMs   = 0;
+    uint32_t lastCalibMinMs   = 0;
+    uint32_t batteryCalibDirtySinceMs = 0;
 };
 
 extern PowerStatus powerStatus;

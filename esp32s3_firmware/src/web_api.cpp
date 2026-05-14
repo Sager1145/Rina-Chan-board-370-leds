@@ -59,6 +59,62 @@ static void sendError(int status, const String& message) {
     server.send(status, "application/json; charset=utf-8", out);
 }
 
+static void addPowerStatus(JsonObject power) {
+    const bool batteryOk = powerStatus.batteryValid;
+    const bool chargeOk = powerStatus.chargeValid;
+    const char* batteryIconClass = "status-dot dim";
+    const char* batteryIconColor = "#9aa6b2";
+    if (batteryOk) {
+        if (powerStatus.batteryPercent < 20) {
+            batteryIconClass = "status-dot danger";
+            batteryIconColor = "#ef4444";
+        } else if (powerStatus.batteryPercent < 50) {
+            batteryIconClass = "status-dot warn";
+            batteryIconColor = "#f59e0b";
+        } else {
+            batteryIconClass = "status-dot";
+            batteryIconColor = "#59d98e";
+        }
+    }
+
+    const char* chargeIconClass = (chargeOk && powerStatus.charging) ? "status-dot" : "status-dot dim";
+    const char* chargeIconColor = (chargeOk && powerStatus.charging) ? "#59d98e" : "#9aa6b2";
+
+    power["batteryGpio"]      = BATTERY_ADC_PIN;
+    power["chargeGpio"]       = CHARGE_ADC_PIN;
+    if (powerStatus.batteryValid) power["vbat"]           = powerStatus.vbat;
+    else                          power["vbat"]           = nullptr;
+    if (powerStatus.batteryValid) power["batteryPercent"] = powerStatus.batteryPercent;
+    else                          power["batteryPercent"] = nullptr;
+    if (powerStatus.chargeValid)  power["vcharge"]        = powerStatus.vcharge;
+    else                          power["vcharge"]        = nullptr;
+    if (powerStatus.chargeValid)  power["charging"]       = powerStatus.charging;
+    else                          power["charging"]       = nullptr;
+    power["batteryAdcMv"]     = powerStatus.batteryAdcMv;
+    power["chargeAdcMv"]      = powerStatus.chargeAdcMv;
+    power["batteryValid"]     = powerStatus.batteryValid;
+    power["chargeValid"]      = powerStatus.chargeValid;
+    power["ok"]               = powerStatus.batteryValid || powerStatus.chargeValid;
+    power["batteryIconClass"] = batteryIconClass;
+    power["batteryIconColor"] = batteryIconColor;
+    power["chargeIconClass"]  = chargeIconClass;
+    power["chargeIconColor"]  = chargeIconColor;
+    power["batteryRangeMin"]  = powerStatus.batteryCalibMinV;
+    power["batteryRangeMax"]  = powerStatus.batteryCalibMaxV;
+    power["batteryNominalMin"] = BATTERY_EMPTY_V;
+    power["batteryNominalMax"] = BATTERY_FULL_V;
+    power["batteryCalibLoaded"] = powerStatus.batteryCalibLoaded;
+    power["batteryCalibDirty"] = powerStatus.batteryCalibDirty;
+    power["batteryCalibPath"] = BATTERY_CALIB_PATH;
+    power["chargeThreshold"]  = CHARGE_PRESENT_V;
+    power["batterySampleMs"]  = BATTERY_SAMPLE_MS;
+    power["chargeSampleMs"]   = CHARGE_SAMPLE_MS;
+    power["lastBatteryMs"]    = powerStatus.lastBatteryMs;
+    power["lastChargeMs"]     = powerStatus.lastChargeMs;
+    power["lastCalibMaxMs"]   = powerStatus.lastCalibMaxMs;
+    power["lastCalibMinMs"]   = powerStatus.lastCalibMinMs;
+}
+
 static String requestBody() {
     return server.hasArg("plain") ? server.arg("plain") : "";
 }
@@ -221,7 +277,7 @@ static void handleApiStatus() {
     });
 
     const bool scrolling = firmwareScrollActive || firmwareScrollPaused;
-    DynamicJsonDocument doc(scrolling ? 3072 : 4096);
+    DynamicJsonDocument doc(scrolling ? 4096 : 6144);
     doc["ok"]     = true;
     doc["device"] = "RinaChanBoard";
     doc["uptimeMs"] = millis() - state.bootMs;
@@ -231,24 +287,7 @@ static void handleApiStatus() {
     ap["ip"]      = WiFi.softAPIP().toString();
     ap["clients"] = WiFi.softAPgetStationNum();
 
-    JsonObject power = doc.createNestedObject("power");
-    power["batteryGpio"]      = BATTERY_ADC_PIN;
-    power["chargeGpio"]       = CHARGE_ADC_PIN;
-    if (powerStatus.batteryValid) power["vbat"] = powerStatus.vbat;
-    else                          power["vbat"] = nullptr;
-    power["batteryPercent"]   = powerStatus.batteryPercent;
-    if (powerStatus.chargeValid)  power["vcharge"] = powerStatus.vcharge;
-    else                          power["vcharge"] = nullptr;
-    power["charging"]         = powerStatus.charging;
-    power["batteryAdcMv"]     = powerStatus.batteryAdcMv;
-    power["chargeAdcMv"]      = powerStatus.chargeAdcMv;
-    power["batteryValid"]     = powerStatus.batteryValid;
-    power["chargeValid"]      = powerStatus.chargeValid;
-    power["batteryRangeMin"]  = BATTERY_EMPTY_V;
-    power["batteryRangeMax"]  = BATTERY_FULL_V;
-    power["chargeThreshold"]  = CHARGE_PRESENT_V;
-    power["lastBatteryMs"]    = powerStatus.lastBatteryMs;
-    power["lastChargeMs"]     = powerStatus.lastChargeMs;
+    addPowerStatus(doc.createNestedObject("power"));
 
     JsonObject matrix = doc.createNestedObject("matrix");
     matrix["leds"]                   = LED_COUNT;
@@ -294,6 +333,7 @@ static void handleApiStatus() {
     endpoints["command"]    = "/api/command";
     endpoints["scroll"]     = "/api/scroll";
     endpoints["savedFaces"] = "/api/saved_faces";
+    endpoints["power"]      = "/api/power";
     endpoints["status"]     = "/api/status";
 
     JsonObject storage = doc.createNestedObject("storage");
@@ -317,6 +357,15 @@ static void handleApiStatus() {
     stats["savedFacesWrites"]  = state.savedFacesWrites;
     stats["settingsWrites"]    = state.settingsWrites;
 
+    sendJsonDocument(200, doc);
+}
+
+static void handleApiPower() {
+    servicePowerMonitor();
+
+    DynamicJsonDocument doc(1024);
+    doc["ok"] = true;
+    addPowerStatus(doc.createNestedObject("power"));
     sendJsonDocument(200, doc);
 }
 
@@ -731,6 +780,8 @@ void startWebServer() {
     server.on("/index.html",  HTTP_GET,     serveRoot);
     server.on("/api/status",  HTTP_GET,     handleApiStatus);
     server.on("/api/status",  HTTP_OPTIONS, handleOptions);
+    server.on("/api/power",   HTTP_GET,     handleApiPower);
+    server.on("/api/power",   HTTP_OPTIONS, handleOptions);
     server.on("/api/frame",   HTTP_POST,    handleApiFrame);
     server.on("/api/frame",   HTTP_OPTIONS, handleOptions);
     server.on("/api/scroll",               handleApiScroll);

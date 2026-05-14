@@ -32,13 +32,26 @@ constexpr float    BATTERY_DIVIDER_R1_K  = 100.0f;
 constexpr float    BATTERY_DIVIDER_R2_K  = 57.0f;
 constexpr float    CHARGE_DIVIDER_R1_K   = 270.0f;
 constexpr float    CHARGE_DIVIDER_R2_K   = 47.0f;
+// Calibration: empirical scale and offset corrections derived from two-point
+// measurements against a reference multimeter.
+// Battery:  adc=2.912V->8.09V, adc=2.864V->7.96V  => scale=2.708333, offset=+0.2033V
+// Charge:   adc=0.661V->4.49V, adc=1.753V->11.79V => scale=6.684982, offset=+0.0712V
+constexpr float    BATTERY_CAL_SCALE     = 2.708333f;  // replaces dividerScale for battery
+constexpr float    BATTERY_CAL_OFFSET_V  = 0.2033f;    // additive offset after scaling
+constexpr float    CHARGE_CAL_SCALE      = 6.684982f;  // replaces dividerScale for charge
+constexpr float    CHARGE_CAL_OFFSET_V   = 0.0712f;    // additive offset after scaling
 constexpr float    BATTERY_EMPTY_V       = 6.2f;
 constexpr float    BATTERY_FULL_V        = 8.0f;
 constexpr float    CHARGE_PRESENT_V      = 4.0f;
 constexpr uint8_t  POWER_ADC_SAMPLES     = 16;
 constexpr uint8_t  POWER_ADC_TRIM_COUNT  = 4;
-constexpr uint32_t BATTERY_SAMPLE_MS     = 10000;
+constexpr uint32_t BATTERY_SAMPLE_MS     = 1000;
 constexpr uint32_t CHARGE_SAMPLE_MS      = 1000;
+constexpr char     BATTERY_CALIB_PATH[]  = "/resources/battery_calib.json";
+constexpr uint32_t BATTERY_CALIB_SHRINK_TIMEOUT_MS = 7UL * 24UL * 60UL * 60UL * 1000UL;
+constexpr uint32_t BATTERY_CALIB_SAVE_DELAY_MS     = 15000;
+constexpr float    BATTERY_CALIB_SHRINK_STEP_V     = 0.02f;
+constexpr float    BATTERY_CALIB_MIN_SPAN_V        = 0.10f;
 
 // ---------------------------------------------------------------------------
 // LED matrix geometry

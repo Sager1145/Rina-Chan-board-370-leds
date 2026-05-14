@@ -1,0 +1,8 @@
+{
+  "format": "rina_battery_calibration_v1",
+  "version": 1,
+  "v_max": 8.0,
+  "v_min": 6.2,
+  "v_max_nominal": 8.0,
+  "v_min_nominal": 6.2
+}
