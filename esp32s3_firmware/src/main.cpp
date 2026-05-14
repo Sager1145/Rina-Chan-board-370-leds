@@ -77,5 +77,5 @@ void loop() {
     servicePowerMonitor();
     serviceDeferredFaceRestore();
     serviceAutoPlayback();
-    delay(1);
+    vTaskDelay(pdMS_TO_TICKS(1));
 }

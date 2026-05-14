@@ -8,12 +8,15 @@ constexpr char     AP_SSID[]              = "RinaChanBoard-V2";
 constexpr char     AP_PASSWORD[]          = "rinachan";
 constexpr uint16_t HTTP_PORT             = 80;
 
-// AP network configuration — defined as inline functions to avoid
-// multiple-definition errors when config.h is included in several TUs.
 #include <IPAddress.h>
-inline IPAddress apIP()      { return IPAddress(192, 168, 1, 14); }
-inline IPAddress apGateway() { return IPAddress(192, 168, 1, 14); }
-inline IPAddress apSubnet()  { return IPAddress(255, 255, 255, 0); }
+
+extern const IPAddress AP_IP_ADDR;
+extern const IPAddress AP_GATEWAY_ADDR;
+extern const IPAddress AP_SUBNET_MASK;
+
+inline const IPAddress& apIP()      { return AP_IP_ADDR; }
+inline const IPAddress& apGateway() { return AP_GATEWAY_ADDR; }
+inline const IPAddress& apSubnet()  { return AP_SUBNET_MASK; }
 constexpr uint16_t LED_PIN               = 2;
 constexpr uint16_t LED_COUNT             = 370;
 constexpr uint8_t  BUTTON_B1_PIN         = 17;
@@ -94,7 +97,7 @@ constexpr uint16_t MAX_AUTO_FACES                = 128;
 // ---------------------------------------------------------------------------
 // Scroll
 // ---------------------------------------------------------------------------
-constexpr uint16_t MAX_SCROLL_FRAMES             = 2048;
+constexpr uint16_t MAX_SCROLL_FRAMES             = 3072;
 constexpr uint16_t MIN_SCROLL_INTERVAL_MS        = 8;
 constexpr uint16_t MAX_SCROLL_INTERVAL_MS        = 1000;
 constexpr uint16_t DEFAULT_SCROLL_INTERVAL_MS    = 100;

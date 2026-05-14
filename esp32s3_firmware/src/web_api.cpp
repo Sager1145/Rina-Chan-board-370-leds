@@ -12,6 +12,7 @@
 #include <WiFi.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
+#include <pgmspace.h>
 
 static WebServer server(HTTP_PORT);
 
@@ -19,19 +20,32 @@ static WebServer server(HTTP_PORT);
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-static String contentTypeFor(const String& path) {
-    if (path.endsWith(".html"))          return "text/html; charset=utf-8";
-    if (path.endsWith(".css"))           return "text/css; charset=utf-8";
-    if (path.endsWith(".js"))            return "application/javascript; charset=utf-8";
-    if (path.endsWith(".json"))          return "application/json; charset=utf-8";
-    if (path.endsWith(".svg"))           return "image/svg+xml";
-    if (path.endsWith(".png"))           return "image/png";
-    if (path.endsWith(".jpg") ||
-        path.endsWith(".jpeg"))          return "image/jpeg";
-    if (path.endsWith(".ico"))           return "image/x-icon";
-    if (path.endsWith(".ttf"))           return "font/ttf";
-    if (path.endsWith(".woff2"))         return "font/woff2";
-    if (path.endsWith(".otf"))           return "font/otf";
+static const char CONTENT_TYPE_JSON_UTF8[] = "application/json; charset=utf-8";
+static const char CONTENT_TYPE_HTML_UTF8[] = "text/html; charset=utf-8";
+static const char CONTENT_TYPE_TEXT_PLAIN[] = "text/plain";
+static const uint16_t STATIC_STREAM_CHUNK_BYTES = 1024;
+static const TickType_t WEB_YIELD_TICKS = pdMS_TO_TICKS(1);
+
+static const char* contentTypeFor(const String& path) {
+    const int dotIdx = path.lastIndexOf('.');
+    if (dotIdx < 0 || dotIdx == static_cast<int>(path.length()) - 1) {
+        return "application/octet-stream";
+    }
+
+    String ext = path.substring(dotIdx + 1);
+    ext.toLowerCase();
+
+    if (ext == "html") return CONTENT_TYPE_HTML_UTF8;
+    if (ext == "css") return "text/css; charset=utf-8";
+    if (ext == "js") return "application/javascript; charset=utf-8";
+    if (ext == "json") return CONTENT_TYPE_JSON_UTF8;
+    if (ext == "svg") return "image/svg+xml";
+    if (ext == "png") return "image/png";
+    if (ext == "jpg" || ext == "jpeg") return "image/jpeg";
+    if (ext == "ico") return "image/x-icon";
+    if (ext == "ttf") return "font/ttf";
+    if (ext == "woff2") return "font/woff2";
+    if (ext == "otf") return "font/otf";
     return "application/octet-stream";
 }
 
@@ -70,11 +84,11 @@ static void closeFileLocked(File& file) {
     unlockHardwareBus();
 }
 
-static void streamFileChunked(File& file, const String& contentType) {
+static void streamFileChunked(File& file, const char* contentType) {
     server.setContentLength(fileSizeLocked(file));
     server.send(200, contentType, "");
 
-    uint8_t buffer[1024];
+    uint8_t buffer[STATIC_STREAM_CHUNK_BYTES];
     while (true) {
         size_t bytesRead = 0;
         bool hasData = false;
@@ -88,7 +102,7 @@ static void streamFileChunked(File& file, const String& contentType) {
 
         if (!hasData || bytesRead == 0) break;
         server.sendContent(reinterpret_cast<const char*>(buffer), bytesRead);
-        delay(1);
+        vTaskDelay(WEB_YIELD_TICKS);
     }
 }
 
@@ -96,7 +110,7 @@ static void sendJsonDocument(int status, JsonDocument& doc) {
     String out;
     serializeJson(doc, out);
     addCorsHeaders();
-    server.send(status, "application/json; charset=utf-8", out);
+    server.send(status, CONTENT_TYPE_JSON_UTF8, out);
 }
 
 static void sendError(int status, const String& message) {
@@ -106,7 +120,7 @@ static void sendError(int status, const String& message) {
     addCorsHeaders();
     String out;
     serializeJson(doc, out);
-    server.send(status, "application/json; charset=utf-8", out);
+    server.send(status, CONTENT_TYPE_JSON_UTF8, out);
 }
 
 static void addPowerStatus(JsonObject power) {
@@ -186,10 +200,72 @@ static int jsonFieldValuePosition(const String& body, const char* key) {
     if (colon < 0) return -1;
 
     int p = colon + 1;
-    while (p < static_cast<int>(body.length()) && isspace(static_cast<unsigned char>(body.charAt(p)))) {
+    while (p >= 0 && static_cast<size_t>(p) < body.length() &&
+           isspace(static_cast<unsigned char>(body.charAt(p)))) {
         ++p;
     }
     return p;
+}
+
+static int findJsonStringEnd(const String& body, size_t quotePos) {
+    if (quotePos >= body.length() || body.charAt(quotePos) != '"') return -1;
+
+    bool escaped = false;
+    for (size_t i = quotePos + 1; i < body.length(); ++i) {
+        const char c = body.charAt(i);
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (c == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (c == '"') return static_cast<int>(i);
+    }
+    return -1;
+}
+
+static bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int& endQuote) {
+    endQuote = findJsonStringEnd(body, quotePos);
+    if (endQuote < 0) return false;
+
+    const String raw = body.substring(quotePos + 1, endQuote);
+    if (raw.indexOf('\\') < 0) {
+        value = raw;
+        return true;
+    }
+
+    value = "";
+    value.reserve(raw.length());
+    bool escaped = false;
+    for (size_t i = 0; i < raw.length(); ++i) {
+        const char c = raw.charAt(i);
+        if (!escaped) {
+            if (c == '\\') {
+                escaped = true;
+            } else {
+                value += c;
+            }
+            continue;
+        }
+
+        switch (c) {
+            case '"': value += '"'; break;
+            case '\\': value += '\\'; break;
+            case '/': value += '/'; break;
+            case 'b': value += '\b'; break;
+            case 'f': value += '\f'; break;
+            case 'n': value += '\n'; break;
+            case 'r': value += '\r'; break;
+            case 't': value += '\t'; break;
+            default:
+                value += c;
+                break;
+        }
+        escaped = false;
+    }
+    return !escaped;
 }
 
 static bool jsonBoolField(const String& body, const char* key, bool defaultValue) {
@@ -206,7 +282,8 @@ static bool jsonUintField(const String& body, const char* key, uint32_t& value) 
 
     uint32_t parsed = 0;
     bool foundDigit = false;
-    while (p < static_cast<int>(body.length()) && isdigit(static_cast<unsigned char>(body.charAt(p)))) {
+    while (static_cast<size_t>(p) < body.length() &&
+           isdigit(static_cast<unsigned char>(body.charAt(p)))) {
         foundDigit = true;
         parsed = parsed * 10 + static_cast<uint32_t>(body.charAt(p++) - '0');
     }
@@ -220,9 +297,12 @@ static bool jsonFloatField(const String& body, const char* key, float& value) {
     if (p < 0) return false;
 
     int q = p;
-    while (q < static_cast<int>(body.length())) {
+    while (static_cast<size_t>(q) < body.length()) {
         const char c = body.charAt(q);
-        if (!(isdigit(static_cast<unsigned char>(c)) || c == '.')) break;
+        if (!(isdigit(static_cast<unsigned char>(c)) || c == '.' || c == '-' ||
+              c == '+' || c == 'e' || c == 'E')) {
+            break;
+        }
         ++q;
     }
     if (q == p) return false;
@@ -231,12 +311,11 @@ static bool jsonFloatField(const String& body, const char* key, float& value) {
 }
 
 static bool jsonStringField(const String& body, const char* key, String& value) {
-    int p = jsonFieldValuePosition(body, key);
-    if (p < 0 || p >= static_cast<int>(body.length()) || body.charAt(p) != '"') return false;
-    const int endQuote = body.indexOf('"', p + 1);
-    if (endQuote < 0) return false;
-    value = body.substring(p + 1, endQuote);
-    return true;
+    const int p = jsonFieldValuePosition(body, key);
+    if (p < 0 || static_cast<size_t>(p) >= body.length() || body.charAt(p) != '"') return false;
+
+    int endQuote = -1;
+    return extractJsonStringAt(body, static_cast<size_t>(p), value, endQuote);
 }
 
 static void pauseFirmwareScrollIfActive(bool& changed) {
@@ -276,26 +355,11 @@ static bool serveStaticFile(String path) {
     return true;
 }
 
+static const char FILESYSTEM_ERROR_HTML[] PROGMEM = R"rawliteral(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LittleFS not mounted</title><style>body{margin:0;padding:28px;background:#0f1117;color:#f4f7fb;font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.5}code{background:#1e2430;padding:2px 5px;border-radius:5px}.box{max-width:720px;margin:auto;border:1px solid #2b3344;border-radius:12px;padding:20px;background:#161a24}</style></head><body><main class="box"><h1>LittleFS data is not mounted</h1><p>The ESP32-S3 AP is running, but the WebUI files are missing or the filesystem failed to mount.</p><p>Upload the data image, then reboot:</p><p><code>pio run -t uploadfs</code></p><p>Expected files include <code>/index.html</code> and <code>/resources/saved_faces.json</code>.</p></main></body></html>)rawliteral";
+
 static void sendFilesystemErrorPage() {
     addCorsHeaders();
-    server.send(
-        503, "text/html; charset=utf-8",
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" "
-        "content=\"width=device-width,initial-scale=1\"><title>LittleFS not mounted</title>"
-        "<style>body{margin:0;padding:28px;background:#0f1117;color:#f4f7fb;"
-        "font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.5}"
-        "code{background:#1e2430;padding:2px 5px;border-radius:5px}"
-        ".box{max-width:720px;margin:auto;border:1px solid #2b3344;border-radius:12px;"
-        "padding:20px;background:#161a24}</style></head><body><main class=\"box\">"
-        "<h1>LittleFS data is not mounted</h1>"
-        "<p>The ESP32-S3 AP is running, but the WebUI files are missing or the "
-        "filesystem failed to mount.</p>"
-        "<p>Upload the data image, then reboot:</p>"
-        "<p><code>pio run -t uploadfs</code></p>"
-        "<p>Expected files include <code>/index.html</code> and "
-        "<code>/resources/saved_faces.json</code>.</p>"
-        "</main></body></html>"
-    );
+    server.send_P(503, CONTENT_TYPE_HTML_UTF8, FILESYSTEM_ERROR_HTML);
 }
 
 // ---------------------------------------------------------------------------
@@ -304,7 +368,7 @@ static void sendFilesystemErrorPage() {
 
 static void handleOptions() {
     addCorsHeaders();
-    server.send(204, "text/plain", "");
+    server.send(204, CONTENT_TYPE_TEXT_PLAIN, "");
 }
 
 static void handleApiStatus() {
@@ -520,9 +584,9 @@ static void handleApiScroll() {
     // --- Parse frames array ---
     const int framesKey = body.indexOf("\"frames\"");
     if (framesKey < 0) { sendError(400, "frames must be an array"); return; }
-    int pos = body.indexOf('[', framesKey);
-    if (pos < 0)       { sendError(400, "frames must be an array"); return; }
-    ++pos;
+    const int arrayStart = body.indexOf('[', framesKey);
+    if (arrayStart < 0) { sendError(400, "frames must be an array"); return; }
+    size_t pos = static_cast<size_t>(arrayStart + 1);
 
     uint16_t baseIndex = 0;
     if (!appendFrames) {
@@ -539,34 +603,36 @@ static void handleApiScroll() {
 
     uint16_t count = 0;
     String   error;
-    while (pos < (int)body.length()) {
-        while (pos < (int)body.length()) {
+    while (pos < body.length()) {
+        while (pos < body.length()) {
             const char c = body.charAt(pos);
             if (c == ' ' || c == '\r' || c == '\n' || c == '\t' || c == ',') { ++pos; continue; }
             break;
         }
-        if (pos >= (int)body.length()) { sendError(400, "unterminated frames array"); return; }
+        if (pos >= body.length()) { sendError(400, "unterminated frames array"); return; }
         if (body.charAt(pos) == ']') break;
         if (body.charAt(pos) != '"') {
             sendError(400, String("expected M370 string at frame ") + count); return;
         }
-        const int endQuote = body.indexOf('"', pos + 1);
-        if (endQuote < 0) {
+
+        int endQuote = -1;
+        String m370;
+        if (!extractJsonStringAt(body, pos, m370, endQuote)) {
             sendError(400, String("unterminated M370 string at frame ") + count); return;
         }
+
         const uint32_t targetIndex = static_cast<uint32_t>(baseIndex) + count;
         if (targetIndex >= MAX_SCROLL_FRAMES) {
             sendError(413, String("too many scroll frames; firmware cache max is ") + MAX_SCROLL_FRAMES);
             return;
         }
-        const String m370 = body.substring(pos + 1, endQuote);
         if (!m370ToPackedBits(m370, scrollFrameBits[targetIndex], error)) {
             sendError(400, String("invalid scroll frame ") + targetIndex + ": " + error);
             withScrollLock([]() { state.scrollFrameCount = 0; });
             return;
         }
         ++count;
-        pos = endQuote + 1;
+        pos = static_cast<size_t>(endQuote + 1);
     }
 
     if (count == 0) {
@@ -602,6 +668,189 @@ static void handleApiScroll() {
     sendJsonDocument(200, reply);
 }
 
+
+using ApiCommandHandler = bool (*)(DynamicJsonDocument& doc, JsonVariant payload, String& error);
+
+static bool commandSetColor(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    const char* hex = payload["hex"] | "";
+    if (strlen(hex) == 0) hex = doc["hex"] | "";
+    return setColor(hex, error);
+}
+
+static bool commandSetBrightness(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    (void)error;
+    int raw = state.brightness;
+    if      (payload["raw"].is<int>())        raw = payload["raw"].as<int>();
+    else if (payload["brightness"].is<int>()) raw = payload["brightness"].as<int>();
+    else if (doc["raw"].is<int>())            raw = doc["raw"].as<int>();
+    setBrightness(raw);
+    return true;
+}
+
+static bool commandSetMode(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    cancelDeferredFaceRestore();
+    const char* mode = payload["mode"] | "";
+    if (strlen(mode) == 0) mode = doc["mode"] | "";
+    if (strlen(mode) == 0 || !setMode(mode)) {
+        error = "invalid mode";
+        return false;
+    }
+    return true;
+}
+
+static bool commandSetAutoInterval(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    (void)error;
+    uint32_t ms = state.autoIntervalMs;
+    if      (payload["ms"].is<uint32_t>()) ms = payload["ms"].as<uint32_t>();
+    else if (doc["ms"].is<uint32_t>())     ms = doc["ms"].as<uint32_t>();
+    setAutoInterval(ms);
+    return true;
+}
+
+static bool commandSetScrollInterval(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    (void)error;
+    uint16_t iMs = state.scrollIntervalMs;
+    if (payload["intervalMs"].is<uint16_t>()) {
+        iMs = payload["intervalMs"].as<uint16_t>();
+    } else if (payload["fps"].is<float>()) {
+        const float fps = payload["fps"].as<float>();
+        if (fps > 0.0f) iMs = static_cast<uint16_t>(roundf(1000.0f / fps));
+    } else if (doc["intervalMs"].is<uint16_t>()) {
+        iMs = doc["intervalMs"].as<uint16_t>();
+    }
+    withScrollLock([&]() {
+        state.scrollIntervalMs  = constrain(iMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+        state.lastScrollFrameMs = millis();
+    });
+    return true;
+}
+
+static bool commandScrollStep(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    (void)doc;
+    (void)payload;
+    (void)error;
+    uint8_t steppedFrame[FRAME_BYTES];
+    bool    hasSteppedFrame = false;
+    withScrollLock([&]() {
+        if (state.scrollFrameCount > 0) {
+            state.scrollFrameIndex = (state.scrollFrameIndex + 1) % state.scrollFrameCount;
+            state.playback         = "scroll_step";
+            memcpy(steppedFrame, scrollFrameBits[state.scrollFrameIndex], FRAME_BYTES);
+            hasSteppedFrame = true;
+        }
+    });
+    if (hasSteppedFrame) applyPackedFrame(steppedFrame, "firmware_text_scroll_step");
+    return true;
+}
+
+static bool commandPauseScroll(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    (void)doc;
+    (void)payload;
+    (void)error;
+    bool ignored = false;
+    pauseFirmwareScrollIfActive(ignored);
+    return true;
+}
+
+static bool commandResumeScroll(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    (void)doc;
+    (void)payload;
+    (void)error;
+    bool ignored = false;
+    resumeFirmwareScrollIfCached(ignored);
+    return true;
+}
+
+static bool commandStopScroll(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    (void)error;
+    bool clearDisplay = true;
+    bool restoreAuto  = true;
+    if (payload["clear"].is<bool>())         clearDisplay = payload["clear"].as<bool>();
+    else if (doc["clear"].is<bool>())        clearDisplay = doc["clear"].as<bool>();
+    if (payload["restoreAuto"].is<bool>())   restoreAuto  = payload["restoreAuto"].as<bool>();
+    else if (doc["restoreAuto"].is<bool>())  restoreAuto  = doc["restoreAuto"].as<bool>();
+    stopFirmwareScroll(restoreAuto, clearDisplay);
+    return true;
+}
+
+static bool commandPause(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    (void)doc;
+    (void)payload;
+    (void)error;
+    bool pausedScroll = false;
+    pauseFirmwareScrollIfActive(pausedScroll);
+    if (!pausedScroll) {
+        state.paused   = true;
+        state.playback = "paused";
+    }
+    return true;
+}
+
+static bool commandResume(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    (void)doc;
+    (void)payload;
+    (void)error;
+    bool resumedScroll = false;
+    resumeFirmwareScrollIfCached(resumedScroll, true);
+    if (!resumedScroll) {
+        state.paused   = false;
+        state.playback = DEFAULT_PLAYBACK;
+    }
+    return true;
+}
+
+static bool commandButton(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    const char* button = payload["button"] | "";
+    if (strlen(button) == 0) button = doc["button"] | "";
+    if (!runButtonAction(String(button), "api_button")) {
+        error = "unsupported button or no saved faces available";
+        return false;
+    }
+    return true;
+}
+
+static bool commandTerminateOtherActivities(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    (void)doc;
+    (void)error;
+    const char* targetMode = payload["targetMode"] | "";
+    if (strcmp(targetMode, "scroll") != 0) stopFirmwareScroll(false, false);
+    if (strcmp(targetMode, "face") != 0 && strcmp(targetMode, "scroll") != 0) {
+        setMode("manual", true);
+    } else if (strcmp(targetMode, "scroll") == 0 && isAutoMode()) {
+        state.restoreAutoAfterScroll = true;
+        state.mode                   = "manual";
+    }
+    return true;
+}
+
+struct ApiCommandRoute {
+    const char*       name;
+    ApiCommandHandler handler;
+};
+
+static const ApiCommandRoute API_COMMAND_ROUTES[] = {
+    {"set_color",                  commandSetColor},
+    {"set_brightness",             commandSetBrightness},
+    {"set_mode",                   commandSetMode},
+    {"set_auto_interval",          commandSetAutoInterval},
+    {"set_scroll_interval",        commandSetScrollInterval},
+    {"scroll_step",                commandScrollStep},
+    {"pause_scroll",               commandPauseScroll},
+    {"resume_scroll",              commandResumeScroll},
+    {"stop_scroll",                commandStopScroll},
+    {"pause",                      commandPause},
+    {"resume",                     commandResume},
+    {"button",                     commandButton},
+    {"terminate_other_activities", commandTerminateOtherActivities},
+};
+
+static const ApiCommandRoute* findApiCommandRoute(const String& cmd) {
+    for (const ApiCommandRoute& route : API_COMMAND_ROUTES) {
+        if (cmd == route.name) return &route;
+    }
+    return nullptr;
+}
+
 static void handleApiCommand() {
     String error;
     DynamicJsonDocument doc(2048);
@@ -619,103 +868,16 @@ static void handleApiCommand() {
         return;
     }
 
-    if (cmd == "set_color") {
-        const char* hex = payload["hex"] | "";
-        if (strlen(hex) == 0) hex = doc["hex"] | "";
-        if (!setColor(hex, error)) {
-            ++state.commandsRejected; sendError(400, error); return;
-        }
-    } else if (cmd == "set_brightness") {
-        int raw = state.brightness;
-        if      (payload["raw"].is<int>())        raw = payload["raw"].as<int>();
-        else if (payload["brightness"].is<int>()) raw = payload["brightness"].as<int>();
-        else if (doc["raw"].is<int>())            raw = doc["raw"].as<int>();
-        setBrightness(raw);
-    } else if (cmd == "set_mode") {
-        cancelDeferredFaceRestore();
-        const char* mode = payload["mode"] | "";
-        if (strlen(mode) == 0) mode = doc["mode"] | "";
-        if (strlen(mode) == 0 || !setMode(mode)) {
-            ++state.commandsRejected; sendError(400, "invalid mode"); return;
-        }
-    } else if (cmd == "set_auto_interval") {
-        uint32_t ms = state.autoIntervalMs;
-        if      (payload["ms"].is<uint32_t>()) ms = payload["ms"].as<uint32_t>();
-        else if (doc["ms"].is<uint32_t>())     ms = doc["ms"].as<uint32_t>();
-        setAutoInterval(ms);
-    } else if (cmd == "set_scroll_interval") {
-        uint16_t iMs = state.scrollIntervalMs;
-        if (payload["intervalMs"].is<uint16_t>()) {
-            iMs = payload["intervalMs"].as<uint16_t>();
-        } else if (payload["fps"].is<float>()) {
-            const float fps = payload["fps"].as<float>();
-            if (fps > 0.0f) iMs = (uint16_t)roundf(1000.0f / fps);
-        } else if (doc["intervalMs"].is<uint16_t>()) {
-            iMs = doc["intervalMs"].as<uint16_t>();
-        }
-        withScrollLock([&]() {
-            state.scrollIntervalMs  = constrain(iMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
-            state.lastScrollFrameMs = millis();
-        });
-    } else if (cmd == "scroll_step") {
-        uint8_t steppedFrame[FRAME_BYTES];
-        bool    hasSteppedFrame = false;
-        withScrollLock([&]() {
-            if (state.scrollFrameCount > 0) {
-                state.scrollFrameIndex = (state.scrollFrameIndex + 1) % state.scrollFrameCount;
-                state.playback         = "scroll_step";
-                memcpy(steppedFrame, scrollFrameBits[state.scrollFrameIndex], FRAME_BYTES);
-                hasSteppedFrame = true;
-            }
-        });
-        if (hasSteppedFrame) applyPackedFrame(steppedFrame, "firmware_text_scroll_step");
-    } else if (cmd == "pause_scroll") {
-        bool ignored = false;
-        pauseFirmwareScrollIfActive(ignored);
-    } else if (cmd == "resume_scroll") {
-        bool ignored = false;
-        resumeFirmwareScrollIfCached(ignored);
-    } else if (cmd == "stop_scroll") {
-        bool clearDisplay = true, restoreAuto = true;
-        if (payload["clear"].is<bool>())       clearDisplay = payload["clear"].as<bool>();
-        else if (doc["clear"].is<bool>())      clearDisplay = doc["clear"].as<bool>();
-        if (payload["restoreAuto"].is<bool>()) restoreAuto  = payload["restoreAuto"].as<bool>();
-        else if (doc["restoreAuto"].is<bool>()) restoreAuto = doc["restoreAuto"].as<bool>();
-        stopFirmwareScroll(restoreAuto, clearDisplay);
-    } else if (cmd == "pause") {
-        bool pausedScroll = false;
-        pauseFirmwareScrollIfActive(pausedScroll);
-        if (!pausedScroll) {
-            state.paused   = true;
-            state.playback = "paused";
-        }
-    } else if (cmd == "resume") {
-        bool resumedScroll = false;
-        resumeFirmwareScrollIfCached(resumedScroll, true);
-        if (!resumedScroll) {
-            state.paused   = false;
-            state.playback = DEFAULT_PLAYBACK;
-        }
-    } else if (cmd == "button") {
-        const char* button = payload["button"] | "";
-        if (strlen(button) == 0) button = doc["button"] | "";
-        if (!runButtonAction(String(button), "api_button")) {
-            ++state.commandsRejected;
-            sendError(400, "unsupported button or no saved faces available");
-            return;
-        }
-    } else if (cmd == "terminate_other_activities") {
-        const char* targetMode = payload["targetMode"] | "";
-        if (strcmp(targetMode, "scroll") != 0) stopFirmwareScroll(false, false);
-        if (strcmp(targetMode, "face") != 0 && strcmp(targetMode, "scroll") != 0) {
-            setMode("manual", true);
-        } else if (strcmp(targetMode, "scroll") == 0 && isAutoMode()) {
-            state.restoreAutoAfterScroll = true;
-            state.mode                   = "manual";
-        }
-    } else {
+    const ApiCommandRoute* route = findApiCommandRoute(cmd);
+    if (route == nullptr) {
         ++state.commandsRejected;
         sendError(400, String("unknown command: ") + cmd);
+        return;
+    }
+
+    if (!route->handler(doc, payload, error)) {
+        ++state.commandsRejected;
+        sendError(400, error);
         return;
     }
 
@@ -755,7 +917,7 @@ static void handleSavedFacesGet() {
     File file = littleFsOpenLocked(SAVED_FACES_PATH, "r");
     if (!file) { sendError(500, "failed to open saved_faces.json"); return; }
     addCorsHeaders();
-    streamFileChunked(file, "application/json; charset=utf-8");
+    streamFileChunked(file, CONTENT_TYPE_JSON_UTF8);
     closeFileLocked(file);
 }
 

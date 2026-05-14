@@ -588,7 +588,8 @@ const MATRIX_VIEW_CONFIGS = [
 const DEFAULT_SCROLL_FPS = 10;
 const SCROLL_FPS_MIN = 1;
 const SCROLL_FPS_MAX = 120;
-const FIRMWARE_SCROLL_MAX_FRAMES = 2048;
+const FIRMWARE_SCROLL_MAX_FRAMES_DEFAULT = 3072;
+let firmwareScrollMaxFrames = FIRMWARE_SCROLL_MAX_FRAMES_DEFAULT;
 const SCROLL_UPLOAD_CHUNK_FRAMES = 24;
 
 const parent_color_groups = [
@@ -1130,6 +1131,11 @@ function applyFirmwareRuntimeState(data, source='firmware_status', options={}){
       state.textScrollActive = false;
     }
     stateChanged = true;
+  }
+
+  const scrollMaxFramesValue = Number(renderer.scrollMaxFrames ?? data.scrollMaxFrames);
+  if(Number.isFinite(scrollMaxFramesValue) && scrollMaxFramesValue > 0){
+    firmwareScrollMaxFrames = Math.floor(scrollMaxFramesValue);
   }
 
   const scrollFrameCountValue = Number(renderer.scrollFrameCount ?? data.scrollFrameCount);
@@ -2891,8 +2897,8 @@ function resetScrollControlsAfterButton(reason='gpio_button'){
 async function buildFirmwareScrollFrames(onProgress=()=>{}){
   const source = scroll.frames;
   if(!source.length) return [];
-  if(source.length > FIRMWARE_SCROLL_MAX_FRAMES) {
-    throw new Error(`文字滚动帧数 ${source.length} 超过固件缓存上限 ${FIRMWARE_SCROLL_MAX_FRAMES}；请缩短文本或提高固件上限。`);
+  if(source.length > firmwareScrollMaxFrames) {
+    throw new Error(`文字滚动帧数 ${source.length} 超过固件缓存上限 ${firmwareScrollMaxFrames}；请缩短文本或提高固件上限。`);
   }
   const frames = [];
   for (let i=0; i<source.length; i++) {

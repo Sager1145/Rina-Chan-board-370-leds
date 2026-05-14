@@ -39,7 +39,6 @@ DEFAULT_TEXT_FILES = [
     ROOT / "data/resources/saved_faces.json",
     ROOT / "data/resources/runtime_settings.json",
     ROOT / "README.md",
-    ROOT / "EXTERNAL_CODE_COMMENTS.txt",
     ROOT / "plan.md",
 ]
 
