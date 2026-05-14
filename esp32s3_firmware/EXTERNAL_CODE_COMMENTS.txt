@@ -53,3 +53,15 @@ Non-blocking stop-clear / M-A restore update:
   - Calls serviceDeferredFaceRestore() from loop().
 - src/web_api.cpp
   - Exposes renderer.deferredFaceRestoreActive in status/command replies and cancels stale deferred restores on explicit set_mode.
+
+WebUI preload-first runtime-state update:
+- data/index.html
+  - Adds a boot-phase gate so the visible UI is not shown until required firmware runtime state has been fetched or a fallback path has been selected.
+  - Calls /api/status?summary=1 before normal UI initialization.
+  - Applies the first firmware status with skipFrame=true, so startup sync reads color, brightness, power, mode, playback, interval, and face index without consuming lastM370/M370 LED preview data.
+  - Initializes color and brightness controls from the preloaded state without sending set_color/set_brightness back to the firmware during page load.
+  - After saved_faces.json is loaded, uses the firmware autoFaceIndex for a local saved-face preview when preload succeeded; falls back to the configured startup default only when firmware preload failed or the page is opened offline.
+- src/web_api.cpp
+  - /api/status now supports summary/noFrame/runtimeOnly query parameters.
+  - Summary status omits renderer.lastM370 and renderer.lit and marks renderer.lastM370Skipped=true.
+  - Summary status also skips LittleFS capacity totals to keep the pre-page-load request lightweight.

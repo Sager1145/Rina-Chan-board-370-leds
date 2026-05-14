@@ -277,7 +277,8 @@ static void handleApiStatus() {
     });
 
     const bool scrolling = firmwareScrollActive || firmwareScrollPaused;
-    DynamicJsonDocument doc(scrolling ? 4096 : 6144);
+    const bool summaryOnly = server.hasArg("summary") || server.hasArg("noFrame") || server.hasArg("runtimeOnly");
+    DynamicJsonDocument doc((scrolling || summaryOnly) ? 4096 : 6144);
     doc["ok"]     = true;
     doc["device"] = "RinaChanBoard";
     doc["uptimeMs"] = millis() - state.bootMs;
@@ -320,9 +321,11 @@ static void handleApiStatus() {
         renderer["autoFaceId"]   = autoFaces[state.autoFaceIndex].id;
         renderer["autoFaceName"] = autoFaces[state.autoFaceIndex].name;
     }
-    if (!scrolling) {
+    if (!scrolling && !summaryOnly) {
         renderer["lastM370"] = state.lastM370;
         renderer["lit"]      = countLitLeds();
+    } else if (summaryOnly) {
+        renderer["lastM370Skipped"] = true;
     } else {
         renderer["lastM370Deferred"] = true;
     }
@@ -342,9 +345,11 @@ static void handleApiStatus() {
     storage["savedFacesExists"]  = fsMounted && LittleFS.exists(SAVED_FACES_PATH);
     storage["settingsPath"]      = SETTINGS_PATH;
     storage["settingsExists"]    = fsMounted && LittleFS.exists(SETTINGS_PATH);
-    if (fsMounted && !scrolling) {
+    if (fsMounted && !scrolling && !summaryOnly) {
         storage["totalBytes"] = static_cast<uint32_t>(LittleFS.totalBytes());
         storage["usedBytes"]  = static_cast<uint32_t>(LittleFS.usedBytes());
+    } else if (summaryOnly) {
+        storage["capacitySkippedInSummary"] = true;
     } else if (scrolling) {
         storage["capacityDeferredDuringScroll"] = true;
     }

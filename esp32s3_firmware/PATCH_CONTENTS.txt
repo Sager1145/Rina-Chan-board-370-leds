@@ -31,3 +31,7 @@ esp32s3_firmware/README_ARK12_MERGE.txt
 esp32s3_firmware/EXTERNAL_CODE_COMMENTS.txt
 esp32s3_firmware/plan.md
   Documentation synchronized with the patch.
+
+esp32s3_firmware/data/index.html
+esp32s3_firmware/src/web_api.cpp
+  Adds preload-first WebUI startup: /api/status?summary=1 is read before visible UI initialization, color/brightness/power/A-M/playback state is applied first, and startup explicitly skips LED preview/M370.

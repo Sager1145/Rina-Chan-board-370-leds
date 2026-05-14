@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-boot-phase="preload">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -330,9 +330,28 @@
     /* 矩阵 cell 缩小 */
   :root{--control-height:42px;--cell:10px;--gap:2px}
 }
+
+  .boot-screen{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at top,#20283a 0%,#0b0e14 48%,#05070b 100%);color:var(--text);}
+  .boot-card{width:min(520px,calc(100vw - 32px));border:1px solid var(--line);border-radius:22px;background:linear-gradient(180deg,var(--panel),#101520);box-shadow:0 24px 80px #00000090;padding:22px;display:grid;gap:12px;}
+  .boot-title{font-size:20px;font-weight:800;line-height:1.35;}
+  .boot-text{color:var(--muted);font-size:13px;line-height:1.6;}
+  .boot-bar{height:8px;border-radius:999px;background:#0b0e14;border:1px solid #283044;overflow:hidden;}
+  .boot-bar::before{content:"";display:block;width:44%;height:100%;border-radius:inherit;background:var(--primary-gradient);animation:boot-slide 1.1s ease-in-out infinite alternate;}
+  @keyframes boot-slide{from{transform:translateX(-35%)}to{transform:translateX(165%)}}
+  html[data-boot-phase="preload"] body > :not(#boot-screen){visibility:hidden;pointer-events:none;}
+  html[data-boot-phase="ready"] #boot-screen{display:none;}
+
 </style>
 </head>
 <body>
+<div class="boot-screen" id="boot-screen" role="status" aria-live="polite">
+  <div class="boot-card">
+    <div class="boot-title">正在读取固件状态</div>
+    <div class="boot-text" id="boot-text">先读取颜色、亮度、电池/充电状态、A/M 模式和播放状态；启动阶段不会读取 LED 预览/M370。</div>
+    <div class="boot-bar" aria-hidden="true"></div>
+  </div>
+</div>
+
 <aside class="sidebar">
     <div class="brand">
       <div class="logo"></div>
@@ -1028,8 +1047,9 @@ function applyPowerData(powerData){
 function shouldApplyPowerFromStatusSource(source){
   return source === 'page_load' || source === 'firmware_ping' || String(source || '').startsWith('power_') || String(source || '').startsWith('basic_');
 }
-function applyFirmwareRuntimeState(data, source='firmware_status'){
+function applyFirmwareRuntimeState(data, source='firmware_status', options={}){
   if(!data || typeof data !== 'object') return;
+  const skipFrame = !!options.skipFrame;
   const renderer = data.renderer || data;
   let stateChanged = false;
   let faceChanged = false;
@@ -1120,7 +1140,7 @@ function applyFirmwareRuntimeState(data, source='firmware_status'){
 
   const firmwareIsScrolling = state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
   const firmwareM370 = renderer.lastM370 || renderer.m370 || data.m370;
-  if(!firmwareIsScrolling && typeof firmwareM370 === 'string' && firmwareM370.trim()){
+  if(!skipFrame && !firmwareIsScrolling && typeof firmwareM370 === 'string' && firmwareM370.trim()){
     try{
       currentFrame = m370ToFrame(firmwareM370);
       if(!firmwareIsScrolling) scrollFrame = cloneFrame(currentFrame);
@@ -1304,11 +1324,8 @@ function updateDps(){
 }
 function setColor(hex, source='color_change'){
   const c = normalizeHexColor(hex);
-  if(source === 'firmware_sync' && state.color === c){
-    syncColorDropdownsToHex(c);
-    return;
-  }
   if (!c) { alert('颜色必须是 #RRGGBB 或 RRGGBB'); return; }
+  const unchangedFirmwareSync = source === 'firmware_sync' && state.color === c;
   state.color = c;
   document.documentElement.style.setProperty('--led-color', c);
   if($('color-input')) $('color-input').value = c;
@@ -1317,6 +1334,7 @@ function setColor(hex, source='color_change'){
   updateDps();
   renderMatrices();
   renderState();
+  if(unchangedFirmwareSync) return;
   log(`颜色更新 ${c} (${source})`);
   if(source !== 'firmware_sync') sendAuxCommand('set_color', {hex:c}, source);
 }
@@ -1332,6 +1350,42 @@ function setBrightness(v, source='brightness_change'){
   applyBrightnessLocal(v);
   log(`亮度更新 raw=${state.brightness} (${source})`);
   sendAuxCommand('set_brightness', {raw:state.brightness}, source);
+}
+
+const BOOT_STATUS_ENDPOINT = `${API_ENDPOINTS.status}?summary=1`;
+let bootRuntimeSnapshot = {attempted:false, ok:false, error:'', data:null};
+function setBootText(text){
+  const el = $('boot-text');
+  if(el) el.textContent = text;
+}
+function finishBootVisibility(){
+  document.documentElement.dataset.bootPhase = 'ready';
+  const boot = $('boot-screen');
+  if(boot) boot.setAttribute('hidden', '');
+}
+async function preloadFirmwareRuntimeState(){
+  bootRuntimeSnapshot = {attempted:true, ok:false, error:'', data:null};
+  if(isOfflineHtmlMode()){
+    setFirmwareStatus({online:false, lastStatus:'offline html mode', lastError:'offline: preload skipped'});
+    bootRuntimeSnapshot.error = 'offline html mode';
+    setBootText('离线 HTML 模式：使用本地默认值加载，不读取固件状态。');
+    return bootRuntimeSnapshot;
+  }
+  setBootText('正在读取固件颜色、亮度、电池/充电状态、A/M 模式和播放状态；跳过 LED 预览/M370。');
+  try{
+    lastFirmwareStatusPollAt = performance.now();
+    const data = await apiGet(BOOT_STATUS_ENDPOINT);
+    bootRuntimeSnapshot = {attempted:true, ok:true, error:'', data};
+    applyFirmwareRuntimeState(data, 'page_preload', {skipFrame:true});
+    setFirmwareStatus({lastStatus:'preload ok'});
+    return bootRuntimeSnapshot;
+  }catch(err){
+    bootRuntimeSnapshot.error = err.message || String(err);
+    setFirmwareStatus({online:false, lastStatus:'preload failed', lastError:bootRuntimeSnapshot.error});
+    setBootText(`固件状态预读取失败：${bootRuntimeSnapshot.error}。使用本地默认值继续加载。`);
+    if(shouldLogApiError()) log(`启动预读取固件状态失败: ${bootRuntimeSnapshot.error}`);
+    return bootRuntimeSnapshot;
+  }
 }
 async function syncRuntimeStateFromFirmware(source='webui_load'){
   try {
@@ -2027,6 +2081,22 @@ function applyStartupDefaultFaceLocal(reason='text_scroll_stop_default_saved_fac
   scrollFrame = cloneFrame(currentFrame);
   state.lastRefreshReason = reason;
   state.refreshCount++;
+  renderMatrices();
+  updateM370Views();
+  renderSavedFaces();
+  return true;
+}
+
+function applyKnownFaceIndexLocal(reason='firmware_face_index_preview'){
+  const library = getAllFaces();
+  if(!library.length) return false;
+  const index = clamp(Number(state.faceIndex) || 0, 0, library.length - 1);
+  const face = library[index];
+  if(!face || typeof face.m370 !== 'string') return false;
+  state.faceIndex = index;
+  currentFrame = m370ToFrame(face.m370);
+  scrollFrame = cloneFrame(currentFrame);
+  state.lastRefreshReason = reason;
   renderMatrices();
   updateM370Views();
   renderSavedFaces();
@@ -3075,7 +3145,10 @@ function makePatternFrame(kind){
 }
 
 async function bootstrapWebUi(){
+  let bootOk = false;
   try{
+    await preloadFirmwareRuntimeState();
+    bootOk = !!bootRuntimeSnapshot.ok;
     ensureWebUiFontReady().catch(err=>console.warn('WebUI font bootstrap failed', err));
     observeWebUiFont();
     initNav();
@@ -3088,32 +3161,44 @@ async function bootstrapWebUi(){
     initScroll();
     initializeDebugControls();
     initCustomSelectDropdowns();
+
     applyBrightnessLocal(state.brightness);
-    setColor(state.color, 'bootstrap');
+    setColor(state.color, 'firmware_sync');
     syncAutoIntervalUi();
     updateM370Views();
     updateScrollUi();
+
+    await loadFaceLibrary();
+    if(getAllFaces().length){
+      const bootPlaybackIsScroll = state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
+      if(bootOk && !bootPlaybackIsScroll){
+        applyKnownFaceIndexLocal('startup_from_firmware_face_index_no_m370');
+      }else if(!bootOk){
+        applyStartupDefaultFaceLocal('bootstrap_default_face');
+      }
+    }
+
+    renderSavedFaces();
     renderMatrices();
     renderState();
     fitAllMatrices();
     startFirmwareStatusPolling();
     startPowerStatusPolling();
-    await loadFaceLibrary();
-    if(getAllFaces().length){
-      applyStartupDefaultFaceLocal('bootstrap_default_face');
-    }
-    renderSavedFaces();
-    renderMatrices();
-    renderState();
-    log('WebUI 修复尾部已加载：脚本闭合、Ark glyph rasterizer、滚动预览和启动流程已恢复。');
+    finishBootVisibility();
+    log(bootOk
+      ? 'WebUI 启动：已先读取固件运行状态；首次加载跳过 LED 预览/M370。'
+      : 'WebUI 启动：固件预读取失败/离线，已使用本地默认状态加载。');
   }catch(err){
     console.error('WebUI bootstrap failed', err);
     const msg = `WebUI 初始化失败：${err.message || err}`;
     try{ log(msg); }catch(_){ console.error(msg); }
     const logEl = $('log');
     if(logEl) logEl.textContent = msg;
+    setBootText(msg);
+    finishBootVisibility();
   }
 }
+
 
 if(document.readyState === 'loading'){
   document.addEventListener('DOMContentLoaded', bootstrapWebUi, {once:true});
