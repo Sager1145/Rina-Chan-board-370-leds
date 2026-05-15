@@ -109,6 +109,18 @@ bool loadRuntimeSettings() {
 // Saved faces -- validate
 // ---------------------------------------------------------------------------
 
+static bool defaultFaceIdNumberIsInvalid(const char* id) {
+    if (id == nullptr || strncmp(id, "face_", 5) != 0) return false;
+    const char* p = id + 5;
+    if (*p < '0' || *p > '9') return false;
+    uint32_t value = 0;
+    while (*p >= '0' && *p <= '9') {
+        value = value * 10 + static_cast<uint32_t>(*p - '0');
+        ++p;
+    }
+    return value < 1;
+}
+
 bool validateSavedFaces(JsonVariant document, String& error) {
     const char* category = document["category"] | "";
     if (strcmp(category, "unified_saved_faces") != 0) {
@@ -125,8 +137,19 @@ bool validateSavedFaces(JsonVariant document, String& error) {
     uint16_t defaultCount = 0;
     for (JsonObject face : faces) {
         const char* type = face["type"] | "";
+        const char* id   = face["id"] | "";
         const char* m370 = face["m370"] | "";
-        if (strcmp(type, "default") == 0) ++defaultCount;
+        if (!face["order"].is<int32_t>() || face["order"].as<int32_t>() < 1) {
+            error = "face order must be 1-based and >= 1";
+            return false;
+        }
+        if (strcmp(type, "default") == 0) {
+            ++defaultCount;
+            if (defaultFaceIdNumberIsInvalid(id)) {
+                error = "default face id numbers must start at 1";
+                return false;
+            }
+        }
         if (strlen(m370) > 0) {
             String normalized, faceError;
             if (!normalizeM370(m370, normalized, faceError)) {
@@ -248,7 +271,7 @@ bool loadSavedFaces(bool applyStartupFace) {
         runtime.m370             = normalized;
         runtime.order            = face["order"].is<int32_t>()
                                        ? face["order"].as<int32_t>()
-                                       : static_cast<int32_t>(jsonIndex);
+                                       : static_cast<int32_t>(jsonIndex) + 1;
         runtime.jsonIndex        = jsonIndex;
         runtime.isDefault        = strcmp(face["type"] | "", "default") == 0;
         runtime.isStartupDefault = face["is_startup_default"].as<bool>() ||

@@ -43,7 +43,7 @@ After boot, connect to:
 - URL: `http://192.168.1.14/`
 
 Default startup brightness: `50/255`.
-After the startup sequence completes, the board displays the default face: `face_07_triangle_eyes_frown`.
+After the startup sequence completes, the board displays the default face: `face_08_triangle_eyes_frown`.
 
 ## WebUI / text-scroll font resources
 
@@ -88,4 +88,6 @@ Default faces, custom faces, and parts-combination faces all live in one file: `
 - Default faces can be renamed and manually sorted.
 - User-saved faces use `type: "custom"`.
 - Parts-combination saves use `type: "parts"`.
-- The current startup default remains `face_07_triangle_eyes_frown`.
+- Saved face `order` values are persisted 1-based, matching the WebUI list number.
+- Default face ID numbers must start at 1.
+- The current startup default remains the triangle-eyes face, persisted as `face_08_triangle_eyes_frown`.
