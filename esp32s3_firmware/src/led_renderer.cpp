@@ -257,6 +257,7 @@ bool applyM370(const String& input, const String& reason, String& error) {
         runtimeState().lastM370   = normalized;
         runtimeState().lastReason = reason;
         ++runtimeState().framesAccepted;
+        touchRuntimeState();
         showCurrentFrameNoLock();
     });
     return true;
@@ -267,6 +268,7 @@ void applyPackedFrame(const uint8_t* packedBits, const String& reason) {
         memcpy(runtimeFrameBits(), packedBits, FRAME_BYTES);
         runtimeState().lastReason = reason;
         ++runtimeState().framesAccepted;
+        touchRuntimeState();
         showCurrentFrameNoLock();
     });
 }
@@ -277,6 +279,7 @@ void applyBlankFrame(const String& reason) {
         runtimeState().lastM370   = blankM370();
         runtimeState().lastReason = reason;
         ++runtimeState().framesAccepted;
+        touchRuntimeState();
         showCurrentFrameNoLock();
     });
 }
@@ -305,6 +308,7 @@ bool setColor(const String& input, String& error) {
         runtimeState().colorR   = r;
         runtimeState().colorG   = g;
         runtimeState().colorB   = b;
+        touchRuntimeState();
         showCurrentFrameNoLock();
     });
     return true;
@@ -314,6 +318,7 @@ void setBrightness(int raw) {
     raw = constrain(raw, MIN_BRIGHTNESS, MAX_BRIGHTNESS);
     withFrameLock([&]() {
         runtimeState().brightness = static_cast<uint8_t>(raw);
+        touchRuntimeState();
         showCurrentFrameNoLock();
     });
 }

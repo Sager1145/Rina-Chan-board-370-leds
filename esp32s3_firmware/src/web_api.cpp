@@ -13,6 +13,7 @@
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <pgmspace.h>
+#include <stdlib.h>
 
 static WebServer server(HTTP_PORT);
 
@@ -121,6 +122,12 @@ static void sendError(int status, const String& message) {
     String out;
     serializeJson(doc, out);
     server.send(status, CONTENT_TYPE_JSON_UTF8, out);
+}
+
+static uint16_t statusNextPollMs(bool scrolling, bool summaryOnly, bool unchanged) {
+    if (runtimeState().deferredFaceRestoreActive) return 250;
+    if (scrolling) return summaryOnly ? 250 : 1000;
+    return unchanged ? 2000 : 750;
 }
 
 static void addPowerStatus(JsonObject power) {
@@ -327,6 +334,7 @@ static void pauseFirmwareScrollIfActive(bool& changed) {
             changed                    = true;
         }
     });
+    if (changed) touchRuntimeState();
 }
 
 static void resumeFirmwareScrollIfCached(bool& changed, bool requirePaused = false) {
@@ -340,6 +348,7 @@ static void resumeFirmwareScrollIfCached(bool& changed, bool requirePaused = fal
             changed                     = true;
         }
     });
+    if (changed) touchRuntimeState();
 }
 
 static bool serveStaticFile(String path) {
@@ -393,8 +402,27 @@ static void handleApiStatus() {
     const bool scrolling   = firmwareScrollActive || firmwareScrollPaused;
     const bool runtimeOnly = server.hasArg("runtimeOnly");
     const bool summaryOnly = runtimeOnly || server.hasArg("summary") || server.hasArg("noFrame");
+    const uint32_t version = runtimeStateVersion();
+
+    if (server.hasArg("since")) {
+        const uint32_t since = static_cast<uint32_t>(strtoul(server.arg("since").c_str(), nullptr, 10));
+        if (since == version) {
+            DynamicJsonDocument unchanged(192);
+            unchanged["ok"]           = true;
+            unchanged["v"]            = version;
+            unchanged["version"]      = version;
+            unchanged["unchanged"]    = true;
+            unchanged["next_poll_ms"] = statusNextPollMs(scrolling, summaryOnly, true);
+            sendJsonDocument(200, unchanged);
+            return;
+        }
+    }
+
     DynamicJsonDocument doc((runtimeOnly || scrolling || summaryOnly) ? 4096 : 6144);
     doc["ok"]     = true;
+    doc["v"]      = version;
+    doc["version"] = version;
+    doc["next_poll_ms"] = statusNextPollMs(scrolling, summaryOnly, false);
     doc["device"] = "RinaChanBoard";
     doc["uptimeMs"] = millis() - runtimeState().bootMs;
     if (runtimeOnly) doc["runtimeOnly"] = true;
@@ -534,8 +562,26 @@ static void handleApiFrame() {
 
     if (!applyM370(m370, reason, error)) { sendError(400, error); return; }
 
-    DynamicJsonDocument reply(768);
+    // If the WebUI sent a faceId, find the matching saved face and update
+    // autoFaceIndex so that B1/B2 navigation continues from the correct face.
+    const char* faceId = doc["faceId"] | "";
+    if (strlen(faceId) > 0 && ensureSavedFacesLoaded()) {
+        for (uint16_t i = 0; i < runtimeAutoFaceCount(); ++i) {
+            if (runtimeAutoFaces()[i].id == faceId) {
+                if (runtimeState().autoFaceIndex != i) {
+                    runtimeState().autoFaceIndex = i;
+                    touchRuntimeState();
+                }
+                break;
+            }
+        }
+    }
+
+    DynamicJsonDocument reply(1024);
     reply["ok"]            = true;
+    reply["v"]             = runtimeStateVersion();
+    reply["version"]       = runtimeStateVersion();
+    reply["next_poll_ms"]  = statusNextPollMs(false, false, false);
     reply["accepted"]      = true;
     reply["leds"]          = LED_COUNT;
     reply["color"]         = runtimeState().colorHex;
@@ -544,6 +590,10 @@ static void handleApiFrame() {
     reply["mode"]          = runtimeState().mode;
     reply["autoIntervalMs"] = runtimeState().autoIntervalMs;
     reply["autoFaceIndex"] = runtimeState().autoFaceIndex;
+    if (runtimeAutoFaceCount() > 0 && runtimeState().autoFaceIndex < runtimeAutoFaceCount()) {
+        reply["autoFaceId"]   = runtimeAutoFaces()[runtimeState().autoFaceIndex].id;
+        reply["autoFaceName"] = runtimeAutoFaces()[runtimeState().autoFaceIndex].name;
+    }
     reply["m370"]          = runtimeState().lastM370;
     reply["lit"]           = countLitLeds();
     sendJsonDocument(200, reply);
@@ -755,6 +805,7 @@ static bool commandSetScrollInterval(DynamicJsonDocument& doc, JsonVariant paylo
         runtimeState().scrollIntervalMs  = constrain(iMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
         runtimeState().lastScrollFrameMs = millis();
     });
+    touchRuntimeState();
     return true;
 }
 
@@ -830,6 +881,7 @@ static bool commandPause(DynamicJsonDocument& doc, JsonVariant payload, String& 
     if (!pausedScroll) {
         runtimeState().paused   = true;
         runtimeState().playback = "paused";
+        touchRuntimeState();
     }
     return true;
 }
@@ -843,6 +895,7 @@ static bool commandResume(DynamicJsonDocument& doc, JsonVariant payload, String&
     if (!resumedScroll) {
         runtimeState().paused   = false;
         runtimeState().playback = DEFAULT_PLAYBACK;
+        touchRuntimeState();
     }
     return true;
 }
@@ -867,6 +920,7 @@ static bool commandTerminateOtherActivities(DynamicJsonDocument& doc, JsonVarian
     } else if (strcmp(targetMode, "scroll") == 0 && isAutoMode()) {
         runtimeState().restoreAutoAfterScroll = true;
         runtimeState().mode                   = "manual";
+        touchRuntimeState();
     }
     return true;
 }
@@ -934,6 +988,9 @@ static void handleApiCommand() {
 
     DynamicJsonDocument reply(1024);
     reply["ok"]                   = true;
+    reply["v"]                    = runtimeStateVersion();
+    reply["version"]              = runtimeStateVersion();
+    reply["next_poll_ms"]         = statusNextPollMs(runtimeState().firmwareScrollActive || runtimeState().firmwareScrollPaused, false, false);
     reply["cmd"]                  = cmd;
     reply["color"]                = runtimeState().colorHex;
     reply["brightness"]           = runtimeState().brightness;
@@ -1002,6 +1059,8 @@ static void handleSavedFacesPost() {
 
     DynamicJsonDocument reply(384);
     reply["ok"]     = true;
+    reply["v"]      = runtimeStateVersion();
+    reply["version"] = runtimeStateVersion();
     reply["path"]   = SAVED_FACES_PATH;
     reply["requestPath"] = requestPath;
     reply["reason"] = reason;

@@ -58,6 +58,7 @@ bool saveRuntimeSettings() {
     file.close();
     unlockHardwareBus();
     ++runtimeState().settingsWrites;
+    touchRuntimeState();
     return true;
 }
 
@@ -168,6 +169,7 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
     file.close();
     unlockHardwareBus();
     ++runtimeState().savedFacesWrites;
+    touchRuntimeState();
     return written;
 }
 
@@ -192,6 +194,7 @@ bool loadSavedFaces(bool applyStartupFace) {
     if (!savedFacesExists) {
         Serial.println("No saved_faces.json; LED output starts blank");
         runtimeAutoFaceCount() = 0;
+        touchRuntimeState();
         return false;
     }
 
@@ -215,6 +218,7 @@ bool loadSavedFaces(bool applyStartupFace) {
     if (err) {
         Serial.printf("saved_faces.json parse failed: %s\n", err.c_str());
         runtimeAutoFaceCount() = 0;
+        touchRuntimeState();
         return false;
     }
 
@@ -294,6 +298,7 @@ bool loadSavedFaces(bool applyStartupFace) {
                             : (firstDefaultIndex >= 0 ? firstDefaultIndex : 0);
     }
     runtimeState().autoFaceIndex = static_cast<uint16_t>(selectedIndex);
+    touchRuntimeState();
     Serial.printf("Loaded %u saved faces for firmware auto mode\n", runtimeAutoFaceCount());
 
     if (applyStartupFace) {

@@ -228,7 +228,7 @@ function Build-UnifontWebFont([string]$UnifontWebFont, [string]$CacheDir) {
     Download-IfMissing -Url $UnifontPngUrl -Path $UnifontPng -Label "GNU Unifont $UnifontVersion BMP PNG sheet"
 
     Write-Host "[font] building WebUI GNU Unifont subset: $UnifontWebFont"
-    Invoke-PythonChecked $Python @($UnifontTool, "--png", $UnifontPng, "--out", $UnifontWebFont, "--version", $UnifontVersion) "GNU Unifont WebUI subset build failed."
+    Invoke-PythonChecked $Python @($UnifontTool, "--png", $UnifontPng, "--out", $UnifontWebFont, "--version", $UnifontVersion, "--embed-index", $IndexHtml) "GNU Unifont WebUI subset build failed."
 
     if (-not (Test-Path $UnifontWebFont)) {
         throw "GNU Unifont WebUI subset was not generated: $UnifontWebFont"
@@ -241,14 +241,13 @@ function Build-UnifontWebFont([string]$UnifontWebFont, [string]$CacheDir) {
 }
 
 function Ensure-UnifontWebFont([string]$UnifontWebFont, [string]$CacheDir) {
+    Write-Host "[font] synchronizing embedded WebUI GNU Unifont subset with current WebUI text..."
     if (Test-Path $UnifontWebFont) {
         $size = (Get-Item $UnifontWebFont).Length
-        if ($size -ge 10000) {
-            Write-Host "[font] WebUI font remains GNU Unifont: $UnifontWebFont ($size bytes)"
-            return
+        if ($size -lt 10000) {
+            Write-Host "[font] existing GNU Unifont WebUI file is too small; rebuilding: $UnifontWebFont" -ForegroundColor Yellow
+            Remove-Item -Force $UnifontWebFont
         }
-        Write-Host "[font] existing GNU Unifont WebUI file is too small; rebuilding: $UnifontWebFont" -ForegroundColor Yellow
-        Remove-Item -Force $UnifontWebFont
     }
     Build-UnifontWebFont -UnifontWebFont $UnifontWebFont -CacheDir $CacheDir
 }

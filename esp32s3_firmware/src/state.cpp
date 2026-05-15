@@ -28,3 +28,12 @@ uint8_t* runtimeScrollFrameBits(uint16_t index) {
 bool& runtimeFsMounted() {
     return RuntimeStore::instance().fsMounted();
 }
+
+uint32_t runtimeStateVersion() {
+    return runtimeState().stateVersion;
+}
+
+void touchRuntimeState() {
+    ++runtimeState().stateVersion;
+    if (runtimeState().stateVersion == 0) runtimeState().stateVersion = 1;
+}

@@ -27,6 +27,7 @@ struct RuntimeState {
     uint32_t savedFacesWrites    = 0;
     uint32_t settingsWrites      = 0;
     uint32_t bootMs              = 0;
+    uint32_t stateVersion        = 1;
 
     // Auto-playback
     uint32_t autoIntervalMs      = DEFAULT_AUTO_INTERVAL_MS;
@@ -120,3 +121,5 @@ uint16_t& runtimeAutoFaceCount();
 uint8_t* runtimeFrameBits();
 uint8_t* runtimeScrollFrameBits(uint16_t index);
 bool& runtimeFsMounted();
+uint32_t runtimeStateVersion();
+void touchRuntimeState();

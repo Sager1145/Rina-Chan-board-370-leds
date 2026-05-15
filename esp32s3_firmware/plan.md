@@ -1,3 +1,13 @@
+## 2026-05-14 WebUI GNU Unifont 子集完整字符覆盖检查
+
+本次修复点：
+
+1. `tools/build_unifont_webui_subset_from_png.py` 改为从当前 WebUI 文件、`saved_faces.json`、运行配置和电池校准配置收集字符，并在生成后校验字体 cmap。
+2. 生成 `data/resources/fonts/unifont.woff2` 后，同步把同一个 WOFF2 以 base64 `data:font/woff2` 形式重新嵌入 `data/index.html`，保持 WebUI 字体内嵌。
+3. 无法从 GNU Unifont BMP PNG 生成的字符只记录并跳过，不强行加入 subset；本轮实际 WebUI 可见/运行文字全部可覆盖。
+4. 保存表情操作栏恢复使用原图标按钮：`✏️`、`🗑️`、`💡`；GNU Unifont subset 构建仍会跳过 PNG/BMP 表无法生成的 emoji / variation selector，不强行加入。
+5. `run_rinachan_unifont.ps1` 每次准备字体时都会重新同步 WebUI GNU Unifont subset，避免 HTML 文字变化后继续使用旧 subset。
+
 ## 2026-05-11 停止/清屏非阻塞恢复默认表情修复
 
 本次修复点：
@@ -100,7 +110,7 @@
 2. `@font-face("GNU Unifont")` 不再包含 `local()`，也不再包含任何外部字体 URL；浏览器不需要安装 GNU Unifont，也不需要 Internet。
 3. 全局页面、按钮、普通输入框、选择框、日志、标签等仍通过 `--ui-font` 强制继承 `"GNU Unifont"`。
 4. 文字滚动输入框和 LED rasterizer 保持 `Ark Pixel 12px Monospaced`，仍读取 `ark12.woff2` / `ark12.json`。
-5. 右侧表情操作按钮不再使用非 BMP emoji 图标，改为 `应用`、`改`、`删` 等 BMP/CJK 文本，避免浏览器 fallback 到彩色 emoji 字体。
+5. 右侧表情操作按钮恢复使用原图标 `💡`、`✏️`、`🗑️`；这些 emoji 不强行加入 GNU Unifont subset，浏览器可按系统 fallback 显示。
 6. 新增 `tools/build_unifont_webui_subset_from_png.py` 与 `tools/assets/unifont-17.0.04.png`，可从 GNU Unifont PNG 重新生成当前 WebUI 子集 WOFF2。
 
 > 文档状态：固件接口重构版（统一 saved_faces.json 表情库 / HTML 主处理 / 仅发送 M370 与辅助指令 / 已删除媒体页）
@@ -2911,3 +2921,39 @@ Firmware text-scroll RAM cache limit update:
 - 实体 B1/B2/B3 按钮可以可靠打断文字滚动。
 - WebUI 6.4 不需要等 10 秒完整轮询才知道滚动已停止。
 - 6.4 页面停止预览后会显示固件当前表情，而不是继续显示旧滚动帧或空白帧。
+
+## 2026-05-14 WebUI GNU Unifont subset 全角间距修复
+
+### 目标
+- 修复当前 GNU Unifont WebUI subset 中 `日`、`白`、`ノ` 等中日文字在浏览器内显示时左右间距不稳定的问题。
+- 不回退 WebUI，不更换为外部在线字体，继续保持 GNU Unifont subset 内嵌到 `index.html`。
+- 继续跳过 GNU Unifont BMP PNG 无法生成的字符，不强行加入 unsupported codepoint。
+
+### 实现
+- `tools/build_unifont_webui_subset_from_png.py`
+  - 新增 `is_fullwidth_codepoint()`，使用 Unicode East Asian Width 的 `F/W` 属性判断全角/宽字符。
+  - 平假名、片假名、片假名音标扩展、CJK 统一表意文字、CJK 兼容表意文字固定使用 16 px advance。
+  - 不再只依赖“墨迹是否超过 8 px”推断宽度，避免全角标点、小片假名或窄墨迹字形被误判成半宽。
+  - `hmtx` 的 left side bearing 改为与 glyph outline 的 `xMin` 保持一致，避免浏览器 rasterizer 因 metrics 不一致产生视觉偏移。
+  - Unicode format control 保持 0 advance，避免隐藏控制字符产生额外间距。
+- `data/index.html`
+  - WebUI 主字体和控件字体增加 `font-kerning:none`、`font-variant-ligatures:none`、`font-feature-settings:"kern" 0`、`letter-spacing:0`。
+  - 文字滚动输入框同样禁用 kerning/ligature，并保持 Ark12 字体设置不变。
+  - 重新内嵌修复后的 `data/resources/fonts/unifont.woff2`。
+
+### 验证
+- 实际 WebUI/resource 字符数：700。
+- 修复后的 GNU Unifont subset 字符数：1869。
+- 实际 WebUI/resource 字符缺失数：0。
+- 内嵌字体 cmap 与 `data/resources/fonts/unifont.woff2` cmap 一致。
+- Unicode East Asian Width 为 `F/W` 的 subset 字符均为 16 px advance。
+- 重点字符 metrics：
+  - `日`：advance 16，LSB 3。
+  - `白`：advance 16，LSB 2。
+  - `ノ`：advance 16，LSB 3。
+  - `。`、`、`、`！`、`）` 等全角标点：advance 16。
+
+### 结果
+- WebUI 中 CJK / 日文字符不再因为 subset 字体宽度误判出现半宽占位。
+- 字形横向 metrics 与轮廓边界一致，浏览器显示更稳定。
+- 字体仍完全离线，并继续内嵌在 HTML 中。

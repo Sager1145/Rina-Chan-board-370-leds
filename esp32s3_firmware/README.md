@@ -47,26 +47,21 @@ After the startup sequence completes, the board displays the default face: `face
 
 ## WebUI / text-scroll font resources
 
-Normal WebUI page chrome now uses **GNU Unifont fully offline**. `data/index.html` defines `@font-face("GNU Unifont")` with only local LittleFS URLs:
+Normal WebUI page chrome now uses **GNU Unifont fully offline**. `data/index.html` defines `@font-face("GNU Unifont")` with an embedded base64 `data:font/woff2` URL. There is no `local()` source and no external Unifoundry URL in the WebUI CSS.
 
-```text
-resources/fonts/unifont.woff2
-/resources/fonts/unifont.woff2
-```
-
-There is no `local()` source and no external Unifoundry URL in the WebUI CSS. The WOFF2 is a WebUI-focused GNU Unifont subset generated at run time from the official GNU Unifont PNG sheet downloaded into `.font_cache`; it covers the current WebUI text, common UI symbols, Latin, kana, CJK punctuation, and fullwidth forms used by the page.
+The WOFF2 is a WebUI-focused GNU Unifont subset generated at run time from the official GNU Unifont BMP PNG sheet downloaded or reused from `.font_cache`. The build tool scans the current WebUI files and runtime JSON resources, filters out characters that cannot be produced from the BMP PNG sheet, verifies the generated cmap, and then writes the same font both to `data/resources/fonts/unifont.woff2` and into the embedded `@font-face` rule inside `data/index.html`.
 
 The text-scroll textarea and the actual LED text-scroll rasterizer intentionally remain on `Ark Pixel 12px Monospaced`. The Ark12 bitmap table is merged in this priority order: `zh_cn -> ja -> zh_tw`, so Traditional Chinese glyphs are applied last when multiple regional forms share the same Unicode codepoint. The page preloads `/resources/fonts/ark12.woff2` from the `<head>` and actively calls `document.fonts.load()` during boot so the textarea font is requested immediately instead of waiting until the 6.4 page is first painted.
 
 Expected resources in `data/resources/fonts/`:
 
-- `unifont.woff2` — locally generated GNU Unifont WebUI subset, uploaded with LittleFS.
+- `unifont.woff2` — locally generated GNU Unifont WebUI subset; the same file is embedded into `index.html`.
 - `ark12.woff2` — Ark Pixel Font 12px browser font, used only by the text-scroll textarea.
 - `ark12.json` — merged Ark Pixel Font 12px bitmap table used by the LED text-scroll rasterizer.
 
 Only these three font files are needed in LittleFS. The deliverable intentionally removes duplicate Ark source folders, old single-language/legacy font resources, and the duplicate `ark12_merged_trad_priority.json` copy.
 
-The root script checks `unifont.woff2` before upload. If it is missing, the script downloads the official GNU Unifont PNG sheet and builds a small WebUI subset locally using Python `pillow`, `fonttools`, and `brotli`. If the merged `ark12.woff2` and `ark12.json` already exist, the script does not download Ark resources; otherwise it downloads or reuses official Ark12 release archives, merges `zh_cn,ja,zh_tw`, and writes the canonical `ark12.json`. For fastest textarea rendering, upload LittleFS after these resources are prepared so `/resources/fonts/ark12.woff2` is served locally by the ESP32. The Python dependency probe is executed from a temporary `.py` file instead of `py -c` inline code, which avoids PowerShell quoting/native stderr failures on Windows.
+The root script synchronizes `unifont.woff2` and the embedded `index.html` font on every normal run, so WebUI text changes cannot leave the page using a stale subset. It downloads or reuses the official GNU Unifont PNG sheet and builds the subset locally using Python `pillow`, `fonttools`, and `brotli`. If the merged `ark12.woff2` and `ark12.json` already exist, the script does not download Ark resources; otherwise it downloads or reuses official Ark12 release archives, merges `zh_cn,ja,zh_tw`, and writes the canonical `ark12.json`. For fastest textarea rendering, upload LittleFS after these resources are prepared so `/resources/fonts/ark12.woff2` is served locally by the ESP32. The Python dependency probe is executed from a temporary `.py` file instead of `py -c` inline code, which avoids PowerShell quoting/native stderr failures on Windows.
 
 ### Font cache note
 

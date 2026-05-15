@@ -1,28 +1,35 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Build the small offline GNU Unifont WebUI WOFF2 subset from an official GNU
-Unifont PNG glyph sheet.
+Build and embed the small offline GNU Unifont WebUI WOFF2 subset from an
+official GNU Unifont BMP PNG glyph sheet.
 
-No GNU Unifont binary font is shipped in this patch. The PowerShell runner
-fetches the official PNG into .font_cache and calls this script to generate:
-
+Outputs:
     data/resources/fonts/unifont.woff2
 
-The subset covers the current WebUI text plus stable UI ranges so LittleFS does
-not need a multi-megabyte full OTF/TTF font.
+By default the generated WOFF2 is also embedded back into data/index.html as a
+base64 data: URL so the WebUI keeps using an embedded GNU Unifont subset.
+
+The character set is collected from the current WebUI files, filtered to glyphs
+that can actually be produced from the BMP PNG sheet, and verified after build.
+Unsupported characters, such as non-BMP emoji, are reported and intentionally
+not added to the subset.
 """
 from __future__ import annotations
 
 import argparse
+import base64
+import re
 import sys
+import unicodedata
 from pathlib import Path
-from typing import Iterable, Set
+from typing import Iterable, Sequence, Set
 
 try:
     from PIL import Image
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.ttGlyphPen import TTGlyphPen
+    from fontTools.ttLib import TTFont
 except Exception as exc:  # pragma: no cover - user-facing dependency error
     print(
         "[unifont-build] Missing Python dependency. Install with: "
@@ -34,12 +41,12 @@ except Exception as exc:  # pragma: no cover - user-facing dependency error
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = ROOT / "data/resources/fonts/unifont.woff2"
+DEFAULT_INDEX = ROOT / "data/index.html"
 DEFAULT_TEXT_FILES = [
     ROOT / "data/index.html",
     ROOT / "data/resources/saved_faces.json",
     ROOT / "data/resources/runtime_settings.json",
-    ROOT / "README.md",
-    ROOT / "plan.md",
+    ROOT / "data/resources/battery_calib.json",
 ]
 
 # GNU Unifont PNG layout for the BMP sheet published by GNU/Unifoundry.
@@ -47,26 +54,59 @@ XOFF = 32
 YOFF = 64
 CELL = 16
 COLS = 256
+ROWS = 256
 UPM = 16
 ASCENT = 14
 DESCENT = -2
+BMP_MAX = 0xFFFF
+
+# These codepoints intentionally have no ink but still need valid cmap entries
+# when they are used by the page.
+INTENTIONAL_BLANKS = {
+    0x0020,  # space
+    0x00A0,  # no-break space
+    0x3000,  # ideographic space
+}
+
+# Variation selectors only make sense together with emoji/presentation fonts.
+# They are not useful in this embedded monochrome WebUI subset.
+VARIATION_SELECTOR_RANGES = (
+    range(0xFE00, 0xFE10),
+)
+
+FONT_DATA_URL_RE = re.compile(r"data:font/woff2;base64,[A-Za-z0-9+/=\r\n]+")
+UNIFONT_FACE_RE = re.compile(
+    r'(@font-face\s*\{\s*font-family:"GNU Unifont";\s*src:url\("data:font/woff2;base64,)'
+    r'[^"\)]+(\"\)\s*format\("woff2"\);font-weight:400;font-style:normal;font-display:block;\s*\})',
+    re.S,
+)
 
 
 def add_range(codepoints: Set[int], start: int, end: int) -> None:
     codepoints.update(range(start, end + 1))
 
 
-def collect_codepoints(text_files: Iterable[Path]) -> Set[int]:
+def is_variation_selector(cp: int) -> bool:
+    return any(cp in r for r in VARIATION_SELECTOR_RANGES)
+
+
+def strip_embedded_font_payloads(text: str) -> str:
+    return FONT_DATA_URL_RE.sub("data:font/woff2;base64,", text)
+
+
+def collect_raw_codepoints(text_files: Iterable[Path]) -> Set[int]:
     codepoints: Set[int] = set()
 
-    # Stable UI/basic coverage. Keep these broad enough that future labels do
-    # not immediately require regenerating a different subset recipe.
+    # Stable UI/basic coverage. These keep ordinary controls, numbers,
+    # punctuation and common Japanese/CJK punctuation available even when a
+    # future label is added before the subset is regenerated.
     add_range(codepoints, 0x0020, 0x007E)  # ASCII
     add_range(codepoints, 0x00A0, 0x00FF)  # Latin-1 punctuation/symbols
     add_range(codepoints, 0x2000, 0x206F)  # General punctuation
     add_range(codepoints, 0x2100, 0x214F)  # Letterlike symbols
     add_range(codepoints, 0x2190, 0x21FF)  # Arrows
     add_range(codepoints, 0x25A0, 0x25FF)  # Geometric shapes
+    add_range(codepoints, 0x2700, 0x27BF)  # Dingbats used by text buttons
     add_range(codepoints, 0x3000, 0x303F)  # CJK punctuation
     add_range(codepoints, 0x3040, 0x309F)  # Hiragana
     add_range(codepoints, 0x30A0, 0x30FF)  # Katakana
@@ -77,23 +117,27 @@ def collect_codepoints(text_files: Iterable[Path]) -> Set[int]:
         if not p.exists():
             continue
         text = p.read_text(encoding="utf-8", errors="ignore")
+        if p.name.lower().endswith((".html", ".css", ".js")):
+            text = strip_embedded_font_payloads(text)
         for ch in text:
             cp = ord(ch)
-            if 0x20 <= cp <= 0xFFFF:
+            if cp >= 0x20:
                 codepoints.add(cp)
 
-    # Avoid browser emoji fallback artifacts from variation selectors.
-    codepoints.discard(0xFE0F)
     return codepoints
 
 
-def glyph_runs(px, cp: int):
+def glyph_pixel_bounds(cp: int) -> tuple[int, int]:
     row = cp // COLS
     col = cp % COLS
-    x0 = XOFF + col * CELL
-    y0 = YOFF + row * CELL
+    return XOFF + col * CELL, YOFF + row * CELL
+
+
+def glyph_runs(px, cp: int):
+    x0, y0 = glyph_pixel_bounds(cp)
     runs = []
     max_x = -1
+    ink = 0
     for y in range(CELL):
         x = 0
         while x < CELL:
@@ -106,15 +150,74 @@ def glyph_runs(px, cp: int):
                 x += 1
             end = x
             runs.append((start, y, end, y + 1))
+            ink += end - start
             max_x = max(max_x, end - 1)
-    return runs, max_x
+    return runs, max_x, ink
+
+
+def is_available_from_png(px, cp: int) -> bool:
+    if cp < 0 or cp > BMP_MAX:
+        return False
+    if is_variation_selector(cp):
+        return False
+    row = cp // COLS
+    if row >= ROWS:
+        return False
+    _runs, _max_x, ink = glyph_runs(px, cp)
+    if ink > 0:
+        return True
+    if cp in INTENTIONAL_BLANKS:
+        return True
+    # Keep Unicode separator spaces blank if present in actual WebUI text.
+    return unicodedata.category(chr(cp)).startswith("Z")
+
+
+def filter_codepoints_for_png(px, raw: Set[int]) -> tuple[Set[int], Set[int]]:
+    supported: Set[int] = set()
+    skipped: Set[int] = set()
+    for cp in raw:
+        if is_available_from_png(px, cp):
+            supported.add(cp)
+        else:
+            skipped.add(cp)
+    return supported, skipped
+
+
+def is_zero_advance_codepoint(cp: int) -> bool:
+    # Unicode format controls should not create visible spacing if a future
+    # WebUI string accidentally contains one. They are still skipped unless the
+    # GNU Unifont PNG actually provides a usable glyph for them.
+    return unicodedata.category(chr(cp)) == "Cf"
+
+
+def is_fullwidth_codepoint(cp: int) -> bool:
+    ch = chr(cp)
+    if unicodedata.east_asian_width(ch) in {"F", "W"}:
+        return True
+    # These ranges are always intended to occupy one 16 px grid cell in the
+    # WebUI font even if a particular glyph's ink stays in the left/right half.
+    return (
+        0x3040 <= cp <= 0x30FF  # Hiragana + Katakana
+        or 0x31F0 <= cp <= 0x31FF  # Katakana phonetic extensions
+        or 0x3400 <= cp <= 0x9FFF  # CJK Unified Ideographs + Extension A
+        or 0xF900 <= cp <= 0xFAFF  # CJK Compatibility Ideographs
+    )
+
+
+def glyph_advance_width(cp: int, max_x: int) -> int:
+    if is_zero_advance_codepoint(cp):
+        return 0
+    if cp == 0x3000 or is_fullwidth_codepoint(cp):
+        return 16
+    return 16 if max_x >= 8 else 8
 
 
 def make_glyph(px, cp=None):
     pen = TTGlyphPen(None)
     if cp is None:
-        return pen.glyph(), 8
-    runs, max_x = glyph_runs(px, cp)
+        return pen.glyph(), 8, 0
+    runs, max_x, _ink = glyph_runs(px, cp)
+    min_x = min((x1 for x1, _y1, _x2, _y2 in runs), default=0)
     for x1, y1, x2, y2 in runs:
         # Convert image top-left coordinates to TrueType y-up coordinates.
         pen.moveTo((x1, UPM - y1))
@@ -122,17 +225,61 @@ def make_glyph(px, cp=None):
         pen.lineTo((x2, UPM - y2))
         pen.lineTo((x1, UPM - y2))
         pen.closePath()
-    width = 16 if max_x >= 8 else 8
-    return pen.glyph(), width
+    width = glyph_advance_width(cp, max_x)
+    # Keep hmtx left side bearings consistent with the outline xMin. Mismatched
+    # LSB values can make browser rasterizers place glyphs unevenly even when
+    # advance widths are correct.
+    lsb = min_x if width > 0 else 0
+    return pen.glyph(), width, lsb
 
 
-def build_subset(png_path: Path, out_path: Path, version: str) -> None:
+def cmap_codepoints(font_path: Path) -> Set[int]:
+    font = TTFont(str(font_path))
+    found: Set[int] = set()
+    for table in font["cmap"].tables:
+        found.update(table.cmap.keys())
+    return found
+
+
+def format_codepoints(codepoints: Sequence[int], limit: int = 40) -> str:
+    shown = []
+    for cp in list(codepoints)[:limit]:
+        try:
+            ch = chr(cp)
+            name = unicodedata.name(ch, "UNNAMED")
+            shown.append(f"U+{cp:04X} {ch!r} {name}")
+        except ValueError:
+            shown.append(f"U+{cp:04X}")
+    if len(codepoints) > limit:
+        shown.append(f"... +{len(codepoints) - limit} more")
+    return "; ".join(shown)
+
+
+def embed_font_in_index(index_path: Path, font_path: Path) -> None:
+    html = index_path.read_text(encoding="utf-8")
+    encoded = base64.b64encode(font_path.read_bytes()).decode("ascii")
+    updated, count = UNIFONT_FACE_RE.subn(rf"\1{encoded}\2", html, count=1)
+    if count != 1:
+        raise RuntimeError(
+            "Could not locate the embedded GNU Unifont @font-face data URL in index.html."
+        )
+    index_path.write_text(updated, encoding="utf-8", newline="\n")
+    print(f"[unifont-build] embedded {font_path.name} into {index_path}")
+
+
+def build_subset(
+    png_path: Path,
+    out_path: Path,
+    version: str,
+    text_files: Iterable[Path],
+    embed_index: Path | None,
+) -> None:
     if not png_path.exists():
         raise FileNotFoundError(f"GNU Unifont PNG is missing: {png_path}")
 
     im = Image.open(png_path).convert("1")
     required_width = XOFF + COLS * CELL
-    required_height = YOFF + 256 * CELL
+    required_height = YOFF + ROWS * CELL
     if im.width < required_width or im.height < required_height:
         raise ValueError(
             f"Unexpected GNU Unifont PNG dimensions {im.width}x{im.height}; "
@@ -140,18 +287,20 @@ def build_subset(png_path: Path, out_path: Path, version: str) -> None:
         )
     px = im.load()
 
-    ordered = sorted(collect_codepoints(DEFAULT_TEXT_FILES))
+    raw = collect_raw_codepoints(text_files)
+    codepoints, skipped = filter_codepoints_for_png(px, raw)
+    ordered = sorted(codepoints)
     glyph_order = [".notdef"] + [f"u{cp:04X}" for cp in ordered]
     char_map = {cp: f"u{cp:04X}" for cp in ordered}
 
     glyphs = {}
     metrics = {}
-    glyphs[".notdef"], _ = make_glyph(px, None)
-    metrics[".notdef"] = (8, 0)
+    glyphs[".notdef"], notdef_width, notdef_lsb = make_glyph(px, None)
+    metrics[".notdef"] = (notdef_width, notdef_lsb)
     for cp in ordered:
         name = char_map[cp]
-        glyphs[name], width = make_glyph(px, cp)
-        metrics[name] = (width, 0)
+        glyphs[name], width, lsb = make_glyph(px, cp)
+        metrics[name] = (width, lsb)
 
     fb = FontBuilder(UPM, isTTF=True)
     fb.setupGlyphOrder(glyph_order)
@@ -194,7 +343,40 @@ def build_subset(png_path: Path, out_path: Path, version: str) -> None:
     font.flavor = "woff2"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     font.save(str(out_path))
-    print(f"[unifont-build] wrote {out_path} glyphs={len(glyph_order)} size={out_path.stat().st_size} bytes")
+
+    built_cmap = cmap_codepoints(out_path)
+    missing = sorted(codepoints - built_cmap)
+    if missing:
+        raise RuntimeError(
+            "Generated font is missing supported WebUI codepoints: "
+            + format_codepoints(missing)
+        )
+
+    if embed_index is not None:
+        embed_font_in_index(embed_index, out_path)
+        # Verify that the embedded font can be decoded and has the same cmap.
+        html = embed_index.read_text(encoding="utf-8")
+        m = re.search(r'data:font/woff2;base64,([^"\)]+)', html)
+        if not m:
+            raise RuntimeError("Embedded GNU Unifont data URL not found after update.")
+        probe = out_path.with_suffix(".embedded-check.woff2")
+        try:
+            probe.write_bytes(base64.b64decode(m.group(1)))
+            embedded_cmap = cmap_codepoints(probe)
+        finally:
+            probe.unlink(missing_ok=True)
+        if embedded_cmap != built_cmap:
+            raise RuntimeError("Embedded GNU Unifont cmap does not match generated font.")
+
+    print(
+        f"[unifont-build] wrote {out_path} glyphs={len(glyph_order)} "
+        f"chars={len(codepoints)} size={out_path.stat().st_size} bytes"
+    )
+    if skipped:
+        print(
+            "[unifont-build] skipped unsupported/unusable codepoints: "
+            + format_codepoints(sorted(skipped))
+        )
 
 
 def main(argv=None) -> int:
@@ -202,9 +384,22 @@ def main(argv=None) -> int:
     ap.add_argument("--png", required=True, help="Path to official GNU Unifont BMP PNG sheet.")
     ap.add_argument("--out", default=str(DEFAULT_OUT), help="Output WOFF2 path.")
     ap.add_argument("--version", default="17.0.04")
+    ap.add_argument(
+        "--text-file",
+        action="append",
+        default=None,
+        help="File to scan for WebUI characters. Can be passed multiple times.",
+    )
+    ap.add_argument(
+        "--embed-index",
+        default=str(DEFAULT_INDEX),
+        help="HTML file whose embedded GNU Unifont data URL should be replaced. Use empty string to disable.",
+    )
     args = ap.parse_args(argv)
 
-    build_subset(Path(args.png).resolve(), Path(args.out).resolve(), args.version)
+    text_files = [Path(p).resolve() for p in args.text_file] if args.text_file else DEFAULT_TEXT_FILES
+    embed_index = Path(args.embed_index).resolve() if args.embed_index else None
+    build_subset(Path(args.png).resolve(), Path(args.out).resolve(), args.version, text_files, embed_index)
     return 0
 
 

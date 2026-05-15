@@ -42,12 +42,14 @@ bool setMode(const char* input, bool persistSettings) {
     } else {
         return false;
     }
+    touchRuntimeState();
     if (persistSettings) saveRuntimeSettings();
     return true;
 }
 
 void setAutoInterval(uint32_t ms, bool persistSettings) {
     runtimeState().autoIntervalMs = constrain(ms, MIN_AUTO_INTERVAL_MS, MAX_AUTO_INTERVAL_MS);
+    touchRuntimeState();
     if (persistSettings) saveRuntimeSettings();
 }
 
@@ -178,11 +180,15 @@ static bool applyStartupDefaultFaceAfterScrollStop(bool restoreAutoMode) {
 }
 
 void cancelDeferredFaceRestore() {
+    const bool changed = runtimeState().deferredFaceRestoreActive ||
+                         runtimeState().deferredFaceRestoreKind != DEFERRED_RESTORE_NONE ||
+                         runtimeState().deferredFaceRestoreDueMs != 0;
     runtimeState().deferredFaceRestoreActive   = false;
     runtimeState().deferredFaceRestoreKind     = DEFERRED_RESTORE_NONE;
     runtimeState().deferredFaceRestoreAutoMode = false;
     runtimeState().deferredFaceRestoreDueMs    = 0;
     runtimeState().deferredFaceRestoreReason   = String();
+    if (changed) touchRuntimeState();
 }
 
 static void scheduleDeferredFaceRestore(uint8_t kind, bool autoMode, const String& reason) {
@@ -191,6 +197,7 @@ static void scheduleDeferredFaceRestore(uint8_t kind, bool autoMode, const Strin
     runtimeState().deferredFaceRestoreAutoMode = autoMode;
     runtimeState().deferredFaceRestoreDueMs    = millis() + LED_STOP_CLEAR_BLANK_HOLD_MS;
     runtimeState().deferredFaceRestoreReason   = reason;
+    touchRuntimeState();
 }
 
 static void scheduleStartupDefaultFaceRestoreAfterBlank(bool autoMode) {
@@ -236,7 +243,16 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
     cancelDeferredFaceRestore();
 
     bool shouldRestoreAuto = false;
+    bool changed = false;
     withScrollLock([&]() {
+        changed = runtimeState().firmwareScrollActive ||
+                  runtimeState().firmwareScrollPaused ||
+                  runtimeState().restoreAutoAfterScroll ||
+                  runtimeState().lastScrollFrameMs != 0 ||
+                  runtimeState().scrollFrameCount != 0 ||
+                  runtimeState().scrollFrameIndex != 0 ||
+                  runtimeState().paused ||
+                  isScrollPlayback(runtimeState().playback);
         shouldRestoreAuto               = restoreAuto && runtimeState().restoreAutoAfterScroll;
         runtimeState().firmwareScrollActive      = false;
         runtimeState().firmwareScrollPaused      = false;
@@ -249,6 +265,7 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
             runtimeState().playback = DEFAULT_PLAYBACK;
         }
     });
+    if (changed) touchRuntimeState();
 
     if (clearDisplay) {
         // Two-stage visible sequence without blocking the caller:

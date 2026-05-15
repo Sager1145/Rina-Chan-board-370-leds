@@ -69,6 +69,7 @@ static void markScrollStoppedByButton(const String& code, const String& source) 
     runtimeState().scrollStopEventButton = code;
     runtimeState().scrollStopEventSource = source;
     runtimeState().scrollStopEventReason = runtimeState().lastReason;
+    touchRuntimeState();
 }
 
 // ---------------------------------------------------------------------------
@@ -110,11 +111,13 @@ bool runButtonAction(const String& button, const String& source) {
     if (code == "B4") {
         setBrightness(static_cast<int>(runtimeState().brightness) - BRIGHTNESS_BUTTON_STEP);
         runtimeState().lastReason = source + "_B4_brightness_down";
+        touchRuntimeState();
         return true;
     }
     if (code == "B5") {
         setBrightness(static_cast<int>(runtimeState().brightness) + BRIGHTNESS_BUTTON_STEP);
         runtimeState().lastReason = source + "_B5_brightness_up";
+        touchRuntimeState();
         return true;
     }
 
@@ -123,11 +126,13 @@ bool runButtonAction(const String& button, const String& source) {
                             ? runtimeState().autoIntervalMs - AUTO_INTERVAL_BUTTON_STEP_MS
                             : MIN_AUTO_INTERVAL_MS);
         runtimeState().lastReason = source + "_B3B1_auto_interval_down";
+        touchRuntimeState();
         return true;
     }
     if (code == "B3B2") {
         setAutoInterval(runtimeState().autoIntervalMs + AUTO_INTERVAL_BUTTON_STEP_MS);
         runtimeState().lastReason = source + "_B3B2_auto_interval_up";
+        touchRuntimeState();
         return true;
     }
 
