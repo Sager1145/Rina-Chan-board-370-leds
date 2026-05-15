@@ -1,3 +1,22 @@
+## 2026-05-15 WebUI GNU Unifont 严格内嵌 / 禁止外置 Unifont
+
+1. `data/index.html` 中的 GNU Unifont `@font-face` 只允许 `data:font/woff2;base64,...`。
+2. 删除 `data/resources/fonts/unifont.woff2`，LittleFS 运行资源中不再保存任何可被 WebUI 加载的外置 Unifont 文件。
+3. `run_rinachan_unifont.ps1` 构建修改后的 GNU Unifont 子集时只使用临时 WOFF2，嵌入 `index.html` 后立即删除临时文件。
+4. 运行脚本会校验：GNU Unifont `@font-face` 数量必须为 1；不得出现 `local()`、`resources/fonts/unifont.woff2`、`/resources/fonts/unifont.woff2` 或 `unifont.woff2` 外置源；`data/resources/fonts/unifont.woff2` 不得存在。
+5. Ark12 文字滚动资源保持独立，仍可作为 LittleFS 外置资源使用；本规则仅禁止 WebUI 使用外置 GNU Unifont。
+
+## 2026-05-15 WebUI GNU Unifont 完全内嵌 / 修改版字体同步
+
+本次覆盖规则：
+
+1. 普通 WebUI 页面字体仍统一使用 `font-family: "GNU Unifont"`，文字滚动输入框和 LED rasterizer 继续使用 Ark Pixel 12px。
+2. `data/index.html` 中的 GNU Unifont `@font-face` 只允许使用 base64 `data:font/woff2`，禁止 `local()`、`/resources/fonts/unifont.woff2` 或其它外部字体源。
+3. 修改后的 `data/resources/fonts/unifont.woff2` 是规范构建产物；运行脚本每次重建后都会把同一份 WOFF2 字节重新嵌入 `data/index.html`。
+4. `tools/build_unifont_webui_subset_from_png.py` 现在会替换或插入完整的 GNU Unifont `@font-face` 块，而不是只替换旧 base64 片段；即使 HTML 里曾回退成外部 URL，也会被强制改回内嵌字体。
+5. `run_rinachan_unifont.ps1` 新增内嵌校验：检查 GNU Unifont `@font-face` 数量、禁止外部源、解码 base64，并要求内嵌字体 SHA256 与 `data/resources/fonts/unifont.woff2` 完全一致。
+6. `data/resources/fonts/README.md` 明确说明 `unifont.woff2` 是参考/校验用的修改版字体文件，实际 WebUI 字体由 `index.html` 内嵌 data URL 提供。
+
 ## 2026-05-14 WebUI GNU Unifont 子集完整字符覆盖检查
 
 本次修复点：

@@ -153,7 +153,8 @@ function Remove-LegacyFontResources([string]$FontDir) {
         "ark-pixel-font-12px-monospaced.rinafont.json",
         "ark12_merged_trad_priority.json",
         "ark12_merged_trad_priority_report.txt",
-        ("gnu_" + "unifont_17_0_04_webui_subset.woff2")
+        ("gnu_" + "unifont_17_0_04_webui_subset.woff2"),
+        "unifont.woff2"
     )
     foreach ($Name in $LegacyNames) {
         $Path = Join-Path $FontDir $Name
@@ -213,13 +214,14 @@ function Test-MergedArk12Json([string]$Path) {
     }
 }
 
-function Build-UnifontWebFont([string]$UnifontWebFont, [string]$CacheDir) {
+function Build-AndEmbedUnifontWebFont([string]$CacheDir) {
     $Python = Get-PythonCommand
     Ensure-PythonFontModules $Python
 
     $UnifontPng = Join-Path $CacheDir "unifont-$UnifontVersion.png"
     $UnifontPngUrl = "https://ftp.gnu.org/gnu/unifont/unifont-$UnifontVersion/unifont-$UnifontVersion.png"
     $UnifontTool = Join-Path $ProjectDir "tools\build_unifont_webui_subset_from_png.py"
+    $TempUnifontWebFont = Join-Path $CacheDir "unifont_webui_embedded_tmp.woff2"
 
     if (-not (Test-Path $UnifontTool)) {
         throw "Missing GNU Unifont WebUI subset build tool: $UnifontTool"
@@ -227,29 +229,30 @@ function Build-UnifontWebFont([string]$UnifontWebFont, [string]$CacheDir) {
 
     Download-IfMissing -Url $UnifontPngUrl -Path $UnifontPng -Label "GNU Unifont $UnifontVersion BMP PNG sheet"
 
-    Write-Host "[font] building WebUI GNU Unifont subset: $UnifontWebFont"
-    Invoke-PythonChecked $Python @($UnifontTool, "--png", $UnifontPng, "--out", $UnifontWebFont, "--version", $UnifontVersion, "--embed-index", $IndexHtml) "GNU Unifont WebUI subset build failed."
+    Write-Host "[font] building and embedding WebUI GNU Unifont subset into index.html only..."
+    Invoke-PythonChecked $Python @($UnifontTool, "--png", $UnifontPng, "--out", $TempUnifontWebFont, "--version", $UnifontVersion, "--embed-index", $IndexHtml) "GNU Unifont WebUI subset build/embed failed."
 
-    if (-not (Test-Path $UnifontWebFont)) {
-        throw "GNU Unifont WebUI subset was not generated: $UnifontWebFont"
+    if (-not (Test-Path $TempUnifontWebFont)) {
+        throw "Temporary GNU Unifont WebUI subset was not generated: $TempUnifontWebFont"
     }
-    $size = (Get-Item $UnifontWebFont).Length
+    $size = (Get-Item $TempUnifontWebFont).Length
     if ($size -lt 10000) {
         throw "Generated GNU Unifont WebUI subset is suspiciously small: $size bytes"
     }
-    Write-Host "[font] generated WebUI GNU Unifont subset: $UnifontWebFont ($size bytes)"
+
+    Remove-Item -Force $TempUnifontWebFont -ErrorAction SilentlyContinue
+
+    $ExternalUnifont = Join-Path $ProjectDir "data\resources\fonts\unifont.woff2"
+    if (Test-Path $ExternalUnifont) {
+        Write-Host "[font] removing forbidden external WebUI Unifont resource: $ExternalUnifont"
+        Remove-Item -Force $ExternalUnifont
+    }
+    Write-Host "[font] embedded WebUI GNU Unifont subset into index.html; no LittleFS unifont.woff2 is kept."
 }
 
-function Ensure-UnifontWebFont([string]$UnifontWebFont, [string]$CacheDir) {
-    Write-Host "[font] synchronizing embedded WebUI GNU Unifont subset with current WebUI text..."
-    if (Test-Path $UnifontWebFont) {
-        $size = (Get-Item $UnifontWebFont).Length
-        if ($size -lt 10000) {
-            Write-Host "[font] existing GNU Unifont WebUI file is too small; rebuilding: $UnifontWebFont" -ForegroundColor Yellow
-            Remove-Item -Force $UnifontWebFont
-        }
-    }
-    Build-UnifontWebFont -UnifontWebFont $UnifontWebFont -CacheDir $CacheDir
+function Ensure-EmbeddedUnifontWebFont([string]$CacheDir) {
+    Write-Host "[font] synchronizing embedded-only WebUI GNU Unifont subset with current WebUI text..."
+    Build-AndEmbedUnifontWebFont -CacheDir $CacheDir
 }
 
 function Prepare-FontResources {
@@ -261,18 +264,17 @@ function Prepare-FontResources {
     $Woff2Extract = Join-Path $CacheDir "ark12_woff2_tmp"
     $CompiledJson = Join-Path $FontDir "ark12.json"
     $ArkWebFont = Join-Path $FontDir "ark12.woff2"
-    $UnifontWebFont = Join-Path $FontDir "unifont.woff2"
     $MergeTool = Join-Path $ProjectDir "tools\build_ark12_merged.py"
 
     New-Item -ItemType Directory -Force -Path $FontDir, $CacheDir | Out-Null
     Remove-LegacyFontResources $FontDir
     Remove-RedundantFontCache $CacheDir
 
-    Ensure-UnifontWebFont -UnifontWebFont $UnifontWebFont -CacheDir $CacheDir
+    Ensure-EmbeddedUnifontWebFont -CacheDir $CacheDir
 
     if ((Test-Path $ArkWebFont) -and (Test-MergedArk12Json $CompiledJson)) {
         Write-Host "[font] existing merged Ark12 text-scroll resources found; no rebuild required."
-        Get-Item $UnifontWebFont, $ArkWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
+        Get-Item $ArkWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
         return
     }
 
@@ -311,13 +313,69 @@ function Prepare-FontResources {
     }
 
     Write-Host "[font] final LittleFS font resources:"
-    Get-Item $UnifontWebFont, $ArkWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
+    Get-Item $ArkWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
+}
+
+function Assert-EmbeddedUnifontWebUi {
+    $Python = Get-PythonCommand
+    $code = @'
+import base64
+import hashlib
+import pathlib
+import re
+import sys
+
+index_path = pathlib.Path(sys.argv[1])
+project_dir = pathlib.Path(sys.argv[2])
+html = index_path.read_text(encoding="utf-8")
+block_re = re.compile(r"@font-face\s*\{(?=[^{}]*font-family\s*:\s*['\"]GNU Unifont['\"])[^{}]*\}", re.S)
+blocks = block_re.findall(html)
+if len(blocks) != 1:
+    print(f"expected exactly one GNU Unifont @font-face block, found {len(blocks)}")
+    raise SystemExit(1)
+block = blocks[0]
+for token in ("local(", "resources/fonts/unifont.woff2", "/resources/fonts/unifont.woff2", "unifont.woff2"):
+    if token in block:
+        print(f"GNU Unifont @font-face still references a forbidden non-embedded source: {token}")
+        raise SystemExit(1)
+match = re.search(r"data:font/woff2;base64,([^\")]+)", block)
+if not match:
+    print("GNU Unifont @font-face does not contain an embedded WOFF2 data URL")
+    raise SystemExit(1)
+try:
+    embedded = base64.b64decode(match.group(1), validate=True)
+except Exception as exc:
+    print(f"embedded GNU Unifont base64 is invalid: {exc}")
+    raise SystemExit(1)
+if len(embedded) < 10000:
+    print(f"embedded GNU Unifont is suspiciously small: {len(embedded)} bytes")
+    raise SystemExit(1)
+external_paths = [
+    project_dir / "data" / "resources" / "fonts" / "unifont.woff2",
+    project_dir / "data" / "resources" / "fonts" / "gnu_unifont_17_0_04_webui_subset.woff2",
+]
+for path in external_paths:
+    if path.exists():
+        print(f"forbidden external WebUI Unifont resource still exists: {path}")
+        raise SystemExit(1)
+compact_html = re.sub(r"\s+", "", html)
+if '--ui-font:"GNUUnifont"' not in compact_html:
+    print('CSS variable --ui-font is not pinned to "GNU Unifont"')
+    raise SystemExit(1)
+print(hashlib.sha256(embedded).hexdigest())
+'@
+    $result = Invoke-PythonTempScript -Python $Python -Code $code -Arguments @($IndexHtml, $ProjectDir)
+    $outputText = (($result.Output | ForEach-Object { [string]$_ }) -join "`n").Trim()
+    if ($result.ExitCode -ne 0) {
+        if ($outputText) { Write-Host $outputText -ForegroundColor Yellow }
+        throw "Embedded-only GNU Unifont WebUI validation failed."
+    }
+    Write-Host "[font] embedded-only GNU Unifont validated sha256=$outputText"
 }
 
 function Assert-RequiredFontResources {
     $FontDir = Join-Path $ProjectDir "data\resources\fonts"
     $Required = @(
-        (Join-Path $FontDir "unifont.woff2"),
         (Join-Path $FontDir "ark12.woff2"),
         (Join-Path $FontDir "ark12.json")
     )
@@ -327,7 +385,8 @@ function Assert-RequiredFontResources {
         $Missing | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
         throw "Required font resources are missing. Re-run without -SkipPrepareFonts before uploadfs."
     }
-    Write-Host "[font] required LittleFS font resources are present."
+    Assert-EmbeddedUnifontWebUi
+    Write-Host "[font] required LittleFS font resources are present. WebUI Unifont is embedded in index.html only."
 }
 
 function Assert-LittleFSNameLengths {
