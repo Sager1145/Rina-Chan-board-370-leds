@@ -75,6 +75,7 @@ void setup() {
 
 void loop() {
     webServerTick();
+    serviceRuntimeSlowStatePublish();
     serviceHardwareButtons();
     servicePowerMonitor();
     serviceDeferredFaceRestore();

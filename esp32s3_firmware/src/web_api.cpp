@@ -127,10 +127,10 @@ static void sendError(int status, const String& message) {
 static uint16_t statusNextPollMs(bool scrolling, bool summaryOnly, bool unchanged) {
     if (runtimeState().deferredFaceRestoreActive) return 250;
     if (scrolling) return summaryOnly ? 250 : 1000;
-    return unchanged ? 2000 : 750;
+    return unchanged ? 1000 : 1000;
 }
 
-static void addPowerStatus(JsonObject power) {
+static void addPowerStatus(JsonObject power, bool includeSlow = true, bool clearDirty = false) {
     const bool batteryOk = powerStatus.batteryValid;
     const bool chargeOk = powerStatus.chargeValid;
     const char* batteryIconClass = "status-dot dim";
@@ -151,39 +151,49 @@ static void addPowerStatus(JsonObject power) {
     const char* chargeIconClass = (chargeOk && powerStatus.charging) ? "status-dot" : "status-dot dim";
     const char* chargeIconColor = (chargeOk && powerStatus.charging) ? "#59d98e" : "#9aa6b2";
 
-    power["batteryGpio"]      = BATTERY_ADC_PIN;
-    power["chargeGpio"]       = CHARGE_ADC_PIN;
-    if (powerStatus.batteryValid) power["vbat"]           = powerStatus.vbat;
-    else                          power["vbat"]           = nullptr;
-    if (powerStatus.batteryValid) power["batteryPercent"] = powerStatus.batteryPercent;
-    else                          power["batteryPercent"] = nullptr;
-    if (powerStatus.chargeValid)  power["vcharge"]        = powerStatus.vcharge;
-    else                          power["vcharge"]        = nullptr;
+    power["partial"]         = !includeSlow;
+    power["chargeGpio"]      = CHARGE_ADC_PIN;
     if (powerStatus.chargeValid)  power["charging"]       = powerStatus.charging;
     else                          power["charging"]       = nullptr;
-    power["batteryAdcMv"]     = powerStatus.batteryAdcMv;
-    power["chargeAdcMv"]      = powerStatus.chargeAdcMv;
-    power["batteryValid"]     = powerStatus.batteryValid;
     power["chargeValid"]      = powerStatus.chargeValid;
-    power["ok"]               = powerStatus.batteryValid || powerStatus.chargeValid;
-    power["batteryIconClass"] = batteryIconClass;
-    power["batteryIconColor"] = batteryIconColor;
     power["chargeIconClass"]  = chargeIconClass;
     power["chargeIconColor"]  = chargeIconColor;
-    power["batteryRangeMin"]  = powerStatus.batteryCalibMinV;
-    power["batteryRangeMax"]  = powerStatus.batteryCalibMaxV;
-    power["batteryNominalMin"] = BATTERY_EMPTY_V;
-    power["batteryNominalMax"] = BATTERY_FULL_V;
-    power["batteryCalibLoaded"] = powerStatus.batteryCalibLoaded;
-    power["batteryCalibDirty"] = powerStatus.batteryCalibDirty;
-    power["batteryCalibPath"] = BATTERY_CALIB_PATH;
-    power["chargeThreshold"]  = CHARGE_PRESENT_V;
-    power["batterySampleMs"]  = BATTERY_SAMPLE_MS;
+    power["ok"]               = powerStatus.batteryValid || powerStatus.chargeValid;
     power["chargeSampleMs"]   = CHARGE_SAMPLE_MS;
-    power["lastBatteryMs"]    = powerStatus.lastBatteryMs;
-    power["lastChargeMs"]     = powerStatus.lastChargeMs;
-    power["lastCalibMaxMs"]   = powerStatus.lastCalibMaxMs;
-    power["lastCalibMinMs"]   = powerStatus.lastCalibMinMs;
+    power["slowPublishMs"]    = POWER_WEB_SLOW_PUBLISH_MS;
+
+    if (includeSlow) {
+        power["batteryGpio"]      = BATTERY_ADC_PIN;
+        if (powerStatus.batteryValid) power["vbat"]           = powerStatus.vbat;
+        else                          power["vbat"]           = nullptr;
+        if (powerStatus.batteryValid) power["batteryPercent"] = powerStatus.batteryPercent;
+        else                          power["batteryPercent"] = nullptr;
+        if (powerStatus.chargeValid)  power["vcharge"]        = powerStatus.vcharge;
+        else                          power["vcharge"]        = nullptr;
+        power["batteryAdcMv"]     = powerStatus.batteryAdcMv;
+        power["chargeAdcMv"]      = powerStatus.chargeAdcMv;
+        power["batteryValid"]     = powerStatus.batteryValid;
+        power["batteryIconClass"] = batteryIconClass;
+        power["batteryIconColor"] = batteryIconColor;
+        power["batteryRangeMin"]  = powerStatus.batteryCalibMinV;
+        power["batteryRangeMax"]  = powerStatus.batteryCalibMaxV;
+        power["batteryNominalMin"] = BATTERY_EMPTY_V;
+        power["batteryNominalMax"] = BATTERY_FULL_V;
+        power["batteryCalibLoaded"] = powerStatus.batteryCalibLoaded;
+        power["batteryCalibDirty"] = powerStatus.batteryCalibDirty;
+        power["batteryCalibPath"] = BATTERY_CALIB_PATH;
+        power["chargeThreshold"]  = CHARGE_PRESENT_V;
+        power["batterySampleMs"]  = BATTERY_SAMPLE_MS;
+        power["lastBatteryMs"]    = powerStatus.lastBatteryMs;
+        power["lastChargeMs"]     = powerStatus.lastChargeMs;
+        power["lastCalibMaxMs"]   = powerStatus.lastCalibMaxMs;
+        power["lastCalibMinMs"]   = powerStatus.lastCalibMinMs;
+    }
+
+    if (clearDirty) {
+        powerStatus.webFastDirty = false;
+        if (includeSlow) powerStatus.webSlowDirty = false;
+    }
 }
 
 static String requestBody() {
@@ -403,8 +413,10 @@ static void handleApiStatus() {
     const bool runtimeOnly = server.hasArg("runtimeOnly");
     const bool summaryOnly = runtimeOnly || server.hasArg("summary") || server.hasArg("noFrame");
     const uint32_t version = runtimeStateVersion();
+    const bool hasSince = server.hasArg("since");
+    const bool includeSlowPower = !hasSince || powerStatus.webSlowDirty || server.hasArg("fullPower");
 
-    if (server.hasArg("since")) {
+    if (hasSince) {
         const uint32_t since = static_cast<uint32_t>(strtoul(server.arg("since").c_str(), nullptr, 10));
         if (since == version) {
             DynamicJsonDocument unchanged(192);
@@ -432,7 +444,7 @@ static void handleApiStatus() {
     ap["ip"]      = WiFi.softAPIP().toString();
     ap["clients"] = WiFi.softAPgetStationNum();
 
-    addPowerStatus(doc.createNestedObject("power"));
+    addPowerStatus(doc.createNestedObject("power"), includeSlowPower, true);
 
     JsonObject renderer = doc.createNestedObject("renderer");
     renderer["color"]                   = runtimeState().colorHex;
@@ -532,7 +544,7 @@ static void handleApiPower() {
 
     DynamicJsonDocument doc(1024);
     doc["ok"] = true;
-    addPowerStatus(doc.createNestedObject("power"));
+    addPowerStatus(doc.createNestedObject("power"), true, true);
     sendJsonDocument(200, doc);
 }
 

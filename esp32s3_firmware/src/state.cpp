@@ -37,3 +37,17 @@ void touchRuntimeState() {
     ++runtimeState().stateVersion;
     if (runtimeState().stateVersion == 0) runtimeState().stateVersion = 1;
 }
+
+void touchRuntimeStateSlow() {
+    runtimeState().slowUiDirty = true;
+}
+
+void serviceRuntimeSlowStatePublish() {
+    RuntimeState& state = runtimeState();
+    if (!state.slowUiDirty) return;
+    const uint32_t now = millis();
+    if (now - state.lastSlowUiPublishMs < POWER_WEB_SLOW_PUBLISH_MS) return;
+    state.slowUiDirty = false;
+    state.lastSlowUiPublishMs = now;
+    touchRuntimeState();
+}

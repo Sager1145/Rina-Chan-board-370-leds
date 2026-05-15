@@ -28,6 +28,8 @@ struct RuntimeState {
     uint32_t settingsWrites      = 0;
     uint32_t bootMs              = 0;
     uint32_t stateVersion        = 1;
+    bool     slowUiDirty         = false;
+    uint32_t lastSlowUiPublishMs = 0;
 
     // Auto-playback
     uint32_t autoIntervalMs      = DEFAULT_AUTO_INTERVAL_MS;
@@ -123,3 +125,5 @@ uint8_t* runtimeScrollFrameBits(uint16_t index);
 bool& runtimeFsMounted();
 uint32_t runtimeStateVersion();
 void touchRuntimeState();
+void touchRuntimeStateSlow();
+void serviceRuntimeSlowStatePublish();

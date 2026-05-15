@@ -111,13 +111,13 @@ bool runButtonAction(const String& button, const String& source) {
     if (code == "B4") {
         setBrightness(static_cast<int>(runtimeState().brightness) - BRIGHTNESS_BUTTON_STEP);
         runtimeState().lastReason = source + "_B4_brightness_down";
-        touchRuntimeState();
+        touchRuntimeStateSlow();
         return true;
     }
     if (code == "B5") {
         setBrightness(static_cast<int>(runtimeState().brightness) + BRIGHTNESS_BUTTON_STEP);
         runtimeState().lastReason = source + "_B5_brightness_up";
-        touchRuntimeState();
+        touchRuntimeStateSlow();
         return true;
     }
 

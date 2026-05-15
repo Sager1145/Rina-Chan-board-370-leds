@@ -308,7 +308,7 @@ bool setColor(const String& input, String& error) {
         runtimeState().colorR   = r;
         runtimeState().colorG   = g;
         runtimeState().colorB   = b;
-        touchRuntimeState();
+        touchRuntimeStateSlow();
         showCurrentFrameNoLock();
     });
     return true;
@@ -318,7 +318,7 @@ void setBrightness(int raw) {
     raw = constrain(raw, MIN_BRIGHTNESS, MAX_BRIGHTNESS);
     withFrameLock([&]() {
         runtimeState().brightness = static_cast<uint8_t>(raw);
-        touchRuntimeState();
+        touchRuntimeStateSlow();
         showCurrentFrameNoLock();
     });
 }

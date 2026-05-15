@@ -206,6 +206,55 @@ static void serviceBatteryCalibrationSave(uint32_t now) {
     saveBatteryCalibration(now);
 }
 
+static bool finiteChanged(float previous, float current, float epsilon) {
+    if (!isfinite(previous) && !isfinite(current)) return false;
+    if (!isfinite(previous) || !isfinite(current)) return true;
+    return fabsf(previous - current) >= epsilon;
+}
+
+static void markPowerWebFastDirty() {
+    powerStatus.webFastDirty = true;
+    touchRuntimeState();
+}
+
+static void markPowerWebSlowDirty(uint32_t now) {
+    powerStatus.webSlowDirty = true;
+    powerStatus.lastWebSlowPublishMs = now;
+    powerStatus.webPublishedBatteryValid = powerStatus.batteryValid;
+    powerStatus.webPublishedChargeValid = powerStatus.chargeValid;
+    powerStatus.webPublishedVbat = powerStatus.vbat;
+    powerStatus.webPublishedVcharge = powerStatus.vcharge;
+    powerStatus.webPublishedBatteryPercent = powerStatus.batteryPercent;
+    touchRuntimeState();
+}
+
+static void servicePowerWebPublish(uint32_t now, bool force) {
+    if (force || !powerStatus.webPublishedChargingKnown ||
+        powerStatus.webPublishedChargeValid != powerStatus.chargeValid ||
+        powerStatus.webPublishedCharging != powerStatus.charging) {
+        powerStatus.webPublishedChargeValid = powerStatus.chargeValid;
+        powerStatus.webPublishedCharging = powerStatus.charging;
+        powerStatus.webPublishedChargingKnown = true;
+        markPowerWebFastDirty();
+    }
+
+    if (!force && now - powerStatus.lastWebSlowPublishMs < POWER_WEB_SLOW_PUBLISH_MS) return;
+
+    const bool slowChanged =
+        force ||
+        powerStatus.webPublishedBatteryValid != powerStatus.batteryValid ||
+        powerStatus.webPublishedChargeValid != powerStatus.chargeValid ||
+        finiteChanged(powerStatus.webPublishedVbat, powerStatus.vbat, POWER_WEB_VBAT_EPS_V) ||
+        finiteChanged(powerStatus.webPublishedVcharge, powerStatus.vcharge, POWER_WEB_VCHARGE_EPS_V) ||
+        powerStatus.webPublishedBatteryPercent != powerStatus.batteryPercent;
+
+    if (slowChanged) {
+        markPowerWebSlowDirty(now);
+    } else {
+        powerStatus.lastWebSlowPublishMs = now;
+    }
+}
+
 static void sampleBattery(uint32_t now) {
     const uint16_t adcMv = readTrimmedAdcMilliVolts(BATTERY_ADC_PIN);
     const float vadc = static_cast<float>(adcMv) / 1000.0f;
@@ -261,5 +310,6 @@ void servicePowerMonitor(bool force) {
     if (force || !powerStatus.batteryValid || now - powerStatus.lastBatteryMs >= BATTERY_SAMPLE_MS) {
         sampleBattery(now);
     }
+    servicePowerWebPublish(now, force);
     serviceBatteryCalibrationSave(now);
 }

@@ -19,6 +19,16 @@ struct PowerStatus {
     uint32_t lastCalibMaxMs   = 0;
     uint32_t lastCalibMinMs   = 0;
     uint32_t batteryCalibDirtySinceMs = 0;
+    uint32_t lastWebSlowPublishMs = 0;
+    float    webPublishedVbat     = NAN;
+    float    webPublishedVcharge  = NAN;
+    uint8_t  webPublishedBatteryPercent = 0;
+    bool     webPublishedBatteryValid   = false;
+    bool     webPublishedChargeValid    = false;
+    bool     webPublishedCharging       = false;
+    bool     webPublishedChargingKnown  = false;
+    bool     webFastDirty               = true;
+    bool     webSlowDirty               = true;
 };
 
 extern PowerStatus powerStatus;
