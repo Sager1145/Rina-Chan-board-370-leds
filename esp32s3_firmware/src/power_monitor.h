@@ -8,14 +8,22 @@ struct PowerStatus {
     bool     charging         = false;
     bool     batteryValid     = false;
     bool     chargeValid      = false;
+    bool     batteryDisconnected = false;
+    bool     batteryLowVoltageUnpowered = false;
     float    batteryCalibMaxV = NAN;
     float    batteryCalibMinV = NAN;
     bool     batteryCalibLoaded = false;
     bool     batteryCalibDirty  = false;
     uint16_t batteryAdcMv     = 0;
+    uint16_t batteryPrevAdcMv = 0;
+    uint16_t batteryDisconnectDropMv = 0;
+    float    batteryLastInstantVbat = NAN;
     uint16_t chargeAdcMv      = 0;
     uint32_t lastBatteryMs    = 0;
     uint32_t lastChargeMs     = 0;
+    uint32_t batteryDisconnectedSinceMs = 0;
+    uint32_t lastBatteryDisconnectEventMs = 0;
+    bool     batteryPrevAdcKnown = false;
     uint32_t lastCalibMaxMs   = 0;
     uint32_t lastCalibMinMs   = 0;
     uint32_t batteryCalibDirtySinceMs = 0;
@@ -35,3 +43,5 @@ extern PowerStatus powerStatus;
 
 void initPowerMonitor();
 void servicePowerMonitor(bool force = false);
+void resetBatteryVoltageMinimum();
+void resetBatteryVoltageMaximum();

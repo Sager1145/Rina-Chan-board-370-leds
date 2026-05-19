@@ -1,3 +1,11 @@
+## 2026-05-15 电池低压未上电与充电显示规则
+
+1. 电池 ADC 换算出的瞬时电池电压低于 5.0V 且未检测到充电输入时，固件进入低压未上电状态。
+2. 低压未上电状态下，WebUI 显示 `未上电 0.00 V`，电池圆点为灰色；该读数不会写入最低电压记录，也不会触发自动 min/max 校准收缩。
+3. 检测到充电输入时，即使电池电压低于 5.0V，也退出未上电视图：WebUI 显示当前电池电压；电池圆点按正常电量阈值显示，不再因充电输入强制变为红色。
+4. 充电状态下冻结最低电压记录；`reset_battery_min` 也不会把充电/低压状态下的当前电压保存为最低值。
+5. 调试页新增低压未上电锁定、电池瞬时电压、未上电电压阈值，方便确认低压/充电状态切换。
+
 ## 2026-05-15 WebUI GNU Unifont 严格内嵌 / 禁止外置 Unifont
 
 1. `data/index.html` 中的 GNU Unifont `@font-face` 只允许 `data:font/woff2;base64,...`。
@@ -2977,3 +2985,45 @@ Firmware text-scroll RAM cache limit update:
 - WebUI 中 CJK / 日文字符不再因为 subset 字体宽度误判出现半宽占位。
 - 字形横向 metrics 与轮廓边界一致，浏览器显示更稳定。
 - 字体仍完全离线，并继续内嵌在 HTML 中。
+
+## 2026-05-15 调试页电池最低/最高电压与断电检测
+
+### 目标
+- 调试页面显示当前电池最低电压记录和最高电压记录。
+- 调试页面提供重置最低电压记录、重置最高电压记录按钮。
+- 如果电池 ADC 原始数据出现巨大快速压降，固件停止电压 EMA / 校准算法，直接向 WebUI 输出 `vbat=0`，表示电池已断开。
+- 电池断开时，顶部电池状态圆点变为灰色，并把“电池”文案改为“未上电”。
+
+### 实现
+- `src/config.h`
+  - 新增 `BATTERY_DISCONNECT_ADC_DROP_MV=1000`、`BATTERY_DISCONNECT_ADC_LOW_MV=900`、`BATTERY_RECONNECT_ADC_MV=1500`。
+  - 判定逻辑基于电池 ADC 原始毫伏值：连续采样出现大于 1000 mV 的快速下降，且当前 ADC 低于 900 mV 时进入断电状态。
+  - 断电后只有 ADC 恢复到 1500 mV 以上才退出断电状态，避免插拔临界抖动。
+- `src/power_monitor.h` / `src/power_monitor.cpp`
+  - 新增 `batteryDisconnected`、`batteryPrevAdcMv`、`batteryDisconnectDropMv`、`batteryDisconnectedSinceMs` 等状态字段。
+  - 断电状态下不再运行电池电压 EMA，不更新最低/最高电压校准记录，直接保持 `vbat=0.0`、`batteryPercent=0`。
+  - 新增 `resetBatteryVoltageMinimum()` / `resetBatteryVoltageMaximum()`，用于按钮重置当前最低/最高电压记录，并立即保存到 `battery_calib.json`。
+- `src/web_api.cpp`
+  - `/api/power` 和 `/api/status` 的 `power` 对象新增 `batteryPowered`、`batteryDisconnected`、`batteryStateText`、`batteryRangeMin`、`batteryRangeMax`、`batteryAdcMv`、`batteryPrevAdcMv`、断电阈值等字段。
+  - 电池断开时 `batteryIconClass=status-dot dim`、`batteryIconColor=#9aa6b2`、`batteryStateText=未上电`。
+  - `/api/command` 新增 `reset_battery_min` 和 `reset_battery_max` 指令。
+- `data/index.html`
+  - 调试页“状态 / ADC / 网络”区新增“刷新电池状态”“重置最低电压”“重置最高电压”按钮。
+  - 调试信息新增电池状态、最低/最高电压记录、电池 ADC raw、上次 ADC raw、快速压降值和阈值。
+  - 顶部电池 badge 在 `batteryPowered=false` 时显示“未上电 0.00 V”，圆点保持灰色。
+  - 调试页进入后也主动刷新 `/api/power`，并与基础页共享 1s 电源状态轮询。
+
+### 结果
+- 调试页可以直接查看并重置当前电池最低/最高电压记录。
+- 电池被拔掉或电池 ADC 线路突然掉到低电平时，WebUI 不会继续显示 EMA 滞后的旧电压。
+- 断电状态以 0V 和灰色“未上电”明确显示，避免误判为低电量或仍在供电。
+
+
+### Battery icon percentage thresholds update
+
+- Battery badge color thresholds are now:
+  - `batteryPowered=false` / 未上电: gray (`status-dot dim`, `#9aa6b2`).
+  - `batteryPercent < 10`: red (`status-dot danger`, `#ef4444`).
+  - `batteryPercent < 30`: yellow (`status-dot warn`, `#f59e0b`).
+  - `batteryPercent >= 30`: green (`status-dot`, `#59d98e`).
+- Charging status no longer forces the battery badge to red; only battery percentage and unpowered state control the battery badge color.

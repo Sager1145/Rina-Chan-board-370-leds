@@ -161,11 +161,14 @@ static bool saveBatteryCalibration(uint32_t now) {
     return true;
 }
 
-static void updateBatteryCalibration(float vbat, bool isCharging, uint32_t now) {
+static void updateBatteryCalibration(float vbat, bool freezeCalibration, uint32_t now) {
     ensureBatteryCalibrationDefaults(now);
     if (!isfinite(vbat)) return;
 
-    if (isCharging) {
+    // Charging, disconnected, and sub-5V unpowered readings must never teach
+    // the automatic min/max range. In particular, a boot-time battery ADC below
+    // 5V is treated as not powered rather than as a new minimum voltage.
+    if (freezeCalibration || vbat < BATTERY_UNPOWERED_LOW_V) {
         powerStatus.lastCalibMaxMs = now;
         powerStatus.lastCalibMinMs = now;
         return;
@@ -206,6 +209,57 @@ static void serviceBatteryCalibrationSave(uint32_t now) {
     saveBatteryCalibration(now);
 }
 
+static bool batteryHasPoweredVoltage() {
+    return powerStatus.batteryValid &&
+           !powerStatus.batteryDisconnected &&
+           !powerStatus.batteryLowVoltageUnpowered &&
+           isfinite(powerStatus.vbat) &&
+           powerStatus.vbat >= BATTERY_UNPOWERED_LOW_V;
+}
+
+static bool batteryCanRecordMinimumVoltage() {
+    return batteryHasPoweredVoltage() && !powerStatus.charging;
+}
+
+static void markPowerCalibrationChanged(uint32_t now) {
+    markBatteryCalibrationDirty(now);
+    saveBatteryCalibration(now);
+    powerStatus.webFastDirty = true;
+    powerStatus.webSlowDirty = true;
+    powerStatus.lastWebSlowPublishMs = now;
+    touchRuntimeState();
+}
+
+void resetBatteryVoltageMaximum() {
+    const uint32_t now = millis();
+    ensureBatteryCalibrationDefaults(now);
+    const float minV = sanitizedCalibMin(powerStatus.batteryCalibMinV);
+    const float currentV = powerStatus.vbat;
+    if (batteryHasPoweredVoltage() && currentV > minV + BATTERY_CALIB_MIN_SPAN_V) {
+        powerStatus.batteryCalibMaxV = currentV;
+    } else {
+        powerStatus.batteryCalibMaxV = BATTERY_FULL_V;
+    }
+    powerStatus.lastCalibMaxMs = now;
+    ensureBatteryCalibrationDefaults(now);
+    markPowerCalibrationChanged(now);
+}
+
+void resetBatteryVoltageMinimum() {
+    const uint32_t now = millis();
+    ensureBatteryCalibrationDefaults(now);
+    const float maxV = sanitizedCalibMax(powerStatus.batteryCalibMaxV);
+    const float currentV = powerStatus.vbat;
+    if (batteryCanRecordMinimumVoltage() && currentV < maxV - BATTERY_CALIB_MIN_SPAN_V) {
+        powerStatus.batteryCalibMinV = currentV;
+    } else {
+        powerStatus.batteryCalibMinV = BATTERY_EMPTY_V;
+    }
+    powerStatus.lastCalibMinMs = now;
+    ensureBatteryCalibrationDefaults(now);
+    markPowerCalibrationChanged(now);
+}
+
 static bool finiteChanged(float previous, float current, float epsilon) {
     if (!isfinite(previous) && !isfinite(current)) return false;
     if (!isfinite(previous) || !isfinite(current)) return true;
@@ -236,6 +290,7 @@ static void servicePowerWebPublish(uint32_t now, bool force) {
         powerStatus.webPublishedCharging = powerStatus.charging;
         powerStatus.webPublishedChargingKnown = true;
         markPowerWebFastDirty();
+        powerStatus.webSlowDirty = true;
     }
 
     if (!force && now - powerStatus.lastWebSlowPublishMs < POWER_WEB_SLOW_PUBLISH_MS) return;
@@ -257,21 +312,82 @@ static void servicePowerWebPublish(uint32_t now, bool force) {
 
 static void sampleBattery(uint32_t now) {
     const uint16_t adcMv = readTrimmedAdcMilliVolts(BATTERY_ADC_PIN);
-    const float vadc = static_cast<float>(adcMv) / 1000.0f;
-    powerStatus.batteryAdcMv = adcMv;
+    const uint16_t prevAdcMv = powerStatus.batteryAdcMv;
+    const bool hadPreviousAdc = powerStatus.batteryPrevAdcKnown;
+    const bool hugeRawDrop = hadPreviousAdc &&
+        prevAdcMv > adcMv &&
+        static_cast<uint16_t>(prevAdcMv - adcMv) >= BATTERY_DISCONNECT_ADC_DROP_MV &&
+        adcMv <= BATTERY_DISCONNECT_ADC_LOW_MV;
+    const bool stillDisconnected = powerStatus.batteryDisconnected && adcMv < BATTERY_RECONNECT_ADC_MV;
 
+    powerStatus.batteryPrevAdcMv = hadPreviousAdc ? prevAdcMv : adcMv;
+    powerStatus.batteryAdcMv = adcMv;
+    powerStatus.batteryPrevAdcKnown = true;
+
+    const float vadc = static_cast<float>(adcMv) / 1000.0f;
     const float instantVbat = vadc * BATTERY_CAL_SCALE + BATTERY_CAL_OFFSET_V;
-    if (!powerStatus.batteryValid || !isfinite(powerStatus.vbat)) {
+    powerStatus.batteryLastInstantVbat = instantVbat;
+
+    // A charger-present state intentionally overrides the visual "unpowered"
+    // state: while charging, the WebUI must show the measured battery voltage
+    // and a red battery icon, but this reading still must not update v_min.
+    const bool chargerPresent = powerStatus.chargeValid && powerStatus.charging;
+    const bool rawDropUnpowered = (hugeRawDrop || stillDisconnected) && !chargerPresent;
+    const bool lowVoltageUnpowered = !chargerPresent && instantVbat < BATTERY_UNPOWERED_LOW_V;
+
+    if (rawDropUnpowered) {
+        if (!powerStatus.batteryDisconnected) {
+            powerStatus.batteryDisconnectedSinceMs = now;
+            powerStatus.lastBatteryDisconnectEventMs = now;
+            powerStatus.batteryDisconnectDropMv = static_cast<uint16_t>(prevAdcMv - adcMv);
+        }
+        powerStatus.batteryDisconnected = true;
+        powerStatus.batteryLowVoltageUnpowered = false;
+        powerStatus.vbat = 0.0f;
+        powerStatus.batteryPercent = 0;
+        powerStatus.batteryValid = true;
+        powerStatus.lastBatteryMs = now;
+        markPowerWebSlowDirty(now);
+        return;
+    }
+
+    const bool wasDisconnected = powerStatus.batteryDisconnected;
+    const bool wasLowVoltageUnpowered = powerStatus.batteryLowVoltageUnpowered;
+    if (wasDisconnected) {
+        powerStatus.batteryDisconnected = false;
+        powerStatus.batteryDisconnectedSinceMs = 0;
+        powerStatus.batteryDisconnectDropMv = 0;
+        powerStatus.vbat = NAN;
+    }
+
+    if (lowVoltageUnpowered) {
+        powerStatus.batteryLowVoltageUnpowered = true;
+        powerStatus.vbat = 0.0f;
+        powerStatus.batteryPercent = 0;
+        powerStatus.batteryValid = true;
+        powerStatus.lastBatteryMs = now;
+        updateBatteryCalibration(instantVbat, true, now);
+        if (!wasLowVoltageUnpowered) markPowerWebSlowDirty(now);
+        return;
+    }
+
+    powerStatus.batteryLowVoltageUnpowered = false;
+    if (wasDisconnected || wasLowVoltageUnpowered || !powerStatus.batteryValid || !isfinite(powerStatus.vbat)) {
         powerStatus.vbat = instantVbat;
     } else {
         powerStatus.vbat = (powerStatus.vbat * (1.0f - BATTERY_EMA_ALPHA)) +
                             (instantVbat * BATTERY_EMA_ALPHA);
     }
 
-    updateBatteryCalibration(powerStatus.vbat, powerStatus.charging, now);
+    const bool freezeCalibration = chargerPresent ||
+        powerStatus.batteryDisconnected ||
+        powerStatus.batteryLowVoltageUnpowered ||
+        powerStatus.vbat < BATTERY_UNPOWERED_LOW_V;
+    updateBatteryCalibration(powerStatus.vbat, freezeCalibration, now);
     powerStatus.batteryPercent = batteryPercentFromVoltage(powerStatus.vbat);
     powerStatus.batteryValid = true;
     powerStatus.lastBatteryMs = now;
+    if (wasDisconnected || wasLowVoltageUnpowered) markPowerWebSlowDirty(now);
 }
 
 static void sampleCharge(uint32_t now) {

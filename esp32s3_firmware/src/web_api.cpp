@@ -133,13 +133,18 @@ static uint16_t statusNextPollMs(bool scrolling, bool summaryOnly, bool unchange
 static void addPowerStatus(JsonObject power, bool includeSlow = true, bool clearDirty = false) {
     const bool batteryOk = powerStatus.batteryValid;
     const bool chargeOk = powerStatus.chargeValid;
+    const bool chargerPresent = chargeOk && powerStatus.charging;
+    const bool batteryUnpowered = !chargerPresent &&
+        (powerStatus.batteryDisconnected || powerStatus.batteryLowVoltageUnpowered);
+    const bool batteryPowered = batteryOk && !batteryUnpowered;
     const char* batteryIconClass = "status-dot dim";
     const char* batteryIconColor = "#9aa6b2";
-    if (batteryOk) {
-        if (powerStatus.batteryPercent < 20) {
+    const char* batteryStateText = batteryPowered ? "电池" : "未上电";
+    if (batteryPowered) {
+        if (powerStatus.batteryPercent < 10) {
             batteryIconClass = "status-dot danger";
             batteryIconColor = "#ef4444";
-        } else if (powerStatus.batteryPercent < 50) {
+        } else if (powerStatus.batteryPercent < 30) {
             batteryIconClass = "status-dot warn";
             batteryIconColor = "#f59e0b";
         } else {
@@ -148,8 +153,8 @@ static void addPowerStatus(JsonObject power, bool includeSlow = true, bool clear
         }
     }
 
-    const char* chargeIconClass = (chargeOk && powerStatus.charging) ? "status-dot" : "status-dot dim";
-    const char* chargeIconColor = (chargeOk && powerStatus.charging) ? "#59d98e" : "#9aa6b2";
+    const char* chargeIconClass = chargerPresent ? "status-dot" : "status-dot dim";
+    const char* chargeIconColor = chargerPresent ? "#59d98e" : "#9aa6b2";
 
     power["partial"]         = !includeSlow;
     power["chargeGpio"]      = CHARGE_ADC_PIN;
@@ -161,6 +166,12 @@ static void addPowerStatus(JsonObject power, bool includeSlow = true, bool clear
     power["ok"]               = powerStatus.batteryValid || powerStatus.chargeValid;
     power["chargeSampleMs"]   = CHARGE_SAMPLE_MS;
     power["slowPublishMs"]    = POWER_WEB_SLOW_PUBLISH_MS;
+    power["batteryPowered"]   = batteryPowered;
+    power["batteryDisconnected"] = powerStatus.batteryDisconnected;
+    power["batteryLowVoltageUnpowered"] = powerStatus.batteryLowVoltageUnpowered;
+    power["batteryStateText"] = batteryStateText;
+    power["batteryIconClass"] = batteryIconClass;
+    power["batteryIconColor"] = batteryIconColor;
 
     if (includeSlow) {
         power["batteryGpio"]      = BATTERY_ADC_PIN;
@@ -171,10 +182,18 @@ static void addPowerStatus(JsonObject power, bool includeSlow = true, bool clear
         if (powerStatus.chargeValid)  power["vcharge"]        = powerStatus.vcharge;
         else                          power["vcharge"]        = nullptr;
         power["batteryAdcMv"]     = powerStatus.batteryAdcMv;
+        power["batteryPrevAdcMv"] = powerStatus.batteryPrevAdcMv;
+        power["batteryDisconnectDropMv"] = powerStatus.batteryDisconnectDropMv;
+        power["batteryDisconnectDropThresholdMv"] = BATTERY_DISCONNECT_ADC_DROP_MV;
+        power["batteryDisconnectLowThresholdMv"]  = BATTERY_DISCONNECT_ADC_LOW_MV;
+        power["batteryReconnectThresholdMv"]      = BATTERY_RECONNECT_ADC_MV;
+        power["batteryUnpoweredLowThreshold"] = BATTERY_UNPOWERED_LOW_V;
+        if (isfinite(powerStatus.batteryLastInstantVbat)) power["batteryLastInstantVbat"] = powerStatus.batteryLastInstantVbat;
+        else power["batteryLastInstantVbat"] = nullptr;
+        power["batteryDisconnectedSinceMs"] = powerStatus.batteryDisconnectedSinceMs;
+        power["lastBatteryDisconnectEventMs"] = powerStatus.lastBatteryDisconnectEventMs;
         power["chargeAdcMv"]      = powerStatus.chargeAdcMv;
         power["batteryValid"]     = powerStatus.batteryValid;
-        power["batteryIconClass"] = batteryIconClass;
-        power["batteryIconColor"] = batteryIconColor;
         power["batteryRangeMin"]  = powerStatus.batteryCalibMinV;
         power["batteryRangeMax"]  = powerStatus.batteryCalibMaxV;
         power["batteryNominalMin"] = BATTERY_EMPTY_V;
@@ -542,7 +561,7 @@ static void handleApiStatus() {
 static void handleApiPower() {
     servicePowerMonitor();
 
-    DynamicJsonDocument doc(1024);
+    DynamicJsonDocument doc(3072);
     doc["ok"] = true;
     addPowerStatus(doc.createNestedObject("power"), true, true);
     sendJsonDocument(200, doc);
@@ -937,6 +956,22 @@ static bool commandTerminateOtherActivities(DynamicJsonDocument& doc, JsonVarian
     return true;
 }
 
+static bool commandResetBatteryMinimum(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    (void)doc;
+    (void)payload;
+    (void)error;
+    resetBatteryVoltageMinimum();
+    return true;
+}
+
+static bool commandResetBatteryMaximum(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+    (void)doc;
+    (void)payload;
+    (void)error;
+    resetBatteryVoltageMaximum();
+    return true;
+}
+
 struct ApiCommandRoute {
     const char*       name;
     ApiCommandHandler handler;
@@ -957,6 +992,8 @@ static const ApiCommandRoute API_COMMAND_ROUTES[] = {
     {"resume",                     commandResume},
     {"button",                     commandButton},
     {"terminate_other_activities", commandTerminateOtherActivities},
+    {"reset_battery_min",          commandResetBatteryMinimum},
+    {"reset_battery_max",          commandResetBatteryMaximum},
 };
 
 static const ApiCommandRoute* findApiCommandRoute(const String& cmd) {
@@ -998,7 +1035,7 @@ static void handleApiCommand() {
 
     ++runtimeState().commandsAccepted;
 
-    DynamicJsonDocument reply(1024);
+    DynamicJsonDocument reply(3072);
     reply["ok"]                   = true;
     reply["v"]                    = runtimeStateVersion();
     reply["version"]              = runtimeStateVersion();
@@ -1030,6 +1067,10 @@ static void handleApiCommand() {
     }
     reply["m370"]       = runtimeState().lastM370;
     reply["lastReason"] = runtimeState().lastReason;
+    if (cmd == "reset_battery_min" || cmd == "reset_battery_max") {
+        servicePowerMonitor(true);
+        addPowerStatus(reply.createNestedObject("power"), true, true);
+    }
     sendJsonDocument(200, reply);
 }
 
