@@ -16,6 +16,9 @@ bool mountFilesystem();
 bool loadRuntimeSettings();
 bool saveRuntimeSettings();
 
+// Write JSON through a temp file and rename it into place after serialization.
+bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written, String& error);
+
 // ---------------------------------------------------------------------------
 // Saved faces file  (raw JSON pass-through)
 // ---------------------------------------------------------------------------

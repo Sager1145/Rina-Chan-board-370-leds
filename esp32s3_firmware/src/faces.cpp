@@ -30,25 +30,52 @@ String normalizedMode(const char* input) {
 
 bool setMode(const char* input, bool persistSettings) {
     const String mode = normalizedMode(input);
+    const bool settingsChanged = runtimeState().mode != mode;
+    bool changed = false;
+
     if (mode == "auto") {
-        runtimeState().mode              = "auto";
-        runtimeState().playback          = "auto_saved_face";
-        runtimeState().paused            = false;
-        runtimeState().lastAutoSwitchMs  = millis();
+        if (runtimeState().mode != "auto") {
+            runtimeState().mode = "auto";
+            changed = true;
+        }
+        if (runtimeState().playback != "auto_saved_face") {
+            runtimeState().playback = "auto_saved_face";
+            changed = true;
+        }
+        if (runtimeState().paused) {
+            runtimeState().paused = false;
+            changed = true;
+        }
+        const uint32_t now = millis();
+        if (runtimeState().lastAutoSwitchMs != now) {
+            runtimeState().lastAutoSwitchMs = now;
+            changed = true;
+        }
     } else if (mode == "manual") {
-        runtimeState().mode = "manual";
-        if (persistSettings) runtimeState().restoreAutoAfterScroll = false;
-        if (runtimeState().playback == "auto_saved_face") runtimeState().playback = DEFAULT_PLAYBACK;
+        if (runtimeState().mode != "manual") {
+            runtimeState().mode = "manual";
+            changed = true;
+        }
+        if (persistSettings && runtimeState().restoreAutoAfterScroll) {
+            runtimeState().restoreAutoAfterScroll = false;
+            changed = true;
+        }
+        if (runtimeState().playback == "auto_saved_face") {
+            runtimeState().playback = DEFAULT_PLAYBACK;
+            changed = true;
+        }
     } else {
         return false;
     }
-    touchRuntimeState();
-    if (persistSettings) saveRuntimeSettings();
+    if (changed) touchRuntimeState();
+    if (persistSettings && settingsChanged) saveRuntimeSettings();
     return true;
 }
 
 void setAutoInterval(uint32_t ms, bool persistSettings) {
-    runtimeState().autoIntervalMs = constrain(ms, MIN_AUTO_INTERVAL_MS, MAX_AUTO_INTERVAL_MS);
+    const uint32_t nextInterval = constrain(ms, MIN_AUTO_INTERVAL_MS, MAX_AUTO_INTERVAL_MS);
+    if (runtimeState().autoIntervalMs == nextInterval) return;
+    runtimeState().autoIntervalMs = nextInterval;
     touchRuntimeState();
     if (persistSettings) saveRuntimeSettings();
 }

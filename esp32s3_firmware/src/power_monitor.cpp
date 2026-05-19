@@ -2,6 +2,7 @@
 #include "config.h"
 #include "state.h"
 #include "sync.h"
+#include "storage.h"
 
 #include <algorithm>
 #include <ArduinoJson.h>
@@ -144,17 +145,12 @@ static bool saveBatteryCalibration(uint32_t now) {
     doc["last_min_ms"] = powerStatus.lastCalibMinMs;
     doc["updated_at_ms"] = now;
 
-    lockHardwareBus();
-    File file = LittleFS.open(BATTERY_CALIB_PATH, "w");
-    unlockHardwareBus();
-    if (!file) {
-        Serial.println("Failed to open battery_calib.json for write");
+    size_t written = 0;
+    String error;
+    if (!writeJsonFileAtomic(BATTERY_CALIB_PATH, doc.as<JsonVariant>(), written, error)) {
+        Serial.printf("Failed to write battery_calib.json: %s\n", error.c_str());
         return false;
     }
-    lockHardwareBus();
-    serializeJson(doc, file);
-    file.close();
-    unlockHardwareBus();
     powerStatus.batteryCalibDirty = false;
     powerStatus.batteryCalibDirtySinceMs = 0;
     powerStatus.batteryCalibLoaded = true;

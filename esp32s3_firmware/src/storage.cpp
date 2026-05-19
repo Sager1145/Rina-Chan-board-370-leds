@@ -28,6 +28,40 @@ static bool ensureResourcesDirectory() {
     return ok;
 }
 
+bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written, String& error) {
+    written = 0;
+    if (!runtimeFsMounted()) {
+        error = "LittleFS is not mounted";
+        return false;
+    }
+
+    const String tempPath = String(path) + ".tmp";
+
+    lockHardwareBus();
+    LittleFS.remove(tempPath);
+    File file = LittleFS.open(tempPath, "w");
+    unlockHardwareBus();
+
+    if (!file) {
+        error = String("failed to open temp file for write: ") + tempPath;
+        return false;
+    }
+
+    lockHardwareBus();
+    written = serializeJson(document, file);
+    file.flush();
+    file.close();
+    const bool renamed = written > 0 && LittleFS.rename(tempPath, path);
+    if (!renamed) LittleFS.remove(tempPath);
+    unlockHardwareBus();
+
+    if (!renamed) {
+        error = String("failed to commit temp file for: ") + path;
+        return false;
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Runtime settings
 // ---------------------------------------------------------------------------
@@ -46,17 +80,12 @@ bool saveRuntimeSettings() {
     doc["autoIntervalMs"] = runtimeState().autoIntervalMs;
     doc["updatedAtMs"]    = millis();
 
-    lockHardwareBus();
-    File file = LittleFS.open(SETTINGS_PATH, "w");
-    unlockHardwareBus();
-    if (!file) {
-        Serial.println("Failed to open runtime_settings.json for write");
+    size_t written = 0;
+    String error;
+    if (!writeJsonFileAtomic(SETTINGS_PATH, doc.as<JsonVariant>(), written, error)) {
+        Serial.printf("Failed to write runtime_settings.json: %s\n", error.c_str());
         return false;
     }
-    lockHardwareBus();
-    serializeJson(doc, file);
-    file.close();
-    unlockHardwareBus();
     ++runtimeState().settingsWrites;
     touchRuntimeState();
     return true;
@@ -180,17 +209,10 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
         return 0;
     }
 
-    lockHardwareBus();
-    File file = LittleFS.open(SAVED_FACES_PATH, "w");
-    unlockHardwareBus();
-    if (!file) {
-        error = "failed to write saved_faces.json";
+    size_t written = 0;
+    if (!writeJsonFileAtomic(SAVED_FACES_PATH, document, written, error)) {
         return 0;
     }
-    lockHardwareBus();
-    const size_t written = serializeJson(document, file);
-    file.close();
-    unlockHardwareBus();
     ++runtimeState().savedFacesWrites;
     touchRuntimeState();
     return written;
