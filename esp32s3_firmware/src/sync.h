@@ -3,6 +3,13 @@
 // ---------------------------------------------------------------------------
 // FreeRTOS synchronization helpers
 // ---------------------------------------------------------------------------
+//
+// Lock ordering policy for future nested critical sections:
+//   HardwareBus -> Frame -> Scroll
+//
+// Current render paths intentionally avoid holding more than one of these
+// mutexes at a time.  If a future change must nest them, always acquire in the
+// order above and release in reverse order.
 
 bool initSyncPrimitives();
 

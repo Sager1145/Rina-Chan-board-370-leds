@@ -12,10 +12,13 @@
 PowerStatus powerStatus;
 
 // EMA low-pass filters for ADC-derived voltages.
-// Lower alpha = smoother output and slower response. These filters stabilize
-// battery / charge readings under WS2812B load transients without adding any
-// monotonic percentage lock.
-constexpr float BATTERY_EMA_ALPHA = 0.05f;
+// CHARGE_EMA_ALPHA is a fixed-alpha filter; it only runs during steady-state
+// (transitions snap immediately) so call-rate drift is inconsequential.
+// Battery EMA uses a time-constant (τ) instead of a fixed alpha so the
+// effective smoothing window remains BATTERY_EMA_TAU_S seconds regardless of
+// whether the caller runs at 0.5 Hz, 1 Hz, or 2 Hz.
+//   α = 1 − exp(−Δt / τ)   →   at exactly 1 Hz this is ≈ 0.0488 ≈ old 0.05
+constexpr float BATTERY_EMA_TAU_S = 20.0f;   // target smoothing time-constant
 constexpr float CHARGE_EMA_ALPHA  = 0.20f;
 
 static float dividerScale(float r1k, float r2k) {
@@ -73,12 +76,23 @@ static void markBatteryCalibrationDirty(uint32_t now) {
 }
 
 static uint8_t batteryPercentFromVoltage(float vbat) {
-    const float maxV = sanitizedCalibMax(powerStatus.batteryCalibMaxV);
-    const float minV = sanitizedCalibMin(powerStatus.batteryCalibMinV);
-    const float span = maxV - minV;
-    if (!(span > 0.0f) || !isfinite(vbat)) return 0;
-    const float pct = (vbat - minV) * 100.0f / span;
-    return static_cast<uint8_t>(constrain(lroundf(pct), 0L, 100L));
+    if (!isfinite(vbat)) return 0;
+    const uint8_t n = BATTERY_PERCENT_LUT_SIZE;
+    // Clamp at extremes.
+    if (vbat >= BATTERY_PERCENT_LUT[0].voltage)     return 100;
+    if (vbat <= BATTERY_PERCENT_LUT[n - 1].voltage) return 0;
+    // Find the bracketing segment and interpolate linearly within it.
+    for (uint8_t i = 0; i + 1 < n; ++i) {
+        const float vHi = BATTERY_PERCENT_LUT[i    ].voltage;
+        const float vLo = BATTERY_PERCENT_LUT[i + 1].voltage;
+        if (vbat < vHi && vbat >= vLo) {
+            const float pHi = static_cast<float>(BATTERY_PERCENT_LUT[i    ].percent);
+            const float pLo = static_cast<float>(BATTERY_PERCENT_LUT[i + 1].percent);
+            const float t   = (vbat - vLo) / (vHi - vLo);
+            return static_cast<uint8_t>(lroundf(pLo + t * (pHi - pLo)));
+        }
+    }
+    return 0;
 }
 
 static bool loadBatteryCalibration(uint32_t now) {
@@ -158,45 +172,20 @@ static bool saveBatteryCalibration(uint32_t now) {
 }
 
 static void updateBatteryCalibration(float vbat, bool freezeCalibration, uint32_t now) {
+    // Dynamic min/max learning has been removed.  Battery percentage is now
+    // derived from the fixed piecewise-linear LUT (BATTERY_PERCENT_LUT in
+    // config.h) which matches the actual 2S LiPo discharge curve.  A learned
+    // voltage span is no longer needed and was an anti-pattern: a single deep-
+    // discharge or large-current sag event could permanently shift calibMinV,
+    // causing the gauge to show non-zero percent at the true empty voltage.
+    //
+    // ensureBatteryCalibrationDefaults keeps the stored flash values within
+    // safe bounds in case legacy calibration data was loaded from flash (the
+    // values are still written to flash by the manual-reset API and exported
+    // over the web API for diagnostics).
     ensureBatteryCalibrationDefaults(now);
-    if (!isfinite(vbat)) return;
-
-    // Charging, disconnected, and sub-5V unpowered readings must never teach
-    // the automatic min/max range. In particular, a boot-time battery ADC below
-    // 5V is treated as not powered rather than as a new minimum voltage.
-    if (freezeCalibration || vbat < BATTERY_UNPOWERED_LOW_V) {
-        powerStatus.lastCalibMaxMs = now;
-        powerStatus.lastCalibMinMs = now;
-        return;
-    }
-
-    if (vbat > powerStatus.batteryCalibMaxV) {
-        powerStatus.batteryCalibMaxV = vbat;
-        powerStatus.lastCalibMaxMs = now;
-        markBatteryCalibrationDirty(now);
-    } else if (vbat < powerStatus.batteryCalibMinV) {
-        powerStatus.batteryCalibMinV = vbat;
-        powerStatus.lastCalibMinMs = now;
-        markBatteryCalibrationDirty(now);
-    }
-
-    if (now - powerStatus.lastCalibMaxMs > BATTERY_CALIB_SHRINK_TIMEOUT_MS) {
-        const float nextMax = max(BATTERY_FULL_V, powerStatus.batteryCalibMaxV - BATTERY_CALIB_SHRINK_STEP_V);
-        if (fabsf(nextMax - powerStatus.batteryCalibMaxV) > 0.0001f) {
-            powerStatus.batteryCalibMaxV = nextMax;
-            markBatteryCalibrationDirty(now);
-        }
-        powerStatus.lastCalibMaxMs = now;
-    }
-
-    if (now - powerStatus.lastCalibMinMs > BATTERY_CALIB_SHRINK_TIMEOUT_MS) {
-        const float nextMin = min(BATTERY_EMPTY_V, powerStatus.batteryCalibMinV + BATTERY_CALIB_SHRINK_STEP_V);
-        if (fabsf(nextMin - powerStatus.batteryCalibMinV) > 0.0001f) {
-            powerStatus.batteryCalibMinV = nextMin;
-            markBatteryCalibrationDirty(now);
-        }
-        powerStatus.lastCalibMinMs = now;
-    }
+    (void)vbat;
+    (void)freezeCalibration;
 }
 
 static void serviceBatteryCalibrationSave(uint32_t now) {
@@ -367,12 +356,38 @@ static void sampleBattery(uint32_t now) {
         return;
     }
 
-    powerStatus.batteryLowVoltageUnpowered = false;
-    if (wasDisconnected || wasLowVoltageUnpowered || !powerStatus.batteryValid || !isfinite(powerStatus.vbat)) {
+    // Unify exit from both zero-voltage states (disconnect and low-voltage
+    // unpowered) by resetting the EMA seed to NAN.  Without this, recovery
+    // from lowVoltageUnpowered would start the smoothing filter from 0 V
+    // instead of from the real current reading.
+    //
+    // Note: wasDisconnected already set vbat=NAN above; this block mirrors
+    // that behaviour for wasLowVoltageUnpowered so both paths are identical.
+    if (wasLowVoltageUnpowered) powerStatus.vbat = NAN;
+    powerStatus.batteryLowVoltageUnpowered = false;  // safety-belt clear
+
+    // Time-delta-weighted EMA: α = 1 − exp(−Δt / τ).
+    // Using a fixed alpha would tie the effective smoothing time-constant to
+    // the call interval; if WiFi processing or dense LED animation stalls the
+    // loop, α would understate the elapsed time and the filter would become
+    // sluggish.  Computing α from the actual Δt keeps τ = BATTERY_EMA_TAU_S
+    // (20 s) regardless of call frequency.
+    //
+    // hugeVoltageDrop was removed: bypassing the EMA on a large drop caused the
+    // percent gauge to plummet during WS2812B high-current bursts and then crawl
+    // back over ~20 s when the load cleared — exactly the behaviour the filter
+    // exists to prevent.
+    if (!powerStatus.batteryValid || !isfinite(powerStatus.vbat)) {
         powerStatus.vbat = instantVbat;
     } else {
-        powerStatus.vbat = (powerStatus.vbat * (1.0f - BATTERY_EMA_ALPHA)) +
-                            (instantVbat * BATTERY_EMA_ALPHA);
+        // Clamp dt to [1 ms, 10 s] to guard against a stale lastBatteryMs or a
+        // pathologically long pause (which would otherwise drive α toward 1.0).
+        const float dtS = constrain(
+            static_cast<float>(now - powerStatus.lastBatteryMs) * 0.001f,
+            0.001f, 10.0f);
+        const float emaAlpha = 1.0f - expf(-dtS / BATTERY_EMA_TAU_S);
+        powerStatus.vbat = (powerStatus.vbat * (1.0f - emaAlpha)) +
+                            (instantVbat * emaAlpha);
     }
 
     const bool freezeCalibration = chargerPresent ||
@@ -380,7 +395,22 @@ static void sampleBattery(uint32_t now) {
         powerStatus.batteryLowVoltageUnpowered ||
         powerStatus.vbat < BATTERY_UNPOWERED_LOW_V;
     updateBatteryCalibration(powerStatus.vbat, freezeCalibration, now);
-    powerStatus.batteryPercent = batteryPercentFromVoltage(powerStatus.vbat);
+
+    // ±1 % integer dead-band: only update batteryPercent when the LUT result
+    // differs from the current display value by more than one percentage point.
+    // This prevents the displayed integer from toggling between adjacent values
+    // (e.g. 49 ↔ 50) when the EMA-smoothed voltage hovers near a LUT segment
+    // boundary and sub-LSB ADC noise causes the interpolated result to alternate
+    // between the two sides.  On the very first valid reading (!batteryValid)
+    // the guard is bypassed so the gauge initialises immediately.
+    {
+        const uint8_t rawPct = batteryPercentFromVoltage(powerStatus.vbat);
+        const int16_t delta  = static_cast<int16_t>(rawPct) -
+                                static_cast<int16_t>(powerStatus.batteryPercent);
+        if (!powerStatus.batteryValid || delta > 1 || delta < -1) {
+            powerStatus.batteryPercent = rawPct;
+        }
+    }
     powerStatus.batteryValid = true;
     powerStatus.lastBatteryMs = now;
     if (wasDisconnected || wasLowVoltageUnpowered) markPowerWebSlowDirty(now);
@@ -392,7 +422,21 @@ static void sampleCharge(uint32_t now) {
     powerStatus.chargeAdcMv = adcMv;
 
     const float instantVcharge = vadc * CHARGE_CAL_SCALE + CHARGE_CAL_OFFSET_V;
-    if (!powerStatus.chargeValid || !isfinite(powerStatus.vcharge)) {
+
+    // Snap the EMA seed on either edge of charger presence so that
+    // powerStatus.charging always reflects the new hardware state within the
+    // same sample cycle.
+    //
+    // Plug-in  (false→true): without snapping, the EMA would ramp up from the
+    //   stale near-zero value, displaying 0 V for several seconds.
+    // Unplug   (true→false): without snapping, the slow EMA keeps
+    //   powerStatus.charging == true for ~5 s after physical removal.  During
+    //   that window sampleBattery sees chargerPresent=true and suppresses the
+    //   battery-disconnect check, potentially missing a real event.
+    const bool instantCharging    = instantVcharge > CHARGE_PRESENT_V;
+    const bool chargerStateChange = (powerStatus.charging != instantCharging);
+
+    if (!powerStatus.chargeValid || !isfinite(powerStatus.vcharge) || chargerStateChange) {
         powerStatus.vcharge = instantVcharge;
     } else {
         powerStatus.vcharge = (powerStatus.vcharge * (1.0f - CHARGE_EMA_ALPHA)) +

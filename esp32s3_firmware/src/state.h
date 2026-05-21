@@ -22,6 +22,9 @@ struct RuntimeState {
     // Stats
     uint32_t framesAccepted      = 0;
     uint32_t framesRejected      = 0;
+    uint32_t framesQueued        = 0;
+    uint32_t framesDequeued      = 0;
+    uint32_t framesDropped       = 0;
     uint32_t commandsAccepted    = 0;
     uint32_t commandsRejected    = 0;
     uint32_t savedFacesWrites    = 0;

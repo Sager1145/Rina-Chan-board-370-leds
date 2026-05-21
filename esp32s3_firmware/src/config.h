@@ -58,6 +58,34 @@ constexpr uint16_t BATTERY_DISCONNECT_ADC_DROP_MV = 1000;
 constexpr uint16_t BATTERY_DISCONNECT_ADC_LOW_MV  = 900;
 constexpr uint16_t BATTERY_RECONNECT_ADC_MV       = 1500;
 constexpr char     BATTERY_CALIB_PATH[]  = "/resources/battery_calib.json";
+
+// ---------------------------------------------------------------------------
+// Battery percentage look-up table (2S LiPo piecewise-linear discharge curve)
+// ---------------------------------------------------------------------------
+// Each entry is { real-world voltage at the battery terminals (V), percent }.
+// Points must be sorted highest-voltage first.  batteryPercentFromVoltage()
+// uses piecewise-linear interpolation between adjacent entries; voltages above
+// the first entry clamp to 100 % and below the last entry clamp to 0 %.
+//
+// Derived from a typical 2S (2×3.1 V – 2×4.2 V) lithium-polymer cell:
+//   full  ≈ 8.40 V (2×4.20 V)   empty ≈ 6.20 V (2×3.10 V, conservative cutoff)
+// The curve is intentionally non-linear to match the flat mid-range plateau
+// and the steep drop-off near the bottom that linear arithmetic misses.
+struct BatteryLutPoint { float voltage; uint8_t percent; };
+constexpr BatteryLutPoint BATTERY_PERCENT_LUT[] = {
+    { 8.40f, 100 },
+    { 8.10f,  90 },
+    { 7.90f,  80 },
+    { 7.70f,  65 },
+    { 7.50f,  50 },
+    { 7.30f,  35 },
+    { 7.10f,  20 },
+    { 6.80f,  10 },
+    { 6.50f,   5 },
+    { 6.20f,   0 },
+};
+constexpr uint8_t BATTERY_PERCENT_LUT_SIZE =
+    static_cast<uint8_t>(sizeof(BATTERY_PERCENT_LUT) / sizeof(BATTERY_PERCENT_LUT[0]));
 constexpr uint32_t BATTERY_CALIB_SHRINK_TIMEOUT_MS = 7UL * 24UL * 60UL * 60UL * 1000UL;
 constexpr uint32_t BATTERY_CALIB_SAVE_DELAY_MS     = 15000;
 constexpr float    BATTERY_CALIB_SHRINK_STEP_V     = 0.02f;
@@ -93,6 +121,13 @@ constexpr uint8_t  MAX_BRIGHTNESS        = 200;
 constexpr int8_t   BRIGHTNESS_BUTTON_STEP = 8;
 
 // ---------------------------------------------------------------------------
+// Realtime frame rate limits
+// ---------------------------------------------------------------------------
+constexpr uint16_t M370_FRAME_MIN_INTERVAL_MS    = 33;
+constexpr uint8_t  M370_FRAME_QUEUE_DEPTH        = 3;
+constexpr uint8_t  M370_FRAME_REASON_CHARS       = 64;
+
+// ---------------------------------------------------------------------------
 // Auto-playback
 // ---------------------------------------------------------------------------
 constexpr uint32_t DEFAULT_AUTO_INTERVAL_MS      = 3000;
@@ -105,7 +140,7 @@ constexpr uint16_t MAX_AUTO_FACES                = 128;
 // Scroll
 // ---------------------------------------------------------------------------
 constexpr uint16_t MAX_SCROLL_FRAMES             = 3072;
-constexpr uint16_t MIN_SCROLL_INTERVAL_MS        = 8;
+constexpr uint16_t MIN_SCROLL_INTERVAL_MS        = M370_FRAME_MIN_INTERVAL_MS;
 constexpr uint16_t MAX_SCROLL_INTERVAL_MS        = 1000;
 constexpr uint16_t DEFAULT_SCROLL_INTERVAL_MS    = 100;
 constexpr uint8_t  SCROLL_DRIFT_RESET_INTERVALS  = 4;

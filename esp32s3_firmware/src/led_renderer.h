@@ -42,6 +42,12 @@ void applyPackedFrame(const uint8_t* packedBits, const String& reason);
 // Clear frameBits to all-off and schedule a render.
 void applyBlankFrame(const String& reason);
 
+// Drain one queued M370/pumped frame when the global frame rate limiter allows it.
+void serviceM370FrameQueue();
+
+// Current number of queued frames waiting for the global frame rate limiter.
+uint8_t queuedM370FrameCount();
+
 // ---------------------------------------------------------------------------
 // Color / brightness  (take frameMutex internally where required)
 // ---------------------------------------------------------------------------

@@ -358,6 +358,9 @@ static void handleApiStatus() {
     renderer["scrollFrameIndex"]        = scrollFrameIndex;
     renderer["scrollIntervalMs"]        = scrollIntervalMs;
     renderer["scrollMaxFrames"]         = MAX_SCROLL_FRAMES;
+    renderer["m370FrameMinIntervalMs"]  = M370_FRAME_MIN_INTERVAL_MS;
+    renderer["m370FrameQueueDepth"]     = M370_FRAME_QUEUE_DEPTH;
+    renderer["m370FrameQueueCount"]     = queuedM370FrameCount();
     if (runtimeAutoFaceCount() > 0 && runtimeState().autoFaceIndex < runtimeAutoFaceCount()) {
         renderer["autoFaceId"]   = runtimeAutoFaces()[runtimeState().autoFaceIndex].id;
         renderer["autoFaceName"] = runtimeAutoFaces()[runtimeState().autoFaceIndex].name;
@@ -424,6 +427,9 @@ static void handleApiStatus() {
     JsonObject stats = doc.createNestedObject("stats");
     stats["framesAccepted"]    = runtimeState().framesAccepted;
     stats["framesRejected"]    = runtimeState().framesRejected;
+    stats["framesQueued"]      = runtimeState().framesQueued;
+    stats["framesDequeued"]    = runtimeState().framesDequeued;
+    stats["framesDropped"]     = runtimeState().framesDropped;
     stats["commandsAccepted"]  = runtimeState().commandsAccepted;
     stats["commandsRejected"]  = runtimeState().commandsRejected;
     stats["savedFacesWrites"]  = runtimeState().savedFacesWrites;
@@ -488,6 +494,10 @@ static void handleApiFrame() {
     reply["version"]       = runtimeStateVersion();
     reply["next_poll_ms"]  = statusNextPollMs(false, false, false);
     reply["accepted"]      = true;
+    reply["queued"]        = queuedM370FrameCount() > 0;
+    reply["queueDepth"]    = M370_FRAME_QUEUE_DEPTH;
+    reply["queueCount"]    = queuedM370FrameCount();
+    reply["frameMinIntervalMs"] = M370_FRAME_MIN_INTERVAL_MS;
     reply["leds"]          = LED_COUNT;
     reply["color"]         = runtimeState().colorHex;
     reply["brightness"]    = runtimeState().brightness;

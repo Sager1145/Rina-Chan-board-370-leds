@@ -74,6 +74,7 @@ void setup() {
 // ---------------------------------------------------------------------------
 
 void loop() {
+    serviceM370FrameQueue();
     webServerTick();
     serviceRuntimeSlowStatePublish();
     serviceHardwareButtons();

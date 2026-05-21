@@ -13,6 +13,18 @@ static portMUX_TYPE ledRenderRequestMux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool ledRenderRequested = false;
 static uint32_t lastLedShowUs = 0;
 
+struct QueuedM370Frame {
+    uint8_t bits[FRAME_BYTES] = {};
+    char    m370[5 + M370_HEX_CHARS + 1] = "";
+    char    reason[M370_FRAME_REASON_CHARS] = "";
+    bool    hasM370 = false;
+};
+
+static QueuedM370Frame m370FrameQueue[M370_FRAME_QUEUE_DEPTH];
+static uint8_t m370FrameQueueHead = 0;
+static uint8_t m370FrameQueueCount = 0;
+static uint32_t lastM370FrameApplyMs = 0;
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -33,6 +45,66 @@ static uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
 
 static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* outBits);
 
+static uint8_t m370FrameQueueTail() {
+    return static_cast<uint8_t>((m370FrameQueueHead + m370FrameQueueCount) % M370_FRAME_QUEUE_DEPTH);
+}
+
+static bool m370FrameRateReady(uint32_t now) {
+    return lastM370FrameApplyMs == 0 || now - lastM370FrameApplyMs >= M370_FRAME_MIN_INTERVAL_MS;
+}
+
+static void copyText(char* out, size_t outSize, const char* input) {
+    if (outSize == 0) return;
+    if (!input) input = "";
+    size_t i = 0;
+    for (; i + 1 < outSize && input[i] != '\0'; ++i) out[i] = input[i];
+    out[i] = '\0';
+}
+
+static void publishPackedFrameNow(const uint8_t* packedBits, const char* normalizedM370, const char* reason) {
+    withFrameLock([&]() {
+        memcpy(runtimeFrameBits(), packedBits, FRAME_BYTES);
+        if (normalizedM370 && normalizedM370[0] != '\0') {
+            runtimeState().lastM370 = normalizedM370;
+        }
+        runtimeState().lastReason = reason ? reason : "";
+        ++runtimeState().framesAccepted;
+        touchRuntimeState();
+        showCurrentFrameNoLock();
+    });
+    lastM370FrameApplyMs = millis();
+}
+
+static void enqueuePackedM370Frame(const uint8_t* packedBits, const char* normalizedM370, const String& reason) {
+    if (!packedBits) return;
+
+    const uint32_t now = millis();
+    if (m370FrameQueueCount == 0 && m370FrameRateReady(now)) {
+        publishPackedFrameNow(packedBits, normalizedM370, reason.c_str());
+        return;
+    }
+
+    uint8_t target = m370FrameQueueTail();
+    if (m370FrameQueueCount >= M370_FRAME_QUEUE_DEPTH) {
+        target = m370FrameQueueHead;
+        m370FrameQueueHead = static_cast<uint8_t>((m370FrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
+        ++runtimeState().framesDropped;
+    } else {
+        ++m370FrameQueueCount;
+    }
+
+    memcpy(m370FrameQueue[target].bits, packedBits, FRAME_BYTES);
+    if (normalizedM370 && normalizedM370[0] != '\0') {
+        copyText(m370FrameQueue[target].m370, sizeof(m370FrameQueue[target].m370), normalizedM370);
+        m370FrameQueue[target].hasM370 = true;
+    } else {
+        m370FrameQueue[target].m370[0] = '\0';
+        m370FrameQueue[target].hasM370 = false;
+    }
+    copyText(m370FrameQueue[target].reason, sizeof(m370FrameQueue[target].reason), reason.c_str());
+    ++runtimeState().framesQueued;
+}
+
 // ---------------------------------------------------------------------------
 // LED index map
 // ---------------------------------------------------------------------------
@@ -48,9 +120,15 @@ void initLedIndexMap() {
 // ---------------------------------------------------------------------------
 
 void requestLedRender() {
-    portENTER_CRITICAL(&ledRenderRequestMux);
-    ledRenderRequested = true;
-    portEXIT_CRITICAL(&ledRenderRequestMux);
+    if (xPortInIsrContext()) {
+        portENTER_CRITICAL_ISR(&ledRenderRequestMux);
+        ledRenderRequested = true;
+        portEXIT_CRITICAL_ISR(&ledRenderRequestMux);
+    } else {
+        portENTER_CRITICAL(&ledRenderRequestMux);
+        ledRenderRequested = true;
+        portEXIT_CRITICAL(&ledRenderRequestMux);
+    }
     notifyScrollRenderTask();
 }
 
@@ -252,36 +330,39 @@ bool applyM370(const String& input, const String& reason, String& error) {
     uint8_t packed[FRAME_BYTES];
     decodeNormalizedM370ToPackedBits(normalized, packed);
 
-    withFrameLock([&]() {
-        memcpy(runtimeFrameBits(), packed, FRAME_BYTES);
-        runtimeState().lastM370   = normalized;
-        runtimeState().lastReason = reason;
-        ++runtimeState().framesAccepted;
-        touchRuntimeState();
-        showCurrentFrameNoLock();
-    });
+    enqueuePackedM370Frame(packed, normalized.c_str(), reason);
     return true;
 }
 
 void applyPackedFrame(const uint8_t* packedBits, const String& reason) {
-    withFrameLock([&]() {
-        memcpy(runtimeFrameBits(), packedBits, FRAME_BYTES);
-        runtimeState().lastReason = reason;
-        ++runtimeState().framesAccepted;
-        touchRuntimeState();
-        showCurrentFrameNoLock();
-    });
+    enqueuePackedM370Frame(packedBits, nullptr, reason);
 }
 
 void applyBlankFrame(const String& reason) {
-    withFrameLock([&]() {
-        memset(runtimeFrameBits(), 0, FRAME_BYTES);
-        runtimeState().lastM370   = blankM370();
-        runtimeState().lastReason = reason;
-        ++runtimeState().framesAccepted;
-        touchRuntimeState();
-        showCurrentFrameNoLock();
-    });
+    uint8_t blank[FRAME_BYTES] = {};
+    char blankM370Text[5 + M370_HEX_CHARS + 1];
+    memcpy(blankM370Text, "M370:", 5);
+    memset(blankM370Text + 5, '0', M370_HEX_CHARS);
+    blankM370Text[5 + M370_HEX_CHARS] = '\0';
+    enqueuePackedM370Frame(blank, blankM370Text, reason);
+}
+
+void serviceM370FrameQueue() {
+    if (m370FrameQueueCount == 0) return;
+    const uint32_t now = millis();
+    if (!m370FrameRateReady(now)) return;
+
+    QueuedM370Frame item;
+    memcpy(&item, &m370FrameQueue[m370FrameQueueHead], sizeof(item));
+    m370FrameQueueHead = static_cast<uint8_t>((m370FrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
+    --m370FrameQueueCount;
+    ++runtimeState().framesDequeued;
+
+    publishPackedFrameNow(item.bits, item.hasM370 ? item.m370 : nullptr, item.reason);
+}
+
+uint8_t queuedM370FrameCount() {
+    return m370FrameQueueCount;
 }
 
 // ---------------------------------------------------------------------------

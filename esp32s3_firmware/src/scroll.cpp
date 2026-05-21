@@ -109,5 +109,13 @@ void startScrollRenderTask() {
 }
 
 void notifyScrollRenderTask() {
-    if (sScrollTaskHandle) xTaskNotifyGive(sScrollTaskHandle);
+    if (!sScrollTaskHandle) return;
+
+    if (xPortInIsrContext()) {
+        BaseType_t higherPriorityTaskWoken = pdFALSE;
+        vTaskNotifyGiveFromISR(sScrollTaskHandle, &higherPriorityTaskWoken);
+        portYIELD_FROM_ISR(higherPriorityTaskWoken);
+    } else {
+        xTaskNotifyGive(sScrollTaskHandle);
+    }
 }
