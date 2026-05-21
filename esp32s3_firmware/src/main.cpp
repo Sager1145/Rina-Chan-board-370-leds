@@ -21,6 +21,8 @@ void setup() {
     delay(200);
     runtimeState().bootMs = millis();
 
+    initRuntimeScrollFrameBuffer();
+
     // FreeRTOS primitives
     if (!initSyncPrimitives()) {
         Serial.println("Failed to create one or more FreeRTOS mutexes");

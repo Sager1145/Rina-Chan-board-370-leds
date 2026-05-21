@@ -101,8 +101,11 @@ public:
     uint8_t* frameBits() { return frameBits_; }
     const uint8_t* frameBits() const { return frameBits_; }
 
-    uint8_t* scrollFrameBits(uint16_t index) { return scrollFrameBits_[index]; }
-    const uint8_t* scrollFrameBits(uint16_t index) const { return scrollFrameBits_[index]; }
+    bool initScrollFrameBuffer();
+    bool scrollFrameBufferReady() const { return true; }
+    bool scrollFrameBufferInPsram() const { return scrollFrameBitsInPsram_; }
+    uint8_t* scrollFrameBits(uint16_t index);
+    const uint8_t* scrollFrameBits(uint16_t index) const;
 
     bool& fsMounted() { return fsMounted_; }
     const bool& fsMounted() const { return fsMounted_; }
@@ -116,7 +119,9 @@ private:
     RuntimeFace  autoFaces_[MAX_AUTO_FACES] = {};
     uint16_t     autoFaceCount_ = 0;
     uint8_t      frameBits_[FRAME_BYTES] = {};
-    uint8_t      scrollFrameBits_[MAX_SCROLL_FRAMES][FRAME_BYTES] = {};
+    uint8_t      fallbackScrollFrameBits_[MAX_SCROLL_FRAMES][FRAME_BYTES] = {};
+    uint8_t*     scrollFrameBits_ = nullptr;
+    bool         scrollFrameBitsInPsram_ = false;
     bool         fsMounted_ = false;
 };
 
@@ -124,6 +129,10 @@ RuntimeState& runtimeState();
 RuntimeFace* runtimeAutoFaces();
 uint16_t& runtimeAutoFaceCount();
 uint8_t* runtimeFrameBits();
+bool initRuntimeScrollFrameBuffer();
+bool runtimeScrollFrameBufferReady();
+bool runtimeScrollFrameBufferInPsram();
+size_t runtimeScrollFrameBufferBytes();
 uint8_t* runtimeScrollFrameBits(uint16_t index);
 bool& runtimeFsMounted();
 uint32_t runtimeStateVersion();

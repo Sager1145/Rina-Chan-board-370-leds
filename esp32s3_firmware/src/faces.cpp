@@ -313,7 +313,7 @@ void startFirmwareScroll(uint16_t intervalMs) {
     bool    hasFirstFrame = false;
 
     withScrollLock([&]() {
-        if (runtimeState().scrollFrameCount > 0) {
+        if (runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady()) {
             runtimeState().restoreAutoAfterScroll = runtimeState().restoreAutoAfterScroll || isAutoMode();
             if (runtimeState().restoreAutoAfterScroll) runtimeState().mode = "manual";
             runtimeState().scrollIntervalMs   = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);

@@ -5,6 +5,7 @@
 #include "led_renderer.h"
 #include "faces.h"
 #include "sync.h"
+#include "psram_json.h"
 #include <LittleFS.h>
 
 // ---------------------------------------------------------------------------
@@ -255,7 +256,7 @@ bool loadSavedFaces(bool applyStartupFace) {
     const size_t savedFacesSize = file.size();
     unlockHardwareBus();
 
-    DynamicJsonDocument doc(jsonCapacityFor(savedFacesSize));
+    PsramJsonDocument doc(jsonCapacityFor(savedFacesSize));
     lockHardwareBus();
     DeserializationError err = deserializeJson(doc, file, DeserializationOption::NestingLimit(32));
     file.close();

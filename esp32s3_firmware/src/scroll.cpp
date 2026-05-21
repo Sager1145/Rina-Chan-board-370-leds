@@ -25,7 +25,8 @@ static void scrollRenderTask(void* parameter) {
         bool hasScrollFrame        = false;
 
         lockScroll();
-        if (runtimeState().firmwareScrollActive && !runtimeState().firmwareScrollPaused && runtimeState().scrollFrameCount > 0) {
+        if (runtimeState().firmwareScrollActive && !runtimeState().firmwareScrollPaused &&
+            runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady()) {
             const uint32_t now = millis();
             if (runtimeState().lastScrollFrameMs == 0) runtimeState().lastScrollFrameMs = now;
 

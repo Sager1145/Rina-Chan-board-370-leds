@@ -9,6 +9,7 @@
 #include "buttons.h"
 #include "power_monitor.h"
 #include "web_json.h"
+#include "psram_json.h"
 #include <WebServer.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
@@ -220,7 +221,7 @@ static String requestBody() {
     return server.hasArg("plain") ? server.arg("plain") : "";
 }
 
-static bool parseJsonBody(DynamicJsonDocument& doc, String& error) {
+static bool parseJsonBody(JsonDocument& doc, String& error) {
     const String body = requestBody();
     if (body.isEmpty()) { error = "empty JSON body"; return false; }
     DeserializationError err = deserializeJson(doc, body);
@@ -323,7 +324,7 @@ static void handleApiStatus() {
         }
     }
 
-    DynamicJsonDocument doc((runtimeOnly || scrolling || summaryOnly) ? 4096 : 6144);
+    PsramJsonDocument doc((runtimeOnly || scrolling || summaryOnly) ? 4096 : 6144);
     doc["ok"]     = true;
     doc["v"]      = version;
     doc["version"] = version;
@@ -381,6 +382,14 @@ static void handleApiStatus() {
     scrollStopEvent["button"] = runtimeState().scrollStopEventButton;
     scrollStopEvent["source"] = runtimeState().scrollStopEventSource;
     scrollStopEvent["reason"] = runtimeState().scrollStopEventReason;
+
+    JsonObject memory = doc.createNestedObject("memory");
+    memory["freeHeap"]               = static_cast<uint32_t>(ESP.getFreeHeap());
+    memory["psramSize"]              = static_cast<uint32_t>(ESP.getPsramSize());
+    memory["freePsram"]              = static_cast<uint32_t>(ESP.getFreePsram());
+    memory["scrollBufferBytes"]      = static_cast<uint32_t>(runtimeScrollFrameBufferBytes());
+    memory["scrollBufferReady"]      = runtimeScrollFrameBufferReady();
+    memory["scrollBufferInPsram"]    = runtimeScrollFrameBufferInPsram();
 
     // The WebUI boot path uses runtimeOnly=1&noFrame=1.  Return immediately
     // after runtime state so the first visible page can be built from current
@@ -449,7 +458,7 @@ static void handleApiPower() {
 
 static void handleApiFrame() {
     String error;
-    DynamicJsonDocument doc(2048);
+    PsramJsonDocument doc(2048);
     if (!parseJsonBody(doc, error)) { sendError(400, error); return; }
 
     const char* m370 = doc["m370"] | "";
@@ -646,15 +655,15 @@ static void handleApiScroll() {
 }
 
 
-using ApiCommandHandler = bool (*)(DynamicJsonDocument& doc, JsonVariant payload, String& error);
+using ApiCommandHandler = bool (*)(JsonDocument& doc, JsonVariant payload, String& error);
 
-static bool commandSetColor(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandSetColor(JsonDocument& doc, JsonVariant payload, String& error) {
     const char* hex = payload["hex"] | "";
     if (strlen(hex) == 0) hex = doc["hex"] | "";
     return setColor(hex, error);
 }
 
-static bool commandSetBrightness(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandSetBrightness(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
     int raw = runtimeState().brightness;
     if      (payload["raw"].is<int>())        raw = payload["raw"].as<int>();
@@ -664,7 +673,7 @@ static bool commandSetBrightness(DynamicJsonDocument& doc, JsonVariant payload, 
     return true;
 }
 
-static bool commandSetMode(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandSetMode(JsonDocument& doc, JsonVariant payload, String& error) {
     cancelDeferredFaceRestore();
     const char* mode = payload["mode"] | "";
     if (strlen(mode) == 0) mode = doc["mode"] | "";
@@ -675,7 +684,7 @@ static bool commandSetMode(DynamicJsonDocument& doc, JsonVariant payload, String
     return true;
 }
 
-static bool commandSetAutoInterval(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandSetAutoInterval(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
     uint32_t ms = runtimeState().autoIntervalMs;
     if      (payload["ms"].is<uint32_t>()) ms = payload["ms"].as<uint32_t>();
@@ -684,7 +693,7 @@ static bool commandSetAutoInterval(DynamicJsonDocument& doc, JsonVariant payload
     return true;
 }
 
-static bool scrollIntervalFromCommand(DynamicJsonDocument& doc, JsonVariant payload, uint16_t& intervalMs) {
+static bool scrollIntervalFromCommand(JsonDocument& doc, JsonVariant payload, uint16_t& intervalMs) {
     uint32_t rawInterval = 0;
     if (payload["intervalMs"].is<uint32_t>()) {
         rawInterval = payload["intervalMs"].as<uint32_t>();
@@ -712,7 +721,7 @@ static bool scrollIntervalFromCommand(DynamicJsonDocument& doc, JsonVariant payl
     return false;
 }
 
-static bool commandSetScrollInterval(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandSetScrollInterval(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
     uint16_t iMs = runtimeState().scrollIntervalMs;
     scrollIntervalFromCommand(doc, payload, iMs);
@@ -724,12 +733,12 @@ static bool commandSetScrollInterval(DynamicJsonDocument& doc, JsonVariant paylo
     return true;
 }
 
-static bool commandStartScroll(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandStartScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     uint16_t iMs = runtimeState().scrollIntervalMs;
     scrollIntervalFromCommand(doc, payload, iMs);
     bool hasCachedFrames = false;
     withScrollLock([&]() {
-        hasCachedFrames = runtimeState().scrollFrameCount > 0;
+        hasCachedFrames = runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady();
     });
     if (!hasCachedFrames) {
         error = "no cached scroll frames";
@@ -739,14 +748,14 @@ static bool commandStartScroll(DynamicJsonDocument& doc, JsonVariant payload, St
     return true;
 }
 
-static bool commandScrollStep(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandScrollStep(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
     (void)error;
     uint8_t steppedFrame[FRAME_BYTES];
     bool    hasSteppedFrame = false;
     withScrollLock([&]() {
-        if (runtimeState().scrollFrameCount > 0) {
+        if (runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady()) {
             runtimeState().scrollFrameIndex = (runtimeState().scrollFrameIndex + 1) % runtimeState().scrollFrameCount;
             runtimeState().playback         = "scroll_step";
             memcpy(steppedFrame, runtimeScrollFrameBits(runtimeState().scrollFrameIndex), FRAME_BYTES);
@@ -757,7 +766,7 @@ static bool commandScrollStep(DynamicJsonDocument& doc, JsonVariant payload, Str
     return true;
 }
 
-static bool commandPauseScroll(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandPauseScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
     (void)error;
@@ -766,7 +775,7 @@ static bool commandPauseScroll(DynamicJsonDocument& doc, JsonVariant payload, St
     return true;
 }
 
-static bool commandResumeScroll(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandResumeScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
     (void)error;
@@ -775,7 +784,7 @@ static bool commandResumeScroll(DynamicJsonDocument& doc, JsonVariant payload, S
     return true;
 }
 
-static bool commandStopScroll(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandStopScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
     bool clearDisplay = true;
     bool restoreAuto  = true;
@@ -787,7 +796,7 @@ static bool commandStopScroll(DynamicJsonDocument& doc, JsonVariant payload, Str
     return true;
 }
 
-static bool commandPause(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandPause(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
     (void)error;
@@ -801,7 +810,7 @@ static bool commandPause(DynamicJsonDocument& doc, JsonVariant payload, String& 
     return true;
 }
 
-static bool commandResume(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandResume(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
     (void)error;
@@ -815,7 +824,7 @@ static bool commandResume(DynamicJsonDocument& doc, JsonVariant payload, String&
     return true;
 }
 
-static bool commandButton(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandButton(JsonDocument& doc, JsonVariant payload, String& error) {
     const char* button = payload["button"] | "";
     if (strlen(button) == 0) button = doc["button"] | "";
     if (!runButtonAction(String(button), "api_button")) {
@@ -825,7 +834,7 @@ static bool commandButton(DynamicJsonDocument& doc, JsonVariant payload, String&
     return true;
 }
 
-static bool commandTerminateOtherActivities(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandTerminateOtherActivities(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)error;
     const char* targetMode = payload["targetMode"] | "";
@@ -840,7 +849,7 @@ static bool commandTerminateOtherActivities(DynamicJsonDocument& doc, JsonVarian
     return true;
 }
 
-static bool commandResetBatteryMinimum(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandResetBatteryMinimum(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
     (void)error;
@@ -848,7 +857,7 @@ static bool commandResetBatteryMinimum(DynamicJsonDocument& doc, JsonVariant pay
     return true;
 }
 
-static bool commandResetBatteryMaximum(DynamicJsonDocument& doc, JsonVariant payload, String& error) {
+static bool commandResetBatteryMaximum(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
     (void)error;
@@ -889,7 +898,7 @@ static const ApiCommandRoute* findApiCommandRoute(const String& cmd) {
 
 static void handleApiCommand() {
     String error;
-    DynamicJsonDocument doc(2048);
+    PsramJsonDocument doc(2048);
     if (!parseJsonBody(doc, error)) {
         ++runtimeState().commandsRejected;
         sendError(400, error);
@@ -919,7 +928,7 @@ static void handleApiCommand() {
 
     ++runtimeState().commandsAccepted;
 
-    DynamicJsonDocument reply(3072);
+    PsramJsonDocument reply(3072);
     reply["ok"]                   = true;
     reply["v"]                    = runtimeStateVersion();
     reply["version"]              = runtimeStateVersion();
@@ -977,7 +986,7 @@ static void handleSavedFacesPost() {
     if (body.isEmpty()) { sendError(400, "empty JSON body"); return; }
 
     const size_t capacity = jsonCapacityFor(body.length());
-    DynamicJsonDocument doc(capacity);
+    PsramJsonDocument doc(capacity);
     DeserializationError err = deserializeJson(doc, body, DeserializationOption::NestingLimit(32));
     if (err) { sendError(400, String("invalid JSON: ") + err.c_str()); return; }
 
