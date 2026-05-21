@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" data-boot-phase="preload">
+<html lang="zh-CN" data-boot-phase="preload" data-scroll-lock="boot">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -51,9 +51,16 @@
     --page-min-width:320px;
   }
   *{box-sizing:border-box}
-  html{min-width:var(--page-min-width);overflow-x:auto;overflow-y:auto;}
+  html{min-width:var(--page-min-width);overflow-x:auto;overflow-y:auto;scrollbar-gutter:stable;scrollbar-color:var(--line) var(--bg);color-scheme:dark;}
+  html::-webkit-scrollbar{width:12px;height:12px;background:var(--bg);}
+  html::-webkit-scrollbar-track{background:var(--bg);}
+  html::-webkit-scrollbar-thumb{background:var(--line);border:3px solid var(--bg);border-radius:999px;}
   html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:var(--ui-font)!important;font-size:16px;font-synthesis:none;-webkit-text-size-adjust:100%;-webkit-font-smoothing:none;text-rendering:geometricPrecision;}
   body{min-width:var(--page-min-width);padding:0;overscroll-behavior-x:none;overflow-y:visible;}
+  html[data-scroll-lock="boot"]{overflow-y:scroll;scrollbar-gutter:stable;scrollbar-width:auto;}
+  html[data-scroll-lock="boot"] body{position:fixed;inset:0;width:100%;overflow-y:clip;overscroll-behavior:none;touch-action:none;}
+  html[data-scroll-lock="boot"] body,html[data-scroll-lock="boot"] body *{scrollbar-width:none;}
+  html[data-scroll-lock="boot"] body::-webkit-scrollbar,html[data-scroll-lock="boot"] body *::-webkit-scrollbar{display:none;width:0;height:0;}
   button,input,select,textarea,option,optgroup,label,summary,dialog,[role="button"],[role="menu"],[role="menuitem"]{font-family:var(--ui-font)!important;font-size:inherit;font-weight:inherit;line-height:inherit;color:var(--text);font-synthesis:none;}
   button,input,select,textarea,.brand-nav-toggle,.select-toggle{touch-action:manipulation;}
   html,body,body *,body *::before,body *::after,.brand-nav-toggle,.select-toggle,.select-menu,.select-option,.select-label,.select-caret,.toggle-button,.face-source-badge,.saved-name-input,.small,.hint,.kv,.k,.v,.num,.log,.mono{font-family:var(--ui-font)!important;}
@@ -150,14 +157,16 @@
   .row{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
   .toggle-button{white-space:nowrap;}
   .toggle-button.active{--button-hover-color:var(--accent);border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent);}
-  .control-panel{display:grid;gap:13px;}
+  .control-panel{display:grid;gap:14px;min-width:0;}
   .basic-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start;container-type:inline-size;}
-  .basic-layout>.card:first-child{order:2;}
+  .basic-layout>.control-panel{order:2;}
   .basic-layout>.basic-preview-card{order:1;}
   .basic-preview-card{min-width:0;}
   .basic-preview-card .matrix-wrap{min-height:0;}
-  .control-section{display:grid;gap:10px;border-top:1px solid var(--line);padding-top:12px;}
-  .control-section.flush{border-top:0;padding-top:0;}
+  .control-panel>h3{display:none;}
+  .control-section{display:grid;gap:10px;}
+  .control-section.card{min-width:0;}
+  .control-section h3,.control-section h4{margin:0 0 2px;font-size:16px;display:flex;align-items:center;gap:8px;color:var(--text);}
 
   .slider-step-row{display:flex;justify-content:flex-end;gap:10px;align-items:center;}
   .slider-step-row button{white-space:nowrap;}
@@ -186,7 +195,7 @@
   @media (max-width:980px){
   .parts-outer-layout{grid-template-columns:1fr;}
   .basic-layout{grid-template-columns:1fr;}
-  .basic-layout>.card:first-child,.basic-layout>.basic-preview-card{order:unset;}
+  .basic-layout>.control-panel,.basic-layout>.basic-preview-card{order:unset;}
   :root{--page-edge-gap:12px;--sidebar-padding-y:10px;--sidebar-padding-x:10px;}
   .top-page-nav{top:calc(var(--control-height) + var(--sidebar-padding-y) * 2 + var(--page-edge-gap));right:var(--page-edge-gap);left:var(--page-edge-gap);width:auto;padding:8px;}
   .top-page-nav.open{padding:8px;}
@@ -379,14 +388,14 @@
   :root{--control-height:42px;--control-font-size:15px;--control-padding-y:8px;--control-padding-x:10px;--control-compact-padding-x:8px;--led-preview-default-cell:10px;--cell:var(--led-preview-default-cell);--gap:2px}
 }
 
-  :root{--rina-icon-size:96px;--rina-avatar-frame-width:5px;--rina-avatar-size:calc(var(--rina-icon-size) + var(--rina-avatar-frame-width) * 2);--rina-halo-spread:18px;--rina-halo-size:calc(var(--rina-avatar-size) + var(--rina-halo-spread) * 2);--rina-icon-pop-scale:1.22;--rina-icon-shrink-scale:1.12;--rina-icon-release-scale:2.35;--rina-halo-contract-scale:0.65;--rina-halo-contract-duration:300ms;--rina-image-pop-duration:420ms;--rina-image-release-duration:1300ms;--rina-blur-size:14px;--rina-reveal-solid:0px;--rina-reveal-a:0px;--rina-reveal-b:0px;--rina-reveal-c:0px;--rina-reveal-d:0px;--rina-reveal-e:0px;--rina-reveal-outer:0px;--rina-reveal-x:50%;--rina-reveal-y:50%;}
-  .loading-overlay{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;overflow:hidden;pointer-events:auto;opacity:1;background:transparent;}
+  :root{--rina-icon-size:96px;--rina-avatar-frame-width:5px;--rina-avatar-size:calc(var(--rina-icon-size) + var(--rina-avatar-frame-width) * 2);--rina-halo-spread:18px;--rina-halo-size:calc(var(--rina-avatar-size) + var(--rina-halo-spread) * 2);--rina-icon-pop-scale:1.22;--rina-icon-shrink-scale:1.12;--rina-icon-release-scale:2.35;--rina-halo-contract-scale:0.65;--rina-halo-contract-duration:300ms;--rina-image-pop-duration:420ms;--rina-image-release-duration:1300ms;--rina-blur-size:14px;--rina-loader-x:50vw;--rina-loader-y:50vh;--rina-reveal-solid:0px;--rina-reveal-a:0px;--rina-reveal-b:0px;--rina-reveal-c:0px;--rina-reveal-d:0px;--rina-reveal-e:0px;--rina-reveal-outer:0px;--rina-reveal-x:50%;--rina-reveal-y:50%;}
+  .loading-overlay{position:fixed;inset:0;z-index:2147483000;display:block;overflow:hidden;pointer-events:auto;opacity:1;background:transparent;}
   .loading-overlay.is-animating .flash-halo,.loading-overlay.is-animating .avatar-circle,.loading-overlay.is-animating .avatar-before,.loading-overlay.is-animating .avatar-after{will-change:transform,opacity;backface-visibility:hidden;}
   .loading-overlay.is-animating .blur-screen{will-change:mask-image,-webkit-mask-image,opacity;transform:translateZ(0);}
   .blur-screen{position:absolute;inset:0;z-index:1;background:transparent;backdrop-filter:blur(var(--rina-blur-size));-webkit-backdrop-filter:blur(var(--rina-blur-size));opacity:1;pointer-events:none;will-change:opacity,-webkit-mask-image,mask-image;}
   .blur-screen.is-revealing{-webkit-mask-image:radial-gradient(circle at var(--rina-reveal-x) var(--rina-reveal-y),transparent 0,transparent var(--rina-reveal-solid),rgba(0,0,0,.03) var(--rina-reveal-a),rgba(0,0,0,.10) var(--rina-reveal-b),rgba(0,0,0,.26) var(--rina-reveal-c),rgba(0,0,0,.52) var(--rina-reveal-d),rgba(0,0,0,.78) var(--rina-reveal-e),#000 var(--rina-reveal-outer),#000 100%);mask-image:radial-gradient(circle at var(--rina-reveal-x) var(--rina-reveal-y),transparent 0,transparent var(--rina-reveal-solid),rgba(0,0,0,.03) var(--rina-reveal-a),rgba(0,0,0,.10) var(--rina-reveal-b),rgba(0,0,0,.26) var(--rina-reveal-c),rgba(0,0,0,.52) var(--rina-reveal-d),rgba(0,0,0,.78) var(--rina-reveal-e),#000 var(--rina-reveal-outer),#000 100%);-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-size:100% 100%;mask-size:100% 100%;}
   .loading-overlay.is-hidden{opacity:0;pointer-events:none;}
-  .loading-box{position:relative;z-index:20;display:grid;place-items:center;gap:20px;opacity:1;transition:opacity 120ms ease;}
+  .loading-box{position:fixed;left:var(--rina-loader-x);top:var(--rina-loader-y);transform:translate(-50%,-50%);z-index:20;display:grid;place-items:center;gap:20px;opacity:1;transition:opacity 120ms ease;}
   .loading-overlay.is-assets-pending .loading-box{opacity:0;}
   .loader-stage{position:relative;z-index:0;isolation:isolate;width:var(--rina-halo-size);height:var(--rina-halo-size);display:grid;place-items:center;overflow:visible;}
   .avatar-circle{position:relative;z-index:200;width:var(--rina-avatar-size);height:var(--rina-avatar-size);overflow:hidden;border-radius:50%;background:#fff;box-shadow:none;opacity:1;transform:scale(1);transition:transform var(--rina-image-pop-duration) cubic-bezier(.16,1.25,.3,1),opacity 260ms cubic-bezier(.4,0,.2,1);will-change:transform,opacity;}
@@ -406,8 +415,11 @@
   @keyframes rinaBoot-pulseRingBreath{0%{opacity:.28;transform:scale(.965);animation-timing-function:cubic-bezier(.42,0,.58,1);}50%{opacity:1;transform:scale(1.075);animation-timing-function:cubic-bezier(.42,0,.58,1);}100%{opacity:.28;transform:scale(.965);}}
   @keyframes rinaBoot-haloContractOut{0%{transform:scale(1.075);opacity:1;visibility:visible;}100%{transform:scale(.65);opacity:0;visibility:visible;}}
   @keyframes rinaBoot-avatarShrinkThenRelease{0%{transform:scale(1.22);opacity:1;animation-timing-function:cubic-bezier(.34,0,.2,1);}18%{transform:scale(1.12);opacity:1;animation-timing-function:cubic-bezier(.12,.88,.18,1);}100%{transform:scale(2.35);opacity:0;}}
-  @media(prefers-reduced-motion:reduce){.flash-halo{animation-duration:2.6s;}}
-  html[data-boot-phase="preload"] body > *{visibility:hidden;pointer-events:none;}
+  .boot-reveal-item{visibility:hidden;opacity:0;transform:translateY(10px);transition:opacity 320ms ease,transform 360ms cubic-bezier(.16,1,.3,1);will-change:opacity,transform;}
+  html[data-first-page-reveal="preparing"] .boot-reveal-item{transition:none;}
+  .boot-reveal-item.is-revealed{visibility:visible;opacity:1;transform:translateY(0);}
+  @media(prefers-reduced-motion:reduce){.flash-halo{animation-duration:2.6s;}.boot-reveal-item{transition-duration:1ms;transform:none;}}
+  html[data-boot-phase="preload"] body > *:not(.loading-overlay){visibility:hidden;pointer-events:none;}
 
 </style>
 </head>
@@ -448,9 +460,9 @@
     <section class="page active" id="page-basic">
       <div class="hero"><div><h2>6.1 基础功能页面</h2></div></div>
       <div class="basic-layout">
-        <div class="card control-panel">
+        <div class="control-panel">
           <h3>颜色 / 亮度 / 保存表情 / A-M 模式</h3>
-          <div class="control-section flush">
+          <div class="card control-section flush">
             <h4>颜色控制</h4>
             <div class="color-control-row"><div class="color-swatch" id="color-swatch"></div><div class="field"><label>当前颜色</label><input id="color-input" value="#f971d4" maxlength="7" inputmode="text" autocomplete="off" spellcheck="false" pattern="#?[0-9a-fA-F]{6}"></div></div>
             <div class="color-dropdown-grid">
@@ -459,13 +471,13 @@
             </div>
             
           </div>
-          <div class="control-section">
+          <div class="card control-section">
             <h4>亮度控制</h4>
             <div class="slider-step-row"><button type="button" id="brightness-reset-default" type="button">重置默认亮度</button><button type="button" class="compact-btn push-right" id="brightness-minus">−8</button><button type="button" class="compact-btn" id="brightness-plus">+8</button></div>
             <div class="brightness-row"><input id="brightness-range" type="range" min="10" max="200" step="1" value="50"><input class="slider-number" id="brightness-input" type="number" min="10" max="200" value="50" aria-label="raw 亮度"></div>
             <div class="button-row" id="brightness-presets"></div>
           </div>
-          <div class="control-section">
+          <div class="card control-section">
             <h4>保存表情切换 / A-M 模式</h4>
             <div class="button-row mode-button-row"><button id="face-prev" type="button" aria-label="上一个" title="上一个">←</button><button id="face-next" type="button" aria-label="下一个" title="下一个">→</button><button class="toggle-button" id="mode-toggle" type="button" aria-pressed="false">M 手动</button><button class="compact-btn push-right" id="interval-down" type="button">−0.5</button><button class="compact-btn" id="interval-up" type="button">+0.5</button></div>
             <div class="brightness-row"><input id="auto-interval-range" type="range" min="0.5" max="10" step="0.1" value="3"><input class="slider-number" id="auto-interval" type="number" value="3" min="0.5" max="10" step="0.1" aria-label="自动切换间隔 秒"></div>
@@ -1754,6 +1766,11 @@ function setBrightness(v, source='brightness_change'){
 const BOOT_STATUS_ENDPOINT = `${API_ENDPOINTS.status}${RUNTIME_STATUS_QUERY}`;
 const BOOT_STATUS_TIMEOUT_MS = 2500;
 let bootRuntimeSnapshot = {attempted:false, ok:false, error:'', data:null};
+function unlockBootPageScroll(){
+  if(document.documentElement.dataset.scrollLock === 'boot'){
+    document.documentElement.removeAttribute('data-scroll-lock');
+  }
+}
 // ── Rina Loading Overlay Animation ─────────────────────────────────
 (function(){
   const ICON_BEFORE='./resources/loading/rina_icon1_default.png';
@@ -1764,11 +1781,44 @@ let bootRuntimeSnapshot = {attempted:false, ok:false, error:'', data:null};
   const blurScreen=document.getElementById('blurScreen');
   const avatarBefore=document.getElementById('avatarBefore');
   const avatarAfter=document.getElementById('avatarAfter');
-  if(!overlay||!blurScreen||!avatarBefore||!avatarAfter) return;
+  if(!overlay||!blurScreen||!avatarBefore||!avatarAfter){unlockBootPageScroll(); return;}
   let finished=false,finishPending=false,finishQueued=false,started=false,haloCycleStart=0;
   let peakTimer=null,haloTimer=null,holdTimer=null,removeTimer=null,blurTimer=null,rafId=null;
   let afterImageReadyPromise=null;
+  let loaderHorizontalRaf=0;
   let lockedCenterX=0,lockedCenterY=0;
+  function firstViewportCenter(){
+    const vv=window.visualViewport;
+    const left=Number(vv?.offsetLeft) || 0;
+    const top=Number(vv?.offsetTop) || 0;
+    const width=Number(vv?.width) || window.innerWidth || document.documentElement.clientWidth || 0;
+    const height=Number(vv?.height) || window.innerHeight || document.documentElement.clientHeight || 0;
+    return {x:left + width / 2, y:top + height / 2};
+  }
+  function lockLoaderCenter(){
+    const center=firstViewportCenter();
+    lockedCenterX=center.x;
+    lockedCenterY=center.y;
+    document.documentElement.style.setProperty('--rina-loader-x',lockedCenterX.toFixed(2)+'px');
+    document.documentElement.style.setProperty('--rina-loader-y',lockedCenterY.toFixed(2)+'px');
+  }
+  function syncLoaderHorizontalCenter(){
+    const center=firstViewportCenter();
+    lockedCenterX=center.x;
+    document.documentElement.style.setProperty('--rina-loader-x',lockedCenterX.toFixed(2)+'px');
+  }
+  function scheduleLoaderHorizontalCenterSync(){
+    if(!started || overlay.hidden) return;
+    if(loaderHorizontalRaf) return;
+    loaderHorizontalRaf=requestAnimationFrame(()=>{
+      loaderHorizontalRaf=0;
+      syncLoaderHorizontalCenter();
+      if(blurScreen.classList.contains('is-revealing')) setOrigin();
+    });
+  }
+  function loaderSurfaceRect(){
+    return (blurScreen || overlay).getBoundingClientRect();
+  }
   function decodeLoadedImage(img){
     if(typeof img.decode !== 'function') return Promise.resolve();
     return img.decode().catch(err=>{
@@ -1799,12 +1849,14 @@ let bootRuntimeSnapshot = {attempted:false, ok:false, error:'', data:null};
   }
   function eic(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;}
   function getMaxR(){
-    const o=overlay.getBoundingClientRect();
+    syncLoaderHorizontalCenter();
+    const o=loaderSurfaceRect();
     const cx=lockedCenterX-o.left,cy=lockedCenterY-o.top;
     return Math.ceil(Math.max(Math.hypot(cx,cy),Math.hypot(o.width-cx,cy),Math.hypot(cx,o.height-cy),Math.hypot(o.width-cx,o.height-cy))+90);
   }
   function setOrigin(){
-    const o=overlay.getBoundingClientRect();
+    syncLoaderHorizontalCenter();
+    const o=loaderSurfaceRect();
     blurScreen.style.setProperty('--rina-reveal-x',(lockedCenterX-o.left).toFixed(2)+'px');
     blurScreen.style.setProperty('--rina-reveal-y',(lockedCenterY-o.top).toFixed(2)+'px');
   }
@@ -1826,7 +1878,7 @@ let bootRuntimeSnapshot = {attempted:false, ok:false, error:'', data:null};
     const wait=Math.max(IMG_RELEASE_MS,IMG_SHRINK_MS+BLUR_DUR_MS);
     removeTimer=window.setTimeout(()=>{
       overlay.classList.add('is-hidden');
-      removeTimer=window.setTimeout(()=>{overlay.hidden=true;overlay.classList.remove('is-animating');},EXTRA_MS);
+      removeTimer=window.setTimeout(()=>{overlay.hidden=true;overlay.classList.remove('is-animating');unlockBootPageScroll();},EXTRA_MS);
     },wait+EXTRA_MS);
   }
   function delayToPeak(now=performance.now()){
@@ -1866,21 +1918,12 @@ let bootRuntimeSnapshot = {attempted:false, ok:false, error:'', data:null};
     [peakTimer,haloTimer,holdTimer,removeTimer,blurTimer].forEach(t=>window.clearTimeout(t));
     if(rafId){cancelAnimationFrame(rafId);rafId=null;}
     overlay.hidden=false;
-    lockedCenterX=window.innerWidth/2;
-    lockedCenterY=window.innerHeight/2;
-    const loadingBox=overlay.querySelector('.loading-box');
-    if(loadingBox){
-      loadingBox.style.position='absolute';
-      loadingBox.style.left=lockedCenterX.toFixed(2)+'px';
-      loadingBox.style.top=lockedCenterY.toFixed(2)+'px';
-      loadingBox.style.transform='translate(-50%,-50%)';
-    }
+    lockLoaderCenter();
     overlay.classList.add('is-assets-ready','is-animating');
     overlay.classList.remove('is-assets-pending','is-ring-contracting','is-halo-hidden','is-image-pop','is-final-release','is-hidden');
     blurScreen.classList.remove('is-revealing');
     ['--rina-reveal-solid','--rina-reveal-a','--rina-reveal-b','--rina-reveal-c','--rina-reveal-d','--rina-reveal-e','--rina-reveal-outer'].forEach(p=>blurScreen.style.setProperty(p,'0px'));
-    blurScreen.style.setProperty('--rina-reveal-x',lockedCenterX.toFixed(2)+'px');
-    blurScreen.style.setProperty('--rina-reveal-y',lockedCenterY.toFixed(2)+'px');
+    setOrigin();
     overlay.setAttribute('aria-label','页面加载中');
     started=true;
     window.rinaLoaderStartedAt=haloCycleStart;
@@ -1896,6 +1939,8 @@ let bootRuntimeSnapshot = {attempted:false, ok:false, error:'', data:null};
     await window.rinaLoadingImagesReadyPromise;
     initOverlay();
   };
+  window.addEventListener('resize', scheduleLoaderHorizontalCenterSync, {passive:true});
+  window.visualViewport?.addEventListener('resize', scheduleLoaderHorizontalCenterSync, {passive:true});
 })();
 function finishBootVisibility(){
   document.documentElement.dataset.bootPhase = 'ready';
@@ -4029,6 +4074,57 @@ function initializeDebugControls(){
 }
 
 let deferredUiInitialized = false;
+let basicPreviewMatrixInitialized = false;
+let firstPageRevealPrepared = false;
+let firstPageRevealStarted = false;
+const FIRST_PAGE_REVEAL_SELECTOR = [
+  '.sidebar',
+  '#page-basic .hero',
+  '#page-basic .basic-preview-card',
+  '#page-basic .control-panel > .card.control-section'
+].join(',');
+function initializeBasicPreviewMatrix(){
+  if(basicPreviewMatrixInitialized) return;
+  basicPreviewMatrixInitialized = true;
+  if(!matrixViews.some(view => view.el?.id === 'matrix-basic')){
+    initMatrix('matrix-basic', () => currentFrame, false, null, false);
+  }
+}
+function firstPageRevealItems(){
+  return Array.from(document.querySelectorAll(FIRST_PAGE_REVEAL_SELECTOR))
+    .filter(el => el && !el.hidden)
+    .sort((a,b)=>{
+      const ar=a.getBoundingClientRect(), br=b.getBoundingClientRect();
+      const dy=ar.top-br.top;
+      if(Math.abs(dy)>1) return dy;
+      return ar.left-br.left;
+    });
+}
+function prepareFirstPageProgressiveReveal(){
+  if(firstPageRevealPrepared) return;
+  firstPageRevealPrepared = true;
+  document.documentElement.dataset.firstPageReveal = 'preparing';
+  firstPageRevealItems().forEach(el=>{
+    el.classList.add('boot-reveal-item');
+    el.classList.remove('is-revealed');
+  });
+}
+async function revealFirstPageWaterfall(){
+  if(firstPageRevealStarted) return;
+  firstPageRevealStarted = true;
+  prepareFirstPageProgressiveReveal();
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  delete document.documentElement.dataset.firstPageReveal;
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  for(const el of firstPageRevealItems()){
+    el.classList.add('is-revealed');
+    await new Promise(resolve => setTimeout(resolve, 115));
+  }
+  await new Promise(resolve => setTimeout(resolve, 260));
+  document.querySelectorAll('.boot-reveal-item').forEach(el=>{
+    el.classList.remove('boot-reveal-item','is-revealed');
+  });
+}
 function initFirstPageUiBeforeShow(){
   initButtonPressAnimations();
   observeWebUiFont();
@@ -4049,6 +4145,7 @@ function initDeferredUiAfterShow(){
   if(deferredUiInitialized) return;
   deferredUiInitialized = true;
   initializeMatrixViews();
+  basicPreviewMatrixInitialized = true;
   observeMatrixWraps();
   initCustom();
   initParts();
@@ -4107,13 +4204,15 @@ async function bootstrapWebUi(){
   const bootStart = performance.now();
   let bootOk = false;
   try{
-    if(window.rinaLoadingImagesReadyPromise) await window.rinaLoadingImagesReadyPromise;
+    if(window.rinaStartLoaderAnimation) await window.rinaStartLoaderAnimation();
+    prepareFirstPageProgressiveReveal();
     ensureWebUiFontReady().catch(err=>console.warn('WebUI font bootstrap failed', err));
     initFirstPageUiBeforeShow();
+    initializeBasicPreviewMatrix();
     renderFirstPageUiBeforeShow();
-    if(window.rinaStartLoaderAnimation) await window.rinaStartLoaderAnimation();
     showBootUiBehindLoader();
     await new Promise(resolve => requestAnimationFrame(resolve));
+    const firstPageRevealPromise = revealFirstPageWaterfall();
 
     await preloadFirmwareRuntimeState();
     bootOk = !!bootRuntimeSnapshot.ok;
@@ -4128,6 +4227,7 @@ async function bootstrapWebUi(){
     renderState();
     fitAllMatrices();
 
+    await firstPageRevealPromise;
     await waitForBootLoaderMinimum(bootStart);
     await new Promise(resolve => requestAnimationFrame(resolve));
     finishBootVisibility();
@@ -4148,6 +4248,8 @@ async function bootstrapWebUi(){
     try{ log(msg); }catch(_){ console.error(msg); }
     const logEl = $('log');
     if(logEl) logEl.textContent = msg;
+    showBootUiBehindLoader();
+    await revealFirstPageWaterfall().catch(()=>{});
     await waitForBootLoaderMinimum(bootStart);
     await new Promise(resolve => requestAnimationFrame(resolve));
     finishBootVisibility();
@@ -4166,4 +4268,4 @@ if(document.readyState === 'loading'){
 </script>
 </body>
 </html>
-                    
+
