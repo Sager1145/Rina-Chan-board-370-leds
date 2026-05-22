@@ -441,10 +441,13 @@ static void handleApiStatus() {
     memory["scrollBufferReady"]      = runtimeScrollFrameBufferReady();
     memory["scrollBufferInPsram"]    = runtimeScrollFrameBufferInPsram();
 
-    // The WebUI boot path uses runtimeOnly=1&noFrame=1.  Return immediately
-    // after runtime state so the first visible page can be built from current
-    // firmware color/brightness/power/mode without paying for matrix, storage,
-    // statistics, or last-frame serialization.
+    // runtimeOnly=1&noFrame=1 is the lightweight polling/summary path: return
+    // immediately after runtime state so a caller can read current firmware
+    // color/brightness/power/mode without paying for matrix, storage, statistics,
+    // or last-frame serialization. (The WebUI *boot* path now requests the full
+    // status instead, so the first LED frame is included and the basic matrix
+    // preview is populated during the loading animation — see
+    // preloadFirmwareRuntimeState() in data/index.html.)
     if (runtimeOnly) {
         sendJsonDocument(200, doc);
         return;

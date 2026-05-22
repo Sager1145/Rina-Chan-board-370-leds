@@ -6923,7 +6923,10 @@ async function preloadFirmwareRuntimeState() {
   }
   try {
     lastFirmwareStatusPollAt = performance.now();
-    const data = await bootFastJsonGet(BOOT_STATUS_ENDPOINT);
+    // Fetch the FULL status (includes the first LED frame in renderer.lastM370) rather
+    // than the runtimeOnly/noFrame summary, and apply it with skipFrame:false, so the
+    // basic matrix preview is populated by the first frame during the loading animation.
+    const data = await bootFastJsonGet(firmwareStatusPath(false));
     rememberFirmwareStatusPoll(data);
     bootRuntimeSnapshot = {
       attempted: true,
@@ -6932,7 +6935,7 @@ async function preloadFirmwareRuntimeState() {
       data
     };
     applyFirmwareRuntimeState(data, 'page_boot_runtime', {
-      skipFrame: true
+      skipFrame: false
     });
     setFirmwareStatus({
       lastStatus: 'firmware runtime read ok'
@@ -9995,13 +9998,11 @@ async function bootstrapWebUi() {
     // Phase 4 first: wait for the first-page waterfall reveal to finish.
     await firstPageRevealPromise;
 
-    // Respect the minimum loader display window, then dismiss the loader and run the
-    // phase 2 runtime-only status ping CONCURRENTLY: the dismiss/blur reveal no longer
-    // blocks on the network round-trip. Firmware runtime state is applied to the
-    // (already revealed) UI as soon as the ping resolves.
-    await waitForBootLoaderMinimum(bootStart);
-    await new Promise(resolve => requestAnimationFrame(resolve));
-
+    // Start the boot firmware read (now INCLUDING the first LED frame) at the START of
+    // the minimum-display window so it overlaps that otherwise-idle wait. The first
+    // matrix frame + runtime state are applied while the loading animation is still on
+    // screen, so the basic matrix preview is already populated when the loader
+    // dismisses/reveals the page — without blocking the dismiss on the network.
     const runtimePingPromise = preloadFirmwareRuntimeState().then(() => {
       bootOk = !!bootRuntimeSnapshot.ok;
       applyBrightnessLocal(state.brightness);
@@ -10018,6 +10019,9 @@ async function bootstrapWebUi() {
     }).catch(err => {
       if (shouldLogApiError()) log(`runtime 状态读取失败：${err.message || err}`);
     });
+
+    await waitForBootLoaderMinimum(bootStart);
+    await new Promise(resolve => requestAnimationFrame(resolve));
 
     finishBootVisibility();
     scheduleMatrixFitRender(4);
