@@ -26,8 +26,11 @@ static WebServer server(HTTP_PORT);
 static const char CONTENT_TYPE_JSON_UTF8[] = "application/json; charset=utf-8";
 static const char CONTENT_TYPE_HTML_UTF8[] = "text/html; charset=utf-8";
 static const char CONTENT_TYPE_TEXT_PLAIN[] = "text/plain";
-static const uint16_t STATIC_STREAM_CHUNK_BYTES = 1024;
+static const uint16_t STATIC_STREAM_CHUNK_BYTES = 8192;
 static const TickType_t WEB_YIELD_TICKS = pdMS_TO_TICKS(1);
+// Yield to the scheduler/watchdog roughly every this many chunks instead of after
+// every chunk, so streaming large assets is not throttled by a per-chunk delay.
+static const size_t WEB_YIELD_EVERY_CHUNKS = 4;
 
 static const char* contentTypeFor(const String& path) {
     const int dotIdx = path.lastIndexOf('.');
@@ -57,6 +60,19 @@ static void addCorsHeaders() {
     server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
     server.sendHeader("Cache-Control",                "no-store");
+}
+
+// Cache policy for static assets served from LittleFS. Unlike API responses
+// (which must never cache), the browser is allowed to cache these: HTML uses
+// revalidation so firmware/UI updates are always picked up, while the
+// version-stamped fonts/images/etc. are treated as immutable and fetched once.
+static void addStaticAssetHeaders(const String& path) {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    if (path.endsWith(".html") || path.endsWith(".htm")) {
+        server.sendHeader("Cache-Control", "no-cache");
+    } else {
+        server.sendHeader("Cache-Control", "public, max-age=31536000, immutable");
+    }
 }
 
 static bool littleFsExistsLocked(const String& path) {
@@ -91,7 +107,14 @@ static void streamFileChunked(File& file, const char* contentType) {
     server.setContentLength(fileSizeLocked(file));
     server.send(200, contentType, "");
 
-    uint8_t buffer[STATIC_STREAM_CHUNK_BYTES];
+    // Use an 8KB heap buffer (too large for the limited task stack). If the heap
+    // allocation fails, fall back to a small stack buffer so transfers still work.
+    uint8_t* heapBuffer = static_cast<uint8_t*>(malloc(STATIC_STREAM_CHUNK_BYTES));
+    uint8_t  stackFallback[512];
+    uint8_t* buffer    = heapBuffer ? heapBuffer : stackFallback;
+    const size_t chunkBytes = heapBuffer ? STATIC_STREAM_CHUNK_BYTES : sizeof(stackFallback);
+
+    size_t chunksSent = 0;
     while (true) {
         size_t bytesRead = 0;
         bool hasData = false;
@@ -99,14 +122,17 @@ static void streamFileChunked(File& file, const char* contentType) {
         lockHardwareBus();
         hasData = file.available();
         if (hasData) {
-            bytesRead = file.read(buffer, sizeof(buffer));
+            bytesRead = file.read(buffer, chunkBytes);
         }
         unlockHardwareBus();
 
         if (!hasData || bytesRead == 0) break;
         server.sendContent(reinterpret_cast<const char*>(buffer), bytesRead);
-        vTaskDelay(WEB_YIELD_TICKS);
+        // Feed the watchdog periodically rather than after every chunk.
+        if ((++chunksSent % WEB_YIELD_EVERY_CHUNKS) == 0) vTaskDelay(WEB_YIELD_TICKS);
     }
+
+    if (heapBuffer) free(heapBuffer);
 }
 
 static void sendJsonDocument(int status, JsonDocument& doc) {
@@ -259,10 +285,29 @@ static bool serveStaticFile(String path) {
     if (!runtimeFsMounted()) return false;
     if (path == "/") path = "/index.html";
     if (path.endsWith("/")) path += "index.html";
-    if (!littleFsExistsLocked(path)) return false;
-    File file = littleFsOpenLocked(path, "r");
+
+    // Prefer a precompressed ".gz" sibling when the client accepts gzip. This both
+    // shrinks the transfer and cuts the number of streamed chunks dramatically.
+    // Fall back to the raw file for non-gzip clients; if only the .gz exists we
+    // still serve it (every browser that reaches this WebUI supports gzip).
+    const bool clientAcceptsGzip = server.hasHeader("Accept-Encoding") &&
+        server.header("Accept-Encoding").indexOf("gzip") >= 0;
+    const String gzPath   = path + ".gz";
+    const bool   gzExists  = littleFsExistsLocked(gzPath);
+    const bool   rawExists = littleFsExistsLocked(path);
+    if (!gzExists && !rawExists) return false;
+
+    const bool   useGzip  = gzExists && (clientAcceptsGzip || !rawExists);
+    const String diskPath = useGzip ? gzPath : path;
+
+    File file = littleFsOpenLocked(diskPath, "r");
     if (!file) return false;
-    addCorsHeaders();
+
+    addStaticAssetHeaders(path);
+    if (useGzip) {
+        server.sendHeader("Content-Encoding", "gzip");
+        server.sendHeader("Vary",             "Accept-Encoding");
+    }
     streamFileChunked(file, contentTypeFor(path));
     closeFileLocked(file);
     return true;
@@ -1079,6 +1124,10 @@ void startWebServer() {
     server.on("/api/command", HTTP_OPTIONS, handleOptions);
     server.on("/api/saved_faces",          handleApiSavedFaces);
     server.onNotFound(handleNotFound);
+    // Needed so serveStaticFile() can read Accept-Encoding for gzip negotiation;
+    // the synchronous WebServer only stores headers registered up front.
+    static const char* COLLECTED_HEADERS[] = { "Accept-Encoding" };
+    server.collectHeaders(COLLECTED_HEADERS, 1);
     server.begin();
     Serial.printf("HTTP server listening on http://%s/\n",
                   WiFi.softAPIP().toString().c_str());
