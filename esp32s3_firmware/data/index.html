@@ -2567,7 +2567,6 @@
     opacity: 0;
     transform: translateY(10px);
     transition: opacity 320ms ease, transform 360ms cubic-bezier(.16, 1, .3, 1);
-    will-change: opacity, transform;
   }
 
   html[data-first-page-reveal="preparing"] .boot-reveal-item {
@@ -9779,6 +9778,13 @@ function prepareFirstPageProgressiveReveal() {
     el.classList.remove('is-revealed');
   });
 }
+
+function settleFirstPageProgressiveReveal() {
+  document.querySelectorAll('.boot-reveal-item').forEach(el => {
+    el.classList.remove('boot-reveal-item', 'is-revealed');
+  });
+}
+
 async function revealFirstPageWaterfall() {
   if (firstPageRevealStarted) return;
   firstPageRevealStarted = true;
@@ -9791,9 +9797,7 @@ async function revealFirstPageWaterfall() {
     await new Promise(resolve => setTimeout(resolve, 115));
   }
   await new Promise(resolve => setTimeout(resolve, 260));
-  document.querySelectorAll('.boot-reveal-item').forEach(el => {
-    el.classList.remove('boot-reveal-item', 'is-revealed');
-  });
+  settleFirstPageProgressiveReveal();
 }
 
 function initFirstPageUiBeforeShow() {
