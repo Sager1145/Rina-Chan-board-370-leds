@@ -6,7 +6,9 @@
 // ---------------------------------------------------------------------------
 constexpr char     AP_SSID[]              = "RinaChanBoard-V2";
 constexpr char     AP_PASSWORD[]          = "rinachan";
+constexpr char     AP_DOMAIN[]            = "rina.io";
 constexpr uint16_t HTTP_PORT             = 80;
+constexpr uint16_t DNS_PORT              = 53;
 
 #include <IPAddress.h>
 

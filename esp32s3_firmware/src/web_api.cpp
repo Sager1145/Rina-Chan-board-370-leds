@@ -10,6 +10,7 @@
 #include "power_monitor.h"
 #include "web_json.h"
 #include "psram_json.h"
+#include <DNSServer.h>
 #include <WebServer.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
@@ -18,6 +19,8 @@
 #include <stdlib.h>
 
 static WebServer server(HTTP_PORT);
+static DNSServer dnsServer;
+static bool dnsServerActive = false;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -381,6 +384,8 @@ static void handleApiStatus() {
     JsonObject ap = doc.createNestedObject("ap");
     ap["ssid"]    = AP_SSID;
     ap["ip"]      = WiFi.softAPIP().toString();
+    ap["domain"]  = AP_DOMAIN;
+    ap["url"]     = String("http://") + AP_DOMAIN + "/";
     ap["clients"] = WiFi.softAPgetStationNum();
 
     addPowerStatus(doc.createNestedObject("power"), includeSlowPower, true);
@@ -1099,8 +1104,12 @@ void startAccessPoint() {
     WiFi.mode(WIFI_AP);
     WiFi.softAPConfig(apIP(), apGateway(), apSubnet());
     WiFi.softAP(AP_SSID, AP_PASSWORD);
-    Serial.printf("AP started: ssid=%s password=%s ip=%s\n",
-                  AP_SSID, AP_PASSWORD, WiFi.softAPIP().toString().c_str());
+    const IPAddress currentIp = WiFi.softAPIP();
+    dnsServer.setTTL(60);
+    dnsServerActive = dnsServer.start(DNS_PORT, AP_DOMAIN, currentIp);
+    Serial.printf("AP started: ssid=%s password=%s ip=%s domain=%s dns=%s\n",
+                  AP_SSID, AP_PASSWORD, currentIp.toString().c_str(), AP_DOMAIN,
+                  dnsServerActive ? "on" : "off");
 }
 
 void startWebServer() {
@@ -1129,10 +1138,11 @@ void startWebServer() {
     static const char* COLLECTED_HEADERS[] = { "Accept-Encoding" };
     server.collectHeaders(COLLECTED_HEADERS, 1);
     server.begin();
-    Serial.printf("HTTP server listening on http://%s/\n",
-                  WiFi.softAPIP().toString().c_str());
+    Serial.printf("HTTP server listening on http://%s/ and http://%s/\n",
+                  AP_DOMAIN, WiFi.softAPIP().toString().c_str());
 }
 
 void webServerTick() {
+    if (dnsServerActive) dnsServer.processNextRequest();
     server.handleClient();
 }

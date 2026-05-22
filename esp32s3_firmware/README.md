@@ -40,7 +40,10 @@ After boot, connect to:
 
 - SSID: `RinaChanBoard-ESP32S3`
 - Password: `rinachan`
-- URL: `http://192.168.1.14/`
+- URL: `http://rina.io/`
+- Original IP URL: `http://192.168.1.14/`
+
+The AP runs a local DNS responder for `rina.io`; it resolves only while your browser/device is connected to the board's AP WiFi.
 
 Default startup brightness: `50/255`.
 After the startup sequence completes, the board displays the default face: `face_08_triangle_eyes_frown`.
@@ -64,7 +67,7 @@ The root script synchronizes the embedded `index.html` GNU Unifont font on every
 
 ### Font cache note
 
-After uploading LittleFS, force a reload with a cache-busting URL such as `http://192.168.1.14/?v=ark12-merged-trad1` or clear the browser cache for the ESP32 AP page.
+After uploading LittleFS, force a reload with a cache-busting URL such as `http://rina.io/?v=ark12-merged-trad1` or clear the browser cache for the ESP32 AP page. The original `http://192.168.1.14/` address still works.
 
 ## Text-scroll playback model
 
