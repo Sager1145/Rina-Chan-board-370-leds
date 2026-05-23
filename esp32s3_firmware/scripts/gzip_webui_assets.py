@@ -28,6 +28,7 @@ Import("env")  # noqa: F821  (PlatformIO injects this)
 # Paths are relative to the data/ (LittleFS source) directory.
 GZIP_TARGETS = [
     "index.html",
+    "styles.css",
     "resources/fonts/ark12.json",
 ]
 

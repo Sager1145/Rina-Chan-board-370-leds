@@ -14,9 +14,10 @@ $ProgressPreference = "SilentlyContinue"
 $ProjectDir = (Resolve-Path $PSScriptRoot).Path
 $PlatformioIni = Join-Path $ProjectDir "platformio.ini"
 $IndexHtml = Join-Path $ProjectDir "data\index.html"
+$StylesCss = Join-Path $ProjectDir "data\styles.css"
 $MainCpp = Join-Path $ProjectDir "src\main.cpp"
 
-if (-not (Test-Path $PlatformioIni) -or -not (Test-Path $IndexHtml) -or -not (Test-Path $MainCpp)) {
+if (-not (Test-Path $PlatformioIni) -or -not (Test-Path $IndexHtml) -or -not (Test-Path $StylesCss) -or -not (Test-Path $MainCpp)) {
     throw "This script must be run from inside the extracted esp32s3_firmware project folder."
 }
 
@@ -229,8 +230,8 @@ function Build-AndEmbedUnifontWebFont([string]$CacheDir) {
 
     Download-IfMissing -Url $UnifontPngUrl -Path $UnifontPng -Label "GNU Unifont $UnifontVersion BMP PNG sheet"
 
-    Write-Host "[font] building and embedding WebUI GNU Unifont subset into index.html only..."
-    Invoke-PythonChecked $Python @($UnifontTool, "--png", $UnifontPng, "--out", $TempUnifontWebFont, "--version", $UnifontVersion, "--embed-index", $IndexHtml) "GNU Unifont WebUI subset build/embed failed."
+    Write-Host "[font] building and embedding WebUI GNU Unifont subset into styles.css..."
+    Invoke-PythonChecked $Python @($UnifontTool, "--png", $UnifontPng, "--out", $TempUnifontWebFont, "--version", $UnifontVersion, "--embed-index", $StylesCss, "--text-file", $IndexHtml, "--text-file", $StylesCss, "--text-file", (Join-Path $ProjectDir "data\resources\saved_faces.json"), "--text-file", (Join-Path $ProjectDir "data\resources\runtime_settings.json"), "--text-file", (Join-Path $ProjectDir "data\resources\battery_calib.json")) "GNU Unifont WebUI subset build/embed failed."
 
     if (-not (Test-Path $TempUnifontWebFont)) {
         throw "Temporary GNU Unifont WebUI subset was not generated: $TempUnifontWebFont"
@@ -247,7 +248,7 @@ function Build-AndEmbedUnifontWebFont([string]$CacheDir) {
         Write-Host "[font] removing forbidden external WebUI Unifont resource: $ExternalUnifont"
         Remove-Item -Force $ExternalUnifont
     }
-    Write-Host "[font] embedded WebUI GNU Unifont subset into index.html; no LittleFS unifont.woff2 is kept."
+    Write-Host "[font] embedded WebUI GNU Unifont subset into styles.css; no LittleFS unifont.woff2 is kept."
 }
 
 function Ensure-EmbeddedUnifontWebFont([string]$CacheDir) {
@@ -326,10 +327,12 @@ import re
 import sys
 
 index_path = pathlib.Path(sys.argv[1])
-project_dir = pathlib.Path(sys.argv[2])
+css_path = pathlib.Path(sys.argv[2])
+project_dir = pathlib.Path(sys.argv[3])
 html = index_path.read_text(encoding="utf-8")
+css = css_path.read_text(encoding="utf-8")
 block_re = re.compile(r"@font-face\s*\{(?=[^{}]*font-family\s*:\s*['\"]GNU Unifont['\"])[^{}]*\}", re.S)
-blocks = block_re.findall(html)
+blocks = block_re.findall(css)
 if len(blocks) != 1:
     print(f"expected exactly one GNU Unifont @font-face block, found {len(blocks)}")
     raise SystemExit(1)
@@ -358,13 +361,20 @@ for path in external_paths:
     if path.exists():
         print(f"forbidden external WebUI Unifont resource still exists: {path}")
         raise SystemExit(1)
-compact_html = re.sub(r"\s+", "", html)
-if '--ui-font:"GNUUnifont"' not in compact_html:
+compact_css = re.sub(r"\s+", "", css)
+styles_link_re = re.compile(
+    r"<link\b(?=[^>]*\brel=['\"]stylesheet['\"])(?=[^>]*\bhref=['\"]styles\.css['\"])[^>]*>",
+    re.I,
+)
+if not styles_link_re.search(html):
+    print('index.html does not link styles.css')
+    raise SystemExit(1)
+if '--ui-font:"GNUUnifont"' not in compact_css:
     print('CSS variable --ui-font is not pinned to "GNU Unifont"')
     raise SystemExit(1)
 print(hashlib.sha256(embedded).hexdigest())
 '@
-    $result = Invoke-PythonTempScript -Python $Python -Code $code -Arguments @($IndexHtml, $ProjectDir)
+    $result = Invoke-PythonTempScript -Python $Python -Code $code -Arguments @($IndexHtml, $StylesCss, $ProjectDir)
     $outputText = (($result.Output | ForEach-Object { [string]$_ }) -join "`n").Trim()
     if ($result.ExitCode -ne 0) {
         if ($outputText) { Write-Host $outputText -ForegroundColor Yellow }
@@ -386,7 +396,7 @@ function Assert-RequiredFontResources {
         throw "Required font resources are missing. Re-run without -SkipPrepareFonts before uploadfs."
     }
     Assert-EmbeddedUnifontWebUi
-    Write-Host "[font] required LittleFS font resources are present. WebUI Unifont is embedded in index.html only."
+    Write-Host "[font] required LittleFS font resources are present. WebUI Unifont is embedded in styles.css only."
 }
 
 function Assert-LittleFSNameLengths {
