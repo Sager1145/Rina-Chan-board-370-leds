@@ -2,15 +2,15 @@
 <html data-boot-phase="preload" data-scroll-lock="boot" lang="zh-CN">
   <head>
     <meta charset="utf-8">
-    <!-- Document metadata and assets. SYNCTEST_MARKER -->
+    <!-- 文档元数据和资源。SYNCTEST_MARKER -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     >
     <title>Rina WebUI V2</title>
-    <!-- Boot preload: only the first loading-screen image is preloaded here. -->
-    <!-- The WebUI font and hover loading image are intentionally not preloaded. -->
-    <!-- They load after the phase 4 first-page reveal. -->
+    <!-- 启动预加载：这里只预加载第一张加载屏图片。 -->
+    <!-- WebUI 字体和悬停加载图片刻意不在这里预加载。 -->
+    <!-- 它们会在第 4 阶段首屏揭示后加载。 -->
     <link
       type="image/png"
       href="/resources/loading/rina_icon1_default.png"
@@ -27,11 +27,11 @@
       href="/resources/loading/rina_icon1_default.png"
       rel="shortcut icon"
     >
-    <!-- Global styles, layout rules, and component states. -->
+    <!-- 全局样式、布局规则和组件状态。 -->
     <link href="styles.css" rel="stylesheet">
   </head>
   <body>
-    <!-- Boot/loading overlay and application shell. -->
+    <!-- 启动/加载遮罩和应用外壳。 -->
     <div
       class="loading-overlay is-assets-pending"
       id="loadingOverlay"
@@ -98,9 +98,9 @@
         </button>
       </div>
     </aside>
-    <!-- Page selector top bar is opened from the brand hamburger, but kept on the highest UI layer.
-    z-index values are near the maximum practical range so it remains above
-    cards, matrices, and preview/control panels. -->
+    <!-- 页面选择顶栏由品牌区汉堡按钮打开，但保持在最高 UI 层。
+    z-index 值接近实际可用上限，确保它位于
+    卡片、矩阵和预览/控制面板之上。 -->
     <div class="top-page-nav" id="top-page-nav" aria-hidden="true">
       <div class="nav-shell" id="nav-shell">
         <div
@@ -112,7 +112,7 @@
       </div>
     </div>
     <div class="app">
-      <!-- Main application pages. -->
+      <!-- 主应用页面。 -->
       <main class="content">
         <section class="page active" id="page-basic">
           <div class="hero">
@@ -553,13 +553,13 @@
         </section>
       </main>
     </div>
-    <!-- WebUI runtime, LED matrix data, and firmware API handlers. -->
+    <!-- WebUI 运行时、LED 矩阵数据和固件 API 处理器。 -->
     <script>
 'use strict';
 
 /*
- * Editable WebUI configuration.
- * Change values here first; the runtime constants below derive from this object.
+ * 可编辑的 WebUI 配置。
+ * 优先在这里修改数值；下方运行时常量会从此对象派生。
  */
 const WEBUI_CONFIG = Object.freeze({
   faces: {
@@ -674,9 +674,9 @@ const WEBUI_CONFIG = Object.freeze({
   }
 });
 // -----------------------------------------------------------------------------
-// Data: expression/part library
+// 数据：表情/部件库
 // -----------------------------------------------------------------------------
-// Embedded LED expression/part library used by the preview and firmware payloads.
+// 内嵌 LED 表情/部件库，供预览和固件载荷使用。
 const EXPRESSION_PARTS = {
   "format": "rina_expression_parts_370_runtime_v4",
   "version": 4,
@@ -2506,9 +2506,9 @@ const EXPRESSION_PARTS = {
 };
 
 // -----------------------------------------------------------------------------
-// Configuration aliases and navigation metadata
+// 配置别名和导航元数据
 // -----------------------------------------------------------------------------
-// Page metadata used by the top navigation.
+// 顶部导航使用的页面元数据。
 const PAGES = [
   ['basic', '6.1', '基础功能'],
   ['custom', '6.2', '自定义表情'],
@@ -2517,7 +2517,7 @@ const PAGES = [
   ['debug', '6.5', '调试']
 ];
 
-// Matrix geometry and firmware/API constants.
+// 矩阵几何和固件/API 常量。
 const MATRIX = EXPRESSION_PARTS.matrix;
 const ROW_RANGES = MATRIX.row_valid_x_ranges;
 const TOTAL_LEDS = MATRIX.num_leds;
@@ -2573,7 +2573,7 @@ const WEBUI_BUTTON_COMMAND_INTERVAL_MS = WEBUI_CONFIG.firmwareQueues.buttonComma
 const WEBUI_BUTTON_COMMAND_QUEUE_MAX = WEBUI_CONFIG.firmwareQueues.buttonCommandQueueMax;
 
 // -----------------------------------------------------------------------------
-// Data: color preset libraries
+// 数据：颜色预设库
 // -----------------------------------------------------------------------------
 const parent_color_groups = [{
   id: 0,
@@ -2687,7 +2687,7 @@ const child_color_groups = {
 };
 
 // -----------------------------------------------------------------------------
-// Matrix geometry and physical/logical LED mapping
+// 矩阵几何以及物理/逻辑 LED 映射
 // -----------------------------------------------------------------------------
 const XY_TO_INDEX = Array.from({
   length: ROWS
@@ -2723,9 +2723,9 @@ for (let logical = 0; logical < TOTAL_LEDS; logical++) {
 }
 
 // -----------------------------------------------------------------------------
-// Runtime state
+// 运行时状态
 // -----------------------------------------------------------------------------
-// Runtime state mirrored between the WebUI controls and the firmware.
+// WebUI 控件和固件之间同步的运行时状态。
 let state = {
   mode: 'manual',
   faceIndex: 0,
@@ -2851,7 +2851,7 @@ let scroll = {
 };
 
 // -----------------------------------------------------------------------------
-// Shared helpers and DOM binding
+// 共享辅助函数和 DOM 绑定
 // -----------------------------------------------------------------------------
 function safeJsonParse(text, fallback = {}) {
   try {
@@ -2892,7 +2892,7 @@ function setClickHandlers(entries) {
   }
 }
 // -----------------------------------------------------------------------------
-// Button press feedback
+// 按钮按压反馈
 // -----------------------------------------------------------------------------
 const BUTTON_PRESS_DOWN_MS = WEBUI_CONFIG.interaction.buttonPressDownMs;
 const BUTTON_PRESS_UP_MS = WEBUI_CONFIG.interaction.buttonPressUpMs;
@@ -2994,7 +2994,7 @@ function initButtonPressAnimations() {
   });
 }
 // -----------------------------------------------------------------------------
-// Font loading
+// 字体加载
 // -----------------------------------------------------------------------------
 const UI_WEB_FONT_FAMILY = WEBUI_CONFIG.fonts.uiFamily;
 let uiFontObserverStarted = false;
@@ -3026,7 +3026,7 @@ async function ensureWebUiFontReady() {
   }
   applyWebUiFont();
   // GNU Unifont 影响 textarea 字符的实际宽高，加载完成后必须重新测量，
-  // 否则会保留用 fallback 字体或字体未加载时算出的旧高度（最糟糕的情况
+  // 否则会保留用备用字体或字体未加载时算出的旧高度（最糟糕的情况
   // 是页面当时是 display:none，scrollHeight=0，导致 height:0px 装不下文字）。
   if (typeof autoResizeM370Textareas === 'function') autoResizeM370Textareas();
   if (typeof autoResizeScrollTextInput === 'function') autoResizeScrollTextInput();
@@ -3047,7 +3047,7 @@ function observeWebUiFont() {
   });
 }
 // -----------------------------------------------------------------------------
-// Text-scroll font model
+// 文字滚动字体模型
 // -----------------------------------------------------------------------------
 const TEXT_SCROLL_FONT_MODEL = WEBUI_CONFIG.textScroll.fontModel;
 const TEXT_SCROLL_FONT_RESOURCE = WEBUI_CONFIG.textScroll.fontResource;
@@ -3091,7 +3091,7 @@ function ensureTextScrollBrowserFontReady() {
 }
 const TEXT_SCROLL_CHAR_SPACING = WEBUI_CONFIG.textScroll.charSpacing;
 const TEXT_SCROLL_SPACE_COLUMNS = WEBUI_CONFIG.textScroll.spaceColumns;
-const TEXT_SCROLL_MISSING_GLYPH_CP = WEBUI_CONFIG.textScroll.missingGlyphCodePoint; // No system-font fallback is used.
+const TEXT_SCROLL_MISSING_GLYPH_CP = WEBUI_CONFIG.textScroll.missingGlyphCodePoint; // 不使用系统字体回退。
 const arkPixelFont = {
   ready: false,
   loading: null,
@@ -3201,7 +3201,7 @@ function loadArkPixelFontTable(data) {
 }
 
 // -----------------------------------------------------------------------------
-// General utilities
+// 通用工具函数
 // -----------------------------------------------------------------------------
 function $(id) {
   return document.getElementById(id)
@@ -3314,14 +3314,14 @@ function apiUrl(path) {
   const p = String(path || '');
   if (/^https?:\/\//i.test(p)) return p;
   if (isOfflineHtmlMode()) {
-    // file:// cannot address ESP32 relative APIs. Keep these calls as no-op failures
-    // so the HTML remains usable offline after the user imports or opens saved_faces.json.
+    // file:// 无法访问 ESP32 的相对 API。保留这些调用为无操作失败，
+    // 这样用户导入或打开 saved_faces.json 后，HTML 仍可离线使用。
     return null;
   }
   return p.startsWith('/') ? p : '/' + p;
 }
 // -----------------------------------------------------------------------------
-// Firmware API client
+// 固件 API 客户端
 // -----------------------------------------------------------------------------
 async function apiGet(path, options = {}) {
   const url = apiUrl(path);
@@ -3473,7 +3473,7 @@ function shouldLogApiError() {
 }
 
 // -----------------------------------------------------------------------------
-// Power and firmware status synchronization
+// 电源和固件状态同步
 // -----------------------------------------------------------------------------
 function finitePowerNumber(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -3812,7 +3812,7 @@ function applyFirmwareRuntimeState(data, source = 'firmware_status', options = {
 }
 
 // -----------------------------------------------------------------------------
-// Firmware command queues
+// 固件命令队列
 // -----------------------------------------------------------------------------
 function sendAuxCommand(cmd, payload = {}, source = 'webui') {
   firmware.sentCommands++;
@@ -4028,13 +4028,13 @@ function orFrameIntoFrame(targetFrame, sourceFrame) {
 }
 
 function orPartIntoFrame(frame, part) {
-  // Canonical WebUI/M370 path: use part.m370 because it is logical row-major data.
-  // Legacy strip_indices are physical serpentine positions, so map them back to logical cells.
+  // 标准 WebUI/M370 路径：使用 part.m370，因为它是按逻辑行优先排列的数据。
+  // 旧版 strip_indices 是物理蛇形位置，因此需要映射回逻辑单元。
   if (part && typeof part.m370 === 'string') {
     orFrameIntoFrame(frame, m370ToFrame(part.m370));
     return;
   }
-  // Fallback only for malformed legacy assets.
+  // 仅作为畸形旧资源的兜底。
   for (const idx of (part?.strip_indices || [])) {
     const logical = physicalToLogicalIndex(idx);
     if (logical >= 0 && logical < TOTAL_LEDS) frame[logical] = true;
@@ -4085,9 +4085,9 @@ function terminateOtherActivities(targetMode = 'static', reason = 'mode_change')
   const ended = [];
   const previousPlayback = state.playback;
 
-  // One-way guard rule:
-  // Starting/sending another mode is a hard interruption, not a temporary pause.
-  // Nothing stopped here is automatically resumed after the new mode ends.
+  // 单向保护规则：
+  // 启动/发送另一种模式是硬中断，不是临时暂停。
+  // 这里停止的内容不会在新模式结束后自动恢复。
   if (targetMode !== 'face' && isAutoModeValue(state.mode)) {
     state.restoreAutoAfterScroll = targetMode === 'scroll';
     state.mode = 'manual';
@@ -4189,7 +4189,7 @@ function setBrightness(v, source = 'brightness_change') {
 }
 
 // -----------------------------------------------------------------------------
-// Boot loader and initial firmware sync
+// 启动加载器和初始固件同步
 // -----------------------------------------------------------------------------
 const BOOT_STATUS_ENDPOINT = `${API_ENDPOINTS.status}${RUNTIME_STATUS_QUERY}`;
 const BOOT_STATUS_TIMEOUT_MS = WEBUI_CONFIG.api.bootStatusTimeoutMs;
@@ -4205,7 +4205,7 @@ function unlockBootPageScroll() {
     document.documentElement.removeAttribute('data-scroll-lock');
   }
 }
-// ── Rina Loading Overlay Animation ─────────────────────────────────
+// ── Rina 加载遮罩动画 ─────────────────────────────────
 (function() {
   const ICON_BEFORE = WEBUI_CONFIG.boot.loadingIconBefore;
   const ICON_AFTER = WEBUI_CONFIG.boot.loadingIconAfter;
@@ -4442,8 +4442,8 @@ function unlockBootPageScroll() {
     overlay.setAttribute('aria-label', '页面加载中');
     started = true;
     window.rinaLoaderStartedAt = haloCycleStart;
-    // Hover loading image is intentionally NOT preloaded here (phase 3). It loads lazily in
-    // doFinish() — i.e. after the phase 4 first-page reveal — to keep the initial preload minimal.
+    // 悬停加载图片刻意不在这里（第 3 阶段）预加载。它会在
+    // doFinish() 中延迟加载，也就是第 4 阶段首屏揭示之后，以保持初始预加载最小。
     if (finishQueued) {
       finishQueued = false;
       requestAnimationFrame(requestFinish);
@@ -4546,9 +4546,9 @@ async function preloadFirmwareRuntimeState() {
   }
   try {
     lastFirmwareStatusPollAt = performance.now();
-    // Fetch the FULL status (includes the first LED frame in renderer.lastM370) rather
-    // than the runtimeOnly/noFrame summary, and apply it with skipFrame:false, so the
-    // basic matrix preview is populated by the first frame during the loading animation.
+    // 获取完整状态（包含 renderer.lastM370 中的第一帧 LED），
+    // 而不是 runtimeOnly/noFrame 摘要，并用 skipFrame:false 应用它，
+    // 让基础矩阵预览在加载动画期间就由第一帧填充。
     const data = await bootFastJsonGet(firmwareStatusPath(false));
     rememberFirmwareStatusPoll(data);
     bootRuntimeSnapshot = {
@@ -4814,7 +4814,7 @@ function switchPage(id) {
 }
 
 // -----------------------------------------------------------------------------
-// Navigation, responsive layout, and custom selects
+// 导航、响应式布局和自定义选择器
 // -----------------------------------------------------------------------------
 function initNav() {
   const nav = $('nav');
@@ -4867,8 +4867,8 @@ const SELECT_MENU_HIDE_DELAY_MS = WEBUI_CONFIG.interaction.selectMenuHideDelayMs
 
 function lockPageScrollForSelects() {
   if (selectScrollLock) return;
-  // Just a flag — we block scrolling via event interception, leaving the
-  // scrollbar visible and the layout untouched (no overflow change).
+  // 只是一个标记：通过拦截事件阻止滚动，保持
+  // 滚动条可见且布局不变（不修改 overflow）。
   selectScrollLock = true;
 }
 
@@ -4880,7 +4880,7 @@ function syncSelectPageScrollLock() {
   if (document.querySelector('.select-shell.open')) lockPageScrollForSelects();
   else unlockPageScrollForSelects();
 }
-// Block touchmove outside the dropdown (touch scroll)
+// 阻止下拉菜单外的 touchmove（触摸滚动）
 function selectMenuCanScroll(menu) {
   return !!menu && getComputedStyle(menu).overflowY !== 'hidden' && menu.scrollHeight > menu.clientHeight + 1;
 }
@@ -4891,14 +4891,14 @@ function blockPageTouchMoveWhileSelectOpen(ev) {
   if (selectMenuCanScroll(menu)) return;
   ev.preventDefault();
 }
-// Block wheel events outside the dropdown (mouse/trackpad scroll)
+// 阻止下拉菜单外的 wheel 事件（鼠标/触控板滚动）
 function blockPageWheelWhileSelectOpen(ev) {
   if (!selectScrollLock) return;
   const menu = ev.target?.closest?.('.select-menu');
   if (selectMenuCanScroll(menu)) return;
   ev.preventDefault();
 }
-// Block keyboard scroll keys outside the dropdown
+// 阻止下拉菜单外的键盘滚动键
 const PAGE_SCROLL_KEYS = new Set(WEBUI_CONFIG.interaction.pageScrollKeys);
 
 function blockPageKeyScrollWhileSelectOpen(ev) {
@@ -4916,23 +4916,23 @@ function positionSelectMenu(shell, options = {}) {
   const viewport = viewportBoundsForFixedMenu();
   const viewportPadding = 8;
   const menuGap = 8;
-  // verticalOnly: skip width/left recalc (used for window scroll events to prevent horizontal jumps)
+  // verticalOnly：跳过宽度/左偏移重算（用于窗口滚动事件，防止水平跳动）
   if (!options.verticalOnly) {
-    // Mirror the toggle's exact width and left edge — no rounding, no clamping.
-    shell._selectMenuWidth = r.width; // keep truthy so the "is open" flag stays set
+    // 镜像切换按钮的精确宽度和左边缘，不做舍入或夹取。
+    shell._selectMenuWidth = r.width; // 保持为真值，让“已打开”标记持续有效
     menu.style.width = r.width + 'px';
     menu.style.left = r.left + 'px';
   }
-  // position below by default; flip above if not enough room
+  // 默认放在下方；空间不足时翻到上方
   const spaceBelow = Math.max(0, viewport.bottom - r.bottom - menuGap - viewportPadding);
   const spaceAbove = Math.max(0, r.top - viewport.top - menuGap - viewportPadding);
   const openBelow = spaceBelow >= 96 || spaceBelow >= spaceAbove;
-  // Available height = full space on the chosen side, no arbitrary cap.
-  // The menu grows to show all buttons; scrolls (invisibly) only if they don't all fit.
+  // 可用高度等于所选方向的完整空间，不设置任意上限。
+  // 菜单会尽量展开以显示所有按钮；只有放不下时才进行不可见滚动。
   const availableHeight = Math.max(48, openBelow ? spaceBelow : spaceAbove);
   const menuStyle = getComputedStyle(menu);
   const borderY = parseFloat(menuStyle.borderTopWidth || '0') + parseFloat(menuStyle.borderBottomWidth || '0');
-  const naturalH = menu.scrollHeight; // full content height including padding, excluding borders
+  const naturalH = menu.scrollHeight; // 内容完整高度，包含内边距但不含边框
   const naturalOuterH = Math.ceil(naturalH + borderY);
   const fitsAllOptions = naturalOuterH <= availableHeight + 1;
   const menuH = fitsAllOptions ? naturalOuterH : availableHeight;
@@ -5106,7 +5106,7 @@ function initCustomSelectDropdowns() {
   window.addEventListener('wheel', blockPageWheelWhileSelectOpen, {
     passive: false
   });
-  // reposition open menus on scroll/resize
+  // 滚动或调整尺寸时重新定位已打开的菜单
   const reposition = () => {
     document.querySelectorAll('.select-shell.open').forEach(shell => positionSelectMenu(shell));
   };
@@ -5121,12 +5121,12 @@ function initCustomSelectDropdowns() {
   window.visualViewport?.addEventListener('resize', reposition, {
     passive: true
   });
-  // visualViewport scroll (pinch-zoom pan): full reposition needed
+  // visualViewport 滚动（双指缩放后的平移）：需要完整重定位
   window.visualViewport?.addEventListener('scroll', reposition, {
     passive: true
   });
-  // window scroll: only update vertical position to avoid horizontal width/left jumps.
-  // Skip entirely when scroll is locked (page isn't actually scrolling; events are spurious).
+  // 窗口滚动：只更新垂直位置，避免水平宽度/左偏移跳动。
+  // 滚动锁定时完全跳过（页面并未真正滚动，这些事件是冗余的）。
   window.addEventListener('scroll', () => {
     if (selectScrollLock) return;
     document.querySelectorAll('.select-shell.open').forEach(shell => positionSelectMenu(shell, {
@@ -5139,7 +5139,7 @@ function initCustomSelectDropdowns() {
 }
 
 // -----------------------------------------------------------------------------
-// LED matrix rendering and editing
+// LED 矩阵渲染和编辑
 // -----------------------------------------------------------------------------
 function initMatrix(id, frameProvider, editable = false, editHandler = null, compact = false) {
   const el = $(id);
@@ -5222,10 +5222,10 @@ function fitMatrix(view) {
   const edgeRatioRaw = parseFloat(wrapStyle.getPropertyValue('--led-preview-edge-ratio'));
   const edgeRatio = Number.isFinite(edgeRatioRaw) && edgeRatioRaw >= 0 ? edgeRatioRaw : 0.1000;
 
-  // Smooth live scaling: keep the transparent inset proportional to --cell.
-  // The fitting formula reserves 2 * edgeRatio * cell inside the wrapper, so
-  // the LED matrix edge gap shrinks and grows with the LED grid instead of
-  // staying fixed while the card changes size.
+  // 平滑实时缩放：保持透明内边距与 --cell 成比例。
+  // 适配公式会在包装层内预留 2 * edgeRatio * cell，
+  // 因此 LED 矩阵边距会随 LED 网格一起缩放，
+  // 不会在卡片尺寸变化时保持固定。
   const wrapRect = wrap.getBoundingClientRect();
   if (wrapRect.width <= 0 || wrap.offsetParent === null) {
     const cell = clamp(defaultCell, minCell, maxCell);
@@ -5365,7 +5365,7 @@ function batteryPowerText() {
 }
 
 // -----------------------------------------------------------------------------
-// UI renderers
+// UI 渲染器
 // -----------------------------------------------------------------------------
 function renderState() {
   const library = getAllFaces();
@@ -5493,9 +5493,9 @@ function escapeHtml(s) {
 
 function autoResizeTextarea(el) {
   if (!el) return;
-  // If the element (or any ancestor) is display:none, offsetParent is null and
-  // scrollHeight returns 0. Bail out instead of collapsing height to 0px; we
-  // will be called again from switchPage() once the page is shown.
+  // 如果元素（或任一祖先）是 display:none，offsetParent 会是 null，
+  // scrollHeight 也会返回 0。此时直接退出，避免把高度压成 0px；
+  // 页面显示后 switchPage() 会再次调用这里。
   if (el.offsetParent === null && el !== document.body) {
     el.dataset.pendingAutoresize = '1';
     return;
@@ -5529,7 +5529,7 @@ function updateM370Views() {
 }
 
 // -----------------------------------------------------------------------------
-// Color, brightness, and mode controls
+// 颜色、亮度和模式控制
 // -----------------------------------------------------------------------------
 function initColorInput() {
   const input = $('color-input');
@@ -5916,7 +5916,7 @@ function applyKnownFaceIndexLocal(reason = 'firmware_face_index_preview') {
   return true;
 }
 // -----------------------------------------------------------------------------
-// Saved face library persistence
+// 已保存表情库持久化
 // -----------------------------------------------------------------------------
 async function loadFaceLibrary() {
   const doc = await loadUnifiedFacesDocument();
@@ -6476,7 +6476,7 @@ function deleteFace(i) {
 }
 
 // -----------------------------------------------------------------------------
-// Expression-part composer
+// 表情部件组合器
 // -----------------------------------------------------------------------------
 function initParts() {
   const groups = $('part-groups');
@@ -6647,7 +6647,7 @@ function randomParts() {
   for (const key of ['mouth', 'cheek']) {
     let arr = EXPRESSION_PARTS.call.ids[key].slice();
     if (key !== 'cheek') arr = arr.filter(id => String(id) !== '0');
-    // cheek=400 is an explicit empty cheek call and remains valid for random.
+    // cheek=400 表示明确的空脸颊调用，在随机模式中仍然有效。
     selectedCall[key] = String(arr[Math.floor(Math.random() * arr.length)]);
   }
   composePartsFrame();
@@ -6656,7 +6656,7 @@ function randomParts() {
 }
 
 // -----------------------------------------------------------------------------
-// Text scroll timeline
+// 文字滚动时间线
 // -----------------------------------------------------------------------------
 function truncateScrollText(text) {
   return Array.from(String(text ?? '')).slice(0, MAX_SCROLL_TEXT_CHARS).join('');
@@ -6682,10 +6682,10 @@ function autoResizeScrollTextInput() {
 }
 
 let scrollBitmapFontLazyStarted = false;
-// Lazily fetch the heavy Ark Pixel text-scroll assets (≈593KB browser woff2 +
-// ≈1.8MB bitmap glyph table) only when the text-scroll feature is actually used,
-// keeping ~2.4MB off the boot/post-boot waterfall. Both underlying loaders cache
-// their promises, so calling this repeatedly (e.g. each scroll-page entry) is cheap.
+// 仅在实际使用文字滚动功能时，才延迟获取较大的 Ark Pixel 文字滚动资源
+// （约 593KB 浏览器 woff2 + 约 1.8MB 位图字形表），
+// 让约 2.4MB 资源避开启动/启动后瀑布流。底层两个加载器都会缓存
+// 各自的承诺对象，因此重复调用（例如每次进入滚动页面）成本很低。
 function ensureScrollFontsLoaded() {
   ensureTextScrollBrowserFontReady().then(loaded => {
     if (loaded) autoResizeScrollTextInput();
@@ -6700,10 +6700,9 @@ function ensureScrollFontsLoaded() {
 function initScroll() {
   applyTextScrollInputFont();
   autoResizeScrollTextInput();
-  // The heavy Ark Pixel assets are NOT fetched here at boot. They are lazy-loaded on
-  // first entry to the text-scroll page (see switchPage -> ensureScrollFontsLoaded),
-  // and the scroll start path also awaits ensureArkPixelFontReady(), so playback is
-  // always safe even if the user jumps straight to playing.
+  // 较大的 Ark Pixel 资源不会在这里随启动获取。它们会在
+  // 首次进入文字滚动页面时延迟加载（见 switchPage -> ensureScrollFontsLoaded），
+  // 而滚动启动路径也会等待 ensureArkPixelFontReady()，因此即使用户直接播放也安全。
   $('scroll-play').onclick = startScroll;
   $('scroll-pause').onclick = togglePauseScroll;
   $('scroll-stop').onclick = stopScroll;
@@ -7242,7 +7241,7 @@ function normalizeGlyphRows(rows, width, height) {
       out.push(row.padEnd(w, '0').slice(0, w));
       continue;
     }
-    // Defensive fallback for older packed rows that may still be hex strings.
+    // 防御性兜底：兼容可能仍是十六进制字符串的旧版压缩行。
     let bits = '';
     const clean = row.replace(/[^0-9a-fA-F]/g, '');
     for (const ch of clean) bits += parseInt(ch, 16).toString(2).padStart(4, '0');
@@ -7373,9 +7372,9 @@ function updateScrollUi() {
   if (progressLabel) progressLabel.textContent = scroll.uploadLabel || '等待发送';
 }
 
-// Matrix previews share one initialization path so sizing and rendering stay consistent.
+// 矩阵预览共用同一条初始化路径，确保尺寸和渲染保持一致。
 // -----------------------------------------------------------------------------
-// Debug controls and deferred initialization
+// 调试控件和延迟初始化
 // -----------------------------------------------------------------------------
 function initializeMatrixViews() {
   matrixViews = [];
@@ -7407,7 +7406,7 @@ function resetBatteryVoltageRecord(kind) {
   });
 }
 
-// Debug controls send diagnostic commands and local test patterns.
+// 调试控件会发送诊断命令和本地测试图案。
 function initializeDebugControls() {
   setClickHandlers([
     ['debug-all-off', () => setCurrentFrame(blankFrame(), 'debug_all_off', 'idle')],
@@ -7606,19 +7605,17 @@ async function runPostBootDeferredReads(bootOk = false) {
   renderState();
   scheduleMatrixFitRender(3);
 
-  // Warm the text-scroll browser font (ark12.woff2, ~593KB) in the background now that
-  // the critical boot reads (runtime status + saved_faces + preview) are done but while
-  // the loading animation is still on screen. This gives the text-scroll page its font
-  // ahead of time, so it no longer swaps in a few seconds after the user opens it.
-  // It is started after the critical reads to avoid contending with them on the
-  // single-threaded ESP web server. (The heavier 1.8MB ark12.json bitmap table stays
-  // lazy — it loads on first text-scroll page entry; see switchPage.)
+  // 关键启动读取（运行时状态 + saved_faces + 预览）完成后，且加载动画仍在屏幕上时，
+  // 在后台预热文字滚动浏览器字体（ark12.woff2，约 593KB）。这样文字滚动页面
+  // 会提前拥有字体，用户打开后就不会再过几秒才替换字体。
+  // 它会在关键读取之后启动，避免与这些读取竞争单线程 ESP Web 服务器。
+  // 较大的 1.8MB ark12.json 位图字形表仍保持延迟加载，首次进入文字滚动页面时加载；见 switchPage。
   ensureTextScrollBrowserFontReady().catch(() => {});
 }
 
 const BOOT_MIN_DISPLAY_MS = WEBUI_CONFIG.boot.minDisplayMs;
 // -----------------------------------------------------------------------------
-// Application bootstrap
+// 应用启动
 // -----------------------------------------------------------------------------
 async function bootstrapWebUi() {
   const bootStart = performance.now();
@@ -7626,10 +7623,10 @@ async function bootstrapWebUi() {
   try {
     if (window.rinaStartLoaderAnimation) await window.rinaStartLoaderAnimation();
     prepareFirstPageProgressiveReveal();
-    // The UI font (GNU Unifont, embedded data URI) MUST be fully ready BEFORE the phase 4
-    // waterfall reveal, so the first page reveals already showing the correct font.
-    // It is embedded (no network) so this await is fast. The ark12 scroll font stays
-    // deferred and loads later via initScroll (after phase 4).
+    // UI 字体（GNU Unifont，内嵌 data URI）必须在第 4 阶段
+    // 瀑布揭示前完全就绪，这样首屏揭示时就已经显示正确字体。
+    // 它是内嵌的（无网络请求），因此这个 await 很快。ark12 滚动字体保持
+    // 延后，并在第 4 阶段之后通过 initScroll 加载。
     await ensureWebUiFontReady().catch(err => console.warn('WebUI font bootstrap failed', err));
     initFirstPageUiBeforeShow();
     initializeBasicPreviewMatrix();
@@ -7638,14 +7635,13 @@ async function bootstrapWebUi() {
     await new Promise(resolve => requestAnimationFrame(resolve));
     const firstPageRevealPromise = revealFirstPageWaterfall();
 
-    // Phase 4 first: wait for the first-page waterfall reveal to finish.
+    // 先处理第 4 阶段：等待首屏瀑布揭示完成。
     await firstPageRevealPromise;
 
-    // Start the boot firmware read (now INCLUDING the first LED frame) at the START of
-    // the minimum-display window so it overlaps that otherwise-idle wait. The first
-    // matrix frame + runtime state are applied while the loading animation is still on
-    // screen, so the basic matrix preview is already populated when the loader
-    // dismisses/reveals the page — without blocking the dismiss on the network.
+    // 在最短显示窗口开始时启动固件启动读取（现在包含第一帧 LED），
+    // 让它与原本空闲的等待时间重叠。第一帧矩阵 + 运行时状态会在
+    // 加载动画仍显示时应用，因此加载器关闭/揭示页面时，
+    // 基础矩阵预览已经填充完成，同时不会让关闭过程等待网络。
     const runtimePingPromise = preloadFirmwareRuntimeState().then(() => {
       bootOk = !!bootRuntimeSnapshot.ok;
       applyBrightnessLocal(state.brightness);
@@ -7670,8 +7666,8 @@ async function bootstrapWebUi() {
     scheduleMatrixFitRender(4);
     initDeferredUiAfterShow();
 
-    // Ensure the runtime snapshot (and bootOk) is settled before the deferred reads
-    // and status polling that depend on it.
+    // 确保运行时快照（以及 bootOk）先稳定下来，
+    // 再启动依赖它的延迟读取和状态轮询。
     await runtimePingPromise;
 
     startFirmwareStatusPolling();
