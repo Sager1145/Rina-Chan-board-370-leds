@@ -7040,6 +7040,11 @@ async function startScroll() {
 
 function togglePauseScroll() {
   if (scroll.pauseToggleLocked) return;
+  if (scroll.systemPaused && !scroll.userPaused) {
+    updateScrollUi();
+    renderState();
+    return;
+  }
   scroll.pauseToggleLocked = true;
   setTimeout(() => {
     scroll.pauseToggleLocked = false;
@@ -7385,13 +7390,14 @@ function updateScrollUi() {
   if (stateEl) stateEl.textContent = label;
   if (indexEl) indexEl.textContent = `${scroll.frameIndex || 0} / ${scroll.frames?.length || 0}`;
   if (pauseBtn) {
-    const enabled = firmwarePlaying || scroll.active || scroll.paused;
+    const effectivePaused = scroll.paused || state.playback === 'scroll_paused';
+    const systemPauseOnly = scroll.systemPaused && !scroll.userPaused;
+    const enabled = (firmwarePlaying || scroll.active || scroll.paused) && !systemPauseOnly;
     pauseBtn.disabled = !enabled;
     pauseBtn.setAttribute('aria-disabled', enabled ? 'false' : 'true');
-    const userPaused = !!scroll.userPaused;
-    const isPaused = userPaused;
-    pauseBtn.classList.toggle('active', !userPaused && enabled);
-    pauseBtn.setAttribute('aria-pressed', (!userPaused && enabled) ? 'true' : 'false');
+    const isPaused = effectivePaused;
+    pauseBtn.classList.toggle('active', !isPaused && enabled);
+    pauseBtn.setAttribute('aria-pressed', (!isPaused && enabled) ? 'true' : 'false');
     pauseBtn.textContent = isPaused ? '继续' : '暂停';
   }
   if (playBtn) {
