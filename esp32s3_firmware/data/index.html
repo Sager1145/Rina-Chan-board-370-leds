@@ -28,7 +28,7 @@
       rel="shortcut icon"
     >
     <!-- 全局样式、布局规则和组件状态。 -->
-    <link href="styles.css?v=20260524-ark12-fusion-v2" rel="stylesheet">
+    <link href="styles.css?v=20260524-scroll-layout-mobile-v4" rel="stylesheet">
   </head>
   <body>
     <!-- 启动/加载遮罩和应用外壳。 -->
@@ -123,8 +123,8 @@
           <div class="basic-layout">
             <div class="control-panel">
               <h3>颜色 / 亮度 / 保存表情 / A-M 模式</h3>
-              <div class="card control-section flush">
-                <h4>颜色控制</h4>
+              <div class="card control-section">
+                <h3>颜色控制</h3>
                 <div class="color-control-row">
                   <div class="color-swatch" id="color-swatch"></div>
                   <div class="field">
@@ -158,7 +158,7 @@
                 </div>
               </div>
               <div class="card control-section">
-                <h4>亮度控制</h4>
+                <h3>亮度控制</h3>
                 <div class="slider-step-row">
                   <button id="brightness-reset-default" type="button">重置默认亮度</button>
                   <button
@@ -192,7 +192,7 @@
                 <div class="button-row" id="brightness-presets"></div>
               </div>
               <div class="card control-section">
-                <h4>自动表情切换间隔(s) / A-M 模式</h4>
+                <h3>自动表情切换间隔(s) / A-M 模式</h3>
                 <div class="button-row mode-button-row">
                   <button
                     id="face-prev"
@@ -289,7 +289,7 @@
                   <input id="custom-name" value="custom_face">
                 </div>
               </div>
-              <h4>统一 saved_faces.json</h4>
+              <h3>统一 saved_faces.json</h3>
               <div class="row">
                 <button class="faces-json-load" type="button">读取 saved_faces.json</button>
                 <button class="faces-json-open-local" type="button">打开本地 saved_faces.json</button>
@@ -303,7 +303,7 @@
                   hidden
                 >
               </div>
-              <h4>统一表情列表</h4>
+              <h3>统一表情列表</h3>
               <div class="list face-library-list"></div>
             </div>
           </div>
@@ -357,7 +357,7 @@
                   <input id="parts-name" value="parts_face">
                 </div>
               </div>
-              <h4>统一 saved_faces.json</h4>
+              <h3>统一 saved_faces.json</h3>
               <div class="row">
                 <button class="faces-json-load" type="button">读取 saved_faces.json</button>
                 <button class="faces-json-open-local" type="button">打开本地 saved_faces.json</button>
@@ -371,7 +371,7 @@
                   hidden
                 >
               </div>
-              <h4>统一表情列表</h4>
+              <h3>统一表情列表</h3>
               <div class="list face-library-list"></div>
             </div>
           </div>
@@ -486,7 +486,7 @@
                 <button data-gpio="B3B2" type="button">B3+B2 间隔+</button>
                 <button data-gpio="B6B3" type="button">B6+B3 网络信息</button>
               </div>
-              <h4>LED / 协议测试</h4>
+              <h3>LED / 协议测试</h3>
               <div class="row">
                 <button id="debug-all-off" type="button">全黑</button>
                 <button id="debug-all-on" type="button">全亮</button>
