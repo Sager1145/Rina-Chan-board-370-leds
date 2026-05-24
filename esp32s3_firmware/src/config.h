@@ -181,8 +181,9 @@ constexpr uint16_t LED_RENDER_MIN_GAP_US         = 2500;
 // Boot / stop-clear timing
 // ---------------------------------------------------------------------------
 constexpr uint16_t LED_STOP_CLEAR_BLANK_HOLD_MS    = 90;
-constexpr uint16_t LED_BOOT_CLEAR_HOLD_MS           = 120;
-constexpr uint16_t LED_BOOT_STARTUP_SETTLE_MS       = 40;
+constexpr uint16_t LED_BOOT_DATA_LOW_HOLD_MS        = 20;
+constexpr uint16_t LED_BOOT_CLEAR_HOLD_MS           = 350;
+constexpr uint16_t LED_BOOT_STARTUP_SETTLE_MS       = 120;
 
 // ---------------------------------------------------------------------------
 // Defaults / string constants

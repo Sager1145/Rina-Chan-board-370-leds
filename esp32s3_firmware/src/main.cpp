@@ -18,6 +18,14 @@
 // ---------------------------------------------------------------------------
 
 void setup() {
+    // Hold the WS2812/SK6812 data line low immediately after reset.
+    // Without this early clamp, the line can float during Serial startup and
+    // the LEDs may latch a random first frame before strip.begin() clears them.
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, LOW);
+    delay(LED_BOOT_DATA_LOW_HOLD_MS);
+    delayMicroseconds(LED_SIGNAL_RESET_US);
+
     Serial.begin(115200);
     delay(200);
     runtimeState().bootMs = millis();

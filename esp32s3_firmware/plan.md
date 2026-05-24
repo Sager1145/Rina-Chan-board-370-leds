@@ -20728,3 +20728,48 @@ The WebUI text-scroll font preload loads both the base Ark12 family and the fusi
 - `loadArkPixelFontTable()` parses JSON glyph tuples in the documented/original order: `[advance, width, height, xOffset, yOffset, dstY, rowsHex]`.
 - The text-scroll bitmap loader now explicitly validates required patched glyphs: `然 U+7136`, `燃 U+71C3`, `滚 U+6EDA`, `滾 U+6EFE`.
 - `run_rinachan_unifont.ps1` now regenerates `index.html.gz` and `styles.css.gz` after font preparation, so the ESP32 does not serve stale compressed WebUI assets during `-UploadFS`.
+
+## 2026-05-24 Text Scroll FPS Card-Edge Alignment Fix
+
+- The 6.4 text-scroll FPS controls must align to the right edge of the **文字滚动控制 card content area**, not to an intermediate `.row` / subdiv edge.
+- The FPS control block is now a direct child of the text-scroll control card:
+  - Removed the extra wrapper around `.field.scroll-fps-control`.
+  - `.scroll-fps-control` remains the semantic field container for the FPS label, reset button, `-5/+5` buttons, range input, numeric input, and FPS presets.
+- `data/styles.css` includes a final card-edge alignment override:
+  - `#page-scroll .card.stack > .scroll-fps-control` stretches to `width:100%` and `justify-self:stretch`.
+  - `#page-scroll .card.stack > .scroll-fps-control .slider-step-row` is a 3-column grid: `reset button | -5 | +5`.
+  - `#page-scroll .card.stack > .scroll-fps-control .brightness-row` uses the same `range + number` grid pattern as the 6.1 brightness control.
+- `data/index.html.gz` and `data/styles.css.gz` must be regenerated whenever these files change.
+
+## 2026-05-24 更新：6.4 帧率控件按 card 边缘对齐 v3
+
+- 为文字滚动控制卡片增加 `scroll-control-card` class。
+- 将 6.4 帧率控件所在 card 强制设为单列全宽 grid：`grid-template-columns: minmax(0, 1fr)`。
+- 强制 `scroll-control-card` 的直接子级、`.scroll-fps-control`、按钮行和滑条行全部 `width:100%`、`justify-self:stretch`。
+- `-5 / +5` 按钮使用固定列宽并贴齐 card 内容区右边缘，不再对齐内部 subdiv 的右边缘。
+- `scroll-speed-range` 与 `scroll-speed` 输入框共用同一条 card 宽度轨道，数字框右边缘与按钮右边缘一致。
+- 已同步更新 `data/index.html.gz` 和 `data/styles.css.gz`。
+
+
+## 2026-05-24 6.4 文字滚动控制拆分 card 修复
+
+- 将 6.4 文字滚动页面右侧控制区由单一 `card stack scroll-control-card` 拆分为两个独立 card：`scroll-text-card`（滚动文字输入）与 `scroll-fps-card`（帧率 fps / 发送控制 / 状态）。
+- 目的：解决手机浏览器中 `.field.scroll-fps-control` 内部按钮、滑动条、数字输入框无法对齐到外层 div card 内容右边缘的问题。
+- 帧率区域不再依赖原 `.row` 或 `.scroll-control-card` 的宽度推导；`.scroll-fps-card` 直接建立单列全宽 grid，`.slider-step-row` 与 `.brightness-row` 均按 card 内容宽度 `100%` 对齐。
+- 保留 `scroll-speed-reset-default`、`scroll-speed-minus`、`scroll-speed-plus`、`scroll-speed-range`、`scroll-speed`、`scroll-speed-presets` 的原 ID，不影响现有 JavaScript 绑定逻辑。
+- 已同步更新 `data/index.html.gz` 与 `data/styles.css.gz`。
+
+## 2026-05-24 6.4 帧率 fps card 外框右边缘对齐最终修复
+
+- 将 6.4 文字滚动控制拆分后的 `scroll-fps-card` 作为帧率控件的独立 card。
+- 对齐目标明确为 `.card.stack.scroll-fps-card` 的 card 外框右边缘，而不是内部 `.button-row` 或 `.field.scroll-fps-control` 的收缩边缘。
+- `data/styles.css` 最终覆盖规则通过 `width: calc(100% + 30px)` 与左右 `margin: -15px` 抵消 card 默认 padding，使 `−5`、`+5` 和 `#scroll-speed` 数字输入框右边缘贴齐 card 右边框。
+- 同步更新 `data/styles.css.gz` 与 `data/index.html.gz`。
+- 删除滚动文字输入 textarea 上方重复的 `滚动文字输入` label，仅保留该独立 card 的标题。
+
+## H4 标题统一修复
+
+- 所有 WebUI card/page 内的 `h4` 统一使用同一套 CSS 规则。
+- 统一规则位于 `data/styles.css` 末尾的“全局 h4 标题统一规则”。
+- 统一后的 `h4`：`margin: 0 0 2px`、`padding: 0`、`font-size: 16px`、`line-height: 1.2`、`font-weight: 700`、`display: flex`、`gap: 8px`、`color: var(--text)`。
+- `data/styles.css.gz` 已同步更新，避免 ESP32 继续发送旧压缩 CSS。
