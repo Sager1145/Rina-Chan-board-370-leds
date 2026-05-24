@@ -39,11 +39,17 @@ bool applyM370(const String& input, const String& reason, String& error);
 // Copy pre-decoded packed bits into frameBits and schedule a render.
 void applyPackedFrame(const uint8_t* packedBits, const String& reason);
 
+// Copy pre-decoded packed bits immediately, bypassing the M370 rate-limit queue.
+void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason);
+
 // Clear frameBits to all-off and schedule a render.
 void applyBlankFrame(const String& reason);
 
 // Drain one queued M370/pumped frame when the global frame rate limiter allows it.
 void serviceM370FrameQueue();
+
+// Drop any pending queued frames that should no longer be allowed to surface.
+void clearQueuedM370Frames();
 
 // Current number of queued frames waiting for the global frame rate limiter.
 uint8_t queuedM370FrameCount();

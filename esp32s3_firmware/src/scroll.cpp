@@ -35,20 +35,27 @@ static void scrollRenderTask(void* parameter) {
             const uint32_t elapsedMs = now - runtimeState().lastScrollFrameMs;
 
             if (elapsedMs >= intervalMs) {
-                const uint32_t rawSteps = elapsedMs / intervalMs;
-                uint32_t steps = rawSteps % runtimeState().scrollFrameCount;
-                if (steps == 0) steps = 1;
+                // Advance EXACTLY one frame per qualifying render cycle. The task
+                // polls every ~1ms, so while it is not starved it steps once per
+                // intervalMs and reaches the intended frame rate. We deliberately
+                // do NOT "catch up" by stepping several frames at once: a
+                // multi-frame jump makes scrolling text visibly skip/tear and can
+                // read as the display stepping backward.
+                runtimeState().scrollFrameIndex =
+                    (runtimeState().scrollFrameIndex + 1) % runtimeState().scrollFrameCount;
 
-                runtimeState().scrollFrameIndex  = (runtimeState().scrollFrameIndex + steps) % runtimeState().scrollFrameCount;
-                runtimeState().lastScrollFrameMs += rawSteps * intervalMs;
-                // Reset the scroll clock after a long suspension so playback
-                // resumes smoothly instead of chasing stale elapsed time.
-                if (now - runtimeState().lastScrollFrameMs >
-                    static_cast<uint32_t>(intervalMs) * SCROLL_DRIFT_RESET_INTERVALS) {
+                // Keep cadence locked to the interval grid under normal jitter by
+                // advancing the scroll clock one interval at a time. After a long
+                // stall (more than SCROLL_DRIFT_RESET_INTERVALS behind) hard-resync
+                // to now, otherwise the accumulated backlog would fire a burst of
+                // frames over the next few cycles and look like tearing.
+                if (elapsedMs <= static_cast<uint32_t>(intervalMs) * SCROLL_DRIFT_RESET_INTERVALS) {
+                    runtimeState().lastScrollFrameMs += intervalMs;
+                } else {
                     runtimeState().lastScrollFrameMs = now;
                 }
+
                 memcpy(nextFrame, runtimeScrollFrameBits(runtimeState().scrollFrameIndex), FRAME_BYTES);
-                ++runtimeState().framesAccepted;
                 hasScrollFrame = true;
                 shouldRender   = true;
             }
@@ -63,12 +70,22 @@ static void scrollRenderTask(void* parameter) {
             //
             // If the main task called applyM370/applyBlankFrame between
             // unlockScroll() and here it has already written runtimeFrameBits() and either
-            // cleared firmwareScrollActive or set mainTaskRenderPending. In either
+            // cleared firmwareScrollActive or raised ledRenderRequested. In either
             // case we must not overwrite it with the stale scroll snapshot —
             // that would cause exactly one garbage/flash frame on the LEDs.
             lockFrame();
+            if (!mainTaskRenderPending) {
+                mainTaskRenderPending = consumeLedRenderRequest();
+                if (mainTaskRenderPending) shouldRender = true;
+            }
             if (runtimeState().firmwareScrollActive && !mainTaskRenderPending) {
                 memcpy(runtimeFrameBits(), nextFrame, FRAME_BYTES);
+                // Count a scroll frame as accepted only once it is actually
+                // committed, and do it under frameMutex so this increment matches
+                // publishPackedFrameNow() (which also bumps framesAccepted under
+                // frameMutex). Previously this ran under scrollMutex, racing the
+                // counter with the main task.
+                ++runtimeState().framesAccepted;
             } else {
                 // Main task frame takes priority; drop this scroll step silently.
                 // shouldRender stays true if mainTaskRenderPending so the

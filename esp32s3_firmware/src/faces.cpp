@@ -293,6 +293,7 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
         }
     });
     if (changed) touchRuntimeState();
+    if (changed || clearDisplay) clearQueuedM370Frames();
 
     if (clearDisplay) {
         // Two-stage visible sequence without blocking the caller:
@@ -308,6 +309,7 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
 
 void startFirmwareScroll(uint16_t intervalMs) {
     cancelDeferredFaceRestore();
+    clearQueuedM370Frames();
 
     uint8_t firstFrame[FRAME_BYTES];
     bool    hasFirstFrame = false;
@@ -328,7 +330,7 @@ void startFirmwareScroll(uint16_t intervalMs) {
         }
     });
 
-    if (hasFirstFrame) applyPackedFrame(firstFrame, "firmware_text_scroll_start");
+    if (hasFirstFrame) applyPackedFrameImmediate(firstFrame, "firmware_text_scroll_start");
 }
 
 // ---------------------------------------------------------------------------

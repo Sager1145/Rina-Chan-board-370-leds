@@ -74,6 +74,11 @@ void setup() {
 // ---------------------------------------------------------------------------
 // loop  (Core 0)
 // ---------------------------------------------------------------------------
+// Runs on Core 0 because platformio.ini sets -D ARDUINO_RUNNING_CORE=0. This
+// keeps all WebServer/HTTP, button, power and frame-queue work off Core 1, which
+// is reserved exclusively for the LED render/scroll task. Do NOT remove that
+// build flag: without it arduino-esp32 puts loop() on Core 1, where the HTTP
+// load disrupts WS2812 transmit timing (garbled / torn frames while scrolling).
 
 void loop() {
     serviceM370FrameQueue();

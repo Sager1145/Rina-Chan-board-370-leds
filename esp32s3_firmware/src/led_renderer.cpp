@@ -338,6 +338,11 @@ void applyPackedFrame(const uint8_t* packedBits, const String& reason) {
     enqueuePackedM370Frame(packedBits, nullptr, reason);
 }
 
+void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason) {
+    if (!packedBits) return;
+    publishPackedFrameNow(packedBits, nullptr, reason.c_str());
+}
+
 void applyBlankFrame(const String& reason) {
     uint8_t blank[FRAME_BYTES] = {};
     char blankM370Text[5 + M370_HEX_CHARS + 1];
@@ -359,6 +364,13 @@ void serviceM370FrameQueue() {
     ++runtimeState().framesDequeued;
 
     publishPackedFrameNow(item.bits, item.hasM370 ? item.m370 : nullptr, item.reason);
+}
+
+void clearQueuedM370Frames() {
+    if (m370FrameQueueCount == 0) return;
+    runtimeState().framesDropped += m370FrameQueueCount;
+    m370FrameQueueHead = 0;
+    m370FrameQueueCount = 0;
 }
 
 uint8_t queuedM370FrameCount() {

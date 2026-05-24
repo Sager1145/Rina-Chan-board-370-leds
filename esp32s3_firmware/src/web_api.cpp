@@ -600,8 +600,9 @@ static void handleApiScroll() {
     // Long text scroll uploads are sent in small RAM-only chunks by the WebUI.
     // append=false clears the previous RAM timeline; append=true adds frames.
     // The final chunk sets start=true.
-    const bool shouldStart = jsonBoolField(body, "start", true);
     const bool appendFrames = jsonBoolField(body, "append", false);
+    const bool explicitStart = body.indexOf("\"start\"") >= 0;
+    bool shouldStart = jsonBoolField(body, "start", false);
     const bool persist = jsonBoolField(body, "persist", false);
     const bool saveToFlash = jsonBoolField(body, "saveToFlash", false);
     uint32_t chunkIndex = 0;
@@ -676,9 +677,17 @@ static void handleApiScroll() {
         sendError(400, "frames must include at least one valid M370 frame"); return;
     }
 
+    if (!explicitStart) {
+        const uint32_t cachedFrames = static_cast<uint32_t>(baseIndex) + count;
+        shouldStart = totalFrames > 0 ? (cachedFrames >= totalFrames) : !appendFrames;
+    }
+
     withScrollLock([&]() {
         runtimeState().scrollFrameCount = baseIndex + count;
-        runtimeState().scrollFrameIndex = 0;
+        if (!appendFrames ||
+            (!runtimeState().firmwareScrollActive && !runtimeState().firmwareScrollPaused)) {
+            runtimeState().scrollFrameIndex = 0;
+        }
         if (hasExplicitTiming) {
             runtimeState().scrollIntervalMs = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
         }
@@ -815,7 +824,10 @@ static bool commandScrollStep(JsonDocument& doc, JsonVariant payload, String& er
             hasSteppedFrame = true;
         }
     });
-    if (hasSteppedFrame) applyPackedFrame(steppedFrame, "firmware_text_scroll_step");
+    if (hasSteppedFrame) {
+        clearQueuedM370Frames();
+        applyPackedFrameImmediate(steppedFrame, "firmware_text_scroll_step");
+    }
     return true;
 }
 
