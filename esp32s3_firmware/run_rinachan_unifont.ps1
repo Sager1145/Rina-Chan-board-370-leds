@@ -10,6 +10,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+$env:PYTHONIOENCODING = "utf-8"
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 $ProjectDir = (Resolve-Path $PSScriptRoot).Path
 $PlatformioIni = Join-Path $ProjectDir "platformio.ini"
@@ -239,23 +241,6 @@ function Install-BundledArk12FusionResources([string]$FontDir) {
     Copy-Item -Force $BundledJson (Join-Path $FontDir "ark12.json")
     Copy-Item -Force $BundledBaseWoff2 (Join-Path $FontDir "ark12.woff2")
     Copy-Item -Force $BundledFallbackWoff2 (Join-Path $FontDir "ark12_fallback.woff2")
-    $Python = Get-PythonCommand
-    $code = @'
-import gzip
-import pathlib
-import shutil
-import sys
-src = pathlib.Path(sys.argv[1])
-dst = pathlib.Path(sys.argv[2])
-with src.open("rb") as fin, gzip.GzipFile(filename="", mode="wb", fileobj=dst.open("wb"), mtime=0) as fout:
-    shutil.copyfileobj(fin, fout)
-'@
-    $result = Invoke-PythonTempScript -Python $Python -Code $code -Arguments @((Join-Path $FontDir "ark12.json"), (Join-Path $FontDir "ark12.json.gz"))
-    if ($result.ExitCode -ne 0) {
-        $outputText = (($result.Output | ForEach-Object { [string]$_ }) -join "`n").Trim()
-        if ($outputText) { Write-Host $outputText -ForegroundColor Yellow }
-        throw "Failed to gzip fused Ark12 JSON."
-    }
     if (-not (Test-MergedArk12Json (Join-Path $FontDir "ark12.json"))) {
         throw "Bundled Ark12 fusion JSON validation failed after copy."
     }
@@ -393,13 +378,61 @@ for arg in sys.argv[1:]:
         raise SystemExit(1)
     print(f"gzipped {src.name} -> {dst.name} ({len(raw)} bytes)")
 '@
-    $assets = @($IndexHtml, $StylesCss)
+    $assets = Get-WebAssetSourcePaths
     $result = Invoke-PythonTempScript -Python $Python -Code $code -Arguments $assets
     $outputText = (($result.Output | ForEach-Object { [string]$_ }) -join "`n").Trim()
     if ($outputText) { Write-Host $outputText }
     if ($result.ExitCode -ne 0) {
         throw "Failed to synchronize gzip web assets."
     }
+}
+
+function Get-WebAssetSourcePaths {
+    $AppJs = Join-Path $ProjectDir "data\app.js"
+    return @(
+        $IndexHtml,
+        $AppJs,
+        $StylesCss,
+        (Join-Path $ProjectDir "data\resources\fonts\ark12.json")
+    )
+}
+
+function Get-WebAssetGzipPaths {
+    return @(Get-WebAssetSourcePaths | ForEach-Object { "$_.gz" })
+}
+
+function Remove-WebAssetGzipFiles {
+    $DataDir = Join-Path $ProjectDir "data"
+    $removed = @()
+    foreach ($Path in Get-WebAssetGzipPaths) {
+        if (Test-Path $Path) {
+            $resolved = (Resolve-Path -LiteralPath $Path).Path
+            $relative = $resolved
+            if ($resolved.StartsWith($DataDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $relative = $resolved.Substring($DataDir.Length).TrimStart("\")
+            }
+            Remove-Item -Force -LiteralPath $Path
+            $removed += $relative
+        }
+    }
+    if ($removed.Count -gt 0) {
+        Write-Host "[gzip] removed temporary LittleFS gzip assets:"
+        $removed | ForEach-Object { Write-Host ("  " + $_) }
+    } else {
+        Write-Host "[gzip] no temporary LittleFS gzip assets to remove."
+    }
+}
+
+function Invoke-PlatformIoChecked([string[]]$Arguments, [string]$ErrorMessage) {
+    $oldEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & pio @Arguments
+        $exit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $oldEap
+    }
+    if ($exit -ne 0) { throw $ErrorMessage }
 }
 
 function Assert-EmbeddedUnifontWebUi {
@@ -506,24 +539,25 @@ if (-not $SkipPrepareFonts) {
 }
 
 Assert-RequiredFontResources
-Sync-WebAssetGzipFiles
 Assert-LittleFSNameLengths
 
 Push-Location $ProjectDir
 try {
     if ($UploadFirmware) {
         Write-Host "[run] uploading firmware and partition table..."
-        pio run -t upload
+        Invoke-PlatformIoChecked @("run", "-t", "upload") "Firmware upload failed."
     }
     if ($UploadFS) {
+        Sync-WebAssetGzipFiles
         Write-Host "[run] uploading LittleFS..."
-        pio run -t uploadfs
+        Invoke-PlatformIoChecked @("run", "-t", "uploadfs") "LittleFS upload failed."
     }
     if (-not $UploadFirmware -and -not $UploadFS) {
         Write-Host "[run] no upload switch supplied; running PlatformIO build only..."
-        pio run
+        Invoke-PlatformIoChecked @("run") "PlatformIO build failed."
         Write-Host "[run] build complete. Use -UploadFirmware and/or -UploadFS to upload."
     }
 } finally {
     Pop-Location
+    Remove-WebAssetGzipFiles
 }

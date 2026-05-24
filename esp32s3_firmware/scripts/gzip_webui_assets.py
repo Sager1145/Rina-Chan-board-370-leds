@@ -1,22 +1,23 @@
 """
 gzip_webui_assets.py  –  PlatformIO filesystem pre-build script
 
-Generates precompressed "<file>.gz" siblings for the large, highly compressible
-WebUI assets so the firmware can serve them with `Content-Encoding: gzip`
+Temporarily generates precompressed "<file>.gz" siblings for the large, highly
+compressible WebUI assets so the LittleFS image can include gzip responses
 (see serveStaticFile() in src/web_api.cpp). This dramatically shrinks the bytes
 transferred over the ESP32 SoftAP link and the number of streamed chunks.
 
-The .gz files are written next to the originals inside data/ and are picked up
-automatically when the LittleFS image is built (`pio run -t buildfs` /
-`-t uploadfs`). Both the raw file and the .gz are shipped, so non-gzip clients
+The .gz files are written next to the originals inside data/ immediately before
+the LittleFS image is built (`pio run -t buildfs` / `-t uploadfs`), then deleted
+after the image is assembled. Keep source changes in the uncompressed files.
+Both the raw file and the .gz are shipped in the image, so non-gzip clients
 still work; serveStaticFile() prefers the .gz only when the client sends
 `Accept-Encoding: gzip`.
 
 Only text-like assets are compressed. Already-compressed assets (woff2, png,
 jpg) are skipped because gzip would not help (and could even grow them).
 
-The script is idempotent: a .gz is regenerated only when it is missing or older
-than its source file.
+The gzip step is idempotent: a .gz is regenerated only when it is missing or
+older than its source file.
 """
 
 import gzip
@@ -28,6 +29,7 @@ Import("env")  # noqa: F821  (PlatformIO injects this)
 # Paths are relative to the data/ (LittleFS source) directory.
 GZIP_TARGETS = [
     "index.html",
+    "app.js",
     "styles.css",
     "resources/fonts/ark12.json",
 ]
@@ -65,17 +67,21 @@ def gzip_assets(*args, **kwargs):
         print("[gzip_webui_assets] all .gz assets already up to date")
 
 
+def cleanup_gzip_assets(*args, **kwargs):
+    data_dir = os.path.join(env["PROJECT_DIR"], "data")  # noqa: F821
+    removed = False
+    for rel in GZIP_TARGETS:
+        gz_path = os.path.join(data_dir, rel + ".gz")
+        if os.path.isfile(gz_path):
+            os.remove(gz_path)
+            print(f"[gzip_webui_assets] removed temporary: {rel}.gz")
+            removed = True
+    if not removed:
+        print("[gzip_webui_assets] no temporary .gz assets to remove")
+
+
 # Regenerate the .gz files right before the LittleFS image is assembled.
 env.AddPreAction("$BUILD_DIR/littlefs.bin", gzip_assets)  # noqa: F821
 
-# Also allow manual invocation: `pio run -t gzipassets`.
-try:
-    env.AddCustomTarget("gzipassets", None, gzip_assets,  # noqa: F821
-                        title="Gzip WebUI assets",
-                        description="Generate .gz siblings for large WebUI assets")
-except Exception:
-    pass
-
-# Run once at script load too, so a plain `pio run -t uploadfs` on a clean tree
-# still has fresh .gz files even if the image-target hook ordering changes.
-gzip_assets()
+# Remove the temporary siblings after the image has captured them.
+env.AddPostAction("$BUILD_DIR/littlefs.bin", cleanup_gzip_assets)  # noqa: F821
