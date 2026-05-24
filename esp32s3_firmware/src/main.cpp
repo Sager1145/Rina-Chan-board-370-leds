@@ -8,6 +8,7 @@
 #include "faces.h"
 #include "scroll.h"
 #include "buttons.h"
+#include "button_animations.h"
 #include "web_api.h"
 #include "power_monitor.h"
 #include <freertos/task.h>
@@ -85,6 +86,7 @@ void loop() {
     webServerTick();
     serviceRuntimeSlowStatePublish();
     serviceHardwareButtons();
+    serviceButtonAnimations();
     servicePowerMonitor();
     serviceDeferredFaceRestore();
     serviceAutoPlayback();

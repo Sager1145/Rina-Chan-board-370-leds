@@ -259,29 +259,16 @@ static bool parseJsonBody(JsonDocument& doc, String& error) {
 }
 
 static void pauseFirmwareScrollIfActive(bool& changed) {
-    withScrollLock([&]() {
-        if (runtimeState().firmwareScrollActive) {
-            runtimeState().firmwareScrollPaused = true;
-            runtimeState().paused               = true;
-            runtimeState().playback             = "scroll_paused";
-            changed                    = true;
-        }
-    });
-    if (changed) touchRuntimeState();
+    changed = setFirmwareScrollUserPaused(true);
 }
 
 static void resumeFirmwareScrollIfCached(bool& changed, bool requirePaused = false) {
+    bool canResume = false;
     withScrollLock([&]() {
-        if (runtimeState().scrollFrameCount > 0 && (!requirePaused || runtimeState().firmwareScrollPaused)) {
-            runtimeState().firmwareScrollActive  = true;
-            runtimeState().firmwareScrollPaused  = false;
-            runtimeState().lastScrollFrameMs     = millis();
-            runtimeState().paused                = false;
-            runtimeState().playback              = "scroll";
-            changed                     = true;
-        }
+        canResume = runtimeState().scrollFrameCount > 0 &&
+                    (!requirePaused || runtimeState().firmwareScrollPaused);
     });
-    if (changed) touchRuntimeState();
+    if (canResume) changed = setFirmwareScrollUserPaused(false);
 }
 
 static bool serveStaticFile(String path) {
@@ -337,6 +324,8 @@ static void handleApiStatus() {
 
     bool     firmwareScrollActive   = false;
     bool     firmwareScrollPaused   = false;
+    bool     firmwareScrollUserPaused = false;
+    bool     firmwareScrollSystemPaused = false;
     bool     restoreAutoAfterScroll = false;
     uint16_t scrollFrameCount       = 0;
     uint16_t scrollFrameIndex       = 0;
@@ -345,6 +334,8 @@ static void handleApiStatus() {
     withScrollLock([&]() {
         firmwareScrollActive   = runtimeState().firmwareScrollActive;
         firmwareScrollPaused   = runtimeState().firmwareScrollPaused;
+        firmwareScrollUserPaused = runtimeState().firmwareScrollUserPaused;
+        firmwareScrollSystemPaused = runtimeState().firmwareScrollSystemPaused;
         restoreAutoAfterScroll = runtimeState().restoreAutoAfterScroll;
         scrollFrameCount       = runtimeState().scrollFrameCount;
         scrollFrameIndex       = runtimeState().scrollFrameIndex;
@@ -403,6 +394,8 @@ static void handleApiStatus() {
     renderer["autoFaceIndex"]           = runtimeState().autoFaceIndex;
     renderer["firmwareScrollActive"]    = firmwareScrollActive;
     renderer["firmwareScrollPaused"]    = firmwareScrollPaused;
+    renderer["firmwareScrollUserPaused"] = firmwareScrollUserPaused;
+    renderer["firmwareScrollSystemPaused"] = firmwareScrollSystemPaused;
     renderer["restoreAutoAfterScroll"]  = restoreAutoAfterScroll;
     renderer["deferredFaceRestoreActive"] = runtimeState().deferredFaceRestoreActive;
     renderer["scrollFrameCount"]        = scrollFrameCount;
@@ -1008,6 +1001,8 @@ static void handleApiCommand() {
     reply["autoFaceIndex"]        = runtimeState().autoFaceIndex;
     reply["firmwareScrollActive"] = runtimeState().firmwareScrollActive;
     reply["firmwareScrollPaused"] = runtimeState().firmwareScrollPaused;
+    reply["firmwareScrollUserPaused"] = runtimeState().firmwareScrollUserPaused;
+    reply["firmwareScrollSystemPaused"] = runtimeState().firmwareScrollSystemPaused;
     reply["restoreAutoAfterScroll"] = runtimeState().restoreAutoAfterScroll;
     reply["deferredFaceRestoreActive"] = runtimeState().deferredFaceRestoreActive;
     reply["scrollFrameCount"]     = runtimeState().scrollFrameCount;

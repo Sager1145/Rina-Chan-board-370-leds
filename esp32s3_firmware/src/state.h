@@ -42,6 +42,8 @@ struct RuntimeState {
     // Scroll
     bool     firmwareScrollActive  = false;
     bool     firmwareScrollPaused  = false;
+    bool     firmwareScrollUserPaused = false;
+    bool     firmwareScrollSystemPaused = false;
     bool     restoreAutoAfterScroll = false;
     uint16_t scrollFrameCount      = 0;
     uint16_t scrollFrameIndex      = 0;

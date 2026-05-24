@@ -54,6 +54,11 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay = false);
 // Arm and start the firmware scroll engine from scrollFrameBits[].
 void startFirmwareScroll(uint16_t intervalMs);
 
+// User pause is driven by WebUI/API controls. System pause is a temporary hold
+// requested by firmware overlays/animations. Effective scroll pause is their OR.
+bool setFirmwareScrollUserPaused(bool paused);
+bool setFirmwareScrollSystemPaused(bool paused);
+
 // ---------------------------------------------------------------------------
 // Playback state query
 // ---------------------------------------------------------------------------

@@ -266,6 +266,62 @@ void serviceDeferredFaceRestore() {
     }
 }
 
+static void applyFirmwareScrollPauseIntentLocked() {
+    const bool effectivePaused =
+        runtimeState().firmwareScrollUserPaused ||
+        runtimeState().firmwareScrollSystemPaused;
+
+    if (runtimeState().scrollFrameCount == 0 && !runtimeState().firmwareScrollActive &&
+        !runtimeState().firmwareScrollPaused) {
+        runtimeState().firmwareScrollUserPaused = false;
+        runtimeState().firmwareScrollSystemPaused = false;
+        runtimeState().firmwareScrollPaused = false;
+        return;
+    }
+
+    runtimeState().firmwareScrollActive = true;
+    runtimeState().firmwareScrollPaused = effectivePaused;
+    runtimeState().paused = effectivePaused;
+    if (effectivePaused) {
+        runtimeState().playback = "scroll_paused";
+    } else {
+        runtimeState().lastScrollFrameMs = millis();
+        runtimeState().playback = "scroll";
+    }
+}
+
+static bool setFirmwareScrollPauseFlag(bool userFlag, bool paused) {
+    bool changed = false;
+    withScrollLock([&]() {
+        const bool oldUser = runtimeState().firmwareScrollUserPaused;
+        const bool oldSystem = runtimeState().firmwareScrollSystemPaused;
+        const bool oldEffective = runtimeState().firmwareScrollPaused;
+        const String oldPlayback = runtimeState().playback;
+        const bool oldPaused = runtimeState().paused;
+
+        if (userFlag) runtimeState().firmwareScrollUserPaused = paused;
+        else          runtimeState().firmwareScrollSystemPaused = paused;
+
+        applyFirmwareScrollPauseIntentLocked();
+
+        changed = oldUser != runtimeState().firmwareScrollUserPaused ||
+                  oldSystem != runtimeState().firmwareScrollSystemPaused ||
+                  oldEffective != runtimeState().firmwareScrollPaused ||
+                  oldPlayback != runtimeState().playback ||
+                  oldPaused != runtimeState().paused;
+    });
+    if (changed) touchRuntimeState();
+    return changed;
+}
+
+bool setFirmwareScrollUserPaused(bool paused) {
+    return setFirmwareScrollPauseFlag(true, paused);
+}
+
+bool setFirmwareScrollSystemPaused(bool paused) {
+    return setFirmwareScrollPauseFlag(false, paused);
+}
+
 void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
     cancelDeferredFaceRestore();
 
@@ -283,6 +339,8 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
         shouldRestoreAuto               = restoreAuto && runtimeState().restoreAutoAfterScroll;
         runtimeState().firmwareScrollActive      = false;
         runtimeState().firmwareScrollPaused      = false;
+        runtimeState().firmwareScrollUserPaused  = false;
+        runtimeState().firmwareScrollSystemPaused = false;
         runtimeState().restoreAutoAfterScroll    = false;
         runtimeState().lastScrollFrameMs         = 0;
         runtimeState().scrollFrameCount          = 0;
@@ -323,6 +381,8 @@ void startFirmwareScroll(uint16_t intervalMs) {
             runtimeState().lastScrollFrameMs  = millis();
             runtimeState().firmwareScrollActive  = true;
             runtimeState().firmwareScrollPaused  = false;
+            runtimeState().firmwareScrollUserPaused = false;
+            runtimeState().firmwareScrollSystemPaused = false;
             runtimeState().paused             = false;
             runtimeState().playback           = "scroll";
             memcpy(firstFrame, runtimeScrollFrameBits(0), FRAME_BYTES);

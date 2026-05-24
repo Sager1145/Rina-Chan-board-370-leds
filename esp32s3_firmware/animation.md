@@ -35,7 +35,7 @@
 | 行长度 `ROW_LENGTHS` | `[18, 20, 20, 20, 22, 22, 22, 22, 22, 22, 22, 22, 22, 20, 20, 20, 18, 16]` |
 | 走线 | serpentine，奇数行反向 |
 | `FLIP_X` / `FLIP_Y` | `False` / `False` |
-| 主循环周期 | `10 ms` |
+| 主循环/渲染调度 | Core 0 `loop()` 约每 `1 ms` 服务按钮、电源、队列与自动播放；Core 1 LED render task 约每 `1 ms` 等待唤醒/滚动步进 |
 
 ### 1.1 逻辑坐标到 LED index
 
@@ -110,14 +110,16 @@ def scale_color(rgb):
     return (int(r * s), int(g * s), int(b * s))
 ```
 
+注意：`scale_color()` 是 peak limiter / ceiling cap，不是全局亮度乘法。若输入颜色最大通道 `m <= brightness_raw`，颜色原样保留；只有当某个通道超过当前 brightness cap 时，才按比例压低到 cap。不要把它实现成 `rgb * brightness_raw / 200`，除非刻意改变旧固件的视觉语义。
+
 示例：`raw=0 -> 0%`，`raw=8 -> 4%`，`raw=40 -> 20%`，`raw=100 -> 50%`，`raw=200 -> 100%`。
 
 ## 2. 按钮输入、组合键、repeat 参数
 
 | 名称 | GPIO | 源码注释 / 用途 |
 |---|---:|---|
-| B1 / `BTN_PREV` | `17` | previous face；B3 held 时 interval 增加 |
-| B2 / `BTN_NEXT` | `16` | next face；B3 held 时 interval 减少 |
+| B1 / `BTN_PREV` | `17` | previous face；B3 held 时 interval 减少 |
+| B2 / `BTN_NEXT` | `16` | next face；B3 held 时 interval 增加 |
 | B3 / `BTN_AUTO` | `15` | A/M toggle；组合键 modifier |
 | B4 / `BTN_BRIGHT_DN` | `40` | 当前规格：raw brightness `-8` |
 | B5 / `BTN_BRIGHT_UP` | `41` | 当前规格：raw brightness `+8` |
@@ -138,8 +140,8 @@ def scale_color(rgb):
 | 输入 | 触发时机 | 源程序行为 | 对应 LED overlay / animation |
 |---|---|---|---|
 | B3 | 松开触发，且未被组合键消费 | `auto = not old_auto` | 显示大号 `A` 或 `M`，紫色，保持 1000ms |
-| B3+B1 | 按住 B3 后按 B1；repeat 也生效 | `interval_s += 0.5`，clamp 到 `10.0s` | 显示 `x.xS` 或 `10S` + clock icon，紫色；到上限时 top edge flash |
-| B3+B2 | 按住 B3 后按 B2；repeat 也生效 | `interval_s -= 0.5`，clamp 到 `0.5s` | 显示 `x.xS` + clock icon，紫色；到下限时 bottom edge flash |
+| B3+B1 | 按住 B3 后按 B1；repeat 也生效 | `interval_s -= 0.5`，clamp 到 `0.5s` | 显示 `x.xS` + clock icon，紫色；到下限时 bottom edge flash |
+| B3+B2 | 按住 B3 后按 B2；repeat 也生效 | `interval_s += 0.5`，clamp 到 `10.0s` | 显示 `x.xS` 或 `10S` + clock icon，紫色；到上限时 top edge flash |
 | B4 | 按下立即；repeat 也生效 | `brightness_raw -= 8`，clamp 到 `0` | 显示 `NN%` + sun icon，蓝色；到下限时 bottom edge flash |
 | B5 | 按下立即；repeat 也生效 | `brightness_raw += 8`，clamp 到 `200` | 显示 `NN%` + sun icon，蓝色；到上限时 top edge flash |
 | B6 短按 | B6 按下后在 700ms 前释放 | 显示电池百分比 | `BATTERY_ICON + NN%`，2000ms，不播放充电 sweep |
@@ -556,10 +558,23 @@ y0 = 9 if icon_rows is not None else 5
 B3 按下时不切换；B3 释放时切换。B3 如果被组合键消费，则释放时不切换。
 
 ```python
-old_auto = bool(state.auto)
-state.auto = not old_auto
-render_mode(state.auto)
-start_or_extend_flash("mode", state.auto)
+# Persistent button state.
+b3_consumed_by_combo = False
+
+# On B3 press.
+b3_consumed_by_combo = False
+
+# On B3+B1 or B3+B2 interval action, including repeat.
+b3_consumed_by_combo = True
+
+# On B3 release.
+if not b3_consumed_by_combo:
+    old_auto = bool(state.auto)
+    state.auto = not old_auto
+    render_mode(state.auto)
+    start_or_extend_flash("mode", state.auto)
+
+b3_consumed_by_combo = False
 ```
 
 ### 7.2 显示
@@ -593,10 +608,10 @@ y0 = (18 - 13) // 2 = 2
 
 ```python
 # B3 held + B1
-interval_s = clamp_interval(interval_s + 0.5)
+interval_s = clamp_interval(interval_s - 0.5)
 
 # B3 held + B2
-interval_s = clamp_interval(interval_s - 0.5)
+interval_s = clamp_interval(interval_s + 0.5)
 ```
 
 ### 8.3 clamp
@@ -639,8 +654,8 @@ render_interval(interval_s):
 
 | 条件 | edge | 颜色 |
 |---|---|---|
-| B3+B2 继续减少且已到 `0.5s` | bottom row `y=17` | `MODE_COLOR #B400FF` |
-| B3+B1 继续增加且已到 `10.0s` | top row `y=0` | `MODE_COLOR #B400FF` |
+| B3+B1 继续减少且已到 `0.5s` | bottom row `y=17` | `MODE_COLOR #B400FF` |
+| B3+B2 继续增加且已到 `10.0s` | top row `y=0` | `MODE_COLOR #B400FF` |
 
 源码在 `adjust_interval()` 中先 `render_interval()`，再 `start_or_extend_flash("interval")`，最后执行一次 `overlay_edge_flash()`，主循环后续会继续叠加 edge flash 直到 305ms 结束。
 
@@ -717,11 +732,11 @@ def render_brightness_raw(raw):
 ```python
 apply_brightness_raw()
 render_brightness_raw(brightness_raw)
-overlay_edge_flash_if_clamped()
 start_or_extend_flash("brightness", brightness_raw)
+overlay_edge_flash_if_clamped()
 ```
 
-第一次边缘闪烁在 `flash_kind` 仍未设置为 `brightness` 时使用默认 `EDGE_FLASH_COLOR`；后续主循环 `render_flash_overlay_with_edge()` 会先重绘 brightness overlay，再叠加 edge flash。
+`start_or_extend_flash("brightness", brightness_raw)` 必须先于 `overlay_edge_flash_if_clamped()` 执行，使触发 tick 的首帧也拥有正确的 `flash_kind`。brightness clamp 使用 `EDGE_FLASH_COLOR`；interval clamp 使用 `MODE_COLOR`，同样必须先设置 `flash_kind = "interval"` 再叠加 edge flash。
 
 ## 10. edge flash 完整动画逻辑
 
@@ -937,50 +952,58 @@ if battery_display_phase_count != target_phase_count:
 | 单次采样数 | `16` |
 | R1 | `100000 Ω` |
 | R2 | `57000 Ω` |
+| 固件校准 scale | `2.708333` |
+| 固件校准 offset | `+0.2033 V` |
 
 ```python
-Vbat = Vadc * (100000 + 57000) / 57000
+instant_vbat = Vadc * 2.708333 + 0.2033
 ```
 
 ### 12.2 百分比换算
 
-| 参数 | 值 |
-|---|---:|
-| 默认 `min_v` | `6.2 V` |
-| 默认 `max_v` | `8.0 V` |
-| 端点吸附容差 | `0.12 V` |
+当前程序不再用 `min_v/max_v` 线性区间和 `0.12 V` 端点吸附计算百分比。电池百分比来自固定 2S LiPo 分段 LUT；`battery_calib.json` 的 `v_min/v_max` 仍保留给诊断和手动 reset API，但不参与百分比映射。
 
 ```python
-display_min = min_v + 0.12
-display_max = max_v - 0.12
-if Vbat <= display_min: percent_float = 0.0
-elif Vbat >= display_max: percent_float = 100.0
-else: x = (Vbat - display_min) / (display_max - display_min)
+BATTERY_PERCENT_LUT = [
+    (8.40, 100),
+    (8.10,  90),
+    (7.90,  80),
+    (7.70,  65),
+    (7.50,  50),
+    (7.30,  35),
+    (7.10,  20),
+    (6.80,  10),
+    (6.50,   5),
+    (6.20,   0),
+]
+
+def battery_percent_from_voltage(vbat):
+    if not isfinite(vbat):
+        return 0
+    if vbat >= BATTERY_PERCENT_LUT[0][0]:
+        return 100
+    if vbat <= BATTERY_PERCENT_LUT[-1][0]:
+        return 0
+    for (v_hi, p_hi), (v_lo, p_lo) in adjacent_pairs(BATTERY_PERCENT_LUT):
+        if vbat < v_hi and vbat >= v_lo:
+            t = (vbat - v_lo) / (v_hi - v_lo)
+            return round(p_lo + t * (p_hi - p_lo))
+    return 0
 ```
 
-插值曲线：
-
-| x | percent |
-|---:|---:|
-| 0.000 | 0.0 |
-| 0.222 | 3.0 |
-| 0.389 | 7.0 |
-| 0.444 | 10.0 |
-| 0.500 | 14.0 |
-| 0.556 | 18.0 |
-| 0.611 | 26.0 |
-| 0.667 | 35.0 |
-| 0.722 | 45.0 |
-| 0.778 | 58.0 |
-| 0.833 | 70.0 |
-| 0.889 | 82.0 |
-| 0.944 | 92.0 |
-| 1.000 | 100.0 |
-
-显示百分比：
+采样显示值先经过基于真实时间间隔的 EMA。目标时间常数为 `20 s`：
 
 ```python
-percent = int(round(percent_float))
+alpha = 1.0 - exp(-dt_s / 20.0)
+vbat = previous_vbat * (1.0 - alpha) + instant_vbat * alpha
+```
+
+百分比整数带 `±1%` dead-band：只有首次有效读数，或 LUT 结果和当前显示值相差超过 1 个百分点时，才更新显示百分比。
+
+```python
+raw_percent = battery_percent_from_voltage(vbat)
+if first_valid_reading or abs(raw_percent - battery_percent) > 1:
+    battery_percent = raw_percent
 ```
 
 ### 12.3 已删除：使用时间 / 充电时间页
@@ -1355,7 +1378,7 @@ lit_cols = 1 if on else 0
 ```python
 filled_cols = _battery_fill_cols(percent)
 target_cols = 8 if percent > 90 else max(1, filled_cols)
-step_ms = int(0.2 * 1000) = 200
+step_ms = int(0.2 * 1000)  # 200
 anim_step = charging_phase_ms // step_ms
 lit_cols = (anim_step % target_cols) + 1
 ```
@@ -1648,7 +1671,7 @@ Agent 重建时必须满足：
 - [ ] B3 被 B1/B2 interval 组合键消费后，释放 B3 不切换 A/M。
 - [ ] 普通 overlay 保持 1000ms，到期恢复当前 face。
 - [ ] interval 使用 `MODE_COLOR #B400FF`，格式为 `0.5S` 到 `9.5S`，`10.0s` 显示为 `10S`。
-- [ ] B3+B1 是 interval `+0.5s`，B3+B2 是 interval `-0.5s`。
+- [ ] B3+B1 是 interval `-0.5s`，B3+B2 是 interval `+0.5s`。
 - [ ] brightness 使用 `BRIGHTNESS_COLOR #0078FF`，显示 `round(raw * 100 / 200)%` + `SUN_ICON_1`。
 - [ ] B4/GPIO40 是 raw brightness `-8`，B5/GPIO41 是 raw brightness `+8`，clamp 范围 `0..200`。
 - [ ] 所有 B1/B2/B4/B5 repeat 都是先等 400ms，再每 140ms 触发一次。

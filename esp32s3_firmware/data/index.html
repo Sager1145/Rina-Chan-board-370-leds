@@ -2835,6 +2835,9 @@ let scroll = {
   timer: null,
   active: false,
   paused: false,
+  userPaused: false,
+  systemPaused: false,
+  pauseToggleLocked: false,
   firmwareBacked: false,
   uploading: false,
   uploadProgress: 0,
@@ -3707,14 +3710,25 @@ function applyFirmwareRuntimeState(data, source = 'firmware_status', options = {
     state.playback = playbackValue;
     const firmwareScrollActive = Boolean(renderer.firmwareScrollActive ?? data.firmwareScrollActive);
     const firmwareScrollPaused = Boolean(renderer.firmwareScrollPaused ?? data.firmwareScrollPaused);
+    const hasSplitPauseFlags =
+      typeof renderer.firmwareScrollUserPaused === 'boolean' ||
+      typeof data.firmwareScrollUserPaused === 'boolean' ||
+      typeof renderer.firmwareScrollSystemPaused === 'boolean' ||
+      typeof data.firmwareScrollSystemPaused === 'boolean';
+    const firmwareScrollUserPaused = Boolean(renderer.firmwareScrollUserPaused ?? data.firmwareScrollUserPaused);
+    const firmwareScrollSystemPaused = Boolean(renderer.firmwareScrollSystemPaused ?? data.firmwareScrollSystemPaused);
     scroll.firmwareBacked = firmwareScrollActive || firmwareScrollPaused;
     const playbackIsScroll = isScrollPlaybackValue(playbackValue);
-    scroll.paused = playbackValue === 'scroll_paused' || firmwareScrollPaused;
+    scroll.userPaused = hasSplitPauseFlags ? firmwareScrollUserPaused : (playbackValue === 'scroll_paused' || firmwareScrollPaused);
+    scroll.systemPaused = hasSplitPauseFlags ? firmwareScrollSystemPaused : false;
+    scroll.paused = scroll.userPaused || scroll.systemPaused || playbackValue === 'scroll_paused' || firmwareScrollPaused;
     scroll.active = playbackValue === 'scroll' && !scroll.paused;
     state.textScrollActive = playbackIsScroll || firmwareScrollActive || firmwareScrollPaused;
     if (!playbackIsScroll && !firmwareScrollActive && !firmwareScrollPaused) {
       scroll.active = false;
       scroll.paused = false;
+      scroll.userPaused = false;
+      scroll.systemPaused = false;
       state.textScrollActive = false;
     }
     stateChanged = true;
@@ -4102,6 +4116,8 @@ function terminateOtherActivities(targetMode = 'static', reason = 'mode_change')
     scroll.timer = null;
     scroll.active = false;
     scroll.paused = false;
+    scroll.userPaused = false;
+    scroll.systemPaused = false;
     scroll.firmwareBacked = false;
     scroll.uploading = false;
     state.textScrollActive = false;
@@ -6872,6 +6888,8 @@ function resetScrollControlsAfterButton(reason = 'gpio_button', options = {}) {
   scroll.timer = null;
   scroll.active = false;
   scroll.paused = false;
+  scroll.userPaused = false;
+  scroll.systemPaused = false;
   scroll.firmwareBacked = false;
   scroll.uploading = false;
   scroll.offset = 0;
@@ -6984,6 +7002,8 @@ async function startScroll() {
   resetScrollPreviewToFirstFrame('text_scroll_start_reset_preview', 'scroll');
   scroll.active = true;
   scroll.paused = false;
+  scroll.userPaused = false;
+  scroll.systemPaused = false;
   scroll.firmwareBacked = false;
   scroll.uploading = true;
   scroll.dirtyNoticeLogged = false;
@@ -7019,7 +7039,12 @@ async function startScroll() {
 }
 
 function togglePauseScroll() {
-  if (scroll.paused || state.playback === 'scroll_paused') resumeScroll();
+  if (scroll.pauseToggleLocked) return;
+  scroll.pauseToggleLocked = true;
+  setTimeout(() => {
+    scroll.pauseToggleLocked = false;
+  }, 250);
+  if (scroll.userPaused) resumeScroll();
   else pauseScroll();
 }
 
@@ -7033,6 +7058,7 @@ function pauseScroll() {
   sendAuxCommand('pause_scroll', {}, 'text_scroll_paused');
   if (scroll.timer) clearInterval(scroll.timer);
   scroll.timer = null;
+  scroll.userPaused = true;
   scroll.paused = true;
   scroll.active = false;
   state.textScrollActive = true;
@@ -7051,15 +7077,21 @@ function resumeScroll() {
     return;
   }
   sendAuxCommand('resume_scroll', {}, 'text_scroll_resumed');
-  scroll.paused = false;
-  scroll.active = true;
+  scroll.userPaused = false;
+  scroll.paused = !!scroll.systemPaused;
+  scroll.active = !scroll.systemPaused;
   state.textScrollActive = true;
-  state.playback = 'scroll';
+  state.playback = scroll.systemPaused ? 'scroll_paused' : 'scroll';
   state.refreshPolicy = `text_scroll_${getScrollFps()}fps_interval_${getScrollFrameIntervalMs()}ms`;
   state.lastRefreshReason = 'text_scroll_resumed';
   scroll.fpsStarted = performance.now();
   scroll.frameCounter = 0;
-  restartScrollPreviewTimer();
+  if (scroll.systemPaused) {
+    if (scroll.timer) clearInterval(scroll.timer);
+    scroll.timer = null;
+  } else {
+    restartScrollPreviewTimer();
+  }
   log('文字滚动继续播放，固件从当前缓存继续运行');
   updateScrollUi();
   renderState();
@@ -7071,6 +7103,8 @@ function stopScroll() {
   scroll.timer = null;
   scroll.active = false;
   scroll.paused = false;
+  scroll.userPaused = false;
+  scroll.systemPaused = false;
   scroll.firmwareBacked = false;
   scroll.uploading = false;
   scroll.dirtyNoticeLogged = false;
@@ -7354,9 +7388,10 @@ function updateScrollUi() {
     const enabled = firmwarePlaying || scroll.active || scroll.paused;
     pauseBtn.disabled = !enabled;
     pauseBtn.setAttribute('aria-disabled', enabled ? 'false' : 'true');
-    const isPaused = scroll.paused || state.playback === 'scroll_paused';
-    pauseBtn.classList.toggle('active', !isPaused && enabled);
-    pauseBtn.setAttribute('aria-pressed', (!isPaused && enabled) ? 'true' : 'false');
+    const userPaused = !!scroll.userPaused;
+    const isPaused = userPaused;
+    pauseBtn.classList.toggle('active', !userPaused && enabled);
+    pauseBtn.setAttribute('aria-pressed', (!userPaused && enabled) ? 'true' : 'false');
     pauseBtn.textContent = isPaused ? '继续' : '暂停';
   }
   if (playBtn) {

@@ -3,6 +3,7 @@
 #include "config.h"
 #include "led_renderer.h"
 #include "faces.h"
+#include "button_animations.h"
 
 // ---------------------------------------------------------------------------
 // Button table
@@ -63,6 +64,13 @@ static bool isFirmwareScrollOrPreviewActive() {
            isScrollPlayback(runtimeState().playback);
 }
 
+static bool finishButtonAction(const String& code, const String& source, bool handled) {
+    if (handled && source == "gpio") {
+        startButtonAnimationForGpioAction(code);
+    }
+    return handled;
+}
+
 static void markScrollStoppedByButton(const String& code, const String& source) {
     ++runtimeState().scrollStopEventSeq;
     runtimeState().scrollStopEventMs     = millis();
@@ -87,9 +95,12 @@ bool runButtonAction(const String& button, const String& source) {
                                         isFirmwareScrollOrPreviewActive();
 
     if (code == "B3") {
+        if (source == "gpio" && runtimeState().firmwareScrollActive && !runtimeState().firmwareScrollPaused) {
+            return finishButtonAction(code, source, true);
+        }
         const bool handled = toggleModeFromButtonAction(source);
         if (handled && shouldNotifyScrollStop) markScrollStoppedByButton(code, source);
-        return handled;
+        return finishButtonAction(code, source, handled);
     }
 
     if (code == "B1" || code == "B2") {
@@ -112,13 +123,13 @@ bool runButtonAction(const String& button, const String& source) {
         setBrightness(static_cast<int>(runtimeState().brightness) - BRIGHTNESS_BUTTON_STEP);
         runtimeState().lastReason = source + "_B4_brightness_down";
         touchRuntimeStateSlow();
-        return true;
+        return finishButtonAction(code, source, true);
     }
     if (code == "B5") {
         setBrightness(static_cast<int>(runtimeState().brightness) + BRIGHTNESS_BUTTON_STEP);
         runtimeState().lastReason = source + "_B5_brightness_up";
         touchRuntimeStateSlow();
-        return true;
+        return finishButtonAction(code, source, true);
     }
 
     if (code == "B3B1") {
@@ -127,13 +138,13 @@ bool runButtonAction(const String& button, const String& source) {
                             : MIN_AUTO_INTERVAL_MS);
         runtimeState().lastReason = source + "_B3B1_auto_interval_down";
         touchRuntimeState();
-        return true;
+        return finishButtonAction(code, source, true);
     }
     if (code == "B3B2") {
         setAutoInterval(runtimeState().autoIntervalMs + AUTO_INTERVAL_BUTTON_STEP_MS);
         runtimeState().lastReason = source + "_B3B2_auto_interval_up";
         touchRuntimeState();
-        return true;
+        return finishButtonAction(code, source, true);
     }
 
     return false;
@@ -147,6 +158,7 @@ static void handleHardwareButtonPress(ButtonRuntime& button, uint32_t now) {
     button.pressedAtMs   = now;
     button.lastRepeatMs  = now;
     button.comboConsumed = false;
+    handleButtonAnimationGpioPress(button.code);
 
     // Combo: B3 + B1
     if (strcmp(button.code, "B1") == 0 && isHardwareButtonPressed("B3")) {
@@ -174,6 +186,7 @@ static void handleHardwareButtonRelease(ButtonRuntime& button) {
     if (strcmp(button.code, "B3") == 0 && !button.comboConsumed) {
         fireHardwareButtonAction("B3");
     }
+    handleButtonAnimationGpioRelease(button.code);
     button.comboConsumed = false;
 }
 
@@ -232,4 +245,7 @@ void serviceHardwareButtons() {
         else                handleHardwareButtonRelease(button);
     }
     serviceHardwareButtonRepeats(now);
+    serviceButtonAnimationButtonInputs(isHardwareButtonPressed("B6"),
+                                       isHardwareButtonPressed("B2"),
+                                       isHardwareButtonPressed("B3"));
 }

@@ -3,6 +3,7 @@
 #include "sync.h"
 #include "scroll.h"
 #include "utils.h"
+#include "button_animations.h"
 #include <Adafruit_NeoPixel.h>
 
 // Strip is owned by this module; other modules interact through the helpers.
@@ -176,6 +177,7 @@ uint16_t countLitLeds() {
 
 void renderCurrentFrameToLedStrip() {
     uint8_t localFrame[FRAME_BYTES];
+    static uint8_t overlayRgb[LED_COUNT * 3];
     uint8_t brightness;
     uint8_t colorR = 0, colorG = 0, colorB = 0;
 
@@ -212,12 +214,23 @@ void renderCurrentFrameToLedStrip() {
         strip.setBrightness(brightness);
         lastAppliedBrightness = brightness;
     }
-    const uint32_t rgb = strip.Color(colorR, colorG, colorB);
-    for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
-        strip.setPixelColor(
-            logicalToPhysicalMap[logical],
-            packedFrameBit(localFrame, logical) ? rgb : 0
-        );
+    const bool overlayActive = copyButtonAnimationOverlay(overlayRgb, LED_COUNT);
+    if (overlayActive) {
+        for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
+            const uint16_t offset = logical * 3U;
+            strip.setPixelColor(
+                logicalToPhysicalMap[logical],
+                strip.Color(overlayRgb[offset], overlayRgb[offset + 1], overlayRgb[offset + 2])
+            );
+        }
+    } else {
+        const uint32_t rgb = strip.Color(colorR, colorG, colorB);
+        for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
+            strip.setPixelColor(
+                logicalToPhysicalMap[logical],
+                packedFrameBit(localFrame, logical) ? rgb : 0
+            );
+        }
     }
 
     // Idle-low reset window before transmitting — deliberately longer than
