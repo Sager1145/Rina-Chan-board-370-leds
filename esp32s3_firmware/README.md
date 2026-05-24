@@ -735,3 +735,30 @@ This project builds on:
 No top-level project license file is currently included in this firmware folder. Until a project license is added, treat the project source as not licensed for redistribution by default.
 
 Third-party font and library components retain their own licenses. The GNU Unifont subset notice is available at `licenses/GNU_UNIFONT_WEBUI_SUBSET_NOTICE.txt`.
+
+### Ark12 fusion font replacement
+
+This package uses the fused Ark12 font resources:
+
+- `/resources/fonts/ark12.json`: patched bitmap glyph table, including `然 / 燃 / 滚 / 滾`.
+- `/resources/fonts/ark12.woff2`: base Ark12 browser font.
+- `/resources/fonts/ark12_fallback.woff2`: fused fallback browser font for Ark-missing CJK glyphs.
+
+Upload with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_rinachan_unifont.ps1 -UploadFirmware -UploadFS
+```
+
+
+The WebUI preload path also loads the fallback font sample `然燃滚滾`, so the browser preview and bitmap rasterizer are checked against the same patched glyph set.
+
+
+## 2026-05-24 Ark12 Fusion WebUI/LED Frame Fix v2
+
+- WebUI now registers `ark12_fallback.woff2` under the same CSS family as `ark12.woff2`: `Ark Pixel 12px Monospaced`.
+- The fallback face uses a `unicode-range` generated from the actual fallback font cmap; the base face uses a `unicode-range` generated from the actual base font cmap. This prevents patched glyphs from falling through to a tofu/missing-glyph box.
+- `#scroll-text` now uses only `"Ark Pixel 12px Monospaced"`; the same-family composite font handles both base Ark and patched glyphs.
+- `loadArkPixelFontTable()` parses JSON glyph tuples in the documented/original order: `[advance, width, height, xOffset, yOffset, dstY, rowsHex]`.
+- The text-scroll bitmap loader now explicitly validates required patched glyphs: `然 U+7136`, `燃 U+71C3`, `滚 U+6EDA`, `滾 U+6EFE`.
+- `run_rinachan_unifont.ps1` now regenerates `index.html.gz` and `styles.css.gz` after font preparation, so the ESP32 does not serve stale compressed WebUI assets during `-UploadFS`.

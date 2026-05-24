@@ -28,7 +28,7 @@
       rel="shortcut icon"
     >
     <!-- 全局样式、布局规则和组件状态。 -->
-    <link href="styles.css" rel="stylesheet">
+    <link href="styles.css?v=20260524-ark12-fusion-v2" rel="stylesheet">
   </head>
   <body>
     <!-- 启动/加载遮罩和应用外壳。 -->
@@ -192,7 +192,7 @@
                 <div class="button-row" id="brightness-presets"></div>
               </div>
               <div class="card control-section">
-                <h4>保存表情切换 / A-M 模式</h4>
+                <h4>自动表情切换间隔(s) / A-M 模式</h4>
                 <div class="button-row mode-button-row">
                   <button
                     id="face-prev"
@@ -392,23 +392,52 @@
             <div class="card stack">
               <h3>文字滚动控制</h3>
               <div class="field">
-                <label>滚动文字</label>
+                <label>滚动文字输入</label>
                 <textarea id="scroll-text" maxlength="1000" rows="1" spellcheck="false">RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea>
               </div>
               <div class="row">
-                <div class="field">
+                <div class="field scroll-fps-control">
                   <label>帧率 fps</label>
-                  <input
-                    id="scroll-speed"
-                    type="number"
-                    autocomplete="off"
-                    inputmode="numeric"
-                    max="120"
-                    min="1"
-                    pattern="[0-9]*"
-                    step="1"
-                    value="10"
-                  >
+                  <div class="slider-step-row">
+                    <button
+                      id="scroll-speed-reset-default"
+                      type="button"
+                    >
+                      重置默认帧率
+                    </button>
+                    <button
+                      class="compact-btn push-right"
+                      id="scroll-speed-minus"
+                      type="button"
+                    >
+                      −5
+                    </button>
+                    <button class="compact-btn" id="scroll-speed-plus" type="button">+5</button>
+                  </div>
+                  <div class="brightness-row">
+                    <input
+                      id="scroll-speed-range"
+                      type="range"
+                      autocomplete="off"
+                      max="60"
+                      min="1"
+                      step="1"
+                      value="10"
+                    >
+                    <input
+                      class="slider-number"
+                      id="scroll-speed"
+                      type="number"
+                      autocomplete="off"
+                      inputmode="numeric"
+                      max="60"
+                      min="1"
+                      pattern="[0-9]*"
+                      step="1"
+                      value="10"
+                    >
+                  </div>
+                  <div class="button-row" id="scroll-speed-presets"></div>
                 </div>
               </div>
               <div class="row">
@@ -627,16 +656,18 @@ const WEBUI_CONFIG = Object.freeze({
   scroll: {
     defaultFps: 10,
     fpsMin: 1,
-    fpsMax: 120,
+    fpsMax: 60,
     firmwareMaxFramesDefault: 3072,
     uploadChunkFrames: 24,
     maxTextChars: 1000
   },
   textScroll: {
-    fontModel: 'ark_pixel_12px_monospaced_bdf_bitmap_v1',
+    fontModel: 'ark_pixel_12px_fusion_bitmap_v2',
     fontResource: '/resources/fonts/ark12.json',
     fontFamily: 'Ark Pixel 12px Monospaced',
-    browserFontSample: 'RinaChanBoard 370 LED \u7ee7\u7eed \u6682\u505c \u3053\u3093\u306b\u3061\u306f \u7483\u5948\u3061\u3083\u3093\u30dc\u30fc\u30c9',
+    fontFallbackFamily: '',
+    browserFontSample: 'RinaChanBoard 370 LED \u7ee7\u7eed \u6682\u505c \u3053\u3093\u306b\u3061\u306f \u7483\u5948\u3061\u3083\u3093\u30dc\u30fc\u30c9 \u7136\u71c3\u6eda\u6efe',
+    browserFallbackFontSample: '',
     charSpacing: 0,
     spaceColumns: 6,
     missingGlyphCodePoint: 0x25A1
@@ -2562,6 +2593,7 @@ const MATRIX_VIEW_CONFIGS = [
 const DEFAULT_SCROLL_FPS = WEBUI_CONFIG.scroll.defaultFps;
 const SCROLL_FPS_MIN = WEBUI_CONFIG.scroll.fpsMin;
 const SCROLL_FPS_MAX = WEBUI_CONFIG.scroll.fpsMax;
+const SCROLL_FPS_PRESETS = [1, 10, 20, 30, 40, 50, 60];
 const FIRMWARE_SCROLL_MAX_FRAMES_DEFAULT = WEBUI_CONFIG.scroll.firmwareMaxFramesDefault;
 let firmwareScrollMaxFrames = FIRMWARE_SCROLL_MAX_FRAMES_DEFAULT;
 const SCROLL_UPLOAD_CHUNK_FRAMES = WEBUI_CONFIG.scroll.uploadChunkFrames;
@@ -3055,14 +3087,19 @@ function observeWebUiFont() {
 const TEXT_SCROLL_FONT_MODEL = WEBUI_CONFIG.textScroll.fontModel;
 const TEXT_SCROLL_FONT_RESOURCE = WEBUI_CONFIG.textScroll.fontResource;
 const TEXT_SCROLL_FONT_FAMILY = WEBUI_CONFIG.textScroll.fontFamily;
+const TEXT_SCROLL_FALLBACK_FONT_FAMILY = WEBUI_CONFIG.textScroll.fontFallbackFamily || '';
 const TEXT_SCROLL_BROWSER_FONT_SAMPLE = WEBUI_CONFIG.textScroll.browserFontSample;
+const TEXT_SCROLL_BROWSER_FALLBACK_FONT_SAMPLE = WEBUI_CONFIG.textScroll.browserFallbackFontSample || '';
+const TEXT_SCROLL_FONT_STACK = TEXT_SCROLL_FALLBACK_FONT_FAMILY
+  ? `"${TEXT_SCROLL_FALLBACK_FONT_FAMILY}", "${TEXT_SCROLL_FONT_FAMILY}"`
+  : `"${TEXT_SCROLL_FONT_FAMILY}"`;
 let textScrollBrowserFontLoading = null;
 
 function applyTextScrollInputFont() {
   const el = document.getElementById('scroll-text');
   if (!el) return;
-  document.documentElement.style.setProperty('--scroll-font', `"${TEXT_SCROLL_FONT_FAMILY}"`);
-  el.style.setProperty('font-family', `"${TEXT_SCROLL_FONT_FAMILY}"`, 'important');
+  document.documentElement.style.setProperty('--scroll-font', TEXT_SCROLL_FONT_STACK);
+  el.style.setProperty('font-family', TEXT_SCROLL_FONT_STACK, 'important');
   el.style.setProperty('font-size', '12px', 'important');
   el.style.setProperty('line-height', '1.2', 'important');
   el.style.setProperty('font-synthesis', 'none', 'important');
@@ -3075,10 +3112,19 @@ function ensureTextScrollBrowserFontReady() {
     document.documentElement.dataset.scrollFontLoaded = 'unsupported';
     return Promise.resolve(false);
   }
-  textScrollBrowserFontLoading = document.fonts.load(`12px "${TEXT_SCROLL_FONT_FAMILY}"`,
-      TEXT_SCROLL_BROWSER_FONT_SAMPLE)
+  const loadJobs = [
+    document.fonts.load(`12px "${TEXT_SCROLL_FONT_FAMILY}"`, TEXT_SCROLL_BROWSER_FONT_SAMPLE)
+  ];
+  if (TEXT_SCROLL_FALLBACK_FONT_FAMILY && TEXT_SCROLL_BROWSER_FALLBACK_FONT_SAMPLE) {
+    loadJobs.push(document.fonts.load(`12px "${TEXT_SCROLL_FALLBACK_FONT_FAMILY}"`,
+      TEXT_SCROLL_BROWSER_FALLBACK_FONT_SAMPLE));
+  }
+  textScrollBrowserFontLoading = Promise.all(loadJobs)
     .then(() => {
-      const loaded = document.fonts.check(`12px "${TEXT_SCROLL_FONT_FAMILY}"`, TEXT_SCROLL_BROWSER_FONT_SAMPLE);
+      const loadedBase = document.fonts.check(`12px "${TEXT_SCROLL_FONT_FAMILY}"`, TEXT_SCROLL_BROWSER_FONT_SAMPLE);
+      const loadedFallback = !TEXT_SCROLL_FALLBACK_FONT_FAMILY || !TEXT_SCROLL_BROWSER_FALLBACK_FONT_SAMPLE ||
+        document.fonts.check(`12px "${TEXT_SCROLL_FALLBACK_FONT_FAMILY}"`, TEXT_SCROLL_BROWSER_FALLBACK_FONT_SAMPLE);
+      const loaded = loadedBase && loadedFallback;
       document.documentElement.dataset.scrollFontLoaded = loaded ? 'true' : 'false';
       applyTextScrollInputFont();
       requestAnimationFrame(autoResizeScrollTextInput);
@@ -3168,14 +3214,15 @@ function loadArkPixelFontTable(data) {
     if (!Number.isFinite(cp) || !g) continue;
     let packed = null;
     if (Array.isArray(g)) {
+      const tupleWidth = Number(g[1] || 0);
       packed = {
         advance: g[0],
-        width: g[1],
+        width: tupleWidth,
         height: g[2],
         xOffset: g[3],
         yOffset: g[4],
         dstY: g[5],
-        rows: decodePackedGlyphRows(g[6] || '', Number(g[1] || 0))
+        rows: decodePackedGlyphRows(g[6] || '', tupleWidth)
       };
     } else {
       packed = {
@@ -3196,6 +3243,12 @@ function loadArkPixelFontTable(data) {
     });
   }
   if (!arkPixelFont.glyphs.size) throw new Error('Ark Pixel bitmap table contains no glyphs');
+  const requiredFusionGlyphs = [0x7136, 0x71C3, 0x6EDA, 0x6EFE];
+  const missingFusionGlyphs = requiredFusionGlyphs.filter(cp => !arkPixelFont.glyphs.has(cp));
+  if (missingFusionGlyphs.length) {
+    throw new Error('Ark Pixel fusion bitmap table missing required patched glyphs: ' +
+      missingFusionGlyphs.map(cp => 'U+' + cp.toString(16).toUpperCase().padStart(4, '0')).join(', '));
+  }
   arkPixelFont.ready = true;
   arkPixelFont.error = '';
   arkPixelFont.loading = null;
@@ -5704,7 +5757,7 @@ function initBasicControls() {
   renderPresetButtons(
     'auto-interval-presets',
     AUTO_INTERVAL_PRESETS_MS,
-    ms => `${formatIntervalSeconds(ms)} 秒`,
+    ms => `${formatIntervalSeconds(ms)} s`,
     ms => setAutoIntervalMs(ms, 'auto_interval_preset')
   );
   syncAutoIntervalUi();
@@ -6728,6 +6781,24 @@ function initScroll() {
     advanceScroll(true);
     sendAuxCommand('scroll_step', {}, 'text_scroll_manual_step');
   };
+  setClickHandlers([
+    ['scroll-speed-reset-default', () => setScrollFps(DEFAULT_SCROLL_FPS, 'text_scroll_fps_reset_default')],
+    ['scroll-speed-minus', () => setScrollFps(getScrollFps() - 5, 'text_scroll_fps_minus')],
+    ['scroll-speed-plus', () => setScrollFps(getScrollFps() + 5, 'text_scroll_fps_plus')]
+  ]);
+  const fpsRangeEl = $('scroll-speed-range');
+  if (fpsRangeEl) {
+    fpsRangeEl.min = String(SCROLL_FPS_MIN);
+    fpsRangeEl.max = String(SCROLL_FPS_MAX);
+    fpsRangeEl.step = '1';
+    fpsRangeEl.addEventListener('input', ev => setScrollFps(ev.target.value, 'text_scroll_fps_slider'));
+  }
+  renderPresetButtons(
+    'scroll-speed-presets',
+    SCROLL_FPS_PRESETS,
+    value => `${value}`,
+    value => setScrollFps(value, 'text_scroll_fps_preset')
+  );
   const textEl = $('scroll-text');
   if (textEl) {
     textEl.maxLength = MAX_SCROLL_TEXT_CHARS;
@@ -6808,6 +6879,13 @@ function getScrollFrameIntervalMs() {
   return Math.max(1, Math.round(1000 / getScrollFps()));
 }
 
+function syncScrollFpsUi(fps) {
+  const clean = clamp(fps, SCROLL_FPS_MIN, SCROLL_FPS_MAX);
+  if ($('scroll-speed')) $('scroll-speed').value = clean;
+  if ($('scroll-speed-range')) $('scroll-speed-range').value = clean;
+  return clean;
+}
+
 function restartScrollPreviewTimer() {
   if (scroll.timer) clearInterval(scroll.timer);
   scroll.timer = null;
@@ -6817,8 +6895,7 @@ function restartScrollPreviewTimer() {
 }
 
 function setScrollFps(fps, source = 'text_scroll_fps_change') {
-  const clean = clamp(fps, SCROLL_FPS_MIN, SCROLL_FPS_MAX);
-  if ($('scroll-speed')) $('scroll-speed').value = clean;
+  const clean = syncScrollFpsUi(fps);
   state.refreshPolicy = `text_scroll_${clean}fps_interval_${getScrollFrameIntervalMs()}ms`;
   restartScrollPreviewTimer();
   if (scroll.active || scroll.firmwareBacked || scroll.paused) {

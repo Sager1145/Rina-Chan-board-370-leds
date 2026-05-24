@@ -20699,3 +20699,32 @@ if (document.readyState === 'loading') {
 - WebUI 必须在 320px 视宽下无水平破坏性裁切；LED cell 可以缩小，但任何 LED 不得被边框 cutoff。
 - custom/parts/basic/debug/scroll 五页所有按钮、输入、拖拽、上传、保存、API 同步逻辑必须可用。
 - Firmware 在 Wi-Fi AP-only、DNS captive portal、LittleFS 静态资源、API routes、LED render、buttons、power monitor、storage 原子写入方面必须符合第 15.6/15.7 和源代码片段。
+
+
+## Ark12 fusion font replacement note
+
+This package replaces the original Ark12 bitmap table with a fused strict-format table. The runtime font resources are:
+
+- `data/resources/fonts/ark12.json` — fused bitmap table containing patched glyphs `然 / 燃 / 滚 / 滾`.
+- `data/resources/fonts/ark12.json.gz` — regenerated gzip sibling.
+- `data/resources/fonts/ark12.woff2` — base Ark12 browser font.
+- `data/resources/fonts/ark12_fallback.woff2` — fused fallback browser font used in the text-scroll input preview through `--scroll-font`.
+- `tools/font_fusion/` — bundled fusion source resources used by `run_rinachan_unifont.ps1` to repair/validate the resources before upload.
+
+Upload command:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_rinachan_unifont.ps1 -UploadFirmware -UploadFS
+```
+
+The WebUI text-scroll font preload loads both the base Ark12 family and the fusion fallback family. The fallback preload sample is `然燃滚滾`.
+
+
+## 2026-05-24 Ark12 Fusion WebUI/LED Frame Fix v2
+
+- WebUI now registers `ark12_fallback.woff2` under the same CSS family as `ark12.woff2`: `Ark Pixel 12px Monospaced`.
+- The fallback face uses a `unicode-range` generated from the actual fallback font cmap; the base face uses a `unicode-range` generated from the actual base font cmap. This prevents patched glyphs from falling through to a tofu/missing-glyph box.
+- `#scroll-text` now uses only `"Ark Pixel 12px Monospaced"`; the same-family composite font handles both base Ark and patched glyphs.
+- `loadArkPixelFontTable()` parses JSON glyph tuples in the documented/original order: `[advance, width, height, xOffset, yOffset, dstY, rowsHex]`.
+- The text-scroll bitmap loader now explicitly validates required patched glyphs: `然 U+7136`, `燃 U+71C3`, `滚 U+6EDA`, `滾 U+6EFE`.
+- `run_rinachan_unifont.ps1` now regenerates `index.html.gz` and `styles.css.gz` after font preparation, so the ESP32 does not serve stale compressed WebUI assets during `-UploadFS`.

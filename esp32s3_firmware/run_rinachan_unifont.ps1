@@ -195,24 +195,71 @@ function Find-Woff2ForLanguage([string]$Root, [string]$Lang) {
 }
 
 function Test-MergedArk12Json([string]$Path) {
+    # Fusion validation: this project intentionally uses a patched Ark12 JSON,
+    # not the raw Ark merge output. Upload must fail rather than silently falling
+    # back to the old 24,408-glyph Ark table.
     if (-not (Test-Path $Path)) { return $false }
     try {
         $json = Get-Content -Raw -Encoding UTF8 -Path $Path | ConvertFrom-Json
         if ($json.format -ne "rina_ark_pixel_font_bitmap_v1") { return $false }
+        if ([int]$json.rows -ne 12) { return $false }
+        if ([int]$json.lineHeight -ne 12) { return $false }
+        if ([int]$json.defaultAdvance -ne 12) { return $false }
         if (-not $json.mergePolicy) { return $false }
         $order = @($json.mergePolicy.priorityLowToHigh)
         if (($order -join ",") -ne "zh_cn,ja,zh_tw") { return $false }
         if ($json.mergePolicy.conflictAuthority -ne "zh_tw") { return $false }
         $glyphProps = @($json.glyphs.PSObject.Properties)
-        if ($glyphProps.Count -lt 24000) { return $false }
+        if ($glyphProps.Count -lt 32000) { return $false }
         $glyphNames = @($json.glyphs.PSObject.Properties.Name)
-        foreach ($cp in @("4F60", "597D", "7E41", "9AD4", "65E5", "672C", "8A9E", "3053", "3093", "306B", "3061", "306F", "7483", "5948")) {
+        foreach ($cp in @("7136", "71C3", "6EDA", "6EFE")) {
             if ($glyphNames -notcontains $cp) { return $false }
+            $g = $json.glyphs.$cp
+            if ($null -eq $g -or $g.Count -lt 7) { return $false }
+            if ([int]$g[1] -ne 12) { return $false }
+            $rows = ([string]$g[6]).Split('/')
+            if ($rows.Count -ne 12) { return $false }
         }
         return $true
     } catch {
         return $false
     }
+}
+
+function Install-BundledArk12FusionResources([string]$FontDir) {
+    $FusionDir = Join-Path $ProjectDir "tools\font_fusion"
+    $BundledJson = Join-Path $FusionDir "ark12_fusion.json"
+    $BundledBaseWoff2 = Join-Path $FusionDir "ark12_base.woff2"
+    $BundledFallbackWoff2 = Join-Path $FusionDir "ark12_fallback.woff2"
+    foreach ($Path in @($BundledJson, $BundledBaseWoff2, $BundledFallbackWoff2)) {
+        if (-not (Test-Path $Path)) {
+            throw "Bundled Ark12 fusion resource is missing: $Path"
+        }
+    }
+    Copy-Item -Force $BundledJson (Join-Path $FontDir "ark12.json")
+    Copy-Item -Force $BundledBaseWoff2 (Join-Path $FontDir "ark12.woff2")
+    Copy-Item -Force $BundledFallbackWoff2 (Join-Path $FontDir "ark12_fallback.woff2")
+    $Python = Get-PythonCommand
+    $code = @'
+import gzip
+import pathlib
+import shutil
+import sys
+src = pathlib.Path(sys.argv[1])
+dst = pathlib.Path(sys.argv[2])
+with src.open("rb") as fin, gzip.GzipFile(filename="", mode="wb", fileobj=dst.open("wb"), mtime=0) as fout:
+    shutil.copyfileobj(fin, fout)
+'@
+    $result = Invoke-PythonTempScript -Python $Python -Code $code -Arguments @((Join-Path $FontDir "ark12.json"), (Join-Path $FontDir "ark12.json.gz"))
+    if ($result.ExitCode -ne 0) {
+        $outputText = (($result.Output | ForEach-Object { [string]$_ }) -join "`n").Trim()
+        if ($outputText) { Write-Host $outputText -ForegroundColor Yellow }
+        throw "Failed to gzip fused Ark12 JSON."
+    }
+    if (-not (Test-MergedArk12Json (Join-Path $FontDir "ark12.json"))) {
+        throw "Bundled Ark12 fusion JSON validation failed after copy."
+    }
+    Write-Host "[font] installed bundled Ark12 fusion resources, including 然 / 燃 / 滚 / 滾."
 }
 
 function Build-AndEmbedUnifontWebFont([string]$CacheDir) {
@@ -265,6 +312,7 @@ function Prepare-FontResources {
     $Woff2Extract = Join-Path $CacheDir "ark12_woff2_tmp"
     $CompiledJson = Join-Path $FontDir "ark12.json"
     $ArkWebFont = Join-Path $FontDir "ark12.woff2"
+    $ArkFallbackWebFont = Join-Path $FontDir "ark12_fallback.woff2"
     $MergeTool = Join-Path $ProjectDir "tools\build_ark12_merged.py"
 
     New-Item -ItemType Directory -Force -Path $FontDir, $CacheDir | Out-Null
@@ -273,11 +321,16 @@ function Prepare-FontResources {
 
     Ensure-EmbeddedUnifontWebFont -CacheDir $CacheDir
 
-    if ((Test-Path $ArkWebFont) -and (Test-MergedArk12Json $CompiledJson)) {
-        Write-Host "[font] existing merged Ark12 text-scroll resources found; no rebuild required."
-        Get-Item $ArkWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
+    if ((Test-Path $ArkWebFont) -and (Test-Path $ArkFallbackWebFont) -and (Test-MergedArk12Json $CompiledJson)) {
+        Write-Host "[font] existing fused Ark12 text-scroll resources found; no rebuild required."
+        Get-Item $ArkWebFont, $ArkFallbackWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
         return
     }
+
+    Write-Host "[font] fused Ark12 resources are missing or stale; installing bundled fusion files."
+    Install-BundledArk12FusionResources -FontDir $FontDir
+    Get-Item $ArkWebFont, $ArkFallbackWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
+    return
 
     if (-not (Test-Path $MergeTool)) {
         throw "Missing Ark12 merge tool: $MergeTool"
@@ -315,6 +368,38 @@ function Prepare-FontResources {
 
     Write-Host "[font] final LittleFS font resources:"
     Get-Item $ArkWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
+}
+
+
+function Sync-WebAssetGzipFiles {
+    $Python = Get-PythonCommand
+    $code = @'
+import gzip
+import pathlib
+import shutil
+import sys
+for arg in sys.argv[1:]:
+    src = pathlib.Path(arg)
+    if not src.exists():
+        print(f"missing web asset: {src}")
+        raise SystemExit(1)
+    dst = src.with_name(src.name + ".gz")
+    with src.open("rb") as fin, gzip.GzipFile(filename="", mode="wb", fileobj=dst.open("wb"), mtime=0) as fout:
+        shutil.copyfileobj(fin, fout)
+    raw = src.read_bytes()
+    dec = gzip.decompress(dst.read_bytes())
+    if raw != dec:
+        print(f"gzip verification failed: {src}")
+        raise SystemExit(1)
+    print(f"gzipped {src.name} -> {dst.name} ({len(raw)} bytes)")
+'@
+    $assets = @($IndexHtml, $StylesCss)
+    $result = Invoke-PythonTempScript -Python $Python -Code $code -Arguments $assets
+    $outputText = (($result.Output | ForEach-Object { [string]$_ }) -join "`n").Trim()
+    if ($outputText) { Write-Host $outputText }
+    if ($result.ExitCode -ne 0) {
+        throw "Failed to synchronize gzip web assets."
+    }
 }
 
 function Assert-EmbeddedUnifontWebUi {
@@ -363,7 +448,7 @@ for path in external_paths:
         raise SystemExit(1)
 compact_css = re.sub(r"\s+", "", css)
 styles_link_re = re.compile(
-    r"<link\b(?=[^>]*\brel=['\"]stylesheet['\"])(?=[^>]*\bhref=['\"]styles\.css['\"])[^>]*>",
+    r"<link\b(?=[^>]*\brel=['\"]stylesheet['\"])(?=[^>]*\bhref=['\"]styles\.css(?:\?[^'\"]*)?['\"])[^>]*>",
     re.I,
 )
 if not styles_link_re.search(html):
@@ -387,6 +472,7 @@ function Assert-RequiredFontResources {
     $FontDir = Join-Path $ProjectDir "data\resources\fonts"
     $Required = @(
         (Join-Path $FontDir "ark12.woff2"),
+        (Join-Path $FontDir "ark12_fallback.woff2"),
         (Join-Path $FontDir "ark12.json")
     )
     $Missing = @($Required | Where-Object { -not (Test-Path $_) })
@@ -394,6 +480,9 @@ function Assert-RequiredFontResources {
         Write-Host "[font] missing required LittleFS font resources:" -ForegroundColor Yellow
         $Missing | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
         throw "Required font resources are missing. Re-run without -SkipPrepareFonts before uploadfs."
+    }
+    if (-not (Test-MergedArk12Json (Join-Path $FontDir "ark12.json"))) {
+        throw "Fused Ark12 JSON validation failed. Required patched glyphs include 然 / 燃 / 滚 / 滾. Re-run without -SkipPrepareFonts."
     }
     Assert-EmbeddedUnifontWebUi
     Write-Host "[font] required LittleFS font resources are present. WebUI Unifont is embedded in styles.css only."
@@ -417,6 +506,7 @@ if (-not $SkipPrepareFonts) {
 }
 
 Assert-RequiredFontResources
+Sync-WebAssetGzipFiles
 Assert-LittleFSNameLengths
 
 Push-Location $ProjectDir
