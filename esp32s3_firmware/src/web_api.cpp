@@ -708,6 +708,15 @@ static void handleApiScroll() {
     const String body = requestBody();
     if (body.isEmpty()) { sendError(400, "empty JSON body"); return; }
 
+    // The scroll cache is allocated lazily (PSRAM, else internal SRAM heap).  On
+    // a board where neither tier could satisfy the allocation, the cache stays
+    // unavailable; reject uploads here rather than decoding frames into a null
+    // buffer further down (runtimeScrollFrameBits() would return nullptr).
+    if (!runtimeScrollFrameBufferReady()) {
+        sendError(507, "scroll frame buffer unavailable (insufficient PSRAM/SRAM)");
+        return;
+    }
+
     uint16_t intervalMs = runtimeState().scrollIntervalMs;
     bool     hasExplicitTiming = false;
     uint32_t intervalValue = 0;

@@ -245,15 +245,18 @@ void drawBitmap(uint8_t* out, const char* const* rows, uint8_t width, uint8_t he
  */
 void drawText(uint8_t* out, const char* text, Rgb color, bool hasIcon, bool voltageLayout = false) {
     constexpr uint8_t GAP = 1;
-    uint8_t widths[8] = {};
+    constexpr uint8_t MAX_TEXT_GLYPHS = 8;  // upper bound for any overlay status string
+
+    // Measure rendered width.  The length bound is tested BEFORE dereferencing
+    // text[len]; the previous order read text[MAX_TEXT_GLYPHS], one byte past a
+    // fully-populated caller buffer (e.g. char text[8]) -- a stack over-read.
+    // (The old widths[] scratch array was also dead: the draw loop below
+    // recomputes glyph widths, so it has been removed.)
     uint8_t len = 0;
     uint8_t totalW = 0;
-
-    for (; text[len] != '\0' && len < sizeof(widths); ++len) {
-        const Glyph g = glyphFor(text[len]);
-        widths[len] = g.width;
-        totalW += g.width;
+    for (; len < MAX_TEXT_GLYPHS && text[len] != '\0'; ++len) {
         if (len > 0) totalW += GAP;
+        totalW += glyphFor(text[len]).width;
     }
     if (len == 0 || totalW > COLS) return;
 

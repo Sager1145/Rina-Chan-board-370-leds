@@ -215,7 +215,10 @@ private:
     RuntimeFace  autoFaces_[MAX_AUTO_FACES] = {};
     uint16_t     autoFaceCount_ = 0;
     uint8_t      frameBits_[FRAME_BYTES] = {};
-    uint8_t      fallbackScrollFrameBits_[MAX_SCROLL_FRAMES][FRAME_BYTES] = {};
+    // The scroll cache (~140 KB for MAX_SCROLL_FRAMES) is allocated lazily by
+    // initScrollFrameBuffer(): PSRAM when present, otherwise a one-time internal
+    // SRAM heap allocation.  It is intentionally NOT a static member so the
+    // common PSRAM path does not permanently reserve that block of internal SRAM.
     uint8_t*     scrollFrameBits_ = nullptr;
     bool         scrollFrameBitsInPsram_ = false;
     bool         fsMounted_ = false;

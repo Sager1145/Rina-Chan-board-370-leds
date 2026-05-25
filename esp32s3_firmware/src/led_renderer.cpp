@@ -251,9 +251,19 @@ bool packedFrameBit(const uint8_t* bits, uint16_t index) {
  * @return Number of set bits up to LED_COUNT.
  */
 uint16_t countLitLeds() {
+    // Population-count per byte (47 iterations) instead of per bit (370).
+    // LED_COUNT (370) is not a byte multiple, so the high bits of the final byte
+    // are padding and must be masked off before they are counted.
+    const uint8_t* bits = runtimeFrameBits();
     uint16_t lit = 0;
-    for (uint16_t i = 0; i < LED_COUNT; ++i) {
-        if (frameBit(i)) ++lit;
+    for (uint16_t byteIndex = 0; byteIndex < FRAME_BYTES; ++byteIndex) {
+        uint8_t value = bits[byteIndex];
+        const uint16_t firstBit = static_cast<uint16_t>(byteIndex) << 3;
+        if (firstBit + 8U > LED_COUNT) {
+            const uint8_t validBits = static_cast<uint8_t>(LED_COUNT - firstBit);
+            value &= static_cast<uint8_t>((1U << validBits) - 1U);
+        }
+        lit += static_cast<uint16_t>(__builtin_popcount(value));
     }
     return lit;
 }
@@ -270,7 +280,7 @@ uint16_t countLitLeds() {
 void renderCurrentFrameToLedStrip() {
     uint8_t localFrame[FRAME_BYTES];
     static uint8_t overlayRgb[LED_COUNT * 3];
-    uint8_t brightness;
+    uint8_t brightness = DEFAULT_BRIGHTNESS;
     uint8_t colorR = 0, colorG = 0, colorB = 0;
 
     // Snapshot runtime state under frame lock, then render from local copies.
@@ -435,10 +445,22 @@ bool m370ToPackedBits(const String& input, uint8_t* outBits, String& error) {
  */
 static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* outBits) {
     memset(outBits, 0, FRAME_BYTES);
-    for (uint16_t bit = 0; bit < M370_BITS; ++bit) {
-        const int  nibble = hexNibble(normalized.charAt(5 + bit / 4));
-        const bool on     = (nibble & (1 << (3 - (bit % 4)))) != 0;
-        if (on) outBits[bit >> 3] |= 1U << (bit & 7U);
+
+    // Decode one hex nibble (4 bits, MSB-first) per iteration.  The previous
+    // version looped over all 370 bits and recomputed hexNibble(charAt(...)) for
+    // each bit, i.e. four redundant char lookups + nibble conversions per nibble.
+    // Walking the 93 nibbles directly does the conversion once each.  c_str()+5
+    // skips the validated "M370:" prefix; normalized always holds it on success.
+    const char* hex = normalized.c_str() + 5;
+    for (uint16_t nib = 0; nib < M370_HEX_CHARS; ++nib) {
+        const int value = hexNibble(hex[nib]);
+        if (value <= 0) continue;  // '0' or (post-normalize impossible) invalid: no bits
+        const uint16_t baseBit = static_cast<uint16_t>(nib) * 4U;
+        for (uint8_t k = 0; k < 4U; ++k) {
+            if ((value & (1 << (3 - k))) == 0) continue;
+            const uint16_t bit = baseBit + k;
+            if (bit < M370_BITS) outBits[bit >> 3] |= 1U << (bit & 7U);
+        }
     }
 }
 

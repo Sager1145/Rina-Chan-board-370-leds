@@ -33,15 +33,25 @@ size_t jsonCapacityFor(size_t sourceBytes) {
 bool parseColorHex(const String& input, uint8_t& r, uint8_t& g, uint8_t& b) {
     String value = input;
     value.trim();
-    if (value.startsWith("#")) value = value.substring(1);
-    if (value.length() != 6) return false;
+
+    // Accept an optional leading '#' by offsetting into the trimmed string
+    // instead of allocating a substring copy.
+    const size_t offset = (value.length() > 0 && value.charAt(0) == '#') ? 1 : 0;
+    if (value.length() - offset != 6) return false;
+
+    // Validate and decode the six nibbles in one pass.  hexNibble() already
+    // accepts upper- and lower-case, so the previous toLowerCase() copy and the
+    // three substring()/strtoul() temporaries (all heap String allocations on a
+    // memory-constrained target) are no longer needed.
+    int nibbles[6];
     for (size_t i = 0; i < 6; ++i) {
-        if (hexNibble(value.charAt(i)) < 0) return false;
+        nibbles[i] = hexNibble(value.charAt(offset + i));
+        if (nibbles[i] < 0) return false;
     }
-    value.toLowerCase();
-    r = static_cast<uint8_t>(strtoul(value.substring(0, 2).c_str(), nullptr, 16));
-    g = static_cast<uint8_t>(strtoul(value.substring(2, 4).c_str(), nullptr, 16));
-    b = static_cast<uint8_t>(strtoul(value.substring(4, 6).c_str(), nullptr, 16));
+
+    r = static_cast<uint8_t>((nibbles[0] << 4) | nibbles[1]);
+    g = static_cast<uint8_t>((nibbles[2] << 4) | nibbles[3]);
+    b = static_cast<uint8_t>((nibbles[4] << 4) | nibbles[5]);
     return true;
 }
 
