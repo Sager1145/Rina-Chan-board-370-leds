@@ -16,8 +16,25 @@ extern const IPAddress AP_IP_ADDR;
 extern const IPAddress AP_GATEWAY_ADDR;
 extern const IPAddress AP_SUBNET_MASK;
 
+/**
+ * @brief Return SoftAP IP address configured in config.cpp.
+ * @param None.
+ * @return SoftAP IP address reference.
+ */
 inline const IPAddress& apIP()      { return AP_IP_ADDR; }
+
+/**
+ * @brief Return SoftAP gateway address configured in config.cpp.
+ * @param None.
+ * @return SoftAP gateway address reference.
+ */
 inline const IPAddress& apGateway() { return AP_GATEWAY_ADDR; }
+
+/**
+ * @brief Return SoftAP subnet mask configured in config.cpp.
+ * @param None.
+ * @return SoftAP subnet mask reference.
+ */
 inline const IPAddress& apSubnet()  { return AP_SUBNET_MASK; }
 constexpr uint16_t LED_PIN               = 2;
 constexpr uint16_t LED_COUNT             = 370;
@@ -69,8 +86,8 @@ constexpr char     BATTERY_CALIB_PATH[]  = "/resources/battery_calib.json";
 // uses piecewise-linear interpolation between adjacent entries; voltages above
 // the first entry clamp to 100 % and below the last entry clamp to 0 %.
 //
-// Derived from a typical 2S (2×3.1 V – 2×4.2 V) lithium-polymer cell:
-//   full  ≈ 8.40 V (2×4.20 V)   empty ≈ 6.20 V (2×3.10 V, conservative cutoff)
+// Derived from a typical 2S (2 * 3.1 V to 2 * 4.2 V) lithium-polymer cell:
+//   full about 8.40 V (2 * 4.20 V); empty about 6.20 V (2 * 3.10 V cutoff)
 // The curve is intentionally non-linear to match the flat mid-range plateau
 // and the steep drop-off near the bottom that linear arithmetic misses.
 struct BatteryLutPoint { float voltage; uint8_t percent; };

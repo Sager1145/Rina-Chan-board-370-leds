@@ -4,71 +4,157 @@
 // ---------------------------------------------------------------------------
 // Mode helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * @brief Check whether runtime mode is auto.
+ * @param None.
+ * @return true when runtimeState().mode is "auto".
+ */
 bool isAutoMode();
 
-// Normalize a mode string: accepts "auto"/"A"/"自动" → "auto",
-// "manual"/"M"/"手动" → "manual".
+/**
+ * @brief Normalize mode aliases from UI/API/settings into firmware strings.
+ * @param input Raw mode text.
+ * @return "auto", "manual", or the trimmed fallback.
+ */
 String normalizedMode(const char* input);
 
-// Set the playback mode.  persistSettings=true saves to LittleFS.
+/**
+ * @brief Set playback mode and optionally persist it.
+ * @param input Requested mode text.
+ * @param persistSettings true to save runtime settings to LittleFS.
+ * @return true when input is a supported mode.
+ */
 bool setMode(const char* input, bool persistSettings = true);
 
-// Set the auto-advance interval.  persistSettings=true saves to LittleFS.
+/**
+ * @brief Set the auto-advance interval.
+ * @param ms Requested interval in milliseconds.
+ * @param persistSettings true to save runtime settings to LittleFS.
+ * @return None.
+ */
 void setAutoInterval(uint32_t ms, bool persistSettings = true);
 
 // ---------------------------------------------------------------------------
 // Face apply helpers
 // ---------------------------------------------------------------------------
 
-// Apply the saved face at the given index and schedule a render.
+/**
+ * @brief Apply the saved face at the given index and schedule a render.
+ * @param index Saved-face index; wraps by available count.
+ * @param reason Diagnostic render reason.
+ * @param playback Playback label to store, or nullptr to preserve.
+ * @return true when a face was applied.
+ */
 bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playback);
 
-// Apply a face at (currentIndex + delta) with wrapping.
+/**
+ * @brief Apply a face at current index plus a signed delta.
+ * @param delta Signed offset with wrapping.
+ * @param reason Diagnostic render reason.
+ * @return true when a face was applied.
+ */
 bool applyRelativeSavedFace(int8_t delta, const String& reason);
 
-// Apply the face currently pointed to by state.autoFaceIndex for the given mode.
+/**
+ * @brief Apply the currently selected saved face for manual or auto mode.
+ * @param reason Diagnostic render reason.
+ * @param autoMode true to label playback as auto_saved_face.
+ * @return true when a face was applied.
+ */
 bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode);
 
-// Toggle manual/auto mode from the B3/M-A action and restore an appropriate face.
+/**
+ * @brief Toggle manual/auto mode from the B3/M-A action.
+ * @param source Source prefix used in reason strings.
+ * @return true when the mode toggle was accepted.
+ */
 bool toggleModeFromButtonAction(const String& source);
 
 // ---------------------------------------------------------------------------
 // Scroll stop / startup face restore
 // ---------------------------------------------------------------------------
 
-// Cancel / schedule / service deferred restores that must happen after an
-// all-off frame has had time to latch.  serviceDeferredFaceRestore() is called
-// from loop(), so HTTP handlers never block for the blank-frame hold time.
+/**
+ * @brief Cancel a pending deferred saved-face restore.
+ * @param None.
+ * @return None.
+ */
 void cancelDeferredFaceRestore();
+
+/**
+ * @brief Schedule current saved-face restore after blank-frame latch time.
+ * @param autoMode true to restore auto playback semantics.
+ * @param reason Diagnostic render reason for the restore.
+ * @return None.
+ */
 void scheduleCurrentSavedFaceRestoreAfterBlank(bool autoMode, const String& reason);
+
+/**
+ * @brief Service deferred saved-face restore from loop().
+ * @param None.
+ * @return None.
+ */
 void serviceDeferredFaceRestore();
 
 // ---------------------------------------------------------------------------
 // Scroll lifecycle
 // ---------------------------------------------------------------------------
 
-// Immediately stop the firmware scroll engine.
-// clearDisplay=true pushes a blank frame then restores the default face.
+/**
+ * @brief Stop the firmware scroll engine.
+ * @param restoreAuto true to restore auto mode when scroll started from auto.
+ * @param clearDisplay true to blank display before restoring the default face.
+ * @return None.
+ */
 void stopFirmwareScroll(bool restoreAuto, bool clearDisplay = false);
 
-// Arm and start the firmware scroll engine from scrollFrameBits[].
+/**
+ * @brief Arm and start firmware scroll from cached frame bits.
+ * @param intervalMs Requested frame interval in milliseconds.
+ * @return None.
+ */
 void startFirmwareScroll(uint16_t intervalMs);
 
-// User pause is driven by WebUI/API controls. System pause is a temporary hold
-// requested by firmware overlays/animations. Effective scroll pause is their OR.
+/**
+ * @brief Set the user-controlled firmware-scroll pause flag.
+ * @param paused Requested pause state.
+ * @return true when effective scroll state changed.
+ */
 bool setFirmwareScrollUserPaused(bool paused);
+
+/**
+ * @brief Set the temporary system-controlled scroll pause flag.
+ * @param paused Requested pause state.
+ * @return true when effective scroll state changed.
+ */
 bool setFirmwareScrollSystemPaused(bool paused);
 
 // ---------------------------------------------------------------------------
 // Playback state query
 // ---------------------------------------------------------------------------
 
-// Returns true when playback is some non-face activity (scroll, custom, etc.)
-// that should be interrupted before switching faces.
+/**
+ * @brief Check whether a playback label represents firmware scroll.
+ * @param playback Runtime playback label.
+ * @return true for scroll labels.
+ */
 bool isScrollPlayback(const String& playback);
+
+/**
+ * @brief Check whether current playback should be interrupted before face display.
+ * @param None.
+ * @return true for scroll/custom/debug/non-face activity.
+ */
 bool playbackIsNonFaceActivity();
 
 // ---------------------------------------------------------------------------
 // Auto-playback  (called each loop() iteration)
 // ---------------------------------------------------------------------------
+
+/**
+ * @brief Advance auto saved-face playback when its interval elapses.
+ * @param None.
+ * @return None.
+ */
 void serviceAutoPlayback();

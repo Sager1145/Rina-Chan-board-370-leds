@@ -4,9 +4,16 @@
 // Firmware scroll render task
 // ---------------------------------------------------------------------------
 
-// Create and pin the scroll render task to LED_RENDER_TASK_CORE.
-// Safe to call multiple times; only the first call has effect.
+/**
+ * @brief Create and pin the scroll render task to LED_RENDER_TASK_CORE.
+ * @param None.
+ * @return None.
+ */
 void startScrollRenderTask();
 
-// Wake the render task after a frame request; no-op before task creation.
+/**
+ * @brief Wake the render task after a frame request.
+ * @param None.
+ * @return None.
+ */
 void notifyScrollRenderTask();

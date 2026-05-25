@@ -14,17 +14,18 @@ PowerStatus powerStatus;
 // EMA low-pass filters for ADC-derived voltages.
 // CHARGE_EMA_ALPHA is a fixed-alpha filter; it only runs during steady-state
 // (transitions snap immediately) so call-rate drift is inconsequential.
-// Battery EMA uses a time-constant (τ) instead of a fixed alpha so the
+// Battery EMA uses a time-constant instead of a fixed alpha so the
 // effective smoothing window remains BATTERY_EMA_TAU_S seconds regardless of
 // whether the caller runs at 0.5 Hz, 1 Hz, or 2 Hz.
-//   α = 1 − exp(−Δt / τ)   →   at exactly 1 Hz this is ≈ 0.0488 ≈ old 0.05
+//   alpha = 1 - exp(-dt / tau), about 0.0488 at exactly 1 Hz.
 constexpr float BATTERY_EMA_TAU_S = 20.0f;   // target smoothing time-constant
 constexpr float CHARGE_EMA_ALPHA  = 0.20f;
 
-static float dividerScale(float r1k, float r2k) {
-    return (r1k + r2k) / r2k;
-}
-
+/**
+ * @brief Read multiple ADC samples, trim outliers, and average the center set.
+ * @param pin ADC-capable GPIO pin.
+ * @return Trimmed average in millivolts.
+ */
 static uint16_t readTrimmedAdcMilliVolts(uint8_t pin) {
     uint16_t samples[POWER_ADC_SAMPLES];
     for (uint8_t i = 0; i < POWER_ADC_SAMPLES; ++i) {
@@ -41,22 +42,43 @@ static uint16_t readTrimmedAdcMilliVolts(uint8_t pin) {
     return static_cast<uint16_t>(sum / (last - first));
 }
 
+/**
+ * @brief Sanitize the persisted maximum calibration voltage.
+ * @param value Candidate voltage.
+ * @return Finite max not below the nominal full voltage.
+ */
 static float sanitizedCalibMax(float value) {
     if (!isfinite(value)) return BATTERY_FULL_V;
     return max(value, BATTERY_FULL_V);
 }
 
+/**
+ * @brief Sanitize the persisted minimum calibration voltage.
+ * @param value Candidate voltage.
+ * @return Finite min not above the nominal empty voltage.
+ */
 static float sanitizedCalibMin(float value) {
     if (!isfinite(value)) return BATTERY_EMPTY_V;
     return min(value, BATTERY_EMPTY_V);
 }
 
+/**
+ * @brief Read a finite float from JSON, falling back on null/NaN/Inf.
+ * @param value JSON value to inspect.
+ * @param fallback Value used when JSON is absent or non-finite.
+ * @return Parsed finite float or fallback.
+ */
 static float jsonFloatOr(JsonVariantConst value, float fallback) {
     if (value.isNull()) return fallback;
     const float parsed = value.as<float>();
     return isfinite(parsed) ? parsed : fallback;
 }
 
+/**
+ * @brief Normalize battery calibration fields to safe defaults and span.
+ * @param now Current millis() timestamp.
+ * @return None.
+ */
 static void ensureBatteryCalibrationDefaults(uint32_t now) {
     powerStatus.batteryCalibMaxV = sanitizedCalibMax(powerStatus.batteryCalibMaxV);
     powerStatus.batteryCalibMinV = sanitizedCalibMin(powerStatus.batteryCalibMinV);
@@ -68,6 +90,11 @@ static void ensureBatteryCalibrationDefaults(uint32_t now) {
     if (powerStatus.lastCalibMinMs == 0) powerStatus.lastCalibMinMs = now;
 }
 
+/**
+ * @brief Mark battery calibration dirty for delayed persistence.
+ * @param now Current millis() timestamp.
+ * @return None.
+ */
 static void markBatteryCalibrationDirty(uint32_t now) {
     if (!powerStatus.batteryCalibDirty) {
         powerStatus.batteryCalibDirtySinceMs = now;
@@ -75,6 +102,11 @@ static void markBatteryCalibrationDirty(uint32_t now) {
     powerStatus.batteryCalibDirty = true;
 }
 
+/**
+ * @brief Convert measured battery voltage to percentage using the LUT.
+ * @param vbat Battery voltage.
+ * @return Integer percentage from 0 to 100.
+ */
 static uint8_t batteryPercentFromVoltage(float vbat) {
     if (!isfinite(vbat)) return 0;
     const uint8_t n = BATTERY_PERCENT_LUT_SIZE;
@@ -95,6 +127,11 @@ static uint8_t batteryPercentFromVoltage(float vbat) {
     return 0;
 }
 
+/**
+ * @brief Load battery calibration from LittleFS diagnostics file.
+ * @param now Current millis() timestamp.
+ * @return true when persisted calibration was loaded.
+ */
 static bool loadBatteryCalibration(uint32_t now) {
     powerStatus.batteryCalibMaxV = BATTERY_FULL_V;
     powerStatus.batteryCalibMinV = BATTERY_EMPTY_V;
@@ -104,24 +141,26 @@ static bool loadBatteryCalibration(uint32_t now) {
 
     bool calibExists = false;
     if (runtimeFsMounted()) {
-        lockHardwareBus();
-        calibExists = LittleFS.exists(BATTERY_CALIB_PATH);
-        unlockHardwareBus();
+        withHardwareBusLock([&]() {
+            calibExists = LittleFS.exists(BATTERY_CALIB_PATH);
+        });
     }
     if (!runtimeFsMounted() || !calibExists) {
         return false;
     }
 
-    lockHardwareBus();
-    File file = LittleFS.open(BATTERY_CALIB_PATH, "r");
-    unlockHardwareBus();
+    File file;
+    withHardwareBusLock([&]() {
+        file = LittleFS.open(BATTERY_CALIB_PATH, "r");
+    });
     if (!file) return false;
 
     DynamicJsonDocument doc(512);
-    lockHardwareBus();
-    DeserializationError err = deserializeJson(doc, file, DeserializationOption::NestingLimit(6));
-    file.close();
-    unlockHardwareBus();
+    DeserializationError err;
+    withHardwareBusLock([&]() {
+        err = deserializeJson(doc, file, DeserializationOption::NestingLimit(6));
+        file.close();
+    });
     if (err) {
         Serial.printf("battery_calib.json parse failed: %s\n", err.c_str());
         return false;
@@ -137,12 +176,17 @@ static bool loadBatteryCalibration(uint32_t now) {
     return true;
 }
 
+/**
+ * @brief Save battery calibration/diagnostics JSON to LittleFS.
+ * @param now Current millis() timestamp.
+ * @return true when the file was written.
+ */
 static bool saveBatteryCalibration(uint32_t now) {
     if (!runtimeFsMounted()) return false;
     bool resourcesOk = false;
-    lockHardwareBus();
-    resourcesOk = LittleFS.exists("/resources") || LittleFS.mkdir("/resources");
-    unlockHardwareBus();
+    withHardwareBusLock([&]() {
+        resourcesOk = LittleFS.exists("/resources") || LittleFS.mkdir("/resources");
+    });
     if (!resourcesOk) {
         Serial.println("Failed to ensure /resources for battery calibration");
         return false;
@@ -171,6 +215,13 @@ static bool saveBatteryCalibration(uint32_t now) {
     return true;
 }
 
+/**
+ * @brief Maintain calibration fields after each battery sample.
+ * @param vbat Filtered battery voltage.
+ * @param freezeCalibration true when charger/disconnect state should prevent learning.
+ * @param now Current millis() timestamp.
+ * @return None.
+ */
 static void updateBatteryCalibration(float vbat, bool freezeCalibration, uint32_t now) {
     // Dynamic min/max learning has been removed.  Battery percentage is now
     // derived from the fixed piecewise-linear LUT (BATTERY_PERCENT_LUT in
@@ -188,12 +239,22 @@ static void updateBatteryCalibration(float vbat, bool freezeCalibration, uint32_
     (void)freezeCalibration;
 }
 
+/**
+ * @brief Persist delayed calibration changes once the save debounce expires.
+ * @param now Current millis() timestamp.
+ * @return None.
+ */
 static void serviceBatteryCalibrationSave(uint32_t now) {
     if (!powerStatus.batteryCalibDirty) return;
     if (now - powerStatus.batteryCalibDirtySinceMs < BATTERY_CALIB_SAVE_DELAY_MS) return;
     saveBatteryCalibration(now);
 }
 
+/**
+ * @brief Check whether the battery reading looks like a powered pack.
+ * @param None.
+ * @return true when voltage is valid and above the unpowered threshold.
+ */
 static bool batteryHasPoweredVoltage() {
     return powerStatus.batteryValid &&
            !powerStatus.batteryDisconnected &&
@@ -202,10 +263,20 @@ static bool batteryHasPoweredVoltage() {
            powerStatus.vbat >= BATTERY_UNPOWERED_LOW_V;
 }
 
+/**
+ * @brief Check whether current conditions can reset minimum voltage.
+ * @param None.
+ * @return true when battery is powered and charger is absent.
+ */
 static bool batteryCanRecordMinimumVoltage() {
     return batteryHasPoweredVoltage() && !powerStatus.charging;
 }
 
+/**
+ * @brief Persist calibration immediately and mark WebUI state dirty.
+ * @param now Current millis() timestamp.
+ * @return None.
+ */
 static void markPowerCalibrationChanged(uint32_t now) {
     markBatteryCalibrationDirty(now);
     saveBatteryCalibration(now);
@@ -215,6 +286,11 @@ static void markPowerCalibrationChanged(uint32_t now) {
     touchRuntimeState();
 }
 
+/**
+ * @brief Reset maximum battery voltage calibration to current or nominal full.
+ * @param None.
+ * @return None.
+ */
 void resetBatteryVoltageMaximum() {
     const uint32_t now = millis();
     ensureBatteryCalibrationDefaults(now);
@@ -230,6 +306,11 @@ void resetBatteryVoltageMaximum() {
     markPowerCalibrationChanged(now);
 }
 
+/**
+ * @brief Reset minimum battery voltage calibration to current or nominal empty.
+ * @param None.
+ * @return None.
+ */
 void resetBatteryVoltageMinimum() {
     const uint32_t now = millis();
     ensureBatteryCalibrationDefaults(now);
@@ -245,17 +326,34 @@ void resetBatteryVoltageMinimum() {
     markPowerCalibrationChanged(now);
 }
 
+/**
+ * @brief Compare finite/non-finite float states with hysteresis.
+ * @param previous Last published value.
+ * @param current Current sampled value.
+ * @param epsilon Minimum finite delta to count as changed.
+ * @return true when publication should treat the value as changed.
+ */
 static bool finiteChanged(float previous, float current, float epsilon) {
     if (!isfinite(previous) && !isfinite(current)) return false;
     if (!isfinite(previous) || !isfinite(current)) return true;
     return fabsf(previous - current) >= epsilon;
 }
 
+/**
+ * @brief Mark fast-changing power fields dirty for status polling.
+ * @param None.
+ * @return None.
+ */
 static void markPowerWebFastDirty() {
     powerStatus.webFastDirty = true;
     touchRuntimeState();
 }
 
+/**
+ * @brief Mark slow power fields dirty and snapshot their published values.
+ * @param now Current millis() timestamp.
+ * @return None.
+ */
 static void markPowerWebSlowDirty(uint32_t now) {
     powerStatus.webSlowDirty = true;
     powerStatus.lastWebSlowPublishMs = now;
@@ -267,6 +365,12 @@ static void markPowerWebSlowDirty(uint32_t now) {
     touchRuntimeState();
 }
 
+/**
+ * @brief Decide whether power state should bump the WebUI runtime version.
+ * @param now Current millis() timestamp.
+ * @param force true to publish regardless of thresholds.
+ * @return None.
+ */
 static void servicePowerWebPublish(uint32_t now, bool force) {
     if (force || !powerStatus.webPublishedChargingKnown ||
         powerStatus.webPublishedChargeValid != powerStatus.chargeValid ||
@@ -295,6 +399,11 @@ static void servicePowerWebPublish(uint32_t now, bool force) {
     }
 }
 
+/**
+ * @brief Sample battery ADC, detect disconnect/unpowered states, and update percent.
+ * @param now Current millis() timestamp.
+ * @return None.
+ */
 static void sampleBattery(uint32_t now) {
     const uint16_t adcMv = readTrimmedAdcMilliVolts(BATTERY_ADC_PIN);
     const uint16_t prevAdcMv = powerStatus.batteryAdcMv;
@@ -366,22 +475,22 @@ static void sampleBattery(uint32_t now) {
     if (wasLowVoltageUnpowered) powerStatus.vbat = NAN;
     powerStatus.batteryLowVoltageUnpowered = false;  // safety-belt clear
 
-    // Time-delta-weighted EMA: α = 1 − exp(−Δt / τ).
+    // Time-delta-weighted EMA: alpha = 1 - exp(-dt / tau).
     // Using a fixed alpha would tie the effective smoothing time-constant to
     // the call interval; if WiFi processing or dense LED animation stalls the
-    // loop, α would understate the elapsed time and the filter would become
-    // sluggish.  Computing α from the actual Δt keeps τ = BATTERY_EMA_TAU_S
+    // loop, alpha would understate the elapsed time and the filter would become
+    // sluggish.  Computing alpha from the actual dt keeps tau = BATTERY_EMA_TAU_S
     // (20 s) regardless of call frequency.
     //
     // hugeVoltageDrop was removed: bypassing the EMA on a large drop caused the
     // percent gauge to plummet during WS2812B high-current bursts and then crawl
-    // back over ~20 s when the load cleared — exactly the behaviour the filter
+    // back over about 20 s when the load cleared, exactly the behavior the filter
     // exists to prevent.
     if (!powerStatus.batteryValid || !isfinite(powerStatus.vbat)) {
         powerStatus.vbat = instantVbat;
     } else {
         // Clamp dt to [1 ms, 10 s] to guard against a stale lastBatteryMs or a
-        // pathologically long pause (which would otherwise drive α toward 1.0).
+        // pathologically long pause (which would otherwise drive alpha toward 1.0).
         const float dtS = constrain(
             static_cast<float>(now - powerStatus.lastBatteryMs) * 0.001f,
             0.001f, 10.0f);
@@ -396,10 +505,10 @@ static void sampleBattery(uint32_t now) {
         powerStatus.vbat < BATTERY_UNPOWERED_LOW_V;
     updateBatteryCalibration(powerStatus.vbat, freezeCalibration, now);
 
-    // ±1 % integer dead-band: only update batteryPercent when the LUT result
+    // +/-1% integer dead-band: only update batteryPercent when the LUT result
     // differs from the current display value by more than one percentage point.
     // This prevents the displayed integer from toggling between adjacent values
-    // (e.g. 49 ↔ 50) when the EMA-smoothed voltage hovers near a LUT segment
+    // (e.g. 49 to 50) when the EMA-smoothed voltage hovers near a LUT segment
     // boundary and sub-LSB ADC noise causes the interpolated result to alternate
     // between the two sides.  On the very first valid reading (!batteryValid)
     // the guard is bypassed so the gauge initialises immediately.
@@ -416,6 +525,11 @@ static void sampleBattery(uint32_t now) {
     if (wasDisconnected || wasLowVoltageUnpowered) markPowerWebSlowDirty(now);
 }
 
+/**
+ * @brief Sample charge ADC and update charger-present state.
+ * @param now Current millis() timestamp.
+ * @return None.
+ */
 static void sampleCharge(uint32_t now) {
     const uint16_t adcMv = readTrimmedAdcMilliVolts(CHARGE_ADC_PIN);
     const float vadc = static_cast<float>(adcMv) / 1000.0f;
@@ -427,9 +541,9 @@ static void sampleCharge(uint32_t now) {
     // powerStatus.charging always reflects the new hardware state within the
     // same sample cycle.
     //
-    // Plug-in  (false→true): without snapping, the EMA would ramp up from the
+    // Plug-in (false to true): without snapping, the EMA would ramp up from the
     //   stale near-zero value, displaying 0 V for several seconds.
-    // Unplug   (true→false): without snapping, the slow EMA keeps
+    // Unplug (true to false): without snapping, the slow EMA keeps
     //   powerStatus.charging == true for ~5 s after physical removal.  During
     //   that window sampleBattery sees chargerPresent=true and suppresses the
     //   battery-disconnect check, potentially missing a real event.
@@ -448,6 +562,11 @@ static void sampleCharge(uint32_t now) {
     powerStatus.lastChargeMs = now;
 }
 
+/**
+ * @brief Initialize ADC settings, load calibration, and take first samples.
+ * @param None.
+ * @return None.
+ */
 void initPowerMonitor() {
     const uint32_t now = millis();
     loadBatteryCalibration(now);
@@ -458,6 +577,11 @@ void initPowerMonitor() {
     servicePowerMonitor(true);
 }
 
+/**
+ * @brief Service periodic battery/charge sampling and WebUI publication.
+ * @param force true to sample and publish immediately.
+ * @return None.
+ */
 void servicePowerMonitor(bool force) {
     const uint32_t now = millis();
     if (force || !powerStatus.chargeValid || now - powerStatus.lastChargeMs >= CHARGE_SAMPLE_MS) {

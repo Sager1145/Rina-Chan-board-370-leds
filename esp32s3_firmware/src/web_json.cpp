@@ -1,6 +1,12 @@
 #include "web_json.h"
 #include <ctype.h>
 
+/**
+ * @brief Locate a top-level-ish JSON field value in a request body string.
+ * @param body Raw JSON request body.
+ * @param key Field name without quotes.
+ * @return String index of first non-space value char, or -1 when absent.
+ */
 static int jsonFieldValuePosition(const String& body, const char* key) {
     const String token = String("\"") + key + "\"";
     const int keyPos = body.indexOf(token);
@@ -17,6 +23,12 @@ static int jsonFieldValuePosition(const String& body, const char* key) {
     return p;
 }
 
+/**
+ * @brief Find the closing quote for a JSON string literal.
+ * @param body Raw JSON request body.
+ * @param quotePos Index of the opening quote.
+ * @return Closing quote index, or -1 when unterminated/invalid.
+ */
 int findJsonStringEnd(const String& body, size_t quotePos) {
     if (quotePos >= body.length() || body.charAt(quotePos) != '"') return -1;
 
@@ -36,6 +48,14 @@ int findJsonStringEnd(const String& body, size_t quotePos) {
     return -1;
 }
 
+/**
+ * @brief Extract and minimally unescape a JSON string at a known quote position.
+ * @param body Raw JSON request body.
+ * @param quotePos Opening quote index.
+ * @param value Receives unescaped string content.
+ * @param endQuote Receives closing quote index.
+ * @return true when a complete string was extracted.
+ */
 bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int& endQuote) {
     endQuote = findJsonStringEnd(body, quotePos);
     if (endQuote < 0) return false;
@@ -60,6 +80,9 @@ bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int
             continue;
         }
 
+        // The scroll upload parser only needs common JSON escapes in M370/text
+        // fields.  Unicode escapes are left as their trailing character payload
+        // instead of allocating a full decoder on the microcontroller.
         switch (c) {
             case '"': value += '"'; break;
             case '\\': value += '\\'; break;
@@ -78,6 +101,13 @@ bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int
     return !escaped;
 }
 
+/**
+ * @brief Read a boolean field from a small raw JSON request.
+ * @param body Raw JSON request body.
+ * @param key Field name without quotes.
+ * @param defaultValue Value returned when key is absent or malformed.
+ * @return Parsed boolean or defaultValue.
+ */
 bool jsonBoolField(const String& body, const char* key, bool defaultValue) {
     const int p = jsonFieldValuePosition(body, key);
     if (p < 0) return defaultValue;
@@ -86,6 +116,13 @@ bool jsonBoolField(const String& body, const char* key, bool defaultValue) {
     return defaultValue;
 }
 
+/**
+ * @brief Read an unsigned integer field from a raw JSON request.
+ * @param body Raw JSON request body.
+ * @param key Field name without quotes.
+ * @param value Receives parsed integer.
+ * @return true when the field was present and numeric.
+ */
 bool jsonUintField(const String& body, const char* key, uint32_t& value) {
     int p = jsonFieldValuePosition(body, key);
     if (p < 0) return false;
@@ -102,6 +139,13 @@ bool jsonUintField(const String& body, const char* key, uint32_t& value) {
     return true;
 }
 
+/**
+ * @brief Read a floating-point field from a raw JSON request.
+ * @param body Raw JSON request body.
+ * @param key Field name without quotes.
+ * @param value Receives parsed float.
+ * @return true when the field was present and numeric-looking.
+ */
 bool jsonFloatField(const String& body, const char* key, float& value) {
     int p = jsonFieldValuePosition(body, key);
     if (p < 0) return false;
@@ -120,6 +164,13 @@ bool jsonFloatField(const String& body, const char* key, float& value) {
     return true;
 }
 
+/**
+ * @brief Read a string field from a raw JSON request.
+ * @param body Raw JSON request body.
+ * @param key Field name without quotes.
+ * @param value Receives extracted string.
+ * @return true when the field was present and a JSON string.
+ */
 bool jsonStringField(const String& body, const char* key, String& value) {
     const int p = jsonFieldValuePosition(body, key);
     if (p < 0 || static_cast<size_t>(p) >= body.length() || body.charAt(p) != '"') return false;

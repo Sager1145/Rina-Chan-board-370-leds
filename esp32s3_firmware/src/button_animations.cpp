@@ -77,6 +77,9 @@ struct AnimationState {
     uint32_t batteryDisplayStartedMs = 0;
 };
 
+// Overlay state is shared by Core-0 button/power services and the Core-1 LED
+// renderer.  A small portMUX is enough because the protected work is just a
+// snapshot/copy of scalar state, not drawing or filesystem I/O.
 portMUX_TYPE sAnimMux = portMUX_INITIALIZER_UNLOCKED;
 AnimationState sAnim;
 
@@ -139,6 +142,11 @@ struct Glyph {
     uint8_t width;
 };
 
+/**
+ * @brief Look up the tiny overlay glyph used for numeric/status text.
+ * @param ch Character to render.
+ * @return Glyph bitmap pointer and width, or empty glyph for unsupported chars.
+ */
 Glyph glyphFor(char ch) {
     switch (ch) {
         case '0': return {GLYPH_0, 5};
@@ -159,6 +167,12 @@ Glyph glyphFor(char ch) {
     }
 }
 
+/**
+ * @brief Convert overlay canvas coordinates to logical LED index.
+ * @param x Canvas X coordinate in the 22-column virtual overlay.
+ * @param y Canvas Y coordinate in the 18-row virtual overlay.
+ * @return Logical LED index, or -1 outside the physical row shape.
+ */
 int16_t xyToLogical(uint8_t x, uint8_t y) {
     if (x >= COLS || y >= ROWS) return -1;
     const uint8_t rowLength = ROW_LENGTHS[y];
@@ -167,6 +181,14 @@ int16_t xyToLogical(uint8_t x, uint8_t y) {
     return static_cast<int16_t>(ROW_OFFSETS[y] + (x - leftPad));
 }
 
+/**
+ * @brief Write one RGB pixel into an overlay buffer if it maps to a real LED.
+ * @param out Destination RGB overlay buffer.
+ * @param x Canvas X coordinate.
+ * @param y Canvas Y coordinate.
+ * @param color Pixel color.
+ * @return None.
+ */
 void putPixel(uint8_t* out, uint8_t x, uint8_t y, Rgb color) {
     const int16_t logical = xyToLogical(x, y);
     if (logical < 0) return;
@@ -176,10 +198,26 @@ void putPixel(uint8_t* out, uint8_t x, uint8_t y, Rgb color) {
     out[offset + 2] = color.b;
 }
 
+/**
+ * @brief Clear an RGB overlay buffer to transparent/off.
+ * @param out Destination RGB overlay buffer.
+ * @return None.
+ */
 void clearOverlay(uint8_t* out) {
     memset(out, 0, static_cast<size_t>(LED_COUNT) * 3U);
 }
 
+/**
+ * @brief Draw a text bitmap into the overlay canvas.
+ * @param out Destination RGB overlay buffer.
+ * @param rows Bitmap rows using '#' for lit pixels.
+ * @param width Bitmap width.
+ * @param height Bitmap height.
+ * @param x0 Canvas X origin.
+ * @param y0 Canvas Y origin.
+ * @param color Draw color.
+ * @return None.
+ */
 void drawBitmap(uint8_t* out, const char* const* rows, uint8_t width, uint8_t height,
                 int8_t x0, int8_t y0, Rgb color) {
     if (!rows) return;
@@ -196,6 +234,15 @@ void drawBitmap(uint8_t* out, const char* const* rows, uint8_t width, uint8_t he
     }
 }
 
+/**
+ * @brief Draw centered tiny status text into the overlay.
+ * @param out Destination RGB overlay buffer.
+ * @param text Null-terminated status text.
+ * @param color Text color.
+ * @param hasIcon true when text should sit below an icon.
+ * @param voltageLayout true to add spacing for voltage readouts.
+ * @return None.
+ */
 void drawText(uint8_t* out, const char* text, Rgb color, bool hasIcon, bool voltageLayout = false) {
     constexpr uint8_t GAP = 1;
     uint8_t widths[8] = {};
@@ -221,6 +268,17 @@ void drawText(uint8_t* out, const char* text, Rgb color, bool hasIcon, bool volt
     }
 }
 
+/**
+ * @brief Draw an icon plus centered text as a complete overlay page.
+ * @param out Destination RGB overlay buffer.
+ * @param text Status text.
+ * @param color Icon/default text color.
+ * @param iconRows Optional full-canvas icon bitmap.
+ * @param voltageLayout true to use voltage text spacing.
+ * @param textColor Optional override text color.
+ * @param useTextColor true to use textColor.
+ * @return None.
+ */
 void drawIconText(uint8_t* out, const char* text, Rgb color, const char* const* iconRows,
                   bool voltageLayout = false, Rgb textColor = {0, 0, 0}, bool useTextColor = false) {
     clearOverlay(out);
@@ -228,12 +286,24 @@ void drawIconText(uint8_t* out, const char* text, Rgb color, const char* const* 
     drawText(out, text, useTextColor ? textColor : color, iconRows != nullptr, voltageLayout);
 }
 
+/**
+ * @brief Convert raw NeoPixel brightness to display percentage.
+ * @param raw Raw brightness value.
+ * @return Rounded percentage of MAX_BRIGHTNESS.
+ */
 uint8_t brightnessPercent(uint8_t raw) {
     const uint8_t clamped = min<uint8_t>(raw, MAX_BRIGHTNESS);
     return static_cast<uint8_t>(lroundf((static_cast<float>(clamped) * 100.0f) /
                                         static_cast<float>(MAX_BRIGHTNESS)));
 }
 
+/**
+ * @brief Format auto interval for the tiny overlay font.
+ * @param intervalMs Interval in milliseconds.
+ * @param out Destination text buffer.
+ * @param outSize Destination buffer size.
+ * @return None.
+ */
 void formatInterval(uint32_t intervalMs, char* out, size_t outSize) {
     const uint16_t tenths = static_cast<uint16_t>((intervalMs + 50U) / 100U);
     const uint16_t whole = tenths / 10U;
@@ -242,6 +312,11 @@ void formatInterval(uint32_t intervalMs, char* out, size_t outSize) {
     else snprintf(out, outSize, "%u.%uS", whole, frac);
 }
 
+/**
+ * @brief Choose battery icon color from percentage.
+ * @param percent Battery percentage.
+ * @return RGB color from red through green.
+ */
 Rgb batteryColor(uint8_t percent) {
     const uint8_t p = min<uint8_t>(percent, 100);
     if (p <= 10) return RED_COLOR;
@@ -260,6 +335,11 @@ Rgb batteryColor(uint8_t percent) {
     return {0, 255, 0};
 }
 
+/**
+ * @brief Convert battery percentage to icon fill columns.
+ * @param percent Battery percentage.
+ * @return Number of inner battery columns to fill.
+ */
 uint8_t batteryFillCols(uint8_t percent) {
     const uint8_t p = min<uint8_t>(percent, 100);
     if (p < 10) return 0;
@@ -267,6 +347,15 @@ uint8_t batteryFillCols(uint8_t percent) {
     return static_cast<uint8_t>(((static_cast<uint16_t>(p) - 10U) * 8U + 79U) / 80U);
 }
 
+/**
+ * @brief Draw battery shell/fill, optionally animating the fill sweep.
+ * @param out Destination RGB overlay buffer.
+ * @param color Battery color.
+ * @param percent Battery percentage.
+ * @param animate true for charging sweep animation.
+ * @param phaseMs Elapsed page time in milliseconds.
+ * @return None.
+ */
 void drawBatteryIcon(uint8_t* out, Rgb color, uint8_t percent, bool animate, uint32_t phaseMs) {
     drawBitmap(out, BATTERY_ICON, COLS, ROWS, 0, 0, color);
 
@@ -287,6 +376,13 @@ void drawBatteryIcon(uint8_t* out, Rgb color, uint8_t percent, bool animate, uin
     }
 }
 
+/**
+ * @brief Draw the current battery overlay page from power monitor state.
+ * @param out Destination RGB overlay buffer.
+ * @param state Snapshot of overlay state.
+ * @param now Current millis() timestamp.
+ * @return None.
+ */
 void drawBatteryPage(uint8_t* out, const AnimationState& state, uint32_t now) {
     clearOverlay(out);
 
@@ -315,6 +411,13 @@ void drawBatteryPage(uint8_t* out, const AnimationState& state, uint32_t now) {
     }
 }
 
+/**
+ * @brief Add a short edge flash when a button action hits a min/max boundary.
+ * @param out Destination RGB overlay buffer.
+ * @param state Snapshot of overlay state.
+ * @param now Current millis() timestamp.
+ * @return None.
+ */
 void overlayEdgeFlash(uint8_t* out, const AnimationState& state, uint32_t now) {
     if (state.edge == EdgeKind::None) return;
     const uint32_t elapsed = now - state.edgeStartedMs;
@@ -342,6 +445,11 @@ void overlayEdgeFlash(uint8_t* out, const AnimationState& state, uint32_t now) {
     }
 }
 
+/**
+ * @brief Temporarily system-pause firmware scroll while an overlay is visible.
+ * @param None.
+ * @return None.
+ */
 void pauseScrollForOverlay() {
     if (sAnim.pausedScroll) return;
 
@@ -356,6 +464,11 @@ void pauseScrollForOverlay() {
     }
 }
 
+/**
+ * @brief Release a system pause previously created by pauseScrollForOverlay().
+ * @param None.
+ * @return None.
+ */
 void resumeScrollAfterOverlayIfNeeded() {
     bool resume = false;
     portENTER_CRITICAL(&sAnimMux);
@@ -368,6 +481,11 @@ void resumeScrollAfterOverlayIfNeeded() {
     setFirmwareScrollSystemPaused(false);
 }
 
+/**
+ * @brief Stop any active overlay and optionally redraw the underlying frame.
+ * @param requestRender true to request a render after clearing overlay state.
+ * @return None.
+ */
 void stopOverlay(bool requestRender) {
     bool wasActive = false;
     portENTER_CRITICAL(&sAnimMux);
@@ -388,6 +506,11 @@ void stopOverlay(bool requestRender) {
     }
 }
 
+/**
+ * @brief Publish a new overlay state and request an LED render.
+ * @param next Fully-populated overlay state to copy.
+ * @return None.
+ */
 void startOverlay(const AnimationState& next) {
     portENTER_CRITICAL(&sAnimMux);
     sAnim.active = true;
@@ -412,6 +535,11 @@ void startOverlay(const AnimationState& next) {
     requestLedRender();
 }
 
+/**
+ * @brief Start the short or long-press battery overlay.
+ * @param singleShot true for short press; false for cycling long-press display.
+ * @return None.
+ */
 void startBatteryOverlay(bool singleShot) {
     const uint32_t now = millis();
     AnimationState next;
@@ -429,6 +557,11 @@ void startBatteryOverlay(bool singleShot) {
 
 } // namespace
 
+/**
+ * @brief Start a visual overlay for a completed GPIO button action.
+ * @param buttonCode Button or combo code.
+ * @return None.
+ */
 void startButtonAnimationForGpioAction(const String& buttonCode) {
     String code = buttonCode;
     code.trim();
@@ -468,6 +601,11 @@ void startButtonAnimationForGpioAction(const String& buttonCode) {
     startOverlay(next);
 }
 
+/**
+ * @brief Track B6 press edge for battery overlay timing.
+ * @param buttonCode Debounced button code.
+ * @return None.
+ */
 void handleButtonAnimationGpioPress(const char* buttonCode) {
     if (!buttonCode || strcmp(buttonCode, "B6") != 0) return;
     const uint32_t now = millis();
@@ -478,6 +616,11 @@ void handleButtonAnimationGpioPress(const char* buttonCode) {
     portEXIT_CRITICAL(&sAnimMux);
 }
 
+/**
+ * @brief Resolve B6 release into short battery overlay or long overlay stop.
+ * @param buttonCode Debounced button code.
+ * @return None.
+ */
 void handleButtonAnimationGpioRelease(const char* buttonCode) {
     if (!buttonCode || strcmp(buttonCode, "B6") != 0) return;
 
@@ -493,6 +636,13 @@ void handleButtonAnimationGpioRelease(const char* buttonCode) {
     else startBatteryOverlay(true);
 }
 
+/**
+ * @brief Service B6 long-press state from debounced physical button inputs.
+ * @param b6Pressed Current B6 state.
+ * @param b2Pressed Current B2 state.
+ * @param b3Pressed Current B3 state.
+ * @return None.
+ */
 void serviceButtonAnimationButtonInputs(bool b6Pressed, bool b2Pressed, bool b3Pressed) {
     bool shouldStartLong = false;
     const uint32_t now = millis();
@@ -509,6 +659,11 @@ void serviceButtonAnimationButtonInputs(bool b6Pressed, bool b2Pressed, bool b3P
     if (shouldStartLong) startBatteryOverlay(false);
 }
 
+/**
+ * @brief Advance/expire overlay animation state and request redraws as needed.
+ * @param None.
+ * @return None.
+ */
 void serviceButtonAnimations() {
     const uint32_t now = millis();
     bool request = false;
@@ -550,6 +705,12 @@ void serviceButtonAnimations() {
     else if (request) requestLedRender();
 }
 
+/**
+ * @brief Copy the active overlay into an RGB frame for physical rendering.
+ * @param rgbOut Destination RGB buffer.
+ * @param ledCount Capacity expressed as logical LED count.
+ * @return true when rgbOut was populated with an overlay.
+ */
 bool copyButtonAnimationOverlay(uint8_t* rgbOut, uint16_t ledCount) {
     if (!rgbOut || ledCount < LED_COUNT) return false;
 

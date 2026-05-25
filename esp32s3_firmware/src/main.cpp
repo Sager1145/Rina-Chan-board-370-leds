@@ -17,6 +17,11 @@
 // setup
 // ---------------------------------------------------------------------------
 
+/**
+ * @brief Boot firmware modules in the order required by hardware and state dependencies.
+ * @param None.
+ * @return None.
+ */
 void setup() {
     // Hold the WS2812/SK6812 data line low immediately after reset.
     // Without this early clamp, the line can float during Serial startup and
@@ -30,14 +35,17 @@ void setup() {
     delay(200);
     runtimeState().bootMs = millis();
 
+    // RuntimeStore must own scroll buffers before WebUI/API routes can upload
+    // scroll frames or the render task can read them.
     initRuntimeScrollFrameBuffer();
 
-    // FreeRTOS primitives
+    // Synchronization is initialized before any module can cross Core 0/Core 1
+    // boundaries through runtime state, scroll state, LittleFS, or the LED bus.
     if (!initSyncPrimitives()) {
         Serial.println("Failed to create one or more FreeRTOS mutexes");
     }
 
-    // Build logical→physical LED index map
+    // Build logical-to-physical LED index map
     initLedIndexMap();
 
     // Initialize the LED strip: clear, latch, then hold long enough for the
@@ -69,13 +77,16 @@ void setup() {
     // Spawn the Core-1 LED render / scroll task
     startScrollRenderTask();
 
-    // Initialize hardware buttons
+    // Hardware buttons feed both state-changing actions and overlay animations,
+    // so initialize them after playback state exists but before normal loop().
     initHardwareButtons();
 
-    // Initialize battery / charge ADC monitoring
+    // Power monitor publishes battery/charge state into WebUI status and the B6
+    // overlay, so seed its first sample before HTTP routes start answering.
     initPowerMonitor();
 
-    // Start networking and HTTP server
+    // Networking is last: every route should see initialized storage, playback,
+    // render queues, buttons, and power state as soon as clients connect.
     startAccessPoint();
     startWebServer();
 }
@@ -89,7 +100,15 @@ void setup() {
 // build flag: without it arduino-esp32 puts loop() on Core 1, where the HTTP
 // load disrupts WS2812 transmit timing (garbled / torn frames while scrolling).
 
+/**
+ * @brief Service Core-0 control-plane modules cooperatively.
+ * @param None.
+ * @return None.
+ */
 void loop() {
+    // Ordering matters: frame queues publish before web/status polling, and
+    // deferred face restore/auto playback run after button/API effects from
+    // this iteration have had a chance to settle.
     serviceM370FrameQueue();
     webServerTick();
     serviceRuntimeSlowStatePublish();

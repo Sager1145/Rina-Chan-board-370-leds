@@ -4,15 +4,30 @@
 // HTTP server lifecycle
 // ---------------------------------------------------------------------------
 
-// Start the Wi-Fi Access Point.
+/**
+ * @brief Start the ESP32 SoftAP and captive DNS service.
+ * @param None.
+ * @return None.
+ */
 void startAccessPoint();
 
-// Register all routes and start the WebServer.
+/**
+ * @brief Register all HTTP routes and start the synchronous WebServer.
+ * @param None.
+ * @return None.
+ */
 void startWebServer();
 
-// Call every loop() iteration to service pending HTTP requests.
+/**
+ * @brief Service pending DNS and HTTP work from loop().
+ * @param None.
+ * @return None.
+ */
 void webServerTick();
 
-// Light the first 12 LEDs in red to indicate a LittleFS mount failure.
-// Called from setup() before the web server is available.
+/**
+ * @brief Render a red LED diagnostic pattern when LittleFS failed to mount.
+ * @param None.
+ * @return None.
+ */
 void showFilesystemErrorPattern();

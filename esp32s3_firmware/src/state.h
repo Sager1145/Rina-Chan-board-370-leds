@@ -89,30 +89,124 @@ struct RuntimeFace {
 // locking policy stays in the caller/helper that owns the operation.
 class RuntimeStore final {
 public:
+    /**
+     * @brief Access the singleton runtime store.
+     * @param None.
+     * @return Mutable RuntimeStore instance.
+     */
     static RuntimeStore& instance();
 
+    /**
+     * @brief Access mutable runtime state.
+     * @param None.
+     * @return RuntimeState reference.
+     */
     RuntimeState& state() { return state_; }
+
+    /**
+     * @brief Access read-only runtime state.
+     * @param None.
+     * @return Const RuntimeState reference.
+     */
     const RuntimeState& state() const { return state_; }
 
+    /**
+     * @brief Access runtime saved-face slots.
+     * @param None.
+     * @return Pointer to first RuntimeFace slot.
+     */
     RuntimeFace* autoFaces() { return autoFaces_; }
+
+    /**
+     * @brief Access read-only runtime saved-face slots.
+     * @param None.
+     * @return Const pointer to first RuntimeFace slot.
+     */
     const RuntimeFace* autoFaces() const { return autoFaces_; }
 
+    /**
+     * @brief Access mutable saved-face count.
+     * @param None.
+     * @return Saved-face count reference.
+     */
     uint16_t& autoFaceCount() { return autoFaceCount_; }
+
+    /**
+     * @brief Access read-only saved-face count.
+     * @param None.
+     * @return Const saved-face count reference.
+     */
     const uint16_t& autoFaceCount() const { return autoFaceCount_; }
 
+    /**
+     * @brief Access mutable active packed frame bits.
+     * @param None.
+     * @return Pointer to FRAME_BYTES bytes.
+     */
     uint8_t* frameBits() { return frameBits_; }
+
+    /**
+     * @brief Access read-only active packed frame bits.
+     * @param None.
+     * @return Const pointer to FRAME_BYTES bytes.
+     */
     const uint8_t* frameBits() const { return frameBits_; }
 
+    /**
+     * @brief Allocate or select the storage backing firmware text-scroll frames.
+     * @param None.
+     * @return true when a usable scroll-frame buffer is available.
+     */
     bool initScrollFrameBuffer();
-    bool scrollFrameBufferReady() const { return true; }
+
+    /**
+     * @brief Report whether scrollFrameBits() points at initialized storage.
+     * @param None.
+     * @return true after initScrollFrameBuffer() has chosen PSRAM or fallback SRAM.
+     */
+    bool scrollFrameBufferReady() const { return scrollFrameBits_ != nullptr; }
+
+    /**
+     * @brief Report whether scroll-frame storage is in PSRAM.
+     * @param None.
+     * @return true when PSRAM backs the scroll cache.
+     */
     bool scrollFrameBufferInPsram() const { return scrollFrameBitsInPsram_; }
+
+    /**
+     * @brief Access mutable scroll-frame bits by index.
+     * @param index Scroll-frame index.
+     * @return Pointer to FRAME_BYTES bytes, or nullptr.
+     */
     uint8_t* scrollFrameBits(uint16_t index);
+
+    /**
+     * @brief Access read-only scroll-frame bits by index.
+     * @param index Scroll-frame index.
+     * @return Const pointer to FRAME_BYTES bytes, or nullptr.
+     */
     const uint8_t* scrollFrameBits(uint16_t index) const;
 
+    /**
+     * @brief Access mutable filesystem-mounted flag.
+     * @param None.
+     * @return Filesystem-mounted flag reference.
+     */
     bool& fsMounted() { return fsMounted_; }
+
+    /**
+     * @brief Access read-only filesystem-mounted flag.
+     * @param None.
+     * @return Const filesystem-mounted flag reference.
+     */
     const bool& fsMounted() const { return fsMounted_; }
 
 private:
+    /**
+     * @brief Construct singleton runtime storage with default-initialized state.
+     * @param None.
+     * @return RuntimeStore object.
+     */
     RuntimeStore() = default;
     RuntimeStore(const RuntimeStore&) = delete;
     RuntimeStore& operator=(const RuntimeStore&) = delete;
@@ -127,17 +221,100 @@ private:
     bool         fsMounted_ = false;
 };
 
+/**
+ * @brief Access mutable global runtime state.
+ * @param None.
+ * @return RuntimeState reference.
+ */
 RuntimeState& runtimeState();
+
+/**
+ * @brief Access loaded saved-face records.
+ * @param None.
+ * @return Pointer to first RuntimeFace slot.
+ */
 RuntimeFace* runtimeAutoFaces();
+
+/**
+ * @brief Access mutable saved-face count.
+ * @param None.
+ * @return Saved-face count reference.
+ */
 uint16_t& runtimeAutoFaceCount();
+
+/**
+ * @brief Access active packed frame bits.
+ * @param None.
+ * @return Pointer to FRAME_BYTES bytes.
+ */
 uint8_t* runtimeFrameBits();
+
+/**
+ * @brief Initialize scroll-frame storage.
+ * @param None.
+ * @return true when storage is ready.
+ */
 bool initRuntimeScrollFrameBuffer();
+
+/**
+ * @brief Check whether scroll-frame storage is ready.
+ * @param None.
+ * @return true when runtimeScrollFrameBits() can be used.
+ */
 bool runtimeScrollFrameBufferReady();
+
+/**
+ * @brief Check whether scroll-frame storage is backed by PSRAM.
+ * @param None.
+ * @return true when PSRAM backs the scroll cache.
+ */
 bool runtimeScrollFrameBufferInPsram();
+
+/**
+ * @brief Return total configured scroll-frame cache bytes.
+ * @param None.
+ * @return Cache size in bytes.
+ */
 size_t runtimeScrollFrameBufferBytes();
+
+/**
+ * @brief Access a writable scroll-frame slot.
+ * @param index Scroll-frame index.
+ * @return Pointer to FRAME_BYTES bytes, or nullptr.
+ */
 uint8_t* runtimeScrollFrameBits(uint16_t index);
+
+/**
+ * @brief Access the mutable filesystem-mounted flag.
+ * @param None.
+ * @return Filesystem-mounted flag reference.
+ */
 bool& runtimeFsMounted();
+
+/**
+ * @brief Read current WebUI/runtime state version.
+ * @param None.
+ * @return Non-zero version counter.
+ */
 uint32_t runtimeStateVersion();
+
+/**
+ * @brief Bump runtime state version for fast WebUI publication.
+ * @param None.
+ * @return None.
+ */
 void touchRuntimeState();
+
+/**
+ * @brief Mark slow-changing UI state dirty.
+ * @param None.
+ * @return None.
+ */
 void touchRuntimeStateSlow();
+
+/**
+ * @brief Publish coalesced slow UI state changes.
+ * @param None.
+ * @return None.
+ */
 void serviceRuntimeSlowStatePublish();

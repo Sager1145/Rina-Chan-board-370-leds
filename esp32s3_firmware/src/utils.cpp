@@ -1,5 +1,10 @@
 #include "utils.h"
 
+/**
+ * @brief Convert a hex character into its numeric nibble value.
+ * @param c Character to parse.
+ * @return 0-15 for valid hex, or -1 for invalid input.
+ */
 int hexNibble(char c) {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -7,11 +12,24 @@ int hexNibble(char c) {
     return -1;
 }
 
+/**
+ * @brief Estimate ArduinoJson capacity for a source JSON document.
+ * @param sourceBytes Source file/body size.
+ * @return Conservative capacity with a 32 KB floor.
+ */
 size_t jsonCapacityFor(size_t sourceBytes) {
     const size_t estimated = sourceBytes * 2 + 4096;
     return estimated < 32768 ? 32768 : estimated;
 }
 
+/**
+ * @brief Parse #RRGGBB/RRGGBB text into RGB bytes.
+ * @param input Raw color string.
+ * @param r Receives red channel.
+ * @param g Receives green channel.
+ * @param b Receives blue channel.
+ * @return true when input was valid six-digit hex.
+ */
 bool parseColorHex(const String& input, uint8_t& r, uint8_t& g, uint8_t& b) {
     String value = input;
     value.trim();
@@ -27,6 +45,13 @@ bool parseColorHex(const String& input, uint8_t& r, uint8_t& g, uint8_t& b) {
     return true;
 }
 
+/**
+ * @brief Format RGB bytes as lowercase #rrggbb.
+ * @param r Red channel.
+ * @param g Green channel.
+ * @param b Blue channel.
+ * @return Canonical color string.
+ */
 String formatColorHex(uint8_t r, uint8_t g, uint8_t b) {
     char buf[8];
     snprintf(buf, sizeof(buf), "#%02x%02x%02x", r, g, b);

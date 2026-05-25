@@ -35,6 +35,11 @@ static const TickType_t WEB_YIELD_TICKS = pdMS_TO_TICKS(1);
 // every chunk, so streaming large assets is not throttled by a per-chunk delay.
 static const size_t WEB_YIELD_EVERY_CHUNKS = 4;
 
+/**
+ * @brief Resolve MIME type for a LittleFS path.
+ * @param path Requested/static asset path.
+ * @return Content-Type string.
+ */
 static const char* contentTypeFor(const String& path) {
     const int dotIdx = path.lastIndexOf('.');
     if (dotIdx < 0 || dotIdx == static_cast<int>(path.length()) - 1) {
@@ -58,6 +63,11 @@ static const char* contentTypeFor(const String& path) {
     return "application/octet-stream";
 }
 
+/**
+ * @brief Add no-cache CORS headers used by JSON/API responses.
+ * @param None.
+ * @return None.
+ */
 static void addCorsHeaders() {
     server.sendHeader("Access-Control-Allow-Origin",  "*");
     server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -69,6 +79,11 @@ static void addCorsHeaders() {
 // (which must never cache), the browser is allowed to cache these: HTML uses
 // revalidation so firmware/UI updates are always picked up, while the
 // version-stamped fonts/images/etc. are treated as immutable and fetched once.
+/**
+ * @brief Add CORS/cache headers for a static LittleFS asset.
+ * @param path Logical request path.
+ * @return None.
+ */
 static void addStaticAssetHeaders(const String& path) {
     server.sendHeader("Access-Control-Allow-Origin", "*");
     if (path.endsWith(".html") || path.endsWith(".htm")) {
@@ -78,34 +93,63 @@ static void addStaticAssetHeaders(const String& path) {
     }
 }
 
+/**
+ * @brief Check LittleFS path existence under the shared hardware bus lock.
+ * @param path LittleFS path.
+ * @return true when the path exists.
+ */
 static bool littleFsExistsLocked(const String& path) {
     bool exists = false;
-    lockHardwareBus();
-    exists = LittleFS.exists(path);
-    unlockHardwareBus();
+    withHardwareBusLock([&]() {
+        exists = LittleFS.exists(path);
+    });
     return exists;
 }
 
+/**
+ * @brief Open a LittleFS file under the shared hardware bus lock.
+ * @param path LittleFS path.
+ * @param mode File mode string.
+ * @return File handle, possibly invalid.
+ */
 static File littleFsOpenLocked(const String& path, const char* mode) {
-    lockHardwareBus();
-    File file = LittleFS.open(path, mode);
-    unlockHardwareBus();
+    File file;
+    withHardwareBusLock([&]() {
+        file = LittleFS.open(path, mode);
+    });
     return file;
 }
 
+/**
+ * @brief Read file size under the shared hardware bus lock.
+ * @param file Open LittleFS file.
+ * @return File size in bytes.
+ */
 static size_t fileSizeLocked(File& file) {
-    lockHardwareBus();
-    const size_t size = file.size();
-    unlockHardwareBus();
+    size_t size = 0;
+    withHardwareBusLock([&]() {
+        size = file.size();
+    });
     return size;
 }
 
+/**
+ * @brief Close a LittleFS file under the shared hardware bus lock.
+ * @param file Open LittleFS file.
+ * @return None.
+ */
 static void closeFileLocked(File& file) {
-    lockHardwareBus();
-    file.close();
-    unlockHardwareBus();
+    withHardwareBusLock([&]() {
+        file.close();
+    });
 }
 
+/**
+ * @brief Stream an open file to the active HTTP client in bounded chunks.
+ * @param file Open LittleFS file.
+ * @param contentType HTTP response content type.
+ * @return None.
+ */
 static void streamFileChunked(File& file, const char* contentType) {
     server.setContentLength(fileSizeLocked(file));
     server.send(200, contentType, "");
@@ -122,12 +166,12 @@ static void streamFileChunked(File& file, const char* contentType) {
         size_t bytesRead = 0;
         bool hasData = false;
 
-        lockHardwareBus();
-        hasData = file.available();
-        if (hasData) {
-            bytesRead = file.read(buffer, chunkBytes);
-        }
-        unlockHardwareBus();
+        withHardwareBusLock([&]() {
+            hasData = file.available();
+            if (hasData) {
+                bytesRead = file.read(buffer, chunkBytes);
+            }
+        });
 
         if (!hasData || bytesRead == 0) break;
         server.sendContent(reinterpret_cast<const char*>(buffer), bytesRead);
@@ -138,6 +182,12 @@ static void streamFileChunked(File& file, const char* contentType) {
     if (heapBuffer) free(heapBuffer);
 }
 
+/**
+ * @brief Serialize and send a JSON document with API headers.
+ * @param status HTTP status code.
+ * @param doc JSON document to serialize.
+ * @return None.
+ */
 static void sendJsonDocument(int status, JsonDocument& doc) {
     String out;
     serializeJson(doc, out);
@@ -145,6 +195,12 @@ static void sendJsonDocument(int status, JsonDocument& doc) {
     server.send(status, CONTENT_TYPE_JSON_UTF8, out);
 }
 
+/**
+ * @brief Send a standard JSON error response.
+ * @param status HTTP status code.
+ * @param message Error message.
+ * @return None.
+ */
 static void sendError(int status, const String& message) {
     DynamicJsonDocument doc(512);
     doc["ok"]    = false;
@@ -155,12 +211,26 @@ static void sendError(int status, const String& message) {
     server.send(status, CONTENT_TYPE_JSON_UTF8, out);
 }
 
+/**
+ * @brief Choose the next WebUI polling interval.
+ * @param scrolling true when firmware scroll is active or paused.
+ * @param summaryOnly true when the response omitted heavy fields.
+ * @param unchanged true when the client already has the current version.
+ * @return Poll delay in milliseconds.
+ */
 static uint16_t statusNextPollMs(bool scrolling, bool summaryOnly, bool unchanged) {
     if (runtimeState().deferredFaceRestoreActive) return 250;
     if (scrolling) return summaryOnly ? 250 : 1000;
     return unchanged ? 1000 : 1000;
 }
 
+/**
+ * @brief Add power monitor fields to an API response.
+ * @param power Destination JSON object.
+ * @param includeSlow true to include ADC/voltage/calibration fields.
+ * @param clearDirty true to clear published dirty flags after writing.
+ * @return None.
+ */
 static void addPowerStatus(JsonObject power, bool includeSlow = true, bool clearDirty = false) {
     const bool batteryOk = powerStatus.batteryValid;
     const bool chargeOk = powerStatus.chargeValid;
@@ -246,10 +316,21 @@ static void addPowerStatus(JsonObject power, bool includeSlow = true, bool clear
     }
 }
 
+/**
+ * @brief Read the current HTTP request body.
+ * @param None.
+ * @return Raw plain body or empty string.
+ */
 static String requestBody() {
     return server.hasArg("plain") ? server.arg("plain") : "";
 }
 
+/**
+ * @brief Parse the active HTTP request body as JSON.
+ * @param doc Destination JSON document.
+ * @param error Receives parse failure text.
+ * @return true when parsing succeeded.
+ */
 static bool parseJsonBody(JsonDocument& doc, String& error) {
     const String body = requestBody();
     if (body.isEmpty()) { error = "empty JSON body"; return false; }
@@ -258,10 +339,21 @@ static bool parseJsonBody(JsonDocument& doc, String& error) {
     return true;
 }
 
+/**
+ * @brief Pause firmware scroll through the user-pause path.
+ * @param changed Receives whether scroll state changed.
+ * @return None.
+ */
 static void pauseFirmwareScrollIfActive(bool& changed) {
     changed = setFirmwareScrollUserPaused(true);
 }
 
+/**
+ * @brief Resume cached firmware scroll when a scroll timeline exists.
+ * @param changed Receives whether scroll state changed.
+ * @param requirePaused true to resume only from paused scroll.
+ * @return None.
+ */
 static void resumeFirmwareScrollIfCached(bool& changed, bool requirePaused = false) {
     bool canResume = false;
     withScrollLock([&]() {
@@ -271,6 +363,11 @@ static void resumeFirmwareScrollIfCached(bool& changed, bool requirePaused = fal
     if (canResume) changed = setFirmwareScrollUserPaused(false);
 }
 
+/**
+ * @brief Serve a static LittleFS asset, preferring gzip siblings when accepted.
+ * @param path Request path.
+ * @return true when a file response was sent.
+ */
 static bool serveStaticFile(String path) {
     if (!runtimeFsMounted()) return false;
     if (path == "/") path = "/index.html";
@@ -305,6 +402,11 @@ static bool serveStaticFile(String path) {
 
 static const char FILESYSTEM_ERROR_HTML[] PROGMEM = R"rawliteral(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LittleFS not mounted</title><style>body{margin:0;padding:28px;background:#0f1117;color:#f4f7fb;font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.5}code{background:#1e2430;padding:2px 5px;border-radius:5px}.box{max-width:720px;margin:auto;border:1px solid #2b3344;border-radius:12px;padding:20px;background:#161a24}</style></head><body><main class="box"><h1>LittleFS data is not mounted</h1><p>The ESP32-S3 AP is running, but the WebUI files are missing or the filesystem failed to mount.</p><p>Upload the data image, then reboot:</p><p><code>pio run -t uploadfs</code></p><p>Expected files include <code>/index.html</code> and <code>/resources/saved_faces.json</code>.</p></main></body></html>)rawliteral";
 
+/**
+ * @brief Send the built-in LittleFS error HTML page.
+ * @param None.
+ * @return None.
+ */
 static void sendFilesystemErrorPage() {
     addCorsHeaders();
     server.send_P(503, CONTENT_TYPE_HTML_UTF8, FILESYSTEM_ERROR_HTML);
@@ -314,11 +416,21 @@ static void sendFilesystemErrorPage() {
 // Route handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * @brief Handle CORS preflight requests for API routes.
+ * @param None.
+ * @return None.
+ */
 static void handleOptions() {
     addCorsHeaders();
     server.send(204, CONTENT_TYPE_TEXT_PLAIN, "");
 }
 
+/**
+ * @brief Build the main runtime status document consumed by the WebUI.
+ * @param None.
+ * @return None.
+ */
 static void handleApiStatus() {
     servicePowerMonitor();
 
@@ -331,6 +443,9 @@ static void handleApiStatus() {
     uint16_t scrollFrameIndex       = 0;
     uint16_t scrollIntervalMs       = DEFAULT_SCROLL_INTERVAL_MS;
 
+    // Snapshot scroll state under scroll lock, then release it before building
+    // JSON.  Status responses can be large; holding the scroll mutex during
+    // serialization would make the render task miss frame deadlines.
     withScrollLock([&]() {
         firmwareScrollActive   = runtimeState().firmwareScrollActive;
         firmwareScrollPaused   = runtimeState().firmwareScrollPaused;
@@ -372,6 +487,8 @@ static void handleApiStatus() {
     doc["uptimeMs"] = millis() - runtimeState().bootMs;
     if (runtimeOnly) doc["runtimeOnly"] = true;
 
+    // The status response is the primary WebUI connection point: it joins AP,
+    // power, renderer, scroll, storage, and stats modules into one poll payload.
     JsonObject ap = doc.createNestedObject("ap");
     ap["ssid"]    = AP_SSID;
     ap["ip"]      = WiFi.softAPIP().toString();
@@ -439,7 +556,7 @@ static void handleApiStatus() {
     // color/brightness/power/mode without paying for matrix, storage, statistics,
     // or last-frame serialization. (The WebUI *boot* path now requests the full
     // status instead, so the first LED frame is included and the basic matrix
-    // preview is populated during the loading animation — see
+    // preview is populated during the loading animation; see
     // preloadFirmwareRuntimeState() in data/index.html.)
     if (runtimeOnly) {
         sendJsonDocument(200, doc);
@@ -469,10 +586,10 @@ static void handleApiStatus() {
     storage["settingsPath"]      = SETTINGS_PATH;
     storage["settingsExists"]    = runtimeFsMounted() && littleFsExistsLocked(SETTINGS_PATH);
     if (runtimeFsMounted() && !scrolling && !summaryOnly) {
-        lockHardwareBus();
-        storage["totalBytes"] = static_cast<uint32_t>(LittleFS.totalBytes());
-        storage["usedBytes"]  = static_cast<uint32_t>(LittleFS.usedBytes());
-        unlockHardwareBus();
+        withHardwareBusLock([&]() {
+            storage["totalBytes"] = static_cast<uint32_t>(LittleFS.totalBytes());
+            storage["usedBytes"]  = static_cast<uint32_t>(LittleFS.usedBytes());
+        });
     } else if (summaryOnly) {
         storage["capacitySkippedInSummary"] = true;
     } else if (scrolling) {
@@ -493,6 +610,11 @@ static void handleApiStatus() {
     sendJsonDocument(200, doc);
 }
 
+/**
+ * @brief Return a full power-monitor status document.
+ * @param None.
+ * @return None.
+ */
 static void handleApiPower() {
     servicePowerMonitor();
 
@@ -502,6 +624,11 @@ static void handleApiPower() {
     sendJsonDocument(200, doc);
 }
 
+/**
+ * @brief Accept a single M370 frame from the WebUI/API.
+ * @param None.
+ * @return None.
+ */
 static void handleApiFrame() {
     String error;
     PsramJsonDocument doc(2048);
@@ -569,6 +696,11 @@ static void handleApiFrame() {
     sendJsonDocument(200, reply);
 }
 
+/**
+ * @brief Accept chunked firmware-scroll frame uploads and optionally start playback.
+ * @param None.
+ * @return None.
+ */
 static void handleApiScroll() {
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
     if (server.method() != HTTP_POST)    { sendError(405, "method not allowed"); return; }
@@ -712,12 +844,26 @@ static void handleApiScroll() {
 
 using ApiCommandHandler = bool (*)(JsonDocument& doc, JsonVariant payload, String& error);
 
+/**
+ * @brief Handle set_color command payload.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Receives command failure text.
+ * @return true when color was applied.
+ */
 static bool commandSetColor(JsonDocument& doc, JsonVariant payload, String& error) {
     const char* hex = payload["hex"] | "";
     if (strlen(hex) == 0) hex = doc["hex"] | "";
     return setColor(hex, error);
 }
 
+/**
+ * @brief Handle set_brightness command payload.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Unused; command clamps all numeric input.
+ * @return true after brightness is applied.
+ */
 static bool commandSetBrightness(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
     int raw = runtimeState().brightness;
@@ -728,6 +874,13 @@ static bool commandSetBrightness(JsonDocument& doc, JsonVariant payload, String&
     return true;
 }
 
+/**
+ * @brief Handle set_mode command payload.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Receives invalid-mode text.
+ * @return true when mode was accepted.
+ */
 static bool commandSetMode(JsonDocument& doc, JsonVariant payload, String& error) {
     cancelDeferredFaceRestore();
     const char* mode = payload["mode"] | "";
@@ -739,6 +892,13 @@ static bool commandSetMode(JsonDocument& doc, JsonVariant payload, String& error
     return true;
 }
 
+/**
+ * @brief Handle set_auto_interval command payload.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Unused; interval is clamped.
+ * @return true after interval is applied.
+ */
 static bool commandSetAutoInterval(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
     uint32_t ms = runtimeState().autoIntervalMs;
@@ -748,6 +908,13 @@ static bool commandSetAutoInterval(JsonDocument& doc, JsonVariant payload, Strin
     return true;
 }
 
+/**
+ * @brief Parse scroll interval or fps from command JSON.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param intervalMs Receives parsed interval.
+ * @return true when interval/fps was supplied.
+ */
 static bool scrollIntervalFromCommand(JsonDocument& doc, JsonVariant payload, uint16_t& intervalMs) {
     uint32_t rawInterval = 0;
     if (payload["intervalMs"].is<uint32_t>()) {
@@ -776,6 +943,13 @@ static bool scrollIntervalFromCommand(JsonDocument& doc, JsonVariant payload, ui
     return false;
 }
 
+/**
+ * @brief Handle set_scroll_interval command payload.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Unused; interval is clamped.
+ * @return true after scroll timing state is updated.
+ */
 static bool commandSetScrollInterval(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
     uint16_t iMs = runtimeState().scrollIntervalMs;
@@ -788,6 +962,13 @@ static bool commandSetScrollInterval(JsonDocument& doc, JsonVariant payload, Str
     return true;
 }
 
+/**
+ * @brief Handle start_scroll command payload.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Receives missing-cache text.
+ * @return true when scroll was started.
+ */
 static bool commandStartScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     uint16_t iMs = runtimeState().scrollIntervalMs;
     scrollIntervalFromCommand(doc, payload, iMs);
@@ -803,6 +984,13 @@ static bool commandStartScroll(JsonDocument& doc, JsonVariant payload, String& e
     return true;
 }
 
+/**
+ * @brief Handle scroll_step command payload.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Unused.
+ * @return true after attempting one step.
+ */
 static bool commandScrollStep(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
@@ -824,6 +1012,13 @@ static bool commandScrollStep(JsonDocument& doc, JsonVariant payload, String& er
     return true;
 }
 
+/**
+ * @brief Handle pause_scroll command payload.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Unused.
+ * @return true after pause request.
+ */
 static bool commandPauseScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
@@ -833,6 +1028,13 @@ static bool commandPauseScroll(JsonDocument& doc, JsonVariant payload, String& e
     return true;
 }
 
+/**
+ * @brief Handle resume_scroll command payload.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Unused.
+ * @return true after resume request.
+ */
 static bool commandResumeScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
@@ -842,6 +1044,13 @@ static bool commandResumeScroll(JsonDocument& doc, JsonVariant payload, String& 
     return true;
 }
 
+/**
+ * @brief Handle stop_scroll command payload.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Unused.
+ * @return true after stop request.
+ */
 static bool commandStopScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
     bool clearDisplay = true;
@@ -854,6 +1063,13 @@ static bool commandStopScroll(JsonDocument& doc, JsonVariant payload, String& er
     return true;
 }
 
+/**
+ * @brief Handle generic pause command, delegating to scroll pause when active.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Unused.
+ * @return true after pause state is applied.
+ */
 static bool commandPause(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
@@ -868,6 +1084,13 @@ static bool commandPause(JsonDocument& doc, JsonVariant payload, String& error) 
     return true;
 }
 
+/**
+ * @brief Handle generic resume command, delegating to scroll resume when possible.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Unused.
+ * @return true after resume state is applied.
+ */
 static bool commandResume(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
@@ -882,6 +1105,13 @@ static bool commandResume(JsonDocument& doc, JsonVariant payload, String& error)
     return true;
 }
 
+/**
+ * @brief Handle button command by routing into the shared button action layer.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Receives unsupported/precondition failure text.
+ * @return true when the button action ran.
+ */
 static bool commandButton(JsonDocument& doc, JsonVariant payload, String& error) {
     const char* button = payload["button"] | "";
     if (strlen(button) == 0) button = doc["button"] | "";
@@ -892,6 +1122,13 @@ static bool commandButton(JsonDocument& doc, JsonVariant payload, String& error)
     return true;
 }
 
+/**
+ * @brief Stop non-target activities before the WebUI starts a new workflow.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Unused.
+ * @return true after relevant state is stopped/updated.
+ */
 static bool commandTerminateOtherActivities(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)error;
@@ -907,6 +1144,13 @@ static bool commandTerminateOtherActivities(JsonDocument& doc, JsonVariant paylo
     return true;
 }
 
+/**
+ * @brief Handle reset_battery_min command.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Unused.
+ * @return true after reset.
+ */
 static bool commandResetBatteryMinimum(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
@@ -915,6 +1159,13 @@ static bool commandResetBatteryMinimum(JsonDocument& doc, JsonVariant payload, S
     return true;
 }
 
+/**
+ * @brief Handle reset_battery_max command.
+ * @param doc Full request JSON.
+ * @param payload Nested payload object.
+ * @param error Unused.
+ * @return true after reset.
+ */
 static bool commandResetBatteryMaximum(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
     (void)payload;
@@ -947,6 +1198,11 @@ static const ApiCommandRoute API_COMMAND_ROUTES[] = {
     {"reset_battery_max",          commandResetBatteryMaximum},
 };
 
+/**
+ * @brief Find the command route for a WebUI/API command name.
+ * @param cmd Command name.
+ * @return Matching route, or nullptr.
+ */
 static const ApiCommandRoute* findApiCommandRoute(const String& cmd) {
     for (const ApiCommandRoute& route : API_COMMAND_ROUTES) {
         if (cmd == route.name) return &route;
@@ -954,6 +1210,11 @@ static const ApiCommandRoute* findApiCommandRoute(const String& cmd) {
     return nullptr;
 }
 
+/**
+ * @brief Dispatch a generic command request through the command route table.
+ * @param None.
+ * @return None.
+ */
 static void handleApiCommand() {
     String error;
     PsramJsonDocument doc(2048);
@@ -1027,6 +1288,11 @@ static void handleApiCommand() {
     sendJsonDocument(200, reply);
 }
 
+/**
+ * @brief Stream saved_faces.json to the WebUI editor.
+ * @param None.
+ * @return None.
+ */
 static void handleSavedFacesGet() {
     if (!runtimeFsMounted()) { sendError(503, "LittleFS is not mounted; run pio run -t uploadfs"); return; }
     if (!littleFsExistsLocked(SAVED_FACES_PATH)) {
@@ -1039,6 +1305,11 @@ static void handleSavedFacesGet() {
     closeFileLocked(file);
 }
 
+/**
+ * @brief Validate, persist, and reload saved_faces.json from WebUI editor.
+ * @param None.
+ * @return None.
+ */
 static void handleSavedFacesPost() {
     if (!runtimeFsMounted()) { sendError(503, "LittleFS is not mounted; cannot write saved_faces.json"); return; }
 
@@ -1075,6 +1346,11 @@ static void handleSavedFacesPost() {
     sendJsonDocument(200, reply);
 }
 
+/**
+ * @brief Route saved-faces HTTP methods to GET/POST/OPTIONS handlers.
+ * @param None.
+ * @return None.
+ */
 static void handleApiSavedFaces() {
     if      (server.method() == HTTP_GET)     handleSavedFacesGet();
     else if (server.method() == HTTP_POST)    handleSavedFacesPost();
@@ -1082,6 +1358,11 @@ static void handleApiSavedFaces() {
     else                                       sendError(405, "method not allowed");
 }
 
+/**
+ * @brief Serve static fallback files or JSON 404 for unmatched routes.
+ * @param None.
+ * @return None.
+ */
 static void handleNotFound() {
     if (server.method() == HTTP_GET && serveStaticFile(server.uri())) return;
     if (server.method() == HTTP_GET && !runtimeFsMounted()) { sendFilesystemErrorPage(); return; }
@@ -1092,6 +1373,11 @@ static void handleNotFound() {
 // LittleFS error pattern  (shown before web server is up)
 // ---------------------------------------------------------------------------
 
+/**
+ * @brief Render a red LED diagnostic pattern for LittleFS mount failure.
+ * @param None.
+ * @return None.
+ */
 void showFilesystemErrorPattern() {
     withFrameLock([]() {
         runtimeState().colorHex   = "#ff0000";
@@ -1110,6 +1396,11 @@ void showFilesystemErrorPattern() {
 // Public: Access Point + WebServer startup
 // ---------------------------------------------------------------------------
 
+/**
+ * @brief Start SoftAP networking and captive DNS.
+ * @param None.
+ * @return None.
+ */
 void startAccessPoint() {
     WiFi.mode(WIFI_AP);
     WiFi.softAPConfig(apIP(), apGateway(), apSubnet());
@@ -1122,6 +1413,11 @@ void startAccessPoint() {
                   dnsServerActive ? "on" : "off");
 }
 
+/**
+ * @brief Register WebUI/API routes and start the synchronous WebServer.
+ * @param None.
+ * @return None.
+ */
 void startWebServer() {
     auto serveRoot = []() {
         if (!serveStaticFile("/")) {
@@ -1152,6 +1448,11 @@ void startWebServer() {
                   AP_DOMAIN, WiFi.softAPIP().toString().c_str());
 }
 
+/**
+ * @brief Service DNS and HTTP clients from the Core-0 loop.
+ * @param None.
+ * @return None.
+ */
 void webServerTick() {
     if (dnsServerActive) dnsServer.processNextRequest();
     server.handleClient();

@@ -1,15 +1,35 @@
 #pragma once
 #include <Arduino.h>
 
-// Returns the numeric value of a single hex character, or -1 if invalid.
+/**
+ * @brief Convert a hex character into its numeric nibble value.
+ * @param c Character to parse.
+ * @return 0-15 for valid hex, or -1 for invalid input.
+ */
 int hexNibble(char c);
 
-// JSON document capacity heuristic: allocates at least 32 KB or 2× source size.
+/**
+ * @brief Estimate ArduinoJson capacity for a source JSON document.
+ * @param sourceBytes Source file/body size.
+ * @return Conservative capacity with a 32 KB floor.
+ */
 size_t jsonCapacityFor(size_t sourceBytes);
 
-// Parse and validate a 6-digit hex color string ("#RRGGBB" or "RRGGBB").
-// On success writes r/g/b components and returns true.
+/**
+ * @brief Parse #RRGGBB/RRGGBB text into RGB bytes.
+ * @param input Raw color string.
+ * @param r Receives red channel.
+ * @param g Receives green channel.
+ * @param b Receives blue channel.
+ * @return true when input was valid six-digit hex.
+ */
 bool parseColorHex(const String& input, uint8_t& r, uint8_t& g, uint8_t& b);
 
-// Format RGB components as a lowercase "#rrggbb" string.
+/**
+ * @brief Format RGB bytes as lowercase #rrggbb.
+ * @param r Red channel.
+ * @param g Green channel.
+ * @param b Blue channel.
+ * @return Canonical color string.
+ */
 String formatColorHex(uint8_t r, uint8_t g, uint8_t b);
