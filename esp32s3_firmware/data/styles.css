@@ -3773,13 +3773,8 @@
     --rina-blur-size: 14px;
     --rina-loader-x: 50vw;
     --rina-loader-y: 50vh;
-    --rina-reveal-solid: 0px;
-    --rina-reveal-a: 0px;
-    --rina-reveal-b: 0px;
-    --rina-reveal-c: 0px;
-    --rina-reveal-d: 0px;
-    --rina-reveal-e: 0px;
-    --rina-reveal-outer: 0px;
+    --rina-reveal-radius: 0px;
+    --rina-reveal-edge: 1px;
     --rina-reveal-x: 50%;
     --rina-reveal-y: 50%;
   }
@@ -3793,6 +3788,7 @@
     pointer-events: auto;
     opacity: 1;
     background: transparent;
+    isolation: isolate;
   }
 
   .loading-overlay.is-animating .flash-halo,
@@ -3821,14 +3817,16 @@
   }
 
   .blur-screen.is-revealing {
-    -webkit-mask-image: radial-gradient(circle at var(--rina-reveal-x) var(--rina-reveal-y), transparent 0,
-      transparent var(--rina-reveal-solid), rgba(0, 0, 0, .03) var(--rina-reveal-a), rgba(0, 0, 0,
-      .10) var(--rina-reveal-b), rgba(0, 0, 0, .26) var(--rina-reveal-c), rgba(0, 0, 0, .52) var(--rina-reveal-d),
-      rgba(0, 0, 0, .78) var(--rina-reveal-e), #000 var(--rina-reveal-outer), #000 100%);
-    mask-image: radial-gradient(circle at var(--rina-reveal-x) var(--rina-reveal-y), transparent 0,
-      transparent var(--rina-reveal-solid), rgba(0, 0, 0, .03) var(--rina-reveal-a), rgba(0, 0, 0,
-      .10) var(--rina-reveal-b), rgba(0, 0, 0, .26) var(--rina-reveal-c), rgba(0, 0, 0, .52) var(--rina-reveal-d),
-      rgba(0, 0, 0, .78) var(--rina-reveal-e), #000 var(--rina-reveal-outer), #000 100%);
+    -webkit-mask-image: radial-gradient(circle at var(--rina-reveal-x) var(--rina-reveal-y),
+      transparent 0,
+      transparent var(--rina-reveal-radius),
+      #000 calc(var(--rina-reveal-radius) + var(--rina-reveal-edge)),
+      #000 100%);
+    mask-image: radial-gradient(circle at var(--rina-reveal-x) var(--rina-reveal-y),
+      transparent 0,
+      transparent var(--rina-reveal-radius),
+      #000 calc(var(--rina-reveal-radius) + var(--rina-reveal-edge)),
+      #000 100%);
     -webkit-mask-repeat: no-repeat;
     mask-repeat: no-repeat;
     -webkit-mask-size: 100% 100%;
