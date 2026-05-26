@@ -5175,7 +5175,8 @@ function unlockBootPageScroll() {
     blurTimer = null,
     rafId = null;
   let afterImageReadyPromise = null;
-  let loaderHorizontalRaf = 0;
+  let loaderCenterRaf = 0;
+  let loaderCenterFrozen = false;
   let lockedCenterX = 0,
     lockedCenterY = 0;
 
@@ -5201,24 +5202,40 @@ function unlockBootPageScroll() {
     document.documentElement.style.setProperty("--rina-loader-y", lockedCenterY.toFixed(2) + "px");
   }
 
-  function syncLoaderHorizontalCenter() {
+  function syncLoaderCenter() {
+    if (loaderCenterFrozen) return;
     const center = firstViewportCenter();
     lockedCenterX = center.x;
+    lockedCenterY = center.y;
     document.documentElement.style.setProperty("--rina-loader-x", lockedCenterX.toFixed(2) + "px");
+    document.documentElement.style.setProperty("--rina-loader-y", lockedCenterY.toFixed(2) + "px");
   }
 
-  function scheduleLoaderHorizontalCenterSync() {
+  function scheduleLoaderCenterSync() {
     if (!started || overlay.hidden) return;
-    if (loaderHorizontalRaf) return;
-    loaderHorizontalRaf = requestAnimationFrame(() => {
-      loaderHorizontalRaf = 0;
-      syncLoaderHorizontalCenter();
+    if (loaderCenterRaf) return;
+    loaderCenterRaf = requestAnimationFrame(() => {
+      loaderCenterRaf = 0;
+      syncLoaderCenter();
       if (blurScreen.classList.contains("is-revealing")) setOrigin();
     });
   }
 
   function loaderSurfaceRect() {
     return (blurScreen || overlay).getBoundingClientRect();
+  }
+
+  function revealCenterInSurface() {
+    const o = loaderSurfaceRect();
+    const avatarCircle = avatarBefore.closest(".avatar-circle") || avatarBefore;
+    const a = avatarCircle.getBoundingClientRect();
+    const cx = a.width > 0 ? a.left + a.width / 2 : lockedCenterX;
+    const cy = a.height > 0 ? a.top + a.height / 2 : lockedCenterY;
+    return {
+      surface: o,
+      x: cx - o.left,
+      y: cy - o.top,
+    };
   }
 
   function decodeLoadedImage(img) {
@@ -5267,11 +5284,10 @@ function unlockBootPageScroll() {
     return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   }
 
-  function getMaxR() {
-    syncLoaderHorizontalCenter();
-    const o = loaderSurfaceRect();
-    const cx = lockedCenterX - o.left,
-      cy = lockedCenterY - o.top;
+  function getMaxR(center = revealCenterInSurface()) {
+    const o = center.surface;
+    const cx = center.x,
+      cy = center.y;
     return Math.ceil(
       Math.max(
         Math.hypot(cx, cy),
@@ -5283,20 +5299,20 @@ function unlockBootPageScroll() {
   }
 
   function setOrigin() {
-    syncLoaderHorizontalCenter();
-    const o = loaderSurfaceRect();
-    blurScreen.style.setProperty("--rina-reveal-x", (lockedCenterX - o.left).toFixed(2) + "px");
-    blurScreen.style.setProperty("--rina-reveal-y", (lockedCenterY - o.top).toFixed(2) + "px");
+    const center = revealCenterInSurface();
+    blurScreen.style.setProperty("--rina-reveal-x", center.x.toFixed(2) + "px");
+    blurScreen.style.setProperty("--rina-reveal-y", center.y.toFixed(2) + "px");
+    return center;
   }
 
   function animateReveal() {
-    setOrigin();
-    const start = performance.now(),
-      maxR = getMaxR(),
-      f = Math.max(96, Math.min(180, Math.round(maxR * 0.12)));
     blurScreen.classList.add("is-revealing");
     overlay.classList.add("is-scroll-passthrough");
     unlockBootPageScroll();
+    const origin = setOrigin();
+    const start = performance.now(),
+      maxR = getMaxR(origin),
+      f = Math.max(96, Math.min(180, Math.round(maxR * 0.12)));
 
     function fr(now) {
       const t = Math.min(1, (now - start) / BLUR_DUR_MS),
@@ -5354,6 +5370,7 @@ function unlockBootPageScroll() {
     } catch (err) {
       console.warn("Rina loading hover image failed", err);
     }
+    loaderCenterFrozen = true;
     overlay.classList.add("is-ring-contracting", "is-image-pop");
     overlay.setAttribute("aria-label", "页面加载完成");
     haloTimer = window.setTimeout(() => overlay.classList.add("is-halo-hidden"), HALO_CONTRACT_MS);
@@ -5377,6 +5394,7 @@ function unlockBootPageScroll() {
       rafId = null;
     }
     overlay.hidden = false;
+    loaderCenterFrozen = false;
     lockLoaderCenter();
     overlay.classList.add("is-assets-ready", "is-animating");
     overlay.classList.remove(
@@ -5415,10 +5433,13 @@ function unlockBootPageScroll() {
     await window.rinaLoadingImagesReadyPromise;
     initOverlay();
   };
-  window.addEventListener("resize", scheduleLoaderHorizontalCenterSync, {
+  window.addEventListener("resize", scheduleLoaderCenterSync, {
     passive: true,
   });
-  window.visualViewport?.addEventListener("resize", scheduleLoaderHorizontalCenterSync, {
+  window.visualViewport?.addEventListener("resize", scheduleLoaderCenterSync, {
+    passive: true,
+  });
+  window.visualViewport?.addEventListener("scroll", scheduleLoaderCenterSync, {
     passive: true,
   });
 })();
