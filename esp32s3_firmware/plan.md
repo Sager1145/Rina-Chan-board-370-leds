@@ -1,6 +1,6 @@
 # Rina-Chan Board 固件与 WebUI AI 可执行规格书
 
-本文档是基于当前项目实现反向整理的 `plan.md`。它的目标不是普通开发计划，而是一份可执行规格书：任何现代 AI 只读取本文件，不参考旧代码，也应能重建当前 PlatformIO 固件、LittleFS 数据文件、`index.html`、`styles.css` 和相关 WebUI 资源约定。
+本文档是基于当前项目实现反向整理的 `plan.md`。它的目标不是普通开发计划，而是一份可执行规格书：任何现代 AI 只读取本文件，不参考旧代码，也应能重建当前 PlatformIO 固件、LittleFS 数据文件、`index.html`、`app.js`、`styles.css` 和相关 WebUI 资源约定。
 
 当前实现目标硬件为 ESP32-S3、370 颗 WS2812B、Arduino Core、PlatformIO、LittleFS、AP-only Web 控制界面。当前实现已明确剔除 I2C 电源管理芯片、PD/充电 IC 控制、硬件温度检测模块；重建时不得加入这些模块。
 
@@ -20,6 +20,7 @@
 - WebUI V2：基础控制、自定义画板、部件拼脸、文本滚动、调试/电源状态页面。
 - 表情库 `saved_faces.json` 读写，默认表情不可删除但可重命名/排序。
 - 文本滚动帧只上传到固件 RAM，不保存到 flash。
+- WebUI 运行时拆分为 `data/index.html` DOM、`data/styles.css` 样式和 `data/app.js` 行为逻辑；无构建工具、无 npm runtime。
 
 ### 1.2 禁止实现
 
@@ -72,6 +73,7 @@ esp32s3_firmware/
     utils.cpp
   data/
     index.html
+    app.js
     styles.css
     resources/
       saved_faces.json
@@ -82,6 +84,7 @@ esp32s3_firmware/
         rina_icon2_hover.png
       fonts/
         ark12.woff2
+        ark12_fallback.woff2
         ark12.json
         README.md
 ```
@@ -92,11 +95,12 @@ esp32s3_firmware/
 
 WebUI 的重建边界如下：
 
-- `data/index.html` 负责 DOM 结构与内联 JavaScript；不得拆成额外运行时 JS 文件，除非同步更新本计划和 gzip/静态托管规则。
-- `data/styles.css` 负责全部视觉、布局、动画和字体声明；GNU Unifont 必须以内联 `data:font/woff2;base64,...` 形式写在 CSS 内，Ark12 文字滚动浏览器字体从 `/resources/fonts/ark12.woff2?v=20260511-ark12-merged-trad1` 加载。
+- `data/index.html` 负责 DOM 结构与稳定 id/class；行为由外置 `data/app.js` 加载，当前入口为 `<script src="app.js?v=20260524-webui-organized-v1"></script>`。
+- `data/app.js` 负责全部 WebUI 行为、配置、表情/部件运行时数据、API 队列、矩阵、滚动、调试和 boot 编排；不得改回内联 `<script>`，除非同步更新本计划和 gzip/静态托管规则。
+- `data/styles.css` 负责全部视觉、布局、动画和字体声明；GNU Unifont 必须以内联 `data:font/woff2;base64,...` 形式写在 CSS 内，Ark12 browser font 当前注册 `/resources/fonts/ark12.woff2?v=20260524-ark12-fusion-v2-base`，fallback/alias font 注册 `/resources/fonts/ark12_fallback.woff2?v=20260524-ark12-fusion-v2-fallback` 和 `/resources/fonts/ark12_fallback.woff2?v=20260524-ark12-fusion-v2-alias`。
 - `/resources/fonts/ark12.json` 是文字滚动 rasterizer 的位图字形表；它必须保持 lazy-load，不得在首屏加载阶段同步读取。
 - `/resources/loading/rina_icon1_default.png` 与 `/resources/loading/rina_icon2_hover.png` 是 loading overlay 的两个头像状态；默认图标需要在 `<head>` preload 并作为 favicon。
-- `scripts/gzip_webui_assets.py` 必须能为 `index.html`、`styles.css`、`resources/fonts/ark12.json` 生成 `.gz` sibling，固件静态服务按 Accept-Encoding 优先返回 gzip。
+- `scripts/gzip_webui_assets.py` 必须能为 `index.html`、`app.js`、`styles.css`、`resources/fonts/ark12.json` 生成临时 `.gz` sibling，LittleFS image 生成后删除工作树中的临时 `.gz`，固件静态服务按 Accept-Encoding 优先返回 gzip。
 - 若实现与本文件有冲突，以“当前实现同步补充”小节和精确常量表为准；重建后应能只通过 `pio run`、`pio run -t uploadfs` 和浏览器访问 AP 完成验收。
 
 ## 3. PlatformIO 与构建
@@ -123,11 +127,18 @@ WebUI 的重建边界如下：
   - `-D BOARD_HAS_PSRAM`
   - `-D ARDUINO_USB_CDC_ON_BOOT=1`
   - `-D RINACHAN_AP_ONLY=1`
+  - `-D ARDUINO_RUNNING_CORE=0`
+  - `-D ARDUINO_EVENT_RUNNING_CORE=0`
   - `-D HTTP_MAX_DATA_WAIT=200`
   - `-D HTTP_MAX_POST_WAIT=200`
   - `-D HTTP_MAX_SEND_WAIT=200`
 
-`scripts/patch_webserver_timeout.py` 必须在构建前修补 Arduino `WebServer.h` 的 TCP 超时，作为响应迟滞优化。`scripts/gzip_webui_assets.py` 必须在构建期间生成静态资源的 `.gz` 版本，至少覆盖大型 HTML/CSS/JSON/font 资源。
+`build_unflags` 必须移除 Arduino core/event task 的 Core 1 默认值：
+
+- `-DARDUINO_RUNNING_CORE=1`
+- `-DARDUINO_EVENT_RUNNING_CORE=1`
+
+`scripts/patch_webserver_timeout.py` 必须在构建前修补 Arduino `WebServer.h` 的 TCP 超时，作为响应迟滞优化。`scripts/gzip_webui_assets.py` 必须在构建期间生成静态资源的 `.gz` 版本，至少覆盖大型 HTML/JS/CSS/JSON 资源。
 
 ## 4. 硬件与引脚
 
@@ -159,7 +170,7 @@ WebUI 的重建边界如下：
 | B3 | 15 | 松开时切换 manual/auto；与 B1/B2 组合调整 auto interval |
 | B4 | 40 | 亮度减 8，支持长按重复 |
 | B5 | 41 | 亮度加 8，支持长按重复 |
-| B6 | 42 | 初始化并保留，目前无动作 |
+| B6 | 42 | 电量 overlay 输入；短按显示百分比，长按循环详情；与 B2/B3 组合显示附加电源/输入页 |
 
 ### 4.4 ADC
 
@@ -278,8 +289,9 @@ physicalIndex(logicalIndex):
 - 两次 `strip.show()` 之间必须先补足 `LED_RENDER_MIN_GAP_US`。
 - `strip.show()` 前后均 `delayMicroseconds(LED_SIGNAL_RESET_US)`。
 - 启动清屏后保持：
-  - `LED_BOOT_CLEAR_HOLD_MS = 120`
-  - `LED_BOOT_STARTUP_SETTLE_MS = 40`
+  - `LED_BOOT_DATA_LOW_HOLD_MS = 20`
+  - `LED_BOOT_CLEAR_HOLD_MS = 350`
+  - `LED_BOOT_STARTUP_SETTLE_MS = 120`
 - 停止滚动时全黑帧保持：
   - `LED_STOP_CLEAR_BLANK_HOLD_MS = 90`
 
@@ -390,8 +402,7 @@ void withHardwareBusLock(Fn fn) {
 - `RuntimeFace autoFaces_[MAX_AUTO_FACES]`（128 个元素）
 - `uint16_t autoFaceCount_`
 - `uint8_t frameBits_[FRAME_BYTES]`（47 字节）
-- `uint8_t fallbackScrollFrameBits_[MAX_SCROLL_FRAMES][FRAME_BYTES]`（PSRAM 不可用时的 SRAM 备份，**类的成员**）
-- `uint8_t* scrollFrameBits_`（指向 PSRAM 分配或 fallback 数组首元素）
+- `uint8_t* scrollFrameBits_`（指向 PSRAM 分配或 internal SRAM heap fallback）
 - `bool scrollFrameBitsInPsram_`
 - `bool fsMounted_`
 
@@ -399,10 +410,10 @@ void withHardwareBusLock(Fn fn) {
 
 - 目标大小：`MAX_SCROLL_FRAMES * FRAME_BYTES = 3072 * 47 = 144384 bytes`。
 - 如果 `ESP.getPsramSize() > 0`，用 `heap_caps_malloc(..., MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)`。
-- 失败则回退到内部 SRAM 静态二维数组。
+- 失败则回退到一次性 internal SRAM heap allocation：`heap_caps_malloc(..., MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)`。
 - 清零整个 scroll buffer。
-- `runtimeScrollFrameBufferReady()` 当前实现恒返回 `true`；重建时仍保留这个接口，以便 Web/API 统一报告 scroll buffer ready。
-- `runtimeScrollFrameBits(index)` 在 `index >= MAX_SCROLL_FRAMES` 时返回 `nullptr`，正常情况下返回 `scrollFrameBits_ + index * FRAME_BYTES`。
+- 如果 PSRAM 和 internal SRAM heap 都失败，`initRuntimeScrollFrameBuffer()` 返回 `false`，`runtimeScrollFrameBufferReady()` 返回 `false`，滚动路径必须跳过或返回 507。
+- `runtimeScrollFrameBits(index)` 在 `index >= MAX_SCROLL_FRAMES` 或 buffer unavailable 时返回 `nullptr`，正常情况下返回 `scrollFrameBits_ + index * FRAME_BYTES`。
 
 `RuntimeFace` 结构体必须包含以下字段：
 
@@ -530,10 +541,9 @@ struct QueuedM370Frame {
 1. 读取并清除 `consumeLedRenderRequest()`，这是主任务写入帧后的高优先级 render 请求。
 2. 如果 firmware scroll active、未 paused、有 frameCount、buffer ready：
    - 检查 `millis() - lastScrollFrameMs >= scrollIntervalMs`。
-   - 计算错过步数 `rawSteps = elapsed / interval`。
-   - `steps = rawSteps % frameCount`，如果为 0 则改为 1。
-   - 更新 `scrollFrameIndex` 和 `lastScrollFrameMs`。
-   - 长暂停后如果 drift 超过 `interval * 4`，把 `lastScrollFrameMs = now`。
+   - 每个合格 render cycle 只推进 **一帧**：`scrollFrameIndex = (scrollFrameIndex + 1) % scrollFrameCount`。
+   - 正常 jitter 下 `lastScrollFrameMs += intervalMs`，保持节奏贴住 interval grid。
+   - 长暂停后如果 drift 超过 `interval * SCROLL_DRIFT_RESET_INTERVALS`（当前为 4），把 `lastScrollFrameMs = now`。
    - 拷贝下一帧到局部 `nextFrame`，标记有滚动帧。
 3. 若有滚动帧，进入 `frameMutex`：
    - 只有当 scroll 仍 active 且没有主任务帧抢占时，才写入 `runtimeFrameBits()`。
@@ -600,6 +610,7 @@ struct QueuedM370Frame {
 - B5：亮度 `+8`，lastReason=`gpio_B5_brightness_up`。
 - B3+B1：auto interval `-500 ms`。
 - B3+B2：auto interval `+500 ms`。
+- B6 不走普通 `runButtonAction()`；按钮服务每轮把 B6/B2/B3 debounced 状态传给 `button_animations`。B6 短按显示电池百分比 overlay，长按进入多页电源详情；充电时电池填充动画刷新。
 
 如果 GPIO B1/B2/B3 中断 firmware scroll 或 scroll preview，必须写入：
 
@@ -1264,7 +1275,7 @@ vTaskDelay(pdMS_TO_TICKS(1));
 
 ## 8. WebUI 架构
 
-当前 WebUI 是单文件 `data/index.html` + 外部 `data/styles.css`，不使用构建工具，不依赖 npm。JavaScript 全部内联在 HTML 的 `<script>` 中。
+当前 WebUI 是 `data/index.html` + `data/styles.css` + `data/app.js`，不使用构建工具，不依赖 npm。`index.html` 只声明 DOM 与稳定 id/class，`app.js` 是外置浏览器运行时。
 
 ### 8.1 顶层配置
 
@@ -1329,16 +1340,19 @@ firmwareQueues: {
 scroll: {
   defaultFps: 10,
   fpsMin: 1,
-  fpsMax: 120,
+  fpsMax: 60,
+  fpsPresets: [1, 10, 20, 30, 40, 50, 60],
   firmwareMaxFramesDefault: 3072,
   uploadChunkFrames: 24,
   maxTextChars: 1000
 }
 textScroll: {
-  fontModel: 'ark_pixel_12px_monospaced_bdf_bitmap_v1',
+  fontModel: 'ark_pixel_12px_fusion_bitmap_v2',
   fontResource: '/resources/fonts/ark12.json',
   fontFamily: 'Ark Pixel 12px Monospaced',
-  browserFontSample: 'RinaChanBoard 370 LED 继续 暂停 こんにちは 璃奈ちゃんボード',
+  fontFallbackFamily: '',
+  browserFontSample: 'RinaChanBoard 370 LED 继续 暂停 こんにちは 璃奈ちゃんボード 然燃滚滾',
+  browserFallbackFontSample: '',
   charSpacing: 0,
   spaceColumns: 6,
   missingGlyphCodePoint: 0x25A1
@@ -1355,14 +1369,14 @@ interaction: {
 boot: {
   loadingIconBefore: './resources/loading/rina_icon1_default.png',
   loadingIconAfter: './resources/loading/rina_icon2_hover.png',
-  holdMs: 150,
+  holdMs: 260,
   haloBreathMs: 1620,
   haloPeakRatio: 0.5,
   haloToleranceMs: 24,
-  haloContractMs: 300,
-  imageReleaseMs: 1300,
-  blurDurationMs: 500,
-  extraMs: 120,
+  haloContractMs: 520,
+  imageReleaseMs: 2100,
+  blurDurationMs: 850,
+  extraMs: 180,
   minDisplayMs: 400,
   firstPageRevealSelector: [
     '.sidebar',
@@ -1391,7 +1405,7 @@ power: {
   <link type="image/png" rel="preload" href="/resources/loading/rina_icon1_default.png" as="image">
   <link type="image/png" rel="icon" href="/resources/loading/rina_icon1_default.png">
   <link type="image/png" rel="shortcut icon" href="/resources/loading/rina_icon1_default.png">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260524-scroll-layout-mobile-v4">
   <!-- hover image 和 ark12 字体 **不** 在 <head> 预加载，由 JS lazy load -->
 </head>
 ```
@@ -1427,7 +1441,7 @@ power: {
     <!-- Brand bar 是 body 的直接子元素，不包在 .app 内 -->
     <div class="brand">
       <div class="brand-copy">
-        <h1>RinaChanBoard 370 LED</h1>
+        <h1>RinaChanBoard 370 V2</h1>
         <div class="row">
           <span class="badge mono"><span class="status-dot"></span> 运行中</span>
           <span class="badge" id="badge-battery">
@@ -1472,6 +1486,7 @@ power: {
       <section class="page"        id="page-debug">  <!-- 调试 --></section>
     </main>
   </div>
+  <script src="app.js?v=20260524-webui-organized-v1"></script>
 </body>
 ```
 
@@ -1518,15 +1533,15 @@ HTML 结构见 8.2.2。
 
 | 常量 | 值 | 说明 |
 |---|---|---|
-| `HOLD_MS` | 150 | ring contract + image pop 之后到 final-release 的延迟 |
+| `HOLD_MS` | 260 | ring contract + image pop 之后到 final-release 的延迟 |
 | `HALO_BREATH_MS` | 1620 | halo 呼吸动画完整周期 (ms)，与 CSS `animation-duration: 1.62s` 对齐 |
 | `HALO_PEAK_RATIO` | 0.5 | 峰值在周期的哪个比例处 → peak at 810 ms |
 | `HALO_TOL_MS` | 24 | 认为已在峰值的时间窗口 |
-| `HALO_CONTRACT_MS` | 300 | 与 CSS `--rina-halo-contract-duration: 300ms` 对齐 |
-| `IMG_RELEASE_MS` | 1300 | 与 CSS `--rina-image-release-duration: 1300ms` 对齐 |
-| `IMG_SHRINK_MS` | `Math.round(IMG_RELEASE_MS * 0.18)` = 234 | 从 `is-final-release` 到开始 `animateReveal()` 的延迟 |
-| `BLUR_DUR_MS` | 500 | 径向渐变 reveal rAF 循环总时长 |
-| `EXTRA_MS` | 120 | 两处用到：(1) 在 `max(IMG_RELEASE_MS, IMG_SHRINK_MS + BLUR_DUR_MS)` 后等待隐藏；(2) 在 `is-hidden` 后设置 `overlay.hidden = true` |
+| `HALO_CONTRACT_MS` | 520 | 与 CSS `--rina-halo-contract-duration: 520ms` 对齐 |
+| `IMG_RELEASE_MS` | 2100 | 与 CSS `--rina-image-release-duration: 2100ms` 对齐 |
+| `IMG_SHRINK_MS` | `Math.round(IMG_RELEASE_MS * 0.18)` = 378 | 从 `is-final-release` 到开始 `animateReveal()` 的延迟 |
+| `BLUR_DUR_MS` | 850 | 径向渐变 reveal rAF 循环总时长 |
+| `EXTRA_MS` | 180 | 两处用到：(1) 在 `max(IMG_RELEASE_MS, IMG_SHRINK_MS + BLUR_DUR_MS)` 后等待隐藏；(2) 在 `is-hidden` 后设置 `overlay.hidden = true` |
 | `BOOT_MIN_DISPLAY_MS` | 400 | 最短显示时间（从动画开始） |
 
 #### 8.4.2 loading IIFE 结构
@@ -1568,9 +1583,9 @@ function delayToPeak(now) {
 ```
 1. 等待 hover image decode（preloadAfterLoadingImage()）
 2. 同时添加 is-ring-contracting + is-image-pop
-3. await HALO_CONTRACT_MS (300ms) → 添加 is-halo-hidden
-4. await HOLD_MS (150ms) → 添加 is-final-release
-5. await IMG_SHRINK_MS (234ms) → 调用 animateReveal()
+3. await HALO_CONTRACT_MS (520ms) → 添加 is-halo-hidden
+4. await HOLD_MS (260ms) → 添加 is-final-release
+5. await IMG_SHRINK_MS (378ms) → 调用 animateReveal()
 6. finishOverlay(): await max(IMG_RELEASE_MS, IMG_SHRINK_MS+BLUR_DUR_MS) + EXTRA_MS
                   → overlay 添加 is-hidden
 7. await EXTRA_MS → overlay.hidden = true, 移除 is-animating, unlockBootPageScroll()
@@ -1801,7 +1816,7 @@ const child_color_groups = {
 控件：
 
 - `#scroll-text`，maxlength=1000。
-- `#scroll-speed`，FPS 输入，整数，仅允许 1..120。
+- `#scroll-speed`，FPS 输入，整数，仅允许 1..60。
 - `#scroll-play`
 - `#scroll-pause`
 - `#scroll-stop`
@@ -1816,9 +1831,9 @@ const child_color_groups = {
 字体：
 
 - UI 字体：CSS 内联 GNU Unifont subset data URI。
-- 滚动字体：`/resources/fonts/ark12.woff2` 与 `/resources/fonts/ark12.json`。
+- 滚动字体：`/resources/fonts/ark12.woff2`、`/resources/fonts/ark12_fallback.woff2` 与 `/resources/fonts/ark12.json`。
 - WebUI 必须 lazy-load `ark12.json`。
-- 字体模型 `ark_pixel_12px_monospaced_bdf_bitmap_v1`。
+- 字体模型 `ark_pixel_12px_fusion_bitmap_v2`。
 - 缺字 fallback codepoint：`0x25A1`。
 
 文本滚动算法：
@@ -2730,7 +2745,7 @@ Debug masonry 必须读取每张卡片的 `getBoundingClientRect().height`，使
 必须包含：
 
 - `@font-face` GNU Unifont：内联 data URI woff2，`font-display:block`。
-- `@font-face` Ark Pixel 12px Monospaced：`/resources/fonts/ark12.woff2?v=20260511-ark12-merged-trad1`。
+- `@font-face` Ark Pixel 12px Monospaced：base font `/resources/fonts/ark12.woff2?v=20260524-ark12-fusion-v2-base`，fallback/alias font `/resources/fonts/ark12_fallback.woff2?v=20260524-ark12-fusion-v2-fallback` 与 `/resources/fonts/ark12_fallback.woff2?v=20260524-ark12-fusion-v2-alias`。
 - 全局强制 pixel font：body、button、input、select、textarea 等。
 - `#scroll-text` 强制 Ark Pixel。
 - dark scrollbar。
@@ -2880,7 +2895,7 @@ Loading 元素样式：
 --gap: 4px;
 ```
 
-`@font-face` 必须保留 GNU Unifont 内联 woff2 data URI 和 Ark Pixel `/resources/fonts/ark12.woff2?v=20260511-ark12-merged-trad1`。`body, button, input, select, textarea` 强制使用 `var(--ui-font)`；`#scroll-text` 强制使用 Ark Pixel。
+`@font-face` 必须保留 GNU Unifont 内联 woff2 data URI、Ark Pixel base font `/resources/fonts/ark12.woff2?v=20260524-ark12-fusion-v2-base`，以及 `ark12_fallback.woff2` 的 fallback/alias 声明。`body, button, input, select, textarea` 强制使用 `var(--ui-font)`；`#scroll-text` 强制使用 Ark Pixel。
 
 #### 9.7.2 页面切换动画
 
@@ -3048,6 +3063,7 @@ HTML 需要 preload default 图，并把 default 图设为 favicon/shortcut icon
 必须提供：
 
 - `/resources/fonts/ark12.woff2`
+- `/resources/fonts/ark12_fallback.woff2`
 - `/resources/fonts/ark12.json`
 - 可选 `/resources/fonts/ark12.json.gz`
 - `/resources/fonts/README.md`
@@ -3065,6 +3081,7 @@ HTML 需要 preload default 图，并把 default 图设为 favicon/shortcut icon
 构建后 data 中可出现 `.gz` sibling，例如：
 
 - `index.html.gz`
+- `app.js.gz`
 - `styles.css.gz`
 - `resources/fonts/ark12.json.gz`
 
@@ -3135,27 +3152,43 @@ warning threshold = 40 W
 
 重建时以本文件的常量、路径、API 字段名、JSON schema、M370 编码、锁顺序、启动顺序为准。
 
-## 15. Implementation 对齐补遗：Single Source of Truth 锁定版（2026-05-23）
+## 15. Implementation 对齐补遗：Single Source of Truth 锁定版（2026-06-11）
 
 > 本章节由当前 implementation 逆向抽取生成，用于修正 `plan.md` 与实际代码之间的剩余偏差。后续开发以本章节和前文规格共同作为重建依据；如二者冲突，以本章节中“当前 implementation 锁定值”为准。严禁因为本章节暴露了源代码而重构现有程序：本次任务只允许修改 `plan.md`。
 
 ### 15.1 对齐结论与重建口径
 
 - 当前项目是 **ESP32-S3 + Arduino + PlatformIO + LittleFS + AP-only WebUI** 固件。
-- WebUI 当前实现是 `data/index.html` 单文件 DOM + 内联 JavaScript，配合 `data/styles.css` 单文件 CSS。没有外置 JS bundle。
-- `data/index.html.gz`、`data/styles.css.gz`、`data/resources/fonts/ark12.json.gz` 是构建脚本生成物，不能人工维护。
+- WebUI 当前实现是 `data/index.html` 单文件 DOM + `data/app.js` 外置浏览器运行时 + `data/styles.css` 单文件 CSS。没有 npm/bundler，但有外置 JS 静态资源。
+- `data/index.html.gz`、`data/app.js.gz`、`data/styles.css.gz`、`data/resources/fonts/ark12.json.gz` 是 `scripts/gzip_webui_assets.py` 在 LittleFS image 构建期间临时生成并随后清理的产物，不能人工维护。
 - `saved_faces.json` 是默认表情和用户表情的唯一统一存储源；默认表情使用 `type: "default"`，可重命名/排序/应用，但前端不得删除。
 - Text scroll 使用 `/resources/fonts/ark12.json` 字形表；WebUI 通用字体使用内嵌 GNU Unifont 子集。字体二进制载荷必须由工具链生成并写入 CSS/资源文件，本文档不展开二进制字体字节。
 - 如果一个开发者或代码生成 Agent 需要从零重建，必须按以下顺序执行：
   1. 创建本文档列出的目录和文件。
-  2. 按第 15.13 的规范源文件片段写入 `platformio.ini`、`src/*`、`scripts/*`、`tools/*`、`data/index.html`、`data/styles.css`、JSON 资源。
+  2. 按本章和前文规范写入 `platformio.ini`、`src/*`、`scripts/*`、`tools/*`、`data/index.html`、`data/app.js`、`data/styles.css`、JSON 资源。
   3. 运行字体资源构建链，生成/注入 GNU Unifont 子集和 Ark Pixel 字体资源。
-  4. 运行 `scripts/gzip_webui_assets.py` 生成 gzip 静态资源。
+  4. 运行 PlatformIO LittleFS target，由 `scripts/gzip_webui_assets.py` 生成并清理 gzip 静态资源。
   5. 用 PlatformIO `esp32s3` 环境构建并上传 firmware/LittleFS。
 
 ### 15.2 当前文件清单、大小与 SHA256
 
-这些哈希用于确认 implementation 没被误改。`.pio/`、`.vscode/`、`.font_cache/` 属于本地/缓存目录，不作为重建源。
+这些哈希原本用于确认 implementation 没被误改；由于本文件多次吸收实现变更，旧表中 `.gz` 和部分源文件 hash 只可视为历史快照。当前可维护源以未压缩文件为准，`.pio/`、`.vscode/`、`.font_cache/` 和临时 `.gz` 属于本地/缓存/生成物，不作为重建源。
+
+当前抽查过的关键源文件 SHA256：
+
+| 文件 | SHA256 |
+|---|---|
+| `platformio.ini` | `d32a467a895bc9d7c6ca7549231fb256004433da0f75cff0b930e2966f3149f4` |
+| `scripts/gzip_webui_assets.py` | `89e15b4b267987303c5da2b1fad97e0339510c143c8994d30b353d4c1eb4835a` |
+| `src/config.h` | `c8c6c50238c7f4dd829c8178b968eeee8ed743640ff6fb1b18dcb0b66cb14d6f` |
+| `src/state.h` | `cdbd21b9a690fcdf37ea217eab1ca3482aa7811d06b09be7f11a23eaf73cb351` |
+| `src/state.cpp` | `5b255a71be3d245fe1513c3b414266d8c89bf457d279fe378ffaa23db1b617cc` |
+| `src/scroll.cpp` | `27d5ffe2e91762d48e6d0e3a8cdba1898999ff1d1a024156c45f3856f4f47df9` |
+| `src/buttons.cpp` | `e402a7e1ad9848a5c62766a2fac7e9ab2cf2e058d492ef1db9e5ae093f40aa3c` |
+| `src/button_animations.cpp` | `dfe7403241f0cd6f0a7c9e767ac49bbb3a049ddbb6e92aff0a919ea7d46112ad` |
+| `data/index.html` | `ce071874fd2c1a6f2d331e19ccc899944deb3633cb0ba182e9693498bfbc82fa` |
+| `data/app.js` | `52394dc3f183d99c7260ba49aca8d2b2143b6fbf86b4585e441f5b8e9a13036c` |
+| `data/styles.css` | `e83e5dfc13334d36c7183208b50122a4d480f43da639e0e52b301c340ebbc274` |
 
 | 文件 | bytes | SHA256 |
 |---|---:|---|
@@ -3304,16 +3337,19 @@ const WEBUI_CONFIG = Object.freeze({
   scroll: {
     defaultFps: 10,
     fpsMin: 1,
-    fpsMax: 120,
+    fpsMax: 60,
+    fpsPresets: [1, 10, 20, 30, 40, 50, 60],
     firmwareMaxFramesDefault: 3072,
     uploadChunkFrames: 24,
     maxTextChars: 1000
   },
   textScroll: {
-    fontModel: 'ark_pixel_12px_monospaced_bdf_bitmap_v1',
+    fontModel: 'ark_pixel_12px_fusion_bitmap_v2',
     fontResource: '/resources/fonts/ark12.json',
     fontFamily: 'Ark Pixel 12px Monospaced',
-    browserFontSample: 'RinaChanBoard 370 LED \u7ee7\u7eed \u6682\u505c \u3053\u3093\u306b\u3061\u306f \u7483\u5948\u3061\u3083\u3093\u30dc\u30fc\u30c9',
+    fontFallbackFamily: '',
+    browserFontSample: 'RinaChanBoard 370 LED \u7ee7\u7eed \u6682\u505c \u3053\u3093\u306b\u3061\u306f \u7483\u5948\u3061\u3083\u3093\u30dc\u30fc\u30c9 \u7136\u71c3\u6eda\u6efe',
+    browserFallbackFontSample: '',
     charSpacing: 0,
     spaceColumns: 6,
     missingGlyphCodePoint: 0x25A1
@@ -3330,14 +3366,14 @@ const WEBUI_CONFIG = Object.freeze({
   boot: {
     loadingIconBefore: './resources/loading/rina_icon1_default.png',
     loadingIconAfter: './resources/loading/rina_icon2_hover.png',
-    holdMs: 150,
+    holdMs: 260,
     haloBreathMs: 1620,
     haloPeakRatio: 0.5,
     haloToleranceMs: 24,
-    haloContractMs: 300,
-    imageReleaseMs: 1300,
-    blurDurationMs: 500,
-    extraMs: 120,
+    haloContractMs: 520,
+    imageReleaseMs: 2100,
+    blurDurationMs: 850,
+    extraMs: 180,
     minDisplayMs: 400,
     firstPageRevealSelector: [
       '.sidebar',
@@ -3902,16 +3938,16 @@ server.onNotFound(handleNotFound);
 
 - `serveRoot` 优先发送 gzip 版 `/index.html.gz`，若不存在则发送 `/index.html`。
 - 静态资源必须支持 gzip 优先、正确 Content-Type、Cache-Control 与分块 stream；HTML 禁止长缓存。
-- `/api/status` 支持 query：`runtime=1`、`resources=1`、`full=1`、`unchanged=1`、`mode=...`。runtime summary 和 full status 必须分级生成，避免频繁输出大 JSON。
+- `/api/status` 支持 query：`runtimeOnly=1`、`summary=1`、`noFrame=1`、`since=<version>`、`fullPower=1`。runtime summary、scroll summary 和 full status 必须分级生成，避免频繁输出大 JSON。
 - `/api/power` 返回 ADC/power/battery/charge 相关状态；battery min/max reset 通过 command route 触发。
 - `/api/frame` 接收 M370 frame，验证长度和字符，写入 M370 队列/状态，拒绝非法 payload 并递增 rejected 计数。
-- `/api/scroll` 同时处理 OPTIONS、POST、DELETE；POST 支持 `frames`、`intervalMs`、`append`、`start`；最大 frame 数以 firmware 上限控制，超限返回错误。
+- `/api/scroll` 只处理 OPTIONS 和 POST；其他方法返回 405。POST 支持 `frames`、`intervalMs`/`fps`、`append`、`start`、`chunkIndex`、`totalFrames`，且只允许 RAM storage；最大 frame 数以 firmware 上限控制，超限返回错误。
 - `/api/command` 只接受 route table 中命令，不允许任意字符串执行。
 - `/api/saved_faces` GET 返回当前 face library，POST 进行 schema/format/type/id/m370 校验，原子写入 `saved_faces.json`。
 
 ### 15.7 Firmware 隐藏边界条件与实现细节
 
-- RuntimeStore 必须使用 FreeRTOS spinlock 保护状态；scroll frame buffer 优先 PSRAM，失败则 fallback 到静态内部 SRAM。
+- RuntimeStore 的共享访问由调用方/辅助函数使用 FreeRTOS mutex 保护；scroll frame buffer 优先 PSRAM，失败则 fallback 到一次性 internal SRAM heap allocation。不得重新引入常驻静态 `fallbackScrollFrameBits_` 大数组。
 - M370 render 队列必须限长，满时丢弃最旧帧并记录 dropped；decode 在临界区外执行，降低锁持有时间。
 - 渲染优先级：scroll playback > queued M370 > runtime/current frame/pattern；brightness 只有变化时写 strip。
 - Button hidden combo 必须按照当前 `buttons.cpp` 的时序与 debounce/long-press 阈值执行；按钮事件应向 RuntimeState 写入 lastReason 并打断 scroll 预览同步。
@@ -3925,15 +3961,17 @@ server.onNotFound(handleNotFound);
   - `/resources/loading/rina_icon1_default.png`
   - `/resources/loading/rina_icon2_hover.png`
 - 必须保留字体资源路径：
-  - `/resources/fonts/ark12.woff2?v=20260511-ark12-merged-trad1`
+  - `/resources/fonts/ark12.woff2?v=20260524-ark12-fusion-v2-base`
+  - `/resources/fonts/ark12_fallback.woff2?v=20260524-ark12-fusion-v2-fallback`
+  - `/resources/fonts/ark12_fallback.woff2?v=20260524-ark12-fusion-v2-alias`
   - `/resources/fonts/ark12.json`
-  - `/resources/fonts/ark12.json.gz`
-- `styles.css` 中的 GNU Unifont 子集为内嵌 data URI，本文档不显示原始二进制字体字节；重建时按工具链生成。不得把字体改成外链。
+- `resources/fonts/ark12.json.gz` 是 LittleFS build 期间生成的临时 gzip sibling，不是人工维护的源文件。
+- `styles.css` 中的 GNU Unifont 子集为内嵌 data URI，本文档不显示原始二进制字体字节；重建时按工具链生成。不得把字体改成外链，也不得改回嵌入 `index.html`。
 - gzip 生成脚本必须只压缩可压缩文本资源，不压缩 PNG/WOFF2 原二进制。
 
 ### 15.9 当前实现源文件规范片段
 
-以下是当前 implementation 的规范源文件内容。除了 CSS 中的 GNU Unifont 二进制 data URI 被安全占位外，其余文本源文件保持当前实现语义，用于从零重建。
+以下源码片段保留为历史重建参考。若本节片段与前文 1-14 节或 15.1-15.8 的当前锁定值冲突，以前文当前锁定值为准；特别是 WebUI 外置 `app.js`、临时 gzip 生成/清理、scroll buffer heap fallback、单步 scroll cadence、Core 0 build flags 和 B6 电源 overlay 行为。
 
 #### `platformio.ini`
 
@@ -3963,10 +4001,17 @@ extra_scripts =
     pre:scripts/patch_webserver_timeout.py
     scripts/gzip_webui_assets.py
 
+build_unflags =
+    -DARDUINO_RUNNING_CORE=1
+    -DARDUINO_EVENT_RUNNING_CORE=1
+
 build_flags =
     -D BOARD_HAS_PSRAM
     -D ARDUINO_USB_CDC_ON_BOOT=1
     -D RINACHAN_AP_ONLY=1
+    ; --- Core affinity (do NOT remove) ---------------------------------------
+    -D ARDUINO_RUNNING_CORE=0
+    -D ARDUINO_EVENT_RUNNING_CORE=0
     ; WebServer TCP connection timeouts – patched in WebServer.h by
     ; scripts/patch_webserver_timeout.py (pre-build script).
     ; Values here act as a second layer in case the patch is ever reverted.
@@ -4057,7 +4102,7 @@ Hardware button pins:
 | `B3` | 15 | Toggle manual/auto mode; interrupts firmware scroll |
 | `B4` | 40 | Brightness down |
 | `B5` | 41 | Brightness up |
-| `B6` | 42 | Reserved; initialized but no mapped action currently |
+| `B6` | 42 | Battery/power overlay input; short press shows percent, long press cycles details, B2/B3 chords show extra pages |
 | `B3 + B1` | 15 + 17 | Decrease auto interval |
 | `B3 + B2` | 15 + 16 | Increase auto interval |
 
@@ -4324,7 +4369,7 @@ The status API reports:
 
 ## WebUI Pages
 
-The offline WebUI is implemented in `data/index.html` and `data/styles.css`.
+The offline WebUI is implemented in `data/index.html`, `data/app.js`, and `data/styles.css`.
 
 ### 6.1 Basic
 
@@ -4560,7 +4605,8 @@ LittleFS files:
 
 | Path | Purpose |
 | --- | --- |
-| `/index.html` | WebUI HTML and JavaScript |
+| `/index.html` | WebUI DOM shell |
+| `/app.js` | WebUI browser runtime |
 | `/styles.css` | WebUI stylesheet |
 | `/resources/saved_faces.json` | Unified saved-face library |
 | `/resources/runtime_settings.json` | Manual/auto mode and auto interval persistence |
@@ -4568,13 +4614,14 @@ LittleFS files:
 | `/resources/loading/rina_icon1_default.png` | Loading screen default icon |
 | `/resources/loading/rina_icon2_hover.png` | Loading screen hover/finish icon |
 | `/resources/fonts/ark12.woff2` | Browser font for text-scroll textarea |
+| `/resources/fonts/ark12_fallback.woff2` | Browser fallback font layer for Ark-missing CJK glyphs |
 | `/resources/fonts/ark12.json` | Bitmap glyph table for LED text-scroll rasterization |
 
 Generated/managed assets:
 
-- GNU Unifont subset is embedded directly into `data/index.html`
+- GNU Unifont subset is embedded directly into `data/styles.css`
 - Ark Pixel files are stored in `data/resources/fonts/`
-- Gzipped copies are generated by the build script for LittleFS upload
+- Gzipped copies are generated temporarily by the build script for the LittleFS image, then removed from the working tree
 
 ## Configuration
 
@@ -4667,7 +4714,7 @@ Build script that prepares compressed WebUI assets for faster delivery from Litt
 
 ### `tools/build_unifont_webui_subset_from_png.py`
 
-Builds a GNU Unifont WOFF2 subset for the exact characters used by the WebUI and runtime resources, then embeds it into `data/index.html`.
+Builds a GNU Unifont WOFF2 subset for the exact characters used by the WebUI and runtime resources, then embeds it into the file passed with the legacy `--embed-index` option. The current PowerShell runner passes `data/styles.css`; the option/function names still say "index" for historical reasons.
 
 ### `tools/build_ark12_merged.py`
 
@@ -6843,16 +6890,12 @@ static void scrollRenderTask(void* parameter) {
             const uint32_t elapsedMs = now - runtimeState().lastScrollFrameMs;
 
             if (elapsedMs >= intervalMs) {
-                const uint32_t rawSteps = elapsedMs / intervalMs;
-                uint32_t steps = rawSteps % runtimeState().scrollFrameCount;
-                if (steps == 0) steps = 1;
+                runtimeState().scrollFrameIndex =
+                    (runtimeState().scrollFrameIndex + 1) % runtimeState().scrollFrameCount;
 
-                runtimeState().scrollFrameIndex  = (runtimeState().scrollFrameIndex + steps) % runtimeState().scrollFrameCount;
-                runtimeState().lastScrollFrameMs += rawSteps * intervalMs;
-                // Reset the scroll clock after a long suspension so playback
-                // resumes smoothly instead of chasing stale elapsed time.
-                if (now - runtimeState().lastScrollFrameMs >
-                    static_cast<uint32_t>(intervalMs) * SCROLL_DRIFT_RESET_INTERVALS) {
+                if (elapsedMs <= static_cast<uint32_t>(intervalMs) * SCROLL_DRIFT_RESET_INTERVALS) {
+                    runtimeState().lastScrollFrameMs += intervalMs;
+                } else {
                     runtimeState().lastScrollFrameMs = now;
                 }
                 memcpy(nextFrame, runtimeScrollFrameBits(runtimeState().scrollFrameIndex), FRAME_BYTES);
@@ -6971,31 +7014,35 @@ bool RuntimeStore::initScrollFrameBuffer() {
     }
 
     if (scrollFrameBits_ == nullptr) {
-        Serial.printf("WARN: PSRAM scroll buffer unavailable; using original %u-byte internal SRAM fallback\n",
-                      static_cast<unsigned>(SCROLL_FRAME_BUFFER_BYTES));
-        scrollFrameBits_ = &fallbackScrollFrameBits_[0][0];
+        scrollFrameBits_ = static_cast<uint8_t*>(
+            heap_caps_malloc(SCROLL_FRAME_BUFFER_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
         scrollFrameBitsInPsram_ = false;
+        if (scrollFrameBits_ == nullptr) {
+            Serial.printf("WARN: scroll buffer unavailable; need %u bytes of PSRAM or internal SRAM\n",
+                          static_cast<unsigned>(SCROLL_FRAME_BUFFER_BYTES));
+            return false;
+        }
+        Serial.printf("WARN: PSRAM scroll buffer unavailable; using %u-byte internal SRAM heap fallback\n",
+                      static_cast<unsigned>(SCROLL_FRAME_BUFFER_BYTES));
     }
 
     memset(scrollFrameBits_, 0, SCROLL_FRAME_BUFFER_BYTES);
     Serial.printf("Scroll buffer ready: %u bytes in %s, psram total=%u free=%u\n",
                   static_cast<unsigned>(SCROLL_FRAME_BUFFER_BYTES),
-                  scrollFrameBitsInPsram_ ? "PSRAM" : "original internal SRAM fallback",
+                  scrollFrameBitsInPsram_ ? "PSRAM" : "internal SRAM heap fallback",
                   static_cast<unsigned>(ESP.getPsramSize()),
                   static_cast<unsigned>(ESP.getFreePsram()));
     return true;
 }
 
 uint8_t* RuntimeStore::scrollFrameBits(uint16_t index) {
-    if (index >= MAX_SCROLL_FRAMES) return nullptr;
-    uint8_t* buffer = scrollFrameBits_ != nullptr ? scrollFrameBits_ : &fallbackScrollFrameBits_[0][0];
-    return buffer + (static_cast<size_t>(index) * FRAME_BYTES);
+    if (index >= MAX_SCROLL_FRAMES || scrollFrameBits_ == nullptr) return nullptr;
+    return scrollFrameBits_ + (static_cast<size_t>(index) * FRAME_BYTES);
 }
 
 const uint8_t* RuntimeStore::scrollFrameBits(uint16_t index) const {
-    if (index >= MAX_SCROLL_FRAMES) return nullptr;
-    const uint8_t* buffer = scrollFrameBits_ != nullptr ? scrollFrameBits_ : &fallbackScrollFrameBits_[0][0];
-    return buffer + (static_cast<size_t>(index) * FRAME_BYTES);
+    if (index >= MAX_SCROLL_FRAMES || scrollFrameBits_ == nullptr) return nullptr;
+    return scrollFrameBits_ + (static_cast<size_t>(index) * FRAME_BYTES);
 }
 
 RuntimeState& runtimeState() {
@@ -7186,7 +7233,6 @@ private:
     RuntimeFace  autoFaces_[MAX_AUTO_FACES] = {};
     uint16_t     autoFaceCount_ = 0;
     uint8_t      frameBits_[FRAME_BYTES] = {};
-    uint8_t      fallbackScrollFrameBits_[MAX_SCROLL_FRAMES][FRAME_BYTES] = {};
     uint8_t*     scrollFrameBits_ = nullptr;
     bool         scrollFrameBitsInPsram_ = false;
     bool         fsMounted_ = false;
@@ -9129,6 +9175,7 @@ Import("env")  # noqa: F821  (PlatformIO injects this)
 # Paths are relative to the data/ (LittleFS source) directory.
 GZIP_TARGETS = [
     "index.html",
+    "app.js",
     "styles.css",
     "resources/fonts/ark12.json",
 ]
@@ -9166,20 +9213,24 @@ def gzip_assets(*args, **kwargs):
         print("[gzip_webui_assets] all .gz assets already up to date")
 
 
+def cleanup_gzip_assets(*args, **kwargs):
+    data_dir = os.path.join(env["PROJECT_DIR"], "data")  # noqa: F821
+    removed = False
+    for rel in GZIP_TARGETS:
+        gz_path = os.path.join(data_dir, rel + ".gz")
+        if os.path.isfile(gz_path):
+            os.remove(gz_path)
+            print(f"[gzip_webui_assets] removed temporary: {rel}.gz")
+            removed = True
+    if not removed:
+        print("[gzip_webui_assets] no temporary .gz assets to remove")
+
+
 # Regenerate the .gz files right before the LittleFS image is assembled.
 env.AddPreAction("$BUILD_DIR/littlefs.bin", gzip_assets)  # noqa: F821
 
-# Also allow manual invocation: `pio run -t gzipassets`.
-try:
-    env.AddCustomTarget("gzipassets", None, gzip_assets,  # noqa: F821
-                        title="Gzip WebUI assets",
-                        description="Generate .gz siblings for large WebUI assets")
-except Exception:
-    pass
-
-# Run once at script load too, so a plain `pio run -t uploadfs` on a clean tree
-# still has fresh .gz files even if the image-target hook ordering changes.
-gzip_assets()
+# Remove the temporary siblings after the image has captured them.
+env.AddPostAction("$BUILD_DIR/littlefs.bin", cleanup_gzip_assets)  # noqa: F821
 ~~~~
 
 #### `scripts/patch_webserver_timeout.py`
@@ -10767,16 +10818,19 @@ const WEBUI_CONFIG = Object.freeze({
   scroll: {
     defaultFps: 10,
     fpsMin: 1,
-    fpsMax: 120,
+    fpsMax: 60,
+    fpsPresets: [1, 10, 20, 30, 40, 50, 60],
     firmwareMaxFramesDefault: 3072,
     uploadChunkFrames: 24,
     maxTextChars: 1000
   },
   textScroll: {
-    fontModel: 'ark_pixel_12px_monospaced_bdf_bitmap_v1',
+    fontModel: 'ark_pixel_12px_fusion_bitmap_v2',
     fontResource: '/resources/fonts/ark12.json',
     fontFamily: 'Ark Pixel 12px Monospaced',
-    browserFontSample: 'RinaChanBoard 370 LED \u7ee7\u7eed \u6682\u505c \u3053\u3093\u306b\u3061\u306f \u7483\u5948\u3061\u3083\u3093\u30dc\u30fc\u30c9',
+    fontFallbackFamily: '',
+    browserFontSample: 'RinaChanBoard 370 LED \u7ee7\u7eed \u6682\u505c \u3053\u3093\u306b\u3061\u306f \u7483\u5948\u3061\u3083\u3093\u30dc\u30fc\u30c9 \u7136\u71c3\u6eda\u6efe',
+    browserFallbackFontSample: '',
     charSpacing: 0,
     spaceColumns: 6,
     missingGlyphCodePoint: 0x25A1
@@ -10793,14 +10847,14 @@ const WEBUI_CONFIG = Object.freeze({
   boot: {
     loadingIconBefore: './resources/loading/rina_icon1_default.png',
     loadingIconAfter: './resources/loading/rina_icon2_hover.png',
-    holdMs: 150,
+    holdMs: 260,
     haloBreathMs: 1620,
     haloPeakRatio: 0.5,
     haloToleranceMs: 24,
-    haloContractMs: 300,
-    imageReleaseMs: 1300,
-    blurDurationMs: 500,
-    extraMs: 120,
+    haloContractMs: 520,
+    imageReleaseMs: 2100,
+    blurDurationMs: 850,
+    extraMs: 180,
     minDisplayMs: 400,
     firstPageRevealSelector: [
       '.sidebar',
@@ -18064,9 +18118,12 @@ if (document.readyState === 'loading') {
 ~~~~markdown
 # Font resources
 
-- `ark12.woff2` and `ark12.json` are LittleFS runtime resources for the text-scroll input/browser preview and LED bitmap rasterizer.
-- GNU Unifont is **not** stored here as `unifont.woff2`. The WebUI Unifont subset is embedded directly inside `data/index.html` as a `data:font/woff2;base64,...` URL.
-- `run_rinachan_unifont.ps1` rebuilds the modified GNU Unifont subset from the GNU Unifont BMP sheet, embeds it into `index.html`, removes any forbidden external `unifont.woff2`, and validates that no external Unifont source is used.
+- `ark12.json` is the fused Ark Pixel 12px bitmap glyph table for LittleFS LED text rasterization. It keeps the original `rina_ark_pixel_font_bitmap_v1` structure and includes patched glyphs such as `然 / 燃 / 滚 / 滾`.
+- `ark12.json.gz` is generated temporarily during LittleFS upload/image creation and deleted afterward. Keep edits in `ark12.json`.
+- `ark12.woff2` is the base Ark Pixel 12px browser font layer for the text-scroll input/browser preview.
+- `ark12_fallback.woff2` is the fused fallback browser font layer for Ark-missing CJK glyphs, including `然 / 燃 / 滚 / 滾`.
+- GNU Unifont is not stored here as `unifont.woff2`. The WebUI Unifont subset is embedded directly inside `data/styles.css` as a `data:font/woff2;base64,...` URL.
+- `run_rinachan_unifont.ps1` validates the fused Ark12 resources before upload and copies the bundled files from `tools/font_fusion` if needed.
 ~~~~
 
 #### `data/styles.css`
@@ -18082,7 +18139,23 @@ if (document.readyState === 'loading') {
 
   @font-face {
     font-family: "Ark Pixel 12px Monospaced";
-    src: url("/resources/fonts/ark12.woff2?v=20260511-ark12-merged-trad1") format("woff2");
+    src: url("/resources/fonts/ark12_fallback.woff2?v=20260524-ark12-fusion-v2-fallback") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: block;
+  }
+
+  @font-face {
+    font-family: "Ark Pixel 12px Monospaced";
+    src: url("/resources/fonts/ark12.woff2?v=20260524-ark12-fusion-v2-base") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: block;
+  }
+
+  @font-face {
+    font-family: "Ark Pixel 12px Monospaced";
+    src: url("/resources/fonts/ark12_fallback.woff2?v=20260524-ark12-fusion-v2-alias") format("woff2");
     font-weight: 400;
     font-style: normal;
     font-display: block;
@@ -20727,7 +20800,7 @@ The WebUI text-scroll font preload loads both the base Ark12 family and the fusi
 - `#scroll-text` now uses only `"Ark Pixel 12px Monospaced"`; the same-family composite font handles both base Ark and patched glyphs.
 - `loadArkPixelFontTable()` parses JSON glyph tuples in the documented/original order: `[advance, width, height, xOffset, yOffset, dstY, rowsHex]`.
 - The text-scroll bitmap loader now explicitly validates required patched glyphs: `然 U+7136`, `燃 U+71C3`, `滚 U+6EDA`, `滾 U+6EFE`.
-- `run_rinachan_unifont.ps1` now regenerates `index.html.gz` and `styles.css.gz` after font preparation, so the ESP32 does not serve stale compressed WebUI assets during `-UploadFS`.
+- `run_rinachan_unifont.ps1` now regenerates temporary `index.html.gz`、`app.js.gz`、`styles.css.gz` 和 `resources/fonts/ark12.json.gz` for the LittleFS image, then removes those working-tree siblings after upload/build steps.
 
 ## 2026-05-24 Text Scroll FPS Card-Edge Alignment Fix
 
@@ -20739,7 +20812,7 @@ The WebUI text-scroll font preload loads both the base Ark12 family and the fusi
   - `#page-scroll .card.stack > .scroll-fps-control` stretches to `width:100%` and `justify-self:stretch`.
   - `#page-scroll .card.stack > .scroll-fps-control .slider-step-row` is a 3-column grid: `reset button | -5 | +5`.
   - `#page-scroll .card.stack > .scroll-fps-control .brightness-row` uses the same `range + number` grid pattern as the 6.1 brightness control.
-- `data/index.html.gz` and `data/styles.css.gz` must be regenerated whenever these files change.
+- Temporary gzip siblings for `data/index.html`、`data/app.js`、`data/styles.css` 和 `data/resources/fonts/ark12.json` must be regenerated for the LittleFS image whenever these source files change; they are not manually maintained.
 
 ## 2026-05-24 更新：6.4 帧率控件按 card 边缘对齐 v3
 
@@ -20748,7 +20821,7 @@ The WebUI text-scroll font preload loads both the base Ark12 family and the fusi
 - 强制 `scroll-control-card` 的直接子级、`.scroll-fps-control`、按钮行和滑条行全部 `width:100%`、`justify-self:stretch`。
 - `-5 / +5` 按钮使用固定列宽并贴齐 card 内容区右边缘，不再对齐内部 subdiv 的右边缘。
 - `scroll-speed-range` 与 `scroll-speed` 输入框共用同一条 card 宽度轨道，数字框右边缘与按钮右边缘一致。
-- 已同步更新 `data/index.html.gz` 和 `data/styles.css.gz`。
+- 已同步更新当时的临时 WebUI gzip siblings；当前实现由构建/上传脚本自动生成并清理 `index.html.gz`、`app.js.gz`、`styles.css.gz` 和 `resources/fonts/ark12.json.gz`。
 
 
 ## 2026-05-24 6.4 文字滚动控制拆分 card 修复
@@ -20757,14 +20830,14 @@ The WebUI text-scroll font preload loads both the base Ark12 family and the fusi
 - 目的：解决手机浏览器中 `.field.scroll-fps-control` 内部按钮、滑动条、数字输入框无法对齐到外层 div card 内容右边缘的问题。
 - 帧率区域不再依赖原 `.row` 或 `.scroll-control-card` 的宽度推导；`.scroll-fps-card` 直接建立单列全宽 grid，`.slider-step-row` 与 `.brightness-row` 均按 card 内容宽度 `100%` 对齐。
 - 保留 `scroll-speed-reset-default`、`scroll-speed-minus`、`scroll-speed-plus`、`scroll-speed-range`、`scroll-speed`、`scroll-speed-presets` 的原 ID，不影响现有 JavaScript 绑定逻辑。
-- 已同步更新 `data/index.html.gz` 与 `data/styles.css.gz`。
+- 已同步更新当时的临时 WebUI gzip siblings；当前实现由构建/上传脚本自动生成并清理 `index.html.gz`、`app.js.gz`、`styles.css.gz` 和 `resources/fonts/ark12.json.gz`。
 
 ## 2026-05-24 6.4 帧率 fps card 外框右边缘对齐最终修复
 
 - 将 6.4 文字滚动控制拆分后的 `scroll-fps-card` 作为帧率控件的独立 card。
 - 对齐目标明确为 `.card.stack.scroll-fps-card` 的 card 外框右边缘，而不是内部 `.button-row` 或 `.field.scroll-fps-control` 的收缩边缘。
 - `data/styles.css` 最终覆盖规则通过 `width: calc(100% + 30px)` 与左右 `margin: -15px` 抵消 card 默认 padding，使 `−5`、`+5` 和 `#scroll-speed` 数字输入框右边缘贴齐 card 右边框。
-- 同步更新 `data/styles.css.gz` 与 `data/index.html.gz`。
+- 同步更新当时的临时 WebUI gzip siblings；当前实现由构建/上传脚本自动生成并清理 `index.html.gz`、`app.js.gz`、`styles.css.gz` 和 `resources/fonts/ark12.json.gz`。
 - 删除滚动文字输入 textarea 上方重复的 `滚动文字输入` label，仅保留该独立 card 的标题。
 
 ## H4 标题统一修复
@@ -20772,4 +20845,4 @@ The WebUI text-scroll font preload loads both the base Ark12 family and the fusi
 - 所有 WebUI card/page 内的 `h4` 统一使用同一套 CSS 规则。
 - 统一规则位于 `data/styles.css` 末尾的“全局 h4 标题统一规则”。
 - 统一后的 `h4`：`margin: 0 0 2px`、`padding: 0`、`font-size: 16px`、`line-height: 1.2`、`font-weight: 700`、`display: flex`、`gap: 8px`、`color: var(--text)`。
-- `data/styles.css.gz` 已同步更新，避免 ESP32 继续发送旧压缩 CSS。
+- 当时同步了临时 gzip CSS；当前实现由构建/上传脚本自动生成并清理临时 gzip siblings，避免 ESP32 继续发送旧压缩资源。

@@ -1,48 +1,47 @@
 "use strict";
 
 /*
- * RinaChanBoard WebUI runtime.
+ * RinaChanBoard WebUI 运行时。
  *
- * This file is intentionally organized as one browser runtime because the ESP32
- * serves it as a static asset and the page does not use a bundler. The blocks
- * below are ordered by dependency:
+ * 这个文件刻意写成单一浏览器运行时：ESP32 把它当作静态资源直接提供，
+ * 页面不使用打包工具（bundler）。下面的代码块按依赖顺序排列：
  *
- * 1. WEBUI_CONFIG: all tunable constants that should be changed before touching
- *    runtime logic. Later constants are aliases of these values.
- * 2. EXPRESSION_PARTS and color presets: static data used by previews, saved
- *    faces, part composition, and firmware payload generation.
- * 3. Runtime aliases, matrix geometry, and global state: bridges static data
- *    into fast lookup tables and mutable UI/firmware state.
- * 4. Shared utilities, API clients, and queues: common plumbing used by every
- *    feature page before any page-specific controls are initialized.
- * 5. Feature modules: boot loader, navigation, matrix editing, color/brightness,
- *    saved faces, part composition, text scrolling, debug controls.
- * 6. bootstrapWebUi(): wires all previous blocks together, performs the first
- *    firmware sync, then reveals the UI.
+ * 1. WEBUI_CONFIG：所有可调常量。改动运行逻辑前应优先在这里修改，
+ *    后面的常量都是这些值的别名。
+ * 2. EXPRESSION_PARTS 和颜色预设：静态数据，供プレビュー、保存フェイス、
+ *    パーツ 组合以及固件载荷生成使用。
+ * 3. 运行时别名、マトリクス 几何与全局状态：把静态数据桥接成快速查找表
+ *    和可变的 UI／固件状态。
+ * 4. 共享工具、API 客户端和キュー：在任何页面专属控件初始化之前，
+ *    每个功能页面都会用到的通用底层逻辑。
+ * 5. 功能模块：ブートローダー、导航、マトリクス 编辑、颜色／亮度、
+ *    保存フェイス、パーツ 组合、文字スクロール、调试控件。
+ * 6. bootstrapWebUi()：把前面所有代码块接起来，执行首次固件同步，
+ *    然后揭示 UI。
  *
- * index.html owns markup and element ids, styles.css owns layout and visual
- * states, and this file owns behavior. If an id/class is referenced here, it is
- * expected to exist in index.html and be styled in styles.css.
+ * index.html 负责标记和元素 id，styles.css 负责布局和视觉状态，
+ * 本文件负责行为。这里引用到的 id／class 都应在 index.html 中存在，
+ * 并在 styles.css 中有对应样式。
  */
 const WEBUI_CONFIG = Object.freeze({
-  // Saved-face persistence. The UI loads this JSON from LittleFS, edits it in
-  // memory, and can write it back through the firmware API or local file tools.
+  // 保存フェイス 的持久化。UI 从 LittleFS 读取这个 JSON，在内存中编辑，
+  // 并可通过固件 API 或本地文件工具写回。
   faces: {
     resourcePath: "/resources/saved_faces.json",
     localFilename: "saved_faces.json",
     schemaFormat: "rina_faces_370_v2",
     startupFaceId: "face_07_triangle_eyes_frown",
   },
-  // Device connection defaults shown in debug/status UI and used when the page
-  // is opened directly instead of through the ESP32 captive portal.
+  // 设备连接默认值：显示在调试／状态 UI 中，并在页面被直接打开
+  // （而非通过 ESP32 的强制门户 captive portal）时使用。
   device: {
     apSsid: "RinaChanBoard-V2",
     apPassword: "rinachan",
     apDomain: "rina.io",
     defaultApIp: "192.168.1.14",
   },
-  // Navigation metadata. Each tuple maps a logical page id to the visible
-  // chapter number and label; initNav() turns this into top menu buttons.
+  // 导航元数据。每个元组把逻辑页面 id 映射到可见的章节号和标签；
+  // initNav() 会据此生成顶部菜单按钮。
   navigation: {
     pages: [
       ["basic", "6.1", "基础功能"],
@@ -52,8 +51,8 @@ const WEBUI_CONFIG = Object.freeze({
       ["debug", "6.5", "调试"],
     ],
   },
-  // LED hardware limits and preview sizing. Renderer, brightness controls, and
-  // power estimates all derive from this block.
+  // LED 硬件限制与プレビュー尺寸。渲染器、亮度控件和功耗估算
+  // 都从这个块派生。
   led: {
     defaultColor: "#f971d4",
     defaultBrightness: 50,
@@ -72,16 +71,16 @@ const WEBUI_CONFIG = Object.freeze({
       edgeGap: 12,
     },
   },
-  // Automatic face-rotation timing. UI presets and firmware command payloads
-  // both use these limits to keep browser and device behavior aligned.
+  // フェイス 自动轮播的时间参数。UI 预设和固件命令载荷都使用这些上下限，
+  // 让浏览器和设备的行为保持一致。
   autoInterval: {
     minMs: 500,
     maxMs: 10000,
     buttonStepMs: 500,
     presetsMs: [500, 1000, 2000, 3000, 5000, 7500, 10000],
   },
-  // HTTP endpoints and timeouts. API helpers below add the host/origin and
-  // translate failures into logs/status fields.
+  // HTTP 端点和超时时间。下面的 API 辅助函数会补上 host／origin，
+  // 并把失败转换成日志／状态字段。
   api: {
     getTimeoutMs: 2500,
     postTimeoutMs: 5000,
@@ -97,14 +96,14 @@ const WEBUI_CONFIG = Object.freeze({
       status: "/api/status",
     },
   },
-  // Shared responsive breakpoints. CSS owns the visual rules; JS uses these
-  // values only when script-side layout decisions are necessary.
+  // 共享的响应式断点。视觉规则由 CSS 负责；JS 只在需要脚本侧做布局判断时
+  // 才使用这些数值。
   layout: {
     oneColumnMaxPx: 980,
     threeColumnsMinPx: 1471,
   },
-  // Queue timing for firmware writes. These numbers protect the single-threaded
-  // ESP32 web server from rapid browser events such as dragging sliders.
+  // 固件写入キュー的时序。这些数值用来保护单线程的 ESP32 Web 服务器，
+  // 避免被拖动滑块等快速浏览器事件冲垮。
   firmwareQueues: {
     m370SendIntervalMs: 45,
     m370QueueMax: 3,
@@ -112,8 +111,8 @@ const WEBUI_CONFIG = Object.freeze({
     buttonCommandQueueMax: 4,
     scrollButtonStopFullSyncDelayMs: 140,
   },
-  // Text-scroll runtime limits. The preview, upload chunking, and firmware
-  // scroll playback all read from this block.
+  // 文字スクロール的运行时限制。プレビュー、上传分块和固件スクロール播放
+  // 都从这个块读取。
   scroll: {
     defaultFps: 10,
     fpsMin: 1,
@@ -123,8 +122,8 @@ const WEBUI_CONFIG = Object.freeze({
     uploadChunkFrames: 24,
     maxTextChars: 1000,
   },
-  // Browser and firmware bitmap font settings for page 6.4. The JSON table is
-  // loaded lazily because it is large; the CSS font face is declared in styles.css.
+  // 6.4 页面的浏览器与固件位图フォント设置。这个 JSON 表很大，所以延迟加载；
+  // CSS 的 font face 声明在 styles.css 中。
   textScroll: {
     fontModel: "ark_pixel_12px_fusion_bitmap_v2",
     fontResource: "/resources/fonts/ark12.json",
@@ -137,12 +136,12 @@ const WEBUI_CONFIG = Object.freeze({
     spaceColumns: 6,
     missingGlyphCodePoint: 0x25a1,
   },
-  // UI font family expected by the loader. The actual embedded data URI lives in
-  // styles.css and is waited on before the first-page reveal.
+  // 加载器期望使用的 UI フォント族。真正内嵌的 data URI 位于 styles.css，
+  // 并会在首屏揭示前被等待加载完成。
   fonts: {
     uiFamily: "GNU Unifont",
   },
-  // Interaction timing and keyboard routing used by shared controls.
+  // 共享控件使用的交互时序与键盘路由。
   interaction: {
     buttonPressDownMs: 90,
     buttonPressUpMs: 150,
@@ -159,8 +158,8 @@ const WEBUI_CONFIG = Object.freeze({
       " ",
     ],
   },
-  // Boot loader choreography. bootstrapWebUi() consumes these values to sync
-  // firmware state while the loading overlay is still visible.
+  // ブートローダー 的编排参数。bootstrapWebUi() 在加载遮罩仍可见时
+  // 用这些值来同步固件状态。
   boot: {
     loadingIconBefore: "./resources/loading/rina_icon1_default.png",
     loadingIconAfter: "./resources/loading/rina_icon2_hover.png",
@@ -180,8 +179,7 @@ const WEBUI_CONFIG = Object.freeze({
       "#page-basic .control-panel > .card.control-section",
     ],
   },
-  // Power panel refresh cadence. The poller uses this interval after the first
-  // status snapshot has been applied.
+  // 电源面板的刷新节奏。轮询器在应用首个状态快照之后，按这个间隔刷新。
   power: {
     statusRefreshMs: 900,
   },
