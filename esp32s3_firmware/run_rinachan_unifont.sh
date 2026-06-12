@@ -228,6 +228,7 @@ build_and_embed_unifont_webfont() {
         --embed-index "$STYLES_CSS" \
         --text-file "$INDEX_HTML" \
         --text-file "$STYLES_CSS" \
+        --text-file "$APP_JS" \
         --text-file "$DATA_DIR/resources/saved_faces.json" \
         --text-file "$DATA_DIR/resources/runtime_settings.json" \
         --text-file "$DATA_DIR/resources/battery_calib.json" \

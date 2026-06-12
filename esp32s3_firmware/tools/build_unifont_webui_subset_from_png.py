@@ -47,6 +47,7 @@ DEFAULT_INDEX = ROOT / "data/index.html"
 DEFAULT_TEXT_FILES = [
     ROOT / "data/index.html",
     ROOT / "data/styles.css",
+    ROOT / "data/app.js",
     ROOT / "data/resources/saved_faces.json",
     ROOT / "data/resources/runtime_settings.json",
     ROOT / "data/resources/battery_calib.json",
@@ -290,7 +291,7 @@ def make_embedded_unifont_face(font_path: Path) -> str:
 def embedded_unifont_bytes_from_html(html: str) -> bytes:
     match = UNIFONT_FACE_DATA_RE.search(html)
     if not match:
-        raise RuntimeError("Embedded GNU Unifont data URL was not found in index.html.")
+        raise RuntimeError("Embedded GNU Unifont data URL was not found in the target file.")
     return base64.b64decode(match.group(1))
 
 
@@ -303,7 +304,7 @@ def embed_font_in_index(index_path: Path, font_path: Path) -> None:
         updated, count = STYLE_OPEN_RE.subn(lambda m: m.group(1) + face + "\n  ", html, count=1)
     if count != 1:
         raise RuntimeError(
-            "Could not locate or insert the GNU Unifont @font-face block in index.html."
+            "Could not locate or insert the GNU Unifont @font-face block in the target file."
         )
 
     face_match = UNIFONT_FACE_BLOCK_RE.search(updated)
@@ -316,7 +317,8 @@ def embed_font_in_index(index_path: Path, font_path: Path) -> None:
     if embedded_unifont_bytes_from_html(updated) != font_path.read_bytes():
         raise RuntimeError("Embedded GNU Unifont bytes do not match the generated WOFF2 file.")
 
-    index_path.write_text(updated, encoding="utf-8", newline="\n")
+    with index_path.open("w", encoding="utf-8", newline="\n") as f:
+        f.write(updated)
     print(f"[unifont-build] embedded {font_path.name} into {index_path}")
 
 

@@ -9,9 +9,6 @@ static SemaphoreHandle_t sFrameMutex       = nullptr;
 static SemaphoreHandle_t sScrollMutex      = nullptr;
 static SemaphoreHandle_t sHardwareBusMutex = nullptr;
 
-// 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
-// 说明双核任务分工、FreeRTOS 同步或临界区约束。
-// 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
 static void lockDomain(SyncDomain domain) {
     switch (domain) {
         case SyncDomain::Frame:
@@ -26,8 +23,6 @@ static void lockDomain(SyncDomain domain) {
     }
 }
 
-// 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
-// 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
 static void unlockDomain(SyncDomain domain) {
     switch (domain) {
         case SyncDomain::Frame:
@@ -54,8 +49,6 @@ ScopedLock::~ScopedLock() {
 }
 
 bool initSyncPrimitives() {
-    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
-    // 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
     if (!sFrameMutex) sFrameMutex = xSemaphoreCreateMutex();
     if (!sScrollMutex) sScrollMutex = xSemaphoreCreateMutex();
     if (!sHardwareBusMutex) sHardwareBusMutex = xSemaphoreCreateMutex();
@@ -63,9 +56,6 @@ bool initSyncPrimitives() {
 }
 
 void lockFrame() {
-    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
-    // 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
-    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
     if (sFrameMutex) xSemaphoreTake(sFrameMutex, portMAX_DELAY);
 }
 
@@ -74,8 +64,6 @@ void unlockFrame() {
 }
 
 void lockScroll() {
-    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
-    // 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
     if (sScrollMutex) xSemaphoreTake(sScrollMutex, portMAX_DELAY);
 }
 
@@ -84,9 +72,6 @@ void unlockScroll() {
 }
 
 void lockHardwareBus() {
-    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
-    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
-    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
     if (sHardwareBusMutex) xSemaphoreTake(sHardwareBusMutex, portMAX_DELAY);
 }
 

@@ -7883,21 +7883,21 @@ function createFaceRow(f, i, total) {
   actions.appendChild(mkBtn("↑", "上移", "", () => moveFace(i, -1), i <= 0));
   actions.appendChild(mkBtn("↓", "下移", "", () => moveFace(i, 1), i >= total - 1));
   actions.appendChild(
-    mkBtn("✏️", "重命名", "", () => {
+    mkBtn("改", "重命名", "", () => {
       nameInput.focus();
       nameInput.select();
     }),
   );
   if (f.type !== "default") {
-    actions.appendChild(mkBtn("🗑️", "删除", "btn-delete", () => deleteFace(i)));
+    actions.appendChild(mkBtn("删", "删除", "btn-delete", () => deleteFace(i)));
   } else {
     // 中文块：执行对应逻辑 nd 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
-    const nd = mkBtn("🗑️", "默认表情不可删除", "btn-delete", () => {}, true);
+    const nd = mkBtn("删", "默认表情不可删除", "btn-delete", () => {}, true);
     nd.style.opacity = ".35";
     actions.appendChild(nd);
   }
   actions.appendChild(
-    mkBtn("💡", "上传到固件（应用表情）", "btn-apply", () =>
+    mkBtn("用", "上传到固件（应用表情）", "btn-apply", () =>
       applySavedFace(i, "face_library_list"),
     ),
   );
@@ -9121,6 +9121,9 @@ function resetBatteryVoltageRecord(kind) {
   const packet = sendAuxCommand(cmd, {}, `debug_reset_battery_${kind}`);
   packet.promise
     ?.then((data) => {
+      if (!data || data.ok === false) {
+        throw new Error(firmware.lastError || "battery reset command failed");
+      }
       const powerPayload = data?.power && typeof data.power === "object" ? data.power : null;
       if (powerPayload) applyPowerData(powerPayload);
       return refreshPowerStatusFromFirmware(`debug_reset_battery_${kind}_refresh`, true);

@@ -3,6 +3,7 @@
 #include "state.h"
 #include "sync.h"
 #include "storage.h"
+#include "utils.h"
 
 #include <algorithm>
 #include <ArduinoJson.h>
@@ -13,22 +14,9 @@
 // 本文件采样电池/充电电压并发布电源状态；注释保留必要 English identifier，便于和代码/API 对照。
 PowerStatus powerStatus;
 
-// 说明电源、电池、充电或 ADC 校准相关逻辑。
-// 说明电源、电池、充电或 ADC 校准相关逻辑。
-// 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-// 说明电源、电池、充电或 ADC 校准相关逻辑。
-// 说明电源、电池、充电或 ADC 校准相关逻辑。
-// 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-// 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
 constexpr float BATTERY_EMA_TAU_S = 20.0f;   // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
 constexpr float CHARGE_EMA_ALPHA  = 0.20f;
 
-/**
- * 读取 readTrimmedAdcMilliVolts 相关逻辑，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param pin 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static uint16_t readTrimmedAdcMilliVolts(uint8_t pin) {
     uint16_t samples[POWER_ADC_SAMPLES];
     for (uint8_t i = 0; i < POWER_ADC_SAMPLES; ++i) {
@@ -45,47 +33,22 @@ static uint16_t readTrimmedAdcMilliVolts(uint8_t pin) {
     return static_cast<uint16_t>(sum / (last - first));
 }
 
-/**
- * 围绕 sanitizedCalibMax 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param value 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static float sanitizedCalibMax(float value) {
     if (!isfinite(value)) return BATTERY_FULL_V;
     return max(value, BATTERY_FULL_V);
 }
 
-/**
- * 围绕 sanitizedCalibMin 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param value 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static float sanitizedCalibMin(float value) {
     if (!isfinite(value)) return BATTERY_EMPTY_V;
     return min(value, BATTERY_EMPTY_V);
 }
 
-/**
- * 围绕 jsonFloatOr 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param value 调用方传入或接收的参数，含义以函数签名为准。
- * @param fallback 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static float jsonFloatOr(JsonVariantConst value, float fallback) {
     if (value.isNull()) return fallback;
     const float parsed = value.as<float>();
     return isfinite(parsed) ? parsed : fallback;
 }
 
-/**
- * 确保 ensureBatteryCalibrationDefaults 相关逻辑，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param now 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void ensureBatteryCalibrationDefaults(uint32_t now) {
     powerStatus.batteryCalibMaxV = sanitizedCalibMax(powerStatus.batteryCalibMaxV);
     powerStatus.batteryCalibMinV = sanitizedCalibMin(powerStatus.batteryCalibMinV);
@@ -97,12 +60,6 @@ static void ensureBatteryCalibrationDefaults(uint32_t now) {
     if (powerStatus.lastCalibMinMs == 0) powerStatus.lastCalibMinMs = now;
 }
 
-/**
- * 围绕 markBatteryCalibrationDirty 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param now 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void markBatteryCalibrationDirty(uint32_t now) {
     if (!powerStatus.batteryCalibDirty) {
         powerStatus.batteryCalibDirtySinceMs = now;
@@ -110,19 +67,11 @@ static void markBatteryCalibrationDirty(uint32_t now) {
     powerStatus.batteryCalibDirty = true;
 }
 
-/**
- * 围绕 batteryPercentFromVoltage 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param vbat 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static uint8_t batteryPercentFromVoltage(float vbat) {
     if (!isfinite(vbat)) return 0;
     const uint8_t n = BATTERY_PERCENT_LUT_SIZE;
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
     if (vbat >= BATTERY_PERCENT_LUT[0].voltage)     return 100;
     if (vbat <= BATTERY_PERCENT_LUT[n - 1].voltage) return 0;
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
     for (uint8_t i = 0; i + 1 < n; ++i) {
         const float vHi = BATTERY_PERCENT_LUT[i    ].voltage;
         const float vLo = BATTERY_PERCENT_LUT[i + 1].voltage;
@@ -136,12 +85,6 @@ static uint8_t batteryPercentFromVoltage(float vbat) {
     return 0;
 }
 
-/**
- * 加载 loadBatteryCalibration 相关逻辑，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param now 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static bool loadBatteryCalibration(uint32_t now) {
     powerStatus.batteryCalibMaxV = BATTERY_FULL_V;
     powerStatus.batteryCalibMinV = BATTERY_EMPTY_V;
@@ -186,12 +129,6 @@ static bool loadBatteryCalibration(uint32_t now) {
     return true;
 }
 
-/**
- * 保存 saveBatteryCalibration 相关逻辑，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param now 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static bool saveBatteryCalibration(uint32_t now) {
     if (!runtimeFsMounted()) return false;
     bool resourcesOk = false;
@@ -226,49 +163,20 @@ static bool saveBatteryCalibration(uint32_t now) {
     return true;
 }
 
-/**
- * 更新 updateBatteryCalibration 相关逻辑，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param vbat 调用方传入或接收的参数，含义以函数签名为准。
- * @param freezeCalibration 调用方传入或接收的参数，含义以函数签名为准。
- * @param now 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void updateBatteryCalibration(float vbat, bool freezeCalibration, uint32_t now) {
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    //
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
-    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // Automatic running min/max calibration is intentionally disabled. Manual
+    // reset commands remain the only path that changes batteryCalibMinV/MaxV.
     ensureBatteryCalibrationDefaults(now);
     (void)vbat;
     (void)freezeCalibration;
 }
 
-/**
- * 轮询服务、保存 serviceBatteryCalibrationSave 相关逻辑，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param now 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void serviceBatteryCalibrationSave(uint32_t now) {
     if (!powerStatus.batteryCalibDirty) return;
-    if (now - powerStatus.batteryCalibDirtySinceMs < BATTERY_CALIB_SAVE_DELAY_MS) return;
+    if (!millisElapsed(now, powerStatus.batteryCalibDirtySinceMs, BATTERY_CALIB_SAVE_DELAY_MS)) return;
     saveBatteryCalibration(now);
 }
 
-/**
- * 围绕 batteryHasPoweredVoltage 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static bool batteryHasPoweredVoltage() {
     return powerStatus.batteryValid &&
            !powerStatus.batteryDisconnected &&
@@ -277,22 +185,10 @@ static bool batteryHasPoweredVoltage() {
            powerStatus.vbat >= BATTERY_UNPOWERED_LOW_V;
 }
 
-/**
- * 围绕 batteryCanRecordMinimumVoltage 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static bool batteryCanRecordMinimumVoltage() {
     return batteryHasPoweredVoltage() && !powerStatus.charging;
 }
 
-/**
- * 围绕 markPowerCalibrationChanged 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param now 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void markPowerCalibrationChanged(uint32_t now) {
     markBatteryCalibrationDirty(now);
     saveBatteryCalibration(now);
@@ -302,12 +198,6 @@ static void markPowerCalibrationChanged(uint32_t now) {
     touchRuntimeState();
 }
 
-/**
- * 重置 resetBatteryVoltageMaximum 相关逻辑，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 void resetBatteryVoltageMaximum() {
     const uint32_t now = millis();
     ensureBatteryCalibrationDefaults(now);
@@ -323,12 +213,6 @@ void resetBatteryVoltageMaximum() {
     markPowerCalibrationChanged(now);
 }
 
-/**
- * 重置 resetBatteryVoltageMinimum 相关逻辑，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 void resetBatteryVoltageMinimum() {
     const uint32_t now = millis();
     ensureBatteryCalibrationDefaults(now);
@@ -344,37 +228,17 @@ void resetBatteryVoltageMinimum() {
     markPowerCalibrationChanged(now);
 }
 
-/**
- * 围绕 finiteChanged 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param previous 调用方传入或接收的参数，含义以函数签名为准。
- * @param current 调用方传入或接收的参数，含义以函数签名为准。
- * @param epsilon 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static bool finiteChanged(float previous, float current, float epsilon) {
     if (!isfinite(previous) && !isfinite(current)) return false;
     if (!isfinite(previous) || !isfinite(current)) return true;
     return fabsf(previous - current) >= epsilon;
 }
 
-/**
- * 围绕 markPowerWebFastDirty 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void markPowerWebFastDirty() {
     powerStatus.webFastDirty = true;
     touchRuntimeState();
 }
 
-/**
- * 围绕 markPowerWebSlowDirty 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param now 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void markPowerWebSlowDirty(uint32_t now) {
     powerStatus.webSlowDirty = true;
     powerStatus.lastWebSlowPublishMs = now;
@@ -386,13 +250,6 @@ static void markPowerWebSlowDirty(uint32_t now) {
     touchRuntimeState();
 }
 
-/**
- * 轮询服务、发布 servicePowerWebPublish 相关逻辑，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param now 调用方传入或接收的参数，含义以函数签名为准。
- * @param force 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void servicePowerWebPublish(uint32_t now, bool force) {
     if (force || !powerStatus.webPublishedChargingKnown ||
         powerStatus.webPublishedChargeValid != powerStatus.chargeValid ||
@@ -404,7 +261,7 @@ static void servicePowerWebPublish(uint32_t now, bool force) {
         powerStatus.webSlowDirty = true;
     }
 
-    if (!force && now - powerStatus.lastWebSlowPublishMs < POWER_WEB_SLOW_PUBLISH_MS) return;
+    if (!force && !millisElapsed(now, powerStatus.lastWebSlowPublishMs, POWER_WEB_SLOW_PUBLISH_MS)) return;
 
     const bool slowChanged =
         force ||
@@ -421,12 +278,6 @@ static void servicePowerWebPublish(uint32_t now, bool force) {
     }
 }
 
-/**
- * 围绕 sampleBattery 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param now 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void sampleBattery(uint32_t now) {
     const uint16_t adcMv = readTrimmedAdcMilliVolts(BATTERY_ADC_PIN);
     const uint16_t prevAdcMv = powerStatus.batteryAdcMv;
@@ -445,9 +296,6 @@ static void sampleBattery(uint32_t now) {
     const float instantVbat = vadc * BATTERY_CAL_SCALE + BATTERY_CAL_OFFSET_V;
     powerStatus.batteryLastInstantVbat = instantVbat;
 
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
     const bool chargerPresent = powerStatus.chargeValid && powerStatus.charging;
     const bool rawDropUnpowered = (hugeRawDrop || stillDisconnected) && !chargerPresent;
     const bool lowVoltageUnpowered = !chargerPresent && instantVbat < BATTERY_UNPOWERED_LOW_V;
@@ -488,32 +336,14 @@ static void sampleBattery(uint32_t now) {
         return;
     }
 
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
     //
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
     if (wasLowVoltageUnpowered) powerStatus.vbat = NAN;
     powerStatus.batteryLowVoltageUnpowered = false;  // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
 
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
     //
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
     if (!powerStatus.batteryValid || !isfinite(powerStatus.vbat)) {
         powerStatus.vbat = instantVbat;
     } else {
-        // 说明电源、电池、充电或 ADC 校准相关逻辑。
-        // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
         const float dtS = constrain(
             static_cast<float>(now - powerStatus.lastBatteryMs) * 0.001f,
             0.001f, 10.0f);
@@ -528,13 +358,6 @@ static void sampleBattery(uint32_t now) {
         powerStatus.vbat < BATTERY_UNPOWERED_LOW_V;
     updateBatteryCalibration(powerStatus.vbat, freezeCalibration, now);
 
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
     {
         const uint8_t rawPct = batteryPercentFromVoltage(powerStatus.vbat);
         const int16_t delta  = static_cast<int16_t>(rawPct) -
@@ -548,12 +371,6 @@ static void sampleBattery(uint32_t now) {
     if (wasDisconnected || wasLowVoltageUnpowered) markPowerWebSlowDirty(now);
 }
 
-/**
- * 围绕 sampleCharge 处理本模块的核心流程，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param now 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void sampleCharge(uint32_t now) {
     const uint16_t adcMv = readTrimmedAdcMilliVolts(CHARGE_ADC_PIN);
     const float vadc = static_cast<float>(adcMv) / 1000.0f;
@@ -561,16 +378,7 @@ static void sampleCharge(uint32_t now) {
 
     const float instantVcharge = vadc * CHARGE_CAL_SCALE + CHARGE_CAL_OFFSET_V;
 
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
     //
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-    // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
-    // 说明电源、电池、充电或 ADC 校准相关逻辑。
     const bool instantCharging    = instantVcharge > CHARGE_PRESENT_V;
     const bool chargerStateChange = (powerStatus.charging != instantCharging);
 
@@ -586,12 +394,6 @@ static void sampleCharge(uint32_t now) {
     powerStatus.lastChargeMs = now;
 }
 
-/**
- * 初始化 initPowerMonitor 相关逻辑，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 void initPowerMonitor() {
     const uint32_t now = millis();
     loadBatteryCalibration(now);
@@ -602,18 +404,14 @@ void initPowerMonitor() {
     servicePowerMonitor(true);
 }
 
-/**
- * 轮询服务 servicePowerMonitor 相关逻辑，供 power_monitor 模块使用。
- * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
- * @param force 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 void servicePowerMonitor(bool force) {
     const uint32_t now = millis();
-    if (force || !powerStatus.chargeValid || now - powerStatus.lastChargeMs >= CHARGE_SAMPLE_MS) {
+    if (force || !powerStatus.chargeValid ||
+        millisElapsed(now, powerStatus.lastChargeMs, CHARGE_SAMPLE_MS)) {
         sampleCharge(now);
     }
-    if (force || !powerStatus.batteryValid || now - powerStatus.lastBatteryMs >= BATTERY_SAMPLE_MS) {
+    if (force || !powerStatus.batteryValid ||
+        millisElapsed(now, powerStatus.lastBatteryMs, BATTERY_SAMPLE_MS)) {
         sampleBattery(now);
     }
     servicePowerWebPublish(now, force);

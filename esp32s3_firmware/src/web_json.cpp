@@ -1,38 +1,9 @@
 #include "web_json.h"
 #include <ctype.h>
+#include <string.h>
 
 
 // 本文件把运行时状态序列化成 Web API JSON 响应；注释保留必要 English identifier，便于和代码/API 对照。
-/**
- * 围绕 jsonFieldValuePosition 处理本模块的核心流程，供 web_json 模块使用。
- * @brief 说明 Web API JSON 字段解析 中当前函数或声明的用途。
- * @param body 调用方传入或接收的参数，含义以函数签名为准。
- * @param key 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
-static int jsonFieldValuePosition(const String& body, const char* key) {
-    const String token = String("\"") + key + "\"";
-    const int keyPos = body.indexOf(token);
-    if (keyPos < 0) return -1;
-
-    const int colon = body.indexOf(':', keyPos);
-    if (colon < 0) return -1;
-
-    int p = colon + 1;
-    while (p >= 0 && static_cast<size_t>(p) < body.length() &&
-           isspace(static_cast<unsigned char>(body.charAt(p)))) {
-        ++p;
-    }
-    return p;
-}
-
-/**
- * 查找 findJsonStringEnd 相关逻辑，供 web_json 模块使用。
- * @brief 说明 Web API JSON 字段解析 中当前函数或声明的用途。
- * @param body 调用方传入或接收的参数，含义以函数签名为准。
- * @param quotePos 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 int findJsonStringEnd(const String& body, size_t quotePos) {
     if (quotePos >= body.length() || body.charAt(quotePos) != '"') return -1;
 
@@ -52,15 +23,59 @@ int findJsonStringEnd(const String& body, size_t quotePos) {
     return -1;
 }
 
-/**
- * 围绕 extractJsonStringAt 处理本模块的核心流程，供 web_json 模块使用。
- * @brief 说明 Web API JSON 字段解析 中当前函数或声明的用途。
- * @param body 调用方传入或接收的参数，含义以函数签名为准。
- * @param quotePos 调用方传入或接收的参数，含义以函数签名为准。
- * @param value 调用方传入或接收的参数，含义以函数签名为准。
- * @param endQuote 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
+static size_t skipJsonWhitespace(const String& body, size_t pos) {
+    while (pos < body.length() &&
+           isspace(static_cast<unsigned char>(body.charAt(pos)))) {
+        ++pos;
+    }
+    return pos;
+}
+
+static bool rawJsonKeyEquals(const String& body, size_t start, size_t end, const char* key) {
+    if (!key) return false;
+    const size_t keyLen = strlen(key);
+    if (end < start || end - start != keyLen) return false;
+    for (size_t i = 0; i < keyLen; ++i) {
+        if (body.charAt(start + i) != key[i]) return false;
+    }
+    return true;
+}
+
+static bool jsonStartsWithAt(const String& body, size_t pos, const char* token) {
+    if (!token) return false;
+    const size_t tokenLen = strlen(token);
+    if (pos > body.length() || body.length() - pos < tokenLen) return false;
+    for (size_t i = 0; i < tokenLen; ++i) {
+        if (body.charAt(pos + i) != token[i]) return false;
+    }
+    return true;
+}
+
+static int jsonFieldValuePosition(const String& body, const char* key) {
+    if (!key || key[0] == '\0') return -1;
+
+    size_t pos = 0;
+    while (pos < body.length()) {
+        if (body.charAt(pos) != '"') {
+            ++pos;
+            continue;
+        }
+
+        const int endQuote = findJsonStringEnd(body, pos);
+        if (endQuote < 0) return -1;
+
+        const size_t afterKey = skipJsonWhitespace(body, static_cast<size_t>(endQuote) + 1U);
+        if (afterKey < body.length() && body.charAt(afterKey) == ':' &&
+            rawJsonKeyEquals(body, pos + 1U, static_cast<size_t>(endQuote), key)) {
+            return static_cast<int>(skipJsonWhitespace(body, afterKey + 1U));
+        }
+
+        pos = static_cast<size_t>(endQuote) + 1U;
+    }
+
+    return -1;
+}
+
 bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int& endQuote) {
     endQuote = findJsonStringEnd(body, quotePos);
     if (endQuote < 0) return false;
@@ -85,9 +100,6 @@ bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int
             continue;
         }
 
-        // 处理 M370 帧、队列、校验或状态同步。
-        // 说明字体、字形、Unicode 范围或 Web font 资源处理。
-        // 说明 Web API JSON 字段解析 中当前代码块的职责和维护约束。
         switch (c) {
             case '"': value += '"'; break;
             case '\\': value += '\\'; break;
@@ -106,30 +118,25 @@ bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int
     return !escaped;
 }
 
-/**
- * 围绕 jsonBoolField 处理本模块的核心流程，供 web_json 模块使用。
- * @brief 说明 Web API JSON 字段解析 中当前函数或声明的用途。
- * @param body 调用方传入或接收的参数，含义以函数签名为准。
- * @param key 调用方传入或接收的参数，含义以函数签名为准。
- * @param defaultValue 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
+bool jsonFieldValueOffset(const String& body, const char* key, size_t& offset) {
+    const int position = jsonFieldValuePosition(body, key);
+    if (position < 0) return false;
+    offset = static_cast<size_t>(position);
+    return true;
+}
+
+bool jsonHasField(const String& body, const char* key) {
+    return jsonFieldValuePosition(body, key) >= 0;
+}
+
 bool jsonBoolField(const String& body, const char* key, bool defaultValue) {
     const int p = jsonFieldValuePosition(body, key);
     if (p < 0) return defaultValue;
-    if (body.substring(p, p + 4) == "true") return true;
-    if (body.substring(p, p + 5) == "false") return false;
+    if (jsonStartsWithAt(body, static_cast<size_t>(p), "true")) return true;
+    if (jsonStartsWithAt(body, static_cast<size_t>(p), "false")) return false;
     return defaultValue;
 }
 
-/**
- * 围绕 jsonUintField 处理本模块的核心流程，供 web_json 模块使用。
- * @brief 说明 Web API JSON 字段解析 中当前函数或声明的用途。
- * @param body 调用方传入或接收的参数，含义以函数签名为准。
- * @param key 调用方传入或接收的参数，含义以函数签名为准。
- * @param value 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool jsonUintField(const String& body, const char* key, uint32_t& value) {
     int p = jsonFieldValuePosition(body, key);
     if (p < 0) return false;
@@ -146,14 +153,6 @@ bool jsonUintField(const String& body, const char* key, uint32_t& value) {
     return true;
 }
 
-/**
- * 围绕 jsonFloatField 处理本模块的核心流程，供 web_json 模块使用。
- * @brief 说明 Web API JSON 字段解析 中当前函数或声明的用途。
- * @param body 调用方传入或接收的参数，含义以函数签名为准。
- * @param key 调用方传入或接收的参数，含义以函数签名为准。
- * @param value 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool jsonFloatField(const String& body, const char* key, float& value) {
     int p = jsonFieldValuePosition(body, key);
     if (p < 0) return false;
@@ -172,14 +171,6 @@ bool jsonFloatField(const String& body, const char* key, float& value) {
     return true;
 }
 
-/**
- * 围绕 jsonStringField 处理本模块的核心流程，供 web_json 模块使用。
- * @brief 说明 Web API JSON 字段解析 中当前函数或声明的用途。
- * @param body 调用方传入或接收的参数，含义以函数签名为准。
- * @param key 调用方传入或接收的参数，含义以函数签名为准。
- * @param value 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool jsonStringField(const String& body, const char* key, String& value) {
     const int p = jsonFieldValuePosition(body, key);
     if (p < 0 || static_cast<size_t>(p) >= body.length() || body.charAt(p) != '"') return false;

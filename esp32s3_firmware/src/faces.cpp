@@ -4,6 +4,7 @@
 #include "config.h"
 #include "led_renderer.h"
 #include "storage.h"   // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
+#include "utils.h"
 
 
 // 本文件管理保存表情、手动/自动模式和默认表情恢复；注释保留必要 English identifier，便于和代码/API 对照。
@@ -12,26 +13,13 @@ static constexpr uint8_t DEFERRED_RESTORE_STARTUP_DEFAULT = 1;
 static constexpr uint8_t DEFERRED_RESTORE_CURRENT_FACE    = 2;
 
 // ---------------------------------------------------------------------------
-// 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
 // 模式辅助函数（Mode helpers） 相关代码，维护 管理保存表情、手动/自动模式和默认表情恢复。
 // ---------------------------------------------------------------------------
 
-/**
- * 围绕 isAutoMode 处理本模块的核心流程，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool isAutoMode() {
     return runtimeState().mode == "auto";
 }
 
-/**
- * 规范化 normalizedMode 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param input 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 String normalizedMode(const char* input) {
     String mode = input ? String(input) : String();
     mode.trim();
@@ -43,21 +31,12 @@ String normalizedMode(const char* input) {
     return mode;
 }
 
-/**
- * 设置 setMode 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param input 调用方传入或接收的参数，含义以函数签名为准。
- * @param persistSettings 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool setMode(const char* input, bool persistSettings) {
     const String mode = normalizedMode(input);
     const bool settingsChanged = runtimeState().mode != mode;
     bool changed = false;
 
     if (mode == "auto") {
-        // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
-        // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
         if (runtimeState().mode != "auto") {
             runtimeState().mode = "auto";
             changed = true;
@@ -76,8 +55,6 @@ bool setMode(const char* input, bool persistSettings) {
             changed = true;
         }
     } else if (mode == "manual") {
-        // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
-        // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
         if (runtimeState().mode != "manual") {
             runtimeState().mode = "manual";
             changed = true;
@@ -98,13 +75,6 @@ bool setMode(const char* input, bool persistSettings) {
     return true;
 }
 
-/**
- * 设置 setAutoInterval 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param ms 调用方传入或接收的参数，含义以函数签名为准。
- * @param persistSettings 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 void setAutoInterval(uint32_t ms, bool persistSettings) {
     const uint32_t nextInterval = constrain(ms, MIN_AUTO_INTERVAL_MS, MAX_AUTO_INTERVAL_MS);
     if (runtimeState().autoIntervalMs == nextInterval) return;
@@ -114,28 +84,15 @@ void setAutoInterval(uint32_t ms, bool persistSettings) {
 }
 
 // ---------------------------------------------------------------------------
-// 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
 // 播放状态查询（Playback state query） 相关代码，维护 管理保存表情、手动/自动模式和默认表情恢复。
 // ---------------------------------------------------------------------------
 
-/**
- * 围绕 isScrollPlayback 处理本模块的核心流程，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param playback 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool isScrollPlayback(const String& playback) {
     return playback == "scroll" ||
            playback == "scroll_paused" ||
            playback == "scroll_step";
 }
 
-/**
- * 围绕 playbackIsNonFaceActivity 处理本模块的核心流程，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool playbackIsNonFaceActivity() {
     if (runtimeState().firmwareScrollActive || runtimeState().firmwareScrollPaused) return true;
     if (isScrollPlayback(runtimeState().playback)) return true;
@@ -147,19 +104,36 @@ bool playbackIsNonFaceActivity() {
     return true;
 }
 
+static bool firmwareScrollHasRuntimeStateLocked() {
+    return runtimeState().firmwareScrollActive ||
+           runtimeState().firmwareScrollPaused ||
+           runtimeState().restoreAutoAfterScroll ||
+           runtimeState().lastScrollFrameMs != 0 ||
+           runtimeState().scrollFrameCount != 0 ||
+           runtimeState().scrollFrameIndex != 0 ||
+           runtimeState().paused ||
+           isScrollPlayback(runtimeState().playback);
+}
+
+static void resetFirmwareScrollStateLocked() {
+    runtimeState().firmwareScrollActive       = false;
+    runtimeState().firmwareScrollPaused       = false;
+    runtimeState().firmwareScrollUserPaused   = false;
+    runtimeState().firmwareScrollSystemPaused = false;
+    runtimeState().restoreAutoAfterScroll     = false;
+    runtimeState().lastScrollFrameMs          = 0;
+    runtimeState().scrollFrameCount           = 0;
+    runtimeState().scrollFrameIndex           = 0;
+    runtimeState().paused                     = false;
+    if (isScrollPlayback(runtimeState().playback)) {
+        runtimeState().playback = DEFAULT_PLAYBACK;
+    }
+}
+
 // ---------------------------------------------------------------------------
-// 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
 // 表情应用辅助函数（Face apply helpers） 相关代码，维护 管理保存表情、手动/自动模式和默认表情恢复。
 // ---------------------------------------------------------------------------
 
-/**
- * 应用、保存 applySavedFaceIndex 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param index 调用方传入或接收的参数，含义以函数签名为准。
- * @param reason 调用方传入或接收的参数，含义以函数签名为准。
- * @param playback 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playback) {
     if (!ensureSavedFacesLoaded()) {
         Serial.println("No saved faces available for button action");
@@ -180,13 +154,6 @@ bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playb
     return true;
 }
 
-/**
- * 应用、保存 applyRelativeSavedFace 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param delta 调用方传入或接收的参数，含义以函数签名为准。
- * @param reason 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool applyRelativeSavedFace(int8_t delta, const String& reason) {
     if (!ensureSavedFacesLoaded()) return false;
     int32_t next = static_cast<int32_t>(runtimeState().autoFaceIndex) + delta;
@@ -195,13 +162,6 @@ bool applyRelativeSavedFace(int8_t delta, const String& reason) {
     return applySavedFaceIndex(static_cast<uint16_t>(next), reason, DEFAULT_PLAYBACK);
 }
 
-/**
- * 应用、保存 applyCurrentSavedFaceForMode 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param reason 调用方传入或接收的参数，含义以函数签名为准。
- * @param autoMode 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode) {
     if (!ensureSavedFacesLoaded()) return false;
     const char*    playback = autoMode ? "auto_saved_face" : DEFAULT_PLAYBACK;
@@ -211,19 +171,10 @@ bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode) {
     return applied;
 }
 
-/**
- * 切换 toggleModeFromButtonAction 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param source 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool toggleModeFromButtonAction(const String& source) {
     const bool targetAuto       = !isAutoMode();
     const bool hadOtherPlayback = playbackIsNonFaceActivity();
 
-    // 说明 GPIO 按钮、组合键或本地 overlay 反馈。
-    // 说明文字滚动、帧缓存或播放状态处理。
-    // 说明文字滚动、帧缓存或播放状态处理。
     stopFirmwareScroll(false, false);
     runtimeState().restoreAutoAfterScroll = false;
 
@@ -233,8 +184,6 @@ bool toggleModeFromButtonAction(const String& source) {
         (targetAuto ? "_B3_auto_current_saved_face" : "_B3_manual_current_saved_face");
 
     if (hadOtherPlayback) {
-        // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
-        // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
         applyBlankFrame(source + "_B3_clear_before_saved_face");
         scheduleCurrentSavedFaceRestoreAfterBlank(targetAuto, restoreReason);
         return true;
@@ -248,16 +197,9 @@ bool toggleModeFromButtonAction(const String& source) {
 }
 
 // ---------------------------------------------------------------------------
-// 说明文字滚动、帧缓存或播放状态处理。
 // 滚动停止 / 启动表情恢复（Scroll stop / startup face restore） 相关代码，维护 管理保存表情、手动/自动模式和默认表情恢复。
 // ---------------------------------------------------------------------------
 
-/**
- * 查找、启动 findStartupDefaultFaceIndex 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static int16_t findStartupDefaultFaceIndex() {
     if (!ensureSavedFacesLoaded()) return -1;
 
@@ -271,12 +213,6 @@ static int16_t findStartupDefaultFaceIndex() {
     return firstDefaultIndex >= 0 ? firstDefaultIndex : 0;
 }
 
-/**
- * 应用、启动、停止 applyStartupDefaultFaceAfterScrollStop 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param restoreAutoMode 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static bool applyStartupDefaultFaceAfterScrollStop(bool restoreAutoMode) {
     setMode(restoreAutoMode ? "auto" : "manual", false);
     runtimeState().paused = false;
@@ -298,12 +234,6 @@ static bool applyStartupDefaultFaceAfterScrollStop(bool restoreAutoMode) {
     return true;
 }
 
-/**
- * 围绕 cancelDeferredFaceRestore 处理本模块的核心流程，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 void cancelDeferredFaceRestore() {
     const bool changed = runtimeState().deferredFaceRestoreActive ||
                          runtimeState().deferredFaceRestoreKind != DEFERRED_RESTORE_NONE ||
@@ -316,14 +246,6 @@ void cancelDeferredFaceRestore() {
     if (changed) touchRuntimeState();
 }
 
-/**
- * 围绕 scheduleDeferredFaceRestore 处理本模块的核心流程，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param kind 调用方传入或接收的参数，含义以函数签名为准。
- * @param autoMode 调用方传入或接收的参数，含义以函数签名为准。
- * @param reason 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void scheduleDeferredFaceRestore(uint8_t kind, bool autoMode, const String& reason) {
     runtimeState().deferredFaceRestoreActive   = true;
     runtimeState().deferredFaceRestoreKind     = kind;
@@ -333,48 +255,26 @@ static void scheduleDeferredFaceRestore(uint8_t kind, bool autoMode, const Strin
     touchRuntimeState();
 }
 
-/**
- * 启动 scheduleStartupDefaultFaceRestoreAfterBlank 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param autoMode 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void scheduleStartupDefaultFaceRestoreAfterBlank(bool autoMode) {
     scheduleDeferredFaceRestore(DEFERRED_RESTORE_STARTUP_DEFAULT,
                                 autoMode,
                                 "firmware_text_scroll_stop_default_saved_face");
 }
 
-/**
- * 保存 scheduleCurrentSavedFaceRestoreAfterBlank 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param autoMode 调用方传入或接收的参数，含义以函数签名为准。
- * @param reason 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 void scheduleCurrentSavedFaceRestoreAfterBlank(bool autoMode, const String& reason) {
     scheduleDeferredFaceRestore(DEFERRED_RESTORE_CURRENT_FACE, autoMode, reason);
 }
 
-/**
- * 轮询服务 serviceDeferredFaceRestore 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 void serviceDeferredFaceRestore() {
     if (!runtimeState().deferredFaceRestoreActive) return;
 
     const uint32_t now = millis();
-    if (static_cast<int32_t>(now - runtimeState().deferredFaceRestoreDueMs) < 0) return;
+    if (!millisReached(now, runtimeState().deferredFaceRestoreDueMs)) return;
 
     const uint8_t kind     = runtimeState().deferredFaceRestoreKind;
     const bool    autoMode = runtimeState().deferredFaceRestoreAutoMode;
     const String  reason   = runtimeState().deferredFaceRestoreReason;
 
-    // 说明字体、字形、Unicode 范围或 Web font 资源处理。
-    // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
-    // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
     cancelDeferredFaceRestore();
 
     if (runtimeState().firmwareScrollActive || runtimeState().firmwareScrollPaused) {
@@ -391,12 +291,6 @@ void serviceDeferredFaceRestore() {
     }
 }
 
-/**
- * 应用 applyFirmwareScrollPauseIntentLocked 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static void applyFirmwareScrollPauseIntentLocked() {
     const bool effectivePaused =
         runtimeState().firmwareScrollUserPaused ||
@@ -421,13 +315,6 @@ static void applyFirmwareScrollPauseIntentLocked() {
     }
 }
 
-/**
- * 设置 setFirmwareScrollPauseFlag 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param userFlag 调用方传入或接收的参数，含义以函数签名为准。
- * @param paused 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 static bool setFirmwareScrollPauseFlag(bool userFlag, bool paused) {
     bool changed = false;
     withScrollLock([&]() {
@@ -452,84 +339,35 @@ static bool setFirmwareScrollPauseFlag(bool userFlag, bool paused) {
     return changed;
 }
 
-/**
- * 设置 setFirmwareScrollUserPaused 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param paused 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool setFirmwareScrollUserPaused(bool paused) {
     return setFirmwareScrollPauseFlag(true, paused);
 }
 
-/**
- * 设置 setFirmwareScrollSystemPaused 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param paused 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 bool setFirmwareScrollSystemPaused(bool paused) {
     return setFirmwareScrollPauseFlag(false, paused);
 }
 
-/**
- * 围绕 stopFirmwareScroll 处理停止、清理或恢复流程，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param restoreAuto 调用方传入或接收的参数，含义以函数签名为准。
- * @param clearDisplay 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
     cancelDeferredFaceRestore();
 
     bool shouldRestoreAuto = false;
     bool changed = false;
     withScrollLock([&]() {
-        changed = runtimeState().firmwareScrollActive ||
-                  runtimeState().firmwareScrollPaused ||
-                  runtimeState().restoreAutoAfterScroll ||
-                  runtimeState().lastScrollFrameMs != 0 ||
-                  runtimeState().scrollFrameCount != 0 ||
-                  runtimeState().scrollFrameIndex != 0 ||
-                  runtimeState().paused ||
-                  isScrollPlayback(runtimeState().playback);
+        changed = firmwareScrollHasRuntimeStateLocked();
         shouldRestoreAuto               = restoreAuto && runtimeState().restoreAutoAfterScroll;
-        runtimeState().firmwareScrollActive      = false;
-        runtimeState().firmwareScrollPaused      = false;
-        runtimeState().firmwareScrollUserPaused  = false;
-        runtimeState().firmwareScrollSystemPaused = false;
-        runtimeState().restoreAutoAfterScroll    = false;
-        runtimeState().lastScrollFrameMs         = 0;
-        runtimeState().scrollFrameCount          = 0;
-        runtimeState().scrollFrameIndex          = 0;
-        runtimeState().paused                    = false;
-        if (isScrollPlayback(runtimeState().playback)) {
-            runtimeState().playback = DEFAULT_PLAYBACK;
-        }
+        resetFirmwareScrollStateLocked();
     });
     if (changed) touchRuntimeState();
     if (changed || clearDisplay) clearQueuedM370Frames();
 
     if (clearDisplay) {
-        // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
-        // 说明文字滚动、帧缓存或播放状态处理。
-        // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
-        // 处理 LED 矩阵、灯带刷新或硬件时序约束。
         applyBlankFrame("firmware_text_scroll_stop_clear");
         scheduleStartupDefaultFaceRestoreAfterBlank(shouldRestoreAuto);
     } else if (shouldRestoreAuto) {
-        // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
-        // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
         setMode("auto", false);
     }
 }
 
-/**
- * 启动 startFirmwareScroll 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param intervalMs 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 void startFirmwareScroll(uint16_t intervalMs) {
     cancelDeferredFaceRestore();
     clearQueuedM370Frames();
@@ -539,9 +377,6 @@ void startFirmwareScroll(uint16_t intervalMs) {
 
     withScrollLock([&]() {
         if (runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady()) {
-            // 说明文字滚动、帧缓存或播放状态处理。
-            // 说明文字滚动、帧缓存或播放状态处理。
-            // 说明文字滚动、帧缓存或播放状态处理。
             runtimeState().restoreAutoAfterScroll = runtimeState().restoreAutoAfterScroll || isAutoMode();
             if (runtimeState().restoreAutoAfterScroll) runtimeState().mode = "manual";
             runtimeState().scrollIntervalMs   = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
@@ -562,16 +397,9 @@ void startFirmwareScroll(uint16_t intervalMs) {
 }
 
 // ---------------------------------------------------------------------------
-// 处理 LED 矩阵、灯带刷新或硬件时序约束。
 // 自动播放（Auto-playback，从 loop() 调用） 相关代码，维护 管理保存表情、手动/自动模式和默认表情恢复。
 // ---------------------------------------------------------------------------
 
-/**
- * 轮询服务 serviceAutoPlayback 相关逻辑，供 faces 模块使用。
- * @brief 说明 保存表情和播放模式 中当前函数或声明的用途。
- * @param None 调用方传入或接收的参数，含义以函数签名为准。
- * @return 返回操作结果、状态值、数据引用或空值。
- */
 void serviceAutoPlayback() {
     if (!isAutoMode() || runtimeState().paused || runtimeAutoFaceCount() == 0) return;
 

@@ -18,9 +18,10 @@ $ProjectDir = (Resolve-Path $PSScriptRoot).Path
 $PlatformioIni = Join-Path $ProjectDir "platformio.ini"
 $IndexHtml = Join-Path $ProjectDir "data\index.html"
 $StylesCss = Join-Path $ProjectDir "data\styles.css"
+$AppJs = Join-Path $ProjectDir "data\app.js"
 $MainCpp = Join-Path $ProjectDir "src\main.cpp"
 
-if (-not (Test-Path $PlatformioIni) -or -not (Test-Path $IndexHtml) -or -not (Test-Path $StylesCss) -or -not (Test-Path $MainCpp)) {
+if (-not (Test-Path $PlatformioIni) -or -not (Test-Path $IndexHtml) -or -not (Test-Path $StylesCss) -or -not (Test-Path $AppJs) -or -not (Test-Path $MainCpp)) {
     throw "This script must be run from inside the extracted esp32s3_firmware project folder."
 }
 
@@ -284,7 +285,7 @@ function Build-AndEmbedUnifontWebFont([string]$CacheDir) {
     Download-IfMissing -Url $UnifontPngUrl -Path $UnifontPng -Label "GNU Unifont $UnifontVersion BMP PNG sheet"
 
     Write-Host "[font] building and embedding WebUI GNU Unifont subset into styles.css..."
-    Invoke-PythonChecked $Python @($UnifontTool, "--png", $UnifontPng, "--out", $TempUnifontWebFont, "--version", $UnifontVersion, "--embed-index", $StylesCss, "--text-file", $IndexHtml, "--text-file", $StylesCss, "--text-file", (Join-Path $ProjectDir "data\resources\saved_faces.json"), "--text-file", (Join-Path $ProjectDir "data\resources\runtime_settings.json"), "--text-file", (Join-Path $ProjectDir "data\resources\battery_calib.json")) "GNU Unifont WebUI subset build/embed failed."
+    Invoke-PythonChecked $Python @($UnifontTool, "--png", $UnifontPng, "--out", $TempUnifontWebFont, "--version", $UnifontVersion, "--embed-index", $StylesCss, "--text-file", $IndexHtml, "--text-file", $StylesCss, "--text-file", $AppJs, "--text-file", (Join-Path $ProjectDir "data\resources\saved_faces.json"), "--text-file", (Join-Path $ProjectDir "data\resources\runtime_settings.json"), "--text-file", (Join-Path $ProjectDir "data\resources\battery_calib.json")) "GNU Unifont WebUI subset build/embed failed."
 
     if (-not (Test-Path $TempUnifontWebFont)) {
         throw "Temporary GNU Unifont WebUI subset was not generated: $TempUnifontWebFont"
