@@ -46,6 +46,11 @@ struct ScrollStateSnapshot {
     uint16_t scrollFrameCount           = 0;
     uint16_t scrollFrameIndex           = 0;
     uint16_t scrollIntervalMs           = DEFAULT_SCROLL_INTERVAL_MS;
+    // 中文块：源文本同步新增 3 个字段（timelineId / uploadComplete / hasSourceText），
+    // 在锁内用 memcpy 拷贝，锁外序列化。
+    char     scrollTimelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
+    bool     scrollUploadComplete       = false;
+    bool     scrollHasSourceText        = false;
 
     bool scrolling() const {
         return firmwareScrollActive || firmwareScrollPaused;
@@ -93,7 +98,8 @@ static void addCorsHeaders() {
 
 static void addStaticAssetHeaders(const String& path) {
     server.sendHeader("Access-Control-Allow-Origin", "*");
-    if (path.endsWith(".html") || path.endsWith(".htm")) {
+    if (path.endsWith(".html") || path.endsWith(".htm") ||
+        path.endsWith(".js") || path.endsWith(".css")) {
         server.sendHeader("Cache-Control", "no-cache");
     } else {
         server.sendHeader("Cache-Control", "public, max-age=31536000, immutable");
@@ -193,6 +199,10 @@ static ScrollStateSnapshot readScrollStateSnapshot() {
         snapshot.scrollFrameCount           = runtimeState().scrollFrameCount;
         snapshot.scrollFrameIndex           = runtimeState().scrollFrameIndex;
         snapshot.scrollIntervalMs           = runtimeState().scrollIntervalMs;
+        const ScrollTimelineMeta& meta = runtimeScrollMeta();
+        memcpy(snapshot.scrollTimelineId, meta.timelineId, sizeof(snapshot.scrollTimelineId));
+        snapshot.scrollUploadComplete       = meta.uploadComplete;
+        snapshot.scrollHasSourceText        = meta.hasSourceText;
     });
     return snapshot;
 }
@@ -206,6 +216,9 @@ static void addScrollStateFields(JsonObject target, const ScrollStateSnapshot& s
     target["scrollFrameCount"]           = snapshot.scrollFrameCount;
     target["scrollFrameIndex"]           = snapshot.scrollFrameIndex;
     target["scrollIntervalMs"]           = snapshot.scrollIntervalMs;
+    target["scrollTimelineId"]           = String(snapshot.scrollTimelineId);
+    target["scrollUploadComplete"]       = snapshot.scrollUploadComplete;
+    target["scrollHasSourceText"]        = snapshot.scrollHasSourceText;
 }
 
 static void addScrollStopEvent(JsonObject target) {
@@ -464,7 +477,8 @@ static void handleApiStatus() {
         }
     }
 
-    PsramJsonDocument doc((runtimeOnly || scrolling || summaryOnly) ? 4096 : 6144);
+    // 中文块：容量含源文本同步新增的 3 个 renderer 字段（timelineId 等）。
+    PsramJsonDocument doc((runtimeOnly || scrolling || summaryOnly) ? 4608 : 6656);
     doc["ok"]     = true;
     doc["v"]      = version;
     doc["version"] = version;
@@ -665,7 +679,7 @@ static void handleApiScroll() {
     const bool saveToFlash = jsonBoolField(body, "saveToFlash", false);
     uint32_t chunkIndex = 0;
     uint32_t totalFrames = 0;
-    jsonUintField(body, "chunkIndex", chunkIndex);
+    const bool hasChunkIndex = jsonUintField(body, "chunkIndex", chunkIndex);
     jsonUintField(body, "totalFrames", totalFrames);
     String source;
     String storageTarget;
@@ -677,6 +691,27 @@ static void handleApiScroll() {
         return;
     }
 
+    // 中文块：读取源文本同步元数据；字段存在但不是合法 JSON 字符串 -> 400。
+    String timelineId, sourceText, fontId, generatorVersion;
+    const bool timelineIdPresent = jsonHasField(body, "timelineId");
+    const bool sourceTextPresent = jsonHasField(body, "sourceText");
+    const bool fontIdPresent     = jsonHasField(body, "fontId");
+    const bool generatorPresent  = jsonHasField(body, "generatorVersion");
+    if (timelineIdPresent && !jsonStringField(body, "timelineId", timelineId)) {
+        sendError(400, "invalid timelineId"); return;
+    }
+    if (sourceTextPresent && !jsonStringField(body, "sourceText", sourceText)) {
+        sendError(400, "invalid sourceText"); return;
+    }
+    if (fontIdPresent && !jsonStringField(body, "fontId", fontId)) {
+        sendError(400, "invalid fontId"); return;
+    }
+    if (generatorPresent && !jsonStringField(body, "generatorVersion", generatorVersion)) {
+        sendError(400, "invalid generatorVersion"); return;
+    }
+    float uiFpsRaw = 0.0f;
+    jsonFloatField(body, "fps", uiFpsRaw);
+
     size_t framesValueOffset = 0;
     if (!jsonFieldValueOffset(body, "frames", framesValueOffset) ||
         framesValueOffset >= body.length() ||
@@ -687,16 +722,110 @@ static void handleApiScroll() {
     size_t pos = framesValueOffset + 1U;
 
     uint16_t baseIndex = 0;
+    uint16_t framesReceivedBase = 0;
+    uint16_t totalFramesExpectedForChunk = 0;
+    uint16_t metaNextChunkIndex = 0;
+    bool timelineBacked = false;
+
     if (!appendFrames) {
+        // 首块（append:false）：严格按 v6 1.5 顺序，先校验再触碰任何状态。
+        if (totalFrames > MAX_SCROLL_FRAMES) {                                  // 步骤 2a
+            sendError(413, String("totalFrames exceeds firmware cache max ") + MAX_SCROLL_FRAMES);
+            return;
+        }
+        // E3：timelineId / fontId / generatorVersion 只要出现就校验（与 sourceText 无关）。
+        if (timelineIdPresent && !validateMetaIdString(timelineId.c_str(), MAX_SCROLL_TIMELINE_ID_CHARS)) {
+            sendError(400, "invalid timelineId"); return;
+        }
+        if (fontIdPresent && !validateMetaIdString(fontId.c_str(), MAX_SCROLL_FONT_ID_CHARS)) {
+            sendError(400, "invalid fontId"); return;
+        }
+        if (generatorPresent && !validateMetaIdString(generatorVersion.c_str(), MAX_SCROLL_GENERATOR_CHARS)) {
+            sendError(400, "invalid generatorVersion"); return;
+        }
+        // D1：sourceText 是 all-or-nothing，必须同时带 timelineId + fontId + generatorVersion。
+        if (sourceTextPresent) {
+            if (!timelineIdPresent || !fontIdPresent || !generatorPresent) {
+                sendError(400, "sourceText requires timelineId, fontId and generatorVersion"); return;
+            }
+            if (!runtimeScrollSourceTextReady()) {
+                sendError(507, "scroll source-text buffer unavailable"); return;
+            }
+            if (sourceText.length() > MAX_SCROLL_TEXT_BYTES) {
+                sendError(413, String("sourceText exceeds ") + MAX_SCROLL_TEXT_BYTES + " bytes"); return;
+            }
+            if (!validateScrollSourceText(sourceText.c_str(), sourceText.length())) {
+                sendError(400, "sourceText contains invalid UTF-8 or control characters"); return;
+            }
+        }
+        // E2：timeline-backed 上传必须带 totalFrames > 0，否则 uploadComplete 永远
+        // 无法为 true，D2 会永久阻塞播放。
+        if (timelineIdPresent && totalFrames == 0) {
+            sendError(400, "timeline-backed upload requires totalFrames > 0"); return;
+        }
+
         stopFirmwareScroll(false);
-        withScrollLock([]() {
+        withScrollLock([&]() {
             runtimeState().scrollFrameCount = 0;
             runtimeState().scrollFrameIndex = 0;
+            clearScrollTimelineMetaLocked();   // 每个 append:false 上传都完整清空
+            ScrollTimelineMeta& meta = runtimeScrollMeta();
+            if (timelineIdPresent) {
+                strncpy(meta.timelineId, timelineId.c_str(), MAX_SCROLL_TIMELINE_ID_CHARS);
+                meta.timelineId[MAX_SCROLL_TIMELINE_ID_CHARS] = '\0';
+            }
+            if (fontIdPresent) {
+                strncpy(meta.fontId, fontId.c_str(), MAX_SCROLL_FONT_ID_CHARS);
+                meta.fontId[MAX_SCROLL_FONT_ID_CHARS] = '\0';
+            }
+            if (generatorPresent) {
+                strncpy(meta.generatorVersion, generatorVersion.c_str(), MAX_SCROLL_GENERATOR_CHARS);
+                meta.generatorVersion[MAX_SCROLL_GENERATOR_CHARS] = '\0';
+            }
+            if (sourceTextPresent && runtimeScrollSourceTextReady()) {
+                memcpy(runtimeScrollSourceText(), sourceText.c_str(), sourceText.length() + 1U);
+                meta.sourceTextByteLength = static_cast<uint16_t>(sourceText.length());
+                meta.hasSourceText        = true;
+            }
+            if (uiFpsRaw > 0.0f) {
+                const float rounded = roundf(uiFpsRaw);
+                meta.uiFps = static_cast<uint8_t>(rounded < 1.0f ? 1.0f : (rounded > 255.0f ? 255.0f : rounded));
+            }
+            meta.totalFramesExpected = static_cast<uint16_t>(totalFrames);
+            meta.nextChunkIndex      = 1;
+            timelineBacked              = meta.timelineId[0] != '\0';
+            totalFramesExpectedForChunk = meta.totalFramesExpected;
         });
+        baseIndex = 0;
+        framesReceivedBase = 0;
     } else {
+        // 追加块（append:true）：先快照元数据，再按 v6 1.5 校验。
+        bool metaUploadComplete = false;
+        char metaTimelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
         withScrollLock([&]() {
+            const ScrollTimelineMeta& meta = runtimeScrollMeta();
+            timelineBacked      = meta.timelineId[0] != '\0';
+            metaUploadComplete  = meta.uploadComplete;
+            memcpy(metaTimelineId, meta.timelineId, sizeof(metaTimelineId));
+            metaNextChunkIndex          = meta.nextChunkIndex;
+            framesReceivedBase          = meta.framesReceived;
+            totalFramesExpectedForChunk = meta.totalFramesExpected;
             baseIndex = runtimeState().scrollFrameCount;
         });
+        if (timelineBacked) {
+            if (metaUploadComplete) { sendError(409, "upload already complete"); return; }      // D3
+            if (!timelineIdPresent) { sendError(409, "timeline required"); return; }
+            if (strcmp(timelineId.c_str(), metaTimelineId) != 0) {
+                sendError(409, "timeline mismatch"); return;
+            }
+            if (!hasChunkIndex) { sendError(409, "chunk index required"); return; }
+            if (chunkIndex != metaNextChunkIndex) { sendError(409, "chunk out of order"); return; }
+        } else {
+            // EH-B：legacy 纯帧上传；timelineId/chunkIndex 可选，chunkIndex 出现时必须按序。
+            if (hasChunkIndex && chunkIndex != metaNextChunkIndex) {
+                sendError(409, "chunk out of order"); return;
+            }
+        }
     }
 
     uint16_t count = 0;
@@ -719,14 +848,30 @@ static void handleApiScroll() {
             sendError(400, String("unterminated M370 string at frame ") + count); return;
         }
 
+        // E1：帧数超限检查也适用于首块（timeline/totalFrames 背书的上传）。
+        if (totalFramesExpectedForChunk > 0 &&
+            static_cast<uint32_t>(framesReceivedBase) + count + 1U > totalFramesExpectedForChunk) {
+            withScrollLock([]() {
+                runtimeState().scrollFrameCount = 0;
+                invalidateScrollUploadLocked();   // EH-A：保留 sourceText
+            });
+            sendError(409, "too many frames");
+            return;
+        }
+
         const uint32_t targetIndex = static_cast<uint32_t>(baseIndex) + count;
         if (targetIndex >= MAX_SCROLL_FRAMES) {
             sendError(413, String("too many scroll frames; firmware cache max is ") + MAX_SCROLL_FRAMES);
             return;
         }
         if (!m370ToPackedBits(m370, runtimeScrollFrameBits(targetIndex), error)) {
+            // EH-A：坏帧数据使播放缓存失效（帧计数归零 + uploadComplete=false），
+            // 但有意保留 sourceText，恢复仍可从文本重建预览。
+            withScrollLock([]() {
+                runtimeState().scrollFrameCount = 0;
+                invalidateScrollUploadLocked();
+            });
             sendError(400, String("invalid scroll frame ") + targetIndex + ": " + error);
-            withScrollLock([]() { runtimeState().scrollFrameCount = 0; });
             return;
         }
         ++count;
@@ -737,11 +882,8 @@ static void handleApiScroll() {
         sendError(400, "frames must include at least one valid M370 frame"); return;
     }
 
-    if (!explicitStart) {
-        const uint32_t cachedFrames = static_cast<uint32_t>(baseIndex) + count;
-        shouldStart = totalFrames > 0 ? (cachedFrames >= totalFrames) : !appendFrames;
-    }
-
+    bool uploadCompleteNow = false;
+    char replyTimelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
     withScrollLock([&]() {
         runtimeState().scrollFrameCount = baseIndex + count;
         if (!appendFrames ||
@@ -751,12 +893,27 @@ static void handleApiScroll() {
         if (hasExplicitTiming) {
             runtimeState().scrollIntervalMs = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
         }
+        ScrollTimelineMeta& meta = runtimeScrollMeta();
+        meta.framesReceived = static_cast<uint16_t>(framesReceivedBase + count);
+        if (appendFrames) meta.nextChunkIndex = static_cast<uint16_t>(metaNextChunkIndex + 1U);
+        if (meta.totalFramesExpected > 0 && meta.framesReceived >= meta.totalFramesExpected) {
+            meta.uploadComplete = true;
+        }
+        uploadCompleteNow = meta.uploadComplete;
+        memcpy(replyTimelineId, meta.timelineId, sizeof(replyTimelineId));
     });
+
+    if (!explicitStart) {
+        const uint32_t cachedFrames = static_cast<uint32_t>(baseIndex) + count;
+        shouldStart = totalFrames > 0 ? (cachedFrames >= totalFrames) : !appendFrames;
+    }
+    // D2：不完整的 timeline-backed 缓存永远不可播放（含显式 start:true）。
+    if (timelineBacked && !uploadCompleteNow) shouldStart = false;
 
     if (shouldStart) startFirmwareScroll(intervalMs);
     const ScrollStateSnapshot scrollState = readScrollStateSnapshot();
 
-    DynamicJsonDocument reply(768);
+    DynamicJsonDocument reply(1024);
     reply["ok"]                   = true;
     reply["frames"]               = scrollState.scrollFrameCount;
     reply["chunkFrames"]          = count;
@@ -764,6 +921,8 @@ static void handleApiScroll() {
     reply["totalFrames"]          = totalFrames;
     reply["append"]               = appendFrames;
     reply["started"]              = scrollState.firmwareScrollActive;
+    reply["timelineId"]           = String(replyTimelineId);
+    reply["uploadComplete"]       = uploadCompleteNow;
     reply["source"]               = source;
     reply["storage"]              = "ram";
     reply["persist"]              = false;
@@ -777,8 +936,88 @@ static void handleApiScroll() {
     sendJsonDocument(200, reply);
 }
 
+// 中文块：GET /api/scroll/meta —— 返回滚动源文本元数据供 WebUI 恢复。
+// 锁内拷贝（meta 结构 + 文本 memcpy），锁外序列化；容量/溢出 -> 507（H-C）。
+static void handleApiScrollMeta() {
+    if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
+    if (server.method() != HTTP_GET)     { sendError(405, "method not allowed"); return; }
+
+    ScrollTimelineMeta metaCopy;
+    uint16_t frameCount = 0;
+    uint16_t frameIndex = 0;
+    uint16_t scrollIntervalMs = DEFAULT_SCROLL_INTERVAL_MS;
+    bool active = false;
+    bool paused = false;
+
+    char* textCopy = nullptr;
+    const size_t textCapacity = static_cast<size_t>(MAX_SCROLL_TEXT_BYTES) + 1U;
+    if (runtimeScrollSourceTextReady()) {
+        textCopy = static_cast<char*>(heap_caps_malloc(textCapacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (textCopy == nullptr) {
+            textCopy = static_cast<char*>(heap_caps_malloc(textCapacity, MALLOC_CAP_8BIT));
+        }
+        if (textCopy != nullptr) textCopy[0] = '\0';
+    }
+
+    bool textCopyFailed = false;
+    withScrollLock([&]() {
+        metaCopy         = runtimeScrollMeta();
+        frameCount       = runtimeState().scrollFrameCount;
+        frameIndex       = runtimeState().scrollFrameIndex;
+        scrollIntervalMs = runtimeState().scrollIntervalMs;
+        active           = runtimeState().firmwareScrollActive;
+        paused           = runtimeState().firmwareScrollPaused;
+        if (metaCopy.hasSourceText && runtimeScrollSourceTextReady()) {
+            if (textCopy != nullptr) {
+                memcpy(textCopy, runtimeScrollSourceText(),
+                       static_cast<size_t>(metaCopy.sourceTextByteLength) + 1U);
+            } else {
+                textCopyFailed = true;
+            }
+        }
+    });
+    if (textCopyFailed) {
+        if (textCopy != nullptr) heap_caps_free(textCopy);
+        sendError(507, "metadata text alloc failed");
+        return;
+    }
+
+    PsramJsonDocument doc(16384);
+    if (doc.capacity() == 0) {
+        if (textCopy != nullptr) heap_caps_free(textCopy);
+        sendError(507, "metadata json alloc failed");
+        return;
+    }
+    doc["ok"]                   = true;
+    doc["scrollTimelineId"]     = String(metaCopy.timelineId);
+    doc["hasSourceText"]        = metaCopy.hasSourceText;
+    doc["sourceText"]           = (metaCopy.hasSourceText && textCopy != nullptr)
+                                      ? static_cast<const char*>(textCopy) : "";
+    doc["sourceTextBytes"]      = metaCopy.sourceTextByteLength;
+    doc["fontId"]               = String(metaCopy.fontId);
+    doc["generatorVersion"]     = String(metaCopy.generatorVersion);
+    doc["uiFps"]                = metaCopy.uiFps;
+    doc["scrollIntervalMs"]     = scrollIntervalMs;
+    doc["frameCount"]           = frameCount;
+    doc["frameIndex"]           = frameIndex;
+    doc["uploadComplete"]       = metaCopy.uploadComplete;
+    doc["firmwareScrollActive"] = active;
+    doc["firmwareScrollPaused"] = paused;
+    if (doc.overflowed()) {
+        if (textCopy != nullptr) heap_caps_free(textCopy);
+        sendError(507, "metadata json overflow");
+        return;
+    }
+    sendJsonDocument(200, doc);
+    if (textCopy != nullptr) heap_caps_free(textCopy);
+}
+
 
 using ApiCommandHandler = bool (*)(JsonDocument& doc, JsonVariant payload, String& error);
+
+// 中文块：命令处理失败时使用的 HTTP 状态码；commandStartScroll 的 timeline
+// 冲突需要 409，其余保持 400。每次分发前重置。
+static int sCommandErrorStatus = 400;
 
 static bool commandSetColor(JsonDocument& doc, JsonVariant payload, String& error) {
     const char* hex = payload["hex"] | "";
@@ -842,11 +1081,61 @@ static bool commandSetScrollInterval(JsonDocument& doc, JsonVariant payload, Str
 static bool commandStartScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     uint16_t iMs = runtimeState().scrollIntervalMs;
     scrollIntervalFromCommand(doc, payload, iMs);
-    bool hasCachedFrames = false;
+
+    // E6：进锁前把 payload timelineId 抽到栈缓冲并校验长度/字符集；
+    // 永远不要用截断后的 ID 做比较。
+    char payloadTimelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
+    const char* raw = payload["timelineId"] | "";
+    if (raw[0] == '\0') raw = doc["timelineId"] | "";
+    const size_t rawLen = strlen(raw);
+    if (rawLen > MAX_SCROLL_TIMELINE_ID_CHARS) {
+        error = "timeline id too long";
+        return false;  // 400
+    }
+    if (rawLen > 0 && !validateMetaIdString(raw, MAX_SCROLL_TIMELINE_ID_CHARS)) {
+        error = "invalid timeline id";
+        return false;  // 400
+    }
+    memcpy(payloadTimelineId, raw, rawLen);
+
+    // D2/D8/H-D：一次 scrollMutex 快照内完成所有判定，错误用枚举带出，
+    // 锁内不做任何 heap String 写入。
+    enum class StartScrollError : uint8_t {
+        None, TimelineMismatch, UploadIncomplete, NoCachedFrames
+    };
+    StartScrollError serr = StartScrollError::None;
     withScrollLock([&]() {
-        hasCachedFrames = runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady();
+        const ScrollTimelineMeta& meta = runtimeScrollMeta();
+        const bool timelineBacked = meta.timelineId[0] != '\0';
+        const bool hasFrames = runtimeState().scrollFrameCount > 0 &&
+                               runtimeScrollFrameBufferReady();
+        if (timelineBacked) {
+            if (rawLen > 0 && strcmp(payloadTimelineId, meta.timelineId) != 0) {
+                serr = StartScrollError::TimelineMismatch;
+                return;
+            }
+            if (!meta.uploadComplete) {   // D2：payload 不带 timelineId 也要拦
+                serr = StartScrollError::UploadIncomplete;
+                return;
+            }
+        }
+        if (!hasFrames) {
+            serr = StartScrollError::NoCachedFrames;
+            return;
+        }
     });
-    if (!hasCachedFrames) {
+    // 锁外映射：TimelineMismatch / UploadIncomplete -> 409，NoCachedFrames -> 400。
+    if (serr == StartScrollError::TimelineMismatch) {
+        sCommandErrorStatus = 409;
+        error = "timeline mismatch";
+        return false;
+    }
+    if (serr == StartScrollError::UploadIncomplete) {
+        sCommandErrorStatus = 409;
+        error = "upload incomplete";
+        return false;
+    }
+    if (serr == StartScrollError::NoCachedFrames) {
         error = "no cached scroll frames";
         return false;
     }
@@ -903,7 +1192,7 @@ static bool commandResumeScroll(JsonDocument& doc, JsonVariant payload, String& 
 static bool commandStopScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
     bool clearDisplay = true;
-    bool restoreAuto  = true;
+    bool restoreAuto  = runtimeState().restoreAutoAfterScroll;
     commandBoolField(doc, payload, "clear", clearDisplay);
     commandBoolField(doc, payload, "restoreAuto", restoreAuto);
     stopFirmwareScroll(restoreAuto, clearDisplay);
@@ -1034,16 +1323,17 @@ static void handleApiCommand() {
         return;
     }
 
+    sCommandErrorStatus = 400;
     if (!route->handler(doc, payload, error)) {
         ++runtimeState().commandsRejected;
-        sendError(400, error);
+        sendError(sCommandErrorStatus, error);
         return;
     }
 
     ++runtimeState().commandsAccepted;
 
     const ScrollStateSnapshot scrollState = readScrollStateSnapshot();
-    PsramJsonDocument reply(3072);
+    PsramJsonDocument reply(3584);
     reply["ok"]                   = true;
     reply["v"]                    = runtimeStateVersion();
     reply["version"]              = runtimeStateVersion();
@@ -1181,6 +1471,7 @@ void startWebServer() {
     server.on("/api/power",   HTTP_OPTIONS, handleOptions);
     server.on("/api/frame",   HTTP_POST,    handleApiFrame);
     server.on("/api/frame",   HTTP_OPTIONS, handleOptions);
+    server.on("/api/scroll/meta",          handleApiScrollMeta);
     server.on("/api/scroll",               handleApiScroll);
     server.on("/api/command", HTTP_POST,    handleApiCommand);
     server.on("/api/command", HTTP_OPTIONS, handleOptions);

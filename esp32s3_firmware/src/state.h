@@ -84,6 +84,36 @@ struct RuntimeState {
 };
 
 // ---------------------------------------------------------------------------
+// Scroll timeline metadata (text-backed scroll uploads)
+// ---------------------------------------------------------------------------
+// 中文块：ScrollTimelineMeta 保存 6.4 文字滚动上传时附带的源文本元数据，
+// 让 WebUI 刷新/二台设备可以从固件恢复文字并本地重建预览帧。
+//
+// Invariant (EH-C):
+// meta.timelineId[0] != '\0' means this is a timeline-backed cache:
+//   - totalFramesExpected must be > 0 (enforced at upload),
+//   - uploadComplete is authoritative,
+//   - start_scroll must reject while uploadComplete == false.
+// framesTimelineId on the WebUI side mirrors EXACT local preview identity only,
+// never an approximate match.
+//
+// Lock contract: meta and the source-text buffer are guarded by scrollMutex
+// (sync.h withScrollLock). Copy under lock, serialize outside; no heap String
+// writes inside the lock.
+struct ScrollTimelineMeta {
+    char     timelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1]     = {0};
+    char     fontId[MAX_SCROLL_FONT_ID_CHARS + 1]             = {0};
+    char     generatorVersion[MAX_SCROLL_GENERATOR_CHARS + 1] = {0};
+    uint16_t sourceTextByteLength = 0;
+    uint16_t totalFramesExpected  = 0;
+    uint16_t framesReceived       = 0;
+    uint16_t nextChunkIndex       = 0;
+    uint8_t  uiFps                = 0;
+    bool     uploadComplete       = false;
+    bool     hasSourceText        = false;
+};
+
+// ---------------------------------------------------------------------------
 // Saved face metadata
 // ---------------------------------------------------------------------------
 // 中文块：RuntimeFace 是 saved_faces.json 中单个表情的运行时副本，保留排序、
@@ -133,6 +163,16 @@ public:
 
     const uint8_t* scrollFrameBits(uint16_t index) const;
 
+    ScrollTimelineMeta& scrollMeta() { return scrollMeta_; }
+
+    const ScrollTimelineMeta& scrollMeta() const { return scrollMeta_; }
+
+    char* scrollSourceText() { return scrollSourceText_; }
+
+    const char* scrollSourceText() const { return scrollSourceText_; }
+
+    bool scrollSourceTextReady() const { return scrollSourceText_ != nullptr; }
+
     bool& fsMounted() { return fsMounted_; }
 
     const bool& fsMounted() const { return fsMounted_; }
@@ -150,6 +190,10 @@ private:
     // 内部 SRAM 的这块大内存。
     uint8_t*     scrollFrameBits_ = nullptr;
     bool         scrollFrameBitsInPsram_ = false;
+    // 中文块：滚动源文本缓冲（MAX_SCROLL_TEXT_BYTES + 1，PSRAM 优先）；
+    // 分配失败时文字附带上传返回 507，纯帧上传不受影响。
+    ScrollTimelineMeta scrollMeta_;
+    char*        scrollSourceText_ = nullptr;
     bool         fsMounted_ = false;
 };
 
@@ -170,6 +214,22 @@ bool runtimeScrollFrameBufferInPsram();
 size_t runtimeScrollFrameBufferBytes();
 
 uint8_t* runtimeScrollFrameBits(uint16_t index);
+
+ScrollTimelineMeta& runtimeScrollMeta();
+
+char* runtimeScrollSourceText();
+
+bool runtimeScrollSourceTextReady();
+
+// 必须在 withScrollLock 内调用。EH-A：坏帧数据使播放缓存失效，
+// 但有意保留 sourceText（恢复仍可从文本重建预览）。
+// 调用点：append:false 重置、m370ToPackedBits 失败路径、E1 帧数超限拒绝、
+// 任何未来的缓冲清空。
+void invalidateScrollUploadLocked();
+
+// 必须在 withScrollLock 内调用。完整清空（含源文本）；
+// 每个 append:false 上传开始时执行。
+void clearScrollTimelineMetaLocked();
 
 bool& runtimeFsMounted();
 

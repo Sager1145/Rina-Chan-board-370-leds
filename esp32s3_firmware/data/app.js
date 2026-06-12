@@ -92,6 +92,7 @@ const WEBUI_CONFIG = Object.freeze({
       frame: "/api/frame",
       command: "/api/command",
       scroll: "/api/scroll",
+      scrollMeta: "/api/scroll/meta",
       savedFaces: "/api/saved_faces",
       power: "/api/power",
       status: "/api/status",
@@ -3245,6 +3246,14 @@ const SCROLL_FPS_PRESETS = WEBUI_CONFIG.scroll.fpsPresets;
 const FIRMWARE_SCROLL_MAX_FRAMES_DEFAULT = WEBUI_CONFIG.scroll.firmwareMaxFramesDefault;
 let firmwareScrollMaxFrames = FIRMWARE_SCROLL_MAX_FRAMES_DEFAULT;
 const SCROLL_UPLOAD_CHUNK_FRAMES = WEBUI_CONFIG.scroll.uploadChunkFrames;
+// 文字滚动源文本同步：生成器身份与首块字节预算。
+// fontId = TEXT_SCROLL_FONT_MODEL。两个 ID 常量都必须通过固件的
+// [A-Za-z0-9._:-] 规则（D9，测试强制）。
+// 任何对 TEXT_SCROLL_CHAR_SPACING、空白边距、textScrollVerticalOffset() 或
+// extractFrameFromTextImage 的修改都要 bump SCROLL_GENERATOR_VERSION；
+// ark12.json 变化时 bump fontModel。
+const SCROLL_GENERATOR_VERSION = "webui-scrollgen-6.4.2";
+const SCROLL_FIRST_CHUNK_BODY_LIMIT_BYTES = 12 * 1024;
 const RUNTIME_STATUS_QUERY = WEBUI_CONFIG.api.runtimeStatusQuery;
 const SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS =
   WEBUI_CONFIG.firmwareQueues.scrollButtonStopFullSyncDelayMs;
@@ -3569,18 +3578,49 @@ let scroll = {
   pauseToggleLocked: false,
   firmwareBacked: false,
   uploading: false,
+  commandBusy: false,
+  restoring: false,
+  stepBusy: false,
   uploadProgress: 0,
   uploadLabel: "",
+  uploadProgressToken: 0,
   offset: 0,
   frameIndex: 0,
   frames: [],
   signature: "",
-  dirty: true,
+  dirty: false,
   dirtyNoticeLogged: false,
   frameCounter: 0,
   fpsStarted: performance.now(),
   measuredFps: 0,
+  // 源文本同步（plan v6）：
+  // timelineId       = 当前固件/上传时间线身份
+  // framesTimelineId = scroll.frames 精确对应的时间线（仅在生成器身份 +
+  //                    帧数完全一致且文本未被截断时绑定，C2/D5/E4）
+  timelineId: "",
+  framesTimelineId: "",
+  uploadGeneration: 0,
+  returnMode: "manual",
+  restoredSourceText: "",
+  restoredFromFirmwareMeta: false,
+  restoreWarning: "",
+  restoredTextTruncated: false, // E4
+  textEdited: false, // 用户是否编辑过输入框（未发送的本地修改保护，C5）
 };
+
+// 源文本恢复的模块级状态（plan v6 2.2/2.6）。
+let pendingScrollMeta = null;
+let scrollMetaFetchInFlight = false;
+let lastScrollMetaFetchAt = 0;
+// 启动关键读取完成前不触发 /api/scroll/meta 拉取，避免挤占单线程 ESP 服务器。
+let scrollMetaRestoreEnabled = false;
+let lastFwScrollTimelineId = "";
+let lastFwScrollHasSourceText = false;
+let lastFwScrollFrameCount = 0;
+let lastScrollRestoreStatusDebugKey = "";
+let postBootScrollMetaRestoreStarted = false;
+// index.html 中输入框的出厂默认文本；视为"非用户未发送内容"，允许被恢复覆盖。
+let scrollDefaultText = "";
 
 // -----------------------------------------------------------------------------
 // 共享辅助函数和 DOM 绑定
@@ -4720,6 +4760,9 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
   }
 
   const scrollFrameCountValue = Number(renderer.scrollFrameCount ?? data.scrollFrameCount);
+  if (Number.isFinite(scrollFrameCountValue)) {
+    lastFwScrollFrameCount = Math.max(0, Math.floor(scrollFrameCountValue));
+  }
   if (
     Number.isFinite(scrollFrameCountValue) &&
     scrollFrameCountValue === 0 &&
@@ -4820,6 +4863,52 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
       scheduleFirmwareScrollStopFullSync("firmware_poll_scroll_stop_full_status", delay);
     }
   }
+
+  // 中文块：源文本时间线不一致时重拉 /api/scroll/meta（plan v6 2.6）。
+  // C9 让本地停止后安全：scroll.timelineId 被保留，不会误触发并回填旧文字。
+  const fwScrollTimelineId = String(renderer.scrollTimelineId ?? data.scrollTimelineId ?? "");
+  const fwScrollHasSourceText = Boolean(renderer.scrollHasSourceText ?? data.scrollHasSourceText);
+  const fwScrollUploadComplete = Boolean(
+    renderer.scrollUploadComplete ?? data.scrollUploadComplete,
+  );
+  if (renderer.scrollTimelineId !== undefined || data.scrollTimelineId !== undefined) {
+    lastFwScrollTimelineId = fwScrollTimelineId;
+    lastFwScrollHasSourceText = fwScrollHasSourceText;
+    const debugKey = `${fwScrollTimelineId}|${fwScrollHasSourceText}|${fwScrollUploadComplete}`;
+    if (debugKey !== lastScrollRestoreStatusDebugKey) {
+      lastScrollRestoreStatusDebugKey = debugKey;
+      logScrollRestoreDebug("status fields", {
+        source,
+        scrollTimelineId: fwScrollTimelineId,
+        scrollUploadComplete: fwScrollUploadComplete,
+        scrollHasSourceText: fwScrollHasSourceText,
+      });
+    }
+  }
+  if (
+    scrollMetaRestoreEnabled &&
+    fwScrollTimelineId &&
+    fwScrollHasSourceText &&
+    fwScrollTimelineId !== scroll.timelineId &&
+    !scrollMetaFetchInFlight &&
+    performance.now() - lastScrollMetaFetchAt > 5000
+  ) {
+    restoreScrollTextFromFirmware("timeline_mismatch")
+      .then((ok) => {
+        if (ok && isScrollPageActive()) {
+          restoreScrollPreviewIfNeeded("timeline_mismatch").catch((err) => {
+            warnScrollRestoreDebug("preview restore timeline-mismatch failed", {
+              error: err?.message || String(err),
+            });
+          });
+        }
+      })
+      .catch((err) => {
+        warnScrollRestoreDebug("timeline_mismatch failed", {
+          error: err?.message || String(err),
+        });
+      });
+  }
   if (stateChanged) renderState();
 }
 
@@ -4917,7 +5006,7 @@ function pumpButtonCommandQueue() {
 
 // 中文块：发送 sendButtonCommand 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function sendButtonCommand(button, source = "webui_button", fallback = null) {
-  if (isScrollPageActive() && ["B1", "B2", "B3"].includes(String(button).toUpperCase())) {
+  if (["B1", "B2", "B3"].includes(String(button).toUpperCase())) {
     resetScrollControlsAfterButton(source);
   }
   if (isOfflineHtmlMode()) {
@@ -5150,6 +5239,9 @@ function terminateOtherActivities(targetMode = "static", reason = "mode_change")
     scroll.systemPaused = false;
     scroll.firmwareBacked = false;
     scroll.uploading = false;
+    scroll.commandBusy = false;
+    scroll.restoring = false;
+    scroll.stepBusy = false;
     state.textScrollActive = false;
     if (isScrollPlaybackValue(state.playback)) state.playback = "idle";
     ended.push("text_scroll");
@@ -5996,7 +6088,7 @@ function setupDebugMasonryLayout(force = false) {
 
 // 中文块：执行对应逻辑 switchPage 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function switchPage(id) {
-  terminateOtherActivities(modeForPage(id), `switch_page_${id}`);
+  // 页面切换只是 WebUI 导航；真正改 LED 输出的按钮/帧写入会各自中断滚动。
   document.body.dataset.page = id;
   for (const [pid] of PAGES) {
     $("page-" + pid).classList.toggle("active", pid === id);
@@ -6008,6 +6100,12 @@ function switchPage(id) {
   scheduleMatrixFitRender(2);
   if (id === "scroll") {
     ensureScrollFontsLoaded();
+    // 进入 6.4 时按需从恢复的源文本重建预览帧（plan v6 2.5）。
+    restoreScrollPreviewIfNeeded("page_entry").catch((err) => {
+      warnScrollRestoreDebug("preview restore page-entry failed", {
+        error: err?.message || String(err),
+      });
+    });
     requestAnimationFrame(() => {
       autoResizeScrollTextInput();
       updateScrollUi();
@@ -7926,21 +8024,21 @@ function createFaceRow(f, i, total) {
   actions.appendChild(mkBtn("↑", "上移", "", () => moveFace(i, -1), i <= 0));
   actions.appendChild(mkBtn("↓", "下移", "", () => moveFace(i, 1), i >= total - 1));
   actions.appendChild(
-    mkBtn("改", "重命名", "", () => {
+    mkBtn("✏️", "重命名", "", () => {
       nameInput.focus();
       nameInput.select();
     }),
   );
   if (f.type !== "default") {
-    actions.appendChild(mkBtn("删", "删除", "btn-delete", () => deleteFace(i)));
+    actions.appendChild(mkBtn("🗑️", "删除", "btn-delete", () => deleteFace(i)));
   } else {
     // 中文块：执行对应逻辑 nd 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
-    const nd = mkBtn("删", "默认表情不可删除", "btn-delete", () => {}, true);
+    const nd = mkBtn("🗑️", "默认表情不可删除", "btn-delete", () => {}, true);
     nd.style.opacity = ".35";
     actions.appendChild(nd);
   }
   actions.appendChild(
-    mkBtn("用", "上传到固件（应用表情）", "btn-apply", () =>
+    mkBtn("💡", "上传到固件（应用表情）", "btn-apply", () =>
       applySavedFace(i, "face_library_list"),
     ),
   );
@@ -8325,6 +8423,8 @@ function initScroll() {
   );
   const textEl = $("scroll-text");
   if (textEl) {
+    // 记录出厂默认文本：恢复路径把它视为可覆盖的非用户内容。
+    scrollDefaultText = String(textEl.value ?? "");
     textEl.maxLength = MAX_SCROLL_TEXT_CHARS;
     textEl.addEventListener("input", () => {
       sanitizeScrollTextInput(true);
@@ -8444,10 +8544,11 @@ function restartScrollPreviewTimer() {
 
 // 中文块：设置 setScrollFps 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setScrollFps(fps, source = "text_scroll_fps_change") {
+  if (isScrollCommandBusy()) return;
   const clean = syncScrollFpsUi(fps);
   state.refreshPolicy = `text_scroll_${clean}fps_interval_${getScrollFrameIntervalMs()}ms`;
   restartScrollPreviewTimer();
-  if (scroll.active || scroll.firmwareBacked || scroll.paused) {
+  if (!scroll.textEdited && (scroll.active || scroll.firmwareBacked || scroll.paused)) {
     sendAuxCommand(
       "set_scroll_interval",
       {
@@ -8465,6 +8566,13 @@ function setScrollFps(fps, source = "text_scroll_fps_change") {
 function markScrollTextDirty() {
   scroll.dirty = true;
   scroll.signature = "";
+  scroll.framesTimelineId = ""; // C2：本地帧不再代表任何已上传时间线
+  scroll.restoredTextTruncated = false; // E4
+  scroll.textEdited = true;
+  pendingScrollMeta = null;
+  scroll.restoredSourceText = "";
+  scroll.restoredFromFirmwareMeta = false;
+  scroll.restoreWarning = "";
   if (
     (scroll.active || scroll.firmwareBacked || state.textScrollActive) &&
     !scroll.dirtyNoticeLogged
@@ -8477,6 +8585,7 @@ function markScrollTextDirty() {
 
 // 中文块：设置、上传 setScrollUploadProgress 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setScrollUploadProgress(progress, label) {
+  if (clamp(progress, 0, 1) < 1) scroll.uploadProgressToken++;
   scroll.uploadProgress = clamp(progress, 0, 1);
   scroll.uploadLabel = label || "";
   updateScrollUi();
@@ -8484,11 +8593,14 @@ function setScrollUploadProgress(progress, label) {
 
 // 中文块：上传 completeScrollUploadProgress 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function completeScrollUploadProgress(label = "发送完成，滚动帧仅在固件 RAM 中运行") {
+  const token = ++scroll.uploadProgressToken;
+  scroll.uploading = true;
   scroll.uploadProgress = 1;
   scroll.uploadLabel = label;
   updateScrollUi();
   setTimeout(() => {
-    if (!scroll.uploading && scroll.uploadProgress >= 1) {
+    if (token === scroll.uploadProgressToken && scroll.uploadProgress >= 1) {
+      scroll.uploading = false;
       scroll.uploadProgress = 0;
       scroll.uploadLabel = "";
       updateScrollUi();
@@ -8498,9 +8610,45 @@ function completeScrollUploadProgress(label = "发送完成，滚动帧仅在固
 
 // 中文块：重置、上传 resetScrollUploadProgress 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function resetScrollUploadProgress() {
+  scroll.uploadProgressToken++;
+  scroll.uploading = false;
   scroll.uploadProgress = 0;
   scroll.uploadLabel = "";
   updateScrollUi();
+}
+
+function hasScrollInputContent() {
+  return !!String($("scroll-text")?.value ?? "").trim();
+}
+
+function hasScrollFrameCache() {
+  return scroll.frames.length > 0 || lastFwScrollFrameCount > 0;
+}
+
+function hasRestorableFirmwareScrollSource() {
+  return !!(lastFwScrollTimelineId && lastFwScrollHasSourceText);
+}
+
+function hasUsableOrRestorableScrollFrames() {
+  return scroll.frames.length > 0 || hasRestorableFirmwareScrollSource();
+}
+
+function isScrollCommandBusy() {
+  return !!(scroll.commandBusy || scroll.restoring || scroll.stepBusy);
+}
+
+function isUserControllablePaused() {
+  const effectivePaused = scroll.paused || state.playback === "scroll_paused";
+  const systemOnlyPause = scroll.systemPaused && !scroll.userPaused;
+  return effectivePaused && !systemOnlyPause;
+}
+
+function isScrollProgressVisible() {
+  return (
+    !!scroll.uploading ||
+    (scroll.uploadProgress > 0 && scroll.uploadProgress < 1.001) ||
+    !!scroll.uploadLabel
+  );
 }
 
 // 中文块：执行对应逻辑 nextUiFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
@@ -8536,11 +8684,21 @@ function resetScrollControlsAfterButton(reason = "gpio_button", options = {}) {
   scroll.systemPaused = false;
   scroll.firmwareBacked = false;
   scroll.uploading = false;
+  scroll.commandBusy = false;
+  scroll.restoring = false;
+  scroll.stepBusy = false;
   scroll.offset = 0;
   scroll.frameIndex = 0;
   state.textScrollActive = false;
   if (isScrollPlaybackValue(state.playback)) state.playback = "idle";
   state.lastRefreshReason = `${reason}_reset_scroll_ui`;
+  // GPIO 停止重置路径：清掉恢复状态；C9 —— 保留 scroll.timelineId 和
+  // scroll.framesTimelineId，避免旧文字在停止后被 mismatch 重拉自动回填。
+  pendingScrollMeta = null;
+  scroll.restoredSourceText = "";
+  scroll.restoredFromFirmwareMeta = false;
+  scroll.restoreWarning = "";
+  scroll.restoredTextTruncated = false;
   resetScrollUploadProgress();
   if (preserveCurrentFrame) {
     scrollFrame = cloneFrame(currentFrame);
@@ -8570,52 +8728,119 @@ async function buildFirmwareScrollFrames(onProgress = () => {}) {
   }
   return frames;
 }
-// 中文块：上传 uploadFirmwareScrollTimeline 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
-async function uploadFirmwareScrollTimeline() {
-  setScrollUploadProgress(0.04, "准备滚动帧");
-  const frames = await buildFirmwareScrollFrames((progress) => {
-    setScrollUploadProgress(0.04 + progress * 0.3, `编码 ${Math.round(progress * 100)}%`);
+// 中文块：追加恢复警告（E5）——截断 + 版本不一致等多条警告可以共存，
+// 永远追加而不是覆盖；updateScrollUi 渲染多行。
+function setScrollRestoreWarning(message) {
+  if (!message) return;
+  if (scroll.restoreWarning && scroll.restoreWarning.split("\n").includes(message)) return;
+  scroll.restoreWarning = scroll.restoreWarning
+    ? `${scroll.restoreWarning}\n${message}`
+    : message;
+}
+
+// 中文块：生成新的 timelineId；必须通过固件 [A-Za-z0-9._:-] 规则且 <= 47 字符。
+function makeScrollTimelineId() {
+  const rand = Math.random().toString(36).slice(2, 6);
+  return `scroll-${Date.now().toString(36)}-${rand}`;
+}
+
+// 中文块：H-A/D4 —— 按测量的 JSON 字节预算决定首块帧数；
+// 即使 1 帧也放不下时抛出明确错误（经由现有上传失败 alert 呈现）。
+function chooseFirstChunkFrames(firstChunkPayloadBuilder) {
+  let count = SCROLL_UPLOAD_CHUNK_FRAMES;
+  while (count > 1) {
+    const bytes = new TextEncoder().encode(
+      JSON.stringify(firstChunkPayloadBuilder(count)),
+    ).length;
+    if (bytes <= SCROLL_FIRST_CHUNK_BODY_LIMIT_BYTES) return count;
+    count--;
+  }
+  const oneFrameBytes = new TextEncoder().encode(
+    JSON.stringify(firstChunkPayloadBuilder(1)),
+  ).length;
+  if (oneFrameBytes > SCROLL_FIRST_CHUNK_BODY_LIMIT_BYTES) {
+    throw new Error("滚动文字过长，元数据无法放入首个上传分块"); // D4
+  }
+  return 1;
+}
+
+// 中文块：单次完整上传尝试：首块带 timelineId + sourceText + fontId +
+// generatorVersion + fps，每个分块都带 timelineId 和 chunkIndex。
+// SF1：首块帧数可变，分块按运行偏移切片（不能复用固定步长循环）；
+// chunkIndex 仍然每块 +1，固件按 chunkIndex 校验顺序、按帧数校验总量。
+async function uploadScrollTimelineAttempt(frames, timelineId) {
+  const generation = ++scroll.uploadGeneration;
+  scroll.timelineId = timelineId;
+  scroll.framesTimelineId = timelineId; // 本地帧正是这次发送的时间线
+  const sourceText = sanitizeScrollTextInput(true);
+  const fps = getScrollFps();
+  const intervalMs = Math.max(1, Math.round(1000 / fps));
+  const buildFirstChunkPayload = (count) => ({
+    frames: frames.slice(0, count),
+    stepLedPerFrame: 1,
+    start: false,
+    append: false,
+    chunkIndex: 0,
+    chunkFrames: count,
+    totalFrames: frames.length,
+    timelineId,
+    sourceText,
+    fontId: TEXT_SCROLL_FONT_MODEL,
+    generatorVersion: SCROLL_GENERATOR_VERSION,
+    fps,
+    intervalMs,
+    source: "webui_text_scroll_frames_with_source_text",
+    storage: "ram",
+    persist: false,
+    saveToFlash: false,
   });
-  if (!frames.length) throw new Error("no scroll frames");
-  const totalChunks = Math.ceil(frames.length / SCROLL_UPLOAD_CHUNK_FRAMES);
+  const firstChunkFrames = chooseFirstChunkFrames(buildFirstChunkPayload);
+  const totalChunks =
+    1 + Math.max(0, Math.ceil((frames.length - firstChunkFrames) / SCROLL_UPLOAD_CHUNK_FRAMES));
   let data = null;
+  let offset = 0;
+  let chunkIndex = 0;
   setScrollUploadProgress(0.36, `分批上传到固件 RAM 0/${totalChunks}`);
-  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-    const start = chunkIndex * SCROLL_UPLOAD_CHUNK_FRAMES;
-    const chunkFrames = frames.slice(start, start + SCROLL_UPLOAD_CHUNK_FRAMES);
-    const isFirstChunk = chunkIndex === 0;
-    data = await apiPostWithUploadProgress(
-      API_ENDPOINTS.scroll,
-      {
-        frames: chunkFrames,
-        stepLedPerFrame: 1,
-        start: false,
-        append: !isFirstChunk,
-        chunkIndex,
-        chunkFrames: chunkFrames.length,
-        totalFrames: frames.length,
-        source: "webui_text_scroll_frames_only",
-        storage: "ram",
-        persist: false,
-        saveToFlash: false,
-      },
-      (progress) => {
-        const chunkProgress = (chunkIndex + progress) / totalChunks;
-        setScrollUploadProgress(
-          0.36 + chunkProgress * 0.5,
-          `分批上传到固件 RAM ${chunkIndex + 1}/${totalChunks}`,
-        );
-      },
-    );
+  while (offset < frames.length) {
+    if (generation !== scroll.uploadGeneration) throw new Error("上传已被新的发送取代");
+    const size = chunkIndex === 0 ? firstChunkFrames : SCROLL_UPLOAD_CHUNK_FRAMES;
+    const chunk = frames.slice(offset, offset + size);
+    const payload =
+      chunkIndex === 0
+        ? buildFirstChunkPayload(chunk.length)
+        : {
+            frames: chunk,
+            stepLedPerFrame: 1,
+            start: false,
+            append: true,
+            timelineId,
+            chunkIndex,
+            chunkFrames: chunk.length,
+            totalFrames: frames.length,
+            source: "webui_text_scroll_frames_with_source_text",
+            storage: "ram",
+            persist: false,
+            saveToFlash: false,
+          };
+    const chunkNumber = chunkIndex;
+    data = await apiPostWithUploadProgress(API_ENDPOINTS.scroll, payload, (progress) => {
+      const chunkProgress = (chunkNumber + progress) / totalChunks;
+      setScrollUploadProgress(
+        0.36 + chunkProgress * 0.5,
+        `分批上传到固件 RAM ${chunkNumber + 1}/${totalChunks}`,
+      );
+    });
+    offset += chunk.length;
+    chunkIndex++;
     await sleepMs(20);
   }
 
-  const fps = getScrollFps();
-  const intervalMs = Math.max(1, Math.round(1000 / fps));
+  if (generation !== scroll.uploadGeneration) throw new Error("上传已被新的发送取代");
   setScrollUploadProgress(0.9, `帧数据已完成，设置 ${fps} fps`);
   data = await apiPost(API_ENDPOINTS.command, {
     cmd: "start_scroll",
     payload: {
+      timelineId,
       fps,
       intervalMs,
       source: "webui_text_scroll_after_frames",
@@ -8632,51 +8857,82 @@ async function uploadFirmwareScrollTimeline() {
     data || {},
   );
 }
+
+// 中文块：上传 uploadFirmwareScrollTimeline 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
+// 任意分块或 start_scroll 返回 409 时，用全新 timelineId 从第 0 块完整重试一次（C10）。
+async function uploadFirmwareScrollTimeline() {
+  setScrollUploadProgress(0.04, "准备滚动帧");
+  const frames = await buildFirmwareScrollFrames((progress) => {
+    setScrollUploadProgress(0.04 + progress * 0.3, `编码 ${Math.round(progress * 100)}%`);
+  });
+  if (!frames.length) throw new Error("no scroll frames");
+  try {
+    return await uploadScrollTimelineAttempt(frames, makeScrollTimelineId());
+  } catch (err) {
+    if (!/^409\b/.test(String(err?.message || ""))) throw err;
+    log("固件返回 409（缓存/分块冲突），使用全新 timelineId 完整重试一次。");
+    return await uploadScrollTimelineAttempt(frames, makeScrollTimelineId());
+  }
+}
 // 中文块：启动 startScroll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function startScroll() {
+  if (isScrollCommandBusy()) return;
   const text = sanitizeScrollTextInput(true);
   if (!text.trim()) {
     alert("空文本不进入文字滚动播放");
     return;
   }
   resetScrollUploadProgress();
+  scroll.commandBusy = true;
+  scroll.uploading = true;
   setScrollUploadProgress(0.02, "准备发送");
+  scroll.returnMode = isAutoModeValue(state.mode) ? "auto" : "manual";
+  guardBeforeOutput("text_scroll_start", "scroll");
+  // D7：新的发送先清掉一切恢复状态，避免旧 pendingScrollMeta 干扰。
+  pendingScrollMeta = null;
+  scroll.restoredSourceText = "";
+  scroll.restoredFromFirmwareMeta = false;
+  scroll.restoreWarning = "";
+  scroll.restoredTextTruncated = false;
   try {
     await prepareTextScrollTimelineAsync(false);
   } catch (err) {
+    scroll.commandBusy = false;
     resetScrollUploadProgress();
     return;
   }
   if (!scroll.frames.length) {
+    scroll.commandBusy = false;
     resetScrollUploadProgress();
     alert("没有可播放的文字帧");
     return;
   }
-  guardBeforeOutput("text_scroll_start", "scroll");
+  // 输入框内容即将发送，不再是"未发送的本地修改"。
+  scroll.textEdited = false;
   if (scroll.timer) clearInterval(scroll.timer);
   scroll.timer = null;
-  resetScrollPreviewToFirstFrame("text_scroll_start_reset_preview", "scroll");
-  scroll.active = true;
+  resetScrollPreviewToFirstFrame("text_scroll_start_reset_preview", null);
+  scroll.active = false;
   scroll.paused = false;
   scroll.userPaused = false;
   scroll.systemPaused = false;
   scroll.firmwareBacked = false;
-  scroll.uploading = true;
   scroll.dirtyNoticeLogged = false;
-  state.textScrollActive = true;
-  state.playback = "scroll";
+  state.textScrollActive = false;
   state.refreshPolicy = `text_scroll_${getScrollFps()}fps_interval_${getScrollFrameIntervalMs()}ms`;
   scroll.fpsStarted = performance.now();
   scroll.frameCounter = 0;
   try {
     const data = await uploadFirmwareScrollTimeline();
+    applyFirmwareRuntimeState(data, "text_scroll_upload_complete");
     scroll.firmwareBacked = true;
-    scroll.uploading = false;
+    scroll.commandBusy = false;
     completeScrollUploadProgress("发送完成，滚动帧仅在固件 RAM 中运行");
     log(
       `文字滚动已上传到固件 RAM 并独立运行：${data?.frames || scroll.frames.length} 帧，${getScrollFps()} fps，每帧推进 1 LED；不会写入 saved_faces.json 或闪存。`,
     );
   } catch (err) {
+    scroll.commandBusy = false;
     scroll.firmwareBacked = false;
     scroll.uploading = false;
     scroll.active = false;
@@ -8698,7 +8954,8 @@ async function startScroll() {
 }
 
 // 中文块：切换 togglePauseScroll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
-function togglePauseScroll() {
+async function togglePauseScroll() {
+  if (isScrollCommandBusy()) return;
   if (scroll.pauseToggleLocked) return;
   if (scroll.systemPaused && !scroll.userPaused) {
     updateScrollUi();
@@ -8709,79 +8966,128 @@ function togglePauseScroll() {
   setTimeout(() => {
     scroll.pauseToggleLocked = false;
   }, 250);
-  if (scroll.userPaused) resumeScroll();
-  else pauseScroll();
+  if (isUserControllablePaused()) await resumeScroll();
+  else await pauseScroll();
 }
 
 // 中文块：执行对应逻辑 pauseScroll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
-function pauseScroll() {
+async function pauseScroll() {
   if (!scroll.active && !state.textScrollActive && !scroll.firmwareBacked) {
     log("文字滚动未播放，无需暂停");
     updateScrollUi();
     renderState();
     return;
   }
-  sendAuxCommand("pause_scroll", {}, "text_scroll_paused");
-  if (scroll.timer) clearInterval(scroll.timer);
-  scroll.timer = null;
-  scroll.userPaused = true;
-  scroll.paused = true;
-  scroll.active = false;
-  state.textScrollActive = true;
-  state.refreshPolicy = "dirty-frame / 按需刷新";
-  state.playback = "scroll_paused";
-  state.lastRefreshReason = "text_scroll_paused";
-  log("文字滚动已暂停，固件停在当前帧；WebUI 不逐帧发送");
+  scroll.commandBusy = true;
   updateScrollUi();
-  renderState();
+  try {
+    const packet = sendAuxCommand("pause_scroll", {}, "text_scroll_paused");
+    const data = await packet.promise;
+    if (data) {
+      if (scroll.timer) clearInterval(scroll.timer);
+      scroll.timer = null;
+      applyFirmwareRuntimeState(data, "text_scroll_paused_result");
+      log("文字滚动已暂停，固件停在当前帧；WebUI 不逐帧发送");
+    } else {
+      log("暂停命令未确认，保持现有滚动状态并等待下一次固件同步");
+    }
+  } finally {
+    scroll.commandBusy = false;
+    updateScrollUi();
+    renderState();
+  }
 }
 
 // 中文块：执行对应逻辑 resumeScroll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
-function resumeScroll() {
+async function resumeScroll() {
   if (!scroll.frames.length) {
-    log("没有已生成/上传的文字滚动帧，改为重新发送并播放");
-    startScroll();
-    return;
+    const restored = await ensureLocalScrollFramesRestored("resume_scroll_restore");
+    if (!restored) {
+      log("没有可恢复的文字滚动帧，不能继续；请重新发送。");
+      updateScrollUi();
+      renderState();
+      return;
+    }
   }
-  sendAuxCommand("resume_scroll", {}, "text_scroll_resumed");
-  scroll.userPaused = false;
-  scroll.paused = !!scroll.systemPaused;
-  scroll.active = !scroll.systemPaused;
-  state.textScrollActive = true;
-  state.playback = scroll.systemPaused ? "scroll_paused" : "scroll";
-  state.refreshPolicy = `text_scroll_${getScrollFps()}fps_interval_${getScrollFrameIntervalMs()}ms`;
-  state.lastRefreshReason = "text_scroll_resumed";
-  scroll.fpsStarted = performance.now();
-  scroll.frameCounter = 0;
-  if (scroll.systemPaused) {
-    if (scroll.timer) clearInterval(scroll.timer);
-    scroll.timer = null;
-  } else {
-    restartScrollPreviewTimer();
-  }
-  log("文字滚动继续播放，固件从当前缓存继续运行");
+  scroll.commandBusy = true;
   updateScrollUi();
-  renderState();
+  try {
+    const packet = sendAuxCommand("resume_scroll", {}, "text_scroll_resumed");
+    const data = await packet.promise;
+    if (data) {
+      applyFirmwareRuntimeState(data, "text_scroll_resumed_result");
+      scroll.fpsStarted = performance.now();
+      scroll.frameCounter = 0;
+      if (scroll.systemPaused) {
+        if (scroll.timer) clearInterval(scroll.timer);
+        scroll.timer = null;
+      } else {
+        restartScrollPreviewTimer();
+      }
+      log("文字滚动继续播放，固件从当前缓存继续运行");
+    } else {
+      log("继续命令未确认，保持现有滚动状态并等待下一次固件同步");
+    }
+  } finally {
+    scroll.commandBusy = false;
+    updateScrollUi();
+    renderState();
+  }
 }
 
 // 中文块：停止 stopScroll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
-function stopScroll() {
-  const shouldRestoreAuto = state.restoreAutoAfterScroll || isAutoModeValue(state.mode);
+async function stopScroll() {
+  if (isScrollCommandBusy() || !hasScrollFrameCache()) return;
+  const restoreAuto = scroll.returnMode === "auto" || state.restoreAutoAfterScroll;
+  const restartPreviewOnFailure = scroll.active && !scroll.paused;
   if (scroll.timer) clearInterval(scroll.timer);
   scroll.timer = null;
+  scroll.commandBusy = true;
+  updateScrollUi();
+  const packet = sendAuxCommand(
+    "stop_scroll",
+    {
+      clear: true,
+      restoreAuto,
+    },
+    "text_scroll_stopped_clear",
+  );
+  const data = await packet.promise;
+  if (!data) {
+    scroll.commandBusy = false;
+    if (restartPreviewOnFailure) restartScrollPreviewTimer();
+    log("停止/清屏命令未确认，保留本地滚动缓存并等待下一次固件同步");
+    updateScrollUi();
+    renderState();
+    return;
+  }
+  applyFirmwareRuntimeState(data, "text_scroll_stopped_clear_result");
   scroll.active = false;
   scroll.paused = false;
   scroll.userPaused = false;
   scroll.systemPaused = false;
   scroll.firmwareBacked = false;
   scroll.uploading = false;
+  scroll.commandBusy = false;
   scroll.dirtyNoticeLogged = false;
   scroll.offset = 0;
   scroll.frameIndex = 0;
   resetScrollUploadProgress();
   scroll.frames = [];
   scroll.signature = "";
+  scroll.timelineId = "";
+  scroll.framesTimelineId = "";
   scroll.dirty = true;
+  lastFwScrollFrameCount = 0;
+  lastFwScrollTimelineId = "";
+  lastFwScrollHasSourceText = false;
+  lastScrollRestoreStatusDebugKey = "";
+  // 本地停止：彻底清掉恢复状态和本地帧身份，避免清屏后旧缓存被恢复路径回填。
+  pendingScrollMeta = null;
+  scroll.restoredSourceText = "";
+  scroll.restoredFromFirmwareMeta = false;
+  scroll.restoreWarning = "";
+  scroll.restoredTextTruncated = false;
   state.textScrollActive = false;
   state.refreshPolicy = "dirty-frame / 按需刷新";
   scrollFrame = blankFrame();
@@ -8793,43 +9099,54 @@ function stopScroll() {
   updateScrollUi();
   renderState();
 
-  const didApplyDefault = applyStartupDefaultFaceLocal("text_scroll_stop_default_saved_face");
-  state.playback = shouldRestoreAuto ? "auto_saved_face" : "idle";
-  state.mode = shouldRestoreAuto ? "auto" : "manual";
+  state.playback = restoreAuto ? "auto_saved_face" : "idle";
+  state.mode = restoreAuto ? "auto" : "manual";
   state.restoreAutoAfterScroll = false;
-  sendAuxCommand(
-    "stop_scroll",
-    {
-      clear: true,
-      restoreAuto: shouldRestoreAuto,
-    },
-    "text_scroll_stopped_clear",
-  );
+  if (restoreAuto) {
+    const delay = data.deferredFaceRestoreActive ? SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS : 20;
+    scheduleFirmwareScrollStopFullSync("text_scroll_stop_restore_auto_status", delay);
+  }
   renderSavedFaces();
   updateScrollUi();
   renderState();
   log(
-    shouldRestoreAuto
-      ? `文字滚动停止/清屏，已清空并回到默认表情，返回 A 自动保存表情切换模式${didApplyDefault ? "，从默认表情开始循环" : ""}`
-      : `文字滚动停止/清屏，已清空并回到默认表情，返回 M 手动保存表情模式${didApplyDefault ? "，保持不自动切换" : ""}`,
+    restoreAuto
+      ? "文字滚动停止/清屏，已清空滚动缓存，并回到 A 自动保存表情切换模式"
+      : "文字滚动停止/清屏，已清空滚动缓存，并保持 M 手动模式",
   );
 }
 
-// 中文块：设置文字滚动逐帧按钮，direction 为 -1 表示上一帧，1 表示下一帧。
+// 中文块：设置文字滚动逐格移动按钮，direction > 0 表示文字向左移动一格，
+// direction < 0 表示文字向右移动一格。
 function setScrollStepHandler(buttonId, direction) {
   const button = $(buttonId);
   if (!button) return;
   button.onclick = async () => {
-    guardBeforeOutput("text_scroll_manual_step", "scroll");
-    await prepareTextScrollTimelineAsync(false);
-    advanceScroll(true, direction);
-    sendAuxCommand(
-      "scroll_step",
-      {
-        direction,
-      },
-      direction < 0 ? "text_scroll_manual_step_prev" : "text_scroll_manual_step_next",
-    );
+    if (isScrollCommandBusy()) return;
+    if (!scroll.frames.length) {
+      const restored = await ensureLocalScrollFramesRestored("manual_step_restore");
+      if (!restored) return;
+    }
+    scroll.stepBusy = true;
+    updateScrollUi();
+    try {
+      guardBeforeOutput("text_scroll_manual_step", "scroll");
+      const source = direction < 0 ? "text_scroll_manual_step_right" : "text_scroll_manual_step_left";
+      const packet = sendAuxCommand(
+        "scroll_step",
+        {
+          direction,
+        },
+        source,
+      );
+      const data = await packet.promise;
+      if (data) applyFirmwareScrollFrameIndex(data, "text_scroll_manual_step_preview");
+      else log("逐格移动命令未确认，保持当前预览并等待下一次固件同步");
+    } finally {
+      scroll.stepBusy = false;
+      updateScrollUi();
+      renderState();
+    }
   };
 }
 
@@ -8882,6 +9199,63 @@ async function prepareTextScrollTimelineAsync(force) {
   }
 }
 
+async function prepareTextScrollTimelineForRestoreAsync(force, onProgress = () => {}) {
+  try {
+    onProgress(0.04, "准备文字滚动字体");
+    await ensureArkPixelFontReady();
+    const text = sanitizeScrollTextInput(true);
+    if (!text.trim()) {
+      scroll.frames = [];
+      scroll.frameIndex = 0;
+      scroll.offset = 0;
+      scroll.dirty = false;
+      updateScrollUi();
+      onProgress(1, "没有可同步的滚动文字");
+      return false;
+    }
+    const sig = scrollSignature();
+    if (!force && !scroll.dirty && scroll.signature === sig && scroll.frames.length) {
+      onProgress(1, `复用已生成预览：${scroll.frames.length} 帧`);
+      return true;
+    }
+
+    onProgress(0.1, "构建文字位图");
+    await nextUiFrame();
+    const source = buildTextScrollBitmap(text);
+    const maxOffset = Math.max(1, source.width - COLS);
+    const total = maxOffset + 1;
+    const frames = [];
+    for (let offset = 0; offset <= maxOffset; offset++) {
+      frames.push(extractFrameFromTextImage(source, offset));
+      if (offset === 0 || offset === maxOffset || offset % 12 === 0) {
+        const ratio = (offset + 1) / total;
+        onProgress(0.12 + ratio * 0.76, `生成同步预览 ${offset + 1}/${total}`);
+        await nextUiFrame();
+      }
+    }
+
+    scroll.frames = frames;
+    scroll.signature = sig;
+    scroll.dirty = false;
+    scroll.frameIndex = Math.min(scroll.frameIndex, Math.max(0, frames.length - 1));
+    scroll.offset = scroll.frameIndex;
+    log(
+      `文字滚动同步预览已生成：${frames.length} 帧，逐帧推进 1 LED，垂直居中偏移 ${textScrollVerticalOffset()} 行，约 ${((frames.length * 47) / 1024).toFixed(1)} KB packed`,
+    );
+    updateScrollUi();
+    onProgress(0.9, "同步当前帧编号");
+    return true;
+  } catch (err) {
+    scroll.frames = [];
+    scroll.frameIndex = 0;
+    scroll.offset = 0;
+    scroll.dirty = true;
+    updateScrollUi();
+    alert(`Ark Pixel Font 12px bitmap table 未加载，无法准备文字滚动帧序列：${err.message}`);
+    throw err;
+  }
+}
+
 // 中文块：执行对应逻辑 prepareTextScrollTimeline 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function prepareTextScrollTimeline(force) {
   const text = sanitizeScrollTextInput(true);
@@ -8917,6 +9291,439 @@ function prepareTextScrollTimeline(force) {
     `文字滚动已生成：${frames.length} 帧，逐帧推进 1 LED，垂直居中偏移 ${textScrollVerticalOffset()} 行，约 ${((frames.length * 47) / 1024).toFixed(1)} KB packed`,
   );
   updateScrollUi();
+}
+
+// -----------------------------------------------------------------------------
+// 文字滚动源文本恢复（plan v6 2.4–2.6）
+// -----------------------------------------------------------------------------
+// 连接关系：
+// - restoreScrollTextFromFirmware() 拉取 /api/scroll/meta，把固件保存的源文本
+//   回填到输入框（永不覆盖用户未发送的修改，C5）。
+// - restoreScrollPreviewIfNeeded() 在进入 6.4 页面（或恢复时已在 6.4）时本地
+//   重建预览帧；framesTimelineId 仅在生成器身份 + 帧数完全一致且文本未截断
+//   时绑定（D5/E4）。
+// - applyFirmwareRuntimeState() 末尾的 mismatch 重拉负责第二台设备/新时间线。
+
+function logScrollRestoreDebug(event, payload = {}) {
+  if (typeof console !== "undefined" && typeof console.log === "function") {
+    console.log(`[scroll-restore] ${event}`, payload);
+  }
+}
+
+function warnScrollRestoreDebug(event, payload = {}) {
+  if (typeof console !== "undefined" && typeof console.warn === "function") {
+    console.warn(`[scroll-restore] ${event}`, payload);
+  } else {
+    logScrollRestoreDebug(event, payload);
+  }
+}
+
+// 中文块：D5 —— 生成器身份精确匹配（fontId + generatorVersion 字符串相等）。
+function exactGeneratorMatch(meta) {
+  return (
+    meta.fontId === TEXT_SCROLL_FONT_MODEL && meta.generatorVersion === SCROLL_GENERATOR_VERSION
+  );
+}
+
+// 中文块：C2 + C3 —— 本地帧是否已精确代表固件时间线（无需重建）。
+function localTimelineMatchesMeta(meta) {
+  return (
+    meta.uploadComplete === true &&
+    Number(meta.frameCount || 0) > 0 &&
+    scroll.framesTimelineId === String(meta.scrollTimelineId || "") &&
+    scroll.frames.length === Number(meta.frameCount || 0)
+  );
+}
+
+// 中文块：把固件文本填入输入框；只在输入框为空或仍是出厂默认文本、且用户
+// 没有未发送修改时才填充；从不标记 dirty。
+function setScrollTextFromFirmware(text) {
+  const el = $("scroll-text");
+  const restoredText = String(text ?? "");
+  let ok = false;
+  let reason = "applied";
+  const before = el ? String(el.value ?? "") : "";
+  if (!el) {
+    reason = "missing_element";
+  } else if (!restoredText) {
+    reason = "empty_text";
+  } else if (scroll.textEdited) {
+    reason = "local_text_edited";
+  } else if (before && before !== restoredText && before !== scrollDefaultText) {
+    reason = "local_value_present";
+  } else {
+    el.value = restoredText;
+    sanitizeScrollTextInput(true);
+    applyTextScrollInputFont();
+    autoResizeScrollTextInput();
+    ok = true;
+  }
+  logScrollRestoreDebug("set text result", {
+    ok,
+    reason,
+    hasElement: !!el,
+    before,
+    textLength: restoredText.length,
+    afterLength: el ? String(el.value ?? "").length : 0,
+    dirty: scroll.dirty,
+    textEdited: scroll.textEdited,
+  });
+  return ok;
+}
+
+function applyRestoredScrollPreviewFrame(meta, reason = "text_scroll_restore_preview") {
+  scroll.frameIndex = clamp(Number(meta.frameIndex) || 0, 0, Math.max(0, scroll.frames.length - 1));
+  scroll.offset = scroll.frameIndex;
+  if (scroll.active && !scroll.paused) restartScrollPreviewTimer();
+  setScrollPreviewFrame(
+    scroll.frames[scroll.frameIndex] || blankFrame(),
+    reason,
+    scroll.paused ? "scroll_paused" : scroll.active ? "scroll" : "idle",
+  );
+  updateScrollUi();
+}
+
+function applyFirmwareScrollFrameIndex(data, reason = "text_scroll_firmware_frame_index") {
+  if (!scroll.frames.length) return false;
+  const renderer = data?.renderer || data || {};
+  const raw = renderer.scrollFrameIndex ?? renderer.frameIndex;
+  const index = Number(raw);
+  if (!Number.isFinite(index)) return false;
+  scroll.frameIndex = clamp(index, 0, Math.max(0, scroll.frames.length - 1));
+  scroll.offset = scroll.frameIndex;
+  setScrollPreviewFrame(
+    scroll.frames[scroll.frameIndex] || blankFrame(),
+    reason,
+    scroll.paused || state.playback === "scroll_paused" ? "scroll_paused" : state.playback,
+  );
+  updateScrollUi();
+  return true;
+}
+
+function applyScrollRuntimeMeta(meta, source = "scroll_meta") {
+  if (!meta || typeof meta !== "object") return;
+  const hasActive = typeof meta.firmwareScrollActive === "boolean";
+  const hasPaused = typeof meta.firmwareScrollPaused === "boolean";
+  if (!hasActive && !hasPaused) return;
+  const firmwareActive = !!meta.firmwareScrollActive;
+  const firmwarePaused = !!meta.firmwareScrollPaused;
+  const firmwareRunning = firmwareActive || firmwarePaused;
+  scroll.firmwareBacked = firmwareRunning;
+  scroll.paused = firmwarePaused;
+  scroll.userPaused = firmwarePaused;
+  scroll.systemPaused = false;
+  scroll.active = firmwareRunning && !firmwarePaused;
+  state.textScrollActive = firmwareRunning;
+  if (firmwarePaused) state.playback = "scroll_paused";
+  else if (firmwareActive) state.playback = "scroll";
+  else if (isScrollPlaybackValue(state.playback)) state.playback = "idle";
+  state.lastRefreshReason = source;
+  if (!scroll.active && scroll.timer) {
+    clearInterval(scroll.timer);
+    scroll.timer = null;
+  }
+  updateScrollUi();
+  renderState();
+}
+
+function setScrollRestorePreviewProgress(progress, label) {
+  scroll.restoring = true;
+  if (!scroll.uploading) scroll.uploading = true;
+  setScrollUploadProgress(progress, label);
+}
+
+function completeScrollRestorePreviewProgress(label = "同步预览完成") {
+  scroll.restoring = false;
+  completeScrollUploadProgress(label);
+}
+
+function cancelScrollRestorePreviewProgress() {
+  scroll.restoring = false;
+  scroll.uploading = false;
+  resetScrollUploadProgress();
+}
+
+async function fetchLatestScrollFrameMetaAfterPreview(baseMeta, source = "restore_preview") {
+  const baseTimelineId = String(baseMeta?.scrollTimelineId || "");
+  try {
+    const latest = await apiGet(API_ENDPOINTS.scrollMeta);
+    lastScrollMetaFetchAt = performance.now();
+    const latestTimelineId = String(latest?.scrollTimelineId || "");
+    if (latest?.ok && (!baseTimelineId || latestTimelineId === baseTimelineId)) {
+      logScrollRestoreDebug("frame meta refreshed", {
+        source,
+        timelineId: latestTimelineId,
+        frameIndex: latest.frameIndex,
+        frameCount: latest.frameCount,
+      });
+      return Object.assign({}, baseMeta || {}, latest);
+    }
+    logScrollRestoreDebug("frame meta refresh skipped", {
+      source,
+      baseTimelineId,
+      latestTimelineId,
+      ok: !!latest?.ok,
+    });
+  } catch (err) {
+    warnScrollRestoreDebug("frame meta refresh failed", {
+      source,
+      error: err?.message || String(err),
+    });
+  }
+  return baseMeta;
+}
+
+// 中文块：从固件恢复滚动源文本（启动后 / 时间线变化时调用）。
+async function restoreScrollTextFromFirmware(source = "post_boot", options = {}) {
+  const autoPreview = options.autoPreview !== false;
+  logScrollRestoreDebug("start", {
+    source,
+    inFlight: scrollMetaFetchInFlight,
+    currentTimelineId: scroll.timelineId,
+    dirty: scroll.dirty,
+    textEdited: scroll.textEdited,
+    inputValue: $("scroll-text")?.value,
+  });
+  if (scrollMetaFetchInFlight) return false;
+  scrollMetaFetchInFlight = true;
+  try {
+    const meta = await apiGet(API_ENDPOINTS.scrollMeta);
+    lastScrollMetaFetchAt = performance.now();
+    logScrollRestoreDebug("meta response", meta);
+    if (!meta?.ok || !meta.hasSourceText) {
+      logScrollRestoreDebug("meta skipped", {
+        source,
+        ok: !!meta?.ok,
+        hasSourceText: !!meta?.hasSourceText,
+        scrollTimelineId: meta?.scrollTimelineId || "",
+      });
+      return false;
+    }
+
+    // C5：未发送本地修改保护，必须先于任何元数据绑定。
+    const currentValue = $("scroll-text")?.value || "";
+    const restoredText = String(meta.sourceText ?? "");
+    const hasLocalUnsentText =
+      scroll.textEdited ||
+      (currentValue && currentValue !== restoredText && currentValue !== scrollDefaultText);
+    if (hasLocalUnsentText) {
+      setScrollRestoreWarning("硬件有滚动文字可恢复，但输入框已有未发送内容，未自动覆盖。");
+      logScrollRestoreDebug("guard blocked", {
+        source,
+        currentValue,
+        restoredTextLength: restoredText.length,
+        textEdited: scroll.textEdited,
+      });
+      updateScrollUi();
+      return false;
+    }
+
+    scroll.restoreWarning = ""; // D6：干净恢复从空白警告开始
+    scroll.restoredTextTruncated = false; // E4
+    scroll.textEdited = false;
+    scroll.restoredSourceText = restoredText;
+    pendingScrollMeta = meta;
+    scroll.timelineId = String(meta.scrollTimelineId || "");
+    lastFwScrollTimelineId = scroll.timelineId;
+    lastFwScrollHasSourceText = !!meta.hasSourceText;
+    lastFwScrollFrameCount = Math.max(0, Number(meta.frameCount || 0) || 0);
+    scroll.restoredFromFirmwareMeta = true;
+    applyScrollRuntimeMeta(meta, `scroll_restore_meta_${source}`);
+    logScrollRestoreDebug("binding meta", {
+      source,
+      restoredTextLength: restoredText.length,
+      timelineId: meta.scrollTimelineId,
+      fontId: meta.fontId,
+      generatorVersion: meta.generatorVersion,
+      frameCount: meta.frameCount,
+      frameIndex: meta.frameIndex,
+      uploadComplete: meta.uploadComplete,
+    });
+    setScrollTextFromFirmware(restoredText);
+    // D10/E4：检测 sanitize 截断（超长第三方文本）；截断恢复永远不能绑定
+    // framesTimelineId，即使帧数碰巧一致。
+    const valueAfterSanitize = $("scroll-text")?.value || "";
+    if (valueAfterSanitize && valueAfterSanitize !== restoredText) {
+      scroll.restoredTextTruncated = true; // E4
+      setScrollRestoreWarning("硬件滚动文字超过 WebUI 输入上限，已截断显示；预览仅供参考。"); // E5
+    }
+    syncScrollFpsUi(
+      clamp(Number(meta.uiFps) || DEFAULT_SCROLL_FPS, SCROLL_FPS_MIN, SCROLL_FPS_MAX),
+    );
+    if (!exactGeneratorMatch(meta)) {
+      setScrollRestoreWarning("文字已从硬件恢复，但字体/生成器版本不同，预览可能与 LED 不一致。"); // E5：追加而非覆盖
+    }
+    updateScrollUi();
+    // C4：恢复时 6.4 已是当前页面，或固件正在滚动/暂停，则立即重建预览。
+    // 刷新时页面默认回 basic，但 paused 状态仍需要马上生成并停在当前帧。
+    // ensureScrollFontsLoaded() 返回 undefined（不能 .then()）；
+    // restoreScrollPreviewIfNeeded 内部经 prepareTextScrollTimelineAsync 等字体。
+    if (autoPreview && (isScrollPageActive() || meta.firmwareScrollActive || meta.firmwareScrollPaused)) {
+      ensureScrollFontsLoaded();
+      restoreScrollPreviewIfNeeded(
+        isScrollPageActive() ? "restore_active_page" : "restore_firmware_scroll_state",
+      ).catch((err) => {
+        warnScrollRestoreDebug("preview restore immediate failed", {
+          error: err?.message || String(err),
+        });
+      });
+    }
+    return true;
+  } catch (err) {
+    warnScrollRestoreDebug("meta fetch failed", {
+      source,
+      error: err?.message || String(err),
+    });
+    return false;
+  } finally {
+    scrollMetaFetchInFlight = false;
+  }
+}
+
+async function ensureLocalScrollFramesRestored(source = "scroll_action_restore") {
+  if (scroll.frames.length) return true;
+  if (!hasRestorableFirmwareScrollSource()) return false;
+  scroll.restoring = true;
+  updateScrollUi();
+  try {
+    const restored = await restoreScrollTextFromFirmware(source, { autoPreview: false });
+    if (!restored && !pendingScrollMeta) return false;
+    await restoreScrollPreviewIfNeeded(source);
+    return scroll.frames.length > 0;
+  } finally {
+    scroll.restoring = false;
+    updateScrollUi();
+  }
+}
+
+function kickPostBootScrollMetaRestore(source = "post_boot") {
+  if (postBootScrollMetaRestoreStarted) {
+    logScrollRestoreDebug("post_boot already started", { source });
+    return;
+  }
+  postBootScrollMetaRestoreStarted = true;
+  scrollMetaRestoreEnabled = true;
+  logScrollRestoreDebug("post_boot kick", {
+    source,
+    currentPage: document.body?.dataset?.page || "",
+    lastFwScrollTimelineId,
+    lastFwScrollHasSourceText,
+  });
+  restoreScrollTextFromFirmware(source).catch((err) => {
+    warnScrollRestoreDebug("post_boot failed", {
+      source,
+      error: err?.message || String(err),
+    });
+  });
+}
+
+// 中文块：进入 6.4 页面（或恢复时已在 6.4）时本地重建预览帧（C2/C3/H-B/D5/E4）。
+async function restoreScrollPreviewIfNeeded(source = "restore_preview") {
+  logScrollRestoreDebug("preview restore start", {
+    source,
+    hasPendingMeta: !!pendingScrollMeta,
+    restoredSourceTextLength: scroll.restoredSourceText?.length || 0,
+    inputValue: $("scroll-text")?.value,
+    timelineId: scroll.timelineId,
+    framesTimelineId: scroll.framesTimelineId,
+    framesLength: scroll.frames.length,
+  });
+  setScrollTextFromFirmware(scroll.restoredSourceText); // 迟到的 DOM 填充
+  if (!pendingScrollMeta) {
+    logScrollRestoreDebug("preview restore end", {
+      source,
+      result: "no_pending_meta",
+    });
+    return;
+  }
+  const meta = pendingScrollMeta;
+  const inputEl = $("scroll-text");
+  if (!inputEl) {
+    logScrollRestoreDebug("preview restore end", {
+      source,
+      result: "waiting_for_dom",
+    });
+    return;
+  }
+  if (scroll.textEdited) {
+    pendingScrollMeta = null;
+    logScrollRestoreDebug("preview restore end", {
+      source,
+      result: "local_text_edited",
+    });
+    return;
+  }
+  const currentValue = String(inputEl.value ?? "");
+  if (currentValue && scroll.restoredSourceText && currentValue !== scroll.restoredSourceText) {
+    scroll.restoredTextTruncated = true;
+    setScrollRestoreWarning("硬件滚动文字超过 WebUI 输入上限，已截断显示；预览仅供参考。");
+  }
+  if (localTimelineMatchesMeta(meta)) {
+    setScrollRestorePreviewProgress(0.88, "同步当前帧编号");
+    const latestMeta = await fetchLatestScrollFrameMetaAfterPreview(meta, `${source}_cached`);
+    applyScrollRuntimeMeta(latestMeta, `scroll_restore_preview_${source}_cached`);
+    applyRestoredScrollPreviewFrame(latestMeta, "text_scroll_restore_preview_cached");
+    pendingScrollMeta = null;
+    completeScrollRestorePreviewProgress("同步预览完成");
+    logScrollRestoreDebug("preview restore end", {
+      source,
+      result: "local_timeline_match",
+      frameIndex: scroll.frameIndex,
+      framesTimelineId: scroll.framesTimelineId,
+      framesLength: scroll.frames.length,
+    });
+    return;
+  }
+  try {
+    setScrollRestorePreviewProgress(0.02, "开始生成同步预览");
+    const prepared = await prepareTextScrollTimelineForRestoreAsync(true, (progress, label) => {
+      setScrollRestorePreviewProgress(progress, label);
+    });
+    if (!prepared) {
+      pendingScrollMeta = null;
+      cancelScrollRestorePreviewProgress();
+      return;
+    }
+  } catch (err) {
+    warnScrollRestoreDebug("prepareTextScrollTimelineAsync error", {
+      source,
+      error: err?.message || String(err),
+    });
+    cancelScrollRestorePreviewProgress();
+    return;
+  }
+  setScrollRestorePreviewProgress(0.92, "读取当前固件帧编号");
+  const latestMeta = await fetchLatestScrollFrameMetaAfterPreview(meta, source);
+  pendingScrollMeta = null;
+  applyScrollRuntimeMeta(latestMeta, `scroll_restore_preview_${source}`);
+
+  // D5/E4：仅在文本未截断 + 生成器身份精确匹配 + 帧数一致时绑定帧身份。
+  if (
+    !scroll.restoredTextTruncated && // E4
+    exactGeneratorMatch(latestMeta) &&
+    scroll.frames.length === Number(latestMeta.frameCount || 0)
+  ) {
+    scroll.framesTimelineId = String(latestMeta.scrollTimelineId || "");
+  } else {
+    scroll.framesTimelineId = "";
+    if (scroll.frames.length !== Number(latestMeta.frameCount || 0)) {
+      setScrollRestoreWarning("文字已恢复，但本地重新生成的帧数与硬件不一致；预览仅供参考。");
+    }
+  }
+
+  // H-B：预览帧生成完成后，使用最新固件 frameIndex 同步当前帧。
+  applyRestoredScrollPreviewFrame(latestMeta);
+  completeScrollRestorePreviewProgress("同步预览完成");
+  logScrollRestoreDebug("preview restore end", {
+    source,
+    result: "generated",
+    frameIndex: scroll.frameIndex,
+    framesTimelineId: scroll.framesTimelineId,
+    framesLength: scroll.frames.length,
+    expectedFrameCount: Number(latestMeta.frameCount || 0),
+    exactGeneratorMatch: exactGeneratorMatch(latestMeta),
+    restoredTextTruncated: scroll.restoredTextTruncated,
+  });
 }
 
 // 中文块：构建 buildTextScrollBitmap 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
@@ -9097,28 +9904,56 @@ function updateScrollUi() {
   const indexEl = $("scroll-frame-index");
   const pauseBtn = $("scroll-pause");
   const playBtn = $("scroll-play");
+  const stopBtn = $("scroll-stop");
+  const stepPrevBtn = $("scroll-step-prev");
+  const stepNextBtn = $("scroll-step-next");
+  const speedResetBtn = $("scroll-speed-reset-default");
+  const speedMinusBtn = $("scroll-speed-minus");
+  const speedPlusBtn = $("scroll-speed-plus");
+  const speedRangeEl = $("scroll-speed-range");
+  const speedInputEl = $("scroll-speed");
+  const speedPresetBox = $("scroll-speed-presets");
   const progressWrap = $("scroll-upload-progress");
   const progressBar = $("scroll-upload-bar");
   const progressLabel = $("scroll-upload-label");
+  const progressVisible = isScrollProgressVisible();
+  const commandBusy = isScrollCommandBusy();
+  const hasInputContent = hasScrollInputContent();
+  const hasFrameCache = hasScrollFrameCache();
+  const hasFramesForStep = hasUsableOrRestorableScrollFrames();
 
   const firmwarePlaying =
     scroll.firmwareBacked || state.textScrollActive || isScrollPlaybackValue(state.playback);
-  const label = scroll.uploading
+  const effectivePaused = scroll.paused || state.playback === "scroll_paused";
+  const scrollPlayingNow =
+    !effectivePaused &&
+    (scroll.active ||
+      scroll.firmwareBacked ||
+      state.textScrollActive ||
+      state.playback === "scroll" ||
+      state.playback === "scroll_step");
+  const label = scroll.commandBusy
     ? "uploading"
-    : scroll.paused || state.playback === "scroll_paused"
-      ? "paused"
-      : scroll.active || state.playback === "scroll"
-        ? "playing"
-        : scroll.dirty
-          ? "dirty/idle"
-          : "idle";
+    : scroll.restoring
+      ? "syncing"
+      : progressVisible
+        ? "uploading"
+        : effectivePaused
+          ? "paused"
+          : scroll.active || state.playback === "scroll"
+            ? "playing"
+            : scroll.dirty
+              ? "dirty/idle"
+              : "idle";
 
   if (stateEl) stateEl.textContent = label;
   if (indexEl) indexEl.textContent = `${scroll.frameIndex || 0} / ${scroll.frames?.length || 0}`;
   if (pauseBtn) {
-    const effectivePaused = scroll.paused || state.playback === "scroll_paused";
     const systemPauseOnly = scroll.systemPaused && !scroll.userPaused;
-    const enabled = (firmwarePlaying || scroll.active || scroll.paused) && !systemPauseOnly;
+    const enabled =
+      (firmwarePlaying || scroll.active || scroll.paused) &&
+      !systemPauseOnly &&
+      !commandBusy;
     pauseBtn.disabled = !enabled;
     pauseBtn.setAttribute("aria-disabled", enabled ? "false" : "true");
     const isPaused = effectivePaused;
@@ -9127,18 +9962,45 @@ function updateScrollUi() {
     pauseBtn.textContent = isPaused ? "继续" : "暂停";
   }
   if (playBtn) {
-    playBtn.disabled = !!scroll.uploading;
-    playBtn.textContent = scroll.uploading ? "发送中…" : "发送";
+    const playDisabled = commandBusy || !hasInputContent;
+    playBtn.disabled = playDisabled;
+    playBtn.setAttribute("aria-disabled", playDisabled ? "true" : "false");
+    playBtn.textContent = progressVisible ? "发送中…" : "发送";
   }
+  if (stopBtn) {
+    const stopDisabled = commandBusy || !hasFrameCache;
+    stopBtn.disabled = stopDisabled;
+    stopBtn.setAttribute("aria-disabled", stopDisabled ? "true" : "false");
+  }
+  const speedDisabled = commandBusy;
+  [speedResetBtn, speedMinusBtn, speedPlusBtn, speedRangeEl, speedInputEl].forEach((el) => {
+    if (!el) return;
+    el.disabled = speedDisabled;
+    el.setAttribute("aria-disabled", speedDisabled ? "true" : "false");
+  });
+  if (speedPresetBox) {
+    speedPresetBox.querySelectorAll("button").forEach((btn) => {
+      btn.disabled = speedDisabled;
+      btn.setAttribute("aria-disabled", speedDisabled ? "true" : "false");
+    });
+  }
+  const stepDisabled = commandBusy || scrollPlayingNow || !hasFramesForStep;
+  [stepPrevBtn, stepNextBtn].forEach((btn) => {
+    if (!btn) return;
+    btn.disabled = stepDisabled;
+    btn.setAttribute("aria-disabled", stepDisabled ? "true" : "false");
+  });
   if (progressWrap) {
-    const visible =
-      !!scroll.uploading ||
-      (scroll.uploadProgress > 0 && scroll.uploadProgress < 1.001) ||
-      !!scroll.uploadLabel;
-    progressWrap.hidden = !visible;
+    progressWrap.hidden = !progressVisible;
   }
   if (progressBar) progressBar.value = Math.round(clamp(scroll.uploadProgress || 0, 0, 1) * 100);
   if (progressLabel) progressLabel.textContent = scroll.uploadLabel || "等待发送";
+  // 恢复警告（可多行，E5）；textContent + CSS white-space:pre-line 渲染换行。
+  const restoreWarnEl = $("scroll-restore-warning");
+  if (restoreWarnEl) {
+    restoreWarnEl.textContent = scroll.restoreWarning || "";
+    restoreWarnEl.hidden = !scroll.restoreWarning;
+  }
 }
 
 // 矩阵预览共用同一条初始化路径，确保尺寸和渲染保持一致。
@@ -9393,6 +10255,10 @@ async function runPostBootDeferredReads(bootOk = false) {
   await new Promise((resolve) => requestAnimationFrame(resolve));
   await new Promise((resolve) => setTimeout(resolve, 0));
 
+  // 中文块：刷新后先恢复滚动源文本；不能排在 saved_faces 或矩阵同步后面，
+  // 否则那些慢请求会让 /api/scroll/meta 看起来完全没有发生。
+  kickPostBootScrollMetaRestore("post_boot_deferred_start");
+
   const bootPlaybackIsScroll =
     state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
   try {
@@ -9487,6 +10353,7 @@ async function bootstrapWebUi() {
     // 确保运行时快照（以及 bootOk）先稳定下来，
     // 再启动依赖它的延迟读取和状态轮询。
     await runtimePingPromise;
+    kickPostBootScrollMetaRestore("post_runtime_ready");
 
     startFirmwareStatusPolling();
     startPowerStatusPolling();

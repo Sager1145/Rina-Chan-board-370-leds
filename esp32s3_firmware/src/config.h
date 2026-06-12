@@ -144,6 +144,13 @@ constexpr uint16_t MAX_SCROLL_INTERVAL_MS        = 1000;
 constexpr uint16_t DEFAULT_SCROLL_INTERVAL_MS    = 100;
 constexpr uint8_t  SCROLL_DRIFT_RESET_INTERVALS  = 4;
 
+// 文字滚动源文本同步（Scroll source-text sync）：上传携带的 Unicode 源文本与
+// 元数据的硬限制。文本上限按 UTF-8 字节计，无 code-point 上限。
+constexpr uint16_t MAX_SCROLL_TEXT_BYTES        = 4096;
+constexpr uint8_t  MAX_SCROLL_TIMELINE_ID_CHARS = 47;
+constexpr uint8_t  MAX_SCROLL_FONT_ID_CHARS     = 47;
+constexpr uint8_t  MAX_SCROLL_GENERATOR_CHARS   = 47;
+
 // ---------------------------------------------------------------------------
 // 按钮去抖 / 重复（Button debounce / repeat） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------

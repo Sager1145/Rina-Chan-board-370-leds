@@ -26,7 +26,7 @@
     <link type="image/png" href="/resources/loading/rina_icon1_default.png" rel="icon" />
     <link type="image/png" href="/resources/loading/rina_icon1_default.png" rel="shortcut icon" />
     <!-- 全局样式、布局规则和组件状态。 -->
-    <link href="styles.css?v=20260612-digits-shift" rel="stylesheet" />
+    <link href="styles.css?v=20260612-scroll-restore-v12" rel="stylesheet" />
   </head>
   <body>
     <!--
@@ -491,7 +491,9 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
                   >
                     暂停
                   </button>
-                  <button id="scroll-stop" type="button">停止/清屏</button>
+                  <button id="scroll-stop" type="button" aria-disabled="true" disabled>
+                    停止/清屏
+                  </button>
                   <button id="scroll-step-prev" type="button" title="上一帧" aria-label="上一帧">←</button>
                   <button id="scroll-step-next" type="button" title="下一帧" aria-label="下一帧">→</button>
                 </div>
@@ -499,6 +501,8 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
                   <progress id="scroll-upload-bar" max="100" value="0"></progress>
                   <span class="scroll-upload-label" id="scroll-upload-label">等待发送</span>
                 </div>
+                <!-- 中文块：源文本恢复警告行（可多行；updateScrollUi 渲染）。 -->
+                <div class="scroll-restore-warning" id="scroll-restore-warning" hidden></div>
                 <div class="kv">
                   <span class="k">状态</span>
                   <span id="scroll-state">idle</span>
@@ -639,6 +643,6 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
       说明 LittleFS 文件系统、静态资源或 gzip 打包流程。
  -->
     <!-- WebUI 运行时、LED 矩阵数据和固件 API 处理器。 -->
-    <script src="app.js?v=20260612-step-buttons-v4"></script>
+    <script src="app.js?v=20260612-scroll-restore-v12"></script>
   </body>
 </html>

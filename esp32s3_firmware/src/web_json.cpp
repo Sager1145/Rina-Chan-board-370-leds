@@ -1,4 +1,5 @@
 #include "web_json.h"
+#include "utils.h"
 #include <ctype.h>
 #include <string.h>
 
@@ -76,6 +77,37 @@ static int jsonFieldValuePosition(const String& body, const char* key) {
     return -1;
 }
 
+// 把 Unicode code point 以 UTF-8 形式追加到输出字符串。
+static void appendUtf8CodePoint(String& out, uint32_t cp) {
+    if (cp < 0x80) {
+        out += static_cast<char>(cp);
+    } else if (cp < 0x800) {
+        out += static_cast<char>(0xC0 | (cp >> 6));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += static_cast<char>(0xE0 | (cp >> 12));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    } else {
+        out += static_cast<char>(0xF0 | (cp >> 18));
+        out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    }
+}
+
+// 解析 raw 中 pos 开始的 4 个十六进制字符；非法十六进制返回 false。
+static bool parse4HexDigits(const String& raw, size_t pos, uint32_t& value) {
+    if (pos + 4 > raw.length()) return false;
+    value = 0;
+    for (size_t k = 0; k < 4; ++k) {
+        const int nib = hexNibble(raw.charAt(pos + k));
+        if (nib < 0) return false;
+        value = (value << 4) | static_cast<uint32_t>(nib);
+    }
+    return true;
+}
+
 bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int& endQuote) {
     endQuote = findJsonStringEnd(body, quotePos);
     if (endQuote < 0) return false;
@@ -109,6 +141,29 @@ bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int
             case 'n': value += '\n'; break;
             case 'r': value += '\r'; break;
             case 't': value += '\t'; break;
+            case 'u': {
+                // \uXXXX 解码：surrogate pair 合并，孤立 surrogate 用 U+FFFD，
+                // 非法十六进制返回 false（调用方回 400）。
+                uint32_t cp = 0;
+                if (!parse4HexDigits(raw, i + 1, cp)) return false;
+                size_t extraConsumed = 4;
+                if (cp >= 0xD800 && cp <= 0xDBFF) {
+                    uint32_t low = 0;
+                    if (i + 6 < raw.length() && raw.charAt(i + 5) == '\\' &&
+                        raw.charAt(i + 6) == 'u' && parse4HexDigits(raw, i + 7, low) &&
+                        low >= 0xDC00 && low <= 0xDFFF) {
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+                        extraConsumed = 10;
+                    } else {
+                        cp = 0xFFFD;  // 孤立 high surrogate
+                    }
+                } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+                    cp = 0xFFFD;      // 孤立 low surrogate
+                }
+                appendUtf8CodePoint(value, cp);
+                i += extraConsumed;
+                break;
+            }
             default:
                 value += c;
                 break;

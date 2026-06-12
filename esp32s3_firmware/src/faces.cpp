@@ -115,7 +115,7 @@ static bool firmwareScrollHasRuntimeStateLocked() {
            isScrollPlayback(runtimeState().playback);
 }
 
-static void resetFirmwareScrollStateLocked() {
+static void resetFirmwareScrollStateLocked(bool clearTimelineMeta = false) {
     runtimeState().firmwareScrollActive       = false;
     runtimeState().firmwareScrollPaused       = false;
     runtimeState().firmwareScrollUserPaused   = false;
@@ -125,6 +125,10 @@ static void resetFirmwareScrollStateLocked() {
     runtimeState().scrollFrameCount           = 0;
     runtimeState().scrollFrameIndex           = 0;
     runtimeState().paused                     = false;
+    // 帧缓存被清空（scrollFrameCount=0），uploadComplete 不能再为 true；
+    // 普通中断保留 sourceText / timelineId 供刷新恢复；显式清屏完整清空。
+    if (clearTimelineMeta) clearScrollTimelineMetaLocked();
+    else invalidateScrollUploadLocked();
     if (isScrollPlayback(runtimeState().playback)) {
         runtimeState().playback = DEFAULT_PLAYBACK;
     }
@@ -354,15 +358,15 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
     bool changed = false;
     withScrollLock([&]() {
         changed = firmwareScrollHasRuntimeStateLocked();
-        shouldRestoreAuto               = restoreAuto && runtimeState().restoreAutoAfterScroll;
-        resetFirmwareScrollStateLocked();
+        shouldRestoreAuto               = restoreAuto;
+        resetFirmwareScrollStateLocked(clearDisplay);
     });
     if (changed) touchRuntimeState();
     if (changed || clearDisplay) clearQueuedM370Frames();
 
     if (clearDisplay) {
         applyBlankFrame("firmware_text_scroll_stop_clear");
-        scheduleStartupDefaultFaceRestoreAfterBlank(shouldRestoreAuto);
+        if (restoreAuto) scheduleStartupDefaultFaceRestoreAfterBlank(shouldRestoreAuto);
     } else if (shouldRestoreAuto) {
         setMode("auto", false);
     }
