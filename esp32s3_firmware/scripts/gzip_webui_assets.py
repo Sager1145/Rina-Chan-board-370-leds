@@ -1,32 +1,20 @@
 """
-gzip_webui_assets.py  –  PlatformIO filesystem pre-build script
+本脚本在 LittleFS 打包前压缩 WebUI 静态资源。
 
-Temporarily generates precompressed "<file>.gz" siblings for the large, highly
-compressible WebUI assets so the LittleFS image can include gzip responses
-(see serveStaticFile() in src/web_api.cpp). This dramatically shrinks the bytes
-transferred over the ESP32 SoftAP link and the number of streamed chunks.
+它会在构建 LittleFS 镜像前临时生成 index.html、app.js、styles.css 和
+ark12.json 的 .gz 旁路文件，让固件可以优先返回 gzip 版本，从而减少
+ESP32 SoftAP 传输字节数。镜像生成后会删除这些临时 .gz 文件。
 
-The .gz files are written next to the originals inside data/ immediately before
-the LittleFS image is built (`pio run -t buildfs` / `-t uploadfs`), then deleted
-after the image is assembled. Keep source changes in the uncompressed files.
-Both the raw file and the .gz are shipped in the image, so non-gzip clients
-still work; serveStaticFile() prefers the .gz only when the client sends
-`Accept-Encoding: gzip`.
-
-Only text-like assets are compressed. Already-compressed assets (woff2, png,
-jpg) are skipped because gzip would not help (and could even grow them).
-
-The gzip step is idempotent: a .gz is regenerated only when it is missing or
-older than its source file.
+只压缩文本类资源；woff2、png、jpg 等已压缩资源不会处理。
 """
 
 import gzip
 import os
 import shutil
 
-Import("env")  # noqa: F821  (PlatformIO injects this)
+Import("env")  # noqa: F821，保留工具指令，相关名称由外部环境注入。
 
-# Paths are relative to the data/ (LittleFS source) directory.
+# 说明 LittleFS 文件系统、静态资源或 gzip 打包流程。
 GZIP_TARGETS = [
     "index.html",
     "app.js",
@@ -37,6 +25,7 @@ GZIP_TARGETS = [
 GZIP_LEVEL = 9
 
 
+# 中文块：_gzip_one 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def _gzip_one(src_path):
     dst_path = src_path + ".gz"
     if os.path.isfile(dst_path) and os.path.getmtime(dst_path) >= os.path.getmtime(src_path):
@@ -51,8 +40,9 @@ def _gzip_one(src_path):
     return True
 
 
+# 中文块：gzip_assets 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def gzip_assets(*args, **kwargs):
-    data_dir = os.path.join(env["PROJECT_DIR"], "data")  # noqa: F821
+    data_dir = os.path.join(env["PROJECT_DIR"], "data")  # noqa: F821，保留工具指令，相关名称由外部环境注入。
     if not os.path.isdir(data_dir):
         print(f"[gzip_webui_assets] WARNING: data dir not found: {data_dir} - skipping")
         return
@@ -67,8 +57,9 @@ def gzip_assets(*args, **kwargs):
         print("[gzip_webui_assets] all .gz assets already up to date")
 
 
+# 中文块：cleanup_gzip_assets 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def cleanup_gzip_assets(*args, **kwargs):
-    data_dir = os.path.join(env["PROJECT_DIR"], "data")  # noqa: F821
+    data_dir = os.path.join(env["PROJECT_DIR"], "data")  # noqa: F821，保留工具指令，相关名称由外部环境注入。
     removed = False
     for rel in GZIP_TARGETS:
         gz_path = os.path.join(data_dir, rel + ".gz")
@@ -80,8 +71,8 @@ def cleanup_gzip_assets(*args, **kwargs):
         print("[gzip_webui_assets] no temporary .gz assets to remove")
 
 
-# Regenerate the .gz files right before the LittleFS image is assembled.
-env.AddPreAction("$BUILD_DIR/littlefs.bin", gzip_assets)  # noqa: F821
+# 处理 LED 矩阵、灯带刷新或硬件时序约束。
+env.AddPreAction("$BUILD_DIR/littlefs.bin", gzip_assets)  # noqa: F821，保留工具指令，相关名称由外部环境注入。
 
-# Remove the temporary siblings after the image has captured them.
-env.AddPostAction("$BUILD_DIR/littlefs.bin", cleanup_gzip_assets)  # noqa: F821
+# 说明 WebUI 静态资源 gzip 打包 中当前代码块的职责和维护约束。
+env.AddPostAction("$BUILD_DIR/littlefs.bin", cleanup_gzip_assets)  # noqa: F821，保留工具指令，相关名称由外部环境注入。

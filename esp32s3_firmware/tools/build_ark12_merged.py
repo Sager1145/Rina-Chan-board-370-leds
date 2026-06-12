@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# 本脚本合并 Ark Pixel BDF 字体并生成固件/WebUI 可读 JSON；必要 English 参数名保持和 CLI/API 一致。
 """
 Build a merged Ark Pixel 12px monospaced bitmap JSON for RinaChanBoard.
 
@@ -23,9 +24,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-EXPECTED_OFFICIAL_ARK12_MONO_COUNT = 24408  # Ark Pixel 12px monospaced v2026.05.07 public release count.
+EXPECTED_OFFICIAL_ARK12_MONO_COUNT = 24408  # 说明字体、字形、Unicode 范围或 Web font 资源处理。
 
 @dataclass
+# 中文块：BdfGlyph 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 class BdfGlyph:
     codepoint: int
     dwidth_x: int
@@ -37,10 +39,11 @@ class BdfGlyph:
     rows: List[str]
     source: str
 
+    # 中文块：to_rina_entry 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
     def to_rina_entry(self, ascent: int = 10) -> List[object]:
-        # Compact glyph tuple used by data/index.html:
-        # [advance, width, height, xOffset, yOffset, dstY, rowsHex]
-        # dstY converts BDF baseline-relative BBX yOffset into top-down LED row coordinates.
+        # 说明字体、字形、Unicode 范围或 Web font 资源处理。
+        # 说明 Ark12 字体合并 中当前代码块的职责和维护约束。
+        # 处理 LED 矩阵、灯带刷新或硬件时序约束。
         dst_y = int(ascent) - int(self.bbx_yoff) - int(self.bbx_h)
         return [
             self.dwidth_x,
@@ -53,6 +56,7 @@ class BdfGlyph:
         ]
 
 
+# 中文块：_normalize_bitmap_row 负责规范化数据格式，保证输出与固件/WebUI 约定一致。
 def _normalize_bitmap_row(raw_hex: str, width: int) -> str:
     """Convert a BDF row to the compact row format used by ark12.json.
 
@@ -76,6 +80,7 @@ def _normalize_bitmap_row(raw_hex: str, width: int) -> str:
     return f"{int(bits, 2):0{nibbles}X}"
 
 
+# 中文块：parse_bdf 负责解析输入数据，并转换成后续步骤可使用的结构。
 def parse_bdf(path: Path, source_label: str) -> Dict[int, BdfGlyph]:
     glyphs: Dict[int, BdfGlyph] = {}
     lines = path.read_text(encoding="latin-1", errors="replace").splitlines()
@@ -83,7 +88,7 @@ def parse_bdf(path: Path, source_label: str) -> Dict[int, BdfGlyph]:
     while i < len(lines):
         line = lines[i].strip()
         if line != "STARTCHAR":
-            # Some BDFs use STARTCHAR <name> on one line.
+            # 说明 Ark12 字体合并 中当前代码块的职责和维护约束。
             if not line.startswith("STARTCHAR"):
                 i += 1
                 continue
@@ -113,7 +118,7 @@ def parse_bdf(path: Path, source_label: str) -> Dict[int, BdfGlyph]:
                 parts = s.split()
                 if len(parts) >= 5:
                     try:
-                        bbx = tuple(int(p) for p in parts[1:5])  # type: ignore[assignment]
+                        bbx = tuple(int(p) for p in parts[1:5])  # 说明 Ark12 字体合并 中当前代码块的职责和维护约束。
                     except ValueError:
                         bbx = None
             elif s == "BITMAP":
@@ -144,10 +149,11 @@ def parse_bdf(path: Path, source_label: str) -> Dict[int, BdfGlyph]:
     return glyphs
 
 
+# 中文块：查找 find_bdf_for_language 相关逻辑，是脚本流程中的独立处理单元。
 def find_bdf_for_language(bdf_root: Path, language: str) -> Optional[Path]:
     language = language.lower()
     candidates = sorted(bdf_root.rglob("*.bdf"))
-    # Prefer exact language token match in the filename.
+    # 说明 Ark12 字体合并 中当前代码块的职责和维护约束。
     patterns = [
         re.compile(rf"(^|[-_]){re.escape(language)}($|[-_.])", re.IGNORECASE),
         re.compile(re.escape(language), re.IGNORECASE),
@@ -155,7 +161,7 @@ def find_bdf_for_language(bdf_root: Path, language: str) -> Optional[Path]:
     for pat in patterns:
         matched = [p for p in candidates if pat.search(p.name)]
         if matched:
-            # Prefer monospaced 12px path/name if the archive contains multiple styles.
+            # 说明 Ark12 字体合并 中当前代码块的职责和维护约束。
             matched.sort(key=lambda p: (
                 0 if "monospaced" in str(p).lower() else 1,
                 0 if "12" in str(p).lower() else 1,
@@ -166,6 +172,7 @@ def find_bdf_for_language(bdf_root: Path, language: str) -> Optional[Path]:
     return None
 
 
+# 中文块：merge_sources 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def merge_sources(source_files: List[Tuple[str, Path]]) -> Tuple[Dict[int, BdfGlyph], Dict[str, object]]:
     merged: Dict[int, BdfGlyph] = {}
     stats = {
@@ -188,10 +195,12 @@ def merge_sources(source_files: List[Tuple[str, Path]]) -> Tuple[Dict[int, BdfGl
     return merged, stats
 
 
+# 中文块：hex_key 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def hex_key(cp: int) -> str:
     return f"{cp:04X}" if cp <= 0xFFFF else f"{cp:X}"
 
 
+# 中文块：写入 write_output_json 相关逻辑，是脚本流程中的独立处理单元。
 def write_output_json(merged: Dict[int, BdfGlyph], out_path: Path, stats: Dict[str, object], release_version: str) -> None:
     ascent = 10
     glyph_items = {hex_key(cp): merged[cp].to_rina_entry(ascent=ascent) for cp in sorted(merged)}
@@ -216,6 +225,7 @@ def write_output_json(merged: Dict[int, BdfGlyph], out_path: Path, stats: Dict[s
     out_path.write_text(json.dumps(metadata, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 
+# 中文块：validate_json 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def validate_json(path: Path, sample_text: str, strict_sample: bool = False) -> int:
     data = json.loads(path.read_text(encoding="utf-8"))
     glyphs = data.get("glyphs", {})
@@ -246,6 +256,7 @@ def validate_json(path: Path, sample_text: str, strict_sample: bool = False) -> 
     return 0
 
 
+# 中文块：main 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--bdf-root", required=True, help="Folder containing extracted Ark Pixel 12px monospaced BDF files.")

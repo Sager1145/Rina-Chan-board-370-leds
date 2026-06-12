@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# 本脚本从 PNG 字形表构建 WebUI 使用的 Unifont 子集；必要 English 参数名保持和 CLI/API 一致。
 """
 Build and embed the small offline GNU Unifont WebUI WOFF2 subset from an
 official GNU Unifont BMP PNG glyph sheet.
@@ -31,7 +32,7 @@ try:
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.ttGlyphPen import TTGlyphPen
     from fontTools.ttLib import TTFont
-except Exception as exc:  # pragma: no cover - user-facing dependency error
+except Exception as exc:  # pragma: no cover - user-facing dependency error，保留测试覆盖率工具指令。
     print(
         "[unifont-build] Missing Python dependency. Install with: "
         "python -m pip install --user pillow fonttools brotli",
@@ -51,7 +52,7 @@ DEFAULT_TEXT_FILES = [
     ROOT / "data/resources/battery_calib.json",
 ]
 
-# GNU Unifont PNG layout for the BMP sheet published by GNU/Unifoundry.
+# 说明字体、字形、Unicode 范围或 Web font 资源处理。
 XOFF = 32
 YOFF = 64
 CELL = 16
@@ -62,16 +63,16 @@ ASCENT = 14
 DESCENT = -2
 BMP_MAX = 0xFFFF
 
-# These codepoints intentionally have no ink but still need valid cmap entries
-# when they are used by the page.
+# 说明字体、字形、Unicode 范围或 Web font 资源处理。
+# 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
 INTENTIONAL_BLANKS = {
-    0x0020,  # space
-    0x00A0,  # no-break space
-    0x3000,  # ideographic space
+    0x0020,  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    0x00A0,  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    0x3000,  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
 }
 
-# Variation selectors only make sense together with emoji/presentation fonts.
-# They are not useful in this embedded monochrome WebUI subset.
+# 说明字体、字形、Unicode 范围或 Web font 资源处理。
+# 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
 VARIATION_SELECTOR_RANGES = (
     range(0xFE00, 0xFE10),
 )
@@ -88,36 +89,40 @@ UNIFONT_FACE_DATA_RE = re.compile(
 )
 
 
+# 中文块：add_range 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def add_range(codepoints: Set[int], start: int, end: int) -> None:
     codepoints.update(range(start, end + 1))
 
 
+# 中文块：is_variation_selector 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def is_variation_selector(cp: int) -> bool:
     return any(cp in r for r in VARIATION_SELECTOR_RANGES)
 
 
+# 中文块：strip_embedded_font_payloads 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def strip_embedded_font_payloads(text: str) -> str:
     return FONT_DATA_URL_RE.sub("data:font/woff2;base64,", text)
 
 
+# 中文块：collect_raw_codepoints 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def collect_raw_codepoints(text_files: Iterable[Path]) -> Set[int]:
     codepoints: Set[int] = set()
 
-    # Stable UI/basic coverage. These keep ordinary controls, numbers,
-    # punctuation and common Japanese/CJK punctuation available even when a
-    # future label is added before the subset is regenerated.
-    add_range(codepoints, 0x0020, 0x007E)  # ASCII
-    add_range(codepoints, 0x00A0, 0x00FF)  # Latin-1 punctuation/symbols
-    add_range(codepoints, 0x2000, 0x206F)  # General punctuation
-    add_range(codepoints, 0x2100, 0x214F)  # Letterlike symbols
-    add_range(codepoints, 0x2190, 0x21FF)  # Arrows
-    add_range(codepoints, 0x25A0, 0x25FF)  # Geometric shapes
-    add_range(codepoints, 0x2700, 0x27BF)  # Dingbats used by text buttons
-    add_range(codepoints, 0x3000, 0x303F)  # CJK punctuation
-    add_range(codepoints, 0x3040, 0x309F)  # Hiragana
-    add_range(codepoints, 0x30A0, 0x30FF)  # Katakana
-    add_range(codepoints, 0x31F0, 0x31FF)  # Katakana phonetic extensions
-    add_range(codepoints, 0xFF00, 0xFFEF)  # Fullwidth forms
+    # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    add_range(codepoints, 0x0020, 0x007E)  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    add_range(codepoints, 0x00A0, 0x00FF)  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    add_range(codepoints, 0x2000, 0x206F)  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    add_range(codepoints, 0x2100, 0x214F)  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    add_range(codepoints, 0x2190, 0x21FF)  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    add_range(codepoints, 0x25A0, 0x25FF)  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    add_range(codepoints, 0x2700, 0x27BF)  # 说明 GPIO 按钮、组合键或本地 overlay 反馈。
+    add_range(codepoints, 0x3000, 0x303F)  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    add_range(codepoints, 0x3040, 0x309F)  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    add_range(codepoints, 0x30A0, 0x30FF)  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    add_range(codepoints, 0x31F0, 0x31FF)  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    add_range(codepoints, 0xFF00, 0xFFEF)  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
 
     for p in text_files:
         if not p.exists():
@@ -133,12 +138,14 @@ def collect_raw_codepoints(text_files: Iterable[Path]) -> Set[int]:
     return codepoints
 
 
+# 中文块：glyph_pixel_bounds 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def glyph_pixel_bounds(cp: int) -> tuple[int, int]:
     row = cp // COLS
     col = cp % COLS
     return XOFF + col * CELL, YOFF + row * CELL
 
 
+# 中文块：glyph_runs 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def glyph_runs(px, cp: int):
     x0, y0 = glyph_pixel_bounds(cp)
     runs = []
@@ -161,6 +168,7 @@ def glyph_runs(px, cp: int):
     return runs, max_x, ink
 
 
+# 中文块：is_available_from_png 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def is_available_from_png(px, cp: int) -> bool:
     if cp < 0 or cp > BMP_MAX:
         return False
@@ -174,10 +182,11 @@ def is_available_from_png(px, cp: int) -> bool:
         return True
     if cp in INTENTIONAL_BLANKS:
         return True
-    # Keep Unicode separator spaces blank if present in actual WebUI text.
+    # 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
     return unicodedata.category(chr(cp)).startswith("Z")
 
 
+# 中文块：filter_codepoints_for_png 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def filter_codepoints_for_png(px, raw: Set[int]) -> tuple[Set[int], Set[int]]:
     supported: Set[int] = set()
     skipped: Set[int] = set()
@@ -189,27 +198,30 @@ def filter_codepoints_for_png(px, raw: Set[int]) -> tuple[Set[int], Set[int]]:
     return supported, skipped
 
 
+# 中文块：is_zero_advance_codepoint 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def is_zero_advance_codepoint(cp: int) -> bool:
-    # Unicode format controls should not create visible spacing if a future
-    # WebUI string accidentally contains one. They are still skipped unless the
-    # GNU Unifont PNG actually provides a usable glyph for them.
+    # 说明字体、字形、Unicode 范围或 Web font 资源处理。
+    # 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    # 说明字体、字形、Unicode 范围或 Web font 资源处理。
     return unicodedata.category(chr(cp)) == "Cf"
 
 
+# 中文块：is_fullwidth_codepoint 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def is_fullwidth_codepoint(cp: int) -> bool:
     ch = chr(cp)
     if unicodedata.east_asian_width(ch) in {"F", "W"}:
         return True
-    # These ranges are always intended to occupy one 16 px grid cell in the
-    # WebUI font even if a particular glyph's ink stays in the left/right half.
+    # 说明界面布局、组件状态或响应式规则。
+    # 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
     return (
-        0x3040 <= cp <= 0x30FF  # Hiragana + Katakana
-        or 0x31F0 <= cp <= 0x31FF  # Katakana phonetic extensions
-        or 0x3400 <= cp <= 0x9FFF  # CJK Unified Ideographs + Extension A
-        or 0xF900 <= cp <= 0xFAFF  # CJK Compatibility Ideographs
+        0x3040 <= cp <= 0x30FF  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+        or 0x31F0 <= cp <= 0x31FF  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+        or 0x3400 <= cp <= 0x9FFF  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+        or 0xF900 <= cp <= 0xFAFF  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
     )
 
 
+# 中文块：glyph_advance_width 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def glyph_advance_width(cp: int, max_x: int) -> int:
     if is_zero_advance_codepoint(cp):
         return 0
@@ -218,6 +230,7 @@ def glyph_advance_width(cp: int, max_x: int) -> int:
     return 16 if max_x >= 8 else 8
 
 
+# 中文块：make_glyph 负责生成目标数据或资源文件。
 def make_glyph(px, cp=None):
     pen = TTGlyphPen(None)
     if cp is None:
@@ -225,20 +238,21 @@ def make_glyph(px, cp=None):
     runs, max_x, _ink = glyph_runs(px, cp)
     min_x = min((x1 for x1, _y1, _x2, _y2 in runs), default=0)
     for x1, y1, x2, y2 in runs:
-        # Convert image top-left coordinates to TrueType y-up coordinates.
+        # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
         pen.moveTo((x1, UPM - y1))
         pen.lineTo((x2, UPM - y1))
         pen.lineTo((x2, UPM - y2))
         pen.lineTo((x1, UPM - y2))
         pen.closePath()
     width = glyph_advance_width(cp, max_x)
-    # Keep hmtx left side bearings consistent with the outline xMin. Mismatched
-    # LSB values can make browser rasterizers place glyphs unevenly even when
-    # advance widths are correct.
+    # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
+    # 说明字体、字形、Unicode 范围或 Web font 资源处理。
+    # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
     lsb = min_x if width > 0 else 0
     return pen.glyph(), width, lsb
 
 
+# 中文块：cmap_codepoints 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def cmap_codepoints(font_path: Path) -> Set[int]:
     font = TTFont(str(font_path))
     found: Set[int] = set()
@@ -247,6 +261,7 @@ def cmap_codepoints(font_path: Path) -> Set[int]:
     return found
 
 
+# 中文块：format_codepoints 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def format_codepoints(codepoints: Sequence[int], limit: int = 40) -> str:
     shown = []
     for cp in list(codepoints)[:limit]:
@@ -261,6 +276,7 @@ def format_codepoints(codepoints: Sequence[int], limit: int = 40) -> str:
     return "; ".join(shown)
 
 
+# 中文块：make_embedded_unifont_face 负责生成目标数据或资源文件。
 def make_embedded_unifont_face(font_path: Path) -> str:
     encoded = base64.b64encode(font_path.read_bytes()).decode("ascii")
     return (
@@ -270,6 +286,7 @@ def make_embedded_unifont_face(font_path: Path) -> str:
     )
 
 
+# 中文块：embedded_unifont_bytes_from_html 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def embedded_unifont_bytes_from_html(html: str) -> bytes:
     match = UNIFONT_FACE_DATA_RE.search(html)
     if not match:
@@ -277,6 +294,7 @@ def embedded_unifont_bytes_from_html(html: str) -> bytes:
     return base64.b64decode(match.group(1))
 
 
+# 中文块：embed_font_in_index 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def embed_font_in_index(index_path: Path, font_path: Path) -> None:
     html = index_path.read_text(encoding="utf-8")
     face = make_embedded_unifont_face(font_path)
@@ -302,6 +320,7 @@ def embed_font_in_index(index_path: Path, font_path: Path) -> None:
     print(f"[unifont-build] embedded {font_path.name} into {index_path}")
 
 
+# 中文块：build_subset 负责构建最终输出，并串联必要的验证步骤。
 def build_subset(
     png_path: Path,
     out_path: Path,
@@ -374,7 +393,7 @@ def build_subset(
 
     font = fb.font
     font["head"].macStyle = 0
-    font["OS/2"].fsSelection = 0x40  # regular
+    font["OS/2"].fsSelection = 0x40  # 说明 Unifont 子集构建 中当前代码块的职责和维护约束。
     font.flavor = "woff2"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     font.save(str(out_path))
@@ -389,7 +408,7 @@ def build_subset(
 
     if embed_index is not None:
         embed_font_in_index(embed_index, out_path)
-        # Verify that the embedded font can be decoded and has the same cmap.
+        # 说明字体、字形、Unicode 范围或 Web font 资源处理。
         html = embed_index.read_text(encoding="utf-8")
         probe = out_path.with_suffix(".embedded-check.woff2")
         try:
@@ -411,6 +430,7 @@ def build_subset(
         )
 
 
+# 中文块：main 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--png", required=True, help="Path to official GNU Unifont BMP PNG sheet.")

@@ -8,14 +8,18 @@
 #include "psram_json.h"
 #include <LittleFS.h>
 
+
+// 本文件挂载 LittleFS 并读写设置、保存表情和静态资源；注释保留必要 English identifier，便于和代码/API 对照。
 // ---------------------------------------------------------------------------
-// Filesystem mount
+// 说明 LittleFS 文件系统、静态资源或 gzip 打包流程。
+// 文件系统挂载（Filesystem mount） 相关代码，维护 挂载 LittleFS 并读写设置、保存表情和静态资源。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Mount LittleFS and publish the filesystem availability flag.
- * @param None.
- * @return true when LittleFS mounted successfully.
+ * 挂载 mountFilesystem 相关逻辑，供 storage 模块使用。
+ * @brief 说明 LittleFS 存储和资源读写 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool mountFilesystem() {
     runtimeFsMounted() = LittleFS.begin(false, LITTLEFS_BASE_PATH, 10, LITTLEFS_PARTITION_LABEL);
@@ -26,9 +30,10 @@ bool mountFilesystem() {
 }
 
 /**
- * @brief Ensure the resources directory exists before JSON writes.
- * @param None.
- * @return true when /resources already exists or was created.
+ * 确保 ensureResourcesDirectory 相关逻辑，供 storage 模块使用。
+ * @brief 说明 LittleFS 存储和资源读写 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool ensureResourcesDirectory() {
     if (!runtimeFsMounted()) return false;
@@ -40,12 +45,13 @@ static bool ensureResourcesDirectory() {
 }
 
 /**
- * @brief Write JSON through a temp file and atomically rename it into place.
- * @param path Destination LittleFS path.
- * @param document JSON variant to serialize.
- * @param written Receives serialized byte count.
- * @param error Receives failure text.
- * @return true when the temp file was serialized and renamed.
+ * 写入 writeJsonFileAtomic 相关逻辑，供 storage 模块使用。
+ * @brief 说明 LittleFS 存储和资源读写 中当前函数或声明的用途。
+ * @param path 调用方传入或接收的参数，含义以函数签名为准。
+ * @param document 调用方传入或接收的参数，含义以函数签名为准。
+ * @param written 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written, String& error) {
     written = 0;
@@ -58,8 +64,8 @@ bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written
 
     File file;
     withHardwareBusLock([&]() {
-        // Remove stale temp output first so a failed previous write cannot be
-        // mistaken for the current transaction.
+        // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+        // 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
         LittleFS.remove(tempPath);
         file = LittleFS.open(tempPath, "w");
     });
@@ -71,9 +77,9 @@ bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written
 
     bool renamed = false;
     withHardwareBusLock([&]() {
-        // Serialization, flush, close, and rename share the hardware bus with
-        // LED transmit.  Keeping the whole commit under one bus lock prevents
-        // another file operation from seeing the temp file mid-write.
+        // 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
+        // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+        // 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
         written = serializeJson(document, file);
         file.flush();
         file.close();
@@ -89,13 +95,15 @@ bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written
 }
 
 // ---------------------------------------------------------------------------
-// Runtime settings
+// 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
+// 运行时设置（Runtime settings） 相关代码，维护 挂载 LittleFS 并读写设置、保存表情和静态资源。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Persist runtime mode and auto interval to LittleFS.
- * @param None.
- * @return true when settings were written.
+ * 保存、设置 saveRuntimeSettings 相关逻辑，供 storage 模块使用。
+ * @brief 说明 LittleFS 存储和资源读写 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool saveRuntimeSettings() {
     if (!runtimeFsMounted()) return false;
@@ -123,9 +131,10 @@ bool saveRuntimeSettings() {
 }
 
 /**
- * @brief Load runtime settings and apply them to playback state.
- * @param None.
- * @return true when settings existed, parsed, and were applied.
+ * 加载、设置 loadRuntimeSettings 相关逻辑，供 storage 模块使用。
+ * @brief 说明 LittleFS 存储和资源读写 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool loadRuntimeSettings() {
     if (!runtimeFsMounted()) return false;
@@ -173,13 +182,15 @@ bool loadRuntimeSettings() {
 }
 
 // ---------------------------------------------------------------------------
-// Saved faces -- validate
+// 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
+// 已保存表情（Saved faces）—— 校验 相关代码，维护 挂载 LittleFS 并读写设置、保存表情和静态资源。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Detect legacy invalid default face IDs such as face_0.
- * @param id Saved-face ID string.
- * @return true when the ID uses a default face number below one.
+ * 围绕 defaultFaceIdNumberIsInvalid 处理本模块的核心流程，供 storage 模块使用。
+ * @brief 说明 LittleFS 存储和资源读写 中当前函数或声明的用途。
+ * @param id 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool defaultFaceIdNumberIsInvalid(const char* id) {
     if (id == nullptr || strncmp(id, "face_", 5) != 0) return false;
@@ -194,10 +205,11 @@ static bool defaultFaceIdNumberIsInvalid(const char* id) {
 }
 
 /**
- * @brief Validate the saved-faces JSON contract before accepting a write.
- * @param document Parsed saved-faces document.
- * @param error Receives validation failure text.
- * @return true when the document preserves required face invariants.
+ * 保存 validateSavedFaces 相关逻辑，供 storage 模块使用。
+ * @brief 说明 LittleFS 存储和资源读写 中当前函数或声明的用途。
+ * @param document 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool validateSavedFaces(JsonVariant document, String& error) {
     const char* category = document["category"] | "";
@@ -214,9 +226,9 @@ bool validateSavedFaces(JsonVariant document, String& error) {
 
     uint16_t defaultCount = 0;
     for (JsonObject face : faces) {
-        // Validate each persisted face through the same M370 codec used by the
-        // renderer.  Storage therefore cannot save a frame the renderer would
-        // later reject during startup or face navigation.
+        // 处理 M370 帧、队列、校验或状态同步。
+        // 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
+        // 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
         const char* type = face["type"] | "";
         const char* id   = face["id"] | "";
         const char* m370 = face["m370"] | "";
@@ -248,14 +260,16 @@ bool validateSavedFaces(JsonVariant document, String& error) {
 }
 
 // ---------------------------------------------------------------------------
-// Saved faces -- write
+// 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
+// 已保存表情（Saved faces）—— 写入 相关代码，维护 挂载 LittleFS 并读写设置、保存表情和静态资源。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Write a validated saved-faces document to LittleFS.
- * @param document Parsed JSON document or nested document field.
- * @param error Receives failure text.
- * @return Number of bytes written, or 0 on failure.
+ * 写入、保存 writeSavedFaces 相关逻辑，供 storage 模块使用。
+ * @brief 说明 LittleFS 存储和资源读写 中当前函数或声明的用途。
+ * @param document 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 size_t writeSavedFaces(JsonVariant document, String& error) {
     if (!runtimeFsMounted()) {
@@ -277,13 +291,15 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
 }
 
 // ---------------------------------------------------------------------------
-// Saved faces -- load into runtimeAutoFaces()[]
+// 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
+// 已保存表情（Saved faces）—— 载入到 runtimeAutoFaces()[] 相关代码，维护 挂载 LittleFS 并读写设置、保存表情和静态资源。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Lazily load saved faces when a playback path needs them.
- * @param None.
- * @return true when at least one valid face is available.
+ * 确保、保存、加载 ensureSavedFacesLoaded 相关逻辑，供 storage 模块使用。
+ * @brief 说明 LittleFS 存储和资源读写 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool ensureSavedFacesLoaded() {
     if (runtimeAutoFaceCount() > 0) return true;
@@ -291,9 +307,10 @@ bool ensureSavedFacesLoaded() {
 }
 
 /**
- * @brief Load saved_faces.json into the runtime face table.
- * @param applyStartupFace true to apply the selected startup/default face.
- * @return true when at least one valid face was loaded.
+ * 加载、保存 loadSavedFaces 相关逻辑，供 storage 模块使用。
+ * @brief 说明 LittleFS 存储和资源读写 中当前函数或声明的用途。
+ * @param applyStartupFace 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool loadSavedFaces(bool applyStartupFace) {
     if (!runtimeFsMounted()) {
@@ -349,9 +366,9 @@ bool loadSavedFaces(bool applyStartupFace) {
     uint16_t jsonIndex = 0;
 
     for (JsonObject face : faces) {
-        // Runtime playback keeps only normalized strings and small metadata.
-        // The full JSON remains in LittleFS and is streamed by the WebUI route
-        // when editing is needed.
+        // 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
+        // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+        // 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
         const char* m370 = face["m370"] | "";
         String normalized, error;
         if (!normalizeM370(m370, normalized, error)) {
@@ -380,8 +397,8 @@ bool loadSavedFaces(bool applyStartupFace) {
         return false;
     }
 
-    // Stable-sort by (order, jsonIndex) so the WebUI storage order and firmware
-    // B1/B2 navigation agree even when two faces share the same order value.
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 说明 GPIO 按钮、组合键或本地 overlay 反馈。
     for (uint16_t i = 0; i < runtimeAutoFaceCount(); ++i) {
         for (uint16_t j = i + 1; j < runtimeAutoFaceCount(); ++j) {
             const bool shouldSwap =
@@ -396,8 +413,8 @@ bool loadSavedFaces(bool applyStartupFace) {
         }
     }
 
-    // Preserve current face across reloads when possible; otherwise choose the
-    // startup default for boot or the first default face as a safe fallback.
+    // 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
+    // 说明 LittleFS 存储和资源读写 中当前代码块的职责和维护约束。
     int selectedIndex     = -1;
     int firstDefaultIndex = -1;
     for (uint16_t i = 0; i < runtimeAutoFaceCount(); ++i) {

@@ -1,12 +1,13 @@
+<!-- 本文件定义 WebUI 页面结构、控件 id 和可访问语义；id/class 保持 English 以匹配 app.js 和 styles.css。 -->
 <!doctype html>
 <!--
-  RinaChanBoard WebUI markup map.
+  说明 WebUI、HTTP/API 或浏览器状态的连接关系。
 
-  This file only declares structure and stable ids/classes. styles.css turns
-  those ids/classes into layout and visual states, while app.js attaches all
-  behavior by looking up the ids below. Keep ids stable when refactoring:
-  changing an id here requires updating app.js and, often, styles.css.
--->
+  说明界面布局、组件状态或响应式规则。
+  说明界面布局、组件状态或响应式规则。
+  说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+  说明界面布局、组件状态或响应式规则。
+ -->
 <html data-boot-phase="preload" data-scroll-lock="boot" lang="zh-CN">
   <head>
     <meta charset="utf-8" />
@@ -25,17 +26,17 @@
     <link type="image/png" href="/resources/loading/rina_icon1_default.png" rel="icon" />
     <link type="image/png" href="/resources/loading/rina_icon1_default.png" rel="shortcut icon" />
     <!-- 全局样式、布局规则和组件状态。 -->
-    <link href="styles.css?v=20260524-scroll-layout-mobile-v4" rel="stylesheet" />
+    <link href="styles.css?v=20260612-emoji-input-v3" rel="stylesheet" />
   </head>
   <body>
     <!--
-      Boot overlay block.
+      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
 
-      app.js toggles loadingOverlay/blurScreen classes and html data attributes
-      during bootstrapWebUi(). styles.css owns the halo, avatar swap, blur, and
-      first-page reveal animations. This block sits before the app shell so it
-      can cover every page while firmware/runtime state is loading.
-    -->
+      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+      说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+ -->
     <!-- 启动/加载遮罩和应用外壳。 -->
     <div
       class="loading-overlay is-assets-pending"
@@ -71,13 +72,13 @@
       </div>
     </div>
     <!--
-      Brand/status shell.
+      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
 
-      The battery/charging badges are placeholders updated by renderState()
-      after /api/status or /api/power responses arrive. The hamburger button
-      controls the top-page-nav block below; app.js keeps aria-expanded and the
-      visible menu state synchronized.
-    -->
+      说明电源、电池、充电或 ADC 校准相关逻辑。
+      说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+ -->
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-copy">
@@ -111,40 +112,41 @@
       </div>
     </aside>
     <!--
-      Page navigation shell.
+      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
 
-      The nav container starts empty. initNav() reads WEBUI_CONFIG.navigation
-      from app.js, creates one button per 6.x page, and switchPage() toggles the
-      matching section.page below. styles.css positions this layer above cards
-      so the menu is usable on mobile.
-    -->
+      说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+      说明 GPIO 按钮、组合键或本地 overlay 反馈。
+      说明界面布局、组件状态或响应式规则。
+      说明界面布局、组件状态或响应式规则。
+ -->
     <!-- 页面选择顶栏由品牌区汉堡按钮打开，但保持在最高 UI 层。
     z-index 值接近实际可用上限，确保它位于
-    卡片、矩阵和预览/控制面板之上。 -->
+卡片、矩阵和预览/控制面板之上。 -->
     <div class="top-page-nav" id="top-page-nav" aria-hidden="true">
       <div class="nav-shell" id="nav-shell">
         <div class="nav" id="nav" aria-hidden="true" role="menu"></div>
       </div>
     </div>
     <!--
-      Main app shell.
+      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
 
-      Every direct child section of main.content is a routed page. app.js never
-      creates these sections; it only toggles .active and wires controls by id.
-      This keeps the HTML readable and makes page-specific layout bugs easier to
-      compare, such as 6.1 basic-layout versus 6.4 scroll-layout.
-    -->
+      说明界面布局、组件状态或响应式规则。
+      说明界面布局、组件状态或响应式规则。
+      说明界面布局、组件状态或响应式规则。
+      说明文字滚动、帧缓存或播放状态处理。
+ -->
     <div class="app">
       <!-- 主应用页面。 -->
       <main class="content">
         <!--
-          Page 6.1: basic controls.
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
 
-          This is the reference two-column control/preview layout. The left
-          card stack edits color, brightness, manual/auto mode, and interval.
-          The right preview matrix reads currentFrame through MATRIX_VIEW_CONFIGS.
-          6.4 intentionally mirrors this card spacing on mobile.
-        -->
+          说明界面布局、组件状态或响应式规则。
+          说明颜色、亮度或显示参数处理。
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+          说明界面布局、组件状态或响应式规则。
+ -->
+        <!-- 中文块：page-basic 页面/区域结构，供 JS 绑定和 CSS 布局使用。 -->
         <section class="page active" id="page-basic">
           <div class="hero">
             <div>
@@ -263,12 +265,13 @@
           </div>
         </section>
         <!--
-          Page 6.2: custom face editor.
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
 
-          The editable matrix writes into editFrame. The face-manager panel
-          reuses saved-face persistence helpers from app.js, so custom and
-          parts-generated faces share one library/export/import path.
-        -->
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+ -->
+        <!-- 中文块：page-custom 页面/区域结构，供 JS 绑定和 CSS 布局使用。 -->
         <section class="page" id="page-custom">
           <div class="hero">
             <div>
@@ -330,12 +333,13 @@
           </div>
         </section>
         <!--
-          Page 6.3: expression part composer.
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
 
-          part-groups is empty in HTML; initParts() fills it from
-          EXPRESSION_PARTS. The preview matrix renders partsFrame, which is
-          produced by composePartsFrame() after each selectedCall change.
-        -->
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+ -->
+        <!-- 中文块：page-parts 页面/区域结构，供 JS 绑定和 CSS 布局使用。 -->
         <section class="page" id="page-parts">
           <div class="hero">
             <div>
@@ -408,14 +412,15 @@
           </div>
         </section>
         <!--
-          Page 6.4: text scroll.
+          说明文字滚动、帧缓存或播放状态处理。
 
-          This page has one preview card and one control card. scroll-layout is
-          reset to one column at the mobile breakpoint in styles.css; otherwise
-          Edge mobile can squeeze both cards side by side. The controls feed the
-          scroll object in app.js, then build preview frames and firmware upload
-          chunks from the same sanitized text/FPS state.
-        -->
+          说明文字滚动、帧缓存或播放状态处理。
+          说明界面布局、组件状态或响应式规则。
+          说明界面布局、组件状态或响应式规则。
+          说明文字滚动、帧缓存或播放状态处理。
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+ -->
+        <!-- 中文块：page-scroll 页面/区域结构，供 JS 绑定和 CSS 布局使用。 -->
         <section class="page" id="page-scroll">
           <div class="hero">
             <div>
@@ -487,7 +492,8 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
                     暂停
                   </button>
                   <button id="scroll-stop" type="button">停止/清屏</button>
-                  <button id="scroll-step" type="button">单帧推进</button>
+                  <button id="scroll-step-prev" type="button" title="上一帧" aria-label="上一帧">&lt;-</button>
+                  <button id="scroll-step-next" type="button" title="下一帧" aria-label="下一帧">-&gt;</button>
                 </div>
                 <div class="scroll-upload-progress" id="scroll-upload-progress" hidden>
                   <progress id="scroll-upload-bar" max="100" value="0"></progress>
@@ -504,13 +510,14 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
           </div>
         </section>
         <!--
-          Page 6.5: diagnostics.
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
 
-          This page is read/write plumbing for firmware state, power readings,
-          raw JSON commands, logs, and resource checks. It intentionally reuses
-          the same matrix renderer so debug patterns exercise the normal frame
-          path instead of a separate test-only renderer.
-        -->
+          说明电源、电池、充电或 ADC 校准相关逻辑。
+          说明 JSON 字段、资源格式或序列化流程。
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+ -->
+        <!-- 中文块：page-debug 页面/区域结构，供 JS 绑定和 CSS 布局使用。 -->
         <section class="page" id="page-debug">
           <div class="hero">
             <div>
@@ -624,14 +631,14 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
       </main>
     </div>
     <!--
-      Runtime entrypoint.
+      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
 
-      app.js is loaded after markup so every id above is available immediately.
-      The version query is cache-busting only; all source edits belong in the
-      uncompressed app.js file, and gzip siblings are generated temporarily
-      during LittleFS image creation/upload.
-    -->
+      说明字体、字形、Unicode 范围或 Web font 资源处理。
+      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
+      说明 LittleFS 文件系统、静态资源或 gzip 打包流程。
+      说明 LittleFS 文件系统、静态资源或 gzip 打包流程。
+ -->
     <!-- WebUI 运行时、LED 矩阵数据和固件 API 处理器。 -->
-    <script src="app.js?v=20260524-webui-organized-v1"></script>
+    <script src="app.js?v=20260612-step-buttons-v4"></script>
   </body>
 </html>

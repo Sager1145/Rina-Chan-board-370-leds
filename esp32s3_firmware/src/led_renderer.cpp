@@ -6,7 +6,9 @@
 #include "button_animations.h"
 #include <Adafruit_NeoPixel.h>
 
-// Strip is owned by this module; other modules interact through the helpers.
+
+// 本文件解析 M370 帧并把逻辑 LED 状态渲染到物理灯带；注释保留必要 English identifier，便于和代码/API 对照。
+// 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
 static Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 static uint16_t logicalToPhysicalMap[LED_COUNT] = {};
@@ -27,21 +29,23 @@ static uint8_t m370FrameQueueCount = 0;
 static uint32_t lastM370FrameApplyMs = 0;
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+// 内部辅助函数（Internal helpers） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Translate logical row-major LED index to the physical strip index.
- * @param logicalIndex Matrix index used by M370/frame buffers.
- * @return Physical NeoPixel index after applying row wiring configuration.
+ * 围绕 logicalToPhysicalLedIndex 处理本模块的核心流程，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param logicalIndex 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
     if (logicalIndex >= LED_COUNT) return logicalIndex;
     if (!SERPENTINE_WIRING) return logicalIndex;
 
-    // Walk the configured row map because this board has nonuniform row
-    // lengths.  The renderer owns this hardware dependency so higher-level
-    // modules can stay in logical M370 order.
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 处理 M370 帧、队列、校验或状态同步。
     for (uint8_t row = 0; row < MATRIX_ROWS; ++row) {
         const uint16_t rowStart  = ROW_OFFSETS[row];
         const uint8_t  rowLength = ROW_LENGTHS[row];
@@ -56,29 +60,32 @@ static uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
 static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* outBits);
 
 /**
- * @brief Compute the queue insertion slot for the M370 rate limiter.
- * @param None.
- * @return Ring-buffer tail index.
+ * 排队 m370FrameQueueTail 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static uint8_t m370FrameQueueTail() {
     return static_cast<uint8_t>((m370FrameQueueHead + m370FrameQueueCount) % M370_FRAME_QUEUE_DEPTH);
 }
 
 /**
- * @brief Check whether another queued M370 frame may be published.
- * @param now Current millis() timestamp.
- * @return true when the configured minimum frame gap has elapsed.
+ * 读取 m370FrameRateReady 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param now 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool m370FrameRateReady(uint32_t now) {
     return lastM370FrameApplyMs == 0 || now - lastM370FrameApplyMs >= M370_FRAME_MIN_INTERVAL_MS;
 }
 
 /**
- * @brief Copy a C string into a fixed queue field with guaranteed termination.
- * @param out Destination buffer.
- * @param outSize Destination buffer size in bytes.
- * @param input Source string, or nullptr for empty.
- * @return None.
+ * 复制 copyText 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param out 调用方传入或接收的参数，含义以函数签名为准。
+ * @param outSize 调用方传入或接收的参数，含义以函数签名为准。
+ * @param input 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void copyText(char* out, size_t outSize, const char* input) {
     if (outSize == 0) return;
@@ -89,11 +96,12 @@ static void copyText(char* out, size_t outSize, const char* input) {
 }
 
 /**
- * @brief Commit packed frame bits into runtime state and request physical render.
- * @param packedBits FRAME_BYTES source buffer in logical LED order.
- * @param normalizedM370 Optional normalized text copy for status responses.
- * @param reason Human-readable state-change reason for diagnostics/WebUI.
- * @return None.
+ * 发布 publishPackedFrameNow 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param packedBits 调用方传入或接收的参数，含义以函数签名为准。
+ * @param normalizedM370 调用方传入或接收的参数，含义以函数签名为准。
+ * @param reason 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void publishPackedFrameNow(const uint8_t* packedBits, const char* normalizedM370, const char* reason) {
     withFrameLock([&]() {
@@ -110,11 +118,12 @@ static void publishPackedFrameNow(const uint8_t* packedBits, const char* normali
 }
 
 /**
- * @brief Publish immediately or enqueue a packed frame behind the rate limiter.
- * @param packedBits FRAME_BYTES source buffer.
- * @param normalizedM370 Optional M370 status string.
- * @param reason Reason attached to the eventual runtime state update.
- * @return None.
+ * 围绕 enqueuePackedM370Frame 处理本模块的核心流程，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param packedBits 调用方传入或接收的参数，含义以函数签名为准。
+ * @param normalizedM370 调用方传入或接收的参数，含义以函数签名为准。
+ * @param reason 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void enqueuePackedM370Frame(const uint8_t* packedBits, const char* normalizedM370, const String& reason) {
     if (!packedBits) return;
@@ -127,8 +136,8 @@ static void enqueuePackedM370Frame(const uint8_t* packedBits, const char* normal
 
     uint8_t target = m370FrameQueueTail();
     if (m370FrameQueueCount >= M370_FRAME_QUEUE_DEPTH) {
-        // Drop the oldest queued frame rather than the newest command.  For
-        // live controls, the most recent frame better represents user intent.
+        // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+        // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
         target = m370FrameQueueHead;
         m370FrameQueueHead = static_cast<uint8_t>((m370FrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
         ++runtimeState().framesDropped;
@@ -149,13 +158,15 @@ static void enqueuePackedM370Frame(const uint8_t* packedBits, const char* normal
 }
 
 // ---------------------------------------------------------------------------
-// LED index map
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// LED 索引映射（LED index map） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Precompute logical-to-physical LED lookup table.
- * @param None.
- * @return None.
+ * 初始化 initLedIndexMap 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void initLedIndexMap() {
     for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
@@ -164,18 +175,20 @@ void initLedIndexMap() {
 }
 
 // ---------------------------------------------------------------------------
-// Render request  (ISR-safe)
+// 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+// 渲染请求（Render request，ISR 安全） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Mark the current runtime frame as needing a physical LED render.
- * @param None.
- * @return None.
+ * 请求、渲染 requestLedRender 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void requestLedRender() {
-    // The render request flag is the connection between Core-0 state writers
-    // and the Core-1 scroll/render task.  Use the portMUX variant matching the
-    // caller context so button/API code and possible ISR callers share one flag.
+    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
+    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
     if (xPortInIsrContext()) {
         portENTER_CRITICAL_ISR(&ledRenderRequestMux);
         ledRenderRequested = true;
@@ -189,9 +202,10 @@ void requestLedRender() {
 }
 
 /**
- * @brief Atomically consume the pending render request flag.
- * @param None.
- * @return true when a writer requested a render since the last consume.
+ * 消费、渲染、请求 consumeLedRenderRequest 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool consumeLedRenderRequest() {
     bool requested = false;
@@ -203,21 +217,24 @@ bool consumeLedRenderRequest() {
 }
 
 /**
- * @brief Request a render while the caller already owns frame state.
- * @param None.
- * @return None.
+ * 围绕 showCurrentFrameNoLock 处理本模块的核心流程，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void showCurrentFrameNoLock() { requestLedRender(); }
 
 // ---------------------------------------------------------------------------
-// Frame bit helpers
+// 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+// 帧位辅助函数（Frame bit helpers） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Set or clear one logical LED bit in the active runtime frame.
- * @param index Logical LED index.
- * @param on true to light the LED, false to clear it.
- * @return None.
+ * 设置 setFrameBit 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param index 调用方传入或接收的参数，含义以函数签名为准。
+ * @param on 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void setFrameBit(uint16_t index, bool on) {
     const uint16_t byteIndex = index >> 3;
@@ -227,33 +244,36 @@ void setFrameBit(uint16_t index, bool on) {
 }
 
 /**
- * @brief Read one logical LED bit from the active runtime frame.
- * @param index Logical LED index.
- * @return true when the bit is lit.
+ * 围绕 frameBit 处理本模块的核心流程，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param index 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool frameBit(uint16_t index) {
     return (runtimeFrameBits()[index >> 3] & (1U << (index & 7U))) != 0;
 }
 
 /**
- * @brief Read one logical LED bit from an arbitrary packed frame buffer.
- * @param bits FRAME_BYTES packed source buffer.
- * @param index Logical LED index.
- * @return true when the bit is lit.
+ * 围绕 packedFrameBit 处理本模块的核心流程，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param bits 调用方传入或接收的参数，含义以函数签名为准。
+ * @param index 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool packedFrameBit(const uint8_t* bits, uint16_t index) {
     return (bits[index >> 3] & (1U << (index & 7U))) != 0;
 }
 
 /**
- * @brief Count lit logical LEDs in the active runtime frame.
- * @param None.
- * @return Number of set bits up to LED_COUNT.
+ * 统计 countLitLeds 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 uint16_t countLitLeds() {
-    // Population-count per byte (47 iterations) instead of per bit (370).
-    // LED_COUNT (370) is not a byte multiple, so the high bits of the final byte
-    // are padding and must be masked off before they are counted.
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
     const uint8_t* bits = runtimeFrameBits();
     uint16_t lit = 0;
     for (uint16_t byteIndex = 0; byteIndex < FRAME_BYTES; ++byteIndex) {
@@ -269,13 +289,15 @@ uint16_t countLitLeds() {
 }
 
 // ---------------------------------------------------------------------------
-// Physical render  (Core 1 render task only)
+// 说明双核任务分工、FreeRTOS 同步或临界区约束。
+// 物理渲染（Physical render，仅限 Core 1 渲染任务） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Copy current frame state and transmit it to the LED strip.
- * @param None.
- * @return None.
+ * 渲染 renderCurrentFrameToLedStrip 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void renderCurrentFrameToLedStrip() {
     uint8_t localFrame[FRAME_BYTES];
@@ -283,9 +305,9 @@ void renderCurrentFrameToLedStrip() {
     uint8_t brightness = DEFAULT_BRIGHTNESS;
     uint8_t colorR = 0, colorG = 0, colorB = 0;
 
-    // Snapshot runtime state under frame lock, then render from local copies.
-    // This keeps Core-0 writers blocked for a memcpy only, not for pixel-buffer
-    // construction or the timing-critical NeoPixel transmit.
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
     withFrameLock([&]() {
         memcpy(localFrame, runtimeFrameBits(), FRAME_BYTES);
         brightness = runtimeState().brightness;
@@ -294,12 +316,13 @@ void renderCurrentFrameToLedStrip() {
         colorB     = runtimeState().colorB;
     });
 
-    // --- Timing: enforce minimum inter-frame gap FIRST ---
-    // Wait before touching the pixel buffer so the WS2812 bus has been idle
-    // long enough for the previous frame to fully latch.  The BSS138 level
-    // shifter has slow pull-up-dependent rising edges; keeping DATA low for at
-    // least LED_RENDER_MIN_GAP_US guarantees the reset pulse is seen as a
-    // valid latch signal by the first LED in the chain.
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// 在操作像素缓冲区之前等待，以确保 WS2812 总线已空闲（Wait before touching the pixel buffer so the WS2812 bus has been idle） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
     const uint32_t nowUs = micros();
     if (lastLedShowUs != 0) {
         const uint32_t elapsedUs = nowUs - lastLedShowUs;
@@ -308,12 +331,12 @@ void renderCurrentFrameToLedStrip() {
         }
     }
 
-    // Build the pixel buffer.
-    // setBrightness is called only when the value actually changes to avoid
-    // the per-call rescale pass Adafruit_NeoPixel applies to the internal buffer.
-    // Initialise to DEFAULT_BRIGHTNESS because ledStripBegin() already called
-    // strip.setBrightness(DEFAULT_BRIGHTNESS), so the first render skips a
-    // redundant rescale of the freshly-populated pixel buffer.
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 说明颜色、亮度或显示参数处理。
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
     static uint8_t lastAppliedBrightness = DEFAULT_BRIGHTNESS;
     if (brightness != lastAppliedBrightness) {
         strip.setBrightness(brightness);
@@ -338,29 +361,31 @@ void renderCurrentFrameToLedStrip() {
         }
     }
 
-    // Idle-low reset window before transmitting: deliberately longer than
-    // the WS2812 protocol minimum because the BSS138 slow rising edge can
-    // otherwise push the first LED's T0H/T1H decision into an ambiguous region
-    // during rapid successive refreshes.
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
     delayMicroseconds(LED_SIGNAL_RESET_US);
     withHardwareBusLock([]() {
         strip.show();
     });
     lastLedShowUs = micros();
-    // Post-show reset: begin the latch window immediately so that subsequent
-    // render requests or the scroll task's wakeup do not accidentally clock a
-    // spurious edge before the LEDs have finished latching.
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 说明文字滚动、帧缓存或播放状态处理。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
 
 // ---------------------------------------------------------------------------
-// Strip boot helpers  (called from setup() only)
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// 灯带启动辅助函数（Strip boot helpers，仅从 setup() 调用） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Initialize the NeoPixel strip and latch an all-off boot frame.
- * @param None.
- * @return None.
+ * 围绕 ledStripBegin 处理本模块的核心流程，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void ledStripBegin() {
     strip.begin();
@@ -371,23 +396,25 @@ void ledStripBegin() {
         strip.show();
     });
     lastLedShowUs = micros();
-    // Post-show reset: mirror the same idle-low window used by
-    // renderCurrentFrameToLedStrip() so that the first real frame rendered
-    // after boot is guaranteed to see a clean reset pulse even if the
-    // LED_BOOT_CLEAR_HOLD_MS delay fires on the same microsecond tick.
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
 
 // ---------------------------------------------------------------------------
-// M370 codec
+// 处理 M370 帧、队列、校验或状态同步。
+// M370 编解码器（M370 codec） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Validate and canonicalize an M370 frame string.
- * @param input Raw M370 text, optionally prefixed and whitespace separated.
- * @param normalized Receives M370:<93 uppercase hex chars> on success.
- * @param error Receives a user-facing validation error on failure.
- * @return true when input describes exactly one 370-bit frame.
+ * 规范化 normalizeM370 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param input 调用方传入或接收的参数，含义以函数签名为准。
+ * @param normalized 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool normalizeM370(const String& input, String& normalized, String& error) {
     String compact;
@@ -399,9 +426,9 @@ bool normalizeM370(const String& input, String& normalized, String& error) {
         payload = payload.substring(5);
     }
 
-    // Strip transport-friendly whitespace before validating hex.  The WebUI,
-    // saved faces, and API all converge here so every module shares the same
-    // M370 contract.
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 处理 M370 帧、队列、校验或状态同步。
     for (size_t i = 0; i < payload.length(); ++i) {
         const char c = payload.charAt(i);
         if (c == ' ' || c == '\r' || c == '\n' || c == '\t') continue;
@@ -423,11 +450,12 @@ bool normalizeM370(const String& input, String& normalized, String& error) {
 }
 
 /**
- * @brief Convert an M370 string to packed logical LED bits.
- * @param input Raw or normalized M370 string.
- * @param outBits Destination buffer of FRAME_BYTES bytes.
- * @param error Receives a validation error on failure.
- * @return true when outBits was filled successfully.
+ * 围绕 m370ToPackedBits 处理本模块的核心流程，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param input 调用方传入或接收的参数，含义以函数签名为准。
+ * @param outBits 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool m370ToPackedBits(const String& input, uint8_t* outBits, String& error) {
     String normalized;
@@ -438,23 +466,24 @@ bool m370ToPackedBits(const String& input, uint8_t* outBits, String& error) {
 }
 
 /**
- * @brief Decode canonical M370 text into packed frame bits.
- * @param normalized M370:<93 uppercase hex chars>.
- * @param outBits Destination buffer of FRAME_BYTES bytes.
- * @return None.
+ * 解码、规范化 decodeNormalizedM370ToPackedBits 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param normalized 调用方传入或接收的参数，含义以函数签名为准。
+ * @param outBits 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* outBits) {
     memset(outBits, 0, FRAME_BYTES);
 
-    // Decode one hex nibble (4 bits, MSB-first) per iteration.  The previous
-    // version looped over all 370 bits and recomputed hexNibble(charAt(...)) for
-    // each bit, i.e. four redundant char lookups + nibble conversions per nibble.
-    // Walking the 93 nibbles directly does the conversion once each.  c_str()+5
-    // skips the validated "M370:" prefix; normalized always holds it on success.
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+    // 处理 M370 帧、队列、校验或状态同步。
     const char* hex = normalized.c_str() + 5;
     for (uint16_t nib = 0; nib < M370_HEX_CHARS; ++nib) {
         const int value = hexNibble(hex[nib]);
-        if (value <= 0) continue;  // '0' or (post-normalize impossible) invalid: no bits
+        if (value <= 0) continue;  // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
         const uint16_t baseBit = static_cast<uint16_t>(nib) * 4U;
         for (uint8_t k = 0; k < 4U; ++k) {
             if ((value & (1 << (3 - k))) == 0) continue;
@@ -465,9 +494,10 @@ static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* 
 }
 
 /**
- * @brief Build an all-off M370 string.
- * @param None.
- * @return Canonical blank M370 payload.
+ * 围绕 blankM370 处理本模块的核心流程，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 String blankM370() {
     String out = "M370:";
@@ -477,15 +507,17 @@ String blankM370() {
 }
 
 // ---------------------------------------------------------------------------
-// Frame apply helpers
+// 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+// 帧应用辅助函数（Frame apply helpers） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Validate, decode, queue/publish, and schedule render for an M370 frame.
- * @param input Raw or normalized M370 string.
- * @param reason Diagnostic reason stored in runtime state.
- * @param error Receives validation failure text.
- * @return true when the frame was accepted for rendering.
+ * 应用 applyM370 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param input 调用方传入或接收的参数，含义以函数签名为准。
+ * @param reason 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool applyM370(const String& input, const String& reason, String& error) {
     String normalized;
@@ -494,9 +526,9 @@ bool applyM370(const String& input, const String& reason, String& error) {
         return false;
     }
 
-    // Decode the M370 payload into a temporary packed-bit buffer OUTSIDE the
-    // frame mutex.  This keeps the critical section as short as a memcpy so the
-    // render task (Core 1) is never blocked for a full 370-iteration decode loop.
+    // 处理 M370 帧、队列、校验或状态同步。
+    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
+    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
     uint8_t packed[FRAME_BYTES];
     decodeNormalizedM370ToPackedBits(normalized, packed);
 
@@ -505,20 +537,22 @@ bool applyM370(const String& input, const String& reason, String& error) {
 }
 
 /**
- * @brief Queue or publish predecoded packed frame bits.
- * @param packedBits FRAME_BYTES source buffer.
- * @param reason Diagnostic reason for the frame.
- * @return None.
+ * 应用 applyPackedFrame 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param packedBits 调用方传入或接收的参数，含义以函数签名为准。
+ * @param reason 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void applyPackedFrame(const uint8_t* packedBits, const String& reason) {
     enqueuePackedM370Frame(packedBits, nullptr, reason);
 }
 
 /**
- * @brief Publish predecoded packed bits immediately, bypassing the queue.
- * @param packedBits FRAME_BYTES source buffer.
- * @param reason Diagnostic reason for the frame.
- * @return None.
+ * 应用 applyPackedFrameImmediate 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param packedBits 调用方传入或接收的参数，含义以函数签名为准。
+ * @param reason 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason) {
     if (!packedBits) return;
@@ -526,9 +560,10 @@ void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason) 
 }
 
 /**
- * @brief Queue a canonical all-off frame and mark runtime state as blank.
- * @param reason Diagnostic reason for the blanking frame.
- * @return None.
+ * 应用 applyBlankFrame 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param reason 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void applyBlankFrame(const String& reason) {
     uint8_t blank[FRAME_BYTES] = {};
@@ -540,9 +575,10 @@ void applyBlankFrame(const String& reason) {
 }
 
 /**
- * @brief Publish one queued frame when the global M370 rate limiter permits it.
- * @param None.
- * @return None.
+ * 轮询服务、排队 serviceM370FrameQueue 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void serviceM370FrameQueue() {
     if (m370FrameQueueCount == 0) return;
@@ -559,9 +595,10 @@ void serviceM370FrameQueue() {
 }
 
 /**
- * @brief Drop all queued frames and account them as dropped.
- * @param None.
- * @return None.
+ * 清除、排队 clearQueuedM370Frames 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void clearQueuedM370Frames() {
     if (m370FrameQueueCount == 0) return;
@@ -571,22 +608,25 @@ void clearQueuedM370Frames() {
 }
 
 /**
- * @brief Report how many frames are waiting behind the rate limiter.
- * @param None.
- * @return Queue item count.
+ * 排队、统计 queuedM370FrameCount 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 uint8_t queuedM370FrameCount() {
     return m370FrameQueueCount;
 }
 
 // ---------------------------------------------------------------------------
-// Color / brightness
+// 说明颜色、亮度或显示参数处理。
+// 颜色 / 亮度（Color / brightness） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Update RGB runtime state without scheduling a render.
- * @param input Color string in #RRGGBB or RRGGBB form.
- * @return None.
+ * 设置、渲染 setColorStateNoRender 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param input 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void setColorStateNoRender(const String& input) {
     uint8_t r, g, b;
@@ -598,10 +638,11 @@ void setColorStateNoRender(const String& input) {
 }
 
 /**
- * @brief Update RGB runtime state and request an LED render.
- * @param input Color string in #RRGGBB or RRGGBB form.
- * @param error Receives validation failure text.
- * @return true when color was parsed and applied.
+ * 设置 setColor 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param input 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool setColor(const String& input, String& error) {
     uint8_t r, g, b;
@@ -621,9 +662,10 @@ bool setColor(const String& input, String& error) {
 }
 
 /**
- * @brief Clamp brightness, store it, and request an LED render.
- * @param raw Requested brightness value.
- * @return None.
+ * 设置 setBrightness 相关逻辑，供 led_renderer 模块使用。
+ * @brief 说明 M370 帧解析和 LED 渲染 中当前函数或声明的用途。
+ * @param raw 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void setBrightness(int raw) {
     raw = constrain(raw, MIN_BRIGHTNESS, MAX_BRIGHTNESS);

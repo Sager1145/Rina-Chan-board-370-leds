@@ -1,9 +1,12 @@
 #include "utils.h"
 
+
+// 本文件提供小型字符串、数值和颜色辅助函数；注释保留必要 English identifier，便于和代码/API 对照。
 /**
- * @brief Convert a hex character into its numeric nibble value.
- * @param c Character to parse.
- * @return 0-15 for valid hex, or -1 for invalid input.
+ * 围绕 hexNibble 处理本模块的核心流程，供 utils 模块使用。
+ * @brief 说明 通用辅助函数 中当前函数或声明的用途。
+ * @param c 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 int hexNibble(char c) {
     if (c >= '0' && c <= '9') return c - '0';
@@ -13,9 +16,10 @@ int hexNibble(char c) {
 }
 
 /**
- * @brief Estimate ArduinoJson capacity for a source JSON document.
- * @param sourceBytes Source file/body size.
- * @return Conservative capacity with a 32 KB floor.
+ * 围绕 jsonCapacityFor 处理本模块的核心流程，供 utils 模块使用。
+ * @brief 说明 通用辅助函数 中当前函数或声明的用途。
+ * @param sourceBytes 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 size_t jsonCapacityFor(size_t sourceBytes) {
     const size_t estimated = sourceBytes * 2 + 4096;
@@ -23,26 +27,27 @@ size_t jsonCapacityFor(size_t sourceBytes) {
 }
 
 /**
- * @brief Parse #RRGGBB/RRGGBB text into RGB bytes.
- * @param input Raw color string.
- * @param r Receives red channel.
- * @param g Receives green channel.
- * @param b Receives blue channel.
- * @return true when input was valid six-digit hex.
+ * 解析 parseColorHex 相关逻辑，供 utils 模块使用。
+ * @brief 说明 通用辅助函数 中当前函数或声明的用途。
+ * @param input 调用方传入或接收的参数，含义以函数签名为准。
+ * @param r 调用方传入或接收的参数，含义以函数签名为准。
+ * @param g 调用方传入或接收的参数，含义以函数签名为准。
+ * @param b 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool parseColorHex(const String& input, uint8_t& r, uint8_t& g, uint8_t& b) {
     String value = input;
     value.trim();
 
-    // Accept an optional leading '#' by offsetting into the trimmed string
-    // instead of allocating a substring copy.
+    // 说明 通用辅助函数 中当前代码块的职责和维护约束。
+    // 说明 通用辅助函数 中当前代码块的职责和维护约束。
     const size_t offset = (value.length() > 0 && value.charAt(0) == '#') ? 1 : 0;
     if (value.length() - offset != 6) return false;
 
-    // Validate and decode the six nibbles in one pass.  hexNibble() already
-    // accepts upper- and lower-case, so the previous toLowerCase() copy and the
-    // three substring()/strtoul() temporaries (all heap String allocations on a
-    // memory-constrained target) are no longer needed.
+    // 说明 通用辅助函数 中当前代码块的职责和维护约束。
+    // 说明 通用辅助函数 中当前代码块的职责和维护约束。
+    // 说明 通用辅助函数 中当前代码块的职责和维护约束。
+    // 说明 通用辅助函数 中当前代码块的职责和维护约束。
     int nibbles[6];
     for (size_t i = 0; i < 6; ++i) {
         nibbles[i] = hexNibble(value.charAt(offset + i));
@@ -56,11 +61,12 @@ bool parseColorHex(const String& input, uint8_t& r, uint8_t& g, uint8_t& b) {
 }
 
 /**
- * @brief Format RGB bytes as lowercase #rrggbb.
- * @param r Red channel.
- * @param g Green channel.
- * @param b Blue channel.
- * @return Canonical color string.
+ * 围绕 formatColorHex 处理本模块的核心流程，供 utils 模块使用。
+ * @brief 说明 通用辅助函数 中当前函数或声明的用途。
+ * @param r 调用方传入或接收的参数，含义以函数签名为准。
+ * @param g 调用方传入或接收的参数，含义以函数签名为准。
+ * @param b 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 String formatColorHex(uint8_t r, uint8_t g, uint8_t b) {
     char buf[8];

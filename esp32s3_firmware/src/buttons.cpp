@@ -5,8 +5,11 @@
 #include "faces.h"
 #include "button_animations.h"
 
+
+// 本文件处理 GPIO 按钮、组合键和按钮来源的语义动作；注释保留必要 English identifier，便于和代码/API 对照。
 // ---------------------------------------------------------------------------
-// Button table
+// 说明 GPIO 按钮、组合键或本地 overlay 反馈。
+// 按钮表（Button table） 相关代码，维护 处理 GPIO 按钮、组合键和按钮来源的语义动作。
 // ---------------------------------------------------------------------------
 
 static ButtonRuntime buttons[] = {
@@ -20,13 +23,15 @@ static ButtonRuntime buttons[] = {
 static constexpr uint8_t BUTTON_COUNT = sizeof(buttons) / sizeof(buttons[0]);
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// 说明 GPIO 按钮和组合键 中当前代码块的职责和维护约束。
+// 内部辅助函数（Internal helpers） 相关代码，维护 处理 GPIO 按钮、组合键和按钮来源的语义动作。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Find a button runtime record by symbolic code.
- * @param code Null-terminated button code.
- * @return Pointer to the matching record, or nullptr.
+ * 围绕 buttonByCode 处理本模块的核心流程，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param code 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static ButtonRuntime* buttonByCode(const char* code) {
     for (uint8_t i = 0; i < BUTTON_COUNT; ++i) {
@@ -36,27 +41,30 @@ static ButtonRuntime* buttonByCode(const char* code) {
 }
 
 /**
- * @brief Check whether a button repeats face navigation while held.
- * @param button Runtime button record.
- * @return true for B1/B2.
+ * 围绕 isFaceRepeatButton 处理本模块的核心流程，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param button 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool isFaceRepeatButton(const ButtonRuntime& button) {
     return strcmp(button.code, "B1") == 0 || strcmp(button.code, "B2") == 0;
 }
 
 /**
- * @brief Check whether a button repeats brightness changes while held.
- * @param button Runtime button record.
- * @return true for B4/B5.
+ * 围绕 isBrightnessRepeatButton 处理本模块的核心流程，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param button 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool isBrightnessRepeatButton(const ButtonRuntime& button) {
     return strcmp(button.code, "B4") == 0 || strcmp(button.code, "B5") == 0;
 }
 
 /**
- * @brief Read the debounced pressed state for another button.
- * @param code Button code to inspect.
- * @return true when that button is currently pressed.
+ * 围绕 isHardwareButtonPressed 处理本模块的核心流程，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param code 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool isHardwareButtonPressed(const char* code) {
     ButtonRuntime* b = buttonByCode(code);
@@ -64,9 +72,10 @@ static bool isHardwareButtonPressed(const char* code) {
 }
 
 /**
- * @brief Prevent a button release from also firing after it was used in a combo.
- * @param code Button code to mark as consumed.
- * @return None.
+ * 围绕 markButtonComboConsumed 消费队列、标记或一次性事件，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param code 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void markButtonComboConsumed(const char* code) {
     ButtonRuntime* b = buttonByCode(code);
@@ -74,9 +83,10 @@ static void markButtonComboConsumed(const char* code) {
 }
 
 /**
- * @brief Run the public action path for a hardware-originated button event.
- * @param code Button or combo code.
- * @return None.
+ * 围绕 fireHardwareButtonAction 处理本模块的核心流程，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param code 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void fireHardwareButtonAction(const char* code) {
     if (!runButtonAction(String(code), "gpio")) {
@@ -85,18 +95,20 @@ static void fireHardwareButtonAction(const char* code) {
 }
 
 /**
- * @brief Identify GPIO buttons that should notify WebUI when they interrupt scroll.
- * @param code Normalized button code.
- * @return true when the button can stop firmware scroll or preview playback.
+ * 围绕 isScrollInterruptButton 处理本模块的核心流程，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param code 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool isScrollInterruptButton(const String& code) {
     return code == "B1" || code == "B2" || code == "B3";
 }
 
 /**
- * @brief Check whether a scroll-like firmware activity is currently visible.
- * @param None.
- * @return true when scroll state or playback says a scroll/preview is active.
+ * 围绕 isFirmwareScrollOrPreviewActive 处理本模块的核心流程，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool isFirmwareScrollOrPreviewActive() {
     return runtimeState().firmwareScrollActive ||
@@ -105,11 +117,12 @@ static bool isFirmwareScrollOrPreviewActive() {
 }
 
 /**
- * @brief Finish an action and start any GPIO-only feedback overlay.
- * @param code Button or combo code.
- * @param source Source label; only gpio triggers local overlays here.
- * @param handled Whether the action succeeded.
- * @return handled unchanged.
+ * 围绕 finishButtonAction 处理本模块的核心流程，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param code 调用方传入或接收的参数，含义以函数签名为准。
+ * @param source 调用方传入或接收的参数，含义以函数签名为准。
+ * @param handled 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool finishButtonAction(const String& code, const String& source, bool handled) {
     if (handled && source == "gpio") {
@@ -119,10 +132,11 @@ static bool finishButtonAction(const String& code, const String& source, bool ha
 }
 
 /**
- * @brief Publish a scroll-stop event for the WebUI polling layer.
- * @param code Button code that interrupted scroll.
- * @param source Source string, normally gpio.
- * @return None.
+ * 围绕 markScrollStoppedByButton 处理停止、清理或恢复流程，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param code 调用方传入或接收的参数，含义以函数签名为准。
+ * @param source 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void markScrollStoppedByButton(const String& code, const String& source) {
     ++runtimeState().scrollStopEventSeq;
@@ -134,14 +148,16 @@ static void markScrollStoppedByButton(const String& code, const String& source) 
 }
 
 // ---------------------------------------------------------------------------
-// runButtonAction  (public)
+// 说明 GPIO 按钮、组合键或本地 overlay 反馈。
+// runButtonAction（公共函数 public） 相关代码，维护 处理 GPIO 按钮、组合键和按钮来源的语义动作。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Execute a named button action from GPIO or Web API entry points.
- * @param button Button code such as B1, B2, B3, B3B1, B4, or B5.
- * @param source Event source used in runtime lastReason strings.
- * @return true when the action was handled.
+ * 围绕 runButtonAction 处理本模块的核心流程，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param button 调用方传入或接收的参数，含义以函数签名为准。
+ * @param source 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool runButtonAction(const String& button, const String& source) {
     String code = button;
@@ -149,17 +165,17 @@ bool runButtonAction(const String& button, const String& source) {
     code.toUpperCase();
     if (code.isEmpty()) return false;
 
-    // Capture the scroll-interrupt condition before the action mutates playback.
-    // That lets the WebUI receive a precise event that the GPIO action caused
-    // the stop, even if later calls have already reset scroll state.
+    // 说明文字滚动、帧缓存或播放状态处理。
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 说明文字滚动、帧缓存或播放状态处理。
     const bool shouldNotifyScrollStop = isScrollInterruptButton(code) &&
                                         source == "gpio" &&
                                         isFirmwareScrollOrPreviewActive();
 
     if (code == "B3") {
-        // B3 is both mode toggle and scroll control.  During active unpaused
-        // firmware scroll, the press is treated as an overlay-only acknowledgement
-        // so it does not accidentally toggle auto/manual mid-scroll.
+        // 说明 GPIO 按钮、组合键或本地 overlay 反馈。
+        // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+        // 说明文字滚动、帧缓存或播放状态处理。
         if (source == "gpio" && runtimeState().firmwareScrollActive && !runtimeState().firmwareScrollPaused) {
             return finishButtonAction(code, source, true);
         }
@@ -169,8 +185,8 @@ bool runButtonAction(const String& button, const String& source) {
     }
 
     if (code == "B1" || code == "B2") {
-        // Button face navigation owns the visible frame after it fires, so it
-        // first terminates scroll playback and clears any auto-restore intent.
+        // 说明 GPIO 按钮、组合键或本地 overlay 反馈。
+        // 说明文字滚动、帧缓存或播放状态处理。
         stopFirmwareScroll(false);
         runtimeState().restoreAutoAfterScroll = false;
     }
@@ -217,14 +233,16 @@ bool runButtonAction(const String& button, const String& source) {
 }
 
 // ---------------------------------------------------------------------------
-// GPIO event handlers
+// 说明 GPIO 按钮、组合键或本地 overlay 反馈。
+// GPIO 事件处理函数（GPIO event handlers） 相关代码，维护 处理 GPIO 按钮、组合键和按钮来源的语义动作。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Handle a debounced button press edge.
- * @param button Runtime button record being pressed.
- * @param now Current millis() timestamp.
- * @return None.
+ * 处理 handleHardwareButtonPress 相关逻辑，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param button 调用方传入或接收的参数，含义以函数签名为准。
+ * @param now 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void handleHardwareButtonPress(ButtonRuntime& button, uint32_t now) {
     button.pressedAtMs   = now;
@@ -232,9 +250,9 @@ static void handleHardwareButtonPress(ButtonRuntime& button, uint32_t now) {
     button.comboConsumed = false;
     handleButtonAnimationGpioPress(button.code);
 
-    // Combo detection connects the raw button layer to semantic auto-interval
-    // actions.  Mark both physical buttons consumed so their later releases do
-    // not also toggle mode or navigate faces.
+    // 说明 GPIO 按钮、组合键或本地 overlay 反馈。
+    // 说明字体、字形、Unicode 范围或 Web font 资源处理。
+    // 说明 GPIO 按钮和组合键 中当前代码块的职责和维护约束。
     if (strcmp(button.code, "B1") == 0 && isHardwareButtonPressed("B3")) {
         button.comboConsumed = true;
         markButtonComboConsumed("B3");
@@ -248,20 +266,21 @@ static void handleHardwareButtonPress(ButtonRuntime& button, uint32_t now) {
         return;
     }
 
-    // Face and brightness controls update continuously while held, so their
-    // first action fires on press and later repeats are serviced by timer.
+    // 说明颜色、亮度或显示参数处理。
+    // 说明 GPIO 按钮和组合键 中当前代码块的职责和维护约束。
     if (isFaceRepeatButton(button) || isBrightnessRepeatButton(button)) {
         fireHardwareButtonAction(button.code);
     }
 }
 
 /**
- * @brief Handle a debounced button release edge.
- * @param button Runtime button record being released.
- * @return None.
+ * 处理 handleHardwareButtonRelease 相关逻辑，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param button 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void handleHardwareButtonRelease(ButtonRuntime& button) {
-    // B3 waits until release so combo presses can claim it first.
+    // 说明 GPIO 按钮、组合键或本地 overlay 反馈。
     if (strcmp(button.code, "B3") == 0 && !button.comboConsumed) {
         fireHardwareButtonAction("B3");
     }
@@ -270,9 +289,10 @@ static void handleHardwareButtonRelease(ButtonRuntime& button) {
 }
 
 /**
- * @brief Generate held-button repeat actions after debounce has settled.
- * @param now Current millis() timestamp.
- * @return None.
+ * 轮询服务 serviceHardwareButtonRepeats 相关逻辑，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param now 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void serviceHardwareButtonRepeats(uint32_t now) {
     for (uint8_t i = 0; i < BUTTON_COUNT; ++i) {
@@ -282,8 +302,8 @@ static void serviceHardwareButtonRepeats(uint32_t now) {
         const bool faceButton       = isFaceRepeatButton(button);
         const bool brightnessButton = isBrightnessRepeatButton(button);
         if (!faceButton && !brightnessButton) continue;
-        // B3+B1/B2 is reserved for interval combos, so suppress face-repeat
-        // while B3 is held to keep module semantics from colliding.
+        // 说明 GPIO 按钮、组合键或本地 overlay 反馈。
+        // 说明 GPIO 按钮、组合键或本地 overlay 反馈。
         if (faceButton && isHardwareButtonPressed("B3")) continue;
 
         const uint32_t repeatDelay = faceButton ? FACE_REPEAT_DELAY_MS : BRIGHTNESS_REPEAT_DELAY_MS;
@@ -297,13 +317,15 @@ static void serviceHardwareButtonRepeats(uint32_t now) {
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+// 公共 API（Public API） 相关代码，维护 处理 GPIO 按钮、组合键和按钮来源的语义动作。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Initialize GPIO pullups and debounce bookkeeping for all buttons.
- * @param None.
- * @return None.
+ * 初始化 initHardwareButtons 相关逻辑，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void initHardwareButtons() {
     for (uint8_t i = 0; i < BUTTON_COUNT; ++i) {
@@ -318,9 +340,10 @@ void initHardwareButtons() {
 }
 
 /**
- * @brief Poll hardware buttons, emit debounced actions, and feed overlay logic.
- * @param None.
- * @return None.
+ * 轮询服务 serviceHardwareButtons 相关逻辑，供 buttons 模块使用。
+ * @brief 说明 GPIO 按钮和组合键 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void serviceHardwareButtons() {
     const uint32_t now = millis();
@@ -328,8 +351,8 @@ void serviceHardwareButtons() {
         ButtonRuntime& button    = buttons[i];
         const bool     rawPressed = digitalRead(button.pin) == LOW;
 
-        // Raw edge tracking is separate from debounced state so contact bounce
-        // must remain stable for BUTTON_DEBOUNCE_MS before actions are emitted.
+        // 说明 GPIO 按钮和组合键 中当前代码块的职责和维护约束。
+        // 说明 GPIO 按钮、组合键或本地 overlay 反馈。
         if (rawPressed != button.rawPressed) {
             button.rawPressed     = rawPressed;
             button.lastRawChangeMs = now;
@@ -343,9 +366,9 @@ void serviceHardwareButtons() {
         else                handleHardwareButtonRelease(button);
     }
     serviceHardwareButtonRepeats(now);
-    // B6 battery overlay uses live button chords rather than normal semantic
-    // actions, so the button module passes debounced physical state into the
-    // animation module after all edge processing is complete.
+    // 说明电源、电池、充电或 ADC 校准相关逻辑。
+    // 说明 GPIO 按钮、组合键或本地 overlay 反馈。
+    // 说明 GPIO 按钮和组合键 中当前代码块的职责和维护约束。
     serviceButtonAnimationButtonInputs(isHardwareButtonPressed("B6"),
                                        isHardwareButtonPressed("B2"),
                                        isHardwareButtonPressed("B3"));

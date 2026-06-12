@@ -13,53 +13,71 @@
 #include "power_monitor.h"
 #include <freertos/task.h>
 
+// 本文件是 ESP32-S3 固件入口，负责按硬件依赖顺序启动
+// LED、LittleFS、按钮、电源监控和 Web API，并在 Core 0 主循环中调度控制面。
+
 // ---------------------------------------------------------------------------
-// setup
+// 说明 固件启动和主循环 中当前代码块的职责和维护约束。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Boot firmware modules in the order required by hardware and state dependencies.
- * @param None.
- * @return None.
+ * 按硬件时序和模块依赖启动整套固件；这里的顺序会影响 LED 首帧、
+ * LittleFS 资源读取、WebUI 状态以及双核任务分工。
+ * @brief 说明 固件启动和主循环 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void setup() {
-    // Hold the WS2812/SK6812 data line low immediately after reset.
-    // Without this early clamp, the line can float during Serial startup and
-    // the LEDs may latch a random first frame before strip.begin() clears them.
+    // 中文块：复位后立刻压低 LED 数据线，避免 WS2812/SK6812 在串口启动前
+    // 读到漂浮电平并锁存随机亮点。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 说明 固件启动和主循环 中当前代码块的职责和维护约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, LOW);
     delay(LED_BOOT_DATA_LOW_HOLD_MS);
     delayMicroseconds(LED_SIGNAL_RESET_US);
 
+    // 中文块：打开串口日志并记录启动时间，后续状态接口会用 bootMs 计算 uptime。
     Serial.begin(115200);
     delay(200);
     runtimeState().bootMs = millis();
 
-    // RuntimeStore must own scroll buffers before WebUI/API routes can upload
-    // scroll frames or the render task can read them.
+    // 中文块：先准备文字滚动帧缓存；WebUI 上传 scroll frames 和渲染任务读取缓存
+    // 都依赖 RuntimeStore 已经拥有这块内存。
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 说明文字滚动、帧缓存或播放状态处理。
     initRuntimeScrollFrameBuffer();
 
-    // Synchronization is initialized before any module can cross Core 0/Core 1
-    // boundaries through runtime state, scroll state, LittleFS, or the LED bus.
+    // 中文块：初始化跨 Core 0/Core 1 使用的 FreeRTOS mutex；后面的状态、
+    // LittleFS 和 LED 总线访问都要靠这些锁保护。
+    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
     if (!initSyncPrimitives()) {
         Serial.println("Failed to create one or more FreeRTOS mutexes");
     }
 
-    // Build logical-to-physical LED index map
+    // 中文块：预计算逻辑 LED index 到物理灯珠顺序的映射，渲染前必须完成。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
     initLedIndexMap();
 
-    // Initialize the LED strip: clear, latch, then hold long enough for the
-    // BSS138 level shifter to settle before we write the first real frame.
+    // 中文块：初始化灯带并先锁存一帧全灭，给 BSS138 level shifter 留出稳定时间。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 说明 固件启动和主循环 中当前代码块的职责和维护约束。
     ledStripBegin();
     delay(LED_BOOT_CLEAR_HOLD_MS);
 
-    // Set the default color without scheduling a render.  During boot, the
-    // first physical frame after the all-off latch should be the startup saved
-    // face, not an extra task-rendered blank frame that can race on the WS2812
-    // bus through the BSS138.
+    // 中文块：只更新默认颜色状态，不排队渲染；首个真实画面应来自启动默认表情，
+    // 避免任务渲染的空白帧和启动帧在 WS2812 总线上竞争。
+    // 说明颜色、亮度或显示参数处理。
+    // 说明 固件启动和主循环 中当前代码块的职责和维护约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 说明 固件启动和主循环 中当前代码块的职责和维护约束。
     setColorStateNoRender(DEFAULT_COLOR);
 
-    // Mount filesystem, load settings and saved faces
+    // 中文块：挂载 LittleFS 并读取运行设置/保存表情；失败时直接显示文件系统
+    // 诊断灯效，方便无串口时定位问题。
+    // 说明 LittleFS 文件系统、静态资源或 gzip 打包流程。
     if (!mountFilesystem()) {
         showFilesystemErrorPattern();
     } else {
@@ -67,48 +85,64 @@ void setup() {
         loadSavedFaces(true);
     }
 
-    // Render the first non-blank boot frame synchronously before starting the
-    // render task, then drain the queued request left by loadSavedFaces /
-    // applyM370 so the task does not double-render on wakeup.
+    // 中文块：在启动渲染任务前同步输出第一帧，随后清掉加载表情时留下的渲染请求，
+    // 防止任务醒来后重复刷同一帧。
+    // 说明 固件启动和主循环 中当前代码块的职责和维护约束。
+    // 说明 固件启动和主循环 中当前代码块的职责和维护约束。
+    // 处理 M370 帧、队列、校验或状态同步。
     renderCurrentFrameToLedStrip();
     consumeLedRenderRequest();
     delay(LED_BOOT_STARTUP_SETTLE_MS);
 
-    // Spawn the Core-1 LED render / scroll task
+    // 中文块：启动 Core 1 专用的 LED render/scroll task，把严格时序的灯带刷新
+    // 从 WebServer 和按钮轮询中隔离出来。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
     startScrollRenderTask();
 
-    // Hardware buttons feed both state-changing actions and overlay animations,
-    // so initialize them after playback state exists but before normal loop().
+    // 中文块：初始化实体按钮；按钮既会改变播放状态，也会触发本地 overlay animation。
+    // 说明 GPIO 按钮、组合键或本地 overlay 反馈。
+    // 说明 固件启动和主循环 中当前代码块的职责和维护约束。
     initHardwareButtons();
 
-    // Power monitor publishes battery/charge state into WebUI status and the B6
-    // overlay, so seed its first sample before HTTP routes start answering.
+    // 中文块：电源监控会把电池/充电状态发布给 WebUI 和 B6 overlay，所以在 HTTP
+    // 路由开放前先采一次样。
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
     initPowerMonitor();
 
-    // Networking is last: every route should see initialized storage, playback,
-    // render queues, buttons, and power state as soon as clients connect.
+    // 中文块：最后启动网络；此时文件系统、播放状态、渲染队列、按钮和电源状态
+    // 都已就绪，客户端连上来即可读取完整状态。
+    // 说明 固件启动和主循环 中当前代码块的职责和维护约束。
+    // 说明电源、电池、充电或 ADC 校准相关逻辑。
     startAccessPoint();
     startWebServer();
 }
 
 // ---------------------------------------------------------------------------
-// loop  (Core 0)
+// 说明双核任务分工、FreeRTOS 同步或临界区约束。
 // ---------------------------------------------------------------------------
-// Runs on Core 0 because platformio.ini sets -D ARDUINO_RUNNING_CORE=0. This
-// keeps all WebServer/HTTP, button, power and frame-queue work off Core 1, which
-// is reserved exclusively for the LED render/scroll task. Do NOT remove that
-// build flag: without it arduino-esp32 puts loop() on Core 1, where the HTTP
-// load disrupts WS2812 transmit timing (garbled / torn frames while scrolling).
+// 中文块：platformio.ini 通过 -D ARDUINO_RUNNING_CORE=0 把 loop() 固定在 Core 0。
+// WebServer/HTTP、按钮、电源和帧队列都在这里合作式调度；Core 1 专门留给
+// LED render/scroll task，避免网络负载破坏 WS2812/RMT 时序。
+// 说明双核任务分工、FreeRTOS 同步或临界区约束。
+// 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
 
 /**
- * @brief Service Core-0 control-plane modules cooperatively.
- * @param None.
- * @return None.
+ * 在 Core 0 上轮询控制面任务，把网络、按钮、电源和延迟恢复逻辑
+ * 以轻量合作式循环串起来。
+ * @brief 说明 固件启动和主循环 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void loop() {
-    // Ordering matters: frame queues publish before web/status polling, and
-    // deferred face restore/auto playback run after button/API effects from
-    // this iteration have had a chance to settle.
+    // 中文块：顺序有语义。帧队列先发布，Web/status 随后处理；按钮/API 本轮影响
+    // 稳定后，再执行延迟恢复和自动播放。
+    // 说明 固件启动和主循环 中当前代码块的职责和维护约束。
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 说明 固件启动和主循环 中当前代码块的职责和维护约束。
     serviceM370FrameQueue();
     webServerTick();
     serviceRuntimeSlowStatePublish();

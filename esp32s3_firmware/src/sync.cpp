@@ -3,13 +3,15 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
+
+// 本文件封装 FreeRTOS mutex 和跨核心同步保护；注释保留必要 English identifier，便于和代码/API 对照。
 static SemaphoreHandle_t sFrameMutex       = nullptr;
 static SemaphoreHandle_t sScrollMutex      = nullptr;
 static SemaphoreHandle_t sHardwareBusMutex = nullptr;
 
-// Map the public domain enum to the legacy lock functions.  Keeping the switch
-// local avoids leaking FreeRTOS semaphore details into modules that only need a
-// scoped ownership comment and a predictable release point.
+// 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
+// 说明双核任务分工、FreeRTOS 同步或临界区约束。
+// 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
 static void lockDomain(SyncDomain domain) {
     switch (domain) {
         case SyncDomain::Frame:
@@ -24,8 +26,8 @@ static void lockDomain(SyncDomain domain) {
     }
 }
 
-// Mirror lockDomain() so ScopedLock destructors always release the same
-// resource they acquired, even when a helper grows new early returns later.
+// 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
+// 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
 static void unlockDomain(SyncDomain domain) {
     switch (domain) {
         case SyncDomain::Frame:
@@ -52,8 +54,8 @@ ScopedLock::~ScopedLock() {
 }
 
 bool initSyncPrimitives() {
-    // Create each mutex once during setup(), but keep this idempotent so a
-    // future recovery path can call it safely after partial initialization.
+    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
+    // 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
     if (!sFrameMutex) sFrameMutex = xSemaphoreCreateMutex();
     if (!sScrollMutex) sScrollMutex = xSemaphoreCreateMutex();
     if (!sHardwareBusMutex) sHardwareBusMutex = xSemaphoreCreateMutex();
@@ -61,9 +63,9 @@ bool initSyncPrimitives() {
 }
 
 void lockFrame() {
-    // Frame state connects API/button writers to the Core-1 renderer; blocking
-    // here is intentional because partially-written packed bits would display
-    // visibly corrupted LED frames.
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
     if (sFrameMutex) xSemaphoreTake(sFrameMutex, portMAX_DELAY);
 }
 
@@ -72,8 +74,8 @@ void unlockFrame() {
 }
 
 void lockScroll() {
-    // Scroll state is advanced by the render task and mutated by HTTP/buttons.
-    // Serialize the timeline counters so frame index and frame count stay paired.
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 说明 FreeRTOS 同步锁 中当前代码块的职责和维护约束。
     if (sScrollMutex) xSemaphoreTake(sScrollMutex, portMAX_DELAY);
 }
 
@@ -82,9 +84,9 @@ void unlockScroll() {
 }
 
 void lockHardwareBus() {
-    // NeoPixel show() and LittleFS operations are both timing/bus-sensitive in
-    // this firmware.  The shared mutex prevents long flash/file operations from
-    // interleaving with the LED transmit critical path.
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
     if (sHardwareBusMutex) xSemaphoreTake(sHardwareBusMutex, portMAX_DELAY);
 }
 

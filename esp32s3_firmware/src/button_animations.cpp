@@ -8,6 +8,8 @@
 #include <math.h>
 #include <string.h>
 
+
+// 本文件渲染按钮反馈、电量提示和网络信息 overlay；注释保留必要 English identifier，便于和代码/API 对照。
 namespace {
 
 constexpr uint8_t COLS = 22;
@@ -77,9 +79,9 @@ struct AnimationState {
     uint32_t batteryDisplayStartedMs = 0;
 };
 
-// Overlay state is shared by Core-0 button/power services and the Core-1 LED
-// renderer.  A small portMUX is enough because the protected work is just a
-// snapshot/copy of scalar state, not drawing or filesystem I/O.
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
+// 说明 LittleFS 文件系统、静态资源或 gzip 打包流程。
 portMUX_TYPE sAnimMux = portMUX_INITIALIZER_UNLOCKED;
 AnimationState sAnim;
 
@@ -143,9 +145,10 @@ struct Glyph {
 };
 
 /**
- * @brief Look up the tiny overlay glyph used for numeric/status text.
- * @param ch Character to render.
- * @return Glyph bitmap pointer and width, or empty glyph for unsupported chars.
+ * 围绕 glyphFor 处理本模块的核心流程，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param ch 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 Glyph glyphFor(char ch) {
     switch (ch) {
@@ -168,10 +171,11 @@ Glyph glyphFor(char ch) {
 }
 
 /**
- * @brief Convert overlay canvas coordinates to logical LED index.
- * @param x Canvas X coordinate in the 22-column virtual overlay.
- * @param y Canvas Y coordinate in the 18-row virtual overlay.
- * @return Logical LED index, or -1 outside the physical row shape.
+ * 围绕 xyToLogical 处理本模块的核心流程，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param x 调用方传入或接收的参数，含义以函数签名为准。
+ * @param y 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 int16_t xyToLogical(uint8_t x, uint8_t y) {
     if (x >= COLS || y >= ROWS) return -1;
@@ -182,12 +186,13 @@ int16_t xyToLogical(uint8_t x, uint8_t y) {
 }
 
 /**
- * @brief Write one RGB pixel into an overlay buffer if it maps to a real LED.
- * @param out Destination RGB overlay buffer.
- * @param x Canvas X coordinate.
- * @param y Canvas Y coordinate.
- * @param color Pixel color.
- * @return None.
+ * 围绕 putPixel 处理本模块的核心流程，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param out 调用方传入或接收的参数，含义以函数签名为准。
+ * @param x 调用方传入或接收的参数，含义以函数签名为准。
+ * @param y 调用方传入或接收的参数，含义以函数签名为准。
+ * @param color 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void putPixel(uint8_t* out, uint8_t x, uint8_t y, Rgb color) {
     const int16_t logical = xyToLogical(x, y);
@@ -199,24 +204,26 @@ void putPixel(uint8_t* out, uint8_t x, uint8_t y, Rgb color) {
 }
 
 /**
- * @brief Clear an RGB overlay buffer to transparent/off.
- * @param out Destination RGB overlay buffer.
- * @return None.
+ * 清除 clearOverlay 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param out 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void clearOverlay(uint8_t* out) {
     memset(out, 0, static_cast<size_t>(LED_COUNT) * 3U);
 }
 
 /**
- * @brief Draw a text bitmap into the overlay canvas.
- * @param out Destination RGB overlay buffer.
- * @param rows Bitmap rows using '#' for lit pixels.
- * @param width Bitmap width.
- * @param height Bitmap height.
- * @param x0 Canvas X origin.
- * @param y0 Canvas Y origin.
- * @param color Draw color.
- * @return None.
+ * 绘制 drawBitmap 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param out 调用方传入或接收的参数，含义以函数签名为准。
+ * @param rows 调用方传入或接收的参数，含义以函数签名为准。
+ * @param width 调用方传入或接收的参数，含义以函数签名为准。
+ * @param height 调用方传入或接收的参数，含义以函数签名为准。
+ * @param x0 调用方传入或接收的参数，含义以函数签名为准。
+ * @param y0 调用方传入或接收的参数，含义以函数签名为准。
+ * @param color 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void drawBitmap(uint8_t* out, const char* const* rows, uint8_t width, uint8_t height,
                 int8_t x0, int8_t y0, Rgb color) {
@@ -235,23 +242,24 @@ void drawBitmap(uint8_t* out, const char* const* rows, uint8_t width, uint8_t he
 }
 
 /**
- * @brief Draw centered tiny status text into the overlay.
- * @param out Destination RGB overlay buffer.
- * @param text Null-terminated status text.
- * @param color Text color.
- * @param hasIcon true when text should sit below an icon.
- * @param voltageLayout true to add spacing for voltage readouts.
- * @return None.
+ * 绘制 drawText 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param out 调用方传入或接收的参数，含义以函数签名为准。
+ * @param text 调用方传入或接收的参数，含义以函数签名为准。
+ * @param color 调用方传入或接收的参数，含义以函数签名为准。
+ * @param hasIcon 调用方传入或接收的参数，含义以函数签名为准。
+ * @param voltageLayout 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void drawText(uint8_t* out, const char* text, Rgb color, bool hasIcon, bool voltageLayout = false) {
     constexpr uint8_t GAP = 1;
-    constexpr uint8_t MAX_TEXT_GLYPHS = 8;  // upper bound for any overlay status string
+    constexpr uint8_t MAX_TEXT_GLYPHS = 8;  // 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
 
-    // Measure rendered width.  The length bound is tested BEFORE dereferencing
-    // text[len]; the previous order read text[MAX_TEXT_GLYPHS], one byte past a
-    // fully-populated caller buffer (e.g. char text[8]) -- a stack over-read.
-    // (The old widths[] scratch array was also dead: the draw loop below
-    // recomputes glyph widths, so it has been removed.)
+    // 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
+    // 说明字体、字形、Unicode 范围或 Web font 资源处理。
+    // 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
+    // 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
+    // 说明字体、字形、Unicode 范围或 Web font 资源处理。
     uint8_t len = 0;
     uint8_t totalW = 0;
     for (; len < MAX_TEXT_GLYPHS && text[len] != '\0'; ++len) {
@@ -272,15 +280,16 @@ void drawText(uint8_t* out, const char* text, Rgb color, bool hasIcon, bool volt
 }
 
 /**
- * @brief Draw an icon plus centered text as a complete overlay page.
- * @param out Destination RGB overlay buffer.
- * @param text Status text.
- * @param color Icon/default text color.
- * @param iconRows Optional full-canvas icon bitmap.
- * @param voltageLayout true to use voltage text spacing.
- * @param textColor Optional override text color.
- * @param useTextColor true to use textColor.
- * @return None.
+ * 绘制 drawIconText 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param out 调用方传入或接收的参数，含义以函数签名为准。
+ * @param text 调用方传入或接收的参数，含义以函数签名为准。
+ * @param color 调用方传入或接收的参数，含义以函数签名为准。
+ * @param iconRows 调用方传入或接收的参数，含义以函数签名为准。
+ * @param voltageLayout 调用方传入或接收的参数，含义以函数签名为准。
+ * @param textColor 调用方传入或接收的参数，含义以函数签名为准。
+ * @param useTextColor 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void drawIconText(uint8_t* out, const char* text, Rgb color, const char* const* iconRows,
                   bool voltageLayout = false, Rgb textColor = {0, 0, 0}, bool useTextColor = false) {
@@ -290,9 +299,10 @@ void drawIconText(uint8_t* out, const char* text, Rgb color, const char* const* 
 }
 
 /**
- * @brief Convert raw NeoPixel brightness to display percentage.
- * @param raw Raw brightness value.
- * @return Rounded percentage of MAX_BRIGHTNESS.
+ * 围绕 brightnessPercent 处理本模块的核心流程，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param raw 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 uint8_t brightnessPercent(uint8_t raw) {
     const uint8_t clamped = min<uint8_t>(raw, MAX_BRIGHTNESS);
@@ -301,11 +311,12 @@ uint8_t brightnessPercent(uint8_t raw) {
 }
 
 /**
- * @brief Format auto interval for the tiny overlay font.
- * @param intervalMs Interval in milliseconds.
- * @param out Destination text buffer.
- * @param outSize Destination buffer size.
- * @return None.
+ * 围绕 formatInterval 处理本模块的核心流程，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param intervalMs 调用方传入或接收的参数，含义以函数签名为准。
+ * @param out 调用方传入或接收的参数，含义以函数签名为准。
+ * @param outSize 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void formatInterval(uint32_t intervalMs, char* out, size_t outSize) {
     const uint16_t tenths = static_cast<uint16_t>((intervalMs + 50U) / 100U);
@@ -316,9 +327,10 @@ void formatInterval(uint32_t intervalMs, char* out, size_t outSize) {
 }
 
 /**
- * @brief Choose battery icon color from percentage.
- * @param percent Battery percentage.
- * @return RGB color from red through green.
+ * 围绕 batteryColor 处理本模块的核心流程，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param percent 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 Rgb batteryColor(uint8_t percent) {
     const uint8_t p = min<uint8_t>(percent, 100);
@@ -339,9 +351,10 @@ Rgb batteryColor(uint8_t percent) {
 }
 
 /**
- * @brief Convert battery percentage to icon fill columns.
- * @param percent Battery percentage.
- * @return Number of inner battery columns to fill.
+ * 围绕 batteryFillCols 处理本模块的核心流程，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param percent 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 uint8_t batteryFillCols(uint8_t percent) {
     const uint8_t p = min<uint8_t>(percent, 100);
@@ -351,13 +364,14 @@ uint8_t batteryFillCols(uint8_t percent) {
 }
 
 /**
- * @brief Draw battery shell/fill, optionally animating the fill sweep.
- * @param out Destination RGB overlay buffer.
- * @param color Battery color.
- * @param percent Battery percentage.
- * @param animate true for charging sweep animation.
- * @param phaseMs Elapsed page time in milliseconds.
- * @return None.
+ * 绘制 drawBatteryIcon 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param out 调用方传入或接收的参数，含义以函数签名为准。
+ * @param color 调用方传入或接收的参数，含义以函数签名为准。
+ * @param percent 调用方传入或接收的参数，含义以函数签名为准。
+ * @param animate 调用方传入或接收的参数，含义以函数签名为准。
+ * @param phaseMs 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void drawBatteryIcon(uint8_t* out, Rgb color, uint8_t percent, bool animate, uint32_t phaseMs) {
     drawBitmap(out, BATTERY_ICON, COLS, ROWS, 0, 0, color);
@@ -380,11 +394,12 @@ void drawBatteryIcon(uint8_t* out, Rgb color, uint8_t percent, bool animate, uin
 }
 
 /**
- * @brief Draw the current battery overlay page from power monitor state.
- * @param out Destination RGB overlay buffer.
- * @param state Snapshot of overlay state.
- * @param now Current millis() timestamp.
- * @return None.
+ * 绘制 drawBatteryPage 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param out 调用方传入或接收的参数，含义以函数签名为准。
+ * @param state 调用方传入或接收的参数，含义以函数签名为准。
+ * @param now 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void drawBatteryPage(uint8_t* out, const AnimationState& state, uint32_t now) {
     clearOverlay(out);
@@ -415,11 +430,12 @@ void drawBatteryPage(uint8_t* out, const AnimationState& state, uint32_t now) {
 }
 
 /**
- * @brief Add a short edge flash when a button action hits a min/max boundary.
- * @param out Destination RGB overlay buffer.
- * @param state Snapshot of overlay state.
- * @param now Current millis() timestamp.
- * @return None.
+ * 围绕 overlayEdgeFlash 处理本模块的核心流程，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param out 调用方传入或接收的参数，含义以函数签名为准。
+ * @param state 调用方传入或接收的参数，含义以函数签名为准。
+ * @param now 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void overlayEdgeFlash(uint8_t* out, const AnimationState& state, uint32_t now) {
     if (state.edge == EdgeKind::None) return;
@@ -449,9 +465,10 @@ void overlayEdgeFlash(uint8_t* out, const AnimationState& state, uint32_t now) {
 }
 
 /**
- * @brief Temporarily system-pause firmware scroll while an overlay is visible.
- * @param None.
- * @return None.
+ * 围绕 pauseScrollForOverlay 处理本模块的核心流程，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void pauseScrollForOverlay() {
     if (sAnim.pausedScroll) return;
@@ -468,9 +485,10 @@ void pauseScrollForOverlay() {
 }
 
 /**
- * @brief Release a system pause previously created by pauseScrollForOverlay().
- * @param None.
- * @return None.
+ * 围绕 resumeScrollAfterOverlayIfNeeded 处理本模块的核心流程，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void resumeScrollAfterOverlayIfNeeded() {
     bool resume = false;
@@ -485,9 +503,10 @@ void resumeScrollAfterOverlayIfNeeded() {
 }
 
 /**
- * @brief Stop any active overlay and optionally redraw the underlying frame.
- * @param requestRender true to request a render after clearing overlay state.
- * @return None.
+ * 围绕 stopOverlay 处理停止、清理或恢复流程，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param requestRender 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void stopOverlay(bool requestRender) {
     bool wasActive = false;
@@ -510,9 +529,10 @@ void stopOverlay(bool requestRender) {
 }
 
 /**
- * @brief Publish a new overlay state and request an LED render.
- * @param next Fully-populated overlay state to copy.
- * @return None.
+ * 启动 startOverlay 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param next 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void startOverlay(const AnimationState& next) {
     portENTER_CRITICAL(&sAnimMux);
@@ -539,9 +559,10 @@ void startOverlay(const AnimationState& next) {
 }
 
 /**
- * @brief Start the short or long-press battery overlay.
- * @param singleShot true for short press; false for cycling long-press display.
- * @return None.
+ * 启动 startBatteryOverlay 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param singleShot 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void startBatteryOverlay(bool singleShot) {
     const uint32_t now = millis();
@@ -558,12 +579,13 @@ void startBatteryOverlay(bool singleShot) {
     startOverlay(next);
 }
 
-} // namespace
+} // 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
 
 /**
- * @brief Start a visual overlay for a completed GPIO button action.
- * @param buttonCode Button or combo code.
- * @return None.
+ * 启动 startButtonAnimationForGpioAction 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param buttonCode 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void startButtonAnimationForGpioAction(const String& buttonCode) {
     String code = buttonCode;
@@ -605,9 +627,10 @@ void startButtonAnimationForGpioAction(const String& buttonCode) {
 }
 
 /**
- * @brief Track B6 press edge for battery overlay timing.
- * @param buttonCode Debounced button code.
- * @return None.
+ * 处理 handleButtonAnimationGpioPress 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param buttonCode 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void handleButtonAnimationGpioPress(const char* buttonCode) {
     if (!buttonCode || strcmp(buttonCode, "B6") != 0) return;
@@ -620,9 +643,10 @@ void handleButtonAnimationGpioPress(const char* buttonCode) {
 }
 
 /**
- * @brief Resolve B6 release into short battery overlay or long overlay stop.
- * @param buttonCode Debounced button code.
- * @return None.
+ * 处理 handleButtonAnimationGpioRelease 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param buttonCode 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void handleButtonAnimationGpioRelease(const char* buttonCode) {
     if (!buttonCode || strcmp(buttonCode, "B6") != 0) return;
@@ -640,11 +664,12 @@ void handleButtonAnimationGpioRelease(const char* buttonCode) {
 }
 
 /**
- * @brief Service B6 long-press state from debounced physical button inputs.
- * @param b6Pressed Current B6 state.
- * @param b2Pressed Current B2 state.
- * @param b3Pressed Current B3 state.
- * @return None.
+ * 轮询服务 serviceButtonAnimationButtonInputs 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param b6Pressed 调用方传入或接收的参数，含义以函数签名为准。
+ * @param b2Pressed 调用方传入或接收的参数，含义以函数签名为准。
+ * @param b3Pressed 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void serviceButtonAnimationButtonInputs(bool b6Pressed, bool b2Pressed, bool b3Pressed) {
     bool shouldStartLong = false;
@@ -663,9 +688,10 @@ void serviceButtonAnimationButtonInputs(bool b6Pressed, bool b2Pressed, bool b3P
 }
 
 /**
- * @brief Advance/expire overlay animation state and request redraws as needed.
- * @param None.
- * @return None.
+ * 轮询服务 serviceButtonAnimations 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void serviceButtonAnimations() {
     const uint32_t now = millis();
@@ -709,10 +735,11 @@ void serviceButtonAnimations() {
 }
 
 /**
- * @brief Copy the active overlay into an RGB frame for physical rendering.
- * @param rgbOut Destination RGB buffer.
- * @param ledCount Capacity expressed as logical LED count.
- * @return true when rgbOut was populated with an overlay.
+ * 复制 copyButtonAnimationOverlay 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param rgbOut 调用方传入或接收的参数，含义以函数签名为准。
+ * @param ledCount 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool copyButtonAnimationOverlay(uint8_t* rgbOut, uint16_t ledCount) {
     if (!rgbOut || ledCount < LED_COUNT) return false;

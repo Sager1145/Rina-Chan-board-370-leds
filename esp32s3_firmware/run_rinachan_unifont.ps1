@@ -1,3 +1,4 @@
+# 中文文件说明：本脚本自动准备字体、资源、构建和上传固件/文件系统；PowerShell 参数和命令名保持 English。
 param(
     [switch]$UploadFirmware,
     [switch]$UploadFS,
@@ -25,10 +26,12 @@ if (-not (Test-Path $PlatformioIni) -or -not (Test-Path $IndexHtml) -or -not (Te
 
 Write-Host "[run] project root: $ProjectDir"
 
+# 中文块：Write-Step 负责输出状态或文件内容，是构建/上传流程中的一个步骤。
 function Write-Step([string]$Message) {
     Write-Host "[run] $Message"
 }
 
+# 中文块：Get-PythonCommand 负责取得路径、命令或配置值，供后续步骤使用。
 function Get-PythonCommand {
     $candidates = @(
         [pscustomobject]@{Exe="py"; Args=@("-3")},
@@ -44,6 +47,7 @@ function Get-PythonCommand {
     throw "Python 3 was not found. Install Python 3, then run this script again."
 }
 
+# 中文块：Invoke-PythonChecked 封装构建/上传流程中的一个独立步骤。
 function Invoke-PythonChecked($Python, [string[]]$ExtraArgs, [string]$ErrorMessage) {
     $allArgs = @()
     $allArgs += @($Python.Args)
@@ -59,6 +63,7 @@ function Invoke-PythonChecked($Python, [string[]]$ExtraArgs, [string]$ErrorMessa
     if ($exit -ne 0) { throw $ErrorMessage }
 }
 
+# 中文块：Invoke-PythonTempScript 封装构建/上传流程中的一个独立步骤。
 function Invoke-PythonTempScript($Python, [string]$Code, [string[]]$Arguments) {
     $TempScript = Join-Path ([System.IO.Path]::GetTempPath()) ("rinachan_py_probe_{0}.py" -f ([System.Guid]::NewGuid().ToString("N")))
     try {
@@ -81,6 +86,7 @@ function Invoke-PythonTempScript($Python, [string]$Code, [string[]]$Arguments) {
     }
 }
 
+# 中文块：Test-PythonModules 封装构建/上传流程中的一个独立步骤。
 function Test-PythonModules($Python, [string[]]$ImportNames) {
     $code = @'
 import importlib.util
@@ -105,6 +111,7 @@ raise SystemExit(0)
     return $false
 }
 
+# 中文块：Ensure-PythonFontModules 负责检查并补齐运行前置条件。
 function Ensure-PythonFontModules($Python) {
     $imports = @("PIL", "fontTools", "brotli")
     if (Test-PythonModules $Python $imports) {
@@ -122,6 +129,7 @@ function Ensure-PythonFontModules($Python) {
     }
 }
 
+# 中文块：Download-IfMissing 负责在缺失时下载所需资源。
 function Download-IfMissing([string]$Url, [string]$Path, [string]$Label) {
     if (Test-Path $Path) {
         Write-Host "[font] $Label exists: $Path"
@@ -140,12 +148,14 @@ function Download-IfMissing([string]$Url, [string]$Path, [string]$Label) {
     }
 }
 
+# 中文块：Expand-ZipClean 封装构建/上传流程中的一个独立步骤。
 function Expand-ZipClean([string]$ZipPath, [string]$Destination) {
     if (Test-Path $Destination) { Remove-Item -Recurse -Force $Destination }
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
     Expand-Archive -Force -Path $ZipPath -DestinationPath $Destination
 }
 
+# 中文块：Remove-LegacyFontResources 封装构建/上传流程中的一个独立步骤。
 function Remove-LegacyFontResources([string]$FontDir) {
     $OldPrefix = ("u" + "8" + "g" + "2")
     $LegacyNames = @(
@@ -157,7 +167,8 @@ function Remove-LegacyFontResources([string]$FontDir) {
         "ark12_merged_trad_priority.json",
         "ark12_merged_trad_priority_report.txt",
         ("gnu_" + "unifont_17_0_04_webui_subset.woff2"),
-        "unifont.woff2"
+        "unifont.woff2",
+        "ark12_fallback.woff2"
     )
     foreach ($Name in $LegacyNames) {
         $Path = Join-Path $FontDir $Name
@@ -168,6 +179,7 @@ function Remove-LegacyFontResources([string]$FontDir) {
     }
 }
 
+# 中文块：Remove-RedundantFontCache 封装构建/上传流程中的一个独立步骤。
 function Remove-RedundantFontCache([string]$CacheDir) {
     $RedundantDirs = @(
         "ark12_bdf",
@@ -186,6 +198,7 @@ function Remove-RedundantFontCache([string]$CacheDir) {
     }
 }
 
+# 中文块：Find-Woff2ForLanguage 负责查找构建/上传流程需要的资源。
 function Find-Woff2ForLanguage([string]$Root, [string]$Lang) {
     $files = @(Get-ChildItem -Recurse -Path $Root -Filter *.woff2 -ErrorAction SilentlyContinue)
     $escaped = [regex]::Escape($Lang)
@@ -196,10 +209,11 @@ function Find-Woff2ForLanguage([string]$Root, [string]$Lang) {
     return $null
 }
 
+# 中文块：Test-MergedArk12Json 封装构建/上传流程中的一个独立步骤。
 function Test-MergedArk12Json([string]$Path) {
-    # Fusion validation: this project intentionally uses a patched Ark12 JSON,
-    # not the raw Ark merge output. Upload must fail rather than silently falling
-    # back to the old 24,408-glyph Ark table.
+    # 中文说明：说明字体、字形、Unicode 范围或 Web font 资源处理。
+    # 中文说明：说明字体、字形、Unicode 范围或 Web font 资源处理。
+    # 中文说明：说明字体、字形、Unicode 范围或 Web font 资源处理。
     if (-not (Test-Path $Path)) { return $false }
     try {
         $json = Get-Content -Raw -Encoding UTF8 -Path $Path | ConvertFrom-Json
@@ -228,25 +242,32 @@ function Test-MergedArk12Json([string]$Path) {
     }
 }
 
+# 中文块：Install-BundledArk12FusionResources 封装构建/上传流程中的一个独立步骤。
 function Install-BundledArk12FusionResources([string]$FontDir) {
     $FusionDir = Join-Path $ProjectDir "tools\font_fusion"
     $BundledJson = Join-Path $FusionDir "ark12_fusion.json"
     $BundledBaseWoff2 = Join-Path $FusionDir "ark12_base.woff2"
-    $BundledFallbackWoff2 = Join-Path $FusionDir "ark12_fallback.woff2"
-    foreach ($Path in @($BundledJson, $BundledBaseWoff2, $BundledFallbackWoff2)) {
+    foreach ($Path in @($BundledJson, $BundledBaseWoff2)) {
         if (-not (Test-Path $Path)) {
             throw "Bundled Ark12 fusion resource is missing: $Path"
         }
     }
     Copy-Item -Force $BundledJson (Join-Path $FontDir "ark12.json")
     Copy-Item -Force $BundledBaseWoff2 (Join-Path $FontDir "ark12.woff2")
-    Copy-Item -Force $BundledFallbackWoff2 (Join-Path $FontDir "ark12_fallback.woff2")
+    # 中文说明：说明字体、字形、Unicode 范围或 Web font 资源处理。
+    # 中文说明：说明字体、字形、Unicode 范围或 Web font 资源处理。
+    $LegacyFallback = Join-Path $FontDir "ark12_fallback.woff2"
+    if (Test-Path $LegacyFallback) {
+        Write-Host "[font] removing obsolete split fallback font: $LegacyFallback"
+        Remove-Item -Force $LegacyFallback
+    }
     if (-not (Test-MergedArk12Json (Join-Path $FontDir "ark12.json"))) {
         throw "Bundled Ark12 fusion JSON validation failed after copy."
     }
-    Write-Host "[font] installed bundled Ark12 fusion resources, including 然 / 燃 / 滚 / 滾."
+    Write-Host "[font] installed bundled Ark12 fusion resources (single merged woff2 incl. 然 / 燃 / 滚 / 滾 + Mona12 emoji)."
 }
 
+# 中文块：Build-AndEmbedUnifontWebFont 负责生成构建流程需要的资源。
 function Build-AndEmbedUnifontWebFont([string]$CacheDir) {
     $Python = Get-PythonCommand
     Ensure-PythonFontModules $Python
@@ -283,11 +304,13 @@ function Build-AndEmbedUnifontWebFont([string]$CacheDir) {
     Write-Host "[font] embedded WebUI GNU Unifont subset into styles.css; no LittleFS unifont.woff2 is kept."
 }
 
+# 中文块：Ensure-EmbeddedUnifontWebFont 负责检查并补齐运行前置条件。
 function Ensure-EmbeddedUnifontWebFont([string]$CacheDir) {
     Write-Host "[font] synchronizing embedded-only WebUI GNU Unifont subset with current WebUI text..."
     Build-AndEmbedUnifontWebFont -CacheDir $CacheDir
 }
 
+# 中文块：Prepare-FontResources 封装构建/上传流程中的一个独立步骤。
 function Prepare-FontResources {
     $FontDir = Join-Path $ProjectDir "data\resources\fonts"
     $CacheDir = Join-Path $ProjectDir ".font_cache"
@@ -297,7 +320,6 @@ function Prepare-FontResources {
     $Woff2Extract = Join-Path $CacheDir "ark12_woff2_tmp"
     $CompiledJson = Join-Path $FontDir "ark12.json"
     $ArkWebFont = Join-Path $FontDir "ark12.woff2"
-    $ArkFallbackWebFont = Join-Path $FontDir "ark12_fallback.woff2"
     $MergeTool = Join-Path $ProjectDir "tools\build_ark12_merged.py"
 
     New-Item -ItemType Directory -Force -Path $FontDir, $CacheDir | Out-Null
@@ -306,15 +328,15 @@ function Prepare-FontResources {
 
     Ensure-EmbeddedUnifontWebFont -CacheDir $CacheDir
 
-    if ((Test-Path $ArkWebFont) -and (Test-Path $ArkFallbackWebFont) -and (Test-MergedArk12Json $CompiledJson)) {
+    if ((Test-Path $ArkWebFont) -and (Test-MergedArk12Json $CompiledJson)) {
         Write-Host "[font] existing fused Ark12 text-scroll resources found; no rebuild required."
-        Get-Item $ArkWebFont, $ArkFallbackWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
+        Get-Item $ArkWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
         return
     }
 
     Write-Host "[font] fused Ark12 resources are missing or stale; installing bundled fusion files."
     Install-BundledArk12FusionResources -FontDir $FontDir
-    Get-Item $ArkWebFont, $ArkFallbackWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
+    Get-Item $ArkWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
     return
 
     if (-not (Test-Path $MergeTool)) {
@@ -356,6 +378,7 @@ function Prepare-FontResources {
 }
 
 
+# 中文块：Sync-WebAssetGzipFiles 负责同步临时资源与源文件状态。
 function Sync-WebAssetGzipFiles {
     $Python = Get-PythonCommand
     $code = @'
@@ -387,6 +410,7 @@ for arg in sys.argv[1:]:
     }
 }
 
+# 中文块：Get-WebAssetSourcePaths 负责取得路径、命令或配置值，供后续步骤使用。
 function Get-WebAssetSourcePaths {
     $AppJs = Join-Path $ProjectDir "data\app.js"
     return @(
@@ -397,10 +421,12 @@ function Get-WebAssetSourcePaths {
     )
 }
 
+# 中文块：Get-WebAssetGzipPaths 负责取得路径、命令或配置值，供后续步骤使用。
 function Get-WebAssetGzipPaths {
     return @(Get-WebAssetSourcePaths | ForEach-Object { "$_.gz" })
 }
 
+# 中文块：Remove-WebAssetGzipFiles 封装构建/上传流程中的一个独立步骤。
 function Remove-WebAssetGzipFiles {
     $DataDir = Join-Path $ProjectDir "data"
     $removed = @()
@@ -423,6 +449,7 @@ function Remove-WebAssetGzipFiles {
     }
 }
 
+# 中文块：Invoke-PlatformIoChecked 封装构建/上传流程中的一个独立步骤。
 function Invoke-PlatformIoChecked([string[]]$Arguments, [string]$ErrorMessage) {
     $oldEap = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
@@ -435,6 +462,7 @@ function Invoke-PlatformIoChecked([string[]]$Arguments, [string]$ErrorMessage) {
     if ($exit -ne 0) { throw $ErrorMessage }
 }
 
+# 中文块：Assert-EmbeddedUnifontWebUi 封装构建/上传流程中的一个独立步骤。
 function Assert-EmbeddedUnifontWebUi {
     $Python = Get-PythonCommand
     $code = @'
@@ -501,11 +529,11 @@ print(hashlib.sha256(embedded).hexdigest())
     Write-Host "[font] embedded-only GNU Unifont validated sha256=$outputText"
 }
 
+# 中文块：Assert-RequiredFontResources 封装构建/上传流程中的一个独立步骤。
 function Assert-RequiredFontResources {
     $FontDir = Join-Path $ProjectDir "data\resources\fonts"
     $Required = @(
         (Join-Path $FontDir "ark12.woff2"),
-        (Join-Path $FontDir "ark12_fallback.woff2"),
         (Join-Path $FontDir "ark12.json")
     )
     $Missing = @($Required | Where-Object { -not (Test-Path $_) })
@@ -521,6 +549,7 @@ function Assert-RequiredFontResources {
     Write-Host "[font] required LittleFS font resources are present. WebUI Unifont is embedded in styles.css only."
 }
 
+# 中文块：Assert-LittleFSNameLengths 封装构建/上传流程中的一个独立步骤。
 function Assert-LittleFSNameLengths {
     $DataDir = Join-Path $ProjectDir "data"
     $TooLong = Get-ChildItem -Recurse -Force -Path $DataDir | Where-Object { $_.Name.Length -gt 31 }

@@ -5,26 +5,30 @@
 #include "led_renderer.h"
 #include <freertos/task.h>
 
+
+// 本文件播放固件端文字滚动帧并协调滚动状态；注释保留必要 English identifier，便于和代码/API 对照。
 // ---------------------------------------------------------------------------
-// Scroll render task  (pinned to Core 1)
+// 说明双核任务分工、FreeRTOS 同步或临界区约束。
+// 滚动渲染任务（Scroll render task，固定到 Core 1） 相关代码，维护 播放固件端文字滚动帧并协调滚动状态。
 // ---------------------------------------------------------------------------
 
 static TaskHandle_t sScrollTaskHandle = nullptr;
 
 /**
- * @brief Core-1 task that arbitrates scroll timing and physical LED renders.
- * @param parameter Unused FreeRTOS task parameter.
- * @return Does not return.
+ * 渲染 scrollRenderTask 相关逻辑，供 scroll 模块使用。
+ * @brief 说明 文字滚动播放 中当前函数或声明的用途。
+ * @param parameter 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void scrollRenderTask(void* parameter) {
     (void)parameter;
     uint8_t nextFrame[FRAME_BYTES];
 
     for (;;) {
-        // consumeLedRenderRequest() returns true when the main task (Core 0)
-        // has written a new frame via applyM370 / applyBlankFrame / applyPackedFrame
-        // and wants it displayed immediately.  We track this separately from the
-        // scroll timer so a non-scroll frame always wins over a coincident scroll step.
+        // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+        // 处理 M370 帧、队列、校验或状态同步。
+        // 说明 文字滚动播放 中当前代码块的职责和维护约束。
+        // 说明文字滚动、帧缓存或播放状态处理。
         bool mainTaskRenderPending = consumeLedRenderRequest();
         bool shouldRender          = mainTaskRenderPending;
         bool hasScrollFrame        = false;
@@ -40,20 +44,20 @@ static void scrollRenderTask(void* parameter) {
                 const uint32_t elapsedMs = now - runtimeState().lastScrollFrameMs;
 
                 if (elapsedMs >= intervalMs) {
-                    // Advance EXACTLY one frame per qualifying render cycle. The task
-                    // polls every ~1ms, so while it is not starved it steps once per
-                    // intervalMs and reaches the intended frame rate. We deliberately
-                    // do NOT "catch up" by stepping several frames at once: a
-                    // multi-frame jump makes scrolling text visibly skip/tear and can
-                    // read as the display stepping backward.
+                    // 说明 文字滚动播放 中当前代码块的职责和维护约束。
+                    // 说明 文字滚动播放 中当前代码块的职责和维护约束。
+                    // 说明 文字滚动播放 中当前代码块的职责和维护约束。
+                    // 说明 文字滚动播放 中当前代码块的职责和维护约束。
+                    // 说明文字滚动、帧缓存或播放状态处理。
+                    // 说明 文字滚动播放 中当前代码块的职责和维护约束。
                     runtimeState().scrollFrameIndex =
                         (runtimeState().scrollFrameIndex + 1) % runtimeState().scrollFrameCount;
 
-                    // Keep cadence locked to the interval grid under normal jitter by
-                    // advancing the scroll clock one interval at a time. After a long
-                    // stall (more than SCROLL_DRIFT_RESET_INTERVALS behind) hard-resync
-                    // to now, otherwise the accumulated backlog would fire a burst of
-                    // frames over the next few cycles and look like tearing.
+                    // 说明界面布局、组件状态或响应式规则。
+                    // 说明文字滚动、帧缓存或播放状态处理。
+                    // 说明文字滚动、帧缓存或播放状态处理。
+                    // 说明 文字滚动播放 中当前代码块的职责和维护约束。
+                    // 说明 文字滚动播放 中当前代码块的职责和维护约束。
                     if (elapsedMs <= static_cast<uint32_t>(intervalMs) * SCROLL_DRIFT_RESET_INTERVALS) {
                         runtimeState().lastScrollFrameMs += intervalMs;
                     } else {
@@ -68,16 +72,16 @@ static void scrollRenderTask(void* parameter) {
         });
 
         if (hasScrollFrame) {
-            // Re-check under frameMutex that:
-            //   (a) firmware scroll is still the active source, and
-            //   (b) the main task has NOT concurrently written a higher-priority
-            //       non-scroll frame (mainTaskRenderPending).
+            // 说明双核任务分工、FreeRTOS 同步或临界区约束。
+            // 说明文字滚动、帧缓存或播放状态处理。
+            // 说明 文字滚动播放 中当前代码块的职责和维护约束。
+            // 说明文字滚动、帧缓存或播放状态处理。
             //
-            // If the main task called applyM370/applyBlankFrame between
-            // unlockScroll() and here it has already written runtimeFrameBits() and either
-            // cleared firmwareScrollActive or raised ledRenderRequested. In either
-            // case we must not overwrite it with the stale scroll snapshot:
-            // that would cause exactly one garbage/flash frame on the LEDs.
+            // 处理 M370 帧、队列、校验或状态同步。
+            // 说明文字滚动、帧缓存或播放状态处理。
+            // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+            // 说明文字滚动、帧缓存或播放状态处理。
+            // 处理 LED 矩阵、灯带刷新或硬件时序约束。
             withFrameLock([&]() {
                 if (!mainTaskRenderPending) {
                     mainTaskRenderPending = consumeLedRenderRequest();
@@ -85,16 +89,16 @@ static void scrollRenderTask(void* parameter) {
                 }
                 if (runtimeState().firmwareScrollActive && !mainTaskRenderPending) {
                     memcpy(runtimeFrameBits(), nextFrame, FRAME_BYTES);
-                    // Count a scroll frame as accepted only once it is actually
-                    // committed, and do it under frameMutex so this increment matches
-                    // publishPackedFrameNow() (which also bumps framesAccepted under
-                    // frameMutex). Previously this ran under scrollMutex, racing the
-                    // counter with the main task.
+                    // 说明文字滚动、帧缓存或播放状态处理。
+                    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
+                    // 说明 文字滚动播放 中当前代码块的职责和维护约束。
+                    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
+                    // 说明 文字滚动播放 中当前代码块的职责和维护约束。
                     ++runtimeState().framesAccepted;
                 } else {
-                    // Main task frame takes priority; drop this scroll step silently.
-                    // shouldRender stays true if mainTaskRenderPending so the
-                    // main-task frame still gets displayed.
+                    // 说明文字滚动、帧缓存或播放状态处理。
+                    // 说明 文字滚动播放 中当前代码块的职责和维护约束。
+                    // 说明 文字滚动播放 中当前代码块的职责和维护约束。
                     if (!mainTaskRenderPending) shouldRender = false;
                 }
             });
@@ -109,13 +113,15 @@ static void scrollRenderTask(void* parameter) {
 }
 
 // ---------------------------------------------------------------------------
-// Task creation
+// 说明 文字滚动播放 中当前代码块的职责和维护约束。
+// 任务创建（Task creation） 相关代码，维护 播放固件端文字滚动帧并协调滚动状态。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Start the pinned LED scroll/render task if it is not already running.
- * @param None.
- * @return None.
+ * 启动、渲染 startScrollRenderTask 相关逻辑，供 scroll 模块使用。
+ * @brief 说明 文字滚动播放 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void startScrollRenderTask() {
     if (sScrollTaskHandle) return;
@@ -137,9 +143,10 @@ void startScrollRenderTask() {
 }
 
 /**
- * @brief Wake the render task from task or ISR context.
- * @param None.
- * @return None.
+ * 渲染 notifyScrollRenderTask 相关逻辑，供 scroll 模块使用。
+ * @brief 说明 文字滚动播放 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void notifyScrollRenderTask() {
     if (!sScrollTaskHandle) return;

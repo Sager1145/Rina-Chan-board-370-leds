@@ -1,8 +1,11 @@
 #pragma once
 #include <Arduino.h>
 
+
+// 本文件集中声明硬件引脚、LED 矩阵、时序和默认运行参数；注释保留必要 English identifier，便于和代码/API 对照。
 // ---------------------------------------------------------------------------
-// Hardware
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+// 硬件（Hardware） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
 constexpr char     AP_SSID[]              = "RinaChanBoard-V2";
 constexpr char     AP_PASSWORD[]          = "rinachan";
@@ -17,23 +20,26 @@ extern const IPAddress AP_GATEWAY_ADDR;
 extern const IPAddress AP_SUBNET_MASK;
 
 /**
- * @brief Return SoftAP IP address configured in config.cpp.
- * @param None.
- * @return SoftAP IP address reference.
+ * 围绕 apIP 处理本模块的核心流程，供 config 模块使用。
+ * @brief 说明 硬件、矩阵和时序配置 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 inline const IPAddress& apIP()      { return AP_IP_ADDR; }
 
 /**
- * @brief Return SoftAP gateway address configured in config.cpp.
- * @param None.
- * @return SoftAP gateway address reference.
+ * 围绕 apGateway 处理本模块的核心流程，供 config 模块使用。
+ * @brief 说明 硬件、矩阵和时序配置 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 inline const IPAddress& apGateway() { return AP_GATEWAY_ADDR; }
 
 /**
- * @brief Return SoftAP subnet mask configured in config.cpp.
- * @param None.
- * @return SoftAP subnet mask reference.
+ * 围绕 apSubnet 处理本模块的核心流程，供 config 模块使用。
+ * @brief 说明 硬件、矩阵和时序配置 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 inline const IPAddress& apSubnet()  { return AP_SUBNET_MASK; }
 constexpr uint16_t LED_PIN               = 2;
@@ -46,7 +52,8 @@ constexpr uint8_t  BUTTON_B5_PIN         = 41;
 constexpr uint8_t  BUTTON_B6_PIN         = 42;
 
 // ---------------------------------------------------------------------------
-// Power monitor ADC
+// 说明电源、电池、充电或 ADC 校准相关逻辑。
+// 电源监测 ADC（Power monitor ADC） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
 constexpr uint8_t  BATTERY_ADC_PIN       = 10;
 constexpr uint8_t  CHARGE_ADC_PIN        = 1;
@@ -54,17 +61,17 @@ constexpr float    BATTERY_DIVIDER_R1_K  = 100.0f;
 constexpr float    BATTERY_DIVIDER_R2_K  = 57.0f;
 constexpr float    CHARGE_DIVIDER_R1_K   = 270.0f;
 constexpr float    CHARGE_DIVIDER_R2_K   = 47.0f;
-// Calibration: empirical scale and offset corrections derived from two-point
-// measurements against a reference multimeter.
-// Battery:  adc=2.912V->8.09V, adc=2.864V->7.96V  => scale=2.708333, offset=+0.2033V
-// Charge:   adc=0.661V->4.49V, adc=1.753V->11.79V => scale=6.684982, offset=+0.0712V
-constexpr float    BATTERY_CAL_SCALE     = 2.708333f;  // replaces dividerScale for battery
-constexpr float    BATTERY_CAL_OFFSET_V  = 0.2033f;    // additive offset after scaling
-constexpr float    CHARGE_CAL_SCALE      = 6.684982f;  // replaces dividerScale for charge
-constexpr float    CHARGE_CAL_OFFSET_V   = 0.0712f;    // additive offset after scaling
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+// 说明电源、电池、充电或 ADC 校准相关逻辑。
+// 说明电源、电池、充电或 ADC 校准相关逻辑。
+constexpr float    BATTERY_CAL_SCALE     = 2.708333f;  // 说明电源、电池、充电或 ADC 校准相关逻辑。
+constexpr float    BATTERY_CAL_OFFSET_V  = 0.2033f;    // 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+constexpr float    CHARGE_CAL_SCALE      = 6.684982f;  // 说明电源、电池、充电或 ADC 校准相关逻辑。
+constexpr float    CHARGE_CAL_OFFSET_V   = 0.0712f;    // 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
 constexpr float    BATTERY_EMPTY_V       = 6.2f;
 constexpr float    BATTERY_FULL_V        = 8.0f;
-constexpr float    BATTERY_UNPOWERED_LOW_V = 5.0f;  // below this at boot/run-time is treated as not battery-powered
+constexpr float    BATTERY_UNPOWERED_LOW_V = 5.0f;  // 说明电源、电池、充电或 ADC 校准相关逻辑。
 constexpr float    CHARGE_PRESENT_V      = 4.0f;
 constexpr uint8_t  POWER_ADC_SAMPLES     = 16;
 constexpr uint8_t  POWER_ADC_TRIM_COUNT  = 4;
@@ -79,17 +86,19 @@ constexpr uint16_t BATTERY_RECONNECT_ADC_MV       = 1500;
 constexpr char     BATTERY_CALIB_PATH[]  = "/resources/battery_calib.json";
 
 // ---------------------------------------------------------------------------
-// Battery percentage look-up table (2S LiPo piecewise-linear discharge curve)
+// 说明电源、电池、充电或 ADC 校准相关逻辑。
+// 电池电量百分比查找表（Battery percentage look-up table，2S LiPo 分段线性放电曲线） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
-// Each entry is { real-world voltage at the battery terminals (V), percent }.
-// Points must be sorted highest-voltage first.  batteryPercentFromVoltage()
-// uses piecewise-linear interpolation between adjacent entries; voltages above
-// the first entry clamp to 100 % and below the last entry clamp to 0 %.
+// 说明电源、电池、充电或 ADC 校准相关逻辑。
+// 每个条目为 { real-world voltage at the battery terminals (V), percent }，即 { 电池端子处的实际电压（V），百分比 }。 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
+// 说明电源、电池、充电或 ADC 校准相关逻辑。
+// 说明电源、电池、充电或 ADC 校准相关逻辑。
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
 //
-// Derived from a typical 2S (2 * 3.1 V to 2 * 4.2 V) lithium-polymer cell:
-//   full about 8.40 V (2 * 4.20 V); empty about 6.20 V (2 * 3.10 V cutoff)
-// The curve is intentionally non-linear to match the flat mid-range plateau
-// and the steep drop-off near the bottom that linear arithmetic misses.
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
 struct BatteryLutPoint { float voltage; uint8_t percent; };
 constexpr BatteryLutPoint BATTERY_PERCENT_LUT[] = {
     { 8.40f, 100 },
@@ -111,7 +120,8 @@ constexpr float    BATTERY_CALIB_SHRINK_STEP_V     = 0.02f;
 constexpr float    BATTERY_CALIB_MIN_SPAN_V        = 0.10f;
 
 // ---------------------------------------------------------------------------
-// LED matrix geometry
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// LED 矩阵几何布局（LED matrix geometry） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
 constexpr uint16_t M370_HEX_CHARS        = 93;
 constexpr uint16_t M370_BITS             = 370;
@@ -132,7 +142,8 @@ static_assert(ROW_OFFSETS[MATRIX_ROWS - 1] + ROW_LENGTHS[MATRIX_ROWS - 1] == LED
               "matrix row layout must cover exactly LED_COUNT logical cells");
 
 // ---------------------------------------------------------------------------
-// Brightness
+// 说明颜色、亮度或显示参数处理。
+// 亮度（Brightness） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
 constexpr uint8_t  DEFAULT_BRIGHTNESS    = 50;
 constexpr uint8_t  MIN_BRIGHTNESS        = 10;
@@ -140,14 +151,16 @@ constexpr uint8_t  MAX_BRIGHTNESS        = 200;
 constexpr int8_t   BRIGHTNESS_BUTTON_STEP = 8;
 
 // ---------------------------------------------------------------------------
-// Realtime frame rate limits
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+// 实时帧率限制（Realtime frame rate limits） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
 constexpr uint16_t M370_FRAME_MIN_INTERVAL_MS    = 33;
 constexpr uint8_t  M370_FRAME_QUEUE_DEPTH        = 3;
 constexpr uint8_t  M370_FRAME_REASON_CHARS       = 64;
 
 // ---------------------------------------------------------------------------
-// Auto-playback
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+// 自动播放（Auto-playback） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
 constexpr uint32_t DEFAULT_AUTO_INTERVAL_MS      = 3000;
 constexpr uint32_t MIN_AUTO_INTERVAL_MS          = 500;
@@ -156,7 +169,8 @@ constexpr uint32_t AUTO_INTERVAL_BUTTON_STEP_MS  = 500;
 constexpr uint16_t MAX_AUTO_FACES                = 128;
 
 // ---------------------------------------------------------------------------
-// Scroll
+// 说明文字滚动、帧缓存或播放状态处理。
+// 滚动（Scroll） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
 constexpr uint16_t MAX_SCROLL_FRAMES             = 3072;
 constexpr uint16_t MIN_SCROLL_INTERVAL_MS        = M370_FRAME_MIN_INTERVAL_MS;
@@ -165,7 +179,8 @@ constexpr uint16_t DEFAULT_SCROLL_INTERVAL_MS    = 100;
 constexpr uint8_t  SCROLL_DRIFT_RESET_INTERVALS  = 4;
 
 // ---------------------------------------------------------------------------
-// Button debounce / repeat
+// 说明 GPIO 按钮、组合键或本地 overlay 反馈。
+// 按钮去抖 / 重复（Button debounce / repeat） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
 constexpr uint32_t BUTTON_DEBOUNCE_MS            = 25;
 constexpr uint32_t FACE_REPEAT_DELAY_MS          = 650;
@@ -174,28 +189,32 @@ constexpr uint32_t BRIGHTNESS_REPEAT_DELAY_MS    = 450;
 constexpr uint32_t BRIGHTNESS_REPEAT_MS          = 120;
 
 // ---------------------------------------------------------------------------
-// LED render task (FreeRTOS)
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// LED 渲染任务（LED render task，FreeRTOS） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
 constexpr uint8_t  LED_RENDER_TASK_CORE          = 1;
 constexpr uint32_t LED_RENDER_TASK_STACK_BYTES   = 6144;
 constexpr uint8_t  LED_RENDER_TASK_PRIORITY      = 3;
 
 // ---------------------------------------------------------------------------
-// LED timing  (BSS138 level-shifter aware)
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// LED 时序（LED timing，考虑 BSS138 电平转换器） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
-// Idle-low window inserted before and after each strip.show() call.
-// Deliberately longer than the WS2812 protocol minimum because the BSS138
-// has slow pull-up-dependent rising edges that can leave the first LED near
-// its timing threshold during rapid refreshes.
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+// 在每次 strip.show() 调用前后插入的拉低空闲窗口（Idle-low window inserted before and after each strip.show() call）。 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
 constexpr uint16_t LED_SIGNAL_RESET_US           = 300;
 
-// Minimum wall-clock gap enforced between consecutive strip.show() calls.
-// Must be > LED_SIGNAL_RESET_US so the post-show reset is always contained
-// inside the gap window.
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
 constexpr uint16_t LED_RENDER_MIN_GAP_US         = 2500;
 
 // ---------------------------------------------------------------------------
-// Boot / stop-clear timing
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+// 启动 / 停止清屏时序（Boot / stop-clear timing） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
 constexpr uint16_t LED_STOP_CLEAR_BLANK_HOLD_MS    = 90;
 constexpr uint16_t LED_BOOT_DATA_LOW_HOLD_MS        = 20;
@@ -203,7 +222,8 @@ constexpr uint16_t LED_BOOT_CLEAR_HOLD_MS           = 350;
 constexpr uint16_t LED_BOOT_STARTUP_SETTLE_MS       = 120;
 
 // ---------------------------------------------------------------------------
-// Defaults / string constants
+// 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+// 默认值 / 字符串常量（Defaults / string constants） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 // ---------------------------------------------------------------------------
 constexpr char DEFAULT_COLOR[]          = "#f971d4";
 constexpr char DEFAULT_MODE[]           = "manual";

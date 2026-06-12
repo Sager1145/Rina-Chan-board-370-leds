@@ -1,3 +1,4 @@
+// 本文件实现浏览器端 WebUI 交互、预览和固件 API 调用；必要 English DOM id/API 名称保持不翻译。
 "use strict";
 
 /*
@@ -125,12 +126,12 @@ const WEBUI_CONFIG = Object.freeze({
   // 6.4 页面的浏览器与固件位图フォント设置。这个 JSON 表很大，所以延迟加载；
   // CSS 的 font face 声明在 styles.css 中。
   textScroll: {
-    fontModel: "ark_pixel_12px_fusion_bitmap_v2",
+    fontModel: "ark_pixel_12px_fusion_bitmap_v4",
     fontResource: "/resources/fonts/ark12.json",
     fontFamily: "Ark Pixel 12px Monospaced",
     fontFallbackFamily: "",
     browserFontSample:
-      "RinaChanBoard 370 LED \u7ee7\u7eed \u6682\u505c \u3053\u3093\u306b\u3061\u306f \u7483\u5948\u3061\u3083\u3093\u30dc\u30fc\u30c9 \u7136\u71c3\u6eda\u6efe",
+      "RinaChanBoard 370 LED \u7ee7\u7eed \u6682\u505c \u3053\u3093\u306b\u3061\u306f \u7483\u5948\u3061\u3083\u3093\u30dc\u30fc\u30c9 \u7136\u71c3\u6eda\u6efe \ud83c\udfe0\ufe0e\ud83d\ude00\ufe0e",
     browserFallbackFontSample: "",
     charSpacing: 0,
     spaceColumns: 6,
@@ -3427,6 +3428,7 @@ const SERPENTINE_WIRING = !!MATRIX.serpentine;
 const SERPENTINE_ODD_ROWS_REVERSED = MATRIX.serpentine_odd_rows_reversed !== false;
 const PHYSICAL_TO_LOGICAL_INDEX = Array(TOTAL_LEDS).fill(-1);
 
+// 中文块：执行对应逻辑 logicalToPhysicalIndex 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function logicalToPhysicalIndex(index) {
   const xy = INDEX_TO_XY[index];
   if (!xy || !SERPENTINE_WIRING) return index;
@@ -3436,6 +3438,7 @@ function logicalToPhysicalIndex(index) {
   return XY_TO_INDEX[y][x0 + x1 - x];
 }
 
+// 中文块：执行对应逻辑 physicalToLogicalIndex 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function physicalToLogicalIndex(index) {
   return PHYSICAL_TO_LOGICAL_INDEX[index] ?? index;
 }
@@ -3594,6 +3597,7 @@ function safeJsonParse(text, fallback = {}) {
   }
 }
 
+// 中文块：解析 parseApiJson 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function parseApiJson(text, path, fallback = {}) {
   if (!text) return fallback;
   try {
@@ -3604,6 +3608,7 @@ function parseApiJson(text, path, fallback = {}) {
 }
 const boundControls = new WeakMap();
 
+// 中文块：执行对应逻辑 bindControls 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function bindControls(selector, eventName, handler) {
   document.querySelectorAll(selector).forEach((el) => {
     const token = `${selector}:${eventName}`;
@@ -3618,6 +3623,7 @@ function bindControls(selector, eventName, handler) {
   });
 }
 
+// 中文块：设置、处理 setClickHandlers 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setClickHandlers(entries) {
   for (const [id, handler] of entries) {
     const el = $(id);
@@ -3635,18 +3641,21 @@ let buttonPressAnimationsReady = false;
 const buttonPressStates = new WeakMap();
 const activeButtonPointers = new Map();
 
+// 中文块：执行对应逻辑 pressableButtonFromTarget 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function pressableButtonFromTarget(target) {
   const button = target?.closest?.("button");
   if (!button || button.disabled || button.getAttribute("aria-disabled") === "true") return null;
   return button;
 }
 
+// 中文块：清除 clearButtonPressTimers 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function clearButtonPressTimers(state) {
   if (!state) return;
   if (state.releaseTimer) clearTimeout(state.releaseTimer);
   if (state.cleanupTimer) clearTimeout(state.cleanupTimer);
 }
 
+// 中文块：启动 startButtonPressAnimation 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function startButtonPressAnimation(button) {
   if (!button) return;
   const existing = buttonPressStates.get(button);
@@ -3661,6 +3670,7 @@ function startButtonPressAnimation(button) {
   button.classList.add("is-pressing");
 }
 
+// 中文块：执行对应逻辑 releaseButtonPressAnimation 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function releaseButtonPressAnimation(button) {
   if (!button) return;
   const state = buttonPressStates.get(button);
@@ -3681,11 +3691,13 @@ function releaseButtonPressAnimation(button) {
   }, delay);
 }
 
+// 中文块：执行对应逻辑 cancelButtonPressAnimation 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function cancelButtonPressAnimation(button) {
   if (!button) return;
   releaseButtonPressAnimation(button);
 }
 
+// 中文块：初始化 initButtonPressAnimations 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function initButtonPressAnimations() {
   if (buttonPressAnimationsReady) return;
   buttonPressAnimationsReady = true;
@@ -3749,6 +3761,7 @@ function initButtonPressAnimations() {
 // - observeWebUiFont() 在字体状态变化后重新给动态生成节点补字体 class。
 let uiFontObserverStarted = false;
 
+// 中文块：应用 applyWebUiFont 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function applyWebUiFont(root = document) {
   const nodes = [];
   if (root && root.nodeType === 1) nodes.push(root);
@@ -3761,6 +3774,7 @@ function applyWebUiFont(root = document) {
   }
   applyTextScrollInputFont();
 }
+// 中文块：确保、读取 ensureWebUiFontReady 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function ensureWebUiFontReady() {
   document.documentElement.style.setProperty("--ui-font", `"${UI_WEB_FONT_FAMILY}"`);
   if (document.fonts && document.fonts.load) {
@@ -3787,6 +3801,7 @@ async function ensureWebUiFontReady() {
   if (typeof autoResizeScrollTextInput === "function") autoResizeScrollTextInput();
 }
 
+// 中文块：执行对应逻辑 observeWebUiFont 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function observeWebUiFont() {
   if (uiFontObserverStarted || !document.body || !window.MutationObserver) return;
   uiFontObserverStarted = true;
@@ -3812,6 +3827,7 @@ function observeWebUiFont() {
 // - buildTextGlyph()/buildTextScrollBitmap() 在 6.4 timeline 构建时消费这里的数据。
 let textScrollBrowserFontLoading = null;
 
+// 中文块：应用 applyTextScrollInputFont 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function applyTextScrollInputFont() {
   const el = document.getElementById("scroll-text");
   if (!el) return;
@@ -3820,8 +3836,10 @@ function applyTextScrollInputFont() {
   el.style.setProperty("font-size", "12px", "important");
   el.style.setProperty("line-height", "1.2", "important");
   el.style.setProperty("font-synthesis", "none", "important");
+  el.style.setProperty("font-variant-emoji", "text", "important");
 }
 
+// 中文块：确保、读取 ensureTextScrollBrowserFontReady 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function ensureTextScrollBrowserFontReady() {
   applyTextScrollInputFont();
   if (textScrollBrowserFontLoading) return textScrollBrowserFontLoading;
@@ -3879,6 +3897,7 @@ const arkPixelFont = {
   source: "",
 };
 
+// 中文块：执行对应逻辑 textScrollVerticalOffset 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function textScrollVerticalOffset() {
   return Math.min(
     Math.max(0, ROWS - 1),
@@ -3886,15 +3905,72 @@ function textScrollVerticalOffset() {
   );
 }
 
+// 中文块：执行对应逻辑 codePointOfChar 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function codePointOfChar(ch) {
   return ch.codePointAt(0) || 0;
 }
 
+// Emoji 格式控制符（VS15/VS16 变体选择符、ZWJ 连接符、肤色修饰符、tag 字符）。
+// LED 文字滚动采用“每个码点一个字形、与汉字同宽”的模型，这些控制符在
+// ark12.json 中存为零宽占位；渲染前直接跳过，避免 emoji 序列出现豆腐块。
+function isEmojiFormatControl(cp) {
+  return (
+    (cp >= 0xfe00 && cp <= 0xfe0f) || // 变体选择符 VS15/VS16
+    cp === 0x200d || // 零宽连接符 ZWJ
+    (cp >= 0x1f3fb && cp <= 0x1f3ff) || // emoji 肤色修饰符
+    (cp >= 0xe0000 && cp <= 0xe007f) // tag 字符
+  );
+}
+
+// 中文块：判断码点是否容易被浏览器强制交给系统彩色 emoji 字体。
+function isTextScrollEmojiPresentationBase(cp) {
+  return (
+    cp === 0x00a9 ||
+    cp === 0x00ae ||
+    cp === 0x203c ||
+    cp === 0x2049 ||
+    cp === 0x2122 ||
+    cp === 0x2139 ||
+    (cp >= 0x2194 && cp <= 0x21aa) ||
+    (cp >= 0x231a && cp <= 0x23ff) ||
+    (cp >= 0x2460 && cp <= 0x24ff) ||
+    (cp >= 0x25aa && cp <= 0x27bf) ||
+    (cp >= 0x2934 && cp <= 0x2935) ||
+    (cp >= 0x2b05 && cp <= 0x2b55) ||
+    cp === 0x3030 ||
+    cp === 0x303d ||
+    cp === 0x3297 ||
+    cp === 0x3299 ||
+    (cp >= 0x1f000 && cp <= 0x1faff)
+  );
+}
+
+// 中文块：把输入框中的 emoji 改成文字呈现，避免 macOS 浏览器回退到 Apple Color Emoji。
+function normalizeTextScrollEmojiPresentation(text) {
+  const chars = Array.from(String(text ?? ""));
+  const out = [];
+  for (let i = 0; i < chars.length; i++) {
+    const cp = codePointOfChar(chars[i]);
+    if (cp >= 0xfe00 && cp <= 0xfe0f) {
+      const prev = out[out.length - 1];
+      if (prev && isTextScrollEmojiPresentationBase(codePointOfChar(prev))) out.push("\ufe0e");
+      continue;
+    }
+    out.push(chars[i]);
+    if (!isTextScrollEmojiPresentationBase(cp)) continue;
+    const nextCp = codePointOfChar(chars[i + 1] || "");
+    if (nextCp < 0xfe00 || nextCp > 0xfe0f) out.push("\ufe0e");
+  }
+  return out.join("");
+}
+
+// 中文块：清除 clearTextScrollCaches 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function clearTextScrollCaches() {
   buildTextScrollBitmap.cacheKey = "";
   buildTextScrollBitmap.cache = null;
   buildTextGlyph.cache = new Map();
 }
+// 中文块：确保、读取 ensureArkPixelFontReady 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function ensureArkPixelFontReady() {
   if (arkPixelFont.ready) return arkPixelFont;
   if (arkPixelFont.loading) return arkPixelFont.loading;
@@ -3916,6 +3992,7 @@ async function ensureArkPixelFontReady() {
   return arkPixelFont.loading;
 }
 
+// 中文块：解码 decodePackedGlyphRows 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function decodePackedGlyphRows(rowsHex, width) {
   if (!rowsHex) return [];
   const nibbles = Math.max(1, Math.ceil(Math.max(0, width) / 4));
@@ -3932,6 +4009,7 @@ function decodePackedGlyphRows(rowsHex, width) {
     });
 }
 
+// 中文块：加载 loadArkPixelFontTable 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function loadArkPixelFontTable(data) {
   if (!data || data.format !== "rina_ark_pixel_font_bitmap_v1")
     throw new Error("Ark Pixel bitmap table format mismatch");
@@ -3966,9 +4044,13 @@ function loadArkPixelFontTable(data) {
           : decodePackedGlyphRows(g.rowsHex || "", Number(g.width || 0)),
       };
     }
+    const advanceValue = Number(packed.advance);
+    const fallbackAdvance = Number(data.defaultAdvance || 12);
     arkPixelFont.glyphs.set(cp, {
       cp,
-      advance: Math.max(1, Number(packed.advance || data.defaultAdvance || 12)),
+      advance: Number.isFinite(advanceValue)
+        ? Math.max(0, advanceValue)
+        : Math.max(1, fallbackAdvance),
       width: Math.max(0, Number(packed.width || 0)),
       height: Math.max(0, Number(packed.height || 0)),
       xOffset: Number(packed.xOffset || 0),
@@ -3979,6 +4061,7 @@ function loadArkPixelFontTable(data) {
   }
   if (!arkPixelFont.glyphs.size) throw new Error("Ark Pixel bitmap table contains no glyphs");
   const requiredFusionGlyphs = [0x7136, 0x71c3, 0x6eda, 0x6efe];
+  // 中文块：执行对应逻辑 missingFusionGlyphs 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const missingFusionGlyphs = requiredFusionGlyphs.filter((cp) => !arkPixelFont.glyphs.has(cp));
   if (missingFusionGlyphs.length) {
     throw new Error(
@@ -4006,32 +4089,39 @@ function $(id) {
   return document.getElementById(id);
 }
 
+// 中文块：限制范围 clamp 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, Number(n) || 0));
 }
 
+// 中文块：限制范围 clampBrightness 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function clampBrightness(v) {
   return clamp(v, MIN_LED_BRIGHTNESS, MAX_LED_BRIGHTNESS);
 }
 
+// 中文块：执行对应逻辑 isScrollPlaybackValue 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function isScrollPlaybackValue(value) {
   return value === "scroll" || value === "scroll_paused" || value === "scroll_step";
 }
 
+// 中文块：执行对应逻辑 blankFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function blankFrame() {
   return Array(TOTAL_LEDS).fill(false);
 }
 
+// 中文块：执行对应逻辑 cloneFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function cloneFrame(frame) {
   return frame.slice(0, TOTAL_LEDS).map(Boolean);
 }
 
+// 中文块：统计 onCount 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function onCount(frame) {
   let c = 0;
   for (const v of frame) if (v) c++;
   return c;
 }
 
+// 中文块：规范化 normalizeHexColor 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function normalizeHexColor(v) {
   v = String(v || "").trim();
   if (!v.startsWith("#")) v = "#" + v;
@@ -4039,6 +4129,7 @@ function normalizeHexColor(v) {
   return null;
 }
 
+// 中文块：执行对应逻辑 hexToRgb 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function hexToRgb(hex) {
   hex = normalizeHexColor(hex) || "#000000";
   return {
@@ -4048,6 +4139,7 @@ function hexToRgb(hex) {
   };
 }
 
+// 中文块：执行对应逻辑 frameToM370 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function frameToM370(frame) {
   let bits =
     frame
@@ -4062,6 +4154,7 @@ function frameToM370(frame) {
   return "M370:" + out.padEnd(93, "0").slice(0, 93);
 }
 
+// 中文块：执行对应逻辑 m370ToFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function m370ToFrame(text) {
   let s = String(text || "").trim();
   if (s.toUpperCase().startsWith("M370:")) s = s.slice(5);
@@ -4075,12 +4168,14 @@ function m370ToFrame(text) {
     .map((b) => b === "1");
 }
 
+// 中文块：复制 copyText 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function copyText(text) {
   if (navigator.clipboard && window.isSecureContext)
     navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
   else fallbackCopy(text);
 }
 
+// 中文块：复制 fallbackCopy 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function fallbackCopy(text) {
   const ta = document.createElement("textarea");
   ta.value = text;
@@ -4090,6 +4185,7 @@ function fallbackCopy(text) {
   ta.remove();
 }
 
+// 中文块：执行对应逻辑 log 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function log(msg) {
   const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
   logs.push(line);
@@ -4097,6 +4193,7 @@ function log(msg) {
   renderLog();
 }
 
+// 中文块：渲染 renderLog 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function renderLog() {
   const el = $("log");
   if (el) {
@@ -4105,19 +4202,23 @@ function renderLog() {
   }
 }
 
+// 中文块：执行对应逻辑 isOfflineHtmlMode 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function isOfflineHtmlMode() {
   return location.protocol === "file:" || location.origin === "null";
 }
 
+// 中文块：设置 setFirmwareStatus 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setFirmwareStatus(patch) {
   Object.assign(firmware, patch || {});
   if (typeof renderState === "function") renderState();
 }
 
+// 中文块：执行对应逻辑 isScrollPageActive 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function isScrollPageActive() {
   return document.body?.dataset?.page === "scroll";
 }
 
+// 中文块：执行对应逻辑 apiUrl 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function apiUrl(path) {
   const p = String(path || "");
   if (/^https?:\/\//i.test(p)) return p;
@@ -4147,6 +4248,7 @@ async function apiGet(path, options = {}) {
   }
   const timeoutMs = options.timeoutMs || API_GET_TIMEOUT_MS;
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  // 中文块：执行对应逻辑 timeout 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
     const res = await fetch(url, {
@@ -4177,6 +4279,7 @@ async function apiGet(path, options = {}) {
     if (timeout) clearTimeout(timeout);
   }
 }
+// 中文块：执行对应逻辑 apiPost 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function apiPost(path, payload, options = {}) {
   const url = apiUrl(path);
   firmware.lastRequest = `POST ${path}`;
@@ -4189,6 +4292,7 @@ async function apiPost(path, payload, options = {}) {
   }
   const timeoutMs = options.timeoutMs || API_POST_TIMEOUT_MS;
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  // 中文块：执行对应逻辑 timeout 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
     const res = await fetch(url, {
@@ -4223,6 +4327,7 @@ async function apiPost(path, payload, options = {}) {
   }
 }
 
+// 中文块：上传 apiPostWithUploadProgress 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function apiPostWithUploadProgress(path, payload, onProgress = () => {}) {
   const url = apiUrl(path);
   const body = JSON.stringify(payload || {});
@@ -4281,6 +4386,7 @@ function apiPostWithUploadProgress(path, payload, onProgress = () => {}) {
   });
 }
 
+// 中文块：执行对应逻辑 shouldLogApiError 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function shouldLogApiError() {
   const now = performance.now();
   if (now - lastApiErrorLogAt > 2500) {
@@ -4303,16 +4409,19 @@ function finitePowerNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+// 中文块：执行对应逻辑 powerIconClass 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function powerIconClass(value, fallback = "status-dot dim") {
   const text = String(value || "").trim();
   return /^status-dot( (dim|warn|danger))?$/.test(text) ? text : fallback;
 }
 
+// 中文块：执行对应逻辑 powerIconColor 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function powerIconColor(value, fallback = "#9aa6b2") {
   const text = String(value || "").trim();
   return /^#[0-9a-fA-F]{6}$/.test(text) ? text : fallback;
 }
 
+// 中文块：执行对应逻辑 batteryIconForPercent 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function batteryIconForPercent(powered, percent) {
   if (!powered)
     return {
@@ -4336,18 +4445,21 @@ function batteryIconForPercent(powered, percent) {
   };
 }
 
+// 中文块：设置 setPowerStateField 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setPowerStateField(key, value) {
   if (state[key] === value) return false;
   state[key] = value;
   return true;
 }
 
+// 中文块：设置 setFinitePowerField 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setFinitePowerField(key, value) {
   const n = finitePowerNumber(value);
   if (n === null) return false;
   return setPowerStateField(key, n);
 }
 
+// 中文块：应用 applyPowerData 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function applyPowerData(powerData) {
   if (!powerData || typeof powerData !== "object") return false;
   let stateChanged = false;
@@ -4463,6 +4575,7 @@ function applyPowerData(powerData) {
   return stateChanged;
 }
 
+// 中文块：应用 shouldApplyPowerFromStatusSource 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function shouldApplyPowerFromStatusSource(source) {
   return (
     source === "page_load" ||
@@ -4472,6 +4585,7 @@ function shouldApplyPowerFromStatusSource(source) {
   );
 }
 
+// 中文块：停止 scrollStopEventFromStatus 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function scrollStopEventFromStatus(data, renderer) {
   const event = renderer?.scrollStopEvent || data?.scrollStopEvent || null;
   if (!event || typeof event !== "object") return null;
@@ -4486,6 +4600,7 @@ function scrollStopEventFromStatus(data, renderer) {
   };
 }
 
+// 中文块：停止、同步 scheduleFirmwareScrollStopFullSync 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function scheduleFirmwareScrollStopFullSync(
   source = "firmware_scroll_stop_full_status",
   delayMs = SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS,
@@ -4501,6 +4616,7 @@ function scheduleFirmwareScrollStopFullSync(
   );
 }
 
+// 中文块：应用 applyFirmwareRuntimeState 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function applyFirmwareRuntimeState(data, source = "firmware_status", options = {}) {
   if (!data || typeof data !== "object") return;
   const skipFrame = !!options.skipFrame;
@@ -4740,6 +4856,7 @@ function sendAuxCommand(cmd, payload = {}, source = "webui") {
   return packet;
 }
 
+// 中文块：执行对应逻辑 scheduleButtonCommandPump 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function scheduleButtonCommandPump(delay = 0) {
   if (buttonCommandTimer) clearTimeout(buttonCommandTimer);
   buttonCommandTimer = setTimeout(
@@ -4751,6 +4868,7 @@ function scheduleButtonCommandPump(delay = 0) {
   );
 }
 
+// 中文块：排队 pumpButtonCommandQueue 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function pumpButtonCommandQueue() {
   if (buttonCommandInFlight) return;
   if (!buttonCommandQueue.length) {
@@ -4797,6 +4915,7 @@ function pumpButtonCommandQueue() {
   renderState();
 }
 
+// 中文块：发送 sendButtonCommand 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function sendButtonCommand(button, source = "webui_button", fallback = null) {
   if (isScrollPageActive() && ["B1", "B2", "B3"].includes(String(button).toUpperCase())) {
     resetScrollControlsAfterButton(source);
@@ -4844,6 +4963,7 @@ function sendButtonCommand(button, source = "webui_button", fallback = null) {
   return packet;
 }
 
+// 中文块：发送 scheduleFrameSendPump 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function scheduleFrameSendPump(delay = 0) {
   if (frameSendTimer) clearTimeout(frameSendTimer);
   frameSendTimer = setTimeout(
@@ -4855,6 +4975,7 @@ function scheduleFrameSendPump(delay = 0) {
   );
 }
 
+// 中文块：发送、排队 pumpFrameSendQueue 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function pumpFrameSendQueue() {
   if (frameSendInFlight) return;
   if (!frameSendQueue.length) {
@@ -4895,6 +5016,7 @@ function pumpFrameSendQueue() {
   renderState();
 }
 
+// 中文块：排队 queueFirmwareFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function queueFirmwareFrame(frame, reason = "frame_update", playback = "idle") {
   const m370 = frameToM370(frame);
   pendingFramePacket = {
@@ -4919,6 +5041,7 @@ function queueFirmwareFrame(frame, reason = "frame_update", playback = "idle") {
   scheduleFrameSendPump(0);
 }
 
+// 中文块：设置 setScrollPreviewFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setScrollPreviewFrame(frame, reason = "text_scroll_preview", playback = "scroll") {
   scrollFrame = cloneFrame(frame);
   currentFrame = cloneFrame(frame);
@@ -4931,10 +5054,12 @@ function setScrollPreviewFrame(frame, reason = "text_scroll_preview", playback =
   updateM370Views();
 }
 
+// 中文块：执行对应逻辑 orFrameIntoFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function orFrameIntoFrame(targetFrame, sourceFrame) {
   for (let i = 0; i < TOTAL_LEDS; i++) if (sourceFrame[i]) targetFrame[i] = true;
 }
 
+// 中文块：执行对应逻辑 orPartIntoFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function orPartIntoFrame(frame, part) {
   // 标准 WebUI/M370 路径：使用 part.m370，因为它是按逻辑行优先排列的数据。
   // 旧版 strip_indices 是物理蛇形位置，因此需要映射回逻辑单元。
@@ -4949,6 +5074,7 @@ function orPartIntoFrame(frame, part) {
   }
 }
 
+// 中文块：执行对应逻辑 composePartsFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function composePartsFrame() {
   const frame = blankFrame();
   for (const key of ["leye", "reye", "mouth", "cheek"]) {
@@ -4962,22 +5088,26 @@ function composePartsFrame() {
   return frame;
 }
 
+// 中文块：发送 sendPartsFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function sendPartsFrame(reason = "parts_compose_send", writeLog = true) {
   updateM370Views();
   setCurrentFrame(partsFrame, reason, "idle");
   if (writeLog) log("M370 已发送到固件接口");
 }
 
+// 中文块：发送 sendPartsFrameIfLive 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function sendPartsFrameIfLive(reason = "parts_live_send") {
   if (liveSendEnabled) sendPartsFrame(reason, false);
 }
 
+// 中文块：执行对应逻辑 resolvePartId 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function resolvePartId(callKey, id) {
   const normalized = String(id ?? "0");
   const resolved = callKey === "cheek" && normalized === "400" ? "0" : normalized;
   return EXPRESSION_PARTS.parts[resolved] ? resolved : "0";
 }
 
+// 中文块：执行对应逻辑 classifyOutputMode 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function classifyOutputMode(reason = "", playback = null) {
   const p = String(playback || "");
   const r = String(reason || "");
@@ -4989,6 +5119,7 @@ function classifyOutputMode(reason = "", playback = null) {
   return p || "static";
 }
 
+// 中文块：执行对应逻辑 terminateOtherActivities 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function terminateOtherActivities(targetMode = "static", reason = "mode_change") {
   const ended = [];
   const previousPlayback = state.playback;
@@ -5042,10 +5173,12 @@ function terminateOtherActivities(targetMode = "static", reason = "mode_change")
   return ended;
 }
 
+// 中文块：执行对应逻辑 guardBeforeOutput 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function guardBeforeOutput(reason = "mode_change", playback = null) {
   return terminateOtherActivities(classifyOutputMode(reason, playback), reason);
 }
 
+// 中文块：设置 setCurrentFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setCurrentFrame(frame, reason = "manual_update", playback = null) {
   guardBeforeOutput(reason, playback);
   currentFrame = cloneFrame(frame);
@@ -5059,6 +5192,7 @@ function setCurrentFrame(frame, reason = "manual_update", playback = null) {
   queueFirmwareFrame(currentFrame, reason, state.playback);
 }
 
+// 中文块：更新 updateDps 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function updateDps() {
   const rgb = hexToRgb(state.color);
   const colorFactor = (rgb.r + rgb.g + rgb.b) / (LED_FULL_BRIGHTNESS * 3);
@@ -5073,6 +5207,7 @@ function updateDps() {
   if (warn) warn.classList.toggle("show", state.dpsActive);
 }
 
+// 中文块：设置 setColor 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setColor(hex, source = "color_change") {
   const c = normalizeHexColor(hex);
   if (!c) {
@@ -5100,6 +5235,7 @@ function setColor(hex, source = "color_change") {
     );
 }
 
+// 中文块：应用 applyBrightnessLocal 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function applyBrightnessLocal(v) {
   state.brightness = clampBrightness(v);
   if ($("brightness-range")) $("brightness-range").value = state.brightness;
@@ -5108,6 +5244,7 @@ function applyBrightnessLocal(v) {
   renderState();
 }
 
+// 中文块：设置 setBrightness 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setBrightness(v, source = "brightness_change") {
   brightnessChangedByUser = true;
   applyBrightnessLocal(v);
@@ -5135,6 +5272,7 @@ let bootRuntimeSnapshot = {
   data: null,
 };
 
+// 中文块：执行对应逻辑 unlockBootPageScroll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function unlockBootPageScroll() {
   if (document.documentElement.dataset.scrollLock === "boot") {
     document.documentElement.removeAttribute("data-scroll-lock");
@@ -5175,7 +5313,9 @@ function unlockBootPageScroll() {
   let timelineSeq = 0;
   const scheduledTimers = new Map();
 
+  // 中文块：执行对应逻辑 scheduleTimer 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function scheduleTimer(fn, ms) {
+    // 中文块：执行对应逻辑 timer 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
     const timer = window.setTimeout(() => {
       scheduledTimers.delete(timer);
       fn();
@@ -5184,8 +5324,10 @@ function unlockBootPageScroll() {
     return timer;
   }
 
+  // 中文块：执行对应逻辑 delay 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function delay(ms) {
     return new Promise((resolve) => {
+      // 中文块：执行对应逻辑 timer 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
       const timer = window.setTimeout(() => {
         scheduledTimers.delete(timer);
         resolve(true);
@@ -5194,6 +5336,7 @@ function unlockBootPageScroll() {
     });
   }
 
+  // 中文块：清除 clearTimelineTimers 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function clearTimelineTimers() {
     scheduledTimers.forEach((cancel, timer) => {
       window.clearTimeout(timer);
@@ -5202,6 +5345,7 @@ function unlockBootPageScroll() {
     scheduledTimers.clear();
   }
 
+  // 中文块：执行对应逻辑 firstViewportCenter 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function firstViewportCenter() {
     const vv = window.visualViewport;
     const left = Number(vv?.offsetLeft) || 0;
@@ -5216,6 +5360,7 @@ function unlockBootPageScroll() {
     };
   }
 
+  // 中文块：加载 lockLoaderCenter 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function lockLoaderCenter() {
     const center = firstViewportCenter();
     lockedCenterX = center.x;
@@ -5224,6 +5369,7 @@ function unlockBootPageScroll() {
     document.documentElement.style.setProperty("--rina-loader-y", lockedCenterY.toFixed(2) + "px");
   }
 
+  // 中文块：同步、加载 syncLoaderCenter 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function syncLoaderCenter() {
     if (loaderCenterFrozen) return;
     const center = firstViewportCenter();
@@ -5233,6 +5379,7 @@ function unlockBootPageScroll() {
     document.documentElement.style.setProperty("--rina-loader-y", lockedCenterY.toFixed(2) + "px");
   }
 
+  // 中文块：加载、同步 scheduleLoaderCenterSync 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function scheduleLoaderCenterSync() {
     if (!started || overlay.hidden) return;
     if (loaderCenterRaf) return;
@@ -5243,10 +5390,12 @@ function unlockBootPageScroll() {
     });
   }
 
+  // 中文块：加载 loaderSurfaceRect 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function loaderSurfaceRect() {
     return (blurScreen || overlay).getBoundingClientRect();
   }
 
+  // 中文块：执行对应逻辑 revealCenterInSurface 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function revealCenterInSurface() {
     const o = loaderSurfaceRect();
     const avatarCircle = avatarBefore.closest(".avatar-circle") || avatarBefore;
@@ -5260,6 +5409,7 @@ function unlockBootPageScroll() {
     };
   }
 
+  // 中文块：解码、加载 decodeLoadedImage 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function decodeLoadedImage(img) {
     if (typeof img.decode !== "function") return Promise.resolve();
     return img.decode().catch((err) => {
@@ -5268,18 +5418,22 @@ function unlockBootPageScroll() {
     });
   }
 
+  // 中文块：执行对应逻辑 waitForImage 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function waitForImage(img, src) {
     img.src = src;
     if (img.complete && img.naturalWidth > 0) return decodeLoadedImage(img);
     return new Promise((resolve, reject) => {
+      // 中文块：执行对应逻辑 cleanup 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
       const cleanup = () => {
         img.removeEventListener("load", onLoad);
         img.removeEventListener("error", onError);
       };
+      // 中文块：加载 onLoad 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
       const onLoad = () => {
         cleanup();
         resolve(decodeLoadedImage(img));
       };
+      // 中文块：执行对应逻辑 onError 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
       const onError = () => {
         cleanup();
         reject(new Error(`failed to load ${src}`));
@@ -5293,19 +5447,23 @@ function unlockBootPageScroll() {
     });
   }
 
+  // 中文块：初始化、加载 preloadInitialLoadingImage 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function preloadInitialLoadingImage() {
     return waitForImage(avatarBefore, ICON_BEFORE);
   }
 
+  // 中文块：加载 preloadAfterLoadingImage 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function preloadAfterLoadingImage() {
     if (!afterImageReadyPromise) afterImageReadyPromise = waitForImage(avatarAfter, ICON_AFTER);
     return afterImageReadyPromise;
   }
 
+  // 中文块：执行对应逻辑 eic 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function eic(t) {
     return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   }
 
+  // 中文块：取得 getMaxR 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function getMaxR(center = revealCenterInSurface()) {
     const o = center.surface;
     const cx = center.x,
@@ -5320,6 +5478,7 @@ function unlockBootPageScroll() {
     );
   }
 
+  // 中文块：设置 setOrigin 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function setOrigin() {
     const center = revealCenterInSurface();
     blurScreen.style.setProperty("--rina-reveal-x", center.x.toFixed(2) + "px");
@@ -5327,6 +5486,7 @@ function unlockBootPageScroll() {
     return center;
   }
 
+  // 中文块：执行对应逻辑 animateReveal 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function animateReveal() {
     blurScreen.style.setProperty("--rina-reveal-radius", "0px");
     blurScreen.classList.add("is-revealing");
@@ -5336,6 +5496,7 @@ function unlockBootPageScroll() {
     const start = performance.now(),
       maxR = getMaxR(origin);
 
+    // 中文块：执行对应逻辑 fr 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
     function fr(now) {
       const t = Math.min(1, (now - start) / BLUR_DUR_MS),
         r = maxR * eic(t);
@@ -5349,6 +5510,7 @@ function unlockBootPageScroll() {
     rafId = requestAnimationFrame(fr);
   }
 
+  // 中文块：执行对应逻辑 delayToPeak 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function delayToPeak(now = performance.now()) {
     const phase = (((now - haloCycleStart) % HALO_BREATH_MS) + HALO_BREATH_MS) % HALO_BREATH_MS;
     let d = HALO_BREATH_MS * HALO_PEAK_RATIO - phase;
@@ -5357,6 +5519,7 @@ function unlockBootPageScroll() {
     return Math.max(0, Math.round(d));
   }
 
+  // 中文块：请求 requestFinish 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function requestFinish() {
     if (!started) {
       finishQueued = true;
@@ -5366,6 +5529,7 @@ function unlockBootPageScroll() {
     finishPending = true;
     scheduleTimer(doFinish, delayToPeak());
   }
+  // 中文块：执行对应逻辑 doFinish 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   async function doFinish() {
     if (finished) return;
     const seq = timelineSeq;
@@ -5398,6 +5562,7 @@ function unlockBootPageScroll() {
     unlockBootPageScroll();
   }
 
+  // 中文块：初始化 initOverlay 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   function initOverlay() {
     if (started) return;
     finished = false;
@@ -5453,10 +5618,12 @@ function unlockBootPageScroll() {
   });
 })();
 
+// 中文块：执行对应逻辑 finishBootVisibility 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function finishBootVisibility() {
   document.documentElement.dataset.bootPhase = "ready";
   if (window.rinaLoaderComplete) window.rinaLoaderComplete();
 }
+// 中文块：加载 waitForBootLoaderMinimum 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function waitForBootLoaderMinimum(bootStart) {
   if (window.rinaStartLoaderAnimation) await window.rinaStartLoaderAnimation();
   const startedAt = Number(window.rinaLoaderStartedAt) || bootStart;
@@ -5465,11 +5632,13 @@ async function waitForBootLoaderMinimum(bootStart) {
     await new Promise((r) => setTimeout(r, BOOT_MIN_DISPLAY_MS - elapsed));
 }
 
+// 中文块：加载 showBootUiBehindLoader 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function showBootUiBehindLoader() {
   if (document.documentElement.dataset.bootPhase === "preload") {
     document.documentElement.dataset.bootPhase = "ui-ready";
   }
 }
+// 中文块：取得 bootFastJsonGet 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function bootFastJsonGet(path, timeoutMs = BOOT_STATUS_TIMEOUT_MS) {
   const url = apiUrl(path);
   firmware.lastRequest = `GET ${path}`;
@@ -5480,6 +5649,7 @@ async function bootFastJsonGet(path, timeoutMs = BOOT_STATUS_TIMEOUT_MS) {
     throw new Error(`offline html mode: ${path}`);
   }
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  // 中文块：执行对应逻辑 timeout 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
     const res = await fetch(url, {
@@ -5506,6 +5676,7 @@ async function bootFastJsonGet(path, timeoutMs = BOOT_STATUS_TIMEOUT_MS) {
   }
 }
 
+// 中文块：执行对应逻辑 rememberFirmwareStatusPoll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function rememberFirmwareStatusPoll(data) {
   const version = Number(data?.version ?? data?.v);
   if (Number.isFinite(version)) firmwareStatusVersion = version;
@@ -5513,6 +5684,7 @@ function rememberFirmwareStatusPoll(data) {
   if (Number.isFinite(next) && next > 0) firmwareNextPollMs = Math.max(250, Math.min(10000, next));
 }
 
+// 中文块：执行对应逻辑 firmwareStatusPath 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function firmwareStatusPath(summaryOnly = false) {
   const params = [];
   if (summaryOnly) params.push("runtimeOnly=1", "noFrame=1");
@@ -5520,6 +5692,7 @@ function firmwareStatusPath(summaryOnly = false) {
     params.push(`since=${encodeURIComponent(firmwareStatusVersion)}`);
   return params.length ? `${API_ENDPOINTS.status}?${params.join("&")}` : API_ENDPOINTS.status;
 }
+// 中文块：执行对应逻辑 preloadFirmwareRuntimeState 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function preloadFirmwareRuntimeState() {
   bootRuntimeSnapshot = {
     attempted: true,
@@ -5567,6 +5740,7 @@ async function preloadFirmwareRuntimeState() {
     return bootRuntimeSnapshot;
   }
 }
+// 中文块：同步 syncRuntimeStateFromFirmware 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function syncRuntimeStateFromFirmware(source = "webui_load") {
   if (firmwareFullStatusInFlight) return false;
   firmwareFullStatusInFlight = true;
@@ -5587,6 +5761,7 @@ async function syncRuntimeStateFromFirmware(source = "webui_load") {
     firmwareFullStatusInFlight = false;
   }
 }
+// 中文块：同步 syncRuntimeSummaryFromFirmware 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function syncRuntimeSummaryFromFirmware(source = "firmware_poll_runtime_summary") {
   if (firmwareRuntimeSummaryInFlight) return false;
   firmwareRuntimeSummaryInFlight = true;
@@ -5607,6 +5782,7 @@ async function syncRuntimeSummaryFromFirmware(source = "firmware_poll_runtime_su
   }
 }
 
+// 中文块：启动 startFirmwareStatusPolling 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function startFirmwareStatusPolling() {
   if (firmwareStatusPollTimer || isOfflineHtmlMode()) return;
   firmwareStatusPollTimer = setInterval(() => {
@@ -5628,6 +5804,7 @@ function startFirmwareStatusPolling() {
     }
   }, 500);
 }
+// 中文块：执行对应逻辑 refreshPowerStatusFromFirmware 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function refreshPowerStatusFromFirmware(source = "power_timer", force = false) {
   if (
     isOfflineHtmlMode() ||
@@ -5652,6 +5829,7 @@ async function refreshPowerStatusFromFirmware(source = "power_timer", force = fa
   }
 }
 
+// 中文块：启动 startPowerStatusPolling 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function startPowerStatusPolling() {
   if (powerStatusPollTimer || isOfflineHtmlMode()) return;
   refreshPowerStatusFromFirmware("basic_power_start", true);
@@ -5661,6 +5839,7 @@ function startPowerStatusPolling() {
   }, 1000);
 }
 
+// 中文块：停止 stopPollingTimers 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function stopPollingTimers() {
   if (firmwareStatusPollTimer) {
     clearInterval(firmwareStatusPollTimer);
@@ -5673,6 +5852,7 @@ function stopPollingTimers() {
 }
 window.addEventListener("pagehide", stopPollingTimers);
 
+// 中文块：设置 setNavMenuOpen 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setNavMenuOpen(open) {
   const nav = $("nav");
   const toggle = $("brand-nav-toggle");
@@ -5691,7 +5871,9 @@ function setNavMenuOpen(open) {
   updateCurrentPageLabel(document.body.dataset.page || "basic");
 }
 
+// 中文块：更新 updateCurrentPageLabel 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function updateCurrentPageLabel(id) {
+  // 中文块：执行对应逻辑 item 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const item = PAGES.find(([pid]) => pid === id);
   const pageText = item ? `${item[1]} ${item[2]}` : "";
   const toggle = $("brand-nav-toggle");
@@ -5702,6 +5884,7 @@ function updateCurrentPageLabel(id) {
   }
 }
 
+// 中文块：执行对应逻辑 modeForPage 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function modeForPage(id) {
   if (id === "scroll") return "scroll";
   if (id === "custom") return "custom";
@@ -5713,6 +5896,7 @@ let debugLayoutCards = [];
 let debugLayoutColumnCount = 0;
 let debugLayoutRaf = 0;
 
+// 中文块：统计 responsiveColumnCount 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function responsiveColumnCount() {
   const width = window.innerWidth || document.documentElement.clientWidth || 0;
   if (width <= LAYOUT_ONE_COLUMN_MAX_PX) return 1;
@@ -5720,6 +5904,7 @@ function responsiveColumnCount() {
   return 2;
 }
 
+// 中文块：执行对应逻辑 scheduleDebugMasonryLayout 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function scheduleDebugMasonryLayout(force = false) {
   if (document.body?.dataset?.page !== "debug") return;
   if (debugLayoutRaf) cancelAnimationFrame(debugLayoutRaf);
@@ -5729,6 +5914,7 @@ function scheduleDebugMasonryLayout(force = false) {
   });
 }
 
+// 中文块：设置 setupDebugMasonryLayout 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setupDebugMasonryLayout(force = false) {
   const layout = document.querySelector("#page-debug .debug-layout");
   if (!layout) return;
@@ -5739,6 +5925,7 @@ function setupDebugMasonryLayout(force = false) {
       card.dataset.debugOrder = String(index);
     });
   }
+  // 中文块：执行对应逻辑 cards 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const cards = debugLayoutCards.filter((card) => card && layout.contains(card));
   const count = responsiveColumnCount();
   if (
@@ -5787,6 +5974,7 @@ function setupDebugMasonryLayout(force = false) {
   }
 }
 
+// 中文块：执行对应逻辑 switchPage 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function switchPage(id) {
   terminateOtherActivities(modeForPage(id), `switch_page_${id}`);
   document.body.dataset.page = id;
@@ -5868,6 +6056,7 @@ function initNav() {
   });
 }
 
+// 中文块：执行对应逻辑 viewportBoundsForFixedMenu 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function viewportBoundsForFixedMenu() {
   const vv = window.visualViewport;
   const left = Math.floor(vv?.offsetLeft || 0);
@@ -5888,6 +6077,7 @@ function viewportBoundsForFixedMenu() {
   };
 }
 let selectScrollLock = null;
+// 中文块：执行对应逻辑 lockPageScrollForSelects 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function lockPageScrollForSelects() {
   if (selectScrollLock) return;
   // 只是一个标记：通过拦截事件阻止滚动，保持
@@ -5895,10 +6085,12 @@ function lockPageScrollForSelects() {
   selectScrollLock = true;
 }
 
+// 中文块：执行对应逻辑 unlockPageScrollForSelects 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function unlockPageScrollForSelects() {
   selectScrollLock = null;
 }
 
+// 中文块：同步 syncSelectPageScrollLock 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function syncSelectPageScrollLock() {
   if (document.querySelector(".select-shell.open")) lockPageScrollForSelects();
   else unlockPageScrollForSelects();
@@ -5912,6 +6104,7 @@ function selectMenuCanScroll(menu) {
   );
 }
 
+// 中文块：执行对应逻辑 blockPageTouchMoveWhileSelectOpen 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function blockPageTouchMoveWhileSelectOpen(ev) {
   if (!selectScrollLock) return;
   const menu = ev.target?.closest?.(".select-menu");
@@ -5933,6 +6126,7 @@ function blockPageKeyScrollWhileSelectOpen(ev) {
   if (PAGE_SCROLL_KEYS.has(ev.key)) ev.preventDefault();
 }
 
+// 中文块：执行对应逻辑 positionSelectMenu 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function positionSelectMenu(shell, options = {}) {
   const toggle = shell.querySelector(".select-toggle");
   const menu = shell._selectMenu;
@@ -5973,6 +6167,7 @@ function positionSelectMenu(shell, options = {}) {
   menu.style.bottom = "auto";
 }
 
+// 中文块：执行对应逻辑 closeOneCustomSelect 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function closeOneCustomSelect(shell) {
   if (!shell) return;
   shell.classList.remove("open");
@@ -5994,6 +6189,7 @@ function closeOneCustomSelect(shell) {
   }
 }
 
+// 中文块：执行对应逻辑 closeCustomSelects 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function closeCustomSelects(exceptShell = null) {
   document.querySelectorAll(".select-shell.open").forEach((shell) => {
     if (shell !== exceptShell) {
@@ -6003,6 +6199,7 @@ function closeCustomSelects(exceptShell = null) {
   syncSelectPageScrollLock();
 }
 
+// 中文块：执行对应逻辑 splitDropdownLabel 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function splitDropdownLabel(text) {
   const raw = String(text || "").trim();
   const match = raw.match(/^(.*?)\s{2,}(.+)$/);
@@ -6010,6 +6207,7 @@ function splitDropdownLabel(text) {
   return [raw, ""];
 }
 
+// 中文块：确保 ensureCustomSelect 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function ensureCustomSelect(select) {
   if (!select) return null;
   const shell = select.closest(".select-shell");
@@ -6074,6 +6272,7 @@ function ensureCustomSelect(select) {
   };
 }
 
+// 中文块：执行对应逻辑 refreshSelectDropdown 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function refreshSelectDropdown(idOrSelect) {
   const select = typeof idOrSelect === "string" ? $(idOrSelect) : idOrSelect;
   const ui = ensureCustomSelect(select);
@@ -6117,10 +6316,12 @@ function refreshSelectDropdown(idOrSelect) {
   });
 }
 
+// 中文块：执行对应逻辑 refreshAllCustomSelects 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function refreshAllCustomSelects() {
   document.querySelectorAll(".select-shell select").forEach((sel) => refreshSelectDropdown(sel));
 }
 
+// 中文块：初始化 initCustomSelectDropdowns 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function initCustomSelectDropdowns() {
   document.querySelectorAll(".select-shell select").forEach((sel) => {
     ensureCustomSelect(sel);
@@ -6142,6 +6343,7 @@ function initCustomSelectDropdowns() {
   const reposition = () => {
     document.querySelectorAll(".select-shell.open").forEach((shell) => positionSelectMenu(shell));
   };
+  // 中文块：执行对应逻辑 resizeReposition 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const resizeReposition = () => {
     document.querySelectorAll(".select-shell.open").forEach((shell) =>
       positionSelectMenu(shell, {
@@ -6218,11 +6420,13 @@ function initMatrix(id, frameProvider, editable = false, editHandler = null, com
   fitMatrix(view);
 }
 
+// 中文块：执行对应逻辑 matrixSizeNumber 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function matrixSizeNumber(style, name, fallback) {
   const v = parseFloat(style.getPropertyValue(name));
   return Number.isFinite(v) && v > 0 ? v : fallback;
 }
 
+// 中文块：执行对应逻辑 elementOuterBlockSize 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function elementOuterBlockSize(el) {
   if (!el || el.hidden) return 0;
   const st = getComputedStyle(el);
@@ -6231,6 +6435,7 @@ function elementOuterBlockSize(el) {
   return r.height + (parseFloat(st.marginTop) || 0) + (parseFloat(st.marginBottom) || 0);
 }
 
+// 中文块：执行对应逻辑 matrixMaxContentHeight 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function matrixMaxContentHeight(wrap, configuredMaxHeight) {
   if (!(configuredMaxHeight > 0)) return Infinity;
   const card = wrap.closest(".led-preview-card,.debug-measure-card");
@@ -6253,6 +6458,7 @@ function matrixMaxContentHeight(wrap, configuredMaxHeight) {
   return Math.max(1, configuredMaxHeight - reserved);
 }
 
+// 中文块：执行对应逻辑 fitMatrix 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function fitMatrix(view) {
   const wrap = view.el.closest(".matrix-wrap");
   if (!wrap) return;
@@ -6312,6 +6518,7 @@ function fitMatrix(view) {
   wrap.style.setProperty("--matrix-edge-gap", edgeGap.toFixed(4) + "px");
 }
 
+// 中文块：执行对应逻辑 fitAllMatrices 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function fitAllMatrices() {
   matrixViews.forEach(fitMatrix);
 }
@@ -6319,6 +6526,7 @@ let matrixResizeObserver = null;
 let matrixFitRaf = 0;
 let matrixFitSettleFrames = 0;
 
+// 中文块：渲染 runMatrixFitRender 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function runMatrixFitRender() {
   matrixFitRaf = 0;
   fitAllMatrices();
@@ -6329,14 +6537,17 @@ function runMatrixFitRender() {
   }
 }
 
+// 中文块：渲染 scheduleMatrixFitRender 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function scheduleMatrixFitRender(settleFrames = 1) {
   matrixFitSettleFrames = Math.max(matrixFitSettleFrames, settleFrames);
   if (matrixFitRaf) return;
   matrixFitRaf = requestAnimationFrame(runMatrixFitRender);
 }
 
+// 中文块：执行对应逻辑 observeMatrixWraps 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function observeMatrixWraps() {
   if (matrixResizeObserver) return;
+  // 中文块：执行对应逻辑 onResize 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const onResize = () => scheduleMatrixFitRender(2);
   if (typeof ResizeObserver !== "undefined") {
     matrixResizeObserver = new ResizeObserver(onResize);
@@ -6373,6 +6584,7 @@ function observeMatrixWraps() {
   }
 }
 
+// 中文块：渲染 renderMatrices 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function renderMatrices() {
   for (const view of matrixViews) {
     const frame = view.frameProvider();
@@ -6386,7 +6598,9 @@ function renderMatrices() {
   }
 }
 
+// 中文块：绘制 attachDrawing 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function attachDrawing(el, editHandler) {
+  // 中文块：取得 getCell 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const getCell = (target) => target && target.closest && target.closest(".led.editable");
   el.addEventListener("click", (ev) => {
     const cell = getCell(ev.target);
@@ -6397,29 +6611,35 @@ function attachDrawing(el, editHandler) {
   });
 }
 
+// 中文块：执行对应逻辑 formatVolts 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function formatVolts(value) {
   const n = Number(value);
   return Number.isFinite(n) ? `${n.toFixed(2)} V` : "n/a";
 }
 
+// 中文块：执行对应逻辑 formatBatteryPercent 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function formatBatteryPercent(value) {
   const n = Number(value);
   return Number.isFinite(n) ? `${Math.round(n)}%` : "n/a";
 }
 
+// 中文块：执行对应逻辑 formatChargingState 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function formatChargingState(value) {
   return typeof value === "boolean" ? (value ? "充电中" : "未充电") : "n/a";
 }
 
+// 中文块：执行对应逻辑 formatChargingBadge 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function formatChargingBadge(value) {
   return typeof value === "boolean" ? (value ? "充电中" : "未充电") : "充电 --";
 }
 
+// 中文块：执行对应逻辑 formatMilliVolts 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function formatMilliVolts(value) {
   const n = Number(value);
   return Number.isFinite(n) ? `${Math.round(n)} mV` : "n/a";
 }
 
+// 中文块：执行对应逻辑 batteryPowerText 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function batteryPowerText() {
   return state.batteryPowered === false ? "未上电" : state.batteryStateText || "电池";
 }
@@ -6551,12 +6771,14 @@ function renderState() {
   scheduleDebugMasonryLayout();
 }
 
+// 中文块：执行对应逻辑 kvRows 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function kvRows(rows) {
   return rows
     .map(([k, v]) => `<span class="k">${escapeHtml(k)}</span><span>${escapeHtml(String(v))}</span>`)
     .join("");
 }
 
+// 中文块：执行对应逻辑 escapeHtml 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function escapeHtml(s) {
   return String(s).replace(
     /[&<>"']/g,
@@ -6571,6 +6793,7 @@ function escapeHtml(s) {
   );
 }
 
+// 中文块：执行对应逻辑 autoResizeTextarea 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function autoResizeTextarea(el) {
   if (!el) return;
   // 如果元素（或任一祖先）是 display:none，offsetParent 会是 null，
@@ -6588,6 +6811,7 @@ function autoResizeTextarea(el) {
   delete el.dataset.pendingAutoresize;
 }
 
+// 中文块：执行对应逻辑 autoResizeM370Textareas 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function autoResizeM370Textareas() {
   const a = $("custom-m370");
   if (a) autoResizeTextarea(a);
@@ -6597,6 +6821,7 @@ function autoResizeM370Textareas() {
   if (c) autoResizeTextarea(c);
 }
 
+// 中文块：更新 updateM370Views 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function updateM370Views() {
   if ($("custom-m370")) {
     $("custom-m370").value = frameToM370(editFrame);
@@ -6628,6 +6853,7 @@ function initColorInput() {
   });
 }
 
+// 中文块：初始化 initColors 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function initColors() {
   initColorInput();
   const parentSelect = $("parent-color-select");
@@ -6653,17 +6879,20 @@ function initColors() {
   refreshSelectDropdown("parent-color-select");
 }
 
+// 中文块：渲染 renderParentColorButtons 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function renderParentColorButtons() {
   const parentSelect = $("parent-color-select");
   if (parentSelect) parentSelect.value = String(state.parentColorId ?? 0);
   refreshSelectDropdown("parent-color-select");
 }
 
+// 中文块：设置 setColorSelection 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setColorSelection(selection, childColor = null) {
   state.colorSelection = selection;
   state.selectedChildColor = childColor;
 }
 
+// 中文块：同步 syncColorDropdownsToHex 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function syncColorDropdownsToHex(hex) {
   const normalized = normalizeHexColor(hex);
   if (!normalized) return;
@@ -6693,6 +6922,7 @@ function syncColorDropdownsToHex(hex) {
   renderChildColors();
 }
 
+// 中文块：渲染 renderChildColors 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function renderChildColors() {
   const childSelect = $("child-color-select");
   if (!childSelect) return;
@@ -6729,6 +6959,7 @@ function renderChildColors() {
   refreshSelectDropdown("child-color-select");
 }
 
+// 中文块：渲染 renderPresetButtons 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function renderPresetButtons(containerId, values, labelForValue, onSelect) {
   const box = $(containerId);
   if (!box) return;
@@ -6742,6 +6973,7 @@ function renderPresetButtons(containerId, values, labelForValue, onSelect) {
   }
 }
 
+// 中文块：初始化 initBrightness 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function initBrightness() {
   setClickHandlers([
     ["brightness-minus", () => setBrightness(state.brightness - 8, "B4/WebUI -")],
@@ -6758,6 +6990,7 @@ function initBrightness() {
   );
 }
 
+// 中文块：重置 resetBrightnessDefault 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function resetBrightnessDefault() {
   const value = Number.isFinite(Number(state.defaultBrightness))
     ? state.defaultBrightness
@@ -6765,6 +6998,7 @@ function resetBrightnessDefault() {
   setBrightness(value, "default_brightness_reset");
 }
 
+// 中文块：初始化 initBasicControls 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function initBasicControls() {
   setClickHandlers([
     ["face-prev", prevFace],
@@ -6786,14 +7020,17 @@ function initBasicControls() {
   syncAutoIntervalUi();
 }
 
+// 中文块：执行对应逻辑 isAutoModeValue 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function isAutoModeValue(v) {
   return v === "自动" || v === "auto" || v === "A";
 }
 
+// 中文块：执行对应逻辑 modePayloadValue 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function modePayloadValue() {
   return isAutoModeValue(state.mode) ? "auto" : "manual";
 }
 
+// 中文块：更新、切换 updateModeToggleUi 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function updateModeToggleUi() {
   const btn = $("mode-toggle");
   if (!btn) return;
@@ -6803,6 +7040,7 @@ function updateModeToggleUi() {
   btn.textContent = isAuto ? "A 自动" : "M 手动";
 }
 
+// 中文块：切换 toggleModeLocal 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function toggleModeLocal(source) {
   guardBeforeOutput("am_mode_toggle", "face");
   state.mode = isAutoModeValue(state.mode) ? "manual" : "auto";
@@ -6818,18 +7056,22 @@ function toggleModeLocal(source) {
   );
 }
 
+// 中文块：切换 toggleMode 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function toggleMode(source) {
   sendButtonCommand("B3", source, () => toggleModeLocal(source));
 }
 
+// 中文块：执行对应逻辑 formatIntervalSeconds 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function formatIntervalSeconds(ms) {
   return (ms / 1000).toFixed(ms % 1000 ? 1 : 0);
 }
 
+// 中文块：规范化 normalizeAutoIntervalMs 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function normalizeAutoIntervalMs(ms) {
   return Math.round(clamp(ms, AUTO_INTERVAL_MIN_MS, AUTO_INTERVAL_MAX_MS) / 100) * 100;
 }
 
+// 中文块：同步 syncAutoIntervalUi 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function syncAutoIntervalUi() {
   const ms = normalizeAutoIntervalMs(state.autoInterval);
   const seconds = formatIntervalSeconds(ms);
@@ -6837,6 +7079,7 @@ function syncAutoIntervalUi() {
   if ($("auto-interval")) $("auto-interval").value = seconds;
 }
 
+// 中文块：设置 setAutoIntervalMs 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setAutoIntervalMs(ms, source = "auto_interval_change") {
   state.autoInterval = normalizeAutoIntervalMs(ms);
   syncAutoIntervalUi();
@@ -6853,14 +7096,17 @@ function setAutoIntervalMs(ms, source = "auto_interval_change") {
   );
 }
 
+// 中文块：设置 setAutoIntervalSeconds 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setAutoIntervalSeconds(seconds, source = "auto_interval_input") {
   setAutoIntervalMs(Number(seconds) * 1000, source);
 }
 
+// 中文块：执行对应逻辑 adjustInterval 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function adjustInterval(delta) {
   setAutoIntervalMs(state.autoInterval + delta, "auto_interval_change");
 }
 
+// 中文块：执行对应逻辑 nextFaceLocal 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function nextFaceLocal() {
   const library = getAllFaces();
   if (!library.length) return;
@@ -6868,6 +7114,7 @@ function nextFaceLocal() {
   applySavedFace(state.faceIndex, "B1/WebUI next");
 }
 
+// 中文块：执行对应逻辑 prevFaceLocal 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function prevFaceLocal() {
   const library = getAllFaces();
   if (!library.length) return;
@@ -6875,14 +7122,17 @@ function prevFaceLocal() {
   applySavedFace(state.faceIndex, "B2/WebUI prev");
 }
 
+// 中文块：执行对应逻辑 nextFace 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function nextFace() {
   sendButtonCommand("B1", "B1/WebUI next", nextFaceLocal);
 }
 
+// 中文块：执行对应逻辑 prevFace 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function prevFace() {
   sendButtonCommand("B2", "B2/WebUI prev", prevFaceLocal);
 }
 
+// 中文块：应用、保存 applySavedFace 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function applySavedFace(i, reason = "saved_face_apply") {
   const library = getAllFaces();
   const face = library[i];
@@ -6893,6 +7143,7 @@ function applySavedFace(i, reason = "saved_face_apply") {
   log(`应用表情 #${i + 1}: ${face.name} / ${faceTypeLabel(face.type)}`);
 }
 
+// 中文块：初始化 initCustom 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function initCustom() {
   $("custom-clear").onclick = () => {
     editFrame = blankFrame();
@@ -6937,12 +7188,14 @@ function initCustom() {
   initFaceManagerControls();
 }
 
+// 中文块：切换、发送 toggleLiveSend 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function toggleLiveSend(label = "实时发送") {
   liveSendEnabled = !liveSendEnabled;
   updateLiveToggles();
   log(`${label} ${liveSendEnabled ? "开启" : "关闭"}`);
 }
 
+// 中文块：更新、切换 updateLiveToggles 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function updateLiveToggles() {
   ["custom-live-toggle", "parts-live-toggle"].forEach((id) => {
     const btn = $(id);
@@ -6953,16 +7206,19 @@ function updateLiveToggles() {
   });
 }
 
+// 中文块：发送 sendCustomFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function sendCustomFrame(reason = "custom_face_send", writeLog = true) {
   updateM370Views();
   setCurrentFrame(editFrame, reason, "idle");
   if (writeLog) log("自定义 M370 已发送到固件接口");
 }
 
+// 中文块：发送 sendCustomFrameIfLive 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function sendCustomFrameIfLive(reason = "custom_live_send") {
   if (liveSendEnabled) sendCustomFrame(reason, false);
 }
 
+// 中文块：执行对应逻辑 editCell 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function editCell(idx, value, tool) {
   editFrame[idx] = !!value;
   renderMatrices();
@@ -6970,6 +7226,7 @@ function editCell(idx, value, tool) {
   sendCustomFrameIfLive("custom_live_send");
 }
 
+// 中文块：启动 preferredStartupDefaultId 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function preferredStartupDefaultId(faces) {
   const list = Array.isArray(faces) ? faces : [];
   return (
@@ -6981,16 +7238,19 @@ function preferredStartupDefaultId(faces) {
   );
 }
 
+// 中文块：启动 startupDefaultFaceIndex 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function startupDefaultFaceIndex() {
   const library = getAllFaces();
   if (!library.length) return -1;
   const startupId = faceLibraryDocument?.startupDefaultId || DEFAULT_STARTUP_FACE_ID;
+  // 中文块：执行对应逻辑 idx 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   let idx = startupId ? library.findIndex((f) => f.id === startupId) : -1;
   if (idx < 0) idx = library.findIndex((f) => f.is_startup_default);
   if (idx < 0) idx = library.findIndex((f) => f.type === "default");
   return idx >= 0 ? idx : 0;
 }
 
+// 中文块：应用、启动 applyStartupDefaultFaceLocal 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function applyStartupDefaultFaceLocal(reason = "text_scroll_stop_default_saved_face") {
   const index = startupDefaultFaceIndex();
   if (index < 0) return false;
@@ -7007,6 +7267,7 @@ function applyStartupDefaultFaceLocal(reason = "text_scroll_stop_default_saved_f
   return true;
 }
 
+// 中文块：应用 applyKnownFaceIndexLocal 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function applyKnownFaceIndexLocal(reason = "firmware_face_index_preview") {
   const library = getAllFaces();
   if (!library.length) return false;
@@ -7036,6 +7297,7 @@ async function loadFaceLibrary() {
   const library = getAllFaces();
   if (library.length) {
     const startupId = faceLibraryDocument?.startupDefaultId;
+    // 中文块：启动 startupIndex 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
     const startupIndex = startupId ? library.findIndex((f) => f.id === startupId) : -1;
     state.faceIndex =
       startupIndex >= 0 ? startupIndex : clamp(state.faceIndex, 0, library.length - 1);
@@ -7046,6 +7308,7 @@ async function loadFaceLibrary() {
   renderState();
   return library;
 }
+// 中文块：执行对应逻辑 fetchJsonDocument 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function fetchJsonDocument(path) {
   const res = await fetch(path, {
     cache: "no-store",
@@ -7053,6 +7316,7 @@ async function fetchJsonDocument(path) {
   if (!res.ok) throw new Error(`${res.status} ${res.statusText || ""}`.trim());
   return res.json();
 }
+// 中文块：加载 loadUnifiedFacesDocument 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function loadUnifiedFacesDocument() {
   const empty = {
     format: FACE_SCHEMA_FORMAT,
@@ -7101,6 +7365,7 @@ async function loadUnifiedFacesDocument() {
   }
 }
 
+// 中文块：执行对应逻辑 splitFaceLibraryDocument 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function splitFaceLibraryDocument(doc) {
   const faces = Array.isArray(doc?.faces) ? doc.faces : [];
   defaultFaces = faces
@@ -7129,10 +7394,12 @@ function splitFaceLibraryDocument(doc) {
     }));
 }
 
+// 中文块：执行对应逻辑 faceOrderFromIndex 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function faceOrderFromIndex(index) {
   return Math.max(1, Number(index) + 1);
 }
 
+// 中文块：规范化 normalizeFaceDocument 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function normalizeFaceDocument(doc, fallbackType = "custom") {
   const out =
     doc && typeof doc === "object" && !Array.isArray(doc)
@@ -7158,6 +7425,7 @@ function normalizeFaceDocument(doc, fallbackType = "custom") {
   return out;
 }
 
+// 中文块：执行对应逻辑 displayNameFromId 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function displayNameFromId(id) {
   return String(id || "face")
     .replace(/^face_?/, "")
@@ -7165,6 +7433,7 @@ function displayNameFromId(id) {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// 中文块：规范化 normalizeFace 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function normalizeFace(f, i = 0, fallbackType = "custom") {
   if (!f || typeof f !== "object") return null;
   const m370 = String(f.m370 || "").trim();
@@ -7192,6 +7461,7 @@ function normalizeFace(f, i = 0, fallbackType = "custom") {
   };
 }
 
+// 中文块：规范化 normalizeFaceType 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function normalizeFaceType(v) {
   const s = String(v || "custom").toLowerCase();
   if (s.includes("default")) return "default";
@@ -7200,6 +7470,7 @@ function normalizeFaceType(v) {
   return "custom";
 }
 
+// 中文块：执行对应逻辑 faceTypeLabel 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function faceTypeLabel(type) {
   return type === "default"
     ? "默认表情"
@@ -7210,6 +7481,7 @@ function faceTypeLabel(type) {
         : "保存表情";
 }
 
+// 中文块：取得 getAllFaces 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function getAllFaces() {
   return [...defaultFaces, ...userFaces]
     .map((f, idx) => ({
@@ -7222,8 +7494,11 @@ function getAllFaces() {
     );
 }
 
+// 中文块：执行对应逻辑 reassignOrderFromLibrary 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function reassignOrderFromLibrary(library) {
+  // 中文块：执行对应逻辑 defaultById 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const defaultById = new Map(defaultFaces.map((f) => [f.id, f]));
+  // 中文块：执行对应逻辑 userById 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const userById = new Map(userFaces.map((f) => [f.id, f]));
   library.forEach((f, i) => {
     const target = f.type === "default" ? defaultById.get(f.id) : userById.get(f.id);
@@ -7233,6 +7508,7 @@ function reassignOrderFromLibrary(library) {
   userFaces = [...userFaces].sort((a, b) => a.order - b.order);
 }
 
+// 中文块：构建 buildUnifiedFaceDocument 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function buildUnifiedFaceDocument() {
   const faces = getAllFaces()
     .map((f, i) => {
@@ -7264,6 +7540,7 @@ function buildUnifiedFaceDocument() {
     faces,
   };
 }
+// 中文块：保存 saveFaceLibraryToLocalFile 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function saveFaceLibraryToLocalFile() {
   if (!faceLibraryFileHandle)
     throw new Error(
@@ -7279,6 +7556,7 @@ async function saveFaceLibraryToLocalFile() {
   });
   log("已保存到已打开的本地 saved_faces.json");
 }
+// 中文块：执行对应逻辑 openLocalFaceLibraryFile 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function openLocalFaceLibraryFile() {
   if (!window.showOpenFilePicker) {
     alert(
@@ -7305,6 +7583,7 @@ async function openLocalFaceLibraryFile() {
   });
   log(`已打开本地 ${file.name}；之后排序/重命名会优先写回这个文件。`);
 }
+// 中文块：执行对应逻辑 persistFaceDocuments 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function persistFaceDocuments(reason = "save_faces") {
   faceLibraryDocument = buildUnifiedFaceDocument();
   splitFaceLibraryDocument(faceLibraryDocument);
@@ -7344,6 +7623,7 @@ async function persistFaceDocuments(reason = "save_faces") {
     });
 }
 
+// 中文块：下载 downloadJsonFile 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function downloadJsonFile(filename, doc) {
   const blob = new Blob([JSON.stringify(doc, null, 2)], {
     type: "application/json",
@@ -7355,10 +7635,12 @@ function downloadJsonFile(filename, doc) {
   URL.revokeObjectURL(a.href);
 }
 
+// 中文块：下载 downloadFacesJson 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function downloadFacesJson() {
   downloadJsonFile("saved_faces.json", buildUnifiedFaceDocument());
   log("已导出统一 saved_faces.json");
 }
+// 中文块：执行对应逻辑 importFacesJsonText 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function importFacesJsonText(text, reason = "import_saved_faces_json") {
   faceLibraryDocument = normalizeFaceDocument(JSON.parse(text), "custom");
   splitFaceLibraryDocument(faceLibraryDocument);
@@ -7368,10 +7650,12 @@ async function importFacesJsonText(text, reason = "import_saved_faces_json") {
   await persistFaceDocuments(reason);
   log(`已导入统一 saved_faces.json：默认 ${defaultFaces.length} 项，用户 ${userFaces.length} 项`);
 }
+// 中文块：执行对应逻辑 importFacesJsonFile 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function importFacesJsonFile(file) {
   await importFacesJsonText(await file.text(), "import_saved_faces_json");
 }
 
+// 中文块：初始化 initFaceManagerControls 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function initFaceManagerControls() {
   bindControls(".faces-json-load", "click", () => loadFaceLibrary());
   bindControls(".faces-json-open-local", "click", () =>
@@ -7392,6 +7676,7 @@ function initFaceManagerControls() {
   });
 }
 
+// 中文块：保存 saveFace 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function saveFace(name, frame, type) {
   const faceType = normalizeFaceType(type);
   if (faceType === "default")
@@ -7402,6 +7687,7 @@ function saveFace(name, frame, type) {
     String(name || "face")
       .trim()
       .slice(0, 64) || "face";
+  // 中文块：执行对应逻辑 nextOrder 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const nextOrder = Math.max(0, ...getAllFaces().map((f) => Number(f.order) || 0)) + 1;
   userFaces.push({
     id: `${faceType}_${Date.now()}`,
@@ -7428,6 +7714,7 @@ function saveFace(name, frame, type) {
   persistFaceDocuments("save_user_face");
 }
 
+// 中文块：渲染、保存 renderSavedFaces 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function renderSavedFaces() {
   const lists = document.querySelectorAll(".face-library-list");
   if (!lists.length) return;
@@ -7444,10 +7731,12 @@ function renderSavedFaces() {
   renderState();
 }
 
+// 中文块：清除 clearFaceDragOver 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function clearFaceDragOver(scope = document) {
   scope.querySelectorAll(".saved-row.drag-over").forEach((x) => x.classList.remove("drag-over"));
 }
 
+// 中文块：执行对应逻辑 faceRowIndexFromPoint 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function faceRowIndexFromPoint(clientX, clientY, list) {
   const target = document.elementFromPoint(clientX, clientY);
   const row = target && target.closest && target.closest(".saved-row");
@@ -7456,6 +7745,7 @@ function faceRowIndexFromPoint(clientX, clientY, list) {
   return Number.isInteger(index) ? index : null;
 }
 
+// 中文块：执行对应逻辑 autoScrollFaceList 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function autoScrollFaceList(clientY) {
   const margin = 76;
   const step = 18;
@@ -7471,6 +7761,7 @@ function autoScrollFaceList(clientY) {
     });
 }
 
+// 中文块：处理 attachFaceReorderHandle 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function attachFaceReorderHandle(handle, row, index) {
   handle.draggable = false;
   handle.addEventListener("pointerdown", (ev) => {
@@ -7499,6 +7790,7 @@ function attachFaceReorderHandle(handle, row, index) {
     const targetRow = pointerFaceDrag.list.querySelector(`.saved-row[data-index="${to}"]`);
     if (targetRow) targetRow.classList.add("drag-over");
   });
+  // 中文块：执行对应逻辑 finish 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const finish = (ev) => {
     if (!pointerFaceDrag || pointerFaceDrag.pointerId !== ev.pointerId) return;
     ev.preventDefault();
@@ -7513,6 +7805,7 @@ function attachFaceReorderHandle(handle, row, index) {
   handle.addEventListener("pointercancel", finish);
 }
 
+// 中文块：执行对应逻辑 createFaceRow 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function createFaceRow(f, i, total) {
   const row = document.createElement("div");
   row.className = "saved-row";
@@ -7547,6 +7840,7 @@ function createFaceRow(f, i, total) {
   const commitName = () => {
     const next = nameInput.value.trim().slice(0, 64) || f.name || `face_${i + 1}`;
     const list = f.type === "default" ? defaultFaces : userFaces;
+    // 中文块：执行对应逻辑 target 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
     const target = list.find((x) => x.id === f.id);
     if (target && target.name !== next) {
       target.name = next;
@@ -7573,6 +7867,7 @@ function createFaceRow(f, i, total) {
   const actions = document.createElement("div");
   actions.className = "face-action-bar";
 
+  // 中文块：执行对应逻辑 mkBtn 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const mkBtn = (label, title, cls, fn, disabled) => {
     const b = document.createElement("button");
     b.type = "button";
@@ -7596,6 +7891,7 @@ function createFaceRow(f, i, total) {
   if (f.type !== "default") {
     actions.appendChild(mkBtn("🗑️", "删除", "btn-delete", () => deleteFace(i)));
   } else {
+    // 中文块：执行对应逻辑 nd 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
     const nd = mkBtn("🗑️", "默认表情不可删除", "btn-delete", () => {}, true);
     nd.style.opacity = ".35";
     actions.appendChild(nd);
@@ -7614,10 +7910,12 @@ function createFaceRow(f, i, total) {
   return row;
 }
 
+// 中文块：执行对应逻辑 moveFace 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function moveFace(i, d) {
   reorderFace(i, i + d);
 }
 
+// 中文块：执行对应逻辑 reorderFace 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function reorderFace(from, to) {
   const library = getAllFaces();
   from = Number(from);
@@ -7641,6 +7939,7 @@ function reorderFace(from, to) {
   log(`表情排序 ${from + 1} -> ${to + 1}`);
 }
 
+// 中文块：执行对应逻辑 deleteFace 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function deleteFace(i) {
   const library = getAllFaces();
   const face = library[i];
@@ -7723,6 +8022,7 @@ function initParts() {
     sendPartsFrameIfLive("parts_live_reset");
     log("表情部件恢复默认");
   };
+  // 中文块：复制 _copyPartsM370 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const _copyPartsM370 = () => {
     copyText(frameToM370(partsFrame));
     log("复制 M370");
@@ -7749,15 +8049,18 @@ function initParts() {
   updateLiveToggles();
 }
 
+// 中文块：取得 getPartDisplayIndex 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function getPartDisplayIndex(key, id) {
   return EXPRESSION_PARTS.call.ids[key].findIndex((x) => String(x) === String(id));
 }
 
+// 中文块：执行对应逻辑 callIdAtDisplayIndex 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function callIdAtDisplayIndex(key, index) {
   const ids = EXPRESSION_PARTS.call.ids[key] || [];
   return String(ids[clamp(index, 0, ids.length - 1)] ?? ids[0] ?? "0");
 }
 
+// 中文块：同步 syncSymmetricEyesFrom 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function syncSymmetricEyesFrom(sourceKey) {
   const src = sourceKey === "reye" ? "reye" : "leye";
   const idx = getPartDisplayIndex(src, selectedCall[src]);
@@ -7766,6 +8069,7 @@ function syncSymmetricEyesFrom(sourceKey) {
   selectedCall.reye = callIdAtDisplayIndex("reye", safeIdx);
 }
 
+// 中文块：执行对应逻辑 selectPart 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function selectPart(key, id) {
   selectedCall[key] = String(id);
   if (partsSymmetry && (key === "leye" || key === "reye")) syncSymmetricEyesFrom(key);
@@ -7774,6 +8078,7 @@ function selectPart(key, id) {
   sendPartsFrameIfLive("parts_live_select");
 }
 
+// 中文块：执行对应逻辑 miniPreviewHtml 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function miniPreviewHtml(part) {
   const rows = previewRows(part);
   let s = '<div class="part-mini">';
@@ -7785,6 +8090,7 @@ function miniPreviewHtml(part) {
   return s + "</div>";
 }
 
+// 中文块：执行对应逻辑 previewRows 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function previewRows(part) {
   const size = part.size || [8, 8];
   const w = clamp(size[0] || 8, 1, 8),
@@ -7818,6 +8124,7 @@ function previewRows(part) {
   return out.map((r) => r.join(""));
 }
 
+// 中文块：渲染 renderPartButtons 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function renderPartButtons() {
   for (const key of ["leye", "reye", "mouth", "cheek"]) {
     document
@@ -7831,6 +8138,7 @@ function renderPartButtons() {
   }
 }
 
+// 中文块：执行对应逻辑 randomParts 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function randomParts() {
   if (partsSymmetry) {
     const maxEyeIndex =
@@ -7840,6 +8148,7 @@ function randomParts() {
     selectedCall.reye = callIdAtDisplayIndex("reye", eyeIndex);
   } else {
     for (const key of ["leye", "reye"]) {
+      // 中文块：执行对应逻辑 arr 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
       let arr = EXPRESSION_PARTS.call.ids[key].filter((id) => String(id) !== "0");
       selectedCall[key] = String(arr[Math.floor(Math.random() * arr.length)]);
     }
@@ -7868,22 +8177,43 @@ function randomParts() {
 // - uploadFirmwareScrollTimeline() 把同一批 frames 分块发给 /api/scroll。
 // - start/pause/resume/stop 同时维护本地 preview 状态和固件 playback 状态。
 function truncateScrollText(text) {
-  return Array.from(String(text ?? ""))
-    .slice(0, MAX_SCROLL_TEXT_CHARS)
-    .join("");
+  const out = [];
+  let visibleCount = 0;
+  for (const ch of Array.from(String(text ?? ""))) {
+    if (!isEmojiFormatControl(codePointOfChar(ch))) visibleCount++;
+    if (visibleCount > MAX_SCROLL_TEXT_CHARS) break;
+    out.push(ch);
+  }
+  return out.join("");
 }
 
+// 中文块：执行对应逻辑 sanitizeScrollTextInput 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function sanitizeScrollTextInput(commit = false) {
   const el = $("scroll-text");
   const raw = el ? String(el.value ?? "") : "";
-  const clean = truncateScrollText(raw);
+  const normalized = normalizeTextScrollEmojiPresentation(raw);
+  const clean = truncateScrollText(normalized);
   if (commit && el && raw !== clean) {
+    const selectionStart = el.selectionStart ?? clean.length;
+    const selectionEnd = el.selectionEnd ?? selectionStart;
+    const nextStart = truncateScrollText(
+      normalizeTextScrollEmojiPresentation(raw.slice(0, selectionStart)),
+    ).length;
+    const nextEnd = truncateScrollText(
+      normalizeTextScrollEmojiPresentation(raw.slice(0, selectionEnd)),
+    ).length;
     el.value = clean;
-    log(`滚动文字超过 ${MAX_SCROLL_TEXT_CHARS} 字，已自动截断。`);
+    if (typeof el.setSelectionRange === "function") {
+      el.setSelectionRange(Math.min(nextStart, clean.length), Math.min(nextEnd, clean.length));
+    }
+    if (Array.from(normalized).filter((ch) => !isEmojiFormatControl(codePointOfChar(ch))).length > MAX_SCROLL_TEXT_CHARS) {
+      log(`滚动文字超过 ${MAX_SCROLL_TEXT_CHARS} 字，已自动截断。`);
+    }
   }
   return clean;
 }
 
+// 中文块：执行对应逻辑 autoResizeScrollTextInput 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function autoResizeScrollTextInput() {
   const el = $("scroll-text");
   if (!el) return;
@@ -7895,7 +8225,7 @@ function autoResizeScrollTextInput() {
 
 let scrollBitmapFontLazyStarted = false;
 // 仅在实际使用文字滚动功能时，才延迟获取较大的 Ark Pixel 文字滚动资源
-// （约 593KB 浏览器 woff2 + 约 1.8MB 位图字形表），
+// （约 830KB 单一合并 woff2（含 emoji 与回退字形）+ 约 2.5MB 位图字形表），
 // 让约 2.4MB 资源避开启动/启动后瀑布流。底层两个加载器都会缓存
 // 各自的承诺对象，因此重复调用（例如每次进入滚动页面）成本很低。
 function ensureScrollFontsLoaded() {
@@ -7909,6 +8239,7 @@ function ensureScrollFontsLoaded() {
     .catch((err) => log(`Ark Pixel Font bitmap table load failed: ${err.message}`));
 }
 
+// 中文块：初始化 initScroll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function initScroll() {
   applyTextScrollInputFont();
   autoResizeScrollTextInput();
@@ -7918,12 +8249,8 @@ function initScroll() {
   $("scroll-play").onclick = startScroll;
   $("scroll-pause").onclick = togglePauseScroll;
   $("scroll-stop").onclick = stopScroll;
-  $("scroll-step").onclick = async () => {
-    guardBeforeOutput("text_scroll_manual_step", "scroll");
-    await prepareTextScrollTimelineAsync(false);
-    advanceScroll(true);
-    sendAuxCommand("scroll_step", {}, "text_scroll_manual_step");
-  };
+  setScrollStepHandler("scroll-step-prev", 1);
+  setScrollStepHandler("scroll-step-next", -1);
   setClickHandlers([
     [
       "scroll-speed-reset-default",
@@ -8015,12 +8342,14 @@ function initScroll() {
     document.fonts.ready.then(autoResizeScrollTextInput).catch(() => {});
 }
 
+// 中文块：解析 parseScrollFpsValue 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function parseScrollFpsValue(raw, fallback = DEFAULT_SCROLL_FPS) {
   const digits = String(raw ?? "").replace(/\D/g, "");
   if (!digits) return clamp(fallback, SCROLL_FPS_MIN, SCROLL_FPS_MAX);
   return clamp(parseInt(digits, 10), SCROLL_FPS_MIN, SCROLL_FPS_MAX);
 }
 
+// 中文块：执行对应逻辑 sanitizeScrollFpsInput 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function sanitizeScrollFpsInput(commit = false) {
   const el = $("scroll-speed");
   if (!el) return clamp(DEFAULT_SCROLL_FPS, SCROLL_FPS_MIN, SCROLL_FPS_MAX);
@@ -8037,14 +8366,17 @@ function sanitizeScrollFpsInput(commit = false) {
   return clean;
 }
 
+// 中文块：取得 getScrollFps 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function getScrollFps() {
   return parseScrollFpsValue($("scroll-speed")?.value, DEFAULT_SCROLL_FPS);
 }
 
+// 中文块：取得 getScrollFrameIntervalMs 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function getScrollFrameIntervalMs() {
   return Math.max(1, Math.round(1000 / getScrollFps()));
 }
 
+// 中文块：同步 syncScrollFpsUi 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function syncScrollFpsUi(fps) {
   const clean = clamp(fps, SCROLL_FPS_MIN, SCROLL_FPS_MAX);
   if ($("scroll-speed")) $("scroll-speed").value = clean;
@@ -8052,6 +8384,7 @@ function syncScrollFpsUi(fps) {
   return clean;
 }
 
+// 中文块：执行对应逻辑 restartScrollPreviewTimer 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function restartScrollPreviewTimer() {
   if (scroll.timer) clearInterval(scroll.timer);
   scroll.timer = null;
@@ -8060,6 +8393,7 @@ function restartScrollPreviewTimer() {
   }
 }
 
+// 中文块：设置 setScrollFps 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setScrollFps(fps, source = "text_scroll_fps_change") {
   const clean = syncScrollFpsUi(fps);
   state.refreshPolicy = `text_scroll_${clean}fps_interval_${getScrollFrameIntervalMs()}ms`;
@@ -8078,6 +8412,7 @@ function setScrollFps(fps, source = "text_scroll_fps_change") {
   renderState();
 }
 
+// 中文块：执行对应逻辑 markScrollTextDirty 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function markScrollTextDirty() {
   scroll.dirty = true;
   scroll.signature = "";
@@ -8091,12 +8426,14 @@ function markScrollTextDirty() {
   updateScrollUi();
 }
 
+// 中文块：设置、上传 setScrollUploadProgress 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setScrollUploadProgress(progress, label) {
   scroll.uploadProgress = clamp(progress, 0, 1);
   scroll.uploadLabel = label || "";
   updateScrollUi();
 }
 
+// 中文块：上传 completeScrollUploadProgress 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function completeScrollUploadProgress(label = "发送完成，滚动帧仅在固件 RAM 中运行") {
   scroll.uploadProgress = 1;
   scroll.uploadLabel = label;
@@ -8110,20 +8447,24 @@ function completeScrollUploadProgress(label = "发送完成，滚动帧仅在固
   }, 1400);
 }
 
+// 中文块：重置、上传 resetScrollUploadProgress 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function resetScrollUploadProgress() {
   scroll.uploadProgress = 0;
   scroll.uploadLabel = "";
   updateScrollUi();
 }
 
+// 中文块：执行对应逻辑 nextUiFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function nextUiFrame() {
   return new Promise((resolve) => requestAnimationFrame(resolve));
 }
 
+// 中文块：执行对应逻辑 sleepMs 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function sleepMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// 中文块：重置 resetScrollPreviewToFirstFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function resetScrollPreviewToFirstFrame(
   reason = "text_scroll_start_reset_preview",
   playback = "scroll",
@@ -8135,6 +8476,7 @@ function resetScrollPreviewToFirstFrame(
   updateScrollUi();
 }
 
+// 中文块：重置 resetScrollControlsAfterButton 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function resetScrollControlsAfterButton(reason = "gpio_button", options = {}) {
   const preserveCurrentFrame = !!options.preserveCurrentFrame;
   if (scroll.timer) clearInterval(scroll.timer);
@@ -8160,6 +8502,7 @@ function resetScrollControlsAfterButton(reason = "gpio_button", options = {}) {
   updateScrollUi();
   renderState();
 }
+// 中文块：构建 buildFirmwareScrollFrames 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function buildFirmwareScrollFrames(onProgress = () => {}) {
   const source = scroll.frames;
   if (!source.length) return [];
@@ -8178,6 +8521,7 @@ async function buildFirmwareScrollFrames(onProgress = () => {}) {
   }
   return frames;
 }
+// 中文块：上传 uploadFirmwareScrollTimeline 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function uploadFirmwareScrollTimeline() {
   setScrollUploadProgress(0.04, "准备滚动帧");
   const frames = await buildFirmwareScrollFrames((progress) => {
@@ -8239,6 +8583,7 @@ async function uploadFirmwareScrollTimeline() {
     data || {},
   );
 }
+// 中文块：启动 startScroll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function startScroll() {
   const text = sanitizeScrollTextInput(true);
   if (!text.trim()) {
@@ -8303,6 +8648,7 @@ async function startScroll() {
   renderState();
 }
 
+// 中文块：切换 togglePauseScroll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function togglePauseScroll() {
   if (scroll.pauseToggleLocked) return;
   if (scroll.systemPaused && !scroll.userPaused) {
@@ -8318,6 +8664,7 @@ function togglePauseScroll() {
   else pauseScroll();
 }
 
+// 中文块：执行对应逻辑 pauseScroll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function pauseScroll() {
   if (!scroll.active && !state.textScrollActive && !scroll.firmwareBacked) {
     log("文字滚动未播放，无需暂停");
@@ -8340,6 +8687,7 @@ function pauseScroll() {
   renderState();
 }
 
+// 中文块：执行对应逻辑 resumeScroll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function resumeScroll() {
   if (!scroll.frames.length) {
     log("没有已生成/上传的文字滚动帧，改为重新发送并播放");
@@ -8367,6 +8715,7 @@ function resumeScroll() {
   renderState();
 }
 
+// 中文块：停止 stopScroll 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function stopScroll() {
   const shouldRestoreAuto = state.restoreAutoAfterScroll || isAutoModeValue(state.mode);
   if (scroll.timer) clearInterval(scroll.timer);
@@ -8417,10 +8766,30 @@ function stopScroll() {
   );
 }
 
-function advanceScroll(manual = false) {
+// 中文块：设置文字滚动逐帧按钮，direction 为 -1 表示上一帧，1 表示下一帧。
+function setScrollStepHandler(buttonId, direction) {
+  const button = $(buttonId);
+  if (!button) return;
+  button.onclick = async () => {
+    guardBeforeOutput("text_scroll_manual_step", "scroll");
+    await prepareTextScrollTimelineAsync(false);
+    advanceScroll(true, direction);
+    sendAuxCommand(
+      "scroll_step",
+      {
+        direction,
+      },
+      direction < 0 ? "text_scroll_manual_step_prev" : "text_scroll_manual_step_next",
+    );
+  };
+}
+
+// 中文块：按指定方向移动文字滚动预览帧，manual 表示来自用户点击逐帧按钮。
+function advanceScroll(manual = false, direction = 1) {
   prepareTextScrollTimeline(false);
   if (!scroll.frames.length) return;
-  scroll.frameIndex = (scroll.frameIndex + 1) % scroll.frames.length;
+  const delta = direction < 0 ? -1 : 1;
+  scroll.frameIndex = (scroll.frameIndex + delta + scroll.frames.length) % scroll.frames.length;
   scroll.offset = scroll.frameIndex;
   scrollFrame = cloneFrame(scroll.frames[scroll.frameIndex]);
   setScrollPreviewFrame(
@@ -8439,6 +8808,7 @@ function advanceScroll(manual = false) {
   updateScrollUi();
 }
 
+// 中文块：执行对应逻辑 scrollSignature 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function scrollSignature() {
   return JSON.stringify({
     text: sanitizeScrollTextInput(true),
@@ -8447,6 +8817,7 @@ function scrollSignature() {
     verticalOffset: textScrollVerticalOffset(),
   });
 }
+// 中文块：执行对应逻辑 prepareTextScrollTimelineAsync 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function prepareTextScrollTimelineAsync(force) {
   try {
     await ensureArkPixelFontReady();
@@ -8462,6 +8833,7 @@ async function prepareTextScrollTimelineAsync(force) {
   }
 }
 
+// 中文块：执行对应逻辑 prepareTextScrollTimeline 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function prepareTextScrollTimeline(force) {
   const text = sanitizeScrollTextInput(true);
   if (!text.trim()) {
@@ -8498,12 +8870,16 @@ function prepareTextScrollTimeline(force) {
   updateScrollUi();
 }
 
+// 中文块：构建 buildTextScrollBitmap 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function buildTextScrollBitmap(text) {
   const key = `${text}@@${TEXT_SCROLL_FONT_MODEL}@@${arkPixelFont.source}@@centerY${textScrollVerticalOffset()}`;
   if (buildTextScrollBitmap.cacheKey === key && buildTextScrollBitmap.cache)
     return buildTextScrollBitmap.cache;
   if (!arkPixelFont.ready) throw new Error("Ark Pixel Font bitmap table is not ready");
-  const rawChars = Array.from(text || " ");
+  const rawChars = Array.from(text || " ").filter(
+    (ch) => !isEmojiFormatControl(codePointOfChar(ch)),
+  );
+  // 中文块：执行对应逻辑 glyphs 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
   const glyphs = rawChars.map((ch) => buildTextGlyph(ch));
   const leadingBlank = COLS + 4;
   const trailingBlank = COLS + 4;
@@ -8538,6 +8914,7 @@ function buildTextScrollBitmap(text) {
   return buildTextScrollBitmap.cache;
 }
 
+// 中文块：取得 getArkGlyph 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function getArkGlyph(cp) {
   const codepoint = Number(cp) || 0;
   let g = arkPixelFont.glyphs.get(codepoint);
@@ -8551,6 +8928,7 @@ function getArkGlyph(cp) {
   throw new Error(`Ark Pixel Font 缺少 U+${codepoint.toString(16).toUpperCase().padStart(4, "0")}`);
 }
 
+// 中文块：规范化 normalizeGlyphRows 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function normalizeGlyphRows(rows, width, height) {
   const out = [];
   const w = Math.max(0, Number(width) || 0);
@@ -8571,6 +8949,7 @@ function normalizeGlyphRows(rows, width, height) {
   return out;
 }
 
+// 中文块：构建 buildTextGlyph 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function buildTextGlyph(ch) {
   if (!buildTextGlyph.cache) buildTextGlyph.cache = new Map();
   const cp = codePointOfChar(ch || " ");
@@ -8600,11 +8979,14 @@ function buildTextGlyph(ch) {
     Number(raw.height) ||
       (Array.isArray(raw.rows) ? raw.rows.length : arkPixelFont.lineHeight || 12),
   );
+  const rawAdvance = Number(raw.advance);
   const glyph = {
     cp,
     char: ch,
     isSpace: false,
-    advance: Math.max(1, Number(raw.advance) || arkPixelFont.defaultAdvance || width || 12),
+    advance: Number.isFinite(rawAdvance)
+      ? Math.max(0, rawAdvance)
+      : Math.max(1, arkPixelFont.defaultAdvance || width || 12),
     width,
     height,
     xOffset: Number(raw.xOffset || 0),
@@ -8617,12 +8999,14 @@ function buildTextGlyph(ch) {
   return glyph;
 }
 
+// 中文块：执行对应逻辑 glyphPixel 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function glyphPixel(glyph, x, y) {
   if (!glyph || !glyph.rows || y < 0 || y >= glyph.rows.length) return false;
   const row = String(glyph.rows[y] || "");
   return row[x] === "1";
 }
 
+// 中文块：执行对应逻辑 blitGlyphBitmap 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function blitGlyphBitmap(bitmap, x0, glyph) {
   if (!bitmap || !bitmap.length || !glyph || glyph.isSpace) return;
   const baseY =
@@ -8640,6 +9024,7 @@ function blitGlyphBitmap(bitmap, x0, glyph) {
   }
 }
 
+// 中文块：执行对应逻辑 extractFrameFromTextImage 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function extractFrameFromTextImage(source, offset) {
   const frame = blankFrame();
   if (!source || !Array.isArray(source.bitmap)) return frame;
@@ -8657,6 +9042,7 @@ function extractFrameFromTextImage(source, offset) {
   return frame;
 }
 
+// 中文块：更新 updateScrollUi 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function updateScrollUi() {
   const stateEl = $("scroll-state");
   const indexEl = $("scroll-frame-index");
@@ -8723,6 +9109,7 @@ function initializeMatrixViews() {
   initMatrix("matrix-debug", () => currentFrame, false, null, false);
 }
 
+// 中文块：重置 resetBatteryVoltageRecord 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function resetBatteryVoltageRecord(kind) {
   const isMax = String(kind) === "max";
   const cmd = isMax ? "reset_battery_max" : "reset_battery_min";
@@ -8836,6 +9223,7 @@ let deferredUiInitialized = false;
 let basicPreviewMatrixInitialized = false;
 let firstPageRevealPrepared = false;
 let firstPageRevealStarted = false;
+// 中文块：初始化 initializeBasicPreviewMatrix 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function initializeBasicPreviewMatrix() {
   if (basicPreviewMatrixInitialized) return;
   basicPreviewMatrixInitialized = true;
@@ -8844,6 +9232,7 @@ function initializeBasicPreviewMatrix() {
   }
 }
 
+// 中文块：执行对应逻辑 firstPageRevealItems 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function firstPageRevealItems() {
   return Array.from(document.querySelectorAll(FIRST_PAGE_REVEAL_SELECTOR))
     .filter((el) => el && !el.hidden)
@@ -8856,6 +9245,7 @@ function firstPageRevealItems() {
     });
 }
 
+// 中文块：执行对应逻辑 prepareFirstPageProgressiveReveal 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function prepareFirstPageProgressiveReveal() {
   if (firstPageRevealPrepared) return;
   firstPageRevealPrepared = true;
@@ -8866,12 +9256,14 @@ function prepareFirstPageProgressiveReveal() {
   });
 }
 
+// 中文块：设置 settleFirstPageProgressiveReveal 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function settleFirstPageProgressiveReveal() {
   document.querySelectorAll(".boot-reveal-item").forEach((el) => {
     el.classList.remove("boot-reveal-item", "is-revealed");
   });
 }
 
+// 中文块：执行对应逻辑 revealFirstPageWaterfall 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function revealFirstPageWaterfall() {
   if (firstPageRevealStarted) return;
   firstPageRevealStarted = true;
@@ -8887,6 +9279,7 @@ async function revealFirstPageWaterfall() {
   settleFirstPageProgressiveReveal();
 }
 
+// 中文块：初始化 initFirstPageUiBeforeShow 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function initFirstPageUiBeforeShow() {
   initButtonPressAnimations();
   observeWebUiFont();
@@ -8897,6 +9290,7 @@ function initFirstPageUiBeforeShow() {
   initCustomSelectDropdowns();
 }
 
+// 中文块：渲染 renderFirstPageUiBeforeShow 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function renderFirstPageUiBeforeShow() {
   applyBrightnessLocal(state.brightness);
   setColor(state.color, "firmware_sync");
@@ -8907,6 +9301,7 @@ function renderFirstPageUiBeforeShow() {
   renderState();
 }
 
+// 中文块：初始化 initDeferredUiAfterShow 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function initDeferredUiAfterShow() {
   if (deferredUiInitialized) return;
   deferredUiInitialized = true;
@@ -8923,6 +9318,7 @@ function initDeferredUiAfterShow() {
   fitAllMatrices();
 }
 
+// 中文块：生成 makePatternFrame 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function makePatternFrame(kind) {
   const frame = blankFrame();
   for (let y = 0; y < ROWS; y++) {
@@ -8938,6 +9334,7 @@ function makePatternFrame(kind) {
 }
 
 let postBootDeferredReadStarted = false;
+// 中文块：读取 runPostBootDeferredReads 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 async function runPostBootDeferredReads(bootOk = false) {
   if (postBootDeferredReadStarted) return;
   postBootDeferredReadStarted = true;
@@ -8970,10 +9367,10 @@ async function runPostBootDeferredReads(bootOk = false) {
   scheduleMatrixFitRender(3);
 
   // 关键启动读取（运行时状态 + saved_faces + 预览）完成后，且加载动画仍在屏幕上时，
-  // 在后台预热文字滚动浏览器字体（ark12.woff2，约 593KB）。这样文字滚动页面
+  // 在后台预热文字滚动浏览器字体（ark12.woff2，约 830KB，已并入 emoji 与回退字形）。这样文字滚动页面
   // 会提前拥有字体，用户打开后就不会再过几秒才替换字体。
   // 它会在关键读取之后启动，避免与这些读取竞争单线程 ESP Web 服务器。
-  // 较大的 1.8MB ark12.json 位图字形表仍保持延迟加载，首次进入文字滚动页面时加载；见 switchPage。
+  // 较大的 2.5MB ark12.json 位图字形表仍保持延迟加载，首次进入文字滚动页面时加载；见 switchPage。
   ensureTextScrollBrowserFontReady().catch(() => {});
 }
 

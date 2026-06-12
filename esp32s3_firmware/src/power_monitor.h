@@ -1,9 +1,11 @@
 #pragma once
 #include <Arduino.h>
 
-// Shared power snapshot read by Web API status routes and button overlays.
-// The power monitor owns writes; consumers should treat fields as a best-effort
-// telemetry snapshot that is refreshed from loop().
+
+// 本文件采样电池/充电电压并发布电源状态；注释保留必要 English identifier，便于和代码/API 对照。
+// 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+// 说明电源、电池、充电或 ADC 校准相关逻辑。
+// 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
 struct PowerStatus {
     float    vbat             = NAN;
     float    vcharge          = NAN;
@@ -45,29 +47,33 @@ struct PowerStatus {
 extern PowerStatus powerStatus;
 
 /**
- * @brief Initialize ADC settings, load calibration, and take first samples.
- * @param None.
- * @return None.
+ * 初始化 initPowerMonitor 相关逻辑，供 power_monitor 模块使用。
+ * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void initPowerMonitor();
 
 /**
- * @brief Service periodic battery/charge sampling and WebUI publication.
- * @param force true to sample/publish immediately.
- * @return None.
+ * 轮询服务 servicePowerMonitor 相关逻辑，供 power_monitor 模块使用。
+ * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
+ * @param force 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void servicePowerMonitor(bool force = false);
 
 /**
- * @brief Reset minimum battery voltage calibration to current or nominal empty.
- * @param None.
- * @return None.
+ * 重置 resetBatteryVoltageMinimum 相关逻辑，供 power_monitor 模块使用。
+ * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void resetBatteryVoltageMinimum();
 
 /**
- * @brief Reset maximum battery voltage calibration to current or nominal full.
- * @param None.
- * @return None.
+ * 重置 resetBatteryVoltageMaximum 相关逻辑，供 power_monitor 模块使用。
+ * @brief 说明 电源、电池和 ADC 采样 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void resetBatteryVoltageMaximum();

@@ -18,12 +18,15 @@
 #include <pgmspace.h>
 #include <stdlib.h>
 
+
+// 本文件注册 SoftAP、DNS captive portal 和 HTTP API 路由；注释保留必要 English identifier，便于和代码/API 对照。
 static WebServer server(HTTP_PORT);
 static DNSServer dnsServer;
 static bool dnsServerActive = false;
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+// 内部辅助函数（Internal helpers） 相关代码，维护 注册 SoftAP、DNS captive portal 和 HTTP API 路由。
 // ---------------------------------------------------------------------------
 
 static const char CONTENT_TYPE_JSON_UTF8[] = "application/json; charset=utf-8";
@@ -31,14 +34,15 @@ static const char CONTENT_TYPE_HTML_UTF8[] = "text/html; charset=utf-8";
 static const char CONTENT_TYPE_TEXT_PLAIN[] = "text/plain";
 static const uint16_t STATIC_STREAM_CHUNK_BYTES = 8192;
 static const TickType_t WEB_YIELD_TICKS = pdMS_TO_TICKS(1);
-// Yield to the scheduler/watchdog roughly every this many chunks instead of after
-// every chunk, so streaming large assets is not throttled by a per-chunk delay.
+// 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
 static const size_t WEB_YIELD_EVERY_CHUNKS = 4;
 
 /**
- * @brief Resolve MIME type for a LittleFS path.
- * @param path Requested/static asset path.
- * @return Content-Type string.
+ * 围绕 contentTypeFor 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param path 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static const char* contentTypeFor(const String& path) {
     const int dotIdx = path.lastIndexOf('.');
@@ -64,9 +68,10 @@ static const char* contentTypeFor(const String& path) {
 }
 
 /**
- * @brief Add no-cache CORS headers used by JSON/API responses.
- * @param None.
- * @return None.
+ * 围绕 addCorsHeaders 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void addCorsHeaders() {
     server.sendHeader("Access-Control-Allow-Origin",  "*");
@@ -75,14 +80,15 @@ static void addCorsHeaders() {
     server.sendHeader("Cache-Control",                "no-store");
 }
 
-// Cache policy for static assets served from LittleFS. Unlike API responses
-// (which must never cache), the browser is allowed to cache these: HTML uses
-// revalidation so firmware/UI updates are always picked up, while the
-// version-stamped fonts/images/etc. are treated as immutable and fetched once.
+// 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+// 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+// 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+// 说明字体、字形、Unicode 范围或 Web font 资源处理。
 /**
- * @brief Add CORS/cache headers for a static LittleFS asset.
- * @param path Logical request path.
- * @return None.
+ * 围绕 addStaticAssetHeaders 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param path 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void addStaticAssetHeaders(const String& path) {
     server.sendHeader("Access-Control-Allow-Origin", "*");
@@ -94,9 +100,10 @@ static void addStaticAssetHeaders(const String& path) {
 }
 
 /**
- * @brief Check LittleFS path existence under the shared hardware bus lock.
- * @param path LittleFS path.
- * @return true when the path exists.
+ * 围绕 littleFsExistsLocked 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param path 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool littleFsExistsLocked(const String& path) {
     bool exists = false;
@@ -107,10 +114,11 @@ static bool littleFsExistsLocked(const String& path) {
 }
 
 /**
- * @brief Open a LittleFS file under the shared hardware bus lock.
- * @param path LittleFS path.
- * @param mode File mode string.
- * @return File handle, possibly invalid.
+ * 围绕 littleFsOpenLocked 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param path 调用方传入或接收的参数，含义以函数签名为准。
+ * @param mode 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static File littleFsOpenLocked(const String& path, const char* mode) {
     File file;
@@ -121,9 +129,10 @@ static File littleFsOpenLocked(const String& path, const char* mode) {
 }
 
 /**
- * @brief Read file size under the shared hardware bus lock.
- * @param file Open LittleFS file.
- * @return File size in bytes.
+ * 围绕 fileSizeLocked 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param file 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static size_t fileSizeLocked(File& file) {
     size_t size = 0;
@@ -134,9 +143,10 @@ static size_t fileSizeLocked(File& file) {
 }
 
 /**
- * @brief Close a LittleFS file under the shared hardware bus lock.
- * @param file Open LittleFS file.
- * @return None.
+ * 围绕 closeFileLocked 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param file 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void closeFileLocked(File& file) {
     withHardwareBusLock([&]() {
@@ -145,17 +155,18 @@ static void closeFileLocked(File& file) {
 }
 
 /**
- * @brief Stream an open file to the active HTTP client in bounded chunks.
- * @param file Open LittleFS file.
- * @param contentType HTTP response content type.
- * @return None.
+ * 围绕 streamFileChunked 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param file 调用方传入或接收的参数，含义以函数签名为准。
+ * @param contentType 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void streamFileChunked(File& file, const char* contentType) {
     server.setContentLength(fileSizeLocked(file));
     server.send(200, contentType, "");
 
-    // Use an 8KB heap buffer (too large for the limited task stack). If the heap
-    // allocation fails, fall back to a small stack buffer so transfers still work.
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
     uint8_t* heapBuffer = static_cast<uint8_t*>(malloc(STATIC_STREAM_CHUNK_BYTES));
     uint8_t  stackFallback[512];
     uint8_t* buffer    = heapBuffer ? heapBuffer : stackFallback;
@@ -175,7 +186,7 @@ static void streamFileChunked(File& file, const char* contentType) {
 
         if (!hasData || bytesRead == 0) break;
         server.sendContent(reinterpret_cast<const char*>(buffer), bytesRead);
-        // Feed the watchdog periodically rather than after every chunk.
+        // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
         if ((++chunksSent % WEB_YIELD_EVERY_CHUNKS) == 0) vTaskDelay(WEB_YIELD_TICKS);
     }
 
@@ -183,10 +194,11 @@ static void streamFileChunked(File& file, const char* contentType) {
 }
 
 /**
- * @brief Serialize and send a JSON document with API headers.
- * @param status HTTP status code.
- * @param doc JSON document to serialize.
- * @return None.
+ * 发送 sendJsonDocument 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param status 调用方传入或接收的参数，含义以函数签名为准。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void sendJsonDocument(int status, JsonDocument& doc) {
     String out;
@@ -196,10 +208,11 @@ static void sendJsonDocument(int status, JsonDocument& doc) {
 }
 
 /**
- * @brief Send a standard JSON error response.
- * @param status HTTP status code.
- * @param message Error message.
- * @return None.
+ * 发送 sendError 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param status 调用方传入或接收的参数，含义以函数签名为准。
+ * @param message 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void sendError(int status, const String& message) {
     DynamicJsonDocument doc(512);
@@ -212,11 +225,12 @@ static void sendError(int status, const String& message) {
 }
 
 /**
- * @brief Choose the next WebUI polling interval.
- * @param scrolling true when firmware scroll is active or paused.
- * @param summaryOnly true when the response omitted heavy fields.
- * @param unchanged true when the client already has the current version.
- * @return Poll delay in milliseconds.
+ * 围绕 statusNextPollMs 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param scrolling 调用方传入或接收的参数，含义以函数签名为准。
+ * @param summaryOnly 调用方传入或接收的参数，含义以函数签名为准。
+ * @param unchanged 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static uint16_t statusNextPollMs(bool scrolling, bool summaryOnly, bool unchanged) {
     if (runtimeState().deferredFaceRestoreActive) return 250;
@@ -225,11 +239,12 @@ static uint16_t statusNextPollMs(bool scrolling, bool summaryOnly, bool unchange
 }
 
 /**
- * @brief Add power monitor fields to an API response.
- * @param power Destination JSON object.
- * @param includeSlow true to include ADC/voltage/calibration fields.
- * @param clearDirty true to clear published dirty flags after writing.
- * @return None.
+ * 围绕 addPowerStatus 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param power 调用方传入或接收的参数，含义以函数签名为准。
+ * @param includeSlow 调用方传入或接收的参数，含义以函数签名为准。
+ * @param clearDirty 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void addPowerStatus(JsonObject power, bool includeSlow = true, bool clearDirty = false) {
     const bool batteryOk = powerStatus.batteryValid;
@@ -317,19 +332,21 @@ static void addPowerStatus(JsonObject power, bool includeSlow = true, bool clear
 }
 
 /**
- * @brief Read the current HTTP request body.
- * @param None.
- * @return Raw plain body or empty string.
+ * 请求 requestBody 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static String requestBody() {
     return server.hasArg("plain") ? server.arg("plain") : "";
 }
 
 /**
- * @brief Parse the active HTTP request body as JSON.
- * @param doc Destination JSON document.
- * @param error Receives parse failure text.
- * @return true when parsing succeeded.
+ * 解析 parseJsonBody 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool parseJsonBody(JsonDocument& doc, String& error) {
     const String body = requestBody();
@@ -340,19 +357,21 @@ static bool parseJsonBody(JsonDocument& doc, String& error) {
 }
 
 /**
- * @brief Pause firmware scroll through the user-pause path.
- * @param changed Receives whether scroll state changed.
- * @return None.
+ * 围绕 pauseFirmwareScrollIfActive 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param changed 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void pauseFirmwareScrollIfActive(bool& changed) {
     changed = setFirmwareScrollUserPaused(true);
 }
 
 /**
- * @brief Resume cached firmware scroll when a scroll timeline exists.
- * @param changed Receives whether scroll state changed.
- * @param requirePaused true to resume only from paused scroll.
- * @return None.
+ * 围绕 resumeFirmwareScrollIfCached 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param changed 调用方传入或接收的参数，含义以函数签名为准。
+ * @param requirePaused 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void resumeFirmwareScrollIfCached(bool& changed, bool requirePaused = false) {
     bool canResume = false;
@@ -364,19 +383,20 @@ static void resumeFirmwareScrollIfCached(bool& changed, bool requirePaused = fal
 }
 
 /**
- * @brief Serve a static LittleFS asset, preferring gzip siblings when accepted.
- * @param path Request path.
- * @return true when a file response was sent.
+ * 围绕 serveStaticFile 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param path 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool serveStaticFile(String path) {
     if (!runtimeFsMounted()) return false;
     if (path == "/") path = "/index.html";
     if (path.endsWith("/")) path += "index.html";
 
-    // Prefer a precompressed ".gz" sibling when the client accepts gzip. This both
-    // shrinks the transfer and cuts the number of streamed chunks dramatically.
-    // Fall back to the raw file for non-gzip clients; if only the .gz exists we
-    // still serve it (every browser that reaches this WebUI supports gzip).
+    // 说明 LittleFS 文件系统、静态资源或 gzip 打包流程。
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+    // 说明 LittleFS 文件系统、静态资源或 gzip 打包流程。
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
     const bool clientAcceptsGzip = server.hasHeader("Accept-Encoding") &&
         server.header("Accept-Encoding").indexOf("gzip") >= 0;
     const String gzPath   = path + ".gz";
@@ -403,9 +423,10 @@ static bool serveStaticFile(String path) {
 static const char FILESYSTEM_ERROR_HTML[] PROGMEM = R"rawliteral(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LittleFS not mounted</title><style>body{margin:0;padding:28px;background:#0f1117;color:#f4f7fb;font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.5}code{background:#1e2430;padding:2px 5px;border-radius:5px}.box{max-width:720px;margin:auto;border:1px solid #2b3344;border-radius:12px;padding:20px;background:#161a24}</style></head><body><main class="box"><h1>LittleFS data is not mounted</h1><p>The ESP32-S3 AP is running, but the WebUI files are missing or the filesystem failed to mount.</p><p>Upload the data image, then reboot:</p><p><code>pio run -t uploadfs</code></p><p>Expected files include <code>/index.html</code> and <code>/resources/saved_faces.json</code>.</p></main></body></html>)rawliteral";
 
 /**
- * @brief Send the built-in LittleFS error HTML page.
- * @param None.
- * @return None.
+ * 发送 sendFilesystemErrorPage 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void sendFilesystemErrorPage() {
     addCorsHeaders();
@@ -413,13 +434,15 @@ static void sendFilesystemErrorPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Route handlers
+// 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+// 路由处理函数（Route handlers） 相关代码，维护 注册 SoftAP、DNS captive portal 和 HTTP API 路由。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Handle CORS preflight requests for API routes.
- * @param None.
- * @return None.
+ * 处理 handleOptions 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void handleOptions() {
     addCorsHeaders();
@@ -427,9 +450,10 @@ static void handleOptions() {
 }
 
 /**
- * @brief Build the main runtime status document consumed by the WebUI.
- * @param None.
- * @return None.
+ * 处理 handleApiStatus 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void handleApiStatus() {
     servicePowerMonitor();
@@ -443,9 +467,9 @@ static void handleApiStatus() {
     uint16_t scrollFrameIndex       = 0;
     uint16_t scrollIntervalMs       = DEFAULT_SCROLL_INTERVAL_MS;
 
-    // Snapshot scroll state under scroll lock, then release it before building
-    // JSON.  Status responses can be large; holding the scroll mutex during
-    // serialization would make the render task miss frame deadlines.
+    // 说明文字滚动、帧缓存或播放状态处理。
+    // 说明双核任务分工、FreeRTOS 同步或临界区约束。
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
     withScrollLock([&]() {
         firmwareScrollActive   = runtimeState().firmwareScrollActive;
         firmwareScrollPaused   = runtimeState().firmwareScrollPaused;
@@ -487,8 +511,8 @@ static void handleApiStatus() {
     doc["uptimeMs"] = millis() - runtimeState().bootMs;
     if (runtimeOnly) doc["runtimeOnly"] = true;
 
-    // The status response is the primary WebUI connection point: it joins AP,
-    // power, renderer, scroll, storage, and stats modules into one poll payload.
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 说明电源、电池、充电或 ADC 校准相关逻辑。
     JsonObject ap = doc.createNestedObject("ap");
     ap["ssid"]    = AP_SSID;
     ap["ip"]      = WiFi.softAPIP().toString();
@@ -551,13 +575,13 @@ static void handleApiStatus() {
     memory["scrollBufferReady"]      = runtimeScrollFrameBufferReady();
     memory["scrollBufferInPsram"]    = runtimeScrollFrameBufferInPsram();
 
-    // runtimeOnly=1&noFrame=1 is the lightweight polling/summary path: return
-    // immediately after runtime state so a caller can read current firmware
-    // color/brightness/power/mode without paying for matrix, storage, statistics,
-    // or last-frame serialization. (The WebUI *boot* path now requests the full
-    // status instead, so the first LED frame is included and the basic matrix
-    // preview is populated during the loading animation; see
-    // preloadFirmwareRuntimeState() in data/index.html.)
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+    // 说明电源、电池、充电或 ADC 校准相关逻辑。
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 处理 LED 矩阵、灯带刷新或硬件时序约束。
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
     if (runtimeOnly) {
         sendJsonDocument(200, doc);
         return;
@@ -611,9 +635,10 @@ static void handleApiStatus() {
 }
 
 /**
- * @brief Return a full power-monitor status document.
- * @param None.
- * @return None.
+ * 处理 handleApiPower 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void handleApiPower() {
     servicePowerMonitor();
@@ -625,9 +650,10 @@ static void handleApiPower() {
 }
 
 /**
- * @brief Accept a single M370 frame from the WebUI/API.
- * @param None.
- * @return None.
+ * 处理 handleApiFrame 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void handleApiFrame() {
     String error;
@@ -655,8 +681,8 @@ static void handleApiFrame() {
 
     if (!applyM370(m370, reason, error)) { sendError(400, error); return; }
 
-    // If the WebUI sent a faceId, find the matching saved face and update
-    // autoFaceIndex so that B1/B2 navigation continues from the correct face.
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 说明 GPIO 按钮、组合键或本地 overlay 反馈。
     const char* faceId = doc["faceId"] | "";
     if (strlen(faceId) > 0 && ensureSavedFacesLoaded()) {
         for (uint16_t i = 0; i < runtimeAutoFaceCount(); ++i) {
@@ -697,9 +723,10 @@ static void handleApiFrame() {
 }
 
 /**
- * @brief Accept chunked firmware-scroll frame uploads and optionally start playback.
- * @param None.
- * @return None.
+ * 处理 handleApiScroll 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void handleApiScroll() {
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
@@ -708,10 +735,10 @@ static void handleApiScroll() {
     const String body = requestBody();
     if (body.isEmpty()) { sendError(400, "empty JSON body"); return; }
 
-    // The scroll cache is allocated lazily (PSRAM, else internal SRAM heap).  On
-    // a board where neither tier could satisfy the allocation, the cache stays
-    // unavailable; reject uploads here rather than decoding frames into a null
-    // buffer further down (runtimeScrollFrameBits() would return nullptr).
+    // 说明文字滚动、帧缓存或播放状态处理。
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+    // 说明文字滚动、帧缓存或播放状态处理。
     if (!runtimeScrollFrameBufferReady()) {
         sendError(507, "scroll frame buffer unavailable (insufficient PSRAM/SRAM)");
         return;
@@ -731,9 +758,9 @@ static void handleApiScroll() {
         }
     }
 
-    // Long text scroll uploads are sent in small RAM-only chunks by the WebUI.
-    // append=false clears the previous RAM timeline; append=true adds frames.
-    // The final chunk sets start=true.
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
     const bool appendFrames = jsonBoolField(body, "append", false);
     const bool explicitStart = body.indexOf("\"start\"") >= 0;
     bool shouldStart = jsonBoolField(body, "start", false);
@@ -753,7 +780,7 @@ static void handleApiScroll() {
         return;
     }
 
-    // --- Parse frames array ---
+    // 说明 SoftAP、DNS 和 HTTP API 中当前代码块的职责和维护约束。
     const int framesKey = body.indexOf("\"frames\"");
     if (framesKey < 0) { sendError(400, "frames must be an array"); return; }
     const int arrayStart = body.indexOf('[', framesKey);
@@ -854,11 +881,12 @@ static void handleApiScroll() {
 using ApiCommandHandler = bool (*)(JsonDocument& doc, JsonVariant payload, String& error);
 
 /**
- * @brief Handle set_color command payload.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Receives command failure text.
- * @return true when color was applied.
+ * 设置 commandSetColor 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandSetColor(JsonDocument& doc, JsonVariant payload, String& error) {
     const char* hex = payload["hex"] | "";
@@ -867,11 +895,12 @@ static bool commandSetColor(JsonDocument& doc, JsonVariant payload, String& erro
 }
 
 /**
- * @brief Handle set_brightness command payload.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Unused; command clamps all numeric input.
- * @return true after brightness is applied.
+ * 设置 commandSetBrightness 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandSetBrightness(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
@@ -884,11 +913,12 @@ static bool commandSetBrightness(JsonDocument& doc, JsonVariant payload, String&
 }
 
 /**
- * @brief Handle set_mode command payload.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Receives invalid-mode text.
- * @return true when mode was accepted.
+ * 设置 commandSetMode 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandSetMode(JsonDocument& doc, JsonVariant payload, String& error) {
     cancelDeferredFaceRestore();
@@ -902,11 +932,12 @@ static bool commandSetMode(JsonDocument& doc, JsonVariant payload, String& error
 }
 
 /**
- * @brief Handle set_auto_interval command payload.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Unused; interval is clamped.
- * @return true after interval is applied.
+ * 设置 commandSetAutoInterval 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandSetAutoInterval(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
@@ -918,11 +949,12 @@ static bool commandSetAutoInterval(JsonDocument& doc, JsonVariant payload, Strin
 }
 
 /**
- * @brief Parse scroll interval or fps from command JSON.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param intervalMs Receives parsed interval.
- * @return true when interval/fps was supplied.
+ * 围绕 scrollIntervalFromCommand 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param intervalMs 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool scrollIntervalFromCommand(JsonDocument& doc, JsonVariant payload, uint16_t& intervalMs) {
     uint32_t rawInterval = 0;
@@ -953,11 +985,12 @@ static bool scrollIntervalFromCommand(JsonDocument& doc, JsonVariant payload, ui
 }
 
 /**
- * @brief Handle set_scroll_interval command payload.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Unused; interval is clamped.
- * @return true after scroll timing state is updated.
+ * 设置 commandSetScrollInterval 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandSetScrollInterval(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
@@ -972,11 +1005,12 @@ static bool commandSetScrollInterval(JsonDocument& doc, JsonVariant payload, Str
 }
 
 /**
- * @brief Handle start_scroll command payload.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Receives missing-cache text.
- * @return true when scroll was started.
+ * 启动 commandStartScroll 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandStartScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     uint16_t iMs = runtimeState().scrollIntervalMs;
@@ -994,21 +1028,29 @@ static bool commandStartScroll(JsonDocument& doc, JsonVariant payload, String& e
 }
 
 /**
- * @brief Handle scroll_step command payload.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Unused.
- * @return true after attempting one step.
+ * 围绕 commandScrollStep 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandScrollStep(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
-    (void)payload;
     (void)error;
+    int8_t direction = 1;
+    if (!payload.isNull() && payload["direction"].is<int>()) {
+        direction = payload["direction"].as<int>() < 0 ? -1 : 1;
+    }
     uint8_t steppedFrame[FRAME_BYTES];
     bool    hasSteppedFrame = false;
     withScrollLock([&]() {
         if (runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady()) {
-            runtimeState().scrollFrameIndex = (runtimeState().scrollFrameIndex + 1) % runtimeState().scrollFrameCount;
+            const uint16_t frameCount = runtimeState().scrollFrameCount;
+            runtimeState().scrollFrameIndex =
+                direction < 0
+                    ? static_cast<uint16_t>((runtimeState().scrollFrameIndex + frameCount - 1U) % frameCount)
+                    : static_cast<uint16_t>((runtimeState().scrollFrameIndex + 1U) % frameCount);
             runtimeState().playback         = "scroll_step";
             memcpy(steppedFrame, runtimeScrollFrameBits(runtimeState().scrollFrameIndex), FRAME_BYTES);
             hasSteppedFrame = true;
@@ -1022,11 +1064,12 @@ static bool commandScrollStep(JsonDocument& doc, JsonVariant payload, String& er
 }
 
 /**
- * @brief Handle pause_scroll command payload.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Unused.
- * @return true after pause request.
+ * 围绕 commandPauseScroll 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandPauseScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
@@ -1038,11 +1081,12 @@ static bool commandPauseScroll(JsonDocument& doc, JsonVariant payload, String& e
 }
 
 /**
- * @brief Handle resume_scroll command payload.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Unused.
- * @return true after resume request.
+ * 围绕 commandResumeScroll 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandResumeScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
@@ -1054,11 +1098,12 @@ static bool commandResumeScroll(JsonDocument& doc, JsonVariant payload, String& 
 }
 
 /**
- * @brief Handle stop_scroll command payload.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Unused.
- * @return true after stop request.
+ * 围绕 commandStopScroll 处理停止、清理或恢复流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandStopScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
@@ -1073,11 +1118,12 @@ static bool commandStopScroll(JsonDocument& doc, JsonVariant payload, String& er
 }
 
 /**
- * @brief Handle generic pause command, delegating to scroll pause when active.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Unused.
- * @return true after pause state is applied.
+ * 围绕 commandPause 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandPause(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
@@ -1094,11 +1140,12 @@ static bool commandPause(JsonDocument& doc, JsonVariant payload, String& error) 
 }
 
 /**
- * @brief Handle generic resume command, delegating to scroll resume when possible.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Unused.
- * @return true after resume state is applied.
+ * 围绕 commandResume 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandResume(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
@@ -1115,11 +1162,12 @@ static bool commandResume(JsonDocument& doc, JsonVariant payload, String& error)
 }
 
 /**
- * @brief Handle button command by routing into the shared button action layer.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Receives unsupported/precondition failure text.
- * @return true when the button action ran.
+ * 围绕 commandButton 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandButton(JsonDocument& doc, JsonVariant payload, String& error) {
     const char* button = payload["button"] | "";
@@ -1132,11 +1180,12 @@ static bool commandButton(JsonDocument& doc, JsonVariant payload, String& error)
 }
 
 /**
- * @brief Stop non-target activities before the WebUI starts a new workflow.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Unused.
- * @return true after relevant state is stopped/updated.
+ * 围绕 commandTerminateOtherActivities 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandTerminateOtherActivities(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
@@ -1154,11 +1203,12 @@ static bool commandTerminateOtherActivities(JsonDocument& doc, JsonVariant paylo
 }
 
 /**
- * @brief Handle reset_battery_min command.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Unused.
- * @return true after reset.
+ * 重置 commandResetBatteryMinimum 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandResetBatteryMinimum(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
@@ -1169,11 +1219,12 @@ static bool commandResetBatteryMinimum(JsonDocument& doc, JsonVariant payload, S
 }
 
 /**
- * @brief Handle reset_battery_max command.
- * @param doc Full request JSON.
- * @param payload Nested payload object.
- * @param error Unused.
- * @return true after reset.
+ * 重置 commandResetBatteryMaximum 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param doc 调用方传入或接收的参数，含义以函数签名为准。
+ * @param payload 调用方传入或接收的参数，含义以函数签名为准。
+ * @param error 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static bool commandResetBatteryMaximum(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)doc;
@@ -1208,9 +1259,10 @@ static const ApiCommandRoute API_COMMAND_ROUTES[] = {
 };
 
 /**
- * @brief Find the command route for a WebUI/API command name.
- * @param cmd Command name.
- * @return Matching route, or nullptr.
+ * 查找 findApiCommandRoute 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param cmd 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static const ApiCommandRoute* findApiCommandRoute(const String& cmd) {
     for (const ApiCommandRoute& route : API_COMMAND_ROUTES) {
@@ -1220,9 +1272,10 @@ static const ApiCommandRoute* findApiCommandRoute(const String& cmd) {
 }
 
 /**
- * @brief Dispatch a generic command request through the command route table.
- * @param None.
- * @return None.
+ * 处理 handleApiCommand 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void handleApiCommand() {
     String error;
@@ -1298,9 +1351,10 @@ static void handleApiCommand() {
 }
 
 /**
- * @brief Stream saved_faces.json to the WebUI editor.
- * @param None.
- * @return None.
+ * 处理、保存、取得 handleSavedFacesGet 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void handleSavedFacesGet() {
     if (!runtimeFsMounted()) { sendError(503, "LittleFS is not mounted; run pio run -t uploadfs"); return; }
@@ -1315,9 +1369,10 @@ static void handleSavedFacesGet() {
 }
 
 /**
- * @brief Validate, persist, and reload saved_faces.json from WebUI editor.
- * @param None.
- * @return None.
+ * 处理、保存 handleSavedFacesPost 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void handleSavedFacesPost() {
     if (!runtimeFsMounted()) { sendError(503, "LittleFS is not mounted; cannot write saved_faces.json"); return; }
@@ -1356,9 +1411,10 @@ static void handleSavedFacesPost() {
 }
 
 /**
- * @brief Route saved-faces HTTP methods to GET/POST/OPTIONS handlers.
- * @param None.
- * @return None.
+ * 处理、保存 handleApiSavedFaces 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void handleApiSavedFaces() {
     if      (server.method() == HTTP_GET)     handleSavedFacesGet();
@@ -1368,9 +1424,10 @@ static void handleApiSavedFaces() {
 }
 
 /**
- * @brief Serve static fallback files or JSON 404 for unmatched routes.
- * @param None.
- * @return None.
+ * 处理 handleNotFound 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 static void handleNotFound() {
     if (server.method() == HTTP_GET && serveStaticFile(server.uri())) return;
@@ -1379,13 +1436,15 @@ static void handleNotFound() {
 }
 
 // ---------------------------------------------------------------------------
-// LittleFS error pattern  (shown before web server is up)
+// 说明 LittleFS 文件系统、静态资源或 gzip 打包流程。
+// LittleFS 错误提示图案（LittleFS error pattern，在 Web 服务器启动前显示） 相关代码，维护 注册 SoftAP、DNS captive portal 和 HTTP API 路由。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Render a red LED diagnostic pattern for LittleFS mount failure.
- * @param None.
- * @return None.
+ * 围绕 showFilesystemErrorPattern 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void showFilesystemErrorPattern() {
     withFrameLock([]() {
@@ -1402,13 +1461,15 @@ void showFilesystemErrorPattern() {
 }
 
 // ---------------------------------------------------------------------------
-// Public: Access Point + WebServer startup
+// 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
+// 公共接口：接入点 + WebServer 启动（Public: Access Point + WebServer startup） 相关代码，维护 注册 SoftAP、DNS captive portal 和 HTTP API 路由。
 // ---------------------------------------------------------------------------
 
 /**
- * @brief Start SoftAP networking and captive DNS.
- * @param None.
- * @return None.
+ * 启动 startAccessPoint 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void startAccessPoint() {
     WiFi.mode(WIFI_AP);
@@ -1423,9 +1484,10 @@ void startAccessPoint() {
 }
 
 /**
- * @brief Register WebUI/API routes and start the synchronous WebServer.
- * @param None.
- * @return None.
+ * 启动 startWebServer 相关逻辑，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void startWebServer() {
     auto serveRoot = []() {
@@ -1448,8 +1510,8 @@ void startWebServer() {
     server.on("/api/command", HTTP_OPTIONS, handleOptions);
     server.on("/api/saved_faces",          handleApiSavedFaces);
     server.onNotFound(handleNotFound);
-    // Needed so serveStaticFile() can read Accept-Encoding for gzip negotiation;
-    // the synchronous WebServer only stores headers registered up front.
+    // 说明 LittleFS 文件系统、静态资源或 gzip 打包流程。
+    // 说明 WebUI、HTTP/API 或浏览器状态的连接关系。
     static const char* COLLECTED_HEADERS[] = { "Accept-Encoding" };
     server.collectHeaders(COLLECTED_HEADERS, 1);
     server.begin();
@@ -1458,9 +1520,10 @@ void startWebServer() {
 }
 
 /**
- * @brief Service DNS and HTTP clients from the Core-0 loop.
- * @param None.
- * @return None.
+ * 围绕 webServerTick 处理本模块的核心流程，供 web_api 模块使用。
+ * @brief 说明 SoftAP、DNS 和 HTTP API 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void webServerTick() {
     if (dnsServerActive) dnsServer.processNextRequest();

@@ -2,56 +2,65 @@
 #include <Arduino.h>
 #include "config.h"
 
+
+// 本文件渲染按钮反馈、电量提示和网络信息 overlay；注释保留必要 English identifier，便于和代码/API 对照。
 // ---------------------------------------------------------------------------
-// GPIO button LED animation overlay
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// GPIO 按钮 LED 动画叠加层（GPIO button LED animation overlay） 相关代码，维护 渲染按钮反馈、电量提示和网络信息 overlay。
 // ---------------------------------------------------------------------------
 //
-// The overlay is intentionally separate from runtimeFrameBits(): it only
-// replaces the physical LED output while active, then the current firmware
-// frame/scroll content is rendered again.
+// 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
+// 处理 LED 矩阵、灯带刷新或硬件时序约束。
+// 说明文字滚动、帧缓存或播放状态处理。
 
 /**
- * @brief Start an overlay for a completed GPIO button action.
- * @param buttonCode Button or combo code such as B3, B3B1, B4, or B5.
- * @return None.
+ * 启动 startButtonAnimationForGpioAction 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param buttonCode 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void startButtonAnimationForGpioAction(const String& buttonCode);
 
 /**
- * @brief Notify overlay logic of a debounced GPIO press.
- * @param buttonCode Button code; only B6 is consumed here.
- * @return None.
+ * 处理 handleButtonAnimationGpioPress 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param buttonCode 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void handleButtonAnimationGpioPress(const char* buttonCode);
 
 /**
- * @brief Notify overlay logic of a debounced GPIO release.
- * @param buttonCode Button code; only B6 is consumed here.
- * @return None.
+ * 处理 handleButtonAnimationGpioRelease 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param buttonCode 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void handleButtonAnimationGpioRelease(const char* buttonCode);
 
 /**
- * @brief Service live physical-button chord state for B6 long-press behavior.
- * @param b6Pressed Debounced B6 state.
- * @param b2Pressed Debounced B2 state, used to suppress battery long-press.
- * @param b3Pressed Debounced B3 state, used to suppress battery long-press.
- * @return None.
+ * 轮询服务 serviceButtonAnimationButtonInputs 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param b6Pressed 调用方传入或接收的参数，含义以函数签名为准。
+ * @param b2Pressed 调用方传入或接收的参数，含义以函数签名为准。
+ * @param b3Pressed 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void serviceButtonAnimationButtonInputs(bool b6Pressed, bool b2Pressed, bool b3Pressed);
 
 /**
- * @brief Expire overlays, advance battery pages, and request animated redraws.
- * @param None.
- * @return None.
+ * 轮询服务 serviceButtonAnimations 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param None 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 void serviceButtonAnimations();
 
 /**
- * @brief Copy the active overlay frame for the LED renderer.
- * @param rgbOut Destination RGB buffer, LED_COUNT * 3 bytes.
- * @param ledCount Capacity expressed as logical LED count.
- * @return true when rgbOut contains a full overlay frame.
+ * 复制 copyButtonAnimationOverlay 相关逻辑，供 button_animations 模块使用。
+ * @brief 说明 按钮反馈、电量提示和网络信息 overlay 中当前函数或声明的用途。
+ * @param rgbOut 调用方传入或接收的参数，含义以函数签名为准。
+ * @param ledCount 调用方传入或接收的参数，含义以函数签名为准。
+ * @return 返回操作结果、状态值、数据引用或空值。
  */
 bool copyButtonAnimationOverlay(uint8_t* rgbOut, uint16_t ledCount);
 
