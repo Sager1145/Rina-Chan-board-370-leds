@@ -5852,6 +5852,26 @@ function stopPollingTimers() {
 }
 window.addEventListener("pagehide", stopPollingTimers);
 
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopPollingTimers();
+    if (typeof scroll !== "undefined" && scroll.timer) {
+      clearInterval(scroll.timer);
+      scroll.timer = null;
+      scroll._wasActiveBeforeHide = true;
+    }
+  } else {
+    startFirmwareStatusPolling();
+    startPowerStatusPolling();
+    if (typeof scroll !== "undefined" && scroll._wasActiveBeforeHide && scroll.active && !scroll.paused) {
+      if (typeof advanceScroll === "function" && typeof getScrollFrameIntervalMs === "function") {
+        scroll.timer = setInterval(() => advanceScroll(false), getScrollFrameIntervalMs());
+      }
+      scroll._wasActiveBeforeHide = false;
+    }
+  }
+});
+
 // 中文块：设置 setNavMenuOpen 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function setNavMenuOpen(open) {
   const nav = $("nav");
@@ -6393,6 +6413,8 @@ function initMatrix(id, frameProvider, editable = false, editHandler = null, com
   if (!el) return;
   el.innerHTML = "";
   if (compact) el.classList.add("compact");
+  
+  const frag = document.createDocumentFragment();
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
       const idx = XY_TO_INDEX[y][x];
@@ -6404,13 +6426,17 @@ function initMatrix(id, frameProvider, editable = false, editHandler = null, com
         cell.dataset.x = x;
         cell.dataset.y = y;
       }
-      el.appendChild(cell);
+      frag.appendChild(cell);
     }
   }
+  el.appendChild(frag);
+
   const view = {
     el,
     frameProvider,
     compact: !!compact,
+    dirty: true,
+    lastState: new Uint8Array(370)
   };
   matrixViews.push(view);
   if (editable) {
@@ -6587,14 +6613,29 @@ function observeMatrixWraps() {
 // 中文块：渲染 renderMatrices 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function renderMatrices() {
   for (const view of matrixViews) {
+    // 隐藏的矩阵不执行渲染，标记为脏状态，下次可见时全量更新
+    if (view.el.offsetParent === null) {
+      view.dirty = true;
+      continue;
+    }
     const frame = view.frameProvider();
     const cells = view.el.children;
+    const lastState = view.lastState;
+    
     for (let y = 0, n = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++, n++) {
         const idx = XY_TO_INDEX[y][x];
-        if (idx >= 0) cells[n].classList.toggle("on", !!frame[idx]);
+        if (idx >= 0) {
+          const isOn = !!frame[idx];
+          // 仅在状态改变或脏标记时更新 DOM
+          if (view.dirty || isOn !== !!lastState[idx]) {
+            cells[n].classList.toggle("on", isOn);
+            lastState[idx] = isOn ? 1 : 0;
+          }
+        }
       }
     }
+    view.dirty = false;
   }
 }
 
@@ -7722,11 +7763,13 @@ function renderSavedFaces() {
   lists.forEach((box) => {
     box.innerHTML = "";
     if (!library.length) return;
+    const frag = document.createDocumentFragment();
     library.forEach((f, i) => {
       const row = createFaceRow(f, i, library.length);
       row.classList.toggle("active", i === state.faceIndex);
-      box.appendChild(row);
+      frag.appendChild(row);
     });
+    box.appendChild(frag);
   });
   renderState();
 }
@@ -8213,14 +8256,20 @@ function sanitizeScrollTextInput(commit = false) {
   return clean;
 }
 
+let scrollTextInputResizeQueued = false;
 // 中文块：执行对应逻辑 autoResizeScrollTextInput 相关逻辑，连接 WebUI 状态、DOM 和固件 API。
 function autoResizeScrollTextInput() {
-  const el = $("scroll-text");
-  if (!el) return;
-  el.style.height = "auto";
-  const minHeight =
-    parseFloat(getComputedStyle(el).getPropertyValue("--scroll-text-min-height")) || 42;
-  el.style.height = Math.max(minHeight, el.scrollHeight + 2) + "px";
+  if (scrollTextInputResizeQueued) return;
+  scrollTextInputResizeQueued = true;
+  requestAnimationFrame(() => {
+    scrollTextInputResizeQueued = false;
+    const el = $("scroll-text");
+    if (!el) return;
+    el.style.height = "auto";
+    const minHeight =
+      parseFloat(getComputedStyle(el).getPropertyValue("--scroll-text-min-height")) || 42;
+    el.style.height = Math.max(minHeight, el.scrollHeight + 2) + "px";
+  });
 }
 
 let scrollBitmapFontLazyStarted = false;
