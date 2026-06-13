@@ -368,9 +368,9 @@ This document follows the actual WebUI navigation and documents the backend beha
   * **Code Reference:** `app.js -> renderState()`, `syncRuntimeStateFromFirmware()`; `web_api.cpp -> handleApiStatus()`, `addPowerStatus()`
 
 * **B1 下一个 / B2 上一个 / B3 A/M / B4 亮度- / B5 亮度+ / B6 短按电量 / B6 长按详情 / B3+B1 间隔- / B3+B2 间隔+ / B6+B3 网络信息**
-  * **Action:** These buttons exist in HTML with `data-gpio` attributes and receive only the global visual press animation.
-  * **Backend Function:** No current JavaScript event listener is bound to `data-gpio`, so these debug buttons do not send commands in the current WebUI. The corresponding firmware semantic button actions exist for `B1`, `B2`, `B3`, `B4`, `B5`, `B3B1`, and `B3B2`; `B6S`, `B6L`, and `B6B3` are not accepted by `runButtonAction()`.
-  * **Code Reference:** `index.html -> button[data-gpio]`; `app.js -> initButtonPressAnimations()`; `buttons.cpp -> runButtonAction()`
+  * **Action:** Supported `data-gpio` buttons simulate firmware button semantics from the debug page; unsupported B6 variants are logged as unsupported.
+  * **Backend Function:** Sends `POST /api/command`, `cmd:"button"`, with `payload.button` for `B1`, `B2`, `B3`, `B4`, `B5`, `B3B1`, and `B3B2`. `B6S`, `B6L`, and `B6B3` are not accepted by `runButtonAction()`.
+  * **Code Reference:** `index.html -> button[data-gpio]`; `app.js -> initializeDebugControls()`; `buttons.cpp -> runButtonAction()`
 
 * **全黑**
   * **Action:** Sends an all-off debug frame.
@@ -449,8 +449,8 @@ This document follows the actual WebUI navigation and documents the backend beha
 
 * **发送辅助命令**
   * **Action:** Parses the command input as JSON and attempts to send it.
-  * **Backend Function:** Sends `POST /api/command`, `cmd:"manual_json"`, `payload:<parsed JSON>`. The current firmware route table does not include `manual_json`, so the backend returns `400 unknown command: manual_json`.
-  * **Code Reference:** `app.js -> initializeDebugControls()`, `sendAuxCommand()`; `web_api.cpp -> findApiCommandRoute()`, `handleApiCommand()`
+  * **Backend Function:** Sends the parsed JSON object directly to `POST /api/command`; the object must include a string `cmd` field supported by the firmware route table.
+  * **Code Reference:** `app.js -> initializeDebugControls()`; `web_api.cpp -> findApiCommandRoute()`, `handleApiCommand()`
 
 * **清空日志**
   * **Action:** Clears the browser communication log.
@@ -510,6 +510,6 @@ This document follows the actual WebUI navigation and documents the backend beha
 
 ## Coverage Critique
 
-I checked the static HTML controls, dynamically generated controls, custom select menus, saved-face row buttons, part buttons, preset buttons, hidden file input, loading overlay, and Debug controls. Two visible Debug-page areas are intentionally documented as nonfunctional in the current implementation: `button[data-gpio]` helper buttons have no JavaScript handler, and `发送辅助命令` posts `manual_json`, which is not present in the firmware command route table.
+I checked the static HTML controls, dynamically generated controls, custom select menus, saved-face row buttons, part buttons, preset buttons, hidden file input, loading overlay, and Debug controls. Debug `button[data-gpio]` helpers now send supported button commands, and `发送辅助命令` posts raw `/api/command` JSON with a required `cmd` field.
 
 The README describes the implemented firmware behavior rather than only frontend labels. The main caveat is battery min/max tracking: the code has calibration storage, reset controls, and a freeze-while-charging path, but automatic expansion of min/max is currently not implemented inside `updateBatteryCalibration()`.

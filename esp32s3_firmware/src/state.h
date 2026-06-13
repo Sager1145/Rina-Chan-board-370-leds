@@ -7,10 +7,7 @@
 // 本头文件定义固件共享运行时状态、保存表情缓存和 RuntimeStore
 // 单例接口。跨模块读写这些字段时，调用方需要按 sync.h 的锁策略保护。
 
-// ---------------------------------------------------------------------------
 // Runtime state
-// ---------------------------------------------------------------------------
-// 中文块：RuntimeState 保存当前 WebUI/固件可见状态，包括颜色、亮度、播放模式、
 // 统计计数、文字滚动状态和延迟恢复标记。
 //
 // Lock/owner contract:
@@ -23,7 +20,6 @@
 // - stateVersion/slowUiDirty are publish cursors for the WebUI; preserve the
 //   existing monotonic non-zero version behavior.
 struct RuntimeState {
-    // 中文块：当前显示配置和最近一次操作原因；WebUI status 与渲染器都会读取。
     String   colorHex            = DEFAULT_COLOR;
     uint8_t  colorR              = 0xf9;
     uint8_t  colorG              = 0x71;
@@ -35,7 +31,6 @@ struct RuntimeState {
     String   lastReason          = "boot";
     bool     paused              = false;
 
-    // 中文块：运行统计计数，用来在调试页面观察帧、命令、文件写入和 UI 发布情况。
     uint32_t framesAccepted      = 0;
     uint32_t framesRejected      = 0;
     uint32_t framesQueued        = 0;
@@ -50,12 +45,10 @@ struct RuntimeState {
     bool     slowUiDirty         = false;
     uint32_t lastSlowUiPublishMs = 0;
 
-    // 中文块：自动轮播的间隔、上次切换时间和当前表情 index。
     uint32_t autoIntervalMs      = DEFAULT_AUTO_INTERVAL_MS;
     uint32_t lastAutoSwitchMs    = 0;
     uint16_t autoFaceIndex       = 0;
 
-    // 中文块：固件端文字滚动播放状态；WebUI 上传帧后由这些字段控制播放/暂停。
     bool     firmwareScrollActive  = false;
     bool     firmwareScrollPaused  = false;
     bool     firmwareScrollUserPaused = false;
@@ -66,7 +59,6 @@ struct RuntimeState {
     uint16_t scrollIntervalMs      = DEFAULT_SCROLL_INTERVAL_MS;
     uint32_t lastScrollFrameMs     = 0;
 
-    // 中文块：GPIO B1/B2/B3 中断文字滚动时给 WebUI 的轻量事件标记。
     // 前端在 6.4 页面轮询 sequence，不需要拉取完整帧数据。
     uint32_t scrollStopEventSeq       = 0;
     uint32_t scrollStopEventMs        = 0;
@@ -74,7 +66,6 @@ struct RuntimeState {
     String   scrollStopEventSource;
     String   scrollStopEventReason;
 
-    // 中文块：显式清屏后延迟恢复保存表情；这样 HTTP/button handler 不需要 delay()，
     // 但 LED render task 仍有时间物理锁存全黑帧。
     bool     deferredFaceRestoreActive  = false;
     uint8_t  deferredFaceRestoreKind    = 0;
@@ -83,10 +74,16 @@ struct RuntimeState {
     String   deferredFaceRestoreReason;
 };
 
-// ---------------------------------------------------------------------------
+struct FrameStateSnapshot {
+    char     colorHex[8] = {0};
+    uint8_t  brightness  = 0;
+    char     lastM370[5 + M370_HEX_CHARS + 1] = {0};
+    char     lastReason[16] = {0};
+    uint16_t litLeds        = 0;
+    uint32_t framesAccepted = 0;
+};
+
 // Scroll timeline metadata (text-backed scroll uploads)
-// ---------------------------------------------------------------------------
-// 中文块：ScrollTimelineMeta 保存 6.4 文字滚动上传时附带的源文本元数据，
 // 让 WebUI 刷新/二台设备可以从固件恢复文字并本地重建预览帧。
 //
 // Invariant (EH-C):
@@ -113,10 +110,7 @@ struct ScrollTimelineMeta {
     bool     hasSourceText        = false;
 };
 
-// ---------------------------------------------------------------------------
 // Saved face metadata
-// ---------------------------------------------------------------------------
-// 中文块：RuntimeFace 是 saved_faces.json 中单个表情的运行时副本，保留排序、
 // 默认标记和启动默认标记，供自动轮播和 WebUI 列表共用。
 struct RuntimeFace {
     String   id;
@@ -128,10 +122,7 @@ struct RuntimeFace {
     bool     isStartupDefault = false;
 };
 
-// ---------------------------------------------------------------------------
 // Runtime store
-// ---------------------------------------------------------------------------
-// 中文块：RuntimeStore 集中持有所有可变运行时存储，避免各模块直接链接 extern
 // 全局变量；具体加锁仍由调用方或 helper 按操作语义决定。
 class RuntimeStore final {
 public:
@@ -186,11 +177,9 @@ private:
     RuntimeFace  autoFaces_[MAX_AUTO_FACES] = {};
     uint16_t     autoFaceCount_ = 0;
     uint8_t      frameBits_[FRAME_BYTES] = {};
-    // 中文块：文字滚动缓存约 140 KB，按需分配；常见 PSRAM 路径不会永久占用
     // 内部 SRAM 的这块大内存。
     uint8_t*     scrollFrameBits_ = nullptr;
     bool         scrollFrameBitsInPsram_ = false;
-    // 中文块：滚动源文本缓冲（MAX_SCROLL_TEXT_BYTES + 1，PSRAM 优先）；
     // 分配失败时文字附带上传返回 507，纯帧上传不受影响。
     ScrollTimelineMeta scrollMeta_;
     char*        scrollSourceText_ = nullptr;

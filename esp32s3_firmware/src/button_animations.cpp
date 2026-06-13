@@ -9,8 +9,6 @@
 #include <math.h>
 #include <string.h>
 
-
-// 本文件渲染按钮反馈、电量提示和网络信息 overlay；注释保留必要 English identifier，便于和代码/API 对照。
 namespace {
 
 constexpr uint8_t COLS = 22;
@@ -72,6 +70,12 @@ struct AnimationState {
     bool b6Pressed = false;
     bool b6LongFired = false;
     uint32_t b6PressedAtMs = 0;
+
+    bool batValid = false;
+    bool batCharging = false;
+    uint8_t batPercent = 0;
+    float batVbat = NAN;
+    float batVcharge = NAN;
 
     bool batterySingleShot = true;
     uint8_t batteryPhaseIndex = 0;
@@ -297,10 +301,9 @@ void drawBatteryIcon(uint8_t* out, Rgb color, uint8_t percent, bool animate, uin
 void drawBatteryPage(uint8_t* out, const AnimationState& state, uint32_t now) {
     clearOverlay(out);
 
-    const bool batteryValid = powerStatus.batteryValid;
-    const bool chargeValid = powerStatus.chargeValid;
-    const uint8_t pct = batteryValid ? powerStatus.batteryPercent : 0;
-    const bool charging = chargeValid && powerStatus.charging;
+    const bool batteryValid = state.batValid;
+    const uint8_t pct = batteryValid ? state.batPercent : 0;
+    const bool charging = state.batCharging;
     const Rgb iconColor = batteryValid ? batteryColor(pct) : RED_COLOR;
     const bool animate = !state.batterySingleShot && charging;
     const uint32_t phaseMs = now - state.batteryDisplayStartedMs;
@@ -309,11 +312,11 @@ void drawBatteryPage(uint8_t* out, const AnimationState& state, uint32_t now) {
 
     char text[8] = {};
     if (state.batteryPhaseIndex == 1) {
-        const float v = batteryValid && isfinite(powerStatus.vbat) ? powerStatus.vbat : 0.0f;
+        const float v = batteryValid && isfinite(state.batVbat) ? state.batVbat : 0.0f;
         snprintf(text, sizeof(text), "%.1fV", static_cast<double>(v));
         drawText(out, text, iconColor, true, true);
     } else if (state.batteryPhaseIndex == 2) {
-        const float v = chargeValid && isfinite(powerStatus.vcharge) ? powerStatus.vcharge : 0.0f;
+        const float v = state.batCharging && isfinite(state.batVcharge) ? state.batVcharge : 0.0f;
         snprintf(text, sizeof(text), "%.1f", static_cast<double>(v));
         drawText(out, text, WHITE_COLOR, true);
     } else {
@@ -421,6 +424,7 @@ void startOverlay(const AnimationState& next) {
 
 void startBatteryOverlay(bool singleShot) {
     const uint32_t now = millis();
+    const PowerStatus power = readPowerStatusSnapshot();
     AnimationState next;
     next.kind = OverlayKind::Battery;
     next.startedMs = now;
@@ -428,13 +432,22 @@ void startBatteryOverlay(bool singleShot) {
     next.nextRenderMs = now + BATTERY_REFRESH_MS;
     next.batterySingleShot = singleShot;
     next.batteryPhaseIndex = 0;
-    next.batteryPhaseCount = (!singleShot && powerStatus.chargeValid && powerStatus.charging) ? 3 : 2;
+    next.batteryPhaseCount = (!singleShot && power.chargeValid && power.charging) ? 3 : 2;
     next.batteryNextPhaseMs = singleShot ? 0 : now + BATTERY_PHASE_MS;
     next.batteryDisplayStartedMs = now;
+    next.batValid = power.batteryValid;
+    next.batCharging = power.chargeValid && power.charging;
+    next.batPercent = power.batteryPercent;
+    next.batVbat = power.vbat;
+    next.batVcharge = power.vcharge;
     startOverlay(next);
 }
 
 } // 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
+
+void showBatteryOverlay(bool singleShot) {
+    startBatteryOverlay(singleShot);
+}
 
 void startButtonAnimationForGpioAction(const String& buttonCode) {
     String code = buttonCode;
@@ -526,15 +539,21 @@ void serviceButtonAnimations() {
         if (overlayExpired(sAnim, now)) {
             stop = true;
         } else if (sAnim.kind == OverlayKind::Battery && !sAnim.batterySingleShot) {
+            const PowerStatus power = readPowerStatusSnapshot();
+            sAnim.batValid = power.batteryValid;
+            sAnim.batCharging = power.chargeValid && power.charging;
+            sAnim.batPercent = power.batteryPercent;
+            sAnim.batVbat = power.vbat;
+            sAnim.batVcharge = power.vcharge;
             if (sAnim.batteryNextPhaseMs != 0 && millisReached(now, sAnim.batteryNextPhaseMs)) {
-                const uint8_t targetCount = (powerStatus.chargeValid && powerStatus.charging) ? 3 : 2;
+                const uint8_t targetCount = sAnim.batCharging ? 3 : 2;
                 sAnim.batteryPhaseCount = targetCount;
                 sAnim.batteryPhaseIndex = static_cast<uint8_t>((sAnim.batteryPhaseIndex + 1U) % targetCount);
                 sAnim.batteryNextPhaseMs = now + BATTERY_PHASE_MS;
                 request = true;
             }
             if (millisReached(now, sAnim.nextRenderMs)) {
-                sAnim.nextRenderMs = now + ((powerStatus.chargeValid && powerStatus.charging)
+                sAnim.nextRenderMs = now + (sAnim.batCharging
                                                 ? BATTERY_ANIM_REFRESH_MS
                                                 : BATTERY_REFRESH_MS);
                 request = true;
@@ -575,16 +594,17 @@ bool copyButtonAnimationOverlay(uint8_t* rgbOut, uint16_t ledCount) {
         char text[8] = {};
         formatInterval(state.intervalMs, text, sizeof(text));
         drawIconText(rgbOut, text, MODE_COLOR, CLOCK_ICON);
+        overlayEdgeFlash(rgbOut, state, now);
     } else if (state.kind == OverlayKind::Brightness) {
         char text[8] = {};
         snprintf(text, sizeof(text), "%u%%", brightnessPercent(state.brightnessRaw));
         drawIconText(rgbOut, text, BRIGHTNESS_COLOR, SUN_ICON);
+        overlayEdgeFlash(rgbOut, state, now);
     } else if (state.kind == OverlayKind::Battery) {
         drawBatteryPage(rgbOut, state, now);
     } else {
         return false;
     }
 
-    overlayEdgeFlash(rgbOut, state, now);
     return true;
 }

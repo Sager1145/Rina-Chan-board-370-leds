@@ -6,8 +6,6 @@
 #include "button_animations.h"
 #include <Adafruit_NeoPixel.h>
 
-
-// 本文件解析 M370 帧并把逻辑 LED 状态渲染到物理灯带；注释保留必要 English identifier，便于和代码/API 对照。
 static Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 static uint16_t logicalToPhysicalMap[LED_COUNT] = {};
@@ -29,10 +27,6 @@ static uint32_t lastM370FrameApplyMs = 0;
 // Frame-queue state is owned by the Core 0 cooperative loop and HTTP/button
 // handlers. Keep service/enqueue/clear calls on Core 0 unless this queue is
 // made atomic or guarded by a mutex.
-
-// ---------------------------------------------------------------------------
-// 内部辅助函数（Internal helpers） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
-// ---------------------------------------------------------------------------
 
 static uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
     if (logicalIndex >= LED_COUNT) return logicalIndex;
@@ -135,19 +129,11 @@ static void enqueuePackedM370Frame(const uint8_t* packedBits, const char* normal
     ++runtimeState().framesQueued;
 }
 
-// ---------------------------------------------------------------------------
-// LED 索引映射（LED index map） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
-// ---------------------------------------------------------------------------
-
 void initLedIndexMap() {
     for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
         logicalToPhysicalMap[logical] = logicalToPhysicalLedIndex(logical);
     }
 }
-
-// ---------------------------------------------------------------------------
-// 渲染请求（Render request，ISR 安全） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
-// ---------------------------------------------------------------------------
 
 void requestLedRender() {
     if (xPortInIsrContext()) {
@@ -173,10 +159,6 @@ bool consumeLedRenderRequest() {
 
 void showCurrentFrameNoLock() { requestLedRender(); }
 
-// ---------------------------------------------------------------------------
-// 帧位辅助函数（Frame bit helpers） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
-// ---------------------------------------------------------------------------
-
 void setFrameBit(uint16_t index, bool on) {
     if (index >= LED_COUNT) return;
     const uint16_t byteIndex = index >> 3;
@@ -195,8 +177,7 @@ bool packedFrameBit(const uint8_t* bits, uint16_t index) {
     return (bits[index >> 3] & (1U << (index & 7U))) != 0;
 }
 
-uint16_t countLitLeds() {
-    const uint8_t* bits = runtimeFrameBits();
+uint16_t countLitLedsLocked(const uint8_t* bits) {
     uint16_t lit = 0;
     for (uint16_t byteIndex = 0; byteIndex < FRAME_BYTES; ++byteIndex) {
         uint8_t value = bits[byteIndex];
@@ -210,9 +191,22 @@ uint16_t countLitLeds() {
     return lit;
 }
 
-// ---------------------------------------------------------------------------
-// 物理渲染（Physical render，仅限 Core 1 渲染任务） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
-// ---------------------------------------------------------------------------
+uint16_t countLitLeds() {
+    return countLitLedsLocked(runtimeFrameBits());
+}
+
+FrameStateSnapshot readFrameStateSnapshot() {
+    FrameStateSnapshot s;
+    withFrameLock([&]() {
+        strlcpy(s.colorHex, runtimeState().colorHex.c_str(), sizeof(s.colorHex));
+        s.brightness = runtimeState().brightness;
+        strlcpy(s.lastM370, runtimeState().lastM370.c_str(), sizeof(s.lastM370));
+        strlcpy(s.lastReason, runtimeState().lastReason.c_str(), sizeof(s.lastReason));
+        s.litLeds = countLitLedsLocked(runtimeFrameBits());
+        s.framesAccepted = runtimeState().framesAccepted;
+    });
+    return s;
+}
 
 void renderCurrentFrameToLedStrip() {
     // After setup(), this function is expected to run only on the Core 1
@@ -231,7 +225,6 @@ void renderCurrentFrameToLedStrip() {
         colorB     = runtimeState().colorB;
     });
 
-// 在操作像素缓冲区之前等待，以确保 WS2812 总线已空闲（Wait before touching the pixel buffer so the WS2812 bus has been idle） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
     const uint32_t nowUs = micros();
     if (lastLedShowUs != 0) {
         const uint32_t elapsedUs = nowUs - lastLedShowUs;
@@ -272,10 +265,6 @@ void renderCurrentFrameToLedStrip() {
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
 
-// ---------------------------------------------------------------------------
-// 灯带启动辅助函数（Strip boot helpers，仅从 setup() 调用） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
-// ---------------------------------------------------------------------------
-
 void ledStripBegin() {
     strip.begin();
     strip.setBrightness(DEFAULT_BRIGHTNESS);
@@ -287,10 +276,6 @@ void ledStripBegin() {
     lastLedShowUs = micros();
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
-
-// ---------------------------------------------------------------------------
-// M370 编解码器（M370 codec） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
-// ---------------------------------------------------------------------------
 
 bool normalizeM370(const String& input, String& normalized, String& error) {
     String payload = input;
@@ -355,10 +340,6 @@ String blankM370() {
     return String(blankM370Text());
 }
 
-// ---------------------------------------------------------------------------
-// 帧应用辅助函数（Frame apply helpers） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
-// ---------------------------------------------------------------------------
-
 bool applyM370(const String& input, const String& reason, String& error) {
     String normalized;
     if (!normalizeM370(input, normalized, error)) {
@@ -392,8 +373,7 @@ void serviceM370FrameQueue() {
     const uint32_t now = millis();
     if (!m370FrameRateReady(now)) return;
 
-    QueuedM370Frame item;
-    memcpy(&item, &m370FrameQueue[m370FrameQueueHead], sizeof(item));
+    QueuedM370Frame& item = m370FrameQueue[m370FrameQueueHead];
     m370FrameQueueHead = static_cast<uint8_t>((m370FrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
     --m370FrameQueueCount;
     ++runtimeState().framesDequeued;
@@ -411,10 +391,6 @@ void clearQueuedM370Frames() {
 uint8_t queuedM370FrameCount() {
     return m370FrameQueueCount;
 }
-
-// ---------------------------------------------------------------------------
-// 颜色 / 亮度（Color / brightness） 相关代码，维护 解析 M370 帧并把逻辑 LED 状态渲染到物理灯带。
-// ---------------------------------------------------------------------------
 
 void setColorStateNoRender(const String& input) {
     uint8_t r, g, b;

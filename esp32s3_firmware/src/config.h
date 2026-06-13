@@ -1,11 +1,6 @@
 #pragma once
 #include <Arduino.h>
 
-
-// 本文件集中声明硬件引脚、LED 矩阵、时序和默认运行参数；注释保留必要 English identifier，便于和代码/API 对照。
-// ---------------------------------------------------------------------------
-// 硬件（Hardware） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
 constexpr char     AP_SSID[]              = "RinaChanBoard-V2";
 constexpr char     AP_PASSWORD[]          = "rinachan";
 constexpr char     AP_DOMAIN[]            = "rina.io";
@@ -32,9 +27,6 @@ constexpr uint8_t  BUTTON_B4_PIN         = 40;
 constexpr uint8_t  BUTTON_B5_PIN         = 41;
 constexpr uint8_t  BUTTON_B6_PIN         = 42;
 
-// ---------------------------------------------------------------------------
-// 电源监测 ADC（Power monitor ADC） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
 constexpr uint8_t  BATTERY_ADC_PIN       = 10;
 constexpr uint8_t  CHARGE_ADC_PIN        = 1;
 constexpr float    BATTERY_DIVIDER_R1_K  = 100.0f;
@@ -63,10 +55,6 @@ constexpr uint16_t BATTERY_DISCONNECT_ADC_LOW_MV  = 900;
 constexpr uint16_t BATTERY_RECONNECT_ADC_MV       = 1500;
 constexpr char     BATTERY_CALIB_PATH[]  = "/resources/battery_calib.json";
 
-// ---------------------------------------------------------------------------
-// 电池电量百分比查找表（Battery percentage look-up table，2S LiPo 分段线性放电曲线） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
-// 每个条目为 { real-world voltage at the battery terminals (V), percent }，即 { 电池端子处的实际电压（V），百分比 }。 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 //
 struct BatteryLutPoint { float voltage; uint8_t percent; };
 constexpr BatteryLutPoint BATTERY_PERCENT_LUT[] = {
@@ -88,9 +76,6 @@ constexpr uint32_t BATTERY_CALIB_SAVE_DELAY_MS     = 15000;
 constexpr float    BATTERY_CALIB_SHRINK_STEP_V     = 0.02f;
 constexpr float    BATTERY_CALIB_MIN_SPAN_V        = 0.10f;
 
-// ---------------------------------------------------------------------------
-// LED 矩阵几何布局（LED matrix geometry） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
 constexpr uint16_t M370_HEX_CHARS        = 93;
 constexpr uint16_t M370_BITS             = 370;
 constexpr uint16_t FRAME_BYTES           = (LED_COUNT + 7) / 8;
@@ -111,33 +96,21 @@ constexpr uint16_t ROW_OFFSETS[MATRIX_ROWS] = {
 static_assert(ROW_OFFSETS[MATRIX_ROWS - 1] + ROW_LENGTHS[MATRIX_ROWS - 1] == LED_COUNT,
               "matrix row layout must cover exactly LED_COUNT logical cells");
 
-// ---------------------------------------------------------------------------
-// 亮度（Brightness） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
 constexpr uint8_t  DEFAULT_BRIGHTNESS    = 50;
 constexpr uint8_t  MIN_BRIGHTNESS        = 10;
 constexpr uint8_t  MAX_BRIGHTNESS        = 200;
 constexpr int8_t   BRIGHTNESS_BUTTON_STEP = 8;
 
-// ---------------------------------------------------------------------------
-// 实时帧率限制（Realtime frame rate limits） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
 constexpr uint16_t M370_FRAME_MIN_INTERVAL_MS    = 33;
 constexpr uint8_t  M370_FRAME_QUEUE_DEPTH        = 3;
 constexpr uint8_t  M370_FRAME_REASON_CHARS       = 64;
 
-// ---------------------------------------------------------------------------
-// 自动播放（Auto-playback） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
 constexpr uint32_t DEFAULT_AUTO_INTERVAL_MS      = 3000;
 constexpr uint32_t MIN_AUTO_INTERVAL_MS          = 500;
 constexpr uint32_t MAX_AUTO_INTERVAL_MS          = 10000;
 constexpr uint32_t AUTO_INTERVAL_BUTTON_STEP_MS  = 500;
 constexpr uint16_t MAX_AUTO_FACES                = 128;
 
-// ---------------------------------------------------------------------------
-// 滚动（Scroll） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
 constexpr uint16_t MAX_SCROLL_FRAMES             = 3072;
 constexpr uint16_t MIN_SCROLL_INTERVAL_MS        = M370_FRAME_MIN_INTERVAL_MS;
 constexpr uint16_t MAX_SCROLL_INTERVAL_MS        = 1000;
@@ -151,41 +124,25 @@ constexpr uint8_t  MAX_SCROLL_TIMELINE_ID_CHARS = 47;
 constexpr uint8_t  MAX_SCROLL_FONT_ID_CHARS     = 47;
 constexpr uint8_t  MAX_SCROLL_GENERATOR_CHARS   = 47;
 
-// ---------------------------------------------------------------------------
-// 按钮去抖 / 重复（Button debounce / repeat） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
 constexpr uint32_t BUTTON_DEBOUNCE_MS            = 25;
 constexpr uint32_t FACE_REPEAT_DELAY_MS          = 650;
 constexpr uint32_t FACE_REPEAT_MS                = 350;
 constexpr uint32_t BRIGHTNESS_REPEAT_DELAY_MS    = 450;
 constexpr uint32_t BRIGHTNESS_REPEAT_MS          = 120;
 
-// ---------------------------------------------------------------------------
-// LED 渲染任务（LED render task，FreeRTOS） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
 constexpr uint8_t  LED_RENDER_TASK_CORE          = 1;
 constexpr uint32_t LED_RENDER_TASK_STACK_BYTES   = 6144;
 constexpr uint8_t  LED_RENDER_TASK_PRIORITY      = 3;
 
-// ---------------------------------------------------------------------------
-// LED 时序（LED timing，考虑 BSS138 电平转换器） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
-// 在每次 strip.show() 调用前后插入的拉低空闲窗口（Idle-low window inserted before and after each strip.show() call）。 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
 constexpr uint16_t LED_SIGNAL_RESET_US           = 300;
 
 constexpr uint16_t LED_RENDER_MIN_GAP_US         = 2500;
 
-// ---------------------------------------------------------------------------
-// 启动 / 停止清屏时序（Boot / stop-clear timing） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
 constexpr uint16_t LED_STOP_CLEAR_BLANK_HOLD_MS    = 90;
 constexpr uint16_t LED_BOOT_DATA_LOW_HOLD_MS        = 20;
 constexpr uint16_t LED_BOOT_CLEAR_HOLD_MS           = 350;
 constexpr uint16_t LED_BOOT_STARTUP_SETTLE_MS       = 120;
 
-// ---------------------------------------------------------------------------
-// 默认值 / 字符串常量（Defaults / string constants） 相关代码，维护 集中声明硬件引脚、LED 矩阵、时序和默认运行参数。
-// ---------------------------------------------------------------------------
 constexpr char DEFAULT_COLOR[]          = "#f971d4";
 constexpr char DEFAULT_MODE[]           = "manual";
 constexpr char DEFAULT_PLAYBACK[]       = "idle";
@@ -194,3 +151,13 @@ constexpr char LITTLEFS_BASE_PATH[]     = "/littlefs";
 constexpr char LITTLEFS_PARTITION_LABEL[] = "littlefs";
 constexpr char SAVED_FACES_PATH[]       = "/resources/saved_faces.json";
 constexpr char SETTINGS_PATH[]          = "/resources/runtime_settings.json";
+
+#ifndef RINACHAN_VERBOSE_LOGS
+#define RINACHAN_VERBOSE_LOGS 0
+#endif
+
+#if RINACHAN_VERBOSE_LOGS
+#define LOGV(...) Serial.printf(__VA_ARGS__)
+#else
+#define LOGV(...) do {} while (0)
+#endif

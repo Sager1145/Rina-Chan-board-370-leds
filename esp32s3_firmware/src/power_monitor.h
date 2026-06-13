@@ -1,8 +1,6 @@
 #pragma once
 #include <Arduino.h>
 
-
-// 本文件采样电池/充电电压并发布电源状态；注释保留必要 English identifier，便于和代码/API 对照。
 struct PowerStatus {
     float    vbat             = NAN;
     float    vcharge          = NAN;
@@ -46,6 +44,12 @@ extern PowerStatus powerStatus;
 void initPowerMonitor();
 
 void servicePowerMonitor(bool force = false);
+
+PowerStatus readPowerStatusSnapshot();
+
+bool powerStatusWebSlowDirty();
+
+void clearPowerStatusWebDirty(bool includeSlow);
 
 void resetBatteryVoltageMinimum();
 

@@ -2,8 +2,6 @@
 #include "utils.h"
 #include <esp_heap_caps.h>
 
-
-// 本文件保存运行时状态、帧缓存和 WebUI 可见状态版本；注释保留必要 English identifier，便于和代码/API 对照。
 static constexpr size_t SCROLL_FRAME_BUFFER_BYTES =
     static_cast<size_t>(MAX_SCROLL_FRAMES) * static_cast<size_t>(FRAME_BYTES);
 
@@ -13,7 +11,6 @@ RuntimeStore& RuntimeStore::instance() {
 }
 
 bool RuntimeStore::initScrollFrameBuffer() {
-    // 中文块：滚动源文本缓冲与帧缓冲一起按需分配；PSRAM 优先，内部 SRAM 兜底。
     if (scrollSourceText_ == nullptr) {
         const size_t textBytes = static_cast<size_t>(MAX_SCROLL_TEXT_BYTES) + 1U;
         if (ESP.getPsramSize() > 0) {

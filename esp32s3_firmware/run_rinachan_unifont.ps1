@@ -452,7 +452,7 @@ function Invoke-PlatformIoChecked([string[]]$Arguments, [string]$ErrorMessage) {
     $oldEap = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        & pio @Arguments
+        & python -m platformio @Arguments
         $exit = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $oldEap

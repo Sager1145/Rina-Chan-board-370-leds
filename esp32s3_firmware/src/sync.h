@@ -2,17 +2,14 @@
 
 #include <Arduino.h>
 
-
-// 本文件封装 FreeRTOS mutex 和跨核心同步保护；注释保留必要 English identifier，便于和代码/API 对照。
-// ---------------------------------------------------------------------------
 // FreeRTOS 同步辅助函数（FreeRTOS synchronization helpers）
-// ---------------------------------------------------------------------------
 // Existing code intentionally avoids nested mutexes. If a future change must
-// nest them, keep one global order: Scroll -> Frame -> HardwareBus.
+// nest them, keep one global order: Scroll -> Frame -> Storage -> HardwareBus.
 
 enum class SyncDomain : uint8_t {
     Frame,
     Scroll,
+    Storage,
     HardwareBus,
 };
 
@@ -43,6 +40,10 @@ void lockHardwareBus();
 
 void unlockHardwareBus();
 
+void lockStorage();
+
+void unlockStorage();
+
 template <typename Fn>
 auto withFrameLock(Fn fn) -> decltype(fn()) {
     ScopedLock lock(SyncDomain::Frame);
@@ -58,5 +59,11 @@ auto withScrollLock(Fn fn) -> decltype(fn()) {
 template <typename Fn>
 auto withHardwareBusLock(Fn fn) -> decltype(fn()) {
     ScopedLock lock(SyncDomain::HardwareBus);
+    return fn();
+}
+
+template <typename Fn>
+auto withStorageLock(Fn fn) -> decltype(fn()) {
+    ScopedLock lock(SyncDomain::Storage);
     return fn();
 }

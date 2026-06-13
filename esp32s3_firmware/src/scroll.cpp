@@ -5,13 +5,19 @@
 #include "led_renderer.h"
 #include <freertos/task.h>
 
-
-// 本文件播放固件端文字滚动帧并协调滚动状态；注释保留必要 English identifier，便于和代码/API 对照。
-// ---------------------------------------------------------------------------
-// 滚动渲染任务（Scroll render task，固定到 Core 1） 相关代码，维护 播放固件端文字滚动帧并协调滚动状态。
-// ---------------------------------------------------------------------------
-
 static TaskHandle_t sScrollTaskHandle = nullptr;
+
+bool getRestoreAutoAfterScroll() {
+    bool value = false;
+    withScrollLock([&]() { value = runtimeState().restoreAutoAfterScroll; });
+    return value;
+}
+
+void setRestoreAutoAfterScroll(bool value) {
+    withScrollLock([&]() {
+        runtimeState().restoreAutoAfterScroll = value;
+    });
+}
 
 static void scrollRenderTask(void* parameter) {
     (void)parameter;
@@ -56,7 +62,7 @@ static void scrollRenderTask(void* parameter) {
                     mainTaskRenderPending = consumeLedRenderRequest();
                     if (mainTaskRenderPending) shouldRender = true;
                 }
-                if (runtimeState().firmwareScrollActive && !mainTaskRenderPending) {
+                if (runtimeState().firmwareScrollActive) {
                     memcpy(runtimeFrameBits(), nextFrame, FRAME_BYTES);
                     ++runtimeState().framesAccepted;
                 } else {
@@ -72,10 +78,6 @@ static void scrollRenderTask(void* parameter) {
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1));
     }
 }
-
-// ---------------------------------------------------------------------------
-// 任务创建（Task creation） 相关代码，维护 播放固件端文字滚动帧并协调滚动状态。
-// ---------------------------------------------------------------------------
 
 void startScrollRenderTask() {
     if (sScrollTaskHandle) return;

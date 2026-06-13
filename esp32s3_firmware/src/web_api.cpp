@@ -7,9 +7,11 @@
 #include "storage.h"
 #include "faces.h"
 #include "buttons.h"
+#include "button_animations.h"
 #include "power_monitor.h"
 #include "web_json.h"
 #include "psram_json.h"
+#include "scroll.h"
 #include <DNSServer.h>
 #include <WebServer.h>
 #include <WiFi.h>
@@ -20,15 +22,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-
-// 本文件注册 SoftAP、DNS captive portal 和 HTTP API 路由；注释保留必要 English identifier，便于和代码/API 对照。
 static WebServer server(HTTP_PORT);
 static DNSServer dnsServer;
 static bool dnsServerActive = false;
-
-// ---------------------------------------------------------------------------
-// 内部辅助函数（Internal helpers） 相关代码，维护 注册 SoftAP、DNS captive portal 和 HTTP API 路由。
-// ---------------------------------------------------------------------------
 
 static const char CONTENT_TYPE_JSON_UTF8[] = "application/json; charset=utf-8";
 static const char CONTENT_TYPE_HTML_UTF8[] = "text/html; charset=utf-8";
@@ -46,7 +42,6 @@ struct ScrollStateSnapshot {
     uint16_t scrollFrameCount           = 0;
     uint16_t scrollFrameIndex           = 0;
     uint16_t scrollIntervalMs           = DEFAULT_SCROLL_INTERVAL_MS;
-    // 中文块：源文本同步新增 3 个字段（timelineId / uploadComplete / hasSourceText），
     // 在锁内用 memcpy 拷贝，锁外序列化。
     char     scrollTimelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
     bool     scrollUploadComplete       = false;
@@ -108,7 +103,7 @@ static void addStaticAssetHeaders(const String& path) {
 
 static bool littleFsExistsLocked(const String& path) {
     bool exists = false;
-    withHardwareBusLock([&]() {
+    withStorageLock([&]() {
         exists = LittleFS.exists(path);
     });
     return exists;
@@ -116,7 +111,7 @@ static bool littleFsExistsLocked(const String& path) {
 
 static File littleFsOpenLocked(const String& path, const char* mode) {
     File file;
-    withHardwareBusLock([&]() {
+    withStorageLock([&]() {
         file = LittleFS.open(path, mode);
     });
     return file;
@@ -124,14 +119,14 @@ static File littleFsOpenLocked(const String& path, const char* mode) {
 
 static size_t fileSizeLocked(File& file) {
     size_t size = 0;
-    withHardwareBusLock([&]() {
+    withStorageLock([&]() {
         size = file.size();
     });
     return size;
 }
 
 static void closeFileLocked(File& file) {
-    withHardwareBusLock([&]() {
+    withStorageLock([&]() {
         file.close();
     });
 }
@@ -150,7 +145,7 @@ static void streamFileChunked(File& file, const char* contentType) {
         size_t bytesRead = 0;
         bool hasData = false;
 
-        withHardwareBusLock([&]() {
+        withStorageLock([&]() {
             hasData = file.available();
             if (hasData) {
                 bytesRead = file.read(buffer, chunkBytes);
@@ -238,21 +233,22 @@ static void addCurrentFaceFields(JsonObject target) {
     target["autoFaceName"] = face.name;
 }
 
-static void addPowerStatus(JsonObject power, bool includeSlow = true, bool clearDirty = false) {
-    const bool batteryOk = powerStatus.batteryValid;
-    const bool chargeOk = powerStatus.chargeValid;
-    const bool chargerPresent = chargeOk && powerStatus.charging;
+static void addPowerStatus(JsonObject power, const PowerStatus& snapshot,
+                           bool includeSlow = true, bool clearDirty = false) {
+    const bool batteryOk = snapshot.batteryValid;
+    const bool chargeOk = snapshot.chargeValid;
+    const bool chargerPresent = chargeOk && snapshot.charging;
     const bool batteryUnpowered = !chargerPresent &&
-        (powerStatus.batteryDisconnected || powerStatus.batteryLowVoltageUnpowered);
+        (snapshot.batteryDisconnected || snapshot.batteryLowVoltageUnpowered);
     const bool batteryPowered = batteryOk && !batteryUnpowered;
     const char* batteryIconClass = "status-dot dim";
     const char* batteryIconColor = "#9aa6b2";
     const char* batteryStateText = batteryPowered ? "电池" : "未上电";
     if (batteryPowered) {
-        if (powerStatus.batteryPercent < 10) {
+        if (snapshot.batteryPercent < 10) {
             batteryIconClass = "status-dot danger";
             batteryIconColor = "#ef4444";
-        } else if (powerStatus.batteryPercent < 30) {
+        } else if (snapshot.batteryPercent < 30) {
             batteryIconClass = "status-dot warn";
             batteryIconColor = "#f59e0b";
         } else {
@@ -266,60 +262,59 @@ static void addPowerStatus(JsonObject power, bool includeSlow = true, bool clear
 
     power["partial"]         = !includeSlow;
     power["chargeGpio"]      = CHARGE_ADC_PIN;
-    if (powerStatus.chargeValid)  power["charging"]       = powerStatus.charging;
+    if (snapshot.chargeValid)  power["charging"]       = snapshot.charging;
     else                          power["charging"]       = nullptr;
-    power["chargeValid"]      = powerStatus.chargeValid;
+    power["chargeValid"]      = snapshot.chargeValid;
     power["chargeIconClass"]  = chargeIconClass;
     power["chargeIconColor"]  = chargeIconColor;
-    power["ok"]               = powerStatus.batteryValid || powerStatus.chargeValid;
+    power["ok"]               = snapshot.batteryValid || snapshot.chargeValid;
     power["chargeSampleMs"]   = CHARGE_SAMPLE_MS;
     power["slowPublishMs"]    = POWER_WEB_SLOW_PUBLISH_MS;
     power["batteryPowered"]   = batteryPowered;
-    power["batteryDisconnected"] = powerStatus.batteryDisconnected;
-    power["batteryLowVoltageUnpowered"] = powerStatus.batteryLowVoltageUnpowered;
+    power["batteryDisconnected"] = snapshot.batteryDisconnected;
+    power["batteryLowVoltageUnpowered"] = snapshot.batteryLowVoltageUnpowered;
     power["batteryStateText"] = batteryStateText;
     power["batteryIconClass"] = batteryIconClass;
     power["batteryIconColor"] = batteryIconColor;
 
     if (includeSlow) {
         power["batteryGpio"]      = BATTERY_ADC_PIN;
-        if (powerStatus.batteryValid) power["vbat"]           = powerStatus.vbat;
+        if (snapshot.batteryValid) power["vbat"]           = snapshot.vbat;
         else                          power["vbat"]           = nullptr;
-        if (powerStatus.batteryValid) power["batteryPercent"] = powerStatus.batteryPercent;
+        if (snapshot.batteryValid) power["batteryPercent"] = snapshot.batteryPercent;
         else                          power["batteryPercent"] = nullptr;
-        if (powerStatus.chargeValid)  power["vcharge"]        = powerStatus.vcharge;
+        if (snapshot.chargeValid)  power["vcharge"]        = snapshot.vcharge;
         else                          power["vcharge"]        = nullptr;
-        power["batteryAdcMv"]     = powerStatus.batteryAdcMv;
-        power["batteryPrevAdcMv"] = powerStatus.batteryPrevAdcMv;
-        power["batteryDisconnectDropMv"] = powerStatus.batteryDisconnectDropMv;
+        power["batteryAdcMv"]     = snapshot.batteryAdcMv;
+        power["batteryPrevAdcMv"] = snapshot.batteryPrevAdcMv;
+        power["batteryDisconnectDropMv"] = snapshot.batteryDisconnectDropMv;
         power["batteryDisconnectDropThresholdMv"] = BATTERY_DISCONNECT_ADC_DROP_MV;
         power["batteryDisconnectLowThresholdMv"]  = BATTERY_DISCONNECT_ADC_LOW_MV;
         power["batteryReconnectThresholdMv"]      = BATTERY_RECONNECT_ADC_MV;
         power["batteryUnpoweredLowThreshold"] = BATTERY_UNPOWERED_LOW_V;
-        if (isfinite(powerStatus.batteryLastInstantVbat)) power["batteryLastInstantVbat"] = powerStatus.batteryLastInstantVbat;
+        if (isfinite(snapshot.batteryLastInstantVbat)) power["batteryLastInstantVbat"] = snapshot.batteryLastInstantVbat;
         else power["batteryLastInstantVbat"] = nullptr;
-        power["batteryDisconnectedSinceMs"] = powerStatus.batteryDisconnectedSinceMs;
-        power["lastBatteryDisconnectEventMs"] = powerStatus.lastBatteryDisconnectEventMs;
-        power["chargeAdcMv"]      = powerStatus.chargeAdcMv;
-        power["batteryValid"]     = powerStatus.batteryValid;
-        power["batteryRangeMin"]  = powerStatus.batteryCalibMinV;
-        power["batteryRangeMax"]  = powerStatus.batteryCalibMaxV;
+        power["batteryDisconnectedSinceMs"] = snapshot.batteryDisconnectedSinceMs;
+        power["lastBatteryDisconnectEventMs"] = snapshot.lastBatteryDisconnectEventMs;
+        power["chargeAdcMv"]      = snapshot.chargeAdcMv;
+        power["batteryValid"]     = snapshot.batteryValid;
+        power["batteryRangeMin"]  = snapshot.batteryCalibMinV;
+        power["batteryRangeMax"]  = snapshot.batteryCalibMaxV;
         power["batteryNominalMin"] = BATTERY_EMPTY_V;
         power["batteryNominalMax"] = BATTERY_FULL_V;
-        power["batteryCalibLoaded"] = powerStatus.batteryCalibLoaded;
-        power["batteryCalibDirty"] = powerStatus.batteryCalibDirty;
+        power["batteryCalibLoaded"] = snapshot.batteryCalibLoaded;
+        power["batteryCalibDirty"] = snapshot.batteryCalibDirty;
         power["batteryCalibPath"] = BATTERY_CALIB_PATH;
         power["chargeThreshold"]  = CHARGE_PRESENT_V;
         power["batterySampleMs"]  = BATTERY_SAMPLE_MS;
-        power["lastBatteryMs"]    = powerStatus.lastBatteryMs;
-        power["lastChargeMs"]     = powerStatus.lastChargeMs;
-        power["lastCalibMaxMs"]   = powerStatus.lastCalibMaxMs;
-        power["lastCalibMinMs"]   = powerStatus.lastCalibMinMs;
+        power["lastBatteryMs"]    = snapshot.lastBatteryMs;
+        power["lastChargeMs"]     = snapshot.lastChargeMs;
+        power["lastCalibMaxMs"]   = snapshot.lastCalibMaxMs;
+        power["lastCalibMinMs"]   = snapshot.lastCalibMinMs;
     }
 
     if (clearDirty) {
-        powerStatus.webFastDirty = false;
-        if (includeSlow) powerStatus.webSlowDirty = false;
+        clearPowerStatusWebDirty(includeSlow);
     }
 }
 
@@ -443,10 +438,6 @@ static void sendFilesystemErrorPage() {
     server.send_P(503, CONTENT_TYPE_HTML_UTF8, FILESYSTEM_ERROR_HTML);
 }
 
-// ---------------------------------------------------------------------------
-// 路由处理函数（Route handlers） 相关代码，维护 注册 SoftAP、DNS captive portal 和 HTTP API 路由。
-// ---------------------------------------------------------------------------
-
 static void handleOptions() {
     addCorsHeaders();
     server.send(204, CONTENT_TYPE_TEXT_PLAIN, "");
@@ -461,11 +452,13 @@ static void handleApiStatus() {
     const bool summaryOnly = runtimeOnly || server.hasArg("summary") || server.hasArg("noFrame");
     const uint32_t version = runtimeStateVersion();
     const bool hasSince = server.hasArg("since");
-    const bool includeSlowPower = !hasSince || powerStatus.webSlowDirty || server.hasArg("fullPower");
+    const PowerStatus powerSnapshot = readPowerStatusSnapshot();
+    const bool includeSlowPower = !hasSince || powerStatusWebSlowDirty() || server.hasArg("fullPower");
 
     if (hasSince) {
         const uint32_t since = static_cast<uint32_t>(strtoul(server.arg("since").c_str(), nullptr, 10));
-        if (since == version) {
+        const bool allowUnchangedShortcut = !scrolling;
+        if (allowUnchangedShortcut && since == version) {
             DynamicJsonDocument unchanged(192);
             unchanged["ok"]           = true;
             unchanged["v"]            = version;
@@ -477,7 +470,6 @@ static void handleApiStatus() {
         }
     }
 
-    // 中文块：容量含源文本同步新增的 3 个 renderer 字段（timelineId 等）。
     PsramJsonDocument doc((runtimeOnly || scrolling || summaryOnly) ? 4608 : 6656);
     doc["ok"]     = true;
     doc["v"]      = version;
@@ -494,11 +486,12 @@ static void handleApiStatus() {
     ap["url"]     = String("http://") + AP_DOMAIN + "/";
     ap["clients"] = WiFi.softAPgetStationNum();
 
-    addPowerStatus(doc.createNestedObject("power"), includeSlowPower, true);
+    addPowerStatus(doc.createNestedObject("power"), powerSnapshot, includeSlowPower, true);
 
     JsonObject renderer = doc.createNestedObject("renderer");
-    renderer["color"]                   = runtimeState().colorHex;
-    renderer["brightness"]              = runtimeState().brightness;
+    const FrameStateSnapshot fs = readFrameStateSnapshot();
+    renderer["color"]                   = fs.colorHex;
+    renderer["brightness"]              = fs.brightness;
     renderer["brightnessMin"]           = MIN_BRIGHTNESS;
     renderer["brightnessMax"]           = MAX_BRIGHTNESS;
     renderer["mode"]                    = runtimeState().mode;
@@ -515,14 +508,14 @@ static void handleApiStatus() {
     renderer["m370FrameQueueCount"]     = queuedM370FrameCount();
     addCurrentFaceFields(renderer);
     if (!scrolling && !summaryOnly) {
-        renderer["lastM370"] = runtimeState().lastM370;
-        renderer["lit"]      = countLitLeds();
+        renderer["lastM370"] = fs.lastM370;
+        renderer["lit"]      = fs.litLeds;
     } else if (summaryOnly) {
         renderer["lastM370Skipped"] = true;
     } else {
         renderer["lastM370Deferred"] = true;
     }
-    renderer["lastReason"] = runtimeState().lastReason;
+    renderer["lastReason"] = fs.lastReason;
 
     addScrollStopEvent(renderer);
 
@@ -562,7 +555,7 @@ static void handleApiStatus() {
     storage["settingsPath"]      = SETTINGS_PATH;
     storage["settingsExists"]    = runtimeFsMounted() && littleFsExistsLocked(SETTINGS_PATH);
     if (runtimeFsMounted() && !scrolling && !summaryOnly) {
-        withHardwareBusLock([&]() {
+        withStorageLock([&]() {
             storage["totalBytes"] = static_cast<uint32_t>(LittleFS.totalBytes());
             storage["usedBytes"]  = static_cast<uint32_t>(LittleFS.usedBytes());
         });
@@ -573,7 +566,7 @@ static void handleApiStatus() {
     }
 
     JsonObject stats = doc.createNestedObject("stats");
-    stats["framesAccepted"]    = runtimeState().framesAccepted;
+    stats["framesAccepted"]    = fs.framesAccepted;
     stats["framesRejected"]    = runtimeState().framesRejected;
     stats["framesQueued"]      = runtimeState().framesQueued;
     stats["framesDequeued"]    = runtimeState().framesDequeued;
@@ -591,7 +584,8 @@ static void handleApiPower() {
 
     DynamicJsonDocument doc(3072);
     doc["ok"] = true;
-    addPowerStatus(doc.createNestedObject("power"), true, true);
+    const PowerStatus powerSnapshot = readPowerStatusSnapshot();
+    addPowerStatus(doc.createNestedObject("power"), powerSnapshot, true, true);
     sendJsonDocument(200, doc);
 }
 
@@ -603,7 +597,16 @@ static void handleApiFrame() {
     const char* m370 = doc["m370"] | "";
     if (strlen(m370) == 0) {
         ++runtimeState().framesRejected;
+        touchRuntimeStateSlow();
         sendError(400, "missing m370");
+        return;
+    }
+
+    String normalizedM370;
+    if (!normalizeM370(String(m370), normalizedM370, error)) {
+        ++runtimeState().framesRejected;
+        touchRuntimeStateSlow();
+        sendError(400, error);
         return;
     }
 
@@ -619,7 +622,7 @@ static void handleApiFrame() {
     }
     runtimeState().playback = mode;
 
-    if (!applyM370(m370, reason, error)) { sendError(400, error); return; }
+    if (!applyM370(normalizedM370, reason, error)) { sendError(400, error); return; }
 
     const char* faceId = doc["faceId"] | "";
     if (strlen(faceId) > 0 && ensureSavedFacesLoaded()) {
@@ -635,6 +638,7 @@ static void handleApiFrame() {
     }
 
     DynamicJsonDocument reply(1024);
+    const FrameStateSnapshot fs = readFrameStateSnapshot();
     reply["ok"]            = true;
     reply["v"]             = runtimeStateVersion();
     reply["version"]       = runtimeStateVersion();
@@ -645,15 +649,15 @@ static void handleApiFrame() {
     reply["queueCount"]    = queuedM370FrameCount();
     reply["frameMinIntervalMs"] = M370_FRAME_MIN_INTERVAL_MS;
     reply["leds"]          = LED_COUNT;
-    reply["color"]         = runtimeState().colorHex;
-    reply["brightness"]    = runtimeState().brightness;
-    reply["reason"]        = runtimeState().lastReason;
+    reply["color"]         = fs.colorHex;
+    reply["brightness"]    = fs.brightness;
+    reply["reason"]        = fs.lastReason;
     reply["mode"]          = runtimeState().mode;
     reply["autoIntervalMs"] = runtimeState().autoIntervalMs;
     reply["autoFaceIndex"] = runtimeState().autoFaceIndex;
     addCurrentFaceFields(reply.as<JsonObject>());
-    reply["m370"]          = runtimeState().lastM370;
-    reply["lit"]           = countLitLeds();
+    reply["m370"]          = fs.lastM370;
+    reply["lit"]           = fs.litLeds;
     sendJsonDocument(200, reply);
 }
 
@@ -663,6 +667,12 @@ static void handleApiScroll() {
 
     const String body = requestBody();
     if (body.isEmpty()) { sendError(400, "empty JSON body"); return; }
+
+    String jsonError;
+    if (!jsonValidateCompleteObject(body, jsonError)) {
+        sendError(400, jsonError);
+        return;
+    }
 
     if (!runtimeScrollFrameBufferReady()) {
         sendError(507, "scroll frame buffer unavailable (insufficient PSRAM/SRAM)");
@@ -691,7 +701,6 @@ static void handleApiScroll() {
         return;
     }
 
-    // 中文块：读取源文本同步元数据；字段存在但不是合法 JSON 字符串 -> 400。
     String timelineId, sourceText, fontId, generatorVersion;
     const bool timelineIdPresent = jsonHasField(body, "timelineId");
     const bool sourceTextPresent = jsonHasField(body, "sourceText");
@@ -763,6 +772,39 @@ static void handleApiScroll() {
         if (timelineIdPresent && totalFrames == 0) {
             sendError(400, "timeline-backed upload requires totalFrames > 0"); return;
         }
+
+        // PRE-FLIGHT: Validate all frames in the first chunk before clearing state
+        size_t prePos = pos;
+        uint16_t preCount = 0;
+        String preError;
+        while (prePos < body.length()) {
+            while (prePos < body.length()) {
+                const char c = body.charAt(prePos);
+                if (c == ' ' || c == '\r' || c == '\n' || c == '\t' || c == ',') { ++prePos; continue; }
+                break;
+            }
+            if (prePos >= body.length()) { sendError(400, "unterminated frames array"); return; }
+            if (body.charAt(prePos) == ']') break;
+            if (body.charAt(prePos) != '"') { sendError(400, String("expected M370 string at frame ") + preCount); return; }
+
+            int endQuote = -1;
+            String m370;
+            if (!extractJsonStringAt(body, prePos, m370, endQuote)) {
+                sendError(400, String("unterminated M370 string at frame ") + preCount); return;
+            }
+            uint8_t dummyBits[FRAME_BYTES];
+            if (!m370ToPackedBits(m370, dummyBits, preError)) {
+                sendError(400, String("invalid scroll frame ") + preCount + ": " + preError); return;
+            }
+            ++preCount;
+            prePos = static_cast<size_t>(endQuote + 1);
+        }
+        if (preCount == 0) { sendError(400, "frames must include at least one valid M370 frame"); return; }
+        if (preCount > MAX_SCROLL_FRAMES) {
+            sendError(413, String("too many scroll frames; firmware cache max is ") + MAX_SCROLL_FRAMES);
+            return;
+        }
+        if (totalFrames > 0 && preCount > totalFrames) { sendError(409, "too many frames"); return; }
 
         stopFirmwareScroll(false);
         withScrollLock([&]() {
@@ -936,7 +978,6 @@ static void handleApiScroll() {
     sendJsonDocument(200, reply);
 }
 
-// 中文块：GET /api/scroll/meta —— 返回滚动源文本元数据供 WebUI 恢复。
 // 锁内拷贝（meta 结构 + 文本 memcpy），锁外序列化；容量/溢出 -> 507（H-C）。
 static void handleApiScrollMeta() {
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
@@ -948,6 +989,8 @@ static void handleApiScrollMeta() {
     uint16_t scrollIntervalMs = DEFAULT_SCROLL_INTERVAL_MS;
     bool active = false;
     bool paused = false;
+    bool userPaused = false;
+    bool systemPaused = false;
 
     char* textCopy = nullptr;
     const size_t textCapacity = static_cast<size_t>(MAX_SCROLL_TEXT_BYTES) + 1U;
@@ -967,6 +1010,8 @@ static void handleApiScrollMeta() {
         scrollIntervalMs = runtimeState().scrollIntervalMs;
         active           = runtimeState().firmwareScrollActive;
         paused           = runtimeState().firmwareScrollPaused;
+        userPaused       = runtimeState().firmwareScrollUserPaused;
+        systemPaused     = runtimeState().firmwareScrollSystemPaused;
         if (metaCopy.hasSourceText && runtimeScrollSourceTextReady()) {
             if (textCopy != nullptr) {
                 memcpy(textCopy, runtimeScrollSourceText(),
@@ -1003,6 +1048,8 @@ static void handleApiScrollMeta() {
     doc["uploadComplete"]       = metaCopy.uploadComplete;
     doc["firmwareScrollActive"] = active;
     doc["firmwareScrollPaused"] = paused;
+    doc["firmwareScrollUserPaused"] = userPaused;
+    doc["firmwareScrollSystemPaused"] = systemPaused;
     if (doc.overflowed()) {
         if (textCopy != nullptr) heap_caps_free(textCopy);
         sendError(507, "metadata json overflow");
@@ -1012,10 +1059,8 @@ static void handleApiScrollMeta() {
     if (textCopy != nullptr) heap_caps_free(textCopy);
 }
 
-
 using ApiCommandHandler = bool (*)(JsonDocument& doc, JsonVariant payload, String& error);
 
-// 中文块：命令处理失败时使用的 HTTP 状态码；commandStartScroll 的 timeline
 // 冲突需要 409，其余保持 400。每次分发前重置。
 static int sCommandErrorStatus = 400;
 
@@ -1192,7 +1237,7 @@ static bool commandResumeScroll(JsonDocument& doc, JsonVariant payload, String& 
 static bool commandStopScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
     bool clearDisplay = true;
-    bool restoreAuto  = runtimeState().restoreAutoAfterScroll;
+    bool restoreAuto  = getRestoreAutoAfterScroll();
     commandBoolField(doc, payload, "clear", clearDisplay);
     commandBoolField(doc, payload, "restoreAuto", restoreAuto);
     stopFirmwareScroll(restoreAuto, clearDisplay);
@@ -1245,7 +1290,7 @@ static bool commandTerminateOtherActivities(JsonDocument& doc, JsonVariant paylo
     if (strcmp(targetMode, "face") != 0 && strcmp(targetMode, "scroll") != 0) {
         setMode("manual", true);
     } else if (strcmp(targetMode, "scroll") == 0 && isAutoMode()) {
-        runtimeState().restoreAutoAfterScroll = true;
+        setRestoreAutoAfterScroll(true);
         runtimeState().mode                   = "manual";
         touchRuntimeState();
     }
@@ -1265,6 +1310,15 @@ static bool commandResetBatteryMaximum(JsonDocument& doc, JsonVariant payload, S
     (void)payload;
     (void)error;
     resetBatteryVoltageMaximum();
+    return true;
+}
+
+static bool commandBatteryOverlay(JsonDocument& doc, JsonVariant payload, String& error) {
+    (void)doc;
+    (void)error;
+    bool singleShot = true;
+    commandBoolField(doc, payload, "singleShot", singleShot);
+    showBatteryOverlay(singleShot);
     return true;
 }
 
@@ -1290,6 +1344,7 @@ static const ApiCommandRoute API_COMMAND_ROUTES[] = {
     {"terminate_other_activities", commandTerminateOtherActivities},
     {"reset_battery_min",          commandResetBatteryMinimum},
     {"reset_battery_max",          commandResetBatteryMaximum},
+    {"battery_overlay",            commandBatteryOverlay},
 };
 
 static const ApiCommandRoute* findApiCommandRoute(const String& cmd) {
@@ -1299,41 +1354,11 @@ static const ApiCommandRoute* findApiCommandRoute(const String& cmd) {
     return nullptr;
 }
 
-static void handleApiCommand() {
-    String error;
-    PsramJsonDocument doc(2048);
-    if (!parseJsonBody(doc, error)) {
-        ++runtimeState().commandsRejected;
-        sendError(400, error);
-        return;
-    }
+static bool commandWantsPower(const String& cmd) {
+    return cmd == "reset_battery_min" || cmd == "reset_battery_max" || cmd == "battery_overlay";
+}
 
-    const String  cmd     = doc["cmd"] | "";
-    JsonVariant   payload = doc["payload"];
-    if (cmd.isEmpty()) {
-        ++runtimeState().commandsRejected;
-        sendError(400, "missing cmd");
-        return;
-    }
-
-    const ApiCommandRoute* route = findApiCommandRoute(cmd);
-    if (route == nullptr) {
-        ++runtimeState().commandsRejected;
-        sendError(400, String("unknown command: ") + cmd);
-        return;
-    }
-
-    sCommandErrorStatus = 400;
-    if (!route->handler(doc, payload, error)) {
-        ++runtimeState().commandsRejected;
-        sendError(sCommandErrorStatus, error);
-        return;
-    }
-
-    ++runtimeState().commandsAccepted;
-
-    const ScrollStateSnapshot scrollState = readScrollStateSnapshot();
-    PsramJsonDocument reply(3584);
+static void buildCommandReply(JsonObject reply, const String& cmd, const ScrollStateSnapshot& scrollState) {
     reply["ok"]                   = true;
     reply["v"]                    = runtimeStateVersion();
     reply["version"]              = runtimeStateVersion();
@@ -1346,18 +1371,63 @@ static void handleApiCommand() {
     reply["playback"]             = runtimeState().playback;
     reply["paused"]               = runtimeState().paused;
     reply["autoFaceIndex"]        = runtimeState().autoFaceIndex;
-    JsonObject replyRoot = reply.as<JsonObject>();
-    addScrollStateFields(replyRoot, scrollState);
+    addScrollStateFields(reply, scrollState);
     reply["deferredFaceRestoreActive"] = runtimeState().deferredFaceRestoreActive;
-    addScrollStopEvent(replyRoot);
-    addCurrentFaceFields(reply.as<JsonObject>());
+    addScrollStopEvent(reply);
+    addCurrentFaceFields(reply);
     reply["m370"]       = runtimeState().lastM370;
     reply["lastReason"] = runtimeState().lastReason;
-    if (cmd == "reset_battery_min" || cmd == "reset_battery_max") {
-        servicePowerMonitor(true);
-        addPowerStatus(reply.createNestedObject("power"), true, true);
+}
+
+static void handleApiCommand() {
+    String error;
+    PsramJsonDocument doc(2048);
+    if (!parseJsonBody(doc, error)) {
+        ++runtimeState().commandsRejected;
+        touchRuntimeStateSlow();
+        sendError(400, error);
+        return;
     }
-    sendJsonDocument(200, reply);
+
+    const String  cmd     = doc["cmd"] | "";
+    JsonVariant   payload = doc["payload"];
+    if (cmd.isEmpty()) {
+        ++runtimeState().commandsRejected;
+        touchRuntimeStateSlow();
+        sendError(400, "missing cmd");
+        return;
+    }
+
+    const ApiCommandRoute* route = findApiCommandRoute(cmd);
+    if (route == nullptr) {
+        ++runtimeState().commandsRejected;
+        touchRuntimeStateSlow();
+        sendError(400, String("unknown command: ") + cmd);
+        return;
+    }
+
+    sCommandErrorStatus = 400;
+    if (!route->handler(doc, payload, error)) {
+        ++runtimeState().commandsRejected;
+        touchRuntimeStateSlow();
+        sendError(sCommandErrorStatus, error);
+        return;
+    }
+
+    ++runtimeState().commandsAccepted;
+    touchRuntimeStateSlow();
+
+    const ScrollStateSnapshot scrollState = readScrollStateSnapshot();
+    PsramJsonDocument replyDoc(3584);
+    JsonObject replyRoot = replyDoc.to<JsonObject>();
+    buildCommandReply(replyRoot, cmd, scrollState);
+
+    if (commandWantsPower(cmd)) {
+        servicePowerMonitor(true);
+        const PowerStatus powerSnapshot = readPowerStatusSnapshot();
+        addPowerStatus(replyRoot.createNestedObject("power"), powerSnapshot, true, true);
+    }
+    sendJsonDocument(200, replyDoc);
 }
 
 static void handleSavedFacesGet() {
@@ -1421,10 +1491,6 @@ static void handleNotFound() {
     sendError(404, "not found: " + server.uri());
 }
 
-// ---------------------------------------------------------------------------
-// LittleFS 错误提示图案（LittleFS error pattern，在 Web 服务器启动前显示） 相关代码，维护 注册 SoftAP、DNS captive portal 和 HTTP API 路由。
-// ---------------------------------------------------------------------------
-
 void showFilesystemErrorPattern() {
     withFrameLock([]() {
         runtimeState().colorHex   = "#ff0000";
@@ -1438,10 +1504,6 @@ void showFilesystemErrorPattern() {
         showCurrentFrameNoLock();
     });
 }
-
-// ---------------------------------------------------------------------------
-// 公共接口：接入点 + WebServer 启动（Public: Access Point + WebServer startup） 相关代码，维护 注册 SoftAP、DNS captive portal 和 HTTP API 路由。
-// ---------------------------------------------------------------------------
 
 void startAccessPoint() {
     WiFi.mode(WIFI_AP);
@@ -1458,33 +1520,32 @@ void startAccessPoint() {
 void startWebServer() {
     auto serveRoot = []() {
         if (!serveStaticFile("/")) {
-            if (!runtimeFsMounted()) sendFilesystemErrorPage();
-            else sendError(404, "index.html not found; run pio run -t uploadfs");
+            if (!runtimeFsMounted()) {
+                sendFilesystemErrorPage();
+                return;
+            }
+            sendError(404, "not found: /");
         }
     };
 
-    server.on("/",            HTTP_GET,     serveRoot);
-    server.on("/index.html",  HTTP_GET,     serveRoot);
-    server.on("/api/status",  HTTP_GET,     handleApiStatus);
-    server.on("/api/status",  HTTP_OPTIONS, handleOptions);
-    server.on("/api/power",   HTTP_GET,     handleApiPower);
-    server.on("/api/power",   HTTP_OPTIONS, handleOptions);
-    server.on("/api/frame",   HTTP_POST,    handleApiFrame);
-    server.on("/api/frame",   HTTP_OPTIONS, handleOptions);
-    server.on("/api/scroll/meta",          handleApiScrollMeta);
-    server.on("/api/scroll",               handleApiScroll);
-    server.on("/api/command", HTTP_POST,    handleApiCommand);
-    server.on("/api/command", HTTP_OPTIONS, handleOptions);
-    server.on("/api/saved_faces",          handleApiSavedFaces);
+    server.on("/", HTTP_GET, serveRoot);
+
+    server.on("/api/status",      HTTP_ANY, handleApiStatus);
+    server.on("/api/power",       HTTP_ANY, handleApiPower);
+    server.on("/api/frame",       HTTP_ANY, handleApiFrame);
+    server.on("/api/scroll",      HTTP_ANY, handleApiScroll);
+    server.on("/api/scroll/meta", HTTP_ANY, handleApiScrollMeta);
+    server.on("/api/command",     HTTP_ANY, handleApiCommand);
+    server.on("/api/saved_faces", HTTP_ANY, handleApiSavedFaces);
+
     server.onNotFound(handleNotFound);
-    static const char* COLLECTED_HEADERS[] = { "Accept-Encoding" };
-    server.collectHeaders(COLLECTED_HEADERS, 1);
     server.begin();
-    Serial.printf("HTTP server listening on http://%s/ and http://%s/\n",
-                  AP_DOMAIN, WiFi.softAPIP().toString().c_str());
+    Serial.printf("Web server started on port %d\n", HTTP_PORT);
 }
 
 void webServerTick() {
-    if (dnsServerActive) dnsServer.processNextRequest();
+    if (dnsServerActive) {
+        dnsServer.processNextRequest();
+    }
     server.handleClient();
 }

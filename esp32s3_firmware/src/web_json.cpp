@@ -3,8 +3,6 @@
 #include <ctype.h>
 #include <string.h>
 
-
-// 本文件把运行时状态序列化成 Web API JSON 响应；注释保留必要 English identifier，便于和代码/API 对照。
 int findJsonStringEnd(const String& body, size_t quotePos) {
     if (quotePos >= body.length() || body.charAt(quotePos) != '"') return -1;
 
@@ -52,16 +50,24 @@ static bool jsonStartsWithAt(const String& body, size_t pos, const char* token) 
     return true;
 }
 
+static bool isJsonValueTerminator(char c) {
+    return c == ',' || c == '}' || c == ']' || isspace(static_cast<unsigned char>(c));
+}
+
+static bool skipJsonValue(const String& body, size_t pos, size_t& end, uint8_t depth);
+
 static int jsonFieldValuePosition(const String& body, const char* key) {
     if (!key || key[0] == '\0') return -1;
 
-    size_t pos = 0;
-    while (pos < body.length()) {
-        if (body.charAt(pos) != '"') {
-            ++pos;
-            continue;
-        }
+    size_t pos = skipJsonWhitespace(body, 0);
+    if (pos >= body.length() || body.charAt(pos) != '{') return -1;
+    ++pos;
 
+    while (true) {
+        pos = skipJsonWhitespace(body, pos);
+        if (pos >= body.length()) return -1;
+        if (body.charAt(pos) == '}') return -1;
+        if (body.charAt(pos) != '"') return -1;
         const int endQuote = findJsonStringEnd(body, pos);
         if (endQuote < 0) return -1;
 
@@ -71,10 +77,17 @@ static int jsonFieldValuePosition(const String& body, const char* key) {
             return static_cast<int>(skipJsonWhitespace(body, afterKey + 1U));
         }
 
-        pos = static_cast<size_t>(endQuote) + 1U;
+        if (afterKey >= body.length() || body.charAt(afterKey) != ':') return -1;
+        size_t valueEnd = 0;
+        if (!skipJsonValue(body, skipJsonWhitespace(body, afterKey + 1U), valueEnd, 0)) return -1;
+        pos = skipJsonWhitespace(body, valueEnd);
+        if (pos < body.length() && body.charAt(pos) == ',') {
+            ++pos;
+            continue;
+        }
+        if (pos < body.length() && body.charAt(pos) == '}') return -1;
+        return -1;
     }
-
-    return -1;
 }
 
 // 把 Unicode code point 以 UTF-8 形式追加到输出字符串。
@@ -114,6 +127,9 @@ bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int
 
     const String raw = body.substring(quotePos + 1, endQuote);
     if (raw.indexOf('\\') < 0) {
+        for (size_t i = 0; i < raw.length(); ++i) {
+            if (static_cast<unsigned char>(raw.charAt(i)) < 0x20) return false;
+        }
         value = raw;
         return true;
     }
@@ -126,6 +142,8 @@ bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int
         if (!escaped) {
             if (c == '\\') {
                 escaped = true;
+            } else if (static_cast<unsigned char>(c) < 0x20) {
+                return false;
             } else {
                 value += c;
             }
@@ -165,18 +183,146 @@ bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int
                 break;
             }
             default:
-                value += c;
-                break;
+                return false;
         }
         escaped = false;
     }
     return !escaped;
 }
 
+static bool skipJsonNumber(const String& body, size_t pos, size_t& end) {
+    const size_t n = body.length();
+    if (pos >= n) return false;
+    if (body.charAt(pos) == '-') ++pos;
+    if (pos >= n) return false;
+
+    if (body.charAt(pos) == '0') {
+        ++pos;
+    } else if (isdigit(static_cast<unsigned char>(body.charAt(pos)))) {
+        while (pos < n && isdigit(static_cast<unsigned char>(body.charAt(pos)))) ++pos;
+    } else {
+        return false;
+    }
+
+    if (pos < n && body.charAt(pos) == '.') {
+        ++pos;
+        if (pos >= n || !isdigit(static_cast<unsigned char>(body.charAt(pos)))) return false;
+        while (pos < n && isdigit(static_cast<unsigned char>(body.charAt(pos)))) ++pos;
+    }
+
+    if (pos < n && (body.charAt(pos) == 'e' || body.charAt(pos) == 'E')) {
+        ++pos;
+        if (pos < n && (body.charAt(pos) == '+' || body.charAt(pos) == '-')) ++pos;
+        if (pos >= n || !isdigit(static_cast<unsigned char>(body.charAt(pos)))) return false;
+        while (pos < n && isdigit(static_cast<unsigned char>(body.charAt(pos)))) ++pos;
+    }
+
+    if (pos < n && !isJsonValueTerminator(body.charAt(pos))) return false;
+    end = pos;
+    return true;
+}
+
+static constexpr uint8_t JSON_MAX_DEPTH = 32U;
+
+static bool skipJsonObject(const String& body, size_t pos, size_t& end, uint8_t depth) {
+    if (pos >= body.length() || body.charAt(pos) != '{') return false;
+    if (depth >= JSON_MAX_DEPTH) return false;
+    ++pos;
+    pos = skipJsonWhitespace(body, pos);
+    if (pos < body.length() && body.charAt(pos) == '}') { end = pos + 1U; return true; }
+
+    while (true) {
+        pos = skipJsonWhitespace(body, pos);
+        if (pos >= body.length() || body.charAt(pos) != '"') return false;
+        const int keyEnd = findJsonStringEnd(body, pos);
+        if (keyEnd < 0) return false;
+        pos = skipJsonWhitespace(body, static_cast<size_t>(keyEnd) + 1U);
+        if (pos >= body.length() || body.charAt(pos) != ':') return false;
+        size_t valueEnd = 0;
+        if (!skipJsonValue(body, skipJsonWhitespace(body, pos + 1U), valueEnd,
+                           static_cast<uint8_t>(depth + 1U))) return false;
+        pos = skipJsonWhitespace(body, valueEnd);
+        if (pos >= body.length()) return false;
+        const char c = body.charAt(pos);
+        if (c == ',') { ++pos; continue; }
+        if (c == '}') { end = pos + 1U; return true; }
+        return false;
+    }
+}
+
+static bool skipJsonArray(const String& body, size_t pos, size_t& end, uint8_t depth) {
+    if (pos >= body.length() || body.charAt(pos) != '[') return false;
+    if (depth >= JSON_MAX_DEPTH) return false;
+    ++pos;
+    pos = skipJsonWhitespace(body, pos);
+    if (pos < body.length() && body.charAt(pos) == ']') { end = pos + 1U; return true; }
+
+    while (true) {
+        size_t valueEnd = 0;
+        if (!skipJsonValue(body, skipJsonWhitespace(body, pos), valueEnd,
+                           static_cast<uint8_t>(depth + 1U))) return false;
+        pos = skipJsonWhitespace(body, valueEnd);
+        if (pos >= body.length()) return false;
+        const char c = body.charAt(pos);
+        if (c == ',') { ++pos; continue; }
+        if (c == ']') { end = pos + 1U; return true; }
+        return false;
+    }
+}
+
+static bool skipJsonLiteral(const String& body, size_t pos, size_t& end, const char* literal) {
+    if (!jsonStartsWithAt(body, pos, literal)) return false;
+    end = pos + strlen(literal);
+    return true;
+}
+
+static bool skipJsonValue(const String& body, size_t pos, size_t& end, uint8_t depth) {
+    if (depth >= JSON_MAX_DEPTH) return false;
+    pos = skipJsonWhitespace(body, pos);
+    if (pos >= body.length()) return false;
+    const char c = body.charAt(pos);
+    switch (c) {
+        case '{': return skipJsonObject(body, pos, end, depth);
+        case '[': return skipJsonArray(body, pos, end, depth);
+        case '"': {
+            // Validate string escapes here so malformed escapes are rejected during
+            // whole-object validation, before any state mutation (Addendum A5/A11).
+            String scratch;
+            int endQuote = 0;
+            if (!extractJsonStringAt(body, pos, scratch, endQuote)) return false;
+            end = static_cast<size_t>(endQuote) + 1U;
+            return true;
+        }
+        case 't': return skipJsonLiteral(body, pos, end, "true");
+        case 'f': return skipJsonLiteral(body, pos, end, "false");
+        case 'n': return skipJsonLiteral(body, pos, end, "null");
+        default:  return skipJsonNumber(body, pos, end);
+    }
+}
+
+bool jsonValidateCompleteObject(const String& body, String& error) {
+    size_t pos = skipJsonWhitespace(body, 0);
+    if (pos >= body.length() || body.charAt(pos) != '{') {
+        error = "body is not a JSON object";
+        return false;
+    }
+    size_t end = 0;
+    if (!skipJsonObject(body, pos, end, 0)) {
+        error = "malformed JSON object";
+        return false;
+    }
+    pos = skipJsonWhitespace(body, end);
+    if (pos != body.length()) {
+        error = "trailing characters after JSON object";
+        return false;
+    }
+    return true;
+}
+
 bool jsonFieldValueOffset(const String& body, const char* key, size_t& offset) {
-    const int position = jsonFieldValuePosition(body, key);
-    if (position < 0) return false;
-    offset = static_cast<size_t>(position);
+    const int pos = jsonFieldValuePosition(body, key);
+    if (pos < 0) return false;
+    offset = static_cast<size_t>(pos);
     return true;
 }
 
@@ -185,51 +331,43 @@ bool jsonHasField(const String& body, const char* key) {
 }
 
 bool jsonBoolField(const String& body, const char* key, bool defaultValue) {
-    const int p = jsonFieldValuePosition(body, key);
-    if (p < 0) return defaultValue;
-    if (jsonStartsWithAt(body, static_cast<size_t>(p), "true")) return true;
-    if (jsonStartsWithAt(body, static_cast<size_t>(p), "false")) return false;
+    const int pos = jsonFieldValuePosition(body, key);
+    if (pos < 0) return defaultValue;
+    if (jsonStartsWithAt(body, static_cast<size_t>(pos), "true"))  return true;
+    if (jsonStartsWithAt(body, static_cast<size_t>(pos), "false")) return false;
     return defaultValue;
 }
 
 bool jsonUintField(const String& body, const char* key, uint32_t& value) {
-    int p = jsonFieldValuePosition(body, key);
-    if (p < 0) return false;
-
-    uint32_t parsed = 0;
-    bool foundDigit = false;
-    while (static_cast<size_t>(p) < body.length() &&
-           isdigit(static_cast<unsigned char>(body.charAt(p)))) {
-        foundDigit = true;
-        parsed = parsed * 10 + static_cast<uint32_t>(body.charAt(p++) - '0');
+    const int posi = jsonFieldValuePosition(body, key);
+    if (posi < 0) return false;
+    size_t pos = static_cast<size_t>(posi);
+    const size_t n = body.length();
+    if (pos >= n || !isdigit(static_cast<unsigned char>(body.charAt(pos)))) return false;
+    uint64_t acc = 0;
+    while (pos < n && isdigit(static_cast<unsigned char>(body.charAt(pos)))) {
+        acc = acc * 10U + static_cast<uint64_t>(body.charAt(pos) - '0');
+        if (acc > 0xFFFFFFFFULL) return false;  // overflow guard (Addendum A5)
+        ++pos;
     }
-    if (!foundDigit) return false;
-    value = parsed;
+    if (pos < n && !isJsonValueTerminator(body.charAt(pos))) return false;
+    value = static_cast<uint32_t>(acc);
     return true;
 }
 
 bool jsonFloatField(const String& body, const char* key, float& value) {
-    int p = jsonFieldValuePosition(body, key);
-    if (p < 0) return false;
-
-    int q = p;
-    while (static_cast<size_t>(q) < body.length()) {
-        const char c = body.charAt(q);
-        if (!(isdigit(static_cast<unsigned char>(c)) || c == '.' || c == '-' ||
-              c == '+' || c == 'e' || c == 'E')) {
-            break;
-        }
-        ++q;
-    }
-    if (q == p) return false;
-    value = body.substring(p, q).toFloat();
+    const int posi = jsonFieldValuePosition(body, key);
+    if (posi < 0) return false;
+    size_t end = 0;
+    if (!skipJsonNumber(body, static_cast<size_t>(posi), end)) return false;
+    value = body.substring(posi, end).toFloat();
     return true;
 }
 
 bool jsonStringField(const String& body, const char* key, String& value) {
-    const int p = jsonFieldValuePosition(body, key);
-    if (p < 0 || static_cast<size_t>(p) >= body.length() || body.charAt(p) != '"') return false;
-
-    int endQuote = -1;
-    return extractJsonStringAt(body, static_cast<size_t>(p), value, endQuote);
+    const int posi = jsonFieldValuePosition(body, key);
+    if (posi < 0) return false;
+    if (body.charAt(static_cast<size_t>(posi)) != '"') return false;
+    int endQuote = 0;
+    return extractJsonStringAt(body, static_cast<size_t>(posi), value, endQuote);
 }

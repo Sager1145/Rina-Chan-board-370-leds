@@ -3,10 +3,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-
-// 本文件封装 FreeRTOS mutex 和跨核心同步保护；注释保留必要 English identifier，便于和代码/API 对照。
 static SemaphoreHandle_t sFrameMutex       = nullptr;
 static SemaphoreHandle_t sScrollMutex      = nullptr;
+static SemaphoreHandle_t sStorageMutex     = nullptr;
 static SemaphoreHandle_t sHardwareBusMutex = nullptr;
 
 static void lockDomain(SyncDomain domain) {
@@ -16,6 +15,9 @@ static void lockDomain(SyncDomain domain) {
             break;
         case SyncDomain::Scroll:
             lockScroll();
+            break;
+        case SyncDomain::Storage:
+            lockStorage();
             break;
         case SyncDomain::HardwareBus:
             lockHardwareBus();
@@ -30,6 +32,9 @@ static void unlockDomain(SyncDomain domain) {
             break;
         case SyncDomain::Scroll:
             unlockScroll();
+            break;
+        case SyncDomain::Storage:
+            unlockStorage();
             break;
         case SyncDomain::HardwareBus:
             unlockHardwareBus();
@@ -51,8 +56,9 @@ ScopedLock::~ScopedLock() {
 bool initSyncPrimitives() {
     if (!sFrameMutex) sFrameMutex = xSemaphoreCreateMutex();
     if (!sScrollMutex) sScrollMutex = xSemaphoreCreateMutex();
+    if (!sStorageMutex) sStorageMutex = xSemaphoreCreateMutex();
     if (!sHardwareBusMutex) sHardwareBusMutex = xSemaphoreCreateMutex();
-    return sFrameMutex && sScrollMutex && sHardwareBusMutex;
+    return sFrameMutex && sScrollMutex && sStorageMutex && sHardwareBusMutex;
 }
 
 void lockFrame() {
@@ -69,6 +75,14 @@ void lockScroll() {
 
 void unlockScroll() {
     if (sScrollMutex) xSemaphoreGive(sScrollMutex);
+}
+
+void lockStorage() {
+    if (sStorageMutex) xSemaphoreTake(sStorageMutex, portMAX_DELAY);
+}
+
+void unlockStorage() {
+    if (sStorageMutex) xSemaphoreGive(sStorageMutex);
 }
 
 void lockHardwareBus() {

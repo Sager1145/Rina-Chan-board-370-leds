@@ -4,12 +4,7 @@
 #include "led_renderer.h"
 #include "faces.h"
 #include "button_animations.h"
-
-
-// 本文件处理 GPIO 按钮、组合键和按钮来源的语义动作；注释保留必要 English identifier，便于和代码/API 对照。
-// ---------------------------------------------------------------------------
-// 按钮表（Button table） 相关代码，维护 处理 GPIO 按钮、组合键和按钮来源的语义动作。
-// ---------------------------------------------------------------------------
+#include "scroll.h"
 
 static ButtonRuntime buttons[] = {
     {"B1", BUTTON_B1_PIN},
@@ -20,10 +15,6 @@ static ButtonRuntime buttons[] = {
     {"B6", BUTTON_B6_PIN},
 };
 static constexpr uint8_t BUTTON_COUNT = sizeof(buttons) / sizeof(buttons[0]);
-
-// ---------------------------------------------------------------------------
-// 内部辅助函数（Internal helpers） 相关代码，维护 处理 GPIO 按钮、组合键和按钮来源的语义动作。
-// ---------------------------------------------------------------------------
 
 static ButtonRuntime* buttonByCode(const char* code) {
     for (uint8_t i = 0; i < BUTTON_COUNT; ++i) {
@@ -106,10 +97,6 @@ static bool adjustAutoIntervalFromButton(const String& code, const String& sourc
     return finishButtonAction(code, source, true);
 }
 
-// ---------------------------------------------------------------------------
-// runButtonAction（公共函数 public） 相关代码，维护 处理 GPIO 按钮、组合键和按钮来源的语义动作。
-// ---------------------------------------------------------------------------
-
 bool runButtonAction(const String& button, const String& source) {
     String code = button;
     code.trim();
@@ -121,9 +108,6 @@ bool runButtonAction(const String& button, const String& source) {
                                         isFirmwareScrollOrPreviewActive();
 
     if (code == "B3") {
-        if (source == "gpio" && runtimeState().firmwareScrollActive && !runtimeState().firmwareScrollPaused) {
-            return finishButtonAction(code, source, true);
-        }
         const bool handled = toggleModeFromButtonAction(source);
         if (handled && shouldNotifyScrollStop) markScrollStoppedByButton(code, source);
         return finishButtonAction(code, source, handled);
@@ -131,7 +115,7 @@ bool runButtonAction(const String& button, const String& source) {
 
     if (code == "B1" || code == "B2") {
         stopFirmwareScroll(false);
-        runtimeState().restoreAutoAfterScroll = false;
+        setRestoreAutoAfterScroll(false);
     }
     if (code == "B1") {
         const bool handled = applyRelativeSavedFace( 1, source + "_B1_next_saved_face");
@@ -168,10 +152,6 @@ bool runButtonAction(const String& button, const String& source) {
 
     return false;
 }
-
-// ---------------------------------------------------------------------------
-// GPIO 事件处理函数（GPIO event handlers） 相关代码，维护 处理 GPIO 按钮、组合键和按钮来源的语义动作。
-// ---------------------------------------------------------------------------
 
 static void handleHardwareButtonPress(ButtonRuntime& button, uint32_t now) {
     button.pressedAtMs   = now;
@@ -224,10 +204,6 @@ static void serviceHardwareButtonRepeats(uint32_t now) {
         fireHardwareButtonAction(button.code);
     }
 }
-
-// ---------------------------------------------------------------------------
-// 公共 API（Public API） 相关代码，维护 处理 GPIO 按钮、组合键和按钮来源的语义动作。
-// ---------------------------------------------------------------------------
 
 void initHardwareButtons() {
     for (uint8_t i = 0; i < BUTTON_COUNT; ++i) {

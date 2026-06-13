@@ -5,16 +5,11 @@
 #include "led_renderer.h"
 #include "storage.h"   // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
 #include "utils.h"
+#include "scroll.h"
 
-
-// 本文件管理保存表情、手动/自动模式和默认表情恢复；注释保留必要 English identifier，便于和代码/API 对照。
 static constexpr uint8_t DEFERRED_RESTORE_NONE            = 0;
 static constexpr uint8_t DEFERRED_RESTORE_STARTUP_DEFAULT = 1;
 static constexpr uint8_t DEFERRED_RESTORE_CURRENT_FACE    = 2;
-
-// ---------------------------------------------------------------------------
-// 模式辅助函数（Mode helpers） 相关代码，维护 管理保存表情、手动/自动模式和默认表情恢复。
-// ---------------------------------------------------------------------------
 
 bool isAutoMode() {
     return runtimeState().mode == "auto";
@@ -59,8 +54,8 @@ bool setMode(const char* input, bool persistSettings) {
             runtimeState().mode = "manual";
             changed = true;
         }
-        if (persistSettings && runtimeState().restoreAutoAfterScroll) {
-            runtimeState().restoreAutoAfterScroll = false;
+        if (persistSettings && getRestoreAutoAfterScroll()) {
+            setRestoreAutoAfterScroll(false);
             changed = true;
         }
         if (runtimeState().playback == "auto_saved_face") {
@@ -82,10 +77,6 @@ void setAutoInterval(uint32_t ms, bool persistSettings) {
     touchRuntimeState();
     if (persistSettings) saveRuntimeSettings();
 }
-
-// ---------------------------------------------------------------------------
-// 播放状态查询（Playback state query） 相关代码，维护 管理保存表情、手动/自动模式和默认表情恢复。
-// ---------------------------------------------------------------------------
 
 bool isScrollPlayback(const String& playback) {
     return playback == "scroll" ||
@@ -134,10 +125,6 @@ static void resetFirmwareScrollStateLocked(bool clearTimelineMeta = false) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 表情应用辅助函数（Face apply helpers） 相关代码，维护 管理保存表情、手动/自动模式和默认表情恢复。
-// ---------------------------------------------------------------------------
-
 bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playback) {
     if (!ensureSavedFacesLoaded()) {
         Serial.println("No saved faces available for button action");
@@ -152,9 +139,9 @@ bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playb
         Serial.printf("saved face apply failed: %s\n", error.c_str());
         return false;
     }
-    Serial.printf("Applied saved face %u/%u via %s: %s\n",
-                  runtimeState().autoFaceIndex + 1, runtimeAutoFaceCount(),
-                  reason.c_str(), runtimeAutoFaces()[runtimeState().autoFaceIndex].id.c_str());
+    LOGV("Applied saved face %u/%u via %s: %s\n",
+         runtimeState().autoFaceIndex + 1, runtimeAutoFaceCount(),
+         reason.c_str(), runtimeAutoFaces()[runtimeState().autoFaceIndex].id.c_str());
     return true;
 }
 
@@ -180,7 +167,7 @@ bool toggleModeFromButtonAction(const String& source) {
     const bool hadOtherPlayback = playbackIsNonFaceActivity();
 
     stopFirmwareScroll(false, false);
-    runtimeState().restoreAutoAfterScroll = false;
+    setRestoreAutoAfterScroll(false);
 
     if (!setMode(targetAuto ? "auto" : "manual", true)) return false;
 
@@ -199,10 +186,6 @@ bool toggleModeFromButtonAction(const String& source) {
     }
     return true;
 }
-
-// ---------------------------------------------------------------------------
-// 滚动停止 / 启动表情恢复（Scroll stop / startup face restore） 相关代码，维护 管理保存表情、手动/自动模式和默认表情恢复。
-// ---------------------------------------------------------------------------
 
 static int16_t findStartupDefaultFaceIndex() {
     if (!ensureSavedFacesLoaded()) return -1;
@@ -295,33 +278,26 @@ void serviceDeferredFaceRestore() {
     }
 }
 
-static void applyFirmwareScrollPauseIntentLocked() {
-    const bool effectivePaused =
-        runtimeState().firmwareScrollUserPaused ||
-        runtimeState().firmwareScrollSystemPaused;
-
-    if (runtimeState().scrollFrameCount == 0 && !runtimeState().firmwareScrollActive &&
-        !runtimeState().firmwareScrollPaused) {
-        runtimeState().firmwareScrollUserPaused = false;
-        runtimeState().firmwareScrollSystemPaused = false;
-        runtimeState().firmwareScrollPaused = false;
-        return;
-    }
-
-    runtimeState().firmwareScrollActive = true;
-    runtimeState().firmwareScrollPaused = effectivePaused;
-    runtimeState().paused = effectivePaused;
-    if (effectivePaused) {
-        runtimeState().playback = "scroll_paused";
-    } else {
-        runtimeState().lastScrollFrameMs = millis();
-        runtimeState().playback = "scroll";
-    }
+static void recomputeEffectivePauseLocked() {
+    const bool eff = runtimeState().firmwareScrollUserPaused ||
+                     runtimeState().firmwareScrollSystemPaused;
+    runtimeState().firmwareScrollPaused = eff;
+    runtimeState().paused               = eff;
+    runtimeState().playback             = eff ? "scroll_paused" : "scroll";
+    if (!eff) runtimeState().lastScrollFrameMs = millis();
 }
 
 static bool setFirmwareScrollPauseFlag(bool userFlag, bool paused) {
     bool changed = false;
     withScrollLock([&]() {
+        if (runtimeState().scrollFrameCount == 0 && !runtimeState().firmwareScrollActive &&
+            !runtimeState().firmwareScrollPaused) {
+            runtimeState().firmwareScrollUserPaused = false;
+            runtimeState().firmwareScrollSystemPaused = false;
+            runtimeState().firmwareScrollPaused = false;
+            return;
+        }
+
         const bool oldUser = runtimeState().firmwareScrollUserPaused;
         const bool oldSystem = runtimeState().firmwareScrollSystemPaused;
         const bool oldEffective = runtimeState().firmwareScrollPaused;
@@ -331,7 +307,8 @@ static bool setFirmwareScrollPauseFlag(bool userFlag, bool paused) {
         if (userFlag) runtimeState().firmwareScrollUserPaused = paused;
         else          runtimeState().firmwareScrollSystemPaused = paused;
 
-        applyFirmwareScrollPauseIntentLocked();
+        runtimeState().firmwareScrollActive = true;
+        recomputeEffectivePauseLocked();
 
         changed = oldUser != runtimeState().firmwareScrollUserPaused ||
                   oldSystem != runtimeState().firmwareScrollSystemPaused ||
@@ -399,10 +376,6 @@ void startFirmwareScroll(uint16_t intervalMs) {
 
     if (hasFirstFrame) applyPackedFrameImmediate(firstFrame, "firmware_text_scroll_start");
 }
-
-// ---------------------------------------------------------------------------
-// 自动播放（Auto-playback，从 loop() 调用） 相关代码，维护 管理保存表情、手动/自动模式和默认表情恢复。
-// ---------------------------------------------------------------------------
 
 void serviceAutoPlayback() {
     if (!isAutoMode() || runtimeState().paused || runtimeAutoFaceCount() == 0) return;

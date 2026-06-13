@@ -8,6 +8,49 @@
 
 ---
 
+## 0. Consolidation update after `prompt.txt`
+
+`prompt.txt` changes the interpretation of this plan: the audit remains useful, but the addendum is no longer optional background. Addendum bugs that can mutate state destructively or hide live scroll progress must be promoted into the canonical priority order before broad refactors.
+
+### 0.1 Canonical priority corrections
+
+| Priority | Canonical item | Source items merged | Reason |
+|---|---|---|---|
+| P0 | Protocol mutation gate | A3, A4, A5 | Invalid `/api/frame`, failed replacement `/api/scroll`, and malformed JSON escapes/trailing data must be rejected before state mutation. |
+| P0 | Active-scroll status freshness | A1, A12 | `/api/status?since=` must not report `unchanged:true` while scroll-observable state changed, unless that behavior is deliberately documented and excluded from freshness semantics. |
+| P1 | Cross-core snapshots | Bug 1 + A8, Bug 8 + A2 | Frame/status and power overlay reads need one canonical snapshot story and one severity each. |
+| P1 | Lock fail-safe | Bug 7 + A9 | Mutex creation failure must not silently continue into unsynchronized dual-core operation. |
+| P2 | Low-risk UI/firmware fixes | Bugs 2, 4, 5, 6, 9, 10, 11, 13, 14, A10, A11 | Valuable and mostly contained, now mostly applied; no longer the top of the remaining backlog. |
+| Test-only | Codec padding invariant | Bug 12 | Keep as a round-trip/static-invariant test, not a runtime bug. |
+| Hardening | EMA long-wrap edge | Bug 14 | 🟢 Applied; very low-probability robustness work. |
+
+### 0.2 Applied since this plan was drafted
+
+The following items are now applied in the codebase and should be treated as closed unless validation finds a regression:
+
+- 🟢 Bug 2: scroll frame copy no longer depends on `!mainTaskRenderPending`; scroll active state is still rechecked under `Frame`.
+- 🟢 Bug 4: WebUI default brightness is derived from `brightnessDefault` when present, otherwise firmware default `50`; the sticky `brightnessChangedByUser` latch was removed.
+- 🟢 Bug 5: unchanged firmware color sync returns before DOM/render side effects after the first DOM sync.
+- 🟢 Bug 6: corrupt `runtime_settings.json` is rewritten with defaults after parse failure.
+- 🟢 Bug 11: `serviceM370FrameQueue` publishes from the queue slot instead of copying the whole queue item.
+- 🟢 Bug 13: default face IDs with more than 9 numeric digits are rejected before integer multiplication.
+- 🟢 A3: `/api/frame` normalizes/validates M370 before stopping scroll or mutating playback/mode.
+- 🟢 A10: debug `data-gpio` buttons bind supported firmware button commands.
+- 🟢 A11: manual debug JSON posts the raw `/api/command` object and requires a string `cmd`.
+- 🟢 Bug 15: scroll-button flash fix was already applied; code evidence is in `data/app.js::updateButtonState`, where `aria-disabled` is kept in sync with `disabled`, and `updateScrollUi`, where scroll buttons are updated through that helper.
+- 🟢 Bug 9: pause fallback no longer invents a user pause when split flags are absent; `/api/scroll/meta` now carries split pause flags.
+- 🟢 Bug 10: first scroll-upload chunk sizing uses an estimate plus verification instead of brute-force full re-encoding.
+- 🟢 Bug 14: battery EMA snaps to the instant sample after an implausibly large elapsed interval.
+
+### 0.3 Gates before more refactoring
+
+1. **Protocol mutation gate:** invalid `/api/frame` and failed `/api/scroll` replacement must leave active scroll and existing cache untouched.
+2. **Status freshness gate:** active firmware scroll must be observable through `/api/status?since=` via either a dedicated scroll cursor or an explicit bypass of the `unchanged:true` shortcut.
+3. **Storage/LED contention gate:** do not move LittleFS I/O off `HardwareBus` as a blind refactor. Any Storage-lock split requires hardware proof that simultaneous LittleFS writes and `strip.show()` do not corrupt LEDs or files.
+4. **UI replay gate:** recorded status sequences must produce equivalent `state`/`scroll`/DOM results after `applyFirmwareRuntimeState` extraction.
+
+---
+
 ## 1. Scope of analysis
 
 ### 1.1 Firmware (C++, PlatformIO / Arduino / FreeRTOS)
@@ -154,14 +197,14 @@ Order is intentional: dequeue/publish frame first, then HTTP, then publish the s
 
 | Object | Key fields | Notes |
 |---|---|---|
-| `state` | mode, faceIndex, brightness, defaultBrightness, color, playback, autoInterval, textScrollActive, battery*/charge* | Mirror of firmware renderer+power. `defaultBrightness` frozen after first manual change (Bug 4). |
+| `state` | mode, faceIndex, brightness, defaultBrightness, color, playback, autoInterval, textScrollActive, battery*/charge* | Mirror of firmware renderer+power. `defaultBrightness` is now derived from firmware/default status instead of the old user-change latch (Bug 4 applied). |
 | `scroll` | timer, active/paused/userPaused/systemPaused, firmwareBacked, uploading/commandBusy/startBusy/pauseBusy/stopBusy/restoring/stepBusy, frames[], timelineId, framesTimelineId, uploadGeneration, returnMode, restored* | Large flat bag; many overlapping booleans. `firmwareBacked` + `active` + `paused` + `state.textScrollActive` + `state.playback` partially duplicate firmware truth. |
 | `firmware` | online, last*, counters, queue depths | Diagnostics + transport status. |
 
 #### Web UI state findings
 - **Redundant**: `scroll.active/paused/userPaused/systemPaused` + `state.textScrollActive` + `state.playback` overlap; a single derived predicate set would remove drift risk (Refactor 9).
 - **Derived-not-stored**: `state.textScrollActive` is fully derivable from `playback`+firmware scroll flags; it is recomputed in several places already.
-- **Stale risk**: `brightnessChangedByUser` is a one-way latch (Bug 4); `lastFwScrollTimelineId`/`lastFwScrollHasSourceText` module globals shadow `scroll.*`.
+- **Stale risk**: the old `brightnessChangedByUser` one-way latch is removed; Bug 4 is now tracked as a regression risk around default-brightness echo handling. `lastFwScrollTimelineId`/`lastFwScrollHasSourceText` module globals still shadow `scroll.*`.
 - **Should remain local**: DOM-diff caches, upload progress token — correctly local.
 
 ---
@@ -191,7 +234,7 @@ Order is intentional: dequeue/publish frame first, then HTTP, then publish the s
 
 > Severity reflects user-visible/operational impact on this single-user AP device. Concurrency items are real but mostly low-probability due to the cooperative Core-0 design.
 
-### Bug 1: Unlocked cross-core reads of frame/state in `handleApiStatus`
+### Bug 1: Unlocked cross-core reads of frame/state in `handleApiStatus` 🟢 APPLIED
 **Severity:** Medium
 **Type:** state / async (data race)
 **Location:** `src/web_api.cpp` `handleApiStatus` (`countLitLeds()` call ~line 519; `renderer.color/brightness/lastM370` reads 500–525; `stats.*` 576–584); `src/led_renderer.cpp` `countLitLeds` (198) reads `runtimeFrameBits()` with no lock; `renderCurrentFrameToLedStrip` (226) writes nothing to frameBits but scroll task (`scroll.cpp` 60) and `publishPackedFrameNow` write under `Frame`.
@@ -201,7 +244,7 @@ Order is intentional: dequeue/publish frame first, then HTTP, then publish the s
 **Reproduction path:** Start firmware scroll (continuous Core-1 writes). Poll `/api/status` (non-summary) at high frequency from two browser tabs. Under load, `lit`/`lastM370` can momentarily reflect a torn value; in the worst case the `String` read races a reallocation. Hard to crash deterministically but observable as flicker in reported `lit` and rare malformed `lastM370`.
 **Risk if not fixed:** Rare corrupted status JSON; theoretical heap read during `String` realloc → crash under sustained dual-tab polling while scrolling.
 **Fix strategy:** Add `FrameStateSnapshot readFrameStateSnapshot()` that copies `colorHex` (to a fixed `char[8]`), `brightness`, `lastM370` (to `char[5+93+1]`), `lastReason`, and the lit count (computed under lock from a local copy of frameBits) inside one `withFrameLock`. Serialize from the snapshot outside the lock. Keep all JSON field names identical.
-**Code change:** ⬜
+**Code change:** 🟢 APPLIED
 ```cpp
 // --- CURRENT (src/led_renderer.cpp) — Core-0 reads frameBits with no Frame lock:
 uint16_t countLitLeds() {
@@ -251,7 +294,7 @@ renderer["lit"]        = fs.litLeds;
 
 **Tests required:** (a) Unit: snapshot returns consistent color+lit for a known frame. (b) Stress: 2-tab `/api/status` polling during scroll for 5 min with heap-integrity logging (`heap_caps_check_integrity`) — no corruption. (c) Field-name diff of status JSON before/after = identical.
 
-### Bug 2: Scroll frame silently dropped when a render request is pending
+### Bug 2: Scroll frame silently dropped when a render request is pending 🟢 APPLIED
 **Severity:** Low
 **Type:** async / rendering
 **Location:** `src/scroll.cpp` `scrollRenderTask` lines 52–66.
@@ -261,7 +304,7 @@ renderer["lit"]        = fs.litLeds;
 **Reproduction path:** Start scroll at low fps (e.g. 5 fps). Rapidly drag the brightness slider (each emits a render request). Observe the scroll text momentarily skips a column/frame on each brightness tick.
 **Risk if not fixed:** Minor visual stutter during simultaneous scroll + color/brightness edits. No data loss beyond the visual.
 **Fix strategy:** Apply the scroll frame to `runtimeFrameBits()` whenever `firmwareScrollActive` regardless of `mainTaskRenderPending` (the main request and the scroll frame are not mutually exclusive — both want a render of the latest bits). Concretely: drop the `&& !mainTaskRenderPending` guard on the memcpy; keep `shouldRender = true`. Verify ordering vs `publishPackedFrameNow` (which also writes frameBits under `Frame`) — last writer wins, acceptable since a queued M370 frame during active scroll is already an exceptional path.
-**Code change:** ⬜
+**Code change:** 🟢 APPLIED
 ```cpp
 // --- CURRENT (src/scroll.cpp scrollRenderTask, inside withFrameLock):
 if (runtimeState().firmwareScrollActive && !mainTaskRenderPending) {
@@ -285,7 +328,7 @@ if (runtimeState().firmwareScrollActive) {
 
 **Tests required:** Manual hardware: 5 fps scroll + brightness sweep → no skipped columns (capture with phone slow-mo). Bench: instrument `framesAccepted` delta vs `scrollFrameIndex` advances over 100 frames with periodic render requests — equal counts.
 
-### Bug 3: File serialization/deserialization holds the LED `HardwareBus` lock
+### Bug 3: File serialization/deserialization holds the LED `HardwareBus` lock ⚠️ HARDWARE-GATED
 **Severity:** Medium
 **Type:** performance / timing
 **Location:** `src/storage.cpp` `writeJsonFileAtomic` (56–62: `serializeJson` + `flush` + `close` + `rename` inside `withHardwareBusLock`), `loadSavedFaces` (270–273: `deserializeJson` inside lock), `web_api.cpp streamFileChunked` (153–158 reads inside lock per chunk).
@@ -294,8 +337,8 @@ if (runtimeState().firmwareScrollActive) {
 **Root cause:** Coarse-grained lock scope: the lock protects "LittleFS + LED bus" together (a deliberate simplification), but serialize/parse do not touch the LED bus and need not be inside it.
 **Reproduction path:** While a firmware scroll plays, POST a large `saved_faces.json` to `/api/saved_faces`. Observe a visible scroll hitch (frame gap) for the duration of the write. Same on boot `loadSavedFaces`.
 **Risk if not fixed:** Visible stutter on saves and large static transfers; worsens as the face library grows.
-**Fix strategy:** Keep LittleFS file *open/close/rename* under the lock if flash and LED truly contend on the same SPI/timing budget (verify hardware: WS2812 is on RMT/GPIO, LittleFS on internal flash — they likely do **not** share a bus, in which case the `HardwareBus` lock over file I/O is unnecessary and can be removed entirely for storage). If they are independent, introduce a separate `Storage` mutex (or no lock) for file content I/O and reserve `HardwareBus` strictly for `strip.show()`. **Mark as a deliberate, justified change** — it alters timing behavior, so it is a bug fix, not a silent refactor. Do not change atomic-write semantics (temp+rename).
-**Code change:** ⬜ (requires adding `SyncDomain::Storage` to `sync.h`/`sync.cpp`)
+**Fix strategy:** Keep LittleFS file *open/close/rename* under the lock unless hardware testing proves flash I/O and WS2812 `strip.show()` are independent on this board. If proven independent, introduce a separate `Storage` mutex for file content I/O and reserve `HardwareBus` strictly for `strip.show()`. **Do not let an automated agent apply this as a blind refactor**: it changes a real timing/contention assumption and needs hardware evidence. Do not change atomic-write semantics (temp+rename).
+**Code change:** ⚠️ HARDWARE-GATED; proposed implementation only until the hardware proof is recorded.
 ```cpp
 // --- CURRENT (src/storage.cpp writeJsonFileAtomic): serialize runs under the LED-bus lock
 bool renamed = false;
@@ -331,17 +374,17 @@ template <typename Fn> auto withStorageLock(Fn fn) -> decltype(fn()) {
 
 **Tests required:** (a) Measure scroll frame gap (logic-analyzer or `micros()` delta around `show()`) during a 64 KB saved-faces write — before vs after. (b) Power-loss-during-write test still leaves either old or new file intact (atomicity preserved). (c) Confirm no concurrent `strip.show()` + LittleFS corruption over 1000 write cycles.
 
-### Bug 4: `brightnessChangedByUser` latch never resets → frozen `defaultBrightness`
+### Bug 4: Old brightness user-change latch froze `defaultBrightness` 🟢 APPLIED
 **Severity:** Low
 **Type:** logic / state
 **Location:** `data/app.js` `setBrightness` (5351 sets latch true), `applyFirmwareRuntimeState` (4785 `if (!brightnessChangedByUser) state.defaultBrightness = ...`), `resetBrightnessDefault` (7144 uses `state.defaultBrightness`).
-**Current behavior:** Once the user changes brightness, `brightnessChangedByUser` stays `true` for the whole session. `state.defaultBrightness` therefore stops tracking firmware brightness, so "重置默认亮度" reverts to whatever default was synced before the first manual change — even if firmware default later changed (e.g. after a startup-face reload that sets `brightness=DEFAULT_BRIGHTNESS`).
+**Current behavior before fix:** Once the user changed brightness, `brightnessChangedByUser` stayed `true` for the whole session. `state.defaultBrightness` therefore stopped tracking firmware/default brightness, so "重置默认亮度" could revert to whatever default was synced before the first manual change.
 **Expected behavior:** "Reset default brightness" should restore the firmware's current notion of default (50), or the latch semantics should be explicitly documented and bounded.
 **Root cause:** A latch used to prevent polling from overwriting the user's brightness also permanently disables default-tracking; no reset on firmware-confirmed brightness or on reset action.
 **Reproduction path:** Load page (default 50). Move slider to 120. Click "重置默认亮度" → goes to 50 (ok this time). Now imagine firmware reloads saved faces (brightness→50) and a new default scheme; UI still treats the pre-edit value as default. More concretely: the field is dead state that can desync.
 **Risk if not fixed:** Confusing reset behavior; low impact.
-**Fix strategy:** Either (a) reset `brightnessChangedByUser=false` after a successful firmware echo of the user's brightness in `applyFirmwareRuntimeState`, or (b) drive `defaultBrightness` from a dedicated firmware-provided default field and stop gating it on the latch. Choose (b): firmware status already implies the default (50); expose/derive it and remove the latch's coupling to `defaultBrightness`.
-**Code change:** ⬜
+**Fix strategy:** Choose strategy (b) only: drive `defaultBrightness` from `renderer.brightnessDefault`/`data.brightnessDefault` when present, otherwise from the firmware default constant (`DEFAULT_LED_BRIGHTNESS`, currently 50). Do not implement strategy (a); clearing the old latch after a firmware echo is not the chosen design. The user-edit protection is now the short `lastUserBrightnessMs` stale-echo window for `state.brightness`, while `state.defaultBrightness` is updated independently from the firmware/default field.
+**Code change:** 🟢 APPLIED
 ```js
 // --- CURRENT (data/app.js): latch set true on first user change, never cleared
 function setBrightness(v, source = "brightness_change") {
@@ -354,16 +397,17 @@ function setBrightness(v, source = "brightness_change") {
 if (!brightnessChangedByUser) state.defaultBrightness = nextBrightness;  // frozen after first edit
 ```
 ```js
-// --- PROPOSED (data/app.js applyFirmwareRuntimeState): clear the latch once the
-// firmware echoes the user's brightness, so defaultBrightness resumes tracking.
+// --- APPLIED (data/app.js applyFirmwareRuntimeState): derive the reset target
+// from an explicit/default firmware value instead of a sticky user-change latch.
 const nextBrightness = clampBrightness(brightnessValue);
-if (state.brightness === nextBrightness) brightnessChangedByUser = false;  // echo confirmed
-if (!brightnessChangedByUser) state.defaultBrightness = nextBrightness;
+state.defaultBrightness = clampBrightness(
+  Number(renderer.brightnessDefault ?? data.brightnessDefault ?? DEFAULT_LED_BRIGHTNESS),
+);
 ```
 
 **Tests required:** UI test: change brightness, trigger a poll cycle, click reset → returns to firmware default. Verify polling does not stomp an in-progress slider drag.
 
-### Bug 5: Status polling re-renders matrices and resets color dropdowns even when color is unchanged
+### Bug 5: Status polling re-renders matrices and resets color dropdowns even when color is unchanged 🟢 APPLIED
 **Severity:** Medium
 **Type:** UI / performance
 **Location:** `data/app.js` `setColor` (5313–5338): it mutates DOM, calls `syncColorDropdownsToHex`, `renderMatrices`, `renderState` **before** the `if (unchangedFirmwareSync) return;` early-out; `applyFirmwareRuntimeState` (4795–4798) calls `setColor(firmwareColor,"firmware_sync")` on every poll that includes a color.
@@ -373,7 +417,7 @@ if (!brightnessChangedByUser) state.defaultBrightness = nextBrightness;
 **Reproduction path:** On the basic page, open the child-color dropdown and hover/select; within ~1 s a status poll arrives and `syncColorDropdownsToHex` snaps the dropdown back. Also: continuous matrix re-renders every second waste CPU/battery on the client.
 **Risk if not fixed:** Janky color picker; unnecessary per-second re-render churn.
 **Fix strategy:** In `setColor`, when `source === "firmware_sync" && state.color === c`, return immediately before any DOM/render side effects. Keep the non-sync path (user-initiated) fully rendering. Verify `--led-color` CSS var and swatch still update on genuine changes.
-**Code change:** ⬜
+**Code change:** 🟢 APPLIED
 ```js
 // --- CURRENT (data/app.js setColor): unchanged-case early-return sits AFTER the
 // DOM writes + dropdown sync + matrix re-render, so a no-op poll still churns.
@@ -417,7 +461,7 @@ function setColor(hex, source = "color_change") {
 
 **Tests required:** UI: open color dropdown, let 3 polls pass with identical firmware color → dropdown selection unchanged, no matrix re-render (assert via render counter). Genuine firmware color change still updates swatch + matrices.
 
-### Bug 6: `loadRuntimeSettings` writes defaults during a transient mount/parse failure
+### Bug 6: Corrupt runtime settings file is not repaired 🟢 APPLIED
 **Severity:** Low
 **Type:** persistence / edge case
 **Location:** `src/storage.cpp` `loadRuntimeSettings` (106–110): if `SETTINGS_PATH` doesn't exist it calls `saveRuntimeSettings()` (writes defaults) and returns false; parse failure (127–130) returns false without writing.
@@ -427,7 +471,7 @@ function setColor(hex, source = "color_change") {
 **Reproduction path:** Manually corrupt `runtime_settings.json` (truncate). Reboot → log shows parse failure every boot; file never repaired.
 **Risk if not fixed:** Permanent log noise; settings never persist again until a setting changes (which does rewrite). Low impact because any mode/interval change rewrites.
 **Fix strategy:** On parse failure, call `saveRuntimeSettings()` to rewrite a valid file after applying defaults. Keep success/missing paths unchanged.
-**Code change:** ⬜
+**Code change:** 🟢 APPLIED
 ```cpp
 // --- CURRENT (src/storage.cpp loadRuntimeSettings): corrupt file is left in place
 if (err) {
@@ -446,7 +490,42 @@ if (err) {
 
 **Tests required:** Corrupt the file → boot → assert file is rewritten to valid JSON and parses on next boot.
 
-### Bug 7: Mutex creation failure degrades silently to unsynchronized operation
+
+### Bug 13: Face ID bounds/overflow on parsing 🟢 APPLIED
+**Severity:** Low
+**Type:** logic / edge case
+**Location:** `src/storage.cpp` `defaultFaceIdNumberIsInvalid` (149–159).
+**Current behavior:** Extremely long default face IDs (e.g. `face_42949672960`) can overflow the 32-bit integer parser `value = value * 10 + ...` and wrap to `0`, causing `value < 1` to be true and rejecting the faces, or wrapping to a valid positive number and being incorrectly accepted.
+**Expected behavior:** Prevent overflow during ID parsing or bound the length strictly.
+**Root cause:** Naive parsing loop without length or overflow guards.
+**Reproduction path:** Save a face with ID `face_42949672960` and reboot.
+**Risk if not fixed:** Malicious or malformed faces could break JSON load logic silently.
+**Fix strategy:** Add a character-length limit (e.g., maximum 9 digits) inside the `while` loop before multiplying by 10.
+**Code change:** 🟢 APPLIED
+```cpp
+// --- CURRENT (src/storage.cpp defaultFaceIdNumberIsInvalid):
+uint32_t value = 0;
+while (*p >= '0' && *p <= '9') {
+    value = value * 10 + static_cast<uint32_t>(*p - '0');
+    ++p;
+}
+return value < 1;
+```
+```cpp
+// --- PROPOSED: cap digit count (9 digits fits in uint32_t without wrap)
+uint32_t value = 0;
+uint8_t digits = 0;
+while (*p >= '0' && *p <= '9') {
+    if (++digits > 9) return true; // implausibly long -> invalid
+    value = value * 10 + static_cast<uint32_t>(*p - '0');
+    ++p;
+}
+return value < 1;
+```
+
+**Tests required:** Unit: `defaultFaceIdNumberIsInvalid("face_42949672960")` returns true.
+
+### Bug 7: Mutex creation failure degrades silently to unsynchronized operation 🟢 APPLIED
 **Severity:** Medium
 **Type:** async / error handling
 **Location:** `src/main.cpp` (42–44 logs but continues); `src/sync.cpp` `lockFrame`/`lockScroll`/`lockHardwareBus` (each `if (mutex) take(...)`). If creation failed, the handle is null and every lock/unlock becomes a no-op.
@@ -456,7 +535,7 @@ if (err) {
 **Reproduction path:** Hard to trigger naturally; force by making `initSyncPrimitives` return false (stub) → system runs but locks are no-ops; under scroll + status polling, frame corruption appears.
 **Risk if not fixed:** Silent data races if RAM is ever exhausted at boot.
 **Fix strategy:** If `initSyncPrimitives()` fails, do not call `startScrollRenderTask()` (keep all rendering on Core 0 where the cooperative loop serializes access), and surface a distinct diagnostic (reuse `showFilesystemErrorPattern`-style indicator or a dedicated pattern). Document that locks must exist before the Core-1 task starts.
-**Code change:** ⬜
+**Code change:** 🟢 APPLIED
 ```cpp
 // --- CURRENT (src/main.cpp setup): logs but continues; Core-1 task starts anyway
 if (!initSyncPrimitives()) {
@@ -480,7 +559,7 @@ if (syncReady) startScrollRenderTask();   // never start Core-1 access without l
 
 **Tests required:** Fault-injection unit: force `initSyncPrimitives` false → assert scroll task not created and a diagnostic raised; no Core-1 access to shared state.
 
-### Bug 8: `powerStatus` read on Core 1 (overlay) without synchronization
+### Bug 8: `powerStatus` read on Core 1 (overlay) without synchronization 🟢 APPLIED
 **Severity:** Low
 **Type:** async (data race)
 **Location:** `src/button_animations.cpp` `drawBatteryPage` (300–322), `serviceButtonAnimations` (530–538), `startBatteryOverlay` (431) read `powerStatus.batteryValid/percent/charging/vbat/vcharge`. `copyButtonAnimationOverlay` runs on the **Core-1** render task; `powerStatus` is written by `servicePowerMonitor` on **Core 0**.
@@ -490,7 +569,7 @@ if (syncReady) startScrollRenderTask();   // never start Core-1 access without l
 **Reproduction path:** Hold B6 (battery overlay) while charging state toggles; rare frame may show mismatched percent vs voltage. Visual only.
 **Risk if not fixed:** Cosmetic inconsistency in the battery overlay; no crash (POD scalars).
 **Fix strategy:** Add a small `PowerSnapshot` copied under a short `portMUX` (or reuse a dedicated critical section) in `servicePowerMonitor` write and overlay read; or compute the overlay's power-derived values on Core 0 and pass them into `sAnim` (which is already `portMUX`-guarded). Prefer the latter: stage battery percent/vbat/charging into `sAnim` fields under `sAnimMux` when starting/refreshing the battery overlay.
-**Code change:** ⬜
+**Code change:** 🟢 APPLIED
 ```cpp
 // --- CURRENT (src/button_animations.cpp drawBatteryPage, runs on Core 1):
 const bool    batteryValid = powerStatus.batteryValid;   // powerStatus written on Core 0
@@ -519,7 +598,37 @@ next.batVcharge  = powerStatus.vcharge;
 
 **Tests required:** Stress: toggle charger input while B6 overlay active for 2 min; assert no struct-tear via logged snapshot consistency check.
 
-### Bug 9: WebUI mirrors firmware scroll pause as user-pause when split flags are absent
+
+### Bug 14: `powerStatus` EMA filtering edge case (dtS constrained but unsigned wrap) 🟢 APPLIED
+**Severity:** Low
+**Type:** edge case
+**Location:** `src/power_monitor.cpp` `sampleBattery` (348).
+**Current behavior:** The EMA filtering constraint uses `static_cast<float>(now - powerStatus.lastBatteryMs) * 0.001f`. While `now - last` handles 32-bit wrap, if the device hangs or misses a sample for > 49 days, the delta might wrap around to a very small positive number instead of hitting the 10.0f clamp.
+**Expected behavior:** If the last sample was an extremely long time ago, the filter should snap to the instant value or correctly clamp.
+**Root cause:** The `constrain` operates on the `float` output *after* the `uint32_t` subtraction, which already wraps modulo $2^{32}$.
+**Reproduction path:** Keep board on for 49.7 days without sampling battery.
+**Risk if not fixed:** Negligible. One wrong EMA sample every 50 days.
+**Fix strategy:** Just before `constrain`, if `now < lastBatteryMs` and `now - lastBatteryMs > 0x7FFFFFFF` (a massive negative jump representing wrap or huge delay), just snap `vbat = instantVbat` and bypass EMA.
+**Code change:** 🟢 APPLIED
+```cpp
+// --- CURRENT (src/power_monitor.cpp sampleBattery):
+const float dtS = constrain(
+    static_cast<float>(now - powerStatus.lastBatteryMs) * 0.001f, 0.001f, 10.0f);
+```
+```cpp
+// --- PROPOSED: detect an implausible elapsed time (wrap / long stall) and snap.
+const uint32_t elapsedMs = now - powerStatus.lastBatteryMs;
+if (elapsedMs > 0x7FFFFFFFu) {
+    powerStatus.vbat = instantVbat;
+} else {
+    const float dtS = constrain(static_cast<float>(elapsedMs) * 0.001f, 0.001f, 10.0f);
+    // ...
+}
+```
+
+**Tests required:** Unit: fake `now` wrap and assert `vbat` snaps to `instantVbat`.
+
+### Bug 9: WebUI mirrors firmware scroll pause as user-pause when split flags are absent 🟢 APPLIED
 **Severity:** Low
 **Type:** state / sync
 **Location:** `data/app.js` `applyFirmwareRuntimeState` 4740–4748. When `hasSplitPauseFlags` is false (older/summary payloads), `scroll.userPaused` is set from `playbackValue==="scroll_paused" || firmwareScrollPaused`, conflating a **system** pause (B6 overlay) with a **user** pause.
@@ -529,7 +638,7 @@ next.batVcharge  = powerStatus.vcharge;
 **Reproduction path:** Force a status response without `firmwareScrollUserPaused/SystemPaused` (e.g. a future trimmed summary) while B6 overlay active → pause toggle mislabeled.
 **Risk if not fixed:** Latent; only triggers if the wire contract drops the split flags. Document + guard.
 **Fix strategy:** When split flags are absent, treat `firmwareScrollPaused` as **systemPaused=unknown** and prefer leaving `userPaused` unchanged rather than inferring it; or assert that all status/summary payloads always include split flags (and add a firmware test that guarantees it). Keep current behavior when flags present.
-**Code change:** ⬜
+**Code change:** 🟢 APPLIED
 ```js
 // --- CURRENT (data/app.js applyFirmwareRuntimeState): without split flags, a SYSTEM
 // pause (B6 overlay) is mis-attributed to the USER.
@@ -555,7 +664,7 @@ if (hasSplitPauseFlags) {
 
 **Tests required:** Contract test: every `/api/status` variant (`runtimeOnly`, `noFrame`, `summary`, full) includes both split pause flags. UI test with flags omitted → user-pause not asserted.
 
-### Bug 10: First-chunk size search re-encodes the whole payload per candidate (upload latency)
+### Bug 10: First-chunk size search re-encodes the whole payload per candidate (upload latency) 🟢 APPLIED
 **Severity:** Low
 **Type:** performance
 **Location:** `data/app.js` `chooseFirstChunkFrames` (8768–8784): loops `count` down from `SCROLL_UPLOAD_CHUNK_FRAMES`, each iteration `JSON.stringify` + `TextEncoder().encode` of the full first-chunk payload to measure bytes.
@@ -565,7 +674,7 @@ if (hasSplitPauseFlags) {
 **Reproduction path:** Enter the maximum scroll text; click 发送; observe a measurable pause (hundreds of ms on a phone) before the progress bar moves past "准备".
 **Risk if not fixed:** Sluggish send for long text; not a correctness issue.
 **Fix strategy:** Compute `metaBytes` once (payload with `frames:[]`), compute average frame string bytes, derive an initial `count` from `(LIMIT - metaBytes)/avgFrameBytes`, then do at most one or two verify/adjust steps. Keep the D4 "too long for one chunk" error path.
-**Code change:** ⬜
+**Code change:** 🟢 APPLIED
 ```js
 // --- CURRENT (data/app.js): re-stringifies + re-encodes the full payload per candidate
 function chooseFirstChunkFrames(firstChunkPayloadBuilder) {
@@ -602,7 +711,7 @@ function chooseFirstChunkFrames(firstChunkPayloadBuilder) {
 
 **Tests required:** Bench: encode count for representative texts before/after = same chosen size; measure wall-clock of `chooseFirstChunkFrames` (≥10× faster for max text).
 
-### Bug 11: `serviceM370FrameQueue` copies a 56-byte queue item by value every serviced frame
+### Bug 11: `serviceM370FrameQueue` copies a ~210-byte queue item by value every serviced frame 🟢 APPLIED
 **Severity:** Low
 **Type:** performance
 **Location:** `src/led_renderer.cpp serviceM370FrameQueue` (395–401) `memcpy(&item, &m370FrameQueue[head], sizeof(item))` then publishes from the copy.
@@ -612,40 +721,12 @@ function chooseFirstChunkFrames(firstChunkPayloadBuilder) {
 **Reproduction path:** N/A (perf only); visible only under sustained max frame rate.
 **Risk if not fixed:** Negligible; listed for completeness and because it interacts with Refactor 2.
 **Fix strategy:** Publish from `m370FrameQueue[head]` directly (publish copies bits under lock), then advance head/count. Confirm no re-entrancy (publish does not enqueue).
-**Code change:** ⬜
+**Code change:** 🟢 APPLIED
 ```cpp
 // --- CURRENT (src/led_renderer.cpp serviceM370FrameQueue): copies the ~210-byte item
 QueuedM370Frame item;
 memcpy(&item, &m370FrameQueue[m370FrameQueueHead], sizeof(item));
 m370FrameQueueHead = static_cast<uint8_t>((m370FrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
---m370FrameQueueCount;
-++runtimeState().framesDequeued;
-publishPackedFrameNow(item.bits, item.hasM370 ? item.m370 : nullptr, item.reason);
-```
-```cpp
-// --- PROPOSED: publish directly from the slot (publish copies bits under Frame lock and
-// does not enqueue, so reading the slot then advancing head is safe).
-const QueuedM370Frame& item = m370FrameQueue[m370FrameQueueHead];
-publishPackedFrameNow(item.bits, item.hasM370 ? item.m370 : nullptr, item.reason);
-m370FrameQueueHead = static_cast<uint8_t>((m370FrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
---m370FrameQueueCount;
-++runtimeState().framesDequeued;
-```
-
-**Tests required:** Frame-rate bench unchanged; `framesDequeued` count identical.
-
-### Bug 12: `decodeNormalizedM370ToPackedBits` discards the top 2 bits of the last nibble silently (by design) — verify boundary
-**Severity:** Low (verify-only / uncertain)
-**Type:** edge case
-**Location:** `src/led_renderer.cpp` (338–352). 93 hex nibbles × 4 = 372 bits, but `if (bit < M370_BITS)` (370) guards writes, so bits 370–371 are dropped.
-**Current behavior:** Correct per spec (370 LEDs, 2 padding bits). Marked **uncertain** only to confirm the WebUI encoder agrees.
-**Expected behavior:** WebUI `frameToM370` pads 370 bits + "00" then groups by 4 → 93 hex; decode drops the final 2 padding bits. Consistent.
-**Root cause:** n/a — this is correct; included to assert the invariant is intentional and tested.
-**Reproduction path:** Encode a frame with LED 369 set in WebUI, send, read back `lastM370`, decode → LED 369 set, bits 370/371 ignored.
-**Risk if not fixed:** None if the invariant holds; risk is a future change to `LED_COUNT` breaking the `static_assert` relationship.
-**Fix strategy:** No change. Add a round-trip test pinning `frameToM370`↔`m370ToPackedBits` for boundary LEDs (0, 369) and the existing `static_assert M370_HEX_CHARS == (M370_BITS+3)/4`.
-**Code change:** ⬜ (test-only; no production change)
-```js
 // --- PROPOSED test (Node/JS harness reusing the WebUI + a mirror of the firmware decode):
 for (const led of [0, 17, 369]) {
   const f = blankFrame(); f[led] = true;
@@ -660,71 +741,6 @@ for (const led of [0, 17, 369]) {
 
 **Tests required:** Round-trip unit test for LEDs {0, 17, 369}.
 
-### Bug 13: Face ID bounds/overflow on parsing
-**Severity:** Low
-**Type:** logic / edge case
-**Location:** `src/storage.cpp` `defaultFaceIdNumberIsInvalid` (149–159).
-**Current behavior:** Extremely long default face IDs (e.g. `face_42949672960`) can overflow the 32-bit integer parser `value = value * 10 + ...` and wrap to `0`, causing `value < 1` to be true and rejecting the faces, or wrapping to a valid positive number and being incorrectly accepted.
-**Expected behavior:** Prevent overflow during ID parsing or bound the length strictly.
-**Root cause:** Naive parsing loop without length or overflow guards.
-**Reproduction path:** Save a face with ID `face_42949672960` and reboot.
-**Risk if not fixed:** Malicious or malformed faces could break JSON load logic silently.
-**Fix strategy:** Add a character-length limit (e.g., maximum 9 digits) inside the `while` loop before multiplying by 10.
-**Code change:** ⬜
-```cpp
-// --- CURRENT (src/storage.cpp defaultFaceIdNumberIsInvalid):
-uint32_t value = 0;
-while (*p >= '0' && *p <= '9') {
-    value = value * 10 + static_cast<uint32_t>(*p - '0');   // can overflow 2^32 → wraps
-    ++p;
-}
-return value < 1;
-```
-```cpp
-// --- PROPOSED: cap digit count (9 digits fits in uint32_t without wrap) and treat
-// over-long numeric IDs as invalid rather than letting them wrap.
-uint32_t value = 0;
-uint8_t  digits = 0;
-while (*p >= '0' && *p <= '9') {
-    if (++digits > 9) return true;          // implausibly long → invalid, no overflow
-    value = value * 10 + static_cast<uint32_t>(*p - '0');
-    ++p;
-}
-return value < 1;
-```
-**Tests required:** Unit: `defaultFaceIdNumberIsInvalid("face_42949672960")` returns true.
-
-### Bug 14: `powerStatus` EMA filtering edge case (dtS constrained but unsigned wrap)
-**Severity:** Low
-**Type:** edge case
-**Location:** `src/power_monitor.cpp` `sampleBattery` (348).
-**Current behavior:** The EMA filtering constraint uses `static_cast<float>(now - powerStatus.lastBatteryMs) * 0.001f`. While `now - last` handles 32-bit wrap, if the device hangs or misses a sample for > 49 days, the delta might wrap around to a very small positive number instead of hitting the 10.0f clamp.
-**Expected behavior:** If the last sample was an extremely long time ago, the filter should snap to the instant value or correctly clamp.
-**Root cause:** The `constrain` operates on the `float` output *after* the `uint32_t` subtraction, which already wraps modulo $2^{32}$.
-**Reproduction path:** Keep board on for 49.7 days without sampling battery.
-**Risk if not fixed:** Negligible. One wrong EMA sample every 50 days.
-**Fix strategy:** Just before `constrain`, if `now < lastBatteryMs` and `now - lastBatteryMs > 0x7FFFFFFF` (a massive negative jump representing wrap or huge delay), just snap `vbat = instantVbat` and bypass EMA.
-**Code change:** ⬜
-```cpp
-// --- CURRENT (src/power_monitor.cpp sampleBattery):
-const float dtS = constrain(
-    static_cast<float>(now - powerStatus.lastBatteryMs) * 0.001f, 0.001f, 10.0f);
-const float emaAlpha = 1.0f - expf(-dtS / BATTERY_EMA_TAU_S);
-powerStatus.vbat = (powerStatus.vbat * (1.0f - emaAlpha)) + (instantVbat * emaAlpha);
-```
-```cpp
-// --- PROPOSED: detect an implausible elapsed time (wrap / long stall) and snap.
-const uint32_t elapsedMs = now - powerStatus.lastBatteryMs;
-if (elapsedMs > 0x7FFFFFFFu) {                 // ~24.8 days+ / wrap → distrust the delta
-    powerStatus.vbat = instantVbat;            // snap, skip EMA this sample
-} else {
-    const float dtS = constrain(static_cast<float>(elapsedMs) * 0.001f, 0.001f, 10.0f);
-    const float emaAlpha = 1.0f - expf(-dtS / BATTERY_EMA_TAU_S);
-    powerStatus.vbat = (powerStatus.vbat * (1.0f - emaAlpha)) + (instantVbat * emaAlpha);
-}
-```
-**Tests required:** Unit: fake `now` wrap and assert `vbat` snaps to `instantVbat`.
-
 ---
 
 ### Bug 15: 6.4 scroll buttons flash disabled→enabled on every click  🟢 APPLIED
@@ -737,6 +753,7 @@ if (elapsedMs > 0x7FFFFFFFu) {                 // ~24.8 days+ / wrap → distrus
 **Reproduction path:** On 6.4, click 暂停/继续/停止/逐帧/帧率 — every click briefly greys out all buttons.
 **Risk if not fixed:** Janky control row; perceived unresponsiveness.
 **Fix strategy (applied):** Drop the transient flags from the visual `disabled` computation; keep them only as handler re-entrancy guards. `anyCommandBusy` now equals `hardBusy` (upload/restore) only.
+**Code evidence:** `data/app.js::updateButtonState` calls `setDomAttrIfChanged(el, "aria-disabled", nextState.disabled ? "true" : "false")`, and `updateScrollUi` routes pause/stop/step/speed controls through the scroll button UI helpers instead of leaving the initial HTML `aria-disabled="true"` stuck.
 **Code change:** 🟢 applied to `data/app.js`
 ```js
 // --- BEFORE:
@@ -766,7 +783,7 @@ const speedDisabled = anyCommandBusy;
 
 ## 6. Refactor opportunities
 
-### Refactor 1: Extract a locked status snapshot for frame/color/stat fields
+### Refactor 1: Extract a locked status snapshot for frame/color/stat fields 🟢 APPLIED
 **Category:** extraction / state cleanup
 **Location:** `src/web_api.cpp` `handleApiStatus`, `handleApiFrame`, `handleApiCommand`; `src/led_renderer.cpp`.
 **Current problem:** Status handlers read `Frame`-owned fields (`colorHex`, `brightness`, `lastM370`, `lastReason`, `framesAccepted`, lit count) without taking `Frame`. Mirrors the missing-snapshot half of Bug 1.
@@ -820,7 +837,7 @@ static void handleApiScroll() {
 
 **Validation method:** Full scroll upload/restore integration test (single chunk, multi chunk, 409 retry, oversize, bad frame) green after each step.
 
-### Refactor 3: Unify the two near-identical send queues (frame + button command)
+### Refactor 3: Unify the two near-identical send queues (frame + button command) 🟢 APPLIED
 **Category:** deduplication
 **Location:** `data/app.js` 4959–5141 (`scheduleButtonCommandPump`/`pumpButtonCommandQueue`/`sendButtonCommand` vs `scheduleFrameSendPump`/`pumpFrameSendQueue`/`queueFirmwareFrame`).
 **Current problem:** Two copies of the same rate-limited, drop-on-overflow, in-flight-guarded pump differing only in endpoint/interval/queue-max/counter names.
@@ -862,7 +879,7 @@ const buttonQueue = makeRateLimitedQueue({ endpoint: API_ENDPOINTS.command, inte
 
 **Validation method:** Burst test (queue overflow) shows identical drop counts and ordering before/after.
 
-### Refactor 4: Centralize firmware lock contract enforcement via scoped accessors
+### Refactor 4: Centralize firmware lock contract enforcement via scoped accessors 🟢 APPLIED
 **Category:** structure / state cleanup
 **Location:** `src/state.*`, all writers of `RuntimeState`.
 **Current problem:** The lock-owner contract is documented in `state.h` comments but enforced by convention. Several writes to `restoreAutoAfterScroll` and scroll fields happen outside `Scroll` in `buttons.cpp`/`web_api.cpp`.
@@ -920,7 +937,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
 
 **Validation method:** Replay a captured `/api/status` sequence through the function and diff resulting `state`/`scroll` objects.
 
-### Refactor 6: Model firmware scroll pause as one source-of-truth + derived effective flag
+### Refactor 6: Model firmware scroll pause as one source-of-truth + derived effective flag 🟢 APPLIED
 **Category:** state cleanup
 **Location:** `src/faces.cpp` `applyFirmwareScrollPauseIntentLocked`, `state.h` scroll fields.
 **Current problem:** `firmwareScrollPaused` (effective) is stored alongside `User`/`System` and `paused`, with derivation logic spread across functions.
@@ -955,7 +972,7 @@ static void recomputeEffectivePauseLocked() {
 
 **Validation method:** Pause matrix test: user-pause, system-pause (B6), both, neither → identical emitted flags before/after.
 
-### Refactor 7: Consolidate `restoreAutoAfterScroll` writes under `Scroll` lock + one setter
+### Refactor 7: Consolidate `restoreAutoAfterScroll` writes under `Scroll` lock + one setter 🟢 APPLIED
 **Category:** state cleanup / deduplication
 **Location:** `buttons.cpp` (134, 183), `faces.cpp` (62–65, 384), `web_api.cpp` (1248).
 **Current problem:** Written from several call sites, some outside `Scroll`.
@@ -979,7 +996,7 @@ void setRestoreAutoAfterScroll(bool v) {
 
 **Validation method:** Mode/scroll transition tests assert the flag matches today.
 
-### Refactor 8: Extract repeated `withHardwareBusLock` file primitives
+### Refactor 8: Extract repeated `withHardwareBusLock` file primitives 🟢 APPLIED
 **Category:** deduplication
 **Location:** `src/web_api.cpp` (`littleFsExistsLocked`/`littleFsOpenLocked`/`fileSizeLocked`/`closeFileLocked`) vs `storage.cpp`/`power_monitor.cpp` which inline the same pattern.
 **Current problem:** The locked-LittleFS helpers exist only in `web_api.cpp`; `storage.cpp` and `power_monitor.cpp` re-inline `withHardwareBusLock([&]{ LittleFS… })`.
@@ -1004,6 +1021,34 @@ void   closeFileLocked(File& f);
 ```
 
 **Validation method:** File ops unit tests; ensure single lock domain per call.
+
+
+### Refactor 13: Extract LittleFS logic from `loadSavedFaces` 🟢 APPLIED
+**Category:** modularization
+**Location:** `src/storage.cpp` `loadSavedFaces` (238–364).
+**Current problem:** `loadSavedFaces` does file I/O, parses JSON under the hardware bus lock, extracts fields, normalizes M370, populates the runtime array directly, and triggers apply/startup logic.
+**Why this is safe:** Splitting into `parseAndValidateFaces` and `applyFacesToState` makes the function testable in isolation.
+**What must not change:** The startup face default precedence logic and sorting.
+**Regression risk:** Medium.
+**Code change:** ⬜
+```cpp
+// --- CURRENT (src/storage.cpp loadSavedFaces): one huge function does everything
+bool loadSavedFaces(bool applyStartupFace) { /* ... */ }
+```
+```cpp
+// --- PROPOSED: split into pure-ish parser and state-applier
+static bool parseAndValidateFaces(JsonArrayConst faces, const String& startupId, RuntimeFace* out, uint16_t& count);
+static void applyFacesToState(uint16_t selectedIndex, bool applyStartupFace);
+
+bool loadSavedFaces(bool applyStartupFace) {
+    // 1. I/O and parse under lock
+    // 2. parseAndValidateFaces(...)
+    // 3. std::sort(...)
+    // 4. applyFacesToState(...)
+}
+```
+
+**Validation method:** Unit tests for `parseAndValidateFaces` with various JSON structures.
 
 ### Refactor 9: Replace overlapping WebUI scroll booleans with derived predicates
 **Category:** state cleanup
@@ -1031,7 +1076,7 @@ function isEffectivePaused() { return isUserPaused() || isSystemPaused() || stat
 
 **Validation method:** For a matrix of firmware scroll states, assert identical button DOM state before/after.
 
-### Refactor 10: Name and table-drive the command dispatch reply assembly
+### Refactor 10: Name and table-drive the command dispatch reply assembly 🟢 APPLIED
 **Category:** structure
 **Location:** `web_api.cpp handleApiCommand` reply block (1335–1360) + per-command handlers.
 **Current problem:** The shared reply is hand-assembled; battery commands special-case power. Adding a command requires editing multiple spots.
@@ -1060,7 +1105,35 @@ static bool commandWantsPower(const String& cmd) {
 
 **Validation method:** Reply JSON diff per command.
 
-### Refactor 11: Comment/identifier cleanup (auto-generated Chinese boilerplate)
+
+### Refactor 14: Extract `sampleBattery` disconnect logic into helper 🟢 APPLIED
+**Category:** structure / extraction
+**Location:** `src/power_monitor.cpp` `sampleBattery` (281–372).
+**Current problem:** A single 90-line function implements EMA filtering, large-drop disconnect detection, recovery, calibration updates, and JSON field dirtying.
+**Why this is safe:** Extracting pure logic (e.g., `detectBatteryDisconnect(adcMv, prevMv)`) keeps side-effects in the caller.
+**What must not change:** The hysteresis values (`BATTERY_DISCONNECT_ADC_DROP_MV`, `BATTERY_RECONNECT_ADC_MV`).
+**Regression risk:** Low.
+**Code change:** ⬜
+```cpp
+// --- CURRENT (src/power_monitor.cpp sampleBattery): disconnect detection inlined
+const bool hugeRawDrop = hadPreviousAdc && prevAdcMv > adcMv &&
+    static_cast<uint16_t>(prevAdcMv - adcMv) >= BATTERY_DISCONNECT_ADC_DROP_MV &&
+    adcMv <= BATTERY_DISCONNECT_ADC_LOW_MV;
+```
+```cpp
+// --- PROPOSED: pure helper
+struct BatteryEdge { bool hugeRawDrop; bool stillDisconnected; };
+static BatteryEdge detectBatteryDisconnect(uint16_t adcMv, uint16_t prevAdcMv, bool hadPrev, bool wasDisconnected) {
+    const bool drop = hadPrev && prevAdcMv > adcMv &&
+        static_cast<uint16_t>(prevAdcMv - adcMv) >= BATTERY_DISCONNECT_ADC_DROP_MV &&
+        adcMv <= BATTERY_DISCONNECT_ADC_LOW_MV;
+    return { drop, wasDisconnected && adcMv < BATTERY_RECONNECT_ADC_MV };
+}
+```
+
+**Validation method:** Hardware disconnect test (pulling battery during operation).
+
+### Refactor 11: Comment/identifier cleanup (auto-generated Chinese boilerplate) 🟢 APPLIED
 **Category:** comments
 **Location:** Throughout `src/*` and `data/*` — repeated template comments like `// 中文块：执行对应逻辑 X 相关逻辑，连接 WebUI 状态、DOM 和固件 API。` and `// 说明 … 中当前代码块的职责和维护约束。`
 **Current problem:** Many comments are auto-generated placeholders adding noise without information; some functions have a generic banner that doesn't describe behavior.
@@ -1083,7 +1156,7 @@ static bool commandWantsPower(const String& cmd) {
 
 **Validation method:** Build + grep that protected markers still present.
 
-### Refactor 12: Gate hot-path `Serial.printf` behind a log-level switch
+### Refactor 12: Gate hot-path `Serial.printf` behind a log-level switch 🟢 APPLIED
 **Category:** performance
 **Location:** `faces.cpp serviceAutoPlayback`/`applySavedFaceIndex`, `scroll.cpp`, `power_monitor.cpp`.
 **Current problem:** Per-frame/per-apply `Serial.printf` runs even in normal operation; blocking UART writes add jitter on Core 0.
@@ -1106,58 +1179,6 @@ Serial.printf("Applied saved face %u/%u via %s: %s\n", ...);   // every auto swi
 ```
 
 **Validation method:** Measure Core-0 loop jitter with logging off vs on.
-
-### Refactor 13: Extract LittleFS logic from `loadSavedFaces`
-**Category:** modularization
-**Location:** `src/storage.cpp` `loadSavedFaces` (238–364).
-**Current problem:** `loadSavedFaces` does file I/O, parses JSON under the hardware bus lock, extracts fields, normalizes M370, populates the runtime array directly, and triggers apply/startup logic.
-**Why this is safe:** Splitting into `parseAndValidateFaces` and `applyFacesToState` makes the function testable in isolation.
-**What must not change:** The startup face default precedence logic and sorting.
-**Code change:** ⬜
-```cpp
-// --- CURRENT: one function (src/storage.cpp loadSavedFaces 238–364) does I/O + parse +
-// field extraction + M370 normalize + array fill + sort + startup apply.
-// --- PROPOSED split (same behavior, testable pieces):
-static bool parseAndValidateFaces(JsonArrayConst faces, const String& startupId,
-                                  RuntimeFace* out, uint16_t& count);  // pure-ish: fills array, no apply
-static void applyFacesToState(uint16_t selectedIndex, bool applyStartupFace); // side effects
-bool loadSavedFaces(bool applyStartupFace) {
-    /* open+read+deserialize under lock (Refactor 8 helpers) */
-    parseAndValidateFaces(faces, startupId, runtimeAutoFaces(), runtimeAutoFaceCount());
-    /* existing std::sort + selectedIndex precedence stays identical */
-    applyFacesToState(selectedIndex, applyStartupFace);
-}
-```
-**Regression risk:** Medium.
-**Validation method:** Unit tests for `parseAndValidateFaces` with various JSON structures.
-
-### Refactor 14: Extract `sampleBattery` disconnect logic into helper
-**Category:** structure / extraction
-**Location:** `src/power_monitor.cpp` `sampleBattery` (281–372).
-**Current problem:** A single 90-line function implements EMA filtering, large-drop disconnect detection, recovery, calibration updates, and JSON field dirtying.
-**Why this is safe:** Extracting pure logic (e.g., `detectBatteryDisconnect(adcMv, prevMv)`) keeps side-effects in the caller.
-**What must not change:** The hysteresis values (`BATTERY_DISCONNECT_ADC_DROP_MV`, `BATTERY_RECONNECT_ADC_MV`).
-**Code change:** ⬜
-```cpp
-// --- CURRENT (src/power_monitor.cpp sampleBattery): disconnect detection inlined
-const bool hugeRawDrop = hadPreviousAdc && prevAdcMv > adcMv &&
-    static_cast<uint16_t>(prevAdcMv - adcMv) >= BATTERY_DISCONNECT_ADC_DROP_MV &&
-    adcMv <= BATTERY_DISCONNECT_ADC_LOW_MV;
-const bool stillDisconnected = powerStatus.batteryDisconnected && adcMv < BATTERY_RECONNECT_ADC_MV;
-```
-```cpp
-// --- PROPOSED: pure helper, same thresholds; sampleBattery keeps the side effects.
-struct BatteryEdge { bool hugeRawDrop; bool stillDisconnected; };
-static BatteryEdge detectBatteryDisconnect(uint16_t adcMv, uint16_t prevAdcMv,
-                                           bool hadPrev, bool wasDisconnected) {
-    const bool drop = hadPrev && prevAdcMv > adcMv &&
-        static_cast<uint16_t>(prevAdcMv - adcMv) >= BATTERY_DISCONNECT_ADC_DROP_MV &&
-        adcMv <= BATTERY_DISCONNECT_ADC_LOW_MV;
-    return { drop, wasDisconnected && adcMv < BATTERY_RECONNECT_ADC_MV };
-}
-```
-**Regression risk:** Low.
-**Validation method:** Hardware disconnect test (pulling battery during operation).
 
 ---
 
@@ -1198,7 +1219,17 @@ No code is written in this section — names are proposals only.
 
 ## 8. Step-by-step implementation plan
 
-Ordering principle: low-risk pure refactors and comment cleanup first; then state-snapshot seams; then bug fixes that depend on those seams; timing/perf last. Bug 3 (timing) and Bug 7 (lock safety) are scheduled where they unblock or de-risk later work.
+Ordering principle after the `prompt.txt` reconsideration: destructive-state correctness first, then live-status freshness and cross-core snapshots, then low-risk UI/firmware fixes, then extraction refactors, and timing/perf last. The detailed phase inventory below remains useful, but the execution order is superseded by this revised sequence:
+
+1. **Phase 0 — Consolidate + baseline:** merge addendum bugs into the canonical backlog, remove duplicate severity calls, and capture protocol/status/UI fixtures.
+2. **Phase 1 — Protocol mutation fixes:** invalid `/api/frame` and failed replacement `/api/scroll` are guarded before mutation. A3 and A4 are applied; keep regression fixtures for destructive-state checks.
+3. **Phase 2 — Status freshness:** A1/A12 is applied so active scroll progress and counter-only changes participate in `/api/status?since=...` freshness semantics.
+4. **Phase 3 — Cross-core snapshots:** Bug 1/A8 frame/status snapshot and Bug 8/A2 power snapshot are applied; keep snapshot reads as the pattern for future handlers.
+5. **Phase 4 — Remaining low-risk fixes:** Bugs 2/4/5/6/9/10/11/13/14 and A10/A11 are now applied.
+6. **Phase 5 — Refactors:** split `handleApiScroll`, command replies, queues, storage helpers, and `applyFirmwareRuntimeState` only after protocol mutation ordering is fixed.
+7. **Phase 6 — Performance/timing:** hot-path log gating is applied. Bug 3 remains hardware-gated; do not move file I/O off `HardwareBus`/change lock topology without recorded hardware proof.
+
+The historical phase notes below are retained as implementation detail, but if they conflict with the revised order above, the revised order wins.
 
 ### Phase 1: Baseline behavior documentation
 **Goal:** Freeze current observable behavior as a test baseline.
@@ -1270,8 +1301,8 @@ Ordering principle: low-risk pure refactors and comment cleanup first; then stat
 **Tests:** Fault-injection (Bug 7), overlay consistency stress (Bug 8).
 **Rollback:** Revert; both are additive guards.
 
-### Phase 8: Performance-sensitive paths (Bug 3, Bug 10, Refactor 12)
-**Goal:** Stop file I/O from stalling LED refresh; speed up first-chunk sizing; gate hot logs.
+### Phase 8: Performance-sensitive paths (Bug 3, Refactor 12)
+**Goal:** Stop file I/O from stalling LED refresh; gate hot logs. Bug 10 first-chunk sizing is already applied.
 **Allowed:** Reassign storage I/O off `HardwareBus` (after hardware confirmation); estimate chunk size; log gating.
 **Forbidden:** Changing atomic-write semantics; changing wire protocol.
 **Files affected:** `storage.cpp`, `web_api.cpp` (streaming), `app.js` (B10), hot-path logs.
@@ -1302,13 +1333,13 @@ Ordering principle: low-risk pure refactors and comment cleanup first; then stat
 
 ## 9. Behavior preservation checklist
 
-Must remain unchanged through Phases 1–10 (except where a bug fix explicitly and justifiably changes it — only Bug 3 changes timing, only Bug 5/4 change UI-render cadence):
+Must remain unchanged through Phases 1–10 (except where a bug fix explicitly and justifiably changes it — Bug 3 changes timing contention, Bugs 5/4 change UI-render cadence, and A1/A12 may change `/api/status?since=` freshness behavior during active scroll or counter-only updates):
 
 - **Public HTTP routes & methods:** `/`, `/index.html`, `/api/status` (GET/OPTIONS), `/api/power` (GET/OPTIONS), `/api/frame` (POST/OPTIONS), `/api/scroll`, `/api/scroll/meta` (GET/OPTIONS), `/api/command` (POST/OPTIONS), `/api/saved_faces` (GET/POST/OPTIONS), static fallback.
 - **JSON request fields:** scroll upload (`frames`, `append`, `start`, `chunkIndex`, `totalFrames`, `timelineId`, `sourceText`, `fontId`, `generatorVersion`, `fps`, `intervalMs`, `source`, `storage`, `persist`, `saveToFlash`, `stepLedPerFrame`); command (`cmd`, `payload`, per-command keys); frame (`m370`, `mode`, `playback`, `reason`, `faceId`).
 - **JSON response fields:** every key in `handleApiStatus`/`handleApiFrame`/`handleApiCommand`/`handleApiScroll`/`handleApiScrollMeta`/`handleApiPower` replies (e.g. `ok`, `v`, `version`, `next_poll_ms`, `renderer.*`, `power.*`, `stats.*`, `scrollStopEvent.*`, `uploadComplete`, `timelineId`, `lit`, `lastM370`). Field **names and value types**.
 - **Status codes & messages:** 200/204/400/404/405/409/413/500/503/507 and their exact error strings (E1/E2/E3/D1–D8 paths).
-- **`stateVersion`/`since` long-poll contract:** monotonic non-zero, `unchanged` short response shape.
+- **`stateVersion`/`since` long-poll contract:** monotonic non-zero, `unchanged` short response shape, except for the documented active-scroll/counter freshness fix where changed scroll-observable state must not be hidden behind `unchanged:true`.
 - **DOM IDs/classes:** all in `index.html` consumed by `app.js`/`styles.css` (`matrix-*`, `scroll-*`, `brightness-*`, `color-*`, `mode-toggle`, `data-gpio` values, `face-library-list`, etc.).
 - **Event names / button semantics:** B1 next, B2 prev, B3 mode, B4/B5 brightness ∓8, B3+B1/B2 interval ∓500 ms, B6 short=battery / long=continuous; combo-consume rule; repeat timings.
 - **Timing behavior:** `M370_FRAME_MIN_INTERVAL_MS=33`, queue depth 3, scroll drift reset = 4 intervals, `LED_RENDER_MIN_GAP_US=2500`, `LED_SIGNAL_RESET_US=300`, boot hold/settle constants, debounce/repeat constants, `POWER_WEB_SLOW_PUBLISH_MS=10000`. (Bug 3 changes only the *contention window*, not these constants.)
@@ -1365,7 +1396,7 @@ For each test, what it proves is stated.
 - **Color picker stability**: proves Bug 5.
 
 ### API/protocol tests
-- **Long-poll `since` cursor**: unchanged → `unchanged` response; changed → full doc: proves `stateVersion` semantics intact.
+- **Long-poll `since` cursor**: unchanged stable state → `unchanged` response; changed state or active-scroll/counter freshness cursor → full doc: proves `stateVersion` semantics and the A1/A12 freshness exception.
 - **`scrollStopEvent` detection**: GPIO B1/B2/B3 stop raises seq and WebUI mirrors: proves sync boundary intact.
 
 ### Timing / async tests
@@ -1411,8 +1442,8 @@ Riskiest overall: **Bug 3** (timing/hardware assumption) and **R2** (protocol-cr
 
 ## 13. Things not to change
 
-- **Wire protocol & field names** for all routes (Section 9) — unless a bug item explicitly lists a change (none do except response *cadence* in Bug 5).
-- **`stateVersion`/`since` long-poll semantics** and the `unchanged` short response.
+- **Wire protocol & field names** for all routes (Section 9) — unless a bug item explicitly lists a change (Bug 5/4 UI cadence and A1/A12 status freshness are the currently documented exceptions).
+- **`stateVersion`/`since` long-poll semantics** and the `unchanged` short response, except where A1/A12 deliberately make active scroll or counter-only changes observable.
 - **M370 format** (`M370:`+93 hex, 370+2 padding) and the serpentine mapping / row tables / `static_assert`s in `config.h`.
 - **Lock order** `Scroll → Frame → HardwareBus`; no new nested locks.
 - **Timing constants** in `config.h` (frame interval, queue depth, render gap, reset window, boot holds, debounce/repeat, slow-publish). Bug 3 changes only the *file-I/O contention window*, not these values.
@@ -1464,12 +1495,12 @@ Validation performed:
 - Core 1 owns continuous scroll frame advancement and physical LED rendering.
 - `/api/status?since=<version>` returns a short `unchanged:true` response when `stateVersion` matches, even during scroll.
 - Core 1 scroll frame advancement updates `scrollFrameIndex` and `framesAccepted`, but does not update `stateVersion`.
-- `/api/frame` validates the JSON body, then may stop scroll/change playback before validating the M370 payload.
+- `/api/frame` now validates the M370 payload before stopping scroll/changing playback (A3 applied).
 - `/api/scroll` first-chunk uploads clear/stop existing scroll state before all incoming frames are parsed and validated.
 - WebUI has three transport styles: direct aux command, queued button command, and queued frame command.
 - WebUI scroll restore uses `/api/scroll/meta` and local regeneration, tracked by `pendingScrollMeta`, `lastFwScrollTimelineId`, `lastFwScrollHasSourceText`, and `lastFwScrollFrameCount`.
-- Debug buttons with `data-gpio` exist in HTML, but no `app.js` handler binds them.
-- The debug manual JSON input wraps user JSON inside an unsupported `manual_json` command instead of posting the raw command object.
+- Debug buttons with `data-gpio` now bind supported firmware button commands (A10 applied), including B6 short/long battery overlay commands and B6+B3 status/network refresh.
+- The debug manual JSON input now posts raw `/api/command` objects with a required string `cmd` field (A11 applied).
 
 ## A3. Additional State Model Findings
 
@@ -1483,7 +1514,7 @@ Validation performed:
 
 ## A4. Additional Bug List
 
-### Addendum Bug A1: Active scroll polling can return unchanged while frame index changed
+### Addendum Bug A1: Active scroll polling can return unchanged while frame index changed 🟢 APPLIED
 
 **Severity:** High  
 **Type:** state / async / UI sync  
@@ -1496,7 +1527,7 @@ Validation performed:
 **Fix strategy:** Low-risk option: bypass the `since == version` unchanged shortcut while `scrolling == true`. More explicit option: add a scroll status cursor updated on frame-index change and include it in the status freshness comparison.  
 **Tests required:** API polling test during active scroll; manual WebUI scroll page open while firmware scroll runs.
 
-### Addendum Bug A2: Power status data race between Core 0 and Core 1 overlay
+### Addendum Bug A2: Power status data race between Core 0 and Core 1 overlay 🟢 APPLIED
 
 **Severity:** High  
 **Type:** race / firmware  
@@ -1509,7 +1540,7 @@ Validation performed:
 **Fix strategy:** Add a small `PowerStatusSnapshot` helper guarded by a mutex/critical section. Writers update under the same guard or publish a copied snapshot; readers use copies only.  
 **Tests required:** B6 overlay stress test while `servicePowerMonitor(true)` runs frequently.
 
-### Addendum Bug A3: Invalid `/api/frame` can stop scroll before M370 validation
+### Addendum Bug A3: Invalid `/api/frame` can stop scroll before M370 validation 🟢 APPLIED
 
 **Severity:** High  
 **Type:** protocol / state  
@@ -1522,7 +1553,7 @@ Validation performed:
 **Fix strategy:** Normalize/decode M370 into a local packed buffer before stopping scroll or mutating playback. Commit state only after validation succeeds.  
 **Tests required:** Invalid frame during active scroll leaves scroll active.
 
-### Addendum Bug A4: Failed first scroll upload can destroy existing scroll cache
+### Addendum Bug A4: Failed first scroll upload can destroy existing scroll cache 🟢 APPLIED
 
 **Severity:** High  
 **Type:** protocol / edge case  
@@ -1535,7 +1566,7 @@ Validation performed:
 **Fix strategy:** Use a two-phase upload path. Validate metadata and all frames in the chunk before clearing existing state. If memory does not allow full staging, at least validate every frame string before writing/committing shared cache metadata.  
 **Tests required:** Invalid first chunk while existing scroll runs; existing scroll remains active.
 
-### Addendum Bug A5: Partial JSON scanner accepts ambiguous or invalid JSON forms
+### Addendum Bug A5: Partial JSON scanner accepts ambiguous or invalid JSON forms 🟢 APPLIED
 
 **Severity:** Medium  
 **Type:** protocol / edge case  
@@ -1548,7 +1579,7 @@ Validation performed:
 **Fix strategy:** Keep memory-conscious parsing but reject unknown escapes, validate trailing content, add integer overflow checks, and limit accepted fields to intended top-level keys.  
 **Tests required:** Protocol tests for invalid escapes, trailing garbage, huge numbers, and deceptive nested keys.
 
-### Addendum Bug A6: Startup auto mode does not mark startup face as auto playback
+### Addendum Bug A6: Startup auto mode does not mark startup face as auto playback 🟢 APPLIED
 
 **Severity:** Medium  
 **Type:** state / persistence  
@@ -1561,7 +1592,7 @@ Validation performed:
 **Fix strategy:** In startup apply path, set playback from `isAutoMode()` and initialize `lastAutoSwitchMs`.  
 **Tests required:** Persistence boot test with auto mode and saved faces.
 
-### Addendum Bug A7: B3 GPIO during active scroll is handled but does nothing
+### Addendum Bug A7: B3 GPIO during active scroll is handled but does nothing 🟢 APPLIED
 
 **Severity:** Medium  
 **Type:** UI / firmware / state  
@@ -1574,7 +1605,7 @@ Validation performed:
 **Fix strategy:** Decide intended UX. If B3 should interrupt, call `stopFirmwareScroll(...)` and mark stop event. If ignored, remove B3 from interrupt assumptions in firmware/WebUI.  
 **Tests required:** Manual B3 active-scroll test and status event sequence check.
 
-### Addendum Bug A8: Status lit count reads current frame without frame lock
+### Addendum Bug A8: Status lit count reads current frame without frame lock 🟢 APPLIED
 
 **Severity:** Medium  
 **Type:** race / API  
@@ -1587,7 +1618,7 @@ Validation performed:
 **Fix strategy:** Add a locked/snapshot-based lit-count helper and keep expensive frame details skipped during active scroll as today.  
 **Tests required:** Concurrent scroll/status stress test.
 
-### Addendum Bug A9: Mutex creation failure leaves firmware running without full locking
+### Addendum Bug A9: Mutex creation failure leaves firmware running without full locking 🟢 APPLIED
 
 **Severity:** Medium  
 **Type:** firmware / race / error handling  
@@ -1600,7 +1631,7 @@ Validation performed:
 **Fix strategy:** Render fatal pattern and avoid starting WebServer/scroll task, or reboot after a delay, when required mutexes fail.  
 **Tests required:** Fault-injection build/test.
 
-### Addendum Bug A10: Debug GPIO buttons have no WebUI handler
+### Addendum Bug A10: Debug GPIO buttons have no WebUI handler 🟢 APPLIED
 
 **Severity:** Low  
 **Type:** UI  
@@ -1613,7 +1644,7 @@ Validation performed:
 **Fix strategy:** Add a debug binding map. B1/B2/B3/B4/B5/B3B1/B3B2 should call `sendButtonCommand`; unsupported B6 variants should be implemented or disabled with clear UI behavior.  
 **Tests required:** Browser click test verifies command queue/API call.
 
-### Addendum Bug A11: Manual JSON debug input sends unsupported `manual_json`
+### Addendum Bug A11: Manual JSON debug input sends unsupported `manual_json` 🟢 APPLIED
 
 **Severity:** Low  
 **Type:** UI / protocol  
@@ -1626,7 +1657,7 @@ Validation performed:
 **Fix strategy:** Parse raw JSON and POST it directly if it has a `cmd`; otherwise show validation error.  
 **Tests required:** Debug command sends `pause_scroll` successfully.
 
-### Addendum Bug A12: Counter-only changes may not publish status changes
+### Addendum Bug A12: Counter-only changes may not publish status changes 🟢 APPLIED
 
 **Severity:** Low  
 **Type:** state / API  
@@ -1655,12 +1686,13 @@ Validation performed:
 1. Add baseline tests/protocol notes.
 2. Fix active-scroll status freshness.
 3. Add coherent power snapshots.
-4. Reorder validation before side effects in `/api/frame`.
-5. Protect existing scroll cache from failed replacement uploads.
-6. Repair debug UI controls.
-7. Extract M370/status helpers.
-8. Centralize firmware scroll lifecycle.
-9. Split WebUI scroll logic only after the scroll regression suite exists.
+4. Reorder validation before side effects in `/api/frame` (A3).
+5. Protect existing scroll cache from failed replacement uploads (A4).
+6. Reject invalid/unknown JSON escapes and trailing garbage in raw scroll parsing (A5).
+7. Repair debug UI controls.
+8. Extract M370/status helpers.
+9. Centralize firmware scroll lifecycle.
+10. Split WebUI scroll logic only after the scroll regression suite exists.
 
 ## A7. Additional Preservation Checklist
 
@@ -1729,19 +1761,13 @@ Validation:
 
 Target: `src/web_api.cpp`, inside `handleApiFrame()`.
 
-Current risk: invalid frame requests can stop scroll before M370 validation.
+Current risk: applied; retained as implementation reference for A3.
 
-Planned change:
+Applied change:
 
 ```cpp
-String normalized;
-uint8_t packed[FRAME_BYTES];
-if (!normalizeM370(m370, normalized, error)) {
-    ++runtimeState().framesRejected;
-    sendError(400, error);
-    return;
-}
-if (!m370ToPackedBits(normalized, packed, error)) {
+String normalizedM370;
+if (!normalizeM370(String(m370), normalizedM370, error)) {
     ++runtimeState().framesRejected;
     sendError(400, error);
     return;
@@ -1755,12 +1781,12 @@ if (reason.startsWith("custom_") || reason.startsWith("parts_")) {
 }
 runtimeState().playback = mode;
 
-applyPackedFrame(packed, reason);
+if (!applyM370(normalizedM370, reason, error)) { sendError(400, error); return; }
 ```
 
 Implementation note:
 
-- If exact `lastM370` preservation is required, add an `applyPackedM370Frame()` helper that accepts both packed bits and normalized M370 text, rather than dropping normalized `lastM370`.
+- The applied code reuses `applyM370(normalizedM370, ...)`, so `lastM370` preservation stays identical to the normal frame path.
 
 Validation:
 
@@ -1937,9 +1963,9 @@ Validation:
 
 Target: `data/app.js`, inside `initializeDebugControls()`.
 
-Current risk: debug GPIO buttons exist but do nothing.
+Current risk: applied; retained as implementation reference for A10.
 
-Planned change:
+Applied change:
 
 ```js
 document.querySelectorAll("[data-gpio]").forEach((button) => {
@@ -1963,9 +1989,9 @@ Validation:
 
 Target: `data/app.js`, `serial-send` debug handler.
 
-Current risk: handler wraps user JSON inside unsupported `manual_json`.
+Current risk: applied; retained as implementation reference for A11.
 
-Planned change:
+Applied change:
 
 ```js
 [
@@ -2253,7 +2279,7 @@ Preserve:
 
 Related findings:
 
-- Addendum Bug A3: invalid `/api/frame` can stop scroll before M370 validation.
+- Addendum Bug A3: invalid `/api/frame` can stop scroll before M370 validation. 🟢 APPLIED
 - Existing refactor opportunity to separate M370 codec from LED renderer.
 - Existing behavior preservation requirement for M370 format and bit order.
 
@@ -2333,8 +2359,8 @@ Preserve:
 Related findings:
 
 - Addendum Bug A7: B3 GPIO during active scroll is handled but does nothing.
-- Addendum Bug A10: debug GPIO buttons have no WebUI handler.
-- Addendum Bug A11: manual JSON debug input sends unsupported `manual_json`.
+- Addendum Bug A10: debug GPIO buttons have no WebUI handler. 🟢 APPLIED
+- Addendum Bug A11: manual JSON debug input sends unsupported `manual_json`. 🟢 APPLIED
 - Existing button behavior preservation requirements.
 
 Relevant files:
@@ -2353,8 +2379,8 @@ Implementation order:
 
 1. Decide intended B3 behavior during active scroll.
 2. Update firmware/WebUI assumptions consistently for B3.
-3. Bind supported debug GPIO buttons.
-4. Replace `manual_json` wrapping with direct raw command POST.
+3. Bind supported debug GPIO buttons. 🟢 APPLIED
+4. Replace `manual_json` wrapping with direct raw command POST. 🟢 APPLIED
 5. Disable or implement unsupported B6 debug variants.
 
 Validation:
@@ -2456,23 +2482,14 @@ Preserve:
 
 ## 14. Final recommendation
 
-**Already shipped:** Bug 15 (6.4 scroll-button flash) is applied — `updateScrollUi` no longer folds transient command-busy flags into the button `disabled` state, so normal clicks no longer flash the row. All other items remain ⬜ (proposed).
+**Reconsidered verdict:** use this plan only after consolidation. The audit depth and test strategy are strong, but the addendum changes the priority order: destructive-state bugs and live status freshness now outrank broad refactors and the older low-risk-first list.
 
-**Is the refactor safe?** Yes, in the proposed order. The codebase is already well-modularized with explicit lock and protocol contracts; the work is mostly extraction, snapshotting, and a small set of focused fixes — not a rewrite. The two genuinely risky items (Bug 3 timing reassignment, Refactor 2 scroll-handler split) are isolated and gated behind a behavior baseline and dedicated tests.
+**Already shipped:** Bug 15 was already applied; see `data/app.js::updateButtonState` and `updateScrollUi` for the scroll-button `disabled`/`aria-disabled` evidence. Since this reconsideration pass, Bugs 2/4/5/6/9/10/11/13/14 and Addendum A1/A2/A3/A4/A5/A8/A10/A11 are also applied in the codebase. Treat them as closed unless validation finds a regression.
 
-**Bugs to fix first (highest value / lowest risk):**
-1. **Bug 5** (color picker reset + per-second re-render) — clear user impact, trivial fix.
-2. **Bug 2** (scroll frame skip) — visible, isolated to one branch.
-3. **Bug 6** (settings repair) and **Bug 4** (brightness default) — small, contained.
-4. **Bug 1 + Refactor 1** (status snapshot) — closes the most real concurrency gap; depends on the snapshot seam.
+**Open bugs to fix first:** No correctness bug from the verified list remains open after this pass. Bug 3 is the remaining hardware-gated timing/perf item: keep it as a validation checkpoint and do not apply/reapply lock-topology changes without board-level proof.
 
-**Bugs to do carefully / later:**
-- **Bug 3** (file I/O vs LED lock) — defer to Phase 8; requires hardware confirmation; highest timing risk.
-- **Bug 7/8** (lock fail-safe, overlay power) — Phase 7; low probability but correct to harden.
-- **Bug 9** — latent; primarily a contract test + guard.
+**Refactors to delay until after those fixes:** `handleApiScroll` extraction, command reply extraction, `applyFirmwareRuntimeState` decomposition, storage helper extraction, and WebUI scroll-boolean reduction. Extraction is still valuable, but validate-before-mutate ordering should be correct before helpers make the existing behavior look cleaner than it is.
 
-**Refactors first:** comment cleanup (R11, Phase 2), then the three extractions (R2/R3/R5/R10, Phase 3), then snapshot/lock seams (R1/R4/R6/R7/R8, Phase 4). These create the seams every later fix lands in.
+**Timing/perf changes:** hot-path log gating is applied. Bug 3 file-I/O/LED lock reassignment remains hardware-gated in this plan; LittleFS/LED lock topology must stay behind explicit hardware validation and rollback notes.
 
-**Changes to delay:** WebUI scroll-boolean reduction (R9, Phase 9) and the timing-sensitive Bug 3 (Phase 8) — both after correctness is locked and tested.
-
-**Safest implementation order:** Phase 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10, one logical change per commit, each followed by the relevant regression subset, with the Phase-1 baseline as the gate. This keeps every low-risk pure refactor ahead of behavior-affecting fixes, and isolates the only two intentional behavior changes (Bug 3 timing, Bug 5 render cadence) behind explicit tests.
+**Safest remaining implementation order:** verified correctness bug queue complete; next work should be deliberate refactors only, plus Bug 3 hardware validation if timing/perf work resumes.

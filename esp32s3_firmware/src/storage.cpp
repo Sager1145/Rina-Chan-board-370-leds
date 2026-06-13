@@ -9,12 +9,6 @@
 #include <algorithm>
 #include <LittleFS.h>
 
-
-// 本文件挂载 LittleFS 并读写设置、保存表情和静态资源；注释保留必要 English identifier，便于和代码/API 对照。
-// ---------------------------------------------------------------------------
-// 文件系统挂载（Filesystem mount） 相关代码，维护 挂载 LittleFS 并读写设置、保存表情和静态资源。
-// ---------------------------------------------------------------------------
-
 bool mountFilesystem() {
     runtimeFsMounted() = LittleFS.begin(false, LITTLEFS_BASE_PATH, 10, LITTLEFS_PARTITION_LABEL);
     if (!runtimeFsMounted()) {
@@ -26,10 +20,70 @@ bool mountFilesystem() {
 static bool ensureResourcesDirectory() {
     if (!runtimeFsMounted()) return false;
     bool ok = false;
-    withHardwareBusLock([&]() {
+    withStorageLock([&]() {
         ok = LittleFS.exists("/resources") || LittleFS.mkdir("/resources");
     });
     return ok;
+}
+
+bool readStringFromFileLocked(const char* path, String& outContent) {
+    bool exists = false;
+    withStorageLock([&]() { exists = LittleFS.exists(path); });
+    if (!exists) return false;
+
+    File file;
+    withStorageLock([&]() { file = LittleFS.open(path, "r"); });
+    if (!file) return false;
+
+    withStorageLock([&]() {
+        outContent = file.readString();
+        file.close();
+    });
+    return true;
+}
+
+bool writeStringToFileLocked(const char* path, const String& content) {
+    const String tempPath = String(path) + ".tmp";
+    File file;
+    withStorageLock([&]() {
+        LittleFS.remove(tempPath);
+        file = LittleFS.open(tempPath, "w");
+    });
+    if (!file) return false;
+
+    bool renamed = false;
+    withStorageLock([&]() {
+        size_t written = file.print(content);
+        file.flush();
+        file.close();
+        renamed = (written > 0) && LittleFS.rename(tempPath, path);
+        if (!renamed) LittleFS.remove(tempPath);
+    });
+    return renamed;
+}
+
+bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize) {
+    outBuf = nullptr;
+    outSize = 0;
+    bool exists = false;
+    withStorageLock([&]() { exists = LittleFS.exists(path); });
+    if (!exists) return false;
+
+    File file;
+    withStorageLock([&]() { file = LittleFS.open(path, "r"); });
+    if (!file) return false;
+
+    withStorageLock([&]() {
+        outSize = file.size();
+        outBuf = (char*)heap_caps_malloc(outSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!outBuf) outBuf = (char*)malloc(outSize + 1);
+        if (outBuf) {
+            file.readBytes(outBuf, outSize);
+            outBuf[outSize] = '\0';
+        }
+        file.close();
+    });
+    return outBuf != nullptr;
 }
 
 bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written, String& error) {
@@ -39,38 +93,20 @@ bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written
         return false;
     }
 
-    const String tempPath = String(path) + ".tmp";
-
-    File file;
-    withHardwareBusLock([&]() {
-        LittleFS.remove(tempPath);
-        file = LittleFS.open(tempPath, "w");
-    });
-
-    if (!file) {
-        error = String("failed to open temp file for write: ") + tempPath;
+    String serialized;
+    serializeJson(document, serialized);
+    if (serialized.length() == 0 && !document.isNull()) {
+        error = "failed to serialize JSON document";
         return false;
     }
 
-    bool renamed = false;
-    withHardwareBusLock([&]() {
-        written = serializeJson(document, file);
-        file.flush();
-        file.close();
-        renamed = written > 0 && LittleFS.rename(tempPath, path);
-        if (!renamed) LittleFS.remove(tempPath);
-    });
-
-    if (!renamed) {
-        error = String("failed to commit temp file for: ") + path;
+    if (!writeStringToFileLocked(path, serialized)) {
+        error = String("failed to write/commit file: ") + path;
         return false;
     }
+    written = serialized.length();
     return true;
 }
-
-// ---------------------------------------------------------------------------
-// 运行时设置（Runtime settings） 相关代码，维护 挂载 LittleFS 并读写设置、保存表情和静态资源。
-// ---------------------------------------------------------------------------
 
 bool saveRuntimeSettings() {
     if (!runtimeFsMounted()) return false;
@@ -99,33 +135,19 @@ bool saveRuntimeSettings() {
 
 bool loadRuntimeSettings() {
     if (!runtimeFsMounted()) return false;
-    bool settingsExists = false;
-    withHardwareBusLock([&]() {
-        settingsExists = LittleFS.exists(SETTINGS_PATH);
-    });
-    if (!settingsExists) {
-        Serial.println("runtime_settings.json not found; writing defaults");
+    String fileContent;
+    if (!readStringFromFileLocked(SETTINGS_PATH, fileContent)) {
+        Serial.println("runtime_settings.json not found or open failed; writing defaults");
         saveRuntimeSettings();
         return false;
     }
 
-    File file;
-    withHardwareBusLock([&]() {
-        file = LittleFS.open(SETTINGS_PATH, "r");
-    });
-    if (!file) {
-        Serial.println("Failed to open runtime_settings.json");
-        return false;
-    }
-
     DynamicJsonDocument doc(768);
-    DeserializationError err;
-    withHardwareBusLock([&]() {
-        err = deserializeJson(doc, file, DeserializationOption::NestingLimit(8));
-        file.close();
-    });
+    DeserializationError err = deserializeJson(doc, fileContent, DeserializationOption::NestingLimit(8));
     if (err) {
         Serial.printf("runtime_settings.json parse failed: %s\n", err.c_str());
+        Serial.println("Rewriting runtime_settings.json with defaults");
+        saveRuntimeSettings();
         return false;
     }
 
@@ -142,16 +164,14 @@ bool loadRuntimeSettings() {
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// 已保存表情（Saved faces）—— 校验 相关代码，维护 挂载 LittleFS 并读写设置、保存表情和静态资源。
-// ---------------------------------------------------------------------------
-
 static bool defaultFaceIdNumberIsInvalid(const char* id) {
     if (id == nullptr || strncmp(id, "face_", 5) != 0) return false;
     const char* p = id + 5;
     if (*p < '0' || *p > '9') return false;
     uint32_t value = 0;
+    uint8_t digits = 0;
     while (*p >= '0' && *p <= '9') {
+        if (++digits > 9) return true;
         value = value * 10 + static_cast<uint32_t>(*p - '0');
         ++p;
     }
@@ -203,10 +223,6 @@ bool validateSavedFaces(JsonVariant document, String& error) {
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// 已保存表情（Saved faces）—— 写入 相关代码，维护 挂载 LittleFS 并读写设置、保存表情和静态资源。
-// ---------------------------------------------------------------------------
-
 size_t writeSavedFaces(JsonVariant document, String& error) {
     if (!runtimeFsMounted()) {
         error = "LittleFS is not mounted";
@@ -226,10 +242,6 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
     return written;
 }
 
-// ---------------------------------------------------------------------------
-// 已保存表情（Saved faces）—— 载入到 runtimeAutoFaces()[] 相关代码，维护 挂载 LittleFS 并读写设置、保存表情和静态资源。
-// ---------------------------------------------------------------------------
-
 bool ensureSavedFacesLoaded() {
     if (runtimeAutoFaceCount() > 0) return true;
     return loadSavedFaces(false) && runtimeAutoFaceCount() > 0;
@@ -240,37 +252,18 @@ bool loadSavedFaces(bool applyStartupFace) {
         Serial.println("LittleFS not mounted; saved faces cannot be loaded");
         return false;
     }
-    bool savedFacesExists = false;
-    withHardwareBusLock([&]() {
-        savedFacesExists = LittleFS.exists(SAVED_FACES_PATH);
-    });
-    if (!savedFacesExists) {
-        Serial.println("No saved_faces.json; LED output starts blank");
+    size_t savedFacesSize = 0;
+    char* contentBuf = nullptr;
+    if (!readBufferFromFileLocked(SAVED_FACES_PATH, contentBuf, savedFacesSize)) {
+        Serial.println("No saved_faces.json or failed to read; LED output starts blank");
         runtimeAutoFaceCount() = 0;
         touchRuntimeState();
         return false;
     }
 
-    File file;
-    withHardwareBusLock([&]() {
-        file = LittleFS.open(SAVED_FACES_PATH, "r");
-    });
-    if (!file) {
-        Serial.println("Failed to open saved_faces.json");
-        return false;
-    }
-
-    size_t savedFacesSize = 0;
-    withHardwareBusLock([&]() {
-        savedFacesSize = file.size();
-    });
-
     PsramJsonDocument doc(jsonCapacityFor(savedFacesSize));
-    DeserializationError err;
-    withHardwareBusLock([&]() {
-        err = deserializeJson(doc, file, DeserializationOption::NestingLimit(32));
-        file.close();
-    });
+    DeserializationError err = deserializeJson(doc, contentBuf, DeserializationOption::NestingLimit(32));
+    free(contentBuf);
     if (err) {
         Serial.printf("saved_faces.json parse failed: %s\n", err.c_str());
         runtimeAutoFaceCount() = 0;
@@ -296,7 +289,6 @@ bool loadSavedFaces(bool applyStartupFace) {
             ++jsonIndex;
             continue;
         }
-        if (runtimeAutoFaceCount() >= MAX_AUTO_FACES) break;
 
         RuntimeFace& runtime     = runtimeAutoFaces()[runtimeAutoFaceCount()++];
         runtime.id               = String(face["id"] | "");
@@ -350,7 +342,8 @@ bool loadSavedFaces(bool applyStartupFace) {
     if (applyStartupFace) {
         String error;
         runtimeState().brightness = DEFAULT_BRIGHTNESS;
-        runtimeState().playback   = DEFAULT_PLAYBACK;
+        runtimeState().playback   = isAutoMode() ? "auto_saved_face" : DEFAULT_PLAYBACK;
+        if (isAutoMode()) runtimeState().lastAutoSwitchMs = millis();
         runtimeState().paused     = false;
         if (!applyM370(runtimeAutoFaces()[runtimeState().autoFaceIndex].m370, STARTUP_FACE_REASON, error)) {
             Serial.printf("startup M370 failed: %s\n", error.c_str());
@@ -361,3 +354,4 @@ bool loadSavedFaces(bool applyStartupFace) {
 
     return true;
 }
+
