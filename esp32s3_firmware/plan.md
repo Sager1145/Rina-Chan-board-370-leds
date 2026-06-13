@@ -4883,3 +4883,3221 @@ bool copyButtonAnimationOverlay(uint8_t* rgbOut, uint16_t ledCount) {
 - 保持覆盖层引擎的非破坏式、渲染时合成设计。按钮/电池/边沿覆盖层绝不能写入 `runtimeFrameBits()`；`renderCurrentFrameToLedStrip()` 会把 `copyButtonAnimationOverlay()` 合成在基础帧之上，因此覆盖层到期后底层表情/滚动帧会自动恢复。电池/边沿数学（居中的 `xyToLogical`、攻击/衰减缓动、`batteryColor`/`batteryFillCols`、充电扫描）是精确逻辑，不得重新推导或“平滑化”。
 - 保留 `sync.h` 模板锁契约：`with*Lock` 返回 `decltype(fn())`。不得改成返回 `void` 的辅助函数；多个调用点依赖在锁内计算并返回结果。
 - 覆盖层必须由 Core 0 `loop()` 中的 `serviceButtonAnimations()` 驱动（到期、分页轮换、刷新节奏），使其运行在空闲间隙内且绝不阻塞 Core 1 渲染任务；GPIO 按下/松开只在 `sAnimMux` 下修改 `sAnim`。
+
+---
+
+## 18. 代码审查、架构分析与已知问题（源自 `CODE_REVIEW.md`，2026-05-25）
+
+> 合并说明：本章整合自独立的代码审查报告 `CODE_REVIEW.md`（评审 14 个 `src/` 源文件）。其中“模块逐一分析”与 §6 的模块规格、§17 的源码交叉审计存在主题重叠；为保留审查得出的**问题清单、严重度分级、并发模型与具体修复建议**，此处完整保留这些独有结论，并以本章作为“已知问题与修复优先级”的单一事实来源。阅读 §6（模块规格）与 §17（重建审计）时应与本章交叉对照。原报告的目录（Table of Contents）已删除（与本文档结构重复）。
+
+**Project:** Rina-Chan Board V2 — 370-LED Matrix  
+**Review Date:** 2026-05-25  
+**Files Reviewed:** 14 source files across `src/`  
+**Reviewer:** Senior C++ / Embedded Architect (AI-assisted review)
+
+---
+
+### 1. Executive Summary
+
+The Rina-Chan Board ESP32-S3 firmware is a well-engineered, dual-core embedded system
+driving a 370-LED hexagonal matrix over WS2812/SK6812 protocol. The codebase
+demonstrates thoughtful hardware-aware design: Core-0 exclusively services HTTP, buttons,
+power ADC, and state management, while Core-1 is pinned to a single real-time render/scroll
+task that meets WS2812 timing constraints even under Wi-Fi load.
+
+**Overall Quality: High.** The code is production-quality for its target domain. Synchronization
+is handled through well-placed FreeRTOS mutexes and an ISR-safe portMUX, the M370 codec
+and frame queuing system are robust, and the LittleFS I/O paths include atomic commit
+semantics (temp-file-then-rename). The commentary throughout is thorough.
+
+**Key risks and improvement areas identified:**
+
+| Severity | Count | Summary |
+|----------|-------|---------|
+| HIGH     |  1    | 144 KB static SRAM array in `RuntimeStore` on the BSS |
+| MEDIUM   |  5    | Code duplication in `web_api.cpp`; `storage→faces` layering; `power_monitor` duplicating directory creation; O(n²) sort at startup; missing `nullptr` guard in `RuntimeStore::scrollFrameBits()` |
+| LOW / STYLE | 8 | Various minor readability, const-correctness, and redundancy notes |
+
+No memory-safety bugs, race conditions, or undefined behavior were found.
+
+---
+
+### 2. Module Architecture Map
+
+The firmware is organized into clean functional layers. Arrows show direct compile-time
+dependencies (i.e., which module `#include`s another's header).
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      main.cpp                           │
+│  setup() → boot sequence (ordered by hardware deps)     │
+│  loop()  → Core-0 cooperative service round             │
+└────┬─────┬──────┬──────┬──────┬──────┬──────┬──────────┘
+     │     │      │      │      │      │      │
+     ▼     ▼      ▼      ▼      ▼      ▼      ▼
+ config  state  sync  led_   scroll  faces  buttons  web_api
+   .h     .h    .h   renderer  .h     .h     .h       .h
+              │      .h  │
+              │      │   │ (Core-1 task)
+              │      ▼   ▼
+              │   [NeoPixel strip.show()]
+              │
+              ▼
+         button_animations.h
+              │
+              ▼
+         power_monitor.h ─────────────────────────────┐
+                                                       │
+         storage.h ←── (LittleFS R/W)                 │
+              │                                        │
+              └─────────────────────────────────────────┘
+                         (both read powerStatus directly)
+
+Utility layer (no state, pure functions):
+  utils.h ← used by led_renderer, storage, faces, web_api
+  web_json.h ← used by web_api only
+  psram_json.h ← used by state, storage, web_api
+```
+
+#### Data-flow summary
+
+```
+WebUI/API (Core-0, web_api.cpp)
+    │  POST /api/frame  →  applyM370()  →  enqueuePackedM370Frame()
+    │  POST /api/scroll →  write runtimeScrollFrameBits()  →  startFirmwareScroll()
+    │  POST /api/command →  command handler table
+    ▼
+RuntimeStore (singleton, state.h/cpp)
+  ├─ RuntimeState   ← mode, playback, color, brightness, scroll counters, deferred restore
+  ├─ RuntimeFace[]  ← loaded saved faces (max 128)
+  ├─ frameBits[]    ← currently displayed packed 370-bit frame (FRAME_BYTES = 47 bytes)
+  └─ scrollFrameBits[] ← up to 3072 packed frames in PSRAM or static SRAM fallback
+
+Core-0 loop() services (buttons.cpp, faces.cpp, power_monitor.cpp, led_renderer.cpp)
+    │  applyM370 / applyPackedFrame → frameQueue → publishPackedFrameNow()
+    │  requestLedRender() → sets ledRenderRequested flag + notifies Core-1 task
+    ▼
+Core-1 scrollRenderTask() (scroll.cpp)
+    │  consumeLedRenderRequest()  → renderCurrentFrameToLedStrip()
+    │  scroll timer advance       → memcpy nextFrame → renderCurrentFrameToLedStrip()
+    ▼
+renderCurrentFrameToLedStrip() (led_renderer.cpp)
+    │  snapshot frameBits + color/brightness under frameMutex
+    │  copyButtonAnimationOverlay() → may override with overlay RGB
+    │  delayMicroseconds(LED_SIGNAL_RESET_US)
+    │  withHardwareBusLock → strip.show()
+    └  delayMicroseconds(LED_SIGNAL_RESET_US)
+```
+
+---
+
+### 3. Lock-Ordering Policy & Concurrency Model
+
+The firmware uses three FreeRTOS mutexes plus one portMUX, intentionally documented
+with a strict acquire-order to prevent future deadlocks:
+
+```
+Acquire order (must always go left-to-right when nesting):
+  HardwareBus → Frame → Scroll
+
+portMUX (ledRenderRequestMux):
+  ISR-safe flag for render-request; never held concurrently with any mutex.
+
+portMUX (sAnimMux):
+  Protects AnimationState snapshot in button_animations.cpp.
+  Never held concurrently with any FreeRTOS mutex.
+```
+
+**Current paths respect this order.** No nested acquisitions of more than one
+FreeRTOS mutex were found anywhere in the code. The scroll task acquires
+`scrollMutex` then `frameMutex` in sequence (releases scroll before taking
+frame), which is consistent with the declared ordering.
+
+The `sAnimMux` portMUX sections are short (scalar copy only) and never call into
+any module that could re-enter a FreeRTOS API, which is correct for a non-ISR
+critical section on the ESP32.
+
+---
+
+### 4. Structural Findings
+
+#### 4.1 Positives & Strong Patterns
+
+These design decisions are explicitly called out as correct and should be preserved.
+
+##### Meyers Singleton for `RuntimeStore`
+`RuntimeStore::instance()` uses a function-local static, which is thread-safe under C++11
+and avoids global constructor ordering hazards that are common on Arduino-based platforms.
+
+```cpp
+// state.cpp — correct singleton pattern
+RuntimeStore& RuntimeStore::instance() {
+    static RuntimeStore store;
+    return store;
+}
+```
+
+##### RAII `ScopedLock` + template wrappers
+The `withFrameLock` / `withScrollLock` / `withHardwareBusLock` template helpers guarantee
+mutex release even when a lambda returns early, without requiring callers to manually call
+`unlock`. This is idiomatic modern C++ and prevents unlock-on-all-paths bugs.
+
+##### Pre-computed logical-to-physical LED index map
+`initLedIndexMap()` computes the serpentine row remapping once at boot and stores it in
+`logicalToPhysicalMap[LED_COUNT]`. This removes a per-pixel row-walk from every render
+loop iteration. The render path is correctly O(LED_COUNT) not O(LED_COUNT × MATRIX_ROWS).
+
+##### ISR-safe render request flag (`portMUX`)
+`requestLedRender()` correctly switches between `portENTER_CRITICAL_ISR` and
+`portENTER_CRITICAL` depending on `xPortInIsrContext()`. The flag variable is `volatile bool`,
+which is appropriate for a value written in ISR context and read from task context under the
+same portMUX.
+
+##### Atomic JSON file commit (temp-file-then-rename)
+`writeJsonFileAtomic()` writes to a `.tmp` sibling, then renames it into place. On LittleFS
+this prevents a power-loss from leaving a half-written file at the canonical path. The temp
+file is removed before opening (to clear a stale previous attempt) and again on failure.
+
+##### PSRAM-preferring ArduinoJson allocator (`psram_json.h`)
+`SpiRamAllocator` tries `MALLOC_CAP_SPIRAM` first and falls back to `MALLOC_CAP_8BIT`.
+This keeps large JSON documents (status responses, saved-faces editor payloads) in PSRAM,
+freeing SRAM for stack and FreeRTOS bookkeeping.
+
+##### Battery ADC: trimmed-mean sampling + time-delta EMA
+`readTrimmedAdcMilliVolts()` takes 16 samples, sorts them, and averages the center 8.
+The battery EMA uses `alpha = 1 - exp(-dt / tau)` rather than a fixed alpha, so the
+20-second effective smoothing window is correct regardless of actual call frequency.
+This is significantly better than the typical embedded fixed-alpha filter.
+
+##### Drop-oldest frame-queue policy
+When the M370 ring buffer overflows, the *oldest* frame is dropped, not the newest command.
+For live animation controls this is the correct choice: the most-recent user intent should
+always win, and the display converges to the current state within one `M370_FRAME_QUEUE_DEPTH`
+cycle rather than being stuck showing stale frames.
+
+##### Gzip pre-compressed static asset serving
+`serveStaticFile()` checks for a `.gz` sibling and negotiates based on the client's
+`Accept-Encoding` header. Serving gzip-compressed WebUI assets from LittleFS is
+essential at 80 MHz with only 4 MB flash and a synchronous WebServer; this design
+is correct and well-implemented.
+
+---
+
+#### 4.2 Issues & Recommendations
+
+Issues are labeled **HIGH**, **MEDIUM**, or **LOW**.
+
+---
+
+##### [HIGH] 144 KB static fallback SRAM array in `RuntimeStore`
+
+**File:** `state.h` line 218  
+**Finding:**
+```cpp
+// state.h
+uint8_t fallbackScrollFrameBits_[MAX_SCROLL_FRAMES][FRAME_BYTES] = {};
+// MAX_SCROLL_FRAMES = 3072, FRAME_BYTES = 47 → 3072 * 47 = 144,384 bytes
+```
+This array is a member of the Meyers singleton `RuntimeStore`. It lives in BSS and is
+therefore always allocated regardless of whether PSRAM is available. On an ESP32-S3 with
+512 KB SRAM, consuming 144 KB for a rarely-used fallback leaves only ~368 KB for all
+other allocations, FreeRTOS task stacks, the heap, and the Wi-Fi TCP/IP stack.
+
+**Risk:** The Wi-Fi stack alone needs approximately 60–100 KB. With 144 KB pre-committed
+to the fallback buffer, boards without PSRAM may not have enough memory to bring up the
+AP and WebServer at the same time, causing silent allocation failures downstream.
+
+**Recommendation:** Move the fallback allocation to `initScrollFrameBuffer()` using
+`heap_caps_malloc(MALLOC_CAP_8BIT)` instead of embedding it as a fixed static member.
+Only allocate it when PSRAM is unavailable and the PSRAM path actually fails.
+
+```cpp
+// Proposed change in RuntimeStore (state.h):
+// Remove:    uint8_t fallbackScrollFrameBits_[MAX_SCROLL_FRAMES][FRAME_BYTES] = {};
+// Replace member with:
+//            uint8_t* sramFallbackBits_ = nullptr;
+
+// In RuntimeStore::initScrollFrameBuffer() (state.cpp):
+if (scrollFrameBits_ == nullptr) {
+    // Only try heap SRAM as a last resort; print the real byte cost.
+    sramFallbackBits_ = static_cast<uint8_t*>(
+        heap_caps_malloc(SCROLL_FRAME_BUFFER_BYTES, MALLOC_CAP_8BIT));
+    if (sramFallbackBits_) {
+        scrollFrameBits_ = sramFallbackBits_;
+        scrollFrameBitsInPsram_ = false;
+    }
+    // If this also fails, scrollFrameBufferReady() returns false → scroll disabled.
+}
+```
+
+This change converts a guaranteed SRAM cost into a conditional runtime allocation,
+and allows `scrollFrameBufferReady()` to correctly return `false` instead of
+silently committing 144 KB the firmware might not have.
+
+---
+
+##### [MEDIUM] Duplicated `/resources` directory-creation logic
+
+**Files:** `storage.cpp` (line 33–40 `ensureResourcesDirectory()`) and
+`power_monitor.cpp` (lines 187–190 inside `saveBatteryCalibration()`).
+
+`power_monitor.cpp` duplicates the `LittleFS.exists("/resources") || LittleFS.mkdir("/resources")`
+pattern inline rather than calling the `ensureResourcesDirectory()` helper that
+already exists in `storage.cpp`. If the path changes or a different error-handling
+strategy is needed, it must be updated in two places.
+
+**Recommendation:** Move `ensureResourcesDirectory()` from a `static` function in
+`storage.cpp` to a non-static function declared in `storage.h`, then call it from
+`power_monitor.cpp`.
+
+---
+
+##### [MEDIUM] `storage → faces` layering violation
+
+**File:** `storage.cpp` lines 163–167 in `loadRuntimeSettings()`  
+**Finding:**
+```cpp
+// storage.cpp calls setMode() from faces.h — a higher-layer module
+const char* mode = doc["mode"] | DEFAULT_MODE;
+if (!setMode(mode, false)) setMode(DEFAULT_MODE, false);
+```
+`storage` should sit below `faces` in the dependency graph (storage loads raw data; faces
+interprets it as playback state). This circular include is avoided at the header level
+because `storage.h` does not include `faces.h`, but the runtime call goes upward.
+
+**Recommendation:** Have `loadRuntimeSettings()` return a `RuntimeSettingsData` struct
+containing the raw mode string, and let the call site (`main.cpp::setup()` → currently
+`loadRuntimeSettings()` directly) call `setMode()` after `loadRuntimeSettings()` returns.
+This removes the upward call and makes the data-flow explicit.
+
+---
+
+##### [MEDIUM] Missing initialized-state guard in `RuntimeStore::scrollFrameBits()`
+
+**File:** `state.cpp` lines 58–73  
+**Finding:**
+```cpp
+uint8_t* RuntimeStore::scrollFrameBits(uint16_t index) {
+    if (index >= MAX_SCROLL_FRAMES) return nullptr;
+    // If scrollFrameBits_ is nullptr (initScrollFrameBuffer was never called),
+    // the fallback pointer is used, which is fine IF the static array exists
+    // but is silent about the uninitialized case.
+    uint8_t* buffer = scrollFrameBits_ != nullptr
+        ? scrollFrameBits_
+        : &fallbackScrollFrameBits_[0][0];
+    return buffer + (static_cast<size_t>(index) * FRAME_BYTES);
+}
+```
+After the proposed [HIGH] fix above (removing the static fallback array),
+`fallbackScrollFrameBits_` will no longer exist as a member. Callers that invoke
+`runtimeScrollFrameBits()` before `initScrollFrameBuffer()` would then access a
+null pointer. The fix is already implied by the proposed change: after making
+`scrollFrameBits_` the only buffer pointer (set by `initScrollFrameBuffer()`), all
+paths that pass through `scrollFrameBufferReady()` will be safe.
+
+Even without the [HIGH] fix, adding a comment here explaining the two-path design
+would help future maintainers.
+
+---
+
+##### [MEDIUM] O(n²) bubble sort in `loadSavedFaces()`
+
+**File:** `storage.cpp` lines 385–397  
+**Finding:**
+```cpp
+// O(n²) insertion-style sort over runtimeAutoFaces
+for (uint16_t i = 0; i < runtimeAutoFaceCount(); ++i) {
+    for (uint16_t j = i + 1; j < runtimeAutoFaceCount(); ++j) {
+        if (shouldSwap) { /* swap */ }
+    }
+}
+```
+With `MAX_AUTO_FACES = 128` the worst case is 8,128 iterations. This only runs
+once per `loadSavedFaces()` call (boot + face editor save), so it is not a
+performance concern at this scale. However, it is worth noting for future-proofing.
+
+**Recommendation:** Replace with `std::sort` using a lambda comparator, which the
+ESP32 Arduino core supports via `<algorithm>`. This shrinks the code and documents
+the sort key explicitly:
+
+```cpp
+#include <algorithm>
+
+std::sort(
+    runtimeAutoFaces(),
+    runtimeAutoFaces() + runtimeAutoFaceCount(),
+    [](const RuntimeFace& a, const RuntimeFace& b) {
+        // Primary: order field; secondary: original JSON index for stable tie-breaking.
+        return a.order < b.order || (a.order == b.order && a.jsonIndex < b.jsonIndex);
+    }
+);
+```
+
+---
+
+##### [MEDIUM] JSON reply assembly duplicated across three route handlers
+
+**File:** `web_api.cpp`  
+**Finding:** Three route handlers — `handleApiStatus()`, `handleApiFrame()`, and
+`handleApiCommand()` — each independently assemble overlapping JSON response fields:
+- `autoFaceId` / `autoFaceName` guard block (three copies)
+- `scrollStopEvent` nested object (two copies in `handleApiStatus` and `handleApiCommand`)
+- version fields (`v` and `version` — duplicated key for compatibility, appears five times)
+
+**Recommendation:** Extract small inline helpers:
+```cpp
+// Add to web_api.cpp internal helpers:
+static void addAutoFaceFields(JsonObject& obj) {
+    if (runtimeAutoFaceCount() > 0 && runtimeState().autoFaceIndex < runtimeAutoFaceCount()) {
+        obj["autoFaceId"]   = runtimeAutoFaces()[runtimeState().autoFaceIndex].id;
+        obj["autoFaceName"] = runtimeAutoFaces()[runtimeState().autoFaceIndex].name;
+    }
+}
+
+static void addScrollStopEvent(JsonObject& obj) {
+    JsonObject ev = obj.createNestedObject("scrollStopEvent");
+    ev["seq"]    = runtimeState().scrollStopEventSeq;
+    ev["ms"]     = runtimeState().scrollStopEventMs;
+    ev["button"] = runtimeState().scrollStopEventButton;
+    ev["source"] = runtimeState().scrollStopEventSource;
+    ev["reason"] = runtimeState().scrollStopEventReason;
+}
+
+static void addVersionFields(JsonObject& obj, uint32_t version) {
+    obj["v"]       = version;       // short form for WebUI fast path
+    obj["version"] = version;       // long form for debuggability
+}
+```
+
+---
+
+##### [LOW] `parseColorHex()` performs redundant hex validation
+
+**File:** `utils.cpp` lines 33–45  
+**Finding:**
+```cpp
+// First pass: validate all 6 chars are hex
+for (size_t i = 0; i < 6; ++i) {
+    if (hexNibble(value.charAt(i)) < 0) return false;
+}
+// Then toLowerCase() + strtoul() — parses the same chars a second time
+value.toLowerCase();
+r = static_cast<uint8_t>(strtoul(value.substring(0, 2).c_str(), nullptr, 16));
+```
+The validation loop confirms all characters are valid hex, then `toLowerCase()` +
+`strtoul()` re-parses them. Additionally, `strtoul` on an Arduino `String::c_str()`
+creates three temporary `String` objects via `substring()`.
+
+**Recommendation:** Eliminate the intermediate `String` objects and parse directly
+using the already-validated `hexNibble()` results:
+```cpp
+bool parseColorHex(const String& input, uint8_t& r, uint8_t& g, uint8_t& b) {
+    String value = input;
+    value.trim();
+    if (value.startsWith("#")) value = value.substring(1);
+    if (value.length() != 6) return false;
+
+    int nibbles[6];
+    for (size_t i = 0; i < 6; ++i) {
+        nibbles[i] = hexNibble(value.charAt(i));
+        if (nibbles[i] < 0) return false;
+    }
+    r = static_cast<uint8_t>((nibbles[0] << 4) | nibbles[1]);
+    g = static_cast<uint8_t>((nibbles[2] << 4) | nibbles[3]);
+    b = static_cast<uint8_t>((nibbles[4] << 4) | nibbles[5]);
+    return true;
+}
+```
+
+---
+
+##### [LOW] `startOverlay()` manually copies each field instead of struct assignment
+
+**File:** `button_animations.cpp` lines 514–536  
+**Finding:**
+```cpp
+void startOverlay(const AnimationState& next) {
+    portENTER_CRITICAL(&sAnimMux);
+    sAnim.active = true;
+    sAnim.kind = next.kind;
+    sAnim.startedMs = next.startedMs;
+    // ... 12 more individual assignments
+    portEXIT_CRITICAL(&sAnimMux);
+}
+```
+The portMUX section protects a copy of the entire `AnimationState` struct. A struct
+assignment (`sAnim = next; sAnim.active = true;`) under the portMUX is functionally
+identical and much shorter. There is no benefit to copying field-by-field here because
+a struct assignment is not interruptible at the C++ level on Xtensa-LX7 (the compiler
+emits a `memcpy`-style sequence that is protected by the portMUX just as well).
+
+```cpp
+void startOverlay(const AnimationState& next) {
+    portENTER_CRITICAL(&sAnimMux);
+    sAnim = next;       // single struct assignment under the critical section
+    sAnim.active = true; // force active in case caller forgot to set it
+    portEXIT_CRITICAL(&sAnimMux);
+    pauseScrollForOverlay();
+    requestLedRender();
+}
+```
+
+---
+
+##### [LOW] `serviceButtonAnimations()` expiry check uses magic constant for overflow guard
+
+**File:** `button_animations.cpp` lines 674–675  
+**Finding:**
+```cpp
+if ((sAnim.kind != OverlayKind::Battery &&
+     now - sAnim.expiresMs < 0x80000000UL &&   // ← magic constant
+     now >= sAnim.expiresMs) || ...)
+```
+`0x80000000UL` is half the `uint32_t` range, used to guard against the case where
+`millis()` has wrapped past `expiresMs`. The logic is correct (it prevents interpreting
+a post-wraparound `expiresMs` as "already expired"), but the magic number is opaque.
+
+**Recommendation:** Replace with a named constant or a helper:
+```cpp
+// In the anonymous namespace at the top of button_animations.cpp:
+// millis() wraps at ~49.7 days. If the elapsed time since expiresMs exceeds half
+// the uint32_t range we assume the clock has not yet reached expiresMs.
+constexpr uint32_t MILLIS_HALF_RANGE = 0x80000000UL;
+
+inline bool millisPast(uint32_t now, uint32_t targetMs) {
+    return (now - targetMs) < MILLIS_HALF_RANGE;
+}
+```
+
+---
+
+##### [LOW] `applyFirmwareScrollPauseIntentLocked()` unconditionally sets `firmwareScrollActive = true`
+
+**File:** `faces.cpp` lines 389–391  
+**Finding:**
+```cpp
+static void applyFirmwareScrollPauseIntentLocked() {
+    // ... early return guard for truly idle state ...
+    runtimeState().firmwareScrollActive = true;   // ← always set true
+    runtimeState().firmwareScrollPaused = effectivePaused;
+    ...
+}
+```
+This function is only called from `setFirmwareScrollPauseFlag()`, which is itself
+only called from `setFirmwareScrollUserPaused()` / `setFirmwareScrollSystemPaused()`.
+Both callers check `runtimeState().firmwareScrollActive` before deciding whether
+to call scroll-pause helpers in `button_animations.cpp`. The unconditional
+`firmwareScrollActive = true` could activate scroll unexpectedly if the pause flags
+are set when `scrollFrameCount == 0` but `firmwareScrollActive` was already `false`.
+The early-return guard does protect this specific case, but the logic is fragile.
+
+**Recommendation:** Add an explicit guard:
+```cpp
+// Only re-assert scroll active if there are frames to play.
+if (runtimeState().scrollFrameCount > 0) {
+    runtimeState().firmwareScrollActive = true;
+}
+```
+
+---
+
+##### [LOW] `handleApiStatus()` is 180+ lines — should be split
+
+**File:** `web_api.cpp` lines 434–611  
+The handler assembles six nested JSON objects (ap, power, renderer, memory, matrix, storage,
+stats, endpoints) inline in one function. While the code is readable, a future change to any
+sub-object requires modifying a single 180-line function.
+
+**Recommendation:** Extract a `buildRendererStatus()`, `buildStorageStatus()`, and
+`buildMatrixStatus()` helper to match the existing `addPowerStatus()` pattern. Each helper
+receives a `JsonObject` by value and fills it from the appropriate module's state.
+
+---
+
+### 5. Module-by-Module Analysis
+
+#### 5.1 `config.h` / `config.cpp`
+
+**Role:** Single source of truth for all hardware pin assignments, timing constants,
+matrix geometry, and network/filesystem paths.
+
+**Design notes:**
+- `constexpr` is used correctly throughout. All numeric constants are typed (e.g.,
+  `constexpr uint8_t BRIGHTNESS_BUTTON_STEP = 8`) rather than raw `#define` macros,
+  which preserves type safety.
+- The `static_assert` verifying that `ROW_OFFSETS[MATRIX_ROWS-1] + ROW_LENGTHS[MATRIX_ROWS-1] == LED_COUNT`
+  is excellent defensive practice — it catches matrix layout misconfigurations at compile time.
+- `IPAddress` objects are defined in `config.cpp` (not `config.h`) because `IPAddress` is
+  not a literal type on all Arduino cores and cannot be constexpr. The inline reference
+  accessors (`apIP()`, `apGateway()`, `apSubnet()`) expose them without requiring a
+  `config.h`-to-Arduino-WiFi dependency in every translation unit.
+- `BATTERY_CALIB_SHRINK_TIMEOUT_MS` (7 days in ms) is computed with `UL` suffixed
+  multiplication which is correct — without the suffix, the intermediate products would
+  overflow `int` on 32-bit systems before the expression is promoted.
+
+**Connection to other modules:** This is a leaf node; no other module's header is included
+here (except `<IPAddress.h>` for the IPAddress declarations, which is isolated to `config.cpp`).
+Every other module includes `config.h`.
+
+---
+
+#### 5.2 `state.h` / `state.cpp`
+
+**Role:** Owns the singleton `RuntimeStore` containing `RuntimeState`, `RuntimeFace[]`,
+`frameBits[]`, and the scroll-frame buffer. Provides free-function accessors so callers
+do not need to know about the singleton directly.
+
+**Design notes:**
+- `RuntimeState` is a plain aggregate with default member initializers, making it safe
+  under Arduino's static-init model.
+- The `RuntimeFace` struct keeps only the fields needed for runtime navigation/playback.
+  Raw JSON is never held in memory; it is re-read from LittleFS only when the editor
+  needs it. This is the right memory budget strategy for a microcontroller.
+- `touchRuntimeState()` / `touchRuntimeStateSlow()` / `serviceRuntimeSlowStatePublish()`
+  implement a two-tier dirty-tracking scheme that rate-limits WebUI `stateVersion` bumps
+  for slow-changing fields (power, brightness), while fast fields (frame changes, mode
+  toggles) publish immediately. This reduces unnecessary HTTP long-poll responses.
+- The `stateVersion` overflow guard (`if (stateVersion == 0) stateVersion = 1`) correctly
+  skips zero, which the WebUI uses as the "no version yet" sentinel.
+
+**Issue:** The 144 KB static fallback array (see §4.2 [HIGH]).
+
+**Connections:**
+- Written by: `led_renderer`, `faces`, `buttons`, `storage`, `power_monitor`, `web_api`
+- Read by: every module
+- Protected by: `frameMutex` (for `frameBits_`) and `scrollMutex` (for scroll counters),
+  both managed through `sync.h`
+
+---
+
+#### 5.3 `sync.h` / `sync.cpp`
+
+**Role:** Centralizes all FreeRTOS synchronization. Provides three FreeRTOS mutexes
+and one portMUX, wrapped in an RAII `ScopedLock` and template `withXxxLock()` helpers.
+
+**Design notes:**
+- `ScopedLock` is `final` and non-copyable, which prevents accidental lock duplication.
+- The `locked_` flag in `ScopedLock` ensures the destructor is safe even if the constructor
+  fails partway through (though mutex creation failure is handled at `initSyncPrimitives()`
+  before any `ScopedLock` is used).
+- `initSyncPrimitives()` is idempotent (null-checks before creating), which is good for
+  potential future re-init paths.
+- Lock-ordering policy is documented in the header comment. This is critical documentation
+  that should never be removed.
+
+**Connections:** `sync.h` is included by `led_renderer`, `faces`, `buttons`,
+`button_animations`, `storage`, `power_monitor`, `web_api`, and `scroll`. All shared-state
+access flows through this module.
+
+---
+
+#### 5.4 `led_renderer.h` / `led_renderer.cpp`
+
+**Role:** Owns the Adafruit NeoPixel `strip` object (the only module allowed to call
+`strip.show()`), the M370 frame codec, the rate-limited frame queue, color/brightness
+state, and the physical render path.
+
+**Design notes:**
+- The `Adafruit_NeoPixel strip` is `static` (module-local). No other module can call
+  `strip.show()` directly. This is correct encapsulation: it enforces that every render
+  goes through `renderCurrentFrameToLedStrip()`, which owns the required timing delays.
+- The M370 codec (`normalizeM370` → `decodeNormalizedM370ToPackedBits`) is called OUTSIDE
+  the frame mutex in `applyM370()`. Only `memcpy(runtimeFrameBits(), packed, FRAME_BYTES)`
+  happens under the lock. This is the correct approach — decoding 370 bits is too slow to
+  do inside a mutex that the Core-1 render task also needs.
+- `copyText()` is a safe bounded string copy that guarantees null-termination. This replaces
+  what would otherwise be `strncpy()` (which does not null-terminate when the source is too long).
+- `lastAppliedBrightness` static in `renderCurrentFrameToLedStrip()` avoids calling
+  `strip.setBrightness()` (which rescales the entire pixel buffer) on every frame.
+
+**Connections:**
+- Consumed by: `scroll` (render task), `faces`, `buttons`, `storage`, `web_api`
+- Consumes: `state`, `sync`, `scroll` (for `notifyScrollRenderTask`), `utils`, `button_animations`
+
+---
+
+#### 5.5 `scroll.h` / `scroll.cpp`
+
+**Role:** Creates and manages the Core-1 `scrollRenderTask`, which arbitrates between
+scroll-timeline advancement and on-demand renders triggered from Core-0.
+
+**Design notes:**
+- The double-lock pattern (acquire `scrollMutex`, advance frame index, release; then acquire
+  `frameMutex`, write to `runtimeFrameBits`, release) is correct. This ensures the render
+  task does not overwrite a frame that Core-0 just committed via `applyM370`.
+- The `mainTaskRenderPending` re-check inside `frameMutex` handles the TOCTOU window
+  between releasing `scrollMutex` and acquiring `frameMutex`. This is a subtle but necessary
+  race-condition guard: without it, one stale scroll frame could flash on the display.
+- `ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1))` gives the task a 1 ms sleep when there is
+  nothing to render, which keeps Core-1 mostly idle while scrolling is paused but wakes it
+  promptly when `notifyScrollRenderTask()` fires.
+- Scroll drift is handled by advancing `lastScrollFrameMs` by exactly `intervalMs` (grid-lock)
+  unless the backlog exceeds `SCROLL_DRIFT_RESET_INTERVALS * intervalMs`, in which case it
+  resets to `now`. This prevents burst-rendering multiple frames after a scheduling stall.
+
+**Connections:** Consumes `state`, `sync`, `config`, `led_renderer`.
+
+---
+
+#### 5.6 `faces.h` / `faces.cpp`
+
+**Role:** Manages saved-face navigation, auto-playback, mode switching, firmware scroll
+lifecycle, and deferred face restore after blank frames.
+
+**Design notes:**
+- `normalizedMode()` accepts Chinese locale strings ("自动"/"手动") as aliases. This is
+  intentional for the WebUI which uses locale-specific mode labels.
+- The deferred-restore mechanism (blank frame → 90 ms hold → apply saved face) avoids
+  `delay()` in HTTP handlers or button callbacks. The two-stage approach (set flag →
+  service from `loop()`) is correct for cooperative multitasking on Core-0.
+- `applyFirmwareScrollPauseIntentLocked()` is always called under `scrollMutex`, which
+  is correct since it reads and writes multiple scroll-state fields atomically.
+- `stopFirmwareScroll()` does a full state reset under `scrollMutex`, then conditionally
+  applies a blank frame and schedules a deferred face restore. The lock is released before
+  the blank-frame path to avoid holding `scrollMutex` across an I/O or render call.
+
+**Connections:** Consumes `state`, `sync`, `config`, `led_renderer`, `storage`.
+Called by: `buttons`, `button_animations`, `web_api`.
+
+---
+
+#### 5.7 `buttons.h` / `buttons.cpp`
+
+**Role:** GPIO polling and debounce, button combo detection (B3+B1, B3+B2), hold-repeat
+for face navigation (B1/B2) and brightness (B4/B5), and the `runButtonAction()` dispatcher
+shared with the WebUI API.
+
+**Design notes:**
+- `runButtonAction()` is exposed publicly so the WebUI (`api_button` command) can simulate
+  button presses with the same logic path as GPIO. This eliminates a parallel implementation.
+- Combo detection is handled on the *press* edge of B1/B2 when B3 is already held, and
+  marks both buttons as `comboConsumed` so their releases do not also fire solo actions.
+- The `isScrollInterruptButton()` / `markScrollStoppedByButton()` mechanism publishes a
+  monotonic sequence number (`scrollStopEventSeq`) that the WebUI can poll to detect that
+  a GPIO button stopped the scroll. This avoids a heavyweight event queue for this specific
+  notification need.
+- `serviceHardwareButtons()` feeds debounced B6/B2/B3 states to `serviceButtonAnimationButtonInputs()`
+  *after* all edge processing, so the overlay module always sees the settled debounced state,
+  not raw GPIO levels.
+
+**Connections:** Consumes `state`, `config`, `led_renderer`, `faces`, `button_animations`.
+
+---
+
+#### 5.8 `button_animations.h` / `button_animations.cpp`
+
+**Role:** Manages the LED overlay system (Mode/Interval/Brightness/Battery overlays),
+B6 short/long-press battery display logic, scroll pause-for-overlay, and the pixel renderer
+for overlay frames.
+
+**Design notes:**
+- The anonymous `namespace { }` is used correctly to hide all internal state and helpers.
+  Only the six public functions (`startButtonAnimationForGpioAction`, etc.) are exported.
+- `xyToLogical()` maps the virtual 22×18 overlay canvas to the physical LED index
+  accounting for the non-uniform row widths (via `ROW_LENGTHS[y]` and centering math).
+  This is elegant: overlay designers can work in a uniform 22×18 grid without knowing
+  the physical matrix shape.
+- The `sAnimMux` portMUX (not a FreeRTOS mutex) is correct here because `copyButtonAnimationOverlay()`
+  is called from the Core-1 render task, and a FreeRTOS mutex cannot be taken from a task
+  at a higher priority than the task that took it on the other core. The portMUX approach
+  is correct for cross-core atomic snapshot.
+- Battery color interpolation uses linear RGB gradient across three threshold bands.
+  Using `lroundf()` for the brightness percent conversion is correct to avoid truncation bias.
+- The `drawBatteryIcon()` animate path uses `phaseMs / 200` column animation, producing
+  a smooth fill-sweep during charging. The blink pattern for `< 10%` (`phaseMs / 300 % 2`)
+  gives a 1.67 Hz blink without requiring a timer interrupt.
+
+**Issue (LOW):** `startOverlay()` manual field-by-field copy (see §4.2).
+
+**Connections:** Consumes `faces`, `led_renderer`, `power_monitor`, `state`, `sync`.
+Called by: `buttons`, `led_renderer` (for overlay snapshot in render).
+
+---
+
+#### 5.9 `storage.h` / `storage.cpp`
+
+**Role:** LittleFS mount, atomic JSON file writes, runtime settings persistence, and
+saved-faces loading/validation/writing.
+
+**Design notes:**
+- `loadSavedFaces()` re-validates each face's M370 string through `normalizeM370()` on load,
+  so the runtime can never contain an invalid M370 that was written by a buggy previous
+  version of the WebUI editor.
+- Face index is preserved across reloads by `id`-matching the previous face; the fallback
+  cascade is well-documented (startup default → first default → index 0).
+- `validateSavedFaces()` enforces the `unified_saved_faces` category contract, 1-based order
+  fields, and at least one `type: "default"` face before any write completes. This ensures
+  the firmware can always recover to a known startup face after a power cycle.
+- `PsramJsonDocument` is used for the large saved-faces parse. The capacity is computed
+  from actual file size via `jsonCapacityFor()`, which returns `max(sourceBytes*2+4096, 32768)`.
+  The 2× factor accounts for ArduinoJson's internal object tree overhead.
+
+**Issue (MEDIUM):** Duplicated `/resources` directory creation (see §4.2).
+**Issue (MEDIUM):** `storage→faces` layering (`setMode()` called from `loadRuntimeSettings()`).
+**Issue (MEDIUM):** O(n²) sort (see §4.2).
+
+**Connections:** Consumes `state`, `config`, `utils`, `led_renderer`, `faces`, `sync`, `psram_json`.
+Called by: `main`, `web_api`, `faces` (ensureSavedFacesLoaded).
+
+---
+
+#### 5.10 `power_monitor.h` / `power_monitor.cpp`
+
+**Role:** ADC sampling for battery and charge lines, battery voltage EMA, disconnect
+detection, piecewise-linear percent LUT, calibration persistence.
+
+**Design notes:**
+- `readTrimmedAdcMilliVolts()` uses `std::sort` from `<algorithm>`. This is correct
+  for ESP32-S3 Arduino core which ships a full C++ standard library.
+- Battery disconnect detection uses two criteria: a sudden large ADC drop (`>= BATTERY_DISCONNECT_ADC_DROP_MV`
+  AND resulting value `<= BATTERY_DISCONNECT_ADC_LOW_MV`) OR a persistent low reading
+  after a previous disconnect event. The hysteresis on reconnect (`>= BATTERY_RECONNECT_ADC_MV`)
+  prevents oscillation at the threshold.
+- The `vbat = NAN` reset on state transitions (disconnect recovery, low-voltage-unpowered
+  recovery) forces the EMA to initialize from the live reading rather than ramping from
+  the stale stored value. This is the correct behavior for state-change transitions.
+- `updateBatteryCalibration()` is a stub (no-op with `(void)` suppression of unused params)
+  with an extensive comment explaining that dynamic min/max learning was removed in favor
+  of the fixed LUT. The code documents the *why* of a non-obvious design decision, which
+  is excellent.
+- `batteryPercentFromVoltage()` uses piecewise linear interpolation across the LUT. The
+  `+/-1%` dead-band around `batteryPercent` prevents display jitter near segment boundaries.
+
+**Issue (MEDIUM):** Duplicated `/resources` directory creation in `saveBatteryCalibration()`.
+
+**Connections:** Consumes `state`, `config`, `sync`, `storage`. Exposes `powerStatus` global
+read directly by `button_animations` and `web_api`.
+
+---
+
+#### 5.11 `web_api.h` / `web_api.cpp`
+
+**Role:** SoftAP/DNS startup, static file serving with gzip negotiation, and all HTTP
+REST API routes (`/api/status`, `/api/frame`, `/api/scroll`, `/api/command`,
+`/api/saved_faces`, `/api/power`).
+
+**Design notes:**
+- The `ApiCommandRoute` dispatch table (`API_COMMAND_ROUTES[]`) cleanly maps command name
+  strings to handler function pointers. Adding a new command requires one table entry and
+  one handler function, with no changes to the dispatch loop.
+- `handleApiScroll()` manually parses the `frames` JSON array inline rather than using
+  ArduinoJson. This is intentional: the frames array can contain thousands of M370 strings
+  totaling hundreds of KB, which would exceed ArduinoJson's practical memory limits on the
+  ESP32 for a full parse. The custom parser consumes the body in a streaming fashion,
+  writing directly to `runtimeScrollFrameBits()` as it goes.
+- `serveStaticFile()` correctly handles the path normalization (`"/" → "/index.html"`,
+  path-with-trailing-slash → `+ "index.html"`), gzip preference, and the fallback to
+  raw file when gzip is absent.
+- `streamFileChunked()` allocates an 8 KB heap buffer for file streaming with a 512-byte
+  stack fallback if `malloc()` fails. The watchdog yield (`vTaskDelay`) every 4 chunks
+  prevents reset under large file transfers on a busy AP.
+- The `FILESYSTEM_ERROR_HTML` literal is stored in `PROGMEM` to avoid consuming 800+ bytes
+  of SRAM for a rarely-used error page.
+
+**Issues:**
+- [MEDIUM] JSON reply field duplication across route handlers.
+- [LOW] `handleApiStatus()` length (180+ lines).
+
+**Connections:** Consumes all modules. This is the top-level integration point.
+
+---
+
+#### 5.12 `web_json.h` / `web_json.cpp`
+
+**Role:** Lightweight raw-body JSON field extraction for the scroll upload path, which
+cannot use ArduinoJson for the `frames` array due to memory constraints.
+
+**Design notes:**
+- `jsonFieldValuePosition()` does a simple string-search for `"key"` followed by `:`.
+  This is intentionally a "good enough" parser for top-level fields in small command
+  bodies. It does not handle fields inside nested objects, arrays, or escaped key names.
+  This limitation is acceptable for its current use cases (booleans, integers, floats,
+  and a single string field in the scroll body).
+- `extractJsonStringAt()` correctly handles backslash escapes for the common JSON escape
+  sequences. The `\uXXXX` (Unicode) case is left as its trailing character — this is noted
+  in a comment and is acceptable because M370 frame strings contain only ASCII hex characters.
+
+**Connections:** Consumed only by `web_api.cpp`.
+
+---
+
+#### 5.13 `utils.h` / `utils.cpp`
+
+**Role:** Pure stateless helpers: hex nibble parse, JSON capacity estimate, color hex
+parse/format.
+
+**Design notes:**
+- `hexNibble()` is called in the hot path of `normalizeM370()` (370 times per M370 decode).
+  Its lookup is a simple range check — no table, no branch misprediction concern.
+- `jsonCapacityFor()` uses `max(sourceBytes * 2 + 4096, 32768)` as a conservative
+  ArduinoJson capacity estimate. The 2× factor accounts for the JSON tree overhead;
+  the 32 KB floor handles the case where a small file's 2× estimate is still too small.
+
+**Issue (LOW):** Redundant hex validation in `parseColorHex()` (see §4.2).
+
+---
+
+#### 5.14 `psram_json.h`
+
+**Role:** PSRAM-preferring custom allocator for `BasicJsonDocument<SpiRamAllocator>`,
+aliased as `PsramJsonDocument`.
+
+**Design notes:**
+- `allocate()` / `reallocate()` both try `MALLOC_CAP_SPIRAM` first, then fall back to
+  `MALLOC_CAP_8BIT`. `heap_caps_free()` is used for deallocation (correct for both tiers).
+- This header-only design is clean and composable. Using `BasicJsonDocument<SpiRamAllocator>`
+  rather than overriding a global allocator keeps the custom allocation opt-in per document.
+
+---
+
+### 6. Specific Code Observations
+
+Small-scale observations that do not rise to a structural finding but are worth noting
+for future maintainers.
+
+#### 6.1 `constrain()` with Arduino macros
+
+`constrain()` is used in `faces.cpp`, `web_api.cpp`, and `power_monitor.cpp`. On Arduino
+the `constrain(x, lo, hi)` macro expands to `((x)<(lo)?(lo):((x)>(hi)?(hi):(x)))`. Because
+`x` is evaluated up to three times, it is unsafe with expressions that have side effects.
+In this codebase, only simple variables are passed to `constrain()`, so there is no bug.
+However, the ESP32 Arduino core ships `<algorithm>`, so `std::clamp(x, lo, hi)` (C++17)
+or `std::min(std::max(x, lo), hi)` is the preferred alternative.
+
+#### 6.2 `millis()` timestamp arithmetic and `int32_t` cast
+
+`faces.cpp` line 346:
+```cpp
+if (static_cast<int32_t>(now - runtimeState().deferredFaceRestoreDueMs) < 0) return;
+```
+This correctly handles the case where `deferredFaceRestoreDueMs` is set in the future
+by casting the unsigned difference to signed. This is the canonical Arduino pattern for
+"is due time in the future?" The assumption is that the maximum due-time offset is less
+than 2^31 ms (~24.9 days), which is always true here (`LED_STOP_CLEAR_BLANK_HOLD_MS = 90`).
+
+#### 6.3 `DynamicJsonDocument` vs `PsramJsonDocument`
+
+Several places in `storage.cpp` and `power_monitor.cpp` use `DynamicJsonDocument` for
+small documents (384–768 bytes capacity). Since these capacities are well within SRAM
+headroom and the documents are short-lived, using `DynamicJsonDocument` rather than
+`PsramJsonDocument` is fine. Consistency could be improved by using `StaticJsonDocument`
+for truly compile-time-known small capacities.
+
+#### 6.4 String comparison in `playbackIsNonFaceActivity()`
+
+```cpp
+// faces.cpp
+if (runtimeState().lastReason.startsWith("text_scroll_") ||
+    runtimeState().lastReason.startsWith("custom_") || ...)
+```
+`String::startsWith()` is an O(n) case-insensitive scan. For the short reason strings
+used here this is negligible, but it is worth noting that reason strings are not
+validated/constrained, so a future module that sets a long reason string would make
+these checks proportionally more expensive.
+
+#### 6.5 `showFilesystemErrorPattern()` in `web_api.cpp`
+
+This function lights the first 12 LEDs red to signal a LittleFS mount failure before the
+WebServer is up. It correctly calls `setFrameBit()` inside a `withFrameLock` lambda,
+then requests a render. The function should arguably live in `led_renderer.cpp` (pure
+renderer concern) rather than `web_api.cpp` (HTTP concern), but since it is only called
+from `main.cpp::setup()` and `web_api.cpp::handleNotFound()`, its current location is
+acceptable.
+
+#### 6.6 `normalizeM370()` String reservation
+
+```cpp
+String compact;
+compact.reserve(M370_HEX_CHARS);  // pre-allocates 93 chars
+```
+Calling `reserve()` before the character-append loop prevents repeated heap reallocations
+during the loop. This is correct performance practice for `String` on embedded targets.
+
+---
+
+### 7. Prioritized Recommendations
+
+Listed in priority order. Items marked ✅ are already correct and should be preserved.
+
+| # | Priority | File(s) | Action |
+|---|----------|---------|--------|
+| 1 | **HIGH** | `state.h` / `state.cpp` | Replace static `fallbackScrollFrameBits_[3072][47]` member with a runtime heap allocation in `initScrollFrameBuffer()`, freeing 144 KB of guaranteed SRAM. |
+| 2 | **MEDIUM** | `storage.h/.cpp`, `power_monitor.cpp` | Move `ensureResourcesDirectory()` to `storage.h` (non-static), eliminating the duplicated mkdir logic in `saveBatteryCalibration()`. |
+| 3 | **MEDIUM** | `storage.cpp`, `faces.h` | Decouple the `storage→faces` layering: have `loadRuntimeSettings()` return a settings struct; let `main.cpp` call `setMode()`. |
+| 4 | **MEDIUM** | `web_api.cpp` | Extract `addAutoFaceFields()`, `addScrollStopEvent()`, and `addVersionFields()` helpers to eliminate JSON field duplication across route handlers. |
+| 5 | **MEDIUM** | `storage.cpp` | Replace O(n²) bubble sort with `std::sort` + lambda. |
+| 6 | **LOW** | `button_animations.cpp` | Replace manual field-by-field copy in `startOverlay()` with struct assignment under portMUX. |
+| 7 | **LOW** | `button_animations.cpp` | Replace `0x80000000UL` magic constant with named `MILLIS_HALF_RANGE` and a `millisPast()` helper. |
+| 8 | **LOW** | `utils.cpp` | Eliminate `parseColorHex()` double-parse by reusing `hexNibble()` results directly. |
+| 9 | **LOW** | `faces.cpp` | Add `scrollFrameCount > 0` guard before `firmwareScrollActive = true` in `applyFirmwareScrollPauseIntentLocked()`. |
+| 10 | **LOW** | `web_api.cpp` | Split `handleApiStatus()` into sub-helpers matching the existing `addPowerStatus()` pattern. |
+
+**Items to preserve as-is (already optimal):**
+- ✅ Meyers singleton in `RuntimeStore`
+- ✅ RAII `ScopedLock` + `withXxxLock` template helpers
+- ✅ Pre-computed `logicalToPhysicalMap` index table
+- ✅ ISR-safe portMUX for render-request flag
+- ✅ Atomic JSON write via temp-file-then-rename
+- ✅ PSRAM-preferring `SpiRamAllocator` / `PsramJsonDocument`
+- ✅ Time-delta EMA battery filter (`alpha = 1 - exp(-dt/tau)`)
+- ✅ Trimmed-mean ADC sampling (`std::sort` + inner-subset average)
+- ✅ Drop-oldest frame-queue overflow policy
+- ✅ Gzip-negotiated static asset serving
+- ✅ `scrollRenderTask` drift correction (grid-lock advance + burst-reset)
+- ✅ Double-lock TOCTOU guard in `scrollRenderTask` (scroll unlock → frame lock re-check)
+- ✅ `static_assert` verifying matrix row layout sums to `LED_COUNT`
+
+---
+
+*End of Review*
+
+---
+
+## 19. 文字滚动 6.4 源文本同步实现计划（v6，实施就绪版）
+
+> 合并说明：本章整合自 `plan_scroll_source_text_v2.md` ~ `v6.md` 五个迭代版本。**v6 是 implementation-ready 版本，明确声明 supersedes v2–v5**，因此此处只保留 v6 的完整内容作为权威规格；v2/v3/v4/v5 为历次审计产生的历史草案（含被 v6 覆盖的决策，例如 v3 之前的 code-point 上限已在 v4/C1 改为仅 4096 字节上限），其增量已并入本章并删除源文件。该特性在原 `plan.md` 主体中**完全缺失**，属新增实现计划，落地时应与 §6.2 `sync`、§6.11 `web_api`、§8.9 文本滚动页交叉对照。审计标签（D1–D10、E1–E6、EH-A..C、SF1）保留以便追溯。
+
+Core model unchanged: WebUI uploads generated M370 frames **plus** Unicode source
+text + metadata; firmware stores both in RAM; WebUI rebuilds preview locally from
+text; firmware never sends frames/bitmaps back; only frameIndex syncs during
+playback.
+
+### Changes from v5 (fifth audit, tags E1–E6 / EH-A..C, + one self-found item)
+
+```text
+E1  frame-overrun check applies to the FIRST chunk too (timeline-backed):
+    parsedSoFar > totalFramesExpected -> 409 + invalidate
+E2  timeline-backed upload requires totalFrames > 0 (else uploadComplete can
+    never become true and D2 blocks playback forever) -> 400
+E3  timelineId / fontId / generatorVersion validated WHENEVER present
+    (independent of sourceText); D1 presence rule enforced separately
+E4  scroll.restoredTextTruncated flag — truncated restore can NEVER bind
+    framesTimelineId, even on coincidental frameCount match
+E5  setScrollRestoreWarning() appends warnings instead of overwriting
+    (truncation + version mismatch can coexist)
+E6  start_scroll payload timelineId: length > MAX_SCROLL_TIMELINE_ID_CHARS or
+    invalid charset -> 400 BEFORE the lock; never compare a truncated ID
+EH-A comment: bad frame data invalidates playback cache but intentionally
+     keeps sourceText
+EH-B doc: timelineId-without-sourceText is an advanced/third-party form; the
+     WebUI always sends timelineId + fontId + generatorVersion + sourceText
+EH-C firmware invariant comment near meta helpers (see 1.2)
+SF1 (self-found) variable first-chunk size changes upload-loop slicing:
+    chunk 1 starts at offset firstChunkFrames (not SCROLL_UPLOAD_CHUNK_FRAMES);
+    chunkIndex still increments by 1 per chunk — do NOT reuse the existing
+    fixed-stride loop in uploadFirmwareScrollTimeline unchanged
+```
+
+Final invariants (EH-C, also added as firmware comments):
+
+```text
+timelineId present  = timeline-backed cache
+timeline-backed     => totalFramesExpected > 0
+timeline-backed     => never playable unless uploadComplete == true
+framesTimelineId    = EXACT local preview identity only, never approximate
+```
+
+---
+
+### 0. Hard rules
+
+```text
+- Playback never depends on sourceText; frames-only uploads keep working.
+- Text-backed uploads are all-or-nothing: sourceText requires timelineId,
+  fontId, generatorVersion. Timeline-backed uploads require totalFrames > 0
+  (E2). Incomplete timeline-backed caches are never playable. Completed
+  timeline-backed uploads reject further appends.
+- No ark12.json fetch / frame regen during WebUI startup; regen on 6.4 entry
+  (or immediately after restore if 6.4 already active).
+- Identity = fontId + generatorVersion strings; no runtime hashing.
+- Text hard limit: MAX_SCROLL_TEXT_BYTES = 4096 UTF-8 bytes; no code-point cap.
+- scroll.timelineId vs scroll.framesTimelineId as v5; framesTimelineId binds
+  only on exact generator identity + frameCount match + non-truncated text (E4).
+- Metadata/text access under scrollMutex; copy under lock, serialize outside;
+  no heap String writes inside the lock.
+- No Unicode normalization; upload post-sanitize text; sanitize idempotent.
+- Matrix dims fixed 22x18 / 370 LEDs — not metadata.
+```
+
+---
+
+### 1. Firmware changes
+
+#### 1.1 config.h
+
+```cpp
+constexpr uint16_t MAX_SCROLL_TEXT_BYTES        = 4096;
+constexpr uint8_t  MAX_SCROLL_TIMELINE_ID_CHARS = 47;
+constexpr uint8_t  MAX_SCROLL_FONT_ID_CHARS     = 47;
+constexpr uint8_t  MAX_SCROLL_GENERATOR_CHARS   = 47;
+```
+
+#### 1.2 state.h — ScrollTimelineMeta + helpers
+
+Struct and buffer allocation as v4/v5. Helpers (called inside `withScrollLock`):
+
+```cpp
+// Invariant (EH-C):
+// meta.timelineId[0] != '\0' means this is a timeline-backed cache:
+//   - totalFramesExpected must be > 0 (enforced at upload),
+//   - uploadComplete is authoritative,
+//   - start_scroll must reject while uploadComplete == false.
+// framesTimelineId on the WebUI side mirrors EXACT preview identity only.
+
+static void invalidateScrollUploadLocked();   // EH-A: bad frame data invalidates
+                                              // the playback cache but
+                                              // intentionally keeps sourceText
+static void clearScrollTimelineMetaLocked();  // full clear; start of every
+                                              // append:false upload
+```
+
+`invalidateScrollUploadLocked()` call sites: append:false reset, the
+`m370ToPackedBits` failure path (web_api.cpp ~729), the E1 overrun reject, any
+future buffer clear.
+
+#### 1.3 web_json.cpp — `\uXXXX` decoding (unchanged)
+
+#### 1.4 utils — validators (unchanged signatures)
+
+`validateScrollSourceText` (UTF-8 strict, rejects U+0000 and C0 except `\n`),
+`validateMetaIdString` (nonempty, `[A-Za-z0-9._:-]`).
+
+#### 1.5 /api/scroll upload handler
+
+First chunk (`append:false`), strict order:
+
+```text
+1. Read timelineId / sourceText / fontId / generatorVersion / fps / intervalMs /
+   totalFrames.
+2. Validate BEFORE touching state:
+   a. totalFrames <= MAX_SCROLL_FRAMES                      -> else 413
+   b. E3: each of timelineId / fontId / generatorVersion, WHENEVER present:
+      validateMetaIdString (covers length + charset)        -> else 400
+   c. D1: if sourceText present:
+      timelineId AND fontId AND generatorVersion present    -> else 400
+      source-text buffer allocated?                         -> else 507
+      byte length <= MAX_SCROLL_TEXT_BYTES                  -> else 413
+      validateScrollSourceText passes                       -> else 400
+   d. E2: if timelineId present: totalFrames > 0            -> else 400
+3. stopFirmwareScroll(false); reset frame counters (existing behavior).
+4. withScrollLock: clearScrollTimelineMetaLocked(); store present fields;
+   hasSourceText only when sourceText stored;
+   totalFramesExpected = totalFrames; nextChunkIndex = 1.
+5. Stream/decode frames as today, with E1 inside the streaming loop for
+   timeline-backed uploads:
+      if totalFramesExpected > 0 && parsedSoFar > totalFramesExpected:
+          withScrollLock { scrollFrameCount = 0; invalidateScrollUploadLocked(); }
+          -> 409 "too many frames"
+   (m370ToPackedBits failure keeps its existing zero-count path + invalidate.)
+6. framesReceived = count; if totalFramesExpected > 0 &&
+   framesReceived >= totalFramesExpected: uploadComplete = true.
+```
+
+Append chunk (`append:true`):
+
+```text
+if meta.timelineId is non-empty (timeline-backed):
+    meta.uploadComplete == true            -> 409 "upload already complete"
+    timelineId missing                     -> 409 "timeline required"
+    timelineId != meta.timelineId          -> 409 "timeline mismatch"
+    chunkIndex missing                     -> 409 "chunk index required"
+    chunkIndex != meta.nextChunkIndex      -> 409 "chunk out of order"
+    E1 (streaming): framesReceived + parsedSoFar > totalFramesExpected
+                                           -> 409 "too many frames" + invalidate
+else (legacy frames-only):
+    timelineId/chunkIndex optional; chunkIndex if present must equal
+    meta.nextChunkIndex -> else 409; MAX_SCROLL_FRAMES cap applies as today
+decode frames; framesReceived += count; nextChunkIndex++
+if totalFramesExpected > 0 && framesReceived >= totalFramesExpected:
+    uploadComplete = true
+```
+
+EH-B: timelineId-without-sourceText is a valid but advanced/third-party form
+(restore reports hasSourceText=false). The WebUI itself ALWAYS sends
+timelineId + fontId + generatorVersion + sourceText on text sends.
+
+Auto-start logic unchanged. Reply gains `timelineId` + `uploadComplete`.
+Recovery from any upload error = full re-Send with a FRESH timelineId.
+
+#### 1.6 Metadata lifecycle (unchanged from v5)
+
+#### 1.7 /api/status — only 3 new fields (unchanged)
+
+`scrollTimelineId, scrollUploadComplete, scrollHasSourceText`.
+
+#### 1.8 GET /api/scroll/meta (unchanged from v5)
+
+Copy under lock → serialize outside; `PsramJsonDocument doc(16384)`;
+`capacity()==0` → 507; `overflowed()` → 507.
+
+#### 1.9 commandStartScroll — atomic, enum errors, E6 pre-lock validation
+
+```cpp
+// BEFORE the lock (E6): extract payload timelineId into a stack buffer.
+char payloadTimelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
+const char* raw = payload["timelineId"] | "";
+const size_t rawLen = strlen(raw);
+if (rawLen > MAX_SCROLL_TIMELINE_ID_CHARS) { sendError(400, "timeline id too long"); return; }
+if (rawLen > 0 && !validateMetaIdString(raw, MAX_SCROLL_TIMELINE_ID_CHARS)) {
+    sendError(400, "invalid timeline id"); return;
+}
+memcpy(payloadTimelineId, raw, rawLen);   // never compare a truncated ID
+
+enum class StartScrollError : uint8_t {
+    None, TimelineMismatch, UploadIncomplete, NoCachedFrames
+};
+StartScrollError serr = StartScrollError::None;
+withScrollLock([&]() {
+    const bool timelineBacked = meta.timelineId[0] != '\0';
+    const bool hasFrames = runtimeState().scrollFrameCount > 0 &&
+                           runtimeScrollFrameBufferReady();
+    if (timelineBacked) {
+        if (rawLen > 0 && strcmp(payloadTimelineId, meta.timelineId) != 0) {
+            serr = StartScrollError::TimelineMismatch; return;
+        }
+        if (!meta.uploadComplete) {            // D2: enforced even when the
+            serr = StartScrollError::UploadIncomplete; return;   // payload has
+        }                                       // no timelineId
+    }
+    if (!hasFrames) { serr = StartScrollError::NoCachedFrames; return; }
+});
+// map OUTSIDE the lock: TimelineMismatch/UploadIncomplete -> 409,
+// NoCachedFrames -> 400 (existing message)
+```
+
+---
+
+### 2. WebUI changes (data/app.js)
+
+#### 2.1 Constants (unchanged from v5)
+
+`SCROLL_GENERATOR_VERSION`, `SCROLL_FIRST_CHUNK_BODY_LIMIT_BYTES = 12*1024`;
+both ID constants must pass `validateMetaIdString` (test enforces).
+
+#### 2.2 scroll state additions + reset rules
+
+As v5, plus E4:
+
+```js
+scroll.restoredTextTruncated = false;
+```
+
+Reset rules:
+
+```text
+markScrollTextDirty()          : framesTimelineId = "";
+                                 restoredTextTruncated = false
+stopScroll() / GPIO reset path : clear pendingScrollMeta/restored*/warning/
+                                 restoredTextTruncated;
+                                 KEEP timelineId and framesTimelineId
+startScroll() (new Send)       : pendingScrollMeta = null;
+                                 restoredSourceText = "";
+                                 restoredFromFirmwareMeta = false;
+                                 restoreWarning = "";
+                                 restoredTextTruncated = false;
+                                 then fresh timelineId; framesTimelineId =
+                                 timelineId after prepare succeeds
+clean restore start            : restoreWarning = "";
+                                 restoredTextTruncated = false
+```
+
+Warning helper (E5) — use for ALL restore warnings (truncation, version
+mismatch, frameCount mismatch, unsent-edit):
+
+```js
+function setScrollRestoreWarning(message) {
+  if (!message) return;
+  scroll.restoreWarning = scroll.restoreWarning
+    ? `${scroll.restoreWarning}\n${message}`
+    : message;
+  // updateScrollUi renders multi-line warnings
+}
+```
+
+#### 2.3 Upload
+
+As v5 (generation guard, fresh timelineId per Send, metadata on first chunk,
+timelineId + chunkIndex on every chunk, D4 budget guard with 1-frame throw,
+one full retry on any 409 with fresh timelineId), plus SF1:
+
+```js
+// SF1: first chunk may carry fewer frames than SCROLL_UPLOAD_CHUNK_FRAMES.
+// The chunk loop must slice by a running offset, not a fixed stride:
+const firstChunkFrames = chooseFirstChunkFrames(buildFirstChunkPayload);
+let offset = 0, chunkIndex = 0;
+while (offset < frames.length) {
+  const size = chunkIndex === 0 ? firstChunkFrames : SCROLL_UPLOAD_CHUNK_FRAMES;
+  const chunk = frames.slice(offset, offset + size);
+  // POST with { chunkIndex, chunkFrames: chunk.length, totalFrames, ... }
+  offset += chunk.length;
+  chunkIndex++;
+}
+// chunkIndex increments by 1 per chunk regardless of chunk size; firmware
+// validates order by chunkIndex and total by frame counts, never by stride.
+```
+
+#### 2.4 Startup — text restore (E4, E5)
+
+As v5, with these replacements:
+
+```js
+scroll.restoreWarning = "";              // clean slate
+scroll.restoredTextTruncated = false;    // E4
+...
+setScrollTextFromFirmware(restoredText);
+const valueAfterSanitize = $("scroll-text")?.value || "";
+if (valueAfterSanitize && valueAfterSanitize !== restoredText) {
+  scroll.restoredTextTruncated = true;   // E4
+  setScrollRestoreWarning(               // E5
+    "硬件滚动文字超过 WebUI 输入上限，已截断显示；预览仅供参考。");
+}
+...
+if (meta.fontId !== TEXT_SCROLL_FONT_MODEL ||
+    meta.generatorVersion !== SCROLL_GENERATOR_VERSION) {
+  setScrollRestoreWarning(               // E5: appends, does not overwrite
+    "文字已从硬件恢复，但字体/生成器版本不同，预览可能与 LED 不一致。");
+}
+```
+
+Unsent-edit guard also uses `setScrollRestoreWarning`. Everything else
+(guard-before-bind, fps clamp, direct-on-6.4 regen call) unchanged from v5.
+
+#### 2.5 Page 6.4 entry — regen (E4)
+
+As v5, with the binding condition extended:
+
+```js
+if (!scroll.restoredTextTruncated &&          // E4
+    exactGeneratorMatch(meta) &&
+    scroll.frames.length === Number(meta.frameCount || 0)) {
+  scroll.framesTimelineId = String(meta.scrollTimelineId || "");
+} else {
+  scroll.framesTimelineId = "";
+  if (scroll.frames.length !== Number(meta.frameCount || 0)) {
+    setScrollRestoreWarning(
+      "文字已恢复，但本地重新生成的帧数与硬件不一致；预览仅供参考。");
+  }
+}
+```
+
+frameIndex apply + preview render + timer logic unchanged from v5.
+
+#### 2.6 Timeline-mismatch refetch (unchanged from v5)
+
+#### 2.7 No other sync changes
+
+---
+
+### 3. Implementation order
+
+```text
+1. web_json.cpp \uXXXX decoding (+ curl escape tests)
+2. config.h limits; utils validators
+3. state.h/.cpp: meta struct, text buffer alloc, invalidate/clear helpers,
+   invariant comments (EH-C)
+4. web_api.cpp: upload handler (E1/E2/E3 validation order, D3 rejects,
+   invalidate call sites, 507/413/400/409s)
+5. web_api.cpp: status fields, /api/scroll/meta, commandStartScroll (E6, D2, D8)
+6. app.js: constants, scroll fields + reset rules (E4), upload loop (SF1),
+   D4 budget guard, generation guard, fresh-id retry
+7. app.js: restore functions (E4/E5), mismatch refetch, warning line in
+   index.html (multi-line capable)
+8. Tests
+```
+
+### 4. Test checklist
+
+All v5 tests remain, plus:
+
+```text
+First-chunk malformed upload (E1, E2)
+- append:false, timelineId, totalFrames=10, first chunk has 11+ frames
+  -> 409 "too many frames", cache invalidated, start_scroll then 409/400
+- append:false with timelineId and missing/zero totalFrames -> 400; no
+  unplayable timeline-backed cache is ever created
+Metadata validation (E3, E6)
+- fontId present WITHOUT sourceText but invalid charset -> 400
+- generatorVersion present WITHOUT sourceText but invalid -> 400
+- start_scroll timelineId longer than MAX_SCROLL_TIMELINE_ID_CHARS -> 400,
+  no truncated comparison
+D10/E4 exactness
+- oversized third-party text truncates; regenerated frameCount coincidentally
+  equals meta.frameCount -> framesTimelineId STILL stays ""
+Warnings (E5)
+- oversized text + generator mismatch -> BOTH warnings visible
+Upload loop (SF1)
+- large text forcing reduced first chunk: total uploaded frame count exactly
+  equals totalFrames (no duplicate/skipped frames at the chunk-1 boundary);
+  firmware reports uploadComplete=true and plays correctly
+```
+
+v5 checklist highlights that still apply verbatim: 4096-byte ASCII accept,
+frames-only compatibility, D1 400s, D2 partial-upload start reject, D3
+complete-then-append reject, escape round-trips, race/stale-upload, restore
+paths (boot / direct-6.4 / paused / stopped / second device), stale-frame
+regen, input-overwrite guards, stop semantics, buffer invalidation,
+boot-time + status-size regressions.
+
+---
+
+## 20. 按钮 LED overlay / 动画完整重建规格（含 bitmap，源自 `animation.md`）
+
+> 合并说明：本章整合自 `animation.md`（按钮 LED 动画重建规格，指定规格版：无 IP 滚动、无电池时间页）。§6.12 `button_animations.h/.cpp` 给出的是模块级摘要，本章是**像素级实现参考**，保留全部 bitmap 资源（`_FONT[*]`、`CLOCK_ICON`、`SUN_ICON_1`、`_BIG_A`/`_BIG_M`、`BATTERY_ICON`、`BATTERY_FILL_*_COLS`、`BATTERY_CHARGE_SWEEP_*_COLS`）、颜色常量、`_render_string()` 布局规则、edge flash 动画逻辑、电池页面与充电动画逻辑、电池 ADC 与百分比/颜色换算。这些 bitmap 与精确逻辑在原 `plan.md` 主体中缺失，必须保留。硬件与坐标映射（§20 内 1.1/1.2）与 §5.1/§5.3 重复，保留作为该子系统的自洽参考；亮度 raw `0..200` 模型（§20 内 1.3）是本子系统的权威细节，与 §5.4 协同。原文件的“§0 一致性检查结论”元说明已并入本说明、不再单列。
+
+本文件用于让另一个 Agent 仅根据本文档重建按钮 LED overlay / animation 行为。本文保留旧固件的动画结构、bitmap、颜色和刷新节奏，但按当前需求覆盖亮度数值规格，并删除 IP 滚动与电池时间页。范围只包含：
+
+- 亮度加减 overlay
+- auto interval 加减 overlay
+- M/A 切换 overlay
+- B6 电池页面与充电动画：百分比、电池电压、充电输入电压；不包含使用时间 / 充电时间页
+
+明确排除：IP/SSID 滚动、默认表情、固定 saved face 示例、BadApple、matrix demo、WebUI 图片切换动画、电池使用时间页、电池充电时间页。
+
+
+### 1. 硬件与全局显示基础
+
+| 项目 | 值 |
+|---|---:|
+| LED data GPIO | `GPIO2` |
+| LED 数量 | `370` |
+| 逻辑画布 | `22 × 18` |
+| `COLS` | `22` |
+| `ROWS` | `18` |
+| 行长度 `ROW_LENGTHS` | `[18, 20, 20, 20, 22, 22, 22, 22, 22, 22, 22, 22, 22, 20, 20, 20, 18, 16]` |
+| 走线 | serpentine，奇数行反向 |
+| `FLIP_X` / `FLIP_Y` | `False` / `False` |
+| 主循环/渲染调度 | Core 0 `loop()` 约每 `1 ms` 服务按钮、电源、队列与自动播放；Core 1 LED render task 约每 `1 ms` 等待唤醒/滚动步进 |
+
+#### 1.1 逻辑坐标到 LED index
+
+```python
+def logical_to_led_index(x, y):
+    if x < 0 or x >= 22 or y < 0 or y >= 18:
+        return None
+
+    row_width = ROW_LENGTHS[y]
+    left_pad = (22 - row_width) // 2
+    if x < left_pad or x >= left_pad + row_width:
+        return None
+
+    local_x = x - left_pad
+    if y % 2 == 1:               # SERPENTINE
+        local_x = row_width - 1 - local_x
+
+    return ROW_STARTS[y] + local_x
+```
+
+#### 1.2 有效 LED mask
+
+```text
+row 00: ..##################..
+row 01: .####################.
+row 02: .####################.
+row 03: .####################.
+row 04: ######################
+row 05: ######################
+row 06: ######################
+row 07: ######################
+row 08: ######################
+row 09: ######################
+row 10: ######################
+row 11: ######################
+row 12: ######################
+row 13: .####################.
+row 14: .####################.
+row 15: .####################.
+row 16: ..##################..
+row 17: ...################...
+```
+
+#### 1.3 亮度缩放与百分比显示
+
+本文使用 raw brightness 作为 LED 通道上限。raw brightness 范围为 `0..200`。
+
+- `0 / 255` 定义为显示 `0%`。
+- `200 / 255` 定义为显示 `100%`。
+- `201..255` 不作为按钮亮度范围使用。
+
+显示百分比：
+
+```python
+def brightness_raw_to_percent(raw):
+    raw = max(0, min(200, int(raw)))
+    return int(round(raw * 100 / 200))
+```
+
+所有 overlay 颜色在写入 LED 前都经过 `scale_color(rgb)`，其中 `MAX_BRIGHTNESS = brightness_raw`：
+
+```python
+def scale_color(rgb):
+    r, g, b = rgb
+    m = max(r, g, b)
+    cap = max(0, min(200, int(MAX_BRIGHTNESS)))
+    if m <= cap:
+        return (clamp(r,0,255), clamp(g,0,255), clamp(b,0,255))
+    if cap <= 0:
+        return (0, 0, 0)
+    s = cap / m
+    return (int(r * s), int(g * s), int(b * s))
+```
+
+注意：`scale_color()` 是 peak limiter / ceiling cap，不是全局亮度乘法。若输入颜色最大通道 `m <= brightness_raw`，颜色原样保留；只有当某个通道超过当前 brightness cap 时，才按比例压低到 cap。不要把它实现成 `rgb * brightness_raw / 200`，除非刻意改变旧固件的视觉语义。
+
+示例：`raw=0 -> 0%`，`raw=8 -> 4%`，`raw=40 -> 20%`，`raw=100 -> 50%`，`raw=200 -> 100%`。
+
+### 2. 按钮输入、组合键、repeat 参数
+
+| 名称 | GPIO | 源码注释 / 用途 |
+|---|---:|---|
+| B1 / `BTN_PREV` | `17` | previous face；B3 held 时 interval 减少 |
+| B2 / `BTN_NEXT` | `16` | next face；B3 held 时 interval 增加 |
+| B3 / `BTN_AUTO` | `15` | A/M toggle；组合键 modifier |
+| B4 / `BTN_BRIGHT_DN` | `40` | 当前规格：raw brightness `-8` |
+| B5 / `BTN_BRIGHT_UP` | `41` | 当前规格：raw brightness `+8` |
+| B6 / `BTN_BRIGHT_RST` | `42` | 电池短显/长显；B4+B5 reset 逻辑在本目标范围外 |
+
+| 参数 | 值 |
+|---|---:|
+| active level | active-low，按下为 `0` |
+| debounce | `25 ms` |
+| autorepeat buttons | B1, B2, B4, B5 |
+| repeat initial delay | `400 ms` |
+| repeat period | `140 ms` |
+| B3 repeat | 无 |
+| B6 repeat | 无 |
+
+#### 2.1 本文件范围内的按钮行为
+
+| 输入 | 触发时机 | 源程序行为 | 对应 LED overlay / animation |
+|---|---|---|---|
+| B3 | 松开触发，且未被组合键消费 | `auto = not old_auto` | 显示大号 `A` 或 `M`，紫色，保持 1000ms |
+| B3+B1 | 按住 B3 后按 B1；repeat 也生效 | `interval_s -= 0.5`，clamp 到 `0.5s` | 显示 `x.xS` + clock icon，紫色；到下限时 bottom edge flash |
+| B3+B2 | 按住 B3 后按 B2；repeat 也生效 | `interval_s += 0.5`，clamp 到 `10.0s` | 显示 `x.xS` 或 `10S` + clock icon，紫色；到上限时 top edge flash |
+| B4 | 按下立即；repeat 也生效 | `brightness_raw -= 8`，clamp 到 `0` | 显示 `NN%` + sun icon，蓝色；到下限时 bottom edge flash |
+| B5 | 按下立即；repeat 也生效 | `brightness_raw += 8`，clamp 到 `200` | 显示 `NN%` + sun icon，蓝色；到上限时 top edge flash |
+| B6 短按 | B6 按下后在 700ms 前释放 | 显示电池百分比 | `BATTERY_ICON + NN%`，2000ms，不播放充电 sweep |
+| B6 长按 | B6 按住达到 700ms | 进入电池详细循环 | 非充电：百分比 / 电池电压；充电：百分比 / 电池电压 / 充电输入电压，并播放充电动画 |
+
+#### 2.2 排除项
+
+不得实现以下内容：
+
+- IP/SSID 滚动显示
+- `_SCROLL_FONT`
+- `render_scrolling_text_window()`
+- `check_ip_combo()` / B2+B6 IP 组合键
+- 默认表情 bitmap / 默认 saved face 示例
+
+### 3. overlay 通用生命周期
+
+| 参数 | 值 |
+|---|---:|
+| `FLASH_HOLD_MS` | `1000 ms` |
+| overlay types | `mode`, `interval`, `brightness` |
+| 电池 overlay 是否使用 `FLASH_HOLD_MS` | 否，电池使用自己的 active/expires/phase 状态 |
+
+#### 3.1 普通 overlay 启动
+
+亮度、interval、M/A 都调用等价逻辑：
+
+```python
+flash_active = True
+flash_kind = kind
+flash_value = value
+flash_expires_ms = now + 1000
+```
+
+#### 3.2 普通 overlay 到期
+
+每个主循环 tick 检查：
+
+```python
+if flash_active and now >= flash_expires_ms:
+    flash_active = False
+    flash_kind = None
+    flash_value = None
+    render_current_visual(force=True)   # 恢复当前 face
+```
+
+如果 `battery_display_active == True`，不会执行普通 flash 到期恢复逻辑。
+
+### 4. 颜色常量
+
+| 名称 | RGB | Hex | 用途 |
+|---|---:|---:|---|
+| `BRIGHTNESS_COLOR` | `(0, 120, 255)` | `#0078FF` | 亮度百分比、太阳图标 |
+| `MODE_COLOR` | `(180, 0, 255)` | `#B400FF` | M/A、interval、clock icon、interval edge flash |
+| `EDGE_FLASH_COLOR` | `(0, 120, 255)` | `#0078FF` | 亮度 clamp edge flash |
+| `DEFAULT_COLOR` | `(0, 120, 255)` | `#0078FF` | 默认数字/电池 fallback |
+| charge-voltage text | `(255, 255, 255)` | `#FFFFFF` | 充电输入电压页面文字 |
+| battery fallback | `(255, 0, 0)` | `#FF0000` | 电池百分比为空时显示 `0%` |
+
+### 5. 字符、图标、bitmap 资源
+
+#### 5.1 7×5 / 特殊字符 glyph
+
+这些 glyph 被亮度、interval、电池数字页共用。`_render_string()` 字符间隔为 1 列；带图标时文字 y 起点为 `9`，无图标时文字 y 起点为 `(18 - 7)//2 = 5`。
+
+#### `_FONT[0]`
+
+```text
+.###.
+#...#
+#..##
+#.#.#
+##..#
+#...#
+.###.
+```
+
+#### `_FONT[1]`
+
+```text
+.##..
+#.#..
+..#..
+..#..
+..#..
+..#..
+#####
+```
+
+#### `_FONT[2]`
+
+```text
+.###.
+#...#
+....#
+...#.
+..#..
+.#...
+#####
+```
+
+#### `_FONT[3]`
+
+```text
+####.
+....#
+....#
+.###.
+....#
+....#
+####.
+```
+
+#### `_FONT[4]`
+
+```text
+...#.
+..##.
+.#.#.
+#..#.
+#####
+...#.
+...#.
+```
+
+#### `_FONT[5]`
+
+```text
+#####
+#....
+####.
+....#
+....#
+#...#
+.###.
+```
+
+#### `_FONT[6]`
+
+```text
+.###.
+#...#
+#....
+####.
+#...#
+#...#
+.###.
+```
+
+#### `_FONT[7]`
+
+```text
+#####
+....#
+...#.
+..#..
+.#...
+.#...
+.#...
+```
+
+#### `_FONT[8]`
+
+```text
+.###.
+#...#
+#...#
+.###.
+#...#
+#...#
+.###.
+```
+
+#### `_FONT[9]`
+
+```text
+.###.
+#...#
+#...#
+.####
+....#
+#...#
+.###.
+```
+
+
+#### `_FONT[S]`
+
+```text
+.####
+#....
+#....
+.###.
+....#
+....#
+####.
+```
+
+#### `_FONT[V]`
+
+```text
+#...#
+#...#
+#...#
+.#.#.
+.#.#.
+..#..
+..#..
+```
+
+#### `_DOT`
+
+```text
+.
+.
+.
+.
+.
+.
+#
+```
+
+#### `_PCT_3`
+
+```text
+#.#
+..#
+.#.
+.#.
+#..
+#.#
+...
+```
+
+
+#### 5.2 `CLOCK_ICON` 22×18
+
+```text
+......................
+.........####.........
+........#...##........
+........#..#.#........
+........#....#........
+........#....#........
+.........####.........
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### 5.3 `SUN_ICON_1` 22×18
+
+源码 `_sun_icon_rows(percent)` 始终返回 `SUN_ICON_1`。`SUN_ICON_2` / `SUN_ICON_3` 在当前源码中不会被亮度 overlay 使用。
+
+```text
+......................
+.......#......#.##....
+....##.#......#.......
+........#....#........
+.........####..#......
+.......#........#.....
+......#....#..........
+...........#..........
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### 5.4 `_BIG_A` 原始 10×13 bitmap
+
+```text
+...####...
+..######..
+.##....##.
+.##....##.
+.##....##.
+.##....##.
+.########.
+.########.
+.##....##.
+.##....##.
+.##....##.
+.##....##.
+.##....##.
+```
+
+#### 5.5 `_BIG_M` 原始 10×13 bitmap
+
+```text
+##......##
+###....###
+####..####
+##.####.##
+##..##..##
+##......##
+##......##
+##......##
+##......##
+##......##
+##......##
+##......##
+##......##
+```
+
+#### 5.6 `_BIG_A` 居中到 22×18 后的实际画面
+
+```text
+......................
+......................
+.........####.........
+........######........
+.......##....##.......
+.......##....##.......
+.......##....##.......
+.......##....##.......
+.......########.......
+.......########.......
+.......##....##.......
+.......##....##.......
+.......##....##.......
+.......##....##.......
+.......##....##.......
+......................
+......................
+......................
+```
+
+#### 5.7 `_BIG_M` 居中到 22×18 后的实际画面
+
+```text
+......................
+......................
+......##......##......
+......###....###......
+......####..####......
+......##.####.##......
+......##..##..##......
+......##......##......
+......##......##......
+......##......##......
+......##......##......
+......##......##......
+......##......##......
+......##......##......
+......##......##......
+......................
+......................
+......................
+```
+
+#### 5.8 `BATTERY_ICON` 基础 22×18 bitmap
+
+```text
+......................
+......#########.......
+......#........#......
+......#........#......
+......#........#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+### 6. `_render_string()` 精确布局规则
+
+所有 `NN%`、`x.xS`、`N.NV`、`NM`、`N.NH`、`N.N` 页面都使用同一个文本布局规则。
+
+```python
+gap = 1
+glyphs = [_glyph_for(ch) for ch in text]
+total_w = sum(width(g) for g in glyphs) + gap * (len(glyphs) - 1)
+x0 = (22 - total_w) // 2
+y0 = 9 if icon_rows is not None else 5
+```
+
+绘制流程：
+
+1. `clear()` 清空整个 LED buffer。
+2. 如果有 icon：从 `(x0=0, y0=0)` 绘制完整 22×18 icon bitmap。
+3. 文本使用 `color` 绘制到 `(x0, y0)`。
+4. 每个字符之间空 1 列。
+5. 任何落在无效物理 LED 位置的像素由 `logical_to_led_index()` 丢弃。
+6. 绘制完成后 `show()`。
+
+### 7. M/A overlay 完整逻辑
+
+#### 7.1 触发
+
+B3 按下时不切换；B3 释放时切换。B3 如果被组合键消费，则释放时不切换。
+
+```python
+# Persistent button state.
+b3_consumed_by_combo = False
+
+# On B3 press.
+b3_consumed_by_combo = False
+
+# On B3+B1 or B3+B2 interval action, including repeat.
+b3_consumed_by_combo = True
+
+# On B3 release.
+if not b3_consumed_by_combo:
+    old_auto = bool(state.auto)
+    state.auto = not old_auto
+    render_mode(state.auto)
+    start_or_extend_flash("mode", state.auto)
+
+b3_consumed_by_combo = False
+```
+
+#### 7.2 显示
+
+| auto 状态 | glyph | 颜色 | 持续 |
+|---|---|---|---:|
+| `True` | `_BIG_A` | `MODE_COLOR #B400FF` | `1000 ms` |
+| `False` | `_BIG_M` | `MODE_COLOR #B400FF` | `1000 ms` |
+
+位置：
+
+```python
+x0 = (22 - 10) // 2 = 6
+y0 = (18 - 13) // 2 = 2
+```
+
+### 8. interval overlay 完整逻辑
+
+#### 8.1 参数
+
+| 参数 | 值 |
+|---|---:|
+| 默认 interval | `1.0 s` |
+| 步进 | `0.5 s` |
+| 最小值 | `0.5 s` |
+| 最大值 | `10.0 s` |
+| overlay hold | `1000 ms` |
+| 颜色 | `MODE_COLOR #B400FF` |
+
+#### 8.2 按钮方向
+
+```python
+# B3 held + B1
+interval_s = clamp_interval(interval_s - 0.5)
+
+# B3 held + B2
+interval_s = clamp_interval(interval_s + 0.5)
+```
+
+#### 8.3 clamp
+
+```python
+if value < 0.5:
+    value = 0.5
+elif value > 10.0:
+    value = 10.0
+value = round(value * 10) / 10.0
+```
+
+#### 8.4 文本格式
+
+```python
+tenths = int(round(seconds * 10))
+whole = tenths // 10
+frac = tenths % 10
+text = "10" if whole == 10 and frac == 0 else f"{whole}.{frac}"
+render_text = text + "S"
+```
+
+例：
+
+| interval | text |
+|---:|---|
+| `0.5` | `0.5S` |
+| `1.0` | `1.0S` |
+| `9.5` | `9.5S` |
+| `10.0` | `10S` |
+
+#### 8.5 渲染
+
+```python
+render_interval(interval_s):
+    _render_string(format_interval(interval_s) + "S", MODE_COLOR, icon_rows=CLOCK_ICON)
+```
+
+#### 8.6 interval clamp edge flash
+
+| 条件 | edge | 颜色 |
+|---|---|---|
+| B3+B1 继续减少且已到 `0.5s` | bottom row `y=17` | `MODE_COLOR #B400FF` |
+| B3+B2 继续增加且已到 `10.0s` | top row `y=0` | `MODE_COLOR #B400FF` |
+
+源码在 `adjust_interval()` 中先 `render_interval()`，再 `start_or_extend_flash("interval")`，最后执行一次 `overlay_edge_flash()`，主循环后续会继续叠加 edge flash 直到 305ms 结束。
+
+### 9. brightness overlay 完整逻辑
+
+#### 9.1 参数
+
+| 参数 | 值 |
+|---|---:|
+| brightness 存储单位 | raw LED brightness / channel cap |
+| 默认 raw brightness | `60`，显示为 `30%` |
+| 步进 | `8` raw units |
+| 最小 raw brightness | `0`，显示为 `0%` |
+| 最大 raw brightness | `200`，显示为 `100%` |
+| LED 通道理论满量程 | `255` |
+| overlay hold | `1000 ms` |
+| 颜色 | `BRIGHTNESS_COLOR #0078FF` |
+
+#### 9.2 按钮方向
+
+```python
+# B4 / GPIO40 / BTN_BRIGHT_DN
+brightness_raw = clamp_brightness_raw(brightness_raw - 8)
+
+# B5 / GPIO41 / BTN_BRIGHT_UP
+brightness_raw = clamp_brightness_raw(brightness_raw + 8)
+```
+
+#### 9.3 clamp 与百分比换算
+
+```python
+def clamp_brightness_raw(value):
+    if value < 0:
+        return 0
+    if value > 200:
+        return 200
+    return int(value)
+
+def brightness_raw_to_percent(raw):
+    raw = clamp_brightness_raw(raw)
+    return int(round(raw * 100 / 200))
+```
+
+显示关系：
+
+| raw brightness | 对应 LED 通道比例 | 显示百分比 |
+|---:|---:|---:|
+| `0` | `0 / 255` | `0%` |
+| `8` | `8 / 255` | `4%` |
+| `40` | `40 / 255` | `20%` |
+| `100` | `100 / 255` | `50%` |
+| `160` | `160 / 255` | `80%` |
+| `200` | `200 / 255` | `100%` |
+
+#### 9.4 渲染
+
+```python
+def render_brightness_raw(raw):
+    percent = brightness_raw_to_percent(raw)
+    _render_string(str(int(percent)) + "%", BRIGHTNESS_COLOR, icon_rows=SUN_ICON_1)
+```
+
+显示内容永远是百分比文字，不直接显示 raw brightness。
+
+#### 9.5 brightness clamp edge flash
+
+| 条件 | edge | 颜色 |
+|---|---|---|
+| B4 继续降低且已到 raw `0` | bottom row `y=17` | `EDGE_FLASH_COLOR #0078FF` |
+| B5 继续升高且已到 raw `200` | top row `y=0` | `EDGE_FLASH_COLOR #0078FF` |
+
+执行顺序：
+
+```python
+apply_brightness_raw()
+render_brightness_raw(brightness_raw)
+start_or_extend_flash("brightness", brightness_raw)
+overlay_edge_flash_if_clamped()
+```
+
+`start_or_extend_flash("brightness", brightness_raw)` 必须先于 `overlay_edge_flash_if_clamped()` 执行，使触发 tick 的首帧也拥有正确的 `flash_kind`。brightness clamp 使用 `EDGE_FLASH_COLOR`；interval clamp 使用 `MODE_COLOR`，同样必须先设置 `flash_kind = "interval"` 再叠加 edge flash。
+
+### 10. edge flash 完整动画逻辑
+
+edge flash 用于 brightness / interval 到达 clamp 边界时的顶边/底边反馈。它不是独立 bitmap，而是在当前 overlay 上叠加一条渐变边缘。
+
+| 参数 | 值 |
+|---|---:|
+| attack | `45 ms` |
+| decay | `260 ms` |
+| total | `305 ms` |
+| top edge row | `y = 0` |
+| bottom edge row | `y = 17` |
+| x center | `(22 - 1) / 2 = 10.5` |
+| max distance | `10.5` |
+| minimum spatial factor | `0.20` |
+
+#### 10.1 时间 envelope
+
+```python
+if elapsed_ms < 0 or elapsed_ms > 305:
+    factor = 0.0
+elif elapsed_ms <= 45:
+    factor = elapsed_ms / 45.0
+else:
+    t = (elapsed_ms - 45) / 260.0
+    factor = 1.0 - t
+```
+
+#### 10.2 空间 envelope
+
+```python
+for x in range(22):
+    dist = abs(x - 10.5)
+    spatial = 1.0 - (dist / 10.5)
+    if spatial < 0.20:
+        spatial = 0.20
+    level = factor * spatial
+```
+
+#### 10.3 颜色合成
+
+```python
+flash_color = MODE_COLOR if flash_kind == "interval" else EDGE_FLASH_COLOR
+pixel_rgb = scale_color((
+    int(flash_color[0] * level),
+    int(flash_color[1] * level),
+    int(flash_color[2] * level),
+))
+```
+
+只对 `logical_to_led_index(x, y) != None` 的有效 LED 写入。
+
+#### 10.4 edge 有效行 mask
+
+```text
+top y=0:    ..##################..
+bottom y=17:...################...
+```
+
+### 11. B6 电池页面与充电动画完整逻辑
+
+#### 11.1 B6 短按
+
+| 项目 | 值 |
+|---|---:|
+| 长按阈值 | `700 ms` |
+| 短显持续 | `2000 ms` |
+| phase count | `1` |
+| phase index | `0` |
+| 页面 | `percent_short` |
+| 充电 sweep | 禁用，即使当前正在充电 |
+| 到期行为 | `stop_battery_display()`，恢复当前 face |
+
+启动逻辑：
+
+```python
+battery_display_active = True
+battery_display_single_shot = True
+flash_active = False
+battery_next_refresh_ms = 0
+battery_visual_next_refresh_ms = 0
+refresh_battery_overlay_cache(force=True)
+battery_display_toggle_started_ms = now
+battery_display_phase_index = 0
+battery_display_phase_count = 1
+battery_display_next_phase_ms = 0
+battery_display_expires_ms = now + 2000
+render_battery_overlay(refresh_phase=False, refresh_cache=False)
+```
+
+#### 11.2 B6 长按
+
+B6 按住达到 700ms，并且 B3 / B2 未按住时，进入长显。
+
+| 项目 | 非充电 | 充电 |
+|---|---:|---:|
+| phase count | `2` | `3` |
+| phase 0 | 百分比 `NN%` | 百分比 `NN%` |
+| phase 1 | 电池电压 `N.NV` | 电池电压 `N.NV` |
+| phase 2 | 不存在 | 充电输入电压 `N.N` |
+| phase 切换周期 | `2000 ms` | `2000 ms` |
+| 充电动画刷新 | 无 | 每 `50 ms` 尝试重绘 |
+
+启动逻辑：
+
+```python
+b6_long_fired = True
+battery_display_active = True
+flash_active = False
+flash_kind = None
+flash_value = None
+battery_next_refresh_ms = 0
+battery_visual_next_refresh_ms = 0
+refresh_battery_overlay_cache(force=True)
+battery_display_toggle_started_ms = now
+battery_display_phase_index = 0
+battery_display_phase_count = 3 if cached_is_charging else 2
+battery_display_next_phase_ms = now + 2000
+render_battery_overlay(refresh_phase=False, refresh_cache=False)
+```
+
+释放 B6：如果 `battery_display_active` 或 `b6_long_fired`，调用 `stop_battery_display()`，立即恢复当前 face。
+
+#### 11.3 电池页面刷新调度
+
+| 参数 | 值 |
+|---|---:|
+| 电池显示缓存刷新周期 | `100 ms` |
+| 动画视觉刷新周期 | `50 ms` |
+| 平均窗口 | `1000 ms` |
+| 平均窗口采样间隔 | `20 ms` |
+| 校准/历史日志周期 | `30000 ms` |
+
+长显 active 时，每个主循环 tick 执行：
+
+```python
+cache_due = now >= battery_next_refresh_ms
+visual_due = now >= battery_visual_next_refresh_ms
+phase_due = now >= battery_display_next_phase_ms
+
+instant_charge_v = read_charge_voltage()
+charging_instant = is_charging_voltage(instant_charge_v, previous=cached_is_charging)
+if charging_instant != cached_is_charging:
+    cache_due = True
+
+if cache_due:
+    cache_changed = refresh_battery_overlay_cache(force=charge_state_flipped)
+
+if phase_due:
+    update_battery_display_phase()
+
+animate_due = cached_is_charging and visual_due
+
+if cache_changed or phase_changed or animate_due:
+    render_battery_overlay(refresh_phase=False, refresh_cache=False)
+    battery_visual_next_refresh_ms = now + 50
+```
+
+短显 active 时：
+
+- 先检查 `now >= battery_display_expires_ms`，到期则停止显示。
+- 每个 tick 都读一次 instant charge ADC。
+- 若充电状态改变，强制刷新缓存并重绘。
+- 不做 phase 切换，不做 charging sweep 动画。
+
+#### 11.4 充电状态判定
+
+| 项目 | 值 |
+|---|---:|
+| 充电检测 GPIO | `GPIO1` |
+| ADC 参考 | `3.3 V` |
+| 单次采样数 | `16` |
+| R1 | `270000 Ω` |
+| R2 | `47000 Ω` |
+| 进入充电 | `Vcharge > 4.0 V` |
+| 退出充电 | `Vcharge <= 3.0 V` |
+| 中间区 | 保持 previous 状态 |
+
+```python
+Vcharge = Vadc * (270000 + 47000) / 47000
+```
+
+```python
+def is_charging_voltage(charge_v, previous=False):
+    if charge_v is None:
+        return bool(previous)
+    if charge_v > 4.0:
+        return True
+    if charge_v <= 3.0:
+        return False
+    return bool(previous)
+```
+
+当充电状态变化时：
+
+```python
+target_phase_count = 3 if charging else 2
+if battery_display_phase_count != target_phase_count:
+    battery_display_phase_count = target_phase_count
+    battery_display_phase_index = 0
+    battery_display_toggle_started_ms = now
+    battery_display_next_phase_ms = now + 2000
+```
+
+### 12. 电池 ADC 与百分比换算
+
+#### 12.1 电池电压读取
+
+| 项目 | 值 |
+|---|---:|
+| 电池 ADC GPIO | `GPIO10` |
+| ADC 参考 | `3.3 V` |
+| 单次采样数 | `16` |
+| R1 | `100000 Ω` |
+| R2 | `57000 Ω` |
+| 固件校准 scale | `2.708333` |
+| 固件校准 offset | `+0.2033 V` |
+
+```python
+instant_vbat = Vadc * 2.708333 + 0.2033
+```
+
+#### 12.2 百分比换算
+
+当前程序不再用 `min_v/max_v` 线性区间和 `0.12 V` 端点吸附计算百分比。电池百分比来自固定 2S LiPo 分段 LUT；`battery_calib.json` 的 `v_min/v_max` 仍保留给诊断和手动 reset API，但不参与百分比映射。
+
+```python
+BATTERY_PERCENT_LUT = [
+    (8.40, 100),
+    (8.10,  90),
+    (7.90,  80),
+    (7.70,  65),
+    (7.50,  50),
+    (7.30,  35),
+    (7.10,  20),
+    (6.80,  10),
+    (6.50,   5),
+    (6.20,   0),
+]
+
+def battery_percent_from_voltage(vbat):
+    if not isfinite(vbat):
+        return 0
+    if vbat >= BATTERY_PERCENT_LUT[0][0]:
+        return 100
+    if vbat <= BATTERY_PERCENT_LUT[-1][0]:
+        return 0
+    for (v_hi, p_hi), (v_lo, p_lo) in adjacent_pairs(BATTERY_PERCENT_LUT):
+        if vbat < v_hi and vbat >= v_lo:
+            t = (vbat - v_lo) / (v_hi - v_lo)
+            return round(p_lo + t * (p_hi - p_lo))
+    return 0
+```
+
+采样显示值先经过基于真实时间间隔的 EMA。目标时间常数为 `20 s`：
+
+```python
+alpha = 1.0 - exp(-dt_s / 20.0)
+vbat = previous_vbat * (1.0 - alpha) + instant_vbat * alpha
+```
+
+百分比整数带 `±1%` dead-band：只有首次有效读数，或 LUT 结果和当前显示值相差超过 1 个百分点时，才更新显示百分比。
+
+```python
+raw_percent = battery_percent_from_voltage(vbat)
+if first_valid_reading or abs(raw_percent - battery_percent) > 1:
+    battery_percent = raw_percent
+```
+
+#### 12.3 已删除：使用时间 / 充电时间页
+
+当前规格不实现任何使用时间或充电时间动画。Agent 不得实现以下内容：
+
+- 剩余使用时间页。
+- 充电完成时间页。
+- `remaining_h` / `charge_time_h` 页面计算。
+- `0M`、`1.5H`、`--` 等时间文本显示。
+
+### 13. 电池颜色逻辑
+
+```python
+p = max(0, min(100, int(percent)))
+if p <= 10:
+    color = (255, 0, 0)
+elif p <= 30:
+    t = (p - 10) / 20.0
+    color = (255, int(165 * t), 0)
+elif p <= 50:
+    t = (p - 30) / 20.0
+    color = (int(255 * (1.0 - t)), int(165 + (90 * t)), 0)
+else:
+    color = (0, 255, 0)
+```
+
+| 百分比 | RGB | Hex |
+|---:|---:|---:|
+| 0 | `(255, 0, 0)` | `#FF0000` |
+| 10 | `(255, 0, 0)` | `#FF0000` |
+| 20 | `(255, 82, 0)` | `#FF5200` |
+| 30 | `(255, 165, 0)` | `#FFA500` |
+| 40 | `(127, 210, 0)` | `#7FD200` |
+| 50 | `(0, 255, 0)` | `#00FF00` |
+| 100 | `(0, 255, 0)` | `#00FF00` |
+
+页面颜色：
+
+| 页面 | 图标颜色 | 文字颜色 |
+|---|---|---|
+| 百分比 | battery color | battery color |
+| 电池电压 | battery color | battery color |
+| 充电输入电压 | battery color | white `#FFFFFF` |
+| percent 为 `None` fallback | red `#FF0000` | red `#FF0000` |
+
+### 14. 电池图标填充与充电动画
+
+#### 14.1 电池内部填充区域
+
+| 项目 | 值 |
+|---|---:|
+| 内部填充行 | `y = 2, 3, 4` |
+| 内部起始列 | `x = 7` |
+| 内部列数 | `8` |
+| 可填充列编号 | `0..7` |
+
+#### 14.2 非动画填充列
+
+```python
+p = max(0, min(100, int(percent)))
+if p < 10:
+    filled_cols = 0
+elif p > 90:
+    filled_cols = 8
+else:
+    filled_cols = ((p - 10) * 8 + 79) // 80
+```
+
+| percent 条件 | filled_cols |
+|---|---:|
+| `< 10` | `0` |
+| `10..20` | `1` |
+| `21..30` | `2` |
+| `31..40` | `3` |
+| `41..50` | `4` |
+| `51..60` | `5` |
+| `61..70` | `6` |
+| `71..80` | `7` |
+| `81..90` | `8` |
+| `> 90` | `8` |
+
+#### 14.3 非动画填充 bitmap 帧
+
+#### `BATTERY_FILL_0_COLS`
+
+```text
+......................
+......#########.......
+......#........#......
+......#........#......
+......#........#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_FILL_1_COLS`
+
+```text
+......................
+......#########.......
+......##.......#......
+......##.......#......
+......##.......#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_FILL_2_COLS`
+
+```text
+......................
+......#########.......
+......###......#......
+......###......#......
+......###......#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_FILL_3_COLS`
+
+```text
+......................
+......#########.......
+......####.....#......
+......####.....#......
+......####.....#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_FILL_4_COLS`
+
+```text
+......................
+......#########.......
+......#####....#......
+......#####....#......
+......#####....#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_FILL_5_COLS`
+
+```text
+......................
+......#########.......
+......######...#......
+......######...#......
+......######...#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_FILL_6_COLS`
+
+```text
+......................
+......#########.......
+......#######..#......
+......#######..#......
+......#######..#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_FILL_7_COLS`
+
+```text
+......................
+......#########.......
+......########.#......
+......########.#......
+......########.#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_FILL_8_COLS`
+
+```text
+......................
+......#########.......
+......##########......
+......##########......
+......##########......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+
+#### 14.4 充电动画规则
+
+只有长显模式且 `charging == True` 时播放图标动画：
+
+```python
+animate_icon = (not battery_display_single_shot) and charging
+```
+
+短显模式永远：
+
+```python
+animate_icon = False
+```
+
+充电动画 phase time：
+
+```python
+charging_phase_ms = now - battery_display_toggle_started_ms
+charge_step_interval_s = 0.2
+```
+
+##### A. `percent < 10`
+
+低于 10% 时不 sweep，只闪烁第 1 个内部列：
+
+```python
+flash_period_ms = 300
+on = ((charging_phase_ms // 300) % 2) == 0
+lit_cols = 1 if on else 0
+```
+
+低电量充电闪烁 ON：
+
+```text
+......................
+......#########.......
+......##.......#......
+......##.......#......
+......##.......#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+低电量充电闪烁 OFF：
+
+```text
+......................
+......#########.......
+......#........#......
+......#........#......
+......#........#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+##### B. `percent >= 10`
+
+```python
+filled_cols = _battery_fill_cols(percent)
+target_cols = 8 if percent > 90 else max(1, filled_cols)
+step_ms = int(0.2 * 1000)  # 200
+anim_step = charging_phase_ms // step_ms
+lit_cols = (anim_step % target_cols) + 1
+```
+
+这意味着：
+
+- `10%..20%`：只显示 1 列，视觉上不移动。
+- `21%..30%`：1 → 2 → 1 → 2。
+- `31%..40%`：1 → 2 → 3 → 1 ...
+- `>90%`：1 → 2 → ... → 8 → 1 ...
+
+##### C. sweep bitmap 帧
+
+#### `BATTERY_CHARGE_SWEEP_1_COLS`
+
+```text
+......................
+......#########.......
+......##.......#......
+......##.......#......
+......##.......#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_CHARGE_SWEEP_2_COLS`
+
+```text
+......................
+......#########.......
+......###......#......
+......###......#......
+......###......#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_CHARGE_SWEEP_3_COLS`
+
+```text
+......................
+......#########.......
+......####.....#......
+......####.....#......
+......####.....#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_CHARGE_SWEEP_4_COLS`
+
+```text
+......................
+......#########.......
+......#####....#......
+......#####....#......
+......#####....#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_CHARGE_SWEEP_5_COLS`
+
+```text
+......................
+......#########.......
+......######...#......
+......######...#......
+......######...#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_CHARGE_SWEEP_6_COLS`
+
+```text
+......................
+......#########.......
+......#######..#......
+......#######..#......
+......#######..#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_CHARGE_SWEEP_7_COLS`
+
+```text
+......................
+......#########.......
+......########.#......
+......########.#......
+......########.#......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+#### `BATTERY_CHARGE_SWEEP_8_COLS`
+
+```text
+......................
+......#########.......
+......##########......
+......##########......
+......##########......
+......#########.......
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+......................
+```
+
+
+#### 14.5 源码中 `flash_last_column`
+
+`render_battery_overlay()` 总是设置：
+
+```python
+flash_last_column = False
+```
+
+因此非充电状态下不会闪烁最后一列。`_battery_icon_rows()` 虽然支持 `flash_last_column`，但当前按钮电池页面不使用。
+
+### 15. 电池页面 render 函数对应关系
+
+#### 15.1 百分比页
+
+```python
+render_battery_percent(
+    pct,
+    color=battery_color,
+    charging=charging,
+    charging_phase_ms=charging_phase_ms,
+    charge_step_interval_s=0.2,
+    flash_last_column=False,
+    animate=animate_icon,
+)
+```
+
+文本：`f"{int(pct)}%"`
+
+#### 15.2 电池电压页
+
+```python
+render_battery_voltage(
+    v_bat,
+    percent=pct,
+    color=battery_color,
+    charging=charging,
+    charging_phase_ms=charging_phase_ms,
+    charge_step_interval_s=0.2,
+    flash_last_column=False,
+    text_color=None,
+    animate=animate_icon,
+)
+```
+
+文本：
+
+```python
+if voltage is None:
+    text = "0.0V"
+else:
+    text = "{:.1f}V".format(voltage)
+```
+
+特殊布局：
+
+```python
+char_extra_x = {3: 1}
+```
+
+也就是第 4 个字符额外右移 1 列，用于 `N.NV` 中的 `V`。
+
+
+#### 15.3 充电输入电压页
+
+```python
+render_charge_voltage(
+    charge_v,
+    percent=pct,
+    icon_color=battery_color,
+    charging=charging,
+    charging_phase_ms=charging_phase_ms,
+    charge_step_interval_s=0.2,
+    flash_last_column=False,
+    animate=animate_icon,
+)
+```
+
+文本：
+
+```python
+text = "0.0" if charge_v is None else "{:.1f}".format(charge_v)
+text_color = (255, 255, 255)
+icon_color = battery_color
+```
+
+### 16. 实现校验清单
+
+Agent 重建时必须满足：
+
+- [ ] 不实现 IP/SSID 滚动，不包含 `_SCROLL_FONT`。
+- [ ] B3 按下不切换，B3 释放才切换 A/M。
+- [ ] B3 被 B1/B2 interval 组合键消费后，释放 B3 不切换 A/M。
+- [ ] 普通 overlay 保持 1000ms，到期恢复当前 face。
+- [ ] interval 使用 `MODE_COLOR #B400FF`，格式为 `0.5S` 到 `9.5S`，`10.0s` 显示为 `10S`。
+- [ ] B3+B1 是 interval `-0.5s`，B3+B2 是 interval `+0.5s`。
+- [ ] brightness 使用 `BRIGHTNESS_COLOR #0078FF`，显示 `round(raw * 100 / 200)%` + `SUN_ICON_1`。
+- [ ] B4/GPIO40 是 raw brightness `-8`，B5/GPIO41 是 raw brightness `+8`，clamp 范围 `0..200`。
+- [ ] 所有 B1/B2/B4/B5 repeat 都是先等 400ms，再每 140ms 触发一次。
+- [ ] edge flash attack 45ms、decay 260ms，总 305ms，空间中心 10.5，最低空间强度 0.20。
+- [ ] interval edge flash 用 `MODE_COLOR`，brightness edge flash 用 `EDGE_FLASH_COLOR`。
+- [ ] B6 短按释放后显示电池百分比 2000ms，不播放 charging sweep。
+- [ ] B6 长按 700ms 后进入电池循环；非充电 2 页，充电 3 页。
+- [ ] 长显释放 B6 立即停止电池页面并恢复当前 face。
+- [ ] 充电状态每个主循环 tick 读取 charge ADC 以快速切换动画状态。
+- [ ] 充电图标动画每 50ms 尝试刷新，但 sweep 每 200ms 改变一列。
+- [ ] `percent < 10` 充电时只闪烁第 1 列，300ms 半周期，不做 sweep。
+- [ ] 充电输入电压页面文字固定白色，图标仍使用电池百分比颜色。
+- [ ] 不实现电池使用时间页和充电时间页，不显示 `0M` / `1H` / `1.5H` / `--` 时间文本。
+- [ ] 所有绘制都遵守 22×18 不规则矩阵 mask 和 serpentine 坐标映射。
+
+---
+
+## 21. 历史修复记录与回归验证（整合 5 份修复报告）
+
+> 合并说明：本章对以下五份修复报告做**逻辑去重合并**，而非拼接。它们高度重叠（同一条上传命令出现 5 次、字体融合出现在 2 份、6.4 帧率控件对齐出现在 3 份且存在演进/冲突），此处按主题归并，冲突点见 §22。来源：`TWO_CHAT_ISSUES_FIX_REPORT.md`、`ARK12_FUSION_WEBUI_LED_FINAL_FIX_REPORT.md`、`FONT_REPLACEMENT_REPORT_ARK12_FUSION_REAPPLIED.md`、`CARD_EDGE_FPS_ALIGNMENT_V3_REPORT.md`、`SCROLL_FPS_CARD_BORDER_ALIGNMENT_FINAL_REPORT.md`。
+
+### 21.1 启动首帧花屏 / 随机 LED 数据修复
+
+来源：`TWO_CHAT_ISSUES_FIX_REPORT.md`（问题 1）。
+
+问题：在加载到第一帧有效 saved face 之前，启动瞬间出现首帧花屏 / 随机 LED 数据（WS2812/SK6812 数据线在第一次有意 clear/show 序列前浮空或被噪声时钟驱动）。
+
+修复（`src/main.cpp`、`src/config.h`）：`setup()` 在 `Serial.begin()` 与第一次 `ledStripBegin()` 之前，立即把 LED 数据脚拉低：
+
+```cpp
+pinMode(LED_PIN, OUTPUT);
+digitalWrite(LED_PIN, LOW);
+delay(LED_BOOT_DATA_LOW_HOLD_MS);
+delayMicroseconds(LED_SIGNAL_RESET_US);
+```
+
+启动时序常量改为更保守值：
+
+```cpp
+constexpr uint16_t LED_BOOT_DATA_LOW_HOLD_MS  = 20;
+constexpr uint16_t LED_BOOT_CLEAR_HOLD_MS     = 350;
+constexpr uint16_t LED_BOOT_STARTUP_SETTLE_MS = 120;
+```
+
+验收：上电后在首个有效 saved face 出现前不得有随机/花屏 LED 数据。
+
+### 21.2 Ark12 Fusion 字体替换与 WebUI/LED glyph 修复
+
+来源：`ARK12_FUSION_WEBUI_LED_FINAL_FIX_REPORT.md` 与 `FONT_REPLACEMENT_REPORT_ARK12_FUSION_REAPPLIED.md`（两份描述同一字体融合工作，已合并去重）。
+
+**修复的根因：**
+
+1. 压缩后的 WebUI 资源可能过期：`run_rinachan_unifont.ps1` 重建/内嵌了 GNU Unifont 子集到 `styles.css`，但未重新生成 `styles.css.gz`；若 ESP32 提供 `.gz` 资源，浏览器仍可能收到旧 CSS。
+2. 浏览器字体匹配太脆弱：旧包用单独的 `Ark Pixel 12px Fusion Fallback` 字族；新版把 fallback WOFF2 注册到与 Ark 相同的字族 `Ark Pixel 12px Monospaced`，并用真实 cmap 生成确定性的 `unicode-range`。
+3. WebUI JSON glyph 元组解析字段顺序错误：现按原始 schema 正确读取 `[advance, width, height, xOffset, yOffset, dstY, rowsHex]`。
+
+**替换 / 新增的文件（含 SHA256，来自 reapplied 报告）：**
+
+| 文件 | 动作 | 大小 (bytes) | SHA256 |
+|---|---|---:|---|
+| `data/resources/fonts/ark12.json` | 替换为严格格式融合 JSON | 2400588 | `fc81caa0a6d04c3ce2000c6b1c439411e48788346df9e42625a41b4d0ae04549` |
+| `data/resources/fonts/ark12.json.gz` | 由融合 JSON 重新生成 | 531023 | `e94cb4ac5b63c20b96a7accc4329db24256f78f23ac8840ae23ceb66d3081643` |
+| `data/resources/fonts/ark12.woff2` | 替换为打包 Ark12 base web font | 593276 | `97ebb9ae2d1d721eb048e025dd885621d566bd6fa9d38c4a3cf4bd56cc2fb175` |
+| `data/resources/fonts/ark12_fallback.woff2` | 新增融合 fallback web font | 260352 | `6a1a4fcd5b6f4ec6c3690d15f7d75816c70e6f1608ba12b40e77589bf526e7a3` |
+| `data/styles.css` | 改用 fallback 链 | 127077 | `d2b01a51e061a911ad91617ec5a258735ebbfdfd7f03ca55928a868b518772ef` |
+| `data/index.html` | fallback 字体 preload 栈 | 279546 | `2332cb9ce22cf0e556a6bbcd1e290d82a1e506e5a528e18316e6867d4532d824` |
+| `data/index.html.gz` | 由 patched HTML 重新生成 | 63613 | `166b95f9914d1aaa05baaa175396b716275d782d689bf3f37d625793ed7c075c` |
+| `data/styles.css.gz` | 由 patched CSS 重新生成 | 62049 | `0a580f58c3d03a468e0dbea27be75ab54bf34d46412c5b48b74c8f5fb3200611` |
+| `tools/font_fusion/*` | 新增打包融合源资源（供上传脚本） | - | - |
+| `run_rinachan_unifont.ps1` | 安装/校验融合 Ark12 资源 | 21185 | `7b7b911a613a91553139536705c72d92fc8dd0c79c5d3e6ce4f3caa3fda19394` |
+
+**上传脚本行为变更：** `run_rinachan_unifont.ps1` 现在在上传前校验 `ark12.json` 至少含 32,000 个 glyph 且包含 `7136 / 71C3 / 6EDA / 6EFE`；若文件缺失或过期，则从 `tools/font_fusion` 复制打包融合文件到 `data/resources/fonts` 并重新生成 `ark12.json.gz`。该脚本在 `uploadfs` 前重新生成压缩 WebUI 资源，避免板子提供过期 CSS/HTML。
+
+**补丁 glyph 验证（JSON bitmap 与 web fallback WOFF2 均存在，且非方块 tofu）：**
+
+| 字符 | 码点 | 宽 | 高 | advance | 点亮像素 |
+|---|---:|---:|---:|---:|---:|
+| 然 | `U+7136` | 12 | 12 | 12 | 42 |
+| 燃 | `U+71C3` | 12 | 12 | 12 | 53 |
+| 滚 | `U+6EDA` | 12 | 12 | 12 | 44 |
+| 滾 | `U+6EFE` | 12 | 12 | 12 | 50 |
+
+**gzip 同步校验：** `index.html.gz` ↔ `index.html`、`styles.css.gz` ↔ `styles.css`、`ark12.json.gz` ↔ `ark12.json` 均一致。
+
+**浏览器手动验证：** 上传后硬刷新 WebUI 一次，DevTools Console 执行：
+
+```js
+document.fonts.check('12px "Ark Pixel 12px Monospaced"', '然燃滚滾')
+```
+
+期望返回 `true`。随后在文字滚动输入 `然燃滚滾` 并发送；加载器若 `ark12.json` 不含这四个补丁 glyph 会显式报错，不会静默使用 `□`。
+
+### 21.3 6.4 帧率（FPS）控件 card 边缘对齐
+
+来源：`TWO_CHAT_ISSUES_FIX_REPORT.md`（问题 2 及其“追加修复”）、`CARD_EDGE_FPS_ALIGNMENT_V3_REPORT.md`（v3）、`SCROLL_FPS_CARD_BORDER_ALIGNMENT_FINAL_REPORT.md`（最终版）。三份描述同一控件的对齐演进，**最终版（card 外框对齐）为权威结论**，演进与冲突见 §22。
+
+问题：6.4 文字滚动页的帧率控件（`重置默认帧率` / `-5` / `+5` / `#scroll-speed` 数字框 / `scroll-speed-range` 滑条）在移动端布局错位，右边缘对不齐目标 card；`.row` 为 flex-wrap，旧 FPS 行依赖 `.push-right { margin-left:auto; }`，在窄屏上失效，并出现 shrink-wrap 右侧空白。
+
+修复演进：
+
+1. **初版（TWO_CHAT_ISSUES）：** 在 `data/styles.css` 追加页面级 override —— 强制 `#page-scroll .scroll-fps-control` 占满 100% 宽；仅把 FPS 的 `.slider-step-row` 改成 3 列 grid；reset 按钮在左、`-5/+5` 钉在右；取消该控件内的旧 `.push-right` 行为。追加修复进一步用 `flex: 1 1 100%; width:100%; max-width:100%; min-width:0` 消除 shrink-wrap 右侧空白。
+2. **v3（CARD_EDGE_FPS_ALIGNMENT_V3）：** 不再只修 `.scroll-fps-control` 自身，给文字滚动控制 card 增加专用 class `scroll-control-card` 并设为单列全宽 grid（`grid-template-columns: minmax(0,1fr)` 等），把控件对齐到 card **内容**右边缘。
+3. **最终版（SCROLL_FPS_CARD_BORDER_ALIGNMENT_FINAL）：** 目标改为对齐 card **外框**右边缘。`.card` 默认 `padding:15px`，仅设 `width:100%` 只能对齐内容区、距外框仍差 15px。最终用负 margin 抵消 padding：
+
+```css
+:root { --scroll-fps-card-edge-padding: 15px; }
+#page-scroll .scroll-fps-card > .field.scroll-fps-control {
+  width: calc(100% + (var(--scroll-fps-card-edge-padding) * 2)) !important;
+  margin-left:  calc(-1 * var(--scroll-fps-card-edge-padding)) !important;
+  margin-right: calc(-1 * var(--scroll-fps-card-edge-padding)) !important;
+}
+```
+
+使 `-5`、`+5`、`#scroll-speed` 的右边缘对齐到 `scroll-fps-card` 外框右边缘。最终版同时删除了滚动文字输入 textarea 上方重复的 `滚动文字输入` label。
+
+同步文件（各版本均涉及）：`data/index.html`、`data/index.html.gz`、`data/styles.css`、`data/styles.css.gz`。每次改动后 `index.html.gz` / `styles.css.gz` 必须重新生成并验证可精确解压回源文件。
+
+### 21.4 统一上传命令与构建注意
+
+所有修复报告共用同一上传命令（在解压后的 `esp32s3_firmware` 目录内、项目根运行）：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_rinachan_unifont.ps1 -UploadFirmware -UploadFS
+```
+
+该脚本会重建固件、上传 LittleFS，并在 `uploadfs` 前重新生成压缩 WebUI 资源与校验融合 Ark12 资源。注意：ZIP 内预构建的 `.pio/build/...` 产物若未本地重建可能过期。
+
+---
+
+## 22. 待确认 / 冲突点
+
+合并过程中识别出的冲突与需确认项，按主题列出。优先采纳“最新、最具体、最可执行”的描述（已在对应章节落实），冲突原文保留于此以便追溯。
+
+1. **6.4 FPS 控件对齐目标演进（§21.3）。** 存在三种相互覆盖的实现：初版对齐 `.scroll-fps-control` 自身 → v3 对齐 `scroll-control-card` 的**内容**右边缘 → 最终版对齐 `scroll-fps-card` 的**外框**右边缘（负 margin 抵消 15px padding）。同时存在两个 card class 名（`scroll-control-card` 与 `scroll-fps-card`）。**结论：以最终版（外框对齐、`scroll-fps-card`）为准**；需确认源码中是否还残留 v3 的 `scroll-control-card` 规则，若残留应清理以免双重规则冲突。
+
+2. **文字滚动源文本同步（§19）为“计划”而非“现状”。** v6 是 implementation-ready 规格，但原 `plan.md` 主体（§6、§8.9、§15、§17）描述的当前实现并不包含 `ScrollTimelineMeta` / `/api/scroll/meta` / `scrollTimelineId` 等字段。**需确认：该特性是否已落地于当前源码。** 若未落地，§19 应视为未实现的待办（参见 §16.1）；若已落地，§6.2/§6.11/§8.9 需补充对应字段说明。
+
+3. **`plan_scroll_source_text_v4.md` 源文件损坏。** 该文件含 508 个 NUL 字节（被识别为 binary/data），无法可靠按文本读取。其内容已被 v6 完整覆盖（v6 supersedes v2–v5），故其增量以 v6 为准并删除；如需逐字核对 v4 的 C1–C10 审计标签原文，原文件已不可用，需从版本控制历史找回。
+
+4. **亮度模型双处描述。** §5.4 与 §20（动画规格 1.3）都定义亮度；§20 明确 raw `0..200`、`200/255=100%`、`scale_color()` 为 peak limiter 而非线性乘法。**需确认 §5.4 的亮度上限/cap 定义与 §20 完全一致**（特别是 `0..200` vs 历史 `0..170` cap 的差异——动画规格已用 `0..200`）。
+
+5. **CODE_REVIEW 的 [HIGH] 144KB 静态 SRAM 数组（§18）尚未确认是否已修。** 报告建议把 `fallbackScrollFrameBits_[3072][47]` 改为运行时 `heap_caps_malloc`。需确认当前 `state.h` 是否仍是静态成员；若仍是，应纳入修复计划（§18.6 / §16）。
+
+---
+
+## 23. 已合并文档来源记录
+
+本节记录所有被合并进 `plan.md` 的 Markdown 文件、其内容归并到的章节、以及处理状态。`README.md`（及任意大小写变体）、`data/resources/fonts/README.md`、`tools/font_fusion/README.md`、`.pio/libdeps/**` 下的第三方库文档均未被合并、未被删除。
+
+- `CODE_REVIEW.md`
+  - 已合并到：§18（代码审查、架构分析与已知问题），交叉关联 §6、§17
+  - 内容：执行摘要、模块架构图与数据流、锁顺序/并发模型、优秀模式（保留项）、HIGH/MEDIUM/LOW 问题与建议、模块逐一分析、优先级修复清单
+  - 状态：已完整合并，可删除
+
+- `plan_scroll_source_text_v6.md`
+  - 已合并到：§19（文字滚动 6.4 源文本同步实现计划）
+  - 内容：v6 完整规格（hard rules、固件改动、WebUI 改动、实现顺序、测试清单），作为 supersede v2–v5 的权威版
+  - 状态：已完整合并，可删除
+
+- `plan_scroll_source_text_v2.md` / `v3.md` / `v5.md`
+  - 已合并到：§19（其最终决策已被 v6 吸收；§19 合并说明记录了演进，§22 记录相关待确认）
+  - 状态：被 v6 取代，增量已并入，可删除
+
+- `plan_scroll_source_text_v4.md`
+  - 已合并到：§19（内容被 v6 覆盖）；§22 第 3 条记录其损坏情况
+  - 状态：文件损坏（含 508 个 NUL 字节，binary/data），内容已被 v6 取代，可删除；逐字原文如需找回应查版本控制历史
+
+- `animation.md`
+  - 已合并到：§20（按钮 LED overlay/动画完整重建规格），交叉关联 §6.12、§5.1、§5.3、§5.4
+  - 内容：硬件/坐标映射、亮度 raw 0..200 模型与 scale_color、按钮/组合键/repeat、overlay 生命周期、颜色常量、全部 bitmap（_FONT/CLOCK_ICON/SUN_ICON/_BIG_A/_BIG_M/BATTERY_ICON/BATTERY_FILL/BATTERY_CHARGE_SWEEP）、_render_string 布局、M/A/interval/brightness overlay、edge flash、B6 电池页面与充电动画、电池 ADC 与百分比/颜色换算、实现校验清单
+  - 状态：已完整合并（含全部 bitmap），可删除
+
+- `TWO_CHAT_ISSUES_FIX_REPORT.md`
+  - 已合并到：§21.1（启动首帧花屏）、§21.3（FPS 控件对齐初版+追加修复）、§21.4（上传命令）
+  - 状态：已完整合并，可删除
+
+- `ARK12_FUSION_WEBUI_LED_FINAL_FIX_REPORT.md`
+  - 已合并到：§21.2（字体融合根因/验证/gzip/浏览器检查）、§21.4
+  - 状态：已完整合并，可删除
+
+- `FONT_REPLACEMENT_REPORT_ARK12_FUSION_REAPPLIED.md`
+  - 已合并到：§21.2（替换文件 SHA256 表、脚本校验行为）、§21.4
+  - 状态：已完整合并，可删除
+
+- `CARD_EDGE_FPS_ALIGNMENT_V3_REPORT.md`
+  - 已合并到：§21.3（v3：内容边缘对齐）、§22 第 1 条（冲突点）
+  - 状态：已完整合并（作为演进中间态保留记录），可删除
+
+- `SCROLL_FPS_CARD_BORDER_ALIGNMENT_FINAL_REPORT.md`
+  - 已合并到：§21.3（最终版：外框边缘对齐，权威结论）、§22 第 1 条
+  - 状态：已完整合并，可删除
+
+### 未合并 / 保留的 Markdown（不删除）
+
+- `README.md`（根目录）— 项目主 README，按要求不修改、不删除
+- `data/resources/fonts/README.md` — 字体资源说明，README 变体，保留
+- `tools/font_fusion/README.md` — 字体融合工具说明，README 变体，保留
+- `.pio/libdeps/esp32s3/**/*.md`（Adafruit NeoPixel、ArduinoJson 的 README/CONTRIBUTING/ISSUE/PR 模板）— 第三方依赖库文档，与本项目计划无关且有独立价值，保留

@@ -8561,6 +8561,7 @@ function setScrollFps(fps, source = "text_scroll_fps_change") {
   restartScrollPreviewTimer();
   if (!scroll.textEdited && (scroll.active || scroll.firmwareBacked || scroll.paused)) {
     scroll.fpsBusy = true;
+    scroll.commandBusy = true;
     updateScrollUi();
     sendAuxCommand(
       "set_scroll_interval",
@@ -8571,6 +8572,7 @@ function setScrollFps(fps, source = "text_scroll_fps_change") {
       source,
     ).promise.finally(() => {
       scroll.fpsBusy = false;
+      scroll.commandBusy = false;
       updateScrollUi();
     });
   } else {
@@ -9159,6 +9161,7 @@ function setScrollStepHandler(buttonId, direction) {
       if (!restored) return;
     }
     scroll.stepBusy = true;
+    scroll.commandBusy = true;
     updateScrollUi();
     try {
       guardBeforeOutput("text_scroll_manual_step", "scroll");
@@ -9175,6 +9178,7 @@ function setScrollStepHandler(buttonId, direction) {
       else log("逐格移动命令未确认，保持当前预览并等待下一次固件同步");
     } finally {
       scroll.stepBusy = false;
+      scroll.commandBusy = false;
       updateScrollUi();
       renderState();
     }
@@ -9991,6 +9995,9 @@ function applyScrollButtonUiState(key, el, nextState) {
   if (same) return;
   scrollButtonUiCache[key] = { ...nextState };
   setDomDisabledIfChanged(el, nextState.disabled);
+  // aria-disabled 必须跟随 disabled，否则 HTML 里初始的 aria-disabled="true"
+  // （scroll-pause / scroll-stop）永远不会被清除，导致读屏播报错误且按压动画失效。
+  setDomAttrIfChanged(el, "aria-disabled", nextState.disabled ? "true" : "false");
   if (nextState.text !== undefined) {
     setDomTextIfChanged(el, nextState.text);
   }
@@ -10039,23 +10046,6 @@ function updateScrollUi() {
   const hasFrameCache = hasScrollFrameCache();
   const hasFramesForStep = hasUsableOrRestorableScrollFrames();
 
-  const firmwareScrollActive =
-    scroll.firmwareBacked ||
-    state.textScrollActive ||
-    state.playback === "scroll" ||
-    state.playback === "scroll_paused" ||
-    state.playback === "scroll_step" ||
-    lastFwScrollFrameCount > 0 ||
-    lastFwScrollHasSourceText;
-
-  const localScrollActive =
-    scroll.active ||
-    scroll.paused ||
-    (Array.isArray(scroll.frames) && scroll.frames.length > 0) ||
-    !!String(scroll.sourceText || "").length > 0;
-
-  const hasScrollContext = firmwareScrollActive || localScrollActive;
-
   const effectivePaused =
     state.playback === "scroll_paused" ||
     scroll.paused ||
@@ -10091,26 +10081,37 @@ function updateScrollUi() {
 
   const nonResumableSystemPause = scroll.systemPaused && !scroll.userPaused;
 
+  // commandBusy 是所有 aux 命令（发送/暂停/继续/停止/逐帧/帧率）的统一在途锁。
+  // 每个处理函数都在入口检查 commandBusy，所以这里也必须把它纳入禁用条件，
+  // 否则按钮看起来可点却是空操作，或允许并发下发互相冲突的命令。
+  const anyCommandBusy = hardBusy || scroll.commandBusy;
+
+  // 暂停/继续只有在真正正在播放或处于可控暂停时才有意义；仅有输入文字或缓存帧
+  // （idle）不应让暂停按钮显示为可用/已按下。
+  const scrollLiveOrPaused = scrollPlayingNow || effectivePaused;
+
   applyScrollButtonUiState("send", playBtn, {
-    disabled: hardBusy || scroll.startBusy || !hasInputContent,
+    disabled: anyCommandBusy || scroll.startBusy || !hasInputContent,
     text: scroll.uploading ? "发送中…" : "发送",
   });
 
   applyScrollButtonUiState("pause", pauseBtn, {
-    disabled: hardBusy || scroll.pauseBusy || nonResumableSystemPause || !hasScrollContext,
+    disabled:
+      anyCommandBusy || scroll.pauseBusy || nonResumableSystemPause || !scrollLiveOrPaused,
     text: effectivePaused ? "继续" : "暂停",
-    pressed: !effectivePaused && hasScrollContext,
+    pressed: scrollPlayingNow,
   });
 
   applyScrollButtonUiState("stop", stopBtn, {
-    disabled: hardBusy || scroll.stopBusy || !hasFrameCache,
+    disabled: anyCommandBusy || scroll.stopBusy || !hasFrameCache,
   });
 
-  const stepDisabled = hardBusy || scroll.stepBusy || scrollPlayingNow || !hasFramesForStep;
+  const stepDisabled =
+    anyCommandBusy || scroll.stepBusy || scrollPlayingNow || !hasFramesForStep;
   applyScrollButtonUiState("stepPrev", stepPrevBtn, { disabled: stepDisabled });
   applyScrollButtonUiState("stepNext", stepNextBtn, { disabled: stepDisabled });
 
-  const speedDisabled = hardBusy || scroll.fpsBusy;
+  const speedDisabled = anyCommandBusy || scroll.fpsBusy;
   applyScrollButtonUiState("speedMinus", speedMinusBtn, { disabled: speedDisabled });
   applyScrollButtonUiState("speedPlus", speedPlusBtn, { disabled: speedDisabled });
   applyScrollButtonUiState("speedReset", speedResetBtn, { disabled: speedDisabled });
