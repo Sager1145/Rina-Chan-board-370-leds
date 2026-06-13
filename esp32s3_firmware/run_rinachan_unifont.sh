@@ -129,9 +129,9 @@ except Exception as exc:
 PYEOF
 }
 
-assert_embedded_unifont_webui() {
+assert_standalone_unifont_webui() {
     "$PYTHON" - "$INDEX_HTML" "$STYLES_CSS" "$PROJECT_DIR" <<'PYEOF'
-import base64, hashlib, pathlib, re, sys
+import hashlib, pathlib, re, sys
 index_path = pathlib.Path(sys.argv[1]); css_path = pathlib.Path(sys.argv[2])
 project_dir = pathlib.Path(sys.argv[3])
 html = index_path.read_text(encoding="utf-8"); css = css_path.read_text(encoding="utf-8")
@@ -140,26 +140,30 @@ blocks = block_re.findall(css)
 if len(blocks) != 1:
     print(f"expected exactly one GNU Unifont @font-face block, found {len(blocks)}"); raise SystemExit(1)
 block = blocks[0]
-for token in ("local(", "resources/fonts/unifont.woff2", "/resources/fonts/unifont.woff2", "unifont.woff2"):
-    if token in block:
-        print(f"GNU Unifont @font-face references forbidden non-embedded source: {token}"); raise SystemExit(1)
-match = re.search(r"data:font/woff2;base64,([^\")]+)", block)
-if not match:
-    print("GNU Unifont @font-face does not contain an embedded WOFF2 data URL"); raise SystemExit(1)
-embedded = base64.b64decode(match.group(1), validate=True)
-if len(embedded) < 10000:
-    print(f"embedded GNU Unifont is suspiciously small: {len(embedded)} bytes"); raise SystemExit(1)
-for path in [project_dir/"data"/"resources"/"fonts"/"unifont.woff2",
-             project_dir/"data"/"resources"/"fonts"/"gnu_unifont_17_0_04_webui_subset.woff2"]:
-    if path.exists():
-        print(f"forbidden external WebUI Unifont resource still exists: {path}"); raise SystemExit(1)
+# 新契约：独立文件，不再内嵌 base64 data URI。
+if "data:font/woff2;base64," in block:
+    print("GNU Unifont @font-face must NOT embed a base64 data URL anymore"); raise SystemExit(1)
+if not re.search(r"url\(\s*['\"]?/resources/fonts/unifont\.woff2", block):
+    print("GNU Unifont @font-face must reference /resources/fonts/unifont.woff2 via url()"); raise SystemExit(1)
+font_path = project_dir/"data"/"resources"/"fonts"/"unifont.woff2"
+if not font_path.exists():
+    print(f"standalone WebUI Unifont resource is missing: {font_path}"); raise SystemExit(1)
+data = font_path.read_bytes()
+if data[:4] != b"wOF2":
+    print("standalone unifont.woff2 is not a valid WOFF2 (bad magic)"); raise SystemExit(1)
+if len(data) < 10000:
+    print(f"standalone GNU Unifont is suspiciously small: {len(data)} bytes"); raise SystemExit(1)
 compact_css = re.sub(r"\s+", "", css)
 link_re = re.compile(r"<link\b(?=[^>]*\brel=['\"]stylesheet['\"])(?=[^>]*\bhref=['\"]styles\.css(?:\?[^'\"]*)?['\"])[^>]*>", re.I)
 if not link_re.search(html):
     print("index.html does not link styles.css"); raise SystemExit(1)
+# 必须在 index.html 里 preload 独立 unifont，确保它最先加载。
+preload_re = re.compile(r"<link\b(?=[^>]*\brel=['\"]preload['\"])(?=[^>]*\bas=['\"]font['\"])(?=[^>]*href=['\"][^'\"]*?/resources/fonts/unifont\.woff2)[^>]*>", re.I)
+if not preload_re.search(html):
+    print("index.html must <link rel=preload as=font> the standalone unifont.woff2"); raise SystemExit(1)
 if '--ui-font:"GNUUnifont"' not in compact_css:
     print('CSS variable --ui-font is not pinned to "GNU Unifont"'); raise SystemExit(1)
-print(hashlib.sha256(embedded).hexdigest())
+print(hashlib.sha256(data).hexdigest())
 PYEOF
 }
 
@@ -174,9 +178,9 @@ assert_required_font_resources() {
     [ "$missing" = "0" ] || die "required font resources are missing. Re-run without --skip-prepare-fonts before uploadfs."
     test_merged_ark12_json || die "fused Ark12 JSON validation failed (needs 然/燃/滚/滾 + >=32000 glyphs). Re-run without --skip-prepare-fonts."
     local sha
-    sha="$(assert_embedded_unifont_webui)" || die "embedded-only GNU Unifont WebUI validation failed."
-    fontmsg "embedded-only GNU Unifont validated sha256=$sha"
-    fontmsg "required LittleFS font resources are present (single merged ark12.woff2; WebUI Unifont embedded in styles.css)."
+    sha="$(assert_standalone_unifont_webui)" || die "standalone GNU Unifont WebUI validation failed."
+    fontmsg "standalone GNU Unifont validated sha256=$sha"
+    fontmsg "required LittleFS font resources are present (merged ark12.woff2; standalone unifont.woff2 referenced by styles.css and preloaded by index.html)."
 }
 
 assert_littlefs_name_lengths() {
@@ -205,8 +209,9 @@ remove_legacy_font_resources() {
         "ark12_merged_trad_priority.json" \
         "ark12_merged_trad_priority_report.txt" \
         "gnu_unifont_17_0_04_webui_subset.woff2" \
-        "unifont.woff2" \
         "ark12_fallback.woff2"; do
+        # 注意：unifont.woff2 现在是独立 WebUI 字体资源，由 build_and_embed_unifont_webfont
+        # 生成并被 styles.css 引用，绝不能当作 legacy 删除。
         if [ -f "$FONT_DIR/$legacy" ]; then
             fontmsg "removing redundant font resource: $FONT_DIR/$legacy"
             rm -f "$FONT_DIR/$legacy"
@@ -219,27 +224,28 @@ build_and_embed_unifont_webfont() {
     local png="$CACHE_DIR/unifont-$UNIFONT_VERSION.png"
     local url="https://ftp.gnu.org/gnu/unifont/unifont-$UNIFONT_VERSION/unifont-$UNIFONT_VERSION.png"
     local tool="$PROJECT_DIR/tools/build_unifont_webui_subset_from_png.py"
-    local tmp_font="$CACHE_DIR/unifont_webui_embedded_tmp.woff2"
+    local out_font="$FONT_DIR/unifont.woff2"
+    local href="/resources/fonts/unifont.woff2?v=$UNIFONT_VERSION-webui"
     [ -f "$tool" ] || die "missing GNU Unifont WebUI subset build tool: $tool"
     download_if_missing "$url" "$png" "GNU Unifont $UNIFONT_VERSION BMP PNG sheet"
-    fontmsg "building and embedding WebUI GNU Unifont subset into styles.css..."
+    fontmsg "building standalone WebUI GNU Unifont subset -> $out_font (referenced by styles.css)..."
+    mkdir -p "$FONT_DIR"
     "$PYTHON" "$tool" \
-        --png "$png" --out "$tmp_font" --version "$UNIFONT_VERSION" \
-        --embed-index "$STYLES_CSS" \
+        --png "$png" --out "$out_font" --version "$UNIFONT_VERSION" \
+        --external-css "$STYLES_CSS" \
+        --external-href "$href" \
         --text-file "$INDEX_HTML" \
         --text-file "$STYLES_CSS" \
         --text-file "$APP_JS" \
         --text-file "$DATA_DIR/resources/saved_faces.json" \
         --text-file "$DATA_DIR/resources/runtime_settings.json" \
         --text-file "$DATA_DIR/resources/battery_calib.json" \
-        || die "GNU Unifont WebUI subset build/embed failed."
-    [ -f "$tmp_font" ] || die "temporary GNU Unifont WebUI subset was not generated: $tmp_font"
+        || die "GNU Unifont WebUI subset build failed."
+    [ -f "$out_font" ] || die "standalone GNU Unifont WebUI subset was not generated: $out_font"
     local size
-    size=$(wc -c < "$tmp_font" | tr -d ' ')
+    size=$(wc -c < "$out_font" | tr -d ' ')
     [ "$size" -ge 10000 ] || die "generated GNU Unifont WebUI subset is suspiciously small: $size bytes"
-    rm -f "$tmp_font"
-    rm -f "$FONT_DIR/unifont.woff2"
-    fontmsg "embedded WebUI GNU Unifont subset into styles.css; no LittleFS unifont.woff2 is kept."
+    fontmsg "wrote standalone LittleFS unifont.woff2 ($size bytes); styles.css references it via url()."
 }
 
 install_bundled_ark12_fusion_resources() {

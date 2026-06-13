@@ -168,8 +168,9 @@ function Remove-LegacyFontResources([string]$FontDir) {
         "ark12_merged_trad_priority.json",
         "ark12_merged_trad_priority_report.txt",
         ("gnu_" + "unifont_17_0_04_webui_subset.woff2"),
-        "unifont.woff2",
         "ark12_fallback.woff2"
+        # 注意：unifont.woff2 现在是独立 WebUI 字体资源，由 Build-AndEmbedUnifontWebFont
+        # 生成并被 styles.css 引用，绝不能当作 legacy 删除。
     )
     foreach ($Name in $LegacyNames) {
         $Path = Join-Path $FontDir $Name
@@ -276,7 +277,9 @@ function Build-AndEmbedUnifontWebFont([string]$CacheDir) {
     $UnifontPng = Join-Path $CacheDir "unifont-$UnifontVersion.png"
     $UnifontPngUrl = "https://ftp.gnu.org/gnu/unifont/unifont-$UnifontVersion/unifont-$UnifontVersion.png"
     $UnifontTool = Join-Path $ProjectDir "tools\build_unifont_webui_subset_from_png.py"
-    $TempUnifontWebFont = Join-Path $CacheDir "unifont_webui_embedded_tmp.woff2"
+    $FontDir = Join-Path $ProjectDir "data\resources\fonts"
+    $OutUnifont = Join-Path $FontDir "unifont.woff2"
+    $UnifontHref = "/resources/fonts/unifont.woff2?v=$UnifontVersion-webui"
 
     if (-not (Test-Path $UnifontTool)) {
         throw "Missing GNU Unifont WebUI subset build tool: $UnifontTool"
@@ -284,30 +287,24 @@ function Build-AndEmbedUnifontWebFont([string]$CacheDir) {
 
     Download-IfMissing -Url $UnifontPngUrl -Path $UnifontPng -Label "GNU Unifont $UnifontVersion BMP PNG sheet"
 
-    Write-Host "[font] building and embedding WebUI GNU Unifont subset into styles.css..."
-    Invoke-PythonChecked $Python @($UnifontTool, "--png", $UnifontPng, "--out", $TempUnifontWebFont, "--version", $UnifontVersion, "--embed-index", $StylesCss, "--text-file", $IndexHtml, "--text-file", $StylesCss, "--text-file", $AppJs, "--text-file", (Join-Path $ProjectDir "data\resources\saved_faces.json"), "--text-file", (Join-Path $ProjectDir "data\resources\runtime_settings.json"), "--text-file", (Join-Path $ProjectDir "data\resources\battery_calib.json")) "GNU Unifont WebUI subset build/embed failed."
+    Write-Host "[font] building standalone WebUI GNU Unifont subset -> $OutUnifont (referenced by styles.css)..."
+    if (-not (Test-Path $FontDir)) { New-Item -ItemType Directory -Force -Path $FontDir | Out-Null }
+    Invoke-PythonChecked $Python @($UnifontTool, "--png", $UnifontPng, "--out", $OutUnifont, "--version", $UnifontVersion, "--external-css", $StylesCss, "--external-href", $UnifontHref, "--text-file", $IndexHtml, "--text-file", $StylesCss, "--text-file", $AppJs, "--text-file", (Join-Path $ProjectDir "data\resources\saved_faces.json"), "--text-file", (Join-Path $ProjectDir "data\resources\runtime_settings.json"), "--text-file", (Join-Path $ProjectDir "data\resources\battery_calib.json")) "GNU Unifont WebUI subset build failed."
 
-    if (-not (Test-Path $TempUnifontWebFont)) {
-        throw "Temporary GNU Unifont WebUI subset was not generated: $TempUnifontWebFont"
+    if (-not (Test-Path $OutUnifont)) {
+        throw "Standalone GNU Unifont WebUI subset was not generated: $OutUnifont"
     }
-    $size = (Get-Item $TempUnifontWebFont).Length
+    $size = (Get-Item $OutUnifont).Length
     if ($size -lt 10000) {
         throw "Generated GNU Unifont WebUI subset is suspiciously small: $size bytes"
     }
 
-    Remove-Item -Force $TempUnifontWebFont -ErrorAction SilentlyContinue
-
-    $ExternalUnifont = Join-Path $ProjectDir "data\resources\fonts\unifont.woff2"
-    if (Test-Path $ExternalUnifont) {
-        Write-Host "[font] removing forbidden external WebUI Unifont resource: $ExternalUnifont"
-        Remove-Item -Force $ExternalUnifont
-    }
-    Write-Host "[font] embedded WebUI GNU Unifont subset into styles.css; no LittleFS unifont.woff2 is kept."
+    Write-Host "[font] wrote standalone LittleFS unifont.woff2 ($size bytes); styles.css references it via url()."
 }
 
 # 中文块：Ensure-EmbeddedUnifontWebFont 负责检查并补齐运行前置条件。
 function Ensure-EmbeddedUnifontWebFont([string]$CacheDir) {
-    Write-Host "[font] synchronizing embedded-only WebUI GNU Unifont subset with current WebUI text..."
+    Write-Host "[font] synchronizing standalone WebUI GNU Unifont subset with current WebUI text..."
     Build-AndEmbedUnifontWebFont -CacheDir $CacheDir
 }
 
@@ -467,7 +464,6 @@ function Invoke-PlatformIoChecked([string[]]$Arguments, [string]$ErrorMessage) {
 function Assert-EmbeddedUnifontWebUi {
     $Python = Get-PythonCommand
     $code = @'
-import base64
 import hashlib
 import pathlib
 import re
@@ -484,30 +480,23 @@ if len(blocks) != 1:
     print(f"expected exactly one GNU Unifont @font-face block, found {len(blocks)}")
     raise SystemExit(1)
 block = blocks[0]
-for token in ("local(", "resources/fonts/unifont.woff2", "/resources/fonts/unifont.woff2", "unifont.woff2"):
-    if token in block:
-        print(f"GNU Unifont @font-face still references a forbidden non-embedded source: {token}")
-        raise SystemExit(1)
-match = re.search(r"data:font/woff2;base64,([^\")]+)", block)
-if not match:
-    print("GNU Unifont @font-face does not contain an embedded WOFF2 data URL")
+if "data:font/woff2;base64," in block:
+    print("GNU Unifont @font-face must NOT embed a base64 data URL anymore")
     raise SystemExit(1)
-try:
-    embedded = base64.b64decode(match.group(1), validate=True)
-except Exception as exc:
-    print(f"embedded GNU Unifont base64 is invalid: {exc}")
+if not re.search(r"url\(\s*['\"]?/resources/fonts/unifont\.woff2", block):
+    print("GNU Unifont @font-face must reference /resources/fonts/unifont.woff2 via url()")
     raise SystemExit(1)
-if len(embedded) < 10000:
-    print(f"embedded GNU Unifont is suspiciously small: {len(embedded)} bytes")
+font_path = project_dir / "data" / "resources" / "fonts" / "unifont.woff2"
+if not font_path.exists():
+    print(f"standalone WebUI Unifont resource is missing: {font_path}")
     raise SystemExit(1)
-external_paths = [
-    project_dir / "data" / "resources" / "fonts" / "unifont.woff2",
-    project_dir / "data" / "resources" / "fonts" / "gnu_unifont_17_0_04_webui_subset.woff2",
-]
-for path in external_paths:
-    if path.exists():
-        print(f"forbidden external WebUI Unifont resource still exists: {path}")
-        raise SystemExit(1)
+data = font_path.read_bytes()
+if data[:4] != b"wOF2":
+    print("standalone unifont.woff2 is not a valid WOFF2 (bad magic)")
+    raise SystemExit(1)
+if len(data) < 10000:
+    print(f"standalone GNU Unifont is suspiciously small: {len(data)} bytes")
+    raise SystemExit(1)
 compact_css = re.sub(r"\s+", "", css)
 styles_link_re = re.compile(
     r"<link\b(?=[^>]*\brel=['\"]stylesheet['\"])(?=[^>]*\bhref=['\"]styles\.css(?:\?[^'\"]*)?['\"])[^>]*>",
@@ -516,18 +505,25 @@ styles_link_re = re.compile(
 if not styles_link_re.search(html):
     print('index.html does not link styles.css')
     raise SystemExit(1)
+preload_re = re.compile(
+    r"<link\b(?=[^>]*\brel=['\"]preload['\"])(?=[^>]*\bas=['\"]font['\"])(?=[^>]*href=['\"][^'\"]*?/resources/fonts/unifont\.woff2)[^>]*>",
+    re.I,
+)
+if not preload_re.search(html):
+    print('index.html must <link rel=preload as=font> the standalone unifont.woff2')
+    raise SystemExit(1)
 if '--ui-font:"GNUUnifont"' not in compact_css:
     print('CSS variable --ui-font is not pinned to "GNU Unifont"')
     raise SystemExit(1)
-print(hashlib.sha256(embedded).hexdigest())
+print(hashlib.sha256(data).hexdigest())
 '@
     $result = Invoke-PythonTempScript -Python $Python -Code $code -Arguments @($IndexHtml, $StylesCss, $ProjectDir)
     $outputText = (($result.Output | ForEach-Object { [string]$_ }) -join "`n").Trim()
     if ($result.ExitCode -ne 0) {
         if ($outputText) { Write-Host $outputText -ForegroundColor Yellow }
-        throw "Embedded-only GNU Unifont WebUI validation failed."
+        throw "Standalone GNU Unifont WebUI validation failed."
     }
-    Write-Host "[font] embedded-only GNU Unifont validated sha256=$outputText"
+    Write-Host "[font] standalone GNU Unifont validated sha256=$outputText"
 }
 
 # 中文块：Assert-RequiredFontResources 封装构建/上传流程中的一个独立步骤。

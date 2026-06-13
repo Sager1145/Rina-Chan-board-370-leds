@@ -159,7 +159,7 @@ WebUI 的重建边界如下：
 
 - `data/index.html` 负责 DOM 结构与稳定 id/class；行为由外置 `data/app.js` 加载，当前入口为 `<script src="app.js?v=20260612-step-buttons-v4"></script>`。
 - `data/app.js` 负责全部 WebUI 行为、配置、表情/部件运行时数据、API 队列、矩阵、滚动、调试和启动编排；不得改回内联 `<script>`，除非同步更新本计划和 gzip/静态托管规则。
-- `data/styles.css` 负责全部视觉、布局、动画和字体声明；GNU Unifont 必须以内联 `data:font/woff2;base64,...` 形式写在 CSS 内。当前实现只注册一个 Ark Pixel 浏览器字体 `/resources/fonts/ark12.woff2`（带缓存破坏 query，例如 `?v=20260612-emoji-input-v3`，该 token 每次发布会变化）；早期的 `ark12_fallback.woff2` 回退/别名注册已移除，对应文件也已从项目中删除。
+- `data/styles.css` 负责全部视觉、布局、动画和字体声明。GNU Unifont 备用字体现在是**独立 LittleFS 文件** `/resources/fonts/unifont.woff2`（带缓存破坏 query，例如 `?v=17.0.04-webui`），其 `@font-face` 通过 `url()` 引用该文件、`font-display:block`；**不再以内联 `data:font/woff2;base64,...` 形式写在 CSS 内**（历史上曾内联，已于本次改为独立文件）。`index.html` 在 `<head>` 用 `<link rel="preload" as="font" type="font/woff2" crossorigin>` 把它作为第一个资源最先加载。文字滚动字体 Ark Pixel 浏览器字体 `/resources/fonts/ark12.woff2` 同样以独立文件注册（带缓存破坏 query，例如 `?v=20260612-emoji-input-v3`，该 token 每次发布会变化）；早期的 `ark12_fallback.woff2` 回退/别名注册已移除，对应文件也已从项目中删除。生成/校验链见 `tools/build_unifont_webui_subset_from_png.py` 的 `--external-css` / `--external-href` 模式与 `run_rinachan_unifont.*` 的 standalone 校验。
 - `/resources/fonts/ark12.json` 是文字滚动栅格化器的位图字形表；它必须保持懒加载，不得在首屏加载阶段同步读取。
 - `/resources/loading/rina_icon1_default.png` 与 `/resources/loading/rina_icon2_hover.png` 是加载覆盖层的两个头像状态；默认图标需要在 `<head>` 预加载并作为 favicon。
 - `scripts/gzip_webui_assets.py` 必须能为 `index.html`、`app.js`、`styles.css`、`resources/fonts/ark12.json` 生成临时 `.gz` 同级文件，LittleFS 镜像生成后删除工作树中的临时 `.gz`，固件静态服务按 Accept-Encoding 优先返回 gzip。

@@ -10081,10 +10081,12 @@ function updateScrollUi() {
 
   const nonResumableSystemPause = scroll.systemPaused && !scroll.userPaused;
 
-  // commandBusy 是所有 aux 命令（发送/暂停/继续/停止/逐帧/帧率）的统一在途锁。
-  // 每个处理函数都在入口检查 commandBusy，所以这里也必须把它纳入禁用条件，
-  // 否则按钮看起来可点却是空操作，或允许并发下发互相冲突的命令。
-  const anyCommandBusy = hardBusy || scroll.commandBusy;
+  // commandBusy / pauseBusy / stepBusy / fpsBusy 是单次往返 aux 命令（暂停/继续/
+  // 停止/逐帧/帧率）的重入锁，每个处理函数都已在入口 `if (scroll.commandBusy ...) return`
+  // 自行拦截重复点击。因此这些短暂的在途标志**不应**反映到按钮 disabled 上——否则
+  // 每次普通点击都会让所有按钮闪一下 disabled→enabled。只有真正的长过程
+  // （上传 uploading / 恢复 restoring）才需要在按钮上可见地禁用控件。
+  const anyCommandBusy = hardBusy;
 
   // 暂停/继续只有在真正正在播放或处于可控暂停时才有意义；仅有输入文字或缓存帧
   // （idle）不应让暂停按钮显示为可用/已按下。
@@ -10096,22 +10098,20 @@ function updateScrollUi() {
   });
 
   applyScrollButtonUiState("pause", pauseBtn, {
-    disabled:
-      anyCommandBusy || scroll.pauseBusy || nonResumableSystemPause || !scrollLiveOrPaused,
+    disabled: anyCommandBusy || nonResumableSystemPause || !scrollLiveOrPaused,
     text: effectivePaused ? "继续" : "暂停",
     pressed: scrollPlayingNow,
   });
 
   applyScrollButtonUiState("stop", stopBtn, {
-    disabled: anyCommandBusy || scroll.stopBusy || !hasFrameCache,
+    disabled: anyCommandBusy || !hasFrameCache,
   });
 
-  const stepDisabled =
-    anyCommandBusy || scroll.stepBusy || scrollPlayingNow || !hasFramesForStep;
+  const stepDisabled = anyCommandBusy || scrollPlayingNow || !hasFramesForStep;
   applyScrollButtonUiState("stepPrev", stepPrevBtn, { disabled: stepDisabled });
   applyScrollButtonUiState("stepNext", stepNextBtn, { disabled: stepDisabled });
 
-  const speedDisabled = anyCommandBusy || scroll.fpsBusy;
+  const speedDisabled = anyCommandBusy;
   applyScrollButtonUiState("speedMinus", speedMinusBtn, { disabled: speedDisabled });
   applyScrollButtonUiState("speedPlus", speedPlusBtn, { disabled: speedDisabled });
   applyScrollButtonUiState("speedReset", speedResetBtn, { disabled: speedDisabled });

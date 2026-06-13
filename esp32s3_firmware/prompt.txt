@@ -1,0 +1,357 @@
+You are a senior software engineer and code auditor.
+
+Your task is to analyze the provided code and produce a **very detailed refactor plan only**.
+
+Do **not** modify any code yet.
+Do **not** output patched files.
+Do **not** rewrite functions.
+Do **not** apply changes.
+Only produce an audit-level refactor and bug-fix plan.
+
+The goal is to improve the code structure while preserving the intended functionality, but the plan must also identify real bugs, fragile logic, race conditions, inconsistent state handling, duplicated behavior, performance issues, and maintainability problems that should be fixed during a later implementation pass.
+
+## Core requirement
+
+The output must be a detailed plan that another developer or AI coding agent can follow later to safely refactor and fix the code.
+
+The plan must separate:
+
+1. **Pure refactor changes**
+
+   * Internal structure improvements.
+   * Naming improvements.
+   * Function extraction.
+   * File/module organization.
+   * Duplication removal.
+   * State management cleanup.
+   * Comment/documentation cleanup.
+   * No intentional behavior change.
+
+2. **Bug fixes**
+
+   * Logic errors.
+   * Incorrect state transitions.
+   * Race conditions.
+   * UI sync bugs.
+   * Hardware/firmware sync bugs.
+   * Async ordering bugs.
+   * Missing error handling.
+   * Incorrect edge-case behavior.
+   * Performance bugs that affect behavior.
+   * Any behavior that contradicts the intended design.
+
+Do not mix refactors and bug fixes together. Clearly label which category each item belongs to.
+
+---
+
+# Required analysis process
+
+Before writing the plan, inspect the full relevant code path.
+
+Analyze:
+
+1. Entry points.
+2. Initialization sequence.
+3. Main state objects.
+4. UI event handlers.
+5. API routes or protocol handlers.
+6. Data flow between modules.
+7. Async behavior.
+8. Timing-sensitive behavior.
+9. Error handling.
+10. Rendering/update logic.
+11. Persistence/storage behavior.
+12. Cleanup/reset behavior.
+13. Edge cases.
+14. Any hardware, firmware, WebUI, or backend sync behavior if present.
+
+Do not assume behavior from function names alone. Trace actual reads, writes, state changes, and side effects.
+
+---
+
+# Output format
+
+Produce the plan using this exact structure:
+
+## 1. Scope of analysis
+
+List the files, modules, components, functions, routes, classes, or systems that were reviewed.
+
+For each item, briefly explain why it is relevant.
+
+## 2. Current behavior map
+
+Describe the current behavior from start to finish.
+
+Include:
+
+* Startup/init flow.
+* User interaction flow.
+* Data generation flow.
+* Data transmission flow.
+* Rendering/preview flow.
+* State synchronization flow.
+* Error/retry flow.
+* Stop/reset/cleanup flow.
+* Persistence flow, if applicable.
+
+This section should be detailed enough that the current implementation could be reconstructed from the description.
+
+## 3. State model audit
+
+List every important state variable or state object.
+
+For each one, include:
+
+* Where it is defined.
+* What it represents.
+* Who reads it.
+* Who writes it.
+* Valid values.
+* Invalid or risky values.
+* Whether it overlaps with another state variable.
+* Whether it can become stale.
+* Whether it can become inconsistent with UI, backend, firmware, or persisted data.
+
+Then identify:
+
+* Redundant state.
+* Derived state that should not be stored.
+* Missing state.
+* State that should be centralized.
+* State that should remain local.
+
+## 4. Side-effect audit
+
+List all side effects in the code.
+
+Include:
+
+* DOM updates.
+* Network/API calls.
+* Firmware/hardware commands.
+* Timers.
+* Intervals.
+* Event listeners.
+* Storage writes.
+* Global state mutation.
+* Rendering operations.
+* Logging.
+* Error reporting.
+* Lock/unlock behavior.
+* Async callbacks.
+
+For each side effect, identify:
+
+* Where it happens.
+* What triggers it.
+* Whether it is safe.
+* Whether it can run in the wrong order.
+* Whether it can run more than once.
+* Whether it needs cleanup.
+* Whether it should be moved into a dedicated helper.
+
+## 5. Bug list
+
+List all suspected or confirmed bugs.
+
+For each bug, use this format:
+
+### Bug X: [short name]
+
+**Severity:** Critical / High / Medium / Low
+**Type:** logic / state / async / UI / performance / protocol / firmware / persistence / edge case
+**Location:** file/function/section
+**Current behavior:**
+**Expected behavior:**
+**Root cause:**
+**Reproduction path:**
+**Risk if not fixed:**
+**Fix strategy:**
+**Tests required:**
+
+Important: Do not propose vague fixes. The fix strategy must be concrete enough for implementation later.
+
+## 6. Refactor opportunities
+
+List all refactor opportunities.
+
+For each refactor item, use this format:
+
+### Refactor X: [short name]
+
+**Category:** structure / naming / extraction / deduplication / modularization / state cleanup / performance / comments
+**Location:** file/function/section
+**Current problem:**
+**Why this is safe:**
+**What should change:**
+**What must not change:**
+**Dependencies:**
+**Implementation steps:**
+**Regression risk:** Low / Medium / High
+**Validation method:**
+
+## 7. Proposed target architecture
+
+Describe the improved structure after refactor.
+
+Include:
+
+* Suggested files/modules.
+* Suggested helper functions.
+* Suggested boundaries between UI, state, transport, rendering, protocol, and persistence.
+* Which logic should remain together.
+* Which logic should be separated.
+* Which functions should become pure functions.
+* Which functions should own side effects.
+* Which state should be centralized.
+* Which state should be derived instead of stored.
+
+Do not write actual code.
+Use function names and module names as proposals only.
+
+## 8. Step-by-step implementation plan
+
+Create a phased implementation plan.
+
+Each phase must be small and safe.
+
+Use this structure:
+
+### Phase 1: [name]
+
+**Goal:**
+**Allowed changes:**
+**Forbidden changes:**
+**Files affected:**
+**Exact steps:**
+**Expected behavior after phase:**
+**Tests after phase:**
+**Rollback strategy:**
+
+Phases should be ordered so that low-risk pure refactors happen before high-risk bug fixes, unless a bug blocks safe refactoring.
+
+Recommended phase categories:
+
+1. Baseline behavior documentation.
+2. Add temporary diagnostics if needed.
+3. Extract pure helpers.
+4. Separate state reads/writes.
+5. Separate side effects.
+6. Remove duplication.
+7. Fix confirmed bugs.
+8. Improve error handling.
+9. Improve performance-sensitive paths.
+10. Final cleanup and regression testing.
+
+## 9. Behavior preservation checklist
+
+Create a checklist of behavior that must remain unchanged.
+
+Include:
+
+* Public APIs.
+* JSON fields.
+* DOM IDs/classes.
+* Event names.
+* Button behavior.
+* Timing behavior.
+* Default values.
+* Error messages.
+* Storage keys.
+* Protocol formats.
+* Hardware command formats.
+* Rendering output.
+* User-visible text.
+* Startup behavior.
+* Stop/reset behavior.
+* Edge-case behavior.
+
+## 10. Bug-fix validation checklist
+
+Create a separate checklist for validating the bug fixes.
+
+Each checklist item must include:
+
+* Test name.
+* Manual or automated.
+* Setup.
+* Steps.
+* Expected result.
+* What bug it protects against.
+
+## 11. Regression test plan
+
+Provide a full test plan.
+
+Include:
+
+* Unit tests.
+* Integration tests.
+* UI tests.
+* API/protocol tests.
+* Timing/async tests.
+* State consistency tests.
+* Persistence tests.
+* Performance tests.
+* Manual hardware tests, if applicable.
+* Edge-case tests.
+* Failure-mode tests.
+
+For each test, explain what it proves.
+
+## 12. Risk analysis
+
+List the riskiest parts of the refactor.
+
+For each risk, include:
+
+* Why it is risky.
+* What could break.
+* How to minimize risk.
+* How to test it.
+* Whether it should be delayed to a later phase.
+
+## 13. Things not to change
+
+Explicitly list anything that should not be changed during refactor.
+
+Include:
+
+* Stable public behavior.
+* Working but ugly logic that should not be touched yet.
+* Timing-sensitive code.
+* Protocol-sensitive code.
+* Hardware-sensitive code.
+* Any code where the current behavior is unclear.
+
+## 14. Final recommendation
+
+Summarize:
+
+* Whether the refactor is safe.
+* Which bugs should be fixed first.
+* Which refactors should be done first.
+* Which changes should be delayed.
+* The safest implementation order.
+
+---
+
+# Strict rules
+
+1. Do not modify code.
+2. Do not output replacement code.
+3. Do not silently change behavior.
+4. Do not remove features.
+5. Do not rename public APIs unless explicitly marked as a breaking change.
+6. Do not change protocol/data formats unless it is listed as a bug fix and justified.
+7. Do not change timing behavior unless it is listed as a bug fix and justified.
+8. Do not merge bug fixes into refactor items.
+9. Do not use vague language such as “clean this up” without concrete steps.
+10. If uncertain, mark the item as uncertain and explain what evidence is needed.
+11. Every proposed bug fix must include a reproduction path and validation test.
+12. Every proposed refactor must include what must remain unchanged.
+13. Prefer many small phases over one large rewrite.
+14. The final plan must be detailed enough to implement later without re-auditing the whole codebase.
+
+The final answer should be a plan only, not code.

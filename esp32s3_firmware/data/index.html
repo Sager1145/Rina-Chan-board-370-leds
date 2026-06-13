@@ -14,9 +14,16 @@
     <!-- 文档元数据和资源。SYNCTEST_MARKER -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Rina WebUI V2</title>
-    <!-- 启动预加载：这里只预加载第一张加载屏图片。 -->
-    <!-- WebUI 字体和悬停加载图片刻意不在这里预加载。 -->
-    <!-- 它们会在第 4 阶段首屏揭示后加载。 -->
+    <!-- 启动预加载：GNU Unifont 备用字体改为独立文件，作为第一个资源最先加载（font-display:block）。 -->
+    <link
+      rel="preload"
+      href="/resources/fonts/unifont.woff2?v=17.0.04-webui"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <!-- 随后预加载第一张加载屏图片。 -->
+    <!-- WebUI 字体和悬停加载图片刻意不在这里预加载，会在第 4 阶段首屏揭示后加载。 -->
     <link
       type="image/png"
       href="/resources/loading/rina_icon1_default.png"
