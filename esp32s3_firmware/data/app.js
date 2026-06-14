@@ -3232,7 +3232,7 @@ const MATRIX_VIEW_CONFIGS = [
   ["matrix-custom-edit", () => editFrame, true, editCell, false],
   ["matrix-parts", () => partsFrame, false, null, false],
   ["matrix-scroll", () => scrollFrame, false, null, false],
-  ["matrix-debug", () => currentFrame, false, null, false],
+  ["matrix-debug", () => debugPreviewFrame, false, null, false],
 ];
 const DEFAULT_SCROLL_FPS = WEBUI_CONFIG.scroll.defaultFps;
 const SCROLL_FPS_MIN = WEBUI_CONFIG.scroll.fpsMin;
@@ -3496,11 +3496,24 @@ let state = {
   chargeAdcMv: null,
   chargeIconClass: "status-dot dim",
   chargeIconColor: "#9aa6b2",
+  // 数据来源标记与同步时间戳（page-debug 重写）：区分固件实时值与本地/配置回退值。
+  apIpSource: "Config",
+  apDomainSource: "Config",
+  lastStatusSyncAt: null,
+  lastPowerSyncAt: null,
+  lastNetworkSyncAt: null,
 };
 let currentFrame = blankFrame();
 let editFrame = blankFrame();
 let partsFrame = blankFrame();
 let scrollFrame = blankFrame();
+// 调试预览专用缓冲：与全局 currentFrame 隔离，preview-only 操作只写这里，
+// 不污染 matrix-basic / DPS / 复制的 M370（page-debug 重写 v2 规则 1）。
+let debugPreviewFrame = blankFrame();
+let debugPreviewSource = "none";
+let debugPreviewReason = "init";
+let debugPreviewUpdatedAt = null;
+let firmwareLastSyncAt = null;
 let selectedCall = {
   leye: "101",
   reye: "201",
@@ -4421,6 +4434,7 @@ function setFinitePowerField(key, value) {
 function applyPowerData(powerData) {
   if (!powerData || typeof powerData !== "object") return false;
   let stateChanged = false;
+  state.lastPowerSyncAt = Date.now();
   const batteryValid = powerData.batteryValid !== false;
   const chargeValid = powerData.chargeValid !== false;
   const batteryPowered = powerData.batteryPowered !== false;
@@ -4581,12 +4595,19 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
 
   if (data.ap?.ip) {
     state.apIp = data.ap.ip;
+    state.apIpSource = "Firmware";
+    state.lastNetworkSyncAt = Date.now();
     stateChanged = true;
   }
   if (data.ap?.domain) {
     state.apDomain = data.ap.domain;
+    state.apDomainSource = "Firmware";
+    state.lastNetworkSyncAt = Date.now();
     stateChanged = true;
   }
+  // 任何成功合并固件状态都更新同步时间戳（page-debug 重写）。
+  firmwareLastSyncAt = Date.now();
+  state.lastStatusSyncAt = firmwareLastSyncAt;
 
   const nestedPowerPayload = data.power && typeof data.power === "object" ? data.power : null;
   const flatPowerPayload =
@@ -5170,17 +5191,9 @@ function setCurrentFrame(frame, reason = "manual_update", playback = null) {
 }
 
 function updateDps() {
-  const rgb = hexToRgb(state.color);
-  const colorFactor = (rgb.r + rgb.g + rgb.b) / (LED_FULL_BRIGHTNESS * 3);
-  const estimatedW =
-    onCount(currentFrame) *
-    LED_ESTIMATED_WATTS_PER_CHANNEL *
-    LED_CHANNEL_COUNT *
-    (state.brightness / LED_FULL_BRIGHTNESS) *
-    colorFactor;
+  const estimatedW = estimateFrameWatts(currentFrame, state.color, state.brightness);
   state.dpsActive = estimatedW > LED_POWER_WARNING_WATTS;
-  const warn = $("dps-warning");
-  if (warn) warn.classList.toggle("show", state.dpsActive);
+  renderDpsWarning();
 }
 
 function setColor(hex, source = "color_change") {
@@ -5851,71 +5864,15 @@ function responsiveColumnCount() {
   return 2;
 }
 
-function scheduleDebugMasonryLayout(force = false) {
-  if (document.body?.dataset?.page !== "debug") return;
-  if (debugLayoutRaf) cancelAnimationFrame(debugLayoutRaf);
-  debugLayoutRaf = requestAnimationFrame(() => {
-    debugLayoutRaf = 0;
-    setupDebugMasonryLayout(force);
-  });
+// page-debug 重写：旧 JS masonry 布局已由 .debug-grid CSS 网格取代。
+// 两个函数保留为 no-op 以兼容现有调用点（switchPage 等），布局完全交给 CSS。
+function scheduleDebugMasonryLayout() {
+  /* no-op：.debug-grid 由 CSS 处理布局 */
 }
 
-function setupDebugMasonryLayout(force = false) {
-  const layout = document.querySelector("#page-debug .debug-layout");
-  if (!layout) return;
-  const currentCards = [...layout.querySelectorAll(".debug-column > .card, :scope > .card")];
-  if (!debugLayoutCards.length) {
-    debugLayoutCards = currentCards;
-    debugLayoutCards.forEach((card, index) => {
-      card.dataset.debugOrder = String(index);
-    });
-  }
-  const cards = debugLayoutCards.filter((card) => card && layout.contains(card));
-  const count = responsiveColumnCount();
-  if (
-    !force &&
-    debugLayoutColumnCount === count &&
-    layout.querySelectorAll(":scope > .debug-column").length === count
-  )
-    return;
-  const scrollEl = document.scrollingElement || document.documentElement;
-  const prevScrollTop = scrollEl ? scrollEl.scrollTop : 0;
-  const prevScrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
-  const columns = Array.from(
-    {
-      length: count,
-    },
-    (_, index) => {
-      const column = document.createElement("div");
-      column.className = "debug-column";
-      column.dataset.debugColumn = String(index + 1);
-      return column;
-    },
-  );
-  const columnHeights = Array.from(
-    {
-      length: count,
-    },
-    () => 0,
-  );
-  cards
-    .sort((a, b) => Number(a.dataset.debugOrder || 0) - Number(b.dataset.debugOrder || 0))
-    .forEach((card, index) => {
-      const measuredHeight = card.getBoundingClientRect().height || 0;
-      const shortest = columnHeights.indexOf(Math.min(...columnHeights));
-      const columnIndex = measuredHeight > 0 ? shortest : index % count;
-      columns[columnIndex].appendChild(card);
-      columnHeights[columnIndex] += measuredHeight;
-    });
-  layout.replaceChildren(...columns);
-  debugLayoutColumnCount = count;
+function setupDebugMasonryLayout() {
+  /* no-op：.debug-grid 由 CSS 处理布局；进入调试页时仍触发一次矩阵适配 */
   scheduleMatrixFitRender(2);
-  if (force && prevScrollTop > 0 && scrollEl) {
-    requestAnimationFrame(() => {
-      scrollEl.scrollTop = prevScrollTop;
-      scrollEl.scrollLeft = prevScrollLeft;
-    });
-  }
 }
 
 function switchPage(id) {
@@ -5957,8 +5914,12 @@ function switchPage(id) {
       setupDebugMasonryLayout(true);
       const a = $("debug-m370");
       if (a) autoResizeTextarea(a);
+      refreshDebugM370Validation();
     });
+    // 进入 6.5：轻量运行时摘要 + 电源状态；只读面板由 renderState->renderDebugReadouts 渲染。
+    syncRuntimeSummaryFromFirmware("debug_page_enter");
     refreshPowerStatusFromFirmware("debug_page_enter", true);
+    renderDebugReadouts();
   }
   if (id === "basic") {
     syncRuntimeStateFromFirmware("basic_page_enter");
@@ -6584,61 +6545,8 @@ function batteryPowerText() {
 // - renderFaceLibrary()/renderPartButtons()/updateScrollUi() 处理各自复杂子视图。
 // - 所有渲染函数都应是幂等的：重复调用只能刷新，不应重复绑定事件或改变业务状态。
 function renderState() {
-  const library = getAllFaces();
-  const currentFace = library[state.faceIndex] || {
-    name: "—",
-    type: "—",
-  };
+  // 共享 UI（页眉电池/充电徽章、模式切换）在任何页面都要更新，不受 page-debug 影响。
   updateModeToggleUi();
-  const kv = $("state-kv");
-  if (kv)
-    kv.innerHTML = kvRows([
-      ["当前模式", state.mode],
-      ["当前表情序号", `${library.length ? state.faceIndex + 1 : 0} / ${library.length}`],
-      ["当前表情名称", currentFace.name],
-      ["当前表情属性", faceTypeLabel(currentFace.type)],
-      ["当前亮度", `${state.brightness}/255`],
-      ["当前颜色", state.color],
-      ["当前播放状态", state.playback],
-      ["当前 AP Domain", state.apDomain],
-      ["当前 AP IP", state.apIp],
-      ["刷新策略", state.refreshPolicy],
-      ["最近刷新原因", state.lastRefreshReason],
-      ["刷新计数", state.refreshCount],
-    ]);
-  const dk = $("debug-kv");
-  if (dk)
-    dk.innerHTML = kvRows([
-      ["LED 数量", TOTAL_LEDS],
-      ["矩阵", `${COLS}x${ROWS} / 不规则 370`],
-      ["M370 长度", "93 hex + M370:"],
-      ["亮度 raw", `${state.brightness}`],
-      ["DPS 状态", state.dpsActive ? "active" : "inactive"],
-      ["播放状态", state.playback],
-      ["文字滚动", state.textScrollActive ? "active" : "inactive"],
-      ["实际 FPS", state.actualFps.toFixed(1)],
-      ["电池状态", batteryPowerText()],
-      ["低压未上电锁定", state.batteryLowVoltageUnpowered ? "是" : "否"],
-      ["Vbat", `${formatVolts(state.batteryV)} / ${formatBatteryPercent(state.batteryPercent)}`],
-      ["电池瞬时电压", formatVolts(state.batteryLastInstantVbat)],
-      ["未上电电压阈值", formatVolts(state.batteryUnpoweredLowThreshold)],
-      ["电池最低电压记录", formatVolts(state.batteryMinV)],
-      ["电池最高电压记录", formatVolts(state.batteryMaxV)],
-      ["电池 ADC raw", formatMilliVolts(state.batteryAdcMv)],
-      ["上次电池 ADC raw", formatMilliVolts(state.batteryPrevAdcMv)],
-      [
-        "断电快速压降",
-        `${formatMilliVolts(state.batteryDisconnectDropMv)} / 阈值 ${formatMilliVolts(state.batteryDisconnectDropThresholdMv)}`,
-      ],
-      ["断电低 ADC 阈值", formatMilliVolts(state.batteryDisconnectLowThresholdMv)],
-      ["恢复 ADC 阈值", formatMilliVolts(state.batteryReconnectThresholdMv)],
-      ["Vcharge", `${formatVolts(state.chargeV)} / ${formatChargingState(state.charging)}`],
-      ["充电 ADC raw", formatMilliVolts(state.chargeAdcMv)],
-      ["AP SSID", DEVICE_AP_SSID],
-      ["AP 密码", DEVICE_AP_PASSWORD],
-      ["AP Domain", state.apDomain],
-      ["AP IP", state.apIp],
-    ]);
   const battDot = $("badge-battery-dot"),
     battLabel = $("badge-battery-label");
   if (battDot && battLabel) {
@@ -6661,46 +6569,10 @@ function renderState() {
         ? `充电中 ${formatVolts(state.chargeV)}`
         : formatChargingBadge(state.charging);
   }
-  const rk = $("resource-kv");
-  if (rk)
-    rk.innerHTML = kvRows([
-      ["JSON format", EXPRESSION_PARTS.format],
-      ["version", EXPRESSION_PARTS.version],
-      ["stored_unique_parts", EXPRESSION_PARTS.counts.stored_unique_parts],
-      ["callable_ids", EXPRESSION_PARTS.counts.callable_ids],
-      ["eye_left", EXPRESSION_PARTS.counts.stored_by_group.eye_left],
-      ["eye_right", EXPRESSION_PARTS.counts.stored_by_group.eye_right],
-      ["mouth", EXPRESSION_PARTS.counts.stored_by_group.mouth],
-      ["cheek", EXPRESSION_PARTS.counts.callable_by_group.cheek],
-      ["default_faces", defaultFaces.length],
-      ["user_saved_faces", userFaces.length],
-      ["interface_mode", "HTML generates M370 / firmware receives commands"],
-      ["face_library_json", firmware.savedFacesPath],
-      ["physical_wiring", SERPENTINE_WIRING ? "serpentine / odd rows reversed" : "linear"],
-      ["parts_compose", "m370 logical row-major canonical"],
-      ["parts_eye_symmetry", partsSymmetry ? "on / same display index" : "off"],
-      [
-        "preview_scale",
-        "smooth fractional --cell live scaling / card horizontal-min vertical-max fit",
-      ],
-      ["basic_layout", "wide side-by-side"],
-    ]);
-  const fk = $("firmware-kv");
-  if (fk)
-    fk.innerHTML = kvRows([
-      ["online", firmware.online ? "✓ connected" : "✗ offline"],
-      ["lastRequest", firmware.lastRequest],
-      ["lastStatus", firmware.lastStatus],
-      ["lastError", firmware.lastError],
-      ["sentFrames", String(firmware.sentFrames)],
-      ["sentCommands", String(firmware.sentCommands)],
-      ["frameQueue", `${firmware.frameQueue}/${WEBUI_M370_QUEUE_MAX}`],
-      ["buttonQueue", `${firmware.buttonQueue}/${WEBUI_BUTTON_COMMAND_QUEUE_MAX}`],
-      ["droppedFrames", String(firmware.droppedFrames)],
-      ["droppedCommands", String(firmware.droppedCommands)],
-      ["savedFacesSync", firmware.savedFacesSync],
-    ]);
-  scheduleDebugMasonryLayout();
+  // 调试页只读面板：仅在 6.5 活动时渲染，且只重写只读 kv/徽章/预览元信息，
+  // 绝不重建交互控件（M370/原始 JSON/勾选框）。renderState 有 44 处调用点，
+  // 因此必须按页面 gate 以免每次轮询/请求清空用户输入（v2 规则 4）。
+  renderDebugReadouts();
 }
 
 function kvRows(rows) {
@@ -9811,7 +9683,7 @@ function initializeMatrixViews() {
   initMatrix("matrix-custom-edit", () => editFrame, true, editCell, false);
   initMatrix("matrix-parts", () => partsFrame, false, null, false);
   initMatrix("matrix-scroll", () => scrollFrame, false, null, false);
-  initMatrix("matrix-debug", () => currentFrame, false, null, false);
+  initMatrix("matrix-debug", () => debugPreviewFrame, false, null, false);
 }
 
 function resetBatteryVoltageRecord(kind) {
@@ -9841,45 +9713,571 @@ function resetBatteryVoltageRecord(kind) {
     });
 }
 
-// 调试控件会发送诊断命令和本地测试图案。
+// ============================================================
+// page-debug 重写：诊断渲染助手 + 11 面板渲染器 + 安全动作助手。
+// 说明：function 声明会被提升，因此放在 renderState/updateDps 之后也可被调用。
+// ============================================================
+let debugApPasswordShown = false;
+
+function fmtDebugTime(ts) {
+  return ts ? new Date(ts).toLocaleTimeString() : "—";
+}
+
+function debugSourceClass(source) {
+  return (
+    {
+      Firmware: "src-fw",
+      Browser: "src-br",
+      Resource: "src-res",
+      Config: "src-cfg",
+      Computed: "src-cmp",
+      Fallback: "src-fallback",
+    }[source] || ""
+  );
+}
+
+// 单条 kv 行的显式来源元数据（不再从 label 文本推断来源，v2 规则 2）。
+function buildDebugRow({ label, value, source = "", stale = false, note = "", html = false }) {
+  const v = value === null || value === undefined || value === "" ? "—" : value;
+  return { label, value: v, source, stale: !!stale, note, html: !!html };
+}
+
+function renderDebugKvList(targetId, rows) {
+  const el = $(targetId);
+  if (!el) return;
+  el.innerHTML = rows
+    .map((r) => {
+      const valHtml = r.html ? String(r.value) : escapeHtml(String(r.value));
+      const chip = r.source
+        ? `<span class="debug-source ${debugSourceClass(r.source)}${r.stale ? " is-stale" : ""}">${escapeHtml(r.stale ? r.source + " · 旧值" : r.source)}</span>`
+        : "";
+      const note = r.note
+        ? ` <span class="debug-source src-cmp">${escapeHtml(r.note)}</span>`
+        : "";
+      return `<span class="k">${escapeHtml(r.label)}</span><span>${valHtml}${chip}${note}</span>`;
+    })
+    .join("");
+}
+
+function renderDebugBadge(label, dotClass = "status-dot") {
+  return `<span class="badge"><span class="${dotClass}"></span>${escapeHtml(label)}</span>`;
+}
+
+// DPS / 全亮警告共用的参数化功耗估算（从 updateDps 抽出，v2 规则 6）。
+function estimateFrameWatts(frame, colorHex, brightness) {
+  const rgb = hexToRgb(colorHex);
+  const colorFactor = (rgb.r + rgb.g + rgb.b) / (LED_FULL_BRIGHTNESS * 3);
+  return (
+    onCount(frame) *
+    LED_ESTIMATED_WATTS_PER_CHANNEL *
+    LED_CHANNEL_COUNT *
+    (brightness / LED_FULL_BRIGHTNESS) *
+    colorFactor
+  );
+}
+
+// 纯函数：保存表情 -> 帧，无副作用（preview-only 用，v2 规则 5）。
+function getSavedFaceFrame(i) {
+  const face = getAllFaces()[i];
+  return face && typeof face.m370 === "string" ? m370ToFrame(face.m370) : blankFrame();
+}
+
+function renderDpsWarning() {
+  ["debug-summary-dps-warning", "debug-power-dps-warning"].forEach((id) => {
+    const el = $(id);
+    if (el) el.classList.toggle("show", !!state.dpsActive);
+  });
+}
+
+function setDebugActionBusy(actionId, busy) {
+  const el = $(actionId);
+  if (!el) return;
+  el.disabled = !!busy;
+  el.classList.toggle("busy", !!busy);
+}
+
+function showDebugActionResult(resultId, result) {
+  const el = $(resultId);
+  if (!el) return;
+  el.classList.remove("ok", "err", "pending");
+  if (!result) {
+    el.textContent = "";
+    return;
+  }
+  el.classList.add(result.pending ? "pending" : result.ok ? "ok" : "err");
+  el.textContent = result.msg || "";
+}
+
+function validateM370Input(text) {
+  let s = String(text || "").trim();
+  const hadPrefix = s.toUpperCase().startsWith("M370:");
+  if (hadPrefix) s = s.slice(5);
+  s = s.replace(/\s+/g, "");
+  const expectedLen = 93;
+  if (!/^[0-9a-fA-F]*$/.test(s))
+    return { valid: false, normalizedLen: s.length, expectedLen, hadPrefix, error: "包含非 hex 字符" };
+  if (s.length !== expectedLen)
+    return {
+      valid: false,
+      normalizedLen: s.length,
+      expectedLen,
+      hadPrefix,
+      error: `需要 ${expectedLen} 个 hex 字符，当前 ${s.length}`,
+    };
+  return { valid: true, normalizedLen: s.length, expectedLen, hadPrefix, error: "" };
+}
+
+function parseM370ToFrameOrError(text) {
+  const v = validateM370Input(text);
+  if (!v.valid) return { error: v.error };
+  try {
+    return { frame: m370ToFrame(text) };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+// preview-only 仅写 debugPreviewFrame（不碰 currentFrame/setCurrentFrame/queueFirmwareFrame，
+// 不调用 updateDps）；send 走 setCurrentFrame 再镜像到预览缓冲（v2 规则 1）。
+function applyDebugFrame(frame, source = "debug pattern", options = {}) {
+  if (options.send) {
+    setCurrentFrame(frame, options.reason || "debug_send", "idle");
+    debugPreviewFrame = cloneFrame(currentFrame);
+    debugPreviewSource = "firmware";
+  } else {
+    debugPreviewFrame = cloneFrame(frame);
+    debugPreviewSource = source;
+  }
+  debugPreviewReason = options.reason || source;
+  debugPreviewUpdatedAt = Date.now();
+  renderMatrices();
+  renderDebugPreviewPanel();
+}
+
+function confirmDangerAction({ title = "确认操作", body = "", confirmWord = "" } = {}) {
+  if (confirmWord) {
+    const ans = window.prompt(`${title}\n\n${body}\n\n输入 ${confirmWord} 以确认：`);
+    return ans != null && ans.trim().toUpperCase() === confirmWord.toUpperCase();
+  }
+  return window.confirm(`${title}\n\n${body}`);
+}
+
+// 复制诊断 JSON；绝不包含 AP 密码（v2 规则 10）。
+function copyDebugDiagnostics(scope = "full") {
+  const summary = {
+    mode: state.mode,
+    faceIndex: state.faceIndex,
+    brightness: state.brightness,
+    color: state.color,
+    playback: state.playback,
+    textScrollActive: state.textScrollActive,
+    apIp: state.apIp,
+    apIpSource: state.apIpSource,
+    apDomain: state.apDomain,
+    apDomainSource: state.apDomainSource,
+    battery: batteryPowerText(),
+    batteryPercent: state.batteryPercent,
+    lastStatusSyncAt: state.lastStatusSyncAt,
+  };
+  const fw = {
+    online: firmware.online,
+    lastRequest: firmware.lastRequest,
+    lastStatus: firmware.lastStatus,
+    lastError: firmware.lastError,
+    firmwareLastSyncAt,
+    sentFrames: firmware.sentFrames,
+    sentCommands: firmware.sentCommands,
+    droppedFrames: firmware.droppedFrames,
+    droppedCommands: firmware.droppedCommands,
+    frameQueue: firmware.frameQueue,
+    buttonQueue: firmware.buttonQueue,
+    savedFacesSync: firmware.savedFacesSync,
+  };
+  const power = {
+    batteryPowered: state.batteryPowered,
+    batteryV: state.batteryV,
+    batteryPercent: state.batteryPercent,
+    batteryMinV: state.batteryMinV,
+    batteryMaxV: state.batteryMaxV,
+    chargeV: state.chargeV,
+    charging: state.charging,
+    dpsActive: state.dpsActive,
+    lastPowerSyncAt: state.lastPowerSyncAt,
+  };
+  let payload;
+  if (scope === "summary") payload = summary;
+  else if (scope === "firmware") payload = fw;
+  else
+    payload = {
+      summary,
+      firmware: fw,
+      power,
+      resource: {
+        ledCount: TOTAL_LEDS,
+        matrix: `${COLS}x${ROWS}`,
+        defaultFaces: defaultFaces.length,
+        userSavedFaces: userFaces.length,
+      },
+      preview: {
+        source: debugPreviewSource,
+        reason: debugPreviewReason,
+        updatedAt: debugPreviewUpdatedAt,
+        onCount: onCount(debugPreviewFrame),
+      },
+    };
+  copyText(JSON.stringify(payload, null, 2));
+  log(`已复制诊断 JSON (${scope})；可能含 SSID/IP/域名，已排除 AP 密码`);
+}
+
+// ---- 只读面板渲染器（由 renderDebugReadouts 在 debug 页活动时调用）----
+function renderDebugReadouts() {
+  if (document.body?.dataset?.page !== "debug") return;
+  renderDebugDeviceSummary();
+  renderDebugFirmwareHealth();
+  renderDebugPowerPanel();
+  renderDebugNetworkPanel();
+  renderDebugResourcePanel();
+  renderDebugPreviewPanel();
+}
+
+function renderDebugDeviceSummary() {
+  const lib = getAllFaces();
+  const face = lib[state.faceIndex] || { name: "—", type: "—" };
+  const online = firmware.online;
+  const stale = !online;
+
+  const linkBadge = online
+    ? renderDebugBadge("在线", "status-dot")
+    : renderDebugBadge(
+        firmware.lastError && firmware.lastError !== "—" ? "错误" : "离线",
+        "status-dot danger",
+      );
+
+  let outTxt = "未知",
+    outDot = "status-dot dim";
+  const pb = String(state.playback || "").toLowerCase();
+  if (state.textScrollActive) {
+    outTxt = "滚动文字";
+    outDot = "status-dot";
+  } else if (pb.includes("pause")) {
+    outTxt = "已暂停";
+    outDot = "status-dot warn";
+  } else if (pb === "idle" || pb === "manual" || pb === "auto" || pb === "playing") {
+    outTxt = "显示表情";
+    outDot = "status-dot";
+  }
+
+  let powerTxt = "未知",
+    powerDot = "status-dot dim";
+  if (state.charging === true) {
+    powerTxt = "充电中";
+    powerDot = "status-dot";
+  } else if (state.batteryPowered === false) {
+    powerTxt = "未上电";
+    powerDot = "status-dot danger";
+  } else if (state.batteryLowVoltageUnpowered) {
+    powerTxt = "低压锁定";
+    powerDot = "status-dot warn";
+  } else if (state.batteryPowered) {
+    powerTxt = "电池供电";
+    powerDot = "status-dot";
+  }
+
+  let pipeTxt = "本地预览",
+    pipeDot = "status-dot dim";
+  if (firmware.droppedFrames > 0 || firmware.droppedCommands > 0) {
+    pipeTxt = "队列有丢弃";
+    pipeDot = "status-dot warn";
+  } else if (firmware.sentFrames > 0) {
+    pipeTxt = "已发送固件帧";
+    pipeDot = "status-dot";
+  }
+
+  const netKnown = state.apIpSource === "Firmware";
+  renderDebugKvList("debug-summary-conclusions", [
+    buildDebugRow({ label: "固件连接", value: linkBadge, html: true }),
+    buildDebugRow({ label: "输出状态", value: renderDebugBadge(outTxt, outDot), html: true }),
+    buildDebugRow({ label: "电源状态", value: renderDebugBadge(powerTxt, powerDot), html: true }),
+    buildDebugRow({ label: "帧管线", value: renderDebugBadge(pipeTxt, pipeDot), html: true }),
+    buildDebugRow({
+      label: "网络",
+      value: renderDebugBadge(netKnown ? "固件 IP 已知" : "配置回退", netKnown ? "status-dot" : "status-dot warn"),
+      html: true,
+    }),
+  ]);
+
+  const colorHex = normalizeHexColor(state.color) || "#000000";
+  const colorSwatch = `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${colorHex};vertical-align:middle"></span> ${escapeHtml(state.color)}`;
+  renderDebugKvList("debug-summary-kv", [
+    buildDebugRow({ label: "当前模式", value: state.mode, source: "Firmware", stale }),
+    buildDebugRow({
+      label: "表情序号",
+      value: `${lib.length ? state.faceIndex + 1 : 0} / ${lib.length}`,
+      source: "Firmware",
+      stale,
+    }),
+    buildDebugRow({ label: "表情名称", value: face.name, source: "Firmware", stale }),
+    buildDebugRow({ label: "表情属性", value: faceTypeLabel(face.type), source: "Resource" }),
+    buildDebugRow({ label: "亮度", value: `${state.brightness}/255`, source: "Firmware", stale }),
+    buildDebugRow({ label: "颜色", value: colorSwatch, html: true }),
+    buildDebugRow({ label: "播放状态", value: state.playback, source: "Firmware", stale }),
+    buildDebugRow({
+      label: "文字滚动",
+      value: state.textScrollActive ? "active" : "inactive",
+      source: "Firmware",
+      stale,
+    }),
+    buildDebugRow({ label: "实际 FPS", value: Number(state.actualFps || 0).toFixed(1), source: "Firmware", stale }),
+    buildDebugRow({
+      label: "AP IP",
+      value: state.apIp,
+      source: state.apIpSource,
+      stale: stale && state.apIpSource === "Firmware",
+    }),
+    buildDebugRow({ label: "电池", value: batteryPowerText(), source: "Firmware", stale }),
+    buildDebugRow({ label: "最近状态同步", value: fmtDebugTime(state.lastStatusSyncAt), source: "Browser" }),
+  ]);
+}
+
+function renderDebugFirmwareHealth() {
+  renderDebugKvList("debug-firmware-kv", [
+    buildDebugRow({ label: "online", value: firmware.online ? "✓ connected" : "✗ offline", source: "Firmware" }),
+    buildDebugRow({ label: "最近请求", value: firmware.lastRequest, source: "Browser" }),
+    buildDebugRow({ label: "最近状态", value: firmware.lastStatus, source: "Firmware" }),
+    buildDebugRow({ label: "最近错误", value: firmware.lastError, source: "Firmware" }),
+    buildDebugRow({ label: "最近成功同步", value: fmtDebugTime(firmwareLastSyncAt), source: "Browser" }),
+    buildDebugRow({ label: "sent frames", value: String(firmware.sentFrames), source: "Browser", note: "浏览器队列诊断" }),
+    buildDebugRow({ label: "sent commands", value: String(firmware.sentCommands), source: "Browser", note: "浏览器队列诊断" }),
+    buildDebugRow({ label: "frame queue", value: `${firmware.frameQueue}/${WEBUI_M370_QUEUE_MAX}`, source: "Browser" }),
+    buildDebugRow({ label: "button queue", value: `${firmware.buttonQueue}/${WEBUI_BUTTON_COMMAND_QUEUE_MAX}`, source: "Browser" }),
+    buildDebugRow({ label: "dropped frames", value: String(firmware.droppedFrames), source: "Browser" }),
+    buildDebugRow({ label: "dropped commands", value: String(firmware.droppedCommands), source: "Browser" }),
+    buildDebugRow({ label: "savedFacesSync", value: firmware.savedFacesSync, source: "Firmware" }),
+  ]);
+}
+
+function renderDebugPowerPanel() {
+  const stale = !firmware.online;
+  renderDebugKvList("debug-power-kv", [
+    buildDebugRow({ label: "供电状态", value: state.batteryPowered === false ? "未上电" : "已上电", source: "Firmware", stale }),
+    buildDebugRow({ label: "电池显示", value: batteryPowerText(), source: "Firmware", stale }),
+    buildDebugRow({ label: "电量百分比", value: formatBatteryPercent(state.batteryPercent), source: "Firmware", stale }),
+    buildDebugRow({ label: "Vbat 滤波", value: formatVolts(state.batteryV), source: "Firmware", stale }),
+    buildDebugRow({ label: "Vbat 瞬时", value: formatVolts(state.batteryLastInstantVbat), source: "Firmware", stale }),
+    buildDebugRow({ label: "Vbat 最低", value: formatVolts(state.batteryMinV), source: "Firmware", stale }),
+    buildDebugRow({ label: "Vbat 最高", value: formatVolts(state.batteryMaxV), source: "Firmware", stale }),
+    buildDebugRow({ label: "最近电源同步", value: fmtDebugTime(state.lastPowerSyncAt), source: "Browser" }),
+  ]);
+  renderDebugKvList("debug-adc-kv", [
+    buildDebugRow({ label: "电池 ADC raw", value: formatMilliVolts(state.batteryAdcMv), source: "Firmware", stale }),
+    buildDebugRow({ label: "上次电池 ADC", value: formatMilliVolts(state.batteryPrevAdcMv), source: "Firmware", stale }),
+    buildDebugRow({ label: "充电 ADC raw", value: formatMilliVolts(state.chargeAdcMv), source: "Firmware", stale }),
+    buildDebugRow({ label: "Vcharge", value: formatVolts(state.chargeV), source: "Firmware", stale }),
+    buildDebugRow({ label: "充电状态", value: formatChargingState(state.charging), source: "Firmware", stale }),
+    buildDebugRow({ label: "低压未上电锁定", value: state.batteryLowVoltageUnpowered ? "是" : "否", source: "Firmware", stale }),
+    buildDebugRow({ label: "未上电低阈值", value: formatVolts(state.batteryUnpoweredLowThreshold), source: "Config" }),
+    buildDebugRow({
+      label: "断电快速压降",
+      value: `${formatMilliVolts(state.batteryDisconnectDropMv)} / 阈值 ${formatMilliVolts(state.batteryDisconnectDropThresholdMv)}`,
+      source: "Firmware",
+      stale,
+    }),
+    buildDebugRow({ label: "断电低 ADC 阈值", value: formatMilliVolts(state.batteryDisconnectLowThresholdMv), source: "Firmware", stale }),
+    buildDebugRow({ label: "恢复 ADC 阈值", value: formatMilliVolts(state.batteryReconnectThresholdMv), source: "Firmware", stale }),
+    buildDebugRow({ label: "DPS 状态", value: state.dpsActive ? "active" : "inactive", source: "Computed" }),
+  ]);
+  renderDpsWarning();
+}
+
+function renderDebugNetworkPanel() {
+  const stale = !firmware.online;
+  renderDebugKvList("debug-network-kv", [
+    buildDebugRow({ label: "AP SSID", value: DEVICE_AP_SSID, source: "Config" }),
+    buildDebugRow({
+      label: "AP 密码",
+      value: debugApPasswordShown ? DEVICE_AP_PASSWORD : "•".repeat(8),
+      source: "Config",
+    }),
+    buildDebugRow({
+      label: "AP 域名",
+      value: state.apDomain,
+      source: state.apDomainSource,
+      stale: stale && state.apDomainSource === "Firmware",
+    }),
+    buildDebugRow({
+      label: "AP IP",
+      value: state.apIp,
+      source: state.apIpSource,
+      stale: stale && state.apIpSource === "Firmware",
+    }),
+  ]);
+  const toggle = $("debug-ap-pass-toggle");
+  if (toggle) toggle.textContent = debugApPasswordShown ? "隐藏密码" : "显示密码";
+}
+
+function renderDebugResourcePanel() {
+  const c = EXPRESSION_PARTS.counts;
+  renderDebugKvList("debug-resource-kv", [
+    buildDebugRow({ label: "LED 数量", value: TOTAL_LEDS, source: "Config" }),
+    buildDebugRow({ label: "矩阵", value: `${COLS}x${ROWS} / 不规则 370`, source: "Config" }),
+    buildDebugRow({ label: "M370 长度", value: "93 hex + M370:", source: "Config" }),
+    buildDebugRow({ label: "物理接线", value: SERPENTINE_WIRING ? "serpentine / 奇数行反向" : "linear", source: "Config" }),
+    buildDebugRow({ label: "JSON format", value: EXPRESSION_PARTS.format, source: "Resource" }),
+    buildDebugRow({ label: "version", value: EXPRESSION_PARTS.version, source: "Resource" }),
+    buildDebugRow({ label: "stored_unique_parts", value: c.stored_unique_parts, source: "Resource" }),
+    buildDebugRow({ label: "callable_ids", value: c.callable_ids, source: "Resource" }),
+    buildDebugRow({ label: "eye_left", value: c.stored_by_group.eye_left, source: "Resource" }),
+    buildDebugRow({ label: "eye_right", value: c.stored_by_group.eye_right, source: "Resource" }),
+    buildDebugRow({ label: "mouth", value: c.stored_by_group.mouth, source: "Resource" }),
+    buildDebugRow({ label: "cheek", value: c.callable_by_group.cheek, source: "Resource" }),
+    buildDebugRow({ label: "default_faces", value: defaultFaces.length, source: "Resource" }),
+    buildDebugRow({ label: "user_saved_faces", value: userFaces.length, source: "Resource" }),
+    buildDebugRow({ label: "saved_faces_path", value: firmware.savedFacesPath, source: "Config" }),
+    buildDebugRow({ label: "savedFacesSync", value: firmware.savedFacesSync, source: "Firmware" }),
+    buildDebugRow({ label: "parts_eye_symmetry", value: partsSymmetry ? "on" : "off", source: "Config" }),
+  ]);
+}
+
+function renderDebugPreviewPanel() {
+  const m370 = frameToM370(debugPreviewFrame);
+  renderDebugKvList("debug-preview-kv", [
+    buildDebugRow({ label: "来源", value: debugPreviewSource, source: "Computed" }),
+    buildDebugRow({ label: "更新原因", value: debugPreviewReason, source: "Browser" }),
+    buildDebugRow({ label: "更新时间", value: fmtDebugTime(debugPreviewUpdatedAt), source: "Browser" }),
+    buildDebugRow({ label: "亮点数", value: onCount(debugPreviewFrame), source: "Computed" }),
+    buildDebugRow({ label: "M370 长度", value: `${m370.length} 字符`, source: "Computed" }),
+  ]);
+}
+
+// 离线/在线发送是否应被阻止（send-to-firmware 控件）。
+function debugSendBlockedOffline(resultId) {
+  if (!firmware.online || isOfflineHtmlMode()) {
+    showDebugActionResult(resultId, { ok: false, msg: "固件离线，无法发送到固件" });
+    return true;
+  }
+  return false;
+}
+
+// 统一处理“模拟指令”按钮：忙碌禁用 + 结果反馈 + 成功后只刷新运行时摘要。
+// 处理两种离线情形（v2 §7）：无 promise（离线 HTML 本地回退）/ promise 失败（网络断开）。
+function runDebugSimCommand(btnEl, label, packet) {
+  showDebugActionResult("debug-sim-result", { pending: true, msg: `${label}：发送中…` });
+  if (btnEl) btnEl.disabled = true;
+  const done = (ok, msg) => {
+    if (btnEl) btnEl.disabled = false;
+    showDebugActionResult("debug-sim-result", { ok, msg: `${label}：${msg}` });
+    if (ok) syncRuntimeSummaryFromFirmware(`debug_sim_${label}`);
+  };
+  const p = packet && packet.promise;
+  if (p && typeof p.then === "function") {
+    p.then(() =>
+      firmware.online
+        ? done(true, "成功，已刷新运行时状态")
+        : done(false, `失败：${firmware.lastError || "网络错误"}`),
+    ).catch((err) => done(false, `失败：${err?.message || err}`));
+  } else {
+    done(false, isOfflineHtmlMode() ? "离线（已执行本地回退）" : "已发送");
+  }
+}
+
+function refreshDebugM370Validation() {
+  const ta = $("debug-m370");
+  const el = $("debug-m370-validation");
+  if (!el) return;
+  el.classList.remove("ok", "err");
+  const raw = ta?.value || "";
+  if (!raw.trim()) {
+    el.textContent = "";
+    return;
+  }
+  const v = validateM370Input(raw);
+  el.classList.add(v.valid ? "ok" : "err");
+  const meta = `${v.normalizedLen}/${v.expectedLen} hex · 前缀 ${v.hadPrefix ? "有" : "无"}`;
+  el.textContent = v.valid ? `有效 · ${meta}` : `无效：${v.error} · ${meta}`;
+}
+
+function refreshDebugRawValidation() {
+  const el = $("debug-raw-validation");
+  const sendBtn = $("debug-raw-send");
+  const confirmed = $("debug-raw-confirm")?.checked;
+  const raw = $("debug-raw-json")?.value || "";
+  let valid = false;
+  let msg = "";
+  if (!raw.trim()) {
+    msg = "";
+  } else {
+    try {
+      const packet = JSON.parse(raw);
+      if (!packet || typeof packet !== "object" || typeof packet.cmd !== "string") {
+        msg = "JSON 必须是对象且包含字符串 cmd 字段";
+      } else {
+        valid = true;
+        msg = `合法：cmd = ${packet.cmd}`;
+      }
+    } catch (err) {
+      msg = `JSON 解析错误：${err.message}`;
+    }
+  }
+  if (el) {
+    el.classList.remove("ok", "err");
+    if (raw.trim()) el.classList.add(valid ? "ok" : "err");
+    el.textContent = msg;
+  }
+  if (sendBtn) sendBtn.disabled = !(valid && confirmed && !isOfflineHtmlMode() && firmware.online);
+}
+
+// 调试控件：仅预览的本地图案 / 发送到固件 / M370 校验 / 危险动作等。
 function initializeDebugControls() {
   setClickHandlers([
-    ["debug-all-off", () => setCurrentFrame(blankFrame(), "debug_all_off", "idle")],
+    // --- 2. 固件连接 / API 健康 ---
     [
-      "debug-all-on",
-      () =>
-        setCurrentFrame(
-          blankFrame().map(() => true),
-          "debug_all_on",
-          "idle",
-        ),
-    ],
-    ["debug-checker", () => setCurrentFrame(makePatternFrame("checker"), "debug_checker", "idle")],
-    ["debug-border", () => setCurrentFrame(makePatternFrame("border"), "debug_border", "idle")],
-    ["debug-current-face", () => applySavedFace(state.faceIndex, "debug_current_face")],
-    [
-      "debug-apply-m370",
+      "firmware-ping",
       () => {
-        try {
-          setCurrentFrame(m370ToFrame($("debug-m370")?.value || ""), "debug_apply_m370", "idle");
-        } catch (err) {
-          alert(err.message);
-        }
+        showDebugActionResult("debug-firmware-result", { pending: true, msg: "刷新固件状态中…" });
+        syncRuntimeStateFromFirmware("firmware_ping")
+          .then(() =>
+            showDebugActionResult("debug-firmware-result", {
+              ok: firmware.online,
+              msg: firmware.online ? "固件状态已刷新" : `失败：${firmware.lastError || "离线"}`,
+            }),
+          )
+          .catch((err) =>
+            showDebugActionResult("debug-firmware-result", { ok: false, msg: `失败：${err?.message || err}` }),
+          );
       },
     ],
-    ["debug-copy-status", () => navigator.clipboard?.writeText(JSON.stringify(state, null, 2))],
     [
-      "debug-reset-storage",
+      "debug-fw-refresh-power",
       () => {
-        if (confirm("清空用户表情？默认 type:default 表情不会删除。")) {
-          userFaces = [];
-          persistFaceDocuments("debug_reset_user_faces");
-          renderSavedFaces();
-          renderState();
-        }
+        refreshPowerStatusFromFirmware("debug_fw_refresh_power", true);
+        showDebugActionResult("debug-firmware-result", { ok: true, msg: "已请求刷新电源状态" });
       },
     ],
-    ["debug-refresh-power", () => refreshPowerStatusFromFirmware("debug_refresh_power", true)],
+    [
+      "debug-clear-api-error",
+      () => {
+        firmware.lastError = "—";
+        lastApiErrorLogAt = 0;
+        renderState();
+        showDebugActionResult("debug-firmware-result", { ok: true, msg: "已清除本地 API 错误" });
+      },
+    ],
+    [
+      "debug-copy-diag",
+      () => {
+        copyDebugDiagnostics("full");
+        showDebugActionResult("debug-firmware-result", { ok: true, msg: "已复制诊断 JSON（不含 AP 密码）" });
+      },
+    ],
+
+    // --- 3. 电源 / 电池 / ADC ---
+    [
+      "debug-refresh-power",
+      () => {
+        refreshPowerStatusFromFirmware("debug_refresh_power", true);
+        showDebugActionResult("debug-power-result", { ok: true, msg: "已请求刷新电池状态" });
+      },
+    ],
     ["debug-reset-battery-min", () => resetBatteryVoltageRecord("min")],
     ["debug-reset-battery-max", () => resetBatteryVoltageRecord("max")],
     [
@@ -9900,36 +10298,159 @@ function initializeDebugControls() {
         state.batteryIconClass = icon.cls;
         state.batteryIconColor = icon.color;
         renderState();
+        showDebugActionResult("debug-power-result", { ok: true, msg: "已应用浏览器本地 ADC 模拟" });
+      },
+    ],
+
+    // --- 4. 网络 / 接入点 ---
+    [
+      "debug-ap-pass-toggle",
+      () => {
+        debugApPasswordShown = !debugApPasswordShown;
+        renderDebugNetworkPanel();
+      },
+    ],
+    ["debug-network-refresh", () => syncRuntimeStateFromFirmware("debug_network_refresh")],
+
+    // --- 5. 暂停滚动（与按钮模拟器同组） ---
+    [
+      "firmware-pause",
+      () => runDebugSimCommand($("firmware-pause"), "暂停滚动", sendAuxCommand("pause_scroll", {}, "debug_firmware_pause")),
+    ],
+
+    // --- 6. LED 测试：仅预览 ---
+    [
+      "debug-preview-off",
+      () => {
+        applyDebugFrame(blankFrame(), "debug pattern", { reason: "debug_preview_off" });
+        showDebugActionResult("debug-lab-result", { ok: true, msg: "预览：全黑（未发送）" });
       },
     ],
     [
-      "serial-send",
+      "debug-preview-checker",
       () => {
-        const raw = $("serial-input")?.value || "{}";
-        try {
-          const packet = JSON.parse(raw);
-          if (!packet || typeof packet !== "object" || typeof packet.cmd !== "string") {
-            throw new Error("Command JSON must be an object with a string cmd field");
-          }
-          firmware.sentCommands++;
-          setFirmwareStatus({
-            lastRequest: `POST ${API_ENDPOINTS.command}`,
-            lastStatus: isOfflineHtmlMode() ? "offline html mode" : "queued manual command",
-          });
-          apiPost(API_ENDPOINTS.command, packet)
-            .then((data) => applyFirmwareRuntimeState(data, "debug_manual_json"))
-            .catch((err) => {
-              setFirmwareStatus({
-                lastStatus: "manual command failed",
-                lastError: err.message,
-              });
-              log(`manual command failed: ${err.message}`);
-            });
-        } catch (err) {
-          alert(`JSON 格式错误：${err.message}`);
-        }
+        applyDebugFrame(makePatternFrame("checker"), "debug pattern", { reason: "debug_preview_checker" });
+        showDebugActionResult("debug-lab-result", { ok: true, msg: "预览：棋盘（未发送）" });
       },
     ],
+    [
+      "debug-preview-border",
+      () => {
+        applyDebugFrame(makePatternFrame("border"), "debug pattern", { reason: "debug_preview_border" });
+        showDebugActionResult("debug-lab-result", { ok: true, msg: "预览：边框（未发送）" });
+      },
+    ],
+    [
+      "debug-preview-saved",
+      () => {
+        applyDebugFrame(getSavedFaceFrame(state.faceIndex), "saved face", { reason: "debug_preview_saved" });
+        showDebugActionResult("debug-lab-result", { ok: true, msg: "预览：当前保存表情（未发送）" });
+      },
+    ],
+
+    // --- 6. LED 测试：发送到固件 ---
+    [
+      "debug-send-off",
+      () => {
+        if (debugSendBlockedOffline("debug-lab-result")) return;
+        applyDebugFrame(blankFrame(), "firmware", { send: true, reason: "debug_send_off" });
+        showDebugActionResult("debug-lab-result", { ok: true, msg: "全黑：已发送固件帧" });
+      },
+    ],
+    [
+      "debug-send-on",
+      () => {
+        if (debugSendBlockedOffline("debug-lab-result")) return;
+        const allOn = blankFrame().map(() => true);
+        const watts = estimateFrameWatts(allOn, state.color, state.brightness);
+        const warnEl = $("debug-allon-warning");
+        if (watts >= LED_POWER_WARNING_WATTS) {
+          if (warnEl) warnEl.classList.add("show");
+          if (!confirm(`全亮帧功耗估算约 ${watts.toFixed(1)}W，超过 ${LED_POWER_WARNING_WATTS}W 警戒线。确认发送？`)) {
+            showDebugActionResult("debug-lab-result", { ok: false, msg: "已取消全亮发送" });
+            return;
+          }
+        } else if (warnEl) {
+          warnEl.classList.remove("show");
+        }
+        applyDebugFrame(allOn, "firmware", { send: true, reason: "debug_send_all_on" });
+        showDebugActionResult("debug-lab-result", { ok: true, msg: `全亮：已发送固件帧（约 ${watts.toFixed(1)}W）` });
+      },
+    ],
+    [
+      "debug-send-checker",
+      () => {
+        if (debugSendBlockedOffline("debug-lab-result")) return;
+        applyDebugFrame(makePatternFrame("checker"), "firmware", { send: true, reason: "debug_send_checker" });
+        showDebugActionResult("debug-lab-result", { ok: true, msg: "棋盘：已发送固件帧" });
+      },
+    ],
+    [
+      "debug-send-border",
+      () => {
+        if (debugSendBlockedOffline("debug-lab-result")) return;
+        applyDebugFrame(makePatternFrame("border"), "firmware", { send: true, reason: "debug_send_border" });
+        showDebugActionResult("debug-lab-result", { ok: true, msg: "边框：已发送固件帧" });
+      },
+    ],
+    [
+      "debug-send-saved",
+      () => {
+        if (debugSendBlockedOffline("debug-lab-result")) return;
+        applyDebugFrame(getSavedFaceFrame(state.faceIndex), "firmware", { send: true, reason: "debug_send_saved" });
+        showDebugActionResult("debug-lab-result", { ok: true, msg: "当前保存表情：已发送固件帧" });
+      },
+    ],
+
+    // --- 6. M370 输入 ---
+    [
+      "debug-m370-preview",
+      () => {
+        const res = parseM370ToFrameOrError($("debug-m370")?.value || "");
+        refreshDebugM370Validation();
+        if (res.error) {
+          showDebugActionResult("debug-lab-result", { ok: false, msg: `M370 无效：${res.error}（未发送）` });
+          return;
+        }
+        applyDebugFrame(res.frame, "M370 input", { reason: "debug_m370_preview" });
+        showDebugActionResult("debug-lab-result", { ok: true, msg: "M370：已解析为预览（未发送）" });
+      },
+    ],
+    [
+      "debug-m370-send",
+      () => {
+        const res = parseM370ToFrameOrError($("debug-m370")?.value || "");
+        refreshDebugM370Validation();
+        if (res.error) {
+          showDebugActionResult("debug-lab-result", { ok: false, msg: `M370 无效：${res.error}（已阻止发送）` });
+          return;
+        }
+        if (debugSendBlockedOffline("debug-lab-result")) return;
+        applyDebugFrame(res.frame, "firmware", { send: true, reason: "debug_m370_send" });
+        showDebugActionResult("debug-lab-result", { ok: true, msg: "M370：已发送固件帧" });
+      },
+    ],
+    [
+      "debug-m370-clear",
+      () => {
+        const ta = $("debug-m370");
+        if (ta) ta.value = "";
+        refreshDebugM370Validation();
+        showDebugActionResult("debug-lab-result", null);
+      },
+    ],
+    [
+      "debug-m370-copy",
+      () => {
+        copyText(frameToM370(debugPreviewFrame));
+        showDebugActionResult("debug-lab-result", { ok: true, msg: "已复制调试预览 M370" });
+      },
+    ],
+
+    // --- 7. 预览面板复制 ---
+    ["debug-preview-copy", () => copyText(frameToM370(debugPreviewFrame))],
+
+    // --- 9. 通信日志 ---
     [
       "log-clear",
       () => {
@@ -9938,29 +10459,104 @@ function initializeDebugControls() {
       },
     ],
     ["log-download", () => downloadJsonFile("rina_webui_log.txt", logs.join("\n"))],
-    ["firmware-ping", () => syncRuntimeStateFromFirmware("firmware_ping")],
-    ["firmware-pause", () => sendAuxCommand("pause_scroll", {}, "debug_firmware_pause")],
+    ["log-copy", () => copyText(logs.join("\n"))],
+
+    // --- 10. 高级原始指令 ---
+    ["debug-raw-validate", () => refreshDebugRawValidation()],
+    [
+      "debug-raw-send",
+      () => {
+        const raw = $("debug-raw-json")?.value || "";
+        if (!$("debug-raw-confirm")?.checked) {
+          showDebugActionResult("debug-raw-result", { ok: false, msg: "请先勾选确认框" });
+          return;
+        }
+        let packet;
+        try {
+          packet = JSON.parse(raw);
+        } catch (err) {
+          showDebugActionResult("debug-raw-result", { ok: false, msg: `JSON 格式错误：${err.message}` });
+          return;
+        }
+        if (!packet || typeof packet !== "object" || typeof packet.cmd !== "string") {
+          showDebugActionResult("debug-raw-result", { ok: false, msg: "JSON 必须是对象且包含字符串 cmd 字段" });
+          return;
+        }
+        if (isOfflineHtmlMode() || !firmware.online) {
+          showDebugActionResult("debug-raw-result", { ok: false, msg: "固件离线，无法发送" });
+          return;
+        }
+        showDebugActionResult("debug-raw-result", { pending: true, msg: "发送中…" });
+        firmware.sentCommands++;
+        setFirmwareStatus({
+          lastRequest: `POST ${API_ENDPOINTS.command}`,
+          lastStatus: "queued raw command",
+        });
+        apiPost(API_ENDPOINTS.command, packet)
+          .then((data) => {
+            applyFirmwareRuntimeState(data, "debug_raw_command");
+            showDebugActionResult("debug-raw-result", { ok: true, msg: "原始指令已发送" });
+          })
+          .catch((err) => {
+            setFirmwareStatus({ lastStatus: "raw command failed", lastError: err.message });
+            log(`raw command failed: ${err.message}`);
+            showDebugActionResult("debug-raw-result", { ok: false, msg: `失败：${err.message}` });
+          });
+      },
+    ],
+
+    // --- 11. 危险区 ---
+    [
+      "debug-clear-user-faces",
+      () => {
+        const ok = confirmDangerAction({
+          title: "清空用户表情",
+          body: "此操作会永久清空所有用户保存的表情；默认 type:default 表情不受影响。",
+          confirmWord: "CLEAR",
+        });
+        if (!ok) {
+          showDebugActionResult("debug-danger-result", { ok: false, msg: "已取消（未做任何改动）" });
+          return;
+        }
+        userFaces = [];
+        persistFaceDocuments("debug_reset_user_faces");
+        renderSavedFaces();
+        renderState();
+        showDebugActionResult("debug-danger-result", { ok: true, msg: "已清空用户表情；默认表情保留" });
+      },
+    ],
   ]);
+
+  // 输入/勾选监听（非 click）。
+  $("debug-m370")?.addEventListener("input", refreshDebugM370Validation);
+  $("debug-raw-json")?.addEventListener("input", refreshDebugRawValidation);
+  $("debug-raw-confirm")?.addEventListener("change", refreshDebugRawValidation);
+  refreshDebugRawValidation();
+
+  // GPIO / 按钮模拟器：带忙碌禁用 + 结果反馈。
   document.querySelectorAll("[data-gpio]").forEach((button) => {
     button.addEventListener("click", () => {
       const code = String(button.dataset.gpio || "").toUpperCase();
+      const label = (button.textContent || code).trim();
       if (["B1", "B2", "B3", "B4", "B5", "B3B1", "B3B2"].includes(code)) {
-        sendButtonCommand(code, `debug_gpio_${code}`);
+        runDebugSimCommand(button, label, sendButtonCommand(code, `debug_gpio_${code}`));
         return;
       }
       if (code === "B6S" || code === "B6L") {
-        sendAuxCommand(
-          "battery_overlay",
-          { singleShot: code === "B6S" },
-          `debug_gpio_${code}`,
+        runDebugSimCommand(
+          button,
+          label,
+          sendAuxCommand("battery_overlay", { singleShot: code === "B6S" }, `debug_gpio_${code}`),
         );
         return;
       }
       if (code === "B6B3") {
-        syncRuntimeStateFromFirmware("debug_gpio_B6B3_network_info");
+        runDebugSimCommand(button, label, {
+          promise: syncRuntimeStateFromFirmware("debug_gpio_B6B3_network_info"),
+        });
         return;
       }
-      log(`Unsupported debug GPIO simulation: ${code}`);
+      showDebugActionResult("debug-sim-result", { ok: false, msg: `不支持的模拟 GPIO：${code}` });
     });
   });
 }
@@ -10201,14 +10797,17 @@ async function bootstrapWebUi() {
     finishBootVisibility();
     scheduleMatrixFitRender(4);
     initDeferredUiAfterShow();
-    runPostBootDeferredReads(bootOk).catch(() => {});
+    startFirmwareStatusPolling();
+    startPowerStatusPolling();
+    runPostBootDeferredReads(bootOk).catch((err) => {
+      if (shouldLogApiError()) log(`引导读取 saved_faces/预览矩阵失败：${err.message || err}`);
+    });
   }
 }
 
+// 唯一启动入口：脚本位于 <body> 末尾，DOM 通常已就绪；仍做一次 readyState 防护。
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", bootstrapWebUi, {
-    once: true,
-  });
+  document.addEventListener("DOMContentLoaded", bootstrapWebUi);
 } else {
   bootstrapWebUi();
 }

@@ -279,7 +279,7 @@ function Build-AndEmbedUnifontWebFont([string]$CacheDir) {
     $UnifontTool = Join-Path $ProjectDir "tools\build_unifont_webui_subset_from_png.py"
     $FontDir = Join-Path $ProjectDir "data\resources\fonts"
     $OutUnifont = Join-Path $FontDir "unifont.woff2"
-    $UnifontHref = "/resources/fonts/unifont.woff2?v=$UnifontVersion-webui"
+    $UnifontHref = "/resources/fonts/unifont.woff2?v=$UnifontVersion-webui-2"
 
     if (-not (Test-Path $UnifontTool)) {
         throw "Missing GNU Unifont WebUI subset build tool: $UnifontTool"

@@ -17,7 +17,7 @@
     <!-- 启动预加载：GNU Unifont 备用字体改为独立文件，作为第一个资源最先加载（font-display:block）。 -->
     <link
       rel="preload"
-      href="/resources/fonts/unifont.woff2?v=17.0.04-webui"
+      href="/resources/fonts/unifont.woff2?v=17.0.04-webui-2"
       as="font"
       type="font/woff2"
       crossorigin
@@ -33,7 +33,7 @@
     <link type="image/png" href="/resources/loading/rina_icon1_default.png" rel="icon" />
     <link type="image/png" href="/resources/loading/rina_icon1_default.png" rel="shortcut icon" />
     <!-- 全局样式、布局规则和组件状态。 -->
-    <link href="styles.css?v=20260612-scroll-restore-v12" rel="stylesheet" />
+    <link href="styles.css?v=20260613-debug-rewrite-v1" rel="stylesheet" />
   </head>
   <body>
     <!--
@@ -532,115 +532,211 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
         <section class="page" id="page-debug">
           <div class="hero">
             <div>
-              <h2>6.5 调试页面</h2>
+              <h2>6.5 设备诊断 / 调试控制台</h2>
             </div>
           </div>
-          <div class="debug-layout">
-            <div class="card control-panel">
-              <h3>主控制 / 状态信息</h3>
-              <div class="kv status-merged" id="state-kv"></div>
-              <div class="warning" id="dps-warning">
+          <div class="debug-grid">
+            <!-- 1. 设备概览 -->
+            <div class="card stack debug-span-2" id="debug-device-summary">
+              <h3>设备概览</h3>
+              <div class="warning" id="debug-summary-dps-warning">
                 ⚠ 当前帧功耗估算超过 40W；固件不会自动限流，请手动降低亮度。
               </div>
+              <div class="kv" id="debug-summary-conclusions"></div>
+              <h4>实时状态</h4>
+              <div class="kv" id="debug-summary-kv"></div>
               <div class="hint">
-                亮度控制、保存表情切换和 A/M 模式操作控件位于 6.1
-                基础功能页面；本面板只显示统一状态，不重复主操作入口。
+                亮度、保存表情切换和 A/M 模式等主操作控件位于 6.1 基础功能页面；本页面只读显示状态。
               </div>
             </div>
-            <div class="card stack">
-              <h3>GPIO / 按钮辅助指令</h3>
+
+            <!-- 2. 固件连接 / API 健康 -->
+            <div class="card stack" id="debug-firmware-health">
+              <h3>固件连接 / API 健康</h3>
+              <div class="kv" id="debug-firmware-kv"></div>
               <div class="row">
-                <button data-gpio="B1" type="button">B1 下一个</button>
-                <button data-gpio="B2" type="button">B2 上一个</button>
-                <button data-gpio="B3" type="button">B3 A/M</button>
-                <button data-gpio="B4" type="button">B4 亮度-</button>
-                <button data-gpio="B5" type="button">B5 亮度+</button>
-                <button data-gpio="B6S" type="button">B6 短按电量</button>
-                <button data-gpio="B6L" type="button">B6 长按详情</button>
+                <button id="firmware-ping" type="button">刷新固件状态</button>
+                <button id="debug-fw-refresh-power" type="button">刷新电源状态</button>
+                <button id="debug-clear-api-error" type="button">清除本地 API 错误</button>
+                <button id="debug-copy-diag" type="button">复制诊断 JSON</button>
+              </div>
+              <div class="debug-result" id="debug-firmware-result"></div>
+              <div class="hint">
+                sent/dropped/queue 计数为 <strong>浏览器侧队列诊断</strong>，非固件计数；online / 状态 /
+                错误反映真实 HTTP 结果。
+              </div>
+            </div>
+
+            <!-- 3. 电源 / 电池 / ADC -->
+            <div class="card stack" id="debug-power-panel">
+              <h3>电源 / 电池 / ADC</h3>
+              <div class="warning" id="debug-power-dps-warning">
+                ⚠ 当前帧功耗估算超过 40W；固件不会自动限流，请手动降低亮度。
+              </div>
+              <h4>电池状态</h4>
+              <div class="kv" id="debug-power-kv"></div>
+              <div class="row">
+                <button id="debug-refresh-power" type="button">刷新电池状态</button>
+                <button id="debug-reset-battery-min" type="button">重置最低电压</button>
+                <button id="debug-reset-battery-max" type="button">重置最高电压</button>
+              </div>
+              <div class="debug-result" id="debug-power-result"></div>
+              <details class="debug-advanced">
+                <summary>高级 ADC 详情</summary>
+                <div class="kv" id="debug-adc-kv"></div>
+                <div class="hint">下列 ADC 输入为 <strong>浏览器本地模拟</strong>，不读取真实硬件。</div>
+                <div class="row">
+                  <div class="field">
+                    <label>模拟 Vbat</label>
+                    <input id="battery-v" type="number" step="0.01" value="7.42" />
+                  </div>
+                  <div class="field">
+                    <label>模拟 Vcharge</label>
+                    <input id="charge-v" type="number" step="0.01" value="5.10" />
+                  </div>
+                  <button id="update-adc" type="button">更新模拟 ADC</button>
+                </div>
+              </details>
+            </div>
+
+            <!-- 4. 网络 / 接入点 -->
+            <div class="card stack" id="debug-network-panel">
+              <h3>网络 / 接入点</h3>
+              <div class="kv" id="debug-network-kv"></div>
+              <div class="row">
+                <button id="debug-ap-pass-toggle" type="button">显示密码</button>
+                <button id="debug-network-refresh" type="button">刷新网络信息</button>
+              </div>
+              <div class="hint">复制的日志 / 诊断可能包含 SSID / IP / 域名等网络信息；AP 密码不会被复制。</div>
+            </div>
+
+            <!-- 5. GPIO / 按钮模拟器 -->
+            <div class="card stack debug-span-2" id="debug-button-simulator">
+              <h3>GPIO / 按钮模拟器 <span class="badge">模拟硬件按键输入</span></h3>
+              <h4>单按键</h4>
+              <div class="row">
+                <button class="debug-sim" data-gpio="B1" type="button">B1 下一个</button>
+                <button class="debug-sim" data-gpio="B2" type="button">B2 上一个</button>
+                <button class="debug-sim" data-gpio="B3" type="button">B3 A/M</button>
+                <button class="debug-sim" data-gpio="B4" type="button">B4 亮度-</button>
+                <button class="debug-sim" data-gpio="B5" type="button">B5 亮度+</button>
+                <button class="debug-sim" data-gpio="B6S" type="button">B6 短按电量</button>
+              </div>
+              <h4>组合 / 特殊</h4>
+              <div class="row">
+                <button class="debug-sim" data-gpio="B3B1" type="button">B3+B1 间隔-</button>
+                <button class="debug-sim" data-gpio="B3B2" type="button">B3+B2 间隔+</button>
+                <button class="debug-sim" data-gpio="B6L" type="button">B6 长按详情</button>
+                <button class="debug-sim" data-gpio="B6B3" type="button">B6+B3 网络信息</button>
+                <button class="debug-sim" id="firmware-pause" type="button">暂停滚动</button>
+              </div>
+              <div class="debug-result" id="debug-sim-result"></div>
+            </div>
+
+            <!-- 6. LED 测试 / M370 协议实验室 -->
+            <div class="card stack debug-span-2" id="debug-protocol-lab">
+              <h3>LED 测试 / M370 协议实验室</h3>
+              <h4>安全 LED 测试图案</h4>
+              <div class="hint">仅预览（不发送到固件）：</div>
+              <div class="row">
+                <button id="debug-preview-off" type="button">全黑</button>
+                <button id="debug-preview-checker" type="button">棋盘</button>
+                <button id="debug-preview-border" type="button">边框</button>
+                <button id="debug-preview-saved" type="button">当前保存表情</button>
+              </div>
+              <div class="hint">发送到固件：</div>
+              <div class="warning" id="debug-allon-warning">
+                ⚠ 全亮帧功耗估算超过 40W；请确认后再发送。
               </div>
               <div class="row">
-                <button data-gpio="B3B1" type="button">B3+B1 间隔-</button>
-                <button data-gpio="B3B2" type="button">B3+B2 间隔+</button>
-                <button data-gpio="B6B3" type="button">B6+B3 网络信息</button>
+                <button id="debug-send-off" type="button">全黑</button>
+                <button class="debug-sim" id="debug-send-on" type="button">全亮（需确认）</button>
+                <button id="debug-send-checker" type="button">棋盘</button>
+                <button id="debug-send-border" type="button">边框</button>
+                <button id="debug-send-saved" type="button">当前保存表情</button>
               </div>
-              <h3>LED / 协议测试</h3>
-              <div class="row">
-                <button id="debug-all-off" type="button">全黑</button>
-                <button id="debug-all-on" type="button">全亮</button>
-                <button id="debug-checker" type="button">棋盘</button>
-                <button id="debug-border" type="button">边框</button>
-                <button id="debug-current-face" type="button">当前保存表情</button>
-              </div>
+              <h4>M370 输入</h4>
               <textarea id="debug-m370" placeholder="输入 93 hex 或 M370:&lt;93 hex&gt;"></textarea>
+              <div class="debug-validation" id="debug-m370-validation"></div>
               <div class="row">
-                <button id="debug-apply-m370" type="button">解析并应用 M370</button>
-                <button id="debug-copy-status" type="button">复制状态 JSON</button>
-                <button class="danger" id="debug-reset-storage" type="button">清空用户表情</button>
+                <button id="debug-m370-preview" type="button">解析为预览</button>
+                <button id="debug-m370-send" type="button">解析并发送固件</button>
+                <button id="debug-m370-clear" type="button">清空输入</button>
+                <button id="debug-m370-copy" type="button">复制调试预览 M370</button>
+              </div>
+              <div class="debug-result" id="debug-lab-result"></div>
+            </div>
+
+            <!-- 7. 调试 LED 预览 -->
+            <div class="card stack debug-measure-card" id="debug-preview-panel">
+              <h3>调试 LED 预览 <span class="badge">调试预览</span></h3>
+              <div class="matrix-wrap fill-column led-preview-wrap">
+                <div class="matrix" id="matrix-debug"></div>
+              </div>
+              <div class="kv" id="debug-preview-kv"></div>
+              <div class="row">
+                <button id="debug-preview-copy" type="button">复制调试预览 M370</button>
               </div>
             </div>
-            <div class="card stack debug-measure-card">
-              <h3>状态 / ADC / 网络</h3>
-              <div class="debug-measure-grid">
-                <div class="debug-measure-controls">
-                  <div class="kv" id="debug-kv"></div>
-                  <div class="row">
-                    <button id="debug-refresh-power" type="button">刷新电池状态</button>
-                    <button id="debug-reset-battery-min" type="button">重置最低电压</button>
-                    <button id="debug-reset-battery-max" type="button">重置最高电压</button>
-                  </div>
-                  <div class="row">
-                    <div class="field">
-                      <label>ADC 调试 Vbat</label>
-                      <input id="battery-v" type="number" step="0.01" value="7.42" />
-                    </div>
-                    <div class="field">
-                      <label>ADC 调试 Vcharge</label>
-                      <input id="charge-v" type="number" step="0.01" value="5.10" />
-                    </div>
-                    <button id="update-adc" type="button">更新 ADC 状态</button>
-                  </div>
-                </div>
-                <div class="matrix-wrap fill-column led-preview-wrap">
-                  <div class="matrix" id="matrix-debug"></div>
-                </div>
+
+            <!-- 8. 资源 / 矩阵 / 表情库 -->
+            <div class="card stack" id="debug-resource-panel">
+              <h3>资源 / 矩阵 / 表情库</h3>
+              <div class="kv" id="debug-resource-kv"></div>
+              <div class="hint">
+                表情部件资源由 HTML 合成为 M370；默认与用户表情均来自同一个
+                /resources/saved_faces.json，经 /api/saved_faces 写回固件。
               </div>
             </div>
-            <div class="card stack debug-log-card">
+
+            <!-- 9. 通信日志 -->
+            <div class="card stack debug-log-card debug-span-2" id="debug-log-panel">
               <h3>通信日志</h3>
               <div class="row">
-                <input id="serial-input" placeholder='辅助命令 JSON，例如 {"cmd":"pause"}' />
-                <button id="serial-send" type="button">发送辅助命令</button>
                 <button id="log-clear" type="button">清空日志</button>
                 <button id="log-download" type="button">下载日志</button>
+                <button id="log-copy" type="button">复制日志</button>
               </div>
               <div class="log" id="log"></div>
+              <div class="hint">日志为浏览器侧记录，可能包含 IP / 域名 / SSID 等网络信息。</div>
             </div>
-            <div class="card stack">
-              <h3>固件接口</h3>
-              <div class="kv" id="firmware-kv"></div>
+
+            <!-- 10. 高级原始指令 -->
+            <details class="card stack debug-advanced debug-span-2" id="debug-raw-command-panel">
+              <summary><h3 style="display:inline">高级原始指令</h3></summary>
+              <div class="hint">
+                原始指令直接发送到 <span class="mono">/api/command</span>。必须为合法 JSON 且包含字符串
+                <span class="mono">cmd</span> 字段。示例：
+                <span class="mono">{"cmd":"pause_scroll"}</span>、
+                <span class="mono">{"cmd":"battery_overlay","singleShot":true}</span>、
+                <span class="mono">{"cmd":"button","button":"B1"}</span>
+              </div>
+              <textarea id="debug-raw-json" placeholder='{"cmd":"pause_scroll"}'></textarea>
+              <div class="debug-validation" id="debug-raw-validation"></div>
+              <label class="debug-confirm-row">
+                <input id="debug-raw-confirm" type="checkbox" />
+                我了解此操作会直接发送到 /api/command
+              </label>
               <div class="row">
-                <button id="firmware-ping" type="button">读取固件状态</button>
-                <button id="firmware-pause" type="button">发送暂停指令</button>
+                <button id="debug-raw-validate" type="button">校验 JSON</button>
+                <button id="debug-raw-send" type="button" disabled>发送原始指令</button>
               </div>
-              <div class="hint">
-                LED 输出只发送
-                <span class="mono">M370:&lt;93 hex&gt;</span
-                >；颜色、亮度、模式、暂停、按钮、ADC/status 等通过辅助 JSON 指令发送。
+              <div class="debug-result" id="debug-raw-result"></div>
+            </details>
+
+            <!-- 11. 危险区 -->
+            <div class="card stack debug-danger debug-span-2" id="debug-danger-zone">
+              <h3>⚠ 危险区</h3>
+              <div class="hint">以下操作具有破坏性，需要确认。取消不会有任何影响。</div>
+              <div class="row">
+                <button class="danger" id="debug-clear-user-faces" type="button">清空用户表情</button>
               </div>
-            </div>
-            <div class="card stack">
-              <h3>资源 / 系统</h3>
-              <div class="kv" id="resource-kv"></div>
-              <div class="hint">
-                表情部件资源由 HTML 处理并合成为 M370；默认表情和用户保存表情都从同一个
-                /resources/saved_faces.json 读取，通过 /api/saved_faces 写回固件文件；type:"default"
-                项不可删除，但可重命名和排序。
-              </div>
+              <div class="debug-result" id="debug-danger-result"></div>
             </div>
           </div>
         </section>
       </main>
     </div>
-    <script src="app.js?v=20260612-scroll-restore-v12"></script>
+    <script src="app.js?v=20260613-debug-rewrite-v1"></script>
   </body>
 </html>

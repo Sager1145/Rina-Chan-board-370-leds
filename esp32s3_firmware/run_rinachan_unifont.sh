@@ -225,7 +225,7 @@ build_and_embed_unifont_webfont() {
     local url="https://ftp.gnu.org/gnu/unifont/unifont-$UNIFONT_VERSION/unifont-$UNIFONT_VERSION.png"
     local tool="$PROJECT_DIR/tools/build_unifont_webui_subset_from_png.py"
     local out_font="$FONT_DIR/unifont.woff2"
-    local href="/resources/fonts/unifont.woff2?v=$UNIFONT_VERSION-webui"
+    local href="/resources/fonts/unifont.woff2?v=$UNIFONT_VERSION-webui-2"
     [ -f "$tool" ] || die "missing GNU Unifont WebUI subset build tool: $tool"
     download_if_missing "$url" "$png" "GNU Unifont $UNIFONT_VERSION BMP PNG sheet"
     fontmsg "building standalone WebUI GNU Unifont subset -> $out_font (referenced by styles.css)..."
