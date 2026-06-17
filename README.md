@@ -1,515 +1,1020 @@
-# Rina-Chan Board WebUI Reference
-
-The Rina-Chan Board WebUI is a browser control panel served directly by the ESP32-S3 from LittleFS. It controls a 370-LED WS2812/NeoPixel matrix through HTTP endpoints on the board access point (`RinaChanBoard-V2`, `http://rina.io/`, `http://192.168.1.14/`). Browser controls generate M370 bitmap frames, JSON commands, or saved-face JSON documents; the firmware validates those requests, updates runtime state, and renders through a dedicated LED/scroll task pinned to Core 1. The current WebUI code uses HTTP `fetch`/XHR only; no WebSocket route or frontend WebSocket sender is present.
-
-This document follows the actual WebUI navigation and documents the backend behavior traced from `data/index.html`, `data/app.js`, `src/web_api.cpp`, `src/led_renderer.cpp`, `src/power_monitor.cpp`, `src/faces.cpp`, `src/buttons.cpp`, and `src/scroll.cpp`.
-
-## Loading Overlay / Boot Phase
-*The first visible WebUI phase. It appears before the 6.1 page is revealed.*
-
-### Buttons & Controls:
-* **Loading overlay**
-  * **Action:** Shows the Rina avatar loading animation, blur reveal, halo contraction, and first-page waterfall reveal. The HTML starts with `data-boot-phase="preload"` and `data-scroll-lock="boot"`.
-  * **Backend Function:** During the overlay, the browser preloads the initial loading image, waits for the UI font, initializes the 6.1 controls, and starts a firmware status read from `GET /api/status`. The first LED frame can be applied to the preview before the overlay closes.
-  * **Code Reference:** `app.js -> bootstrapWebUi()`, `preloadFirmwareRuntimeState()`, `finishBootVisibility()`; `web_api.cpp -> handleApiStatus()`
-
-* **Boot scroll lock**
-  * **Action:** The page blocks scrolling while the loader is active. CSS applies `overflow-y: clip`, `touch-action: none`, and disabled text selection under `html[data-scroll-lock="boot"]`. Scroll unlocks only when the reveal starts or the overlay is hidden.
-  * **Backend Function:** None. This is a frontend-only boot safety behavior.
-  * **Code Reference:** `styles.css -> html[data-scroll-lock="boot"]`; `app.js -> unlockBootPageScroll()`, `animateReveal()`
-
-## Global Navigation / Status Header
-*The sidebar brand area and hamburger menu are visible across pages.*
-
-### Buttons & Controls:
-* **Hamburger / Page Switcher**
-  * **Action:** Opens or closes the top page navigation menu. The menu is generated from `WEBUI_CONFIG.navigation.pages` and switches between pages 6.1 through 6.5 without reloading the browser.
-  * **Backend Function:** None directly. Switching to the text-scroll page lazily starts loading the Ark bitmap font resources used for scroll rendering.
-  * **Code Reference:** `app.js -> initNav()`, `setNavMenuOpen()`, `switchPage()`, `ensureScrollFontsLoaded()`
-
-* **Page menu buttons: 6.1 基础功能 / 6.2 自定义表情 / 6.3 表情部件 / 6.4 文字滚动 / 6.5 调试**
-  * **Action:** Shows the selected page, updates `document.body.dataset.page`, closes the nav menu, rerenders matrices, and refreshes page-specific layout.
-  * **Backend Function:** None directly. Firmware status polling continues in the background; power polling runs on Basic and Debug pages.
-  * **Code Reference:** `app.js -> switchPage()`, `startFirmwareStatusPolling()`, `startPowerStatusPolling()`
-
-* **Battery badge / Charging badge**
-  * **Action:** Displays battery percentage, battery powered/unpowered state, and charging state from firmware power status.
-  * **Backend Function:** Browser polls `GET /api/power` and `GET /api/status`. Firmware samples battery ADC `GPIO10` and charge ADC `GPIO1`, uses trimmed ADC averaging, converts through calibration constants, filters battery voltage with an EMA, detects charger presence above `CHARGE_PRESENT_V`, and reports icon classes and text.
-  * **Code Reference:** `power_monitor.cpp -> servicePowerMonitor()`, `sampleBattery()`, `sampleCharge()`; `web_api.cpp -> addPowerStatus()`, `handleApiPower()`
-
-## 6.1 基础功能页面 (Basic / Main Control)
-*This page controls global LED color, raw NeoPixel brightness, saved-face navigation, and manual/auto mode.*
-
-### Buttons & Controls:
-* **当前颜色 text input**
-  * **Action:** Accepts `#RRGGBB` or `RRGGBB`, updates the swatch, previews the color on all lit LEDs, and syncs parent/child dropdown selection when the color matches a preset.
-  * **Backend Function:** Sends `POST /api/command` with `cmd:"set_color"` and `payload.hex`. Firmware validates the hex color, updates `runtimeState().colorHex/colorR/colorG/colorB`, touches slow runtime state, and requests an LED render.
-  * **Code Reference:** `app.js -> initColorInput()`, `setColor()`; `web_api.cpp -> commandSetColor()`; `led_renderer.cpp -> setColor()`
-
-* **父颜色 dropdown**
-  * **Action:** Chooses a parent color preset, updates the current color, repopulates child-color options, and refreshes the custom select UI.
-  * **Backend Function:** Same as the color input: `POST /api/command`, `cmd:"set_color"`.
-  * **Code Reference:** `app.js -> initColors()`, `setColor()`; `web_api.cpp -> commandSetColor()`; `led_renderer.cpp -> setColor()`
-
-* **子颜色 dropdown**
-  * **Action:** Chooses a child color under the active parent. The special “use parent color” option reverts to the parent preset.
-  * **Backend Function:** Same as the color input: `POST /api/command`, `cmd:"set_color"`.
-  * **Code Reference:** `app.js -> renderChildColors()`, `setColor()`; `web_api.cpp -> commandSetColor()`; `led_renderer.cpp -> setColor()`
-
-* **重置默认亮度**
-  * **Action:** Restores the brightness slider/input to the firmware-synced default brightness, falling back to raw `50`.
-  * **Backend Function:** Sends `POST /api/command`, `cmd:"set_brightness"`, `payload.raw`. Firmware clamps brightness to `10..200`, updates runtime brightness, and requests a render.
-  * **Code Reference:** `app.js -> resetBrightnessDefault()`, `setBrightness()`; `web_api.cpp -> commandSetBrightness()`; `led_renderer.cpp -> setBrightness()`
-
-* **−8 / +8 brightness buttons**
-  * **Action:** Decreases or increases raw brightness by `8`.
-  * **Backend Function:** Sends `cmd:"set_brightness"` to `/api/command`. Firmware clamps with `MIN_BRIGHTNESS` and `MAX_BRIGHTNESS`.
-  * **Code Reference:** `app.js -> initBrightness()`, `setBrightness()`; `web_api.cpp -> commandSetBrightness()`; `led_renderer.cpp -> setBrightness()`
-
-* **Brightness slider**
-  * **Action:** Continuously changes raw brightness from `10` to `200`.
-  * **Backend Function:** Sends `cmd:"set_brightness"` through the auxiliary command path. The LED render task later applies `strip.setBrightness()` only when the value changes.
-  * **Code Reference:** `app.js -> initBrightness()`, `setBrightness()`; `web_api.cpp -> commandSetBrightness()`; `led_renderer.cpp -> setBrightness()`, `renderCurrentFrameToLedStrip()`
-
-* **Brightness number input**
-  * **Action:** Commits a typed raw brightness value.
-  * **Backend Function:** Same as brightness slider.
-  * **Code Reference:** `app.js -> initBrightness()`, `setBrightness()`; `web_api.cpp -> commandSetBrightness()`; `led_renderer.cpp -> setBrightness()`
-
-* **Brightness preset buttons: 10 / 25 / 50 / 80 / 128 / 160 / 200**
-  * **Action:** Sets the brightness to the selected raw preset.
-  * **Backend Function:** Same as brightness slider.
-  * **Code Reference:** `app.js -> renderPresetButtons()`, `initBrightness()`; `web_api.cpp -> commandSetBrightness()`; `led_renderer.cpp -> setBrightness()`
-
-* **← previous face**
-  * **Action:** Moves to the previous saved face in the unified saved-face library and updates all matrix previews.
-  * **Backend Function:** Queues `POST /api/command`, `cmd:"button"`, `payload.button:"B2"`. Firmware runs the same semantic action as hardware B2: stops firmware scroll if active, clears auto-restore, decrements `autoFaceIndex` with wraparound, and applies that saved face by M370.
-  * **Code Reference:** `app.js -> prevFace()`, `sendButtonCommand()`; `web_api.cpp -> commandButton()`; `buttons.cpp -> runButtonAction()`; `faces.cpp -> applyRelativeSavedFace()`; `led_renderer.cpp -> applyM370()`
-
-* **→ next face**
-  * **Action:** Moves to the next saved face in the unified saved-face library and updates all matrix previews.
-  * **Backend Function:** Queues `POST /api/command`, `cmd:"button"`, `payload.button:"B1"`. Firmware stops firmware scroll if active, clears auto-restore, increments `autoFaceIndex` with wraparound, and applies the saved face by M370.
-  * **Code Reference:** `app.js -> nextFace()`, `sendButtonCommand()`; `web_api.cpp -> commandButton()`; `buttons.cpp -> runButtonAction()`; `faces.cpp -> applyRelativeSavedFace()`; `led_renderer.cpp -> applyM370()`
-
-* **M 手动 / A 自动 toggle**
-  * **Action:** Toggles between manual saved-face mode and automatic saved-face cycling. The label changes to `M 手动` or `A 自动`.
-  * **Backend Function:** Queues `POST /api/command`, `cmd:"button"`, `payload.button:"B3"`. Firmware runs `toggleModeFromButtonAction()`, stops firmware scroll, switches mode, persists runtime settings, applies the current saved face, and if switching away from another activity first blanks the display and schedules a delayed saved-face restore.
-  * **Code Reference:** `app.js -> toggleMode()`, `sendButtonCommand()`; `web_api.cpp -> commandButton()`; `buttons.cpp -> runButtonAction()`; `faces.cpp -> toggleModeFromButtonAction()`, `setMode()`
-
-* **−0.5 / +0.5 auto interval buttons**
-  * **Action:** Decreases or increases automatic saved-face interval by `500 ms`.
-  * **Backend Function:** Sends `POST /api/command`, `cmd:"set_auto_interval"`, `payload.ms`. Firmware constrains the interval to `500..10000 ms` and persists runtime settings.
-  * **Code Reference:** `app.js -> adjustInterval()`, `setAutoIntervalMs()`; `web_api.cpp -> commandSetAutoInterval()`; `faces.cpp -> setAutoInterval()`
-
-* **Auto interval slider**
-  * **Action:** Sets automatic saved-face interval in seconds from `0.5` to `10.0`.
-  * **Backend Function:** Same `cmd:"set_auto_interval"` path. Firmware stores milliseconds.
-  * **Code Reference:** `app.js -> setAutoIntervalSeconds()`, `setAutoIntervalMs()`; `web_api.cpp -> commandSetAutoInterval()`; `faces.cpp -> setAutoInterval()`
-
-* **Auto interval number input**
-  * **Action:** Commits a typed interval in seconds.
-  * **Backend Function:** Same as auto interval slider.
-  * **Code Reference:** `app.js -> setAutoIntervalSeconds()`; `web_api.cpp -> commandSetAutoInterval()`; `faces.cpp -> setAutoInterval()`
-
-* **Auto interval presets: 0.5 / 1 / 2 / 3 / 5 / 7.5 / 10 s**
-  * **Action:** Sets the automatic saved-face interval to a preset.
-  * **Backend Function:** Same as auto interval slider.
-  * **Code Reference:** `app.js -> renderPresetButtons()`, `initBasicControls()`; `web_api.cpp -> commandSetAutoInterval()`; `faces.cpp -> setAutoInterval()`
-
-* **370 LED readonly preview**
-  * **Action:** Displays the current logical M370 frame. It is not editable on this page.
-  * **Backend Function:** Populated from `/api/status` `renderer.lastM370` when not scrolling. Firmware returns logical row-major M370; physical serpentine mapping happens only during LED output.
-  * **Code Reference:** `app.js -> initializeBasicPreviewMatrix()`, `applyFirmwareRuntimeState()`; `web_api.cpp -> handleApiStatus()`; `led_renderer.cpp -> logicalToPhysicalLedIndex()`, `renderCurrentFrameToLedStrip()`
-
-## 6.2 自定义表情页面 (Custom Face)
-*This page edits a 370-cell bitmap manually, sends it as M370, and manages the shared saved-face JSON library.*
-
-### Buttons & Controls:
-* **Custom matrix cells**
-  * **Action:** Clicking an editable LED cell toggles that logical bit in the custom edit frame and updates the M370 textarea.
-  * **Backend Function:** None unless realtime mode is on. With realtime enabled, each edit sends the current frame through `POST /api/frame`.
-  * **Code Reference:** `app.js -> initMatrix()`, `editCell()`, `sendCustomFrameIfLive()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **发送**
-  * **Action:** Sends the current custom bitmap to the board and makes it the active output.
-  * **Backend Function:** Browser converts the frame with `frameToM370()` and queues `POST /api/frame`. Firmware stops firmware scroll for non-scroll modes, sets custom/parts output to manual mode, sets `runtimeState().playback`, validates M370, and queues/applies the packed frame.
-  * **Code Reference:** `app.js -> sendCustomFrame()`, `setCurrentFrame()`, `queueFirmwareFrame()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> normalizeM370()`, `applyM370()`, `enqueuePackedM370Frame()`
-
-* **实时 toggle**
-  * **Action:** Toggles live-send mode shared by Custom and Parts pages. When enabled, edit operations automatically send new M370 frames.
-  * **Backend Function:** No command on toggle itself. Subsequent edits call `POST /api/frame`.
-  * **Code Reference:** `app.js -> toggleLiveSend()`, `sendCustomFrameIfLive()`, `sendPartsFrameIfLive()`
-
-* **清空**
-  * **Action:** Clears the custom edit frame to all LEDs off.
-  * **Backend Function:** Sends `POST /api/frame` only if realtime mode is enabled.
-  * **Code Reference:** `app.js -> initCustom()`, `blankFrame()`, `sendCustomFrameIfLive()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **全亮**
-  * **Action:** Sets every logical LED in the custom edit frame on.
-  * **Backend Function:** Sends `POST /api/frame` only if realtime mode is enabled.
-  * **Code Reference:** `app.js -> initCustom()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **反转**
-  * **Action:** Inverts every logical bit in the custom edit frame.
-  * **Backend Function:** Sends `POST /api/frame` only if realtime mode is enabled.
-  * **Code Reference:** `app.js -> initCustom()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **M370 textarea**
-  * **Action:** Shows the custom frame as `M370:<93 hex>`. Users can paste a compatible M370 string.
-  * **Backend Function:** None until imported or sent.
-  * **Code Reference:** `app.js -> updateM370Views()`, `frameToM370()`, `m370ToFrame()`
-
-* **复制 M370**
-  * **Action:** Copies the custom frame M370 string to the clipboard.
-  * **Backend Function:** None.
-  * **Code Reference:** `app.js -> copyText()`, `frameToM370()`
-
-* **从文本导入到画板**
-  * **Action:** Parses the textarea as M370 and replaces the editable custom frame.
-  * **Backend Function:** None by itself. It only changes browser state.
-  * **Code Reference:** `app.js -> m370ToFrame()`, `initCustom()`
-
-* **保存自定义表情**
-  * **Action:** Adds the custom frame to the unified saved-face library using the name in `保存名称`.
-  * **Backend Function:** Builds a normalized `saved_faces.json` document and sends `POST /api/saved_faces`. Firmware validates the document, writes it atomically under `/resources/saved_faces.json`, and reloads runtime auto faces without changing the active frame.
-  * **Code Reference:** `app.js -> saveFace()`, `persistFaceDocuments()`; `web_api.cpp -> handleSavedFacesPost()`; `storage.cpp -> validateSavedFaces()`, `writeSavedFaces()`, `loadSavedFaces()`
-
-* **保存名称 input**
-  * **Action:** Supplies the display name for the next saved custom face, truncated to 64 characters.
-  * **Backend Function:** Included in the saved face JSON only when saving.
-  * **Code Reference:** `app.js -> saveFace()`
-
-* **读取 saved_faces.json**
-  * **Action:** Reloads the unified face library from the firmware API, falling back to static/local JSON if needed.
-  * **Backend Function:** Calls `GET /api/saved_faces`. Firmware streams `/resources/saved_faces.json` from LittleFS.
-  * **Code Reference:** `app.js -> loadFaceLibrary()`, `loadUnifiedFacesDocument()`; `web_api.cpp -> handleSavedFacesGet()`
-
-* **打开本地 saved_faces.json**
-  * **Action:** Uses the browser File System Access API to open a local JSON file, imports it, and stores a handle for later write-back.
-  * **Backend Function:** After import, the browser also tries `POST /api/saved_faces` to sync the firmware copy.
-  * **Code Reference:** `app.js -> openLocalFaceLibraryFile()`, `importFacesJsonText()`, `persistFaceDocuments()`; `web_api.cpp -> handleSavedFacesPost()`
-
-* **保存到已打开文件**
-  * **Action:** Writes the current unified face document back to the previously opened local file.
-  * **Backend Function:** None unless other persistence already calls firmware sync. This button itself writes through the browser file handle.
-  * **Code Reference:** `app.js -> saveFaceLibraryToLocalFile()`
-
-* **下载 saved_faces.json**
-  * **Action:** Downloads the current unified face document.
-  * **Backend Function:** None.
-  * **Code Reference:** `app.js -> downloadFacesJson()`, `downloadJsonFile()`
-
-* **导入 saved_faces.json**
-  * **Action:** Opens a hidden file picker and imports a JSON file.
-  * **Backend Function:** After normalization, sends `POST /api/saved_faces` to replace firmware saved faces.
-  * **Code Reference:** `app.js -> initFaceManagerControls()`, `importFacesJsonFile()`, `persistFaceDocuments()`; `web_api.cpp -> handleSavedFacesPost()`
-
-* **Saved-face row drag handle**
-  * **Action:** Drag-reorders saved faces. The UI autoscrolls near window edges while dragging.
-  * **Backend Function:** Reassigns 1-based `order` values and sends `POST /api/saved_faces`.
-  * **Code Reference:** `app.js -> attachFaceReorderHandle()`, `reorderFace()`, `persistFaceDocuments()`; `web_api.cpp -> handleSavedFacesPost()`
-
-* **Saved-face name input / ✏️**
-  * **Action:** Edits a saved-face name. Enter or blur commits. The pencil focuses and selects the input.
-  * **Backend Function:** Sends `POST /api/saved_faces` with the renamed document. Default faces may be renamed.
-  * **Code Reference:** `app.js -> createFaceRow()`, `persistFaceDocuments()`; `web_api.cpp -> handleSavedFacesPost()`
-
-* **Saved-face ↑ / ↓**
-  * **Action:** Moves a face up or down in display and auto-play order.
-  * **Backend Function:** Sends reordered `saved_faces.json` through `POST /api/saved_faces`.
-  * **Code Reference:** `app.js -> moveFace()`, `reorderFace()`; `web_api.cpp -> handleSavedFacesPost()`
-
-* **Saved-face 🗑️**
-  * **Action:** Deletes a user custom/parts face after confirmation. Default faces show a disabled delete button and cannot be deleted.
-  * **Backend Function:** Sends updated `saved_faces.json` through `POST /api/saved_faces`. Firmware validation requires at least one `type:"default"` face.
-  * **Code Reference:** `app.js -> deleteFace()`; `web_api.cpp -> handleSavedFacesPost()`; `storage.cpp -> validateSavedFaces()`
-
-* **Saved-face 💡 upload/apply**
-  * **Action:** Applies that saved face to the board.
-  * **Backend Function:** Browser sends the row M370 through `POST /api/frame`. Firmware applies M370 and, when `faceId` is present, can align `autoFaceIndex`.
-  * **Code Reference:** `app.js -> applySavedFace()`, `setCurrentFrame()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-## 6.3 表情部件组合页面 (Expression Parts)
-*This page composes a face from predefined left-eye, right-eye, mouth, and cheek parts, then sends or saves the composed M370 frame.*
-
-### Buttons & Controls:
-* **Part selection cards: leye / reye / mouth / cheek**
-  * **Action:** Selects one part from the generated part lists. Each button shows an 8x8 mini preview and display number. Cheek ID `400` resolves to the empty part.
-  * **Backend Function:** None unless realtime mode is enabled. With realtime enabled, the composed frame is sent by `POST /api/frame`.
-  * **Code Reference:** `app.js -> initParts()`, `selectPart()`, `composePartsFrame()`, `orPartIntoFrame()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **发送**
-  * **Action:** Sends the composed parts frame to the board.
-  * **Backend Function:** Same M370 path as Custom: `POST /api/frame`; firmware stops scroll, switches custom/parts output to manual mode, validates M370, and queues/applies the frame.
-  * **Code Reference:** `app.js -> sendPartsFrame()`, `setCurrentFrame()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **实时 toggle**
-  * **Action:** Toggles live-send mode shared with the Custom page.
-  * **Backend Function:** No command on toggle itself. Later part changes send `POST /api/frame`.
-  * **Code Reference:** `app.js -> toggleLiveSend()`, `sendPartsFrameIfLive()`
-
-* **随机**
-  * **Action:** Randomizes selected parts. Eyes and mouth avoid ID `0`; cheeks may select empty `400`. If symmetry is enabled, left/right eyes use the same display index.
-  * **Backend Function:** Immediately sends the randomized composed frame via `POST /api/frame`.
-  * **Code Reference:** `app.js -> randomParts()`, `sendPartsFrame()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **默认**
-  * **Action:** Resets selected parts to left eye `101`, right eye `201`, mouth `301`, cheek `400`.
-  * **Backend Function:** Sends `POST /api/frame` only if realtime mode is enabled.
-  * **Code Reference:** `app.js -> initParts()`, `composePartsFrame()`, `sendPartsFrameIfLive()`
-
-* **左右眼对称 toggle**
-  * **Action:** When enabled, selecting either eye synchronizes both eyes by display index. Random also uses matched eye display indices.
-  * **Backend Function:** Sends `POST /api/frame` only if realtime mode is enabled.
-  * **Code Reference:** `app.js -> syncSymmetricEyesFrom()`, `renderPartButtons()`, `sendPartsFrameIfLive()`
-
-* **M370 textarea**
-  * **Action:** Shows the composed parts output M370.
-  * **Backend Function:** None until imported, copied, sent, or saved.
-  * **Code Reference:** `app.js -> updateM370Views()`
-
-* **复制 M370**
-  * **Action:** Copies the composed frame M370 to the clipboard.
-  * **Backend Function:** None.
-  * **Code Reference:** `app.js -> frameToM370()`, `copyText()`
-
-* **从文本导入到当前输出**
-  * **Action:** Parses the textarea as M370 and immediately applies that frame as the current board output.
-  * **Backend Function:** Sends `POST /api/frame` with reason `parts_m370_import`.
-  * **Code Reference:** `app.js -> m370ToFrame()`, `setCurrentFrame()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **保存部件表情**
-  * **Action:** Saves the composed frame as a `type:"parts"` user face, including the selected part call IDs.
-  * **Backend Function:** Sends updated `saved_faces.json` through `POST /api/saved_faces`.
-  * **Code Reference:** `app.js -> saveFace()`; `web_api.cpp -> handleSavedFacesPost()`; `storage.cpp -> validateSavedFaces()`, `writeSavedFaces()`
-
-* **Saved-face JSON controls and saved-face row controls**
-  * **Action:** Same shared controls as the Custom page: read, open local, save local, download, import, reorder, rename, delete user faces, and apply faces.
-  * **Backend Function:** Same shared `GET /api/saved_faces`, `POST /api/saved_faces`, and `POST /api/frame` paths.
-  * **Code Reference:** `app.js -> initFaceManagerControls()`, `createFaceRow()`; `web_api.cpp -> handleApiSavedFaces()`, `handleApiFrame()`
-
-## 6.4 文字滚动页面 (Text Scroll)
-*This page rasterizes text into M370 frames, uploads those frames to firmware RAM, and lets the firmware scroll independently.*
-
-### Buttons & Controls:
-* **滚动文字 textarea**
-  * **Action:** Accepts up to 1000 visible characters, normalizes emoji presentation selectors, autoresizes, marks the scroll timeline dirty, and keeps currently running firmware scroll unchanged until the next send.
-  * **Backend Function:** None while typing.
-  * **Code Reference:** `app.js -> sanitizeScrollTextInput()`, `markScrollTextDirty()`, `autoResizeScrollTextInput()`
-
-* **重置默认帧率**
-  * **Action:** Sets FPS back to default `10`.
-  * **Backend Function:** If scroll is active, paused, or firmware-backed, sends `POST /api/command`, `cmd:"set_scroll_interval"` with FPS and interval milliseconds. Firmware constrains interval to `33..1000 ms`.
-  * **Code Reference:** `app.js -> setScrollFps()`; `web_api.cpp -> commandSetScrollInterval()`; `faces.cpp -> startFirmwareScroll()`; `config.h -> MIN_SCROLL_INTERVAL_MS`
-
-* **−5 / +5 FPS buttons**
-  * **Action:** Decreases or increases text-scroll FPS by 5, clamped to `1..60`.
-  * **Backend Function:** Sends `cmd:"set_scroll_interval"` only while scroll is active/paused/firmware-backed.
-  * **Code Reference:** `app.js -> setScrollFps()`; `web_api.cpp -> commandSetScrollInterval()`
-
-* **FPS slider**
-  * **Action:** Continuously sets FPS from `1` to `60`.
-  * **Backend Function:** Same as FPS buttons when a scroll timeline is active.
-  * **Code Reference:** `app.js -> initScroll()`, `setScrollFps()`; `web_api.cpp -> commandSetScrollInterval()`
-
-* **FPS number input**
-  * **Action:** Accepts digits only, sanitizes pasted/typed values, and sets FPS from `1` to `60`.
-  * **Backend Function:** Same as FPS slider when active.
-  * **Code Reference:** `app.js -> sanitizeScrollFpsInput()`, `setScrollFps()`; `web_api.cpp -> commandSetScrollInterval()`
-
-* **FPS preset buttons: 1 / 10 / 20 / 30 / 40 / 50 / 60**
-  * **Action:** Sets FPS to the selected preset.
-  * **Backend Function:** Same as FPS slider when active.
-  * **Code Reference:** `app.js -> renderPresetButtons()`, `setScrollFps()`; `web_api.cpp -> commandSetScrollInterval()`
-
-* **发送**
-  * **Action:** Generates a text bitmap with the Ark Pixel 12px font table, extracts one M370 frame per horizontal LED offset, uploads frames in chunks to firmware RAM, then starts firmware scroll. The progress bar shows encoding, chunk upload, and start progress.
-  * **Backend Function:** Uploads chunks with `POST /api/scroll` (`frames`, `append`, `storage:"ram"`, `persist:false`, `saveToFlash:false`). Firmware validates every M370 frame into the scroll frame buffer and refuses flash persistence. After upload, browser sends `POST /api/command`, `cmd:"start_scroll"`. Firmware starts scroll playback from frame 0, may switch auto mode to manual while remembering `restoreAutoAfterScroll`, and applies the first frame immediately.
-  * **Code Reference:** `app.js -> startScroll()`, `prepareTextScrollTimelineAsync()`, `uploadFirmwareScrollTimeline()`; `web_api.cpp -> handleApiScroll()`, `commandStartScroll()`; `faces.cpp -> startFirmwareScroll()`; `scroll.cpp -> scrollRenderTask()`
-
-* **暂停 / 继续**
-  * **Action:** Pauses or resumes text scroll. Disabled when no firmware/user scroll is active or when only a system pause is active.
-  * **Backend Function:** Pause sends `cmd:"pause_scroll"`; resume sends `cmd:"resume_scroll"`. Firmware toggles user pause flags and leaves cached frames in RAM.
-  * **Code Reference:** `app.js -> togglePauseScroll()`, `pauseScroll()`, `resumeScroll()`; `web_api.cpp -> commandPauseScroll()`, `commandResumeScroll()`; `faces.cpp -> setFirmwareScrollUserPaused()`, `resumeFirmwareScrollIfCached()`
-
-* **停止/清屏**
-  * **Action:** Stops local preview, clears scroll state, clears the display preview, applies the startup/default saved face locally, and returns to auto mode if scroll interrupted auto playback.
-  * **Backend Function:** Sends `POST /api/command`, `cmd:"stop_scroll"`, `payload.clear:true`, `payload.restoreAuto`. Firmware stops scroll, clears the scroll frame cache state, clears queued M370 frames, applies a blank frame, then schedules the startup default saved face after the blank hold. If auto should restore, it returns to `auto_saved_face`.
-  * **Code Reference:** `app.js -> stopScroll()`; `web_api.cpp -> commandStopScroll()`; `faces.cpp -> stopFirmwareScroll()`, `scheduleStartupDefaultFaceRestoreAfterBlank()`, `serviceDeferredFaceRestore()`
-
-* **<- previous frame**
-  * **Action:** Generates/uses the current text timeline, steps the browser preview one frame backward, and marks playback as `scroll_step`.
-  * **Backend Function:** Sends `POST /api/command`, `cmd:"scroll_step"`, `payload.direction:1` because this button is wired with direction `1` in the current code. Firmware treats positive direction as next frame. The label and code direction are therefore reversed in the current implementation.
-  * **Code Reference:** `app.js -> setScrollStepHandler("scroll-step-prev", 1)`; `web_api.cpp -> commandScrollStep()`; `led_renderer.cpp -> applyPackedFrameImmediate()`
-
-* **-> next frame**
-  * **Action:** Generates/uses the current text timeline, steps the browser preview one frame forward, and marks playback as `scroll_step`.
-  * **Backend Function:** Sends `cmd:"scroll_step"`, `payload.direction:-1` because this button is wired with direction `-1`. Firmware treats negative direction as previous frame. The label and code direction are therefore reversed in the current implementation.
-  * **Code Reference:** `app.js -> setScrollStepHandler("scroll-step-next", -1)`; `web_api.cpp -> commandScrollStep()`; `led_renderer.cpp -> applyPackedFrameImmediate()`
-
-* **Upload progress bar**
-  * **Action:** Displays local encode and HTTP upload progress.
-  * **Backend Function:** Reflects `POST /api/scroll` chunking and the final `start_scroll` command. Scroll frames are RAM-only and are not saved to flash or `saved_faces.json`.
-  * **Code Reference:** `app.js -> setScrollUploadProgress()`, `completeScrollUploadProgress()`, `apiPostWithUploadProgress()`; `web_api.cpp -> handleApiScroll()`
-
-* **Text-scroll LED preview**
-  * **Action:** Shows generated or currently previewed text-scroll frame.
-  * **Backend Function:** During firmware scroll, status polling uses summary/no-frame reads to avoid pulling full M370 while scrolling. Firmware Core 1 advances cached frames at `scrollIntervalMs`.
-  * **Code Reference:** `app.js -> advanceScroll()`, `syncRuntimeSummaryFromFirmware()`; `web_api.cpp -> handleApiStatus()`; `scroll.cpp -> scrollRenderTask()`
-
-## 6.5 调试页面 (Debug)
-*This page displays merged runtime state and exposes diagnostics for GPIO semantics, M370 patterns, power, logs, and firmware API checks.*
-
-### Buttons & Controls:
-* **主控制 / 状态信息 panel**
-  * **Action:** Displays state, renderer, AP, memory, storage, queues, scroll, and power fields. Shows a warning if estimated current-frame power exceeds 40 W.
-  * **Backend Function:** Populated by `GET /api/status` and `GET /api/power`. Firmware status includes runtime version, AP clients, renderer values, scroll state, memory, storage, and stats.
-  * **Code Reference:** `app.js -> renderState()`, `syncRuntimeStateFromFirmware()`; `web_api.cpp -> handleApiStatus()`, `addPowerStatus()`
-
-* **B1 下一个 / B2 上一个 / B3 A/M / B4 亮度- / B5 亮度+ / B6 短按电量 / B6 长按详情 / B3+B1 间隔- / B3+B2 间隔+ / B6+B3 网络信息**
-  * **Action:** Supported `data-gpio` buttons simulate firmware button semantics from the debug page; unsupported B6 variants are logged as unsupported.
-  * **Backend Function:** Sends `POST /api/command`, `cmd:"button"`, with `payload.button` for `B1`, `B2`, `B3`, `B4`, `B5`, `B3B1`, and `B3B2`. `B6S`, `B6L`, and `B6B3` are not accepted by `runButtonAction()`.
-  * **Code Reference:** `index.html -> button[data-gpio]`; `app.js -> initializeDebugControls()`; `buttons.cpp -> runButtonAction()`
-
-* **全黑**
-  * **Action:** Sends an all-off debug frame.
-  * **Backend Function:** Sends `POST /api/frame` with a blank M370 and reason `debug_all_off`.
-  * **Code Reference:** `app.js -> initializeDebugControls()`, `setCurrentFrame()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **全亮**
-  * **Action:** Sends an all-on debug frame.
-  * **Backend Function:** Sends `POST /api/frame` with all 370 bits on and reason `debug_all_on`.
-  * **Code Reference:** `app.js -> initializeDebugControls()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **棋盘**
-  * **Action:** Generates a checkerboard pattern over valid matrix cells and sends it.
-  * **Backend Function:** Sends `POST /api/frame`, reason `debug_checker`.
-  * **Code Reference:** `app.js -> makePatternFrame("checker")`, `setCurrentFrame()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **边框**
-  * **Action:** Generates a border pattern along each valid row range and sends it.
-  * **Backend Function:** Sends `POST /api/frame`, reason `debug_border`.
-  * **Code Reference:** `app.js -> makePatternFrame("border")`, `setCurrentFrame()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **当前保存表情**
-  * **Action:** Applies the currently selected saved face from the browser library.
-  * **Backend Function:** Sends that face as M370 through `POST /api/frame`.
-  * **Code Reference:** `app.js -> applySavedFace()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> applyM370()`
-
-* **Debug M370 textarea**
-  * **Action:** Accepts `93` hex characters or `M370:<93 hex>`.
-  * **Backend Function:** None until `解析并应用 M370`.
-  * **Code Reference:** `app.js -> m370ToFrame()`
-
-* **解析并应用 M370**
-  * **Action:** Parses the debug textarea and sends the result as the active board output.
-  * **Backend Function:** Sends `POST /api/frame`, reason `debug_apply_m370`. Firmware validates with `normalizeM370()`.
-  * **Code Reference:** `app.js -> initializeDebugControls()`, `m370ToFrame()`, `setCurrentFrame()`; `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> normalizeM370()`, `applyM370()`
-
-* **复制状态 JSON**
-  * **Action:** Copies the browser-side `state` object to the clipboard.
-  * **Backend Function:** None.
-  * **Code Reference:** `app.js -> initializeDebugControls()`
-
-* **清空用户表情**
-  * **Action:** After confirmation, removes all non-default user faces from the browser library and rerenders lists.
-  * **Backend Function:** Sends updated `saved_faces.json` through `POST /api/saved_faces`. Firmware validation preserves required default faces.
-  * **Code Reference:** `app.js -> initializeDebugControls()`, `persistFaceDocuments()`; `web_api.cpp -> handleSavedFacesPost()`; `storage.cpp -> validateSavedFaces()`
-
-* **刷新电池状态**
-  * **Action:** Forces an immediate browser power refresh and rerenders badges and debug power fields.
-  * **Backend Function:** Calls `GET /api/power`. Firmware samples power through `servicePowerMonitor()`, then returns full `addPowerStatus()` output.
-  * **Code Reference:** `app.js -> refreshPowerStatusFromFirmware()`; `web_api.cpp -> handleApiPower()`; `power_monitor.cpp -> servicePowerMonitor()`
-
-* **重置最低电压**
-  * **Action:** Resets the persisted battery minimum calibration record.
-  * **Backend Function:** Sends `POST /api/command`, `cmd:"reset_battery_min"`. Firmware calls `resetBatteryVoltageMinimum()`: if battery is powered, not charging, and the current voltage is safely below the max record, it records current filtered `vbat`; otherwise it resets to nominal `BATTERY_EMPTY_V`. The value is written to `/resources/battery_calib.json`.
-  * **Code Reference:** `app.js -> resetBatteryVoltageRecord("min")`; `web_api.cpp -> commandResetBatteryMinimum()`; `power_monitor.cpp -> resetBatteryVoltageMinimum()`, `saveBatteryCalibration()`
-
-* **重置最高电压**
-  * **Action:** Resets the persisted battery maximum calibration record.
-  * **Backend Function:** Sends `POST /api/command`, `cmd:"reset_battery_max"`. Firmware calls `resetBatteryVoltageMaximum()`: if battery is powered and current filtered `vbat` is safely above the min record, it records current `vbat`; otherwise it resets to nominal `BATTERY_FULL_V`. The value is written to `/resources/battery_calib.json`.
-  * **Code Reference:** `app.js -> resetBatteryVoltageRecord("max")`; `web_api.cpp -> commandResetBatteryMaximum()`; `power_monitor.cpp -> resetBatteryVoltageMaximum()`, `saveBatteryCalibration()`
-
-* **ADC 调试 Vbat / ADC 调试 Vcharge inputs**
-  * **Action:** Local-only debug fields for simulating UI battery/charge display values.
-  * **Backend Function:** None until `更新 ADC 状态`, and even then no firmware request is sent.
-  * **Code Reference:** `app.js -> initializeDebugControls()`
-
-* **更新 ADC 状态**
-  * **Action:** Updates browser state using the two debug input values, recomputes local charging/unpowered flags, and rerenders the UI.
-  * **Backend Function:** None. This does not change ESP32 ADC readings or calibration.
-  * **Code Reference:** `app.js -> initializeDebugControls()`, `batteryIconForPercent()`
-
-* **通信日志 command input**
-  * **Action:** Accepts JSON text for an auxiliary debug command payload.
-  * **Backend Function:** None until `发送辅助命令`.
-  * **Code Reference:** `app.js -> initializeDebugControls()`
-
-* **发送辅助命令**
-  * **Action:** Parses the command input as JSON and attempts to send it.
-  * **Backend Function:** Sends the parsed JSON object directly to `POST /api/command`; the object must include a string `cmd` field supported by the firmware route table.
-  * **Code Reference:** `app.js -> initializeDebugControls()`; `web_api.cpp -> findApiCommandRoute()`, `handleApiCommand()`
-
-* **清空日志**
-  * **Action:** Clears the browser communication log.
-  * **Backend Function:** None.
-  * **Code Reference:** `app.js -> renderLog()`, `initializeDebugControls()`
-
-* **下载日志**
-  * **Action:** Downloads the browser log text using the JSON download helper. The filename is `rina_webui_log.txt`.
-  * **Backend Function:** None.
-  * **Code Reference:** `app.js -> downloadJsonFile()`, `initializeDebugControls()`
-
-* **读取固件状态**
-  * **Action:** Forces a full firmware status sync.
-  * **Backend Function:** Calls `GET /api/status`. Firmware returns renderer state, AP info, power, matrix metadata, endpoints, storage, memory, and stats. While scrolling or summary mode, full `lastM370` may be skipped/deferred.
-  * **Code Reference:** `app.js -> syncRuntimeStateFromFirmware("firmware_ping")`; `web_api.cpp -> handleApiStatus()`
-
-* **发送暂停指令**
-  * **Action:** Sends a firmware pause command from the debug page.
-  * **Backend Function:** Sends `POST /api/command`, `cmd:"pause_scroll"`. Firmware pauses firmware scroll if active; this button is named generically but currently uses the scroll-specific pause command, not the generic `pause` route.
-  * **Code Reference:** `app.js -> initializeDebugControls()`; `web_api.cpp -> commandPauseScroll()`; `faces.cpp -> setFirmwareScrollUserPaused()`
-
-* **Resource / System panel**
-  * **Action:** Shows resource/storage hints and values from firmware status.
-  * **Backend Function:** `GET /api/status` reports LittleFS mount state, saved-face/settings file paths, storage capacity when safe, heap, PSRAM, and scroll buffer location.
-  * **Code Reference:** `app.js -> renderState()`; `web_api.cpp -> handleApiStatus()`; `state.cpp -> initRuntimeScrollFrameBuffer()`
-
-## Shared Backend Notes
-
-### M370 Frame Rendering
-* **Action:** Browser pages send logical M370 frames to firmware using `POST /api/frame`.
-* **Backend Function:** Firmware validates `M370:<93 hex>` strings, decodes 370 logical row-major bits into packed bytes, and queues frames when requests arrive faster than `M370_FRAME_MIN_INTERVAL_MS` (`33 ms`). Queue depth is `3`; overflow drops the oldest queued frame and increments `framesDropped`.
-* **Code Reference:** `web_api.cpp -> handleApiFrame()`; `led_renderer.cpp -> normalizeM370()`, `decodeNormalizedM370ToPackedBits()`, `enqueuePackedM370Frame()`, `serviceM370FrameQueue()`
-
-### Optimized LED Refresh Timing
-* **Action:** User controls update browser state immediately, then firmware applies LED updates without blocking WebServer timing-sensitive paths longer than necessary.
-* **Backend Function:** Main loop on Core 0 services queued M370 frames, HTTP, buttons, power, deferred restores, and auto playback. Core 1 runs `scrollRenderTask()`, consumes render requests, advances firmware scroll frames, and calls `renderCurrentFrameToLedStrip()`. The renderer copies state under lock, releases locks before pixel buffer work, waits for `LED_RENDER_MIN_GAP_US`, performs `strip.show()` under the hardware bus lock, and inserts `LED_SIGNAL_RESET_US` reset gaps before and after the show. These gaps let non-LED tasks run cooperatively without disrupting WS2812 timing.
-* **Code Reference:** `main.cpp -> loop()`; `scroll.cpp -> scrollRenderTask()`; `led_renderer.cpp -> requestLedRender()`, `renderCurrentFrameToLedStrip()`; `config.h -> LED_RENDER_MIN_GAP_US`, `LED_SIGNAL_RESET_US`
-
-### Battery Percentage Algorithm
-* **Action:** Battery status appears in the header and Debug page.
-* **Backend Function:** Firmware samples battery and charge ADCs every second using 16 samples with trimmed averaging. Battery voltage is converted with `BATTERY_CAL_SCALE` and `BATTERY_CAL_OFFSET_V`, filtered with a 20-second EMA, and mapped to percent using the custom 2S LiPo piecewise-linear lookup table in `BATTERY_PERCENT_LUT`. The displayed percent updates only when the computed value changes by more than 1 point. Battery disconnect/unpowered detection forces `vbat=0` and `batteryPercent=0`.
-* **Code Reference:** `power_monitor.cpp -> readTrimmedAdcMilliVolts()`, `sampleBattery()`, `batteryPercentFromVoltage()`; `config.h -> BATTERY_PERCENT_LUT`
-
-* **Calibration min/max behavior**
-  * **Action:** Debug buttons expose reset of minimum and maximum voltage records.
-  * **Backend Function:** Firmware loads and saves `/resources/battery_calib.json` with `v_min` and `v_max`. The sampling path computes a `freezeCalibration` flag that is true while charging, disconnected, unpowered, or below the unpowered threshold, so any automatic calibration tracking path is explicitly paused during charging. In the current code, `updateBatteryCalibration()` only sanitizes/defaults the records rather than automatically expanding min/max; actual record changes happen through the reset-min/reset-max commands. Do not treat `batteryRangeMin` and `batteryRangeMax` as live automatically tracked extrema in this firmware revision.
-  * **Code Reference:** `power_monitor.cpp -> updateBatteryCalibration()`, `sampleBattery()`, `resetBatteryVoltageMinimum()`, `resetBatteryVoltageMaximum()`, `saveBatteryCalibration()`
-
-### HTTP API Summary
-* `GET /api/status` -> full or summary runtime state. `since`, `runtimeOnly`, `summary`, `noFrame`, and `fullPower` query parameters affect payload size.
-* `GET /api/power` -> full power object.
-* `POST /api/frame` -> one active M370 output frame.
-* `POST /api/scroll` -> RAM-only scroll frame chunks.
-* `POST /api/command` -> auxiliary command route table: `set_color`, `set_brightness`, `set_mode`, `set_auto_interval`, `set_scroll_interval`, `start_scroll`, `scroll_step`, `pause_scroll`, `resume_scroll`, `stop_scroll`, `pause`, `resume`, `button`, `terminate_other_activities`, `reset_battery_min`, `reset_battery_max`.
-* `GET /api/saved_faces` -> stream `/resources/saved_faces.json`.
-* `POST /api/saved_faces` -> validate, atomically write, and reload saved faces.
-
-## Coverage Critique
-
-I checked the static HTML controls, dynamically generated controls, custom select menus, saved-face row buttons, part buttons, preset buttons, hidden file input, loading overlay, and Debug controls. Debug `button[data-gpio]` helpers now send supported button commands, and `发送辅助命令` posts raw `/api/command` JSON with a required `cmd` field.
-
-The README describes the implemented firmware behavior rather than only frontend labels. The main caveat is battery min/max tracking: the code has calibration storage, reset controls, and a freeze-while-charging path, but automatic expansion of min/max is currently not implemented inside `updateBatteryCalibration()`.
+# RinaChanBoard ESP32-S3 Firmware
+
+> 基于 ESP32-S3 的 370 颗 WS2812B LED 表情板固件与离线 WebUI。设备启动后自建 Wi‑Fi 热点，通过 LittleFS 提供完整网页控制界面，并用 REST API 控制表情、颜色、亮度、自动轮播、文字滚动、电池状态和调试功能。
+
+# 模型文件
+https://makerworld.com/zh/models/2569348-rina-chan-board-rina-board-rina-chan-board#profileId-2832058
+
+RinaChanBoard 是一个完全本地运行的 LED 表情显示系统。烧录固件与 LittleFS 后，用户只需要连接设备热点 `RinaChanBoard-V2`，打开 `http://rina.io/`，即可在手机、平板或电脑浏览器中控制 370 颗 LED。项目不依赖路由器、云服务或外部服务器；所有表情、运行设置和电池校准数据都保存在设备本地 LittleFS 中。
+
+---
+
+## 目录
+
+- [1. 功能概览](#1-功能概览)
+- [2. 硬件与引脚](#2-硬件与引脚)
+- [3. 技术栈与系统组成](#3-技术栈与系统组成)
+- [4. 快速开始](#4-快速开始)
+- [5. WebUI 使用说明](#5-webui-使用说明)
+- [6. 物理按钮操作](#6-物理按钮操作)
+- [7. HTTP API](#7-http-api)
+- [8. 数据文件与持久化](#8-数据文件与持久化)
+- [9. 配置项](#9-配置项)
+- [10. 项目结构](#10-项目结构)
+- [11. 构建与资源流水线](#11-构建与资源流水线)
+- [12. 调试与验证](#12-调试与验证)
+- [13. 已知限制与开发者注意](#13-已知限制与开发者注意)
+- [14. 第三方组件与许可证](#14-第三方组件与许可证)
+
+---
+
+## 1. 功能概览
+
+### 1.1 核心功能
+
+- ESP32-S3 自建 Wi‑Fi 热点，默认 SSID 为 `RinaChanBoard-V2`。
+- 本地域名 `http://rina.io/`，无需外网即可访问 WebUI。
+- LittleFS 内置离线 WebUI：`index.html`、`styles.css`、`app.js`、字体和资源文件。
+- 370 颗 WS2812B / NeoPixel LED 控制。
+- 逻辑 M370 帧格式，支持 370 bit LED 状态导入、导出和 API 控制。
+- 主颜色、亮度、手动/自动模式、自动轮播间隔控制。
+- 默认表情、用户自定义表情、部件组合表情统一管理。
+- 自定义 LED 点阵绘制、全亮、全灭、反选、复制/导入 M370。
+- 表情部件组合：左眼、右眼、嘴巴、脸颊，可随机组合并保存。
+- 文字滚动：WebUI 生成滚动帧，固件缓存到 RAM/PSRAM 后独立播放。
+- 文字滚动支持发送、暂停、继续、停止清屏、逐格控制和 FPS 设置。
+- B1–B6 物理按钮控制表情、模式、亮度、自动间隔和电池显示。
+- 电池电压、充电状态、百分比、最低/最高记录和校准数据保存。
+- Debug 页面提供测试图案、状态 JSON、ADC/电源状态和日志工具。
+
+### 1.2 运行方式
+
+本项目不是传统的“前端 + 独立后端 + 数据库”架构。ESP32-S3 固件同时承担：
+
+1. Wi‑Fi AP 和 DNS 服务。
+2. HTTP 静态文件服务器。
+3. REST API 后端。
+4. LED 渲染与滚动播放任务。
+5. 物理按钮扫描。
+6. 电池/充电 ADC 采样。
+7. LittleFS JSON 文件读写。
+
+---
+
+## 2. 硬件与引脚
+
+### 2.1 默认硬件
+
+| 项目 | 默认值 |
+|---|---|
+| 主控 | ESP32-S3 DevKitC / ESP32-S3-WROOM 兼容板 |
+| 框架 | Arduino on PlatformIO |
+| LED | 370 × WS2812B / NeoPixel |
+| LED 数据脚 | `GPIO2` |
+| 电池 ADC | `GPIO10` |
+| 充电检测 ADC | `GPIO1` |
+| 默认 PSRAM | QSPI PSRAM |
+| 文件系统 | LittleFS |
+
+### 2.2 按钮引脚
+
+| 按钮 | GPIO | 默认行为 |
+|---|---:|---|
+| B1 | 17 | 下一张 saved face；滚动中按下会停止滚动并切回表情模式 |
+| B2 | 16 | 上一张 saved face；滚动中按下会停止滚动并切回表情模式 |
+| B3 | 15 | 松开时切换 Manual / Auto；也作为组合键修饰键 |
+| B4 | 40 | 亮度降低，每次 `-8`，长按连续降低 |
+| B5 | 41 | 亮度增加，每次 `+8`，长按连续增加 |
+| B6 | 42 | 电池/充电状态覆盖层相关硬件入口；部分行为需要真机验证 |
+| B3 + B1 | 15 + 17 | 自动轮播间隔 `-500 ms`，最小 `500 ms` |
+| B3 + B2 | 15 + 16 | 自动轮播间隔 `+500 ms`，最大 `10000 ms` |
+
+### 2.3 LED 矩阵几何
+
+| 项目 | 值 |
+|---|---|
+| LED 总数 | `370` |
+| 逻辑行数 | `18` |
+| M370 bit 数 | `370` |
+| M370 hex 长度 | `93` |
+| 帧存储字节 | `(370 + 7) / 8 = 47 bytes` |
+| 走线 | 蛇形 serpentine |
+| 奇数行方向 | 反向 |
+
+逻辑行长度：
+
+```text
+18, 20, 20, 20, 22, 22, 22, 22, 22,
+22, 22, 22, 22, 20, 20, 20, 18, 16
+```
+
+M370 始终使用逻辑 row-major 顺序；固件在输出到 WS2812B 前负责转换到实际蛇形物理 LED 顺序。
+
+---
+
+## 3. 技术栈与系统组成
+
+| 层级 | 技术 / 文件 | 说明 |
+|---|---|---|
+| 固件框架 | PlatformIO + Arduino | `platformio.ini` 定义 ESP32-S3 构建环境 |
+| LED 驱动 | Adafruit NeoPixel | 控制 WS2812B LED 链 |
+| JSON | ArduinoJson | 状态、配置、表情库和 API 请求/响应 |
+| Web 后端 | Arduino `WebServer` | 固件内置 HTTP API 和静态资源服务 |
+| 前端 | 原生 HTML / CSS / JS | `data/index.html`、`data/styles.css`、`data/app.js` |
+| 存储 | LittleFS | 保存 WebUI、表情库、运行设置、电池校准 |
+| 网络 | ESP32 SoftAP + DNS | 默认 `192.168.1.14` 和 `rina.io` |
+| 任务 | FreeRTOS | Core 0 处理 Web/按钮/电源，Core 1 处理 LED 渲染/滚动 |
+| 字体 | Ark Pixel + GNU Unifont subset | 文字滚动输入与 WebUI 字体显示 |
+
+---
+
+## 4. 快速开始
+
+### 4.1 环境要求
+
+- PlatformIO Core 或 PlatformIO VS Code 插件。
+- Python 3.9+。
+- Windows PowerShell 5+，如果使用项目内置构建脚本。
+- USB 数据线和 ESP32-S3 串口驱动。
+
+Python 依赖：
+
+```bash
+pip install pillow fonttools brotli
+```
+
+PlatformIO 依赖由 `platformio.ini` 自动安装：
+
+- `bblanchon/ArduinoJson@^6.21.5`
+- `adafruit/Adafruit NeoPixel@^1.12.3`
+
+### 4.2 克隆项目
+
+```bash
+git clone https://github.com/yourusername/Rina-Chan-board-370-leds.git
+cd Rina-Chan-board-370-leds/esp32s3_firmware
+```
+
+### 4.3 一键构建、烧录固件和上传文件系统
+
+Windows / PowerShell：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_rinachan_unifont.ps1 -UploadFirmware -UploadFS
+```
+
+该脚本会执行以下工作：
+
+1. 检查 Python 依赖。
+2. 生成或验证 WebUI 字体资源。
+3. 生成 GNU Unifont WebUI 子集。
+4. 验证 Ark Pixel 12px 字体资源。
+5. 构建 PlatformIO 固件。
+6. 上传固件。
+7. 上传 LittleFS 文件系统。
+
+### 4.4 仅构建
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_rinachan_unifont.ps1
+```
+
+### 4.5 手动 PlatformIO 命令
+
+```bash
+pio run
+pio run -t upload
+pio run -t uploadfs
+```
+
+> 注意：只上传固件不够。WebUI、表情库、字体和 JSON 资源位于 LittleFS 中，必须执行 `pio run -t uploadfs` 或使用 `-UploadFS`。
+
+### 4.6 连接设备
+
+烧录完成后，连接设备热点：
+
+| 字段 | 默认值 |
+|---|---|
+| Wi‑Fi SSID | `RinaChanBoard-V2` |
+| Wi‑Fi 密码 | `rinachan` |
+| 本地域名 | `http://rina.io/` |
+| IP 地址 | `http://192.168.1.14/` |
+
+如果浏览器缓存旧资源，可以强制刷新：
+
+```text
+http://rina.io/?v=latest
+```
+
+---
+
+## 5. WebUI 使用说明
+
+WebUI 共有 5 个主要页面：
+
+| 页面 | 功能 |
+|---|---|
+| 6.1 Basic / 基础功能 | 颜色、亮度、表情切换、Manual/Auto、自动间隔、状态显示 |
+| 6.2 Custom Face / 自定义表情 | LED 点阵绘制、M370 导入导出、保存表情 |
+| 6.3 Expression Parts / 表情部件 | 左右眼、嘴巴、脸颊组合，随机生成并保存 |
+| 6.4 Text Scroll / 文字滚动 | 输入文字，生成滚动帧，上传到固件 RAM 播放 |
+| 6.5 Debug / 调试 | 测试图案、状态 JSON、电源 ADC、按钮模拟、日志工具 |
+
+### 5.1 6.1 基础功能
+
+基础页面用于日常控制：
+
+- 选择主颜色。
+- 使用预设颜色。
+- 调整亮度。
+- 切换上一张 / 下一张 saved face。
+- 切换 Manual / Auto 模式。
+- 设置自动轮播间隔。
+- 查看当前 LED 预览、电池状态、连接状态和固件状态。
+
+亮度范围：
+
+| 项目 | 值 |
+|---|---:|
+| 最小亮度 | `10` |
+| 默认亮度 | `50` |
+| 最大亮度 | `200` |
+| 按钮步进 | `8` |
+
+自动轮播间隔：
+
+| 项目 | 值 |
+|---|---:|
+| 最小 | `500 ms` |
+| 默认 | `3000 ms` |
+| 最大 | `10000 ms` |
+| 按钮组合步进 | `500 ms` |
+
+### 5.2 6.2 自定义表情
+
+自定义表情页面提供一个可编辑的 370 LED 矩阵。
+
+用户可以：
+
+- 点击或拖动 LED 格子绘制表情。
+- 清空当前画面。
+- 全部点亮。
+- 反选当前 LED 状态。
+- 将当前画面转换为 M370。
+- 粘贴 M370 并导入到编辑器。
+- 复制当前 M370。
+- 将当前画面保存到统一表情库。
+- 对表情库中的用户表情进行改名、排序、应用和删除。
+
+表情保存到：
+
+```text
+/resources/saved_faces.json
+```
+
+### 5.3 6.3 表情部件
+
+表情部件页面用于通过已有部件快速组合表情。
+
+可选部件类型：
+
+- 左眼。
+- 右眼。
+- 嘴巴。
+- 脸颊。
+
+支持操作：
+
+- 应用当前部件组合。
+- 随机生成组合。
+- 恢复默认组合。
+- 开启/关闭左右眼对称。
+- 导出组合后的 M370。
+- 保存为 saved face。
+
+固件后端不保存“眼睛/嘴巴”等语义结构；前端会先组合成完整 370 bit frame，再通过 `/api/frame` 发送最终 M370。
+
+### 5.4 6.4 文字滚动
+
+文字滚动流程：
+
+1. 用户输入文字。
+2. WebUI 使用 Ark Pixel 12px bitmap 字体生成 LED 滚动帧。
+3. WebUI 将多帧 M370 分块上传到 `/api/scroll`。
+4. 固件将帧序列缓存到 RAM/PSRAM。
+5. 固件 Core 1 渲染任务独立播放滚动动画。
+6. WebUI 只同步状态和帧序号，不逐帧推送硬件。
+
+支持控制：
+
+- 发送。
+- 暂停。
+- 继续。
+- 停止 / 清屏。
+- 逐格前进。
+- FPS 设置和预设。
+
+文字滚动限制：
+
+| 项目 | 默认 / 限制 |
+|---|---:|
+| 最大输入长度 | `1000` 字符 |
+| FPS 范围 | `1..60` |
+| 默认滚动间隔 | `100 ms` |
+| 最小滚动间隔 | `33 ms` |
+| 最大滚动间隔 | `1000 ms` |
+| 最大缓存帧数 | `3072` |
+| 存储位置 | RAM / PSRAM |
+| 是否写入 flash | 否 |
+
+固件会拒绝将滚动帧持久化到 flash。滚动帧属于运行时缓存，断电后消失。
+
+### 5.5 6.5 调试
+
+调试页面用于开发和硬件验证。
+
+主要功能：
+
+- 刷新 `/api/status`。
+- 刷新 `/api/power`。
+- 复制状态 JSON。
+- 下载或清空通信日志。
+- 发送全灭、全亮、棋盘、边框测试图案。
+- 应用当前表情。
+- 粘贴并应用 M370。
+- 模拟部分按钮命令。
+- 重置电池最低/最高记录。
+- 查看 ADC、电池、充电、网络和系统状态。
+
+> 开发者注意：Debug 页面中的部分高级命令可能依赖当前固件命令表。若某个调试按钮返回 `unknown command`，应以 `src/web_api.cpp` 中实际注册的 `/api/command` 命令为准。
+
+---
+
+## 6. 物理按钮操作
+
+### 6.1 单键操作
+
+| 操作 | 行为 |
+|---|---|
+| B1 短按 | 下一张 saved face |
+| B2 短按 | 上一张 saved face |
+| B3 松开 | 切换 Manual / Auto |
+| B4 短按 | 亮度降低 8 |
+| B5 短按 | 亮度增加 8 |
+| B6 短按 | 电池/充电覆盖层相关行为，需硬件验证 |
+
+### 6.2 长按操作
+
+| 操作 | 行为 |
+|---|---|
+| B1 长按 | 连续下一张表情 |
+| B2 长按 | 连续上一张表情 |
+| B4 长按 | 连续降低亮度 |
+| B5 长按 | 连续增加亮度 |
+
+默认长按参数：
+
+| 项目 | 值 |
+|---|---:|
+| B1/B2 长按触发 | `650 ms` 后开始 |
+| B1/B2 连发间隔 | `350 ms` |
+| B4/B5 长按触发 | `450 ms` 后开始 |
+| B4/B5 连发间隔 | `120 ms` |
+
+### 6.3 组合键
+
+| 操作 | 行为 |
+|---|---|
+| B3 + B1 | 自动轮播间隔减少 `500 ms` |
+| B3 + B2 | 自动轮播间隔增加 `500 ms` |
+
+### 6.4 滚动播放中的按钮行为
+
+当文字滚动正在播放时：
+
+- B1/B2/B3 会中断滚动。
+- 固件会通知 WebUI 滚动已被硬件按钮停止。
+- WebUI 应停止本地滚动预览并显示当前表情状态。
+
+---
+
+## 7. HTTP API
+
+所有 API 默认通过以下地址访问：
+
+```text
+http://rina.io/
+http://192.168.1.14/
+```
+
+### 7.1 Endpoint 总览
+
+| 方法 | Endpoint | 用途 |
+|---|---|---|
+| GET | `/` | WebUI 根页面 |
+| GET | `/index.html` | WebUI 页面 |
+| GET | `/api/status` | 获取运行状态、矩阵、存储、内存、电源和统计信息 |
+| GET | `/api/power` | 获取电池和充电状态 |
+| POST | `/api/frame` | 应用单帧 M370 |
+| POST | `/api/scroll` | 上传滚动帧序列并可启动播放 |
+| POST | `/api/command` | 执行控制命令 |
+| GET | `/api/saved_faces` | 读取 saved face 表情库 |
+| POST | `/api/saved_faces` | 校验并替换 saved face 表情库 |
+| OPTIONS | API endpoints | CORS preflight |
+
+### 7.2 `GET /api/status`
+
+读取设备运行状态。
+
+可选查询参数：
+
+| 参数 | 作用 |
+|---|---|
+| `runtimeOnly=1` | 只返回轻量运行态 |
+| `summary=1` | 跳过较重的 frame/storage 序列化 |
+| `noFrame=1` | 不返回当前 `lastM370` |
+| `since=<version>` | 若状态版本未变，返回 `unchanged: true` |
+| `fullPower=1` | 返回更完整的电源状态 |
+
+典型返回内容：
+
+- `ap`：SSID、IP、domain、客户端数量。
+- `power`：电池、充电和校准状态。
+- `renderer`：颜色、亮度、模式、滚动状态、当前表情。
+- `memory`：heap、PSRAM、scroll buffer。
+- `matrix`：LED 几何和 M370 格式。
+- `storage`：LittleFS 挂载、容量和文件路径。
+- `stats`：frame、command、settings、saved faces 计数。
+
+### 7.3 `POST /api/frame`
+
+应用一个 M370 frame。
+
+请求示例：
+
+```json
+{
+  "m370": "M370:<93 hex>",
+  "reason": "api_frame",
+  "playback": "idle",
+  "faceId": "face_01_surprised_winking_with_mouth"
+}
+```
+
+字段说明：
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `m370` | 是 | `M370:` + 93 个 hex 字符 |
+| `reason` | 否 | 调用来源，例如 `custom_editor`、`parts_apply`、`debug_pattern` |
+| `playback` / `mode` | 否 | 运行态标记 |
+| `faceId` | 否 | 若匹配 saved face，会同步当前 auto face index |
+
+行为：
+
+- 应用单帧 M370。
+- 非 scroll 来源通常会停止当前滚动播放。
+- 返回当前颜色、亮度、队列状态、点亮 LED 数和当前 M370。
+
+### 7.4 `POST /api/scroll`
+
+上传文字滚动帧序列到固件 RAM/PSRAM。
+
+请求示例：
+
+```json
+{
+  "frames": [
+    "M370:<93 hex>",
+    "M370:<93 hex>"
+  ],
+  "fps": 20,
+  "append": false,
+  "start": true,
+  "chunkIndex": 0,
+  "totalFrames": 2,
+  "source": "webui_text_scroll",
+  "storage": "ram",
+  "persist": false,
+  "saveToFlash": false
+}
+```
+
+支持字段：
+
+| 字段 | 说明 |
+|---|---|
+| `frames` | M370 字符串数组 |
+| `intervalMs` | 每帧间隔，单位 ms |
+| `fps` | 替代 `intervalMs` 的速度输入 |
+| `append` | 是否追加到已有缓存 |
+| `start` | 上传后是否启动播放 |
+| `chunkIndex` | 当前分块序号 |
+| `totalFrames` | 总帧数 |
+| `source` | 来源标记 |
+| `storage` | 当前只支持 `ram` |
+
+会被拒绝的行为：
+
+- `persist: true`
+- `saveToFlash: true`
+- `storage` 不为 `ram`
+- 总帧数超过 `MAX_SCROLL_FRAMES`
+- 任意 frame 的 M370 格式无效
+
+### 7.5 `POST /api/command`
+
+通用命令格式：
+
+```json
+{
+  "cmd": "set_brightness",
+  "payload": {
+    "raw": 80
+  }
+}
+```
+
+支持命令：
+
+| 命令 | Payload | 说明 |
+|---|---|---|
+| `set_color` | `{ "hex": "#f971d4" }` | 设置主颜色 |
+| `set_brightness` | `{ "raw": 50 }` 或 `{ "brightness": 50 }` | 设置亮度 |
+| `set_mode` | `{ "mode": "manual" }` / `{ "mode": "auto" }` | 设置 M/A 模式 |
+| `set_auto_interval` | `{ "ms": 3000 }` | 设置自动轮播间隔 |
+| `set_scroll_interval` | `{ "intervalMs": 100 }` 或 `{ "fps": 10 }` | 设置滚动速度 |
+| `start_scroll` | 可选 `{ "intervalMs": 100 }` / `{ "fps": 10 }` | 启动已缓存滚动帧 |
+| `scroll_step` | `{}` | 滚动逐格前进 |
+| `pause_scroll` | `{}` | 暂停滚动 |
+| `resume_scroll` | `{}` | 继续滚动 |
+| `stop_scroll` | `{ "clear": true, "restoreAuto": true }` | 停止滚动，可清屏/恢复自动模式 |
+| `pause` | `{}` | 通用暂停 |
+| `resume` | `{}` | 通用恢复 |
+| `button` | `{ "button": "B1" }` | 模拟部分物理按钮 |
+| `terminate_other_activities` | `{ "targetMode": "face" }` 等 | 切换工作流前终止其他活动 |
+| `reset_battery_min` | `{}` | 重置电池最低记录 |
+| `reset_battery_max` | `{}` | 重置电池最高记录 |
+
+### 7.6 `GET /api/power`
+
+获取电池与充电状态。返回信息包括：
+
+- 电池电压。
+- 电池百分比。
+- 是否检测到电池。
+- 是否检测到充电输入。
+- ADC 原始/处理状态。
+- 校准最高/最低记录。
+
+### 7.7 `GET /api/saved_faces`
+
+读取当前表情库文件：
+
+```text
+/resources/saved_faces.json
+```
+
+### 7.8 `POST /api/saved_faces`
+
+替换 saved face 表情库。
+
+支持两种 body：
+
+```json
+{
+  "document": {
+    "format": "rina_faces_370_v2",
+    "version": 2,
+    "faces": []
+  },
+  "reason": "webui_save"
+}
+```
+
+或直接提交 saved face document。
+
+固件会校验：
+
+- `format`。
+- `version`。
+- `matrix` 元数据。
+- `faces` 数组。
+- 每个 face 的 M370 格式。
+- default/custom/parts 类型约束。
+- 默认表情保留规则。
+- startup default 元数据。
+
+---
+
+## 8. 数据文件与持久化
+
+### 8.1 LittleFS 文件
+
+| 路径 | 用途 |
+|---|---|
+| `/index.html` | WebUI HTML |
+| `/app.js` | WebUI 主逻辑 |
+| `/styles.css` | WebUI 样式 |
+| `/resources/saved_faces.json` | 统一表情库 |
+| `/resources/runtime_settings.json` | Manual/Auto 模式和自动间隔 |
+| `/resources/battery_calib.json` | 电池最低/最高校准记录 |
+| `/resources/loading/rina_icon1_default.png` | 加载页默认图标 |
+| `/resources/loading/rina_icon2_hover.png` | 加载页 hover/结束图标 |
+| `/resources/fonts/ark12.woff2` | Ark Pixel 浏览器字体 |
+| `/resources/fonts/ark12_fallback.woff2` | Ark Pixel fallback 字体 |
+| `/resources/fonts/ark12.json` | LED 文字滚动 bitmap glyph 表 |
+
+### 8.2 saved_faces.json
+
+表情库格式：
+
+```json
+{
+  "format": "rina_faces_370_v2",
+  "version": 2,
+  "category": "...",
+  "matrix": {
+    "ledCount": 370
+  },
+  "startupDefaultId": "...",
+  "updatedAt": "...",
+  "faces": []
+}
+```
+
+单个 face 示例：
+
+```json
+{
+  "id": "face_01_surprised_winking_with_mouth",
+  "name": "surprised / winking with mouth",
+  "type": "default",
+  "m370": "M370:<93 hex>",
+  "order": 1,
+  "editable": true,
+  "deletable": false,
+  "locked": true,
+  "is_startup_default": false
+}
+```
+
+face 类型：
+
+| 类型 | 说明 |
+|---|---|
+| `default` | 出厂/内置表情；通常不可删除 |
+| `custom` | 用户在 6.2 自定义点阵中保存的表情 |
+| `parts` | 用户在 6.3 表情部件中组合保存的表情 |
+
+### 8.3 runtime_settings.json
+
+保存运行设置：
+
+```json
+{
+  "mode": "manual",
+  "autoIntervalMs": 3000
+}
+```
+
+### 8.4 battery_calib.json
+
+保存电池学习/校准数据，例如：
+
+```json
+{
+  "v_min": 6.2,
+  "v_max": 8.4,
+  "updatedAt": 0
+}
+```
+
+实际字段以固件版本输出为准。
+
+---
+
+## 9. 配置项
+
+主要配置位于：
+
+```text
+src/config.h
+platformio.ini
+partitions.csv
+```
+
+### 9.1 网络配置
+
+| 常量 | 默认值 |
+|---|---|
+| `AP_SSID` | `RinaChanBoard-V2` |
+| `AP_PASSWORD` | `rinachan` |
+| `AP_DOMAIN` | `rina.io` |
+| `AP_IP_ADDR` | `192.168.1.14` |
+| `AP_GATEWAY_ADDR` | `192.168.1.14` |
+| `AP_SUBNET_MASK` | `255.255.255.0` |
+
+### 9.2 LED 与显示配置
+
+| 常量 | 默认值 |
+|---|---:|
+| `LED_PIN` | `2` |
+| `LED_COUNT` | `370` |
+| `M370_HEX_CHARS` | `93` |
+| `M370_BITS` | `370` |
+| `MATRIX_ROWS` | `18` |
+| `SERPENTINE_WIRING` | `true` |
+| `SERPENTINE_ODD_ROWS_REVERSED` | `true` |
+| `LED_RENDER_TASK_CORE` | `1` |
+
+### 9.3 亮度与颜色
+
+| 常量 | 默认值 |
+|---|---:|
+| `DEFAULT_BRIGHTNESS` | `50` |
+| `MIN_BRIGHTNESS` | `10` |
+| `MAX_BRIGHTNESS` | `200` |
+| `BRIGHTNESS_BUTTON_STEP` | `8` |
+| `DEFAULT_COLOR` | `#f971d4` |
+
+### 9.4 自动轮播
+
+| 常量 | 默认值 |
+|---|---:|
+| `DEFAULT_MODE` | `manual` |
+| `DEFAULT_AUTO_INTERVAL_MS` | `3000` |
+| `MIN_AUTO_INTERVAL_MS` | `500` |
+| `MAX_AUTO_INTERVAL_MS` | `10000` |
+| `AUTO_INTERVAL_BUTTON_STEP_MS` | `500` |
+| `MAX_AUTO_FACES` | `128` |
+
+### 9.5 文字滚动
+
+| 常量 | 默认值 |
+|---|---:|
+| `MAX_SCROLL_FRAMES` | `3072` |
+| `DEFAULT_SCROLL_INTERVAL_MS` | `100` |
+| `MIN_SCROLL_INTERVAL_MS` | `33` |
+| `MAX_SCROLL_INTERVAL_MS` | `1000` |
+
+### 9.6 PlatformIO PSRAM 配置
+
+默认 QSPI PSRAM：
+
+```ini
+board_build.psram_type = qspi
+board_build.arduino.memory_type = qio_qspi
+```
+
+如果使用 OPI PSRAM 模块，可改为：
+
+```ini
+board_build.psram_type = opi
+board_build.arduino.memory_type = qio_opi
+```
+
+### 9.7 分区配置
+
+`partitions.csv` 当前关闭 OTA，保留一个 factory app 和较大的 LittleFS：
+
+| 分区 | 类型 | 大小 | 说明 |
+|---|---|---:|---|
+| `nvs` | data/nvs | `0x5000` | NVS |
+| `otadata` | data/ota | `0x2000` | OTA 元数据占位 |
+| `app0` | app/factory | `0x200000` | 固件 |
+| `littlefs` | data/spiffs | `0x5F0000` | WebUI、字体、JSON 资源 |
+
+---
+
+## 10. 项目结构
+
+```text
+esp32s3_firmware/
+├─ data/                         # LittleFS WebUI 与资源
+│  ├─ index.html                  # WebUI DOM 结构
+│  ├─ app.js                      # WebUI 状态、API、页面逻辑
+│  ├─ styles.css                  # WebUI 样式
+│  └─ resources/                  # 表情库、运行设置、电池校准、字体、图片
+├─ src/                          # 固件源码
+│  ├─ main.cpp                    # setup 和主 loop
+│  ├─ config.*                    # 引脚、常量、矩阵几何、默认值
+│  ├─ web_api.*                   # AP、DNS、WebServer、REST API、静态文件服务
+│  ├─ led_renderer.*              # M370 解析、LED 映射、NeoPixel 输出
+│  ├─ scroll.*                    # Core 1 滚动/渲染任务
+│  ├─ faces.*                     # saved face、manual/auto、滚动恢复
+│  ├─ buttons.*                   # 按钮扫描、消抖、长按、组合键
+│  ├─ button_animations.*         # 按钮触发的覆盖层/动画
+│  ├─ power_monitor.*             # 电池与充电 ADC 采样、百分比、校准
+│  ├─ storage.*                   # LittleFS、settings、saved_faces 读写校验
+│  ├─ state.*                     # 全局运行状态、buffer、计数器
+│  ├─ sync.*                      # FreeRTOS mutex / critical section
+│  ├─ utils.*                     # hex、颜色、JSON 辅助函数
+│  ├─ web_json.*                  # 大 JSON 请求的轻量字段读取
+│  └─ psram_json.h                # ArduinoJson PSRAM allocator
+├─ scripts/                       # PlatformIO 构建脚本
+│  ├─ patch_webserver_timeout.py   # WebServer timeout patch
+│  └─ gzip_webui_assets.py         # LittleFS WebUI gzip 资源生成
+├─ tools/                         # 字体与资源生成工具
+├─ licenses/                      # 第三方 license notice
+├─ platformio.ini                 # PlatformIO 配置
+├─ partitions.csv                 # ESP32 flash 分区
+├─ run_rinachan_unifont.ps1        # 一键构建/字体/上传脚本
+└─ README.md
+```
+
+---
+
+## 11. 构建与资源流水线
+
+### 11.1 `run_rinachan_unifont.ps1`
+
+项目主构建脚本。主要职责：
+
+- 检查 Python 依赖。
+- 扫描 WebUI 和资源中实际使用的字符。
+- 构建 GNU Unifont WebUI 子集。
+- 验证 Ark Pixel 12px 字体和 bitmap glyph 表。
+- 运行 PlatformIO 构建。
+- 可选上传固件。
+- 可选上传 LittleFS。
+
+### 11.2 `scripts/patch_webserver_timeout.py`
+
+PlatformIO pre-build 脚本，用于降低 Arduino WebServer 阻塞等待时间，减少 ESP32 WebServer 在大请求或断连时对主循环造成的影响。
+
+### 11.3 `scripts/gzip_webui_assets.py`
+
+PlatformIO 构建脚本，用于为 WebUI 静态资源生成 `.gz` 文件。固件静态服务器会根据浏览器 `Accept-Encoding: gzip` 优先返回压缩资源。
+
+### 11.4 字体工具
+
+| 工具 | 用途 |
+|---|---|
+| `tools/build_unifont_webui_subset_from_png.py` | 生成 WebUI 使用的 GNU Unifont 子集 |
+| `tools/build_ark12_merged.py` | 生成合并 Ark Pixel 12px 资源 |
+| `tools/compile_ark_bdf.py` | 将 BDF 字体编译为浏览器字体和 bitmap 表 |
+
+### 11.5 Ark12 字体资源
+
+当前项目使用 fused Ark12 字体资源：
+
+| 文件 | 用途 |
+|---|---|
+| `/resources/fonts/ark12.json` | LED 文字滚动 bitmap glyph 表 |
+| `/resources/fonts/ark12.woff2` | Ark12 基础浏览器字体 |
+| `/resources/fonts/ark12_fallback.woff2` | CJK fallback 字体 |
+
+已知需要覆盖/验证的补字包括：
+
+```text
+然 / 燃 / 滚 / 滾
+```
+
+修改 WebUI 文案、字体、`data/index.html`、`data/styles.css` 或 runtime JSON 后，应重新运行构建脚本，避免 LittleFS 上传旧的 gzip 资源。
+
+---
+
+## 12. 调试与验证
+
+### 12.1 串口监视器
+
+```bash
+pio device monitor -b 115200
+```
+
+### 12.2 API 手动检查
+
+连接设备热点后：
+
+```bash
+curl http://rina.io/api/status
+curl http://rina.io/api/power
+curl http://rina.io/api/saved_faces
+```
+
+发送命令示例：
+
+```bash
+curl -X POST http://rina.io/api/command \
+  -H "Content-Type: application/json" \
+  -d '{"cmd":"set_brightness","payload":{"raw":80}}'
+```
+
+发送全灭帧示例：
+
+```bash
+curl -X POST http://rina.io/api/frame \
+  -H "Content-Type: application/json" \
+  -d '{"m370":"M370:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","reason":"manual_test"}'
+```
+
+### 12.3 烧录后检查清单
+
+建议每次烧录后按顺序检查：
+
+- [ ] 串口输出正常，无反复重启。
+- [ ] 能看到 Wi‑Fi 热点 `RinaChanBoard-V2`。
+- [ ] 浏览器可打开 `http://rina.io/`。
+- [ ] `/api/status` 返回 JSON。
+- [ ] `/api/power` 返回电池/充电状态。
+- [ ] WebUI 6.1 可控制颜色和亮度。
+- [ ] saved face 可上一张/下一张切换。
+- [ ] Auto 模式按设定间隔轮播。
+- [ ] 6.2 自定义表情可发送和保存。
+- [ ] 6.3 部件表情可组合、随机和保存。
+- [ ] 6.4 文字滚动可发送、暂停、继续、停止、逐格。
+- [ ] B1/B2/B3/B4/B5 按钮行为正确。
+- [ ] B6 电池覆盖层行为符合硬件预期。
+- [ ] 6.5 测试图案正常。
+- [ ] 重启后 saved_faces、runtime_settings 和 battery_calib 能正确加载。
+
+### 12.4 LittleFS 缺失诊断
+
+如果只上传了固件、没有上传 LittleFS：
+
+- AP 仍可能启动。
+- 根页面会显示 LittleFS 诊断页。
+- LED 会显示短红色文件系统错误图案。
+
+恢复方法：
+
+```bash
+pio run -t uploadfs
+```
+
+或：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_rinachan_unifont.ps1 -UploadFS
+```
+
+---
+
+## 13. 已知限制与开发者注意
+
+### 13.1 无 OTA 回滚分区
+
+当前 `partitions.csv` 使用一个 factory app 分区和较大的 LittleFS 分区，没有可用的双 OTA app 槽。远程 OTA、自动回滚和 A/B 更新不在当前分区设计范围内。
+
+### 13.2 文字滚动只缓存到 RAM/PSRAM
+
+`/api/scroll` 明确拒绝 flash 持久化。滚动帧序列断电后不会保存，需要 WebUI 重新生成并上传。
+
+### 13.3 B6 的 API 模拟不等同于真实硬件行为
+
+B6 与电池/充电覆盖层相关，真实行为依赖按钮扫描和动画模块。普通 `/api/command` 的 `button` 模拟主要覆盖 B1/B2/B3/B4/B5 和部分组合键，不应假设完全等价于 B6 硬件按下。
+
+### 13.4 Debug 手动 JSON 命令需要核对固件命令表
+
+WebUI Debug 页面存在高级调试入口。开发时应以 `src/web_api.cpp` 中实际支持的 `/api/command` 命令为准。如果某个 Debug 命令返回 `unknown command`，说明 UI 入口与当前固件命令表未完全对齐。
+
+### 13.5 ESP32 WebServer 是同步模型
+
+Arduino `WebServer` 为同步处理模型。前端已经对高频帧发送做了队列和节流，固件也有 timeout patch；开发新功能时仍应避免高频、大体积、阻塞型 API 请求。
+
+### 13.6 电池百分比需要真实硬件校准
+
+电池百分比基于 2S LiPo 风格 LUT、ADC 分压、去极值采样和 EMA 平滑。不同电池、分压电阻误差、负载电流和充电状态会影响实际显示，需要真机验证。
+
+### 13.7 字体和 gzip 资源可能出现缓存问题
+
+如果修改了 WebUI、字体或 JSON 资源，但浏览器仍显示旧页面：
+
+1. 重新运行构建脚本。
+2. 确认 `uploadfs` 已执行。
+3. 使用 `http://rina.io/?v=latest` 强制刷新。
+4. 必要时清除浏览器缓存。
+
+---
+
+## 14. 第三方组件与许可证
+
+本项目使用：
+
+- ESP32 Arduino core。
+- PlatformIO。
+- ArduinoJson。
+- Adafruit NeoPixel。
+- GNU Unifont。
+- Ark Pixel Font。
+
+GNU Unifont 子集 notice 位于：
+
+```text
+licenses/GNU_UNIFONT_WEBUI_SUBSET_NOTICE.txt
+```
+
+当前固件目录中未发现顶层项目 license 文件。添加正式项目 license 前，不应默认假设项目源码可自由再分发。第三方组件仍遵循各自许可证。
+
+---
+
+## 维护建议
+
+后续维护 README 时，建议同步更新以下内容：
+
+- 新增或删除 WebUI 页面控件时，同步更新 [WebUI 使用说明](#5-webui-使用说明)。
+- 新增 `/api/command` 命令时，同步更新 [HTTP API](#7-http-api)。
+- 修改 `src/config.h` 常量时，同步更新 [配置项](#9-配置项)。
+- 修改按钮逻辑时，同步更新 [物理按钮操作](#6-物理按钮操作)。
+- 修改 LittleFS 文件路径或 JSON schema 时，同步更新 [数据文件与持久化](#8-数据文件与持久化)。
