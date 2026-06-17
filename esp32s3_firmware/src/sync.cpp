@@ -5,11 +5,9 @@
 
 static SemaphoreHandle_t sFrameMutex       = nullptr;
 static SemaphoreHandle_t sScrollMutex      = nullptr;
+static SemaphoreHandle_t sStorageMutex     = nullptr;
 static SemaphoreHandle_t sHardwareBusMutex = nullptr;
 
-// Map the public domain enum to the legacy lock functions.  Keeping the switch
-// local avoids leaking FreeRTOS semaphore details into modules that only need a
-// scoped ownership comment and a predictable release point.
 static void lockDomain(SyncDomain domain) {
     switch (domain) {
         case SyncDomain::Frame:
@@ -18,14 +16,15 @@ static void lockDomain(SyncDomain domain) {
         case SyncDomain::Scroll:
             lockScroll();
             break;
+        case SyncDomain::Storage:
+            lockStorage();
+            break;
         case SyncDomain::HardwareBus:
             lockHardwareBus();
             break;
     }
 }
 
-// Mirror lockDomain() so ScopedLock destructors always release the same
-// resource they acquired, even when a helper grows new early returns later.
 static void unlockDomain(SyncDomain domain) {
     switch (domain) {
         case SyncDomain::Frame:
@@ -33,6 +32,9 @@ static void unlockDomain(SyncDomain domain) {
             break;
         case SyncDomain::Scroll:
             unlockScroll();
+            break;
+        case SyncDomain::Storage:
+            unlockStorage();
             break;
         case SyncDomain::HardwareBus:
             unlockHardwareBus();
@@ -52,18 +54,14 @@ ScopedLock::~ScopedLock() {
 }
 
 bool initSyncPrimitives() {
-    // Create each mutex once during setup(), but keep this idempotent so a
-    // future recovery path can call it safely after partial initialization.
     if (!sFrameMutex) sFrameMutex = xSemaphoreCreateMutex();
     if (!sScrollMutex) sScrollMutex = xSemaphoreCreateMutex();
+    if (!sStorageMutex) sStorageMutex = xSemaphoreCreateMutex();
     if (!sHardwareBusMutex) sHardwareBusMutex = xSemaphoreCreateMutex();
-    return sFrameMutex && sScrollMutex && sHardwareBusMutex;
+    return sFrameMutex && sScrollMutex && sStorageMutex && sHardwareBusMutex;
 }
 
 void lockFrame() {
-    // Frame state connects API/button writers to the Core-1 renderer; blocking
-    // here is intentional because partially-written packed bits would display
-    // visibly corrupted LED frames.
     if (sFrameMutex) xSemaphoreTake(sFrameMutex, portMAX_DELAY);
 }
 
@@ -72,8 +70,6 @@ void unlockFrame() {
 }
 
 void lockScroll() {
-    // Scroll state is advanced by the render task and mutated by HTTP/buttons.
-    // Serialize the timeline counters so frame index and frame count stay paired.
     if (sScrollMutex) xSemaphoreTake(sScrollMutex, portMAX_DELAY);
 }
 
@@ -81,10 +77,15 @@ void unlockScroll() {
     if (sScrollMutex) xSemaphoreGive(sScrollMutex);
 }
 
+void lockStorage() {
+    if (sStorageMutex) xSemaphoreTake(sStorageMutex, portMAX_DELAY);
+}
+
+void unlockStorage() {
+    if (sStorageMutex) xSemaphoreGive(sStorageMutex);
+}
+
 void lockHardwareBus() {
-    // NeoPixel show() and LittleFS operations are both timing/bus-sensitive in
-    // this firmware.  The shared mutex prevents long flash/file operations from
-    // interleaving with the LED transmit critical path.
     if (sHardwareBusMutex) xSemaphoreTake(sHardwareBusMutex, portMAX_DELAY);
 }
 

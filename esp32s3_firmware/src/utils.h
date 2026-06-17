@@ -1,35 +1,22 @@
 #pragma once
 #include <Arduino.h>
 
-/**
- * @brief Convert a hex character into its numeric nibble value.
- * @param c Character to parse.
- * @return 0-15 for valid hex, or -1 for invalid input.
- */
 int hexNibble(char c);
 
-/**
- * @brief Estimate ArduinoJson capacity for a source JSON document.
- * @param sourceBytes Source file/body size.
- * @return Conservative capacity with a 32 KB floor.
- */
+bool millisReached(uint32_t now, uint32_t dueMs);
+
+bool millisElapsed(uint32_t now, uint32_t sinceMs, uint32_t intervalMs);
+
 size_t jsonCapacityFor(size_t sourceBytes);
 
-/**
- * @brief Parse #RRGGBB/RRGGBB text into RGB bytes.
- * @param input Raw color string.
- * @param r Receives red channel.
- * @param g Receives green channel.
- * @param b Receives blue channel.
- * @return true when input was valid six-digit hex.
- */
 bool parseColorHex(const String& input, uint8_t& r, uint8_t& g, uint8_t& b);
 
-/**
- * @brief Format RGB bytes as lowercase #rrggbb.
- * @param r Red channel.
- * @param g Green channel.
- * @param b Blue channel.
- * @return Canonical color string.
- */
 String formatColorHex(uint8_t r, uint8_t g, uint8_t b);
+
+// 滚动源文本校验：拒绝非法 UTF-8、overlong 编码、surrogate、> U+10FFFF、
+// U+0000，以及除 '\n' 外的 C0 控制字符。
+bool validateScrollSourceText(const char* s, size_t len);
+
+// timelineId / fontId / generatorVersion 校验：非空，仅允许安全 ASCII
+// [A-Za-z0-9._:-]，长度不超过 maxLen。
+bool validateMetaIdString(const char* s, size_t maxLen);

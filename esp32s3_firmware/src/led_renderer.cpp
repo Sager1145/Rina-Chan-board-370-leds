@@ -6,7 +6,6 @@
 #include "button_animations.h"
 #include <Adafruit_NeoPixel.h>
 
-// Strip is owned by this module; other modules interact through the helpers.
 static Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 static uint16_t logicalToPhysicalMap[LED_COUNT] = {};
@@ -25,23 +24,14 @@ static QueuedM370Frame m370FrameQueue[M370_FRAME_QUEUE_DEPTH];
 static uint8_t m370FrameQueueHead = 0;
 static uint8_t m370FrameQueueCount = 0;
 static uint32_t lastM370FrameApplyMs = 0;
+// Frame-queue state is owned by the Core 0 cooperative loop and HTTP/button
+// handlers. Keep service/enqueue/clear calls on Core 0 unless this queue is
+// made atomic or guarded by a mutex.
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Translate logical row-major LED index to the physical strip index.
- * @param logicalIndex Matrix index used by M370/frame buffers.
- * @return Physical NeoPixel index after applying row wiring configuration.
- */
 static uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
     if (logicalIndex >= LED_COUNT) return logicalIndex;
     if (!SERPENTINE_WIRING) return logicalIndex;
 
-    // Walk the configured row map because this board has nonuniform row
-    // lengths.  The renderer owns this hardware dependency so higher-level
-    // modules can stay in logical M370 order.
     for (uint8_t row = 0; row < MATRIX_ROWS; ++row) {
         const uint16_t rowStart  = ROW_OFFSETS[row];
         const uint8_t  rowLength = ROW_LENGTHS[row];
@@ -55,31 +45,38 @@ static uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
 
 static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* outBits);
 
-/**
- * @brief Compute the queue insertion slot for the M370 rate limiter.
- * @param None.
- * @return Ring-buffer tail index.
- */
 static uint8_t m370FrameQueueTail() {
     return static_cast<uint8_t>((m370FrameQueueHead + m370FrameQueueCount) % M370_FRAME_QUEUE_DEPTH);
 }
 
-/**
- * @brief Check whether another queued M370 frame may be published.
- * @param now Current millis() timestamp.
- * @return true when the configured minimum frame gap has elapsed.
- */
 static bool m370FrameRateReady(uint32_t now) {
-    return lastM370FrameApplyMs == 0 || now - lastM370FrameApplyMs >= M370_FRAME_MIN_INTERVAL_MS;
+    return lastM370FrameApplyMs == 0 ||
+           millisElapsed(now, lastM370FrameApplyMs, M370_FRAME_MIN_INTERVAL_MS);
 }
 
-/**
- * @brief Copy a C string into a fixed queue field with guaranteed termination.
- * @param out Destination buffer.
- * @param outSize Destination buffer size in bytes.
- * @param input Source string, or nullptr for empty.
- * @return None.
- */
+static bool hasM370Prefix(const String& value) {
+    return value.length() >= 5 &&
+           (value.charAt(0) == 'M' || value.charAt(0) == 'm') &&
+           value.charAt(1) == '3' &&
+           value.charAt(2) == '7' &&
+           value.charAt(3) == '0' &&
+           value.charAt(4) == ':';
+}
+
+static char upperHexChar(char c) {
+    return (c >= 'a' && c <= 'f') ? static_cast<char>(c - ('a' - 'A')) : c;
+}
+
+static const char* blankM370Text() {
+    static char text[5 + M370_HEX_CHARS + 1] = {};
+    if (text[0] == '\0') {
+        memcpy(text, "M370:", 5);
+        memset(text + 5, '0', M370_HEX_CHARS);
+        text[5 + M370_HEX_CHARS] = '\0';
+    }
+    return text;
+}
+
 static void copyText(char* out, size_t outSize, const char* input) {
     if (outSize == 0) return;
     if (!input) input = "";
@@ -88,13 +85,6 @@ static void copyText(char* out, size_t outSize, const char* input) {
     out[i] = '\0';
 }
 
-/**
- * @brief Commit packed frame bits into runtime state and request physical render.
- * @param packedBits FRAME_BYTES source buffer in logical LED order.
- * @param normalizedM370 Optional normalized text copy for status responses.
- * @param reason Human-readable state-change reason for diagnostics/WebUI.
- * @return None.
- */
 static void publishPackedFrameNow(const uint8_t* packedBits, const char* normalizedM370, const char* reason) {
     withFrameLock([&]() {
         memcpy(runtimeFrameBits(), packedBits, FRAME_BYTES);
@@ -109,13 +99,6 @@ static void publishPackedFrameNow(const uint8_t* packedBits, const char* normali
     lastM370FrameApplyMs = millis();
 }
 
-/**
- * @brief Publish immediately or enqueue a packed frame behind the rate limiter.
- * @param packedBits FRAME_BYTES source buffer.
- * @param normalizedM370 Optional M370 status string.
- * @param reason Reason attached to the eventual runtime state update.
- * @return None.
- */
 static void enqueuePackedM370Frame(const uint8_t* packedBits, const char* normalizedM370, const String& reason) {
     if (!packedBits) return;
 
@@ -127,8 +110,6 @@ static void enqueuePackedM370Frame(const uint8_t* packedBits, const char* normal
 
     uint8_t target = m370FrameQueueTail();
     if (m370FrameQueueCount >= M370_FRAME_QUEUE_DEPTH) {
-        // Drop the oldest queued frame rather than the newest command.  For
-        // live controls, the most recent frame better represents user intent.
         target = m370FrameQueueHead;
         m370FrameQueueHead = static_cast<uint8_t>((m370FrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
         ++runtimeState().framesDropped;
@@ -148,34 +129,13 @@ static void enqueuePackedM370Frame(const uint8_t* packedBits, const char* normal
     ++runtimeState().framesQueued;
 }
 
-// ---------------------------------------------------------------------------
-// LED index map
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Precompute logical-to-physical LED lookup table.
- * @param None.
- * @return None.
- */
 void initLedIndexMap() {
     for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
         logicalToPhysicalMap[logical] = logicalToPhysicalLedIndex(logical);
     }
 }
 
-// ---------------------------------------------------------------------------
-// Render request  (ISR-safe)
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Mark the current runtime frame as needing a physical LED render.
- * @param None.
- * @return None.
- */
 void requestLedRender() {
-    // The render request flag is the connection between Core-0 state writers
-    // and the Core-1 scroll/render task.  Use the portMUX variant matching the
-    // caller context so button/API code and possible ISR callers share one flag.
     if (xPortInIsrContext()) {
         portENTER_CRITICAL_ISR(&ledRenderRequestMux);
         ledRenderRequested = true;
@@ -188,11 +148,6 @@ void requestLedRender() {
     notifyScrollRenderTask();
 }
 
-/**
- * @brief Atomically consume the pending render request flag.
- * @param None.
- * @return true when a writer requested a render since the last consume.
- */
 bool consumeLedRenderRequest() {
     bool requested = false;
     portENTER_CRITICAL(&ledRenderRequestMux);
@@ -202,59 +157,27 @@ bool consumeLedRenderRequest() {
     return requested;
 }
 
-/**
- * @brief Request a render while the caller already owns frame state.
- * @param None.
- * @return None.
- */
 void showCurrentFrameNoLock() { requestLedRender(); }
 
-// ---------------------------------------------------------------------------
-// Frame bit helpers
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Set or clear one logical LED bit in the active runtime frame.
- * @param index Logical LED index.
- * @param on true to light the LED, false to clear it.
- * @return None.
- */
 void setFrameBit(uint16_t index, bool on) {
+    if (index >= LED_COUNT) return;
     const uint16_t byteIndex = index >> 3;
     const uint8_t  bitMask   = 1U << (index & 7U);
     if (on) runtimeFrameBits()[byteIndex] |=  bitMask;
     else    runtimeFrameBits()[byteIndex] &= ~bitMask;
 }
 
-/**
- * @brief Read one logical LED bit from the active runtime frame.
- * @param index Logical LED index.
- * @return true when the bit is lit.
- */
 bool frameBit(uint16_t index) {
+    if (index >= LED_COUNT) return false;
     return (runtimeFrameBits()[index >> 3] & (1U << (index & 7U))) != 0;
 }
 
-/**
- * @brief Read one logical LED bit from an arbitrary packed frame buffer.
- * @param bits FRAME_BYTES packed source buffer.
- * @param index Logical LED index.
- * @return true when the bit is lit.
- */
 bool packedFrameBit(const uint8_t* bits, uint16_t index) {
+    if (!bits || index >= LED_COUNT) return false;
     return (bits[index >> 3] & (1U << (index & 7U))) != 0;
 }
 
-/**
- * @brief Count lit logical LEDs in the active runtime frame.
- * @param None.
- * @return Number of set bits up to LED_COUNT.
- */
-uint16_t countLitLeds() {
-    // Population-count per byte (47 iterations) instead of per bit (370).
-    // LED_COUNT (370) is not a byte multiple, so the high bits of the final byte
-    // are padding and must be masked off before they are counted.
-    const uint8_t* bits = runtimeFrameBits();
+uint16_t countLitLedsLocked(const uint8_t* bits) {
     uint16_t lit = 0;
     for (uint16_t byteIndex = 0; byteIndex < FRAME_BYTES; ++byteIndex) {
         uint8_t value = bits[byteIndex];
@@ -268,24 +191,32 @@ uint16_t countLitLeds() {
     return lit;
 }
 
-// ---------------------------------------------------------------------------
-// Physical render  (Core 1 render task only)
-// ---------------------------------------------------------------------------
+uint16_t countLitLeds() {
+    return countLitLedsLocked(runtimeFrameBits());
+}
 
-/**
- * @brief Copy current frame state and transmit it to the LED strip.
- * @param None.
- * @return None.
- */
+FrameStateSnapshot readFrameStateSnapshot() {
+    FrameStateSnapshot s;
+    withFrameLock([&]() {
+        strlcpy(s.colorHex, runtimeState().colorHex.c_str(), sizeof(s.colorHex));
+        s.brightness = runtimeState().brightness;
+        strlcpy(s.lastM370, runtimeState().lastM370.c_str(), sizeof(s.lastM370));
+        strlcpy(s.lastReason, runtimeState().lastReason.c_str(), sizeof(s.lastReason));
+        s.litLeds = countLitLedsLocked(runtimeFrameBits());
+        s.framesAccepted = runtimeState().framesAccepted;
+    });
+    return s;
+}
+
 void renderCurrentFrameToLedStrip() {
+    // After setup(), this function is expected to run only on the Core 1
+    // render task. The static buffers below rely on that single-caller
+    // invariant.
     uint8_t localFrame[FRAME_BYTES];
     static uint8_t overlayRgb[LED_COUNT * 3];
     uint8_t brightness = DEFAULT_BRIGHTNESS;
     uint8_t colorR = 0, colorG = 0, colorB = 0;
 
-    // Snapshot runtime state under frame lock, then render from local copies.
-    // This keeps Core-0 writers blocked for a memcpy only, not for pixel-buffer
-    // construction or the timing-critical NeoPixel transmit.
     withFrameLock([&]() {
         memcpy(localFrame, runtimeFrameBits(), FRAME_BYTES);
         brightness = runtimeState().brightness;
@@ -294,12 +225,6 @@ void renderCurrentFrameToLedStrip() {
         colorB     = runtimeState().colorB;
     });
 
-    // --- Timing: enforce minimum inter-frame gap FIRST ---
-    // Wait before touching the pixel buffer so the WS2812 bus has been idle
-    // long enough for the previous frame to fully latch.  The BSS138 level
-    // shifter has slow pull-up-dependent rising edges; keeping DATA low for at
-    // least LED_RENDER_MIN_GAP_US guarantees the reset pulse is seen as a
-    // valid latch signal by the first LED in the chain.
     const uint32_t nowUs = micros();
     if (lastLedShowUs != 0) {
         const uint32_t elapsedUs = nowUs - lastLedShowUs;
@@ -308,12 +233,6 @@ void renderCurrentFrameToLedStrip() {
         }
     }
 
-    // Build the pixel buffer.
-    // setBrightness is called only when the value actually changes to avoid
-    // the per-call rescale pass Adafruit_NeoPixel applies to the internal buffer.
-    // Initialise to DEFAULT_BRIGHTNESS because ledStripBegin() already called
-    // strip.setBrightness(DEFAULT_BRIGHTNESS), so the first render skips a
-    // redundant rescale of the freshly-populated pixel buffer.
     static uint8_t lastAppliedBrightness = DEFAULT_BRIGHTNESS;
     if (brightness != lastAppliedBrightness) {
         strip.setBrightness(brightness);
@@ -338,30 +257,14 @@ void renderCurrentFrameToLedStrip() {
         }
     }
 
-    // Idle-low reset window before transmitting: deliberately longer than
-    // the WS2812 protocol minimum because the BSS138 slow rising edge can
-    // otherwise push the first LED's T0H/T1H decision into an ambiguous region
-    // during rapid successive refreshes.
     delayMicroseconds(LED_SIGNAL_RESET_US);
     withHardwareBusLock([]() {
         strip.show();
     });
     lastLedShowUs = micros();
-    // Post-show reset: begin the latch window immediately so that subsequent
-    // render requests or the scroll task's wakeup do not accidentally clock a
-    // spurious edge before the LEDs have finished latching.
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
 
-// ---------------------------------------------------------------------------
-// Strip boot helpers  (called from setup() only)
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Initialize the NeoPixel strip and latch an all-off boot frame.
- * @param None.
- * @return None.
- */
 void ledStripBegin() {
     strip.begin();
     strip.setBrightness(DEFAULT_BRIGHTNESS);
@@ -371,65 +274,45 @@ void ledStripBegin() {
         strip.show();
     });
     lastLedShowUs = micros();
-    // Post-show reset: mirror the same idle-low window used by
-    // renderCurrentFrameToLedStrip() so that the first real frame rendered
-    // after boot is guaranteed to see a clean reset pulse even if the
-    // LED_BOOT_CLEAR_HOLD_MS delay fires on the same microsecond tick.
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
 
-// ---------------------------------------------------------------------------
-// M370 codec
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Validate and canonicalize an M370 frame string.
- * @param input Raw M370 text, optionally prefixed and whitespace separated.
- * @param normalized Receives M370:<93 uppercase hex chars> on success.
- * @param error Receives a user-facing validation error on failure.
- * @return true when input describes exactly one 370-bit frame.
- */
 bool normalizeM370(const String& input, String& normalized, String& error) {
-    String compact;
-    compact.reserve(M370_HEX_CHARS);
-
     String payload = input;
     payload.trim();
-    if (payload.length() >= 5 && payload.substring(0, 5).equalsIgnoreCase("M370:")) {
-        payload = payload.substring(5);
-    }
 
-    // Strip transport-friendly whitespace before validating hex.  The WebUI,
-    // saved faces, and API all converge here so every module shares the same
-    // M370 contract.
-    for (size_t i = 0; i < payload.length(); ++i) {
+    const size_t start = hasM370Prefix(payload) ? 5U : 0U;
+    char compact[M370_HEX_CHARS + 1];
+    size_t compactLen = 0;
+
+    for (size_t i = start; i < payload.length(); ++i) {
         const char c = payload.charAt(i);
         if (c == ' ' || c == '\r' || c == '\n' || c == '\t') continue;
         if (hexNibble(c) < 0) {
             error = "M370 contains a non-hex character";
             return false;
         }
-        compact += c;
+        if (compactLen < M370_HEX_CHARS) compact[compactLen] = upperHexChar(c);
+        ++compactLen;
     }
 
-    if (compact.length() != M370_HEX_CHARS) {
+    if (compactLen != M370_HEX_CHARS) {
         error = "M370 must be 93 hex chars, optionally prefixed with M370:";
         return false;
     }
 
-    compact.toUpperCase();
-    normalized = "M370:" + compact;
+    compact[M370_HEX_CHARS] = '\0';
+    normalized = "M370:";
+    normalized += compact;
     return true;
 }
 
-/**
- * @brief Convert an M370 string to packed logical LED bits.
- * @param input Raw or normalized M370 string.
- * @param outBits Destination buffer of FRAME_BYTES bytes.
- * @param error Receives a validation error on failure.
- * @return true when outBits was filled successfully.
- */
 bool m370ToPackedBits(const String& input, uint8_t* outBits, String& error) {
+    if (!outBits) {
+        error = "output buffer is null";
+        return false;
+    }
+
     String normalized;
     if (!normalizeM370(input, normalized, error)) return false;
 
@@ -437,24 +320,13 @@ bool m370ToPackedBits(const String& input, uint8_t* outBits, String& error) {
     return true;
 }
 
-/**
- * @brief Decode canonical M370 text into packed frame bits.
- * @param normalized M370:<93 uppercase hex chars>.
- * @param outBits Destination buffer of FRAME_BYTES bytes.
- * @return None.
- */
 static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* outBits) {
     memset(outBits, 0, FRAME_BYTES);
 
-    // Decode one hex nibble (4 bits, MSB-first) per iteration.  The previous
-    // version looped over all 370 bits and recomputed hexNibble(charAt(...)) for
-    // each bit, i.e. four redundant char lookups + nibble conversions per nibble.
-    // Walking the 93 nibbles directly does the conversion once each.  c_str()+5
-    // skips the validated "M370:" prefix; normalized always holds it on success.
     const char* hex = normalized.c_str() + 5;
     for (uint16_t nib = 0; nib < M370_HEX_CHARS; ++nib) {
         const int value = hexNibble(hex[nib]);
-        if (value <= 0) continue;  // '0' or (post-normalize impossible) invalid: no bits
+        if (value <= 0) continue;  // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
         const uint16_t baseBit = static_cast<uint16_t>(nib) * 4U;
         for (uint8_t k = 0; k < 4U; ++k) {
             if ((value & (1 << (3 - k))) == 0) continue;
@@ -464,29 +336,10 @@ static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* 
     }
 }
 
-/**
- * @brief Build an all-off M370 string.
- * @param None.
- * @return Canonical blank M370 payload.
- */
 String blankM370() {
-    String out = "M370:";
-    out.reserve(5 + M370_HEX_CHARS);
-    for (uint16_t i = 0; i < M370_HEX_CHARS; ++i) out += '0';
-    return out;
+    return String(blankM370Text());
 }
 
-// ---------------------------------------------------------------------------
-// Frame apply helpers
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Validate, decode, queue/publish, and schedule render for an M370 frame.
- * @param input Raw or normalized M370 string.
- * @param reason Diagnostic reason stored in runtime state.
- * @param error Receives validation failure text.
- * @return true when the frame was accepted for rendering.
- */
 bool applyM370(const String& input, const String& reason, String& error) {
     String normalized;
     if (!normalizeM370(input, normalized, error)) {
@@ -494,9 +347,6 @@ bool applyM370(const String& input, const String& reason, String& error) {
         return false;
     }
 
-    // Decode the M370 payload into a temporary packed-bit buffer OUTSIDE the
-    // frame mutex.  This keeps the critical section as short as a memcpy so the
-    // render task (Core 1) is never blocked for a full 370-iteration decode loop.
     uint8_t packed[FRAME_BYTES];
     decodeNormalizedM370ToPackedBits(normalized, packed);
 
@@ -504,53 +354,26 @@ bool applyM370(const String& input, const String& reason, String& error) {
     return true;
 }
 
-/**
- * @brief Queue or publish predecoded packed frame bits.
- * @param packedBits FRAME_BYTES source buffer.
- * @param reason Diagnostic reason for the frame.
- * @return None.
- */
 void applyPackedFrame(const uint8_t* packedBits, const String& reason) {
     enqueuePackedM370Frame(packedBits, nullptr, reason);
 }
 
-/**
- * @brief Publish predecoded packed bits immediately, bypassing the queue.
- * @param packedBits FRAME_BYTES source buffer.
- * @param reason Diagnostic reason for the frame.
- * @return None.
- */
 void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason) {
     if (!packedBits) return;
     publishPackedFrameNow(packedBits, nullptr, reason.c_str());
 }
 
-/**
- * @brief Queue a canonical all-off frame and mark runtime state as blank.
- * @param reason Diagnostic reason for the blanking frame.
- * @return None.
- */
 void applyBlankFrame(const String& reason) {
     uint8_t blank[FRAME_BYTES] = {};
-    char blankM370Text[5 + M370_HEX_CHARS + 1];
-    memcpy(blankM370Text, "M370:", 5);
-    memset(blankM370Text + 5, '0', M370_HEX_CHARS);
-    blankM370Text[5 + M370_HEX_CHARS] = '\0';
-    enqueuePackedM370Frame(blank, blankM370Text, reason);
+    enqueuePackedM370Frame(blank, blankM370Text(), reason);
 }
 
-/**
- * @brief Publish one queued frame when the global M370 rate limiter permits it.
- * @param None.
- * @return None.
- */
 void serviceM370FrameQueue() {
     if (m370FrameQueueCount == 0) return;
     const uint32_t now = millis();
     if (!m370FrameRateReady(now)) return;
 
-    QueuedM370Frame item;
-    memcpy(&item, &m370FrameQueue[m370FrameQueueHead], sizeof(item));
+    QueuedM370Frame& item = m370FrameQueue[m370FrameQueueHead];
     m370FrameQueueHead = static_cast<uint8_t>((m370FrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
     --m370FrameQueueCount;
     ++runtimeState().framesDequeued;
@@ -558,11 +381,6 @@ void serviceM370FrameQueue() {
     publishPackedFrameNow(item.bits, item.hasM370 ? item.m370 : nullptr, item.reason);
 }
 
-/**
- * @brief Drop all queued frames and account them as dropped.
- * @param None.
- * @return None.
- */
 void clearQueuedM370Frames() {
     if (m370FrameQueueCount == 0) return;
     runtimeState().framesDropped += m370FrameQueueCount;
@@ -570,24 +388,10 @@ void clearQueuedM370Frames() {
     m370FrameQueueCount = 0;
 }
 
-/**
- * @brief Report how many frames are waiting behind the rate limiter.
- * @param None.
- * @return Queue item count.
- */
 uint8_t queuedM370FrameCount() {
     return m370FrameQueueCount;
 }
 
-// ---------------------------------------------------------------------------
-// Color / brightness
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Update RGB runtime state without scheduling a render.
- * @param input Color string in #RRGGBB or RRGGBB form.
- * @return None.
- */
 void setColorStateNoRender(const String& input) {
     uint8_t r, g, b;
     if (!parseColorHex(input, r, g, b)) return;
@@ -597,12 +401,6 @@ void setColorStateNoRender(const String& input) {
     runtimeState().colorB   = b;
 }
 
-/**
- * @brief Update RGB runtime state and request an LED render.
- * @param input Color string in #RRGGBB or RRGGBB form.
- * @param error Receives validation failure text.
- * @return true when color was parsed and applied.
- */
 bool setColor(const String& input, String& error) {
     uint8_t r, g, b;
     if (!parseColorHex(input, r, g, b)) {
@@ -620,11 +418,6 @@ bool setColor(const String& input, String& error) {
     return true;
 }
 
-/**
- * @brief Clamp brightness, store it, and request an LED render.
- * @param raw Requested brightness value.
- * @return None.
- */
 void setBrightness(int raw) {
     raw = constrain(raw, MIN_BRIGHTNESS, MAX_BRIGHTNESS);
     withFrameLock([&]() {

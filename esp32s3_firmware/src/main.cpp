@@ -13,19 +13,14 @@
 #include "power_monitor.h"
 #include <freertos/task.h>
 
-// ---------------------------------------------------------------------------
-// setup
-// ---------------------------------------------------------------------------
+static bool g_syncReady = false;
 
-/**
- * @brief Boot firmware modules in the order required by hardware and state dependencies.
- * @param None.
- * @return None.
- */
+// LED、LittleFS、按钮、电源监控和 Web API，并在 Core 0 主循环中调度控制面。
+
+// Setup
+
 void setup() {
-    // Hold the WS2812/SK6812 data line low immediately after reset.
-    // Without this early clamp, the line can float during Serial startup and
-    // the LEDs may latch a random first frame before strip.begin() clears them.
+    // 读到漂浮电平并锁存随机亮点。
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, LOW);
     delay(LED_BOOT_DATA_LOW_HOLD_MS);
@@ -35,31 +30,25 @@ void setup() {
     delay(200);
     runtimeState().bootMs = millis();
 
-    // RuntimeStore must own scroll buffers before WebUI/API routes can upload
-    // scroll frames or the render task can read them.
+    // 都依赖 RuntimeStore 已经拥有这块内存。
     initRuntimeScrollFrameBuffer();
 
-    // Synchronization is initialized before any module can cross Core 0/Core 1
-    // boundaries through runtime state, scroll state, LittleFS, or the LED bus.
-    if (!initSyncPrimitives()) {
-        Serial.println("Failed to create one or more FreeRTOS mutexes");
+    // LittleFS 和 LED 总线访问都要靠这些锁保护。
+    g_syncReady = initSyncPrimitives();
+    if (!g_syncReady) {
+        Serial.println("FATAL: FreeRTOS mutexes unavailable; render task disabled, running single-core");
+        showFilesystemErrorPattern();
     }
 
-    // Build logical-to-physical LED index map
     initLedIndexMap();
 
-    // Initialize the LED strip: clear, latch, then hold long enough for the
-    // BSS138 level shifter to settle before we write the first real frame.
     ledStripBegin();
     delay(LED_BOOT_CLEAR_HOLD_MS);
 
-    // Set the default color without scheduling a render.  During boot, the
-    // first physical frame after the all-off latch should be the startup saved
-    // face, not an extra task-rendered blank frame that can race on the WS2812
-    // bus through the BSS138.
+    // 避免任务渲染的空白帧和启动帧在 WS2812 总线上竞争。
     setColorStateNoRender(DEFAULT_COLOR);
 
-    // Mount filesystem, load settings and saved faces
+    // 诊断灯效，方便无串口时定位问题。
     if (!mountFilesystem()) {
         showFilesystemErrorPattern();
     } else {
@@ -67,49 +56,34 @@ void setup() {
         loadSavedFaces(true);
     }
 
-    // Render the first non-blank boot frame synchronously before starting the
-    // render task, then drain the queued request left by loadSavedFaces /
-    // applyM370 so the task does not double-render on wakeup.
+    // 防止任务醒来后重复刷同一帧。
     renderCurrentFrameToLedStrip();
     consumeLedRenderRequest();
     delay(LED_BOOT_STARTUP_SETTLE_MS);
 
-    // Spawn the Core-1 LED render / scroll task
-    startScrollRenderTask();
+    // 从 WebServer 和按钮轮询中隔离出来。
+    if (g_syncReady) startScrollRenderTask();
 
-    // Hardware buttons feed both state-changing actions and overlay animations,
-    // so initialize them after playback state exists but before normal loop().
     initHardwareButtons();
 
-    // Power monitor publishes battery/charge state into WebUI status and the B6
-    // overlay, so seed its first sample before HTTP routes start answering.
+    // 路由开放前先采一次样。
     initPowerMonitor();
 
-    // Networking is last: every route should see initialized storage, playback,
-    // render queues, buttons, and power state as soon as clients connect.
+    // 都已就绪，客户端连上来即可读取完整状态。
     startAccessPoint();
     startWebServer();
 }
 
-// ---------------------------------------------------------------------------
-// loop  (Core 0)
-// ---------------------------------------------------------------------------
-// Runs on Core 0 because platformio.ini sets -D ARDUINO_RUNNING_CORE=0. This
-// keeps all WebServer/HTTP, button, power and frame-queue work off Core 1, which
-// is reserved exclusively for the LED render/scroll task. Do NOT remove that
-// build flag: without it arduino-esp32 puts loop() on Core 1, where the HTTP
-// load disrupts WS2812 transmit timing (garbled / torn frames while scrolling).
+// Main loop
+// WebServer/HTTP、按钮、电源和帧队列都在这里合作式调度；Core 1 专门留给
+// LED render/scroll task，避免网络负载破坏 WS2812/RMT 时序。
 
-/**
- * @brief Service Core-0 control-plane modules cooperatively.
- * @param None.
- * @return None.
- */
 void loop() {
-    // Ordering matters: frame queues publish before web/status polling, and
-    // deferred face restore/auto playback run after button/API effects from
-    // this iteration have had a chance to settle.
+    // 稳定后，再执行延迟恢复和自动播放。
     serviceM370FrameQueue();
+    if (!g_syncReady) {
+        renderCurrentFrameToLedStrip();
+    }
     webServerTick();
     serviceRuntimeSlowStatePublish();
     serviceHardwareButtons();

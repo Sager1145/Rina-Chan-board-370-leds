@@ -6,17 +6,9 @@
 #include "faces.h"
 #include "sync.h"
 #include "psram_json.h"
+#include <algorithm>
 #include <LittleFS.h>
 
-// ---------------------------------------------------------------------------
-// Filesystem mount
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Mount LittleFS and publish the filesystem availability flag.
- * @param None.
- * @return true when LittleFS mounted successfully.
- */
 bool mountFilesystem() {
     runtimeFsMounted() = LittleFS.begin(false, LITTLEFS_BASE_PATH, 10, LITTLEFS_PARTITION_LABEL);
     if (!runtimeFsMounted()) {
@@ -25,28 +17,75 @@ bool mountFilesystem() {
     return runtimeFsMounted();
 }
 
-/**
- * @brief Ensure the resources directory exists before JSON writes.
- * @param None.
- * @return true when /resources already exists or was created.
- */
 static bool ensureResourcesDirectory() {
     if (!runtimeFsMounted()) return false;
     bool ok = false;
-    withHardwareBusLock([&]() {
+    withStorageLock([&]() {
         ok = LittleFS.exists("/resources") || LittleFS.mkdir("/resources");
     });
     return ok;
 }
 
-/**
- * @brief Write JSON through a temp file and atomically rename it into place.
- * @param path Destination LittleFS path.
- * @param document JSON variant to serialize.
- * @param written Receives serialized byte count.
- * @param error Receives failure text.
- * @return true when the temp file was serialized and renamed.
- */
+bool readStringFromFileLocked(const char* path, String& outContent) {
+    bool exists = false;
+    withStorageLock([&]() { exists = LittleFS.exists(path); });
+    if (!exists) return false;
+
+    File file;
+    withStorageLock([&]() { file = LittleFS.open(path, "r"); });
+    if (!file) return false;
+
+    withStorageLock([&]() {
+        outContent = file.readString();
+        file.close();
+    });
+    return true;
+}
+
+bool writeStringToFileLocked(const char* path, const String& content) {
+    const String tempPath = String(path) + ".tmp";
+    File file;
+    withStorageLock([&]() {
+        LittleFS.remove(tempPath);
+        file = LittleFS.open(tempPath, "w");
+    });
+    if (!file) return false;
+
+    bool renamed = false;
+    withStorageLock([&]() {
+        size_t written = file.print(content);
+        file.flush();
+        file.close();
+        renamed = (written > 0) && LittleFS.rename(tempPath, path);
+        if (!renamed) LittleFS.remove(tempPath);
+    });
+    return renamed;
+}
+
+bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize) {
+    outBuf = nullptr;
+    outSize = 0;
+    bool exists = false;
+    withStorageLock([&]() { exists = LittleFS.exists(path); });
+    if (!exists) return false;
+
+    File file;
+    withStorageLock([&]() { file = LittleFS.open(path, "r"); });
+    if (!file) return false;
+
+    withStorageLock([&]() {
+        outSize = file.size();
+        outBuf = (char*)heap_caps_malloc(outSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!outBuf) outBuf = (char*)malloc(outSize + 1);
+        if (outBuf) {
+            file.readBytes(outBuf, outSize);
+            outBuf[outSize] = '\0';
+        }
+        file.close();
+    });
+    return outBuf != nullptr;
+}
+
 bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written, String& error) {
     written = 0;
     if (!runtimeFsMounted()) {
@@ -54,49 +93,21 @@ bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written
         return false;
     }
 
-    const String tempPath = String(path) + ".tmp";
-
-    File file;
-    withHardwareBusLock([&]() {
-        // Remove stale temp output first so a failed previous write cannot be
-        // mistaken for the current transaction.
-        LittleFS.remove(tempPath);
-        file = LittleFS.open(tempPath, "w");
-    });
-
-    if (!file) {
-        error = String("failed to open temp file for write: ") + tempPath;
+    String serialized;
+    serializeJson(document, serialized);
+    if (serialized.length() == 0 && !document.isNull()) {
+        error = "failed to serialize JSON document";
         return false;
     }
 
-    bool renamed = false;
-    withHardwareBusLock([&]() {
-        // Serialization, flush, close, and rename share the hardware bus with
-        // LED transmit.  Keeping the whole commit under one bus lock prevents
-        // another file operation from seeing the temp file mid-write.
-        written = serializeJson(document, file);
-        file.flush();
-        file.close();
-        renamed = written > 0 && LittleFS.rename(tempPath, path);
-        if (!renamed) LittleFS.remove(tempPath);
-    });
-
-    if (!renamed) {
-        error = String("failed to commit temp file for: ") + path;
+    if (!writeStringToFileLocked(path, serialized)) {
+        error = String("failed to write/commit file: ") + path;
         return false;
     }
+    written = serialized.length();
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Runtime settings
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Persist runtime mode and auto interval to LittleFS.
- * @param None.
- * @return true when settings were written.
- */
 bool saveRuntimeSettings() {
     if (!runtimeFsMounted()) return false;
     if (!ensureResourcesDirectory()) {
@@ -122,40 +133,21 @@ bool saveRuntimeSettings() {
     return true;
 }
 
-/**
- * @brief Load runtime settings and apply them to playback state.
- * @param None.
- * @return true when settings existed, parsed, and were applied.
- */
 bool loadRuntimeSettings() {
     if (!runtimeFsMounted()) return false;
-    bool settingsExists = false;
-    withHardwareBusLock([&]() {
-        settingsExists = LittleFS.exists(SETTINGS_PATH);
-    });
-    if (!settingsExists) {
-        Serial.println("runtime_settings.json not found; writing defaults");
+    String fileContent;
+    if (!readStringFromFileLocked(SETTINGS_PATH, fileContent)) {
+        Serial.println("runtime_settings.json not found or open failed; writing defaults");
         saveRuntimeSettings();
         return false;
     }
 
-    File file;
-    withHardwareBusLock([&]() {
-        file = LittleFS.open(SETTINGS_PATH, "r");
-    });
-    if (!file) {
-        Serial.println("Failed to open runtime_settings.json");
-        return false;
-    }
-
     DynamicJsonDocument doc(768);
-    DeserializationError err;
-    withHardwareBusLock([&]() {
-        err = deserializeJson(doc, file, DeserializationOption::NestingLimit(8));
-        file.close();
-    });
+    DeserializationError err = deserializeJson(doc, fileContent, DeserializationOption::NestingLimit(8));
     if (err) {
         Serial.printf("runtime_settings.json parse failed: %s\n", err.c_str());
+        Serial.println("Rewriting runtime_settings.json with defaults");
+        saveRuntimeSettings();
         return false;
     }
 
@@ -172,33 +164,20 @@ bool loadRuntimeSettings() {
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Saved faces -- validate
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Detect legacy invalid default face IDs such as face_0.
- * @param id Saved-face ID string.
- * @return true when the ID uses a default face number below one.
- */
 static bool defaultFaceIdNumberIsInvalid(const char* id) {
     if (id == nullptr || strncmp(id, "face_", 5) != 0) return false;
     const char* p = id + 5;
     if (*p < '0' || *p > '9') return false;
     uint32_t value = 0;
+    uint8_t digits = 0;
     while (*p >= '0' && *p <= '9') {
+        if (++digits > 9) return true;
         value = value * 10 + static_cast<uint32_t>(*p - '0');
         ++p;
     }
     return value < 1;
 }
 
-/**
- * @brief Validate the saved-faces JSON contract before accepting a write.
- * @param document Parsed saved-faces document.
- * @param error Receives validation failure text.
- * @return true when the document preserves required face invariants.
- */
 bool validateSavedFaces(JsonVariant document, String& error) {
     const char* category = document["category"] | "";
     if (strcmp(category, "unified_saved_faces") != 0) {
@@ -214,9 +193,6 @@ bool validateSavedFaces(JsonVariant document, String& error) {
 
     uint16_t defaultCount = 0;
     for (JsonObject face : faces) {
-        // Validate each persisted face through the same M370 codec used by the
-        // renderer.  Storage therefore cannot save a frame the renderer would
-        // later reject during startup or face navigation.
         const char* type = face["type"] | "";
         const char* id   = face["id"] | "";
         const char* m370 = face["m370"] | "";
@@ -247,16 +223,6 @@ bool validateSavedFaces(JsonVariant document, String& error) {
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Saved faces -- write
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Write a validated saved-faces document to LittleFS.
- * @param document Parsed JSON document or nested document field.
- * @param error Receives failure text.
- * @return Number of bytes written, or 0 on failure.
- */
 size_t writeSavedFaces(JsonVariant document, String& error) {
     if (!runtimeFsMounted()) {
         error = "LittleFS is not mounted";
@@ -276,61 +242,28 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
     return written;
 }
 
-// ---------------------------------------------------------------------------
-// Saved faces -- load into runtimeAutoFaces()[]
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Lazily load saved faces when a playback path needs them.
- * @param None.
- * @return true when at least one valid face is available.
- */
 bool ensureSavedFacesLoaded() {
     if (runtimeAutoFaceCount() > 0) return true;
     return loadSavedFaces(false) && runtimeAutoFaceCount() > 0;
 }
 
-/**
- * @brief Load saved_faces.json into the runtime face table.
- * @param applyStartupFace true to apply the selected startup/default face.
- * @return true when at least one valid face was loaded.
- */
 bool loadSavedFaces(bool applyStartupFace) {
     if (!runtimeFsMounted()) {
         Serial.println("LittleFS not mounted; saved faces cannot be loaded");
         return false;
     }
-    bool savedFacesExists = false;
-    withHardwareBusLock([&]() {
-        savedFacesExists = LittleFS.exists(SAVED_FACES_PATH);
-    });
-    if (!savedFacesExists) {
-        Serial.println("No saved_faces.json; LED output starts blank");
+    size_t savedFacesSize = 0;
+    char* contentBuf = nullptr;
+    if (!readBufferFromFileLocked(SAVED_FACES_PATH, contentBuf, savedFacesSize)) {
+        Serial.println("No saved_faces.json or failed to read; LED output starts blank");
         runtimeAutoFaceCount() = 0;
         touchRuntimeState();
         return false;
     }
 
-    File file;
-    withHardwareBusLock([&]() {
-        file = LittleFS.open(SAVED_FACES_PATH, "r");
-    });
-    if (!file) {
-        Serial.println("Failed to open saved_faces.json");
-        return false;
-    }
-
-    size_t savedFacesSize = 0;
-    withHardwareBusLock([&]() {
-        savedFacesSize = file.size();
-    });
-
     PsramJsonDocument doc(jsonCapacityFor(savedFacesSize));
-    DeserializationError err;
-    withHardwareBusLock([&]() {
-        err = deserializeJson(doc, file, DeserializationOption::NestingLimit(32));
-        file.close();
-    });
+    DeserializationError err = deserializeJson(doc, contentBuf, DeserializationOption::NestingLimit(32));
+    free(contentBuf);
     if (err) {
         Serial.printf("saved_faces.json parse failed: %s\n", err.c_str());
         runtimeAutoFaceCount() = 0;
@@ -349,9 +282,6 @@ bool loadSavedFaces(bool applyStartupFace) {
     uint16_t jsonIndex = 0;
 
     for (JsonObject face : faces) {
-        // Runtime playback keeps only normalized strings and small metadata.
-        // The full JSON remains in LittleFS and is streamed by the WebUI route
-        // when editing is needed.
         const char* m370 = face["m370"] | "";
         String normalized, error;
         if (!normalizeM370(m370, normalized, error)) {
@@ -359,7 +289,6 @@ bool loadSavedFaces(bool applyStartupFace) {
             ++jsonIndex;
             continue;
         }
-        if (runtimeAutoFaceCount() >= MAX_AUTO_FACES) break;
 
         RuntimeFace& runtime     = runtimeAutoFaces()[runtimeAutoFaceCount()++];
         runtime.id               = String(face["id"] | "");
@@ -380,24 +309,12 @@ bool loadSavedFaces(bool applyStartupFace) {
         return false;
     }
 
-    // Stable-sort by (order, jsonIndex) so the WebUI storage order and firmware
-    // B1/B2 navigation agree even when two faces share the same order value.
-    for (uint16_t i = 0; i < runtimeAutoFaceCount(); ++i) {
-        for (uint16_t j = i + 1; j < runtimeAutoFaceCount(); ++j) {
-            const bool shouldSwap =
-                runtimeAutoFaces()[j].order < runtimeAutoFaces()[i].order ||
-                (runtimeAutoFaces()[j].order == runtimeAutoFaces()[i].order &&
-                 runtimeAutoFaces()[j].jsonIndex < runtimeAutoFaces()[i].jsonIndex);
-            if (shouldSwap) {
-                RuntimeFace tmp = runtimeAutoFaces()[i];
-                runtimeAutoFaces()[i]    = runtimeAutoFaces()[j];
-                runtimeAutoFaces()[j]    = tmp;
-            }
-        }
-    }
+    std::sort(runtimeAutoFaces(), runtimeAutoFaces() + runtimeAutoFaceCount(),
+              [](const RuntimeFace& a, const RuntimeFace& b) {
+                  if (a.order != b.order) return a.order < b.order;
+                  return a.jsonIndex < b.jsonIndex;
+              });
 
-    // Preserve current face across reloads when possible; otherwise choose the
-    // startup default for boot or the first default face as a safe fallback.
     int selectedIndex     = -1;
     int firstDefaultIndex = -1;
     for (uint16_t i = 0; i < runtimeAutoFaceCount(); ++i) {
@@ -425,7 +342,8 @@ bool loadSavedFaces(bool applyStartupFace) {
     if (applyStartupFace) {
         String error;
         runtimeState().brightness = DEFAULT_BRIGHTNESS;
-        runtimeState().playback   = DEFAULT_PLAYBACK;
+        runtimeState().playback   = isAutoMode() ? "auto_saved_face" : DEFAULT_PLAYBACK;
+        if (isAutoMode()) runtimeState().lastAutoSwitchMs = millis();
         runtimeState().paused     = false;
         if (!applyM370(runtimeAutoFaces()[runtimeState().autoFaceIndex].m370, STARTUP_FACE_REASON, error)) {
             Serial.printf("startup M370 failed: %s\n", error.c_str());
@@ -436,3 +354,4 @@ bool loadSavedFaces(bool applyStartupFace) {
 
     return true;
 }
+

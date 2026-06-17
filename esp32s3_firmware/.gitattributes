@@ -1,0 +1,5 @@
+# 行尾规范化（line-ending normalization）
+# Shell 脚本必须是 LF：CRLF 会让 macOS/Linux 报 "bad interpreter" 或 case 解析错误。
+*.sh text eol=lf
+# PowerShell 脚本保持 CRLF（Windows 原生，PowerShell 兼容）。
+*.ps1 text eol=crlf

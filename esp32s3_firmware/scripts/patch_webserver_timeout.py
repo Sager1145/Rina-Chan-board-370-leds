@@ -1,19 +1,15 @@
 """
-patch_webserver_timeout.py - PlatformIO pre-build script
-Patches the ESP32 Arduino WebServer.h so that the three per-connection
-timeout macros use #ifndef guards instead of unconditional #defines.
-This lets build_flags -D overrides actually take effect, and lets us
-shorten the default 5000 ms timeouts to 200 ms so that half-open TCP
-connections left by a disconnected phone do not stall the main loop
-(and firmware text-scroll) for seconds at a time.
+本脚本在 PlatformIO pre-build 阶段修补 Arduino WebServer.h。
 
-The patch is idempotent and also repairs earlier repeated guard blocks.
+修补内容是把 HTTP_MAX_DATA_WAIT、HTTP_MAX_POST_WAIT、HTTP_MAX_SEND_WAIT
+改成带 #ifndef guard 的 200ms 默认值，使 build_flags 中的覆盖值真正生效，
+并避免断开的客户端长时间卡住主循环和文字滚动刷新。
 """
 
 import os
 import re
 
-Import("env")  # noqa: F821  (PlatformIO injects this)
+Import("env")  # noqa: F821，保留工具指令，相关名称由外部环境注入。
 
 FRAMEWORK_DIR = env.PioPlatform().get_package_dir("framework-arduinoespressif32")
 WEBSERVER_H = os.path.join(
@@ -24,6 +20,7 @@ TIMEOUT_MS = 200
 MACROS = ["HTTP_MAX_DATA_WAIT", "HTTP_MAX_POST_WAIT", "HTTP_MAX_SEND_WAIT"]
 
 
+# 中文块：guarded_timeout_block 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def guarded_timeout_block():
     blocks = []
     for macro in MACROS:
@@ -35,6 +32,7 @@ def guarded_timeout_block():
     return "\n".join(blocks) + "\n"
 
 
+# 中文块：patch 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def patch():
     if not os.path.isfile(WEBSERVER_H):
         print(f"[patch_webserver_timeout] WARNING: {WEBSERVER_H} not found; skipping patch")

@@ -1,9 +1,6 @@
 #pragma once
 #include <Arduino.h>
 
-// Shared power snapshot read by Web API status routes and button overlays.
-// The power monitor owns writes; consumers should treat fields as a best-effort
-// telemetry snapshot that is refreshed from loop().
 struct PowerStatus {
     float    vbat             = NAN;
     float    vcharge          = NAN;
@@ -44,30 +41,16 @@ struct PowerStatus {
 
 extern PowerStatus powerStatus;
 
-/**
- * @brief Initialize ADC settings, load calibration, and take first samples.
- * @param None.
- * @return None.
- */
 void initPowerMonitor();
 
-/**
- * @brief Service periodic battery/charge sampling and WebUI publication.
- * @param force true to sample/publish immediately.
- * @return None.
- */
 void servicePowerMonitor(bool force = false);
 
-/**
- * @brief Reset minimum battery voltage calibration to current or nominal empty.
- * @param None.
- * @return None.
- */
+PowerStatus readPowerStatusSnapshot();
+
+bool powerStatusWebSlowDirty();
+
+void clearPowerStatusWebDirty(bool includeSlow);
+
 void resetBatteryVoltageMinimum();
 
-/**
- * @brief Reset maximum battery voltage calibration to current or nominal full.
- * @param None.
- * @return None.
- */
 void resetBatteryVoltageMaximum();
