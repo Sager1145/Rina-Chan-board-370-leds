@@ -24,6 +24,8 @@ Original check notes from the first audit:
 
 ### C1 — `loadSavedFaces()` writes past the fixed `autoFaces_[MAX_AUTO_FACES]` array (heap/data corruption)
 
+> **Status (2026-06-18): FIXED in current source.** The load loop now caps at `MAX_AUTO_FACES` (`src/storage.cpp:289-293`, `break` on overflow) and the POST validator rejects oversized documents (`src/storage.cpp:193-196`, `faces.size() > MAX_AUTO_FACES`). The original analysis below is retained for history.
+
 - Severity: **Critical** (memory corruption; persistent; remotely reachable)
 - Files / lines:
   - `src/storage.cpp:284-305` (the load loop, write at `:293`)
@@ -71,6 +73,8 @@ Caught by a test/build check? Not by `pio run`. Would be caught by a unit/integr
 
 ### M1 — Nested spinlocks: `readPowerStatusSnapshot()` called while holding `sAnimMux`
 
+> **Status (2026-06-18): FIXED in current source.** `serviceButtonAnimations()` now snapshots power state **outside** the `sAnimMux` critical section (`src/button_animations.cpp:543-549`: `needPower` is read under the lock, the lock is released, `readPowerStatusSnapshot()` is called, then the lock is re-taken to update `sAnim`). No nested spinlock remains. The original analysis below is retained for history.
+
 - Severity: **Medium** (no deadlock, but violates the project's own locking rules; long interrupts-disabled window on the WiFi/HTTP core)
 - File / line: `src/button_animations.cpp:537-572`, offending call at `:542`
 
@@ -110,6 +114,8 @@ Caught by a test/build check? No — compiles and usually "works." Needs design 
 ## LOW
 
 ### L1 — `/api/status` truncates `lastReason` to 15 chars (`FrameStateSnapshot.lastReason[16]`)
+
+> **Status (2026-06-18): FIXED in current source.** `FrameStateSnapshot.lastReason` is now sized `[M370_FRAME_REASON_CHARS]` = 64 (`src/state.h:84`, `src/config.h:106`), long enough for the longest runtime reason strings, so `/api/status` no longer truncates `renderer.lastReason`. The original analysis below is retained for history.
 
 - Severity: **Low** (no corruption — `strlcpy` is bounds-safe — but a silent API-contract drift)
 - Files / lines: `src/state.h:81` (`char lastReason[16]`), `src/led_renderer.cpp:204` (`strlcpy(s.lastReason, … , sizeof(s.lastReason))`), consumed at `src/web_api.cpp:518`.

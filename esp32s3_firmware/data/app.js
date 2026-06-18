@@ -30,7 +30,7 @@ const WEBUI_CONFIG = Object.freeze({
     resourcePath: "/resources/saved_faces.json",
     localFilename: "saved_faces.json",
     schemaFormat: "rina_faces_370_v2",
-    startupFaceId: "face_07_triangle_eyes_frown",
+    startupFaceId: "face_08_triangle_eyes_frown",
   },
   // 设备连接默认值：显示在调试／状态 UI 中，并在页面被直接打开
   // （而非通过 ESP32 的强制门户 captive portal）时使用。
