@@ -12,6 +12,8 @@
 #include "web_json.h"
 #include "psram_json.h"
 #include "scroll.h"
+#include "scroll_session.h"
+#include "serial_log.h"
 #include <DNSServer.h>
 #include <WebServer.h>
 #include <WiFi.h>
@@ -32,25 +34,6 @@ static const char CONTENT_TYPE_TEXT_PLAIN[] = "text/plain";
 static const uint16_t STATIC_STREAM_CHUNK_BYTES = 8192;
 static const TickType_t WEB_YIELD_TICKS = pdMS_TO_TICKS(1);
 static const size_t WEB_YIELD_EVERY_CHUNKS = 4;
-
-struct ScrollStateSnapshot {
-    bool     firmwareScrollActive       = false;
-    bool     firmwareScrollPaused       = false;
-    bool     firmwareScrollUserPaused   = false;
-    bool     firmwareScrollSystemPaused = false;
-    bool     restoreAutoAfterScroll     = false;
-    uint16_t scrollFrameCount           = 0;
-    uint16_t scrollFrameIndex           = 0;
-    uint16_t scrollIntervalMs           = DEFAULT_SCROLL_INTERVAL_MS;
-    // 在锁内用 memcpy 拷贝，锁外序列化。
-    char     scrollTimelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
-    bool     scrollUploadComplete       = false;
-    bool     scrollHasSourceText        = false;
-
-    bool scrolling() const {
-        return firmwareScrollActive || firmwareScrollPaused;
-    }
-};
 
 static bool pathEndsWithIgnoreCase(const String& path, const char* suffix) {
     const size_t suffixLen = strlen(suffix);
@@ -183,26 +166,11 @@ static uint16_t statusNextPollMs(bool scrolling, bool summaryOnly) {
     return 1000;
 }
 
-static ScrollStateSnapshot readScrollStateSnapshot() {
-    ScrollStateSnapshot snapshot;
-    withScrollLock([&]() {
-        snapshot.firmwareScrollActive       = runtimeState().firmwareScrollActive;
-        snapshot.firmwareScrollPaused       = runtimeState().firmwareScrollPaused;
-        snapshot.firmwareScrollUserPaused   = runtimeState().firmwareScrollUserPaused;
-        snapshot.firmwareScrollSystemPaused = runtimeState().firmwareScrollSystemPaused;
-        snapshot.restoreAutoAfterScroll     = runtimeState().restoreAutoAfterScroll;
-        snapshot.scrollFrameCount           = runtimeState().scrollFrameCount;
-        snapshot.scrollFrameIndex           = runtimeState().scrollFrameIndex;
-        snapshot.scrollIntervalMs           = runtimeState().scrollIntervalMs;
-        const ScrollTimelineMeta& meta = runtimeScrollMeta();
-        memcpy(snapshot.scrollTimelineId, meta.timelineId, sizeof(snapshot.scrollTimelineId));
-        snapshot.scrollUploadComplete       = meta.uploadComplete;
-        snapshot.scrollHasSourceText        = meta.hasSourceText;
-    });
-    return snapshot;
+static ScrollSessionSnapshot readScrollStateSnapshot() {
+    return scrollSessionSnapshot();
 }
 
-static void addScrollStateFields(JsonObject target, const ScrollStateSnapshot& snapshot) {
+static void addScrollStateFields(JsonObject target, const ScrollSessionSnapshot& snapshot) {
     target["firmwareScrollActive"]       = snapshot.firmwareScrollActive;
     target["firmwareScrollPaused"]       = snapshot.firmwareScrollPaused;
     target["firmwareScrollUserPaused"]   = snapshot.firmwareScrollUserPaused;
@@ -391,7 +359,7 @@ static bool commandBoolField(JsonDocument& doc, JsonVariant payload,
 }
 
 static void pauseFirmwareScrollIfActive(bool& changed) {
-    changed = setFirmwareScrollUserPaused(true);
+    changed = scrollSessionSetUserPaused(true);
 }
 
 static void resumeFirmwareScrollIfCached(bool& changed, bool requirePaused = false) {
@@ -400,7 +368,7 @@ static void resumeFirmwareScrollIfCached(bool& changed, bool requirePaused = fal
         canResume = runtimeState().scrollFrameCount > 0 &&
                     (!requirePaused || runtimeState().firmwareScrollPaused);
     });
-    if (canResume) changed = setFirmwareScrollUserPaused(false);
+    if (canResume) changed = scrollSessionSetUserPaused(false);
 }
 
 static bool serveStaticFile(String path) {
@@ -448,7 +416,7 @@ static void handleApiStatus() {
     if (server.method() != HTTP_GET)     { sendError(405, "method not allowed"); return; }
     servicePowerMonitor();
 
-    const ScrollStateSnapshot scrollState = readScrollStateSnapshot();
+    const ScrollSessionSnapshot scrollState = readScrollStateSnapshot();
     const bool scrolling   = scrollState.scrolling();
     const bool runtimeOnly = server.hasArg("runtimeOnly");
     const bool summaryOnly = runtimeOnly || server.hasArg("summary") || server.hasArg("noFrame");
@@ -736,11 +704,7 @@ static void handleApiScroll() {
     }
     size_t pos = framesValueOffset + 1U;
 
-    uint16_t baseIndex = 0;
-    uint16_t framesReceivedBase = 0;
-    uint16_t totalFramesExpectedForChunk = 0;
-    uint16_t metaNextChunkIndex = 0;
-    bool timelineBacked = false;
+    ScrollUploadTxn uploadTxn;
 
     if (!appendFrames) {
         // 首块（append:false）：严格按 v6 1.5 顺序，先校验再触碰任何状态。
@@ -812,65 +776,36 @@ static void handleApiScroll() {
         }
         if (totalFrames > 0 && preCount > totalFrames) { sendError(409, "too many frames"); return; }
 
+        uint8_t uiFps = 0;
+        if (uiFpsRaw > 0.0f) {
+            const float rounded = roundf(uiFpsRaw);
+            uiFps = static_cast<uint8_t>(rounded < 1.0f ? 1.0f : (rounded > 255.0f ? 255.0f : rounded));
+        }
+
         stopFirmwareScroll(false);
-        withScrollLock([&]() {
-            runtimeState().scrollFrameCount = 0;
-            runtimeState().scrollFrameIndex = 0;
-            clearScrollTimelineMetaLocked();   // 每个 append:false 上传都完整清空
-            ScrollTimelineMeta& meta = runtimeScrollMeta();
-            if (timelineIdPresent) {
-                strncpy(meta.timelineId, timelineId.c_str(), MAX_SCROLL_TIMELINE_ID_CHARS);
-                meta.timelineId[MAX_SCROLL_TIMELINE_ID_CHARS] = '\0';
-            }
-            if (fontIdPresent) {
-                strncpy(meta.fontId, fontId.c_str(), MAX_SCROLL_FONT_ID_CHARS);
-                meta.fontId[MAX_SCROLL_FONT_ID_CHARS] = '\0';
-            }
-            if (generatorPresent) {
-                strncpy(meta.generatorVersion, generatorVersion.c_str(), MAX_SCROLL_GENERATOR_CHARS);
-                meta.generatorVersion[MAX_SCROLL_GENERATOR_CHARS] = '\0';
-            }
-            if (sourceTextPresent && runtimeScrollSourceTextReady()) {
-                memcpy(runtimeScrollSourceText(), sourceText.c_str(), sourceText.length() + 1U);
-                meta.sourceTextByteLength = static_cast<uint16_t>(sourceText.length());
-                meta.hasSourceText        = true;
-            }
-            if (uiFpsRaw > 0.0f) {
-                const float rounded = roundf(uiFpsRaw);
-                meta.uiFps = static_cast<uint8_t>(rounded < 1.0f ? 1.0f : (rounded > 255.0f ? 255.0f : rounded));
-            }
-            meta.totalFramesExpected = static_cast<uint16_t>(totalFrames);
-            meta.nextChunkIndex      = 1;
-            timelineBacked              = meta.timelineId[0] != '\0';
-            totalFramesExpectedForChunk = meta.totalFramesExpected;
-        });
-        baseIndex = 0;
-        framesReceivedBase = 0;
+        ScrollUploadMeta uploadMeta;
+        uploadMeta.timelineId       = timelineIdPresent ? timelineId.c_str() : "";
+        uploadMeta.fontId           = fontIdPresent ? fontId.c_str() : "";
+        uploadMeta.generatorVersion = generatorPresent ? generatorVersion.c_str() : "";
+        uploadMeta.sourceText       = sourceTextPresent ? sourceText.c_str() : nullptr;
+        uploadMeta.sourceTextBytes  = static_cast<uint16_t>(sourceText.length());
+        uploadMeta.totalFrames      = static_cast<uint16_t>(totalFrames);
+        uploadMeta.uiFps            = uiFps;
+        uploadTxn = scrollSessionBeginUpload(uploadMeta);
     } else {
         // 追加块（append:true）：先快照元数据，再按 v6 1.5 校验。
-        bool metaUploadComplete = false;
-        char metaTimelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
-        withScrollLock([&]() {
-            const ScrollTimelineMeta& meta = runtimeScrollMeta();
-            timelineBacked      = meta.timelineId[0] != '\0';
-            metaUploadComplete  = meta.uploadComplete;
-            memcpy(metaTimelineId, meta.timelineId, sizeof(metaTimelineId));
-            metaNextChunkIndex          = meta.nextChunkIndex;
-            framesReceivedBase          = meta.framesReceived;
-            totalFramesExpectedForChunk = meta.totalFramesExpected;
-            baseIndex = runtimeState().scrollFrameCount;
-        });
-        if (timelineBacked) {
-            if (metaUploadComplete) { sendError(409, "upload already complete"); return; }      // D3
+        uploadTxn = scrollSessionBeginAppend();
+        if (uploadTxn.timelineBacked) {
+            if (uploadTxn.uploadComplete) { sendError(409, "upload already complete"); return; }      // D3
             if (!timelineIdPresent) { sendError(409, "timeline required"); return; }
-            if (strcmp(timelineId.c_str(), metaTimelineId) != 0) {
+            if (strcmp(timelineId.c_str(), uploadTxn.timelineId) != 0) {
                 sendError(409, "timeline mismatch"); return;
             }
             if (!hasChunkIndex) { sendError(409, "chunk index required"); return; }
-            if (chunkIndex != metaNextChunkIndex) { sendError(409, "chunk out of order"); return; }
+            if (chunkIndex != uploadTxn.nextChunkIndex) { sendError(409, "chunk out of order"); return; }
         } else {
             // EH-B：legacy 纯帧上传；timelineId/chunkIndex 可选，chunkIndex 出现时必须按序。
-            if (hasChunkIndex && chunkIndex != metaNextChunkIndex) {
+            if (hasChunkIndex && chunkIndex != uploadTxn.nextChunkIndex) {
                 sendError(409, "chunk out of order"); return;
             }
         }
@@ -897,29 +832,28 @@ static void handleApiScroll() {
         }
 
         // E1：帧数超限检查也适用于首块（timeline/totalFrames 背书的上传）。
-        if (totalFramesExpectedForChunk > 0 &&
-            static_cast<uint32_t>(framesReceivedBase) + count + 1U > totalFramesExpectedForChunk) {
-            withScrollLock([]() {
-                runtimeState().scrollFrameCount = 0;
-                invalidateScrollUploadLocked();   // EH-A：保留 sourceText
-            });
+        if (uploadTxn.totalFramesExpected > 0 &&
+            static_cast<uint32_t>(uploadTxn.framesReceivedBase) + count + 1U > uploadTxn.totalFramesExpected) {
+            scrollSessionInvalidateCache();
             sendError(409, "too many frames");
             return;
         }
 
-        const uint32_t targetIndex = static_cast<uint32_t>(baseIndex) + count;
+        const uint32_t targetIndex = static_cast<uint32_t>(uploadTxn.baseIndex) + count;
         if (targetIndex >= MAX_SCROLL_FRAMES) {
             sendError(413, String("too many scroll frames; firmware cache max is ") + MAX_SCROLL_FRAMES);
             return;
         }
-        if (!m370ToPackedBits(m370, runtimeScrollFrameBits(targetIndex), error)) {
+        uint8_t packedBits[FRAME_BYTES];
+        if (!m370ToPackedBits(m370, packedBits, error)) {
             // EH-A：坏帧数据使播放缓存失效（帧计数归零 + uploadComplete=false），
             // 但有意保留 sourceText，恢复仍可从文本重建预览。
-            withScrollLock([]() {
-                runtimeState().scrollFrameCount = 0;
-                invalidateScrollUploadLocked();
-            });
+            scrollSessionInvalidateCache();
             sendError(400, String("invalid scroll frame ") + targetIndex + ": " + error);
+            return;
+        }
+        if (!scrollSessionWriteFrame(uploadTxn, static_cast<uint16_t>(targetIndex), packedBits)) {
+            sendError(409, "scroll frame target not writable");
             return;
         }
         ++count;
@@ -930,36 +864,19 @@ static void handleApiScroll() {
         sendError(400, "frames must include at least one valid M370 frame"); return;
     }
 
-    bool uploadCompleteNow = false;
-    char replyTimelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
-    withScrollLock([&]() {
-        runtimeState().scrollFrameCount = baseIndex + count;
-        if (!appendFrames ||
-            (!runtimeState().firmwareScrollActive && !runtimeState().firmwareScrollPaused)) {
-            runtimeState().scrollFrameIndex = 0;
-        }
-        if (hasExplicitTiming) {
-            runtimeState().scrollIntervalMs = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
-        }
-        ScrollTimelineMeta& meta = runtimeScrollMeta();
-        meta.framesReceived = static_cast<uint16_t>(framesReceivedBase + count);
-        if (appendFrames) meta.nextChunkIndex = static_cast<uint16_t>(metaNextChunkIndex + 1U);
-        if (meta.totalFramesExpected > 0 && meta.framesReceived >= meta.totalFramesExpected) {
-            meta.uploadComplete = true;
-        }
-        uploadCompleteNow = meta.uploadComplete;
-        memcpy(replyTimelineId, meta.timelineId, sizeof(replyTimelineId));
-    });
+    const ScrollUploadResult uploadResult =
+        scrollSessionCommitUpload(uploadTxn, count, hasExplicitTiming, intervalMs);
+    const bool uploadCompleteNow = uploadResult.uploadComplete;
 
     if (!explicitStart) {
-        const uint32_t cachedFrames = static_cast<uint32_t>(baseIndex) + count;
+        const uint32_t cachedFrames = static_cast<uint32_t>(uploadTxn.baseIndex) + count;
         shouldStart = totalFrames > 0 ? (cachedFrames >= totalFrames) : !appendFrames;
     }
     // D2：不完整的 timeline-backed 缓存永远不可播放（含显式 start:true）。
-    if (timelineBacked && !uploadCompleteNow) shouldStart = false;
+    if (uploadTxn.timelineBacked && !uploadCompleteNow) shouldStart = false;
 
     if (shouldStart) startFirmwareScroll(intervalMs);
-    const ScrollStateSnapshot scrollState = readScrollStateSnapshot();
+    const ScrollSessionSnapshot scrollState = readScrollStateSnapshot();
 
     DynamicJsonDocument reply(1024);
     reply["ok"]                   = true;
@@ -969,7 +886,7 @@ static void handleApiScroll() {
     reply["totalFrames"]          = totalFrames;
     reply["append"]               = appendFrames;
     reply["started"]              = scrollState.firmwareScrollActive;
-    reply["timelineId"]           = String(replyTimelineId);
+    reply["timelineId"]           = String(uploadResult.timelineId);
     reply["uploadComplete"]       = uploadCompleteNow;
     reply["source"]               = source;
     reply["storage"]              = "ram";
@@ -989,14 +906,7 @@ static void handleApiScrollMeta() {
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
     if (server.method() != HTTP_GET)     { sendError(405, "method not allowed"); return; }
 
-    ScrollTimelineMeta metaCopy;
-    uint16_t frameCount = 0;
-    uint16_t frameIndex = 0;
-    uint16_t scrollIntervalMs = DEFAULT_SCROLL_INTERVAL_MS;
-    bool active = false;
-    bool paused = false;
-    bool userPaused = false;
-    bool systemPaused = false;
+    ScrollMetaOut metaOut;
 
     char* textCopy = nullptr;
     const size_t textCapacity = static_cast<size_t>(MAX_SCROLL_TEXT_BYTES) + 1U;
@@ -1008,25 +918,7 @@ static void handleApiScrollMeta() {
         if (textCopy != nullptr) textCopy[0] = '\0';
     }
 
-    bool textCopyFailed = false;
-    withScrollLock([&]() {
-        metaCopy         = runtimeScrollMeta();
-        frameCount       = runtimeState().scrollFrameCount;
-        frameIndex       = runtimeState().scrollFrameIndex;
-        scrollIntervalMs = runtimeState().scrollIntervalMs;
-        active           = runtimeState().firmwareScrollActive;
-        paused           = runtimeState().firmwareScrollPaused;
-        userPaused       = runtimeState().firmwareScrollUserPaused;
-        systemPaused     = runtimeState().firmwareScrollSystemPaused;
-        if (metaCopy.hasSourceText && runtimeScrollSourceTextReady()) {
-            if (textCopy != nullptr) {
-                memcpy(textCopy, runtimeScrollSourceText(),
-                       static_cast<size_t>(metaCopy.sourceTextByteLength) + 1U);
-            } else {
-                textCopyFailed = true;
-            }
-        }
-    });
+    const bool textCopyFailed = !scrollSessionCopyMeta(metaOut, textCopy, textCapacity);
     if (textCopyFailed) {
         if (textCopy != nullptr) heap_caps_free(textCopy);
         sendError(507, "metadata text alloc failed");
@@ -1040,22 +932,22 @@ static void handleApiScrollMeta() {
         return;
     }
     doc["ok"]                   = true;
-    doc["scrollTimelineId"]     = String(metaCopy.timelineId);
-    doc["hasSourceText"]        = metaCopy.hasSourceText;
-    doc["sourceText"]           = (metaCopy.hasSourceText && textCopy != nullptr)
+    doc["scrollTimelineId"]     = String(metaOut.meta.timelineId);
+    doc["hasSourceText"]        = metaOut.meta.hasSourceText;
+    doc["sourceText"]           = (metaOut.meta.hasSourceText && textCopy != nullptr)
                                       ? static_cast<const char*>(textCopy) : "";
-    doc["sourceTextBytes"]      = metaCopy.sourceTextByteLength;
-    doc["fontId"]               = String(metaCopy.fontId);
-    doc["generatorVersion"]     = String(metaCopy.generatorVersion);
-    doc["uiFps"]                = metaCopy.uiFps;
-    doc["scrollIntervalMs"]     = scrollIntervalMs;
-    doc["frameCount"]           = frameCount;
-    doc["frameIndex"]           = frameIndex;
-    doc["uploadComplete"]       = metaCopy.uploadComplete;
-    doc["firmwareScrollActive"] = active;
-    doc["firmwareScrollPaused"] = paused;
-    doc["firmwareScrollUserPaused"] = userPaused;
-    doc["firmwareScrollSystemPaused"] = systemPaused;
+    doc["sourceTextBytes"]      = metaOut.meta.sourceTextByteLength;
+    doc["fontId"]               = String(metaOut.meta.fontId);
+    doc["generatorVersion"]     = String(metaOut.meta.generatorVersion);
+    doc["uiFps"]                = metaOut.meta.uiFps;
+    doc["scrollIntervalMs"]     = metaOut.scrollIntervalMs;
+    doc["frameCount"]           = metaOut.frameCount;
+    doc["frameIndex"]           = metaOut.frameIndex;
+    doc["uploadComplete"]       = metaOut.meta.uploadComplete;
+    doc["firmwareScrollActive"] = metaOut.active;
+    doc["firmwareScrollPaused"] = metaOut.paused;
+    doc["firmwareScrollUserPaused"] = metaOut.userPaused;
+    doc["firmwareScrollSystemPaused"] = metaOut.systemPaused;
     if (doc.overflowed()) {
         if (textCopy != nullptr) heap_caps_free(textCopy);
         sendError(507, "metadata json overflow");
@@ -1121,11 +1013,7 @@ static bool commandSetScrollInterval(JsonDocument& doc, JsonVariant payload, Str
     (void)error;
     uint16_t iMs = runtimeState().scrollIntervalMs;
     scrollIntervalFromCommand(doc, payload, iMs);
-    withScrollLock([&]() {
-        runtimeState().scrollIntervalMs  = constrain(iMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
-        runtimeState().lastScrollFrameMs = millis();
-    });
-    touchRuntimeState();
+    scrollSessionSetInterval(iMs);
     return true;
 }
 
@@ -1202,19 +1090,7 @@ static bool commandScrollStep(JsonDocument& doc, JsonVariant payload, String& er
         direction = payload["direction"].as<int>() < 0 ? -1 : 1;
     }
     uint8_t steppedFrame[FRAME_BYTES];
-    bool    hasSteppedFrame = false;
-    withScrollLock([&]() {
-        if (runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady()) {
-            const uint16_t frameCount = runtimeState().scrollFrameCount;
-            runtimeState().scrollFrameIndex =
-                direction < 0
-                    ? static_cast<uint16_t>((runtimeState().scrollFrameIndex + frameCount - 1U) % frameCount)
-                    : static_cast<uint16_t>((runtimeState().scrollFrameIndex + 1U) % frameCount);
-            runtimeState().playback         = "scroll_step";
-            memcpy(steppedFrame, runtimeScrollFrameBits(runtimeState().scrollFrameIndex), FRAME_BYTES);
-            hasSteppedFrame = true;
-        }
-    });
+    const bool hasSteppedFrame = scrollSessionStep(direction, steppedFrame);
     if (hasSteppedFrame) {
         clearQueuedM370Frames();
         applyPackedFrameImmediate(steppedFrame, "firmware_text_scroll_step");
@@ -1243,7 +1119,7 @@ static bool commandResumeScroll(JsonDocument& doc, JsonVariant payload, String& 
 static bool commandStopScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
     bool clearDisplay = true;
-    bool restoreAuto  = getRestoreAutoAfterScroll();
+    bool restoreAuto  = scrollSessionGetRestoreAuto();
     commandBoolField(doc, payload, "clear", clearDisplay);
     commandBoolField(doc, payload, "restoreAuto", restoreAuto);
     stopFirmwareScroll(restoreAuto, clearDisplay);
@@ -1296,7 +1172,7 @@ static bool commandTerminateOtherActivities(JsonDocument& doc, JsonVariant paylo
     if (strcmp(targetMode, "face") != 0 && strcmp(targetMode, "scroll") != 0) {
         setMode("manual", true);
     } else if (strcmp(targetMode, "scroll") == 0 && isAutoMode()) {
-        setRestoreAutoAfterScroll(true);
+        scrollSessionSetRestoreAuto(true);
         runtimeState().mode                   = "manual";
         touchRuntimeState();
     }
@@ -1364,7 +1240,7 @@ static bool commandWantsPower(const String& cmd) {
     return cmd == "reset_battery_min" || cmd == "reset_battery_max" || cmd == "battery_overlay";
 }
 
-static void buildCommandReply(JsonObject reply, const String& cmd, const ScrollStateSnapshot& scrollState) {
+static void buildCommandReply(JsonObject reply, const String& cmd, const ScrollSessionSnapshot& scrollState) {
     reply["ok"]                   = true;
     reply["v"]                    = runtimeStateVersion();
     reply["version"]              = runtimeStateVersion();
@@ -1410,6 +1286,7 @@ static void handleApiCommand() {
     if (route == nullptr) {
         ++runtimeState().commandsRejected;
         touchRuntimeStateSlow();
+        RLOG_WARN("CMD", "event=reject source=webui cmd=%s err=unknown_command", cmd.c_str());
         sendError(400, String("unknown command: ") + cmd);
         return;
     }
@@ -1418,14 +1295,16 @@ static void handleApiCommand() {
     if (!route->handler(doc, payload, error)) {
         ++runtimeState().commandsRejected;
         touchRuntimeStateSlow();
+        RLOG_WARN("CMD", "event=reject source=webui cmd=%s err=%s", cmd.c_str(), error.c_str());
         sendError(sCommandErrorStatus, error);
         return;
     }
 
     ++runtimeState().commandsAccepted;
     touchRuntimeStateSlow();
+    RLOG_INFO("CMD", "event=accept source=webui cmd=%s", cmd.c_str());
 
-    const ScrollStateSnapshot scrollState = readScrollStateSnapshot();
+    const ScrollSessionSnapshot scrollState = readScrollStateSnapshot();
     PsramJsonDocument replyDoc(3584);
     JsonObject replyRoot = replyDoc.to<JsonObject>();
     buildCommandReply(replyRoot, cmd, scrollState);

@@ -3640,6 +3640,230 @@ function parseApiJson(text, path, fallback = {}) {
     throw new Error(`invalid JSON from ${path}: ${err.message || err}`);
   }
 }
+const scrollMachine = (function () {
+  const machine = {
+    state: "IDLE",
+    pauseReasons: new Set(),
+    epoch: 0,
+    gen: { upload: 0, restore: 0, step: 0, statusPoll: 0 },
+    device: { hasSession: false },
+    cache: { identityBound: false, frameIndex: 0 }
+  };
+
+  function token(domain) {
+    machine.gen[domain] = (machine.gen[domain] || 0) + 1;
+    return { epoch: machine.epoch, dom: machine.gen[domain], domain };
+  }
+
+  function isCurrent(t) {
+    if (!t) return true;
+    return t.epoch === machine.epoch && t.dom === machine.gen[t.domain];
+  }
+
+  function bumpEpoch() {
+    machine.epoch++;
+    machine.cache.identityBound = false;
+  }
+
+  function syncPauseBacking() {
+    scroll.userPaused = machine.pauseReasons.has("user");
+    scroll.systemPaused = machine.pauseReasons.has("system");
+    scroll.paused = machine.pauseReasons.size > 0;
+    if (scroll.paused) state.playback = "scroll_paused";
+  }
+
+  function setPhase(next) {
+    machine.state = next;
+    scroll.restoring = next === "RESTORING";
+    scroll.uploading = next === "UPLOADING" || scroll.uploading;
+    scroll.active = next === "ACTIVE" && machine.pauseReasons.size === 0;
+    if (next === "IDLE") scroll.active = false;
+  }
+
+  function deriveIdentityBound(meta = {}) {
+    const frameCount = Number(meta.frameCount ?? meta.scrollFrameCount ?? 0) || 0;
+    return (
+      !scroll.restoredTextTruncated &&
+      exactGeneratorMatch(meta) &&
+      scroll.frames.length === frameCount &&
+      scroll.framesTimelineId === String(meta.scrollTimelineId || "")
+    );
+  }
+
+  function applyFirmwareCursor(payload = {}) {
+    // FIX 4: Prevent sync preview glitch during upload/starting
+    const isBusyState = machine.state === "GENERATING" || machine.state === "UPLOADING" || machine.state === "STARTING";
+    if (isBusyState) return;
+
+    const frameCount = Math.max(0, Math.floor(Number(payload.frameCount ?? payload.scrollFrameCount) || 0));
+    const frameIndex = Number(payload.frameIndex ?? payload.scrollFrameIndex);
+    const active = !!payload.firmwareScrollActive;
+    const paused = !!payload.firmwareScrollPaused;
+    const hasUserPaused = typeof payload.firmwareScrollUserPaused === "boolean";
+    const hasSystemPaused = typeof payload.firmwareScrollSystemPaused === "boolean";
+    const uploadComplete = !!(payload.uploadComplete ?? payload.scrollUploadComplete);
+    const hasSourceText = !!(payload.hasSourceText ?? payload.scrollHasSourceText);
+
+    // Mirror the firmware pause flags through the reducer's own pause events instead of
+    // mutating pauseReasons directly. This gives a single mutation path for pause state
+    // and makes PAUSE_SYSTEM/RESUME_SYSTEM live events rather than dead reducer cases
+    // (audit fix #4). The events call syncPauseBacking() themselves.
+    if (hasUserPaused) {
+      dispatch(payload.firmwareScrollUserPaused ? "PAUSE_USER" : "RESUME_USER");
+    }
+    if (hasSystemPaused) {
+      dispatch(payload.firmwareScrollSystemPaused ? "PAUSE_SYSTEM" : "RESUME_SYSTEM");
+    } else if (!hasUserPaused) {
+      dispatch(paused ? "PAUSE_SYSTEM" : "RESUME_SYSTEM");
+    }
+    machine.device.hasSession = active || paused || (frameCount > 0 && (uploadComplete || hasSourceText));
+    scroll.firmwareBacked = active || paused;
+    if (machine.device.hasSession && machine.state === "IDLE") {
+      setPhase("ACTIVE");
+    } else if (!machine.device.hasSession && machine.state === "ACTIVE") {
+      setPhase("IDLE");
+    }
+
+    if (machine.device.hasSession && Number.isFinite(frameIndex) && scroll.frames.length) {
+      scroll.frameIndex = clamp(frameIndex, 0, Math.max(0, scroll.frames.length - 1));
+      scroll.offset = scroll.frameIndex;
+      machine.cache.frameIndex = scroll.frameIndex;
+      scroll.displayIndex = scroll.frameIndex; // re-anchor the display-only tween (fix #1)
+      scrollFrame = cloneFrame(scroll.frames[scroll.frameIndex] || blankFrame());
+      setScrollPreviewFrame(
+        scrollFrame,
+        "text_scroll_fw_sync_authoritative",
+        paused ? "scroll_paused" : active ? "scroll" : state.playback
+      );
+    }
+  }
+
+  // Allowed source phases per event (audit fix #5). `null` = valid from any phase.
+  // This enforces the sec 5.2 transition contract so a stale or illegal event cannot
+  // silently corrupt phase-derived flags (e.g. a late START_CONFIRMED arriving in IDLE,
+  // or a STEP_DONE when not STEPPING). Replacement/sync events
+  // (GENERATE/RESTORE_BEGIN/STOP/FW_SYNC/TEXT_EDITED) are intentionally valid from anywhere.
+  const ALLOWED_FROM = {
+    GENERATE: null,
+    UPLOAD_BEGIN: ["GENERATING"],
+    UPLOAD_COMMIT_DONE: ["UPLOADING"],
+    START_CONFIRMED: ["STARTING"],
+    START_FAIL: ["STARTING"],
+    UPLOAD_FAIL: ["GENERATING", "UPLOADING"],
+    PAUSE_USER: ["IDLE", "ACTIVE", "STARTING", "STEPPING", "RESTORING"],
+    RESUME_USER: ["IDLE", "ACTIVE", "STARTING", "STEPPING", "RESTORING"],
+    PAUSE_SYSTEM: ["IDLE", "ACTIVE", "STARTING", "STEPPING", "RESTORING"],
+    RESUME_SYSTEM: ["IDLE", "ACTIVE", "STARTING", "STEPPING", "RESTORING"],
+    STEP: ["ACTIVE", "STEPPING"],
+    STEP_DONE: ["STEPPING"],
+    STOP: null,
+    STOP_DONE: ["STOPPING"],
+    RESTORE_BEGIN: null,
+    RESTORE_DONE: ["RESTORING"],
+    FW_SYNC: null,
+    TEXT_EDITED: null,
+  };
+
+  function dispatch(event, payload = {}, t = null) {
+    if (!isCurrent(t)) return false;
+    const allowedFrom = ALLOWED_FROM[event];
+    if (allowedFrom && !allowedFrom.includes(machine.state)) return false;
+    switch (event) {
+      case "GENERATE":
+        bumpEpoch();
+        setPhase("GENERATING");
+        break;
+      case "UPLOAD_BEGIN":
+        setPhase("UPLOADING");
+        break;
+      case "UPLOAD_COMMIT_DONE":
+        setPhase("STARTING");
+        break;
+      case "START_CONFIRMED":
+        setPhase("ACTIVE");
+        machine.pauseReasons.clear();
+        syncPauseBacking();
+        break;
+      case "START_FAIL":
+      case "UPLOAD_FAIL":
+        setPhase("IDLE");
+        break;
+      case "PAUSE_USER":
+        machine.pauseReasons.add("user");
+        syncPauseBacking();
+        break;
+      case "RESUME_USER":
+        machine.pauseReasons.delete("user");
+        syncPauseBacking();
+        break;
+      case "PAUSE_SYSTEM":
+        machine.pauseReasons.add("system");
+        syncPauseBacking();
+        break;
+      case "RESUME_SYSTEM":
+        machine.pauseReasons.delete("system");
+        syncPauseBacking();
+        break;
+      case "STEP":
+        setPhase("STEPPING");
+        break;
+      case "STEP_DONE":
+        setPhase("ACTIVE");
+        break;
+      case "STOP":
+        bumpEpoch();
+        setPhase("STOPPING");
+        break;
+      case "STOP_DONE":
+        machine.pauseReasons.clear();
+        machine.device.hasSession = false;
+        machine.cache.identityBound = false;
+        setPhase("IDLE");
+        syncPauseBacking();
+        break;
+      case "RESTORE_BEGIN":
+        bumpEpoch();
+        setPhase("RESTORING");
+        break;
+      case "RESTORE_DONE":
+        if (payload && typeof payload === "object") {
+          const frameCount = Math.max(0, Math.floor(Number(payload.frameCount ?? payload.scrollFrameCount) || 0));
+          const uploadComplete = !!(payload.uploadComplete ?? payload.scrollUploadComplete);
+          const hasSourceText = !!(payload.hasSourceText ?? payload.scrollHasSourceText);
+          machine.device.hasSession =
+            !!payload.firmwareScrollActive ||
+            !!payload.firmwareScrollPaused ||
+            (frameCount > 0 && (uploadComplete || hasSourceText));
+        }
+        machine.cache.identityBound = deriveIdentityBound(payload);
+        setPhase(machine.device.hasSession ? "ACTIVE" : "IDLE");
+        break;
+      case "FW_SYNC":
+        applyFirmwareCursor(payload);
+        break;
+      case "TEXT_EDITED":
+        machine.cache.identityBound = false;
+        break;
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  function snapshot() {
+    return {
+      state: machine.state,
+      pauseReasons: new Set(machine.pauseReasons),
+      epoch: machine.epoch,
+      gen: Object.assign({}, machine.gen),
+      device: Object.assign({}, machine.device),
+      cache: Object.assign({}, machine.cache),
+    };
+  }
+
+  return { dispatch, snapshot, token, isCurrent };
+})();
+
 const boundControls = new WeakMap();
 
 function bindControls(selector, eventName, handler) {
@@ -4711,10 +4935,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
   ) {
     scroll.firmwareBacked = false;
   }
-  const scrollFrameIndexValue = Number(renderer.scrollFrameIndex ?? data.scrollFrameIndex);
-  if (Number.isFinite(scrollFrameIndexValue) && scroll.frames.length) {
-    scroll.frameIndex = clamp(scrollFrameIndexValue, 0, Math.max(0, scroll.frames.length - 1));
-  }
+  scrollMachine.dispatch("FW_SYNC", renderer);
 
   const brightnessValue = Number(renderer.brightness ?? data.brightness);
   if (Number.isFinite(brightnessValue)) {
@@ -7962,6 +8183,15 @@ function initScroll() {
   $("scroll-play").onclick = startScroll;
   $("scroll-pause").onclick = togglePauseScroll;
   $("scroll-stop").onclick = stopScroll;
+
+  // IMPORTANT: these directions are VISUAL TEXT MOTION, not numeric frame-index motion.
+  // Increasing scrollFrameIndex increases the source bitmap offset, so the text appears
+  // to move LEFT. Decreasing scrollFrameIndex makes the whole text appear to move RIGHT.
+  // Therefore:
+  //   left arrow  ("prev", "<-") sends +1: text moves left by one visual frame.
+  //   right arrow ("next", "->") sends -1: text moves right by one visual frame.
+  // Do not "fix" this to match increasing/decreasing frame numbers; the user-facing
+  // contract is visual movement direction.
   setScrollStepHandler("scroll-step-prev", 1);
   setScrollStepHandler("scroll-step-next", -1);
   setClickHandlers([
@@ -8132,6 +8362,7 @@ function setScrollFps(fps, source = "text_scroll_fps_change") {
 function markScrollTextDirty() {
   scroll.dirty = true;
   scroll.signature = "";
+  scrollMachine.dispatch("TEXT_EDITED");
   scroll.framesTimelineId = ""; // C2：本地帧不再代表任何已上传时间线
   scroll.restoredTextTruncated = false; // E4
   scroll.textEdited = true;
@@ -8228,6 +8459,7 @@ function resetScrollPreviewToFirstFrame(
 ) {
   scroll.frameIndex = 0;
   scroll.offset = 0;
+  scroll.displayIndex = 0; // keep the display-only tween anchored at start (fix #1)
   scrollFrame = cloneFrame(scroll.frames[0] || blankFrame());
   setScrollPreviewFrame(scrollFrame, reason, playback);
   updateScrollUi();
@@ -8336,7 +8568,9 @@ function chooseFirstChunkFrames(firstChunkPayloadBuilder) {
 // SF1：首块帧数可变，分块按运行偏移切片（不能复用固定步长循环）；
 // chunkIndex 仍然每块 +1，固件按 chunkIndex 校验顺序、按帧数校验总量。
 async function uploadScrollTimelineAttempt(frames, timelineId) {
-  const generation = ++scroll.uploadGeneration;
+  const uploadToken = scrollMachine.token("upload");
+  scrollMachine.dispatch("UPLOAD_BEGIN", {}, uploadToken);
+
   scroll.timelineId = timelineId;
   scroll.framesTimelineId = timelineId; // 本地帧正是这次发送的时间线
   const sourceText = sanitizeScrollTextInput(true);
@@ -8369,7 +8603,7 @@ async function uploadScrollTimelineAttempt(frames, timelineId) {
   let chunkIndex = 0;
   setScrollUploadProgress(0.36, `分批上传到固件 RAM 0/${totalChunks}`);
   while (offset < frames.length) {
-    if (generation !== scroll.uploadGeneration) throw new Error("上传已被新的发送取代");
+    if (!scrollMachine.isCurrent(uploadToken)) throw new Error("上传已被新的发送取代");
     const size = chunkIndex === 0 ? firstChunkFrames : SCROLL_UPLOAD_CHUNK_FRAMES;
     const chunk = frames.slice(offset, offset + size);
     const payload =
@@ -8391,6 +8625,7 @@ async function uploadScrollTimelineAttempt(frames, timelineId) {
           };
     const chunkNumber = chunkIndex;
     data = await apiPostWithUploadProgress(API_ENDPOINTS.scroll, payload, (progress) => {
+      if (!scrollMachine.isCurrent(uploadToken)) return;
       const chunkProgress = (chunkNumber + progress) / totalChunks;
       setScrollUploadProgress(
         0.36 + chunkProgress * 0.5,
@@ -8402,17 +8637,31 @@ async function uploadScrollTimelineAttempt(frames, timelineId) {
     await sleepMs(20);
   }
 
-  if (generation !== scroll.uploadGeneration) throw new Error("上传已被新的发送取代");
+  if (!scrollMachine.isCurrent(uploadToken)) throw new Error("上传已被新的发送取代");
   setScrollUploadProgress(0.9, `帧数据已完成，设置 ${fps} fps`);
-  data = await apiPost(API_ENDPOINTS.command, {
-    cmd: "start_scroll",
-    payload: {
-      timelineId,
-      fps,
-      intervalMs,
-      source: "webui_text_scroll_after_frames",
-    },
-  });
+  scrollMachine.dispatch("UPLOAD_COMMIT_DONE", {}, uploadToken);
+
+  try {
+    data = await apiPost(API_ENDPOINTS.command, {
+      cmd: "start_scroll",
+      payload: {
+        timelineId,
+        fps,
+        intervalMs,
+        source: "webui_text_scroll_after_frames",
+      },
+    });
+  } catch (err) {
+    scrollMachine.dispatch("START_FAIL", {}, uploadToken);
+    throw err;
+  }
+
+  if (!scrollMachine.isCurrent(uploadToken)) {
+    scrollMachine.dispatch("START_FAIL", {}, uploadToken);
+    throw new Error("启动已被新的操作取消");
+  }
+
+  scrollMachine.dispatch("START_CONFIRMED", {}, uploadToken);
   applyFirmwareRuntimeState(data, "text_scroll_upload_start_after_frames");
   setScrollUploadProgress(0.98, "启动滚动播放");
   return Object.assign(
@@ -8448,6 +8697,7 @@ async function startScroll() {
     return;
   }
   resetScrollUploadProgress();
+  scrollMachine.dispatch("GENERATE");
   scroll.commandBusy = true;
   scroll.startBusy = true;
   scroll.uploading = true;
@@ -8463,19 +8713,22 @@ async function startScroll() {
   try {
     await prepareTextScrollTimelineAsync(false);
   } catch (err) {
+    scrollMachine.dispatch("START_FAIL");
+    scrollMachine.dispatch("UPLOAD_FAIL");
     scroll.commandBusy = false;
     scroll.startBusy = false;
     resetScrollUploadProgress();
     return;
   }
   if (!scroll.frames.length) {
+    scrollMachine.dispatch("UPLOAD_FAIL");
     scroll.commandBusy = false;
     scroll.startBusy = false;
     resetScrollUploadProgress();
     alert("没有可播放的文字帧");
     return;
   }
-  // 输入框内容即将发送，不再是"未发送的本地修改"。
+  // The input is about to be sent, so it is no longer an unsent local edit.
   scroll.textEdited = false;
   if (scroll.timer) clearInterval(scroll.timer);
   scroll.timer = null;
@@ -8501,6 +8754,7 @@ async function startScroll() {
       `文字滚动已上传到固件 RAM 并独立运行：${data?.frames || scroll.frames.length} 帧，${getScrollFps()} fps，每帧推进 1 LED；不会写入 saved_faces.json 或闪存。`,
     );
   } catch (err) {
+    scrollMachine.dispatch("UPLOAD_FAIL");
     scroll.commandBusy = false;
     scroll.startBusy = false;
     scroll.firmwareBacked = false;
@@ -8554,6 +8808,7 @@ async function pauseScroll() {
     const packet = sendAuxCommand("pause_scroll", {}, "text_scroll_paused");
     const data = await packet.promise;
     if (data) {
+      scrollMachine.dispatch("PAUSE_USER");
       if (scroll.timer) clearInterval(scroll.timer);
       scroll.timer = null;
       applyFirmwareRuntimeState(data, "text_scroll_paused_result");
@@ -8587,6 +8842,7 @@ async function resumeScroll() {
     const packet = sendAuxCommand("resume_scroll", {}, "text_scroll_resumed");
     const data = await packet.promise;
     if (data) {
+      scrollMachine.dispatch("RESUME_USER");
       applyFirmwareRuntimeState(data, "text_scroll_resumed_result");
       scroll.fpsStarted = performance.now();
       scroll.frameCounter = 0;
@@ -8616,6 +8872,7 @@ async function stopScroll() {
   scroll.timer = null;
   scroll.commandBusy = true;
   scroll.stopBusy = true;
+  scrollMachine.dispatch("STOP");
   updateScrollUi();
   try {
     const packet = sendAuxCommand(
@@ -8632,6 +8889,7 @@ async function stopScroll() {
       log("停止/清屏命令未确认，保留本地滚动缓存并等待下一次固件同步");
       return;
     }
+    scrollMachine.dispatch("STOP_DONE");
     applyFirmwareRuntimeState(data, "text_scroll_stopped_clear_result");
     scroll.active = false;
     scroll.paused = false;
@@ -8701,6 +8959,8 @@ function setScrollStepHandler(buttonId, direction) {
       const restored = await ensureLocalScrollFramesRestored("manual_step_restore");
       if (!restored) return;
     }
+    const stepToken = scrollMachine.token("step");
+    scrollMachine.dispatch("STEP", {}, stepToken);
     scroll.stepBusy = true;
     scroll.commandBusy = true;
     updateScrollUi();
@@ -8715,9 +8975,22 @@ function setScrollStepHandler(buttonId, direction) {
         source,
       );
       const data = await packet.promise;
-      if (data) applyFirmwareScrollFrameIndex(data, "text_scroll_manual_step_preview");
-      else log("逐格移动命令未确认，保持当前预览并等待下一次固件同步");
+      if (!scrollMachine.isCurrent(stepToken)) return;
+      if (data) {
+        applyFirmwareScrollFrameIndex(data, "text_scroll_manual_step_preview");
+        // The firmware latches an effective pause on every step (audit fix #2). Reflect
+        // that in the machine and stop the local preview timer so the held frame is not
+        // tweened past while playback is paused on the stepped frame.
+        scrollMachine.dispatch("PAUSE_USER");
+        if (scroll.timer) {
+          clearInterval(scroll.timer);
+          scroll.timer = null;
+        }
+      } else {
+        log("逐格移动命令未确认，保持当前预览并等待下一次固件同步");
+      }
     } finally {
+      scrollMachine.dispatch("STEP_DONE", {}, stepToken);
       scroll.stepBusy = false;
       scroll.commandBusy = false;
       updateScrollUi();
@@ -8730,14 +9003,30 @@ function advanceScroll(manual = false, direction = 1) {
   prepareTextScrollTimeline(false);
   if (!scroll.frames.length) return;
   const delta = direction < 0 ? -1 : 1;
-  scroll.frameIndex = (scroll.frameIndex + delta + scroll.frames.length) % scroll.frames.length;
-  scroll.offset = scroll.frameIndex;
-  scrollFrame = cloneFrame(scroll.frames[scroll.frameIndex]);
-  setScrollPreviewFrame(
-    scrollFrame,
-    manual ? "text_scroll_manual_step_preview" : "text_scroll_firmware_preview",
-    manual ? "scroll_step" : "scroll",
-  );
+  const len = scroll.frames.length;
+
+  // Anti-drift (plan sec 7 / audit fix #1): when the firmware owns the scroll session,
+  // FW_SYNC is the SOLE writer of the canonical cursor (scroll.frameIndex). The local
+  // timer is demoted to a display-only tween here -- it advances a separate visual index
+  // (scroll.displayIndex) for smoothness between polls but never writes
+  // scroll.frameIndex/offset. Each FW_SYNC re-anchors scroll.displayIndex to the firmware
+  // index, so the preview and the LEDs cannot drift apart by construction.
+  if (!manual && scrollMachine.snapshot().device.hasSession) {
+    const base = Number.isFinite(scroll.displayIndex) ? scroll.displayIndex : scroll.frameIndex;
+    scroll.displayIndex = (((base + delta) % len) + len) % len;
+    scrollFrame = cloneFrame(scroll.frames[scroll.displayIndex]);
+    setScrollPreviewFrame(scrollFrame, "text_scroll_fw_tween_display_only", "scroll");
+  } else {
+    scroll.frameIndex = (scroll.frameIndex + delta + len) % len;
+    scroll.offset = scroll.frameIndex;
+    scroll.displayIndex = scroll.frameIndex;
+    scrollFrame = cloneFrame(scroll.frames[scroll.frameIndex]);
+    setScrollPreviewFrame(
+      scrollFrame,
+      manual ? "text_scroll_manual_step_preview" : "text_scroll_firmware_preview",
+      manual ? "scroll_step" : "scroll",
+    );
+  }
   scroll.frameCounter++;
   const now = performance.now();
   if (now - scroll.fpsStarted >= 1000) {
@@ -8865,15 +9154,9 @@ function prepareTextScrollTimeline(force) {
   updateScrollUi();
 }
 
-// 文字滚动源文本恢复（plan v6 2.4–2.6）
-// 连接关系：
-// - restoreScrollTextFromFirmware() 拉取 /api/scroll/meta，把固件保存的源文本
-//   回填到输入框（永不覆盖用户未发送的修改，C5）。
-// - restoreScrollPreviewIfNeeded() 在进入 6.4 页面（或恢复时已在 6.4）时本地
-//   重建预览帧；framesTimelineId 仅在生成器身份 + 帧数完全一致且文本未截断
-//   时绑定（D5/E4）。
-// - applyFirmwareRuntimeState() 末尾的 mismatch 重拉负责第二台设备/新时间线。
-
+// Firmware scroll source-text restore helpers. The meta fetch restores the saved source
+// text without overwriting local edits, and preview restore only rebinds a local timeline
+// when the generator identity and frame count still match the firmware cache.
 function logScrollRestoreDebug(event, payload = {}) {
   if (typeof console !== "undefined" && typeof console.log === "function") {
     console.log(`[scroll-restore] ${event}`, payload);
@@ -8897,13 +9180,15 @@ function exactGeneratorMatch(meta) {
 function localTimelineMatchesMeta(meta) {
   return (
     meta.uploadComplete === true &&
+    !scroll.restoredTextTruncated &&
+    exactGeneratorMatch(meta) &&
     Number(meta.frameCount || 0) > 0 &&
     scroll.framesTimelineId === String(meta.scrollTimelineId || "") &&
     scroll.frames.length === Number(meta.frameCount || 0)
   );
 }
 
-// 没有未发送修改时才填充；从不标记 dirty。
+// Fill from firmware only when there are no unsent local edits; never marks dirty.
 function setScrollTextFromFirmware(text) {
   const el = $("scroll-text");
   const restoredText = String(text ?? "");
@@ -9063,9 +9348,14 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
     inputValue: $("scroll-text")?.value,
   });
   if (scrollMetaFetchInFlight) return false;
+
+  scrollMachine.dispatch("RESTORE_BEGIN");
+  const restoreToken = scrollMachine.token("restore");
+
   scrollMetaFetchInFlight = true;
   try {
     const meta = await apiGet(API_ENDPOINTS.scrollMeta);
+    if (!scrollMachine.isCurrent(restoreToken)) return false;
     lastScrollMetaFetchAt = performance.now();
     logScrollRestoreDebug("meta response", meta);
     if (!meta?.ok || !meta.hasSourceText) {
@@ -9075,6 +9365,7 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
         hasSourceText: !!meta?.hasSourceText,
         scrollTimelineId: meta?.scrollTimelineId || "",
       });
+      scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
       return false;
     }
 
@@ -9093,6 +9384,7 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
         textEdited: scroll.textEdited,
       });
       updateScrollUi();
+      scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
       return false;
     }
 
@@ -9140,11 +9432,14 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
       ensureScrollFontsLoaded();
       restoreScrollPreviewIfNeeded(
         isScrollPageActive() ? "restore_active_page" : "restore_firmware_scroll_state",
+        restoreToken
       ).catch((err) => {
         warnScrollRestoreDebug("preview restore immediate failed", {
           error: err?.message || String(err),
         });
       });
+    } else {
+      scrollMachine.dispatch("RESTORE_DONE", meta, restoreToken);
     }
     return true;
   } catch (err) {
@@ -9152,6 +9447,7 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
       source,
       error: err?.message || String(err),
     });
+    scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
     return false;
   } finally {
     scrollMetaFetchInFlight = false;
@@ -9195,7 +9491,7 @@ function kickPostBootScrollMetaRestore(source = "post_boot") {
   });
 }
 
-async function restoreScrollPreviewIfNeeded(source = "restore_preview") {
+async function restoreScrollPreviewIfNeeded(source = "restore_preview", restoreToken = null) {
   logScrollRestoreDebug("preview restore start", {
     source,
     hasPendingMeta: !!pendingScrollMeta,
@@ -9211,6 +9507,7 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview") {
       source,
       result: "no_pending_meta",
     });
+    scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
     return;
   }
   const meta = pendingScrollMeta;
@@ -9220,6 +9517,7 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview") {
       source,
       result: "waiting_for_dom",
     });
+    scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
     return;
   }
   if (scroll.textEdited) {
@@ -9228,6 +9526,7 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview") {
       source,
       result: "local_text_edited",
     });
+    scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
     return;
   }
   const currentValue = String(inputEl.value ?? "");
@@ -9238,6 +9537,7 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview") {
   if (localTimelineMatchesMeta(meta)) {
     setScrollRestorePreviewProgress(0.88, "同步当前帧编号");
     const latestMeta = await fetchLatestScrollFrameMetaAfterPreview(meta, `${source}_cached`);
+    if (!scrollMachine.isCurrent(restoreToken)) return;
     applyScrollRuntimeMeta(latestMeta, `scroll_restore_preview_${source}_cached`);
     applyRestoredScrollPreviewFrame(latestMeta, "text_scroll_restore_preview_cached");
     pendingScrollMeta = null;
@@ -9249,6 +9549,7 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview") {
       framesTimelineId: scroll.framesTimelineId,
       framesLength: scroll.frames.length,
     });
+    scrollMachine.dispatch("RESTORE_DONE", latestMeta, restoreToken);
     return;
   }
   try {
@@ -9256,9 +9557,11 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview") {
     const prepared = await prepareTextScrollTimelineForRestoreAsync(true, (progress, label) => {
       setScrollRestorePreviewProgress(progress, label);
     });
+    if (!scrollMachine.isCurrent(restoreToken)) return;
     if (!prepared) {
       pendingScrollMeta = null;
       cancelScrollRestorePreviewProgress();
+      scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
       return;
     }
   } catch (err) {
@@ -9267,10 +9570,12 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview") {
       error: err?.message || String(err),
     });
     cancelScrollRestorePreviewProgress();
+    scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
     return;
   }
   setScrollRestorePreviewProgress(0.92, "读取当前固件帧编号");
   const latestMeta = await fetchLatestScrollFrameMetaAfterPreview(meta, source);
+  if (!scrollMachine.isCurrent(restoreToken)) return;
   pendingScrollMeta = null;
   applyScrollRuntimeMeta(latestMeta, `scroll_restore_preview_${source}`);
 
@@ -9301,6 +9606,7 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview") {
     exactGeneratorMatch: exactGeneratorMatch(latestMeta),
     restoredTextTruncated: scroll.restoredTextTruncated,
   });
+  scrollMachine.dispatch("RESTORE_DONE", latestMeta, restoreToken);
 }
 
 function buildTextScrollBitmap(text) {

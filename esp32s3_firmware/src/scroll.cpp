@@ -3,21 +3,11 @@
 #include "sync.h"
 #include "config.h"
 #include "led_renderer.h"
+#include "scroll_session.h"
+#include "serial_log.h"
 #include <freertos/task.h>
 
 static TaskHandle_t sScrollTaskHandle = nullptr;
-
-bool getRestoreAutoAfterScroll() {
-    bool value = false;
-    withScrollLock([&]() { value = runtimeState().restoreAutoAfterScroll; });
-    return value;
-}
-
-void setRestoreAutoAfterScroll(bool value) {
-    withScrollLock([&]() {
-        runtimeState().restoreAutoAfterScroll = value;
-    });
-}
 
 static void scrollRenderTask(void* parameter) {
     (void)parameter;
@@ -29,30 +19,8 @@ static void scrollRenderTask(void* parameter) {
         bool hasScrollFrame        = false;
 
         withScrollLock([&]() {
-            if (runtimeState().firmwareScrollActive && !runtimeState().firmwareScrollPaused &&
-                runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady()) {
-                const uint32_t now = millis();
-                if (runtimeState().lastScrollFrameMs == 0) runtimeState().lastScrollFrameMs = now;
-
-                const uint16_t intervalMs = constrain(
-                    runtimeState().scrollIntervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
-                const uint32_t elapsedMs = now - runtimeState().lastScrollFrameMs;
-
-                if (elapsedMs >= intervalMs) {
-                    runtimeState().scrollFrameIndex =
-                        (runtimeState().scrollFrameIndex + 1) % runtimeState().scrollFrameCount;
-
-                    if (elapsedMs <= static_cast<uint32_t>(intervalMs) * SCROLL_DRIFT_RESET_INTERVALS) {
-                        runtimeState().lastScrollFrameMs += intervalMs;
-                    } else {
-                        runtimeState().lastScrollFrameMs = now;
-                    }
-
-                    memcpy(nextFrame, runtimeScrollFrameBits(runtimeState().scrollFrameIndex), FRAME_BYTES);
-                    hasScrollFrame = true;
-                    shouldRender   = true;
-                }
-            }
+            hasScrollFrame = scrollSessionTickCursorLocked(millis(), nextFrame);
+            if (hasScrollFrame) shouldRender = true;
         });
 
         if (hasScrollFrame) {
@@ -69,6 +37,18 @@ static void scrollRenderTask(void* parameter) {
                     if (!mainTaskRenderPending) shouldRender = false;
                 }
             });
+        }
+
+        if (hasScrollFrame) {
+            // Core-1 tick telemetry: TRACE-only (off by default) and rate-limited
+            // to <=1/sec, emitted OUTSIDE the scroll lock so it can never stall a
+            // locked section or the WS2812 render. One single-write line.
+            static uint32_t sLastTickLogMs = 0;
+            if (rinaLogShouldEmit(RINA_LOG_TRACE) && rinaLogRateReady(sLastTickLogMs, 1000)) {
+                RLOG_TRACE("SCROLL", "event=tick idx=%u/%u",
+                           static_cast<unsigned>(runtimeState().scrollFrameIndex),
+                           static_cast<unsigned>(runtimeState().scrollFrameCount));
+            }
         }
 
         if (shouldRender) {

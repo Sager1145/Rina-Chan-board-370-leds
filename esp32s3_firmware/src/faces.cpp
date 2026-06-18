@@ -1,11 +1,11 @@
 #include "faces.h"
 #include "state.h"
-#include "sync.h"
 #include "config.h"
 #include "led_renderer.h"
 #include "storage.h"   // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
 #include "utils.h"
-#include "scroll.h"
+#include "scroll_session.h"
+#include "serial_log.h"
 
 static constexpr uint8_t DEFERRED_RESTORE_NONE            = 0;
 static constexpr uint8_t DEFERRED_RESTORE_STARTUP_DEFAULT = 1;
@@ -28,6 +28,7 @@ String normalizedMode(const char* input) {
 
 bool setMode(const char* input, bool persistSettings) {
     const String mode = normalizedMode(input);
+    const String oldMode = runtimeState().mode;
     const bool settingsChanged = runtimeState().mode != mode;
     bool changed = false;
 
@@ -54,8 +55,8 @@ bool setMode(const char* input, bool persistSettings) {
             runtimeState().mode = "manual";
             changed = true;
         }
-        if (persistSettings && getRestoreAutoAfterScroll()) {
-            setRestoreAutoAfterScroll(false);
+        if (persistSettings && scrollSessionGetRestoreAuto()) {
+            scrollSessionSetRestoreAuto(false);
             changed = true;
         }
         if (runtimeState().playback == "auto_saved_face") {
@@ -67,6 +68,10 @@ bool setMode(const char* input, bool persistSettings) {
     }
     if (changed) touchRuntimeState();
     if (persistSettings && settingsChanged) saveRuntimeSettings();
+    if (settingsChanged) {
+        RLOG_INFO("MODE", "event=change from=%s to=%s persist=%d",
+                  oldMode.c_str(), mode.c_str(), persistSettings ? 1 : 0);
+    }
     return true;
 }
 
@@ -76,12 +81,8 @@ void setAutoInterval(uint32_t ms, bool persistSettings) {
     runtimeState().autoIntervalMs = nextInterval;
     touchRuntimeState();
     if (persistSettings) saveRuntimeSettings();
-}
-
-bool isScrollPlayback(const String& playback) {
-    return playback == "scroll" ||
-           playback == "scroll_paused" ||
-           playback == "scroll_step";
+    RLOG_INFO("AUTO", "event=interval_change interval_ms=%lu persist=%d",
+              static_cast<unsigned long>(nextInterval), persistSettings ? 1 : 0);
 }
 
 bool playbackIsNonFaceActivity() {
@@ -93,36 +94,6 @@ bool playbackIsNonFaceActivity() {
         runtimeState().lastReason.startsWith("debug_")) return true;
     if (runtimeState().playback == DEFAULT_PLAYBACK || runtimeState().playback == "auto_saved_face") return false;
     return true;
-}
-
-static bool firmwareScrollHasRuntimeStateLocked() {
-    return runtimeState().firmwareScrollActive ||
-           runtimeState().firmwareScrollPaused ||
-           runtimeState().restoreAutoAfterScroll ||
-           runtimeState().lastScrollFrameMs != 0 ||
-           runtimeState().scrollFrameCount != 0 ||
-           runtimeState().scrollFrameIndex != 0 ||
-           runtimeState().paused ||
-           isScrollPlayback(runtimeState().playback);
-}
-
-static void resetFirmwareScrollStateLocked(bool clearTimelineMeta = false) {
-    runtimeState().firmwareScrollActive       = false;
-    runtimeState().firmwareScrollPaused       = false;
-    runtimeState().firmwareScrollUserPaused   = false;
-    runtimeState().firmwareScrollSystemPaused = false;
-    runtimeState().restoreAutoAfterScroll     = false;
-    runtimeState().lastScrollFrameMs          = 0;
-    runtimeState().scrollFrameCount           = 0;
-    runtimeState().scrollFrameIndex           = 0;
-    runtimeState().paused                     = false;
-    // 帧缓存被清空（scrollFrameCount=0），uploadComplete 不能再为 true；
-    // 普通中断保留 sourceText / timelineId 供刷新恢复；显式清屏完整清空。
-    if (clearTimelineMeta) clearScrollTimelineMetaLocked();
-    else invalidateScrollUploadLocked();
-    if (isScrollPlayback(runtimeState().playback)) {
-        runtimeState().playback = DEFAULT_PLAYBACK;
-    }
 }
 
 bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playback) {
@@ -142,6 +113,11 @@ bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playb
     LOGV("Applied saved face %u/%u via %s: %s\n",
          runtimeState().autoFaceIndex + 1, runtimeAutoFaceCount(),
          reason.c_str(), runtimeAutoFaces()[runtimeState().autoFaceIndex].id.c_str());
+    RLOG_INFO("FACE", "event=apply idx=%u/%u id=%s reason=%s",
+              static_cast<unsigned>(runtimeState().autoFaceIndex + 1),
+              static_cast<unsigned>(runtimeAutoFaceCount()),
+              runtimeAutoFaces()[runtimeState().autoFaceIndex].id.c_str(),
+              reason.c_str());
     return true;
 }
 
@@ -167,7 +143,7 @@ bool toggleModeFromButtonAction(const String& source) {
     const bool hadOtherPlayback = playbackIsNonFaceActivity();
 
     stopFirmwareScroll(false, false);
-    setRestoreAutoAfterScroll(false);
+    scrollSessionSetRestoreAuto(false);
 
     if (!setMode(targetAuto ? "auto" : "manual", true)) return false;
 
@@ -278,103 +254,20 @@ void serviceDeferredFaceRestore() {
     }
 }
 
-static void recomputeEffectivePauseLocked() {
-    const bool eff = runtimeState().firmwareScrollUserPaused ||
-                     runtimeState().firmwareScrollSystemPaused;
-    runtimeState().firmwareScrollPaused = eff;
-    runtimeState().paused               = eff;
-    runtimeState().playback             = eff ? "scroll_paused" : "scroll";
-    if (!eff) runtimeState().lastScrollFrameMs = millis();
-}
-
-static bool setFirmwareScrollPauseFlag(bool userFlag, bool paused) {
-    bool changed = false;
-    withScrollLock([&]() {
-        if (runtimeState().scrollFrameCount == 0 && !runtimeState().firmwareScrollActive &&
-            !runtimeState().firmwareScrollPaused) {
-            runtimeState().firmwareScrollUserPaused = false;
-            runtimeState().firmwareScrollSystemPaused = false;
-            runtimeState().firmwareScrollPaused = false;
-            return;
-        }
-
-        const bool oldUser = runtimeState().firmwareScrollUserPaused;
-        const bool oldSystem = runtimeState().firmwareScrollSystemPaused;
-        const bool oldEffective = runtimeState().firmwareScrollPaused;
-        const String oldPlayback = runtimeState().playback;
-        const bool oldPaused = runtimeState().paused;
-
-        if (userFlag) runtimeState().firmwareScrollUserPaused = paused;
-        else          runtimeState().firmwareScrollSystemPaused = paused;
-
-        runtimeState().firmwareScrollActive = true;
-        recomputeEffectivePauseLocked();
-
-        changed = oldUser != runtimeState().firmwareScrollUserPaused ||
-                  oldSystem != runtimeState().firmwareScrollSystemPaused ||
-                  oldEffective != runtimeState().firmwareScrollPaused ||
-                  oldPlayback != runtimeState().playback ||
-                  oldPaused != runtimeState().paused;
-    });
-    if (changed) touchRuntimeState();
-    return changed;
-}
-
-bool setFirmwareScrollUserPaused(bool paused) {
-    return setFirmwareScrollPauseFlag(true, paused);
-}
-
-bool setFirmwareScrollSystemPaused(bool paused) {
-    return setFirmwareScrollPauseFlag(false, paused);
-}
-
 void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
     cancelDeferredFaceRestore();
-
-    bool shouldRestoreAuto = false;
-    bool changed = false;
-    withScrollLock([&]() {
-        changed = firmwareScrollHasRuntimeStateLocked();
-        shouldRestoreAuto               = restoreAuto;
-        resetFirmwareScrollStateLocked(clearDisplay);
-    });
-    if (changed) touchRuntimeState();
-    if (changed || clearDisplay) clearQueuedM370Frames();
-
-    if (clearDisplay) {
-        applyBlankFrame("firmware_text_scroll_stop_clear");
-        if (restoreAuto) scheduleStartupDefaultFaceRestoreAfterBlank(shouldRestoreAuto);
-    } else if (shouldRestoreAuto) {
+    const ScrollStopResult r = scrollSessionStop(restoreAuto, clearDisplay);
+    if (r.cleared) {
+        if (r.shouldRestoreDefault) scheduleStartupDefaultFaceRestoreAfterBlank(r.restoreAuto);
+    } else if (r.restoreAuto) {
         setMode("auto", false);
     }
 }
 
 void startFirmwareScroll(uint16_t intervalMs) {
     cancelDeferredFaceRestore();
-    clearQueuedM370Frames();
-
-    uint8_t firstFrame[FRAME_BYTES];
-    bool    hasFirstFrame = false;
-
-    withScrollLock([&]() {
-        if (runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady()) {
-            runtimeState().restoreAutoAfterScroll = runtimeState().restoreAutoAfterScroll || isAutoMode();
-            if (runtimeState().restoreAutoAfterScroll) runtimeState().mode = "manual";
-            runtimeState().scrollIntervalMs   = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
-            runtimeState().scrollFrameIndex   = 0;
-            runtimeState().lastScrollFrameMs  = millis();
-            runtimeState().firmwareScrollActive  = true;
-            runtimeState().firmwareScrollPaused  = false;
-            runtimeState().firmwareScrollUserPaused = false;
-            runtimeState().firmwareScrollSystemPaused = false;
-            runtimeState().paused             = false;
-            runtimeState().playback           = "scroll";
-            memcpy(firstFrame, runtimeScrollFrameBits(0), FRAME_BYTES);
-            hasFirstFrame = true;
-        }
-    });
-
-    if (hasFirstFrame) applyPackedFrameImmediate(firstFrame, "firmware_text_scroll_start");
+    const ScrollStartResult r = scrollSessionStart(intervalMs, isAutoMode());
+    if (r.engagedRestoreAuto) runtimeState().mode = "manual";
 }
 
 void serviceAutoPlayback() {
@@ -390,8 +283,12 @@ void serviceAutoPlayback() {
     runtimeState().lastAutoSwitchMs  = now;
     runtimeState().autoFaceIndex     = (runtimeState().autoFaceIndex + 1) % runtimeAutoFaceCount();
     runtimeState().playback          = "auto_saved_face";
+    RLOG_INFO("FACE", "event=auto_change idx=%u/%u reason=firmware_auto_saved_face",
+              static_cast<unsigned>(runtimeState().autoFaceIndex + 1),
+              static_cast<unsigned>(runtimeAutoFaceCount()));
     String error;
     if (!applyM370(runtimeAutoFaces()[runtimeState().autoFaceIndex].m370, "firmware_auto_saved_face", error)) {
         Serial.printf("auto face apply failed: %s\n", error.c_str());
+        RLOG_ERROR("FACE", "event=auto_change_failed err=%s", error.c_str());
     }
 }

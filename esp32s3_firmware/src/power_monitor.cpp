@@ -4,6 +4,7 @@
 #include "sync.h"
 #include "storage.h"
 #include "utils.h"
+#include "serial_log.h"
 
 #include <algorithm>
 #include <ArduinoJson.h>
@@ -393,6 +394,9 @@ static void sampleBattery(uint32_t now) {
     portEXIT_CRITICAL(&sPowerStatusMux);
     powerStatus.lastBatteryMs = now;
     if (wasDisconnected || wasLowVoltageUnpowered) markPowerWebSlowDirty(now);
+    RLOG_DEBUG("ADC", "event=battery vbat_raw=%u vbat=%.2f percent=%u charging=%d",
+               powerStatus.batteryAdcMv, nextVbat, nextPercent,
+               powerStatus.charging ? 1 : 0);
 }
 
 static void sampleCharge(uint32_t now) {
@@ -420,6 +424,8 @@ static void sampleCharge(uint32_t now) {
     powerStatus.chargeValid = true;
     portEXIT_CRITICAL(&sPowerStatusMux);
     powerStatus.lastChargeMs = now;
+    RLOG_DEBUG("ADC", "event=charge vcharge_raw=%u vcharge=%.2f charging=%d",
+               powerStatus.chargeAdcMv, nextVcharge, powerStatus.charging ? 1 : 0);
 }
 
 void initPowerMonitor() {

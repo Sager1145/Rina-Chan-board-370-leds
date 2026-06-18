@@ -161,3 +161,42 @@ constexpr char SETTINGS_PATH[]          = "/resources/runtime_settings.json";
 #else
 #define LOGV(...) do {} while (0)
 #endif
+
+// =============================================================================
+// Serial diagnostics / test console feature gates.
+//
+// All three default ON because the feature is purely additive and non-blocking:
+// with no serial commands issued and the default INFO log level, normal LED /
+// WebUI / button / battery / scroll behavior is unchanged. Set any of these to 0
+// at build time (e.g. a stripped production image) to compile the feature out
+// entirely -- every hook then becomes a no-op `do {} while (0)`.
+//   ENABLE_SERIAL_DIAGNOSTICS : the structured logger (RLOG_* + LED history)
+//   ENABLE_SERIAL_CONSOLE     : the text command parser / button emulator
+//   ENABLE_FIRMWARE_TESTS     : the built-in `test run ...` self-test runner
+//   ENABLE_SERIAL_UART0_MIRROR: mirror diagnostics I/O to UART0 when Serial is
+//                               native USB-CDC (ESP32-S3 dual COM-port tests)
+// The console depends on the logger (it drives the `log` commands and reads the
+// LED history), so the combination console=1 + diagnostics=0 is rejected.
+// =============================================================================
+#ifndef ENABLE_SERIAL_DIAGNOSTICS
+#define ENABLE_SERIAL_DIAGNOSTICS 1
+#endif
+#ifndef ENABLE_SERIAL_CONSOLE
+#define ENABLE_SERIAL_CONSOLE 1
+#endif
+#ifndef ENABLE_FIRMWARE_TESTS
+#define ENABLE_FIRMWARE_TESTS 1
+#endif
+#ifndef ENABLE_SERIAL_UART0_MIRROR
+#define ENABLE_SERIAL_UART0_MIRROR 0
+#endif
+#if ENABLE_SERIAL_CONSOLE && !ENABLE_SERIAL_DIAGNOSTICS
+#error "ENABLE_SERIAL_CONSOLE=1 requires ENABLE_SERIAL_DIAGNOSTICS=1"
+#endif
+#if ENABLE_SERIAL_UART0_MIRROR && !ARDUINO_USB_CDC_ON_BOOT
+#error "ENABLE_SERIAL_UART0_MIRROR=1 requires ARDUINO_USB_CDC_ON_BOOT=1 so Serial0 is distinct from Serial"
+#endif
+
+// Reported by the `version` serial command.
+constexpr char FIRMWARE_NAME[]    = "RinaChanBoard-V2";
+constexpr char FIRMWARE_VERSION[] = "serial-diagnostics-1.0";

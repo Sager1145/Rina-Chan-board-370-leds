@@ -4,6 +4,7 @@
 #include "scroll.h"
 #include "utils.h"
 #include "button_animations.h"
+#include "serial_log.h"
 #include <Adafruit_NeoPixel.h>
 
 static Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -351,17 +352,32 @@ bool applyM370(const String& input, const String& reason, String& error) {
     decodeNormalizedM370ToPackedBits(normalized, packed);
 
     enqueuePackedM370Frame(packed, normalized.c_str(), reason);
+    // Output-only diagnostics, emitted after the (possibly synchronous) publish
+    // returns so no Serial I/O ever happens while the frame lock is held.
+    const uint16_t lit = countLitLedsLocked(packed);
+    RLOG_INFO("LED", "event=apply reason=%s lit=%u bytes=%u brightness=%u",
+              reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES),
+              runtimeState().brightness);
+    rinaLogRecordLedCommand(reason.c_str(), lit, "frame");
     return true;
 }
 
 void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason) {
     if (!packedBits) return;
     publishPackedFrameNow(packedBits, nullptr, reason.c_str());
+    const uint16_t lit = countLitLedsLocked(packedBits);
+    RLOG_INFO("LED", "event=apply reason=%s lit=%u bytes=%u brightness=%u",
+              reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES),
+              runtimeState().brightness);
+    rinaLogRecordLedCommand(reason.c_str(), lit, "immediate");
 }
 
 void applyBlankFrame(const String& reason) {
     uint8_t blank[FRAME_BYTES] = {};
     enqueuePackedM370Frame(blank, blankM370Text(), reason);
+    RLOG_INFO("LED", "event=clear reason=%s lit=0 bytes=%u",
+              reason.c_str(), static_cast<unsigned>(FRAME_BYTES));
+    rinaLogRecordLedCommand(reason.c_str(), 0, "clear");
 }
 
 void serviceM370FrameQueue() {
@@ -411,6 +427,7 @@ bool setColor(const String& input, String& error) {
         touchRuntimeStateSlow();
         showCurrentFrameNoLock();
     });
+    RLOG_INFO("LED", "event=color value=%s", formatColorHex(r, g, b).c_str());
     return true;
 }
 
@@ -421,4 +438,5 @@ void setBrightness(int raw) {
         touchRuntimeStateSlow();
         showCurrentFrameNoLock();
     });
+    RLOG_INFO("LED", "event=brightness value=%d", raw);
 }

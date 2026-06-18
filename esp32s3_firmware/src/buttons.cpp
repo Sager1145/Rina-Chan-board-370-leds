@@ -4,7 +4,18 @@
 #include "led_renderer.h"
 #include "faces.h"
 #include "button_animations.h"
-#include "scroll.h"
+#include "scroll_session.h"
+#include "serial_log.h"
+
+// Map an internal runButtonAction() source token to the human/agent-facing
+// label used in BUTTON log lines. The runButtonAction source values themselves
+// are NEVER changed (they feed lastReason and the public API), only the log
+// label is normalized: gpio->physical, serial->serial, api_button->webui.
+static const char* buttonSourceLabel(const char* source) {
+    if (strcmp(source, "gpio") == 0)       return "physical";
+    if (strcmp(source, "api_button") == 0) return "webui";
+    return source;  // "serial" and any future source pass through unchanged
+}
 
 static ButtonRuntime buttons[] = {
     {"B1", BUTTON_B1_PIN},
@@ -41,9 +52,9 @@ static void markButtonComboConsumed(const char* code) {
     if (b) b->comboConsumed = true;
 }
 
-static void fireHardwareButtonAction(const char* code) {
-    if (!runButtonAction(String(code), "gpio")) {
-        Serial.printf("GPIO button action ignored: %s\n", code);
+static void fireHardwareButtonAction(const char* code, const char* source) {
+    if (!runButtonAction(String(code), source)) {
+        Serial.printf("button action ignored: %s\n", code);
     }
 }
 
@@ -62,15 +73,6 @@ static bool finishButtonAction(const String& code, const String& source, bool ha
         startButtonAnimationForGpioAction(code);
     }
     return handled;
-}
-
-static void markScrollStoppedByButton(const String& code, const String& source) {
-    ++runtimeState().scrollStopEventSeq;
-    runtimeState().scrollStopEventMs     = millis();
-    runtimeState().scrollStopEventButton = code;
-    runtimeState().scrollStopEventSource = source;
-    runtimeState().scrollStopEventReason = runtimeState().lastReason;
-    touchRuntimeState();
 }
 
 static bool adjustBrightnessFromButton(const String& code, const String& source,
@@ -97,7 +99,7 @@ static bool adjustAutoIntervalFromButton(const String& code, const String& sourc
     return finishButtonAction(code, source, true);
 }
 
-bool runButtonAction(const String& button, const String& source) {
+static bool runButtonActionImpl(const String& button, const String& source) {
     String code = button;
     code.trim();
     code.toUpperCase();
@@ -109,22 +111,22 @@ bool runButtonAction(const String& button, const String& source) {
 
     if (code == "B3") {
         const bool handled = toggleModeFromButtonAction(source);
-        if (handled && shouldNotifyScrollStop) markScrollStoppedByButton(code, source);
+        if (handled && shouldNotifyScrollStop) scrollSessionMarkStoppedByButton(code, source);
         return finishButtonAction(code, source, handled);
     }
 
     if (code == "B1" || code == "B2") {
         stopFirmwareScroll(false);
-        setRestoreAutoAfterScroll(false);
+        scrollSessionSetRestoreAuto(false);
     }
     if (code == "B1") {
         const bool handled = applyRelativeSavedFace( 1, source + "_B1_next_saved_face");
-        if (handled && shouldNotifyScrollStop) markScrollStoppedByButton(code, source);
+        if (handled && shouldNotifyScrollStop) scrollSessionMarkStoppedByButton(code, source);
         return handled;
     }
     if (code == "B2") {
         const bool handled = applyRelativeSavedFace(-1, source + "_B2_prev_saved_face");
-        if (handled && shouldNotifyScrollStop) markScrollStoppedByButton(code, source);
+        if (handled && shouldNotifyScrollStop) scrollSessionMarkStoppedByButton(code, source);
         return handled;
     }
 
@@ -153,33 +155,55 @@ bool runButtonAction(const String& button, const String& source) {
     return false;
 }
 
+// Public entry point: identical behavior to before, plus one canonical BUTTON
+// log line. Every logical button action (physical, serial-emulated, or WebUI)
+// funnels through here, so this single hook covers them all without changing
+// any action semantics.
+bool runButtonAction(const String& button, const String& source) {
+    const bool handled = runButtonActionImpl(button, source);
+    String code = button;
+    code.trim();
+    code.toUpperCase();
+    RLOG_INFO("BUTTON", "source=%s id=%s event=action handled=%d",
+              buttonSourceLabel(source.c_str()), code.c_str(), handled ? 1 : 0);
+    return handled;
+}
+
 static void handleHardwareButtonPress(ButtonRuntime& button, uint32_t now) {
     button.pressedAtMs   = now;
     button.lastRepeatMs  = now;
     button.comboConsumed = false;
+    const char* src = button.pressFromSerial ? "serial" : "gpio";
+    const char* srcLabel = button.pressFromSerial ? "serial" : "physical";
+    RLOG_INFO("BUTTON", "source=%s id=%s event=press", srcLabel, button.code);
     handleButtonAnimationGpioPress(button.code);
 
     if (strcmp(button.code, "B1") == 0 && isHardwareButtonPressed("B3")) {
         button.comboConsumed = true;
         markButtonComboConsumed("B3");
-        fireHardwareButtonAction("B3B1");
+        RLOG_INFO("BUTTON", "source=%s id=B3B1 event=combo", srcLabel);
+        fireHardwareButtonAction("B3B1", src);
         return;
     }
     if (strcmp(button.code, "B2") == 0 && isHardwareButtonPressed("B3")) {
         button.comboConsumed = true;
         markButtonComboConsumed("B3");
-        fireHardwareButtonAction("B3B2");
+        RLOG_INFO("BUTTON", "source=%s id=B3B2 event=combo", srcLabel);
+        fireHardwareButtonAction("B3B2", src);
         return;
     }
 
     if (isFaceRepeatButton(button) || isBrightnessRepeatButton(button)) {
-        fireHardwareButtonAction(button.code);
+        fireHardwareButtonAction(button.code, src);
     }
 }
 
 static void handleHardwareButtonRelease(ButtonRuntime& button) {
+    const char* src = button.pressFromSerial ? "serial" : "gpio";
+    const char* srcLabel = button.pressFromSerial ? "serial" : "physical";
+    RLOG_INFO("BUTTON", "source=%s id=%s event=release", srcLabel, button.code);
     if (strcmp(button.code, "B3") == 0 && !button.comboConsumed) {
-        fireHardwareButtonAction("B3");
+        fireHardwareButtonAction("B3", src);
     }
     handleButtonAnimationGpioRelease(button.code);
     button.comboConsumed = false;
@@ -201,7 +225,10 @@ static void serviceHardwareButtonRepeats(uint32_t now) {
         if (now - button.lastRepeatMs < repeatEvery)  continue;
 
         button.lastRepeatMs = now;
-        fireHardwareButtonAction(button.code);
+        const char* src = button.pressFromSerial ? "serial" : "gpio";
+        RLOG_INFO("BUTTON", "source=%s id=%s event=repeat",
+                  button.pressFromSerial ? "serial" : "physical", button.code);
+        fireHardwareButtonAction(button.code, src);
     }
 }
 
@@ -221,22 +248,65 @@ void serviceHardwareButtons() {
     const uint32_t now = millis();
     for (uint8_t i = 0; i < BUTTON_COUNT; ++i) {
         ButtonRuntime& button    = buttons[i];
-        const bool     rawPressed = digitalRead(button.pin) == LOW;
+        const bool     physRaw    = digitalRead(button.pin) == LOW;
+        // Effective raw = physical OR serial-emulated. Conflicts resolve
+        // deterministically to "pressed" (either source asserting wins) and are
+        // logged so an observer can see the overlap.
+        const bool     rawPressed = physRaw || button.emuPressed;
+
+        if (physRaw && button.emuPressed) {
+            RLOG_DEBUG("BUTTON", "id=%s event=conflict physical=1 serial=1 effective=press",
+                       button.code);
+        }
 
         if (rawPressed != button.rawPressed) {
             button.rawPressed     = rawPressed;
             button.lastRawChangeMs = now;
+            RLOG_DEBUG("BUTTON", "id=%s event=debounce raw=%d", button.code, rawPressed ? 1 : 0);
         }
         if (now - button.lastRawChangeMs < BUTTON_DEBOUNCE_MS || rawPressed == button.pressed) {
             continue;
         }
 
         button.pressed = rawPressed;
-        if (button.pressed) handleHardwareButtonPress(button, now);
-        else                handleHardwareButtonRelease(button);
+        if (button.pressed) {
+            // Latch the source of this press for action/repeat tagging: serial
+            // if the emulated overlay is the (only) thing asserting it.
+            button.pressFromSerial = button.emuPressed && !physRaw;
+            handleHardwareButtonPress(button, now);
+        } else {
+            handleHardwareButtonRelease(button);
+            button.pressFromSerial = false;
+        }
     }
     serviceHardwareButtonRepeats(now);
     serviceButtonAnimationButtonInputs(isHardwareButtonPressed("B6"),
                                        isHardwareButtonPressed("B2"),
                                        isHardwareButtonPressed("B3"));
+}
+
+// --- Serial diagnostics button emulation API --------------------------------
+// These only mutate the per-button emuPressed overlay; the real debounce/repeat
+// state machine in serviceHardwareButtons() does all the work, guaranteeing an
+// emulated button behaves byte-for-byte like a physical one. With no serial
+// commands issued, emuPressed stays false and the overlay is invisible.
+
+bool buttonCodeValid(const char* code) {
+    return code != nullptr && buttonByCode(code) != nullptr;
+}
+
+void emulateButtonRawSet(const char* code, bool pressed) {
+    ButtonRuntime* b = buttonByCode(code);
+    if (!b) return;
+    b->emuPressed = pressed;
+}
+
+bool buttonPhysicalPressed(const char* code) {
+    ButtonRuntime* b = buttonByCode(code);
+    return b && (digitalRead(b->pin) == LOW);
+}
+
+bool buttonEmulatedPressed(const char* code) {
+    ButtonRuntime* b = buttonByCode(code);
+    return b && b->emuPressed;
 }

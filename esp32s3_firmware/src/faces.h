@@ -27,12 +27,6 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay = false);
 
 void startFirmwareScroll(uint16_t intervalMs);
 
-bool setFirmwareScrollUserPaused(bool paused);
-
-bool setFirmwareScrollSystemPaused(bool paused);
-
-bool isScrollPlayback(const String& playback);
-
 bool playbackIsNonFaceActivity();
 
 void serviceAutoPlayback();

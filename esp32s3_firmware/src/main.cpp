@@ -11,6 +11,8 @@
 #include "button_animations.h"
 #include "web_api.h"
 #include "power_monitor.h"
+#include "serial_log.h"
+#include "serial_console.h"
 #include <freertos/task.h>
 
 static bool g_syncReady = false;
@@ -29,6 +31,11 @@ void setup() {
     Serial.begin(115200);
     delay(200);
     runtimeState().bootMs = millis();
+
+    // Bring up the diagnostic logger + serial test console early (both no-ops
+    // when their feature gates are 0). Non-blocking; only adds serial output.
+    initSerialConsole();
+    RLOG_INFO("SYS", "event=boot stage=serial_ready");
 
     // 都依赖 RuntimeStore 已经拥有这块内存。
     initRuntimeScrollFrameBuffer();
@@ -72,6 +79,9 @@ void setup() {
     // 都已就绪，客户端连上来即可读取完整状态。
     startAccessPoint();
     startWebServer();
+
+    RLOG_INFO("SYS", "event=boot stage=ready faces=%u mode=%s",
+              static_cast<unsigned>(runtimeAutoFaceCount()), runtimeState().mode.c_str());
 }
 
 // Main loop
@@ -87,6 +97,7 @@ void loop() {
     webServerTick();
     serviceRuntimeSlowStatePublish();
     serviceHardwareButtons();
+    serviceSerialConsole();
     serviceButtonAnimations();
     servicePowerMonitor();
     serviceDeferredFaceRestore();

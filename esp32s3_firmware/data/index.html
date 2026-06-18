@@ -738,5 +738,9 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
       </main>
     </div>
     <script src="app.js?v=20260613-debug-rewrite-v1"></script>
+    <!-- Test instrumentation for AI agents: tags every control with
+         data-testid + data-test-code and exposes window.__ui. Purely additive;
+         no effect on normal UI behavior. See SERIAL_TEST_PLAN.md section 9c. -->
+    <script src="test_harness.js?v=test-harness-1"></script>
   </body>
 </html>

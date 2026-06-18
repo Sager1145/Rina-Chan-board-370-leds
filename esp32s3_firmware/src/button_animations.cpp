@@ -5,6 +5,8 @@
 #include "state.h"
 #include "sync.h"
 #include "utils.h"
+#include "scroll_session.h"
+#include "serial_log.h"
 
 #include <math.h>
 #include <string.h>
@@ -357,11 +359,12 @@ void pauseScrollForOverlay() {
 
     bool shouldPause = false;
     withScrollLock([&]() {
-        shouldPause = runtimeState().firmwareScrollActive &&
-                      !runtimeState().firmwareScrollPaused &&
+        shouldPause = (runtimeState().firmwareScrollActive ||
+                       runtimeState().firmwareScrollPaused) &&
+                      !runtimeState().firmwareScrollSystemPaused &&
                       runtimeState().scrollFrameCount > 0;
     });
-    if (shouldPause && setFirmwareScrollSystemPaused(true)) {
+    if (shouldPause && scrollSessionSetSystemPaused(true)) {
         sAnim.pausedScroll = true;
     }
 }
@@ -375,7 +378,7 @@ void resumeScrollAfterOverlayIfNeeded() {
 
     if (!resume) return;
 
-    setFirmwareScrollSystemPaused(false);
+    scrollSessionSetSystemPaused(false);
 }
 
 void stopOverlay(bool requestRender) {
@@ -446,6 +449,7 @@ void startBatteryOverlay(bool singleShot) {
 } // 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
 
 void showBatteryOverlay(bool singleShot) {
+    RLOG_INFO("LED", "event=battery_display action=B6 singleShot=%d", singleShot ? 1 : 0);
     startBatteryOverlay(singleShot);
 }
 
