@@ -534,12 +534,25 @@ void serviceButtonAnimations() {
     bool request = false;
     bool stop = false;
 
+    // Snapshot power state OUTSIDE sAnimMux. readPowerStatusSnapshot() takes its
+    // own spinlock and copies a ~120-byte struct; calling it while holding
+    // sAnimMux would nest spinlocks and extend the interrupts-disabled window on
+    // the WiFi/HTTP core (audit M1). serviceButtonAnimations() runs only on
+    // Core 0's cooperative loop, so sAnim cannot be mutated between these two
+    // critical sections.
+    bool needPower = false;
+    portENTER_CRITICAL(&sAnimMux);
+    needPower = sAnim.active && sAnim.kind == OverlayKind::Battery && !sAnim.batterySingleShot;
+    portEXIT_CRITICAL(&sAnimMux);
+
+    PowerStatus power;
+    if (needPower) power = readPowerStatusSnapshot();
+
     portENTER_CRITICAL(&sAnimMux);
     if (sAnim.active) {
         if (overlayExpired(sAnim, now)) {
             stop = true;
         } else if (sAnim.kind == OverlayKind::Battery && !sAnim.batterySingleShot) {
-            const PowerStatus power = readPowerStatusSnapshot();
             sAnim.batValid = power.batteryValid;
             sAnim.batCharging = power.chargeValid && power.charging;
             sAnim.batPercent = power.batteryPercent;

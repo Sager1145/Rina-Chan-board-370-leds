@@ -78,7 +78,10 @@ struct FrameStateSnapshot {
     char     colorHex[8] = {0};
     uint8_t  brightness  = 0;
     char     lastM370[5 + M370_HEX_CHARS + 1] = {0};
-    char     lastReason[16] = {0};
+    // Sized to hold the longest runtime reason strings (e.g.
+    // "firmware_text_scroll_stop_default_saved_face"); a shorter buffer silently
+    // truncated /api/status reason fields and diverged from /api/command.
+    char     lastReason[M370_FRAME_REASON_CHARS] = {0};
     uint16_t litLeds        = 0;
     uint32_t framesAccepted = 0;
 };

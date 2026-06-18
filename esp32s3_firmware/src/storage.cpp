@@ -190,6 +190,10 @@ bool validateSavedFaces(JsonVariant document, String& error) {
         error = "document.faces must be an array";
         return false;
     }
+    if (faces.size() > MAX_AUTO_FACES) {
+        error = String("too many faces; firmware max is ") + MAX_AUTO_FACES;
+        return false;
+    }
 
     uint16_t defaultCount = 0;
     for (JsonObject face : faces) {
@@ -282,6 +286,11 @@ bool loadSavedFaces(bool applyStartupFace) {
     uint16_t jsonIndex = 0;
 
     for (JsonObject face : faces) {
+        if (runtimeAutoFaceCount() >= MAX_AUTO_FACES) {
+            Serial.printf("saved_faces.json exceeds MAX_AUTO_FACES=%u; ignoring extra faces\n",
+                          static_cast<unsigned>(MAX_AUTO_FACES));
+            break;
+        }
         const char* m370 = face["m370"] | "";
         String normalized, error;
         if (!normalizeM370(m370, normalized, error)) {

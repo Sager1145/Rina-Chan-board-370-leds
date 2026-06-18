@@ -444,6 +444,8 @@ static void handleOptions() {
 }
 
 static void handleApiStatus() {
+    if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
+    if (server.method() != HTTP_GET)     { sendError(405, "method not allowed"); return; }
     servicePowerMonitor();
 
     const ScrollStateSnapshot scrollState = readScrollStateSnapshot();
@@ -580,6 +582,8 @@ static void handleApiStatus() {
 }
 
 static void handleApiPower() {
+    if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
+    if (server.method() != HTTP_GET)     { sendError(405, "method not allowed"); return; }
     servicePowerMonitor();
 
     DynamicJsonDocument doc(3072);
@@ -590,6 +594,8 @@ static void handleApiPower() {
 }
 
 static void handleApiFrame() {
+    if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
+    if (server.method() != HTTP_POST)    { sendError(405, "method not allowed"); return; }
     String error;
     PsramJsonDocument doc(2048);
     if (!parseJsonBody(doc, error)) { sendError(400, error); return; }
@@ -1380,6 +1386,8 @@ static void buildCommandReply(JsonObject reply, const String& cmd, const ScrollS
 }
 
 static void handleApiCommand() {
+    if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
+    if (server.method() != HTTP_POST)    { sendError(405, "method not allowed"); return; }
     String error;
     PsramJsonDocument doc(2048);
     if (!parseJsonBody(doc, error)) {
