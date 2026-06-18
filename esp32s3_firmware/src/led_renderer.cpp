@@ -354,10 +354,6 @@ bool applyM370(const String& input, const String& reason, String& error) {
     return true;
 }
 
-void applyPackedFrame(const uint8_t* packedBits, const String& reason) {
-    enqueuePackedM370Frame(packedBits, nullptr, reason);
-}
-
 void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason) {
     if (!packedBits) return;
     publishPackedFrameNow(packedBits, nullptr, reason.c_str());

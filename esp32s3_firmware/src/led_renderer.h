@@ -20,8 +20,6 @@ FrameStateSnapshot readFrameStateSnapshot();
 
 bool applyM370(const String& input, const String& reason, String& error);
 
-void applyPackedFrame(const uint8_t* packedBits, const String& reason);
-
 void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason);
 
 void applyBlankFrame(const String& reason);
