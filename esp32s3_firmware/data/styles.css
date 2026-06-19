@@ -1968,8 +1968,10 @@
 
   /* 中文块：样式规则 .led 控制对应 UI 的布局、视觉或响应式状态。 */
   .led {
-    width: var(--cell);
-    height: var(--cell);
+    width: max(1px, calc(var(--cell) - 1px));
+    height: max(1px, calc(var(--cell) - 1px));
+    justify-self: center;
+    align-self: center;
     box-sizing: border-box;
     border-radius: max(2px, calc(var(--cell) * .28));
     background: #202635;
@@ -1979,9 +1981,16 @@
 
   /* 中文块：样式规则 .led.on 控制对应 UI 的布局、视觉或响应式状态。 */
   .led.on {
-    background: var(--led-color);
+    background: radial-gradient(circle at 50% 42%,
+        color-mix(in srgb, var(--led-color) 86%, #fff) 0 12%,
+        var(--led-color) 38%,
+        color-mix(in srgb, var(--led-color) 88%, #120817) 100%);
     border-color: color-mix(in srgb, var(--led-color) 75%, #fff);
-    box-shadow: 0 0 10px color-mix(in srgb, var(--led-color) 80%, transparent), inset 0 0 4px #fff8;
+    box-shadow:
+      0 0 2px color-mix(in srgb, var(--led-color) 88%, #fff),
+      0 0 calc((var(--cell) - 1px) * .5) var(--led-color),
+      0 0 calc((var(--cell) - 1px) * .5) var(--led-color),
+      inset 0 0 4px #fff8;
   }
 
   /* 中文块：样式规则 .led.invalid 控制对应 UI 的布局、视觉或响应式状态。 */
@@ -1997,8 +2006,8 @@
 
   /* ===== LED preview windows ONLY =========================================
      Scope: .matrix-wrap.fill-column.led-preview-wrap (the 5 LED preview grids).
-     Goal: borderless cells, flat fill (no inset sheen / gradient), keep just a
-     little outer bloom on lit cells, and a significantly reduced corner radius.
+     Goal: borderless cells, flat fill, keep a tiny edge bloom on lit cells,
+     and a significantly reduced corner radius.
      Everything is scoped to .led-preview-wrap so no other matrix, page element,
      or non-LED style is touched. Specificity (.led-preview-wrap .led = 0,2,0;
      .led.on override = 0,3,0 + !important) beats the base .led rules AND the
@@ -2011,7 +2020,10 @@
 
   .led-preview-wrap .led.on {
     border: none;
-    box-shadow: 0 0 4px color-mix(in srgb, var(--led-color) 60%, transparent) !important;
+    box-shadow:
+      0 0 2px color-mix(in srgb, var(--led-color) 88%, #fff),
+      0 0 calc((var(--cell) - 1px) * .5) var(--led-color),
+      0 0 calc((var(--cell) - 1px) * .5) var(--led-color) !important;
   }
 
   /* 中文块：样式规则 .matrix.editable-matrix 控制对应 UI 的布局、视觉或响应式状态。 */
@@ -3260,7 +3272,10 @@
     box-shadow: none !important;
   }
   .led.on {
-    box-shadow: 0 0 2px var(--led-color) !important;
+    box-shadow:
+      0 0 2px color-mix(in srgb, var(--led-color) 88%, #fff),
+      0 0 calc((var(--cell) - 1px) * .5) var(--led-color),
+      0 0 calc((var(--cell) - 1px) * .5) var(--led-color) !important;
   }
   .blur-screen {
     backdrop-filter: blur(4px) !important;
@@ -3375,8 +3390,10 @@
 
 /* Cells fill their grid tracks exactly (no dependence on the JS --cell). */
 .rinaboard-stage > .matrix .led {
-  width: 100%;
-  height: 100%;
+  width: calc(100% - 1px);
+  height: calc(100% - 1px);
+  justify-self: center;
+  align-self: center;
   border: none;
   border-radius: 0;
   box-shadow: none;
@@ -3385,11 +3402,29 @@
 }
 
 .rinaboard-stage > .matrix .led.on {
-  background: var(--led-color);
+  background: radial-gradient(circle at 50% 42%,
+      color-mix(in srgb, var(--led-color) 86%, #fff) 0 12%,
+      var(--led-color) 38%,
+      color-mix(in srgb, var(--led-color) 88%, #120817) 100%);
 }
 
 .rinaboard-stage > .matrix .led.invalid {
   visibility: hidden;
+}
+
+.rinaboard-stage > #matrix-basic .led {
+  width: calc(100% - 9px);
+  height: calc(100% - 9px);
+  justify-self: center;
+  align-self: center;
+  border-radius: 3px;
+}
+
+.rinaboard-stage > #matrix-basic .led.on {
+  box-shadow:
+    0 0 2px color-mix(in srgb, var(--led-color) 88%, #fff),
+    0 0 calc((var(--cell) - 9px) * .5) var(--led-color),
+    0 0 calc((var(--cell) - 9px) * .5) var(--led-color) !important;
 }
 
 /* 模拟按钮：弱化为次级样式，避免被误认为常规用户控件 */
