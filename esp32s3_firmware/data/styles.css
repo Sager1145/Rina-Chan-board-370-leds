@@ -955,9 +955,7 @@
   }
   .content {
     padding: var(--content-padding-top) var(--content-padding) var(--content-padding);
-    max-width: 1480px;
     width: 100%;
-    margin: 0 auto;
     min-width: 0;
     overflow-x: hidden;
   }
@@ -1005,7 +1003,7 @@
     /* In two-column and three-column layouts, all columns except the sticky LED preview card
        must have a margin between their top and the bottom of the title bar (.hero) that matches
        the gap between cards. */
-    .grid > :not(.led-preview-card) {
+    .page > .grid > :not(.led-preview-card) {
       margin-top: 14px;
     }
   }
@@ -1014,12 +1012,16 @@
   /* Responsive layout adjustments. */
   @media (min-width:1471px) {
 
-    body[data-page="debug"] .content {
+    .hero>div:first-child {
+      max-width: 2209px;
+    }
+
+    body[data-page="debug"] .grid {
       max-width: 2209px;
     }
 
     /* Page 6.3: Widescreen 3-column layout transition */
-    body[data-page="parts"] .content {
+    body[data-page="parts"] .grid {
       max-width: 2209px;
     }
 
@@ -1062,6 +1064,13 @@
 
     #page-debug .debug-side-col {
       grid-column: 3;
+    }
+
+    .parts-mid-col,
+    #page-parts .face-manager-panel,
+    .debug-mid-col,
+    .debug-side-col {
+      margin-top: 14px;
     }
   }
   .page {
@@ -1112,6 +1121,9 @@
     padding-right: var(--content-padding);
     box-sizing: border-box;
     text-align: left;
+    max-width: 1480px;
+    width: 100%;
+    margin: 0 auto;
   }
   .hero h2 {
     font-size: 26px;
@@ -1122,6 +1134,7 @@
     justify-content: flex-start;
     min-height: 100%;
     text-align: left;
+    padding-left: 8px;
   }
   .hero p {
     margin: 0;
@@ -1146,6 +1159,9 @@
     gap: 14px;
     align-items: start;
     min-width: 0;
+    max-width: 1480px;
+    width: 100%;
+    margin: 0 auto;
   }
   .cols-2 {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -2504,7 +2520,7 @@
     --rina-loader-x: 50vw;
     --rina-loader-y: 50vh;
     --rina-reveal-radius: 0px;
-    --rina-reveal-edge: 1px;
+    --rina-reveal-edge: 100px;
     --rina-reveal-x: 50%;
     --rina-reveal-y: 50%;
   }
@@ -2535,7 +2551,7 @@
     position: absolute;
     inset: 0;
     z-index: 1;
-    background: transparent;
+    background: rgba(15, 17, 23, 0.55);
     backdrop-filter: blur(var(--rina-blur-size));
     -webkit-backdrop-filter: blur(var(--rina-blur-size));
     opacity: 1;
