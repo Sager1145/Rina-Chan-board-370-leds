@@ -1982,13 +1982,12 @@
   /* 中文块：样式规则 .led.on 控制对应 UI 的布局、视觉或响应式状态。 */
   .led.on {
     background: radial-gradient(circle at 50% 42%,
-        color-mix(in srgb, var(--led-color) 86%, #fff) 0 12%,
-        var(--led-color) 38%,
-        color-mix(in srgb, var(--led-color) 88%, #120817) 100%);
+        color-mix(in srgb, var(--led-color) 94%, #fff) 0 8%,
+        var(--led-color) 30%,
+        color-mix(in srgb, var(--led-color) 94%, #120817) 100%);
     border-color: color-mix(in srgb, var(--led-color) 75%, #fff);
     box-shadow:
       0 0 2px color-mix(in srgb, var(--led-color) 88%, #fff),
-      0 0 calc((var(--cell) - 1px) * .5) var(--led-color),
       0 0 calc((var(--cell) - 1px) * .5) var(--led-color),
       inset 0 0 4px #fff8;
   }
@@ -2022,7 +2021,6 @@
     border: none;
     box-shadow:
       0 0 2px color-mix(in srgb, var(--led-color) 88%, #fff),
-      0 0 calc((var(--cell) - 1px) * .5) var(--led-color),
       0 0 calc((var(--cell) - 1px) * .5) var(--led-color) !important;
   }
 
@@ -3274,7 +3272,6 @@
   .led.on {
     box-shadow:
       0 0 2px color-mix(in srgb, var(--led-color) 88%, #fff),
-      0 0 calc((var(--cell) - 1px) * .5) var(--led-color),
       0 0 calc((var(--cell) - 1px) * .5) var(--led-color) !important;
   }
   .blur-screen {
@@ -3403,9 +3400,9 @@
 
 .rinaboard-stage > .matrix .led.on {
   background: radial-gradient(circle at 50% 42%,
-      color-mix(in srgb, var(--led-color) 86%, #fff) 0 12%,
-      var(--led-color) 38%,
-      color-mix(in srgb, var(--led-color) 88%, #120817) 100%);
+      color-mix(in srgb, var(--led-color) 94%, #fff) 0 8%,
+      var(--led-color) 30%,
+      color-mix(in srgb, var(--led-color) 94%, #120817) 100%);
 }
 
 .rinaboard-stage > .matrix .led.invalid {
@@ -3423,7 +3420,6 @@
 .rinaboard-stage > #matrix-basic .led.on {
   box-shadow:
     0 0 2px color-mix(in srgb, var(--led-color) 88%, #fff),
-    0 0 calc((var(--cell) - 9px) * .5) var(--led-color),
     0 0 calc((var(--cell) - 9px) * .5) var(--led-color) !important;
 }
 
