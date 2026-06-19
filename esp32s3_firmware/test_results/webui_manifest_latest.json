@@ -1,0 +1,6647 @@
+[
+  {
+    "code": 3831,
+    "testid": "custom-send",
+    "label": "发送",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4356,
+    "testid": "custom-live-toggle",
+    "label": "实时",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2572,
+    "testid": "custom-clear",
+    "label": "清空",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8948,
+    "testid": "custom-fill",
+    "label": "全亮",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2037,
+    "testid": "custom-invert",
+    "label": "反转",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1892,
+    "testid": "custom-m370",
+    "label": "M370:0000000000000000000000000000000000000000000000000000000",
+    "tag": "textarea",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "M370:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6816,
+    "testid": "custom-copy",
+    "label": "复制 M370",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6384,
+    "testid": "custom-import",
+    "label": "从文本导入到画板",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8740,
+    "testid": "custom-save",
+    "label": "保存自定义表情",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8758,
+    "testid": "custom-name",
+    "label": "custom_face",
+    "tag": "input",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "custom_face",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3724,
+    "testid": "button-custom-saved_facesjson",
+    "label": "读取 saved_faces.json",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9635,
+    "testid": "button-custom-saved_facesjson-2",
+    "label": "打开本地 saved_faces.json",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1585,
+    "testid": "button-custom",
+    "label": "保存到已打开文件",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9636,
+    "testid": "button-custom-saved_facesjson-3",
+    "label": "下载 saved_faces.json",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9637,
+    "testid": "button-custom-saved_facesjson-4",
+    "label": "导入 saved_faces.json",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4365,
+    "testid": "input-custom",
+    "label": "",
+    "tag": "input",
+    "type": "file",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8538,
+    "testid": "parts-apply",
+    "label": "发送",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9555,
+    "testid": "parts-live-toggle",
+    "label": "实时",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4709,
+    "testid": "parts-random",
+    "label": "随机",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3919,
+    "testid": "parts-reset",
+    "label": "默认",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7309,
+    "testid": "parts-symmetry-toggle",
+    "label": "左右眼对称",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3333,
+    "testid": "parts-m370-text",
+    "label": "M370:00000000000000000000300300C00C0300300C00C00000000000000",
+    "tag": "textarea",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "M370:00000000000000000000300300C00C0300300C00C000000000000000000000000000001F800000000000000000000",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8195,
+    "testid": "parts-copy-m370",
+    "label": "复制 M370",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2747,
+    "testid": "parts-import-m370",
+    "label": "从文本导入到当前输出",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4109,
+    "testid": "parts-save-bottom",
+    "label": "保存部件表情",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7885,
+    "testid": "parts-name",
+    "label": "parts_face",
+    "tag": "input",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "parts_face",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6947,
+    "testid": "button-parts-saved_facesjson",
+    "label": "读取 saved_faces.json",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7042,
+    "testid": "button-parts-saved_facesjson-2",
+    "label": "打开本地 saved_faces.json",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2848,
+    "testid": "button-parts",
+    "label": "保存到已打开文件",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7043,
+    "testid": "button-parts-saved_facesjson-3",
+    "label": "下载 saved_faces.json",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7044,
+    "testid": "button-parts-saved_facesjson-4",
+    "label": "导入 saved_faces.json",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5820,
+    "testid": "input-parts",
+    "label": "",
+    "tag": "input",
+    "type": "file",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4478,
+    "testid": "scroll-text",
+    "label": "RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード",
+    "tag": "textarea",
+    "type": "",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3796,
+    "testid": "scroll-speed-reset-default",
+    "label": "重置默认帧率",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6235,
+    "testid": "scroll-speed-minus",
+    "label": "−5",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6003,
+    "testid": "scroll-speed-plus",
+    "label": "+5",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4868,
+    "testid": "scroll-speed-range",
+    "label": "10",
+    "tag": "input",
+    "type": "range",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "10",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6594,
+    "testid": "scroll-speed",
+    "label": "10",
+    "tag": "input",
+    "type": "number",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "10",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2599,
+    "testid": "scroll-play",
+    "label": "发送",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4663,
+    "testid": "scroll-pause",
+    "label": "暂停",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2575,
+    "testid": "scroll-stop",
+    "label": "停止/清屏",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7511,
+    "testid": "scroll-step-prev",
+    "label": "上一帧",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3105,
+    "testid": "scroll-step-next",
+    "label": "下一帧",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4253,
+    "testid": "firmware-ping",
+    "label": "刷新固件状态",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7196,
+    "testid": "debug-fw-refresh-power",
+    "label": "刷新电源状态",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8558,
+    "testid": "debug-clear-api-error",
+    "label": "清除本地 API 错误",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9470,
+    "testid": "debug-copy-diag",
+    "label": "复制诊断 JSON",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9186,
+    "testid": "debug-refresh-power",
+    "label": "刷新电池状态",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1461,
+    "testid": "debug-reset-battery-min",
+    "label": "重置最低电压",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1207,
+    "testid": "debug-reset-battery-max",
+    "label": "重置最高电压",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4284,
+    "testid": "summary-debug-adc",
+    "label": "高级 ADC 详情",
+    "tag": "summary",
+    "type": "",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5723,
+    "testid": "battery-v",
+    "label": "7.42",
+    "tag": "input",
+    "type": "number",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "7.42",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4738,
+    "testid": "charge-v",
+    "label": "5.10",
+    "tag": "input",
+    "type": "number",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "5.10",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6029,
+    "testid": "update-adc",
+    "label": "更新模拟 ADC",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3981,
+    "testid": "debug-ap-pass-toggle",
+    "label": "显示密码",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5303,
+    "testid": "debug-network-refresh",
+    "label": "刷新网络信息",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2612,
+    "testid": "gpio-B1",
+    "label": "B1 下一个",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2613,
+    "testid": "gpio-B2",
+    "label": "B2 上一个",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2614,
+    "testid": "gpio-B3",
+    "label": "B3 A/M",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2615,
+    "testid": "gpio-B4",
+    "label": "B4 亮度-",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2616,
+    "testid": "gpio-B5",
+    "label": "B5 亮度+",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4148,
+    "testid": "gpio-B6S",
+    "label": "B6 短按电量",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6329,
+    "testid": "gpio-B3B1",
+    "label": "B3+B1 间隔-",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6330,
+    "testid": "gpio-B3B2",
+    "label": "B3+B2 间隔+",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4141,
+    "testid": "gpio-B6L",
+    "label": "B6 长按详情",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9598,
+    "testid": "gpio-B6B3",
+    "label": "刷新网络信息（WebUI）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2085,
+    "testid": "firmware-pause",
+    "label": "暂停滚动",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1163,
+    "testid": "debug-preview-off",
+    "label": "全黑",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5141,
+    "testid": "debug-preview-checker",
+    "label": "棋盘",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3942,
+    "testid": "debug-preview-border",
+    "label": "边框",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9163,
+    "testid": "debug-preview-saved",
+    "label": "当前保存表情",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4555,
+    "testid": "debug-send-off",
+    "label": "全黑",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5365,
+    "testid": "debug-send-on",
+    "label": "全亮（需确认）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9821,
+    "testid": "debug-send-checker",
+    "label": "棋盘",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2542,
+    "testid": "debug-send-border",
+    "label": "边框",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6667,
+    "testid": "debug-send-saved",
+    "label": "当前保存表情",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9384,
+    "testid": "debug-m370",
+    "label": "输入 93 hex 或 M370:<93 hex>",
+    "tag": "textarea",
+    "type": "",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4927,
+    "testid": "debug-m370-preview",
+    "label": "解析为预览",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2807,
+    "testid": "debug-m370-send",
+    "label": "解析并发送固件",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2636,
+    "testid": "debug-m370-clear",
+    "label": "清空输入",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5792,
+    "testid": "debug-m370-copy",
+    "label": "复制调试预览 M370",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5724,
+    "testid": "debug-preview-copy",
+    "label": "复制调试预览 M370",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2011,
+    "testid": "log-clear",
+    "label": "清空日志",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7524,
+    "testid": "log-download",
+    "label": "下载日志",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6543,
+    "testid": "log-copy",
+    "label": "复制日志",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9639,
+    "testid": "summary-debug",
+    "label": "高级原始指令",
+    "tag": "summary",
+    "type": "",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7658,
+    "testid": "debug-raw-json",
+    "label": "{\"cmd\":\"pause_scroll\"}",
+    "tag": "textarea",
+    "type": "",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4734,
+    "testid": "debug-raw-confirm",
+    "label": "on",
+    "tag": "input",
+    "type": "checkbox",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": false,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8090,
+    "testid": "debug-raw-validate",
+    "label": "校验 JSON",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9802,
+    "testid": "debug-raw-send",
+    "label": "发送原始指令",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8035,
+    "testid": "debug-clear-user-faces",
+    "label": "清空用户表情",
+    "tag": "button",
+    "type": "button",
+    "page": "page-debug",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3901,
+    "testid": "button-f971d4",
+    "label": "使用父颜色：默认璃奈粉色#F971D4",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3818,
+    "testid": "button-0-f971d4",
+    "label": "0. 默认璃奈粉色#F971D4",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9346,
+    "testid": "button-1-s-e4007f",
+    "label": "1. μ's-洋红色#E4007F",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1028,
+    "testid": "button-2-aqours-00a1e8",
+    "label": "2. Aqours-水蓝色#00A1E8",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3431,
+    "testid": "button-3-f8b656",
+    "label": "3. 虹咲学园-金色#F8B656",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8282,
+    "testid": "button-4-liella-a5469b",
+    "label": "4. Liella!-紫色#A5469B",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4796,
+    "testid": "button-5-fb8a9b",
+    "label": "5. 蓮ノ空-粉色#FB8A9B",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8349,
+    "testid": "button-parts-0",
+    "label": "0",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8350,
+    "testid": "button-parts-1",
+    "label": "1",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8351,
+    "testid": "button-parts-2",
+    "label": "2",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8352,
+    "testid": "button-parts-3",
+    "label": "3",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8353,
+    "testid": "button-parts-4",
+    "label": "4",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8354,
+    "testid": "button-parts-5",
+    "label": "5",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8355,
+    "testid": "button-parts-6",
+    "label": "6",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8356,
+    "testid": "button-parts-7",
+    "label": "7",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8357,
+    "testid": "button-parts-8",
+    "label": "8",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8358,
+    "testid": "button-parts-9",
+    "label": "9",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9566,
+    "testid": "button-parts-10",
+    "label": "10",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9567,
+    "testid": "button-parts-11",
+    "label": "11",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9568,
+    "testid": "button-parts-12",
+    "label": "12",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9569,
+    "testid": "button-parts-13",
+    "label": "13",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9570,
+    "testid": "button-parts-14",
+    "label": "14",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9571,
+    "testid": "button-parts-15",
+    "label": "15",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9572,
+    "testid": "button-parts-16",
+    "label": "16",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9573,
+    "testid": "button-parts-17",
+    "label": "17",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9574,
+    "testid": "button-parts-18",
+    "label": "18",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9575,
+    "testid": "button-parts-19",
+    "label": "19",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9599,
+    "testid": "button-parts-20",
+    "label": "20",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9600,
+    "testid": "button-parts-21",
+    "label": "21",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9601,
+    "testid": "button-parts-22",
+    "label": "22",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9602,
+    "testid": "button-parts-23",
+    "label": "23",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9603,
+    "testid": "button-parts-24",
+    "label": "24",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9604,
+    "testid": "button-parts-25",
+    "label": "25",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9605,
+    "testid": "button-parts-26",
+    "label": "26",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9606,
+    "testid": "button-parts-27",
+    "label": "27",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1364,
+    "testid": "button-parts-0-2",
+    "label": "0",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2453,
+    "testid": "button-parts-1-2",
+    "label": "1",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3542,
+    "testid": "button-parts-2-2",
+    "label": "2",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4631,
+    "testid": "button-parts-3-2",
+    "label": "3",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5720,
+    "testid": "button-parts-4-2",
+    "label": "4",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6809,
+    "testid": "button-parts-5-2",
+    "label": "5",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7898,
+    "testid": "button-parts-6-2",
+    "label": "6",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8987,
+    "testid": "button-parts-7-2",
+    "label": "7",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1076,
+    "testid": "button-parts-8-2",
+    "label": "8",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2165,
+    "testid": "button-parts-9-2",
+    "label": "9",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4925,
+    "testid": "button-parts-10-2",
+    "label": "10",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6014,
+    "testid": "button-parts-11-2",
+    "label": "11",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7103,
+    "testid": "button-parts-12-2",
+    "label": "12",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8192,
+    "testid": "button-parts-13-2",
+    "label": "13",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9281,
+    "testid": "button-parts-14-2",
+    "label": "14",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1370,
+    "testid": "button-parts-15-2",
+    "label": "15",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2459,
+    "testid": "button-parts-16-2",
+    "label": "16",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3548,
+    "testid": "button-parts-17-2",
+    "label": "17",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4637,
+    "testid": "button-parts-18-2",
+    "label": "18",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5726,
+    "testid": "button-parts-19-2",
+    "label": "19",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4862,
+    "testid": "button-parts-20-2",
+    "label": "20",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5951,
+    "testid": "button-parts-21-2",
+    "label": "21",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7040,
+    "testid": "button-parts-22-2",
+    "label": "22",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8129,
+    "testid": "button-parts-23-2",
+    "label": "23",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9218,
+    "testid": "button-parts-24-2",
+    "label": "24",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1307,
+    "testid": "button-parts-25-2",
+    "label": "25",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2396,
+    "testid": "button-parts-26-2",
+    "label": "26",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3485,
+    "testid": "button-parts-27-2",
+    "label": "27",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1365,
+    "testid": "button-parts-0-3",
+    "label": "0",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2454,
+    "testid": "button-parts-1-3",
+    "label": "1",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3543,
+    "testid": "button-parts-2-3",
+    "label": "2",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4632,
+    "testid": "button-parts-3-3",
+    "label": "3",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5721,
+    "testid": "button-parts-4-3",
+    "label": "4",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6810,
+    "testid": "button-parts-5-3",
+    "label": "5",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7899,
+    "testid": "button-parts-6-3",
+    "label": "6",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8988,
+    "testid": "button-parts-7-3",
+    "label": "7",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1077,
+    "testid": "button-parts-8-3",
+    "label": "8",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2166,
+    "testid": "button-parts-9-3",
+    "label": "9",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4926,
+    "testid": "button-parts-10-3",
+    "label": "10",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6015,
+    "testid": "button-parts-11-3",
+    "label": "11",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7104,
+    "testid": "button-parts-12-3",
+    "label": "12",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8193,
+    "testid": "button-parts-13-3",
+    "label": "13",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9282,
+    "testid": "button-parts-14-3",
+    "label": "14",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1371,
+    "testid": "button-parts-15-3",
+    "label": "15",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2460,
+    "testid": "button-parts-16-3",
+    "label": "16",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3549,
+    "testid": "button-parts-17-3",
+    "label": "17",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4638,
+    "testid": "button-parts-18-3",
+    "label": "18",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5727,
+    "testid": "button-parts-19-3",
+    "label": "19",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4863,
+    "testid": "button-parts-20-3",
+    "label": "20",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5952,
+    "testid": "button-parts-21-3",
+    "label": "21",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7041,
+    "testid": "button-parts-22-3",
+    "label": "22",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8130,
+    "testid": "button-parts-23-3",
+    "label": "23",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9219,
+    "testid": "button-parts-24-3",
+    "label": "24",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1308,
+    "testid": "button-parts-25-3",
+    "label": "25",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2397,
+    "testid": "button-parts-26-3",
+    "label": "26",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3486,
+    "testid": "button-parts-27-3",
+    "label": "27",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9607,
+    "testid": "button-parts-28",
+    "label": "28",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9608,
+    "testid": "button-parts-29",
+    "label": "29",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9632,
+    "testid": "button-parts-30",
+    "label": "30",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9633,
+    "testid": "button-parts-31",
+    "label": "31",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9634,
+    "testid": "button-parts-32",
+    "label": "32",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1366,
+    "testid": "button-parts-0-4",
+    "label": "0",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 2455,
+    "testid": "button-parts-1-4",
+    "label": "1",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 3544,
+    "testid": "button-parts-2-4",
+    "label": "2",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4633,
+    "testid": "button-parts-3-4",
+    "label": "3",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 5722,
+    "testid": "button-parts-4-4",
+    "label": "4",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6811,
+    "testid": "button-parts-5-4",
+    "label": "5",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1571,
+    "testid": "button-scroll-1",
+    "label": "1",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6635,
+    "testid": "button-scroll-10",
+    "label": "10",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6668,
+    "testid": "button-scroll-20",
+    "label": "20",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6701,
+    "testid": "button-scroll-30",
+    "label": "30",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6734,
+    "testid": "button-scroll-40",
+    "label": "40",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6767,
+    "testid": "button-scroll-50",
+    "label": "50",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 6800,
+    "testid": "button-scroll-60",
+    "label": "60",
+    "tag": "button",
+    "type": "button",
+    "page": "page-scroll",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1864,
+    "testid": "button-custom-2",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9324,
+    "testid": "input-custom-2",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "surprised / winking with mouth",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1865,
+    "testid": "button-custom-3",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1866,
+    "testid": "button-custom-4",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1867,
+    "testid": "button-custom-5",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1868,
+    "testid": "button-custom-6",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1869,
+    "testid": "button-custom-7",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1870,
+    "testid": "button-custom-8",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9325,
+    "testid": "input-custom-3",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "glasses-eyed, square mouth",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 1871,
+    "testid": "button-custom-9",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4055,
+    "testid": "button-custom-10",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4056,
+    "testid": "button-custom-11",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4057,
+    "testid": "button-custom-12",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4058,
+    "testid": "button-custom-13",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4059,
+    "testid": "button-custom-14",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9326,
+    "testid": "input-custom-4",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "confused / raised eyebrows",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4060,
+    "testid": "button-custom-15",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4061,
+    "testid": "button-custom-16",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4062,
+    "testid": "button-custom-17",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4063,
+    "testid": "button-custom-18",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4064,
+    "testid": "button-custom-19",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4088,
+    "testid": "button-custom-20",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9327,
+    "testid": "input-custom-5",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "sad diagonal eyes, downturned mouth",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4089,
+    "testid": "button-custom-21",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4090,
+    "testid": "button-custom-22",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4091,
+    "testid": "button-custom-23",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4092,
+    "testid": "button-custom-24",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4093,
+    "testid": "button-custom-25",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4094,
+    "testid": "button-custom-26",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9328,
+    "testid": "input-custom-6",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "neutral blocky eyes, smirk",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4095,
+    "testid": "button-custom-27",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4097,
+    "testid": "button-custom-28",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4098,
+    "testid": "button-custom-29",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4121,
+    "testid": "button-custom-30",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4122,
+    "testid": "button-custom-31",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4123,
+    "testid": "button-custom-32",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9329,
+    "testid": "input-custom-7",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "squinting happy",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4124,
+    "testid": "button-custom-33",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4125,
+    "testid": "button-custom-34",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4126,
+    "testid": "button-custom-35",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4127,
+    "testid": "button-custom-36",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4128,
+    "testid": "button-custom-37",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4129,
+    "testid": "button-custom-38",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9330,
+    "testid": "input-custom-8",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "wide eyebrows, tiny mouth",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4130,
+    "testid": "button-custom-39",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4154,
+    "testid": "button-custom-40",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4155,
+    "testid": "button-custom-41",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4156,
+    "testid": "button-custom-42",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4157,
+    "testid": "button-custom-43",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4158,
+    "testid": "button-custom-44",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9331,
+    "testid": "input-custom-9",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "triangle eyes, frown",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4159,
+    "testid": "button-custom-45",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4160,
+    "testid": "button-custom-46",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4161,
+    "testid": "button-custom-47",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4162,
+    "testid": "button-custom-48",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4163,
+    "testid": "button-custom-49",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4187,
+    "testid": "button-custom-50",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4603,
+    "testid": "input-custom-10",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "stoic vertical eyes, frown",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4188,
+    "testid": "button-custom-51",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4189,
+    "testid": "button-custom-52",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4190,
+    "testid": "button-custom-53",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4191,
+    "testid": "button-custom-54",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4192,
+    "testid": "button-custom-55",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4193,
+    "testid": "button-custom-56",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4604,
+    "testid": "input-custom-11",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "X-eyes, frown",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4194,
+    "testid": "button-custom-57",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4195,
+    "testid": "button-custom-58",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4196,
+    "testid": "button-custom-59",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4220,
+    "testid": "button-custom-60",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4221,
+    "testid": "button-custom-61",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4222,
+    "testid": "button-custom-62",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4605,
+    "testid": "input-custom-12",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "qiangqiang",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4223,
+    "testid": "button-custom-63",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4224,
+    "testid": "button-custom-64",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4225,
+    "testid": "button-custom-65",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4226,
+    "testid": "button-custom-66",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 4227,
+    "testid": "button-custom-67",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-custom",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9638,
+    "testid": "button-parts-33",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9609,
+    "testid": "input-parts-2",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "surprised / winking with mouth",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9640,
+    "testid": "button-parts-34",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9641,
+    "testid": "button-parts-35",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9642,
+    "testid": "button-parts-36",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9643,
+    "testid": "button-parts-37",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9644,
+    "testid": "button-parts-38",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9645,
+    "testid": "button-parts-39",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9610,
+    "testid": "input-parts-3",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "glasses-eyed, square mouth",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9665,
+    "testid": "button-parts-40",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9666,
+    "testid": "button-parts-41",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9667,
+    "testid": "button-parts-42",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9668,
+    "testid": "button-parts-43",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9669,
+    "testid": "button-parts-44",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9670,
+    "testid": "button-parts-45",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9611,
+    "testid": "input-parts-4",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "confused / raised eyebrows",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9671,
+    "testid": "button-parts-46",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9672,
+    "testid": "button-parts-47",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9673,
+    "testid": "button-parts-48",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9674,
+    "testid": "button-parts-49",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9698,
+    "testid": "button-parts-50",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9699,
+    "testid": "button-parts-51",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9612,
+    "testid": "input-parts-5",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "sad diagonal eyes, downturned mouth",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9700,
+    "testid": "button-parts-52",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9701,
+    "testid": "button-parts-53",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9702,
+    "testid": "button-parts-54",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9703,
+    "testid": "button-parts-55",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9704,
+    "testid": "button-parts-56",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9705,
+    "testid": "button-parts-57",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9613,
+    "testid": "input-parts-6",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "neutral blocky eyes, smirk",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9706,
+    "testid": "button-parts-58",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9707,
+    "testid": "button-parts-59",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9731,
+    "testid": "button-parts-60",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9732,
+    "testid": "button-parts-61",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9733,
+    "testid": "button-parts-62",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9734,
+    "testid": "button-parts-63",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9614,
+    "testid": "input-parts-7",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "squinting happy",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9735,
+    "testid": "button-parts-64",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9736,
+    "testid": "button-parts-65",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9737,
+    "testid": "button-parts-66",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9738,
+    "testid": "button-parts-67",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9739,
+    "testid": "button-parts-68",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9740,
+    "testid": "button-parts-69",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9615,
+    "testid": "input-parts-8",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "wide eyebrows, tiny mouth",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9764,
+    "testid": "button-parts-70",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9765,
+    "testid": "button-parts-71",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9766,
+    "testid": "button-parts-72",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9767,
+    "testid": "button-parts-73",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9768,
+    "testid": "button-parts-74",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9769,
+    "testid": "button-parts-75",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9616,
+    "testid": "input-parts-9",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "triangle eyes, frown",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9770,
+    "testid": "button-parts-76",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9771,
+    "testid": "button-parts-77",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9772,
+    "testid": "button-parts-78",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9773,
+    "testid": "button-parts-79",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9797,
+    "testid": "button-parts-80",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9798,
+    "testid": "button-parts-81",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8026,
+    "testid": "input-parts-10",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "stoic vertical eyes, frown",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9799,
+    "testid": "button-parts-82",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9800,
+    "testid": "button-parts-83",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9801,
+    "testid": "button-parts-84",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9803,
+    "testid": "button-parts-85",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9804,
+    "testid": "button-parts-86",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9805,
+    "testid": "button-parts-87",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8027,
+    "testid": "input-parts-11",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "X-eyes, frown",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9806,
+    "testid": "button-parts-88",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9807,
+    "testid": "button-parts-89",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9830,
+    "testid": "button-parts-90",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9831,
+    "testid": "button-parts-91",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9832,
+    "testid": "button-parts-92",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9833,
+    "testid": "button-parts-93",
+    "label": "拖拽排序",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 8028,
+    "testid": "input-parts-12",
+    "label": "默认表情可重命名、可排序，但不可删除；回车或失焦保存",
+    "tag": "input",
+    "type": "",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "qiangqiang",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9834,
+    "testid": "button-parts-94",
+    "label": "上移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9835,
+    "testid": "button-parts-95",
+    "label": "下移",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9836,
+    "testid": "button-parts-96",
+    "label": "重命名",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9837,
+    "testid": "button-parts-97",
+    "label": "默认表情不可删除",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": true,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 9838,
+    "testid": "button-parts-98",
+    "label": "上传到固件（应用表情）",
+    "tag": "button",
+    "type": "button",
+    "page": "page-parts",
+    "visible": false,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 0,
+      "h": 0
+    }
+  },
+  {
+    "code": 7429,
+    "testid": "brand-nav-toggle",
+    "label": "打开页面切换器：6.1 基础功能",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 689,
+      "y": 13,
+      "w": 42,
+      "h": 42
+    }
+  },
+  {
+    "code": 6581,
+    "testid": "button-61",
+    "label": "基础功能6.1",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 23,
+      "y": 77,
+      "w": 691,
+      "h": 42
+    }
+  },
+  {
+    "code": 6582,
+    "testid": "button-62",
+    "label": "自定义表情6.2",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 23,
+      "y": 127,
+      "w": 691,
+      "h": 42
+    }
+  },
+  {
+    "code": 6583,
+    "testid": "button-63",
+    "label": "表情部件6.3",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 23,
+      "y": 177,
+      "w": 691,
+      "h": 42
+    }
+  },
+  {
+    "code": 7785,
+    "testid": "color-input",
+    "label": "#f971d4",
+    "tag": "input",
+    "type": "",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "#f971d4",
+    "rect": {
+      "x": 24,
+      "y": 199,
+      "w": 81,
+      "h": 42
+    }
+  },
+  {
+    "code": 6584,
+    "testid": "button-64",
+    "label": "文字滚动6.4",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 23,
+      "y": 227,
+      "w": 691,
+      "h": 42
+    }
+  },
+  {
+    "code": 6368,
+    "testid": "parent-color-select",
+    "label": "0. 默认璃奈粉色 #F971D41. μ's-洋红色 #E4007F2. Aqours-水蓝色 #00A1E83. 虹",
+    "tag": "select",
+    "type": "",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "0",
+    "rect": {
+      "x": 24,
+      "y": 271,
+      "w": 28,
+      "h": 20
+    }
+  },
+  {
+    "code": 7777,
+    "testid": "button-basic-0-f971d4",
+    "label": "0. 默认璃奈粉色 #F971D4▾",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 24,
+      "y": 271,
+      "w": 420,
+      "h": 42
+    }
+  },
+  {
+    "code": 6585,
+    "testid": "button-65",
+    "label": "调试6.5",
+    "tag": "button",
+    "type": "button",
+    "page": "",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 23,
+      "y": 277,
+      "w": 691,
+      "h": 42
+    }
+  },
+  {
+    "code": 9410,
+    "testid": "child-color-select",
+    "label": "使用父颜色：默认璃奈粉色 #F971D4",
+    "tag": "select",
+    "type": "",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "__parent__",
+    "rect": {
+      "x": 24,
+      "y": 343,
+      "w": 28,
+      "h": 20
+    }
+  },
+  {
+    "code": 7700,
+    "testid": "button-basic-f971d4",
+    "label": "使用父颜色：默认璃奈粉色 #F971D4▾",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 24,
+      "y": 343,
+      "w": 420,
+      "h": 42
+    }
+  },
+  {
+    "code": 9216,
+    "testid": "brightness-reset-default",
+    "label": "重置默认亮度",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 24,
+      "y": 463,
+      "w": 118,
+      "h": 42
+    }
+  },
+  {
+    "code": 3191,
+    "testid": "brightness-minus",
+    "label": "−8",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 587,
+      "y": 463,
+      "w": 60,
+      "h": 42
+    }
+  },
+  {
+    "code": 5831,
+    "testid": "brightness-plus",
+    "label": "+8",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 657,
+      "y": 463,
+      "w": 60,
+      "h": 42
+    }
+  },
+  {
+    "code": 1824,
+    "testid": "brightness-range",
+    "label": "50",
+    "tag": "input",
+    "type": "range",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "50",
+    "rect": {
+      "x": 26,
+      "y": 517,
+      "w": 615,
+      "h": 42
+    }
+  },
+  {
+    "code": 4371,
+    "testid": "brightness-input",
+    "label": "raw 亮度",
+    "tag": "input",
+    "type": "number",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "50",
+    "rect": {
+      "x": 649,
+      "y": 517,
+      "w": 68,
+      "h": 42
+    }
+  },
+  {
+    "code": 5006,
+    "testid": "button-basic-10",
+    "label": "10",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 24,
+      "y": 571,
+      "w": 43,
+      "h": 42
+    }
+  },
+  {
+    "code": 5044,
+    "testid": "button-basic-25",
+    "label": "25",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 77,
+      "y": 571,
+      "w": 43,
+      "h": 42
+    }
+  },
+  {
+    "code": 5138,
+    "testid": "button-basic-50",
+    "label": "50",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 130,
+      "y": 571,
+      "w": 43,
+      "h": 42
+    }
+  },
+  {
+    "code": 5237,
+    "testid": "button-basic-80",
+    "label": "80",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 183,
+      "y": 571,
+      "w": 43,
+      "h": 42
+    }
+  },
+  {
+    "code": 2024,
+    "testid": "button-basic-128",
+    "label": "128",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 236,
+      "y": 571,
+      "w": 51,
+      "h": 42
+    }
+  },
+  {
+    "code": 2148,
+    "testid": "button-basic-160",
+    "label": "160",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 297,
+      "y": 571,
+      "w": 51,
+      "h": 42
+    }
+  },
+  {
+    "code": 3039,
+    "testid": "button-basic-200",
+    "label": "200",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 357,
+      "y": 571,
+      "w": 51,
+      "h": 42
+    }
+  },
+  {
+    "code": 4110,
+    "testid": "face-prev",
+    "label": "上一个",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 24,
+      "y": 690,
+      "w": 42,
+      "h": 42
+    }
+  },
+  {
+    "code": 8704,
+    "testid": "face-next",
+    "label": "下一个",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 76,
+      "y": 690,
+      "w": 42,
+      "h": 42
+    }
+  },
+  {
+    "code": 4657,
+    "testid": "mode-toggle",
+    "label": "M 手动",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 128,
+      "y": 690,
+      "w": 68,
+      "h": 42
+    }
+  },
+  {
+    "code": 8031,
+    "testid": "interval-down",
+    "label": "−0.5",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 559,
+      "y": 690,
+      "w": 74,
+      "h": 42
+    }
+  },
+  {
+    "code": 1588,
+    "testid": "interval-up",
+    "label": "+0.5",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 643,
+      "y": 690,
+      "w": 74,
+      "h": 42
+    }
+  },
+  {
+    "code": 5314,
+    "testid": "auto-interval-range",
+    "label": "3",
+    "tag": "input",
+    "type": "range",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "3",
+    "rect": {
+      "x": 26,
+      "y": 744,
+      "w": 615,
+      "h": 42
+    }
+  },
+  {
+    "code": 8232,
+    "testid": "auto-interval",
+    "label": "自动切换间隔 秒",
+    "tag": "input",
+    "type": "number",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "3",
+    "rect": {
+      "x": 649,
+      "y": 744,
+      "w": 68,
+      "h": 42
+    }
+  },
+  {
+    "code": 4474,
+    "testid": "button-basic-05-s",
+    "label": "0.5 s",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 24,
+      "y": 798,
+      "w": 66,
+      "h": 42
+    }
+  },
+  {
+    "code": 1918,
+    "testid": "button-basic-1-s",
+    "label": "1 s",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 100,
+      "y": 798,
+      "w": 51,
+      "h": 42
+    }
+  },
+  {
+    "code": 3007,
+    "testid": "button-basic-2-s",
+    "label": "2 s",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 160,
+      "y": 798,
+      "w": 51,
+      "h": 42
+    }
+  },
+  {
+    "code": 4096,
+    "testid": "button-basic-3-s",
+    "label": "3 s",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 221,
+      "y": 798,
+      "w": 51,
+      "h": 42
+    }
+  },
+  {
+    "code": 6274,
+    "testid": "button-basic-5-s",
+    "label": "5 s",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 281,
+      "y": 798,
+      "w": 51,
+      "h": 42
+    }
+  },
+  {
+    "code": 4033,
+    "testid": "button-basic-75-s",
+    "label": "7.5 s",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 342,
+      "y": 798,
+      "w": 66,
+      "h": 42
+    }
+  },
+  {
+    "code": 7966,
+    "testid": "button-basic-10-s",
+    "label": "10 s",
+    "tag": "button",
+    "type": "button",
+    "page": "page-basic",
+    "visible": true,
+    "disabled": false,
+    "value": "",
+    "rect": {
+      "x": 417,
+      "y": 798,
+      "w": 58,
+      "h": 42
+    }
+  }
+]

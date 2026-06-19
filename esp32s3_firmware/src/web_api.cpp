@@ -1318,27 +1318,45 @@ static void handleApiCommand() {
 }
 
 static void handleSavedFacesGet() {
-    if (!runtimeFsMounted()) { sendError(503, "LittleFS is not mounted; run pio run -t uploadfs"); return; }
+    if (!runtimeFsMounted()) {
+        RLOG_WARN("CMD", "event=reject source=webui cmd=saved_faces_read err=fs_not_mounted");
+        sendError(503, "LittleFS is not mounted; run pio run -t uploadfs"); return;
+    }
     if (!littleFsExistsLocked(SAVED_FACES_PATH)) {
+        RLOG_WARN("CMD", "event=reject source=webui cmd=saved_faces_read err=file_not_found");
         sendError(404, "saved_faces.json not found; run pio run -t uploadfs"); return;
     }
     File file = littleFsOpenLocked(SAVED_FACES_PATH, "r");
-    if (!file) { sendError(500, "failed to open saved_faces.json"); return; }
+    if (!file) {
+        RLOG_WARN("CMD", "event=reject source=webui cmd=saved_faces_read err=open_failed");
+        sendError(500, "failed to open saved_faces.json"); return;
+    }
+    const size_t bytes = fileSizeLocked(file);
+    RLOG_INFO("CMD", "event=accept source=webui cmd=saved_faces_read bytes=%u", static_cast<unsigned>(bytes));
     addCorsHeaders();
     streamFileChunked(file, CONTENT_TYPE_JSON_UTF8);
     closeFileLocked(file);
 }
 
 static void handleSavedFacesPost() {
-    if (!runtimeFsMounted()) { sendError(503, "LittleFS is not mounted; cannot write saved_faces.json"); return; }
+    if (!runtimeFsMounted()) {
+        RLOG_WARN("CMD", "event=reject source=webui cmd=saved_faces_write err=fs_not_mounted");
+        sendError(503, "LittleFS is not mounted; cannot write saved_faces.json"); return;
+    }
 
     const String body = requestBody();
-    if (body.isEmpty()) { sendError(400, "empty JSON body"); return; }
+    if (body.isEmpty()) {
+        RLOG_WARN("CMD", "event=reject source=webui cmd=saved_faces_write err=empty_body");
+        sendError(400, "empty JSON body"); return;
+    }
 
     const size_t capacity = jsonCapacityFor(body.length());
     PsramJsonDocument doc(capacity);
     DeserializationError err = deserializeJson(doc, body, DeserializationOption::NestingLimit(32));
-    if (err) { sendError(400, String("invalid JSON: ") + err.c_str()); return; }
+    if (err) {
+        RLOG_WARN("CMD", "event=reject source=webui cmd=saved_faces_write err=json_%s", err.c_str());
+        sendError(400, String("invalid JSON: ") + err.c_str()); return;
+    }
 
     JsonVariant document = doc["document"];
     if (document.isNull()) document = doc.as<JsonVariant>();
@@ -1346,12 +1364,23 @@ static void handleSavedFacesPost() {
     const char* reason      = doc["reason"] | "";
 
     String error;
-    if (!validateSavedFaces(document, error)) { sendError(400, error); return; }
+    if (!validateSavedFaces(document, error)) {
+        RLOG_WARN("CMD", "event=reject source=webui cmd=saved_faces_write err=validation_failed");
+        sendError(400, error); return;
+    }
 
     const size_t written = writeSavedFaces(document, error);
-    if (written == 0) { sendError(500, error); return; }
+    if (written == 0) {
+        RLOG_WARN("CMD", "event=reject source=webui cmd=saved_faces_write err=write_failed");
+        sendError(500, error); return;
+    }
 
     loadSavedFaces(false);
+    RLOG_INFO("CMD", "event=accept source=webui cmd=saved_faces_write reason=%s bytes=%u writes=%u faces=%u",
+              reason,
+              static_cast<unsigned>(written),
+              static_cast<unsigned>(runtimeState().savedFacesWrites),
+              static_cast<unsigned>(runtimeAutoFaceCount()));
 
     DynamicJsonDocument reply(384);
     reply["ok"]     = true;

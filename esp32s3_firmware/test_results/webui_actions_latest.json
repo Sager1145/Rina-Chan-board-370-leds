@@ -1,0 +1,685 @@
+{
+  "results": [
+    {
+      "id": "WEB-000",
+      "area": "Setup",
+      "interface": "HTTP",
+      "action": "safe baseline via /api/command",
+      "expected": "manual, brightness 50, color #00ff00",
+      "observed": "mode=manual brightness=50 color=#00ff00",
+      "result": "PASS",
+      "notes": ""
+    },
+    {
+      "id": "WEB-NAV-0",
+      "area": "Navigation",
+      "interface": "WebUI",
+      "action": "click brand-nav-toggle",
+      "expected": "nav/menu state changes; no console error",
+      "observed": "{\"activePages\":[\"page-basic\"],\"url\":\"http://192.168.1.14/?ui_badges=1\"}",
+      "result": "PASS",
+      "notes": "local_only"
+    },
+    {
+      "id": "WEB-NAV-page-basic-0",
+      "area": "Navigation",
+      "interface": "WebUI",
+      "action": "click button-61",
+      "expected": "page-basic active",
+      "observed": "active=page-basic",
+      "result": "PASS",
+      "notes": "local_only"
+    },
+    {
+      "id": "WEB-NAV-page-custom-1",
+      "area": "Navigation",
+      "interface": "WebUI",
+      "action": "click button-62",
+      "expected": "page-custom active",
+      "observed": "active=page-basic",
+      "result": "FAIL",
+      "notes": "local_only"
+    },
+    {
+      "id": "WEB-NAV-page-parts-2",
+      "area": "Navigation",
+      "interface": "WebUI",
+      "action": "click button-63",
+      "expected": "page-parts active",
+      "observed": "active=page-basic",
+      "result": "FAIL",
+      "notes": "local_only"
+    },
+    {
+      "id": "WEB-NAV-page-scroll-3",
+      "area": "Navigation",
+      "interface": "WebUI",
+      "action": "click button-64",
+      "expected": "page-scroll active",
+      "observed": "active=page-basic",
+      "result": "FAIL",
+      "notes": "local_only"
+    },
+    {
+      "id": "WEB-NAV-page-debug-4",
+      "area": "Navigation",
+      "interface": "WebUI",
+      "action": "click button-65",
+      "expected": "page-debug active",
+      "observed": "active=page-basic",
+      "result": "FAIL",
+      "notes": "local_only"
+    },
+    {
+      "id": "WEB-NAV-page-basic-5",
+      "area": "Navigation",
+      "interface": "WebUI",
+      "action": "click button-61",
+      "expected": "page-basic active",
+      "observed": "active=page-basic",
+      "result": "PASS",
+      "notes": "local_only"
+    },
+    {
+      "id": "WEB-BASIC-color-input",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "set color-input #123456",
+      "expected": "renderer.color #123456",
+      "observed": "color=#123456 commandsAccepted=6",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-parent-color-select",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "select parent option 2. Aqours-水蓝色  #00A1E8",
+      "expected": "renderer color matches selected parent",
+      "observed": "color=#00a1e8 selectedColor=",
+      "result": "PASS",
+      "notes": "firmware_effect; one option sampled"
+    },
+    {
+      "id": "WEB-BASIC-child-color-select",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "select child option 高海千歌-蜜柑色  #FF9547",
+      "expected": "renderer color changes to child color",
+      "observed": "color=#ff9547 selected=#ff9547",
+      "result": "PASS",
+      "notes": "firmware_effect; one option sampled"
+    },
+    {
+      "id": "WEB-BASIC-brightness-reset-default",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "click brightness reset",
+      "expected": "brightness default 50",
+      "observed": "brightness=50",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-brightness-minus",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "click brightness minus",
+      "expected": "brightness decreases or clamps",
+      "observed": "brightness=42",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-brightness-plus",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "click brightness plus",
+      "expected": "brightness increases",
+      "observed": "brightness=50",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-brightness-input",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "set brightness-input 25",
+      "expected": "brightness 25",
+      "observed": "brightness=50",
+      "result": "FAIL",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-brightness-range",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "set brightness-range 80",
+      "expected": "brightness 80",
+      "observed": "brightness=80",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-button-basic-10",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "click button-basic-10",
+      "expected": "allowed battery-gated brightness preset applies",
+      "observed": "brightness=10",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-button-basic-25",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "click button-basic-25",
+      "expected": "allowed battery-gated brightness preset applies",
+      "observed": "brightness=25",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-button-basic-50",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "click button-basic-50",
+      "expected": "allowed battery-gated brightness preset applies",
+      "observed": "brightness=50",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-button-basic-80",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "click button-basic-80",
+      "expected": "allowed battery-gated brightness preset applies",
+      "observed": "brightness=80",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-face-next",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "click face-next",
+      "expected": "face index changes/applies",
+      "observed": "autoFaceIndex=8 lastReason=api_button_B1_next_saved_face",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-face-prev",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "click face-prev",
+      "expected": "face index changes/applies",
+      "observed": "autoFaceIndex=7 lastReason=api_button_B2_prev_saved_face",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-mode-toggle",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "click mode-toggle",
+      "expected": "mode toggles",
+      "observed": "before=manual after=auto",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-interval-down",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "click interval-down",
+      "expected": "auto interval changes/clamps",
+      "observed": "autoIntervalMs=2000",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-interval-up",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "click interval-up",
+      "expected": "auto interval changes/clamps",
+      "observed": "autoIntervalMs=2500",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-auto-interval",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "set auto-interval 3s",
+      "expected": "autoIntervalMs 3000",
+      "observed": "autoIntervalMs=2500",
+      "result": "WARN",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-BASIC-auto-interval-range",
+      "area": "Basic",
+      "interface": "WebUI",
+      "action": "set auto interval range 5s",
+      "expected": "autoIntervalMs 5000",
+      "observed": "autoIntervalMs=5000",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-SCROLL-play",
+      "area": "Scroll",
+      "interface": "WebUI",
+      "action": "enter mixed CJK/Japanese text and click scroll-play",
+      "expected": "scroll active, upload complete, source text saved",
+      "observed": "active=true paused=false count=613 upload=true metaTextLen=49",
+      "result": "FAIL",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-SCROLL-pause",
+      "area": "Scroll",
+      "interface": "WebUI",
+      "action": "click scroll-pause",
+      "expected": "scroll paused",
+      "observed": "paused=true idx=105",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-SCROLL-step-next",
+      "area": "Scroll",
+      "interface": "WebUI",
+      "action": "click scroll-step-next",
+      "expected": "frame index steps",
+      "observed": "before=105 after=104",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-SCROLL-step-prev",
+      "area": "Scroll",
+      "interface": "WebUI",
+      "action": "click scroll-step-prev",
+      "expected": "frame index steps",
+      "observed": "idx=105",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-SCROLL-resume",
+      "area": "Scroll",
+      "interface": "WebUI",
+      "action": "click scroll-pause again/resume",
+      "expected": "scroll resumes",
+      "observed": "paused=false active=true",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-SCROLL-stop",
+      "area": "Scroll",
+      "interface": "WebUI",
+      "action": "click scroll-stop",
+      "expected": "scroll inactive",
+      "observed": "active=false count=0",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-SCROLL-speed-reset",
+      "area": "Scroll",
+      "interface": "WebUI",
+      "action": "click speed reset",
+      "expected": "scroll interval reset/applied",
+      "observed": "scrollIntervalMs=50",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-SCROLL-speed-minus",
+      "area": "Scroll",
+      "interface": "WebUI",
+      "action": "click speed minus",
+      "expected": "scroll interval/fps changes",
+      "observed": "scrollIntervalMs=50",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-SCROLL-speed-plus",
+      "area": "Scroll",
+      "interface": "WebUI",
+      "action": "click speed plus",
+      "expected": "scroll interval/fps changes",
+      "observed": "scrollIntervalMs=50",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-SCROLL-play-exact-retest",
+      "area": "Scroll",
+      "interface": "WebUI",
+      "action": "short CJK/Japanese scroll text play exact metadata check",
+      "expected": "active/uploadComplete and meta.sourceText exact match",
+      "observed": "active=true upload=true meta=\"東京かな漢字璃奈テスト\\n\"",
+      "result": "FAIL",
+      "notes": "firmware_effect; supersedes earlier long-text exact check if PASS"
+    },
+    {
+      "id": "WEB-SCROLL-play-exact-no-enter",
+      "area": "Scroll",
+      "interface": "WebUI",
+      "action": "short CJK/Japanese scroll text play without synthetic Enter",
+      "expected": "active/uploadComplete and meta.sourceText exact match",
+      "observed": "active=true upload=true meta=\"東京かな漢字璃奈テスト\"",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-CUSTOM-grid",
+      "area": "Custom",
+      "interface": "WebUI",
+      "action": "clicked sampled custom grid cells",
+      "expected": "grid cells toggle locally",
+      "observed": "pageActive=page-custom cellsFound=6 sampled=button-custom-398,button-custom-399,button-custom-400,button-custom-401",
+      "result": "PASS",
+      "notes": "local_only while drawing"
+    },
+    {
+      "id": "WEB-CUSTOM-send",
+      "area": "Custom",
+      "interface": "WebUI",
+      "action": "click custom-send after grid edits",
+      "expected": "firmware frame apply accepted",
+      "observed": "lastReason=custom_face_send lit=0 framesAccepted=259",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-CUSTOM-custom-live-toggle",
+      "area": "Custom",
+      "interface": "WebUI",
+      "action": "click custom-live-toggle",
+      "expected": "control responds without console error",
+      "observed": "clicked custom-live-toggle",
+      "result": "PASS",
+      "notes": "firmware_effect when enabled"
+    },
+    {
+      "id": "WEB-CUSTOM-custom-clear",
+      "area": "Custom",
+      "interface": "WebUI",
+      "action": "click custom-clear",
+      "expected": "control responds without console error",
+      "observed": "clicked custom-clear",
+      "result": "PASS",
+      "notes": "local_or_firmware_depending_live"
+    },
+    {
+      "id": "WEB-CUSTOM-custom-fill",
+      "area": "Custom",
+      "interface": "WebUI",
+      "action": "click custom-fill",
+      "expected": "control responds without console error",
+      "observed": "clicked custom-fill",
+      "result": "PASS",
+      "notes": "local_or_firmware_depending_live"
+    },
+    {
+      "id": "WEB-CUSTOM-custom-invert",
+      "area": "Custom",
+      "interface": "WebUI",
+      "action": "click custom-invert",
+      "expected": "control responds without console error",
+      "observed": "clicked custom-invert",
+      "result": "PASS",
+      "notes": "local_or_firmware_depending_live"
+    },
+    {
+      "id": "WEB-CUSTOM-m370-import",
+      "area": "Custom",
+      "interface": "WebUI",
+      "action": "import valid all-off M370 then send",
+      "expected": "valid M370 accepted/applied",
+      "observed": "lastM370=M370:000000000000000 lit=0",
+      "result": "PASS",
+      "notes": "firmware_effect after send"
+    },
+    {
+      "id": "WEB-PARTS-apply",
+      "area": "Parts",
+      "interface": "WebUI",
+      "action": "select sampled part controls and click parts-apply",
+      "expected": "firmware frame apply accepted",
+      "observed": "sampled=parts-apply,parts-live-toggle,parts-random,parts-reset lastReason=parts_compose_send lit=22",
+      "result": "PASS",
+      "notes": "firmware_effect; sampled, not exhaustive"
+    },
+    {
+      "id": "WEB-PARTS-parts-live-toggle",
+      "area": "Parts",
+      "interface": "WebUI",
+      "action": "click parts-live-toggle",
+      "expected": "control responds without console error",
+      "observed": "clicked parts-live-toggle",
+      "result": "PASS",
+      "notes": "local_or_firmware_depending_live"
+    },
+    {
+      "id": "WEB-PARTS-parts-random",
+      "area": "Parts",
+      "interface": "WebUI",
+      "action": "click parts-random",
+      "expected": "control responds without console error",
+      "observed": "clicked parts-random",
+      "result": "PASS",
+      "notes": "local_or_firmware_depending_live"
+    },
+    {
+      "id": "WEB-PARTS-parts-reset",
+      "area": "Parts",
+      "interface": "WebUI",
+      "action": "click parts-reset",
+      "expected": "control responds without console error",
+      "observed": "clicked parts-reset",
+      "result": "PASS",
+      "notes": "local_or_firmware_depending_live"
+    },
+    {
+      "id": "WEB-PARTS-parts-symmetry-toggle",
+      "area": "Parts",
+      "interface": "WebUI",
+      "action": "click parts-symmetry-toggle",
+      "expected": "control responds without console error",
+      "observed": "clicked parts-symmetry-toggle",
+      "result": "PASS",
+      "notes": "local_only"
+    },
+    {
+      "id": "WEB-PARTS-m370-import-apply",
+      "area": "Parts",
+      "interface": "WebUI",
+      "action": "import all-on M370 and apply",
+      "expected": "M370 import path applies frame",
+      "observed": "lit=22 lastReason=parts_compose_send",
+      "result": "WARN",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-DEBUG-refresh-power",
+      "area": "Debug",
+      "interface": "WebUI",
+      "action": "click debug-refresh-power",
+      "expected": "power data remains available",
+      "observed": "vbat=0 percent=0 state=未上电",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-GPIO-gpio-B1",
+      "area": "GPIO",
+      "interface": "WebUI",
+      "action": "click gpio-B1",
+      "expected": "button route accepted or state changes",
+      "observed": "mode=manual face=8 brightness=50 interval=5000",
+      "result": "PASS",
+      "notes": "firmware_effect via GPIO simulator"
+    },
+    {
+      "id": "WEB-GPIO-gpio-B2",
+      "area": "GPIO",
+      "interface": "WebUI",
+      "action": "click gpio-B2",
+      "expected": "button route accepted or state changes",
+      "observed": "mode=manual face=7 brightness=50 interval=5000",
+      "result": "PASS",
+      "notes": "firmware_effect via GPIO simulator"
+    },
+    {
+      "id": "WEB-GPIO-gpio-B3",
+      "area": "GPIO",
+      "interface": "WebUI",
+      "action": "click gpio-B3",
+      "expected": "button route accepted or state changes",
+      "observed": "mode=auto face=7 brightness=50 interval=5000",
+      "result": "PASS",
+      "notes": "firmware_effect via GPIO simulator"
+    },
+    {
+      "id": "WEB-GPIO-gpio-B4",
+      "area": "GPIO",
+      "interface": "WebUI",
+      "action": "click gpio-B4",
+      "expected": "button route accepted or state changes",
+      "observed": "mode=auto face=7 brightness=42 interval=5000",
+      "result": "PASS",
+      "notes": "firmware_effect via GPIO simulator"
+    },
+    {
+      "id": "WEB-GPIO-gpio-B5",
+      "area": "GPIO",
+      "interface": "WebUI",
+      "action": "click gpio-B5",
+      "expected": "button route accepted or state changes",
+      "observed": "mode=auto face=7 brightness=50 interval=5000",
+      "result": "PASS",
+      "notes": "firmware_effect via GPIO simulator"
+    },
+    {
+      "id": "WEB-GPIO-gpio-B6S",
+      "area": "GPIO",
+      "interface": "WebUI",
+      "action": "click gpio-B6S",
+      "expected": "button route accepted or state changes",
+      "observed": "mode=auto face=8 brightness=50 interval=5000",
+      "result": "PASS",
+      "notes": "firmware_effect via GPIO simulator"
+    },
+    {
+      "id": "WEB-GPIO-gpio-B6L",
+      "area": "GPIO",
+      "interface": "WebUI",
+      "action": "click gpio-B6L",
+      "expected": "button route accepted or state changes",
+      "observed": "mode=auto face=8 brightness=50 interval=5000",
+      "result": "PASS",
+      "notes": "firmware_effect via GPIO simulator"
+    },
+    {
+      "id": "WEB-GPIO-gpio-B3B1",
+      "area": "GPIO",
+      "interface": "WebUI",
+      "action": "click gpio-B3B1",
+      "expected": "button route accepted or state changes",
+      "observed": "mode=auto face=8 brightness=50 interval=4500",
+      "result": "PASS",
+      "notes": "firmware_effect via GPIO simulator"
+    },
+    {
+      "id": "WEB-GPIO-gpio-B3B2",
+      "area": "GPIO",
+      "interface": "WebUI",
+      "action": "click gpio-B3B2",
+      "expected": "button route accepted or state changes",
+      "observed": "mode=auto face=8 brightness=50 interval=5000",
+      "result": "PASS",
+      "notes": "firmware_effect via GPIO simulator"
+    },
+    {
+      "id": "WEB-DEBUG-debug-send-off",
+      "area": "Debug LED",
+      "interface": "WebUI",
+      "action": "click debug-send-off",
+      "expected": "LED command applies",
+      "observed": "lit=0 lastReason=debug_send_off",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-DEBUG-debug-send-checker",
+      "area": "Debug LED",
+      "interface": "WebUI",
+      "action": "click debug-send-checker",
+      "expected": "LED command applies",
+      "observed": "lit=185 lastReason=debug_send_checker",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-DEBUG-debug-send-border",
+      "area": "Debug LED",
+      "interface": "WebUI",
+      "action": "click debug-send-border",
+      "expected": "LED command applies",
+      "observed": "lit=66 lastReason=debug_send_border",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-DEBUG-debug-send-saved",
+      "area": "Debug LED",
+      "interface": "WebUI",
+      "action": "click debug-send-saved",
+      "expected": "LED command applies",
+      "observed": "lit=36 lastReason=debug_send_saved",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-DEBUG-debug-send-on",
+      "area": "Debug LED",
+      "interface": "WebUI",
+      "action": "debug-send-on full-field",
+      "expected": "skipped when no/ambiguous battery",
+      "observed": "vbat=0.000 batteryPercent=0; no-battery brightness/load cap active",
+      "result": "WARN",
+      "notes": "reason=no_battery_skip_full_field_all_on"
+    },
+    {
+      "id": "WEB-DEBUG-m370-send",
+      "area": "Debug M370",
+      "interface": "WebUI",
+      "action": "preview/send valid single-pixel M370",
+      "expected": "frame accepted",
+      "observed": "lit=1 lastM370=M370:800000000000000",
+      "result": "PASS",
+      "notes": "firmware_effect"
+    },
+    {
+      "id": "WEB-DEBUG-raw-command",
+      "area": "Debug Raw",
+      "interface": "WebUI",
+      "action": "validate/confirm/send raw set_brightness 25",
+      "expected": "accepted and brightness 25",
+      "observed": "Error: Timed out after 3000ms waiting for selector [data-testid=\"debug-raw-json\"]: Browser Use encountered an error interacting with this webpage: Error: Element is not visible\n    at <anonymous>:220:185\n    at <anonymous>:220:715\n    at <anonymous>:221:11\nlocator.fill failed for selector [data-testid=\"debug-raw-json\"]",
+      "result": "FAIL",
+      "notes": ""
+    }
+  ],
+  "logs": []
+}

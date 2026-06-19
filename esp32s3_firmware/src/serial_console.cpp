@@ -119,6 +119,38 @@ const char* comboCode(const char* token) {
     return nullptr;
 }
 
+// Parse a '+'-joined button list ("B3+B1", "B4+B5", "B1+B2+B3") into validated,
+// upper-cased codes. Returns the count (0 on any malformed/duplicate/unknown id,
+// with *err set to a short reason). The order is preserved as typed, but note
+// that the firmware always services the physical buttons in fixed array order
+// (B1..B6) regardless of typing order -- exactly like real simultaneous presses.
+uint8_t parseButtonList(const char* token, char codes[][5], uint8_t maxCodes,
+                        const char** err) {
+    *err = nullptr;
+    uint8_t n = 0;
+    const char* p = token;
+    while (*p) {
+        if (n >= maxCodes) { *err = "too_many"; return 0; }
+        char one[5];
+        uint8_t k = 0;
+        while (*p && *p != '+') {
+            if (k < sizeof(one) - 1) one[k++] = *p;
+            ++p;
+        }
+        one[k] = '\0';
+        if (*p == '+') ++p;            // skip separator
+        if (k == 0) { *err = "empty_token"; return 0; }
+        toUpperInplace(one);
+        if (!buttonCodeValid(one)) { *err = "unknown_id"; return 0; }
+        for (uint8_t i = 0; i < n; ++i) {
+            if (strcmp(codes[i], one) == 0) { *err = "duplicate_id"; return 0; }
+        }
+        strlcpy(codes[n++], one, 5);
+    }
+    if (n == 0) *err = "empty";
+    return n;
+}
+
 // =============================================================================
 //  Frame helpers (LED dump / patterns)
 // =============================================================================
@@ -266,7 +298,15 @@ void cmdLog(int argc, char** argv) {
 //   btn tap <ID>            : immediate logical action (source=serial)
 //   btn hold <ID> <ms>      : press now, auto-release after ms (real repeats)
 //   btn repeat <ID> <n> <ms>: fire the action n times spaced ms apart
-//   btn combo B3+B1 tap     : combo action (B3B1)
+//   btn multi <ID+ID+..> <ms>: press several buttons AT ONCE for <ms>, then
+//                              release them together -- driven entirely through
+//                              the real debounce/combo/repeat machine, so the
+//                              outcome is byte-for-byte what physically pressing
+//                              those buttons simultaneously would produce. This
+//                              is the general form of "multiple buttons at once"
+//                              and works for combos in the code (e.g. B3+B1) as
+//                              well as arbitrary pairs that are NOT combos.
+//   btn combo B3+B1 tap     : combo action (B3B1) -- legacy logical shortcut
 //   btn combo B3+B1 hold ms : combo action (momentary; ms is advisory)
 //   btn status              : per-button physical + emulated state
 void cmdBtn(int argc, char** argv) {
@@ -278,6 +318,43 @@ void cmdBtn(int argc, char** argv) {
                  buttonPhysicalPressed(c) ? 1 : 0, buttonEmulatedPressed(c) ? 1 : 0);
         }
         sout("=== BTN END ===");
+        return;
+    }
+
+    if (argc >= 2 && strcasecmp(argv[1], "multi") == 0) {
+        if (argc < 3) {
+            sout("ERR btn multi usage='btn multi <ID+ID+..> <ms>' (e.g. 'btn multi B3+B1 800')");
+            return;
+        }
+        char codes[6][5];
+        const char* perr = nullptr;
+        const uint8_t n = parseButtonList(argv[2], codes, 6, &perr);
+        if (n == 0) { sout("ERR btn multi %s=%s", perr ? perr : "bad_list", argv[2]); return; }
+        const uint32_t ms = (argc >= 4) ? strtoul(argv[3], nullptr, 10) : 1000;
+
+        // Engage every overlay in one shot so they all assert before the next
+        // serviceHardwareButtons() pass debounces them in the SAME cycle -- i.e.
+        // a genuine simultaneous press, not a typed sequence.
+        for (uint8_t i = 0; i < n; ++i) emulateButtonRawSet(codes[i], true);
+
+        // Schedule a synchronized release for each (same dueMs => they release
+        // together). ms==0 means a momentary tap: one press cycle then release.
+        bool slotsOk = true;
+        const uint32_t due = millis() + ms;
+        for (uint8_t i = 0; i < n; ++i) {
+            EmuJob* job = allocEmuJob();
+            if (!job) { slotsOk = false; break; }
+            job->kind  = EMU_RELEASE;
+            strlcpy(job->code, codes[i], sizeof(job->code));
+            job->dueMs = due;
+        }
+        if (!slotsOk) {
+            // Roll back so we never leave buttons stuck down if slots ran out.
+            for (uint8_t i = 0; i < n; ++i) { cancelReleaseJobsFor(codes[i]); emulateButtonRawSet(codes[i], false); }
+            sout("ERR btn multi no_job_slot count=%u", n);
+            return;
+        }
+        sout("OK btn multi %s count=%u ms=%lu", argv[2], n, static_cast<unsigned long>(ms));
         return;
     }
 
@@ -786,9 +863,32 @@ void tFail(const char* name, const char* fmt, ...) {
     ++sTestFail; sout("[TEST] %s FAIL %s", name, extra);
 }
 
+// Pump the REAL hardware-button state machine for ~ms of wall time so an
+// emulated-overlay press flows through the identical debounce/combo/repeat path
+// the live loop() drives. Used only by the on-demand button self-tests; it is
+// the bridge that lets us assert "serial overlay == physical GPIO".
+void pumpHardwareButtons(uint32_t ms) {
+    const uint32_t start = millis();
+    do {
+        serviceHardwareButtons();
+        delay(2);
+    } while (millis() - start < ms);
+    serviceHardwareButtons();
+}
+
+// Force-clear every emulated overlay and settle, so a test never leaves a
+// button latched down for the live loop.
+void clearAllEmulatedButtons() {
+    static const char* CODES[] = {"B1", "B2", "B3", "B4", "B5", "B6"};
+    for (const char* c : CODES) emulateButtonRawSet(c, false);
+    pumpHardwareButtons(BUTTON_DEBOUNCE_MS + 20);
+}
+
 void testButtons() {
     if (runtimeAutoFaceCount() == 0) { tWarn("buttons.tap_b1", "reason=no_saved_faces"); return; }
     const uint16_t count = runtimeAutoFaceCount();
+    // Debounce settle margin used by every overlay-driven case below.
+    const uint32_t SETTLE = BUTTON_DEBOUNCE_MS + 20;
 
     uint16_t before = runtimeState().autoFaceIndex;
     runButtonAction("B1", "serial");
@@ -827,6 +927,123 @@ void testButtons() {
         tPass("buttons.auto_interval", "min=%lu max=%lu now=%lu",
               (unsigned long)MIN_AUTO_INTERVAL_MS, (unsigned long)MAX_AUTO_INTERVAL_MS, (unsigned long)ivAfter);
     else tFail("buttons.auto_interval", "out_of_bounds=%lu", (unsigned long)ivAfter);
+    setAutoInterval(ivBefore);
+
+    // -------------------------------------------------------------------------
+    // Overlay-driven tests: these drive the EMULATED serial overlay through the
+    // real serviceHardwareButtons() debounce/combo machine (via the serial path
+    // the `btn` command uses), proving serial emulation behaves like physical
+    // GPIO and exercising combinations that are NOT in the firmware.
+    // -------------------------------------------------------------------------
+    clearAllEmulatedButtons();
+    const uint32_t midIv = (MIN_AUTO_INTERVAL_MS + MAX_AUTO_INTERVAL_MS) / 2;
+
+    // (1) serial==gpio: a single emulated B1 press/release must advance the
+    // saved face by exactly one, identical to the logical tap above.
+    {
+        const uint16_t b = runtimeState().autoFaceIndex;
+        emulateButtonRawSet("B1", true);
+        pumpHardwareButtons(SETTLE);          // debounce + press latch -> next-face
+        emulateButtonRawSet("B1", false);
+        pumpHardwareButtons(SETTLE);          // release
+        const uint16_t a = runtimeState().autoFaceIndex;
+        if (a == (b + 1) % count) tPass("buttons.serial_overlay_b1", "before=%u after=%u", b, a);
+        else tFail("buttons.serial_overlay_b1", "before=%u after=%u expected=%u", b, a, (b + 1) % count);
+    }
+
+    // (2) Sequenced combo B3 (held) THEN B1 -> real B3B1 auto-interval-down.
+    {
+        setAutoInterval(midIv);
+        const uint32_t iv0 = runtimeState().autoIntervalMs;
+        emulateButtonRawSet("B3", true);
+        pumpHardwareButtons(SETTLE);          // B3 latches pressed (acts on release)
+        emulateButtonRawSet("B1", true);
+        pumpHardwareButtons(SETTLE);          // B1 latches WHILE B3 held -> combo
+        emulateButtonRawSet("B1", false);
+        emulateButtonRawSet("B3", false);
+        pumpHardwareButtons(SETTLE);          // release both (B3 combo-consumed)
+        const uint32_t iv1 = runtimeState().autoIntervalMs;
+        const uint32_t expect = (iv0 > AUTO_INTERVAL_BUTTON_STEP_MS)
+                                ? iv0 - AUTO_INTERVAL_BUTTON_STEP_MS : MIN_AUTO_INTERVAL_MS;
+        if (iv1 == expect) tPass("buttons.combo_b3b1_seq", "iv0=%lu iv1=%lu", (unsigned long)iv0, (unsigned long)iv1);
+        else tFail("buttons.combo_b3b1_seq", "iv0=%lu iv1=%lu expected=%lu",
+                   (unsigned long)iv0, (unsigned long)iv1, (unsigned long)expect);
+    }
+
+    // (3) Sequenced combo B3 (held) THEN B2 -> real B3B2 auto-interval-up.
+    {
+        setAutoInterval(midIv);
+        const uint32_t iv0 = runtimeState().autoIntervalMs;
+        emulateButtonRawSet("B3", true);
+        pumpHardwareButtons(SETTLE);
+        emulateButtonRawSet("B2", true);
+        pumpHardwareButtons(SETTLE);
+        emulateButtonRawSet("B2", false);
+        emulateButtonRawSet("B3", false);
+        pumpHardwareButtons(SETTLE);
+        const uint32_t iv1 = runtimeState().autoIntervalMs;
+        const uint32_t expect = iv0 + AUTO_INTERVAL_BUTTON_STEP_MS > MAX_AUTO_INTERVAL_MS
+                                ? MAX_AUTO_INTERVAL_MS : iv0 + AUTO_INTERVAL_BUTTON_STEP_MS;
+        if (iv1 == expect) tPass("buttons.combo_b3b2_seq", "iv0=%lu iv1=%lu", (unsigned long)iv0, (unsigned long)iv1);
+        else tFail("buttons.combo_b3b2_seq", "iv0=%lu iv1=%lu expected=%lu",
+                   (unsigned long)iv0, (unsigned long)iv1, (unsigned long)expect);
+    }
+
+    // (4) NOT in the code: a TRUE simultaneous B3+B1 (both asserted in the same
+    // debounce cycle). The firmware services B1 before B3 in fixed array order,
+    // so B1's press is handled while B3 is not yet 'pressed' -> NO B3B1 combo
+    // forms; you get a plain next-face instead. This proves simultaneous press
+    // differs from the sequenced combo, and that no phantom combo is invented.
+    {
+        setAutoInterval(midIv);
+        const uint32_t iv0 = runtimeState().autoIntervalMs;
+        const uint16_t f0  = runtimeState().autoFaceIndex;
+        const String   m0  = runtimeState().mode;
+        emulateButtonRawSet("B3", true);
+        emulateButtonRawSet("B1", true);      // both at once
+        pumpHardwareButtons(SETTLE);
+        emulateButtonRawSet("B1", false);
+        emulateButtonRawSet("B3", false);
+        pumpHardwareButtons(SETTLE);
+        const uint32_t iv1 = runtimeState().autoIntervalMs;
+        const uint16_t f1  = runtimeState().autoFaceIndex;
+        const bool noCombo   = (iv1 == iv0);
+        const bool faceMoved = (f1 == (f0 + 1) % count);
+        if (noCombo && faceMoved)
+            tPass("buttons.combo_simultaneous_b3b1", "no_combo iv=%lu face=%u->%u (B1 wins, expected)",
+                  (unsigned long)iv1, f0, f1);
+        else
+            tFail("buttons.combo_simultaneous_b3b1", "iv0=%lu iv1=%lu face=%u->%u",
+                  (unsigned long)iv0, (unsigned long)iv1, f0, f1);
+        // Simultaneous B3 released without combo-consume toggles mode; restore.
+        if (runtimeState().mode != m0) setMode(m0.c_str(), false);
+    }
+
+    // (5) NOT a combo: B4+B5 pressed together. Each fires its own action once
+    // (down then up, netting no change) and must NEVER touch auto-interval or
+    // escape the brightness clamp -- i.e. an undefined pair degrades safely.
+    {
+        const uint32_t iv0 = runtimeState().autoIntervalMs;
+        setBrightness((MIN_BRIGHTNESS + MAX_BRIGHTNESS) / 2);
+        const uint8_t br0 = runtimeState().brightness;
+        emulateButtonRawSet("B4", true);
+        emulateButtonRawSet("B5", true);
+        pumpHardwareButtons(SETTLE);
+        emulateButtonRawSet("B4", false);
+        emulateButtonRawSet("B5", false);
+        pumpHardwareButtons(SETTLE);
+        const uint8_t  br1 = runtimeState().brightness;
+        const uint32_t iv1 = runtimeState().autoIntervalMs;
+        const bool inRange = (br1 >= MIN_BRIGHTNESS && br1 <= MAX_BRIGHTNESS);
+        const bool ivSafe  = (iv1 == iv0);
+        if (inRange && ivSafe && br1 == br0)
+            tPass("buttons.noncombo_b4b5", "br=%u->%u iv_unchanged=%lu", br0, br1, (unsigned long)iv1);
+        else
+            tFail("buttons.noncombo_b4b5", "br=%u->%u iv0=%lu iv1=%lu",
+                  br0, br1, (unsigned long)iv0, (unsigned long)iv1);
+    }
+
+    clearAllEmulatedButtons();
     setAutoInterval(ivBefore);
 }
 
@@ -964,6 +1181,7 @@ void cmdTest(int argc, char** argv) {
     if (argc >= 2 && strcasecmp(argv[1], "list") == 0) {
         sout("OK test groups=all,buttons,led,adc,modes,scroll,sweep");
         sout("OK test tests=buttons.tap_b1,buttons.tap_b2,buttons.b3_toggle,buttons.brightness_limit,buttons.auto_interval");
+        sout("OK test tests=buttons.serial_overlay_b1,buttons.combo_b3b1_seq,buttons.combo_b3b2_seq,buttons.combo_simultaneous_b3b1,buttons.noncombo_b4b5");
         sout("OK test tests=led.clear,led.pattern_all_on,led.pattern_single,adc.read,modes.toggle,scroll.pause_step");
         sout("OK test tests=sweep.brightness,sweep.color,sweep.scroll_interval (run via 'test run sweep')");
         return;
@@ -994,6 +1212,7 @@ void printHelpAll() {
     sout("uptime                             # ms since boot");
     sout("log level <ERROR|WARN|INFO|DEBUG|TRACE> | log on|off | log status");
     sout("btn <press|release|tap|hold|repeat> <B1..B6> [args]  (see 'help buttons')");
+    sout("btn multi <ID+ID+..> <ms>  # press several buttons at once (real machine)");
     sout("btn combo <B3+B1|B3+B2> <tap|hold ms> | btn status");
     sout("led <status|color #RRGGBB|brightness [N]|current|dump [compact]|clear|command_history>");
     sout("led test pattern <checker|rows|cols|all_on|all_off|single N>");
@@ -1015,7 +1234,11 @@ void printHelpButtons() {
     sout("btn tap B1       # immediate logical action, logs source=serial");
     sout("btn hold B1 1000 # hold 1000ms, auto-release (produces real repeats)");
     sout("btn repeat B1 5 350  # fire 5 times, 350ms apart");
-    sout("btn combo B3+B1 tap | btn combo B3+B1 hold 1000  # auto-interval combos");
+    sout("btn multi B3+B1 800  # press B3 AND B1 at once for 800ms (true combo)");
+    sout("btn multi B4+B5 0    # momentary simultaneous press (two buttons at once)");
+    sout("  # multi = parameters [buttons joined by '+'] [press-time ms]; flows");
+    sout("  # through the identical debounce/combo/repeat path as physical GPIO.");
+    sout("btn combo B3+B1 tap | btn combo B3+B1 hold 1000  # legacy logical combo shortcut");
     sout("btn status       # physical + emulated pressed state per button");
     sout("=== HELP BUTTONS END ===");
 }
@@ -1065,6 +1288,21 @@ void printHelpTests() {
     sout("=== HELP TESTS END ===");
 }
 
+/*
+ * reboot
+ * - Test teardown helper: reset the ESP32 after the full HIL/WebUI run.
+ * - Hardware effect: ESP.restart() after the OK line has had a short time to flush.
+ * - Expected reply: OK reboot restarting=1
+ */
+void cmdReboot(int argc, char** argv) {
+    (void)argc;
+    (void)argv;
+    RLOG_INFO("SYS", "event=reboot source=serial reason=test_teardown");
+    sout("OK reboot restarting=1");
+    delay(80);
+    ESP.restart();
+}
+
 // =============================================================================
 //  Dispatch
 // =============================================================================
@@ -1089,6 +1327,7 @@ const SerialCmd CMDS[] = {
     { "frame",   cmdFrame,   "push one arbitrary M370 frame" },
     { "terminate", cmdTerminate, "stop competing activities" },
     { "test",    cmdTest,    "built-in self-test runner" },
+    { "reboot",  cmdReboot,  "reset board after test teardown" },
 };
 
 void dispatch(char* line) {

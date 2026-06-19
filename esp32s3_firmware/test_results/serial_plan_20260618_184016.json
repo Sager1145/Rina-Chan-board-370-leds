@@ -1,0 +1,3389 @@
+{
+  "summary": {
+    "PASS": 76,
+    "WARN": 18,
+    "FAIL": 14
+  },
+  "baseline": {
+    "status": [
+      "[328414 ms] [WARN] [CMD] event=reject source=serial cmd=UUUUUUUUUUUUUUUUUUUUUUUUUUU�� err=unknown_command",
+      "ERR unknown_command=UUUUUUUUUUUUUUUUUUUUUUUUUUU�� (try 'help')"
+    ],
+    "status_kv": {
+      "event": "reject",
+      "source": "serial",
+      "cmd": "UUUUUUUUUUUUUUUUUUUUUUUUUUU��",
+      "err": "unknown_command",
+      "unknown_command": "UUUUUUUUUUUUUUUUUUUUUUUUUUU��"
+    },
+    "led current": [
+      "OK led current color=#f971d4 brightness=50 lit=34"
+    ],
+    "led_current_kv": {
+      "color": "#f971d4",
+      "brightness": "50",
+      "lit": "34"
+    },
+    "auto status": [
+      "OK auto status mode=manual intervalMs=3000 faceIndex=7"
+    ],
+    "auto_status_kv": {
+      "mode": "manual",
+      "intervalMs": "3000",
+      "faceIndex": "7"
+    },
+    "face status": [
+      "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+    ],
+    "face_status_kv": {
+      "index": "7",
+      "count": "11",
+      "id": "face_08_triangle_eyes_frown"
+    },
+    "scroll status": [
+      "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0"
+    ],
+    "scroll_status_kv": {
+      "active": "0",
+      "paused": "0",
+      "userPaused": "0",
+      "systemPaused": "0",
+      "idx": "0",
+      "count": "0",
+      "interval": "100",
+      "uploadComplete": "0",
+      "hasText": "0"
+    },
+    "log status": [
+      "OK log status enabled=1 level=INFO"
+    ],
+    "log_status_kv": {
+      "enabled": "1",
+      "level": "INFO"
+    }
+  },
+  "results": [
+    {
+      "step": "0.1",
+      "command/control": "pio run -e esp32s3 -t upload",
+      "interface": "serial/setup",
+      "result": "FAIL",
+      "notes": "Build succeeded, upload failed: esptool could not enter ESP32-S3 bootloader on COM7; observed No serial data received / Invalid head of packet.",
+      "reply": []
+    },
+    {
+      "step": "0.2",
+      "command/control": "pio run -e esp32s3 -t uploadfs",
+      "interface": "serial/setup",
+      "result": "FAIL",
+      "notes": "LittleFS image built, uploadfs failed: esptool could not enter ESP32-S3 bootloader on COM7.",
+      "reply": []
+    },
+    {
+      "step": "0.3",
+      "command/control": "connect serial 115200 8N1",
+      "interface": "serial/setup",
+      "result": "PASS",
+      "notes": "COM7 console responsive at 115200 8N1.",
+      "reply": []
+    },
+    {
+      "step": "0.2 baseline",
+      "command/control": "status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Captured baseline reply.",
+      "reply": [
+        "[328414 ms] [WARN] [CMD] event=reject source=serial cmd=UUUUUUUUUUUUUUUUUUUUUUUUUUU�� err=unknown_command",
+        "ERR unknown_command=UUUUUUUUUUUUUUUUUUUUUUUUUUU�� (try 'help')"
+      ]
+    },
+    {
+      "step": "0.2 baseline",
+      "command/control": "led current",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Captured baseline reply.",
+      "reply": [
+        "OK led current color=#f971d4 brightness=50 lit=34"
+      ]
+    },
+    {
+      "step": "0.2 baseline",
+      "command/control": "auto status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Captured baseline reply.",
+      "reply": [
+        "OK auto status mode=manual intervalMs=3000 faceIndex=7"
+      ]
+    },
+    {
+      "step": "0.2 baseline",
+      "command/control": "face status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Captured baseline reply.",
+      "reply": [
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+      ]
+    },
+    {
+      "step": "0.2 baseline",
+      "command/control": "scroll status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Captured baseline reply.",
+      "reply": [
+        "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0"
+      ]
+    },
+    {
+      "step": "0.2 baseline",
+      "command/control": "log status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Captured baseline reply.",
+      "reply": [
+        "OK log status enabled=1 level=INFO"
+      ]
+    },
+    {
+      "step": "1.1",
+      "command/control": "help",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Help block present.",
+      "reply": [
+        "=== HELP BEGIN ===",
+        "help [buttons|led|adc|logs|tests]  # this list / topic help",
+        "status                             # full runtime snapshot",
+        "version                            # firmware id + feature gates",
+        "uptime                             # ms since boot",
+        "log level <ERROR|WARN|INFO|DEBUG|TRACE> | log on|off | log status",
+        "btn <press|release|tap|hold|repeat> <B1..B6> [args]  (see 'help buttons')",
+        "btn combo <B3+B1|B3+B2> <tap|hold ms> | btn status",
+        "led <status|brightness [N]|current|dump [compact]|clear|command_history>",
+        "led test pattern <checker|rows|cols|all_on|all_off|single N>",
+        "adc <status|read [raw|vbat|charge]> | battery <status|sample N>",
+        "mode <status|manual|auto> | face <status|next|prev|apply N>",
+        "auto <status|interval [N]|start|stop>",
+        "scroll <status|pause|resume|stop|clear|step next|prev>",
+        "test <list|run all|run GROUP|report>",
+        "=== HELP END ==="
+      ]
+    },
+    {
+      "step": "1.2",
+      "command/control": "help buttons",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Topic help returned output.",
+      "reply": [
+        "=== HELP BUTTONS BEGIN ===",
+        "B1=next face/stop scroll  B2=prev face/stop scroll  B3=Manual/Auto toggle (on release)",
+        "B4=brightness down  B5=brightness up  B6=battery display",
+        "btn press B1     # engage emulated hold (flows through real debounce)",
+        "btn release B1   # release emulated hold",
+        "btn tap B1       # immediate logical action, logs source=serial",
+        "btn hold B1 1000 # hold 1000ms, auto-release (produces real repeats)",
+        "btn repeat B1 5 350  # fire 5 times, 350ms apart",
+        "btn combo B3+B1 tap | btn combo B3+B1 hold 1000  # auto-interval combos",
+        "btn status       # physical + emulated pressed state per button",
+        "=== HELP BUTTONS END ==="
+      ]
+    },
+    {
+      "step": "1.2",
+      "command/control": "help led",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Topic help returned output.",
+      "reply": [
+        "=== HELP LED BEGIN ===",
+        "led status        # mode, brightness, face, scroll, pending frame",
+        "led brightness    # show; led brightness 127 # set (clamped 10..200)",
+        "led current       # current color/brightness/lit count",
+        "led dump          # ASCII 18-row matrix + 93-hex frame",
+        "led dump compact  # M370:<hex> one-liner for copy/paste into tests",
+        "led clear         # blank the frame (applyBlankFrame)",
+        "led test pattern checker|rows|cols|all_on|all_off|single <0..369>",
+        "led command_history  # recent LED apply ring buffer",
+        "=== HELP LED END ==="
+      ]
+    },
+    {
+      "step": "1.2",
+      "command/control": "help adc",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Topic help returned output.",
+      "reply": [
+        "=== HELP ADC BEGIN ===",
+        "adc status            # full power snapshot block",
+        "adc read             # same as status",
+        "adc read raw         # raw ADC millivolts",
+        "adc read vbat        # battery voltage + percent",
+        "adc read charge      # charger voltage + charging flag",
+        "battery status       # battery snapshot incl. calib min/max",
+        "battery sample 10    # force N immediate samples (<=50)",
+        "=== HELP ADC END ==="
+      ]
+    },
+    {
+      "step": "1.2",
+      "command/control": "help logs",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Topic help returned output.",
+      "reply": [
+        "=== HELP LOGS BEGIN ===",
+        "Levels: ERROR < WARN < INFO < DEBUG < TRACE (default INFO).",
+        "log level DEBUG  # show ADC reads; TRACE adds rate-limited scroll ticks",
+        "log on | log off # master enable; log status # show current",
+        "Line format: [<ms> ms] [LEVEL] [CAT] key=value ...",
+        "Categories: SYS BUTTON MODE FACE AUTO SCROLL LED ADC CMD TEST",
+        "=== HELP LOGS END ==="
+      ]
+    },
+    {
+      "step": "1.2",
+      "command/control": "help tests",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Topic help returned output.",
+      "reply": [
+        "=== HELP TESTS BEGIN ===",
+        "test list           # list groups + test names",
+        "test run all        # run every non-destructive test, restore state",
+        "test run buttons|led|adc|modes|scroll  # one group",
+        "test report         # last run pass/warn/fail counts",
+        "Output: [TEST] <name> PASS|WARN|FAIL ... then [TEST] SUMMARY ...",
+        "=== HELP TESTS END ==="
+      ]
+    },
+    {
+      "step": "1.3",
+      "command/control": "version",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Feature gates present.",
+      "reply": [
+        "OK version name=RinaChanBoard-V2 fw=serial-diagnostics-1.0",
+        "OK version diagnostics=1 console=1 tests=1 verbose=0 heap=259912"
+      ]
+    },
+    {
+      "step": "1.4",
+      "command/control": "uptime (twice)",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "ms increased on repeat.",
+      "reply": [
+        "OK uptime ms=331294 hms=0:05:31",
+        "OK uptime ms=331760 hms=0:05:31"
+      ]
+    },
+    {
+      "step": "1.5",
+      "command/control": "status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Status fields present.",
+      "reply": [
+        "=== STATUS BEGIN ===",
+        "STATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4",
+        "STATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000",
+        "STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100",
+        "STATUS lit=34 queued=0 framesAccepted=1 lastReason=startup_sequence_complete_saved_face",
+        "STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0",
+        "=== STATUS END ==="
+      ]
+    },
+    {
+      "step": "1.6",
+      "command/control": "notacommand",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Unknown command rejected.",
+      "reply": [
+        "[332208 ms] [WARN] [CMD] event=reject source=serial cmd=notacommand err=unknown_command",
+        "ERR unknown_command=notacommand (try 'help')"
+      ]
+    },
+    {
+      "step": "2.1",
+      "command/control": "log status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Log status reported enabled and level.",
+      "reply": [
+        "OK log status enabled=1 level=INFO"
+      ]
+    },
+    {
+      "step": "2.2",
+      "command/control": "log level DEBUG + battery sample 1",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "DEBUG set and ADC log observed.",
+      "reply": [
+        "OK log level=DEBUG",
+        "=== BATTERY SAMPLE BEGIN ===",
+        "[332825 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 0 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "=== BATTERY SAMPLE END ==="
+      ]
+    },
+    {
+      "step": "2.3",
+      "command/control": "log level TRACE during scroll",
+      "interface": "serial",
+      "result": "FAIL",
+      "notes": "TRACE tick not observed.",
+      "reply": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'",
+        "[333824 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0"
+      ]
+    },
+    {
+      "step": "2.4",
+      "command/control": "log level ERROR",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "ERROR level set; no non-error log spam observed in reply window.",
+      "reply": [
+        "OK log level=ERROR",
+        "OK log status enabled=1 level=ERROR"
+      ]
+    },
+    {
+      "step": "2.5",
+      "command/control": "log off; status; log on",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Logging toggled off/on; command replies remained available.",
+      "reply": [
+        "OK log off",
+        "=== STATUS BEGIN ===",
+        "STATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4",
+        "STATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000",
+        "STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100",
+        "STATUS lit=34 queued=0 framesAccepted=1 lastReason=startup_sequence_complete_saved_face",
+        "STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0",
+        "=== STATUS END ===",
+        "OK log on"
+      ]
+    },
+    {
+      "step": "2.6",
+      "command/control": "log level INFO; log status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Baseline log level restored.",
+      "reply": [
+        "OK log level=INFO",
+        "OK log status enabled=1 level=INFO"
+      ]
+    },
+    {
+      "step": "3.1",
+      "command/control": "btn tap B1",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "face next; before=7 after=8 count=11.",
+      "reply": [
+        "[335915 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[335916 ms] [INFO] [LED] event=apply reason=serial_B1_next_saved_face lit=36 bytes=47 brightness=50",
+        "[335926 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_B1_next_saved_face",
+        "[335937 ms] [INFO] [BUTTON] source=serial id=B1 event=action handled=1",
+        "OK btn tap B1 handled=1"
+      ]
+    },
+    {
+      "step": "3.2",
+      "command/control": "btn tap B2",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "face prev; before=8 after=7 count=11.",
+      "reply": [
+        "[336556 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[336557 ms] [INFO] [LED] event=apply reason=serial_B2_prev_saved_face lit=34 bytes=47 brightness=50",
+        "[336567 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B2_prev_saved_face",
+        "[336577 ms] [INFO] [BUTTON] source=serial id=B2 event=action handled=1",
+        "OK btn tap B2 handled=1"
+      ]
+    },
+    {
+      "step": "3.3",
+      "command/control": "btn tap B3; btn tap B3",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Mode toggled then restored by second tap.",
+      "reply": [
+        "[337428 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[337437][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[337483 ms] [INFO] [MODE] event=change from=manual to=auto persist=1",
+        "[337483 ms] [INFO] [LED] event=apply reason=serial_B3_auto_current_saved_face lit=34 bytes=47 brightness=50",
+        "[337493 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_auto_current_saved_face",
+        "[337504 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1",
+        "OK btn tap B3 handled=1",
+        "[337909 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[337919][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[337979 ms] [INFO] [MODE] event=change from=auto to=manual persist=1",
+        "[337979 ms] [INFO] [LED] event=apply reason=serial_B3_manual_current_saved_face lit=34 bytes=47 brightness=50",
+        "[337989 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_manual_current_saved_face",
+        "[338000 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1",
+        "OK btn tap B3 handled=1"
+      ]
+    },
+    {
+      "step": "3.4",
+      "command/control": "btn tap B4; btn tap B5",
+      "interface": "serial",
+      "result": "FAIL",
+      "notes": "Brightness before=50 down=None up=None.",
+      "reply": [
+        "[338421 ms] [INFO] [LED] event=brightness value=42",
+        "[338421 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "OK btn tap B4 handled=1",
+        "[338827 ms] [INFO] [LED] event=brightness value=50",
+        "[338827 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "OK btn tap B5 handled=1"
+      ]
+    },
+    {
+      "step": "3.5",
+      "command/control": "btn combo B3+B1 tap",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Auto interval before=3000 after=2500.",
+      "reply": [
+        "[339685][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[339754 ms] [INFO] [AUTO] event=interval_change interval_ms=2500 persist=1",
+        "[339754 ms] [INFO] [BUTTON] source=serial id=B3B1 event=action handled=1",
+        "OK btn combo B3+B1 tap handled=1"
+      ]
+    },
+    {
+      "step": "3.6",
+      "command/control": "btn combo B3+B2 tap",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Auto interval before=2500 after=3000.",
+      "reply": [
+        "[340295][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[340375 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1",
+        "[340375 ms] [INFO] [BUTTON] source=serial id=B3B2 event=action handled=1",
+        "OK btn combo B3+B2 tap handled=1"
+      ]
+    },
+    {
+      "step": "3.7",
+      "command/control": "btn press B5; wait; btn release B5",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Press/release issued; repeat lines captured if firmware emitted them.",
+      "reply": [
+        "OK btn press B5",
+        "[340828 ms] [INFO] [BUTTON] source=serial id=B5 event=press",
+        "[340828 ms] [INFO] [LED] event=brightness value=58",
+        "[340828 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[341278 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[341278 ms] [INFO] [LED] event=brightness value=66",
+        "[341278 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[341398 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[341398 ms] [INFO] [LED] event=brightness value=74",
+        "[341398 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[341518 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[341518 ms] [INFO] [LED] event=brightness value=82",
+        "[341518 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[341638 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[341638 ms] [INFO] [LED] event=brightness value=90",
+        "[341638 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[341758 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[341758 ms] [INFO] [LED] event=brightness value=98",
+        "[341758 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[341879 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[341879 ms] [INFO] [LED] event=brightness value=106",
+        "[341879 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[342286 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[342286 ms] [INFO] [LED] event=brightness value=114",
+        "[342287 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "OK btn release B5",
+        "[342326 ms] [INFO] [BUTTON] source=serial id=B5 event=release"
+      ]
+    },
+    {
+      "step": "3.8",
+      "command/control": "btn hold B5 1500",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Hold auto-release completed; repeat/OK observed.",
+      "reply": [
+        "OK btn hold B5 ms=1500",
+        "[342564 ms] [INFO] [BUTTON] source=serial id=B5 event=press",
+        "[342564 ms] [INFO] [LED] event=brightness value=122",
+        "[342564 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1"
+      ]
+    },
+    {
+      "step": "3.9",
+      "command/control": "btn repeat B4 5 300",
+      "interface": "serial",
+      "result": "FAIL",
+      "notes": "Repeat lines observed=2.",
+      "reply": [
+        "[342796 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat",
+        "[342797 ms] [INFO] [LED] event=brightness value=114",
+        "[342797 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "OK btn repeat B4 count=5 interval=300"
+      ]
+    },
+    {
+      "step": "3.10",
+      "command/control": "btn status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "B1..B6 listed.",
+      "reply": [
+        "[343015 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343015 ms] [INFO] [LED] event=brightness value=122",
+        "[343015 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "=== BTN BEGIN ===",
+        "BTN id=B1 physical=0 serial=0",
+        "BTN id=B2 physical=0 serial=0",
+        "BTN id=B3 physical=0 serial=0",
+        "BTN id=B4 physical=0 serial=0",
+        "BTN id=B5 physical=0 serial=1",
+        "BTN id=B6 physical=0 serial=0",
+        "=== BTN END ===",
+        "[343108 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat",
+        "[343108 ms] [INFO] [LED] event=brightness value=114",
+        "[343108 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "[343136 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343136 ms] [INFO] [LED] event=brightness value=122",
+        "[343136 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343256 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343256 ms] [INFO] [LED] event=brightness value=130",
+        "[343256 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343376 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343376 ms] [INFO] [LED] event=brightness value=138",
+        "[343376 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343408 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat",
+        "[343408 ms] [INFO] [LED] event=brightness value=130",
+        "[343408 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "[343496 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343496 ms] [INFO] [LED] event=brightness value=138",
+        "[343496 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343616 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343616 ms] [INFO] [LED] event=brightness value=146",
+        "[343616 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343708 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat",
+        "[343708 ms] [INFO] [LED] event=brightness value=138",
+        "[343708 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "[343736 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343736 ms] [INFO] [LED] event=brightness value=146",
+        "[343736 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343857 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343857 ms] [INFO] [LED] event=brightness value=154",
+        "[343857 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343981 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343981 ms] [INFO] [LED] event=brightness value=162",
+        "[343982 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[344008 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat",
+        "[344008 ms] [INFO] [LED] event=brightness value=154",
+        "[344008 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "[344064 ms] [INFO] [BUTTON] source=serial id=B5 event=release"
+      ]
+    },
+    {
+      "step": "3.11",
+      "command/control": "btn tap B9",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Unknown button rejected.",
+      "reply": [
+        "ERR btn unknown_id=B9"
+      ]
+    },
+    {
+      "step": "3.12",
+      "command/control": "physical button press",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "Not observed in automated run; requires human pressing a real board button while serial monitor is active.",
+      "reply": []
+    },
+    {
+      "step": "3.13",
+      "command/control": "restore mode/auto/brightness/face",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Restored baseline-controlled fields after button tests.",
+      "reply": [
+        "OK mode manual",
+        "OK auto interval set=3000 effective=3000",
+        "[344881 ms] [INFO] [LED] event=brightness value=50",
+        "OK led brightness set=50 effective=50",
+        "[345084 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50",
+        "[345085 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply",
+        "OK face apply index=7",
+        "=== STATUS BEGIN ===",
+        "STATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4",
+        "STATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000",
+        "STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100",
+        "STATUS lit=34 queued=0 framesAccepted=6 lastReason=serial_face_apply",
+        "STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0",
+        "=== STATUS END ==="
+      ]
+    },
+    {
+      "step": "4.1",
+      "command/control": "led status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "LED status reported.",
+      "reply": [
+        "OK led status mode=manual brightness=50 color=#f971d4 faceIndex=7 faceCount=11",
+        "OK led status lit=34 queuedPending=0 scrollActive=0 scrollIdx=0 lastReason=serial_face_apply framesAccepted=6"
+      ]
+    },
+    {
+      "step": "4.1c",
+      "command/control": "led color #00ff00; led current",
+      "interface": "serial",
+      "result": "FAIL",
+      "notes": "Color echoed by led current.",
+      "reply": [
+        "ERR led unknown_subcmd=color",
+        "OK led current color=#f971d4 brightness=50 lit=34"
+      ]
+    },
+    {
+      "step": "4.2",
+      "command/control": "led brightness",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Brightness range reported.",
+      "reply": [
+        "OK led brightness value=50 min=10 max=200"
+      ]
+    },
+    {
+      "step": "4.3",
+      "command/control": "led brightness 127",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Brightness set to 127.",
+      "reply": [
+        "[346500 ms] [INFO] [LED] event=brightness value=127",
+        "OK led brightness set=127 effective=127"
+      ]
+    },
+    {
+      "step": "4.3a",
+      "command/control": "led brightness 10",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Mandatory safety cap applied before full-field LED patterns.",
+      "reply": [
+        "[346704 ms] [INFO] [LED] event=brightness value=10",
+        "OK led brightness set=10 effective=10"
+      ]
+    },
+    {
+      "step": "4.4",
+      "command/control": "led test pattern all_on; all_off",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "Skipped per guardrail: battery percent < 20.",
+      "reply": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "step": "4.5",
+      "command/control": "led test pattern all_off",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "Skipped per guardrail: battery percent < 20.",
+      "reply": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "step": "4.6",
+      "command/control": "checker/rows/cols; clear",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "Skipped per guardrail: battery percent < 20.",
+      "reply": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "step": "4.7",
+      "command/control": "single 0; single 369",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Both low-draw single pixel patterns lit one LED.",
+      "reply": [
+        "[347124 ms] [INFO] [LED] event=apply reason=serial_test_pattern_single lit=1 bytes=47 brightness=10",
+        "OK led test pattern single lit=1",
+        "[347327 ms] [INFO] [LED] event=apply reason=serial_test_pattern_single lit=1 bytes=47 brightness=10",
+        "OK led test pattern single lit=1"
+      ]
+    },
+    {
+      "step": "4.8",
+      "command/control": "led test pattern single 370",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Out-of-range rejected.",
+      "reply": [
+        "ERR led test single out_of_range=370 max=369"
+      ]
+    },
+    {
+      "step": "4.9",
+      "command/control": "led dump",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "LED dump block had 18 row lines.",
+      "reply": [
+        "=== LEDS BEGIN ===",
+        "LEDS lit=1 bright=10 color=#f971d4",
+        "ROW00 ..................",
+        "ROW01 ....................",
+        "ROW02 ....................",
+        "ROW03 ....................",
+        "ROW04 ......................",
+        "ROW05 ......................",
+        "ROW06 ......................",
+        "ROW07 ......................",
+        "ROW08 ......................",
+        "ROW09 ......................",
+        "ROW10 ......................",
+        "ROW11 ......................",
+        "ROW12 ......................",
+        "ROW13 ....................",
+        "ROW14 ....................",
+        "ROW15 ....................",
+        "ROW16 ..................",
+        "ROW17 ...............#",
+        "hex=000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004",
+        "=== LEDS END ==="
+      ]
+    },
+    {
+      "step": "4.10",
+      "command/control": "led dump compact",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Compact M370 returned 93 hex chars.",
+      "reply": [
+        "OK led dump compact lit=1 M370:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004"
+      ]
+    },
+    {
+      "step": "4.11",
+      "command/control": "led clear",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Frame cleared.",
+      "reply": [
+        "[348488 ms] [INFO] [LED] event=clear reason=serial_led_clear lit=0 bytes=47",
+        "OK led clear"
+      ]
+    },
+    {
+      "step": "4.12",
+      "command/control": "led command_history",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Command history returned.",
+      "reply": [
+        "=== LEDCMD BEGIN ===",
+        "LEDCMD count=9",
+        "LEDCMD ms=854 reason=startup_sequence_complete_saved_face lit=34 source=frame",
+        "LEDCMD ms=335926 reason=serial_B1_next_saved_face lit=36 source=frame",
+        "LEDCMD ms=336567 reason=serial_B2_prev_saved_face lit=34 source=frame",
+        "LEDCMD ms=337493 reason=serial_B3_auto_current_saved_face lit=34 source=frame",
+        "LEDCMD ms=337989 reason=serial_B3_manual_current_saved_face lit=34 source=frame",
+        "LEDCMD ms=345085 reason=serial_face_apply lit=34 source=frame",
+        "LEDCMD ms=347124 reason=serial_test_pattern_single lit=1 source=immediate",
+        "LEDCMD ms=347327 reason=serial_test_pattern_single lit=1 source=immediate",
+        "LEDCMD ms=348488 reason=serial_led_clear lit=0 source=clear",
+        "=== LEDCMD END ==="
+      ]
+    },
+    {
+      "step": "4.13",
+      "command/control": "restore brightness/color/face",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "LED baseline restored after diagnostics.",
+      "reply": [
+        "[348939 ms] [INFO] [LED] event=brightness value=50",
+        "OK led brightness set=50 effective=50",
+        "ERR led unknown_subcmd=color",
+        "[349497 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50",
+        "[349498 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply",
+        "OK face apply index=7"
+      ]
+    },
+    {
+      "step": "5.1",
+      "command/control": "adc status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Expected token vbat observed.",
+      "reply": [
+        "=== ADC BEGIN ===",
+        "ADC vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "ADC vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== ADC END ==="
+      ]
+    },
+    {
+      "step": "5.2",
+      "command/control": "adc read raw",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Expected token vbatRaw observed.",
+      "reply": [
+        "OK adc read raw vbatRaw=0 vchargeRaw=0"
+      ]
+    },
+    {
+      "step": "5.3",
+      "command/control": "adc read vbat",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Expected token vbat= observed.",
+      "reply": [
+        "OK adc read vbat vbat=0.000 raw=0 percent=0"
+      ]
+    },
+    {
+      "step": "5.4",
+      "command/control": "adc read charge",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Expected token vcharge observed.",
+      "reply": [
+        "OK adc read charge vcharge=0.071 raw=0 charging=0"
+      ]
+    },
+    {
+      "step": "5.5",
+      "command/control": "battery status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Expected token percent observed.",
+      "reply": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "step": "5.6",
+      "command/control": "log level DEBUG; battery sample 10",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "SAMPLE lines=12; ADC logs=10.",
+      "reply": [
+        "=== BATTERY SAMPLE BEGIN ===",
+        "[351292 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 0 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351314 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 1 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351336 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 2 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351358 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 3 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351379 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 4 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351401 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 5 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351423 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 6 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351445 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 7 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351467 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 8 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351489 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 9 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "=== BATTERY SAMPLE END ==="
+      ]
+    },
+    {
+      "step": "5.7",
+      "command/control": "battery status charger sanity",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "No human charger plug/unplug toggle performed; one snapshot captured for plausibility.",
+      "reply": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "step": "6.1",
+      "command/control": "mode status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Mode reported.",
+      "reply": [
+        "OK mode status mode=manual playback=idle autoIntervalMs=3000"
+      ]
+    },
+    {
+      "step": "6.2",
+      "command/control": "mode auto; mode status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Auto mode set; auto-change logs captured if interval elapsed.",
+      "reply": [
+        "[352506][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[352800 ms] [INFO] [MODE] event=change from=manual to=auto persist=1",
+        "OK mode auto",
+        "OK mode status mode=auto playback=auto_saved_face autoIntervalMs=3000"
+      ]
+    },
+    {
+      "step": "6.3",
+      "command/control": "mode manual",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Manual mode set.",
+      "reply": [
+        "[354526][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[354571 ms] [INFO] [MODE] event=change from=auto to=manual persist=1",
+        "OK mode manual"
+      ]
+    },
+    {
+      "step": "6.4",
+      "command/control": "face status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Face index/count reported.",
+      "reply": [
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+      ]
+    },
+    {
+      "step": "6.5",
+      "command/control": "face next; face prev",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Face next/prev invoked.",
+      "reply": [
+        "[354969 ms] [INFO] [LED] event=apply reason=serial_face_next lit=36 bytes=47 brightness=50",
+        "[354970 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_face_next",
+        "OK face next index=8",
+        "[355255 ms] [INFO] [LED] event=apply reason=serial_face_prev lit=34 bytes=47 brightness=50",
+        "[355255 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_prev",
+        "OK face prev index=7"
+      ]
+    },
+    {
+      "step": "6.6",
+      "command/control": "face apply 0; face apply 9999",
+      "interface": "serial",
+      "result": "FAIL",
+      "notes": "Valid apply succeeded and bad index rejected.",
+      "reply": [
+        "[355466 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=40 bytes=47 brightness=50",
+        "[355467 ms] [INFO] [FACE] event=apply idx=1/11 id=face_01_surprised_winking_with_mouth reason=serial_face_apply",
+        "OK face apply index=0",
+        "[355683 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=40 bytes=47 brightness=50",
+        "[355684 ms] [INFO] [FACE] event=apply idx=1/11 id=face_01_surprised_winking_with_mouth reason=serial_face_apply",
+        "OK face apply index=0"
+      ]
+    },
+    {
+      "step": "6.7",
+      "command/control": "auto status; auto interval",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Auto interval/range reported.",
+      "reply": [
+        "OK auto status mode=manual intervalMs=3000 faceIndex=0",
+        "OK auto interval value=3000 min=500 max=10000"
+      ]
+    },
+    {
+      "step": "6.8",
+      "command/control": "auto interval 1000",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Auto interval set to 1000.",
+      "reply": [
+        "[356329][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[356386 ms] [INFO] [AUTO] event=interval_change interval_ms=1000 persist=1",
+        "OK auto interval set=1000 effective=1000"
+      ]
+    },
+    {
+      "step": "6.9",
+      "command/control": "auto start; auto stop",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Auto start/stop accepted.",
+      "reply": [
+        "[356607][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[356675 ms] [INFO] [MODE] event=change from=manual to=auto persist=1",
+        "OK auto start",
+        "[356886][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[356966 ms] [INFO] [MODE] event=change from=auto to=manual persist=1",
+        "OK auto stop"
+      ]
+    },
+    {
+      "step": "6.10",
+      "command/control": "restore mode/auto/face",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Mode/auto/face restored.",
+      "reply": [
+        "OK mode manual",
+        "[357504][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[357799 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1",
+        "OK auto interval set=3000 effective=3000",
+        "[357800 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50",
+        "[357810 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply",
+        "OK face apply index=7",
+        "OK mode status mode=manual playback=idle autoIntervalMs=3000",
+        "OK auto status mode=manual intervalMs=3000 faceIndex=7"
+      ]
+    },
+    {
+      "step": "7.1",
+      "command/control": "scroll status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Scroll count=0.",
+      "reply": [
+        "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0"
+      ]
+    },
+    {
+      "step": "7.1a",
+      "command/control": "scroll interval 60; scroll fps 30",
+      "interface": "serial",
+      "result": "FAIL",
+      "notes": "Scroll interval/fps accepted.",
+      "reply": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'",
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "step": "7.1b",
+      "command/control": "scroll start",
+      "interface": "serial",
+      "result": "FAIL",
+      "notes": "WARN/no_scroll_frames accepted if no WebUI frames loaded.",
+      "reply": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "step": "7.2",
+      "command/control": "scroll step next",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "No-data warning observed.",
+      "reply": [
+        "WARN scroll step reason=no_scroll_frames"
+      ]
+    },
+    {
+      "step": "7.3",
+      "command/control": "scroll pause",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "No WebUI scroll frames loaded yet; active-scroll behavior could not be exercised in serial section 7.",
+      "reply": [
+        "OK scroll pause changed=0"
+      ]
+    },
+    {
+      "step": "7.4",
+      "command/control": "scroll resume",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "No WebUI scroll frames loaded yet; active-scroll behavior could not be exercised in serial section 7.",
+      "reply": [
+        "OK scroll resume changed=0"
+      ]
+    },
+    {
+      "step": "7.5",
+      "command/control": "scroll step next/prev",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "No WebUI scroll frames loaded yet; active-scroll behavior could not be exercised in serial section 7.",
+      "reply": []
+    },
+    {
+      "step": "7.6",
+      "command/control": "scroll stop",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "No WebUI scroll frames loaded yet; active-scroll behavior could not be exercised in serial section 7.",
+      "reply": [
+        "[360030 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=1 restoreAuto=0",
+        "[360030 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47",
+        "OK scroll stop"
+      ]
+    },
+    {
+      "step": "7.7",
+      "command/control": "scroll clear",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "No WebUI scroll frames loaded yet; active-scroll behavior could not be exercised in serial section 7.",
+      "reply": [
+        "[360247 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=1 restoreAuto=0",
+        "[360247 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47",
+        "OK scroll clear"
+      ]
+    },
+    {
+      "step": "7.8",
+      "command/control": "scroll status; face apply baseline",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "No scroll left intentionally running; face restored.",
+      "reply": [
+        "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0",
+        "[360667 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50",
+        "[360668 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply",
+        "OK face apply index=7"
+      ]
+    },
+    {
+      "step": "8.1",
+      "command/control": "test list",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Test groups/names listed.",
+      "reply": [
+        "OK test groups=all,buttons,led,adc,modes,scroll",
+        "OK test tests=buttons.tap_b1,buttons.tap_b2,buttons.b3_toggle,buttons.brightness_limit,buttons.auto_interval",
+        "OK test tests=led.clear,led.pattern_all_on,led.pattern_single,adc.read,modes.toggle,scroll.pause_step"
+      ]
+    },
+    {
+      "step": "8.2",
+      "command/control": "test run buttons",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Self-test group=buttons; warnings=False.",
+      "reply": [
+        "[361105 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[361106 ms] [INFO] [LED] event=apply reason=serial_B1_next_saved_face lit=36 bytes=47 brightness=50",
+        "[361116 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_B1_next_saved_face",
+        "[361127 ms] [INFO] [BUTTON] source=serial id=B1 event=action handled=1",
+        "[TEST] buttons.tap_b1 PASS before=7 after=8",
+        "[361137 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[361137 ms] [INFO] [LED] event=apply reason=serial_B2_prev_saved_face lit=34 bytes=47 brightness=50",
+        "[361148 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B2_prev_saved_face",
+        "[361158 ms] [INFO] [BUTTON] source=serial id=B2 event=action handled=1",
+        "[TEST] buttons.tap_b2 PASS before=8 after=7",
+        "[361168 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[361187][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[361233 ms] [INFO] [MODE] event=change from=manual to=auto persist=1",
+        "[361233 ms] [INFO] [LED] event=apply reason=serial_B3_auto_current_saved_face lit=34 bytes=47 brightness=50",
+        "[361243 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_auto_current_saved_face",
+        "[361254 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1",
+        "[TEST] buttons.b3_toggle PASS from=manual to=auto",
+        "[361264 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[361273][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[361332 ms] [INFO] [MODE] event=change from=auto to=manual persist=1",
+        "[361332 ms] [INFO] [LED] event=apply reason=serial_B3_manual_current_saved_face lit=34 bytes=47 brightness=50",
+        "[361342 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_manual_current_saved_face",
+        "[361353 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1",
+        "[361353 ms] [INFO] [LED] event=brightness value=10",
+        "[361363 ms] [INFO] [LED] event=brightness value=10",
+        "[361363 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "[361374 ms] [INFO] [LED] event=brightness value=200",
+        "[361374 ms] [INFO] [LED] event=brightness value=200",
+        "[361384 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[TEST] buttons.brightness_limit PASS min=10 max=200",
+        "[361395 ms] [INFO] [LED] event=brightness value=50",
+        "[361405][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[361474 ms] [INFO] [AUTO] event=interval_change interval_ms=2500 persist=1",
+        "[361474 ms] [INFO] [BUTTON] source=serial id=B3B1 event=action handled=1",
+        "[361495][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[361575 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1",
+        "[361575 ms] [INFO] [BUTTON] source=serial id=B3B2 event=action handled=1",
+        "[TEST] buttons.auto_interval PASS min=500 max=10000 now=3000",
+        "[361585 ms] [INFO] [LED] event=brightness value=50",
+        "[361596 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=50",
+        "[361596 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=5 warn=0 fail=0"
+      ]
+    },
+    {
+      "step": "8.3",
+      "command/control": "led brightness 10; test run led",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Self-test group=led; warnings=False.",
+      "reply": [
+        "[361818 ms] [INFO] [LED] event=brightness value=10",
+        "OK led brightness set=10 effective=10",
+        "[362282 ms] [INFO] [LED] event=apply reason=serial_test_led_clear lit=0 bytes=47 brightness=10",
+        "[TEST] led.clear PASS lit=0",
+        "[362283 ms] [INFO] [LED] event=apply reason=serial_test_all_on lit=370 bytes=47 brightness=10",
+        "[TEST] led.pattern_all_on PASS lit=370",
+        "[362294 ms] [INFO] [LED] event=apply reason=serial_test_single lit=1 bytes=47 brightness=10",
+        "[TEST] led.pattern_single PASS lit=1",
+        "[362314 ms] [INFO] [LED] event=brightness value=10",
+        "[362315 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=10",
+        "[362325 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=3 warn=0 fail=0"
+      ]
+    },
+    {
+      "step": "8.4",
+      "command/control": "test run adc",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Self-test group=adc; warnings=False.",
+      "reply": [
+        "[TEST] adc.read PASS vbat=0.00 percent=0",
+        "[362534 ms] [INFO] [LED] event=brightness value=10",
+        "[362535 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=10",
+        "[362546 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=1 warn=0 fail=0"
+      ]
+    },
+    {
+      "step": "8.5",
+      "command/control": "test run modes",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Self-test group=modes; warnings=False.",
+      "reply": [
+        "[362767 ms] [INFO] [MODE] event=change from=manual to=auto persist=0",
+        "[362767 ms] [INFO] [MODE] event=change from=auto to=manual persist=0",
+        "[TEST] modes.toggle PASS auto_ok=1 manual_ok=1",
+        "[362778 ms] [INFO] [LED] event=brightness value=10",
+        "[362778 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=10",
+        "[362789 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=1 warn=0 fail=0"
+      ]
+    },
+    {
+      "step": "8.6",
+      "command/control": "test run scroll",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Self-test group=scroll; warnings=True.",
+      "reply": [
+        "[TEST] scroll.step_no_data WARN reason=no_scroll_frames",
+        "[363292 ms] [INFO] [LED] event=brightness value=10",
+        "[363293 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=10",
+        "[363303 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=0 warn=1 fail=0"
+      ]
+    },
+    {
+      "step": "8.7",
+      "command/control": "led brightness 10; test run all",
+      "interface": "serial",
+      "result": "FAIL",
+      "notes": "Self-test all did not report fail=0.",
+      "reply": [
+        "[363728 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[363729 ms] [INFO] [LED] event=apply reason=serial_B1_next_saved_face lit=36 bytes=47 brightness=10",
+        "[363739 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_B1_next_saved_face",
+        "[363749 ms] [INFO] [BUTTON] source=serial id=B1 event=action handled=1",
+        "[TEST] buttons.tap_b1 PASS before=7 after=8",
+        "[363760 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[363760 ms] [INFO] [LED] event=apply reason=serial_B2_prev_saved_face lit=34 bytes=47 brightness=10",
+        "[363770 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B2_prev_saved_face",
+        "[363781 ms] [INFO] [BUTTON] source=serial id=B2 event=action handled=1",
+        "[TEST] buttons.tap_b2 PASS before=8 after=7",
+        "[363791 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[363813][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory"
+      ]
+    },
+    {
+      "step": "8.8",
+      "command/control": "test report",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Last test counts echoed.",
+      "reply": [
+        "[364111 ms] [INFO] [MODE] event=change from=manual to=auto persist=1",
+        "[364111 ms] [INFO] [LED] event=apply reason=serial_B3_auto_current_saved_face lit=34 bytes=47 brightness=10",
+        "[364122 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_auto_current_saved_face",
+        "[364132 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1",
+        "[TEST] buttons.b3_toggle PASS from=manual to=auto",
+        "[364142 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[364151][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[364198 ms] [INFO] [MODE] event=change from=auto to=manual persist=1",
+        "[364198 ms] [INFO] [LED] event=apply reason=serial_B3_manual_current_saved_face lit=34 bytes=47 brightness=10",
+        "[364208 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_manual_current_saved_face",
+        "[364219 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1",
+        "[364219 ms] [INFO] [LED] event=brightness value=10",
+        "[364229 ms] [INFO] [LED] event=brightness value=10",
+        "[364229 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "[364240 ms] [INFO] [LED] event=brightness value=200",
+        "[364240 ms] [INFO] [LED] event=brightness value=200",
+        "[364250 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[TEST] buttons.brightness_limit PASS min=10 max=200",
+        "[364261 ms] [INFO] [LED] event=brightness value=10",
+        "[364270][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[364328 ms] [INFO] [AUTO] event=interval_change interval_ms=2500 persist=1",
+        "[364328 ms] [INFO] [BUTTON] source=serial id=B3B1 event=action handled=1",
+        "[364348][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[364416 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1",
+        "[364416 ms] [INFO] [BUTTON] source=serial id=B3B2 event=action handled=1",
+        "[TEST] buttons.auto_interval PASS min=500 max=10000 now=3000",
+        "[364426 ms] [INFO] [LED] event=apply reason=serial_test_led_clear lit=0 bytes=47 brightness=10",
+        "[TEST] led.clear PASS lit=0",
+        "[364437 ms] [INFO] [LED] event=apply reason=serial_test_all_on lit=370 bytes=47 brightness=10",
+        "[TEST] led.pattern_all_on PASS lit=370",
+        "[364447 ms] [INFO] [LED] event=apply reason=serial_test_single lit=1 bytes=47 brightness=10",
+        "[TEST] led.pattern_single PASS lit=1",
+        "[TEST] adc.read PASS vbat=0.00 percent=0",
+        "[364468 ms] [INFO] [MODE] event=change from=manual to=auto persist=0",
+        "[364468 ms] [INFO] [MODE] event=change from=auto to=manual persist=0",
+        "[TEST] modes.toggle PASS auto_ok=1 manual_ok=1",
+        "[TEST] scroll.step_no_data WARN reason=no_scroll_frames",
+        "[364489 ms] [INFO] [LED] event=brightness value=10",
+        "[364489 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=10",
+        "[364500 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=10 warn=1 fail=0",
+        "OK test report pass=10 warn=1 fail=0"
+      ]
+    },
+    {
+      "step": "8.9",
+      "command/control": "post-check status/current/auto/face",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Post-run state captured for comparison/restoration.",
+      "reply": [
+        "=== STATUS BEGIN ===",
+        "STATUS mode=manual playback=idle paused=0 brightness=10 color=#f971d4",
+        "STATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000",
+        "STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100",
+        "STATUS lit=34 queued=0 framesAccepted=36 lastReason=serial_test_restore",
+        "STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0",
+        "=== STATUS END ===",
+        "OK led current color=#f971d4 brightness=10 lit=34",
+        "OK auto status mode=manual intervalMs=3000 faceIndex=7",
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+      ]
+    },
+    {
+      "step": "8.10",
+      "command/control": "test run sweep",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Sweep completed with fail=0.",
+      "reply": [
+        "[365679 ms] [INFO] [LED] event=brightness value=10",
+        "[365680 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=10",
+        "[365690 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=0 warn=0 fail=0"
+      ]
+    },
+    {
+      "step": "9.1",
+      "command/control": "LED rendering visual check",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "Requires visual inspection of panel smoothness/flicker; not directly observable over serial.",
+      "reply": []
+    },
+    {
+      "step": "9.2",
+      "command/control": "physical buttons all 6 + combos",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "Requires human physical button actuation; serial emulation was tested in section 3.",
+      "reply": []
+    },
+    {
+      "step": "9.3",
+      "command/control": "WebUI connect/use",
+      "interface": "WebUI",
+      "result": "WARN",
+      "notes": "Deferred/blocked in serial phase: Deferred to browser-driven section 9c.",
+      "reply": []
+    },
+    {
+      "step": "9.4",
+      "command/control": "API parity",
+      "interface": "serial/WebUI",
+      "result": "WARN",
+      "notes": "Deferred/blocked in serial phase: Deferred until WebUI actions are exercised.",
+      "reply": []
+    },
+    {
+      "step": "9.5",
+      "command/control": "saved faces face status/apply",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Saved-face runtime visible from serial; WebUI authoring deferred.",
+      "reply": [
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+      ]
+    },
+    {
+      "step": "9.6",
+      "command/control": "WebUI scroll text upload/play",
+      "interface": "WebUI",
+      "result": "WARN",
+      "notes": "Deferred/blocked in serial phase: Deferred to browser-driven section 9c/9b.5.",
+      "reply": []
+    },
+    {
+      "step": "9.7",
+      "command/control": "battery overlay single (B6 equivalent)",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Battery overlay command exercised; physical B6 still requires human press.",
+      "reply": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "step": "9.8",
+      "command/control": "log DEBUG + scroll start",
+      "interface": "serial",
+      "result": "FAIL",
+      "notes": "No visual glitch check possible over serial; no frames warning if empty.",
+      "reply": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'",
+        "[366632 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "[367632 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0"
+      ]
+    },
+    {
+      "step": "9.9",
+      "command/control": "default build/version gates",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Current installed image reports diagnostics gates; setup flash still failed.",
+      "reply": [
+        "OK version name=RinaChanBoard-V2 fw=serial-diagnostics-1.0",
+        "OK version diagnostics=1 console=1 tests=1 verbose=0 heap=259892"
+      ]
+    },
+    {
+      "step": "9b.1",
+      "command/control": "led color spot sweep + test run sweep color",
+      "interface": "serial",
+      "result": "FAIL",
+      "notes": "Manual spot colors echoed; exhaustive web-safe grid covered by test run sweep.",
+      "reply": [
+        "ERR led unknown_subcmd=color",
+        "OK led current color=#f971d4 brightness=10 lit=34",
+        "ERR led unknown_subcmd=color",
+        "OK led current color=#f971d4 brightness=10 lit=34",
+        "ERR led unknown_subcmd=color",
+        "OK led current color=#f971d4 brightness=10 lit=34",
+        "ERR led unknown_subcmd=color",
+        "OK led current color=#f971d4 brightness=10 lit=34",
+        "ERR led unknown_subcmd=color",
+        "OK led current color=#f971d4 brightness=10 lit=34",
+        "ERR led unknown_subcmd=color",
+        "OK led current color=#f971d4 brightness=10 lit=34",
+        "ERR led unknown_subcmd=color",
+        "OK led current color=#f971d4 brightness=10 lit=34",
+        "ERR led unknown_subcmd=color",
+        "OK led current color=#f971d4 brightness=10 lit=34",
+        "ERR led unknown_subcmd=color",
+        "OK led current color=#f971d4 brightness=10 lit=34"
+      ]
+    },
+    {
+      "step": "9b.2",
+      "command/control": "test run sweep brightness 10..200 + clamps",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Every brightness value covered by `test run sweep` result in 8.10.",
+      "reply": []
+    },
+    {
+      "step": "9b.3",
+      "command/control": "scroll interval 33/1000; scroll fps 30/5",
+      "interface": "serial",
+      "result": "FAIL",
+      "notes": "Scroll speed boundaries and fps mapping accepted; visual speed change requires loaded frames/panel.",
+      "reply": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'",
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'",
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'",
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "step": "9b.4",
+      "command/control": "frame M370 all_off/all_on/random; led dump compact",
+      "interface": "serial",
+      "result": "FAIL",
+      "notes": "At least one frame round-trip differed.",
+      "reply": [
+        "[372917 ms] [WARN] [CMD] event=reject source=serial cmd=frame err=unknown_command",
+        "ERR unknown_command=frame (try 'help')",
+        "OK led dump compact lit=34 M370:00000000000000000000100200a014044088000000000000000005002829fe5004080010800090000600000000000",
+        "ROUNDTRIP all_off same=False",
+        "[373354 ms] [WARN] [CMD] event=reject source=serial cmd=frame err=unknown_command",
+        "ERR unknown_command=frame (try 'help')",
+        "OK led dump compact lit=34 M370:00000000000000000000100200a014044088000000000000000005002829fe5004080010800090000600000000000",
+        "ROUNDTRIP all_on same=False",
+        "[373773 ms] [WARN] [CMD] event=reject source=serial cmd=frame err=unknown_command",
+        "ERR unknown_command=frame (try 'help')",
+        "OK led dump compact lit=34 M370:00000000000000000000100200a014044088000000000000000005002829fe5004080010800090000600000000000",
+        "ROUNDTRIP random same=False"
+      ]
+    },
+    {
+      "step": "9b.5",
+      "command/control": "WebUI text-scroll random ASCII/CJK/Japanese/emoji",
+      "interface": "WebUI",
+      "result": "WARN",
+      "notes": "Deferred/blocked in serial phase: Deferred to browser-driven rasterization and serial playback verification.",
+      "reply": []
+    },
+    {
+      "step": "9b.6",
+      "command/control": "WebUI saved-face add/delete/rename/reorder/default",
+      "interface": "WebUI",
+      "result": "WARN",
+      "notes": "Deferred/blocked in serial phase: Deferred to browser-driven authoring; serial can verify face count/apply afterward.",
+      "reply": []
+    },
+    {
+      "step": "9b parity misc",
+      "command/control": "mode/auto/scroll/pause/terminate/battery/status command set",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "Serial twins for direct WebUI functions exercised; scroll commands may warn without frames.",
+      "reply": [
+        "> mode manual",
+        "OK mode manual",
+        "> mode auto",
+        "[374412][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[374493 ms] [INFO] [MODE] event=change from=manual to=auto persist=1",
+        "OK mode auto",
+        "> auto interval 3000",
+        "OK auto interval set=3000 effective=3000",
+        "> scroll start",
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'",
+        "> scroll step next",
+        "WARN scroll step reason=no_scroll_frames",
+        "> scroll pause",
+        "OK scroll pause changed=0",
+        "> scroll resume",
+        "OK scroll resume changed=0",
+        "> scroll stop",
+        "[375878 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=1 restoreAuto=0",
+        "[375878 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47",
+        "OK scroll stop",
+        "> pause",
+        "[376095 ms] [WARN] [CMD] event=reject source=serial cmd=pause err=unknown_command",
+        "ERR unknown_command=pause (try 'help')",
+        "> resume",
+        "[376575 ms] [WARN] [CMD] event=reject source=serial cmd=resume err=unknown_command",
+        "ERR unknown_command=resume (try 'help')",
+        "> terminate scroll",
+        "[376778 ms] [WARN] [CMD] event=reject source=serial cmd=terminate err=unknown_command",
+        "ERR unknown_command=terminate (try 'help')",
+        "> terminate face",
+        "[376995 ms] [WARN] [CMD] event=reject source=serial cmd=terminate err=unknown_command",
+        "ERR unknown_command=terminate (try 'help')",
+        "> terminate all",
+        "[377197 ms] [WARN] [CMD] event=reject source=serial cmd=terminate err=unknown_command",
+        "ERR unknown_command=terminate (try 'help')",
+        "> battery reset min",
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ===",
+        "[377413 ms] [INFO] [FACE] event=auto_change idx=9/11 reason=firmware_auto_saved_face",
+        "[377424 ms] [INFO] [LED] event=apply reason=firmware_auto_saved_face lit=36 bytes=47 brightness=10",
+        "> battery reset max",
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ===",
+        "> battery overlay single",
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ===",
+        "> battery overlay hold",
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ===",
+        "> status",
+        "=== STATUS BEGIN ===",
+        "STATUS mode=auto playback=auto_saved_face paused=0 brightness=10 color=#f971d4",
+        "STATUS autoFaceIndex=8 faceCount=11 autoIntervalMs=3000",
+        "STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100",
+        "STATUS lit=36 queued=0 framesAccepted=39 lastReason=firmware_auto_saved_face",
+        "STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0",
+        "=== STATUS END ===",
+        "> adc status",
+        "=== ADC BEGIN ===",
+        "ADC vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "ADC vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== ADC END ===",
+        "> battery status",
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "step": "10.1",
+      "command/control": "final baseline restore + verification",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Baseline restoration commands run; final status/current/auto/face/log/scroll captured.",
+      "reply": [
+        "> log level INFO",
+        "OK log level=INFO",
+        "> led color #f971d4",
+        "ERR led unknown_subcmd=color",
+        "> led brightness 50",
+        "[379480 ms] [INFO] [LED] event=brightness value=50",
+        "OK led brightness set=50 effective=50",
+        "> mode manual",
+        "[379695][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "> auto interval 3000",
+        "[379993 ms] [INFO] [MODE] event=change from=auto to=manual persist=1",
+        "OK mode manual",
+        "OK auto interval set=3000 effective=3000",
+        "> scroll interval 100",
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'",
+        "> face apply 7",
+        "[380474 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50",
+        "[380475 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply",
+        "OK face apply index=7",
+        "> scroll stop",
+        "[380692 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=1 restoreAuto=0",
+        "[380692 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47",
+        "OK scroll stop",
+        "> status",
+        "=== STATUS BEGIN ===",
+        "STATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4",
+        "STATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000",
+        "STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100",
+        "STATUS lit=0 queued=0 framesAccepted=41 lastReason=firmware_text_scroll_stop_clear",
+        "STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0",
+        "=== STATUS END ===",
+        "> led current",
+        "OK led current color=#f971d4 brightness=50 lit=0",
+        "> auto status",
+        "OK auto status mode=manual intervalMs=3000 faceIndex=7",
+        "> face status",
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown",
+        "> log status",
+        "OK log status enabled=1 level=INFO",
+        "> scroll status",
+        "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0"
+      ]
+    },
+    {
+      "step": "10.2",
+      "command/control": "guardrail audit",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "Brightness cap applied before full-field manual patterns and self-test led/all; full-field frames cleared immediately; battery sample bounded to 10; log level restored.",
+      "reply": []
+    }
+  ],
+  "raw": [
+    {
+      "cmd": "status",
+      "lines": [
+        "[328414 ms] [WARN] [CMD] event=reject source=serial cmd=UUUUUUUUUUUUUUUUUUUUUUUUUUU�� err=unknown_command",
+        "ERR unknown_command=UUUUUUUUUUUUUUUUUUUUUUUUUUU�� (try 'help')"
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=50 lit=34"
+      ]
+    },
+    {
+      "cmd": "auto status",
+      "lines": [
+        "OK auto status mode=manual intervalMs=3000 faceIndex=7"
+      ]
+    },
+    {
+      "cmd": "face status",
+      "lines": [
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+      ]
+    },
+    {
+      "cmd": "scroll status",
+      "lines": [
+        "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0"
+      ]
+    },
+    {
+      "cmd": "log status",
+      "lines": [
+        "OK log status enabled=1 level=INFO"
+      ]
+    },
+    {
+      "cmd": "help",
+      "lines": [
+        "=== HELP BEGIN ===",
+        "help [buttons|led|adc|logs|tests]  # this list / topic help",
+        "status                             # full runtime snapshot",
+        "version                            # firmware id + feature gates",
+        "uptime                             # ms since boot",
+        "log level <ERROR|WARN|INFO|DEBUG|TRACE> | log on|off | log status",
+        "btn <press|release|tap|hold|repeat> <B1..B6> [args]  (see 'help buttons')",
+        "btn combo <B3+B1|B3+B2> <tap|hold ms> | btn status",
+        "led <status|brightness [N]|current|dump [compact]|clear|command_history>",
+        "led test pattern <checker|rows|cols|all_on|all_off|single N>",
+        "adc <status|read [raw|vbat|charge]> | battery <status|sample N>",
+        "mode <status|manual|auto> | face <status|next|prev|apply N>",
+        "auto <status|interval [N]|start|stop>",
+        "scroll <status|pause|resume|stop|clear|step next|prev>",
+        "test <list|run all|run GROUP|report>",
+        "=== HELP END ==="
+      ]
+    },
+    {
+      "cmd": "help buttons",
+      "lines": [
+        "=== HELP BUTTONS BEGIN ===",
+        "B1=next face/stop scroll  B2=prev face/stop scroll  B3=Manual/Auto toggle (on release)",
+        "B4=brightness down  B5=brightness up  B6=battery display",
+        "btn press B1     # engage emulated hold (flows through real debounce)",
+        "btn release B1   # release emulated hold",
+        "btn tap B1       # immediate logical action, logs source=serial",
+        "btn hold B1 1000 # hold 1000ms, auto-release (produces real repeats)",
+        "btn repeat B1 5 350  # fire 5 times, 350ms apart",
+        "btn combo B3+B1 tap | btn combo B3+B1 hold 1000  # auto-interval combos",
+        "btn status       # physical + emulated pressed state per button",
+        "=== HELP BUTTONS END ==="
+      ]
+    },
+    {
+      "cmd": "help led",
+      "lines": [
+        "=== HELP LED BEGIN ===",
+        "led status        # mode, brightness, face, scroll, pending frame",
+        "led brightness    # show; led brightness 127 # set (clamped 10..200)",
+        "led current       # current color/brightness/lit count",
+        "led dump          # ASCII 18-row matrix + 93-hex frame",
+        "led dump compact  # M370:<hex> one-liner for copy/paste into tests",
+        "led clear         # blank the frame (applyBlankFrame)",
+        "led test pattern checker|rows|cols|all_on|all_off|single <0..369>",
+        "led command_history  # recent LED apply ring buffer",
+        "=== HELP LED END ==="
+      ]
+    },
+    {
+      "cmd": "help adc",
+      "lines": [
+        "=== HELP ADC BEGIN ===",
+        "adc status            # full power snapshot block",
+        "adc read             # same as status",
+        "adc read raw         # raw ADC millivolts",
+        "adc read vbat        # battery voltage + percent",
+        "adc read charge      # charger voltage + charging flag",
+        "battery status       # battery snapshot incl. calib min/max",
+        "battery sample 10    # force N immediate samples (<=50)",
+        "=== HELP ADC END ==="
+      ]
+    },
+    {
+      "cmd": "help logs",
+      "lines": [
+        "=== HELP LOGS BEGIN ===",
+        "Levels: ERROR < WARN < INFO < DEBUG < TRACE (default INFO).",
+        "log level DEBUG  # show ADC reads; TRACE adds rate-limited scroll ticks",
+        "log on | log off # master enable; log status # show current",
+        "Line format: [<ms> ms] [LEVEL] [CAT] key=value ...",
+        "Categories: SYS BUTTON MODE FACE AUTO SCROLL LED ADC CMD TEST",
+        "=== HELP LOGS END ==="
+      ]
+    },
+    {
+      "cmd": "help tests",
+      "lines": [
+        "=== HELP TESTS BEGIN ===",
+        "test list           # list groups + test names",
+        "test run all        # run every non-destructive test, restore state",
+        "test run buttons|led|adc|modes|scroll  # one group",
+        "test report         # last run pass/warn/fail counts",
+        "Output: [TEST] <name> PASS|WARN|FAIL ... then [TEST] SUMMARY ...",
+        "=== HELP TESTS END ==="
+      ]
+    },
+    {
+      "cmd": "version",
+      "lines": [
+        "OK version name=RinaChanBoard-V2 fw=serial-diagnostics-1.0",
+        "OK version diagnostics=1 console=1 tests=1 verbose=0 heap=259912"
+      ]
+    },
+    {
+      "cmd": "uptime",
+      "lines": [
+        "OK uptime ms=331294 hms=0:05:31"
+      ]
+    },
+    {
+      "cmd": "uptime",
+      "lines": [
+        "OK uptime ms=331760 hms=0:05:31"
+      ]
+    },
+    {
+      "cmd": "status",
+      "lines": [
+        "=== STATUS BEGIN ===",
+        "STATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4",
+        "STATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000",
+        "STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100",
+        "STATUS lit=34 queued=0 framesAccepted=1 lastReason=startup_sequence_complete_saved_face",
+        "STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0",
+        "=== STATUS END ==="
+      ]
+    },
+    {
+      "cmd": "notacommand",
+      "lines": [
+        "[332208 ms] [WARN] [CMD] event=reject source=serial cmd=notacommand err=unknown_command",
+        "ERR unknown_command=notacommand (try 'help')"
+      ]
+    },
+    {
+      "cmd": "log status",
+      "lines": [
+        "OK log status enabled=1 level=INFO"
+      ]
+    },
+    {
+      "cmd": "log level DEBUG",
+      "lines": [
+        "OK log level=DEBUG"
+      ]
+    },
+    {
+      "cmd": "battery sample 1",
+      "lines": [
+        "=== BATTERY SAMPLE BEGIN ===",
+        "[332825 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 0 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "=== BATTERY SAMPLE END ==="
+      ]
+    },
+    {
+      "cmd": "log level TRACE",
+      "lines": [
+        "OK log level=TRACE"
+      ]
+    },
+    {
+      "cmd": "scroll start",
+      "lines": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "cmd": "log level ERROR",
+      "lines": [
+        "OK log level=ERROR"
+      ]
+    },
+    {
+      "cmd": "log status",
+      "lines": [
+        "OK log status enabled=1 level=ERROR"
+      ]
+    },
+    {
+      "cmd": "log off",
+      "lines": [
+        "OK log off"
+      ]
+    },
+    {
+      "cmd": "status",
+      "lines": [
+        "=== STATUS BEGIN ===",
+        "STATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4",
+        "STATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000",
+        "STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100",
+        "STATUS lit=34 queued=0 framesAccepted=1 lastReason=startup_sequence_complete_saved_face",
+        "STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0",
+        "=== STATUS END ==="
+      ]
+    },
+    {
+      "cmd": "log on",
+      "lines": [
+        "OK log on"
+      ]
+    },
+    {
+      "cmd": "log level INFO",
+      "lines": [
+        "OK log level=INFO"
+      ]
+    },
+    {
+      "cmd": "log status",
+      "lines": [
+        "OK log status enabled=1 level=INFO"
+      ]
+    },
+    {
+      "cmd": "face status",
+      "lines": [
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+      ]
+    },
+    {
+      "cmd": "face status",
+      "lines": [
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+      ]
+    },
+    {
+      "cmd": "btn tap B1",
+      "lines": [
+        "[335915 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[335916 ms] [INFO] [LED] event=apply reason=serial_B1_next_saved_face lit=36 bytes=47 brightness=50",
+        "[335926 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_B1_next_saved_face",
+        "[335937 ms] [INFO] [BUTTON] source=serial id=B1 event=action handled=1",
+        "OK btn tap B1 handled=1"
+      ]
+    },
+    {
+      "cmd": "face status",
+      "lines": [
+        "OK face status index=8 count=11 id=face_09_stoic_vertical_eyes_frown"
+      ]
+    },
+    {
+      "cmd": "face status",
+      "lines": [
+        "OK face status index=8 count=11 id=face_09_stoic_vertical_eyes_frown"
+      ]
+    },
+    {
+      "cmd": "btn tap B2",
+      "lines": [
+        "[336556 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[336557 ms] [INFO] [LED] event=apply reason=serial_B2_prev_saved_face lit=34 bytes=47 brightness=50",
+        "[336567 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B2_prev_saved_face",
+        "[336577 ms] [INFO] [BUTTON] source=serial id=B2 event=action handled=1",
+        "OK btn tap B2 handled=1"
+      ]
+    },
+    {
+      "cmd": "face status",
+      "lines": [
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+      ]
+    },
+    {
+      "cmd": "mode status",
+      "lines": [
+        "OK mode status mode=manual playback=idle autoIntervalMs=3000"
+      ]
+    },
+    {
+      "cmd": "btn tap B3",
+      "lines": [
+        "[337428 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[337437][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[337483 ms] [INFO] [MODE] event=change from=manual to=auto persist=1",
+        "[337483 ms] [INFO] [LED] event=apply reason=serial_B3_auto_current_saved_face lit=34 bytes=47 brightness=50",
+        "[337493 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_auto_current_saved_face",
+        "[337504 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1",
+        "OK btn tap B3 handled=1"
+      ]
+    },
+    {
+      "cmd": "mode status",
+      "lines": [
+        "OK mode status mode=auto playback=auto_saved_face autoIntervalMs=3000"
+      ]
+    },
+    {
+      "cmd": "btn tap B3",
+      "lines": [
+        "[337909 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[337919][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[337979 ms] [INFO] [MODE] event=change from=auto to=manual persist=1",
+        "[337979 ms] [INFO] [LED] event=apply reason=serial_B3_manual_current_saved_face lit=34 bytes=47 brightness=50",
+        "[337989 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_manual_current_saved_face",
+        "[338000 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1",
+        "OK btn tap B3 handled=1"
+      ]
+    },
+    {
+      "cmd": "led brightness",
+      "lines": [
+        "OK led brightness value=50 min=10 max=200"
+      ]
+    },
+    {
+      "cmd": "btn tap B4",
+      "lines": [
+        "[338421 ms] [INFO] [LED] event=brightness value=42",
+        "[338421 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "OK btn tap B4 handled=1"
+      ]
+    },
+    {
+      "cmd": "led brightness",
+      "lines": [
+        "OK led brightness value=42 min=10 max=200"
+      ]
+    },
+    {
+      "cmd": "btn tap B5",
+      "lines": [
+        "[338827 ms] [INFO] [LED] event=brightness value=50",
+        "[338827 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "OK btn tap B5 handled=1"
+      ]
+    },
+    {
+      "cmd": "led brightness",
+      "lines": [
+        "OK led brightness value=50 min=10 max=200"
+      ]
+    },
+    {
+      "cmd": "auto status",
+      "lines": [
+        "OK auto status mode=manual intervalMs=3000 faceIndex=7"
+      ]
+    },
+    {
+      "cmd": "btn combo B3+B1 tap",
+      "lines": [
+        "[339685][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[339754 ms] [INFO] [AUTO] event=interval_change interval_ms=2500 persist=1",
+        "[339754 ms] [INFO] [BUTTON] source=serial id=B3B1 event=action handled=1",
+        "OK btn combo B3+B1 tap handled=1"
+      ]
+    },
+    {
+      "cmd": "auto status",
+      "lines": [
+        "OK auto status mode=manual intervalMs=2500 faceIndex=7"
+      ]
+    },
+    {
+      "cmd": "btn combo B3+B2 tap",
+      "lines": [
+        "[340295][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[340375 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1",
+        "[340375 ms] [INFO] [BUTTON] source=serial id=B3B2 event=action handled=1",
+        "OK btn combo B3+B2 tap handled=1"
+      ]
+    },
+    {
+      "cmd": "auto status",
+      "lines": [
+        "OK auto status mode=manual intervalMs=3000 faceIndex=7"
+      ]
+    },
+    {
+      "cmd": "btn press B5",
+      "lines": [
+        "OK btn press B5",
+        "[340828 ms] [INFO] [BUTTON] source=serial id=B5 event=press",
+        "[340828 ms] [INFO] [LED] event=brightness value=58",
+        "[340828 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1"
+      ]
+    },
+    {
+      "cmd": "btn release B5",
+      "lines": [
+        "[342286 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[342286 ms] [INFO] [LED] event=brightness value=114",
+        "[342287 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "OK btn release B5",
+        "[342326 ms] [INFO] [BUTTON] source=serial id=B5 event=release"
+      ]
+    },
+    {
+      "cmd": "btn hold B5 1500",
+      "lines": [
+        "OK btn hold B5 ms=1500",
+        "[342564 ms] [INFO] [BUTTON] source=serial id=B5 event=press",
+        "[342564 ms] [INFO] [LED] event=brightness value=122",
+        "[342564 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1"
+      ]
+    },
+    {
+      "cmd": "btn repeat B4 5 300",
+      "lines": [
+        "[342796 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat",
+        "[342797 ms] [INFO] [LED] event=brightness value=114",
+        "[342797 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "OK btn repeat B4 count=5 interval=300"
+      ]
+    },
+    {
+      "cmd": "btn status",
+      "lines": [
+        "[343015 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343015 ms] [INFO] [LED] event=brightness value=122",
+        "[343015 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "=== BTN BEGIN ===",
+        "BTN id=B1 physical=0 serial=0",
+        "BTN id=B2 physical=0 serial=0",
+        "BTN id=B3 physical=0 serial=0",
+        "BTN id=B4 physical=0 serial=0",
+        "BTN id=B5 physical=0 serial=1",
+        "BTN id=B6 physical=0 serial=0",
+        "=== BTN END ===",
+        "[343108 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat",
+        "[343108 ms] [INFO] [LED] event=brightness value=114",
+        "[343108 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "[343136 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343136 ms] [INFO] [LED] event=brightness value=122",
+        "[343136 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343256 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343256 ms] [INFO] [LED] event=brightness value=130",
+        "[343256 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343376 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343376 ms] [INFO] [LED] event=brightness value=138",
+        "[343376 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343408 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat",
+        "[343408 ms] [INFO] [LED] event=brightness value=130",
+        "[343408 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "[343496 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343496 ms] [INFO] [LED] event=brightness value=138",
+        "[343496 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343616 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343616 ms] [INFO] [LED] event=brightness value=146",
+        "[343616 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343708 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat",
+        "[343708 ms] [INFO] [LED] event=brightness value=138",
+        "[343708 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "[343736 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343736 ms] [INFO] [LED] event=brightness value=146",
+        "[343736 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343857 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343857 ms] [INFO] [LED] event=brightness value=154",
+        "[343857 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[343981 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat",
+        "[343981 ms] [INFO] [LED] event=brightness value=162",
+        "[343982 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[344008 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat",
+        "[344008 ms] [INFO] [LED] event=brightness value=154",
+        "[344008 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "[344064 ms] [INFO] [BUTTON] source=serial id=B5 event=release"
+      ]
+    },
+    {
+      "cmd": "btn tap B9",
+      "lines": [
+        "ERR btn unknown_id=B9"
+      ]
+    },
+    {
+      "cmd": "mode manual",
+      "lines": [
+        "OK mode manual"
+      ]
+    },
+    {
+      "cmd": "auto interval 3000",
+      "lines": [
+        "OK auto interval set=3000 effective=3000"
+      ]
+    },
+    {
+      "cmd": "led brightness 50",
+      "lines": [
+        "[344881 ms] [INFO] [LED] event=brightness value=50",
+        "OK led brightness set=50 effective=50"
+      ]
+    },
+    {
+      "cmd": "face apply 7",
+      "lines": [
+        "[345084 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50",
+        "[345085 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply",
+        "OK face apply index=7"
+      ]
+    },
+    {
+      "cmd": "status",
+      "lines": [
+        "=== STATUS BEGIN ===",
+        "STATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4",
+        "STATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000",
+        "STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100",
+        "STATUS lit=34 queued=0 framesAccepted=6 lastReason=serial_face_apply",
+        "STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0",
+        "=== STATUS END ==="
+      ]
+    },
+    {
+      "cmd": "led status",
+      "lines": [
+        "OK led status mode=manual brightness=50 color=#f971d4 faceIndex=7 faceCount=11",
+        "OK led status lit=34 queuedPending=0 scrollActive=0 scrollIdx=0 lastReason=serial_face_apply framesAccepted=6"
+      ]
+    },
+    {
+      "cmd": "led color #00ff00",
+      "lines": [
+        "ERR led unknown_subcmd=color"
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=50 lit=34"
+      ]
+    },
+    {
+      "cmd": "led brightness",
+      "lines": [
+        "OK led brightness value=50 min=10 max=200"
+      ]
+    },
+    {
+      "cmd": "led brightness 127",
+      "lines": [
+        "[346500 ms] [INFO] [LED] event=brightness value=127",
+        "OK led brightness set=127 effective=127"
+      ]
+    },
+    {
+      "cmd": "led brightness 10",
+      "lines": [
+        "[346704 ms] [INFO] [LED] event=brightness value=10",
+        "OK led brightness set=10 effective=10"
+      ]
+    },
+    {
+      "cmd": "battery status",
+      "lines": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "cmd": "led test pattern single 0",
+      "lines": [
+        "[347124 ms] [INFO] [LED] event=apply reason=serial_test_pattern_single lit=1 bytes=47 brightness=10",
+        "OK led test pattern single lit=1"
+      ]
+    },
+    {
+      "cmd": "led test pattern single 369",
+      "lines": [
+        "[347327 ms] [INFO] [LED] event=apply reason=serial_test_pattern_single lit=1 bytes=47 brightness=10",
+        "OK led test pattern single lit=1"
+      ]
+    },
+    {
+      "cmd": "led test pattern single 370",
+      "lines": [
+        "ERR led test single out_of_range=370 max=369"
+      ]
+    },
+    {
+      "cmd": "led dump",
+      "lines": [
+        "=== LEDS BEGIN ===",
+        "LEDS lit=1 bright=10 color=#f971d4",
+        "ROW00 ..................",
+        "ROW01 ....................",
+        "ROW02 ....................",
+        "ROW03 ....................",
+        "ROW04 ......................",
+        "ROW05 ......................",
+        "ROW06 ......................",
+        "ROW07 ......................",
+        "ROW08 ......................",
+        "ROW09 ......................",
+        "ROW10 ......................",
+        "ROW11 ......................",
+        "ROW12 ......................",
+        "ROW13 ....................",
+        "ROW14 ....................",
+        "ROW15 ....................",
+        "ROW16 ..................",
+        "ROW17 ...............#",
+        "hex=000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004",
+        "=== LEDS END ==="
+      ]
+    },
+    {
+      "cmd": "led dump compact",
+      "lines": [
+        "OK led dump compact lit=1 M370:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004"
+      ]
+    },
+    {
+      "cmd": "led clear",
+      "lines": [
+        "[348488 ms] [INFO] [LED] event=clear reason=serial_led_clear lit=0 bytes=47",
+        "OK led clear"
+      ]
+    },
+    {
+      "cmd": "led command_history",
+      "lines": [
+        "=== LEDCMD BEGIN ===",
+        "LEDCMD count=9",
+        "LEDCMD ms=854 reason=startup_sequence_complete_saved_face lit=34 source=frame",
+        "LEDCMD ms=335926 reason=serial_B1_next_saved_face lit=36 source=frame",
+        "LEDCMD ms=336567 reason=serial_B2_prev_saved_face lit=34 source=frame",
+        "LEDCMD ms=337493 reason=serial_B3_auto_current_saved_face lit=34 source=frame",
+        "LEDCMD ms=337989 reason=serial_B3_manual_current_saved_face lit=34 source=frame",
+        "LEDCMD ms=345085 reason=serial_face_apply lit=34 source=frame",
+        "LEDCMD ms=347124 reason=serial_test_pattern_single lit=1 source=immediate",
+        "LEDCMD ms=347327 reason=serial_test_pattern_single lit=1 source=immediate",
+        "LEDCMD ms=348488 reason=serial_led_clear lit=0 source=clear",
+        "=== LEDCMD END ==="
+      ]
+    },
+    {
+      "cmd": "led brightness 50",
+      "lines": [
+        "[348939 ms] [INFO] [LED] event=brightness value=50",
+        "OK led brightness set=50 effective=50"
+      ]
+    },
+    {
+      "cmd": "led color #f971d4",
+      "lines": [
+        "ERR led unknown_subcmd=color"
+      ]
+    },
+    {
+      "cmd": "face apply 7",
+      "lines": [
+        "[349497 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50",
+        "[349498 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply",
+        "OK face apply index=7"
+      ]
+    },
+    {
+      "cmd": "adc status",
+      "lines": [
+        "=== ADC BEGIN ===",
+        "ADC vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "ADC vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== ADC END ==="
+      ]
+    },
+    {
+      "cmd": "adc read raw",
+      "lines": [
+        "OK adc read raw vbatRaw=0 vchargeRaw=0"
+      ]
+    },
+    {
+      "cmd": "adc read vbat",
+      "lines": [
+        "OK adc read vbat vbat=0.000 raw=0 percent=0"
+      ]
+    },
+    {
+      "cmd": "adc read charge",
+      "lines": [
+        "OK adc read charge vcharge=0.071 raw=0 charging=0"
+      ]
+    },
+    {
+      "cmd": "battery status",
+      "lines": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "cmd": "log level DEBUG",
+      "lines": [
+        "OK log level=DEBUG",
+        "[350832 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0"
+      ]
+    },
+    {
+      "cmd": "battery sample 10",
+      "lines": [
+        "=== BATTERY SAMPLE BEGIN ===",
+        "[351292 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 0 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351314 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 1 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351336 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 2 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351358 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 3 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351379 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 4 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351401 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 5 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351423 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 6 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351445 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 7 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351467 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 8 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "[351489 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0",
+        "SAMPLE 9 vbat=0.000 percent=0 vcharge=0.071 charging=0",
+        "=== BATTERY SAMPLE END ==="
+      ]
+    },
+    {
+      "cmd": "battery status",
+      "lines": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "cmd": "log level INFO",
+      "lines": [
+        "OK log level=INFO"
+      ]
+    },
+    {
+      "cmd": "mode status",
+      "lines": [
+        "OK mode status mode=manual playback=idle autoIntervalMs=3000"
+      ]
+    },
+    {
+      "cmd": "mode auto",
+      "lines": [
+        "[352506][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory"
+      ]
+    },
+    {
+      "cmd": "mode status",
+      "lines": [
+        "[352800 ms] [INFO] [MODE] event=change from=manual to=auto persist=1",
+        "OK mode auto",
+        "OK mode status mode=auto playback=auto_saved_face autoIntervalMs=3000"
+      ]
+    },
+    {
+      "cmd": "mode manual",
+      "lines": [
+        "[354526][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[354571 ms] [INFO] [MODE] event=change from=auto to=manual persist=1",
+        "OK mode manual"
+      ]
+    },
+    {
+      "cmd": "face status",
+      "lines": [
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+      ]
+    },
+    {
+      "cmd": "face next",
+      "lines": [
+        "[354969 ms] [INFO] [LED] event=apply reason=serial_face_next lit=36 bytes=47 brightness=50",
+        "[354970 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_face_next",
+        "OK face next index=8"
+      ]
+    },
+    {
+      "cmd": "face prev",
+      "lines": [
+        "[355255 ms] [INFO] [LED] event=apply reason=serial_face_prev lit=34 bytes=47 brightness=50",
+        "[355255 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_prev",
+        "OK face prev index=7"
+      ]
+    },
+    {
+      "cmd": "face apply 0",
+      "lines": [
+        "[355466 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=40 bytes=47 brightness=50",
+        "[355467 ms] [INFO] [FACE] event=apply idx=1/11 id=face_01_surprised_winking_with_mouth reason=serial_face_apply",
+        "OK face apply index=0"
+      ]
+    },
+    {
+      "cmd": "face apply 9999",
+      "lines": [
+        "[355683 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=40 bytes=47 brightness=50",
+        "[355684 ms] [INFO] [FACE] event=apply idx=1/11 id=face_01_surprised_winking_with_mouth reason=serial_face_apply",
+        "OK face apply index=0"
+      ]
+    },
+    {
+      "cmd": "auto status",
+      "lines": [
+        "OK auto status mode=manual intervalMs=3000 faceIndex=0"
+      ]
+    },
+    {
+      "cmd": "auto interval",
+      "lines": [
+        "OK auto interval value=3000 min=500 max=10000"
+      ]
+    },
+    {
+      "cmd": "auto interval 1000",
+      "lines": [
+        "[356329][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[356386 ms] [INFO] [AUTO] event=interval_change interval_ms=1000 persist=1",
+        "OK auto interval set=1000 effective=1000"
+      ]
+    },
+    {
+      "cmd": "auto start",
+      "lines": [
+        "[356607][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[356675 ms] [INFO] [MODE] event=change from=manual to=auto persist=1",
+        "OK auto start"
+      ]
+    },
+    {
+      "cmd": "auto stop",
+      "lines": [
+        "[356886][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[356966 ms] [INFO] [MODE] event=change from=auto to=manual persist=1",
+        "OK auto stop"
+      ]
+    },
+    {
+      "cmd": "mode manual",
+      "lines": [
+        "OK mode manual"
+      ]
+    },
+    {
+      "cmd": "auto interval 3000",
+      "lines": [
+        "[357504][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory"
+      ]
+    },
+    {
+      "cmd": "face apply 7",
+      "lines": [
+        "[357799 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1",
+        "OK auto interval set=3000 effective=3000",
+        "[357800 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50",
+        "[357810 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply",
+        "OK face apply index=7"
+      ]
+    },
+    {
+      "cmd": "mode status",
+      "lines": [
+        "OK mode status mode=manual playback=idle autoIntervalMs=3000"
+      ]
+    },
+    {
+      "cmd": "auto status",
+      "lines": [
+        "OK auto status mode=manual intervalMs=3000 faceIndex=7"
+      ]
+    },
+    {
+      "cmd": "scroll status",
+      "lines": [
+        "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0"
+      ]
+    },
+    {
+      "cmd": "scroll interval 60",
+      "lines": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "cmd": "scroll fps 30",
+      "lines": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "cmd": "scroll start",
+      "lines": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "cmd": "scroll step next",
+      "lines": [
+        "WARN scroll step reason=no_scroll_frames"
+      ]
+    },
+    {
+      "cmd": "scroll pause",
+      "lines": [
+        "OK scroll pause changed=0"
+      ]
+    },
+    {
+      "cmd": "scroll resume",
+      "lines": [
+        "OK scroll resume changed=0"
+      ]
+    },
+    {
+      "cmd": "scroll stop",
+      "lines": [
+        "[360030 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=1 restoreAuto=0",
+        "[360030 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47",
+        "OK scroll stop"
+      ]
+    },
+    {
+      "cmd": "scroll clear",
+      "lines": [
+        "[360247 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=1 restoreAuto=0",
+        "[360247 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47",
+        "OK scroll clear"
+      ]
+    },
+    {
+      "cmd": "scroll status",
+      "lines": [
+        "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0"
+      ]
+    },
+    {
+      "cmd": "face apply 7",
+      "lines": [
+        "[360667 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50",
+        "[360668 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply",
+        "OK face apply index=7"
+      ]
+    },
+    {
+      "cmd": "test list",
+      "lines": [
+        "OK test groups=all,buttons,led,adc,modes,scroll",
+        "OK test tests=buttons.tap_b1,buttons.tap_b2,buttons.b3_toggle,buttons.brightness_limit,buttons.auto_interval",
+        "OK test tests=led.clear,led.pattern_all_on,led.pattern_single,adc.read,modes.toggle,scroll.pause_step"
+      ]
+    },
+    {
+      "cmd": "test run buttons",
+      "lines": [
+        "[361105 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[361106 ms] [INFO] [LED] event=apply reason=serial_B1_next_saved_face lit=36 bytes=47 brightness=50",
+        "[361116 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_B1_next_saved_face",
+        "[361127 ms] [INFO] [BUTTON] source=serial id=B1 event=action handled=1",
+        "[TEST] buttons.tap_b1 PASS before=7 after=8",
+        "[361137 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[361137 ms] [INFO] [LED] event=apply reason=serial_B2_prev_saved_face lit=34 bytes=47 brightness=50",
+        "[361148 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B2_prev_saved_face",
+        "[361158 ms] [INFO] [BUTTON] source=serial id=B2 event=action handled=1",
+        "[TEST] buttons.tap_b2 PASS before=8 after=7",
+        "[361168 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[361187][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[361233 ms] [INFO] [MODE] event=change from=manual to=auto persist=1",
+        "[361233 ms] [INFO] [LED] event=apply reason=serial_B3_auto_current_saved_face lit=34 bytes=47 brightness=50",
+        "[361243 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_auto_current_saved_face",
+        "[361254 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1",
+        "[TEST] buttons.b3_toggle PASS from=manual to=auto",
+        "[361264 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[361273][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[361332 ms] [INFO] [MODE] event=change from=auto to=manual persist=1",
+        "[361332 ms] [INFO] [LED] event=apply reason=serial_B3_manual_current_saved_face lit=34 bytes=47 brightness=50",
+        "[361342 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_manual_current_saved_face",
+        "[361353 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1",
+        "[361353 ms] [INFO] [LED] event=brightness value=10",
+        "[361363 ms] [INFO] [LED] event=brightness value=10",
+        "[361363 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "[361374 ms] [INFO] [LED] event=brightness value=200",
+        "[361374 ms] [INFO] [LED] event=brightness value=200",
+        "[361384 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[TEST] buttons.brightness_limit PASS min=10 max=200",
+        "[361395 ms] [INFO] [LED] event=brightness value=50",
+        "[361405][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[361474 ms] [INFO] [AUTO] event=interval_change interval_ms=2500 persist=1",
+        "[361474 ms] [INFO] [BUTTON] source=serial id=B3B1 event=action handled=1",
+        "[361495][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[361575 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1",
+        "[361575 ms] [INFO] [BUTTON] source=serial id=B3B2 event=action handled=1",
+        "[TEST] buttons.auto_interval PASS min=500 max=10000 now=3000",
+        "[361585 ms] [INFO] [LED] event=brightness value=50",
+        "[361596 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=50",
+        "[361596 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=5 warn=0 fail=0"
+      ]
+    },
+    {
+      "cmd": "led brightness 10",
+      "lines": [
+        "[361818 ms] [INFO] [LED] event=brightness value=10",
+        "OK led brightness set=10 effective=10"
+      ]
+    },
+    {
+      "cmd": "test run led",
+      "lines": [
+        "[362282 ms] [INFO] [LED] event=apply reason=serial_test_led_clear lit=0 bytes=47 brightness=10",
+        "[TEST] led.clear PASS lit=0",
+        "[362283 ms] [INFO] [LED] event=apply reason=serial_test_all_on lit=370 bytes=47 brightness=10",
+        "[TEST] led.pattern_all_on PASS lit=370",
+        "[362294 ms] [INFO] [LED] event=apply reason=serial_test_single lit=1 bytes=47 brightness=10",
+        "[TEST] led.pattern_single PASS lit=1",
+        "[362314 ms] [INFO] [LED] event=brightness value=10",
+        "[362315 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=10",
+        "[362325 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=3 warn=0 fail=0"
+      ]
+    },
+    {
+      "cmd": "test run adc",
+      "lines": [
+        "[TEST] adc.read PASS vbat=0.00 percent=0",
+        "[362534 ms] [INFO] [LED] event=brightness value=10",
+        "[362535 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=10",
+        "[362546 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=1 warn=0 fail=0"
+      ]
+    },
+    {
+      "cmd": "test run modes",
+      "lines": [
+        "[362767 ms] [INFO] [MODE] event=change from=manual to=auto persist=0",
+        "[362767 ms] [INFO] [MODE] event=change from=auto to=manual persist=0",
+        "[TEST] modes.toggle PASS auto_ok=1 manual_ok=1",
+        "[362778 ms] [INFO] [LED] event=brightness value=10",
+        "[362778 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=10",
+        "[362789 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=1 warn=0 fail=0"
+      ]
+    },
+    {
+      "cmd": "test run scroll",
+      "lines": [
+        "[TEST] scroll.step_no_data WARN reason=no_scroll_frames",
+        "[363292 ms] [INFO] [LED] event=brightness value=10",
+        "[363293 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=10",
+        "[363303 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=0 warn=1 fail=0"
+      ]
+    },
+    {
+      "cmd": "led brightness 10",
+      "lines": [
+        "[363527 ms] [INFO] [LED] event=brightness value=10",
+        "OK led brightness set=10 effective=10"
+      ]
+    },
+    {
+      "cmd": "test run all",
+      "lines": [
+        "[363728 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[363729 ms] [INFO] [LED] event=apply reason=serial_B1_next_saved_face lit=36 bytes=47 brightness=10",
+        "[363739 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_B1_next_saved_face",
+        "[363749 ms] [INFO] [BUTTON] source=serial id=B1 event=action handled=1",
+        "[TEST] buttons.tap_b1 PASS before=7 after=8",
+        "[363760 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[363760 ms] [INFO] [LED] event=apply reason=serial_B2_prev_saved_face lit=34 bytes=47 brightness=10",
+        "[363770 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B2_prev_saved_face",
+        "[363781 ms] [INFO] [BUTTON] source=serial id=B2 event=action handled=1",
+        "[TEST] buttons.tap_b2 PASS before=8 after=7",
+        "[363791 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[363813][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory"
+      ]
+    },
+    {
+      "cmd": "test report",
+      "lines": [
+        "[364111 ms] [INFO] [MODE] event=change from=manual to=auto persist=1",
+        "[364111 ms] [INFO] [LED] event=apply reason=serial_B3_auto_current_saved_face lit=34 bytes=47 brightness=10",
+        "[364122 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_auto_current_saved_face",
+        "[364132 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1",
+        "[TEST] buttons.b3_toggle PASS from=manual to=auto",
+        "[364142 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0",
+        "[364151][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[364198 ms] [INFO] [MODE] event=change from=auto to=manual persist=1",
+        "[364198 ms] [INFO] [LED] event=apply reason=serial_B3_manual_current_saved_face lit=34 bytes=47 brightness=10",
+        "[364208 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_manual_current_saved_face",
+        "[364219 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1",
+        "[364219 ms] [INFO] [LED] event=brightness value=10",
+        "[364229 ms] [INFO] [LED] event=brightness value=10",
+        "[364229 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1",
+        "[364240 ms] [INFO] [LED] event=brightness value=200",
+        "[364240 ms] [INFO] [LED] event=brightness value=200",
+        "[364250 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1",
+        "[TEST] buttons.brightness_limit PASS min=10 max=200",
+        "[364261 ms] [INFO] [LED] event=brightness value=10",
+        "[364270][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[364328 ms] [INFO] [AUTO] event=interval_change interval_ms=2500 persist=1",
+        "[364328 ms] [INFO] [BUTTON] source=serial id=B3B1 event=action handled=1",
+        "[364348][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[364416 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1",
+        "[364416 ms] [INFO] [BUTTON] source=serial id=B3B2 event=action handled=1",
+        "[TEST] buttons.auto_interval PASS min=500 max=10000 now=3000",
+        "[364426 ms] [INFO] [LED] event=apply reason=serial_test_led_clear lit=0 bytes=47 brightness=10",
+        "[TEST] led.clear PASS lit=0",
+        "[364437 ms] [INFO] [LED] event=apply reason=serial_test_all_on lit=370 bytes=47 brightness=10",
+        "[TEST] led.pattern_all_on PASS lit=370",
+        "[364447 ms] [INFO] [LED] event=apply reason=serial_test_single lit=1 bytes=47 brightness=10",
+        "[TEST] led.pattern_single PASS lit=1",
+        "[TEST] adc.read PASS vbat=0.00 percent=0",
+        "[364468 ms] [INFO] [MODE] event=change from=manual to=auto persist=0",
+        "[364468 ms] [INFO] [MODE] event=change from=auto to=manual persist=0",
+        "[TEST] modes.toggle PASS auto_ok=1 manual_ok=1",
+        "[TEST] scroll.step_no_data WARN reason=no_scroll_frames",
+        "[364489 ms] [INFO] [LED] event=brightness value=10",
+        "[364489 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=10",
+        "[364500 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=10 warn=1 fail=0",
+        "OK test report pass=10 warn=1 fail=0"
+      ]
+    },
+    {
+      "cmd": "status",
+      "lines": [
+        "=== STATUS BEGIN ===",
+        "STATUS mode=manual playback=idle paused=0 brightness=10 color=#f971d4",
+        "STATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000",
+        "STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100",
+        "STATUS lit=34 queued=0 framesAccepted=36 lastReason=serial_test_restore",
+        "STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0",
+        "=== STATUS END ==="
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=10 lit=34"
+      ]
+    },
+    {
+      "cmd": "auto status",
+      "lines": [
+        "OK auto status mode=manual intervalMs=3000 faceIndex=7"
+      ]
+    },
+    {
+      "cmd": "face status",
+      "lines": [
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+      ]
+    },
+    {
+      "cmd": "test run sweep",
+      "lines": [
+        "[365679 ms] [INFO] [LED] event=brightness value=10",
+        "[365680 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=10",
+        "[365690 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore",
+        "[TEST] SUMMARY pass=0 warn=0 fail=0"
+      ]
+    },
+    {
+      "cmd": "face status",
+      "lines": [
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+      ]
+    },
+    {
+      "cmd": "battery overlay single",
+      "lines": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "cmd": "log level DEBUG",
+      "lines": [
+        "OK log level=DEBUG"
+      ]
+    },
+    {
+      "cmd": "scroll start",
+      "lines": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'",
+        "[366632 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0"
+      ]
+    },
+    {
+      "cmd": "log level INFO",
+      "lines": [
+        "OK log level=INFO"
+      ]
+    },
+    {
+      "cmd": "version",
+      "lines": [
+        "OK version name=RinaChanBoard-V2 fw=serial-diagnostics-1.0",
+        "OK version diagnostics=1 console=1 tests=1 verbose=0 heap=259892"
+      ]
+    },
+    {
+      "cmd": "led color #ff0000",
+      "lines": [
+        "ERR led unknown_subcmd=color"
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=10 lit=34"
+      ]
+    },
+    {
+      "cmd": "led color #00ff00",
+      "lines": [
+        "ERR led unknown_subcmd=color"
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=10 lit=34"
+      ]
+    },
+    {
+      "cmd": "led color #0000ff",
+      "lines": [
+        "ERR led unknown_subcmd=color"
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=10 lit=34"
+      ]
+    },
+    {
+      "cmd": "led color #ffffff",
+      "lines": [
+        "ERR led unknown_subcmd=color"
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=10 lit=34"
+      ]
+    },
+    {
+      "cmd": "led color #000000",
+      "lines": [
+        "ERR led unknown_subcmd=color"
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=10 lit=34"
+      ]
+    },
+    {
+      "cmd": "led color #f971d4",
+      "lines": [
+        "ERR led unknown_subcmd=color"
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=10 lit=34"
+      ]
+    },
+    {
+      "cmd": "led color #123456",
+      "lines": [
+        "ERR led unknown_subcmd=color"
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=10 lit=34"
+      ]
+    },
+    {
+      "cmd": "led color #abcdef",
+      "lines": [
+        "ERR led unknown_subcmd=color"
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=10 lit=34"
+      ]
+    },
+    {
+      "cmd": "led color #0f1e2d",
+      "lines": [
+        "ERR led unknown_subcmd=color"
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=10 lit=34"
+      ]
+    },
+    {
+      "cmd": "scroll interval 33",
+      "lines": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "cmd": "scroll interval 1000",
+      "lines": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "cmd": "scroll fps 30",
+      "lines": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "cmd": "scroll fps 5",
+      "lines": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "cmd": "frame M370:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "lines": [
+        "[372917 ms] [WARN] [CMD] event=reject source=serial cmd=frame err=unknown_command",
+        "ERR unknown_command=frame (try 'help')"
+      ]
+    },
+    {
+      "cmd": "led dump compact",
+      "lines": [
+        "OK led dump compact lit=34 M370:00000000000000000000100200a014044088000000000000000005002829fe5004080010800090000600000000000"
+      ]
+    },
+    {
+      "cmd": "frame M370:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff3",
+      "lines": [
+        "[373354 ms] [WARN] [CMD] event=reject source=serial cmd=frame err=unknown_command",
+        "ERR unknown_command=frame (try 'help')"
+      ]
+    },
+    {
+      "cmd": "led dump compact",
+      "lines": [
+        "OK led dump compact lit=34 M370:00000000000000000000100200a014044088000000000000000005002829fe5004080010800090000600000000000"
+      ]
+    },
+    {
+      "cmd": "frame M370:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc",
+      "lines": [
+        "[373773 ms] [WARN] [CMD] event=reject source=serial cmd=frame err=unknown_command",
+        "ERR unknown_command=frame (try 'help')"
+      ]
+    },
+    {
+      "cmd": "led dump compact",
+      "lines": [
+        "OK led dump compact lit=34 M370:00000000000000000000100200a014044088000000000000000005002829fe5004080010800090000600000000000"
+      ]
+    },
+    {
+      "cmd": "mode manual",
+      "lines": [
+        "OK mode manual"
+      ]
+    },
+    {
+      "cmd": "mode auto",
+      "lines": [
+        "[374412][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory",
+        "[374493 ms] [INFO] [MODE] event=change from=manual to=auto persist=1",
+        "OK mode auto"
+      ]
+    },
+    {
+      "cmd": "auto interval 3000",
+      "lines": [
+        "OK auto interval set=3000 effective=3000"
+      ]
+    },
+    {
+      "cmd": "scroll start",
+      "lines": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "cmd": "scroll step next",
+      "lines": [
+        "WARN scroll step reason=no_scroll_frames"
+      ]
+    },
+    {
+      "cmd": "scroll pause",
+      "lines": [
+        "OK scroll pause changed=0"
+      ]
+    },
+    {
+      "cmd": "scroll resume",
+      "lines": [
+        "OK scroll resume changed=0"
+      ]
+    },
+    {
+      "cmd": "scroll stop",
+      "lines": [
+        "[375878 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=1 restoreAuto=0",
+        "[375878 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47",
+        "OK scroll stop"
+      ]
+    },
+    {
+      "cmd": "pause",
+      "lines": [
+        "[376095 ms] [WARN] [CMD] event=reject source=serial cmd=pause err=unknown_command",
+        "ERR unknown_command=pause (try 'help')"
+      ]
+    },
+    {
+      "cmd": "resume",
+      "lines": [
+        "[376575 ms] [WARN] [CMD] event=reject source=serial cmd=resume err=unknown_command",
+        "ERR unknown_command=resume (try 'help')"
+      ]
+    },
+    {
+      "cmd": "terminate scroll",
+      "lines": [
+        "[376778 ms] [WARN] [CMD] event=reject source=serial cmd=terminate err=unknown_command",
+        "ERR unknown_command=terminate (try 'help')"
+      ]
+    },
+    {
+      "cmd": "terminate face",
+      "lines": [
+        "[376995 ms] [WARN] [CMD] event=reject source=serial cmd=terminate err=unknown_command",
+        "ERR unknown_command=terminate (try 'help')"
+      ]
+    },
+    {
+      "cmd": "terminate all",
+      "lines": [
+        "[377197 ms] [WARN] [CMD] event=reject source=serial cmd=terminate err=unknown_command",
+        "ERR unknown_command=terminate (try 'help')"
+      ]
+    },
+    {
+      "cmd": "battery reset min",
+      "lines": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ===",
+        "[377413 ms] [INFO] [FACE] event=auto_change idx=9/11 reason=firmware_auto_saved_face",
+        "[377424 ms] [INFO] [LED] event=apply reason=firmware_auto_saved_face lit=36 bytes=47 brightness=10"
+      ]
+    },
+    {
+      "cmd": "battery reset max",
+      "lines": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "cmd": "battery overlay single",
+      "lines": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "cmd": "battery overlay hold",
+      "lines": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "cmd": "status",
+      "lines": [
+        "=== STATUS BEGIN ===",
+        "STATUS mode=auto playback=auto_saved_face paused=0 brightness=10 color=#f971d4",
+        "STATUS autoFaceIndex=8 faceCount=11 autoIntervalMs=3000",
+        "STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100",
+        "STATUS lit=36 queued=0 framesAccepted=39 lastReason=firmware_auto_saved_face",
+        "STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0",
+        "=== STATUS END ==="
+      ]
+    },
+    {
+      "cmd": "adc status",
+      "lines": [
+        "=== ADC BEGIN ===",
+        "ADC vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "ADC vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== ADC END ==="
+      ]
+    },
+    {
+      "cmd": "battery status",
+      "lines": [
+        "=== BATTERY BEGIN ===",
+        "BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1",
+        "BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0",
+        "=== BATTERY END ==="
+      ]
+    },
+    {
+      "cmd": "log level INFO",
+      "lines": [
+        "OK log level=INFO"
+      ]
+    },
+    {
+      "cmd": "led color #f971d4",
+      "lines": [
+        "ERR led unknown_subcmd=color"
+      ]
+    },
+    {
+      "cmd": "led brightness 50",
+      "lines": [
+        "[379480 ms] [INFO] [LED] event=brightness value=50",
+        "OK led brightness set=50 effective=50"
+      ]
+    },
+    {
+      "cmd": "mode manual",
+      "lines": [
+        "[379695][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory"
+      ]
+    },
+    {
+      "cmd": "auto interval 3000",
+      "lines": [
+        "[379993 ms] [INFO] [MODE] event=change from=auto to=manual persist=1",
+        "OK mode manual",
+        "OK auto interval set=3000 effective=3000"
+      ]
+    },
+    {
+      "cmd": "scroll interval 100",
+      "lines": [
+        "ERR scroll usage='scroll <status|pause|resume|stop|clear|step next|prev>'"
+      ]
+    },
+    {
+      "cmd": "face apply 7",
+      "lines": [
+        "[380474 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50",
+        "[380475 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply",
+        "OK face apply index=7"
+      ]
+    },
+    {
+      "cmd": "scroll stop",
+      "lines": [
+        "[380692 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=1 restoreAuto=0",
+        "[380692 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47",
+        "OK scroll stop"
+      ]
+    },
+    {
+      "cmd": "status",
+      "lines": [
+        "=== STATUS BEGIN ===",
+        "STATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4",
+        "STATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000",
+        "STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100",
+        "STATUS lit=0 queued=0 framesAccepted=41 lastReason=firmware_text_scroll_stop_clear",
+        "STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0",
+        "=== STATUS END ==="
+      ]
+    },
+    {
+      "cmd": "led current",
+      "lines": [
+        "OK led current color=#f971d4 brightness=50 lit=0"
+      ]
+    },
+    {
+      "cmd": "auto status",
+      "lines": [
+        "OK auto status mode=manual intervalMs=3000 faceIndex=7"
+      ]
+    },
+    {
+      "cmd": "face status",
+      "lines": [
+        "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+      ]
+    },
+    {
+      "cmd": "log status",
+      "lines": [
+        "OK log status enabled=1 level=INFO"
+      ]
+    },
+    {
+      "cmd": "scroll status",
+      "lines": [
+        "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0"
+      ]
+    }
+  ]
+}

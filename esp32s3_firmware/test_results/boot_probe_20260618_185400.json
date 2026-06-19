@@ -1,0 +1,72 @@
+{
+  "port": "COM7",
+  "baud": 115200,
+  "boot_bytes": 350,
+  "boot_lines": [
+    "ESP-ROM:esp32s3-20210327",
+    "Build:Mar 27 2021",
+    "rst:0x1 (POWERON),boot:0x9 (SPI_FAST_FLASH_BOOT)",
+    "SPIWP:0xee",
+    "mode:DIO, clock div:1",
+    "load:0x3fce3808,len:0x4bc",
+    "load:0x403c9700,len:0xbd8",
+    "load:0x403cc700,len:0x2a0c",
+    "entry 0x403c98d0",
+    "E (189) esp_core_dump_flash: No core dump partition found!",
+    "E (189) esp_core_dump_flash: No core dump partition found!"
+  ],
+  "saw_rom": true,
+  "saw_console_ready": false,
+  "saw_boot_ready": false,
+  "probes": [
+    {
+      "cmd": "status",
+      "elapsed_ms": 2117,
+      "bytes": 0,
+      "lines": []
+    },
+    {
+      "cmd": "led current",
+      "elapsed_ms": 2111,
+      "bytes": 0,
+      "lines": []
+    },
+    {
+      "cmd": "auto status",
+      "elapsed_ms": 2111,
+      "bytes": 0,
+      "lines": []
+    },
+    {
+      "cmd": "face status",
+      "elapsed_ms": 2118,
+      "bytes": 0,
+      "lines": []
+    },
+    {
+      "cmd": "scroll status",
+      "elapsed_ms": 2111,
+      "bytes": 0,
+      "lines": []
+    },
+    {
+      "cmd": "log status",
+      "elapsed_ms": 2120,
+      "bytes": 0,
+      "lines": []
+    },
+    {
+      "cmd": "version",
+      "elapsed_ms": 2116,
+      "bytes": 0,
+      "lines": []
+    },
+    {
+      "cmd": "help",
+      "elapsed_ms": 2112,
+      "bytes": 0,
+      "lines": []
+    }
+  ],
+  "raw_log": "test_results\\boot_probe_20260618_185400.log"
+}

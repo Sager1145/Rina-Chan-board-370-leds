@@ -1,0 +1,1138 @@
+{
+  "baseline": {
+    "status": "=== STATUS BEGIN ===\nSTATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4\nSTATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000\nSTATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100\nSTATUS lit=34 queued=0 framesAccepted=1 lastReason=startup_sequence_complete_saved_face\nSTATUS commandsAccepted=0 commandsRejected=0 framesRejected=0\n=== STATUS END ===",
+    "led current": "OK led current color=#f971d4 brightness=50 lit=34",
+    "auto status": "OK auto status mode=manual intervalMs=3000 faceIndex=7",
+    "face status": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown",
+    "scroll status": "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0",
+    "battery status": "=== BATTERY BEGIN ===\nBATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1\nBATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0\n=== BATTERY END ===",
+    "log status": "OK log status enabled=1 level=INFO"
+  },
+  "results": [
+    {
+      "time": "2026-06-18T19:58:35",
+      "step": "0.2 baseline",
+      "action": "status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "=== STATUS BEGIN === | STATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4 | STATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000 | STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 | STATUS lit=34 queued=0 framesAccepted=1 lastReason=startup_sequence_complete_saved_face | STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0 | === STATUS END ===",
+      "evidence": "=== STATUS BEGIN ===\nSTATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4\nSTATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000\nSTATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100\nSTATUS lit=34 queued=0 framesAccepted=1 lastReason=startup_sequence_complete_saved_face\nSTATUS commandsAccepted=0 commandsRejected=0 framesRejected=0\n=== STATUS END ==="
+    },
+    {
+      "time": "2026-06-18T19:58:36",
+      "step": "0.2 baseline",
+      "action": "led current",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK led current color=#f971d4 brightness=50 lit=34",
+      "evidence": "OK led current color=#f971d4 brightness=50 lit=34"
+    },
+    {
+      "time": "2026-06-18T19:58:37",
+      "step": "0.2 baseline",
+      "action": "auto status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK auto status mode=manual intervalMs=3000 faceIndex=7",
+      "evidence": "OK auto status mode=manual intervalMs=3000 faceIndex=7"
+    },
+    {
+      "time": "2026-06-18T19:58:37",
+      "step": "0.2 baseline",
+      "action": "face status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown",
+      "evidence": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+    },
+    {
+      "time": "2026-06-18T19:58:38",
+      "step": "0.2 baseline",
+      "action": "scroll status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0",
+      "evidence": "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0"
+    },
+    {
+      "time": "2026-06-18T19:58:39",
+      "step": "0.2 baseline",
+      "action": "battery status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "=== BATTERY BEGIN === | BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1 | BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0 | === BATTERY END ===",
+      "evidence": "=== BATTERY BEGIN ===\nBATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1\nBATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0\n=== BATTERY END ==="
+    },
+    {
+      "time": "2026-06-18T19:58:40",
+      "step": "0.2 baseline",
+      "action": "log status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK log status enabled=1 level=INFO",
+      "evidence": "OK log status enabled=1 level=INFO"
+    },
+    {
+      "time": "2026-06-18T19:58:40",
+      "step": "2.2",
+      "action": "log level DEBUG",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK log level=DEBUG",
+      "evidence": "OK log level=DEBUG"
+    },
+    {
+      "time": "2026-06-18T19:58:43",
+      "step": "2.2/5.6",
+      "action": "battery sample 3",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "bounded sample 3 instead of max 10 to avoid loops",
+      "evidence": "=== BATTERY SAMPLE BEGIN ===\n[192691 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0\nSAMPLE 0 vbat=0.000 percent=0 vcharge=0.071 charging=0\n[192713 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0\nSAMPLE 1 vbat=0.000 percent=0 vcharge=0.071 charging=0\n[192735 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0\nSAMPLE 2 vbat=0.000 percent=0 vcharge=0.071 charging=0\n=== BATTERY SAMPLE END ===\n[193735 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0\n[194735 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0\n[195735 ms] [DEBUG] [ADC] event=charge vcharge_raw=0 vcharge=0.07 charging=0"
+    },
+    {
+      "time": "2026-06-18T19:58:44",
+      "step": "2.3",
+      "action": "log level TRACE",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK log level=TRACE",
+      "evidence": "OK log level=TRACE"
+    },
+    {
+      "time": "2026-06-18T19:58:44",
+      "step": "2.4",
+      "action": "log level ERROR",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK log level=ERROR",
+      "evidence": "OK log level=ERROR"
+    },
+    {
+      "time": "2026-06-18T19:58:45",
+      "step": "2.5",
+      "action": "log off",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK log off",
+      "evidence": "OK log off"
+    },
+    {
+      "time": "2026-06-18T19:58:46",
+      "step": "2.5",
+      "action": "log on",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK log on",
+      "evidence": "OK log on"
+    },
+    {
+      "time": "2026-06-18T19:58:46",
+      "step": "2.6 restore",
+      "action": "log level INFO",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK log level=INFO",
+      "evidence": "OK log level=INFO"
+    },
+    {
+      "time": "2026-06-18T19:58:47",
+      "step": "2.6 restore",
+      "action": "log status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK log status enabled=1 level=INFO",
+      "evidence": "OK log status enabled=1 level=INFO"
+    },
+    {
+      "time": "2026-06-18T19:58:48",
+      "step": "3 buttons",
+      "action": "face status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown",
+      "evidence": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+    },
+    {
+      "time": "2026-06-18T19:58:48",
+      "step": "3 buttons",
+      "action": "btn tap B1",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[200109 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0 | [200110 ms] [INFO] [LED] event=apply reason=serial_B1_next_saved_face lit=36 bytes=47 brightness=50 | [200120 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_B1_next_saved_face | [200130 ms] [INFO] [BUTTON] source=serial id=B1 event=action handled=1 | OK btn tap B1 handled=1",
+      "evidence": "[200109 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0\n[200110 ms] [INFO] [LED] event=apply reason=serial_B1_next_saved_face lit=36 bytes=47 brightness=50\n[200120 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_B1_next_saved_face\n[200130 ms] [INFO] [BUTTON] source=serial id=B1 event=action handled=1\nOK btn tap B1 handled=1"
+    },
+    {
+      "time": "2026-06-18T19:58:49",
+      "step": "3 buttons",
+      "action": "face status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK face status index=8 count=11 id=face_09_stoic_vertical_eyes_frown",
+      "evidence": "OK face status index=8 count=11 id=face_09_stoic_vertical_eyes_frown"
+    },
+    {
+      "time": "2026-06-18T19:58:50",
+      "step": "3 buttons",
+      "action": "btn tap B2",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[201550 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0 | [201551 ms] [INFO] [LED] event=apply reason=serial_B2_prev_saved_face lit=34 bytes=47 brightness=50 | [201561 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B2_prev_saved_face | [201571 ms] [INFO] [BUTTON] source=serial id=B2 event=action handled=1 | OK btn tap B2 handled=1",
+      "evidence": "[201550 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0\n[201551 ms] [INFO] [LED] event=apply reason=serial_B2_prev_saved_face lit=34 bytes=47 brightness=50\n[201561 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B2_prev_saved_face\n[201571 ms] [INFO] [BUTTON] source=serial id=B2 event=action handled=1\nOK btn tap B2 handled=1"
+    },
+    {
+      "time": "2026-06-18T19:58:50",
+      "step": "3 buttons",
+      "action": "face status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown",
+      "evidence": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+    },
+    {
+      "time": "2026-06-18T19:58:51",
+      "step": "3 buttons",
+      "action": "btn tap B3",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[202997 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0 | [203019][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory | [203222 ms] [INFO] [MODE] event=change from=manual to=auto persist=1 | [203223 ms] [INFO] [LED] event=apply reason=serial_B3_auto_current_saved_face lit=34 bytes=47 brightness=50 | [203233 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_auto_current_saved_face | [203244 ms] [INFO] [BUT",
+      "evidence": "[202997 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0\n[203019][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[203222 ms] [INFO] [MODE] event=change from=manual to=auto persist=1\n[203223 ms] [INFO] [LED] event=apply reason=serial_B3_auto_current_saved_face lit=34 bytes=47 brightness=50\n[203233 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_auto_current_saved_face\n[203244 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1\nOK btn tap B3 handled=1"
+    },
+    {
+      "time": "2026-06-18T19:58:52",
+      "step": "3 buttons",
+      "action": "mode status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK mode status mode=auto playback=auto_saved_face autoIntervalMs=3000",
+      "evidence": "OK mode status mode=auto playback=auto_saved_face autoIntervalMs=3000"
+    },
+    {
+      "time": "2026-06-18T19:58:53",
+      "step": "3 buttons",
+      "action": "btn tap B3",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[204770 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0 | [204776][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory | [204826 ms] [INFO] [MODE] event=change from=auto to=manual persist=1 | [204827 ms] [INFO] [LED] event=apply reason=serial_B3_manual_current_saved_face lit=34 bytes=47 brightness=50 | [204837 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_manual_current_saved_face | [204848 ms] [INFO] ",
+      "evidence": "[204770 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0\n[204776][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[204826 ms] [INFO] [MODE] event=change from=auto to=manual persist=1\n[204827 ms] [INFO] [LED] event=apply reason=serial_B3_manual_current_saved_face lit=34 bytes=47 brightness=50\n[204837 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_manual_current_saved_face\n[204848 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1\nOK btn tap B3 handled=1"
+    },
+    {
+      "time": "2026-06-18T19:58:54",
+      "step": "3 buttons",
+      "action": "mode status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK mode status mode=manual playback=idle autoIntervalMs=3000",
+      "evidence": "OK mode status mode=manual playback=idle autoIntervalMs=3000"
+    },
+    {
+      "time": "2026-06-18T19:58:55",
+      "step": "3 buttons",
+      "action": "btn tap B4",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[206393 ms] [INFO] [LED] event=brightness value=42 | [206393 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1 | OK btn tap B4 handled=1",
+      "evidence": "[206393 ms] [INFO] [LED] event=brightness value=42\n[206393 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1\nOK btn tap B4 handled=1"
+    },
+    {
+      "time": "2026-06-18T19:58:55",
+      "step": "3 buttons",
+      "action": "led current",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK led current color=#f971d4 brightness=42 lit=34",
+      "evidence": "OK led current color=#f971d4 brightness=42 lit=34"
+    },
+    {
+      "time": "2026-06-18T19:58:56",
+      "step": "3 buttons",
+      "action": "btn tap B5",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[207807 ms] [INFO] [LED] event=brightness value=50 | [207807 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1 | OK btn tap B5 handled=1",
+      "evidence": "[207807 ms] [INFO] [LED] event=brightness value=50\n[207807 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\nOK btn tap B5 handled=1"
+    },
+    {
+      "time": "2026-06-18T19:58:57",
+      "step": "3 buttons",
+      "action": "led current",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK led current color=#f971d4 brightness=50 lit=34",
+      "evidence": "OK led current color=#f971d4 brightness=50 lit=34"
+    },
+    {
+      "time": "2026-06-18T19:58:58",
+      "step": "3 buttons",
+      "action": "btn combo B3+B1 tap",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[209232][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory | [209296 ms] [INFO] [AUTO] event=interval_change interval_ms=2500 persist=1 | [209297 ms] [INFO] [BUTTON] source=serial id=B3B1 event=action handled=1 | OK btn combo B3+B1 tap handled=1",
+      "evidence": "[209232][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[209296 ms] [INFO] [AUTO] event=interval_change interval_ms=2500 persist=1\n[209297 ms] [INFO] [BUTTON] source=serial id=B3B1 event=action handled=1\nOK btn combo B3+B1 tap handled=1"
+    },
+    {
+      "time": "2026-06-18T19:58:58",
+      "step": "3 buttons",
+      "action": "auto status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK auto status mode=manual intervalMs=2500 faceIndex=7",
+      "evidence": "OK auto status mode=manual intervalMs=2500 faceIndex=7"
+    },
+    {
+      "time": "2026-06-18T19:58:59",
+      "step": "3 buttons",
+      "action": "btn combo B3+B2 tap",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[210798][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory | [210870 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1 | [210871 ms] [INFO] [BUTTON] source=serial id=B3B2 event=action handled=1 | OK btn combo B3+B2 tap handled=1",
+      "evidence": "[210798][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[210870 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1\n[210871 ms] [INFO] [BUTTON] source=serial id=B3B2 event=action handled=1\nOK btn combo B3+B2 tap handled=1"
+    },
+    {
+      "time": "2026-06-18T19:59:00",
+      "step": "3 buttons",
+      "action": "auto status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK auto status mode=manual intervalMs=3000 faceIndex=7",
+      "evidence": "OK auto status mode=manual intervalMs=3000 faceIndex=7"
+    },
+    {
+      "time": "2026-06-18T19:59:05",
+      "step": "3 buttons",
+      "action": "btn press B5",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK btn press B5 | [212331 ms] [INFO] [BUTTON] source=serial id=B5 event=press | [212331 ms] [INFO] [LED] event=brightness value=58 | [212331 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1 | [212782 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat | [212782 ms] [INFO] [LED] event=brightness value=66 | [212782 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1 | [212902 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat | [212902 ms] [INFO] [LED] event=brightness value=74 | [212902",
+      "evidence": "OK btn press B5\n[212331 ms] [INFO] [BUTTON] source=serial id=B5 event=press\n[212331 ms] [INFO] [LED] event=brightness value=58\n[212331 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[212782 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[212782 ms] [INFO] [LED] event=brightness value=66\n[212782 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[212902 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[212902 ms] [INFO] [LED] event=brightness value=74\n[212902 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[213022 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[213022 ms] [INFO] [LED] event=brightness value=82\n[213022 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[213142 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[213142 ms] [INFO] [LED] event=brightness value=90\n[213142 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[213262 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[213262 ms] [INFO] [LED] event=brightness value=98\n[213262 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[213382 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[213382 ms] [INFO] [LED] event=brightness value=106\n[213382 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[213502 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[213502 ms] [INFO] [LED] event=brightness value=114\n[213502 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[213622 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[213622 ms] [INFO] [LED] event=brightness value=122\n[213622 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[213743 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[213743 ms] [INFO] [LED] event=brightness value=130\n[213743 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[213863 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[213863 ms] [INFO] [LED] event=brightness value=138\n[213863 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[213983 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[213983 ms] [INFO] [LED] event=brightness value=146\n[213983 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[214104 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[214104 ms] [INFO] [LED] event=brightness value=154\n[214104 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[214224 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[214224 ms] [INFO] [LED] event=brightness value=162\n[214224 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[214344 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[214344 ms] [INFO] [LED] event=brightness value=170\n[214344 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[214465 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[214465 ms] [INFO] [LED] event=brightness value=178\n[214465 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[214585 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[214585 ms] [INFO] [LED] event=brightness value=186\n[214585 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[214705 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[214705 ms] [INFO] [LED] event=brightness value=194\n[214705 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[214825 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[214825 ms] [INFO] [LED] event=brightness value=200\n[214825 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[214945 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[214945 ms] [INFO] [LED] event=brightness value=200\n[214945 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[215066 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[215066 ms] [INFO] [LED] event=brightness value=200\n[215066 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[215186 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[215186 ms] [INFO] [LED] event=brightness value=200\n[215186 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[215306 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[215306 ms] [INFO] [LED] event=brightness value=200\n[215306 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[215426 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[215426 ms] [INFO] [LED] event=brightness value=200\n[215426 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[215546 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[215546 ms] [INFO] [LED] event=brightness value=200\n[215546 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[215666 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[215666 ms] [INFO] [LED] event=brightness value=200\n[215666 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[215786 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[215786 ms] [INFO] [LED] event=brightness value=200\n[215786 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[215906 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[215906 ms] [INFO] [LED] event=brightness value=200\n[215906 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[216026 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[216026 ms] [INFO] [LED] event=brightness value=200\n[216026 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[216146 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[216146 ms] [INFO] [LED] event=brightness value=200\n[216146 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[216266 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[216266 ms] [INFO] [LED] event=brightness value=200\n[216266 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[216386 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[216386 ms] [INFO] [LED] event=brightness value=200\n[216386 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[216506 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[216506 ms] [INFO] [LED] event=brightness value=200\n[216506 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[216626 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[216626 ms] [INFO] [LED] event=brightness value=200\n[216626 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[216747 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[216747 ms] [INFO] [LED] event=brightness value=200\n[216747 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[216867 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[216867 ms] [INFO] [LED] event=brightness value=200\n[216867 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[216987 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[216987 ms] [INFO] [LED] event=brightness value=200\n[216987 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[217107 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[217107 ms] [INFO] [LED] event=brightness value=200\n[217107 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[217227 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[217227 ms] [INFO] [LED] event=brightness value=200\n[217227 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[217347 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[217347 ms] [INFO] [LED] event=brightness value=200\n[217347 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[217467 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[217467 ms] [INFO] [LED] event=brightness value=200\n[217467 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[217587 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[217587 ms] [INFO] [LED] event=brightness value=200\n[217587 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[217707 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[217707 ms] [INFO] [LED] event=brightness value=200\n[217707 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1"
+    },
+    {
+      "time": "2026-06-18T19:59:07",
+      "step": "3.7 buttons",
+      "action": "btn release B5",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK btn release B5 | [219019 ms] [INFO] [BUTTON] source=serial id=B5 event=release",
+      "evidence": "OK btn release B5\n[219019 ms] [INFO] [BUTTON] source=serial id=B5 event=release"
+    },
+    {
+      "time": "2026-06-18T19:59:11",
+      "step": "3.8 buttons",
+      "action": "btn hold B5 1500",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK btn hold B5 ms=1500 | [219573 ms] [INFO] [BUTTON] source=serial id=B5 event=press | [219573 ms] [INFO] [LED] event=brightness value=200 | [219573 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1 | [220024 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat | [220024 ms] [INFO] [LED] event=brightness value=200 | [220024 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1 | [220144 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat | [220144 ms] [INFO] [LED] event=brightness value=2",
+      "evidence": "OK btn hold B5 ms=1500\n[219573 ms] [INFO] [BUTTON] source=serial id=B5 event=press\n[219573 ms] [INFO] [LED] event=brightness value=200\n[219573 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[220024 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[220024 ms] [INFO] [LED] event=brightness value=200\n[220024 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[220144 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[220144 ms] [INFO] [LED] event=brightness value=200\n[220144 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[220264 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[220264 ms] [INFO] [LED] event=brightness value=200\n[220264 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[220384 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[220384 ms] [INFO] [LED] event=brightness value=200\n[220384 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[220504 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[220504 ms] [INFO] [LED] event=brightness value=200\n[220504 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[220624 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[220624 ms] [INFO] [LED] event=brightness value=200\n[220624 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[220749 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[220749 ms] [INFO] [LED] event=brightness value=200\n[220749 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[220869 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[220869 ms] [INFO] [LED] event=brightness value=200\n[220869 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[220989 ms] [INFO] [BUTTON] source=serial id=B5 event=repeat\n[220989 ms] [INFO] [LED] event=brightness value=200\n[220989 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[221073 ms] [INFO] [BUTTON] source=serial id=B5 event=release"
+    },
+    {
+      "time": "2026-06-18T19:59:15",
+      "step": "3.9 buttons",
+      "action": "btn repeat B4 5 300",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[223614 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat | [223615 ms] [INFO] [LED] event=brightness value=192 | [223615 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1 | OK btn repeat B4 count=5 interval=300 | [223926 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat | [223926 ms] [INFO] [LED] event=brightness value=184 | [223926 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1 | [224226 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat | [224226 ms] [INFO] [LED] event=br",
+      "evidence": "[223614 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat\n[223615 ms] [INFO] [LED] event=brightness value=192\n[223615 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1\nOK btn repeat B4 count=5 interval=300\n[223926 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat\n[223926 ms] [INFO] [LED] event=brightness value=184\n[223926 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1\n[224226 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat\n[224226 ms] [INFO] [LED] event=brightness value=176\n[224226 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1\n[224526 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat\n[224526 ms] [INFO] [LED] event=brightness value=168\n[224526 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1\n[224827 ms] [INFO] [BUTTON] source=serial id=B4 event=repeat\n[224827 ms] [INFO] [LED] event=brightness value=160\n[224827 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1"
+    },
+    {
+      "time": "2026-06-18T19:59:15",
+      "step": "3.10 buttons",
+      "action": "btn status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "=== BTN BEGIN === | BTN id=B1 physical=0 serial=0 | BTN id=B2 physical=0 serial=0 | BTN id=B3 physical=0 serial=0 | BTN id=B4 physical=0 serial=0 | BTN id=B5 physical=0 serial=0 | BTN id=B6 physical=0 serial=0 | === BTN END ===",
+      "evidence": "=== BTN BEGIN ===\nBTN id=B1 physical=0 serial=0\nBTN id=B2 physical=0 serial=0\nBTN id=B3 physical=0 serial=0\nBTN id=B4 physical=0 serial=0\nBTN id=B5 physical=0 serial=0\nBTN id=B6 physical=0 serial=0\n=== BTN END ==="
+    },
+    {
+      "time": "2026-06-18T19:59:16",
+      "step": "3.11 buttons",
+      "action": "btn tap B9",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "ERR btn unknown_id=B9",
+      "evidence": "ERR btn unknown_id=B9"
+    },
+    {
+      "time": "2026-06-18T19:59:16",
+      "step": "3.12 physical",
+      "action": "physical button press",
+      "interface": "physical",
+      "result": "SKIP",
+      "notes": "No robotic/manual physical press available in this automated run; serial/WebUI emulation did not disable physical path per source buttons.cpp.",
+      "evidence": ""
+    },
+    {
+      "time": "2026-06-18T19:59:16",
+      "step": "3.13 restore",
+      "action": "mode manual",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK mode manual",
+      "evidence": "OK mode manual"
+    },
+    {
+      "time": "2026-06-18T19:59:17",
+      "step": "3.13 restore",
+      "action": "auto interval 3000",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK auto interval set=3000 effective=3000",
+      "evidence": "OK auto interval set=3000 effective=3000"
+    },
+    {
+      "time": "2026-06-18T19:59:18",
+      "step": "3.13 restore",
+      "action": "led brightness 50",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[229313 ms] [INFO] [LED] event=brightness value=50 | OK led brightness set=50 effective=50",
+      "evidence": "[229313 ms] [INFO] [LED] event=brightness value=50\nOK led brightness set=50 effective=50"
+    },
+    {
+      "time": "2026-06-18T19:59:18",
+      "step": "3.13 restore",
+      "action": "face apply 7",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[230013 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50 | [230014 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply | OK face apply index=7",
+      "evidence": "[230013 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50\n[230014 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply\nOK face apply index=7"
+    },
+    {
+      "time": "2026-06-18T19:59:19",
+      "step": "4 LED",
+      "action": "led status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK led status mode=manual brightness=50 color=#f971d4 faceIndex=7 faceCount=11 | OK led status lit=34 queuedPending=0 scrollActive=0 scrollIdx=0 lastReason=serial_face_apply framesAccepted=6",
+      "evidence": "OK led status mode=manual brightness=50 color=#f971d4 faceIndex=7 faceCount=11\nOK led status lit=34 queuedPending=0 scrollActive=0 scrollIdx=0 lastReason=serial_face_apply framesAccepted=6"
+    },
+    {
+      "time": "2026-06-18T19:59:19",
+      "step": "4 LED",
+      "action": "led color #00ff00",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[231259 ms] [INFO] [LED] event=color value=#00ff00 | OK led color set=#00ff00",
+      "evidence": "[231259 ms] [INFO] [LED] event=color value=#00ff00\nOK led color set=#00ff00"
+    },
+    {
+      "time": "2026-06-18T19:59:20",
+      "step": "4 LED",
+      "action": "led current",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK led current color=#00ff00 brightness=50 lit=34",
+      "evidence": "OK led current color=#00ff00 brightness=50 lit=34"
+    },
+    {
+      "time": "2026-06-18T19:59:21",
+      "step": "4 LED",
+      "action": "led brightness",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK led brightness value=50 min=10 max=200",
+      "evidence": "OK led brightness value=50 min=10 max=200"
+    },
+    {
+      "time": "2026-06-18T19:59:21",
+      "step": "4 LED",
+      "action": "led brightness 127",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[233013 ms] [INFO] [LED] event=brightness value=127 | OK led brightness set=127 effective=127",
+      "evidence": "[233013 ms] [INFO] [LED] event=brightness value=127\nOK led brightness set=127 effective=127"
+    },
+    {
+      "time": "2026-06-18T19:59:22",
+      "step": "4 LED",
+      "action": "led brightness 10",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[233540 ms] [INFO] [LED] event=brightness value=10 | OK led brightness set=10 effective=10",
+      "evidence": "[233540 ms] [INFO] [LED] event=brightness value=10\nOK led brightness set=10 effective=10"
+    },
+    {
+      "time": "2026-06-18T19:59:22",
+      "step": "4.4-4.6 LED full-field",
+      "action": "led test pattern all_on",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "Skipped by guardrail: battery vbat=0.000/percent=0/no battery-present confidence; no full-field dense pattern on unsafe battery state.",
+      "evidence": "=== BATTERY BEGIN ===\nBATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1\nBATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0\n=== BATTERY END ==="
+    },
+    {
+      "time": "2026-06-18T19:59:22",
+      "step": "4.4-4.6 LED full-field",
+      "action": "led test pattern checker",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "Skipped by guardrail: battery vbat=0.000/percent=0/no battery-present confidence; no full-field dense pattern on unsafe battery state.",
+      "evidence": "=== BATTERY BEGIN ===\nBATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1\nBATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0\n=== BATTERY END ==="
+    },
+    {
+      "time": "2026-06-18T19:59:22",
+      "step": "4.4-4.6 LED full-field",
+      "action": "led test pattern rows",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "Skipped by guardrail: battery vbat=0.000/percent=0/no battery-present confidence; no full-field dense pattern on unsafe battery state.",
+      "evidence": "=== BATTERY BEGIN ===\nBATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1\nBATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0\n=== BATTERY END ==="
+    },
+    {
+      "time": "2026-06-18T19:59:22",
+      "step": "4.4-4.6 LED full-field",
+      "action": "led test pattern cols",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "Skipped by guardrail: battery vbat=0.000/percent=0/no battery-present confidence; no full-field dense pattern on unsafe battery state.",
+      "evidence": "=== BATTERY BEGIN ===\nBATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1\nBATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0\n=== BATTERY END ==="
+    },
+    {
+      "time": "2026-06-18T19:59:22",
+      "step": "4.7 LED",
+      "action": "led test pattern single 0",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[234070 ms] [INFO] [LED] event=apply reason=serial_test_pattern_single lit=1 bytes=47 brightness=10 | OK led test pattern single lit=1",
+      "evidence": "[234070 ms] [INFO] [LED] event=apply reason=serial_test_pattern_single lit=1 bytes=47 brightness=10\nOK led test pattern single lit=1"
+    },
+    {
+      "time": "2026-06-18T19:59:23",
+      "step": "4.7 LED",
+      "action": "led test pattern single 369",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[234773 ms] [INFO] [LED] event=apply reason=serial_test_pattern_single lit=1 bytes=47 brightness=10 | OK led test pattern single lit=1",
+      "evidence": "[234773 ms] [INFO] [LED] event=apply reason=serial_test_pattern_single lit=1 bytes=47 brightness=10\nOK led test pattern single lit=1"
+    },
+    {
+      "time": "2026-06-18T19:59:24",
+      "step": "4.8 LED",
+      "action": "led test pattern single 370",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "ERR led test single out_of_range=370 max=369",
+      "evidence": "ERR led test single out_of_range=370 max=369"
+    },
+    {
+      "time": "2026-06-18T19:59:25",
+      "step": "4.9 LED",
+      "action": "led dump",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "=== LEDS BEGIN === | LEDS lit=1 bright=10 color=#00ff00 | ROW00 .................. | ROW01 .................... | ROW02 .................... | ROW03 .................... | ROW04 ...................... | ROW05 ...................... | ROW06 ...................... | ROW07 ...................... | ROW08 ...................... | ROW09 ...................... | ROW10 ...................... | ROW11 ...................... | ROW12 ...................... | ROW13 .................... | ROW14 .................... | ROW15 ...................",
+      "evidence": "=== LEDS BEGIN ===\nLEDS lit=1 bright=10 color=#00ff00\nROW00 ..................\nROW01 ....................\nROW02 ....................\nROW03 ....................\nROW04 ......................\nROW05 ......................\nROW06 ......................\nROW07 ......................\nROW08 ......................\nROW09 ......................\nROW10 ......................\nROW11 ......................\nROW12 ......................\nROW13 ....................\nROW14 ....................\nROW15 ....................\nROW16 ..................\nROW17 ...............#\nhex=000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004\n=== LEDS END ==="
+    },
+    {
+      "time": "2026-06-18T19:59:25",
+      "step": "4.10 LED",
+      "action": "led dump compact",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK led dump compact lit=1 M370:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004",
+      "evidence": "OK led dump compact lit=1 M370:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004"
+    },
+    {
+      "time": "2026-06-18T19:59:26",
+      "step": "4.11 LED",
+      "action": "led clear",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[237773 ms] [INFO] [LED] event=clear reason=serial_led_clear lit=0 bytes=47 | OK led clear",
+      "evidence": "[237773 ms] [INFO] [LED] event=clear reason=serial_led_clear lit=0 bytes=47\nOK led clear"
+    },
+    {
+      "time": "2026-06-18T19:59:27",
+      "step": "4.12 LED",
+      "action": "led command_history",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "=== LEDCMD BEGIN === | LEDCMD count=9 | LEDCMD ms=900 reason=startup_sequence_complete_saved_face lit=34 source=frame | LEDCMD ms=200120 reason=serial_B1_next_saved_face lit=36 source=frame | LEDCMD ms=201561 reason=serial_B2_prev_saved_face lit=34 source=frame | LEDCMD ms=203233 reason=serial_B3_auto_current_saved_face lit=34 source=frame | LEDCMD ms=204837 reason=serial_B3_manual_current_saved_face lit=34 source=frame | LEDCMD ms=230014 reason=serial_face_apply lit=34 source=frame | LEDCMD ms=234070 reason=se",
+      "evidence": "=== LEDCMD BEGIN ===\nLEDCMD count=9\nLEDCMD ms=900 reason=startup_sequence_complete_saved_face lit=34 source=frame\nLEDCMD ms=200120 reason=serial_B1_next_saved_face lit=36 source=frame\nLEDCMD ms=201561 reason=serial_B2_prev_saved_face lit=34 source=frame\nLEDCMD ms=203233 reason=serial_B3_auto_current_saved_face lit=34 source=frame\nLEDCMD ms=204837 reason=serial_B3_manual_current_saved_face lit=34 source=frame\nLEDCMD ms=230014 reason=serial_face_apply lit=34 source=frame\nLEDCMD ms=234070 reason=serial_test_pattern_single lit=1 source=immediate\nLEDCMD ms=234773 reason=serial_test_pattern_single lit=1 source=immediate\nLEDCMD ms=237773 reason=serial_led_clear lit=0 source=clear\n=== LEDCMD END ==="
+    },
+    {
+      "time": "2026-06-18T19:59:27",
+      "step": "4.13 restore",
+      "action": "led brightness 50",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[239110 ms] [INFO] [LED] event=brightness value=50 | OK led brightness set=50 effective=50",
+      "evidence": "[239110 ms] [INFO] [LED] event=brightness value=50\nOK led brightness set=50 effective=50"
+    },
+    {
+      "time": "2026-06-18T19:59:28",
+      "step": "4.13 restore",
+      "action": "face apply 7",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[239635 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50 | [239636 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply | OK face apply index=7",
+      "evidence": "[239635 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50\n[239636 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply\nOK face apply index=7"
+    },
+    {
+      "time": "2026-06-18T19:59:28",
+      "step": "5 ADC",
+      "action": "adc status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "=== ADC BEGIN === | ADC vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1 | ADC vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0 | === ADC END ===",
+      "evidence": "=== ADC BEGIN ===\nADC vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1\nADC vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0\n=== ADC END ==="
+    },
+    {
+      "time": "2026-06-18T19:59:29",
+      "step": "5 ADC",
+      "action": "adc read raw",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK adc read raw vbatRaw=0 vchargeRaw=0",
+      "evidence": "OK adc read raw vbatRaw=0 vchargeRaw=0"
+    },
+    {
+      "time": "2026-06-18T19:59:29",
+      "step": "5 ADC",
+      "action": "adc read vbat",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK adc read vbat vbat=0.000 raw=0 percent=0",
+      "evidence": "OK adc read vbat vbat=0.000 raw=0 percent=0"
+    },
+    {
+      "time": "2026-06-18T19:59:30",
+      "step": "5 ADC",
+      "action": "adc read charge",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK adc read charge vcharge=0.071 raw=0 charging=0",
+      "evidence": "OK adc read charge vcharge=0.071 raw=0 charging=0"
+    },
+    {
+      "time": "2026-06-18T19:59:31",
+      "step": "5 ADC",
+      "action": "battery status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "=== BATTERY BEGIN === | BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1 | BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0 | === BATTERY END ===",
+      "evidence": "=== BATTERY BEGIN ===\nBATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1\nBATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0\n=== BATTERY END ==="
+    },
+    {
+      "time": "2026-06-18T19:59:31",
+      "step": "5.7 ADC sanity",
+      "action": "charger toggle sanity",
+      "interface": "physical",
+      "result": "SKIP",
+      "notes": "No physical charger/battery toggle available; recorded static vbat/vcharge only.",
+      "evidence": "=== BATTERY BEGIN ===\nBATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1\nBATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0\n=== BATTERY END ==="
+    },
+    {
+      "time": "2026-06-18T19:59:31",
+      "step": "6 mode/face/auto",
+      "action": "mode status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK mode status mode=manual playback=idle autoIntervalMs=3000",
+      "evidence": "OK mode status mode=manual playback=idle autoIntervalMs=3000"
+    },
+    {
+      "time": "2026-06-18T19:59:32",
+      "step": "6 mode/face/auto",
+      "action": "mode auto",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[243906][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory | [243991 ms] [INFO] [MODE] event=change from=manual to=auto persist=1 | OK mode auto",
+      "evidence": "[243906][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[243991 ms] [INFO] [MODE] event=change from=manual to=auto persist=1\nOK mode auto"
+    },
+    {
+      "time": "2026-06-18T19:59:33",
+      "step": "6 mode/face/auto",
+      "action": "mode status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK mode status mode=auto playback=auto_saved_face autoIntervalMs=3000",
+      "evidence": "OK mode status mode=auto playback=auto_saved_face autoIntervalMs=3000"
+    },
+    {
+      "time": "2026-06-18T19:59:35",
+      "step": "6 mode/face/auto",
+      "action": "mode manual",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[246003][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory | [246178 ms] [INFO] [MODE] event=change from=auto to=manual persist=1 | OK mode manual",
+      "evidence": "[246003][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[246178 ms] [INFO] [MODE] event=change from=auto to=manual persist=1\nOK mode manual"
+    },
+    {
+      "time": "2026-06-18T19:59:35",
+      "step": "6 mode/face/auto",
+      "action": "mode status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK mode status mode=manual playback=idle autoIntervalMs=3000",
+      "evidence": "OK mode status mode=manual playback=idle autoIntervalMs=3000"
+    },
+    {
+      "time": "2026-06-18T19:59:36",
+      "step": "6 mode/face/auto",
+      "action": "face status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown",
+      "evidence": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+    },
+    {
+      "time": "2026-06-18T19:59:37",
+      "step": "6 mode/face/auto",
+      "action": "face next",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[248822 ms] [INFO] [LED] event=apply reason=serial_face_next lit=36 bytes=47 brightness=50 | [248822 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_face_next | OK face next index=8",
+      "evidence": "[248822 ms] [INFO] [LED] event=apply reason=serial_face_next lit=36 bytes=47 brightness=50\n[248822 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_face_next\nOK face next index=8"
+    },
+    {
+      "time": "2026-06-18T19:59:38",
+      "step": "6 mode/face/auto",
+      "action": "face status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK face status index=8 count=11 id=face_09_stoic_vertical_eyes_frown",
+      "evidence": "OK face status index=8 count=11 id=face_09_stoic_vertical_eyes_frown"
+    },
+    {
+      "time": "2026-06-18T19:59:39",
+      "step": "6 mode/face/auto",
+      "action": "face prev",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[250596 ms] [INFO] [LED] event=apply reason=serial_face_prev lit=34 bytes=47 brightness=50 | [250597 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_prev | OK face prev index=7",
+      "evidence": "[250596 ms] [INFO] [LED] event=apply reason=serial_face_prev lit=34 bytes=47 brightness=50\n[250597 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_prev\nOK face prev index=7"
+    },
+    {
+      "time": "2026-06-18T19:59:40",
+      "step": "6 mode/face/auto",
+      "action": "face status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown",
+      "evidence": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+    },
+    {
+      "time": "2026-06-18T19:59:41",
+      "step": "6 mode/face/auto",
+      "action": "face apply 0",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[252477 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=40 bytes=47 brightness=50 | [252478 ms] [INFO] [FACE] event=apply idx=1/11 id=face_01_surprised_winking_with_mouth reason=serial_face_apply | OK face apply index=0",
+      "evidence": "[252477 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=40 bytes=47 brightness=50\n[252478 ms] [INFO] [FACE] event=apply idx=1/11 id=face_01_surprised_winking_with_mouth reason=serial_face_apply\nOK face apply index=0"
+    },
+    {
+      "time": "2026-06-18T19:59:42",
+      "step": "6 mode/face/auto",
+      "action": "face apply 999",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[253381 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=42 bytes=47 brightness=50 | [253381 ms] [INFO] [FACE] event=apply idx=10/11 id=face_10_x_eyes_frown reason=serial_face_apply | OK face apply index=9",
+      "evidence": "[253381 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=42 bytes=47 brightness=50\n[253381 ms] [INFO] [FACE] event=apply idx=10/11 id=face_10_x_eyes_frown reason=serial_face_apply\nOK face apply index=9"
+    },
+    {
+      "time": "2026-06-18T19:59:43",
+      "step": "6 mode/face/auto",
+      "action": "auto status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK auto status mode=manual intervalMs=3000 faceIndex=9",
+      "evidence": "OK auto status mode=manual intervalMs=3000 faceIndex=9"
+    },
+    {
+      "time": "2026-06-18T19:59:44",
+      "step": "6 mode/face/auto",
+      "action": "auto interval",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK auto interval value=3000 min=500 max=10000",
+      "evidence": "OK auto interval value=3000 min=500 max=10000"
+    },
+    {
+      "time": "2026-06-18T19:59:44",
+      "step": "6 mode/face/auto",
+      "action": "auto interval 1000",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[256027][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory | [256077 ms] [INFO] [AUTO] event=interval_change interval_ms=1000 persist=1 | OK auto interval set=1000 effective=1000",
+      "evidence": "[256027][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[256077 ms] [INFO] [AUTO] event=interval_change interval_ms=1000 persist=1\nOK auto interval set=1000 effective=1000"
+    },
+    {
+      "time": "2026-06-18T19:59:45",
+      "step": "6 mode/face/auto",
+      "action": "auto status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK auto status mode=manual intervalMs=1000 faceIndex=9",
+      "evidence": "OK auto status mode=manual intervalMs=1000 faceIndex=9"
+    },
+    {
+      "time": "2026-06-18T19:59:46",
+      "step": "6 mode/face/auto",
+      "action": "auto start",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[257981][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory | [258042 ms] [INFO] [MODE] event=change from=manual to=auto persist=1 | OK auto start",
+      "evidence": "[257981][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[258042 ms] [INFO] [MODE] event=change from=manual to=auto persist=1\nOK auto start"
+    },
+    {
+      "time": "2026-06-18T19:59:47",
+      "step": "6 mode/face/auto",
+      "action": "mode status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK mode status mode=auto playback=auto_saved_face autoIntervalMs=1000 | [258975 ms] [INFO] [FACE] event=auto_change idx=11/11 reason=firmware_auto_saved_face | [258975 ms] [INFO] [LED] event=apply reason=firmware_auto_saved_face lit=58 bytes=47 brightness=50",
+      "evidence": "OK mode status mode=auto playback=auto_saved_face autoIntervalMs=1000\n[258975 ms] [INFO] [FACE] event=auto_change idx=11/11 reason=firmware_auto_saved_face\n[258975 ms] [INFO] [LED] event=apply reason=firmware_auto_saved_face lit=58 bytes=47 brightness=50"
+    },
+    {
+      "time": "2026-06-18T19:59:48",
+      "step": "6 mode/face/auto",
+      "action": "auto stop",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[259860][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory | [259933 ms] [INFO] [MODE] event=change from=auto to=manual persist=1 | OK auto stop",
+      "evidence": "[259860][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[259933 ms] [INFO] [MODE] event=change from=auto to=manual persist=1\nOK auto stop"
+    },
+    {
+      "time": "2026-06-18T19:59:49",
+      "step": "6 mode/face/auto",
+      "action": "mode status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK mode status mode=manual playback=idle autoIntervalMs=1000",
+      "evidence": "OK mode status mode=manual playback=idle autoIntervalMs=1000"
+    },
+    {
+      "time": "2026-06-18T19:59:50",
+      "step": "6.10 restore",
+      "action": "mode manual",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK mode manual",
+      "evidence": "OK mode manual"
+    },
+    {
+      "time": "2026-06-18T19:59:51",
+      "step": "6.10 restore",
+      "action": "auto interval 3000",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[262223][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory | [262508 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1 | OK auto interval set=3000 effective=3000",
+      "evidence": "[262223][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[262508 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1\nOK auto interval set=3000 effective=3000"
+    },
+    {
+      "time": "2026-06-18T19:59:51",
+      "step": "6.10 restore",
+      "action": "face apply 7",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[263067 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50 | [263068 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply | OK face apply index=7",
+      "evidence": "[263067 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50\n[263068 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply\nOK face apply index=7"
+    },
+    {
+      "time": "2026-06-18T19:59:52",
+      "step": "7 scroll",
+      "action": "scroll status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0",
+      "evidence": "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0"
+    },
+    {
+      "time": "2026-06-18T19:59:53",
+      "step": "7 scroll",
+      "action": "scroll interval 60",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK scroll interval set=60 effective=60 min=33 max=1000",
+      "evidence": "OK scroll interval set=60 effective=60 min=33 max=1000"
+    },
+    {
+      "time": "2026-06-18T19:59:53",
+      "step": "7 scroll",
+      "action": "scroll fps 30",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK scroll fps set=30 interval=33",
+      "evidence": "OK scroll fps set=30 interval=33"
+    },
+    {
+      "time": "2026-06-18T19:59:54",
+      "step": "7 scroll",
+      "action": "scroll start",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "WARN scroll start reason=no_scroll_frames",
+      "evidence": "WARN scroll start reason=no_scroll_frames"
+    },
+    {
+      "time": "2026-06-18T19:59:54",
+      "step": "7 scroll",
+      "action": "scroll step next",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "WARN scroll step reason=no_scroll_frames",
+      "evidence": "WARN scroll step reason=no_scroll_frames"
+    },
+    {
+      "time": "2026-06-18T19:59:55",
+      "step": "7 scroll",
+      "action": "scroll pause",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK scroll pause changed=0",
+      "evidence": "OK scroll pause changed=0"
+    },
+    {
+      "time": "2026-06-18T19:59:55",
+      "step": "7 scroll",
+      "action": "scroll resume",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK scroll resume changed=0",
+      "evidence": "OK scroll resume changed=0"
+    },
+    {
+      "time": "2026-06-18T19:59:56",
+      "step": "7 scroll",
+      "action": "scroll stop",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[267826 ms] [INFO] [SCROLL] event=stop stopped=1 cleared=1 restoreAuto=0 | [267826 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47 | OK scroll stop",
+      "evidence": "[267826 ms] [INFO] [SCROLL] event=stop stopped=1 cleared=1 restoreAuto=0\n[267826 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47\nOK scroll stop"
+    },
+    {
+      "time": "2026-06-18T19:59:56",
+      "step": "7 scroll",
+      "action": "scroll clear",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[268369 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=1 restoreAuto=0 | [268369 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47 | OK scroll clear",
+      "evidence": "[268369 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=1 restoreAuto=0\n[268369 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47\nOK scroll clear"
+    },
+    {
+      "time": "2026-06-18T19:59:57",
+      "step": "8 built-in",
+      "action": "test list",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK test groups=all,buttons,led,adc,modes,scroll,sweep | OK test tests=buttons.tap_b1,buttons.tap_b2,buttons.b3_toggle,buttons.brightness_limit,buttons.auto_interval | OK test tests=led.clear,led.pattern_all_on,led.pattern_single,adc.read,modes.toggle,scroll.pause_step | OK test tests=sweep.brightness,sweep.color,sweep.scroll_interval (run via 'test run sweep')",
+      "evidence": "OK test groups=all,buttons,led,adc,modes,scroll,sweep\nOK test tests=buttons.tap_b1,buttons.tap_b2,buttons.b3_toggle,buttons.brightness_limit,buttons.auto_interval\nOK test tests=led.clear,led.pattern_all_on,led.pattern_single,adc.read,modes.toggle,scroll.pause_step\nOK test tests=sweep.brightness,sweep.color,sweep.scroll_interval (run via 'test run sweep')"
+    },
+    {
+      "time": "2026-06-18T19:59:59",
+      "step": "8 built-in",
+      "action": "test run buttons",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[269660 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0 | [269661 ms] [INFO] [LED] event=apply reason=serial_B1_next_saved_face lit=36 bytes=47 brightness=50 | [269671 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_B1_next_saved_face | [269682 ms] [INFO] [BUTTON] source=serial id=B1 event=action handled=1 | [TEST] buttons.tap_b1 PASS before=7 after=8 | [269692 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0 | [269692 ms] [INFO] [LE",
+      "evidence": "[269660 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0\n[269661 ms] [INFO] [LED] event=apply reason=serial_B1_next_saved_face lit=36 bytes=47 brightness=50\n[269671 ms] [INFO] [FACE] event=apply idx=9/11 id=face_09_stoic_vertical_eyes_frown reason=serial_B1_next_saved_face\n[269682 ms] [INFO] [BUTTON] source=serial id=B1 event=action handled=1\n[TEST] buttons.tap_b1 PASS before=7 after=8\n[269692 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0\n[269692 ms] [INFO] [LED] event=apply reason=serial_B2_prev_saved_face lit=34 bytes=47 brightness=50\n[269703 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B2_prev_saved_face\n[269713 ms] [INFO] [BUTTON] source=serial id=B2 event=action handled=1\n[TEST] buttons.tap_b2 PASS before=8 after=7\n[269724 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0\n[269740][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[269780 ms] [INFO] [MODE] event=change from=manual to=auto persist=1\n[269781 ms] [INFO] [LED] event=apply reason=serial_B3_auto_current_saved_face lit=34 bytes=47 brightness=50\n[269791 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_auto_current_saved_face\n[269801 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1\n[TEST] buttons.b3_toggle PASS from=manual to=auto\n[269812 ms] [INFO] [SCROLL] event=stop stopped=0 cleared=0 restoreAuto=0\n[269819][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[269876 ms] [INFO] [MODE] event=change from=auto to=manual persist=1\n[269877 ms] [INFO] [LED] event=apply reason=serial_B3_manual_current_saved_face lit=34 bytes=47 brightness=50\n[269887 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_B3_manual_current_saved_face\n[269897 ms] [INFO] [BUTTON] source=serial id=B3 event=action handled=1\n[269898 ms] [INFO] [LED] event=brightness value=10\n[269908 ms] [INFO] [LED] event=brightness value=10\n[269908 ms] [INFO] [BUTTON] source=serial id=B4 event=action handled=1\n[269919 ms] [INFO] [LED] event=brightness value=200\n[269919 ms] [INFO] [LED] event=brightness value=200\n[269929 ms] [INFO] [BUTTON] source=serial id=B5 event=action handled=1\n[TEST] buttons.brightness_limit PASS min=10 max=200\n[269940 ms] [INFO] [LED] event=brightness value=50\n[269947][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[270011 ms] [INFO] [AUTO] event=interval_change interval_ms=2500 persist=1\n[270012 ms] [INFO] [BUTTON] source=serial id=B3B1 event=action handled=1\n[270030][E][vfs_api.cpp:182] remove(): /resources/runtime_settings.json.tmp does not exists or is directory\n[270106 ms] [INFO] [AUTO] event=interval_change interval_ms=3000 persist=1\n[270107 ms] [INFO] [BUTTON] source=serial id=B3B2 event=action handled=1\n[TEST] buttons.auto_interval PASS min=500 max=10000 now=3000\n[270117 ms] [INFO] [LED] event=brightness value=50\n[270128 ms] [INFO] [LED] event=color value=#00ff00\n[270128 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=50\n[270138 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore\n[TEST] SUMMARY pass=5 warn=0 fail=0"
+    },
+    {
+      "time": "2026-06-18T20:00:01",
+      "step": "8 built-in",
+      "action": "test run adc",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[TEST] adc.read PASS vbat=0.00 percent=0 | [271589 ms] [INFO] [LED] event=brightness value=50 | [271589 ms] [INFO] [LED] event=color value=#00ff00 | [271599 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=50 | [271600 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore | [TEST] SUMMARY pass=1 warn=0 fail=0",
+      "evidence": "[TEST] adc.read PASS vbat=0.00 percent=0\n[271589 ms] [INFO] [LED] event=brightness value=50\n[271589 ms] [INFO] [LED] event=color value=#00ff00\n[271599 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=50\n[271600 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore\n[TEST] SUMMARY pass=1 warn=0 fail=0"
+    },
+    {
+      "time": "2026-06-18T20:00:02",
+      "step": "8 built-in",
+      "action": "test run modes",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[273052 ms] [INFO] [MODE] event=change from=manual to=auto persist=0 | [273052 ms] [INFO] [MODE] event=change from=auto to=manual persist=0 | [TEST] modes.toggle PASS auto_ok=1 manual_ok=1 | [273063 ms] [INFO] [LED] event=brightness value=50 | [273063 ms] [INFO] [LED] event=color value=#00ff00 | [273074 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=50 | [273084 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore | [TEST] SUMMARY",
+      "evidence": "[273052 ms] [INFO] [MODE] event=change from=manual to=auto persist=0\n[273052 ms] [INFO] [MODE] event=change from=auto to=manual persist=0\n[TEST] modes.toggle PASS auto_ok=1 manual_ok=1\n[273063 ms] [INFO] [LED] event=brightness value=50\n[273063 ms] [INFO] [LED] event=color value=#00ff00\n[273074 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=50\n[273084 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore\n[TEST] SUMMARY pass=1 warn=0 fail=0"
+    },
+    {
+      "time": "2026-06-18T20:00:04",
+      "step": "8 built-in",
+      "action": "test run scroll",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[TEST] scroll.step_no_data WARN reason=no_scroll_frames | [274559 ms] [INFO] [LED] event=brightness value=50 | [274559 ms] [INFO] [LED] event=color value=#00ff00 | [274570 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=50 | [274570 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore | [TEST] SUMMARY pass=0 warn=1 fail=0",
+      "evidence": "[TEST] scroll.step_no_data WARN reason=no_scroll_frames\n[274559 ms] [INFO] [LED] event=brightness value=50\n[274559 ms] [INFO] [LED] event=color value=#00ff00\n[274570 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=50\n[274570 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore\n[TEST] SUMMARY pass=0 warn=1 fail=0"
+    },
+    {
+      "time": "2026-06-18T20:00:11",
+      "step": "8 built-in",
+      "action": "test run sweep",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[276020 ms] [INFO] [LED] event=brightness value=10 | [276020 ms] [INFO] [LED] event=brightness value=11 | [276021 ms] [INFO] [LED] event=brightness value=12 | [276031 ms] [INFO] [LED] event=brightness value=13 | [276031 ms] [INFO] [LED] event=brightness value=14 | [276041 ms] [INFO] [LED] event=brightness value=15 | [276042 ms] [INFO] [LED] event=brightness value=16 | [276042 ms] [INFO] [LED] event=brightness value=17 | [276052 ms] [INFO] [LED] event=brightness value=18 | [276052 ms] [INFO] [LED] event=brightness",
+      "evidence": "[276020 ms] [INFO] [LED] event=brightness value=10\n[276020 ms] [INFO] [LED] event=brightness value=11\n[276021 ms] [INFO] [LED] event=brightness value=12\n[276031 ms] [INFO] [LED] event=brightness value=13\n[276031 ms] [INFO] [LED] event=brightness value=14\n[276041 ms] [INFO] [LED] event=brightness value=15\n[276042 ms] [INFO] [LED] event=brightness value=16\n[276042 ms] [INFO] [LED] event=brightness value=17\n[276052 ms] [INFO] [LED] event=brightness value=18\n[276052 ms] [INFO] [LED] event=brightness value=19\n[276062 ms] [INFO] [LED] event=brightness value=20\n[276063 ms] [INFO] [LED] event=brightness value=21\n[276063 ms] [INFO] [LED] event=brightness value=22\n[276073 ms] [INFO] [LED] event=brightness value=23\n[276073 ms] [INFO] [LED] event=brightness value=24\n[276084 ms] [INFO] [LED] event=brightness value=25\n[276084 ms] [INFO] [LED] event=brightness value=26\n[276094 ms] [INFO] [LED] event=brightness value=27\n[276094 ms] [INFO] [LED] event=brightness value=28\n[276094 ms] [INFO] [LED] event=brightness value=29\n[276105 ms] [INFO] [LED] event=brightness value=30\n[276105 ms] [INFO] [LED] event=brightness value=31\n[276115 ms] [INFO] [LED] event=brightness value=32\n[276115 ms] [INFO] [LED] event=brightness value=33\n[276116 ms] [INFO] [LED] event=brightness value=34\n[276126 ms] [INFO] [LED] event=brightness value=35\n[276126 ms] [INFO] [LED] event=brightness value=36\n[276136 ms] [INFO] [LED] event=brightness value=37\n[276137 ms] [INFO] [LED] event=brightness value=38\n[276147 ms] [INFO] [LED] event=brightness value=39\n[276147 ms] [INFO] [LED] event=brightness value=40\n[276147 ms] [INFO] [LED] event=brightness value=41\n[276157 ms] [INFO] [LED] event=brightness value=42\n[276158 ms] [INFO] [LED] event=brightness value=43\n[276168 ms] [INFO] [LED] event=brightness value=44\n[276168 ms] [INFO] [LED] event=brightness value=45\n[276178 ms] [INFO] [LED] event=brightness value=46\n[276179 ms] [INFO] [LED] event=brightness value=47\n[276179 ms] [INFO] [LED] event=brightness value=48\n[276189 ms] [INFO] [LED] event=brightness value=49\n[276189 ms] [INFO] [LED] event=brightness value=50\n[276199 ms] [INFO] [LED] event=brightness value=51\n[276200 ms] [INFO] [LED] event=brightness value=52\n[276200 ms] [INFO] [LED] event=brightness value=53\n[276210 ms] [INFO] [LED] event=brightness value=54\n[276210 ms] [INFO] [LED] event=brightness value=55\n[276221 ms] [INFO] [LED] event=brightness value=56\n[276221 ms] [INFO] [LED] event=brightness value=57\n[276231 ms] [INFO] [LED] event=brightness value=58\n[276231 ms] [INFO] [LED] event=brightness value=59\n[276231 ms] [INFO] [LED] event=brightness value=60\n[276242 ms] [INFO] [LED] event=brightness value=61\n[276242 ms] [INFO] [LED] event=brightness value=62\n[276252 ms] [INFO] [LED] event=brightness value=63\n[276252 ms] [INFO] [LED] event=brightness value=64\n[276263 ms] [INFO] [LED] event=brightness value=65\n[276263 ms] [INFO] [LED] event=brightness value=66\n[276263 ms] [INFO] [LED] event=brightness value=67\n[276273 ms] [INFO] [LED] event=brightness value=68\n[276273 ms] [INFO] [LED] event=brightness value=69\n[276284 ms] [INFO] [LED] event=brightness value=70\n[276284 ms] [INFO] [LED] event=brightness value=71\n[276284 ms] [INFO] [LED] event=brightness value=72\n[276295 ms] [INFO] [LED] event=brightness value=73\n[276295 ms] [INFO] [LED] event=brightness value=74\n[276305 ms] [INFO] [LED] event=brightness value=75\n[276306 ms] [INFO] [LED] event=brightness value=76\n[276316 ms] [INFO] [LED] event=brightness value=77\n[276316 ms] [INFO] [LED] event=brightness value=78\n[276316 ms] [INFO] [LED] event=brightness value=79\n[276326 ms] [INFO] [LED] event=brightness value=80\n[276327 ms] [INFO] [LED] event=brightness value=81\n[276337 ms] [INFO] [LED] event=brightness value=82\n[276337 ms] [INFO] [LED] event=brightness value=83\n[276337 ms] [INFO] [LED] event=brightness value=84\n[276347 ms] [INFO] [LED] event=brightness value=85\n[276348 ms] [INFO] [LED] event=brightness value=86\n[276358 ms] [INFO] [LED] event=brightness value=87\n[276358 ms] [INFO] [LED] event=brightness value=88\n[276368 ms] [INFO] [LED] event=brightness value=89\n[276369 ms] [INFO] [LED] event=brightness value=90\n[276369 ms] [INFO] [LED] event=brightness value=91\n[276379 ms] [INFO] [LED] event=brightness value=92\n[276379 ms] [INFO] [LED] event=brightness value=93\n[276390 ms] [INFO] [LED] event=brightness value=94\n[276390 ms] [INFO] [LED] event=brightness value=95\n[276400 ms] [INFO] [LED] event=brightness value=96\n[276400 ms] [INFO] [LED] event=brightness value=97\n[276400 ms] [INFO] [LED] event=brightness value=98\n[276411 ms] [INFO] [LED] event=brightness value=99\n[276411 ms] [INFO] [LED] event=brightness value=100\n[276421 ms] [INFO] [LED] event=brightness value=101\n[276421 ms] [INFO] [LED] event=brightness value=102\n[276421 ms] [INFO] [LED] event=brightness value=103\n[276432 ms] [INFO] [LED] event=brightness value=104\n[276432 ms] [INFO] [LED] event=brightness value=105\n[276442 ms] [INFO] [LED] event=brightness value=106\n[276442 ms] [INFO] [LED] event=brightness value=107\n[276453 ms] [INFO] [LED] event=brightness value=108\n[276453 ms] [INFO] [LED] event=brightness value=109\n[276453 ms] [INFO] [LED] event=brightness value=110\n[276463 ms] [INFO] [LED] event=brightness value=111\n[276464 ms] [INFO] [LED] event=brightness value=112\n[276474 ms] [INFO] [LED] event=brightness value=113\n[276474 ms] [INFO] [LED] event=brightness value=114\n[276484 ms] [INFO] [LED] event=brightness value=115\n[276484 ms] [INFO] [LED] event=brightness value=116\n[276485 ms] [INFO] [LED] event=brightness value=117\n[276495 ms] [INFO] [LED] event=brightness value=118\n[276495 ms] [INFO] [LED] event=brightness value=119\n[276506 ms] [INFO] [LED] event=brightness value=120\n[276506 ms] [INFO] [LED] event=brightness value=121\n[276516 ms] [INFO] [LED] event=brightness value=122\n[276516 ms] [INFO] [LED] event=brightness value=123\n[276516 ms] [INFO] [LED] event=brightness value=124\n[276527 ms] [INFO] [LED] event=brightness value=125\n[276527 ms] [INFO] [LED] event=brightness value=126\n[276537 ms] [INFO] [LED] event=brightness value=127\n[276537 ms] [INFO] [LED] event=brightness value=128\n[276548 ms] [INFO] [LED] event=brightness value=129\n[276548 ms] [INFO] [LED] event=brightness value=130\n[276548 ms] [INFO] [LED] event=brightness value=131\n[276558 ms] [INFO] [LED] event=brightness value=132\n[276558 ms] [INFO] [LED] event=brightness value=133\n[276569 ms] [INFO] [LED] event=brightness value=134\n[276569 ms] [INFO] [LED] event=brightness value=135\n[276579 ms] [INFO] [LED] event=brightness value=136\n[276580 ms] [INFO] [LED] event=brightness value=137\n[276580 ms] [INFO] [LED] event=brightness value=138\n[276590 ms] [INFO] [LED] event=brightness value=139\n[276590 ms] [INFO] [LED] event=brightness value=140\n[276601 ms] [INFO] [LED] event=brightness value=141\n[276601 ms] [INFO] [LED] event=brightness value=142\n[276612 ms] [INFO] [LED] event=brightness value=143\n[276612 ms] [INFO] [LED] event=brightness value=144\n[276612 ms] [INFO] [LED] event=brightness value=145\n[276622 ms] [INFO] [LED] event=brightness value=146\n[276622 ms] [INFO] [LED] event=brightness value=147\n[276633 ms] [INFO] [LED] event=brightness value=148\n[276633 ms] [INFO] [LED] event=brightness value=149\n[276643 ms] [INFO] [LED] event=brightness value=150\n[276643 ms] [INFO] [LED] event=brightness value=151\n[276644 ms] [INFO] [LED] event=brightness value=152\n[276654 ms] [INFO] [LED] event=brightness value=153\n[276654 ms] [INFO] [LED] event=brightness value=154\n[276664 ms] [INFO] [LED] event=brightness value=155\n[276664 ms] [INFO] [LED] event=brightness value=156\n[276675 ms] [INFO] [LED] event=brightness value=157\n[276675 ms] [INFO] [LED] event=brightness value=158\n[276675 ms] [INFO] [LED] event=brightness value=159\n[276685 ms] [INFO] [LED] event=brightness value=160\n[276686 ms] [INFO] [LED] event=brightness value=161\n[276696 ms] [INFO] [LED] event=brightness value=162\n[276696 ms] [INFO] [LED] event=brightness value=163\n[276706 ms] [INFO] [LED] event=brightness value=164\n[276707 ms] [INFO] [LED] event=brightness value=165\n[276707 ms] [INFO] [LED] event=brightness value=166\n[276717 ms] [INFO] [LED] event=brightness value=167\n[276717 ms] [INFO] [LED] event=brightness value=168\n[276728 ms] [INFO] [LED] event=brightness value=169\n[276728 ms] [INFO] [LED] event=brightness value=170\n[276738 ms] [INFO] [LED] event=brightness value=171\n[276738 ms] [INFO] [LED] event=brightness value=172\n[276738 ms] [INFO] [LED] event=brightness value=173\n[276749 ms] [INFO] [LED] event=brightness value=174\n[276749 ms] [INFO] [LED] event=brightness value=175\n[276759 ms] [INFO] [LED] event=brightness value=176\n[276759 ms] [INFO] [LED] event=brightness value=177\n[276770 ms] [INFO] [LED] event=brightness value=178\n[276770 ms] [INFO] [LED] event=brightness value=179\n[276770 ms] [INFO] [LED] event=brightness value=180\n[276780 ms] [INFO] [LED] event=brightness value=181\n[276780 ms] [INFO] [LED] event=brightness value=182\n[276791 ms] [INFO] [LED] event=brightness value=183\n[276791 ms] [INFO] [LED] event=brightness value=184\n[276801 ms] [INFO] [LED] event=brightness value=185\n[276801 ms] [INFO] [LED] event=brightness value=186\n[276801 ms] [INFO] [LED] event=brightness value=187\n[276812 ms] [INFO] [LED] event=brightness value=188\n[276812 ms] [INFO] [LED] event=brightness value=189\n[276822 ms] [INFO] [LED] event=brightness value=190\n[276822 ms] [INFO] [LED] event=brightness value=191\n[276833 ms] [INFO] [LED] event=brightness value=192\n[276833 ms] [INFO] [LED] event=brightness value=193\n[276833 ms] [INFO] [LED] event=brightness value=194\n[276843 ms] [INFO] [LED] event=brightness value=195\n[276844 ms] [INFO] [LED] event=brightness value=196\n[276854 ms] [INFO] [LED] event=brightness value=197\n[276854 ms] [INFO] [LED] event=brightness value=198\n[276864 ms] [INFO] [LED] event=brightness value=199\n[276865 ms] [INFO] [LED] event=brightness value=200\n[276865 ms] [INFO] [LED] event=brightness value=10\n[276875 ms] [INFO] [LED] event=brightness value=200\n[TEST] sweep.brightness PASS count=191 range=10..200 clamp=ok\n[276886 ms] [INFO] [LED] event=color value=#000000\n[276886 ms] [INFO] [LED] event=color value=#000033\n[276896 ms] [INFO] [LED] event=color value=#000066\n[276896 ms] [INFO] [LED] event=color value=#000099\n[276897 ms] [INFO] [LED] event=color value=#0000cc\n[276907 ms] [INFO] [LED] event=color value=#0000ff\n[276907 ms] [INFO] [LED] event=color value=#003300\n[276918 ms] [INFO] [LED] event=color value=#003333\n[276918 ms] [INFO] [LED] event=color value=#003366\n[276918 ms] [INFO] [LED] event=color value=#003399\n[276928 ms] [INFO] [LED] event=color value=#0033cc\n[276929 ms] [INFO] [LED] event=color value=#0033ff\n[276939 ms] [INFO] [LED] event=color value=#006600\n[276939 ms] [INFO] [LED] event=color value=#006633\n[276950 ms] [INFO] [LED] event=color value=#006666\n[276950 ms] [INFO] [LED] event=color value=#006699\n[276950 ms] [INFO] [LED] event=color value=#0066cc\n[276961 ms] [INFO] [LED] event=color value=#0066ff\n[276961 ms] [INFO] [LED] event=color value=#009900\n[276971 ms] [INFO] [LED] event=color value=#009933\n[276971 ms] [INFO] [LED] event=color value=#009966\n[276971 ms] [INFO] [LED] event=color value=#009999\n[276982 ms] [INFO] [LED] event=color value=#0099cc\n[276982 ms] [INFO] [LED] event=color value=#0099ff\n[276993 ms] [INFO] [LED] event=color value=#00cc00\n[276993 ms] [INFO] [LED] event=color value=#00cc33\n[276993 ms] [INFO] [LED] event=color value=#00cc66\n[277004 ms] [INFO] [LED] event=color value=#00cc99\n[277004 ms] [INFO] [LED] event=color value=#00cccc\n[277014 ms] [INFO] [LED] event=color value=#00ccff\n[277015 ms] [INFO] [LED] event=color value=#00ff00\n[277025 ms] [INFO] [LED] event=color value=#00ff33\n[277025 ms] [INFO] [LED] event=color value=#00ff66\n[277026 ms] [INFO] [LED] event=color value=#00ff99\n[277036 ms] [INFO] [LED] event=color value=#00ffcc\n[277036 ms] [INFO] [LED] event=color value=#00ffff\n[277047 ms] [INFO] [LED] event=color value=#330000\n[277047 ms] [INFO] [LED] event=color value=#330033\n[277047 ms] [INFO] [LED] event=color value=#330066\n[277057 ms] [INFO] [LED] event=color value=#330099\n[277058 ms] [INFO] [LED] event=color value=#3300cc\n[277068 ms] [INFO] [LED] event=color value=#3300ff\n[277068 ms] [INFO] [LED] event=color value=#333300\n[277068 ms] [INFO] [LED] event=color value=#333333\n[277079 ms] [INFO] [LED] event=color value=#333366\n[277079 ms] [INFO] [LED] event=color value=#333399\n[277089 ms] [INFO] [LED] event=color value=#3333cc\n[277090 ms] [INFO] [LED] event=color value=#3333ff\n[277100 ms] [INFO] [LED] event=color value=#336600\n[277100 ms] [INFO] [LED] event=color value=#336633\n[277100 ms] [INFO] [LED] event=color value=#336666\n[277111 ms] [INFO] [LED] event=color value=#336699\n[277111 ms] [INFO] [LED] event=color value=#3366cc\n[277122 ms] [INFO] [LED] event=color value=#3366ff\n[277122 ms] [INFO] [LED] event=color value=#339900\n[277122 ms] [INFO] [LED] event=color value=#339933\n[277133 ms] [INFO] [LED] event=color value=#339966\n[277133 ms] [INFO] [LED] event=color value=#339999\n[277143 ms] [INFO] [LED] event=color value=#3399cc\n[277143 ms] [INFO] [LED] event=color value=#3399ff\n[277144 ms] [INFO] [LED] event=color value=#33cc00\n[277154 ms] [INFO] [LED] event=color value=#33cc33\n[277154 ms] [INFO] [LED] event=color value=#33cc66\n[277165 ms] [INFO] [LED] event=color value=#33cc99\n[277165 ms] [INFO] [LED] event=color value=#33cccc\n[277175 ms] [INFO] [LED] event=color value=#33ccff\n[277176 ms] [INFO] [LED] event=color value=#33ff00\n[277176 ms] [INFO] [LED] event=color value=#33ff33\n[277186 ms] [INFO] [LED] event=color value=#33ff66\n[277186 ms] [INFO] [LED] event=color value=#33ff99\n[277197 ms] [INFO] [LED] event=color value=#33ffcc\n[277197 ms] [INFO] [LED] event=color value=#33ffff\n[277197 ms] [INFO] [LED] event=color value=#660000\n[277208 ms] [INFO] [LED] event=color value=#660033\n[277208 ms] [INFO] [LED] event=color value=#660066\n[277218 ms] [INFO] [LED] event=color value=#660099\n[277219 ms] [INFO] [LED] event=color value=#6600cc\n[277219 ms] [INFO] [LED] event=color value=#6600ff\n[277229 ms] [INFO] [LED] event=color value=#663300\n[277230 ms] [INFO] [LED] event=color value=#663333\n[277240 ms] [INFO] [LED] event=color value=#663366\n[277240 ms] [INFO] [LED] event=color value=#663399\n[277251 ms] [INFO] [LED] event=color value=#6633cc\n[277251 ms] [INFO] [LED] event=color value=#6633ff\n[277251 ms] [INFO] [LED] event=color value=#666600\n[277262 ms] [INFO] [LED] event=color value=#666633\n[277262 ms] [INFO] [LED] event=color value=#666666\n[277272 ms] [INFO] [LED] event=color value=#666699\n[277272 ms] [INFO] [LED] event=color value=#6666cc\n[277272 ms] [INFO] [LED] event=color value=#6666ff\n[277283 ms] [INFO] [LED] event=color value=#669900\n[277283 ms] [INFO] [LED] event=color value=#669933\n[277294 ms] [INFO] [LED] event=color value=#669966\n[277294 ms] [INFO] [LED] event=color value=#669999\n[277304 ms] [INFO] [LED] event=color value=#6699cc\n[277304 ms] [INFO] [LED] event=color value=#6699ff\n[277304 ms] [INFO] [LED] event=color value=#66cc00\n[277315 ms] [INFO] [LED] event=color value=#66cc33\n[277315 ms] [INFO] [LED] event=color value=#66cc66\n[277326 ms] [INFO] [LED] event=color value=#66cc99\n[277326 ms] [INFO] [LED] event=color value=#66cccc\n[277326 ms] [INFO] [LED] event=color value=#66ccff\n[277336 ms] [INFO] [LED] event=color value=#66ff00\n[277337 ms] [INFO] [LED] event=color value=#66ff33\n[277347 ms] [INFO] [LED] event=color value=#66ff66\n[277347 ms] [INFO] [LED] event=color value=#66ff99\n[277347 ms] [INFO] [LED] event=color value=#66ffcc\n[277358 ms] [INFO] [LED] event=color value=#66ffff\n[277358 ms] [INFO] [LED] event=color value=#990000\n[277368 ms] [INFO] [LED] event=color value=#990033\n[277369 ms] [INFO] [LED] event=color value=#990066\n[277379 ms] [INFO] [LED] event=color value=#990099\n[277379 ms] [INFO] [LED] event=color value=#9900cc\n[277379 ms] [INFO] [LED] event=color value=#9900ff\n[277390 ms] [INFO] [LED] event=color value=#993300\n[277390 ms] [INFO] [LED] event=color value=#993333\n[277400 ms] [INFO] [LED] event=color value=#993366\n[277401 ms] [INFO] [LED] event=color value=#993399\n[277401 ms] [INFO] [LED] event=color value=#9933cc\n[277411 ms] [INFO] [LED] event=color value=#9933ff\n[277411 ms] [INFO] [LED] event=color value=#996600\n[277422 ms] [INFO] [LED] event=color value=#996633\n[277422 ms] [INFO] [LED] event=color value=#996666\n[277432 ms] [INFO] [LED] event=color value=#996699\n[277433 ms] [INFO] [LED] event=color value=#9966cc\n[277433 ms] [INFO] [LED] event=color value=#9966ff\n[277443 ms] [INFO] [LED] event=color value=#999900\n[277443 ms] [INFO] [LED] event=color value=#999933\n[277454 ms] [INFO] [LED] event=color value=#999966\n[277454 ms] [INFO] [LED] event=color value=#999999\n[277454 ms] [INFO] [LED] event=color value=#9999cc\n[277465 ms] [INFO] [LED] event=color value=#9999ff\n[277465 ms] [INFO] [LED] event=color value=#99cc00\n[277475 ms] [INFO] [LED] event=color value=#99cc33\n[277475 ms] [INFO] [LED] event=color value=#99cc66\n[277475 ms] [INFO] [LED] event=color value=#99cc99\n[277486 ms] [INFO] [LED] event=color value=#99cccc\n[277486 ms] [INFO] [LED] event=color value=#99ccff\n[277497 ms] [INFO] [LED] event=color value=#99ff00\n[277497 ms] [INFO] [LED] event=color value=#99ff33\n[277507 ms] [INFO] [LED] event=color value=#99ff66\n[277507 ms] [INFO] [LED] event=color value=#99ff99\n[277508 ms] [INFO] [LED] event=color value=#99ffcc\n[277518 ms] [INFO] [LED] event=color value=#99ffff\n[277518 ms] [INFO] [LED] event=color value=#cc0000\n[277529 ms] [INFO] [LED] event=color value=#cc0033\n[277529 ms] [INFO] [LED] event=color value=#cc0066\n[277529 ms] [INFO] [LED] event=color value=#cc0099\n[277539 ms] [INFO] [LED] event=color value=#cc00cc\n[277540 ms] [INFO] [LED] event=color value=#cc00ff\n[277550 ms] [INFO] [LED] event=color value=#cc3300\n[277550 ms] [INFO] [LED] event=color value=#cc3333\n[277561 ms] [INFO] [LED] event=color value=#cc3366\n[277561 ms] [INFO] [LED] event=color value=#cc3399\n[277561 ms] [INFO] [LED] event=color value=#cc33cc\n[277572 ms] [INFO] [LED] event=color value=#cc33ff\n[277572 ms] [INFO] [LED] event=color value=#cc6600\n[277582 ms] [INFO] [LED] event=color value=#cc6633\n[277582 ms] [INFO] [LED] event=color value=#cc6666\n[277582 ms] [INFO] [LED] event=color value=#cc6699\n[277593 ms] [INFO] [LED] event=color value=#cc66cc\n[277593 ms] [INFO] [LED] event=color value=#cc66ff\n[277604 ms] [INFO] [LED] event=color value=#cc9900\n[277604 ms] [INFO] [LED] event=color value=#cc9933\n[277604 ms] [INFO] [LED] event=color value=#cc9966\n[277614 ms] [INFO] [LED] event=color value=#cc9999\n[277615 ms] [INFO] [LED] event=color value=#cc99cc\n[277625 ms] [INFO] [LED] event=color value=#cc99ff\n[277625 ms] [INFO] [LED] event=color value=#cccc00\n[277636 ms] [INFO] [LED] event=color value=#cccc33\n[277636 ms] [INFO] [LED] event=color value=#cccc66\n[277636 ms] [INFO] [LED] event=color value=#cccc99\n[277646 ms] [INFO] [LED] event=color value=#cccccc\n[277647 ms] [INFO] [LED] event=color value=#ccccff\n[277657 ms] [INFO] [LED] event=color value=#ccff00\n[277657 ms] [INFO] [LED] event=color value=#ccff33\n[277657 ms] [INFO] [LED] event=color value=#ccff66\n[277668 ms] [INFO] [LED] event=color value=#ccff99\n[277668 ms] [INFO] [LED] event=color value=#ccffcc\n[277678 ms] [INFO] [LED] event=color value=#ccffff\n[277678 ms] [INFO] [LED] event=color value=#ff0000\n[277689 ms] [INFO] [LED] event=color value=#ff0033\n[277689 ms] [INFO] [LED] event=color value=#ff0066\n[277689 ms] [INFO] [LED] event=color value=#ff0099\n[277700 ms] [INFO] [LED] event=color value=#ff00cc\n[277700 ms] [INFO] [LED] event=color value=#ff00ff\n[277710 ms] [INFO] [LED] event=color value=#ff3300\n[277710 ms] [INFO] [LED] event=color value=#ff3333\n[277711 ms] [INFO] [LED] event=color value=#ff3366\n[277721 ms] [INFO] [LED] event=color value=#ff3399\n[277721 ms] [INFO] [LED] event=color value=#ff33cc\n[277732 ms] [INFO] [LED] event=color value=#ff33ff\n[277732 ms] [INFO] [LED] event=color value=#ff6600\n[277732 ms] [INFO] [LED] event=color value=#ff6633\n[277743 ms] [INFO] [LED] event=color value=#ff6666\n[277743 ms] [INFO] [LED] event=color value=#ff6699\n[277753 ms] [INFO] [LED] event=color value=#ff66cc\n[277753 ms] [INFO] [LED] event=color value=#ff66ff\n[277764 ms] [INFO] [LED] event=color value=#ff9900\n[277764 ms] [INFO] [LED] event=color value=#ff9933\n[277764 ms] [INFO] [LED] event=color value=#ff9966\n[277775 ms] [INFO] [LED] event=color value=#ff9999\n[277775 ms] [INFO] [LED] event=color value=#ff99cc\n[277785 ms] [INFO] [LED] event=color value=#ff99ff\n[277785 ms] [INFO] [LED] event=color value=#ffcc00\n[277786 ms] [INFO] [LED] event=color value=#ffcc33\n[277796 ms] [INFO] [LED] event=color value=#ffcc66\n[277796 ms] [INFO] [LED] event=color value=#ffcc99\n[277807 ms] [INFO] [LED] event=color value=#ffcccc\n[277807 ms] [INFO] [LED] event=color value=#ffccff\n[277817 ms] [INFO] [LED] event=color value=#ffff00\n[277817 ms] [INFO] [LED] event=color value=#ffff33\n[277818 ms] [INFO] [LED] event=color value=#ffff66\n[277828 ms] [INFO] [LED] event=color value=#ffff99\n[277828 ms] [INFO] [LED] event=color value=#ffffcc\n[277839 ms] [INFO] [LED] event=color value=#ffffff\n[277839 ms] [INFO] [LED] event=color value=#000000\n[277839 ms] [INFO] [LED] event=color value=#ffffff\n[277849 ms] [INFO] [LED] event=color value=#ff0000\n[277850 ms] [INFO] [LED] event=color value=#00ff00\n[277860 ms] [INFO] [LED] event=color value=#0000ff\n[277860 ms] [INFO] [LED] event=color value=#f971d4\n[TEST] sweep.color PASS count=222 websafe+boundaries\n[TEST] sweep.scroll_interval PASS range=33..1000 clamp=ok\n[277877 ms] [INFO] [LED] event=brightness value=50\n[277878 ms] [INFO] [LED] event=color value=#00ff00\n[277888 ms] [INFO] [LED] event=apply reason=serial_test_restore lit=34 bytes=47 brightness=50\n[277889 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_test_restore\n[TEST] SUMMARY pass=3 warn=0 fail=0"
+    },
+    {
+      "time": "2026-06-18T20:00:11",
+      "step": "8 built-in",
+      "action": "test report",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK test report pass=3 warn=0 fail=0",
+      "evidence": "OK test report pass=3 warn=0 fail=0"
+    },
+    {
+      "time": "2026-06-18T20:00:11",
+      "step": "8.3/8.7 built-in led/all",
+      "action": "test run led / test run all",
+      "interface": "serial",
+      "result": "WARN",
+      "notes": "Not executed because manual guardrail classified battery/no-battery state as unsafe for dense full-field all_on path. test run sweep was executed for option sweeps.",
+      "evidence": "=== BATTERY BEGIN ===\nBATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1\nBATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0\n=== BATTERY END ==="
+    },
+    {
+      "time": "2026-06-18T20:00:12",
+      "step": "9b.4 frame all-off",
+      "action": "frame M370:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[283800 ms] [INFO] [LED] event=apply reason=serial_frame lit=0 bytes=47 brightness=50 | OK frame accepted lit=0",
+      "evidence": "[283800 ms] [INFO] [LED] event=apply reason=serial_frame lit=0 bytes=47 brightness=50\nOK frame accepted lit=0"
+    },
+    {
+      "time": "2026-06-18T20:00:12",
+      "step": "9b.4 frame roundtrip",
+      "action": "led dump compact",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK led dump compact lit=0 M370:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "evidence": "OK led dump compact lit=0 M370:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "time": "2026-06-18T20:00:13",
+      "step": "pre-webui restore",
+      "action": "log level INFO",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK log level=INFO",
+      "evidence": "OK log level=INFO"
+    },
+    {
+      "time": "2026-06-18T20:00:14",
+      "step": "pre-webui restore",
+      "action": "led color #f971d4",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[285595 ms] [INFO] [LED] event=color value=#f971d4 | OK led color set=#f971d4",
+      "evidence": "[285595 ms] [INFO] [LED] event=color value=#f971d4\nOK led color set=#f971d4"
+    },
+    {
+      "time": "2026-06-18T20:00:14",
+      "step": "pre-webui restore",
+      "action": "led brightness 50",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[286304 ms] [INFO] [LED] event=brightness value=50 | OK led brightness set=50 effective=50",
+      "evidence": "[286304 ms] [INFO] [LED] event=brightness value=50\nOK led brightness set=50 effective=50"
+    },
+    {
+      "time": "2026-06-18T20:00:15",
+      "step": "pre-webui restore",
+      "action": "mode manual",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK mode manual",
+      "evidence": "OK mode manual"
+    },
+    {
+      "time": "2026-06-18T20:00:16",
+      "step": "pre-webui restore",
+      "action": "auto interval 3000",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK auto interval set=3000 effective=3000",
+      "evidence": "OK auto interval set=3000 effective=3000"
+    },
+    {
+      "time": "2026-06-18T20:00:17",
+      "step": "pre-webui restore",
+      "action": "scroll interval 100",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK scroll interval set=100 effective=100 min=33 max=1000",
+      "evidence": "OK scroll interval set=100 effective=100 min=33 max=1000"
+    },
+    {
+      "time": "2026-06-18T20:00:17",
+      "step": "pre-webui restore",
+      "action": "scroll stop",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[289109 ms] [INFO] [SCROLL] event=stop stopped=1 cleared=1 restoreAuto=0 | [289109 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47 | OK scroll stop",
+      "evidence": "[289109 ms] [INFO] [SCROLL] event=stop stopped=1 cleared=1 restoreAuto=0\n[289109 ms] [INFO] [LED] event=clear reason=firmware_text_scroll_stop_clear lit=0 bytes=47\nOK scroll stop"
+    },
+    {
+      "time": "2026-06-18T20:00:18",
+      "step": "pre-webui restore",
+      "action": "face apply 7",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "[289832 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50 | [289833 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply | OK face apply index=7",
+      "evidence": "[289832 ms] [INFO] [LED] event=apply reason=serial_face_apply lit=34 bytes=47 brightness=50\n[289833 ms] [INFO] [FACE] event=apply idx=8/11 id=face_08_triangle_eyes_frown reason=serial_face_apply\nOK face apply index=7"
+    },
+    {
+      "time": "2026-06-18T20:00:19",
+      "step": "pre-webui restore",
+      "action": "status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "=== STATUS BEGIN === | STATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4 | STATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000 | STATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 | STATUS lit=34 queued=0 framesAccepted=29 lastReason=serial_face_apply | STATUS commandsAccepted=0 commandsRejected=0 framesRejected=0 | === STATUS END ===",
+      "evidence": "=== STATUS BEGIN ===\nSTATUS mode=manual playback=idle paused=0 brightness=50 color=#f971d4\nSTATUS autoFaceIndex=7 faceCount=11 autoIntervalMs=3000\nSTATUS scrollActive=0 scrollPaused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100\nSTATUS lit=34 queued=0 framesAccepted=29 lastReason=serial_face_apply\nSTATUS commandsAccepted=0 commandsRejected=0 framesRejected=0\n=== STATUS END ==="
+    },
+    {
+      "time": "2026-06-18T20:00:20",
+      "step": "pre-webui restore",
+      "action": "led current",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK led current color=#f971d4 brightness=50 lit=34",
+      "evidence": "OK led current color=#f971d4 brightness=50 lit=34"
+    },
+    {
+      "time": "2026-06-18T20:00:20",
+      "step": "pre-webui restore",
+      "action": "auto status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK auto status mode=manual intervalMs=3000 faceIndex=7",
+      "evidence": "OK auto status mode=manual intervalMs=3000 faceIndex=7"
+    },
+    {
+      "time": "2026-06-18T20:00:21",
+      "step": "pre-webui restore",
+      "action": "face status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown",
+      "evidence": "OK face status index=7 count=11 id=face_08_triangle_eyes_frown"
+    },
+    {
+      "time": "2026-06-18T20:00:22",
+      "step": "pre-webui restore",
+      "action": "scroll status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0",
+      "evidence": "OK scroll status active=0 paused=0 userPaused=0 systemPaused=0 idx=0 count=0 interval=100 uploadComplete=0 hasText=0"
+    },
+    {
+      "time": "2026-06-18T20:00:22",
+      "step": "pre-webui restore",
+      "action": "battery status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "=== BATTERY BEGIN === | BATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1 | BATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0 | === BATTERY END ===",
+      "evidence": "=== BATTERY BEGIN ===\nBATTERY vbat=0.000 vcharge=0.071 percent=0 charging=0 batValid=1 chargeValid=1\nBATTERY vbatRaw=0 vchargeRaw=0 calibMin=6.200 calibMax=8.000 disconnected=0\n=== BATTERY END ==="
+    },
+    {
+      "time": "2026-06-18T20:00:23",
+      "step": "pre-webui restore",
+      "action": "log status",
+      "interface": "serial",
+      "result": "PASS",
+      "notes": "OK log status enabled=1 level=INFO",
+      "evidence": "OK log status enabled=1 level=INFO"
+    }
+  ]
+}
