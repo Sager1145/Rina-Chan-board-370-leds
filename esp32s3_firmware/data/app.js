@@ -6713,6 +6713,9 @@ function ensureRinaboardStage(el) {
   img.alt = "";
   img.setAttribute("aria-hidden", "true");
   img.draggable = false;
+  img.onload = () => {
+    scheduleMatrixFitRender(2);
+  };
   parent.insertBefore(stage, el);
   stage.appendChild(img);
   stage.appendChild(el);
@@ -6795,6 +6798,19 @@ function matrixMaxContentHeight(wrap, configuredMaxHeight) {
 function fitMatrix(view) {
   const wrap = view.el.closest(".matrix-wrap");
   if (!wrap) return;
+
+  const stage = view.el.closest(".rinaboard-stage");
+  if (stage) {
+    const img = stage.querySelector(".rinaboard-bg-img");
+    if (img) {
+      const rect = img.getBoundingClientRect();
+      if (rect.width > 0) {
+        const scale = rect.width / 4000;
+        stage.style.setProperty("--alignment-scale", String(scale));
+      }
+    }
+  }
+
   const wrapStyle = getComputedStyle(wrap);
   const cs = getComputedStyle(view.el);
   const gap = parseFloat(cs.getPropertyValue("--gap")) || (view.compact ? 2 : 3);
@@ -6884,7 +6900,7 @@ function observeMatrixWraps() {
   if (typeof ResizeObserver !== "undefined") {
     matrixResizeObserver = new ResizeObserver(onResize);
     document
-      .querySelectorAll(".matrix-wrap,.led-preview-card,.debug-measure-card")
+      .querySelectorAll(".matrix-wrap,.led-preview-card,.debug-measure-card,.rinaboard-stage")
       .forEach((el) => matrixResizeObserver.observe(el));
   } else {
     matrixResizeObserver = {

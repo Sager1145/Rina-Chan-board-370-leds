@@ -2911,7 +2911,7 @@
 
    The badge picture sits behind, and the LED grid is overlaid so that:
       - the top-left corner of the FIRST visible LED (grid row 0, col 2)
-        lands on image pixel (850.0, 849.5)
+        lands on image pixel (852.0, 850.7)
      - the bottom-right corner of the LAST visible LED (grid row 17, col 18)
        lands on image pixel (3018.5, 3144)
    in the picture's native 4000 x 3351 space (0,0 = top-left of the picture).
@@ -2939,20 +2939,18 @@
   pointer-events: none;
 }
 
-/* The matrix overlays the picture. Positions are % of the stage, which is
-   exactly the displayed picture box (same aspect as the 4000x3351 source). */
+/* The matrix overlays the picture. Positions are calculated in native pixel coordinates
+   multiplied by the stage scaling factor, guaranteeing that cells remain perfectly square. */
 .rinaboard-stage > .matrix {
   position: absolute;
-  left: 14.8915%;   /* full-grid left  = col 2 left edge at x=850.0  */
-  top: 25.3506%;    /* full-grid top   = row 0 top   at y=849.5    */
-  width: 70.1313%;  /* full 22-column grid width (override fit-content) */
-  height: 68.4721%; /* full 18-row grid height                     */
-  max-width: none;
-  margin: 0;
-  gap: 0;
+  left: calc(var(--alignment-left-offset, 597.66px) * var(--alignment-scale, 1));
+  top: calc(var(--alignment-top-offset, 850.71px) * var(--alignment-scale, 1));
+  gap: calc(var(--alignment-gap, 0px) * var(--alignment-scale, 1));
   display: grid;
-  grid-template-columns: repeat(22, 1fr);
-  grid-template-rows: repeat(18, 1fr);
+  grid-template-columns: repeat(22, calc(var(--alignment-cell-size, 127.43px) * var(--alignment-scale, 1)));
+  grid-template-rows: repeat(18, calc(var(--alignment-cell-size, 127.43px) * var(--alignment-scale, 1)));
+  width: auto;
+  height: auto;
   pointer-events: none;
 }
 
