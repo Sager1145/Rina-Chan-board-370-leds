@@ -9086,7 +9086,7 @@ function chooseFirstChunkFrames(firstChunkPayloadBuilder) {
     );
   count = clamp(count, 1, SCROLL_UPLOAD_CHUNK_FRAMES);
   while (count > 1 && measure(count) > SCROLL_FIRST_CHUNK_BODY_LIMIT_BYTES) count--;
-  while (
+  while(
     count < SCROLL_UPLOAD_CHUNK_FRAMES &&
     measure(count + 1) <= SCROLL_FIRST_CHUNK_BODY_LIMIT_BYTES
   ) {
@@ -9172,19 +9172,23 @@ async function uploadScrollTimelineAttempt(frames, timelineId) {
   setScrollUploadProgress(0.9, `帧数据已完成，设置 ${fps} fps`);
   scrollMachine.dispatch("UPLOAD_COMMIT_DONE", {}, uploadToken);
 
-  try {
-    data = await apiPost(API_ENDPOINTS.command, {
-      cmd: "start_scroll",
-      payload: {
-        timelineId,
-        fps,
-        intervalMs,
-        source: "webui_text_scroll_after_frames",
-      },
-    });
-  } catch (err) {
-    scrollMachine.dispatch("START_FAIL", {}, uploadToken);
-    throw err;
+  if (data && data.started) {
+    log("固件已在上传结束时自动启动滚动播放，无需重复发送 start_scroll 命令。");
+  } else {
+    try {
+      data = await apiPost(API_ENDPOINTS.command, {
+        cmd: "start_scroll",
+        payload: {
+          timelineId,
+          fps,
+          intervalMs,
+          source: "webui_text_scroll_after_frames",
+        },
+      });
+    } catch (err) {
+      scrollMachine.dispatch("START_FAIL", {}, uploadToken);
+      throw err;
+    }
   }
 
   if (!scrollMachine.isCurrent(uploadToken)) {
@@ -9263,7 +9267,6 @@ async function startScroll() {
   scroll.textEdited = false;
   if (scroll.timer) clearInterval(scroll.timer);
   scroll.timer = null;
-  resetScrollPreviewToFirstFrame("text_scroll_start_reset_preview", null);
   scroll.active = false;
   scroll.paused = false;
   scroll.userPaused = false;
@@ -9276,6 +9279,7 @@ async function startScroll() {
   scroll.frameCounter = 0;
   try {
     const data = await uploadFirmwareScrollTimeline();
+    resetScrollPreviewToFirstFrame("text_scroll_start_reset_preview", "scroll");
     applyFirmwareRuntimeState(data, "text_scroll_upload_complete");
     scroll.firmwareBacked = true;
     scroll.commandBusy = false;
