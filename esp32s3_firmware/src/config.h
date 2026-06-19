@@ -33,13 +33,13 @@ constexpr float    BATTERY_DIVIDER_R1_K  = 100.0f;
 constexpr float    BATTERY_DIVIDER_R2_K  = 57.0f;
 constexpr float    CHARGE_DIVIDER_R1_K   = 270.0f;
 constexpr float    CHARGE_DIVIDER_R2_K   = 47.0f;
-constexpr float    BATTERY_CAL_SCALE     = 2.708333f;  // 说明电源、电池、充电或 ADC 校准相关逻辑。
-constexpr float    BATTERY_CAL_OFFSET_V  = 0.2033f;    // 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
-constexpr float    CHARGE_CAL_SCALE      = 6.684982f;  // 说明电源、电池、充电或 ADC 校准相关逻辑。
-constexpr float    CHARGE_CAL_OFFSET_V   = 0.0712f;    // 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+constexpr float    BATTERY_CAL_SCALE     = 2.708333f;  // Explains power, battery, charging, or ADC calibration logic.
+constexpr float    BATTERY_CAL_OFFSET_V  = 0.2033f;    // Explains the responsibilities and maintenance constraints of the current code block in hardware, matrix, and timing configuration.
+constexpr float    CHARGE_CAL_SCALE      = 6.684982f;  // Explains power, battery, charging, or ADC calibration logic.
+constexpr float    CHARGE_CAL_OFFSET_V   = 0.0712f;    // Explains the responsibilities and maintenance constraints of the current code block in hardware, matrix, and timing configuration.
 constexpr float    BATTERY_EMPTY_V       = 6.2f;
 constexpr float    BATTERY_FULL_V        = 8.0f;
-constexpr float    BATTERY_UNPOWERED_LOW_V = 5.0f;  // 说明电源、电池、充电或 ADC 校准相关逻辑。
+constexpr float    BATTERY_UNPOWERED_LOW_V = 5.0f;  // Explains power, battery, charging, or ADC calibration logic.
 constexpr float    CHARGE_PRESENT_V      = 4.0f;
 constexpr uint8_t  POWER_ADC_SAMPLES     = 16;
 constexpr uint8_t  POWER_ADC_TRIM_COUNT  = 4;
@@ -117,8 +117,8 @@ constexpr uint16_t MAX_SCROLL_INTERVAL_MS        = 1000;
 constexpr uint16_t DEFAULT_SCROLL_INTERVAL_MS    = 100;
 constexpr uint8_t  SCROLL_DRIFT_RESET_INTERVALS  = 4;
 
-// 文字滚动源文本同步（Scroll source-text sync）：上传携带的 Unicode 源文本与
-// 元数据的硬限制。文本上限按 UTF-8 字节计，无 code-point 上限。
+// Scroll source-text sync: Hard limits for uploaded Unicode source text and
+// metadata. The text limit is in UTF-8 bytes, with no code-point limit.
 constexpr uint16_t MAX_SCROLL_TEXT_BYTES        = 4096;
 constexpr uint8_t  MAX_SCROLL_TIMELINE_ID_CHARS = 47;
 constexpr uint8_t  MAX_SCROLL_FONT_ID_CHARS     = 47;

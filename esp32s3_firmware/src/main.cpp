@@ -17,12 +17,12 @@
 
 static bool g_syncReady = false;
 
-// LED、LittleFS、按钮、电源监控和 Web API，并在 Core 0 主循环中调度控制面。
+// LED, LittleFS, buttons, power monitoring, and Web API, scheduling the control plane in the Core 0 main loop.
 
 // Setup
 
 void setup() {
-    // 读到漂浮电平并锁存随机亮点。
+    // Read floating level and latch random bright spots.
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, LOW);
     delay(LED_BOOT_DATA_LOW_HOLD_MS);
@@ -37,10 +37,10 @@ void setup() {
     initSerialConsole();
     RLOG_INFO("SYS", "event=boot stage=serial_ready");
 
-    // 都依赖 RuntimeStore 已经拥有这块内存。
+    // All rely on RuntimeStore already owning this memory.
     initRuntimeScrollFrameBuffer();
 
-    // LittleFS 和 LED 总线访问都要靠这些锁保护。
+    // Both LittleFS and LED bus access depend on these locks for protection.
     g_syncReady = initSyncPrimitives();
     if (!g_syncReady) {
         Serial.println("FATAL: FreeRTOS mutexes unavailable; render task disabled, running single-core");
@@ -52,10 +52,10 @@ void setup() {
     ledStripBegin();
     delay(LED_BOOT_CLEAR_HOLD_MS);
 
-    // 避免任务渲染的空白帧和启动帧在 WS2812 总线上竞争。
+    // Avoid race conditions between blank frames rendered by tasks and startup frames on the WS2812 bus.
     setColorStateNoRender(DEFAULT_COLOR);
 
-    // 诊断灯效，方便无串口时定位问题。
+    // Diagnostic light effects, convenient for locating issues when no serial port is available.
     if (!mountFilesystem()) {
         showFilesystemErrorPattern();
     } else {
@@ -63,20 +63,20 @@ void setup() {
         loadSavedFaces(true);
     }
 
-    // 防止任务醒来后重复刷同一帧。
+    // Prevent tasks from repeatedly brushing the same frame after waking up.
     renderCurrentFrameToLedStrip();
     consumeLedRenderRequest();
     delay(LED_BOOT_STARTUP_SETTLE_MS);
 
-    // 从 WebServer 和按钮轮询中隔离出来。
+    // Isolated from the WebServer and button polling.
     if (g_syncReady) startScrollRenderTask();
 
     initHardwareButtons();
 
-    // 路由开放前先采一次样。
+    // Take a sample before opening the routes.
     initPowerMonitor();
 
-    // 都已就绪，客户端连上来即可读取完整状态。
+    // All ready, clients can read the complete state once connected.
     startAccessPoint();
     startWebServer();
 
@@ -85,11 +85,11 @@ void setup() {
 }
 
 // Main loop
-// WebServer/HTTP、按钮、电源和帧队列都在这里合作式调度；Core 1 专门留给
-// LED render/scroll task，避免网络负载破坏 WS2812/RMT 时序。
+// WebServer/HTTP, buttons, power, and frame queues are cooperatively scheduled here; Core 1 is reserved
+// for the LED render/scroll task to prevent network loads from disrupting WS2812/RMT timings.
 
 void loop() {
-    // 稳定后，再执行延迟恢复和自动播放。
+    // After stabilizing, perform deferred recovery and auto playback.
     serviceM370FrameQueue();
     if (!g_syncReady) {
         renderCurrentFrameToLedStrip();

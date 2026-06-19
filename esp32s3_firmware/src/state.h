@@ -4,11 +4,11 @@
 #include <freertos/portmacro.h>
 #include "config.h"
 
-// 本头文件定义固件共享运行时状态、保存表情缓存和 RuntimeStore
-// 单例接口。跨模块读写这些字段时，调用方需要按 sync.h 的锁策略保护。
+// This header file defines the firmware shared runtime state, saved face cache, and RuntimeStore
+// singleton interface. When reading/writing these fields across modules, the caller must protect them according to the lock strategy in sync.h.
 
 // Runtime state
-// 统计计数、文字滚动状态和延迟恢复标记。
+// Statistical counters, text scrolling state, and deferred recovery flags.
 //
 // Lock/owner contract:
 // - colorR/colorG/colorB/brightness/lastM370 are updated with frameMutex when
@@ -59,14 +59,14 @@ struct RuntimeState {
     uint16_t scrollIntervalMs      = DEFAULT_SCROLL_INTERVAL_MS;
     uint32_t lastScrollFrameMs     = 0;
 
-    // 前端在 6.4 页面轮询 sequence，不需要拉取完整帧数据。
+    // Front-end polls sequence on page 6.4, no need to pull full frame data.
     uint32_t scrollStopEventSeq       = 0;
     uint32_t scrollStopEventMs        = 0;
     String   scrollStopEventButton;
     String   scrollStopEventSource;
     String   scrollStopEventReason;
 
-    // 但 LED render task 仍有时间物理锁存全黑帧。
+    // But the LED render task still has time to physically latch all-black frames.
     bool     deferredFaceRestoreActive  = false;
     uint8_t  deferredFaceRestoreKind    = 0;
     bool     deferredFaceRestoreAutoMode = false;
@@ -87,7 +87,7 @@ struct FrameStateSnapshot {
 };
 
 // Scroll timeline metadata (text-backed scroll uploads)
-// 让 WebUI 刷新/二台设备可以从固件恢复文字并本地重建预览帧。
+// Allows WebUI refresh / second device to recover text from firmware and reconstruct preview frames locally.
 //
 // Invariant (EH-C):
 // meta.timelineId[0] != '\0' means this is a timeline-backed cache:
@@ -114,7 +114,7 @@ struct ScrollTimelineMeta {
 };
 
 // Saved face metadata
-// 默认标记和启动默认标记，供自动轮播和 WebUI 列表共用。
+// Default flag and startup default flag, shared by auto carousel and WebUI lists.
 struct RuntimeFace {
     String   id;
     String   name;
@@ -126,7 +126,7 @@ struct RuntimeFace {
 };
 
 // Runtime store
-// 全局变量；具体加锁仍由调用方或 helper 按操作语义决定。
+// Global variables; specific locking is still determined by the caller or helper based on operational semantics.
 class RuntimeStore final {
 public:
     static RuntimeStore& instance();
@@ -180,10 +180,10 @@ private:
     RuntimeFace  autoFaces_[MAX_AUTO_FACES] = {};
     uint16_t     autoFaceCount_ = 0;
     uint8_t      frameBits_[FRAME_BYTES] = {};
-    // 内部 SRAM 的这块大内存。
+    // Large buffer in internal SRAM.
     uint8_t*     scrollFrameBits_ = nullptr;
     bool         scrollFrameBitsInPsram_ = false;
-    // 分配失败时文字附带上传返回 507，纯帧上传不受影响。
+    // On allocation failure, text uploads with metadata return 507, while pure frame uploads are unaffected.
     ScrollTimelineMeta scrollMeta_;
     char*        scrollSourceText_ = nullptr;
     bool         fsMounted_ = false;
@@ -213,14 +213,14 @@ char* runtimeScrollSourceText();
 
 bool runtimeScrollSourceTextReady();
 
-// 必须在 withScrollLock 内调用。EH-A：坏帧数据使播放缓存失效，
-// 但有意保留 sourceText（恢复仍可从文本重建预览）。
-// 调用点：append:false 重置、m370ToPackedBits 失败路径、E1 帧数超限拒绝、
-// 任何未来的缓冲清空。
+// Must be called within withScrollLock. EH-A: Bad frame data invalidates the playback cache,
+// but sourceText is intentionally preserved (recovery can still reconstruct the preview from text).
+// Call points: append:false reset, m370ToPackedBits failure path, E1 frame count limit rejection,
+// any future buffer clears.
 void invalidateScrollUploadLocked();
 
-// 必须在 withScrollLock 内调用。完整清空（含源文本）；
-// 每个 append:false 上传开始时执行。
+// Must be called within withScrollLock. Full clear (including source text);
+// executed at the start of each append:false upload.
 void clearScrollTimelineMetaLocked();
 
 bool& runtimeFsMounted();

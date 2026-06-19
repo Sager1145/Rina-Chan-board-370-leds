@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-把 Mona12 monochrome emoji glyphs 合并进 Ark12 字体资源。
+Merge Mona12 monochrome emoji glyphs into Ark12 font resources.
 
-Mona12Emoji 的 1200 UPEM 与 Ark Pixel 12px 的 12 像素网格对齐，脚本会把
-emoji 当作 12x12 全宽字形处理，并同步更新 ark12.json、ark12.woff2 和
-styles.css 的 unicode-range。已有 Ark 字形不会被覆盖。
+Mona12Emoji's 1200 UPEM aligns with the 12px grid of Ark Pixel 12px. The script processes
+emojis as 12x12 full-width glyphs, and updates ark12.json, ark12.woff2, and styles.css's
+unicode-range in sync. Existing Ark glyphs will not be overwritten.
 """
 from __future__ import annotations
 
@@ -21,38 +21,35 @@ from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.pens.transformPen import TransformPen
 
 UPEM = 1200
-PX = 100  # 处理 LED 矩阵、灯带刷新或硬件时序约束。
+PX = 100
 CELL = 12
-ASCENT_PX = 10  # 说明字体、字形、Unicode 范围或 Web font 资源处理。
+ASCENT_PX = 10
 EMOJI_BITMAP_Y_OFFSET = -1
 EMOJI_OUTLINE_Y_SHIFT_UNITS = -PX
 CACHE_BUST = "20260612-emoji-input-v3"
 
-# 处理 LED 矩阵、灯带刷新或硬件时序约束。
 ZERO_WIDTH_RANGES = (
-    (0xFE00, 0xFE0F),    # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
-    (0x200D, 0x200D),    # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
-    (0x1F3FB, 0x1F3FF),  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
-    (0xE0000, 0xE007F),  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
+    (0xFE00, 0xFE0F),
+    (0x200D, 0x200D),
+    (0x1F3FB, 0x1F3FF),
+    (0xE0000, 0xE007F),
 )
 
 
-# 中文块：判断 codepoint 是否是 emoji 序列中的零宽控制字符。
 def is_zero_width_control(cp: int) -> bool:
     return any(lo <= cp <= hi for lo, hi in ZERO_WIDTH_RANGES)
 
 
-# 中文块：把 Unicode codepoint 格式化成 ark12.json 使用的十六进制 key。
 def hex_key(cp: int) -> str:
     return f"{cp:04X}" if cp <= 0xFFFF else f"{cp:X}"
 
 
 # ---------------------------------------------------------------------------
-# 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
-# 轮廓采样流程，把 Mona 字体的 polygon outline 转成 12x12 LED bitmap。
+# Describes the responsibilities and maintenance constraints of the current code block
+# in Mona12 emoji merging.
+# Outline sampling workflow, converts Mona font's polygon outline into a 12x12 LED bitmap.
 # ---------------------------------------------------------------------------
 
-# 中文块：读取 Mona glyph 的 polygon contours，并拒绝带曲线控制点的字形。
 def glyph_contours(glyf, name) -> List[List[Tuple[int, int]]]:
     g = glyf[name]
     if g.numberOfContours <= 0:
@@ -68,7 +65,6 @@ def glyph_contours(glyf, name) -> List[List[Tuple[int, int]]]:
     return contours
 
 
-# 中文块：用 nonzero winding rule 判断采样点是否落在轮廓内部。
 def winding_contains(contours, px: float, py: float) -> bool:
     winding = 0
     for contour in contours:
@@ -86,7 +82,6 @@ def winding_contains(contours, px: float, py: float) -> bool:
     return winding != 0
 
 
-# 中文块：计算窄 emoji 在 12px 全宽单元格内的水平居中偏移。
 def centering_shift(advance: int) -> int:
     """Horizontal shift (font units, snapped to the pixel grid) that centers a
     narrower-than-full-width Mona glyph inside the 12px kanji cell."""
@@ -95,12 +90,11 @@ def centering_shift(advance: int) -> int:
     return ((UPEM - advance) // 2) // PX * PX
 
 
-# 中文块：把轮廓按 12x12 像素中心采样成 LED bitmap 行。
 def sample_bitmap(contours, shift_units: int) -> List[str]:
     """Sample a Mona glyph into 12 binary rows (top row first), 12 bits each."""
     rows = []
     for r in range(CELL):
-        y = (ASCENT_PX - r) * PX - PX // 2  # 说明字体、字形、Unicode 范围或 Web font 资源处理。
+        y = (ASCENT_PX - r) * PX - PX // 2
         row_val = 0
         for c in range(CELL):
             x = c * PX + PX // 2 - shift_units
@@ -111,11 +105,9 @@ def sample_bitmap(contours, shift_units: int) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# 说明字体、字形、Unicode 范围或 Web font 资源处理。
-# 第一阶段写入 ark12.json，让固件和文字滚动路径能读取 emoji bitmap。
+# Phase 1: Write to ark12.json so that the firmware and text scrolling path can read the emoji bitmap.
 # ---------------------------------------------------------------------------
 
-# 中文块：把可用 emoji bitmap 写入 ark12.json，并记录 sourceAdditions 元数据。
 def patch_bitmap_json(json_path: Path, mona: TTFont, out_path: Optional[Path] = None) -> Tuple[int, int]:
     data = json.loads(json_path.read_text(encoding="utf-8"))
     if data.get("format") != "rina_ark_pixel_font_bitmap_v1":
@@ -138,7 +130,7 @@ def patch_bitmap_json(json_path: Path, mona: TTFont, out_path: Optional[Path] = 
                 zero_width += 1
             continue
         if key in glyphs:
-            continue  # 说明字体、字形、Unicode 范围或 Web font 资源处理。
+            continue
         name = cmap[cp]
         contours = glyph_contours(glyf, name)
         if not contours:
@@ -147,8 +139,6 @@ def patch_bitmap_json(json_path: Path, mona: TTFont, out_path: Optional[Path] = 
         rows = sample_bitmap(contours, shift)
         if all(v == "000" for v in rows):
             continue
-        # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
-        # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
         glyphs[key] = [CELL, CELL, CELL, 0, EMOJI_BITMAP_Y_OFFSET, 0, "/".join(rows)]
         added += 1
 
@@ -176,15 +166,9 @@ def patch_bitmap_json(json_path: Path, mona: TTFont, out_path: Optional[Path] = 
 
 
 # ---------------------------------------------------------------------------
-# 说明字体、字形、Unicode 范围或 Web font 资源处理。
-# 第二阶段把 Mona glyf 轮廓追加到 Ark CFF webfont，供浏览器文本路径使用。
+# Phase 2: Append Mona glyf outline to Ark CFF webfont for use in browser text paths.
 # ---------------------------------------------------------------------------
 
-# 中文块：把 Mona glyph 追加进 Ark CFF webfont，并扩展 cmap/hmtx/vmtx。
-# 说明字体、字形、Unicode 范围或 Web font 资源处理。
-# 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
-# 说明字体、字形、Unicode 范围或 Web font 资源处理。
-# 说明字体、字形、Unicode 范围或 Web font 资源处理。
 MODIFIED_TABLE_TAGS = ("hmtx", "vmtx", "hhea", "vhea", "maxp", "cmap", "OS/2", "CFF ")
 
 
@@ -230,19 +214,19 @@ def build_t2_bytecode(contours: List[List[Tuple[int, int]]], shift: int, width: 
         if pending_width is not None:
             vals = [pending_width] + vals
             pending_width = None
-        emit(vals, 21)  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
+        emit(vals, 21)
         cx, cy = x0, y0
         deltas: List[int] = []
         for x, y in pts[1:]:
             deltas.append(x - cx)
             deltas.append(y - cy)
             cx, cy = x, y
-        for i in range(0, len(deltas), 48):  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
-            emit(deltas[i : i + 48], 5)  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
+        for i in range(0, len(deltas), 48):
+            emit(deltas[i : i + 48], 5)
     if pending_width is not None:
-        emit([pending_width], 14)  # 说明字体、字形、Unicode 范围或 Web font 资源处理。
+        emit([pending_width], 14)
     else:
-        out.append(14)  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
+        out.append(14)
     return bytes(out)
 
 
@@ -307,7 +291,7 @@ def prep_addon_payload(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = out_path.with_suffix(out_path.suffix + ".tmp")
     tmp.write_bytes(pickle.dumps(entries))
-    tmp.replace(out_path)  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
+    tmp.replace(out_path)
     print(f"[mona-merge] wrote addon payload {out_path} ({len(entries)} glyphs of {len(seen)} total work items)")
     return len(entries)
 
@@ -341,7 +325,7 @@ def merge_webfont(ark_path: Path, payload_path: Path, blob_path: Path) -> List[i
     entries = load_payload_entries(payload_path)
 
     ark = TTFont(str(ark_path), lazy=True)
-    ark.recalcBBoxes = False  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
+    ark.recalcBBoxes = False
     if "CFF " not in ark:
         raise RuntimeError(f"{ark_path} is not a CFF (OTTO) font")
 
@@ -354,7 +338,6 @@ def merge_webfont(ark_path: Path, payload_path: Path, blob_path: Path) -> List[i
     glyph_order = ark.getGlyphOrder()
     existing_names = set(glyph_order)
 
-    # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
     kanji_name = ark_cmap_all.get(0x6C38) or next(iter(ark_cmap_all.values()))
     v_template = ark["vmtx"][kanji_name] if "vmtx" in ark else (UPEM, 0)
 
@@ -369,8 +352,6 @@ def merge_webfont(ark_path: Path, payload_path: Path, blob_path: Path) -> List[i
         )
         char_strings.charStringsIndex.append(charstring)
         char_strings.charStrings[new_name] = len(char_strings.charStringsIndex) - 1
-        # 说明字体、字形、Unicode 范围或 Web font 资源处理。
-        # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
         if top_dict.charset is not glyph_order:
             top_dict.charset.append(new_name)
         glyph_order.append(new_name)
@@ -384,20 +365,16 @@ def merge_webfont(ark_path: Path, payload_path: Path, blob_path: Path) -> List[i
     ark.setGlyphOrder(glyph_order)
     ark["maxp"].numGlyphs = len(glyph_order)
 
-    # 说明字体、字形、Unicode 范围或 Web font 资源处理。
     for table in ark["cmap"].tables:
         for cp, new_name in added_map.items():
             if table.format == 12 or (table.format == 4 and cp <= 0xFFFF):
                 table.cmap[cp] = new_name
 
-    # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
     try:
         ark["OS/2"].ulUnicodeRange2 |= 1 << (57 - 32)
     except Exception:
         pass
 
-    # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
-    # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
     import pickle
 
     blobs: Dict[str, bytes] = {}
@@ -423,7 +400,7 @@ def compress_webfont(ark_path: Path, blob_path: Path, out_paths: List[Path]) -> 
 
     blobs: Dict[str, bytes] = pickle.loads(blob_path.read_bytes())
     with open(ark_path, "rb") as f:
-        reader = SFNTReader(f)  # 说明字体、字形、Unicode 范围或 Web font 资源处理。
+        reader = SFNTReader(f)
         tags = [t for t in reader.keys() if t != "GlyphOrder"]
         raw = {tag: (blobs.get(tag) or reader[tag]) for tag in tags}
 
@@ -431,7 +408,7 @@ def compress_webfont(ark_path: Path, blob_path: Path, out_paths: List[Path]) -> 
     writer = SFNTWriter(buf, len(tags), "OTTO")
     for tag in tags:
         writer[tag] = raw[tag]
-    writer.close()  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
+    writer.close()  # Describes the responsibilities and maintenance constraints of the current code block in Mona12 emoji merging.
 
     tmp_otf = blob_path.with_suffix(".otf")
     tmp_otf.write_bytes(buf.getvalue())
@@ -440,7 +417,6 @@ def compress_webfont(ark_path: Path, blob_path: Path, out_paths: List[Path]) -> 
 
     for path in out_paths:
         path.parent.mkdir(parents=True, exist_ok=True)
-        # 处理 LED 矩阵、灯带刷新或硬件时序约束。
         tmp_target = path.with_suffix(path.suffix + ".tmp")
         shutil.copyfile(tmp_woff2, tmp_target)
         tmp_target.replace(path)
@@ -453,10 +429,8 @@ def compress_webfont(ark_path: Path, blob_path: Path, out_paths: List[Path]) -> 
 
 
 # ---------------------------------------------------------------------------
-# 说明字体、字形、Unicode 范围或 Web font 资源处理。
 # ---------------------------------------------------------------------------
 
-# 中文块：把 codepoint 集合压缩成 CSS unicode-range 片段。
 def format_unicode_ranges(cps: List[int]) -> str:
     cps = sorted(set(cps))
     ranges = []
@@ -475,13 +449,11 @@ def format_unicode_ranges(cps: List[int]) -> str:
     return ",\n".join(lines)
 
 
-# 中文块：patch_styles_css 是 merge 流程中的独立处理步骤。
 def patch_styles_css(css_path: Path, merged_woff2: Path, cache_bust: str = CACHE_BUST) -> None:
     css = css_path.read_text(encoding="utf-8")
     merged = TTFont(str(merged_woff2))
     cps = sorted(merged.getBestCmap())
 
-    # 说明字体、字形、Unicode 范围或 Web font 资源处理。
     css, n_ver = re.subn(
         r'(/resources/fonts/ark12\.woff2\?v=)[0-9A-Za-z\-]+',
         r"\g<1>" + cache_bust + "-base",
@@ -490,7 +462,6 @@ def patch_styles_css(css_path: Path, merged_woff2: Path, cache_bust: str = CACHE
     if not n_ver:
         raise RuntimeError("Could not find ark12.woff2 ?v= cache-bust token in styles.css")
 
-    # 说明字体、字形、Unicode 范围或 Web font 资源处理。
     face_re = re.compile(
         r'(@font-face\s*\{[^}]*?ark12\.woff2[^}]*?unicode-range:\n)(.*?)(;\n\s*\})',
         re.DOTALL,
@@ -506,7 +477,6 @@ def patch_styles_css(css_path: Path, merged_woff2: Path, cache_bust: str = CACHE
 
 # ---------------------------------------------------------------------------
 
-# 中文块：解析 CLI 参数并依次执行 bitmap、webfont 和 CSS patch。
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--mona-font", required=True, help="Input addon WOFF2/TTF (Mona12Emoji, ark12_fallback, ...). Must be a glyf font with pure polygon outlines on the 100-unit pixel grid.")
@@ -555,8 +525,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             else:
                 print(f"[mona-merge] skip missing {target}")
 
-    # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
-    # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
+    # Describes the responsibilities and maintenance constraints of the current code block in Mona12 emoji merging.
     import tempfile
 
     tmp_dir = Path(tempfile.gettempdir())

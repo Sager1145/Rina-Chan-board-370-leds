@@ -846,12 +846,12 @@ static void handleApiScroll() {
     ScrollUploadTxn uploadTxn;
 
     if (!appendFrames) {
-        // 首块（append:false）：严格按 v6 1.5 顺序，先校验再触碰任何状态。
-        if (totalFrames > MAX_SCROLL_FRAMES) {                                  // 步骤 2a
+        // First chunk (append:false): strictly follow v6 1.5 sequence, validate before modifying any state.
+        if (totalFrames > MAX_SCROLL_FRAMES) {                                  // Step 2a
             sendError(413, String("totalFrames exceeds firmware cache max ") + MAX_SCROLL_FRAMES);
             return;
         }
-        // E3：timelineId / fontId / generatorVersion 只要出现就校验（与 sourceText 无关）。
+        // E3: timelineId / fontId / generatorVersion are validated whenever present (independent of sourceText).
         if (timelineIdPresent && !validateMetaIdString(timelineId.c_str(), MAX_SCROLL_TIMELINE_ID_CHARS)) {
             sendError(400, "invalid timelineId"); return;
         }
@@ -861,7 +861,7 @@ static void handleApiScroll() {
         if (generatorPresent && !validateMetaIdString(generatorVersion.c_str(), MAX_SCROLL_GENERATOR_CHARS)) {
             sendError(400, "invalid generatorVersion"); return;
         }
-        // D1：sourceText 是 all-or-nothing，必须同时带 timelineId + fontId + generatorVersion。
+        // D1: sourceText is all-or-nothing, must be accompanied by timelineId + fontId + generatorVersion.
         if (sourceTextPresent) {
             if (!timelineIdPresent || !fontIdPresent || !generatorPresent) {
                 sendError(400, "sourceText requires timelineId, fontId and generatorVersion"); return;
@@ -876,8 +876,8 @@ static void handleApiScroll() {
                 sendError(400, "sourceText contains invalid UTF-8 or control characters"); return;
             }
         }
-        // E2：timeline-backed 上传必须带 totalFrames > 0，否则 uploadComplete 永远
-        // 无法为 true，D2 会永久阻塞播放。
+        // E2: timeline-backed uploads must specify totalFrames > 0, otherwise uploadComplete will never
+        // be true, and D2 will permanently block playback.
         if (timelineIdPresent && totalFrames == 0) {
             sendError(400, "timeline-backed upload requires totalFrames > 0"); return;
         }
@@ -934,7 +934,7 @@ static void handleApiScroll() {
         uploadMeta.uiFps            = uiFps;
         uploadTxn = scrollSessionBeginUpload(uploadMeta);
     } else {
-        // 追加块（append:true）：先快照元数据，再按 v6 1.5 校验。
+        // Append chunk (append:true): snapshot metadata first, then validate according to v6 1.5.
         uploadTxn = scrollSessionBeginAppend();
         if (uploadTxn.timelineBacked) {
             if (uploadTxn.uploadComplete) { sendError(409, "upload already complete"); return; }      // D3
@@ -945,7 +945,7 @@ static void handleApiScroll() {
             if (!hasChunkIndex) { sendError(409, "chunk index required"); return; }
             if (chunkIndex != uploadTxn.nextChunkIndex) { sendError(409, "chunk out of order"); return; }
         } else {
-            // EH-B：legacy 纯帧上传；timelineId/chunkIndex 可选，chunkIndex 出现时必须按序。
+            // EH-B: legacy pure-frame upload; timelineId/chunkIndex is optional, chunkIndex must be in order if present.
             if (hasChunkIndex && chunkIndex != uploadTxn.nextChunkIndex) {
                 sendError(409, "chunk out of order"); return;
             }
@@ -972,7 +972,7 @@ static void handleApiScroll() {
             sendError(400, String("unterminated M370 string at frame ") + count); return;
         }
 
-        // E1：帧数超限检查也适用于首块（timeline/totalFrames 背书的上传）。
+        // E1: Frame count limit check also applies to the first chunk (timeline/totalFrames backed upload).
         if (uploadTxn.totalFramesExpected > 0 &&
             static_cast<uint32_t>(uploadTxn.framesReceivedBase) + count + 1U > uploadTxn.totalFramesExpected) {
             scrollSessionInvalidateCache();
@@ -987,8 +987,8 @@ static void handleApiScroll() {
         }
         uint8_t packedBits[FRAME_BYTES];
         if (!m370ToPackedBits(m370, packedBits, error)) {
-            // EH-A：坏帧数据使播放缓存失效（帧计数归零 + uploadComplete=false），
-            // 但有意保留 sourceText，恢复仍可从文本重建预览。
+            // EH-A: Bad frame data invalidates the playback cache (frame count reset to zero + uploadComplete=false),
+            // but sourceText is intentionally preserved, so recovery can still reconstruct the preview from the text.
             scrollSessionInvalidateCache();
             sendError(400, String("invalid scroll frame ") + targetIndex + ": " + error);
             return;
@@ -1013,7 +1013,7 @@ static void handleApiScroll() {
         const uint32_t cachedFrames = static_cast<uint32_t>(uploadTxn.baseIndex) + count;
         shouldStart = totalFrames > 0 ? (cachedFrames >= totalFrames) : !appendFrames;
     }
-    // D2：不完整的 timeline-backed 缓存永远不可播放（含显式 start:true）。
+    // D2: Incomplete timeline-backed caches are never playable (including explicit start:true).
     if (uploadTxn.timelineBacked && !uploadCompleteNow) shouldStart = false;
 
     if (shouldStart) startFirmwareScroll(intervalMs);
@@ -1042,7 +1042,7 @@ static void handleApiScroll() {
     sendJsonDocument(200, reply);
 }
 
-// 锁内拷贝（meta 结构 + 文本 memcpy），锁外序列化；容量/溢出 -> 507（H-C）。
+// Copy under lock (meta struct + text memcpy), serialize outside the lock; capacity/overflow -> 507 (H-C).
 static void handleApiScrollMeta() {
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
     if (server.method() != HTTP_GET)     { sendError(405, "method not allowed"); return; }
@@ -1100,7 +1100,7 @@ static void handleApiScrollMeta() {
 
 using ApiCommandHandler = bool (*)(JsonDocument& doc, JsonVariant payload, String& error);
 
-// 冲突需要 409，其余保持 400。每次分发前重置。
+// Conflict requires 409, others remain 400. Reset before each dispatch.
 static int sCommandErrorStatus = 400;
 
 static bool commandSetColor(JsonDocument& doc, JsonVariant payload, String& error) {
@@ -1162,8 +1162,8 @@ static bool commandStartScroll(JsonDocument& doc, JsonVariant payload, String& e
     uint16_t iMs = runtimeState().scrollIntervalMs;
     scrollIntervalFromCommand(doc, payload, iMs);
 
-    // E6：进锁前把 payload timelineId 抽到栈缓冲并校验长度/字符集；
-    // 永远不要用截断后的 ID 做比较。
+    // E6: Extract payload timelineId to stack buffer and validate length/charset before entering the lock;
+    // never compare using truncated IDs.
     char payloadTimelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
     const char* raw = payload["timelineId"] | "";
     if (raw[0] == '\0') raw = doc["timelineId"] | "";
@@ -1178,8 +1178,8 @@ static bool commandStartScroll(JsonDocument& doc, JsonVariant payload, String& e
     }
     memcpy(payloadTimelineId, raw, rawLen);
 
-    // D2/D8/H-D：一次 scrollMutex 快照内完成所有判定，错误用枚举带出，
-    // 锁内不做任何 heap String 写入。
+    // D2/D8/H-D: Complete all decisions within one scrollMutex snapshot, bring out errors using enum,
+    // do not write any heap String inside the lock.
     enum class StartScrollError : uint8_t {
         None, TimelineMismatch, UploadIncomplete, NoCachedFrames
     };
@@ -1194,7 +1194,7 @@ static bool commandStartScroll(JsonDocument& doc, JsonVariant payload, String& e
                 serr = StartScrollError::TimelineMismatch;
                 return;
             }
-            if (!meta.uploadComplete) {   // D2：payload 不带 timelineId 也要拦
+            if (!meta.uploadComplete) {   // D2: block even if payload has no timelineId
                 serr = StartScrollError::UploadIncomplete;
                 return;
             }
@@ -1204,7 +1204,7 @@ static bool commandStartScroll(JsonDocument& doc, JsonVariant payload, String& e
             return;
         }
     });
-    // 锁外映射：TimelineMismatch / UploadIncomplete -> 409，NoCachedFrames -> 400。
+    // Mapping outside lock: TimelineMismatch / UploadIncomplete -> 409, NoCachedFrames -> 400.
     if (serr == StartScrollError::TimelineMismatch) {
         sCommandErrorStatus = 409;
         error = "timeline mismatch";

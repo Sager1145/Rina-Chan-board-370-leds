@@ -1,15 +1,16 @@
 """
-本脚本在 PlatformIO pre-build 阶段修补 Arduino WebServer.h。
+This script patches Arduino WebServer.h during the PlatformIO pre-build stage.
 
-修补内容是把 HTTP_MAX_DATA_WAIT、HTTP_MAX_POST_WAIT、HTTP_MAX_SEND_WAIT
-改成带 #ifndef guard 的 200ms 默认值，使 build_flags 中的覆盖值真正生效，
-并避免断开的客户端长时间卡住主循环和文字滚动刷新。
+The patch converts HTTP_MAX_DATA_WAIT, HTTP_MAX_POST_WAIT, and HTTP_MAX_SEND_WAIT
+into 200ms default values guarded by #ifndef. This allows override values in build_flags
+to take effect and prevents disconnected clients from blocking the main loop and text scroll
+refresh for an extended period.
 """
 
 import os
 import re
 
-Import("env")  # noqa: F821，保留工具指令，相关名称由外部环境注入。
+Import("env")  # noqa: F821, keep tool directives, related names are injected by the external environment.
 
 FRAMEWORK_DIR = env.PioPlatform().get_package_dir("framework-arduinoespressif32")
 WEBSERVER_H = os.path.join(
@@ -20,7 +21,6 @@ TIMEOUT_MS = 200
 MACROS = ["HTTP_MAX_DATA_WAIT", "HTTP_MAX_POST_WAIT", "HTTP_MAX_SEND_WAIT"]
 
 
-# 中文块：guarded_timeout_block 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def guarded_timeout_block():
     blocks = []
     for macro in MACROS:
@@ -32,7 +32,6 @@ def guarded_timeout_block():
     return "\n".join(blocks) + "\n"
 
 
-# 中文块：patch 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def patch():
     if not os.path.isfile(WEBSERVER_H):
         print(f"[patch_webserver_timeout] WARNING: {WEBSERVER_H} not found; skipping patch")

@@ -1,20 +1,12 @@
-<!-- 本文件定义 WebUI 页面结构、控件 id 和可访问语义；id/class 保持 English 以匹配 app.js 和 styles.css。 -->
+<!-- This file defines the WebUI page structure, control IDs, and accessibility semantics. IDs and classes are kept in English to match app.js and styles.css. -->
 <!doctype html>
-<!--
-  说明 WebUI、HTTP/API 或浏览器状态的连接关系。
-
-  说明界面布局、组件状态或响应式规则。
-  说明界面布局、组件状态或响应式规则。
-  说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-  说明界面布局、组件状态或响应式规则。
- -->
 <html data-boot-phase="preload" data-scroll-lock="boot" lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <!-- 文档元数据和资源。SYNCTEST_MARKER -->
+    <!-- Document metadata and resources. SYNCTEST_MARKER -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Rina WebUI V2</title>
-    <!-- 启动预加载：GNU Unifont 备用字体改为独立文件，作为第一个资源最先加载（font-display:block）。 -->
+    <!-- Boot preload: GNU Unifont fallback font is changed to a separate file, loaded first as the first resource (font-display: block). -->
     <link
       rel="preload"
       href="/resources/fonts/unifont.woff2?v=17.0.04-webui-2"
@@ -22,8 +14,8 @@
       type="font/woff2"
       crossorigin
     />
-    <!-- 随后预加载第一张加载屏图片。 -->
-    <!-- WebUI 字体和悬停加载图片刻意不在这里预加载，会在第 4 阶段首屏揭示后加载。 -->
+    <!-- Preload the first loading screen image next. -->
+    <!-- WebUI fonts and hover-loading images are intentionally not preloaded here; they will be loaded after the stage 4 initial screen reveal. -->
     <link
       type="image/png"
       href="/resources/loading/rina_icon1_default.png"
@@ -32,19 +24,11 @@
     />
     <link type="image/png" href="/resources/loading/rina_icon1_default.png" rel="icon" />
     <link type="image/png" href="/resources/loading/rina_icon1_default.png" rel="shortcut icon" />
-    <!-- 全局样式、布局规则和组件状态。 -->
+    <!-- Global styles, layout rules, and component states. -->
     <link href="styles.css?v=20260619-preview-fade-v4" rel="stylesheet" />
   </head>
   <body>
-    <!--
-      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-
-      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-      说明 WebUI、HTTP/API 或浏览器状态的连接关系。
-      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
- -->
-    <!-- 启动/加载遮罩和应用外壳。 -->
+    <!-- Boot/loading overlay and application shell. -->
     <div
       class="loading-overlay is-assets-pending"
       id="loadingOverlay"
@@ -78,14 +62,6 @@
         <div class="loading-text">Loading</div>
       </div>
     </div>
-    <!--
-      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-
-      说明电源、电池、充电或 ADC 校准相关逻辑。
-      说明 WebUI、HTTP/API 或浏览器状态的连接关系。
-      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
- -->
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-copy">
@@ -121,42 +97,17 @@
         </button>
       </div>
     </aside>
-    <!--
-      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-
-      说明 WebUI、HTTP/API 或浏览器状态的连接关系。
-      说明 GPIO 按钮、组合键或本地 overlay 反馈。
-      说明界面布局、组件状态或响应式规则。
-      说明界面布局、组件状态或响应式规则。
- -->
-    <!-- 页面选择顶栏由品牌区汉堡按钮打开，但保持在最高 UI 层。
-    z-index 值接近实际可用上限，确保它位于
-卡片、矩阵和预览/控制面板之上。 -->
+    <!-- The page selection top navigation bar is opened by the hamburger button in the brand section, but is kept at the highest UI layer.
+    The z-index value is close to the actual usable upper limit, ensuring it sits above
+    cards, matrix, and preview/control panels. -->
     <div class="top-page-nav" id="top-page-nav" aria-hidden="true">
       <div class="nav-shell" id="nav-shell">
         <div class="nav" id="nav" aria-hidden="true" role="menu"></div>
       </div>
     </div>
-    <!--
-      说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-
-      说明界面布局、组件状态或响应式规则。
-      说明界面布局、组件状态或响应式规则。
-      说明界面布局、组件状态或响应式规则。
-      说明文字滚动、帧缓存或播放状态处理。
- -->
     <div class="app">
-      <!-- 主应用页面。 -->
+      <!-- Main application pages. -->
       <main class="content">
-        <!--
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-
-          说明界面布局、组件状态或响应式规则。
-          说明颜色、亮度或显示参数处理。
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-          说明界面布局、组件状态或响应式规则。
- -->
-        <!-- 中文块：page-basic 页面/区域结构，供 JS 绑定和 CSS 布局使用。 -->
         <section class="page active" id="page-basic">
           <div class="hero">
             <div>
@@ -270,14 +221,6 @@
             </div>
           </div>
         </section>
-        <!--
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
- -->
-        <!-- 中文块：page-custom 页面/区域结构，供 JS 绑定和 CSS 布局使用。 -->
         <section class="page" id="page-custom">
           <div class="hero">
             <div>
@@ -322,9 +265,9 @@
                 </div>
                 <div class="row">
                   <button class="faces-json-open-local" type="button">
-                    打开本地 saved_faces.json
+                    打开本地文件
                   </button>
-                  <button class="faces-json-download-all" type="button">下载 saved_faces.json</button>
+                  <button class="faces-json-download-all" type="button">下载表情列表</button>
                 </div>
                 <h3>统一表情列表</h3>
                 <div class="list face-library-list"></div>
@@ -332,14 +275,6 @@
             </div>
           </div>
         </section>
-        <!--
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
- -->
-        <!-- 中文块：page-parts 页面/区域结构，供 JS 绑定和 CSS 布局使用。 -->
         <section class="page" id="page-parts">
           <div class="hero">
             <div>
@@ -395,9 +330,9 @@
                 </div>
                 <div class="row">
                   <button class="faces-json-open-local" type="button">
-                    打开本地 saved_faces.json
+                    打开本地文件
                   </button>
-                  <button class="faces-json-download-all" type="button">下载 saved_faces.json</button>
+                  <button class="faces-json-download-all" type="button">下载表情列表</button>
                 </div>
                 <h3>统一表情列表</h3>
                 <div class="list face-library-list"></div>
@@ -405,16 +340,6 @@
             </div>
           </div>
         </section>
-        <!--
-          说明文字滚动、帧缓存或播放状态处理。
-
-          说明文字滚动、帧缓存或播放状态处理。
-          说明界面布局、组件状态或响应式规则。
-          说明界面布局、组件状态或响应式规则。
-          说明文字滚动、帧缓存或播放状态处理。
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
- -->
-        <!-- 中文块：page-scroll 页面/区域结构，供 JS 绑定和 CSS 布局使用。 -->
         <section class="page" id="page-scroll">
           <div class="hero">
             <div>
@@ -460,7 +385,6 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
                     <progress id="scroll-upload-bar" max="100" value="0"></progress>
                     <span class="scroll-upload-label" id="scroll-upload-label">等待发送</span>
                   </div>
-                  <!-- 中文块：源文本恢复警告行（可多行；updateScrollUi 渲染）。 -->
                   <div class="scroll-restore-warning" id="scroll-restore-warning" hidden></div>
                   <div class="kv scroll-status-kv">
                     <span class="k">状态</span>
@@ -509,15 +433,6 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
             </div>
           </div>
         </section>
-        <!--
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-
-          说明电源、电池、充电或 ADC 校准相关逻辑。
-          说明 JSON 字段、资源格式或序列化流程。
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
-          说明 WebUI 页面结构 中当前代码块的职责和维护约束。
- -->
-        <!-- 中文块：page-debug 页面/区域结构，供 JS 绑定和 CSS 布局使用。 -->
         <section class="page" id="page-debug">
           <div class="hero">
             <div>
@@ -525,7 +440,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
             </div>
           </div>
           <div class="debug-grid">
-            <!-- 1. 设备概览 -->
+            <!-- 1. Device Overview -->
             <div class="card stack debug-span-2" id="debug-device-summary">
               <h3>设备概览</h3>
               <div class="warning" id="debug-summary-dps-warning">
@@ -539,7 +454,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               </div>
             </div>
 
-            <!-- 2. 固件连接 / API 健康 -->
+            <!-- 2. Connection / API Health -->
             <div class="card stack" id="debug-firmware-health">
               <h3>固件连接 / API 健康</h3>
               <div class="kv" id="debug-firmware-kv"></div>
@@ -556,7 +471,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               </div>
             </div>
 
-            <!-- 3. 电源 / 电池 / ADC -->
+            <!-- 3. Power / Battery / ADC -->
             <div class="card stack" id="debug-power-panel">
               <h3>电源 / 电池 / ADC</h3>
               <div class="warning" id="debug-power-dps-warning">
@@ -588,7 +503,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               </details>
             </div>
 
-            <!-- 4. 网络 / 接入点 -->
+            <!-- 4. Network / Access Point -->
             <div class="card stack" id="debug-network-panel">
               <h3>网络 / 接入点</h3>
               <div class="kv" id="debug-network-kv"></div>
@@ -599,7 +514,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               <div class="hint">复制的日志 / 诊断可能包含 SSID / IP / 域名等网络信息；AP 密码不会被复制。</div>
             </div>
 
-            <!-- 5. GPIO / 按钮模拟器 -->
+            <!-- 5. GPIO / Button Simulator -->
             <div class="card stack debug-span-2" id="debug-button-simulator">
               <h3>GPIO / 按钮模拟器 <span class="badge">模拟硬件按键输入</span></h3>
               <h4>单按键</h4>
@@ -622,7 +537,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               <div class="debug-result" id="debug-sim-result"></div>
             </div>
 
-            <!-- 6. LED 测试 / M370 协议实验室 -->
+            <!-- 6. LED Test / M370 Protocol Lab -->
             <div class="card stack debug-span-2" id="debug-protocol-lab">
               <h3>LED 测试 / M370 协议实验室</h3>
               <h4>安全 LED 测试图案</h4>
@@ -656,7 +571,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               <div class="debug-result" id="debug-lab-result"></div>
             </div>
 
-            <!-- 7. 调试 LED 预览 -->
+            <!-- 7. Debug LED Preview -->
             <div class="card stack debug-measure-card" id="debug-preview-panel">
               <div class="matrix-wrap fill-column led-preview-wrap">
                 <div class="matrix" id="matrix-debug"></div>
@@ -667,7 +582,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               </div>
             </div>
 
-            <!-- 8. 资源 / 矩阵 / 表情库 -->
+            <!-- 8. Resources / Matrix / Face Library -->
             <div class="card stack" id="debug-resource-panel">
               <h3>资源 / 矩阵 / 表情库</h3>
               <div class="kv" id="debug-resource-kv"></div>
@@ -677,7 +592,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               </div>
             </div>
 
-            <!-- 9. 通信日志 -->
+            <!-- 9. Communication Logs -->
             <div class="card stack debug-log-card debug-span-2" id="debug-log-panel">
               <h3>通信日志</h3>
               <div class="row">
@@ -700,7 +615,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               <div class="hint">日志为浏览器侧记录，可能包含 IP / 域名 / SSID 等网络信息。</div>
             </div>
 
-            <!-- 10. 高级原始指令 -->
+            <!-- 10. Advanced Raw Commands -->
             <details class="card stack debug-advanced debug-span-2" id="debug-raw-command-panel">
               <summary><h3 style="display:inline">高级原始指令</h3></summary>
               <div class="hint">
@@ -723,7 +638,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               <div class="debug-result" id="debug-raw-result"></div>
             </details>
 
-            <!-- 11. 危险区 -->
+            <!-- 11. Danger Zone -->
             <div class="card stack debug-danger debug-span-2" id="debug-danger-zone">
               <h3>⚠ 危险区</h3>
               <div class="hint">以下操作具有破坏性，需要确认。取消不会有任何影响。</div>

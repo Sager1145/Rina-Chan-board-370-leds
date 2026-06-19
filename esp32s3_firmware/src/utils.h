@@ -13,10 +13,10 @@ bool parseColorHex(const String& input, uint8_t& r, uint8_t& g, uint8_t& b);
 
 String formatColorHex(uint8_t r, uint8_t g, uint8_t b);
 
-// 滚动源文本校验：拒绝非法 UTF-8、overlong 编码、surrogate、> U+10FFFF、
-// U+0000，以及除 '\n' 外的 C0 控制字符。
+// Scroll source-text validation: rejects invalid UTF-8, overlong encodings, surrogates, > U+10FFFF,
+// U+0000, and C0 control characters except '\n'.
 bool validateScrollSourceText(const char* s, size_t len);
 
-// timelineId / fontId / generatorVersion 校验：非空，仅允许安全 ASCII
-// [A-Za-z0-9._:-]，长度不超过 maxLen。
+// timelineId / fontId / generatorVersion validation: non-empty, allowed safe ASCII
+// [A-Za-z0-9._:-] only, length not exceeding maxLen.
 bool validateMetaIdString(const char* s, size_t maxLen);

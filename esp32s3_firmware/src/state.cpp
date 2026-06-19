@@ -43,7 +43,7 @@ bool RuntimeStore::initScrollFrameBuffer() {
         if (scrollFrameBits_ == nullptr) {
             Serial.printf("WARN: scroll buffer unavailable; need %u bytes of PSRAM or internal SRAM\n",
                           static_cast<unsigned>(SCROLL_FRAME_BUFFER_BYTES));
-            return false;  // 说明文字滚动、帧缓存或播放状态处理。
+            return false;  // Explains text scrolling, frame buffer, or playback state handling.
         }
         Serial.printf("WARN: PSRAM scroll buffer unavailable; using %u-byte internal SRAM heap fallback\n",
                       static_cast<unsigned>(SCROLL_FRAME_BUFFER_BYTES));
@@ -117,8 +117,8 @@ bool runtimeScrollSourceTextReady() {
 }
 
 void invalidateScrollUploadLocked() {
-    // EH-A：坏帧数据使播放缓存失效，但有意保留 sourceText / timelineId /
-    // fontId / generatorVersion，恢复路径仍可从文本重建预览。
+    // EH-A: Bad frame data invalidates the playback cache, but sourceText / timelineId /
+    // fontId / generatorVersion are intentionally preserved, so the recovery path can still reconstruct the preview from the text.
     ScrollTimelineMeta& meta = runtimeScrollMeta();
     meta.uploadComplete      = false;
     meta.framesReceived      = 0;

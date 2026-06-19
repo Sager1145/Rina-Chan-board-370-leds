@@ -64,22 +64,22 @@ bool validateScrollSourceText(const char* s, size_t len) {
             cp = b0 & 0x07;
             continuationBytes = 3;
         } else {
-            return false;  // 非法首字节（含孤立 continuation byte）
+            return false;  // Invalid leading byte (including isolated continuation byte)
         }
-        if (i + continuationBytes >= len) return false;  // 截断序列
+        if (i + continuationBytes >= len) return false;  // Truncated sequence
         for (size_t k = 1; k <= continuationBytes; ++k) {
             const uint8_t bc = static_cast<uint8_t>(s[i + k]);
             if ((bc & 0xC0) != 0x80) return false;
             cp = (cp << 6) | static_cast<uint32_t>(bc & 0x3F);
         }
-        // overlong 编码拒绝
+        // Overlong encoding rejection
         if (continuationBytes == 1 && cp < 0x80) return false;
         if (continuationBytes == 2 && cp < 0x800) return false;
         if (continuationBytes == 3 && cp < 0x10000) return false;
         if (cp > 0x10FFFF) return false;
         if (cp >= 0xD800 && cp <= 0xDFFF) return false;  // surrogate
         if (cp == 0) return false;                       // U+0000
-        if (cp < 0x20 && cp != static_cast<uint32_t>('\n')) return false;  // C0 控制字符（保留换行）
+        if (cp < 0x20 && cp != static_cast<uint32_t>('\n')) return false;  // C0 control character (preserve newline)
         i += continuationBytes + 1;
     }
     return true;
@@ -88,7 +88,7 @@ bool validateScrollSourceText(const char* s, size_t len) {
 bool validateMetaIdString(const char* s, size_t maxLen) {
     if (s == nullptr || s[0] == '\0') return false;
     for (size_t i = 0; s[i] != '\0'; ++i) {
-        if (i >= maxLen) return false;  // 超长
+        if (i >= maxLen) return false;  // Too long
         const char c = s[i];
         const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
                         (c >= '0' && c <= '9') || c == '.' || c == '_' ||

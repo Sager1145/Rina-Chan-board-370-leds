@@ -90,7 +90,7 @@ static int jsonFieldValuePosition(const String& body, const char* key) {
     }
 }
 
-// 把 Unicode code point 以 UTF-8 形式追加到输出字符串。
+// Appends Unicode code point to the output string in UTF-8 format.
 static void appendUtf8CodePoint(String& out, uint32_t cp) {
     if (cp < 0x80) {
         out += static_cast<char>(cp);
@@ -109,7 +109,7 @@ static void appendUtf8CodePoint(String& out, uint32_t cp) {
     }
 }
 
-// 解析 raw 中 pos 开始的 4 个十六进制字符；非法十六进制返回 false。
+// Parses 4 hex characters starting at pos in raw; returns false if hex is invalid.
 static bool parse4HexDigits(const String& raw, size_t pos, uint32_t& value) {
     if (pos + 4 > raw.length()) return false;
     value = 0;
@@ -160,8 +160,8 @@ bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int
             case 'r': value += '\r'; break;
             case 't': value += '\t'; break;
             case 'u': {
-                // \uXXXX 解码：surrogate pair 合并，孤立 surrogate 用 U+FFFD，
-                // 非法十六进制返回 false（调用方回 400）。
+                // \uXXXX decoding: merge surrogate pairs, use U+FFFD for isolated surrogates,
+                // return false (caller returns 400) if hex is invalid.
                 uint32_t cp = 0;
                 if (!parse4HexDigits(raw, i + 1, cp)) return false;
                 size_t extraConsumed = 4;
@@ -173,10 +173,10 @@ bool extractJsonStringAt(const String& body, size_t quotePos, String& value, int
                         cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
                         extraConsumed = 10;
                     } else {
-                        cp = 0xFFFD;  // 孤立 high surrogate
+                        cp = 0xFFFD;  // Isolated high surrogate
                     }
                 } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
-                    cp = 0xFFFD;      // 孤立 low surrogate
+                    cp = 0xFFFD;      // Isolated low surrogate
                 }
                 appendUtf8CodePoint(value, cp);
                 i += extraConsumed;

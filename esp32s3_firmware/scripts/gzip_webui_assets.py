@@ -1,17 +1,21 @@
 """
-本脚本在 LittleFS 打包前压缩 WebUI 静态资源。
+This script compresses WebUI static assets before LittleFS packaging.
 
-它会在构建 LittleFS 镜像前临时生成 index.html、app.js、styles.css 和
-ark12.json 的 .gz 旁路文件，让固件可以优先返回 gzip 版本，从而减少
-ESP32 SoftAP 传输字节数。镜像生成后会删除这些临时 .gz 文件。
+It temporarily generates .gz sidecar files for index.html, app.js, styles.css, and
+ark12.json before building the LittleFS image, allowing the firmware to return gzip versions
+by preference, thereby reducing the bytes transmitted over ESP32 SoftAP. These temporary
+.gz files are deleted after the image is generated.
 
-只压缩文本类资源；woff2、png、jpg 等已压缩资源不会处理。
+Only text-based resources are compressed; already compressed resources such as woff2,
+png, and jpg are not processed.
 
-缓存失效（cache-busting）：index.html 和 styles.css 中形如 `asset?v=...`
-的版本号会在打包前自动改写成被引用文件内容的短哈希，并把改写后的字节直接
-压成 .gz（源文件不被修改）。这样只要 app.js / styles.css / 字体内容变化，
-浏览器看到的 `?v=` 就会变化，从而拉取最新资源——再也不会因为忘记手动改
-版本号而看到旧的缓存。任何改写失败都会安全回退为压缩原始文件。
+Cache-busting: Versions in index.html and styles.css formatted as `asset?v=...`
+are automatically rewritten before packaging into a short hash of the referenced file's
+content, and the rewritten bytes are directly compressed into .gz (the source files are
+not modified). This way, as long as app.js / styles.css / font content changes,
+the `?v=` seen by the browser will change, fetching the latest resources—preventing old
+cached versions from being loaded due to forgetting to manually update the version number.
+Any rewriting failure will safely fall back to compressing the original file.
 """
 
 import gzip
@@ -20,9 +24,9 @@ import os
 import re
 import shutil
 
-Import("env")  # noqa: F821，保留工具指令，相关名称由外部环境注入。
+Import("env")  # noqa: F821, keep tool directives, related names are injected by the external environment.
 
-# 说明 LittleFS 文件系统、静态资源或 gzip 打包流程。
+# Describes the LittleFS file system, static assets, or gzip packaging process.
 GZIP_TARGETS = [
     "index.html",
     "app.js",
@@ -31,9 +35,9 @@ GZIP_TARGETS = [
     "resources/fonts/ark12.json",
 ]
 
-# 这些文本文件里的 `asset?v=...` 引用会被改写成内容哈希。
-# 顺序很重要：styles.css 先改写，这样 index.html 引用 styles.css 时
-# 用到的是改写后的哈希（包含最新的字体版本）。
+# The `asset?v=...` references in these text files will be rewritten to content hashes.
+# The order is important: styles.css is rewritten first, so that when index.html references styles.css,
+# it uses the rewritten hash (which contains the latest font version).
 REWRITE_TARGETS = ["styles.css", "index.html"]
 
 GZIP_LEVEL = 9
@@ -81,7 +85,7 @@ def _rewrite_versions(text, data_dir, rewritten_bytes_by_rel):
     def repl(m):
         h = _hash_for_ref(data_dir, m.group("path"), rewritten_bytes_by_rel)
         if not h:
-            return m.group(0)  # 找不到文件就原样保留，绝不破坏引用
+            return m.group(0)  # If the file is not found, keep it as is, never break the reference
         return "{}?v={}".format(m.group("path"), h)
 
     return ASSET_REF_RE.sub(repl, text)
@@ -120,10 +124,9 @@ def _build_rewritten_assets(data_dir):
     return rewritten
 
 
-# 中文块：_gzip_one 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def _gzip_one(src_path, override_bytes=None):
     dst_path = src_path + ".gz"
-    # 改写过的目标（override_bytes 非空）总是重新生成，因为它的内容依赖其它文件。
+    # Rewritten targets (override_bytes is not None) are always regenerated because their content depends on other files.
     if override_bytes is None:
         if os.path.isfile(dst_path) and os.path.getmtime(dst_path) >= os.path.getmtime(src_path):
             return False
@@ -144,7 +147,6 @@ def _gzip_one(src_path, override_bytes=None):
     return True
 
 
-# 中文块：gzip_assets 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def gzip_assets(*args, **kwargs):
     data_dir = os.path.join(env["PROJECT_DIR"], "data")  # noqa: F821，保留工具指令，相关名称由外部环境注入。
     if not os.path.isdir(data_dir):
@@ -166,7 +168,6 @@ def gzip_assets(*args, **kwargs):
         print("[gzip_webui_assets] all .gz assets already up to date")
 
 
-# 中文块：cleanup_gzip_assets 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def cleanup_gzip_assets(*args, **kwargs):
     data_dir = os.path.join(env["PROJECT_DIR"], "data")  # noqa: F821，保留工具指令，相关名称由外部环境注入。
     removed = False
@@ -180,8 +181,7 @@ def cleanup_gzip_assets(*args, **kwargs):
         print("[gzip_webui_assets] no temporary .gz assets to remove")
 
 
-# 处理 LED 矩阵、灯带刷新或硬件时序约束。
 env.AddPreAction("$BUILD_DIR/littlefs.bin", gzip_assets)  # noqa: F821，保留工具指令，相关名称由外部环境注入。
 
-# 说明 WebUI 静态资源 gzip 打包 中当前代码块的职责和维护约束。
+# Describes the responsibilities and maintenance constraints of the current code block in WebUI static asset gzip packaging.
 env.AddPostAction("$BUILD_DIR/littlefs.bin", cleanup_gzip_assets)  # noqa: F821，保留工具指令，相关名称由外部环境注入。

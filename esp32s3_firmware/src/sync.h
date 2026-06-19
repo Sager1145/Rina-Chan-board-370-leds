@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-// FreeRTOS 同步辅助函数（FreeRTOS synchronization helpers）
+// FreeRTOS synchronization helpers
 // Existing code intentionally avoids nested mutexes. If a future change must
 // nest them, keep one global order: Scroll -> Frame -> Storage -> HardwareBus.
 
