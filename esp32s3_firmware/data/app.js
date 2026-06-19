@@ -3528,6 +3528,10 @@ let userFaces = [];
 let faceLibraryDocument = null;
 let faceLibraryFileHandle = null;
 let faceLibraryLoadError = "";
+let faceLibraryRefreshTimer = 0;
+let faceLibraryRefreshInFlight = null;
+let faceLibraryRefreshQueued = false;
+let faceLibraryAutoRefreshBound = false;
 let pointerFaceDrag = null;
 let logs = [];
 // 通信日志（6.5 调试页）的级别 / 渲染状态。
@@ -6318,6 +6322,9 @@ function switchPage(id) {
       const a = $("parts-m370-text");
       if (a) autoResizeTextarea(a);
     });
+  if (isFaceLibraryPage(id)) {
+    scheduleFaceLibraryRefresh(`${id}_page_enter`, 0);
+  }
   if (id === "debug") {
     // Entering 6.5: flush any log lines accumulated while the panel was hidden.
     if (logDirty) renderLog();
@@ -7559,6 +7566,102 @@ async function loadFaceLibrary() {
   renderState();
   return library;
 }
+
+function isFaceLibraryPage(id = document.body?.dataset?.page) {
+  return id === "custom" || id === "parts";
+}
+
+function refreshFaceLibraryFromFirmware(reason = "face_library_refresh") {
+  if (!isFaceLibraryPage()) return Promise.resolve(null);
+  if (faceLibraryRefreshInFlight) {
+    faceLibraryRefreshQueued = true;
+    return faceLibraryRefreshInFlight;
+  }
+  setFirmwareStatus({
+    savedFacesSync: "refreshing saved_faces.json",
+  });
+  faceLibraryRefreshInFlight = loadFaceLibrary()
+    .catch((err) => {
+      setFirmwareStatus({
+        savedFacesSync: "refresh saved_faces.json failed",
+      });
+      if (shouldLogApiError()) log(`saved_faces.json auto refresh failed: ${err.message}`, "error");
+      return null;
+    })
+    .finally(() => {
+      faceLibraryRefreshInFlight = null;
+      if (faceLibraryRefreshQueued) {
+        faceLibraryRefreshQueued = false;
+        scheduleFaceLibraryRefresh(`${reason}_queued`, 0);
+      }
+    });
+  return faceLibraryRefreshInFlight;
+}
+
+function scheduleFaceLibraryRefresh(reason = "face_library_auto_refresh", delay = 240) {
+  if (!isFaceLibraryPage()) return;
+  window.clearTimeout(faceLibraryRefreshTimer);
+  faceLibraryRefreshTimer = window.setTimeout(() => {
+    faceLibraryRefreshTimer = 0;
+    refreshFaceLibraryFromFirmware(reason);
+  }, Math.max(0, delay));
+}
+
+function persistFaceDocumentsAndRefresh(reason = "save_faces", delay = 120) {
+  return persistFaceDocuments(reason).then((savedToFirmware) => {
+    if (savedToFirmware) scheduleFaceLibraryRefresh(reason, delay);
+    return savedToFirmware;
+  });
+}
+
+function initFaceLibraryAutoRefresh() {
+  if (faceLibraryAutoRefreshBound) return;
+  faceLibraryAutoRefreshBound = true;
+  const skipButtonIds = new Set([
+    "custom-save",
+    "parts-save-bottom",
+  ]);
+  ["page-custom", "page-parts"].forEach((pageId) => {
+    const page = $(pageId);
+    if (!page) return;
+    page.addEventListener("click", (ev) => {
+      const button = ev.target?.closest?.("button");
+      if (!button || button.closest(".face-library-list")) return;
+      if (skipButtonIds.has(button.id)) return;
+      if (button.classList.contains("faces-json-load")) return;
+      if (button.classList.contains("faces-json-open-local")) return;
+      if (button.classList.contains("faces-json-save-local")) return;
+      if (button.classList.contains("faces-json-import-btn")) return;
+      scheduleFaceLibraryRefresh("face_page_button_action");
+    });
+    page.addEventListener("change", (ev) => {
+      const target = ev.target;
+      if (!target || target.closest?.(".face-library-list")) return;
+      if (target.classList?.contains("faces-json-import-file")) return;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      ) {
+        scheduleFaceLibraryRefresh("face_page_field_change");
+      }
+    });
+    page.addEventListener(
+      "pointerup",
+      (ev) => {
+        const target = ev.target;
+        if (!target || target.closest?.("button,input,textarea,select,.face-library-list")) return;
+        if (target.closest?.("#matrix-custom-edit,#part-groups")) {
+          scheduleFaceLibraryRefresh("face_page_pointer_action", 480);
+        }
+      },
+      {
+        passive: true,
+      },
+    );
+  });
+}
+
 async function fetchJsonDocument(path) {
   const res = await fetch(path, {
     cache: "no-store",
@@ -7845,20 +7948,31 @@ async function persistFaceDocuments(reason = "save_faces") {
     document: faceLibraryDocument,
     reason,
   })
-    .then(() =>
+    .then(() => {
       setFirmwareStatus({
         savedFacesSync: "saved to firmware saved_faces.json",
-      }),
-    )
-    .catch(() =>
+      });
+      // 只有 /api/saved_faces 的 POST 成功返回，才算真正同步到固件。
+      log(`saved_faces.json 已同步到固件：默认 ${defaultFaces.length} 项，用户 ${userFaces.length} 项`);
+      return true;
+    })
+    .catch((err) => {
       setFirmwareStatus({
         savedFacesSync: faceLibraryFileHandle
           ? "saved locally; firmware offline"
           : "save failed/offline; use JSON download/import",
-      }),
-    )
+      });
+      // POST 失败：绝不能记“已同步”。如实记录真实结果（含是否已写入本地文件）。
+      const detail = err?.message ? `：${err.message}` : "";
+      if (faceLibraryFileHandle) {
+        log(`saved_faces.json 已写入本地文件，但同步到固件失败${detail}`, "warn");
+      } else {
+        log(`saved_faces.json 同步到固件失败${detail}；改动未写回固件，请使用下载/导入 JSON 流程`, "error");
+      }
+      return false;
+    })
     .finally(() => {
-      log(`saved_faces.json 已同步：默认 ${defaultFaces.length} 项，用户 ${userFaces.length} 项`);
+      // 仅做与成败无关的 UI 刷新；不要在这里记录“已同步”这类带结论性的日志。
       renderState();
     });
 }
@@ -7885,7 +7999,7 @@ async function importFacesJsonText(text, reason = "import_saved_faces_json") {
   state.faceIndex = 0;
   renderSavedFaces();
   renderState();
-  await persistFaceDocuments(reason);
+  await persistFaceDocumentsAndRefresh(reason);
   log(`已导入统一 saved_faces.json：默认 ${defaultFaces.length} 项，用户 ${userFaces.length} 项`);
 }
 async function importFacesJsonFile(file) {
@@ -7945,7 +8059,7 @@ function saveFace(name, frame, type) {
   renderSavedFaces();
   renderState();
   log(`保存${faceTypeLabel(faceType)}: ${clean}`);
-  persistFaceDocuments("save_user_face");
+  persistFaceDocumentsAndRefresh("save_user_face");
 }
 
 function renderSavedFaces() {
@@ -8029,15 +8143,46 @@ function createFaceLibraryErrorRow(message) {
 }
 
 function clearFaceDragOver(scope = document) {
-  scope.querySelectorAll(".saved-row.drag-over").forEach((x) => x.classList.remove("drag-over"));
+  scope
+    .querySelectorAll(".saved-row.drag-over,.saved-row.insert-before,.saved-row.insert-after")
+    .forEach((x) => x.classList.remove("drag-over", "insert-before", "insert-after"));
 }
 
-function faceRowIndexFromPoint(clientX, clientY, list) {
+function faceInsertSlotFromPoint(clientX, clientY, list) {
+  const rows = Array.from(list.querySelectorAll(".saved-row"))
+    .map((row) => ({ row, index: Number(row.dataset.index) }))
+    .filter((entry) => Number.isInteger(entry.index) && entry.index >= 0)
+    .sort((a, b) => a.index - b.index);
+  if (!rows.length) return null;
+
   const target = document.elementFromPoint(clientX, clientY);
   const row = target && target.closest && target.closest(".saved-row");
-  if (!row || row.closest(".face-library-list") !== list) return null;
-  const index = Number(row.dataset.index);
-  return Number.isInteger(index) ? index : null;
+  if (row && row.closest(".face-library-list") === list) {
+    const index = Number(row.dataset.index);
+    if (!Number.isInteger(index) || index < 0) return null;
+    const rect = row.getBoundingClientRect();
+    return clientY < rect.top + rect.height / 2 ? index : index + 1;
+  }
+
+  const first = rows[0].row.getBoundingClientRect();
+  if (clientY < first.top) return 0;
+  const lastEntry = rows[rows.length - 1];
+  const last = lastEntry.row.getBoundingClientRect();
+  if (clientY > last.bottom) return lastEntry.index + 1;
+  return null;
+}
+
+function showFaceInsertIndicator(list, slot, from) {
+  clearFaceDragOver(list);
+  if (!Number.isInteger(slot) || slot === from || slot === from + 1) return;
+  const targetSlot = Math.max(0, slot);
+  const beforeRow = list.querySelector(`.saved-row[data-index="${targetSlot}"]`);
+  if (beforeRow) {
+    beforeRow.classList.add("insert-before");
+    return;
+  }
+  const afterRow = list.querySelector(`.saved-row[data-index="${targetSlot - 1}"]`);
+  if (afterRow) afterRow.classList.add("insert-after");
 }
 
 function autoScrollFaceList(clientY) {
@@ -8064,34 +8209,34 @@ function attachFaceReorderHandle(handle, row, index) {
     ev.preventDefault();
     pointerFaceDrag = {
       from: index,
-      to: index,
+      slot: index,
       list,
       row,
       pointerId: ev.pointerId,
     };
-    row.classList.add("dragging", "drag-over");
+    row.classList.add("dragging");
     handle.setPointerCapture?.(ev.pointerId);
   });
   handle.addEventListener("pointermove", (ev) => {
     if (!pointerFaceDrag || pointerFaceDrag.pointerId !== ev.pointerId) return;
     ev.preventDefault();
     autoScrollFaceList(ev.clientY);
-    const to = faceRowIndexFromPoint(ev.clientX, ev.clientY, pointerFaceDrag.list);
-    if (to === null) return;
-    pointerFaceDrag.to = to;
-    clearFaceDragOver(pointerFaceDrag.list);
-    const targetRow = pointerFaceDrag.list.querySelector(`.saved-row[data-index="${to}"]`);
-    if (targetRow) targetRow.classList.add("drag-over");
+    const slot = faceInsertSlotFromPoint(ev.clientX, ev.clientY, pointerFaceDrag.list);
+    if (slot === null) return;
+    pointerFaceDrag.slot = slot;
+    showFaceInsertIndicator(pointerFaceDrag.list, slot, pointerFaceDrag.from);
   });
   const finish = (ev) => {
     if (!pointerFaceDrag || pointerFaceDrag.pointerId !== ev.pointerId) return;
     ev.preventDefault();
-    const { from, to, list, row: dragRow } = pointerFaceDrag;
+    const { from, slot, list, row: dragRow } = pointerFaceDrag;
     handle.releasePointerCapture?.(ev.pointerId);
     clearFaceDragOver(list);
     dragRow.classList.remove("dragging");
     pointerFaceDrag = null;
-    if (from !== to) reorderFace(from, to);
+    if (Number.isInteger(slot) && slot !== from && slot !== from + 1) {
+      reorderFace(from, from < slot ? slot - 1 : slot);
+    }
   };
   handle.addEventListener("pointerup", finish);
   handle.addEventListener("pointercancel", finish);
@@ -8135,7 +8280,9 @@ function createFaceRow(f, i, total) {
     if (target && target.name !== next) {
       target.name = next;
       target.updatedAt = new Date().toISOString();
-      persistFaceDocuments(f.type === "default" ? "rename_default_face" : "rename_user_face");
+      persistFaceDocumentsAndRefresh(
+        f.type === "default" ? "rename_default_face" : "rename_user_face",
+      );
       renderState();
       log(`重命名${faceTypeLabel(target.type)} #${i + 1}: ${next}`);
     }
@@ -8220,7 +8367,7 @@ function reorderFace(from, to) {
   library.splice(to, 0, moved);
   reassignOrderFromLibrary(library);
   state.faceIndex = to;
-  persistFaceDocuments("reorder_faces");
+  persistFaceDocumentsAndRefresh("reorder_faces");
   renderSavedFaces();
   log(`表情排序 ${from + 1} -> ${to + 1}`);
 }
@@ -8236,7 +8383,7 @@ function deleteFace(i) {
   if (!confirm(`删除该${faceTypeLabel(face.type)}？`)) return;
   userFaces = userFaces.filter((f) => f.id !== face.id);
   state.faceIndex = getAllFaces().length ? clamp(state.faceIndex, 0, getAllFaces().length - 1) : 0;
-  persistFaceDocuments("delete_user_face");
+  persistFaceDocumentsAndRefresh("delete_user_face");
   renderSavedFaces();
   log(`删除${faceTypeLabel(face.type)} #${i + 1}`);
 }
@@ -11275,6 +11422,7 @@ function initFirstPageUiBeforeShow() {
   initBrightness();
   initBasicControls();
   initCustomSelectDropdowns();
+  initFaceLibraryAutoRefresh();
 }
 
 function renderFirstPageUiBeforeShow() {

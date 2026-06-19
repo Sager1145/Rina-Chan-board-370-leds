@@ -1079,6 +1079,54 @@
     overflow-x: hidden;
   }
 
+  #page-basic .basic-layout,
+  #page-custom > .grid,
+  #page-scroll .scroll-layout,
+  #page-parts .parts-outer-layout {
+    align-items: start;
+  }
+
+  body[data-page="basic"] .content,
+  body[data-page="custom"] .content,
+  body[data-page="parts"] .content,
+  body[data-page="scroll"] .content {
+    overflow-x: clip;
+  }
+
+  #page-basic .led-preview-card,
+  #page-custom .led-preview-card,
+  #page-parts .led-preview-card,
+  #page-scroll .led-preview-card {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    align-self: start;
+    /* 允许底部渐变（::after）溢出到卡片下方的间距区域；矩阵由 JS 适配到
+       max-height 内，不会真正溢出内容，因此放开这里的安全裁剪是安全的。 */
+    overflow: visible;
+  }
+
+  /* 6.1–6.4：在粘性 LED 预览卡片的下边框外侧加一道向下的渐变，从背景色渐隐到
+     透明，盖住从卡片下方滚出的卡片，形成柔和的淡出边界。高度限制在卡片之间的
+     间距（14px）以内，绝不超过该间距。渐变位于卡片自身的堆叠上下文（z-index:20）
+     中，因此会盖在 z-index 较低的滚动卡片之上；pointer-events:none 保证不挡点击。 */
+  #page-basic .led-preview-card::after,
+  #page-custom .led-preview-card::after,
+  #page-parts .led-preview-card::after,
+  #page-scroll .led-preview-card::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    /* 卡片间距为 14px；保持 ≤ 该值。 */
+    height: 14px;
+    /* rgba(15,17,23,0) 是 --bg(#0f1117) 的透明版本，避免渐隐到“透明黑”时出现发灰过渡。 */
+    background: linear-gradient(to bottom, var(--bg), rgba(15, 17, 23, 0));
+    pointer-events: none;
+    z-index: 1;
+  }
+
 
   /* 响应式布局调整。 */
   @media (min-width:1471px) {
@@ -1099,6 +1147,11 @@
     #parts-preview-card {
       grid-column: 1;
       grid-row: 1;
+    }
+
+    #page-parts .face-control-panel {
+      grid-column: 1;
+      grid-row: 2;
     }
 
     #part-groups {
@@ -1900,8 +1953,12 @@
 
   /* 中文块：样式规则 .led-preview-card 控制对应 UI 的布局、视觉或响应式状态。 */
   .led-preview-card {
-    background: transparent;
-    border: 0;
+    /* 与网页背景同色（不透明），这样粘性预览卡片能遮挡住从其下方滚过的卡片；
+       底部再配合 ::after 渐变形成柔和淡出边界。
+       边框同样用背景色（在页面上不可见），配合圆角让遮挡区域保持圆角外观。 */
+    background: var(--bg);
+    border: 1px solid var(--bg);
+    border-radius: 18px;
     box-shadow: none;
     padding: 2px;
     min-inline-size: min(var(--led-preview-min-width), 100%);
@@ -1917,6 +1974,14 @@
   /* 中文块：样式规则 .led-preview-card>h3 控制对应 UI 的布局、视觉或响应式状态。 */
   .led-preview-card>h3 {
     flex: 0 0 auto;
+  }
+
+  /* 圆角：卡片为了让底部 ::after 渐变溢出而设了 overflow:visible，无法再靠卡片自身
+     裁剪出圆角，所以直接给可见的预览内容（rinaboard 底图舞台）加圆角并裁剪，
+     保持与其它卡片一致的圆角外观。 */
+  .led-preview-card .rinaboard-stage {
+    border-radius: 16px;
+    overflow: hidden;
   }
 
   /* 中文块：样式规则 .led-preview-card .matrix-wrap 控制对应 UI 的布局、视觉或响应式状态。 */
@@ -2198,6 +2263,7 @@
 
   /* 中文块：样式规则 .saved-row 控制对应 UI 的布局、视觉或响应式状态。 */
   .saved-row {
+    position: relative;
     display: grid;
     grid-template-columns: 42px minmax(0, 1fr);
     gap: 8px;
@@ -2331,10 +2397,40 @@
     pointer-events: none;
   }
 
-  /* 中文块：样式规则 .saved-row.drag-over .list-item 控制对应 UI 的布局、视觉或响应式状态。 */
-  .saved-row.drag-over .list-item {
-    border-color: var(--accent2);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent2) 20%, transparent);
+  .saved-row.insert-before::before,
+  .saved-row.insert-after::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--accent);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent),
+      0 0 10px color-mix(in srgb, var(--accent) 62%, transparent);
+    animation: insert-line-fade .14s ease-out;
+    pointer-events: none;
+    z-index: 3;
+  }
+
+  .saved-row.insert-before::before {
+    top: -5px;
+  }
+
+  .saved-row.insert-after::after {
+    bottom: -5px;
+  }
+
+  @keyframes insert-line-fade {
+    from {
+      opacity: 0;
+      transform: scaleX(.82);
+    }
+    to {
+      opacity: 1;
+      transform: scaleX(1);
+    }
   }
 
   /* 中文块：样式规则 .saved-row.active .list-item 控制对应 UI 的布局、视觉或响应式状态。 */

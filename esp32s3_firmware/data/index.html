@@ -33,7 +33,7 @@
     <link type="image/png" href="/resources/loading/rina_icon1_default.png" rel="icon" />
     <link type="image/png" href="/resources/loading/rina_icon1_default.png" rel="shortcut icon" />
     <!-- 全局样式、布局规则和组件状态。 -->
-    <link href="styles.css?v=20260619-live-delta-v1" rel="stylesheet" />
+    <link href="styles.css?v=20260619-preview-fade-v4" rel="stylesheet" />
   </head>
   <body>
     <!--
@@ -321,19 +321,10 @@
                   <button class="ok" id="custom-save" type="button">保存自定义表情</button>
                 </div>
                 <div class="row">
-                  <button class="faces-json-load" type="button">读取 saved_faces.json</button>
                   <button class="faces-json-open-local" type="button">
                     打开本地 saved_faces.json
                   </button>
-                  <button class="faces-json-save-local" type="button">保存到已打开文件</button>
                   <button class="faces-json-download-all" type="button">下载 saved_faces.json</button>
-                  <button class="faces-json-import-btn" type="button">导入 saved_faces.json</button>
-                  <input
-                    class="faces-json-import-file"
-                    type="file"
-                    accept="application/json"
-                    hidden
-                  />
                 </div>
                 <h3>统一表情列表</h3>
                 <div class="list face-library-list"></div>
@@ -403,19 +394,10 @@
                   <button class="ok" id="parts-save-bottom" type="button">保存部件表情</button>
                 </div>
                 <div class="row">
-                  <button class="faces-json-load" type="button">读取 saved_faces.json</button>
                   <button class="faces-json-open-local" type="button">
                     打开本地 saved_faces.json
                   </button>
-                  <button class="faces-json-save-local" type="button">保存到已打开文件</button>
                   <button class="faces-json-download-all" type="button">下载 saved_faces.json</button>
-                  <button class="faces-json-import-btn" type="button">导入 saved_faces.json</button>
-                  <input
-                    class="faces-json-import-file"
-                    type="file"
-                    accept="application/json"
-                    hidden
-                  />
                 </div>
                 <h3>统一表情列表</h3>
                 <div class="list face-library-list"></div>
@@ -754,7 +736,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
         </section>
       </main>
     </div>
-    <script src="app.js?v=20260619-log-throttle-v3"></script>
+    <script src="app.js?v=20260619-savedfaces-log-v4"></script>
     <!-- Test instrumentation for AI agents: tags every control with
          data-testid + data-test-code and exposes window.__ui. Purely additive;
          no effect on normal UI behavior. See SERIAL_TEST_PLAN.md section 9c. -->
