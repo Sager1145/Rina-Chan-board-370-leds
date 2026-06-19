@@ -42,12 +42,12 @@ REWRITE_TARGETS = ["styles.css", "index.html"]
 
 GZIP_LEVEL = 9
 
-# 匹配 `path.ext?v=token`，path 以已知静态资源扩展名结尾。
+# Matches 'path.ext?v=token', where path ends with a known static asset extension.
 ASSET_REF_RE = re.compile(
     r"(?P<path>/?[\w./-]+\.(?:css|js|woff2?|json|png|jpe?g|svg))\?v=(?P<ver>[^\"')\s>]+)"
 )
 
-# 进程内缓存：rel(去掉前导/) -> 短哈希。
+# In-process cache: rel (leading slash removed) -> short hash.
 _hash_cache = {}
 
 

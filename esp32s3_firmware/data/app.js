@@ -7062,9 +7062,9 @@ function escapeHtml(s) {
 
 function autoResizeTextarea(el) {
   if (!el) return;
-  // 如果元素（或任一祖先）是 display:none，offsetParent 会是 null，
-  // scrollHeight 也会返回 0。此时直接退出，避免把高度压成 0px；
-  // 页面显示后 switchPage() 会再次调用这里。
+  // If the element (or any ancestor) is display:none, offsetParent will be null,
+  // and scrollHeight will also return 0. Exit early to avoid collapsing the height to 0px.
+  // switchPage() will call this again once the page becomes visible.
   if (el.offsetParent === null && el !== document.body) {
     el.dataset.pendingAutoresize = "1";
     return;
@@ -7097,11 +7097,11 @@ function updateM370Views() {
   }
 }
 
-// 颜色、亮度和模式控制
-// 连接关系：
-// - 初始化函数把 index.html 控件接到 state setters。
-// - setColor()/setBrightness() 更新 state、预览 frame 和固件输出队列。
-// - 自动/手动模式按钮最终走 sendButtonCommand()/queueFirmwareFrame()，保持 UI 与设备一致。
+// Color, brightness, and mode controls
+// Relationship:
+// - Initialization functions bind controls in index.html to state setters.
+// - setColor()/setBrightness() update the local state, preview frames, and firmware output queue.
+// - Auto/Manual mode buttons invoke sendButtonCommand()/queueFirmwareFrame() to sync WebUI and firmware states.
 function initColorInput() {
   const input = $("color-input");
   if (!input) return;
@@ -7470,8 +7470,9 @@ function sendCustomFrameIfLive(reason = "custom_live_send") {
   queueFirmwareLedDeltas(changes, reason, "idle");
 }
 
-// 快速连续编辑（按住/连点）时，把矩阵预览与 M370 文本刷新合并到下一帧，
-// 避免每次点击都做一次整页同步渲染。增量发送仍然立即下发，保证同步延迟最低。
+// During rapid sequential editing (holding/clicking cells), matrix preview and M370 textarea refreshes
+// are coalesced into the next animation frame to avoid heavy full-page re-renders. Incremental delta commands
+// are still dispatched immediately to minimize latency.
 let customEditRenderRaf = 0;
 function scheduleCustomEditRender() {
   if (customEditRenderRaf) return;
@@ -7484,9 +7485,9 @@ function scheduleCustomEditRender() {
 
 function editCell(idx, value, tool) {
   editFrame[idx] = !!value;
-  // 先把“仅改变的 LED”增量立即发给固件，最小化实时同步延迟。
+  // Dispatch incremental delta changes immediately to keep synchronization latency minimal.
   sendCustomFrameIfLive("custom_live_send");
-  // 本地 UI 渲染按帧合并刷新。
+  // Coalesce local UI rendering into the next animation frame.
   scheduleCustomEditRender();
 }
 
@@ -7544,11 +7545,11 @@ function applyKnownFaceIndexLocal(reason = "firmware_face_index_preview") {
   renderSavedFaces();
   return true;
 }
-// 已保存表情库持久化
-// 连接关系：
-// - loadFaceLibrary() 先读 LittleFS 默认库，再合并本地/用户表情。
-// - save/export/import 只处理 JSON 文档；真正点阵显示仍走 setCurrentFrame()。
-// - createFaceRow()/reorderFace()/deleteFace() 是 6.2 和 6.3 共享的列表 UI。
+// Saved face library persistence
+// Relationship:
+// - loadFaceLibrary() reads the default library from LittleFS and merges local/user-saved faces.
+// - save/export/import manage JSON payloads; physical matrix updates invoke setCurrentFrame().
+// - createFaceRow()/reorderFace()/deleteFace() share the table UI for sections 6.2 and 6.3.
 async function loadFaceLibrary() {
   const doc = await loadUnifiedFacesDocument();
   faceLibraryDocument = normalizeFaceDocument(doc, "custom");

@@ -2910,10 +2910,10 @@
    injected by initMatrix() so the structure/style stays identical everywhere.
 
    The badge picture sits behind, and the LED grid is overlaid so that:
-     - the top-left corner of the FIRST visible LED (grid row 0, col 2)
-       lands on image pixel (852, 851)
+      - the top-left corner of the FIRST visible LED (grid row 0, col 2)
+        lands on image pixel (850.0, 849.5)
      - the bottom-right corner of the LAST visible LED (grid row 17, col 18)
-       lands on image pixel (3019, 3144)
+       lands on image pixel (3018.5, 3144)
    in the picture's native 4000 x 3351 space (0,0 = top-left of the picture).
 
    The grid spans the full 22x18 matrix; percentages below place the full grid
@@ -2943,10 +2943,10 @@
    exactly the displayed picture box (same aspect as the 4000x3351 source). */
 .rinaboard-stage > .matrix {
   position: absolute;
-  left: 14.9265%;   /* full-grid left  = col 2 left edge at x=852  */
-  top: 25.3954%;    /* full-grid top   = row 0 top   at y=851      */
-  width: 70.1088%;  /* full 22-column grid width (override fit-content) */
-  height: 68.4273%; /* full 18-row grid height                     */
+  left: 14.8915%;   /* full-grid left  = col 2 left edge at x=850.0  */
+  top: 25.3506%;    /* full-grid top   = row 0 top   at y=849.5    */
+  width: 70.1313%;  /* full 22-column grid width (override fit-content) */
+  height: 68.4721%; /* full 18-row grid height                     */
   max-width: none;
   margin: 0;
   gap: 0;
