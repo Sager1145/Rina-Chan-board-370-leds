@@ -120,12 +120,12 @@ static bool runButtonActionImpl(const String& button, const String& source) {
         scrollSessionSetRestoreAuto(false);
     }
     if (code == "B1") {
-        const bool handled = applyRelativeSavedFace( 1, source + "_B1_next_saved_face");
+        const bool handled = applyRelativeSavedFace( 1, source + "_B1_next_saved_face", true);
         if (handled && shouldNotifyScrollStop) scrollSessionMarkStoppedByButton(code, source);
         return handled;
     }
     if (code == "B2") {
-        const bool handled = applyRelativeSavedFace(-1, source + "_B2_prev_saved_face");
+        const bool handled = applyRelativeSavedFace(-1, source + "_B2_prev_saved_face", true);
         if (handled && shouldNotifyScrollStop) scrollSessionMarkStoppedByButton(code, source);
         return handled;
     }

@@ -9,11 +9,12 @@ bool setMode(const char* input, bool persistSettings = true);
 
 void setAutoInterval(uint32_t ms, bool persistSettings = true);
 
-bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playback);
+bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playback,
+                         bool immediate = false);
 
-bool applyRelativeSavedFace(int8_t delta, const String& reason);
+bool applyRelativeSavedFace(int8_t delta, const String& reason, bool immediate = false);
 
-bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode);
+bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode, bool immediate = false);
 
 bool toggleModeFromButtonAction(const String& source);
 

@@ -96,7 +96,8 @@ bool playbackIsNonFaceActivity() {
     return true;
 }
 
-bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playback) {
+bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playback,
+                         bool immediate) {
     if (!ensureSavedFacesLoaded()) {
         Serial.println("No saved faces available for button action");
         return false;
@@ -106,7 +107,11 @@ bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playb
     if (playback) runtimeState().playback = playback;
 
     String error;
-    if (!applyM370(runtimeAutoFaces()[runtimeState().autoFaceIndex].m370, reason, error)) {
+    if (immediate) clearQueuedM370Frames();
+    const bool applied = immediate
+        ? applyM370Immediate(runtimeAutoFaces()[runtimeState().autoFaceIndex].m370, reason, error)
+        : applyM370(runtimeAutoFaces()[runtimeState().autoFaceIndex].m370, reason, error);
+    if (!applied) {
         Serial.printf("saved face apply failed: %s\n", error.c_str());
         return false;
     }
@@ -121,19 +126,19 @@ bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playb
     return true;
 }
 
-bool applyRelativeSavedFace(int8_t delta, const String& reason) {
+bool applyRelativeSavedFace(int8_t delta, const String& reason, bool immediate) {
     if (!ensureSavedFacesLoaded()) return false;
     int32_t next = static_cast<int32_t>(runtimeState().autoFaceIndex) + delta;
     while (next < 0) next += runtimeAutoFaceCount();
     next %= runtimeAutoFaceCount();
-    return applySavedFaceIndex(static_cast<uint16_t>(next), reason, DEFAULT_PLAYBACK);
+    return applySavedFaceIndex(static_cast<uint16_t>(next), reason, DEFAULT_PLAYBACK, immediate);
 }
 
-bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode) {
+bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode, bool immediate) {
     if (!ensureSavedFacesLoaded()) return false;
     const char*    playback = autoMode ? "auto_saved_face" : DEFAULT_PLAYBACK;
     const uint16_t index    = runtimeAutoFaceCount() > 0 ? runtimeState().autoFaceIndex % runtimeAutoFaceCount() : 0;
-    const bool     applied  = applySavedFaceIndex(index, reason, playback);
+    const bool     applied  = applySavedFaceIndex(index, reason, playback, immediate);
     if (applied && autoMode) runtimeState().lastAutoSwitchMs = millis();
     return applied;
 }
@@ -141,6 +146,7 @@ bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode) {
 bool toggleModeFromButtonAction(const String& source) {
     const bool targetAuto       = !isAutoMode();
     const bool hadOtherPlayback = playbackIsNonFaceActivity();
+    const bool immediateFace    = source == "gpio" || source == "api_button";
 
     stopFirmwareScroll(false, false);
     scrollSessionSetRestoreAuto(false);
@@ -156,7 +162,7 @@ bool toggleModeFromButtonAction(const String& source) {
         return true;
     }
 
-    const bool faceApplied = applyCurrentSavedFaceForMode(restoreReason, targetAuto);
+    const bool faceApplied = applyCurrentSavedFaceForMode(restoreReason, targetAuto, immediateFace);
     if (!faceApplied) {
         Serial.println("B3/M-A switched mode but no saved face was available to apply");
     }

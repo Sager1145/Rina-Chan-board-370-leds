@@ -63,8 +63,23 @@ bool rinaLogParseLevel(const char* name, RinaLogLevel& out) {
     return false;
 }
 
+// True only when diagnostics actually have a host to write to: a USB-CDC port that a
+// computer has open, or -- in the dual-COM test build -- the always-present UART0
+// mirror. `Serial` (HWCDC) evaluates to false until a host opens the port (DTR), so on
+// a standalone, battery-powered board with nothing plugged in this stays false.
+static bool rinaSerialConnected() {
+#if ENABLE_SERIAL_UART0_MIRROR
+    return true;
+#else
+    return static_cast<bool>(Serial);
+#endif
+}
+
 bool rinaLogShouldEmit(RinaLogLevel level) {
-    return sLogEnabled && level <= sLogLevel;
+    // Gate on an actual connection so that with no computer attached every RLOG_*
+    // short-circuits here, before the (Core-0/Core-1) line formatting work runs at all.
+    if (!sLogEnabled || level > sLogLevel) return false;
+    return rinaSerialConnected();
 }
 
 void rinaSerialInit() {
@@ -79,9 +94,24 @@ void rinaSerialInit() {
 
 void rinaSerialWrite(const uint8_t* data, size_t len) {
     if (!data || len == 0) return;
-    Serial.write(data, len);
+
+    // Non-blocking by design. Diagnostics must never stall the Core-0 control loop
+    // (frame queue + buttons + HTTP) on a serial port that no host is draining.
+    //
+    // USB-CDC: `if (Serial)` is false when no host has the port open, so we skip the
+    // write entirely instead of letting HWCDC::write() block for its TX timeout. When
+    // a host IS connected we still only write if the whole line fits in the TX buffer
+    // right now (availableForWrite >= len); otherwise we drop the line. Requiring the
+    // full line preserves the "one write per line, never interleaved" guarantee.
+    if (Serial && static_cast<size_t>(Serial.availableForWrite()) >= len) {
+        Serial.write(data, len);
+    }
 #if ENABLE_SERIAL_UART0_MIRROR
-    Serial0.write(data, len);
+    // UART0 mirror: same rule -- only emit when the line fits in the TX ring now, so a
+    // full 115200-baud FIFO can never block the loop. Drop otherwise.
+    if (static_cast<size_t>(Serial0.availableForWrite()) >= len) {
+        Serial0.write(data, len);
+    }
 #endif
 }
 

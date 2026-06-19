@@ -68,6 +68,11 @@ static char upperHexChar(char c) {
     return (c >= 'a' && c <= 'f') ? static_cast<char>(c - ('a' - 'A')) : c;
 }
 
+static char hexDigit(uint8_t value) {
+    static const char* digits = "0123456789ABCDEF";
+    return digits[value & 0x0F];
+}
+
 static const char* blankM370Text() {
     static char text[5 + M370_HEX_CHARS + 1] = {};
     if (text[0] == '\0') {
@@ -176,6 +181,31 @@ bool frameBit(uint16_t index) {
 bool packedFrameBit(const uint8_t* bits, uint16_t index) {
     if (!bits || index >= LED_COUNT) return false;
     return (bits[index >> 3] & (1U << (index & 7U))) != 0;
+}
+
+static void setPackedFrameBit(uint8_t* bits, uint16_t index, bool on) {
+    if (!bits || index >= LED_COUNT) return;
+    const uint16_t byteIndex = index >> 3;
+    const uint8_t bitMask = static_cast<uint8_t>(1U << (index & 7U));
+    if (on) bits[byteIndex] |= bitMask;
+    else    bits[byteIndex] &= static_cast<uint8_t>(~bitMask);
+}
+
+static void encodePackedBitsToM370(const uint8_t* bits, char* out, size_t outSize) {
+    if (!bits || !out || outSize < 5U + M370_HEX_CHARS + 1U) return;
+    memcpy(out, "M370:", 5);
+    for (uint16_t nib = 0; nib < M370_HEX_CHARS; ++nib) {
+        uint8_t value = 0;
+        const uint16_t baseBit = static_cast<uint16_t>(nib) * 4U;
+        for (uint8_t k = 0; k < 4U; ++k) {
+            const uint16_t bit = baseBit + k;
+            if (bit < M370_BITS && packedFrameBit(bits, bit)) {
+                value |= static_cast<uint8_t>(1U << (3U - k));
+            }
+        }
+        out[5U + nib] = hexDigit(value);
+    }
+    out[5U + M370_HEX_CHARS] = '\0';
 }
 
 uint16_t countLitLedsLocked(const uint8_t* bits) {
@@ -352,31 +382,73 @@ bool applyM370(const String& input, const String& reason, String& error) {
     decodeNormalizedM370ToPackedBits(normalized, packed);
 
     enqueuePackedM370Frame(packed, normalized.c_str(), reason);
-    // Output-only diagnostics, emitted after the (possibly synchronous) publish
-    // returns so no Serial I/O ever happens while the frame lock is held.
+    // No per-frame Serial logging on the hot path. The LED state is recorded only
+    // into the in-RAM history ring (zero Serial I/O); it is read back on demand via
+    // the `led command_history` / `led status` serial commands and the WebUI status
+    // endpoints. This keeps Core 0 free of blocking Serial.write / UART0 writes while
+    // frames are streaming.
     const uint16_t lit = countLitLedsLocked(packed);
-    RLOG_INFO("LED", "event=apply reason=%s lit=%u bytes=%u brightness=%u",
-              reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES),
-              runtimeState().brightness);
     rinaLogRecordLedCommand(reason.c_str(), lit, "frame");
+    return true;
+}
+
+bool applyM370Immediate(const String& input, const String& reason, String& error) {
+    String normalized;
+    if (!normalizeM370(input, normalized, error)) {
+        ++runtimeState().framesRejected;
+        return false;
+    }
+
+    uint8_t packed[FRAME_BYTES];
+    decodeNormalizedM370ToPackedBits(normalized, packed);
+
+    publishPackedFrameNow(packed, normalized.c_str(), reason.c_str());
+    // RAM-only record; no per-frame Serial logging (read on demand instead).
+    const uint16_t lit = countLitLedsLocked(packed);
+    rinaLogRecordLedCommand(reason.c_str(), lit, "immediate");
+    return true;
+}
+
+bool applyLedDeltasImmediate(const uint16_t* indices, const bool* values, uint16_t count,
+                             const String& reason, String& error) {
+    if (!indices || !values || count == 0) {
+        error = "missing LED delta changes";
+        ++runtimeState().framesRejected;
+        return false;
+    }
+
+    char normalized[5 + M370_HEX_CHARS + 1] = {};
+    uint16_t lit = 0;
+    withFrameLock([&]() {
+        for (uint16_t i = 0; i < count; ++i) {
+            setPackedFrameBit(runtimeFrameBits(), indices[i], values[i]);
+        }
+        encodePackedBitsToM370(runtimeFrameBits(), normalized, sizeof(normalized));
+        runtimeState().lastM370 = normalized;
+        runtimeState().lastReason = reason;
+        ++runtimeState().framesAccepted;
+        touchRuntimeState();
+        showCurrentFrameNoLock();
+        lit = countLitLedsLocked(runtimeFrameBits());
+    });
+    lastM370FrameApplyMs = millis();
+    // RAM-only record; no per-frame Serial logging (read on demand instead).
+    rinaLogRecordLedCommand(reason.c_str(), lit, "delta");
     return true;
 }
 
 void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason) {
     if (!packedBits) return;
     publishPackedFrameNow(packedBits, nullptr, reason.c_str());
+    // RAM-only record; no per-frame Serial logging (read on demand instead).
     const uint16_t lit = countLitLedsLocked(packedBits);
-    RLOG_INFO("LED", "event=apply reason=%s lit=%u bytes=%u brightness=%u",
-              reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES),
-              runtimeState().brightness);
     rinaLogRecordLedCommand(reason.c_str(), lit, "immediate");
 }
 
 void applyBlankFrame(const String& reason) {
     uint8_t blank[FRAME_BYTES] = {};
     enqueuePackedM370Frame(blank, blankM370Text(), reason);
-    RLOG_INFO("LED", "event=clear reason=%s lit=0 bytes=%u",
-              reason.c_str(), static_cast<unsigned>(FRAME_BYTES));
+    // RAM-only record; no per-frame Serial logging (read on demand instead).
     rinaLogRecordLedCommand(reason.c_str(), 0, "clear");
 }
 
@@ -384,6 +456,22 @@ void serviceM370FrameQueue() {
     if (m370FrameQueueCount == 0) return;
     const uint32_t now = millis();
     if (!m370FrameRateReady(now)) return;
+
+    // Newest-frame-wins drain. Previously this published one frame per loop pass, so a
+    // burst that filled the queue took queue-depth * M370_FRAME_MIN_INTERVAL_MS to show
+    // its final state. When several frames are queued we now skip the stale
+    // intermediates and publish only the most recent, counting the rest as dropped.
+    // This bounds burst-tail latency to a single rate slot while still honoring the
+    // WS2812-friendly M370_FRAME_MIN_INTERVAL_MS floor. (Queue state is Core-0-owned;
+    // enqueue/service/clear all run on the Core-0 loop, so no lock is needed here.)
+    if (m370FrameQueueCount > 1) {
+        const uint8_t skipped = static_cast<uint8_t>(m370FrameQueueCount - 1);
+        m370FrameQueueHead = static_cast<uint8_t>(
+            (m370FrameQueueHead + skipped) % M370_FRAME_QUEUE_DEPTH);
+        m370FrameQueueCount = 1;
+        runtimeState().framesDropped  += skipped;
+        runtimeState().framesDequeued += skipped;
+    }
 
     QueuedM370Frame& item = m370FrameQueue[m370FrameQueueHead];
     m370FrameQueueHead = static_cast<uint8_t>((m370FrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
@@ -438,5 +526,6 @@ void setBrightness(int raw) {
         touchRuntimeStateSlow();
         showCurrentFrameNoLock();
     });
-    RLOG_INFO("LED", "event=brightness value=%d", raw);
+    // Brightness changes can repeat rapidly (B4/B5 held); no per-event Serial log.
+    // Current brightness is reported on demand by `led status` and the WebUI status.
 }

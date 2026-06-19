@@ -106,7 +106,7 @@ const WEBUI_CONFIG = Object.freeze({
   // 固件写入キュー的时序。这些数值用来保护单线程的 ESP32 Web 服务器，
   // 避免被拖动滑块等快速浏览器事件冲垮。
   firmwareQueues: {
-    m370SendIntervalMs: 45,
+    m370SendIntervalMs: 16,
     m370QueueMax: 3,
     buttonCommandIntervalMs: 120,
     buttonCommandQueueMax: 4,
@@ -3521,13 +3521,25 @@ let selectedCall = {
   cheek: "400",
 };
 let partsSymmetry = false;
-let liveSendEnabled = false;
+let liveSendEnabled = true;
+let liveSyncedFrame = blankFrame();
 let defaultFaces = [];
 let userFaces = [];
 let faceLibraryDocument = null;
 let faceLibraryFileHandle = null;
+let faceLibraryLoadError = "";
 let pointerFaceDrag = null;
 let logs = [];
+// 通信日志（6.5 调试页）的级别 / 渲染状态。
+// - logLevel 过滤掉低优先级噪声（拖动滑块等高频条目记为 debug，默认隐藏）。
+// - renderLog 仅在 6.5 可见时更新 DOM，并按动画帧合并，避免每条日志都重建整段
+//   文本并强制同步回流；其它页面只标脏，进入 6.5 时补一次全量渲染。
+const LOG_LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
+const LOG_BUFFER_MAX = 500;   // 保留用于下载/复制的完整缓冲
+const LOG_VIEW_MAX = 120;     // 实际渲染到 DOM 的最近行数
+let logLevel = LOG_LEVELS.info;
+let logRenderRaf = 0;
+let logDirty = false;
 let pendingFramePacket = null;
 let lastApiErrorLogAt = 0;
 let colorDomSynced = false;
@@ -3728,13 +3740,6 @@ const scrollMachine = (function () {
       scroll.frameIndex = clamp(frameIndex, 0, Math.max(0, scroll.frames.length - 1));
       scroll.offset = scroll.frameIndex;
       machine.cache.frameIndex = scroll.frameIndex;
-      scroll.displayIndex = scroll.frameIndex; // re-anchor the display-only tween (fix #1)
-      scrollFrame = cloneFrame(scroll.frames[scroll.frameIndex] || blankFrame());
-      setScrollPreviewFrame(
-        scrollFrame,
-        "text_scroll_fw_sync_authoritative",
-        paused ? "scroll_paused" : active ? "scroll" : state.playback
-      );
     }
   }
 
@@ -4343,6 +4348,17 @@ function onCount(frame) {
   return c;
 }
 
+function firstLitFrameIndex(frames) {
+  if (!Array.isArray(frames)) return 0;
+  const index = frames.findIndex((frame) => onCount(frame) > 0);
+  return index > 0 ? index : 0;
+}
+
+function rotateScrollTimelineToFirstLitFrame(frames) {
+  const index = firstLitFrameIndex(frames);
+  return index > 0 ? frames.slice(index).concat(frames.slice(0, index)) : frames;
+}
+
 function normalizeHexColor(v) {
   v = String(v || "").trim();
   if (!v.startsWith("#")) v = "#" + v;
@@ -4401,19 +4417,44 @@ function fallbackCopy(text) {
   ta.remove();
 }
 
-function log(msg) {
+function log(msg, level = "info") {
+  // 级别过滤：高频/冗余条目（如拖动滑块）记为 "debug"，默认级别 info 下直接丢弃，
+  // 连入库和渲染都不会发生。
+  const rank = LOG_LEVELS[level] ?? LOG_LEVELS.info;
+  if (rank > logLevel) return;
   const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
   logs.push(line);
-  if (logs.length > 500) logs.shift();
+  if (logs.length > LOG_BUFFER_MAX) logs.shift();
+  renderLog();
+}
+
+function setLogLevel(level) {
+  const next = LOG_LEVELS[level];
+  if (next === undefined) return;
+  logLevel = next;
+  // 立即重渲染（仅当 6.5 可见时才真正写 DOM）。
   renderLog();
 }
 
 function renderLog() {
-  const el = $("log");
-  if (el) {
-    el.textContent = logs.join("\n");
-    el.scrollTop = el.scrollHeight;
+  // 仅在 6.5（debug）页可见时更新 DOM。其它页面上 #log 仍在 DOM 中，但用户看不到，
+  // 所以这里只标脏并跳过昂贵的字符串重建 + 回流；switchPage("debug") 会补渲染。
+  if (document.body?.dataset?.page !== "debug") {
+    logDirty = true;
+    return;
   }
+  // 按动画帧合并：一帧内的多条日志只触发一次 DOM 更新。
+  if (logRenderRaf) return;
+  logRenderRaf = requestAnimationFrame(() => {
+    logRenderRaf = 0;
+    logDirty = false;
+    const el = $("log");
+    if (!el) return;
+    // 只渲染最近 LOG_VIEW_MAX 行，避免在缓冲接近 500 行时每次都拼接整段文本。
+    const view = logs.length > LOG_VIEW_MAX ? logs.slice(-LOG_VIEW_MAX) : logs;
+    el.textContent = view.join("\n");
+    el.scrollTop = el.scrollHeight;
+  });
 }
 
 function isOfflineHtmlMode() {
@@ -4559,8 +4600,18 @@ function apiPostWithUploadProgress(path, payload, onProgress = () => {}) {
       firmware.online = xhr.status >= 200 && xhr.status < 300;
       firmware.lastStatus = `${xhr.status} ${xhr.statusText || ""}`.trim();
       if (!firmware.online) {
-        firmware.lastError = firmware.lastStatus;
-        reject(new Error(firmware.lastStatus));
+        const text = String(xhr.responseText || "").trim();
+        let detail = "";
+        if (text) {
+          try {
+            const parsed = parseApiJson(text, path, {});
+            detail = parsed.error || parsed.message || text.slice(0, 180);
+          } catch (_err) {
+            detail = text.slice(0, 180);
+          }
+        }
+        firmware.lastError = detail ? `${firmware.lastStatus}: ${detail}` : firmware.lastStatus;
+        reject(new Error(firmware.lastError));
         return;
       }
       try {
@@ -4577,7 +4628,7 @@ function apiPostWithUploadProgress(path, payload, onProgress = () => {}) {
     xhr.onerror = () => {
       firmware.online = false;
       firmware.lastStatus = "network error";
-      firmware.lastError = `POST ${path} failed`;
+      firmware.lastError = `POST ${path} failed (readyState ${xhr.readyState}, status ${xhr.status || 0})`;
       reject(new Error(firmware.lastError));
     };
     xhr.ontimeout = () => {
@@ -4984,6 +5035,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
   ) {
     try {
       currentFrame = m370ToFrame(firmwareM370);
+      if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
       if (!firmwareIsScrolling) scrollFrame = cloneFrame(currentFrame);
       state.lastRefreshReason = renderer.lastReason || data.lastReason || source;
       frameChanged = true;
@@ -5091,6 +5143,26 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
 // - pumpButtonCommandQueue() 处理模式、按钮、停止/暂停等轻量命令。
 // - pumpFrameSendQueue() 处理 370 LED frame，并按 WEBUI_CONFIG 的节奏限流。
 // - guardBeforeOutput()/terminateOtherActivities() 确保 static/auto/scroll 模式互斥。
+let auxCommandInFlightCount = 0;
+
+function waitForAuxCommandsIdle(timeoutMs = 500) {
+  const startedAt = performance.now();
+  return new Promise((resolve) => {
+    const check = () => {
+      if (auxCommandInFlightCount <= 0) {
+        resolve(true);
+        return;
+      }
+      if (performance.now() - startedAt >= timeoutMs) {
+        resolve(false);
+        return;
+      }
+      setTimeout(check, 16);
+    };
+    check();
+  });
+}
+
 function sendAuxCommand(cmd, payload = {}, source = "webui") {
   firmware.sentCommands++;
   const packet = {
@@ -5101,6 +5173,7 @@ function sendAuxCommand(cmd, payload = {}, source = "webui") {
     lastRequest: `POST ${API_ENDPOINTS.command}`,
     lastStatus: isOfflineHtmlMode() ? "queued offline" : "queued",
   });
+  auxCommandInFlightCount++;
   packet.promise = apiPost(API_ENDPOINTS.command, packet)
     .then((data) => {
       applyFirmwareRuntimeState(data, source);
@@ -5111,7 +5184,10 @@ function sendAuxCommand(cmd, payload = {}, source = "webui") {
         lastStatus: isOfflineHtmlMode() ? "offline html mode" : "command failed",
         lastError: err.message,
       });
-      if (!isOfflineHtmlMode() && shouldLogApiError()) log(`辅助指令发送失败: ${err.message}`);
+      if (!isOfflineHtmlMode() && shouldLogApiError()) log(`辅助指令发送失败: ${err.message}`, "error");
+    })
+    .finally(() => {
+      auxCommandInFlightCount = Math.max(0, auxCommandInFlightCount - 1);
     });
   return packet;
 }
@@ -5128,6 +5204,7 @@ function makeRateLimitedQueue({
   offlineStatusLabel,
   errorLabel,
   logErrorStr,
+  coalesceLatest = false,
 }) {
   let queue = [];
   let inFlight = false;
@@ -5177,7 +5254,7 @@ function makeRateLimitedQueue({
           lastError: err.message,
         });
         if (shouldLogApiError() && (!isOfflineHtmlMode() || !offlineStatusLabel)) {
-          log(`${logErrorStr}: ${err.message}`);
+          log(`${logErrorStr}: ${err.message}`, "error");
         }
         if (q.fallback) q.fallback();
         if (q.resolve) q.resolve(null);
@@ -5191,9 +5268,55 @@ function makeRateLimitedQueue({
   }
 
   return {
+    clear(reason = "queue_clear") {
+      if (timer) {
+        clearTimeout(timer);
+        timer = 0;
+      }
+      if (queue.length) {
+        for (const dropped of queue) {
+          if (dropped && dropped.resolve) dropped.resolve(null);
+          incrementDropped();
+        }
+        queue = [];
+      }
+      updateQueueLength(0);
+      setFirmwareStatus({
+        lastRequest: `POST ${endpoint}`,
+        lastStatus: `${statusLabel} cleared by ${reason}`,
+      });
+      renderState();
+    },
+    isBusy() {
+      return inFlight || queue.length > 0;
+    },
+    waitForIdle(timeoutMs = 500) {
+      const startedAt = performance.now();
+      return new Promise((resolve) => {
+        const check = () => {
+          if (!inFlight && queue.length === 0) {
+            resolve(true);
+            return;
+          }
+          if (performance.now() - startedAt >= timeoutMs) {
+            resolve(false);
+            return;
+          }
+          setTimeout(check, 16);
+        };
+        check();
+      });
+    },
     enqueue(request, source = "unknown", fallback = null) {
       const queued = { request, source, fallback, promise: null, resolve: null };
       queued.promise = new Promise((res) => { queued.resolve = res; });
+      if (coalesceLatest && queue.length) {
+        for (const dropped of queue) {
+          if (dropped && dropped.resolve) dropped.resolve(null);
+          incrementDropped();
+        }
+        queue = [];
+      }
       if (queue.length >= maxDepth) {
         const dropped = queue.shift();
         if (dropped && dropped.resolve) dropped.resolve(null);
@@ -5231,6 +5354,7 @@ const frameSendPump = makeRateLimitedQueue({
   endpoint: API_ENDPOINTS.frame,
   intervalMs: WEBUI_M370_SEND_INTERVAL_MS,
   maxDepth: WEBUI_M370_QUEUE_MAX,
+  coalesceLatest: true,
   updateQueueLength: (len) => { firmware.frameQueue = len; },
   incrementSent: () => { firmware.sentFrames++; },
   incrementDropped: () => { firmware.droppedFrames++; },
@@ -5266,6 +5390,39 @@ function queueFirmwareFrame(frame, reason = "frame_update", playback = "idle") {
     at: Date.now(),
   };
   frameSendPump.enqueue(pendingFramePacket, reason, null);
+}
+
+function frameDeltaChanges(fromFrame, toFrame) {
+  const changes = [];
+  for (let i = 0; i < TOTAL_LEDS; i++) {
+    const next = !!toFrame[i];
+    if (!!fromFrame[i] !== next) changes.push([i, next ? 1 : 0]);
+  }
+  return changes;
+}
+
+function applyDeltaChangesToFrame(frame, changes) {
+  for (const change of changes) {
+    const idx = Number(change?.[0]);
+    if (Number.isInteger(idx) && idx >= 0 && idx < TOTAL_LEDS) frame[idx] = !!change[1];
+  }
+}
+
+function queueFirmwareLedDeltas(changes, reason = "live_delta", playback = "idle") {
+  if (!changes.length) return null;
+  const packet = {
+    type: "led_delta",
+    changes,
+    reason,
+    mode: playback,
+    at: Date.now(),
+  };
+  pendingFramePacket = packet;
+  const queued = frameSendPump.enqueue(packet, reason, null);
+  queued.promise.then((data) => {
+    if (data) applyDeltaChangesToFrame(liveSyncedFrame, changes);
+  });
+  return queued;
 }
 
 function setScrollPreviewFrame(frame, reason = "text_scroll_preview", playback = "scroll") {
@@ -5318,7 +5475,10 @@ function sendPartsFrame(reason = "parts_compose_send", writeLog = true) {
 }
 
 function sendPartsFrameIfLive(reason = "parts_live_send") {
-  if (liveSendEnabled) sendPartsFrame(reason, false);
+  if (!liveSendEnabled) return;
+  currentFrame = cloneFrame(partsFrame);
+  const changes = frameDeltaChanges(liveSyncedFrame, partsFrame);
+  queueFirmwareLedDeltas(changes, reason, "idle");
 }
 
 function resolvePartId(callKey, id) {
@@ -5398,9 +5558,44 @@ function guardBeforeOutput(reason = "mode_change", playback = null) {
   return terminateOtherActivities(classifyOutputMode(reason, playback), reason);
 }
 
+async function prepareForTextScrollUpload() {
+  const settleTimeoutMs = 1200;
+  if (liveSendEnabled) {
+    setLiveSendEnabled(false, "文字滚动准备");
+  }
+  pendingFramePacket = null;
+  frameSendPump.clear("text_scroll_prepare");
+  buttonCommandPump.clear("text_scroll_prepare");
+  await Promise.all([
+    frameSendPump.waitForIdle(settleTimeoutMs),
+    buttonCommandPump.waitForIdle(settleTimeoutMs),
+    waitForAuxCommandsIdle(settleTimeoutMs),
+  ]);
+
+  const ended = guardBeforeOutput("text_scroll_start", "scroll");
+  const packet = ended.length
+    ? null
+    : sendAuxCommand(
+        "terminate_other_activities",
+        {
+          targetMode: "scroll",
+          ended: ["text_scroll_prepare"],
+        },
+        "text_scroll_prepare",
+      );
+  await Promise.all([
+    packet ? packet.promise : Promise.resolve(null),
+    frameSendPump.waitForIdle(settleTimeoutMs),
+    buttonCommandPump.waitForIdle(settleTimeoutMs),
+    waitForAuxCommandsIdle(settleTimeoutMs),
+  ]);
+  await sleepMs(120);
+}
+
 function setCurrentFrame(frame, reason = "manual_update", playback = null) {
   guardBeforeOutput(reason, playback);
   currentFrame = cloneFrame(frame);
+  if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
   state.lastRefreshReason = reason;
   state.refreshCount++;
   if (playback !== null) state.playback = playback;
@@ -5434,7 +5629,7 @@ function setColor(hex, source = "color_change") {
   updateDps();
   renderMatrices();
   renderState();
-  log(`颜色更新 ${c} (${source})`);
+  log(`颜色更新 ${c} (${source})`, "debug");  // 可能随取色器/滑块高频触发
   if (source !== "firmware_sync")
     sendAuxCommand(
       "set_color",
@@ -5458,7 +5653,7 @@ function setBrightness(v, source = "brightness_change") {
     lastUserBrightnessMs = Date.now();
   }
   applyBrightnessLocal(v);
-  log(`亮度更新 raw=${state.brightness} (${source})`);
+  log(`亮度更新 raw=${state.brightness} (${source})`, "debug");  // 滑块拖动会高频触发
   sendAuxCommand(
     "set_brightness",
     {
@@ -5908,7 +6103,7 @@ async function preloadFirmwareRuntimeState() {
       lastStatus: "firmware runtime read failed",
       lastError: bootRuntimeSnapshot.error,
     });
-    if (shouldLogApiError()) log(`启动读取固件状态失败: ${bootRuntimeSnapshot.error}`);
+    if (shouldLogApiError()) log(`启动读取固件状态失败: ${bootRuntimeSnapshot.error}`, "error");
     return bootRuntimeSnapshot;
   }
 }
@@ -5926,7 +6121,7 @@ async function syncRuntimeStateFromFirmware(source = "webui_load") {
     return true;
   } catch (err) {
     if (!isOfflineHtmlMode() && shouldLogApiError())
-      log(`读取固件运行/预览状态失败: ${err.message}`);
+      log(`读取固件运行/预览状态失败: ${err.message}`, "error");
     return false;
   } finally {
     firmwareFullStatusInFlight = false;
@@ -5945,7 +6140,7 @@ async function syncRuntimeSummaryFromFirmware(source = "firmware_poll_runtime_su
       });
     return true;
   } catch (err) {
-    if (!isOfflineHtmlMode() && shouldLogApiError()) log(`读取固件轻量状态失败: ${err.message}`);
+    if (!isOfflineHtmlMode() && shouldLogApiError()) log(`读取固件轻量状态失败: ${err.message}`, "error");
     return false;
   } finally {
     firmwareRuntimeSummaryInFlight = false;
@@ -5957,17 +6152,10 @@ function startFirmwareStatusPolling() {
   firmwareStatusPollTimer = setInterval(() => {
     const firmwareIsScrolling =
       state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
-    const scrollPageNeedsFastStopNotice = firmwareIsScrolling && isScrollPageActive();
-    const minInterval = scrollPageNeedsFastStopNotice
-      ? Math.min(550, firmwareNextPollMs)
-      : Math.max(1000, firmwareNextPollMs);
+    const minInterval = Math.max(1000, firmwareNextPollMs);
     if (performance.now() - lastFirmwareStatusPollAt < minInterval) return;
     if (firmwareIsScrolling) {
-      syncRuntimeSummaryFromFirmware(
-        scrollPageNeedsFastStopNotice
-          ? "firmware_poll_scroll_runtime"
-          : "firmware_poll_scroll_summary",
-      );
+      syncRuntimeSummaryFromFirmware("firmware_poll_scroll_summary");
     } else {
       syncRuntimeStateFromFirmware("firmware_poll");
     }
@@ -5991,7 +6179,7 @@ async function refreshPowerStatusFromFirmware(source = "power_timer", force = fa
     applyPowerData(powerPayload);
     renderState();
   } catch (err) {
-    if (shouldLogApiError()) log(`power status refresh failed: ${err.message}`);
+    if (shouldLogApiError()) log(`power status refresh failed: ${err.message}`, "error");
   } finally {
     powerStatusRefreshInFlight = false;
   }
@@ -6131,6 +6319,8 @@ function switchPage(id) {
       if (a) autoResizeTextarea(a);
     });
   if (id === "debug") {
+    // Entering 6.5: flush any log lines accumulated while the panel was hidden.
+    if (logDirty) renderLog();
     requestAnimationFrame(() => {
       setupDebugMasonryLayout(true);
       const a = $("debug-m370");
@@ -6785,6 +6975,13 @@ function batteryPowerText() {
   return state.batteryPowered === false ? "未上电" : state.batteryStateText || "电池";
 }
 
+function firmwareConnectionUiState() {
+  const online = !!firmware.online;
+  if (online) return { label: "在线", dotClass: "status-dot" };
+  const hasError = !!(firmware.lastError && firmware.lastError !== "—");
+  return { label: hasError ? "错误" : "离线", dotClass: "status-dot danger" };
+}
+
 // UI 渲染器
 // 连接关系：
 // - renderState() 是 state -> DOM 的集中出口，避免业务函数到处改 UI 文案。
@@ -6793,6 +6990,21 @@ function batteryPowerText() {
 function renderState() {
   // 共享 UI（页眉电池/充电徽章、模式切换）在任何页面都要更新，不受 page-debug 影响。
   updateModeToggleUi();
+  const runtimeDot = $("badge-runtime-dot"),
+    runtimeLabel = $("badge-runtime-label"),
+    runtimeBadge = $("badge-runtime");
+  if (runtimeDot && runtimeLabel) {
+    const connection = firmwareConnectionUiState();
+    runtimeDot.className = connection.dotClass;
+    runtimeLabel.textContent = connection.label;
+    if (runtimeBadge) {
+      runtimeBadge.title = firmware.online
+        ? "固件连接在线"
+        : firmware.lastError
+          ? `固件连接${connection.label}: ${firmware.lastError}`
+          : `固件连接${connection.label}`;
+    }
+  }
   const battDot = $("badge-battery-dot"),
     battLabel = $("badge-battery-label");
   if (battDot && battLabel) {
@@ -7206,10 +7418,25 @@ function initCustom() {
   initFaceManagerControls();
 }
 
-function toggleLiveSend(label = "实时发送") {
-  liveSendEnabled = !liveSendEnabled;
+function syncLiveSendBaseline(frame = currentFrame) {
+  liveSyncedFrame = cloneFrame(frame || blankFrame());
+}
+
+function setLiveSendEnabled(enabled, label = "实时发送") {
+  const next = !!enabled;
+  if (liveSendEnabled === next) {
+    updateLiveToggles();
+    if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
+    return;
+  }
+  liveSendEnabled = next;
+  if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
   updateLiveToggles();
   log(`${label} ${liveSendEnabled ? "开启" : "关闭"}`);
+}
+
+function toggleLiveSend(label = "实时发送") {
+  setLiveSendEnabled(!liveSendEnabled, label);
 }
 
 function updateLiveToggles() {
@@ -7219,6 +7446,7 @@ function updateLiveToggles() {
     btn.classList.toggle("active", liveSendEnabled);
     btn.setAttribute("aria-pressed", liveSendEnabled ? "true" : "false");
     btn.textContent = "实时";
+    btn.title = liveSendEnabled ? "实时发送已开启" : "实时发送已关闭";
   });
 }
 
@@ -7229,14 +7457,30 @@ function sendCustomFrame(reason = "custom_face_send", writeLog = true) {
 }
 
 function sendCustomFrameIfLive(reason = "custom_live_send") {
-  if (liveSendEnabled) sendCustomFrame(reason, false);
+  if (!liveSendEnabled) return;
+  currentFrame = cloneFrame(editFrame);
+  const changes = frameDeltaChanges(liveSyncedFrame, editFrame);
+  queueFirmwareLedDeltas(changes, reason, "idle");
+}
+
+// 快速连续编辑（按住/连点）时，把矩阵预览与 M370 文本刷新合并到下一帧，
+// 避免每次点击都做一次整页同步渲染。增量发送仍然立即下发，保证同步延迟最低。
+let customEditRenderRaf = 0;
+function scheduleCustomEditRender() {
+  if (customEditRenderRaf) return;
+  customEditRenderRaf = requestAnimationFrame(() => {
+    customEditRenderRaf = 0;
+    renderMatrices();
+    updateM370Views();
+  });
 }
 
 function editCell(idx, value, tool) {
   editFrame[idx] = !!value;
-  renderMatrices();
-  updateM370Views();
+  // 先把“仅改变的 LED”增量立即发给固件，最小化实时同步延迟。
   sendCustomFrameIfLive("custom_live_send");
+  // 本地 UI 渲染按帧合并刷新。
+  scheduleCustomEditRender();
 }
 
 function preferredStartupDefaultId(faces) {
@@ -7267,6 +7511,7 @@ function applyStartupDefaultFaceLocal(reason = "text_scroll_stop_default_saved_f
   if (!face) return false;
   state.faceIndex = index;
   currentFrame = m370ToFrame(face.m370);
+  if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
   scrollFrame = cloneFrame(currentFrame);
   state.lastRefreshReason = reason;
   state.refreshCount++;
@@ -7284,6 +7529,7 @@ function applyKnownFaceIndexLocal(reason = "firmware_face_index_preview") {
   if (!face || typeof face.m370 !== "string") return false;
   state.faceIndex = index;
   currentFrame = m370ToFrame(face.m370);
+  if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
   scrollFrame = cloneFrame(currentFrame);
   state.lastRefreshReason = reason;
   renderMatrices();
@@ -7335,6 +7581,7 @@ async function loadUnifiedFacesDocument() {
   };
   try {
     const apiDoc = await apiGet(API_ENDPOINTS.savedFaces);
+    faceLibraryLoadError = "";
     setFirmwareStatus({
       savedFacesSync: "loaded from /api/saved_faces",
     });
@@ -7347,6 +7594,7 @@ async function loadUnifiedFacesDocument() {
     for (const path of candidates) {
       try {
         const doc = await fetchJsonDocument(path);
+        faceLibraryLoadError = "";
         setFirmwareStatus({
           savedFacesSync: `loaded from ${path}`,
         });
@@ -7359,6 +7607,10 @@ async function loadUnifiedFacesDocument() {
           ? "file:// cannot auto-read JSON; import saved_faces.json"
           : "saved_faces.json not found",
     });
+    faceLibraryLoadError =
+      location.protocol === "file:"
+        ? "无法加载 saved_faces.json：浏览器 file:// 通常不能自动读取旁边的 JSON 文件。"
+        : "无法加载 saved_faces.json：/api/saved_faces 与本地资源均不可用。";
     log(
       location.protocol === "file:"
         ? "浏览器 file:// 通常不能自动读取旁边的 saved_faces.json；请点击“导入 saved_faces.json”。"
@@ -7627,6 +7879,7 @@ function downloadFacesJson() {
   log("已导出统一 saved_faces.json");
 }
 async function importFacesJsonText(text, reason = "import_saved_faces_json") {
+  faceLibraryLoadError = "";
   faceLibraryDocument = normalizeFaceDocument(JSON.parse(text), "custom");
   splitFaceLibraryDocument(faceLibraryDocument);
   state.faceIndex = 0;
@@ -7701,8 +7954,12 @@ function renderSavedFaces() {
   const library = getAllFaces();
   lists.forEach((box) => {
     box.innerHTML = "";
-    if (!library.length) return;
     const frag = document.createDocumentFragment();
+    if (!library.length) {
+      if (faceLibraryLoadError) frag.appendChild(createFaceLibraryErrorRow(faceLibraryLoadError));
+      box.appendChild(frag);
+      return;
+    }
     library.forEach((f, i) => {
       const row = createFaceRow(f, i, library.length);
       row.classList.toggle("active", i === state.faceIndex);
@@ -7711,6 +7968,64 @@ function renderSavedFaces() {
     box.appendChild(frag);
   });
   renderState();
+}
+
+function createFaceLibraryErrorRow(message) {
+  const row = document.createElement("div");
+  row.className = "saved-row saved-row-error";
+  row.dataset.index = "-1";
+  row.dataset.faceId = "load_error";
+
+  const index = document.createElement("div");
+  index.className = "saved-index";
+  index.textContent = "!";
+
+  const item = document.createElement("div");
+  item.className = "list-item saved-face-card";
+
+  const handle = document.createElement("button");
+  handle.className = "drag-handle";
+  handle.type = "button";
+  handle.title = "无法排序";
+  handle.setAttribute("aria-label", "无法排序");
+  handle.disabled = true;
+
+  const body = document.createElement("div");
+  body.className = "saved-face-body";
+  const nameInput = document.createElement("input");
+  nameInput.className = "saved-name-input";
+  nameInput.value = "无法加载 saved_faces.json";
+  nameInput.readOnly = true;
+  const meta = document.createElement("div");
+  meta.className = "small saved-meta";
+  meta.textContent = message || "无法加载表情列表。";
+  body.appendChild(nameInput);
+  body.appendChild(meta);
+
+  const actions = document.createElement("div");
+  actions.className = "face-action-bar";
+  const mkDisabled = (label, title, cls = "") => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.className = "icon-btn" + (cls ? " " + cls : "");
+    b.textContent = label;
+    b.disabled = true;
+    return b;
+  };
+  actions.appendChild(mkDisabled("↑", "无法上移"));
+  actions.appendChild(mkDisabled("↓", "无法下移"));
+  actions.appendChild(mkDisabled("✏️", "无法重命名"));
+  actions.appendChild(mkDisabled("🗑️", "无法删除", "btn-delete"));
+  actions.appendChild(mkDisabled("💡", "无法上传到固件", "btn-apply"));
+
+  item.appendChild(handle);
+  item.appendChild(body);
+  item.appendChild(actions);
+  row.appendChild(index);
+  row.appendChild(item);
+  return row;
 }
 
 function clearFaceDragOver(scope = document) {
@@ -8728,7 +9043,7 @@ async function startScroll() {
   scroll.uploading = true;
   setScrollUploadProgress(0.02, "准备发送");
   scroll.returnMode = isAutoModeValue(state.mode) ? "auto" : "manual";
-  guardBeforeOutput("text_scroll_start", "scroll");
+  await prepareForTextScrollUpload();
   // D7：新的发送先清掉一切恢复状态，避免旧 pendingScrollMeta 干扰。
   pendingScrollMeta = null;
   scroll.restoredSourceText = "";
@@ -9030,12 +9345,9 @@ function advanceScroll(manual = false, direction = 1) {
   const delta = direction < 0 ? -1 : 1;
   const len = scroll.frames.length;
 
-  // Anti-drift (plan sec 7 / audit fix #1): when the firmware owns the scroll session,
-  // FW_SYNC is the SOLE writer of the canonical cursor (scroll.frameIndex). The local
-  // timer is demoted to a display-only tween here -- it advances a separate visual index
-  // (scroll.displayIndex) for smoothness between polls but never writes
-  // scroll.frameIndex/offset. Each FW_SYNC re-anchors scroll.displayIndex to the firmware
-  // index, so the preview and the LEDs cannot drift apart by construction.
+  // When firmware owns the scroll session, keep the page preview/display counter local.
+  // FW_SYNC may still update scroll.frameIndex for device state, but it must not anchor
+  // scroll.displayIndex or the "current frame" label.
   if (!manual && scrollMachine.snapshot().device.hasSession) {
     const base = Number.isFinite(scroll.displayIndex) ? scroll.displayIndex : scroll.frameIndex;
     scroll.displayIndex = (((base + delta) % len) + len) % len;
@@ -9121,10 +9433,10 @@ async function prepareTextScrollTimelineForRestoreAsync(force, onProgress = () =
       }
     }
 
-    scroll.frames = frames;
+    scroll.frames = rotateScrollTimelineToFirstLitFrame(frames);
     scroll.signature = sig;
     scroll.dirty = false;
-    scroll.frameIndex = Math.min(scroll.frameIndex, Math.max(0, frames.length - 1));
+    scroll.frameIndex = Math.min(scroll.frameIndex, Math.max(0, scroll.frames.length - 1));
     scroll.offset = scroll.frameIndex;
     log(
       `文字滚动同步预览已生成：${frames.length} 帧，逐帧推进 1 LED，垂直居中偏移 ${textScrollVerticalOffset()} 行，约 ${((frames.length * 47) / 1024).toFixed(1)} KB packed`,
@@ -9162,12 +9474,12 @@ function prepareTextScrollTimeline(force) {
     const frame = extractFrameFromTextImage(source, offset);
     frames.push(frame);
   }
-  scroll.frames = frames;
+  scroll.frames = rotateScrollTimelineToFirstLitFrame(frames);
   scroll.signature = sig;
   scroll.dirty = false;
-  scroll.frameIndex = Math.min(scroll.frameIndex, Math.max(0, frames.length - 1));
+  scroll.frameIndex = Math.min(scroll.frameIndex, Math.max(0, scroll.frames.length - 1));
   scroll.offset = scroll.frameIndex;
-  scrollFrame = cloneFrame(frames[scroll.frameIndex] || blankFrame());
+  scrollFrame = cloneFrame(scroll.frames[scroll.frameIndex] || blankFrame());
   setScrollPreviewFrame(
     scrollFrame,
     "text_scroll_generated_m370_timeline",
@@ -9268,11 +9580,14 @@ function applyFirmwareScrollFrameIndex(data, reason = "text_scroll_firmware_fram
   if (!Number.isFinite(index)) return false;
   scroll.frameIndex = clamp(index, 0, Math.max(0, scroll.frames.length - 1));
   scroll.offset = scroll.frameIndex;
-  setScrollPreviewFrame(
-    scroll.frames[scroll.frameIndex] || blankFrame(),
-    reason,
-    scroll.paused || state.playback === "scroll_paused" ? "scroll_paused" : state.playback,
-  );
+  if (reason === "text_scroll_manual_step_preview") {
+    scroll.displayIndex = scroll.frameIndex;
+    setScrollPreviewFrame(
+      scroll.frames[scroll.displayIndex] || blankFrame(),
+      reason,
+      scroll.paused || state.playback === "scroll_paused" ? "scroll_paused" : state.playback,
+    );
+  }
   updateScrollUi();
   return true;
 }
@@ -9940,7 +10255,10 @@ function updateScrollUi() {
               : "idle";
 
   if (stateEl) setDomTextIfChanged(stateEl, label);
-  if (indexEl) setDomTextIfChanged(indexEl, `${scroll.frameIndex || 0} / ${scroll.frames?.length || 0}`);
+  if (indexEl) {
+    const displayIndex = Number.isFinite(scroll.displayIndex) ? scroll.displayIndex : scroll.frameIndex || 0;
+    setDomTextIfChanged(indexEl, `${displayIndex || 0} / ${scroll.frames?.length || 0}`);
+  }
 
   const nonResumableSystemPause = scroll.systemPaused && !scroll.userPaused;
 
@@ -10277,12 +10595,8 @@ function renderDebugDeviceSummary() {
   const online = firmware.online;
   const stale = !online;
 
-  const linkBadge = online
-    ? renderDebugBadge("在线", "status-dot")
-    : renderDebugBadge(
-        firmware.lastError && firmware.lastError !== "—" ? "错误" : "离线",
-        "status-dot danger",
-      );
+  const connection = firmwareConnectionUiState();
+  const linkBadge = renderDebugBadge(connection.label, connection.dotClass);
 
   let outTxt = "未知",
     outDot = "status-dot dim";
@@ -10864,6 +11178,12 @@ function initializeDebugControls() {
   $("debug-raw-confirm")?.addEventListener("change", refreshDebugRawValidation);
   refreshDebugRawValidation();
 
+  // 通信日志级别选择：调小级别可显著减少高频/冗余条目的渲染开销。
+  const logLevelSelect = $("log-level-select");
+  if (logLevelSelect) {
+    logLevelSelect.addEventListener("change", () => setLogLevel(logLevelSelect.value));
+  }
+
   // GPIO / 按钮模拟器：带忙碌禁用 + 结果反馈。
   document.querySelectorAll("[data-gpio]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -11019,7 +11339,7 @@ async function runPostBootDeferredReads(bootOk = false) {
     setFirmwareStatus({
       savedFacesSync: "deferred load failed",
     });
-    if (shouldLogApiError()) log(`延后读取 saved_faces.json 失败：${err.message}`);
+    if (shouldLogApiError()) log(`延后读取 saved_faces.json 失败：${err.message}`, "error");
   }
 
   const matrixSynced = await syncRuntimeStateFromFirmware("post_load_matrix_preview");
@@ -11086,7 +11406,7 @@ async function bootstrapWebUi() {
         fitAllMatrices();
       })
       .catch((err) => {
-        if (shouldLogApiError()) log(`runtime 状态读取失败：${err.message || err}`);
+        if (shouldLogApiError()) log(`runtime 状态读取失败：${err.message || err}`, "error");
       });
 
     await waitForBootLoaderMinimum(bootStart);
@@ -11104,7 +11424,7 @@ async function bootstrapWebUi() {
     startFirmwareStatusPolling();
     startPowerStatusPolling();
     runPostBootDeferredReads(bootOk).catch((err) => {
-      if (shouldLogApiError()) log(`延后读取 saved_faces/预览矩阵失败：${err.message}`);
+      if (shouldLogApiError()) log(`延后读取 saved_faces/预览矩阵失败：${err.message}`, "error");
     });
     log(
       bootOk
@@ -11131,7 +11451,7 @@ async function bootstrapWebUi() {
     startFirmwareStatusPolling();
     startPowerStatusPolling();
     runPostBootDeferredReads(bootOk).catch((err) => {
-      if (shouldLogApiError()) log(`引导读取 saved_faces/预览矩阵失败：${err.message || err}`);
+      if (shouldLogApiError()) log(`引导读取 saved_faces/预览矩阵失败：${err.message || err}`, "error");
     });
   }
 }

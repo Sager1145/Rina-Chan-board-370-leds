@@ -20,6 +20,11 @@ FrameStateSnapshot readFrameStateSnapshot();
 
 bool applyM370(const String& input, const String& reason, String& error);
 
+bool applyM370Immediate(const String& input, const String& reason, String& error);
+
+bool applyLedDeltasImmediate(const uint16_t* indices, const bool* values, uint16_t count,
+                             const String& reason, String& error);
+
 void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason);
 
 void applyBlankFrame(const String& reason);

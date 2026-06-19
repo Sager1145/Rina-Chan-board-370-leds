@@ -162,7 +162,7 @@ static void sendError(int status, const String& message) {
 
 static uint16_t statusNextPollMs(bool scrolling, bool summaryOnly) {
     if (runtimeState().deferredFaceRestoreActive) return 250;
-    if (scrolling) return summaryOnly ? 250 : 1000;
+    if (scrolling) return summaryOnly ? 3000 : 3000;
     return 1000;
 }
 
@@ -561,23 +561,132 @@ static void handleApiPower() {
     sendJsonDocument(200, doc);
 }
 
+static bool ledDeltaValue(JsonVariant value, bool& out) {
+    if (value.is<bool>()) {
+        out = value.as<bool>();
+        return true;
+    }
+    if (value.is<int>()) {
+        out = value.as<int>() != 0;
+        return true;
+    }
+    if (value.is<const char*>()) {
+        String text = value.as<const char*>();
+        text.trim();
+        text.toLowerCase();
+        if (text == "1" || text == "true" || text == "on") {
+            out = true;
+            return true;
+        }
+        if (text == "0" || text == "false" || text == "off") {
+            out = false;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool readLedDeltaList(JsonDocument& doc, uint16_t* indices, bool* values,
+                             uint16_t& count, String& error) {
+    count = 0;
+    JsonVariant changesVariant = doc["changes"];
+    if (changesVariant.isNull()) changesVariant = doc["deltas"];
+
+    auto appendDelta = [&](uint32_t idxRaw, JsonVariant valueVariant) -> bool {
+        if (idxRaw >= LED_COUNT) {
+            error = "LED delta index out of range";
+            return false;
+        }
+        if (count >= LED_COUNT) {
+            error = "too many LED delta changes";
+            return false;
+        }
+        bool on = false;
+        if (!ledDeltaValue(valueVariant, on)) {
+            error = "invalid LED delta value";
+            return false;
+        }
+        indices[count] = static_cast<uint16_t>(idxRaw);
+        values[count] = on;
+        ++count;
+        return true;
+    };
+
+    if (!changesVariant.isNull()) {
+        JsonArray changes = changesVariant.as<JsonArray>();
+        if (changes.isNull()) {
+            error = "changes must be an array";
+            return false;
+        }
+        for (JsonVariant item : changes) {
+            if (item.is<JsonArray>()) {
+                JsonArray pair = item.as<JsonArray>();
+                if (pair.size() < 2 || !pair[0].is<unsigned int>()) {
+                    error = "invalid LED delta pair";
+                    return false;
+                }
+                if (!appendDelta(pair[0].as<uint32_t>(), pair[1])) return false;
+            } else {
+                uint32_t idxRaw = LED_COUNT;
+                if (item["idx"].is<unsigned int>()) idxRaw = item["idx"].as<uint32_t>();
+                else if (item["index"].is<unsigned int>()) idxRaw = item["index"].as<uint32_t>();
+                else if (item["led"].is<unsigned int>()) idxRaw = item["led"].as<uint32_t>();
+                else {
+                    error = "missing LED delta index";
+                    return false;
+                }
+                JsonVariant valueVariant = item["on"];
+                if (valueVariant.isNull()) valueVariant = item["value"];
+                if (!appendDelta(idxRaw, valueVariant)) return false;
+            }
+        }
+    } else if (doc["idx"].is<unsigned int>() || doc["index"].is<unsigned int>() || doc["led"].is<unsigned int>()) {
+        uint32_t idxRaw = doc["idx"].is<unsigned int>()
+            ? doc["idx"].as<uint32_t>()
+            : (doc["index"].is<unsigned int>() ? doc["index"].as<uint32_t>() : doc["led"].as<uint32_t>());
+        JsonVariant valueVariant = doc["on"];
+        if (valueVariant.isNull()) valueVariant = doc["value"];
+        if (!appendDelta(idxRaw, valueVariant)) return false;
+    }
+
+    if (count == 0) {
+        error = "missing LED delta changes";
+        return false;
+    }
+    return true;
+}
+
 static void handleApiFrame() {
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
     if (server.method() != HTTP_POST)    { sendError(405, "method not allowed"); return; }
     String error;
-    PsramJsonDocument doc(2048);
+    PsramJsonDocument doc(4096);
     if (!parseJsonBody(doc, error)) { sendError(400, error); return; }
 
     const char* m370 = doc["m370"] | "";
-    if (strlen(m370) == 0) {
+    const bool hasM370 = strlen(m370) > 0;
+    uint16_t deltaIndices[LED_COUNT];
+    bool deltaValues[LED_COUNT];
+    uint16_t deltaCount = 0;
+    const bool hasDeltaPayload =
+        doc["changes"].is<JsonArray>() || doc["deltas"].is<JsonArray>() ||
+        doc["idx"].is<unsigned int>() || doc["index"].is<unsigned int>() || doc["led"].is<unsigned int>();
+
+    if (!hasM370 && !hasDeltaPayload) {
         ++runtimeState().framesRejected;
         touchRuntimeStateSlow();
-        sendError(400, "missing m370");
+        sendError(400, "missing m370 or LED delta changes");
+        return;
+    }
+    if (!hasM370 && !readLedDeltaList(doc, deltaIndices, deltaValues, deltaCount, error)) {
+        ++runtimeState().framesRejected;
+        touchRuntimeStateSlow();
+        sendError(400, error);
         return;
     }
 
     String normalizedM370;
-    if (!normalizeM370(String(m370), normalizedM370, error)) {
+    if (hasM370 && !normalizeM370(String(m370), normalizedM370, error)) {
         ++runtimeState().framesRejected;
         touchRuntimeStateSlow();
         sendError(400, error);
@@ -596,7 +705,20 @@ static void handleApiFrame() {
     }
     runtimeState().playback = mode;
 
-    if (!applyM370(normalizedM370, reason, error)) { sendError(400, error); return; }
+    const bool liveFrame = reason.startsWith("custom_live_") || reason.startsWith("parts_live_");
+    if (deltaCount > 0) {
+        clearQueuedM370Frames();
+        if (!applyLedDeltasImmediate(deltaIndices, deltaValues, deltaCount, reason, error)) {
+            sendError(400, error);
+            return;
+        }
+    } else if (liveFrame) {
+        clearQueuedM370Frames();
+        if (!applyM370Immediate(normalizedM370, reason, error)) { sendError(400, error); return; }
+    } else if (!applyM370(normalizedM370, reason, error)) {
+        sendError(400, error);
+        return;
+    }
 
     const char* faceId = doc["faceId"] | "";
     if (strlen(faceId) > 0 && ensureSavedFacesLoaded()) {
@@ -609,6 +731,23 @@ static void handleApiFrame() {
                 break;
             }
         }
+    }
+
+    // Live edits (custom/parts real-time mode) fire one HTTP request per changed
+    // cell. The single-threaded web server must answer quickly so the next delta
+    // can be sent without backing up. The browser already knows the resulting
+    // frame for live edits, so skip the heavy work below (frame-lock snapshot,
+    // lit-count popcount, saved-face lookup, full M370 string) and return a tiny
+    // acknowledgement instead.
+    if (liveFrame) {
+        DynamicJsonDocument liveReply(192);
+        liveReply["ok"]           = true;
+        liveReply["accepted"]     = true;
+        liveReply["v"]            = runtimeStateVersion();
+        liveReply["version"]      = runtimeStateVersion();
+        liveReply["next_poll_ms"] = statusNextPollMs(false, false);
+        sendJsonDocument(200, liveReply);
+        return;
     }
 
     DynamicJsonDocument reply(1024);
@@ -782,7 +921,9 @@ static void handleApiScroll() {
             uiFps = static_cast<uint8_t>(rounded < 1.0f ? 1.0f : (rounded > 255.0f ? 255.0f : rounded));
         }
 
+        clearQueuedM370Frames();
         stopFirmwareScroll(false);
+        clearQueuedM370Frames();
         ScrollUploadMeta uploadMeta;
         uploadMeta.timelineId       = timelineIdPresent ? timelineId.c_str() : "";
         uploadMeta.fontId           = fontIdPresent ? fontId.c_str() : "";
