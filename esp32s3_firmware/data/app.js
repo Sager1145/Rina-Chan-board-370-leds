@@ -6501,9 +6501,30 @@ function initCustomSelectDropdowns() {
 // - MATRIX_VIEW_CONFIGS 指定每个矩阵读取哪个 frame provider。
 // - 点击编辑只修改对应缓冲区；setCurrentFrame()/queueFirmwareFrame() 才把结果推给固件。
 // - renderMatrices() 是所有页面共享的最终视觉刷新点。
+// 在矩阵后面叠加 rinaboard.png 背景图：把矩阵包进 .rinaboard-stage，
+// 并注入一张装饰用底图。所有 LED 预览共用同一结构与对齐样式。
+// 幂等：若已包裹则不重复处理。
+function ensureRinaboardStage(el) {
+  if (!el || el.closest(".rinaboard-stage")) return;
+  const parent = el.parentNode;
+  if (!parent) return;
+  const stage = document.createElement("div");
+  stage.className = "rinaboard-stage";
+  const img = document.createElement("img");
+  img.className = "rinaboard-bg-img";
+  img.src = "resources/pictures/rinaboard.png";
+  img.alt = "";
+  img.setAttribute("aria-hidden", "true");
+  img.draggable = false;
+  parent.insertBefore(stage, el);
+  stage.appendChild(img);
+  stage.appendChild(el);
+}
+
 function initMatrix(id, frameProvider, editable = false, editHandler = null, compact = false) {
   const el = $(id);
   if (!el) return;
+  ensureRinaboardStage(el);
   el.innerHTML = "";
   if (compact) el.classList.add("compact");
   
@@ -6602,10 +6623,12 @@ function fitMatrix(view) {
   // 不会在卡片尺寸变化时保持固定。
   const wrapRect = wrap.getBoundingClientRect();
   if (wrapRect.width <= 0 || wrap.offsetParent === null) {
-    const cell = clamp(defaultCell, minCell, maxCell);
+    // Floor to whole pixels so every cell lands on an exact device-pixel
+    // boundary and the gap renders uniformly between all LEDs.
+    const cell = Math.max(1, Math.floor(clamp(defaultCell, minCell, maxCell)));
     const edgeGap = cell * edgeRatio;
-    view.el.style.setProperty("--cell", cell.toFixed(4) + "px");
-    view.el.dataset.cellPx = cell.toFixed(4);
+    view.el.style.setProperty("--cell", cell + "px");
+    view.el.dataset.cellPx = String(cell);
     wrap.style.setProperty("--matrix-edge-gap", edgeGap.toFixed(4) + "px");
     return;
   }
@@ -6626,10 +6649,12 @@ function fitMatrix(view) {
     ? (heightBudget - gap * (ROWS - 1)) / heightDenom
     : Infinity;
   const fitCell = Math.min(cellByWidth, cellByHeight, maxCell);
-  const cell = clamp(fitCell, minCell, maxCell);
+  // Floor to whole pixels so every cell lands on an exact device-pixel boundary
+  // and the gap renders uniformly between all LEDs (no alternating 1px/2px lines).
+  const cell = Math.max(1, Math.floor(clamp(fitCell, minCell, maxCell)));
   const edgeGap = cell * edgeRatio;
-  view.el.style.setProperty("--cell", cell.toFixed(4) + "px");
-  view.el.dataset.cellPx = cell.toFixed(4);
+  view.el.style.setProperty("--cell", cell + "px");
+  view.el.dataset.cellPx = String(cell);
   wrap.style.setProperty("--matrix-edge-gap", edgeGap.toFixed(4) + "px");
 }
 

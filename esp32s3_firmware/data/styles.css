@@ -240,7 +240,7 @@
     --led-preview-max-height: 500px;
     --led-preview-edge-ratio: .1000;
     --cell: var(--led-preview-default-cell);
-    --gap: 4px;
+    --gap: 1px;
     --led-color: #f971d4;
     --control-height: 44px;
     --page-min-width: 320px;
@@ -1577,7 +1577,7 @@
       --led-preview-default-cell: 14px;
       --led-preview-max-cell: 22px;
       --cell: var(--led-preview-default-cell);
-      --gap: 3px;
+      --gap: 1px;
     }
 
     /* 卡片在手机端允许缩到屏幕宽度，不强制320px */
@@ -1993,6 +1993,25 @@
   /* 中文块：样式规则 .led.editable 控制对应 UI 的布局、视觉或响应式状态。 */
   .led.editable {
     cursor: pointer;
+  }
+
+  /* ===== LED preview windows ONLY =========================================
+     Scope: .matrix-wrap.fill-column.led-preview-wrap (the 5 LED preview grids).
+     Goal: borderless cells, flat fill (no inset sheen / gradient), keep just a
+     little outer bloom on lit cells, and a significantly reduced corner radius.
+     Everything is scoped to .led-preview-wrap so no other matrix, page element,
+     or non-LED style is touched. Specificity (.led-preview-wrap .led = 0,2,0;
+     .led.on override = 0,3,0 + !important) beats the base .led rules AND the
+     mobile @media .led/.led.on !important box-shadow rules. */
+  .led-preview-wrap .led {
+    border: none;
+    border-radius: max(1px, calc(var(--cell) * .06));
+    box-shadow: none;
+  }
+
+  .led-preview-wrap .led.on {
+    border: none;
+    box-shadow: 0 0 4px color-mix(in srgb, var(--led-color) 60%, transparent) !important;
   }
 
   /* 中文块：样式规则 .matrix.editable-matrix 控制对应 UI 的布局、视觉或响应式状态。 */
@@ -2570,7 +2589,7 @@
     :root {
       --led-preview-default-cell: 12px;
       --cell: var(--led-preview-default-cell);
-      --gap: 2px;
+      --gap: 1px;
     }
   }
 
@@ -2775,7 +2794,7 @@
       --control-compact-padding-x: 8px;
       --led-preview-default-cell: 10px;
       --cell: var(--led-preview-default-cell);
-      --gap: 2px
+      --gap: 1px
     }
   }
 
@@ -3297,6 +3316,81 @@
 .debug-source.src-cmp { color: #cdd7e5; border-color: #3a4150; }
 .debug-source.src-fallback { color: #ffc9a4; border-color: #7b4a2b; }
 .debug-source.is-stale { opacity: 0.7; filter: grayscale(0.3); }
+
+/* ===== 370 LED 预览：以 rinaboard.png 作为背景，矩阵叠加其上 =====
+   Applies to EVERY LED preview (all pages). The .rinaboard-stage wrapper is
+   injected by initMatrix() so the structure/style stays identical everywhere.
+
+   The badge picture sits behind, and the LED grid is overlaid so that:
+     - the top-left corner of the FIRST visible LED (grid row 0, col 2)
+       lands on image pixel (852, 851)
+     - the bottom-right corner of the LAST visible LED (grid row 17, col 18)
+       lands on image pixel (3019, 3144)
+   in the picture's native 4000 x 3351 space (0,0 = top-left of the picture).
+
+   The grid spans the full 22x18 matrix; percentages below place the full grid
+   box so the two reference cells land exactly on those pixels. */
+.rinaboard-stage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  margin: 0 auto;
+}
+
+.rinaboard-stage .rinaboard-bg-img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  /* keep the whole card within the preview height budget (reserve header/gaps).
+     --matrix-max-height is set per-context (e.g. 360px on the debug card). */
+  max-height: calc(var(--matrix-max-height, var(--led-preview-max-height, 500px)) - 70px);
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+
+/* The matrix overlays the picture. Positions are % of the stage, which is
+   exactly the displayed picture box (same aspect as the 4000x3351 source). */
+.rinaboard-stage > .matrix {
+  position: absolute;
+  left: 14.9265%;   /* full-grid left  = col 2 left edge at x=852  */
+  top: 25.3954%;    /* full-grid top   = row 0 top   at y=851      */
+  width: 70.1088%;  /* full 22-column grid width (override fit-content) */
+  height: 68.4273%; /* full 18-row grid height                     */
+  max-width: none;
+  margin: 0;
+  gap: 0;
+  display: grid;
+  grid-template-columns: repeat(22, 1fr);
+  grid-template-rows: repeat(18, 1fr);
+  pointer-events: none;
+}
+
+/* Editable preview still needs to receive pointer events for drawing. */
+.rinaboard-stage > .matrix.editable-matrix {
+  pointer-events: auto;
+}
+
+/* Cells fill their grid tracks exactly (no dependence on the JS --cell). */
+.rinaboard-stage > .matrix .led {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  /* off LEDs are fully transparent so the picture shows through; only lit LEDs show color */
+  background: transparent;
+}
+
+.rinaboard-stage > .matrix .led.on {
+  background: var(--led-color);
+}
+
+.rinaboard-stage > .matrix .led.invalid {
+  visibility: hidden;
+}
 
 /* 模拟按钮：弱化为次级样式，避免被误认为常规用户控件 */
 button.debug-sim {
