@@ -1,3 +1,17 @@
+/*
+ * File Description: main.cpp
+ * Main entry point of the ESP32-S3 firmware.
+ *
+ * Responsibilities:
+ * - Coordinates hardware initialization (NeoPixel/RMT, GPIOs, ADC, SPIFFS/LittleFS).
+ * - Spawns the dedicated LED rendering/scrolling task on Core 1.
+ * - Schedules all network services (WiFi AP, HTTP WebServer) and device diagnostics on Core 0.
+ * - Runs the cooperative main scheduler in loop() to service queues, inputs, power, and state.
+ *
+ * Core Interactions:
+ * - Mutexes from sync.h guard access to shared frame buffers and filesystem resources.
+ * - PlatformIO core affinities restrict networking to Core 0 to prevent NeoPixel RMT signal degradation.
+ */
 #include <Arduino.h>
 
 #include "config.h"

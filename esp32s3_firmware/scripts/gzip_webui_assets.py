@@ -148,7 +148,7 @@ def _gzip_one(src_path, override_bytes=None):
 
 
 def gzip_assets(*args, **kwargs):
-    data_dir = os.path.join(env["PROJECT_DIR"], "data")  # noqa: F821，保留工具指令，相关名称由外部环境注入。
+    data_dir = os.path.join(env["PROJECT_DIR"], "data")  # noqa: F821 - Preserves tool directives; associated names are injected by the external environment.
     if not os.path.isdir(data_dir):
         print(f"[gzip_webui_assets] WARNING: data dir not found: {data_dir} - skipping")
         return
@@ -169,7 +169,7 @@ def gzip_assets(*args, **kwargs):
 
 
 def cleanup_gzip_assets(*args, **kwargs):
-    data_dir = os.path.join(env["PROJECT_DIR"], "data")  # noqa: F821，保留工具指令，相关名称由外部环境注入。
+    data_dir = os.path.join(env["PROJECT_DIR"], "data")  # noqa: F821 - Preserves tool directives; associated names are injected by the external environment.
     removed = False
     for rel in GZIP_TARGETS:
         gz_path = os.path.join(data_dir, rel + ".gz")
@@ -181,7 +181,7 @@ def cleanup_gzip_assets(*args, **kwargs):
         print("[gzip_webui_assets] no temporary .gz assets to remove")
 
 
-env.AddPreAction("$BUILD_DIR/littlefs.bin", gzip_assets)  # noqa: F821，保留工具指令，相关名称由外部环境注入。
+env.AddPreAction("$BUILD_DIR/littlefs.bin", gzip_assets)  # noqa: F821 - Preserves tool directives; associated names are injected by the external environment.
 
 # Describes the responsibilities and maintenance constraints of the current code block in WebUI static asset gzip packaging.
-env.AddPostAction("$BUILD_DIR/littlefs.bin", cleanup_gzip_assets)  # noqa: F821，保留工具指令，相关名称由外部环境注入。
+env.AddPostAction("$BUILD_DIR/littlefs.bin", cleanup_gzip_assets)  # noqa: F821 - Preserves tool directives; associated names are injected by the external environment.

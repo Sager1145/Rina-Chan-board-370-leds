@@ -1,3 +1,17 @@
+/*
+ * File Description: buttons.cpp
+ * Coordinates physical and virtual button press inputs (B1 to B6) and combinations.
+ *
+ * Responsibilities:
+ * - Debounces and handles hardware buttons mapped to GPIO pins.
+ * - Handles short-press, long-press, and combined key actions (e.g. B3+B1, B3+B2).
+ * - Executes mapped actions like next/prev face, toggling playback mode, adjusting brightness, and rendering battery status.
+ * - Triggers visual feedback overlays for each button action.
+ *
+ * Core Interactions:
+ * - Reads state variables from state.h and updates the active display modes.
+ * - Dispatches visual animation requests to button_animations.h.
+ */
 #include "buttons.h"
 #include "state.h"
 #include "config.h"

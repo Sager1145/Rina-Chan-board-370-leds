@@ -1,3 +1,17 @@
+/*
+ * File Description: power_monitor.cpp
+ * Coordinates battery voltage ADC sampling, EMA filtering, charging detection, and low-voltage shutdowns.
+ *
+ * Responsibilities:
+ * - Samples the battery voltage and charge voltage via calibrated ESP32 ADC pins.
+ * - Computes battery state of charge (percentage) via discharge mapping lookup.
+ * - Filters noisy raw voltage inputs using exponential moving average (EMA) filters.
+ * - Monitors low-voltage cutoffs and triggers low-power unpowered safe states to prevent battery drain.
+ *
+ * Core Interactions:
+ * - Commits battery and charging statuses under critical spinlocks from sync.h.
+ * - Exposed states are mirrored by WebUI API endpoints (web_api.cpp) and visual overlays.
+ */
 #include "power_monitor.h"
 #include "config.h"
 #include "state.h"
@@ -19,7 +33,7 @@ PowerStatus powerStatus;
 // tear-free copy across cores (Bug 8 / Addendum A2).
 static portMUX_TYPE sPowerStatusMux = portMUX_INITIALIZER_UNLOCKED;
 
-constexpr float BATTERY_EMA_TAU_S = 20.0f;   // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
+constexpr float BATTERY_EMA_TAU_S = 20.0f;   // Describes the responsibilities and maintenance constraints of the current code block in power, battery, and ADC sampling.
 constexpr float CHARGE_EMA_ALPHA  = 0.20f;
 
 static uint16_t readTrimmedAdcMilliVolts(uint8_t pin) {
@@ -352,7 +366,7 @@ static void sampleBattery(uint32_t now) {
 
     //
     if (wasLowVoltageUnpowered) powerStatus.vbat = NAN;
-    powerStatus.batteryLowVoltageUnpowered = false;  // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
+    powerStatus.batteryLowVoltageUnpowered = false;  // Describes the responsibilities and maintenance constraints of the current code block in power, battery, and ADC sampling.
 
     //
     float nextVbat;

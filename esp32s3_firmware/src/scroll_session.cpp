@@ -1,3 +1,17 @@
+/*
+ * File Description: scroll_session.cpp
+ * Implements logic for text scrolling sessions, including character glyph layout and frame generation.
+ *
+ * Responsibilities:
+ * - Decodes scrolling text strings containing CJK characters and Mona12 emojis.
+ * - Slices and packages text strings into separate upload chunks (via API).
+ * - Rasterizes glyph bitmaps from the Ark12 JSON font table stored in LittleFS.
+ * - Controls playback state transitions (play, pause, stop, step-forward, step-backward).
+ *
+ * Core Interactions:
+ * - Locks access to the shared scroll frame buffers using FreeRTOS mutexes from sync.h.
+ * - Decodes hex strings and draws layout frames utilizing structures defined in led_renderer.h.
+ */
 #include "scroll_session.h"
 #include "state.h"
 #include "sync.h"

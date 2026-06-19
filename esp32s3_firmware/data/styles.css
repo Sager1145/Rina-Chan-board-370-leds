@@ -210,6 +210,13 @@
     --bg: #0f1117;
     --panel: #161a24;
     --panel2: #1e2430;
+    --top-glass-bg: rgba(15, 17, 23, 0.74);
+    --top-glass-bg-strong: rgba(15, 17, 23, 0.86);
+    --preview-glass-bg: rgba(15, 17, 23, 0.62);
+    --preview-glass-bg-strong: rgba(15, 17, 23, 0.78);
+    --preview-glass-border: rgba(244, 247, 251, 0.08);
+    --glass-seam-overlap: 0px;
+    --top-glass-blur: 14px;
     --text: #f4f7fb;
     --muted: #9aa6b2;
     --line: #2b3344;
@@ -234,15 +241,30 @@
     --sidebar-padding-x: 18px;
     --led-preview-default-cell: 18px;
     --led-preview-min-cell: 5px;
-    --led-preview-max-cell: 48px;
+    /* 最大可缩放 LED 像元尺寸：在原 48px 基础上 +30% ≈ 62px（取整）。 */
+    --led-preview-max-cell: 62px;
     --led-preview-min-width: 320px;
-    --led-preview-max-height: 500px;
+    /* 预览高度通常是真正的缩放上限（18 行）；同样 +30%：500 → 650px（取整），
+       与 --led-preview-max-cell 一起把预览的最大可缩放尺寸整体放大约 30%。 */
+    --led-preview-max-height: 650px;
     --led-preview-edge-ratio: .1000;
     --cell: var(--led-preview-default-cell);
     --gap: 1px;
-    --led-color: #f971d4;
+    --led-color: #ec3fc7;
     --control-height: 44px;
     --page-min-width: 320px;
+    --top-page-nav-max-width: 500px;
+    --content-padding: 18px;
+    --content-padding-top: 0px;
+    --topbar-content-height: 49.25px;
+    --topbar-sticky-height: calc(max(var(--control-height), var(--topbar-content-height)) + var(--sidebar-padding-y) * 2);
+    --hero-sticky-height: 57px;
+    --hero-sticky-top: calc(var(--topbar-sticky-height) + var(--content-padding-top) - 1px);
+    --led-preview-sticky-top: calc(var(--hero-sticky-top) + var(--hero-sticky-height));
+    --alignment-left-offset: 597.66px;
+    --alignment-top-offset: 850.71px;
+    --alignment-cell-size: 127.43px;
+    --alignment-gap: 0.00px;
   }
 
 
@@ -542,25 +564,46 @@
     color: var(--accent2)
   }
   .sidebar {
-    position: relative;
+    position: sticky;
+    top: 0;
     z-index: 2147482999;
     overflow: visible;
     border-right: 0;
+    border-top: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
-    background: linear-gradient(180deg, #151927, #0f1117);
+    background: linear-gradient(180deg, rgba(21, 25, 39, 0.82), var(--top-glass-bg-strong));
+    backdrop-filter: saturate(150%) blur(var(--top-glass-blur));
+    -webkit-backdrop-filter: saturate(150%) blur(var(--top-glass-blur));
     padding: var(--sidebar-padding-y) var(--sidebar-padding-x);
     display: grid;
     grid-template-columns: 1fr;
     gap: 14px;
     align-items: center;
   }
-  .top-page-nav {
+  /* .sidebar::after,
+  .hero::after {
+    content: "";
     position: absolute;
-    top: calc(var(--control-height) + var(--sidebar-padding-y) * 2 + var(--page-edge-gap));
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: var(--glass-seam-overlap);
+    background: linear-gradient(180deg, var(--top-glass-bg), rgba(15, 17, 23, 0));
+    backdrop-filter: saturate(145%) blur(var(--top-glass-blur));
+    -webkit-backdrop-filter: saturate(145%) blur(var(--top-glass-blur));
+    pointer-events: none;
+  } */
+  .top-page-nav {
+    position: fixed;
+    top: calc(var(--topbar-sticky-height) + var(--page-edge-gap));
     right: var(--page-edge-gap);
-    left: var(--page-edge-gap);
-    width: auto;
-    z-index: 2147483000;
+    left: auto;
+    width: min(calc(100% - var(--page-edge-gap) * 2), var(--top-page-nav-max-width));
+    max-width: var(--top-page-nav-max-width);
+    /* 必须低于 .loading-overlay(2147483000)：加载遮罩的模糊还没消失、但鼠标已可点击时，
+       打开顶部导航不应盖在模糊层之上。isolation:isolate 使其子元素（.nav-shell/.nav）的
+       高 z-index 都被收纳在本层内，因此整棵导航子树都位于遮罩之下。 */
+    z-index: 2147482999;
     isolation: isolate;
     display: grid;
     gap: 8px;
@@ -911,7 +954,7 @@
       0 0 18px color-mix(in srgb, var(--option-color, var(--accent)) 36%, transparent);
   }
   .content {
-    padding: 18px;
+    padding: var(--content-padding-top) var(--content-padding) var(--content-padding);
     max-width: 1480px;
     width: 100%;
     margin: 0 auto;
@@ -919,89 +962,106 @@
     overflow-x: hidden;
   }
 
-  #page-basic .basic-layout,
-  #page-custom > .grid,
-  #page-scroll .scroll-layout,
-  #page-parts .parts-outer-layout {
-    align-items: start;
-  }
-
   body[data-page="basic"] .content,
   body[data-page="custom"] .content,
   body[data-page="parts"] .content,
-  body[data-page="scroll"] .content {
+  body[data-page="scroll"] .content,
+  body[data-page="debug"] .content {
     overflow-x: clip;
   }
 
   #page-basic .led-preview-card,
   #page-custom .led-preview-card,
   #page-parts .led-preview-card,
-  #page-scroll .led-preview-card {
+  #page-scroll .led-preview-card,
+  #page-debug .led-preview-card {
     position: sticky;
-    top: 0;
+    top: var(--led-preview-sticky-top);
     z-index: 20;
     align-self: start;
-    /* Allows the bottom gradient (::after) to overflow into the spacing area below the card. The matrix is adjusted by JS to fit
-       within max-height and will not actually overflow content, so relaxing the safety clip here is safe. */
     overflow: visible;
   }
 
-  /* 6.1–6.4: Adds a downward gradient outside the bottom border of the sticky LED preview card, fading out from the background color to
-     transparent. This covers cards scrolling out from beneath it, creating a soft fade boundary. Height is limited to
-     within the gap between cards (14px) and must not exceed this gap. The gradient sits in the card's own stacking context (z-index: 20),
-     so it overlays the scrolling cards with lower z-index values; pointer-events: none ensures it does not block interactions. */
-  #page-basic .led-preview-card::after,
-  #page-custom .led-preview-card::after,
-  #page-parts .led-preview-card::after,
-  #page-scroll .led-preview-card::after {
+  /* #page-basic .led-preview-card::before,
+  #page-custom .led-preview-card::before,
+  #page-parts .led-preview-card::before,
+  #page-scroll .led-preview-card::before,
+  #page-debug .led-preview-card::before {
     content: "";
     position: absolute;
     left: 0;
     right: 0;
-    top: 100%;
-    /* Card gap is 14px; maintain <= this value. */
-    height: 14px;
-    /* rgba(15,17,23,0) is a transparent version of --bg (#0f1117), avoiding a grayish transition when fading to transparent black. */
-    background: linear-gradient(to bottom, var(--bg), rgba(15, 17, 23, 0));
+    top: calc(var(--glass-seam-overlap) * -1);
+    height: var(--glass-seam-overlap);
+    background: var(--preview-glass-bg-strong);
+    backdrop-filter: saturate(140%) blur(var(--top-glass-blur));
+    -webkit-backdrop-filter: saturate(140%) blur(var(--top-glass-blur));
     pointer-events: none;
     z-index: 1;
+  } */
+
+
+  @media (min-width: 981px) {
+    /* In two-column and three-column layouts, all columns except the sticky LED preview card
+       must have a margin between their top and the bottom of the title bar (.hero) that matches
+       the gap between cards. */
+    .grid > :not(.led-preview-card) {
+      margin-top: 14px;
+    }
   }
 
 
   /* Responsive layout adjustments. */
   @media (min-width:1471px) {
 
-    body[data-page="parts"] .content,
     body[data-page="debug"] .content {
       max-width: 2209px;
     }
 
-    .parts-outer-layout {
+    /* Page 6.3: Widescreen 3-column layout transition */
+    body[data-page="parts"] .content {
+      max-width: 2209px;
+    }
+
+    #page-parts > .grid.cols-2 {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
     }
 
-    .parts-left-col {
+    #page-debug > .grid.cols-2 {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    /* 让 .face-manager-stack 的直接子项（中列容器 + saved_faces 卡片）成为外层网格项。 */
+    #page-parts .face-manager-stack,
+    #page-debug .debug-panel-stack {
       display: contents;
     }
 
+    /* 第一列：LED 预览（粘性）。第二列：控制按钮 + 表情部件（由 .parts-mid-col 自己
+       纵向堆叠，高度独立于其它列，所以表情部件卡片始终紧贴控制按钮卡片，不会被很高的
+       预览卡片或 saved_faces 卡片推下去）。第三列：统一 saved_faces.json 卡片。 */
     #parts-preview-card {
       grid-column: 1;
-      grid-row: 1;
     }
 
-    #page-parts .face-control-panel {
-      grid-column: 1;
-      grid-row: 2;
-    }
-
-    #part-groups {
+    #page-parts .parts-mid-col {
       grid-column: 2;
-      grid-row: 1;
     }
 
-    .parts-manager-col {
+    #page-parts .face-manager-panel {
       grid-column: 3;
-      grid-row: 1;
+    }
+
+    #debug-preview-panel {
+      grid-column: 1;
+    }
+
+    #page-debug .debug-mid-col {
+      grid-column: 2;
+    }
+
+    #page-debug .debug-side-col {
+      grid-column: 3;
     }
   }
   .page {
@@ -1024,19 +1084,33 @@
     }
   }
   .hero {
+    position: sticky;
+    top: var(--hero-sticky-top);
+    z-index: 30;
     display: flex;
     gap: 16px;
     align-items: center;
     justify-content: space-between;
-    min-height: 56px;
+    width: calc(100% + var(--content-padding) * 2);
+    margin-left: calc(var(--content-padding) * -1);
+    margin-right: calc(var(--content-padding) * -1);
+    min-height: var(--hero-sticky-height);
+    margin-top: -1px;
     margin-bottom: 0;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--top-glass-bg-strong), var(--top-glass-bg));
+    backdrop-filter: saturate(145%) blur(var(--top-glass-blur));
+    -webkit-backdrop-filter: saturate(145%) blur(var(--top-glass-blur));
   }
   .hero>div:first-child {
     display: flex;
     align-items: center;
     justify-content: flex-start;
     align-self: stretch;
-    min-height: 56px;
+    min-height: calc(var(--hero-sticky-height) - 1px);
+    padding-left: var(--content-padding);
+    padding-right: var(--content-padding);
+    box-sizing: border-box;
     text-align: left;
   }
   .hero h2 {
@@ -1122,21 +1196,6 @@
     display: grid;
     gap: 14px;
     min-width: 0;
-  }
-  .basic-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 14px;
-    align-items: start;
-    container-type: inline-size;
-  }
-  .basic-layout>.control-panel {
-    order: 2;
-    grid-column: 1 / -1;
-  }
-  .basic-layout>.basic-preview-card {
-    order: 1;
-    grid-column: 1 / -1;
   }
   .basic-preview-card {
     min-width: 0;
@@ -1270,32 +1329,10 @@
     max-width: 100%;
     scrollbar-width: thin;
   }
-  .parts-outer-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 14px;
-    align-items: start;
-  }
-  .parts-left-col {
-    display: grid;
-    gap: 14px;
-    align-content: start;
-    min-width: 0;
-  }
-  .parts-manager-col {
-    min-width: 0;
-  }
   #part-groups {
     min-width: 0;
   }
   @media (max-width:980px) {
-    .parts-outer-layout {
-      grid-template-columns: 1fr;
-    }
-
-    .basic-layout {
-      grid-template-columns: 1fr;
-    }
 
     :root {
       --page-edge-gap: 12px;
@@ -1305,13 +1342,15 @@
       --control-font-size: 15px;
       --control-padding-y: 9px;
       --control-padding-x: 13px;
+      --content-padding: 8px;
+      --hero-sticky-height: 49px;
     }
 
     .top-page-nav {
-      top: calc(var(--control-height) + var(--sidebar-padding-y) * 2 + var(--page-edge-gap));
+      top: calc(var(--topbar-sticky-height) + var(--page-edge-gap));
       right: var(--page-edge-gap);
-      left: var(--page-edge-gap);
-      width: auto;
+      left: auto;
+      width: min(calc(100% - var(--page-edge-gap) * 2), var(--top-page-nav-max-width));
       padding: 8px;
     }
 
@@ -1334,17 +1373,26 @@
     }
 
     .content {
-      padding: 8px;
+      padding: var(--content-padding-top) var(--content-padding) var(--content-padding);
     }
 
     .cols-2 {
       grid-template-columns: 1fr;
     }
 
+    #page-basic .led-preview-card,
+    #page-custom .led-preview-card,
+    #page-parts .led-preview-card,
+    #page-scroll .led-preview-card,
+    #page-debug .led-preview-card {
+      width: calc(100% + var(--content-padding) * 2);
+      margin-left: calc(var(--content-padding) * -1);
+      margin-right: calc(var(--content-padding) * -1);
+    }
+
     .hero {
       display: grid;
       align-items: center;
-      min-height: 48px;
     }
 
     .hero>div:first-child {
@@ -1352,7 +1400,7 @@
       align-items: center;
       justify-content: flex-start;
       align-self: stretch;
-      min-height: 48px;
+      min-height: calc(var(--hero-sticky-height) - 1px);
       text-align: left;
     }
 
@@ -1400,7 +1448,7 @@
     }
   }
   body[data-page="debug"] {
-    overflow-y: auto;
+    overflow-y: visible;
   }
   body[data-page="debug"] .content {
     overflow-y: visible;
@@ -1414,12 +1462,12 @@
     overflow: visible;
     padding-bottom: 24px;
   }
-  .debug-column {
+  .debug-mid-col,
+  .debug-side-col {
     display: grid;
     gap: 14px;
     align-content: start;
     min-width: 0;
-    height: max-content;
   }
   .debug-layout .card {
     min-width: 0;
@@ -1473,20 +1521,14 @@
     min-width: 0;
     align-content: start;
   }
-  .debug-measure-card .matrix-wrap {
-    justify-self: stretch;
-    max-width: 100%;
-  }
   @media (min-width:1471px) {
 
-    .parts-outer-layout,
     .debug-layout {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
   @media (max-width:980px) {
 
-    .parts-outer-layout,
     .debug-layout {
       grid-template-columns: 1fr;
     }
@@ -1611,13 +1653,18 @@
   }
   .led-preview-card {
     /* Same color as the page background (opaque) so that the sticky preview card blocks the cards scrolling beneath it.
-       The bottom is styled with a ::after gradient to create a soft fade-out boundary.
        The outer frame has no border-radius (sharp-corner design). */
-    background: var(--bg);
-    border: 1px solid var(--bg);
+    --led-preview-frame-y: 12px;
+    --led-preview-frame-x: 12px;
+    width: 100%;
+    min-width: 0;
+    background: linear-gradient(180deg, var(--preview-glass-bg-strong), var(--preview-glass-bg));
+    border: 0;
     border-radius: 0 !important;
+    backdrop-filter: saturate(140%) blur(var(--top-glass-blur));
+    -webkit-backdrop-filter: saturate(140%) blur(var(--top-glass-blur));
     box-shadow: none;
-    padding: 2px;
+    padding: var(--led-preview-frame-y) var(--led-preview-frame-x);
     min-inline-size: min(var(--led-preview-min-width), 100%);
     display: flex;
     flex-direction: column;
@@ -1642,26 +1689,6 @@
   }
   .led-preview-card .matrix-wrap.fill-column {
     width: 100%;
-  }
-  .debug-measure-card {
-    background: transparent;
-    border: 0;
-    box-shadow: none;
-    padding: 2px;
-    min-inline-size: min(var(--led-preview-min-width), 100%);
-    max-height: none;
-    overflow: visible;
-  }
-  .debug-measure-card .debug-measure-grid {
-    min-height: 0;
-  }
-  .debug-measure-card .matrix-wrap {
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-    overflow: hidden;
-    min-height: 0;
-    --matrix-max-height: 360px;
   }
   .matrix {
     display: grid;
@@ -1833,6 +1860,16 @@
     gap: 8px;
   }
   .face-manager-stack {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+    min-width: 0;
+  }
+
+  /* 6.3 中列容器：把“控制按钮卡片”和“表情部件卡片”作为一个整体纵向堆叠。
+     在窄屏（1/2 列）时它只是 face-manager-stack 里的一段；在 ≥1471px 三列布局下，
+     它整体成为第二列，内部堆叠高度独立于预览列与 saved_faces 列。 */
+  .parts-mid-col {
     display: grid;
     gap: 14px;
     align-content: start;
@@ -2350,13 +2387,16 @@
   @media (max-width:400px) {
 
     /* Further compression when approaching 320px */
-    .content {
-      padding: 6px;
-    }
-
     :root {
       --sidebar-padding-y: 8px;
       --sidebar-padding-x: 8px;
+      --content-padding: 6px;
+      --topbar-content-height: 45.5px;
+      --hero-sticky-height: 45px;
+    }
+
+    .content {
+      padding: var(--content-padding-top) var(--content-padding) var(--content-padding);
     }
 
     .sidebar {
@@ -2377,9 +2417,8 @@
       font-weight: 700;
     }
 
-    .hero,
     .hero>div:first-child {
-      min-height: 44px;
+      min-height: calc(var(--hero-sticky-height) - 1px);
     }
 
     .hero h2 {
@@ -2762,14 +2801,6 @@
   min-height: 0;
 }
 
-/* Control card: spacing between internal sections matches the 6.1 control panel. */
-.scroll-control-stack {
-  display: grid;
-  gap: 14px;
-  align-content: start;
-  min-width: 0;
-}
-
 .scroll-control-card {
   display: grid;
   gap: 14px;
@@ -2804,12 +2835,6 @@
   white-space: nowrap;
 }
 @media (max-width: 980px) {
-  .scroll-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  #page-scroll .scroll-layout > .card,
-  #page-scroll .scroll-control-stack,
   #page-scroll .scroll-control-card,
   #page-scroll .scroll-control-card > .control-section,
   #page-scroll .scroll-control-card .scroll-text-field,
@@ -2853,33 +2878,6 @@
   .blur-screen {
     backdrop-filter: blur(4px) !important;
     -webkit-backdrop-filter: blur(4px) !important;
-  }
-}
-
-/* ============================================================
-   6.5 Device Diagnostics / Debug Console (page-debug rewrite)
-   Reuses existing .card, .kv, .badge, .warning, button.danger styles.
-   The following defines the minimum additional styles required.
-   ============================================================ */
-.debug-grid {
-  display: grid;
-  gap: 14px;
-  align-items: start;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-.debug-grid > .card,
-.debug-grid > details.card {
-  min-width: 0;
-}
-.debug-span-2 {
-  grid-column: 1 / -1;
-}
-@media (max-width: 980px) {
-  .debug-grid {
-    grid-template-columns: 1fr;
-  }
-  .debug-span-2 {
-    grid-column: auto;
   }
 }
 

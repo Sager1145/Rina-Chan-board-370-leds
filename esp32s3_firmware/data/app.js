@@ -54,7 +54,7 @@ const WEBUI_CONFIG = Object.freeze({
   // LED hardware limitations and LED size. Renderers, brightness controls, and power estimates
   // are derived from this block.
   led: {
-    defaultColor: "#f971d4",
+    defaultColor: "#ec3fc7",
     defaultBrightness: 50,
     minBrightness: 10,
     maxBrightness: 200,
@@ -65,9 +65,9 @@ const WEBUI_CONFIG = Object.freeze({
     previewSize: {
       defaultCell: 18,
       minCell: 5,
-      maxCell: 48,
+      maxCell: 62,
       minWidth: 320,
-      maxHeight: 500,
+      maxHeight: 650,
       edgeGap: 12,
     },
   },
@@ -174,10 +174,10 @@ const WEBUI_CONFIG = Object.freeze({
     extraMs: 180,
     minDisplayMs: 400,
     firstPageRevealSelector: [
-      ".sidebar",
-      "#page-basic .hero",
       "#page-basic .basic-preview-card",
-      "#page-basic .control-panel > .card.control-section",
+      // 6.1 的控制卡片（亮度控制 / 自动表情切换间隔 / A-M 模式 / 颜色控制）现在位于
+      // .face-manager-stack 内（旧的 .control-panel 结构已不存在），逐个纳入瀑布揭示。
+      "#page-basic .face-manager-stack > .card",
     ],
   },
   // The refresh rhythm of the power panel. The poller refreshes at this interval after applying the first state snapshot.
@@ -3288,7 +3288,7 @@ const parent_color_groups = [
   {
     id: 0,
     name: "默认璃奈粉色",
-    color: "f971d4",
+    color: "ec3fc7",
     desc: "父级颜色按钮，仅提供父级色",
   },
   {
@@ -6277,14 +6277,14 @@ function responsiveColumnCount() {
   return 2;
 }
 
-// page-debug rewrite: The old JS masonry layout has been replaced by the .debug-grid CSS grid.
+// page-debug rewrite: The old JS masonry layout has been replaced by the .debug-layout CSS grid.
 // Both functions are left no-op for compatibility with existing call sites (switchPage, etc.), and layout is left entirely to CSS.
 function scheduleDebugMasonryLayout() {
-  /* no-op: .debug-grid layout is handled by CSS */
+  /* no-op: .debug-layout is handled by CSS */
 }
 
 function setupDebugMasonryLayout() {
-  /* no-op: .debug-grid handles layout by CSS; matrix adaptation is still triggered when entering the debug page */
+  /* no-op: .debug-layout handles layout by CSS; matrix adaptation is still triggered when entering the debug page */
   scheduleMatrixFitRender(2);
 }
 
@@ -6701,6 +6701,32 @@ function initCustomSelectDropdowns() {
 // Superimpose the rinaboard.png background image behind the matrix: wrap the matrix into .rinaboard-stage,
 // And inject a decorative basemap. All LED previews share the same structure and alignment style.
 // Idempotent: If it has been wrapped, it will not be processed again.
+// LED 预览背景图（rinaboard.png）较大，单独纳入加载序列：加载动画开始后才请求它，
+// 加载完成（或失败/超时）后再开始卡片瀑布揭示。这样首屏关键资源（HTML/CSS/JS/字体）
+// 先就位，避免这张大图与其它请求在单连接的固件 Web 服务器上互相抢占、拖到首次加载超时。
+const RINABOARD_IMAGE_SRC = "resources/pictures/rinaboard.png";
+const RINABOARD_PRELOAD_TIMEOUT_MS = 8000;
+let rinaboardImagePromise = null;
+function preloadRinaboardImage() {
+  if (rinaboardImagePromise) return rinaboardImagePromise;
+  rinaboardImagePromise = new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const img = new Image();
+    img.onload = finish;
+    img.onerror = finish; // 缺图/失败也不能卡住启动
+    img.src = RINABOARD_IMAGE_SRC;
+    if (img.complete) finish(); // 已在缓存中
+    // 安全阀：图片很慢或超时也不能让卡片瀑布永远等待。
+    setTimeout(finish, RINABOARD_PRELOAD_TIMEOUT_MS);
+  });
+  return rinaboardImagePromise;
+}
+
 function ensureRinaboardStage(el) {
   if (!el || el.closest(".rinaboard-stage")) return;
   const parent = el.parentNode;
@@ -6709,7 +6735,8 @@ function ensureRinaboardStage(el) {
   stage.className = "rinaboard-stage";
   const img = document.createElement("img");
   img.className = "rinaboard-bg-img";
-  img.src = "resources/pictures/rinaboard.png";
+  // 同一 URL，命中 preloadRinaboardImage() 预加载的浏览器缓存，立即显示。
+  img.src = RINABOARD_IMAGE_SRC;
   img.alt = "";
   img.setAttribute("aria-hidden", "true");
   img.draggable = false;
@@ -6775,7 +6802,7 @@ function elementOuterBlockSize(el) {
 
 function matrixMaxContentHeight(wrap, configuredMaxHeight) {
   if (!(configuredMaxHeight > 0)) return Infinity;
-  const card = wrap.closest(".led-preview-card,.debug-measure-card");
+  const card = wrap.closest(".led-preview-card");
   if (!card) return configuredMaxHeight;
   const cardStyle = getComputedStyle(card);
   const cardChrome =
@@ -6900,7 +6927,7 @@ function observeMatrixWraps() {
   if (typeof ResizeObserver !== "undefined") {
     matrixResizeObserver = new ResizeObserver(onResize);
     document
-      .querySelectorAll(".matrix-wrap,.led-preview-card,.debug-measure-card,.rinaboard-stage")
+      .querySelectorAll(".matrix-wrap,.led-preview-card,.rinaboard-stage")
       .forEach((el) => matrixResizeObserver.observe(el));
   } else {
     matrixResizeObserver = {
@@ -7729,7 +7756,7 @@ async function loadUnifiedFacesDocument() {
     });
     faceLibraryLoadError =
       location.protocol === "file:"
-        ? "无法加载 saved_faces.json：浏览器 file:// 通常不能自动读取旁边的 JSON 文件。"
+        ? ""
         : "无法加载 saved_faces.json：/api/saved_faces 与本地资源均不可用。";
     log(
       location.protocol === "file:"
@@ -11420,6 +11447,9 @@ async function revealFirstPageWaterfall() {
   if (firstPageRevealStarted) return;
   firstPageRevealStarted = true;
   prepareFirstPageProgressiveReveal();
+  // 等 LED 预览背景图加载完成后再开始卡片瀑布（图片在加载动画开始后即已发起预加载）。
+  // preloadRinaboardImage() 在加载失败/超时时也会 resolve，所以这里不会永久阻塞。
+  await preloadRinaboardImage();
   await new Promise((resolve) => requestAnimationFrame(resolve));
   delete document.documentElement.dataset.firstPageReveal;
   await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -11535,6 +11565,9 @@ async function bootstrapWebUi() {
   let bootOk = false;
   try {
     if (window.rinaStartLoaderAnimation) await window.rinaStartLoaderAnimation();
+    // 加载动画已开始播放：现在才请求 LED 预览背景大图，让它与字体/UI 初始化并行下载。
+    // 卡片瀑布揭示（revealFirstPageWaterfall）会等这张图就绪后再开始。
+    preloadRinaboardImage();
     prepareFirstPageProgressiveReveal();
     // UI fonts (GNU Unifont, embedded data URI) must be in stage 4
     // Completely ready before the waterfall is revealed, so that the correct font is displayed when the fold is revealed.

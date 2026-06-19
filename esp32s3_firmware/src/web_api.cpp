@@ -1,3 +1,17 @@
+/*
+ * File Description: web_api.cpp
+ * Coordinates WebServer setup, DNS redirect portal, and API route endpoints.
+ *
+ * Responsibilities:
+ * - Spins up the ESP32 Access Point (AP) mode and HTTP server on port 80.
+ * - Handles captive portal DNS redirection (DNS_PORT 53).
+ * - Implements REST API routes (e.g. state syncing, battery status, brightness updates, raw commands).
+ * - Manages multi-chunk HTTP uploads for long text scrolling buffers (combining chunks).
+ *
+ * Core Interactions:
+ * - Locks state variables using synchronization primitives from sync.h.
+ * - Fetches runtime variables from state.h and updates settings using storage.h.
+ */
 #include "web_api.h"
 #include "state.h"
 #include "sync.h"

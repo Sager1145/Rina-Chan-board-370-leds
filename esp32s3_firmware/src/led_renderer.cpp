@@ -1,3 +1,17 @@
+/*
+ * File Description: led_renderer.cpp
+ * Coordinates physical LED indexing mappings, NeoPixel bus writing, and M370 frame parsing.
+ *
+ * Responsibilities:
+ * - Decodes M370 hex-encoded frames into individual logical cell states (370 total).
+ * - Maps the 2D logical layout (22 x 18) to the physical layout (using logic-to-physical index map).
+ * - Drives the physical WS2812 NeoPixel strip using Adafruit_NeoPixel with Core 1 affinities.
+ * - Handles transient overlay drawing (combines current frame with button or diagnostics overlay).
+ *
+ * Core Interactions:
+ * - Reads lock strategies and core-affinity safe configurations from sync.h.
+ * - Provides the base layout mapping tables utilized in text rendering and scrolling.
+ */
 #include "led_renderer.h"
 #include "state.h"
 #include "sync.h"
@@ -357,7 +371,7 @@ static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* 
     const char* hex = normalized.c_str() + 5;
     for (uint16_t nib = 0; nib < M370_HEX_CHARS; ++nib) {
         const int value = hexNibble(hex[nib]);
-        if (value <= 0) continue;  // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
+        if (value <= 0) continue;  // Describes the responsibilities and maintenance constraints of the current code block in M370 frame decoding and LED rendering.
         const uint16_t baseBit = static_cast<uint16_t>(nib) * 4U;
         for (uint8_t k = 0; k < 4U; ++k) {
             if ((value & (1 << (3 - k))) == 0) continue;

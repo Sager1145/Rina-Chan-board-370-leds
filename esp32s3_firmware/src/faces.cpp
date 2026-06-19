@@ -1,8 +1,21 @@
+/*
+ * File Description: faces.cpp
+ * Implements saved expression face lists, timeline controls, and autoplay mode.
+ *
+ * Responsibilities:
+ * - Coordinates expression playback queues (auto-advance intervals, manual triggers, timeline steps).
+ * - Tracks startup defaults and currently selected expressions.
+ * - Restores expressions automatically from settings when recovering from page reload.
+ *
+ * Core Interactions:
+ * - Saves and loads expression details from SPIFFS/LittleFS storage files via storage.h.
+ * - Renders updated pixel frames on the hardware LED bus using led_renderer.h.
+ */
 #include "faces.h"
 #include "state.h"
 #include "config.h"
 #include "led_renderer.h"
-#include "storage.h"   // 说明 保存表情和播放模式 中当前代码块的职责和维护约束。
+#include "storage.h"   // Describes the responsibilities and maintenance constraints of the current code block in saved faces and playback mode.
 #include "utils.h"
 #include "scroll_session.h"
 #include "serial_log.h"

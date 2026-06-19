@@ -1,3 +1,16 @@
+/*
+ * File Description: storage.cpp
+ * Manages ESP32-S3 SPIFFS/LittleFS filesystem access and serialization for settings and faces.
+ *
+ * Responsibilities:
+ * - Mounts and formats the LittleFS filesystem partition.
+ * - Handles read/write actions on JSON files (saved faces, runtime config) in PSRAM buffers.
+ * - Manages filesystem fallback files (creating defaults if files are missing or corrupt).
+ *
+ * Core Interactions:
+ * - Uses LittleFS mutex locks from sync.h to avoid simultaneous access conflicts.
+ * - Deserializes files to populate runtime state in state.h.
+ */
 #include "storage.h"
 #include "state.h"
 #include "config.h"

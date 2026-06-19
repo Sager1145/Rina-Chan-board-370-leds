@@ -1,3 +1,16 @@
+/*
+ * File Description: button_animations.cpp
+ * Coordinates transient text, battery percentage, charging, and action overlays on the LED strip.
+ *
+ * Responsibilities:
+ * - Rasterizes single-codepoint symbols and digits using the Unifont-derived local font subset.
+ * - Draws diagnostic overlays (e.g. B1..B6 press notifications, battery bars, wifi reload overlays).
+ * - Applies brightness scaling and handles animation timer bounds (fade outs, durations).
+ *
+ * Core Interactions:
+ * - Updates raw physical buffer matrices via led_renderer.h.
+ * - Inspects power monitor properties from power_monitor.h to build the battery diagnostic overlay.
+ */
 #include "button_animations.h"
 #include "faces.h"
 #include "led_renderer.h"
@@ -213,7 +226,7 @@ void drawBitmap(uint8_t* out, const char* const* rows, uint8_t width, uint8_t he
 
 void drawText(uint8_t* out, const char* text, Rgb color, bool hasIcon, bool voltageLayout = false) {
     constexpr uint8_t GAP = 1;
-    constexpr uint8_t MAX_TEXT_GLYPHS = 8;  // 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
+    constexpr uint8_t MAX_TEXT_GLYPHS = 8;  // Describes the responsibilities and maintenance constraints of the current code block in button feedback, battery alerts, and network info overlay.
 
     uint8_t len = 0;
     uint8_t totalW = 0;
@@ -446,7 +459,7 @@ void startBatteryOverlay(bool singleShot) {
     startOverlay(next);
 }
 
-} // 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
+} // Describes the responsibilities and maintenance constraints of the current code block in button feedback, battery alerts, and network info overlay.
 
 void showBatteryOverlay(bool singleShot) {
     RLOG_INFO("LED", "event=battery_display action=B6 singleShot=%d", singleShot ? 1 : 0);

@@ -1,3 +1,16 @@
+/*
+ * File Description: scroll.cpp
+ * Drives the FreeRTOS background task on Core 1 for scrolling text rendering.
+ *
+ * Responsibilities:
+ * - Creates and manages the FreeRTOS task `scrollRenderTask` running on Core 1.
+ * - Polls or waits on notifications to render active text scroll sessions.
+ * - Implements frame timings and delays (based on current scroll FPS) to ensure smooth transitions.
+ *
+ * Core Interactions:
+ * - Communicates with scroll_session.cpp to retrieve character glyphs and frame buffers.
+ * - Calls led_renderer.h to commit rendered scrolling frames to the physical NeoPixels.
+ */
 #include "scroll.h"
 #include "state.h"
 #include "sync.h"

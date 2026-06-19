@@ -1,4 +1,13 @@
 #pragma once
+/*
+ * File Description: config.h
+ * Declares ESP32-S3 pin mappings, default networking options, and physical constants.
+ *
+ * Responsibilities:
+ * - Maps system GPIO pins (LED strip control pin, physical buttons B1 to B6, battery/ADC pins).
+ * - Establishes default WiFi credentials (SSID/Password) and access points details.
+ * - Stores firmware brightness boundaries, timing limits, and file paths for LittleFS.
+ */
 #include <Arduino.h>
 
 constexpr char     AP_SSID[]              = "RinaChanBoard-V2";
@@ -143,7 +152,7 @@ constexpr uint16_t LED_BOOT_DATA_LOW_HOLD_MS        = 20;
 constexpr uint16_t LED_BOOT_CLEAR_HOLD_MS           = 350;
 constexpr uint16_t LED_BOOT_STARTUP_SETTLE_MS       = 120;
 
-constexpr char DEFAULT_COLOR[]          = "#f971d4";
+constexpr char DEFAULT_COLOR[]          = "#ec3fc7";
 constexpr char DEFAULT_MODE[]           = "manual";
 constexpr char DEFAULT_PLAYBACK[]       = "idle";
 constexpr char STARTUP_FACE_REASON[]    = "startup_sequence_complete_saved_face";
