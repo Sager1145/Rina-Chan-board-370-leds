@@ -14,10 +14,9 @@ extern const IPAddress AP_GATEWAY_ADDR;
 extern const IPAddress AP_SUBNET_MASK;
 
 inline const IPAddress& apIP()      { return AP_IP_ADDR; }
-
 inline const IPAddress& apGateway() { return AP_GATEWAY_ADDR; }
-
 inline const IPAddress& apSubnet()  { return AP_SUBNET_MASK; }
+
 constexpr uint16_t LED_PIN               = 2;
 constexpr uint16_t LED_COUNT             = 370;
 constexpr uint8_t  BUTTON_B1_PIN         = 17;
@@ -33,13 +32,13 @@ constexpr float    BATTERY_DIVIDER_R1_K  = 100.0f;
 constexpr float    BATTERY_DIVIDER_R2_K  = 57.0f;
 constexpr float    CHARGE_DIVIDER_R1_K   = 270.0f;
 constexpr float    CHARGE_DIVIDER_R2_K   = 47.0f;
-constexpr float    BATTERY_CAL_SCALE     = 2.708333f;  // 说明电源、电池、充电或 ADC 校准相关逻辑。
-constexpr float    BATTERY_CAL_OFFSET_V  = 0.2033f;    // 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
-constexpr float    CHARGE_CAL_SCALE      = 6.684982f;  // 说明电源、电池、充电或 ADC 校准相关逻辑。
-constexpr float    CHARGE_CAL_OFFSET_V   = 0.0712f;    // 说明 硬件、矩阵和时序配置 中当前代码块的职责和维护约束。
+constexpr float    BATTERY_CAL_SCALE     = 2.708333f;
+constexpr float    BATTERY_CAL_OFFSET_V  = 0.2033f;
+constexpr float    CHARGE_CAL_SCALE      = 6.684982f;
+constexpr float    CHARGE_CAL_OFFSET_V   = 0.0712f;
 constexpr float    BATTERY_EMPTY_V       = 6.2f;
 constexpr float    BATTERY_FULL_V        = 8.0f;
-constexpr float    BATTERY_UNPOWERED_LOW_V = 5.0f;  // 说明电源、电池、充电或 ADC 校准相关逻辑。
+constexpr float    BATTERY_UNPOWERED_LOW_V = 5.0f;
 constexpr float    CHARGE_PRESENT_V      = 4.0f;
 constexpr uint8_t  POWER_ADC_SAMPLES     = 16;
 constexpr uint8_t  POWER_ADC_TRIM_COUNT  = 4;
@@ -55,7 +54,6 @@ constexpr uint16_t BATTERY_DISCONNECT_ADC_LOW_MV  = 900;
 constexpr uint16_t BATTERY_RECONNECT_ADC_MV       = 1500;
 constexpr char     BATTERY_CALIB_PATH[]  = "/resources/battery_calib.json";
 
-//
 struct BatteryLutPoint { float voltage; uint8_t percent; };
 constexpr BatteryLutPoint BATTERY_PERCENT_LUT[] = {
     { 8.40f, 100 },
@@ -76,11 +74,10 @@ constexpr uint32_t BATTERY_CALIB_SAVE_DELAY_MS     = 15000;
 constexpr float    BATTERY_CALIB_SHRINK_STEP_V     = 0.02f;
 constexpr float    BATTERY_CALIB_MIN_SPAN_V        = 0.10f;
 
-constexpr uint16_t M370_HEX_CHARS        = 93;
-constexpr uint16_t M370_BITS             = 370;
-constexpr uint16_t FRAME_BYTES           = (LED_COUNT + 7) / 8;
-static_assert(M370_HEX_CHARS == (M370_BITS + 3U) / 4U,
-              "M370 hex character count must match packed bit count");
+constexpr uint16_t PACKED_FRAME_BITS       = LED_COUNT;
+constexpr uint16_t FRAME_BYTES             = (LED_COUNT + 7) / 8;
+static_assert(FRAME_BYTES == 47, "370 LEDs require exactly 47 packed bytes");
+
 constexpr uint8_t  MATRIX_ROWS           = 18;
 constexpr bool     SERPENTINE_WIRING             = true;
 constexpr bool     SERPENTINE_ODD_ROWS_REVERSED  = true;
@@ -101,9 +98,9 @@ constexpr uint8_t  MIN_BRIGHTNESS        = 10;
 constexpr uint8_t  MAX_BRIGHTNESS        = 200;
 constexpr int8_t   BRIGHTNESS_BUTTON_STEP = 8;
 
-constexpr uint16_t M370_FRAME_MIN_INTERVAL_MS    = 33;
-constexpr uint8_t  M370_FRAME_QUEUE_DEPTH        = 3;
-constexpr uint8_t  M370_FRAME_REASON_CHARS       = 64;
+constexpr uint16_t PACKED_FRAME_MIN_INTERVAL_MS    = 33;
+constexpr uint8_t  PACKED_FRAME_QUEUE_DEPTH        = 3;
+constexpr uint8_t  PACKED_FRAME_REASON_CHARS       = 64;
 
 constexpr uint32_t DEFAULT_AUTO_INTERVAL_MS      = 3000;
 constexpr uint32_t MIN_AUTO_INTERVAL_MS          = 500;
@@ -112,13 +109,11 @@ constexpr uint32_t AUTO_INTERVAL_BUTTON_STEP_MS  = 500;
 constexpr uint16_t MAX_AUTO_FACES                = 128;
 
 constexpr uint16_t MAX_SCROLL_FRAMES             = 3072;
-constexpr uint16_t MIN_SCROLL_INTERVAL_MS        = M370_FRAME_MIN_INTERVAL_MS;
+constexpr uint16_t MIN_SCROLL_INTERVAL_MS        = PACKED_FRAME_MIN_INTERVAL_MS;
 constexpr uint16_t MAX_SCROLL_INTERVAL_MS        = 1000;
 constexpr uint16_t DEFAULT_SCROLL_INTERVAL_MS    = 100;
 constexpr uint8_t  SCROLL_DRIFT_RESET_INTERVALS  = 4;
 
-// 文字滚动源文本同步（Scroll source-text sync）：上传携带的 Unicode 源文本与
-// 元数据的硬限制。文本上限按 UTF-8 字节计，无 code-point 上限。
 constexpr uint16_t MAX_SCROLL_TEXT_BYTES        = 4096;
 constexpr uint8_t  MAX_SCROLL_TIMELINE_ID_CHARS = 47;
 constexpr uint8_t  MAX_SCROLL_FONT_ID_CHARS     = 47;
@@ -135,13 +130,11 @@ constexpr uint32_t LED_RENDER_TASK_STACK_BYTES   = 6144;
 constexpr uint8_t  LED_RENDER_TASK_PRIORITY      = 3;
 
 constexpr uint16_t LED_SIGNAL_RESET_US           = 300;
-
 constexpr uint16_t LED_RENDER_MIN_GAP_US         = 2500;
-
-constexpr uint16_t LED_STOP_CLEAR_BLANK_HOLD_MS    = 90;
-constexpr uint16_t LED_BOOT_DATA_LOW_HOLD_MS        = 20;
-constexpr uint16_t LED_BOOT_CLEAR_HOLD_MS           = 350;
-constexpr uint16_t LED_BOOT_STARTUP_SETTLE_MS       = 120;
+constexpr uint16_t LED_STOP_CLEAR_BLANK_HOLD_MS  = 90;
+constexpr uint16_t LED_BOOT_DATA_LOW_HOLD_MS     = 20;
+constexpr uint16_t LED_BOOT_CLEAR_HOLD_MS        = 350;
+constexpr uint16_t LED_BOOT_STARTUP_SETTLE_MS    = 120;
 
 constexpr char DEFAULT_COLOR[]          = "#f971d4";
 constexpr char DEFAULT_MODE[]           = "manual";
@@ -162,22 +155,6 @@ constexpr char SETTINGS_PATH[]          = "/resources/runtime_settings.json";
 #define LOGV(...) do {} while (0)
 #endif
 
-// =============================================================================
-// Serial diagnostics / test console feature gates.
-//
-// All three default ON because the feature is purely additive and non-blocking:
-// with no serial commands issued and the default INFO log level, normal LED /
-// WebUI / button / battery / scroll behavior is unchanged. Set any of these to 0
-// at build time (e.g. a stripped production image) to compile the feature out
-// entirely -- every hook then becomes a no-op `do {} while (0)`.
-//   ENABLE_SERIAL_DIAGNOSTICS : the structured logger (RLOG_* + LED history)
-//   ENABLE_SERIAL_CONSOLE     : the text command parser / button emulator
-//   ENABLE_FIRMWARE_TESTS     : the built-in `test run ...` self-test runner
-//   ENABLE_SERIAL_UART0_MIRROR: mirror diagnostics I/O to UART0 when Serial is
-//                               native USB-CDC (ESP32-S3 dual COM-port tests)
-// The console depends on the logger (it drives the `log` commands and reads the
-// LED history), so the combination console=1 + diagnostics=0 is rejected.
-// =============================================================================
 #ifndef ENABLE_SERIAL_DIAGNOSTICS
 #define ENABLE_SERIAL_DIAGNOSTICS 1
 #endif
@@ -194,9 +171,8 @@ constexpr char SETTINGS_PATH[]          = "/resources/runtime_settings.json";
 #error "ENABLE_SERIAL_CONSOLE=1 requires ENABLE_SERIAL_DIAGNOSTICS=1"
 #endif
 #if ENABLE_SERIAL_UART0_MIRROR && !ARDUINO_USB_CDC_ON_BOOT
-#error "ENABLE_SERIAL_UART0_MIRROR=1 requires ARDUINO_USB_CDC_ON_BOOT=1 so Serial0 is distinct from Serial"
+#error "ENABLE_SERIAL_UART0_MIRROR requires ARDUINO_USB_CDC_ON_BOOT=1"
 #endif
 
-// Reported by the `version` serial command.
 constexpr char FIRMWARE_NAME[]    = "RinaChanBoard-V2";
-constexpr char FIRMWARE_VERSION[] = "serial-diagnostics-1.0";
+constexpr char FIRMWARE_VERSION[] = "packed-frame-protocol-1.1";
