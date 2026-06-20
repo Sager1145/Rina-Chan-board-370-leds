@@ -1,10 +1,9 @@
 /* =============================================================================
  * test_harness.js -- WebUI test instrumentation for AI agents (Codex, Chrome MCP)
  *
- * Purely additive: it assigns every interactive control a stable, discoverable
- * handle and exposes a small API. It changes NO existing behavior -- it only
- * adds data-* attributes and a `window.__ui` global, and it drives controls with
- * the same native events a human click/typing produces.
+ * It assigns every interactive control a stable, discoverable handle and exposes
+ * a small API. The bottom of this file also installs a narrow runtime safety
+ * patch for 6.2/6.3 live LED output because this script is loaded after app.js.
  *
  * Each control gets:
  *   data-testid    a stable semantic string  (e.g. "brightness-plus", "gpio-B1")
@@ -366,4 +365,106 @@
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
+})();
+
+/* =============================================================================
+ * Runtime safety patch for 6.2/6.3 live LED output.
+ *
+ * Fixes the live-output chain without touching the large app.js file:
+ * - 6.4 text-scroll preparation temporarily disables live output; restore it when
+ *   the preparation phase ends so 6.2/6.3 cannot remain silently disabled.
+ * - A custom/parts live edit should locally leave Auto/Scroll state immediately;
+ *   the matching /api/frame request still lets firmware set manual mode as source
+ *   of truth.
+ * - If live is disabled, the no-op is logged so the failure mode is visible.
+ * ========================================================================== */
+(function () {
+  "use strict";
+  if (window.__rinaLiveOutputPatchInstalled) return;
+  window.__rinaLiveOutputPatchInstalled = true;
+
+  function safeLog(message, level) {
+    try {
+      if (typeof log === "function") log(message, level || "debug");
+    } catch (_) {}
+  }
+
+  function currentPlaybackIsScroll() {
+    try {
+      return typeof isScrollPlaybackValue === "function" && isScrollPlaybackValue(state.playback);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function forceManualUiForLiveOutput(reason) {
+    try {
+      if (typeof state === "undefined") return;
+      const wasAuto = typeof isAutoModeValue === "function" && isAutoModeValue(state.mode);
+      const wasScroll = !!state.textScrollActive || currentPlaybackIsScroll();
+      if (!wasAuto && !wasScroll && state.mode === "manual") return;
+
+      if (typeof guardBeforeOutput === "function" && (wasAuto || wasScroll)) {
+        guardBeforeOutput(reason || "custom_live_send", "idle");
+      }
+      state.mode = "manual";
+      if (wasScroll || currentPlaybackIsScroll()) state.playback = "idle";
+      state.textScrollActive = false;
+      if (typeof renderState === "function") renderState();
+    } catch (err) {
+      console.warn("[rina-live-patch] force manual failed", err);
+    }
+  }
+
+  function liveEnabledNow() {
+    try {
+      return typeof liveSendEnabled !== "undefined" && !!liveSendEnabled;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  if (typeof prepareForTextScrollUpload === "function") {
+    const originalPrepareForTextScrollUpload = prepareForTextScrollUpload;
+    prepareForTextScrollUpload = async function patchedPrepareForTextScrollUpload() {
+      const restoreLiveAfterPrepare = liveEnabledNow();
+      try {
+        return await originalPrepareForTextScrollUpload.apply(this, arguments);
+      } finally {
+        try {
+          if (restoreLiveAfterPrepare && !liveEnabledNow() && typeof setLiveSendEnabled === "function") {
+            setLiveSendEnabled(true, "文字滚动准备结束");
+          }
+        } catch (err) {
+          console.warn("[rina-live-patch] live restore after scroll prepare failed", err);
+        }
+      }
+    };
+  }
+
+  if (typeof sendCustomFrameIfLive === "function") {
+    const originalSendCustomFrameIfLive = sendCustomFrameIfLive;
+    sendCustomFrameIfLive = function patchedSendCustomFrameIfLive(reason) {
+      const liveReason = reason || "custom_live_send";
+      if (!liveEnabledNow()) {
+        safeLog("自定义实时发送已关闭：本次 LED 点击只更新本地画板，未发送到固件", "debug");
+        return null;
+      }
+      forceManualUiForLiveOutput(liveReason);
+      return originalSendCustomFrameIfLive.apply(this, arguments.length ? arguments : [liveReason]);
+    };
+  }
+
+  if (typeof sendPartsFrameIfLive === "function") {
+    const originalSendPartsFrameIfLive = sendPartsFrameIfLive;
+    sendPartsFrameIfLive = function patchedSendPartsFrameIfLive(reason) {
+      const liveReason = reason || "parts_live_send";
+      if (!liveEnabledNow()) {
+        safeLog("部件实时发送已关闭：本次选择只更新本地预览，未发送到固件", "debug");
+        return null;
+      }
+      forceManualUiForLiveOutput(liveReason);
+      return originalSendPartsFrameIfLive.apply(this, arguments.length ? arguments : [liveReason]);
+    };
+  }
 })();
