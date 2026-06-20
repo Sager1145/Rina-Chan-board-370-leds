@@ -51,6 +51,7 @@
     }catch(e){}
     throw new Error('packed frame 必须是 94 个 hex 字符、47-byte JSON 数组或 47-byte base64');
   }
+  function validatePackedFrameText(text){try{var frame=parsePackedFrameText(text);return{valid:true,normalizedLen:hexFromBytes(bytesFromFrame(frame)).length,expectedLen:94,hadPrefix:/^\s*(PACKED|FRAME|HEX):/i.test(String(text||'')),error:''};}catch(err){var compact=String(text||'').replace(/\s+/g,'');return{valid:false,normalizedLen:compact.length,expectedLen:94,hadPrefix:/^\s*(PACKED|FRAME|HEX|M370):/i.test(String(text||'')),error:err.message||String(err)};}}
   function frameText(frame){return hexFromBytes(bytesFromFrame(frame));}
   function faceToFrame(face){if(!face)return boolFrame();if(isByteArray(face.frameBytes))return frameFromBytes(face.frameBytes);if(typeof face[OLD_KEY]==='string')return legacyHexToFrame(face[OLD_KEY]);return boolFrame();}
   function postFrame(frame,reason,playback){var payload=bytesFromFrame(frame).buffer;var path='/api/frame?reason='+encodeURIComponent(reason||'webui_frame')+'&playback='+encodeURIComponent(playback||'idle');return apiPost(path,payload,{silent:false,expectJson:true,timeoutMs:2500});}
@@ -73,8 +74,11 @@
   window.packedBytesToFrame=frameFromBytes;
   window.packedFrameToText=frameText;
   window.parsePackedFrameText=parsePackedFrameText;
+  window.validatePackedFrameText=validatePackedFrameText;
   window.frameToM370=frameText;try{frameToM370=frameText;}catch(e){}
   window.m370ToFrame=parsePackedFrameText;try{m370ToFrame=parsePackedFrameText;}catch(e){}
+  window.validateM370Input=validatePackedFrameText;try{validateM370Input=validatePackedFrameText;}catch(e){}
+  window.parseM370ToFrameOrError=function(text){try{return{frame:parsePackedFrameText(text)};}catch(err){return{error:err.message||String(err)}}};try{parseM370ToFrameOrError=window.parseM370ToFrameOrError;}catch(e){}
   window.queueFirmwareFrame=function(frame,reason,playback){var packet={type:'packed_frame',reason:reason||'frame_update',playback:playback||'idle',at:Date.now()};packet.promise=postFrame(frame,packet.reason,packet.playback).then(function(data){try{if(data&&typeof applyFirmwareRuntimeState==='function')applyFirmwareRuntimeState(data,packet.reason);}catch(e){}return data;});return packet;};
   window.queueFirmwareLedDeltas=function(changes,reason,playback){var frame=[];try{frame=(liveSyncedFrame||currentFrame||[]).slice();}catch(e){}for(var i=0;i<N;i++)frame[i]=!!frame[i];for(var j=0;j<(changes||[]).length;j++){var idx=Number(changes[j]&&changes[j][0]);if(idx>=0&&idx<N)frame[idx]=!!changes[j][1];}return window.queueFirmwareFrame(frame,reason||'live_delta',playback||'idle');};
   function normalizeType(v){return typeof normalizeFaceType==='function'?normalizeFaceType(v):String(v||'custom').toLowerCase().includes('part')?'parts':String(v||'custom').toLowerCase().includes('default')?'default':'custom';}
