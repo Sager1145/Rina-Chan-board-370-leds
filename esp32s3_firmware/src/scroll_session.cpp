@@ -131,10 +131,6 @@ bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits) {
                 direction < 0
                     ? static_cast<uint16_t>((runtimeState().scrollFrameIndex + frameCount - 1U) % frameCount)
                     : static_cast<uint16_t>((runtimeState().scrollFrameIndex + 1U) % frameCount);
-            // A manual step latches an effective (user) pause so the Core-1 render task
-            // (scrollSessionTickCursorLocked) holds on the stepped frame instead of
-            // advancing past it on the next tick. Without this, stepping while the scroll
-            // is running is overwritten within one frame interval (audit fix #2).
             runtimeState().firmwareScrollActive      = true;
             runtimeState().firmwareScrollUserPaused  = true;
             runtimeState().firmwareScrollPaused      = true;
@@ -145,7 +141,7 @@ bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits) {
     });
 
     if (hasSteppedFrame) {
-        runtimeState().playback = "scroll_step";  // Core-0 cooperative field; written outside the lock
+        runtimeState().playback = "scroll_step";
         touchRuntimeState();
         RLOG_INFO("SCROLL", "event=step dir=%d idx=%u/%u",
                   direction < 0 ? -1 : 1,
@@ -170,7 +166,7 @@ ScrollStopResult scrollSessionStop(bool restoreAuto, bool clearDisplay) {
     if (changed) touchRuntimeState();
     RLOG_INFO("SCROLL", "event=stop stopped=%d cleared=%d restoreAuto=%d",
               changed ? 1 : 0, clearDisplay ? 1 : 0, restoreAuto ? 1 : 0);
-    if (changed || clearDisplay) clearQueuedM370Frames();
+    if (changed || clearDisplay) clearQueuedPackedFrames();
 
     if (clearDisplay) {
         applyBlankFrame("firmware_text_scroll_stop_clear");
@@ -181,7 +177,7 @@ ScrollStopResult scrollSessionStop(bool restoreAuto, bool clearDisplay) {
 
 ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode) {
     ScrollStartResult result;
-    clearQueuedM370Frames();
+    clearQueuedPackedFrames();
 
     uint8_t firstFrame[FRAME_BYTES];
     bool    hasFirstFrame = false;
@@ -228,12 +224,6 @@ void scrollSessionSetInterval(uint16_t intervalMs) {
     touchRuntimeState();
 }
 
-// Stop-event fields (scrollStopEvent*) are Core-0-only telemetry: written here on the
-// Core-0 button/HTTP path and read only by the Core-0 /api/status builder. They are NOT
-// touched by the Core-1 render task, so this function intentionally does NOT take
-// withScrollLock. Acquiring the lock here would also reintroduce a heap-String assignment
-// under the scroll lock, which sec 4.6 of the refactor plan explicitly forbids. Keeping it
-// lockless is correct and matches the pre-refactor behavior (audit fix #6).
 void scrollSessionMarkStoppedByButton(const String& button, const String& source) {
     ++runtimeState().scrollStopEventSeq;
     runtimeState().scrollStopEventMs     = millis();
@@ -378,11 +368,8 @@ bool scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize
 
         if (out.meta.hasSourceText && runtimeScrollSourceTextReady()) {
             const size_t bytesToCopy = static_cast<size_t>(out.meta.sourceTextByteLength) + 1U;
-            if (textBuf && textBufSize >= bytesToCopy) {
-                memcpy(textBuf, runtimeScrollSourceText(), bytesToCopy);
-            } else {
-                copied = false;
-            }
+            if (textBuf && textBufSize >= bytesToCopy) memcpy(textBuf, runtimeScrollSourceText(), bytesToCopy);
+            else copied = false;
         }
     });
 
@@ -417,19 +404,14 @@ bool scrollSessionTickCursorLocked(uint32_t now, uint8_t* outFrameBits) {
 
     if (runtimeState().lastScrollFrameMs == 0) runtimeState().lastScrollFrameMs = now;
 
-    const uint16_t intervalMs = constrain(
-        runtimeState().scrollIntervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+    const uint16_t intervalMs = constrain(runtimeState().scrollIntervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
     const uint32_t elapsedMs = now - runtimeState().lastScrollFrameMs;
     if (elapsedMs < intervalMs) return false;
 
-    runtimeState().scrollFrameIndex =
-        (runtimeState().scrollFrameIndex + 1) % runtimeState().scrollFrameCount;
+    runtimeState().scrollFrameIndex = (runtimeState().scrollFrameIndex + 1) % runtimeState().scrollFrameCount;
 
-    if (elapsedMs <= static_cast<uint32_t>(intervalMs) * SCROLL_DRIFT_RESET_INTERVALS) {
-        runtimeState().lastScrollFrameMs += intervalMs;
-    } else {
-        runtimeState().lastScrollFrameMs = now;
-    }
+    if (elapsedMs <= static_cast<uint32_t>(intervalMs) * SCROLL_DRIFT_RESET_INTERVALS) runtimeState().lastScrollFrameMs += intervalMs;
+    else runtimeState().lastScrollFrameMs = now;
 
     memcpy(outFrameBits, runtimeScrollFrameBits(runtimeState().scrollFrameIndex), FRAME_BYTES);
     return true;
