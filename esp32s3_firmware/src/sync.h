@@ -2,9 +2,11 @@
 
 #include <Arduino.h>
 
-// FreeRTOS 同步辅助函数（FreeRTOS synchronization helpers）
-// Existing code intentionally avoids nested mutexes. If a future change must
-// nest them, keep one global order: Scroll -> Frame -> Storage -> HardwareBus.
+// FreeRTOS synchronization helpers.
+// Global nesting order: Scroll -> Frame -> Storage -> HardwareBus.
+// Storage lock intentionally also owns HardwareBus because LittleFS flash I/O
+// can stall cache/bus access long enough to disturb WS2812 output if strip.show()
+// overlaps static-file or JSON file reads/writes.
 
 enum class SyncDomain : uint8_t {
     Frame,
