@@ -11,8 +11,8 @@
 // 统计计数、文字滚动状态和延迟恢复标记。
 //
 // Lock/owner contract:
-// - colorR/colorG/colorB/brightness/lastM370 are updated with frameMutex when
-//   they can affect rendering; Core 1 snapshots them before LED output.
+// - colorR/colorG/colorB/brightness/current frame bits are updated with frameMutex
+//   when they can affect rendering; Core 1 snapshots them before LED output.
 // - firmwareScroll* and scrollFrame* fields are guarded by scrollMutex.
 // - mode/playback/lastReason/auto* counters and persistence counters are
 //   Core-0 cooperative-loop state. Do not write them from Core 1 or an ISR
@@ -27,7 +27,6 @@ struct RuntimeState {
     uint8_t  brightness          = DEFAULT_BRIGHTNESS;
     String   mode                = DEFAULT_MODE;
     String   playback            = DEFAULT_PLAYBACK;
-    String   lastM370;
     String   lastReason          = "boot";
     bool     paused              = false;
 
@@ -77,11 +76,10 @@ struct RuntimeState {
 struct FrameStateSnapshot {
     char     colorHex[8] = {0};
     uint8_t  brightness  = 0;
-    char     lastM370[5 + M370_HEX_CHARS + 1] = {0};
     // Sized to hold the longest runtime reason strings (e.g.
     // "firmware_text_scroll_stop_default_saved_face"); a shorter buffer silently
     // truncated /api/status reason fields and diverged from /api/command.
-    char     lastReason[M370_FRAME_REASON_CHARS] = {0};
+    char     lastReason[PACKED_FRAME_REASON_CHARS] = {0};
     uint16_t litLeds        = 0;
     uint32_t framesAccepted = 0;
 };
@@ -113,12 +111,12 @@ struct ScrollTimelineMeta {
     bool     hasSourceText        = false;
 };
 
-// Saved face metadata
-// 默认标记和启动默认标记，供自动轮播和 WebUI 列表共用。
+// Saved face metadata. Faces are cached as packed LED frames; no text-frame protocol
+// is kept in runtime state.
 struct RuntimeFace {
     String   id;
     String   name;
-    String   m370;
+    uint8_t  frameBits[FRAME_BYTES] = {};
     int32_t  order           = 0;
     uint16_t jsonIndex       = 0;
     bool     isDefault       = false;
@@ -215,8 +213,6 @@ bool runtimeScrollSourceTextReady();
 
 // 必须在 withScrollLock 内调用。EH-A：坏帧数据使播放缓存失效，
 // 但有意保留 sourceText（恢复仍可从文本重建预览）。
-// 调用点：append:false 重置、m370ToPackedBits 失败路径、E1 帧数超限拒绝、
-// 任何未来的缓冲清空。
 void invalidateScrollUploadLocked();
 
 // 必须在 withScrollLock 内调用。完整清空（含源文本）；
