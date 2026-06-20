@@ -5278,9 +5278,13 @@ function nextLiveSeq() {
   return liveFrameSeq;
 }
 
+// NOTE: The dedicated low-latency "live" frame pump (liveFramePump) did not reliably
+// refresh the physical LED strip on device, while the standard queued pump (the path the
+// manual 发送 button uses) always works. So real-time edit frames are routed through the
+// standard normalFramePump too. Kept as a function (always false) so the routing call sites
+// and the live pump definition stay intact and easy to re-enable if the live path is fixed.
 function isLiveFrameReason(reason) {
-  return typeof reason === "string" &&
-    (reason.startsWith("custom_live_") || reason.startsWith("parts_live_"));
+  return false;
 }
 
 function frameToUint8Array(frame) {
@@ -5679,9 +5683,8 @@ function sendPartsFrame(reason = "parts_compose_send", writeLog = true) {
 
 function sendPartsFrameIfLive(reason = "parts_live_send") {
   if (!liveSendEnabled) return;
-  currentFrame = cloneFrame(partsFrame);
-  const changes = frameDeltaChanges(liveSyncedFrame, partsFrame);
-  queueFirmwareLedDeltas(changes, reason, "idle");
+  // Real-time mode: every LED toggle is equivalent to pressing the parts 发送 button.
+  sendPartsFrame("parts_compose_send", false);
 }
 
 function resolvePartId(callKey, id) {
@@ -7713,10 +7716,13 @@ function sendCustomFrame(reason = "custom_face_send", writeLog = true) {
 }
 
 function sendCustomFrameIfLive(reason = "custom_live_send") {
-  if (!liveSendEnabled) return;
-  currentFrame = cloneFrame(editFrame);
-  const changes = frameDeltaChanges(liveSyncedFrame, editFrame);
-  queueFirmwareLedDeltas(changes, reason, "idle");
+  if (!liveSendEnabled) {
+    log("[DIAG-B] liveSendEnabled=false → 跳过发送（实时模式实际未开启）", "warn");
+    return;
+  }
+  // Real-time mode: every LED toggle is equivalent to pressing the custom 发送 button.
+  log("[DIAG-B] liveSendEnabled=true → 调用与发送按钮相同的 sendCustomFrame()", "info");
+  sendCustomFrame("custom_face_send", false);
 }
 
 // During rapid sequential editing (holding/clicking cells), matrix preview and M370 textarea refreshes
@@ -7734,6 +7740,9 @@ function scheduleCustomEditRender() {
 
 function editCell(idx, value, tool) {
   editFrame[idx] = !!value;
+  // [实时诊断DIAG-A] 一行诊断：确认新代码是否已加载 + 实时开关 + 固件在线状态。
+  // 看到带 DIAG-A 的日志即说明新 app.js 已生效。
+  log(`[DIAG-A] 点击LED idx=${idx} 目标=${value ? "亮" : "灭"} 实时开关liveSendEnabled=${liveSendEnabled} 固件在线=${firmware.online}`, "info");
   // Dispatch incremental delta changes immediately to keep synchronization latency minimal.
   sendCustomFrameIfLive("custom_live_send");
   // Coalesce local UI rendering into the next animation frame.

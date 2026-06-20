@@ -65,10 +65,13 @@ static bool hasM370Prefix(const String& value) {
 }
 
 static bool isLiveM370Reason(const String& reason) {
-    return reason.startsWith("custom_live_") ||
-           reason.startsWith("parts_live_") ||
-           reason == "webui_delta" ||
-           reason == "live_delta";
+    // The immediate-publish "live" branch (clearQueuedM370Frames + publishPackedFrameNow
+    // straight from the web handler) did not reliably refresh the WS2812 strip for real-time
+    // WebUI edits, whereas the normal queued path (enqueuePackedM370Frame, serviced from the
+    // main loop) always does. Route every frame — including real-time edits — through the
+    // proven queued path. Signature kept so the call site stays intact and easy to revert.
+    (void)reason;
+    return false;
 }
 
 static char upperHexChar(char c) {
