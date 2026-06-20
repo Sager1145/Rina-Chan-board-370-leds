@@ -64,6 +64,13 @@ static bool hasM370Prefix(const String& value) {
            value.charAt(4) == ':';
 }
 
+static bool isLiveM370Reason(const String& reason) {
+    return reason.startsWith("custom_live_") ||
+           reason.startsWith("parts_live_") ||
+           reason == "webui_delta" ||
+           reason == "live_delta";
+}
+
 static char upperHexChar(char c) {
     return (c >= 'a' && c <= 'f') ? static_cast<char>(c - ('a' - 'A')) : c;
 }
@@ -351,14 +358,20 @@ bool applyM370(const String& input, const String& reason, String& error) {
     uint8_t packed[FRAME_BYTES];
     decodeNormalizedM370ToPackedBits(normalized, packed);
 
-    enqueuePackedM370Frame(packed, normalized.c_str(), reason);
+    const bool liveFrame = isLiveM370Reason(reason);
+    if (liveFrame) {
+        clearQueuedM370Frames();
+        publishPackedFrameNow(packed, normalized.c_str(), reason.c_str());
+    } else {
+        enqueuePackedM370Frame(packed, normalized.c_str(), reason);
+    }
     // Output-only diagnostics, emitted after the (possibly synchronous) publish
     // returns so no Serial I/O ever happens while the frame lock is held.
     const uint16_t lit = countLitLedsLocked(packed);
     RLOG_INFO("LED", "event=apply reason=%s lit=%u bytes=%u brightness=%u",
               reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES),
               runtimeState().brightness);
-    rinaLogRecordLedCommand(reason.c_str(), lit, "frame");
+    rinaLogRecordLedCommand(reason.c_str(), lit, liveFrame ? "live" : "frame");
     return true;
 }
 
