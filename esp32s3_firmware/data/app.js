@@ -92,6 +92,7 @@ const WEBUI_CONFIG = Object.freeze({
       command: "/api/command",
       scroll: "/api/scroll",
       scrollMeta: "/api/scroll/meta",
+      scrollSource: "/api/scroll/source",
       savedFaces: "/api/saved_faces",
       power: "/api/power",
       status: "/api/status",
@@ -127,7 +128,14 @@ const WEBUI_CONFIG = Object.freeze({
   // The CSS font face is declared in styles.css.
   textScroll: {
     fontModel: "ark_pixel_12px_fusion_bitmap_v4",
-    fontResource: "/resources/fonts/ark12.json",
+    // The "?v=dev" token is rewritten to a content hash at build time by
+    // scripts/gzip_webui_assets.py (app.js is in REWRITE_TARGETS). This lets the
+    // browser cache the ~2.5MB bitmap table immutably (firmware serves it with
+    // Cache-Control: immutable) while still busting the cache whenever the font
+    // bytes change. The fetch in ensureArkPixelFontReady() therefore must NOT use
+    // cache:"no-store" -- doing so would re-stream the whole table out of LittleFS
+    // on every refresh/page-entry and freeze the WebUI during text scroll.
+    fontResource: "/resources/fonts/ark12.json?v=dev",
     fontFamily: "Ark Pixel 12px Monospaced",
     fontFallbackFamily: "",
     browserFontSample:
@@ -3212,6 +3220,11 @@ const LED_POWER_WARNING_WATTS = WEBUI_CONFIG.led.powerWarningWatts;
 const MIN_LED_BRIGHTNESS = WEBUI_CONFIG.led.minBrightness;
 const MAX_LED_BRIGHTNESS = WEBUI_CONFIG.led.maxBrightness;
 const MAX_SCROLL_TEXT_CHARS = WEBUI_CONFIG.scroll.maxTextChars;
+// Firmware bounds sourceText by UTF-8 BYTES (MAX_SCROLL_TEXT_BYTES), not characters.
+// 1000 CJK/emoji chars can exceed 4096 bytes, so a char-only limit lets the upload
+// hit a firmware 413. This default mirrors config.h and is overwritten by the live
+// value from /api/status (data.scrollLimits.maxTextBytes) in applyFirmwareRuntimeState.
+let firmwareScrollMaxTextBytes = 4096;
 const DEVICE_AP_SSID = WEBUI_CONFIG.device.apSsid;
 const DEVICE_AP_PASSWORD = WEBUI_CONFIG.device.apPassword;
 const DEVICE_AP_DOMAIN = WEBUI_CONFIG.device.apDomain;
@@ -4216,8 +4229,12 @@ function clearTextScrollCaches() {
 async function ensureArkPixelFontReady() {
   if (arkPixelFont.ready) return arkPixelFont;
   if (arkPixelFont.loading) return arkPixelFont.loading;
+  // Allow the browser cache to satisfy this fetch. The URL carries a build-time
+  // content hash (?v=<hash>) and the firmware serves it Cache-Control: immutable,
+  // so a cache hit is correct and avoids re-streaming ~2.5MB out of LittleFS (the
+  // main cause of "preparing scroll font" freezes / disconnects on refresh).
   arkPixelFont.loading = fetch(TEXT_SCROLL_FONT_RESOURCE, {
-    cache: "no-store",
+    cache: "force-cache",
   })
     .then(async (res) => {
       if (!res.ok)
@@ -4914,6 +4931,11 @@ function scheduleFirmwareScrollStopFullSync(
 
 function applyFirmwareRuntimeState(data, source = "firmware_status", options = {}) {
   if (!data || typeof data !== "object") return;
+  // P1-5: learn the firmware's UTF-8 byte limit for scroll source text from full status.
+  if (data.scrollLimits) {
+    const mtb = Number(data.scrollLimits.maxTextBytes);
+    if (Number.isFinite(mtb) && mtb > 0) firmwareScrollMaxTextBytes = mtb;
+  }
   const skipFrame = !!options.skipFrame;
   const renderer = data.renderer || data;
   let stateChanged = false;
@@ -5172,33 +5194,22 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
       });
     }
   }
+  // P0-3: Previously, detecting a firmware timeline that differs from the WebUI's here
+  // would AUTOMATICALLY fetch sourceText and regenerate the full preview from the poll
+  // path -- exactly the heavy work that froze the WebUI / stressed the board on refresh.
+  // That auto-restore is now removed; instead, when the firmware is displaying
+  // recoverable scroll text the WebUI hasn't reproduced, we just keep the manual
+  // "restore from firmware" button visible (see shouldShowScrollRestoreButton). The
+  // user triggers the heavy restore deliberately.
   if (
     scrollMetaRestoreEnabled &&
     fwScrollDisplaying &&
-    !scroll.uploading &&
-    !scroll.startBusy &&
-    !scroll.restoring &&
     fwScrollTimelineId &&
     fwScrollHasSourceText &&
     fwScrollTimelineId !== scroll.timelineId &&
-    !scrollMetaFetchInFlight &&
-    performance.now() - lastScrollMetaFetchAt > 5000
+    isScrollPageActive()
   ) {
-    restoreScrollTextFromFirmware("timeline_mismatch")
-      .then((ok) => {
-        if (ok && isScrollPageActive()) {
-          restoreScrollPreviewIfNeeded("timeline_mismatch").catch((err) => {
-            warnScrollRestoreDebug("preview restore timeline-mismatch failed", {
-              error: err?.message || String(err),
-            });
-          });
-        }
-      })
-      .catch((err) => {
-        warnScrollRestoreDebug("timeline_mismatch failed", {
-          error: err?.message || String(err),
-        });
-      });
+    updateScrollUi();
   }
   if (stateChanged) renderState();
 }
@@ -6347,6 +6358,9 @@ async function syncRuntimeSummaryFromFirmware(source = "firmware_poll_runtime_su
 function startFirmwareStatusPolling() {
   if (firmwareStatusPollTimer || isOfflineHtmlMode()) return;
   firmwareStatusPollTimer = setInterval(() => {
+    // P1-6: while a scroll upload is in flight, skip status polling so the single-
+    // threaded ESP32 WebServer isn't fighting concurrent reads against the upload.
+    if (scroll.uploading || scroll.startBusy) return;
     const firmwareIsScrolling =
       state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
     const minInterval = Math.max(1000, firmwareNextPollMs);
@@ -6363,7 +6377,9 @@ async function refreshPowerStatusFromFirmware(source = "power_timer", force = fa
     isOfflineHtmlMode() ||
     powerStatusRefreshInFlight ||
     firmwareFullStatusInFlight ||
-    firmwareRuntimeSummaryInFlight
+    firmwareRuntimeSummaryInFlight ||
+    scroll.uploading || // P1-6: don't poll power during a scroll upload
+    scroll.startBusy
   )
     return;
   const now = performance.now();
@@ -8882,20 +8898,21 @@ function autoResizeScrollTextInput() {
   });
 }
 
-let scrollBitmapFontLazyStarted = false;
 // Delayed fetching of larger Ark Pixel text scrolling resources only when text scrolling functionality is actually used
 // (~830KB single merged woff2 (including emoji and fallback glyphs) + ~2.5MB bitmap glyph table),
 // Keep ~2.4MB of resources out of the boot/post-launch waterfall. Both underlying loaders will cache
 // Respective promise objects, so repeated calls (e.g. every time you enter a scrolling page) are cheap.
 function ensureScrollFontsLoaded() {
+  // P0-3: Page entry / refresh only warms the lightweight textarea (browser) font.
+  // The ~2.5MB Ark bitmap table (ensureArkPixelFontReady) is intentionally NOT loaded
+  // here -- it is loaded lazily by the paths that actually rasterize frames (Send via
+  // prepareTextScrollTimelineAsync, Restore via prepareTextScrollTimelineForRestoreAsync,
+  // and Step), each of which awaits ensureArkPixelFontReady() itself. This keeps merely
+  // opening or refreshing into 6.4 from triggering a 2.5MB LittleFS transfer that froze
+  // the WebUI ("preparing scroll font" hang / disconnect).
   ensureTextScrollBrowserFontReady().then((loaded) => {
     if (loaded) autoResizeScrollTextInput();
   });
-  if (scrollBitmapFontLazyStarted) return;
-  scrollBitmapFontLazyStarted = true;
-  ensureArkPixelFontReady()
-    .then(() => log("Ark Pixel Font 12px bitmap table loaded"))
-    .catch((err) => log(`Ark Pixel Font bitmap table load failed: ${err.message}`));
 }
 
 function initScroll() {
@@ -8918,6 +8935,8 @@ function initScroll() {
   // contract is visual movement direction.
   setScrollStepHandler("scroll-step-prev", 1);
   setScrollStepHandler("scroll-step-next", -1);
+  const restoreBtn = $("scroll-restore-btn");
+  if (restoreBtn) restoreBtn.onclick = manualRestoreScrollFromFirmware;
   setClickHandlers([
     [
       "scroll-speed-reset-default",
@@ -9419,6 +9438,39 @@ async function uploadFirmwareScrollTimeline() {
     return await uploadScrollTimelineAttempt(frames, makeScrollTimelineId());
   }
 }
+// P1-5: reject source text whose UTF-8 byte length exceeds the firmware limit BEFORE
+// generating frames / uploading, so the user gets a clear message instead of a 413
+// (or a partial upload) mid-transfer. Returns true if the text is too large.
+// P1-6: turn raw HTTP error strings (which begin with the status code) into actionable
+// guidance for the common scroll-upload failure modes.
+function describeScrollUploadError(err) {
+  const msg = String(err?.message || err || "");
+  const code = (msg.match(/^(\d{3})\b/) || [])[1];
+  switch (code) {
+    case "413":
+      return `文字或单次帧数据过大，超过固件上限，请缩短文本。(${msg})`;
+    case "507":
+      return `固件内存/PSRAM 不足，无法缓存滚动帧；请稍后重试或缩短文本。(${msg})`;
+    case "503":
+      return `固件正忙或可用内存偏低，暂时拒绝了上传；请稍后重试。(${msg})`;
+    case "409":
+      return `固件缓存/分块冲突，自动重试后仍失败；请重新发送。(${msg})`;
+    default:
+      return msg;
+  }
+}
+
+function scrollTextExceedsByteLimit(text) {
+  const bytes = new TextEncoder().encode(text).length;
+  if (bytes > firmwareScrollMaxTextBytes) {
+    alert(
+      `文字 UTF-8 长度 ${bytes} 字节，超过固件上限 ${firmwareScrollMaxTextBytes} 字节，请缩短文本。`,
+    );
+    return true;
+  }
+  return false;
+}
+
 async function startScroll() {
   if (scroll.commandBusy || scroll.startBusy) return;
   const text = sanitizeScrollTextInput(true);
@@ -9426,6 +9478,7 @@ async function startScroll() {
     alert("空文本不进入文字滚动播放");
     return;
   }
+  if (scrollTextExceedsByteLimit(text)) return;
   resetScrollUploadProgress();
   scrollMachine.dispatch("GENERATE");
   scroll.commandBusy = true;
@@ -9493,8 +9546,8 @@ async function startScroll() {
     state.textScrollActive = false;
     state.playback = "idle";
     resetScrollUploadProgress();
-    log(`文字滚动固件上传失败；已停止，未启用 WebUI 逐帧发送：${err.message}`);
-    alert(`文字滚动上传失败：${err.message}`);
+    log(`文字滚动固件上传失败；已停止，未启用 WebUI 逐帧发送：${describeScrollUploadError(err)}`);
+    alert(`文字滚动上传失败：${describeScrollUploadError(err)}`);
     updateScrollUi();
     renderState();
     return;
@@ -9780,10 +9833,16 @@ async function prepareTextScrollTimelineAsync(force) {
   }
 }
 
-async function prepareTextScrollTimelineForRestoreAsync(force, onProgress = () => {}) {
+async function prepareTextScrollTimelineForRestoreAsync(
+  force,
+  onProgress = () => {},
+  shouldCancel = null,
+) {
+  const cancelled = () => typeof shouldCancel === "function" && shouldCancel();
   try {
     onProgress(0.04, "准备文字滚动字体");
     await ensureArkPixelFontReady();
+    if (cancelled()) return false;
     const text = sanitizeScrollTextInput(true);
     if (!text.trim()) {
       scroll.frames = [];
@@ -9808,10 +9867,20 @@ async function prepareTextScrollTimelineForRestoreAsync(force, onProgress = () =
     const frames = [];
     for (let offset = 0; offset <= maxOffset; offset++) {
       frames.push(extractFrameFromTextImage(source, offset));
-      if (offset === 0 || offset === maxOffset || offset % 12 === 0) {
+      // P2-7: yield more often (every 6 frames vs 12) so long text keeps the WebUI
+      // responsive, and bail out promptly if the restore was superseded/cancelled
+      // (Stop / Back / page switch) instead of grinding through every frame.
+      if (offset === 0 || offset === maxOffset || offset % 6 === 0) {
         const ratio = (offset + 1) / total;
         onProgress(0.12 + ratio * 0.76, `生成同步预览 ${offset + 1}/${total}`);
         await nextUiFrame();
+        if (cancelled()) {
+          scroll.frames = [];
+          scroll.frameIndex = 0;
+          scroll.offset = 0;
+          scroll.dirty = true;
+          return false;
+        }
       }
     }
 
@@ -9849,8 +9918,43 @@ function prepareTextScrollTimeline(force) {
   }
   const sig = scrollSignature();
   if (!force && !scroll.dirty && scroll.signature === sig && scroll.frames.length) return;
+
+  // M4: keep the main thread responsive on very long text. Abort generation as early as
+  // possible when the projected frame count would exceed the firmware cache cap, so we
+  // never materialize thousands of 370-cell frame arrays (plus a duplicate bitmap and the
+  // later M370/JSON copies) on low-end phones. The upload path enforces the same cap, so
+  // this only surfaces the limit earlier and more cheaply.
+  const abortScrollTooLong = (projectedFrames) => {
+    scroll.frames = [];
+    scroll.frameIndex = 0;
+    scroll.offset = 0;
+    scroll.dirty = false;
+    scroll.signature = sig;
+    setScrollRestoreWarning(
+      `文字过长：约需 ${projectedFrames} 帧，超过固件缓存上限 ${firmwareScrollMaxFrames} 帧；请缩短文本。`,
+    );
+    log(
+      `文字滚动未生成：预计 ${projectedFrames} 帧超过固件上限 ${firmwareScrollMaxFrames}，已提前中止以保持界面流畅。`,
+    );
+    updateScrollUi();
+  };
+
+  // Cheap pre-rasterization guard: even at an unrealistic 1px-per-glyph lower bound this
+  // many code points cannot fit, so reject before building the bitmap at all.
+  const codepointCount = Array.from(text).length;
+  if (codepointCount - COLS + 1 > firmwareScrollMaxFrames) {
+    abortScrollTooLong(codepointCount - COLS + 1);
+    return;
+  }
+
   const source = buildTextScrollBitmap(text);
   const maxOffset = Math.max(1, source.width - COLS);
+  // Precise cap on the actual rasterized width, before the per-frame extraction loop.
+  const projectedFrames = maxOffset + 1;
+  if (projectedFrames > firmwareScrollMaxFrames) {
+    abortScrollTooLong(projectedFrames);
+    return;
+  }
   const frames = [];
   for (let offset = 0; offset <= maxOffset; offset++) {
     const frame = extractFrameFromTextImage(source, offset);
@@ -10096,6 +10200,39 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
       return false;
     }
 
+    // P0-2: The polled /api/scroll/meta is now lightweight and no longer carries
+    // sourceText. Fetch the (potentially multi-KB) source text from the dedicated
+    // endpoint only here -- i.e. once we've confirmed the firmware is actually
+    // displaying scroll text that has recoverable source. Bind it only if it belongs
+    // to the same timeline we just inspected (guards against a concurrent re-upload).
+    let sourceData = null;
+    try {
+      sourceData = await apiGet(API_ENDPOINTS.scrollSource);
+    } catch (err) {
+      warnScrollRestoreDebug("source fetch failed", {
+        source,
+        error: err?.message || String(err),
+      });
+    }
+    if (!scrollMachine.isCurrent(restoreToken)) return false;
+    if (
+      sourceData?.ok &&
+      sourceData.hasSourceText &&
+      String(sourceData.scrollTimelineId || "") === String(meta.scrollTimelineId || "")
+    ) {
+      meta.sourceText = String(sourceData.sourceText ?? "");
+    } else {
+      meta.sourceText = "";
+    }
+    if (!meta.sourceText) {
+      logScrollRestoreDebug("source unavailable", {
+        source,
+        timelineId: meta?.scrollTimelineId || "",
+      });
+      scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
+      return false;
+    }
+
     // C5: Local modification protection not sent, must precede any metadata binding.
     const currentValue = $("scroll-text")?.value || "";
     const restoredText = String(meta.sourceText ?? "");
@@ -10205,23 +10342,52 @@ function kickPostBootScrollMetaRestore(source = "post_boot") {
   }
   postBootScrollMetaRestoreStarted = true;
   scrollMetaRestoreEnabled = true;
-  if (!lastFwScrollDisplaying) {
-    logScrollRestoreDebug("post_boot skipped", { source, reason: "not_displaying_scroll" });
-    return;
-  }
-  logScrollRestoreDebug("post_boot kick", {
+  // P0-3: Do NOT automatically pull sourceText or rebuild the scroll preview on boot.
+  // The lightweight status poll has already populated lastFwScroll* (timeline / has-
+  // source / displaying). If the firmware is scrolling recoverable text, surface the
+  // manual "restore from firmware" button instead; the heavy work (source fetch +
+  // 2.5MB font + full preview regeneration) only runs when the user clicks it. This
+  // prevents a refresh from locking up the WebUI or stressing the board into a reset.
+  logScrollRestoreDebug("post_boot manual-gate", {
     source,
     currentPage: document.body?.dataset?.page || "",
     lastFwScrollTimelineId,
     lastFwScrollHasSourceText,
     lastFwScrollDisplaying,
   });
-  restoreScrollTextFromFirmware(source).catch((err) => {
-    warnScrollRestoreDebug("post_boot failed", {
-      source,
+  if (isScrollPageActive()) updateScrollUi();
+}
+
+// P0-3: Explicit, user-initiated scroll restore (from the "从硬件恢复文字和预览"
+// button). Mirrors the old automatic flow but only ever runs on a deliberate click.
+async function manualRestoreScrollFromFirmware() {
+  if (scroll.restoring || scrollMetaFetchInFlight) return;
+  if (!hasRestorableFirmwareScrollSource()) return;
+  scroll.restoring = true;
+  updateScrollUi();
+  try {
+    const ok = await restoreScrollTextFromFirmware("manual_restore", { autoPreview: false });
+    if (ok) await restoreScrollPreviewIfNeeded("manual_restore");
+  } catch (err) {
+    warnScrollRestoreDebug("manual restore failed", {
       error: err?.message || String(err),
     });
-  });
+  } finally {
+    scroll.restoring = false;
+    updateScrollUi();
+  }
+}
+
+// Whether to surface the manual restore button: firmware is displaying recoverable
+// scroll text whose timeline the WebUI has not already reproduced locally, and no
+// restore/upload is in flight, and the user has no unsent local edits.
+function shouldShowScrollRestoreButton() {
+  if (!hasRestorableFirmwareScrollSource()) return false;
+  if (scroll.restoring || scroll.uploading || scroll.startBusy) return false;
+  if (scrollMetaFetchInFlight) return false;
+  if (scroll.textEdited) return false;
+  if (lastFwScrollTimelineId && lastFwScrollTimelineId === scroll.framesTimelineId) return false;
+  return true;
 }
 
 async function restoreScrollPreviewIfNeeded(source = "restore_preview", restoreToken = null) {
@@ -10287,9 +10453,13 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview", restoreT
   }
   try {
     setScrollRestorePreviewProgress(0.02, "开始生成同步预览");
-    const prepared = await prepareTextScrollTimelineForRestoreAsync(true, (progress, label) => {
-      setScrollRestorePreviewProgress(progress, label);
-    });
+    const prepared = await prepareTextScrollTimelineForRestoreAsync(
+      true,
+      (progress, label) => {
+        setScrollRestorePreviewProgress(progress, label);
+      },
+      restoreToken ? () => !scrollMachine.isCurrent(restoreToken) : null,
+    );
     if (!scrollMachine.isCurrent(restoreToken)) return;
     if (!prepared) {
       pendingScrollMeta = null;
@@ -10710,6 +10880,19 @@ function updateScrollUi() {
   if (restoreWarnEl) {
     setDomTextIfChanged(restoreWarnEl, scroll.restoreWarning || "");
     restoreWarnEl.hidden = !scroll.restoreWarning;
+  }
+
+  // P0-3: manual restore button. Shown only when the firmware is displaying scroll
+  // text the WebUI hasn't reproduced locally; clicking it runs the (heavy) restore.
+  const restoreBtnEl = $("scroll-restore-btn");
+  if (restoreBtnEl) {
+    const showRestore = shouldShowScrollRestoreButton();
+    restoreBtnEl.hidden = !showRestore;
+    setDomDisabledIfChanged(restoreBtnEl, scroll.restoring);
+    setDomTextIfChanged(
+      restoreBtnEl,
+      scroll.restoring ? "正在恢复…" : "从硬件恢复文字和预览",
+    );
   }
 }
 

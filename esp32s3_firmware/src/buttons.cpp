@@ -93,7 +93,8 @@ static bool finishButtonAction(const String& code, const String& source, bool ha
 static bool adjustBrightnessFromButton(const String& code, const String& source,
                                        int delta, const char* reasonSuffix) {
     setBrightness(static_cast<int>(runtimeState().brightness) + delta);
-    runtimeState().lastReason = source + reasonSuffix;
+    snprintf(runtimeState().lastReason, sizeof(runtimeState().lastReason),
+             "%s%s", source.c_str(), reasonSuffix ? reasonSuffix : "");
     touchRuntimeStateSlow();
     return finishButtonAction(code, source, true);
 }
@@ -109,7 +110,8 @@ static bool adjustAutoIntervalFromButton(const String& code, const String& sourc
     }
 
     setAutoInterval(nextInterval);
-    runtimeState().lastReason = source + reasonSuffix;
+    snprintf(runtimeState().lastReason, sizeof(runtimeState().lastReason),
+             "%s%s", source.c_str(), reasonSuffix ? reasonSuffix : "");
     touchRuntimeState();
     return finishButtonAction(code, source, true);
 }

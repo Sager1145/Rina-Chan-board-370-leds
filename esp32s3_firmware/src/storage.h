@@ -6,7 +6,10 @@ bool mountFilesystem();
 
 bool readStringFromFileLocked(const char* path, String& outContent);
 bool writeStringToFileLocked(const char* path, const String& content);
-bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize);
+// maxBytes == 0 means "no cap". When non-zero, a file larger than maxBytes is
+// rejected BEFORE any buffer is allocated, so a corrupt/oversized file cannot
+// trigger a huge allocation (or boot-loop) at load time.
+bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize, size_t maxBytes = 0);
 
 bool loadRuntimeSettings();
 

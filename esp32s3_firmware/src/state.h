@@ -1,8 +1,20 @@
 #pragma once
 #include <Arduino.h>
+#include <string.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
 #include "config.h"
+
+// Bounded assignment into a fixed-size runtime text field. Truncates instead of
+// growing, never allocates, and always null-terminates. This replaces long-lived
+// Arduino String members in RuntimeState/RuntimeFace, whose repeated reassignment
+// from varying WebUI / saved-face / command input was a source of internal-heap
+// fragmentation over long uptime (audit P1 #2/#3). Compare these fields with
+// strcmp(), NOT ==, since == on a decayed char* is a pointer comparison.
+template <size_t N>
+inline void assignText(char (&dst)[N], const char* src) {
+    strlcpy(dst, src ? src : "", N);
+}
 
 // This header file defines the firmware shared runtime state, saved face cache, and RuntimeStore
 // singleton interface. When reading/writing these fields across modules, the caller must protect them according to the lock strategy in sync.h.
@@ -20,15 +32,18 @@
 // - stateVersion/slowUiDirty are publish cursors for the WebUI; preserve the
 //   existing monotonic non-zero version behavior.
 struct RuntimeState {
-    String   colorHex            = DEFAULT_COLOR;
+    // Fixed char buffers instead of Arduino String (audit P1 #2): no heap, no
+    // fragmentation. Defaults are set in the constructor below. Always assign with
+    // assignText() and compare with strcmp().
+    char     colorHex[8]         = {0};   // "#RRGGBB"
     uint8_t  colorR              = 0xf9;
     uint8_t  colorG              = 0x71;
     uint8_t  colorB              = 0xd4;
     uint8_t  brightness          = DEFAULT_BRIGHTNESS;
-    String   mode                = DEFAULT_MODE;
-    String   playback            = DEFAULT_PLAYBACK;
-    String   lastM370;
-    String   lastReason          = "boot";
+    char     mode[12]            = {0};   // "manual" / "auto"
+    char     playback[24]        = {0};   // "idle" / "auto_saved_face" / "scroll" ...
+    char     lastM370[5 + M370_HEX_CHARS + 1] = {0};  // holds "M370:" + 93 hex
+    char     lastReason[M370_FRAME_REASON_CHARS] = {0};
     bool     paused              = false;
 
     uint32_t framesAccepted      = 0;
@@ -59,19 +74,38 @@ struct RuntimeState {
     uint16_t scrollIntervalMs      = DEFAULT_SCROLL_INTERVAL_MS;
     uint32_t lastScrollFrameMs     = 0;
 
+    // Atomic timeline replacement (audit M1). When a PSRAM staging buffer is available,
+    // a replacement upload (append:false ... commit) is written OFF to the side while the
+    // current timeline keeps playing; only on uploadComplete is the staging buffer swapped
+    // in atomically (under scrollMutex). These two fields track the in-progress staged
+    // upload; they are scrollMutex-guarded like the other scroll* fields. On boards without
+    // the second buffer they stay 0/false and uploads fall back to the legacy in-place path.
+    uint16_t scrollStagingFrameCount  = 0;
+    bool     scrollStagingInProgress  = false;
+    // Interval the new (staged) timeline should play at; applied to scrollIntervalMs only
+    // at the atomic swap, so the still-running old timeline is not re-timed mid-upload.
+    uint16_t scrollStagingIntervalMs  = DEFAULT_SCROLL_INTERVAL_MS;
+
     // Front-end polls sequence on page 6.4, no need to pull full frame data.
     uint32_t scrollStopEventSeq       = 0;
     uint32_t scrollStopEventMs        = 0;
-    String   scrollStopEventButton;
-    String   scrollStopEventSource;
-    String   scrollStopEventReason;
+    char     scrollStopEventButton[16] = {0};
+    char     scrollStopEventSource[24] = {0};
+    char     scrollStopEventReason[M370_FRAME_REASON_CHARS] = {0};
 
     // But the LED render task still has time to physically latch all-black frames.
     bool     deferredFaceRestoreActive  = false;
     uint8_t  deferredFaceRestoreKind    = 0;
     bool     deferredFaceRestoreAutoMode = false;
     uint32_t deferredFaceRestoreDueMs   = 0;
-    String   deferredFaceRestoreReason;
+    char     deferredFaceRestoreReason[M370_FRAME_REASON_CHARS] = {0};
+
+    RuntimeState() {
+        strlcpy(colorHex,   DEFAULT_COLOR,    sizeof(colorHex));
+        strlcpy(mode,       DEFAULT_MODE,     sizeof(mode));
+        strlcpy(playback,   DEFAULT_PLAYBACK, sizeof(playback));
+        strlcpy(lastReason, "boot",           sizeof(lastReason));
+    }
 };
 
 struct FrameStateSnapshot {
@@ -116,9 +150,13 @@ struct ScrollTimelineMeta {
 // Saved face metadata
 // Default flag and startup default flag, shared by auto carousel and WebUI lists.
 struct RuntimeFace {
-    String   id;
-    String   name;
-    String   m370;
+    // Fixed buffers instead of String (audit P1 #2/#3): inline storage means stale
+    // entries beyond autoFaceCount() never retain heap capacity across reloads.
+    // m370 must hold "M370:" + 93 hex (98 chars) -- a smaller buffer would silently
+    // corrupt face data. Assign with assignText(), compare id/name with strcmp().
+    char     id[32]          = {0};
+    char     name[64]        = {0};
+    char     m370[5 + M370_HEX_CHARS + 1] = {0};
     int32_t  order           = 0;
     uint16_t jsonIndex       = 0;
     bool     isDefault       = false;
@@ -149,7 +187,7 @@ public:
 
     bool initScrollFrameBuffer();
 
-    bool scrollFrameBufferReady() const { return scrollFrameBits_ != nullptr; }
+    bool scrollFrameBufferReady() const { return activeScrollBuffer() != nullptr; }
 
     bool scrollFrameBufferInPsram() const { return scrollFrameBitsInPsram_; }
 
@@ -157,15 +195,37 @@ public:
 
     const uint8_t* scrollFrameBits(uint16_t index) const;
 
+    // Audit M1 -- atomic timeline replacement support.
+    // active buffer  = the timeline currently displayed / advanced by the render task.
+    // staging buffer = where a replacement upload is assembled; swapped in on commit.
+    // When the second buffer is unavailable the staging accessor aliases the active
+    // buffer, so callers transparently fall back to the legacy in-place upload.
+    bool scrollDoubleBuffered() const { return scrollDoubleBuffered_; }
+
+    uint8_t* scrollStagingFrameBits(uint16_t index);
+
     ScrollTimelineMeta& scrollMeta() { return scrollMeta_; }
 
     const ScrollTimelineMeta& scrollMeta() const { return scrollMeta_; }
+
+    ScrollTimelineMeta& scrollStagingMeta() { return scrollDoubleBuffered_ ? scrollStagingMeta_ : scrollMeta_; }
 
     char* scrollSourceText() { return scrollSourceText_; }
 
     const char* scrollSourceText() const { return scrollSourceText_; }
 
     bool scrollSourceTextReady() const { return scrollSourceText_ != nullptr; }
+
+    char* scrollStagingSourceText() { return scrollDoubleBuffered_ ? scrollStagingSourceText_ : scrollSourceText_; }
+
+    bool scrollStagingSourceTextReady() const {
+        return (scrollDoubleBuffered_ ? scrollStagingSourceText_ : scrollSourceText_) != nullptr;
+    }
+
+    // Atomically promote the staging timeline to active: toggles the render buffer and
+    // swaps the meta struct + source-text pointer. Must be called under scrollMutex.
+    // No-op (returns false) when not double-buffered -- the in-place path needs no swap.
+    bool commitScrollStagingSwap();
 
     bool& fsMounted() { return fsMounted_; }
 
@@ -176,6 +236,20 @@ private:
     RuntimeStore(const RuntimeStore&) = delete;
     RuntimeStore& operator=(const RuntimeStore&) = delete;
 
+    // Active-buffer helpers for the double-buffered scroll cache (audit M1). When
+    // scrollDoubleBuffered_ is false, scrollFrameBitsB_ is null, scrollRenderBuffer_
+    // stays 0, and both helpers return scrollFrameBits_ (legacy single-buffer layout).
+    uint8_t* activeScrollBuffer() {
+        return scrollRenderBuffer_ == 0 ? scrollFrameBits_ : scrollFrameBitsB_;
+    }
+    const uint8_t* activeScrollBuffer() const {
+        return scrollRenderBuffer_ == 0 ? scrollFrameBits_ : scrollFrameBitsB_;
+    }
+    uint8_t* stagingScrollBuffer() {
+        if (!scrollDoubleBuffered_) return scrollFrameBits_;
+        return scrollRenderBuffer_ == 0 ? scrollFrameBitsB_ : scrollFrameBits_;
+    }
+
     RuntimeState state_;
     RuntimeFace  autoFaces_[MAX_AUTO_FACES] = {};
     uint16_t     autoFaceCount_ = 0;
@@ -183,9 +257,16 @@ private:
     // Large buffer in internal SRAM.
     uint8_t*     scrollFrameBits_ = nullptr;
     bool         scrollFrameBitsInPsram_ = false;
+    // Second scroll cache for atomic timeline replacement (audit M1). Allocated only on
+    // PSRAM boards; null => single-buffer in-place uploads (legacy behavior).
+    uint8_t*     scrollFrameBitsB_ = nullptr;
+    bool         scrollDoubleBuffered_ = false;
+    uint8_t      scrollRenderBuffer_ = 0;   // 0 => A is active, 1 => B is active
     // On allocation failure, text uploads with metadata return 507, while pure frame uploads are unaffected.
     ScrollTimelineMeta scrollMeta_;
+    ScrollTimelineMeta scrollStagingMeta_;
     char*        scrollSourceText_ = nullptr;
+    char*        scrollStagingSourceText_ = nullptr;
     bool         fsMounted_ = false;
 };
 
@@ -207,11 +288,25 @@ size_t runtimeScrollFrameBufferBytes();
 
 uint8_t* runtimeScrollFrameBits(uint16_t index);
 
+// Audit M1 -- staging-side accessors for atomic timeline replacement. These alias the
+// active-side accessors on boards without the second PSRAM buffer.
+bool runtimeScrollDoubleBuffered();
+
+uint8_t* runtimeScrollStagingFrameBits(uint16_t index);
+
+bool runtimeCommitScrollStagingSwap();
+
 ScrollTimelineMeta& runtimeScrollMeta();
+
+ScrollTimelineMeta& runtimeScrollStagingMeta();
 
 char* runtimeScrollSourceText();
 
 bool runtimeScrollSourceTextReady();
+
+char* runtimeScrollStagingSourceText();
+
+bool runtimeScrollStagingSourceTextReady();
 
 // Must be called within withScrollLock. EH-A: Bad frame data invalidates the playback cache,
 // but sourceText is intentionally preserved (recovery can still reconstruct the preview from text).
@@ -222,6 +317,12 @@ void invalidateScrollUploadLocked();
 // Must be called within withScrollLock. Full clear (including source text);
 // executed at the start of each append:false upload.
 void clearScrollTimelineMetaLocked();
+
+// Audit M1 -- staging-side equivalents, operating on the staging meta/source-text when
+// double-buffered (alias the active-side versions otherwise). Call under withScrollLock.
+void invalidateScrollStagingUploadLocked();
+
+void clearScrollTimelineMetaStagingLocked();
 
 bool& runtimeFsMounted();
 

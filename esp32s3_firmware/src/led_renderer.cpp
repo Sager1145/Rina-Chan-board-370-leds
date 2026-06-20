@@ -114,9 +114,9 @@ static void publishPackedFrameNow(const uint8_t* packedBits, const char* normali
     withFrameLock([&]() {
         memcpy(runtimeFrameBits(), packedBits, FRAME_BYTES);
         if (normalizedM370 && normalizedM370[0] != '\0') {
-            runtimeState().lastM370 = normalizedM370;
+            assignText(runtimeState().lastM370, normalizedM370);
         }
-        runtimeState().lastReason = reason ? reason : "";
+        assignText(runtimeState().lastReason, reason);
         ++runtimeState().framesAccepted;
         touchRuntimeState();
         showCurrentFrameNoLock();
@@ -258,10 +258,10 @@ uint16_t countLitLeds() {
 FrameStateSnapshot readFrameStateSnapshot() {
     FrameStateSnapshot s;
     withFrameLock([&]() {
-        strlcpy(s.colorHex, runtimeState().colorHex.c_str(), sizeof(s.colorHex));
+        strlcpy(s.colorHex, runtimeState().colorHex, sizeof(s.colorHex));
         s.brightness = runtimeState().brightness;
-        strlcpy(s.lastM370, runtimeState().lastM370.c_str(), sizeof(s.lastM370));
-        strlcpy(s.lastReason, runtimeState().lastReason.c_str(), sizeof(s.lastReason));
+        strlcpy(s.lastM370, runtimeState().lastM370, sizeof(s.lastM370));
+        strlcpy(s.lastReason, runtimeState().lastReason, sizeof(s.lastReason));
         s.litLeds = countLitLedsLocked(runtimeFrameBits());
         s.framesAccepted = runtimeState().framesAccepted;
     });
@@ -474,8 +474,8 @@ bool applyLedDeltasImmediate(const uint16_t* indices, const bool* values, uint16
             setPackedFrameBit(runtimeFrameBits(), indices[i], values[i]);
         }
         encodePackedBitsToM370(runtimeFrameBits(), normalized, sizeof(normalized));
-        runtimeState().lastM370 = normalized;
-        runtimeState().lastReason = reason;
+        assignText(runtimeState().lastM370, normalized);
+        assignText(runtimeState().lastReason, reason.c_str());
         ++runtimeState().framesAccepted;
         touchRuntimeState();
         showCurrentFrameNoLock();
@@ -577,7 +577,7 @@ bool isLiveFrameActivityRecent(uint32_t windowMs) {
 void setColorStateNoRender(const String& input) {
     uint8_t r, g, b;
     if (!parseColorHex(input, r, g, b)) return;
-    runtimeState().colorHex = formatColorHex(r, g, b);
+    assignText(runtimeState().colorHex, formatColorHex(r, g, b).c_str());
     runtimeState().colorR   = r;
     runtimeState().colorG   = g;
     runtimeState().colorB   = b;
@@ -590,7 +590,7 @@ bool setColor(const String& input, String& error) {
         return false;
     }
     withFrameLock([&]() {
-        runtimeState().colorHex = formatColorHex(r, g, b);
+        assignText(runtimeState().colorHex, formatColorHex(r, g, b).c_str());
         runtimeState().colorR   = r;
         runtimeState().colorG   = g;
         runtimeState().colorB   = b;

@@ -27,6 +27,7 @@ struct ScrollUploadMeta {
 
 struct ScrollUploadTxn {
     bool     append              = false;
+    bool     staged              = false;  // audit M1: write to the staging buffer, swap in on commit
     bool     timelineBacked      = false;
     bool     uploadComplete      = false;
     uint16_t baseIndex           = 0;
@@ -71,7 +72,7 @@ struct ScrollSessionSnapshot {
     }
 };
 
-bool isScrollPlayback(const String& playback);
+bool isScrollPlayback(const char* playback);
 
 ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode);
 ScrollStopResult  scrollSessionStop(bool restoreAuto, bool clearDisplay);
@@ -89,8 +90,14 @@ ScrollUploadTxn    scrollSessionBeginAppend();
 bool               scrollSessionWriteFrame(const ScrollUploadTxn& txn, uint16_t index, const uint8_t* packedBits);
 ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_t count,
                                              bool hasExplicitTiming, uint16_t intervalMs);
+// Audit M1: atomically promote a fully-uploaded staging timeline to the active (displayed)
+// slot. No-op (returns false) when not double-buffered or when no staged upload is pending.
+bool scrollSessionPromoteStaging();
 void               scrollSessionInvalidateCache();
 void               scrollSessionClearTimeline();
+// P1-6: reclaim a staged replacement timeline abandoned by an interrupted upload.
+bool               scrollSessionClearStaleUpload(uint32_t timeoutMs);
+bool               scrollSessionConsumeUploadStaleCleared();
 bool               scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize);
 ScrollSessionSnapshot scrollSessionSnapshot();
 

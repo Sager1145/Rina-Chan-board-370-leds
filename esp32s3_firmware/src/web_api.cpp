@@ -228,13 +228,18 @@ static void sendJsonDocument(int status, JsonDocument& doc) {
 }
 
 static void sendError(int status, const String& message) {
-    DynamicJsonDocument doc(512);
-    doc["ok"]    = false;
-    doc["error"] = message;
-    addCorsHeaders();
-    String out;
-    serializeJson(doc, out);
-    server.send(status, CONTENT_TYPE_JSON_UTF8, out);
+    // Error responses must not allocate, because they are emitted exactly when the
+    // device is already low on / fragmented internal heap (the 503 admission path,
+    // invalid-request storms, 404s). The old path built a DynamicJsonDocument plus a
+    // growing output String plus WebServer's own copy. Instead, use a stack-resident
+    // StaticJsonDocument and the same fixed-512-byte chunked-stream path as success
+    // responses, so no heap String is ever materialized here.
+    StaticJsonDocument<384> doc;
+    doc["ok"] = false;
+    char err[M370_FRAME_REASON_CHARS * 3];   // bounded copy; long messages are truncated, never grown
+    strlcpy(err, message.c_str(), sizeof(err));
+    doc["error"] = err;
+    sendJsonDocument(status, doc);
 }
 
 // HTTP memory admission guard -- crash protection against sudden WebUI refreshes.
@@ -626,13 +631,21 @@ static void handleApiStatus() {
     matrix["physicalWiring"]         = SERPENTINE_WIRING ? "serpentine" : "linear";
     matrix["serpentineOddRowsReversed"] = SERPENTINE_ODD_ROWS_REVERSED;
 
+    // Scroll limits exposed so the WebUI can validate before upload instead of
+    // hardcoding firmware constants (P1-5). sourceText is bounded by UTF-8 BYTES,
+    // not characters, so the WebUI must compare encoded byte length to maxTextBytes.
+    JsonObject scrollLimits = doc.createNestedObject("scrollLimits");
+    scrollLimits["maxTextBytes"] = MAX_SCROLL_TEXT_BYTES;
+    scrollLimits["maxFrames"]    = MAX_SCROLL_FRAMES;
+
     JsonObject endpoints = doc.createNestedObject("endpoints");
-    endpoints["frame"]      = "/api/frame";
-    endpoints["command"]    = "/api/command";
-    endpoints["scroll"]     = "/api/scroll";
-    endpoints["savedFaces"] = "/api/saved_faces";
-    endpoints["power"]      = "/api/power";
-    endpoints["status"]     = "/api/status";
+    endpoints["frame"]        = "/api/frame";
+    endpoints["command"]      = "/api/command";
+    endpoints["scroll"]       = "/api/scroll";
+    endpoints["scrollSource"] = "/api/scroll/source";
+    endpoints["savedFaces"]   = "/api/saved_faces";
+    endpoints["power"]        = "/api/power";
+    endpoints["status"]       = "/api/status";
 
     JsonObject storage = doc.createNestedObject("storage");
     storage["mounted"]           = runtimeFsMounted();
@@ -790,8 +803,12 @@ static void handleApiFrame() {
 
     const char* m370 = doc["m370"] | "";
     const bool hasM370 = strlen(m370) > 0;
-    uint16_t deltaIndices[LED_COUNT];
-    bool deltaValues[LED_COUNT];
+    // Kept off the loop-task stack: the synchronous WebServer services one request
+    // at a time on Core 0, so a single function-local static scratch buffer is safe
+    // and saves ~1.1 KB of stack on every /api/frame while WebServer/JSON/HTTP
+    // parsing frames are already nested below this handler.
+    static uint16_t deltaIndices[LED_COUNT];
+    static bool deltaValues[LED_COUNT];
     uint16_t deltaCount = 0;
     const bool hasDeltaPayload =
         doc["changes"].is<JsonArray>() || doc["deltas"].is<JsonArray>() ||
@@ -844,7 +861,7 @@ static void handleApiFrame() {
         lastLiveSeq = seq;
     }
 
-    if (!isScrollPlayback(String(mode))) {
+    if (!isScrollPlayback(mode)) {
         // A non-scroll frame replaces text scrolling, equivalent to Stop/Clear
         // before entering the target display mode.
         stopFirmwareScrollForNonScrollOutput("api_frame_non_scroll");
@@ -852,7 +869,7 @@ static void handleApiFrame() {
     if (reason.startsWith("custom_") || reason.startsWith("parts_")) {
         setMode("manual", false);
     }
-    runtimeState().playback = mode;
+    assignText(runtimeState().playback, mode);
 
 #if ENABLE_PERF_PROFILING
     uint32_t tApplyStart = micros();
@@ -879,7 +896,7 @@ static void handleApiFrame() {
     const char* faceId = doc["faceId"] | "";
     if (strlen(faceId) > 0 && ensureSavedFacesLoaded()) {
         for (uint16_t i = 0; i < runtimeAutoFaceCount(); ++i) {
-            if (runtimeAutoFaces()[i].id == faceId) {
+            if (strcmp(runtimeAutoFaces()[i].id, faceId) == 0) {
                 if (runtimeState().autoFaceIndex != i) {
                     runtimeState().autoFaceIndex = i;
                     touchRuntimeState();
@@ -1040,14 +1057,17 @@ static void handleApiFrameBin() {
         }
 
         uint16_t count = countByte;
-        uint16_t indices[256];
-        bool values[256];
+        // Off the loop-task stack (synchronous single-request WebServer on Core 0):
+        // these three scratch buffers total ~1.5 KB and were stacked beneath HTTP
+        // parsing + the socket read. Function-local static is safe here.
+        static uint16_t indices[256];
+        static bool values[256];
+        static uint8_t entryBuf[256 * 3];
 
         // P1-B: read the whole delta body in ONE bounded read instead of `count`
         // separate blocking reads. Previously up to 255 sequential reads could each
         // stall for the socket timeout, multiplying the worst-case Core-0 freeze.
         const size_t bodyBytes = static_cast<size_t>(count) * 3U;
-        uint8_t entryBuf[256 * 3];
         if (count > 0 &&
             !readSocketBytesBounded(client, entryBuf, bodyBytes, BIN_FRAME_READ_TIMEOUT_MS)) {
             sendError(400, "incomplete binary delta body");
@@ -1114,6 +1134,14 @@ static void handleApiScroll() {
     // bursts requests during an upload (see config.h HTTP_MIN_FREE_HEAP_BYTES).
     if (httpRejectIfLowMemory("scroll_upload")) return;
 
+    // Section-J telemetry: capture the internal-heap picture before we parse the
+    // body / write frames so the upload_commit / upload_reject lines below can
+    // report the heap delta of one chunk. INFO-gated and compiled out entirely
+    // when ENABLE_SERIAL_DIAGNOSTICS=0; never on the LED render path.
+    const uint32_t scrollUploadHeapBefore = ESP.getFreeHeap();
+    const uint32_t scrollUploadLargestBefore =
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+
     const String body = requestBody();
     if (body.isEmpty()) { sendError(400, "empty JSON body"); return; }
     // Bound the body we are willing to parse. The WebUI keeps a single chunk well
@@ -1147,6 +1175,13 @@ static void handleApiScroll() {
     uint32_t totalFrames = 0;
     const bool hasChunkIndex = jsonUintField(body, "chunkIndex", chunkIndex);
     jsonUintField(body, "totalFrames", totalFrames);
+
+    RLOG_INFO("SCROLL",
+              "event=upload_recv append=%d chunkIndex=%u totalFrames=%u bodyBytes=%u heap=%u largest=%u",
+              appendFrames ? 1 : 0, static_cast<unsigned>(chunkIndex),
+              static_cast<unsigned>(totalFrames), static_cast<unsigned>(body.length()),
+              static_cast<unsigned>(scrollUploadHeapBefore),
+              static_cast<unsigned>(scrollUploadLargestBefore));
     String source;
     String storageTarget;
     jsonStringField(body, "source", source);
@@ -1265,9 +1300,14 @@ static void handleApiScroll() {
         }
 
         clearQueuedM370Frames();
-        // Replacing one text-scroll upload with another only needs to halt the old
-        // player; scrollSessionBeginUpload below clears the old timeline/source.
-        stopFirmwareScroll(false, false);
+        // Audit M1 (atomic timeline replacement): with a PSRAM staging buffer the new upload
+        // is assembled off-screen and swapped in only on commit, so the running scroll must
+        // NOT be torn down here -- an interrupted/failed upload then leaves the old timeline
+        // playing. Only the single-buffer in-place path still halts the old player up front
+        // (it overwrites the live buffer, so it has no choice).
+        if (!runtimeScrollDoubleBuffered()) {
+            stopFirmwareScroll(false, false);
+        }
         clearQueuedM370Frames();
         ScrollUploadMeta uploadMeta;
         uploadMeta.timelineId       = timelineIdPresent ? timelineId.c_str() : "";
@@ -1321,6 +1361,9 @@ static void handleApiScroll() {
         if (uploadTxn.totalFramesExpected > 0 &&
             static_cast<uint32_t>(uploadTxn.framesReceivedBase) + count + 1U > uploadTxn.totalFramesExpected) {
             scrollSessionInvalidateCache();
+            RLOG_WARN("SCROLL", "event=upload_reject reason=too_many_frames base=%u received=%u expected=%u",
+                      static_cast<unsigned>(uploadTxn.framesReceivedBase), static_cast<unsigned>(count),
+                      static_cast<unsigned>(uploadTxn.totalFramesExpected));
             sendError(409, "too many frames");
             return;
         }
@@ -1335,10 +1378,14 @@ static void handleApiScroll() {
             // EH-A: Bad frame data invalidates the playback cache (frame count reset to zero + uploadComplete=false),
             // but sourceText is intentionally preserved, so recovery can still reconstruct the preview from the text.
             scrollSessionInvalidateCache();
+            RLOG_WARN("SCROLL", "event=upload_reject reason=bad_frame index=%u detail=%s",
+                      static_cast<unsigned>(targetIndex), error.c_str());
             sendError(400, String("invalid scroll frame ") + targetIndex + ": " + error);
             return;
         }
         if (!scrollSessionWriteFrame(uploadTxn, static_cast<uint16_t>(targetIndex), packedBits)) {
+            RLOG_WARN("SCROLL", "event=upload_reject reason=not_writable index=%u",
+                      static_cast<unsigned>(targetIndex));
             sendError(409, "scroll frame target not writable");
             return;
         }
@@ -1361,8 +1408,26 @@ static void handleApiScroll() {
     // D2: Incomplete timeline-backed caches are never playable (including explicit start:true).
     if (uploadTxn.timelineBacked && !uploadCompleteNow) shouldStart = false;
 
-    if (shouldStart) startFirmwareScroll(intervalMs);
+    // Audit M1: promote the staged replacement timeline to active as soon as it is complete,
+    // OR when we are about to auto-start a legacy (totalFrames==0) upload. Promoting on
+    // completion is essential because the WebUI's normal flow uploads with start:false and
+    // then issues a SEPARATE start_scroll command -- that command starts the *active* slot,
+    // so the new timeline must already be swapped in by then. promoteStaging is a no-op on
+    // single-buffer boards / non-staged uploads, leaving the legacy in-place path unchanged.
+    if (uploadCompleteNow || shouldStart) scrollSessionPromoteStaging();
+    // Use the effective interval after promotion (the new timeline's interval is applied to
+    // scrollIntervalMs at the atomic swap) rather than a timing-less append chunk's stale value.
+    if (shouldStart) startFirmwareScroll(runtimeState().scrollIntervalMs);
     const ScrollSessionSnapshot scrollState = readScrollStateSnapshot();
+
+    RLOG_INFO("SCROLL",
+              "event=upload_commit frames=%u chunkFrames=%u sourceTextBytes=%u uploadComplete=%d started=%d bufferBytes=%u heapAfter=%u largestAfter=%u",
+              static_cast<unsigned>(scrollState.scrollFrameCount), static_cast<unsigned>(count),
+              static_cast<unsigned>(sourceText.length()), uploadCompleteNow ? 1 : 0,
+              scrollState.firmwareScrollActive ? 1 : 0,
+              static_cast<unsigned>(runtimeScrollFrameBufferBytes()),
+              static_cast<unsigned>(ESP.getFreeHeap()),
+              static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
 
     DynamicJsonDocument reply(1024);
     reply["ok"]                   = true;
@@ -1387,18 +1452,59 @@ static void handleApiScroll() {
     sendJsonDocument(200, reply);
 }
 
-// Copy under lock (meta struct + text memcpy), serialize outside the lock; capacity/overflow -> 507 (H-C).
+// Lightweight scroll metadata (P0-2). This endpoint is polled during boot recovery
+// and while the WebUI is on the scroll page, so it must be cheap: it does NOT copy
+// sourceText and does NOT allocate a large (PSRAM) JsonDocument. The previous version
+// allocated a 4KB text buffer + a 16KB doc on every poll, which -- if PSRAM was
+// unavailable/unstable and the allocator fell back to internal heap -- could be the
+// "last straw" that reset the board after a refresh. The (potentially large)
+// sourceText is now fetched separately and only on explicit user action via
+// /api/scroll/source.
 static void handleApiScrollMeta() {
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
     if (server.method() != HTTP_GET)     { sendError(405, "method not allowed"); return; }
 
-    // Crash protection: this handler builds a large (PSRAM) doc and serializes it
-    // into a DRAM String. Shed the read if internal heap is low so a refresh-time
-    // burst of meta reads cannot OOM-panic the board.
     if (httpRejectIfLowMemory("scroll_meta")) return;
 
     ScrollMetaOut metaOut;
+    // nullptr text buffer => lightweight copy: no 4KB text alloc, hasSourceText and
+    // sourceTextBytes stay populated so the WebUI knows whether text is recoverable.
+    scrollSessionCopyMeta(metaOut, nullptr, 0);
 
+    // Stack-resident, no heap: timelineId/fontId/generatorVersion are short bounded
+    // strings stored by reference (metaOut outlives serialization).
+    StaticJsonDocument<1024> doc;
+    doc["ok"]                   = true;
+    doc["scrollTimelineId"]     = static_cast<const char*>(metaOut.meta.timelineId);
+    doc["hasSourceText"]        = metaOut.meta.hasSourceText;
+    doc["sourceTextBytes"]      = metaOut.meta.sourceTextByteLength;
+    doc["fontId"]               = static_cast<const char*>(metaOut.meta.fontId);
+    doc["generatorVersion"]     = static_cast<const char*>(metaOut.meta.generatorVersion);
+    doc["uiFps"]                = metaOut.meta.uiFps;
+    doc["scrollIntervalMs"]     = metaOut.scrollIntervalMs;
+    doc["frameCount"]           = metaOut.frameCount;
+    doc["frameIndex"]           = metaOut.frameIndex;
+    doc["uploadComplete"]       = metaOut.meta.uploadComplete;
+    doc["firmwareScrollDisplaying"] = metaOut.active || metaOut.paused;
+    doc["firmwareScrollActive"] = metaOut.active;
+    doc["firmwareScrollPaused"] = metaOut.paused;
+    doc["firmwareScrollUserPaused"] = metaOut.userPaused;
+    doc["firmwareScrollSystemPaused"] = metaOut.systemPaused;
+    doc["uploadStaleCleared"]   = scrollSessionConsumeUploadStaleCleared();
+    sendJsonDocument(200, doc);
+}
+
+// Returns the scroll sourceText (P0-2). Only called on explicit user action (e.g.
+// "restore text & preview"), never on the polled path. Copy under lock (meta + text
+// memcpy), serialize outside the lock; capacity/overflow -> 507. The doc is sized to
+// the text rather than a fixed 16KB to keep the rare allocation modest.
+static void handleApiScrollSource() {
+    if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
+    if (server.method() != HTTP_GET)     { sendError(405, "method not allowed"); return; }
+
+    if (httpRejectIfLowMemory("scroll_source")) return;
+
+    ScrollMetaOut metaOut;
     char* textCopy = nullptr;
     const size_t textCapacity = static_cast<size_t>(MAX_SCROLL_TEXT_BYTES) + 1U;
     if (runtimeScrollSourceTextReady()) {
@@ -1416,10 +1522,12 @@ static void handleApiScrollMeta() {
         return;
     }
 
-    PsramJsonDocument doc(16384);
+    // Worst-case JSON expansion of valid sourceText is ~2x (only '"' and '\\' escape;
+    // control chars are rejected at upload). Size to that plus envelope overhead.
+    PsramJsonDocument doc(textCapacity * 2U + 1024U);
     if (doc.capacity() == 0) {
         if (textCopy != nullptr) heap_caps_free(textCopy);
-        sendError(507, "metadata json alloc failed");
+        sendError(507, "source json alloc failed");
         return;
     }
     doc["ok"]                   = true;
@@ -1431,18 +1539,12 @@ static void handleApiScrollMeta() {
     doc["fontId"]               = String(metaOut.meta.fontId);
     doc["generatorVersion"]     = String(metaOut.meta.generatorVersion);
     doc["uiFps"]                = metaOut.meta.uiFps;
-    doc["scrollIntervalMs"]     = metaOut.scrollIntervalMs;
     doc["frameCount"]           = metaOut.frameCount;
     doc["frameIndex"]           = metaOut.frameIndex;
-    doc["uploadComplete"]       = metaOut.meta.uploadComplete;
     doc["firmwareScrollDisplaying"] = metaOut.active || metaOut.paused;
-    doc["firmwareScrollActive"] = metaOut.active;
-    doc["firmwareScrollPaused"] = metaOut.paused;
-    doc["firmwareScrollUserPaused"] = metaOut.userPaused;
-    doc["firmwareScrollSystemPaused"] = metaOut.systemPaused;
     if (doc.overflowed()) {
         if (textCopy != nullptr) heap_caps_free(textCopy);
-        sendError(507, "metadata json overflow");
+        sendError(507, "source json overflow");
         return;
     }
     sendJsonDocument(200, doc);
@@ -1611,9 +1713,14 @@ static bool commandResumeScroll(JsonDocument& doc, JsonVariant payload, String& 
 static bool commandStopScroll(JsonDocument& doc, JsonVariant payload, String& error) {
     (void)error;
     bool clearDisplay = true;
-    bool restoreAuto  = scrollSessionGetRestoreAuto();
     commandBoolField(doc, payload, "clear", clearDisplay);
-    commandBoolField(doc, payload, "restoreAuto", restoreAuto);
+    // M2: firmware is the SOLE authority for the post-scroll return mode. The WebUI's
+    // local returnMode resets to its "manual" default across a page refresh, so trusting
+    // a payload `restoreAuto` could send the board back to the wrong mode after reload.
+    // The firmware-stored restoreAutoAfterScroll (latched when the scroll was entered
+    // from Auto) is authoritative; the payload field is intentionally ignored. `clear`
+    // stays caller-controlled because it is a display action, not a mode decision.
+    const bool restoreAuto = scrollSessionGetRestoreAuto();
     stopFirmwareScroll(restoreAuto, clearDisplay);
     return true;
 }
@@ -1626,7 +1733,7 @@ static bool commandPause(JsonDocument& doc, JsonVariant payload, String& error) 
     pauseFirmwareScrollIfActive(pausedScroll);
     if (!pausedScroll) {
         runtimeState().paused   = true;
-        runtimeState().playback = "paused";
+        assignText(runtimeState().playback, "paused");
         touchRuntimeState();
     }
     return true;
@@ -1640,7 +1747,7 @@ static bool commandResume(JsonDocument& doc, JsonVariant payload, String& error)
     resumeFirmwareScrollIfCached(resumedScroll, true);
     if (!resumedScroll) {
         runtimeState().paused   = false;
-        runtimeState().playback = DEFAULT_PLAYBACK;
+        assignText(runtimeState().playback, DEFAULT_PLAYBACK);
         touchRuntimeState();
     }
     return true;
@@ -1665,7 +1772,7 @@ static bool commandTerminateOtherActivities(JsonDocument& doc, JsonVariant paylo
         setMode("manual", true);
     } else if (strcmp(targetMode, "scroll") == 0 && isAutoMode()) {
         scrollSessionSetRestoreAuto(true);
-        runtimeState().mode                   = "manual";
+        assignText(runtimeState().mode, "manual");
         touchRuntimeState();
     }
     return true;
@@ -1917,14 +2024,14 @@ static void handleNotFound() {
 
 void showFilesystemErrorPattern() {
     withFrameLock([]() {
-        runtimeState().colorHex   = "#ff0000";
+        assignText(runtimeState().colorHex, "#ff0000");
         runtimeState().colorR     = 0xff;
         runtimeState().colorG     = 0x00;
         runtimeState().colorB     = 0x00;
         runtimeState().brightness = DEFAULT_BRIGHTNESS;
         memset(runtimeFrameBits(), 0, FRAME_BYTES);
         for (uint16_t i = 0; i < 12 && i < LED_COUNT; ++i) setFrameBit(i, true);
-        runtimeState().lastReason = "littlefs_mount_failed";
+        assignText(runtimeState().lastReason, "littlefs_mount_failed");
         showCurrentFrameNoLock();
     });
 }
@@ -1961,6 +2068,7 @@ void startWebServer() {
     server.on("/api/perf",        HTTP_ANY, handleApiPerf);
     server.on("/api/scroll",      HTTP_ANY, handleApiScroll);
     server.on("/api/scroll/meta", HTTP_ANY, handleApiScrollMeta);
+    server.on("/api/scroll/source", HTTP_ANY, handleApiScrollSource);
     server.on("/api/command",     HTTP_ANY, handleApiCommand);
     server.on("/api/saved_faces", HTTP_ANY, handleApiSavedFaces);
 
@@ -1974,4 +2082,14 @@ void webServerTick() {
         dnsServer.processNextRequest();
     }
     server.handleClient();
+
+    // P1-6: periodically reclaim a staged replacement timeline left behind by an
+    // interrupted upload. Throttled so it adds no per-request cost; only ever clears
+    // the off-screen staging buffer (never the active/playing timeline).
+    static uint32_t sLastScrollStaleCheckMs = 0;
+    const uint32_t nowMs = millis();
+    if (nowMs - sLastScrollStaleCheckMs >= SCROLL_UPLOAD_STALE_CHECK_MS) {
+        sLastScrollStaleCheckMs = nowMs;
+        scrollSessionClearStaleUpload(SCROLL_UPLOAD_STALE_TIMEOUT_MS);
+    }
 }

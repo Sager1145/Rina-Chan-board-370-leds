@@ -31,26 +31,30 @@ static void scrollRenderTask(void* parameter) {
         bool shouldRender          = mainTaskRenderPending;
         bool hasScrollFrame        = false;
 
+        // Audit M3: hold the scroll lock across BOTH the cursor tick and the frame
+        // publish, with the frame lock nested INSIDE it. Because Stop/Clear also takes
+        // the scroll lock, it can no longer interleave in a lock-handoff gap, so there
+        // is no window in which a just-computed scroll frame could be published over a
+        // freshly-blanked panel, and firmwareScrollActive is read only under its owning
+        // scroll lock (no cross-domain read). Nesting is Scroll -> Frame, exactly the
+        // documented global order (sync.h), so it cannot invert ordering or deadlock:
+        // no path ever takes the scroll lock while already holding the frame lock. The
+        // section only does a 47-byte memcpy plus a brief critical-section flag read, so
+        // the extra scroll-lock hold time is negligible for HTTP/button contenders, and
+        // the expensive strip.show() still happens later, outside both locks.
         withScrollLock([&]() {
             hasScrollFrame = scrollSessionTickCursorLocked(millis(), nextFrame);
-            if (hasScrollFrame) shouldRender = true;
-        });
-
-        if (hasScrollFrame) {
-            //
+            if (!hasScrollFrame) return;
+            shouldRender = true;
             withFrameLock([&]() {
                 if (!mainTaskRenderPending) {
                     mainTaskRenderPending = consumeLedRenderRequest();
                     if (mainTaskRenderPending) shouldRender = true;
                 }
-                if (runtimeState().firmwareScrollActive) {
-                    memcpy(runtimeFrameBits(), nextFrame, FRAME_BYTES);
-                    ++runtimeState().framesAccepted;
-                } else {
-                    if (!mainTaskRenderPending) shouldRender = false;
-                }
+                memcpy(runtimeFrameBits(), nextFrame, FRAME_BYTES);
+                ++runtimeState().framesAccepted;
             });
-        }
+        });
 
         if (hasScrollFrame) {
             // Core-1 tick telemetry: TRACE-only (off by default) and rate-limited
@@ -89,6 +93,10 @@ void startScrollRenderTask() {
         sScrollTaskHandle = nullptr;
         Serial.println("Failed to start LED scroll render task; firmware scroll unavailable");
     }
+}
+
+TaskHandle_t scrollRenderTaskHandle() {
+    return sScrollTaskHandle;
 }
 
 void notifyScrollRenderTask() {

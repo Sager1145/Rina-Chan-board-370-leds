@@ -36,9 +36,11 @@ GZIP_TARGETS = [
 ]
 
 # The `asset?v=...` references in these text files will be rewritten to content hashes.
-# The order is important: styles.css is rewritten first, so that when index.html references styles.css,
-# it uses the rewritten hash (which contains the latest font version).
-REWRITE_TARGETS = ["styles.css", "index.html"]
+# Order matters: a file must be rewritten BEFORE any file that references it, so the
+# referrer picks up the rewritten content's hash. styles.css and app.js are rewritten
+# first (app.js references resources/fonts/ark12.json?v=...), then index.html (which
+# references both styles.css?v=... and app.js?v=...).
+REWRITE_TARGETS = ["styles.css", "app.js", "index.html"]
 
 GZIP_LEVEL = 9
 

@@ -27,6 +27,7 @@
 #include "power_monitor.h"
 #include "serial_log.h"
 #include "serial_console.h"
+#include "health_diagnostics.h"
 #include <freertos/task.h>
 
 static bool g_syncReady = false;
@@ -84,6 +85,7 @@ void setup() {
 
     // Isolated from the WebServer and button polling.
     if (g_syncReady) startScrollRenderTask();
+    healthDiagnosticsSetRenderTask(scrollRenderTaskHandle());
 
     initHardwareButtons();
 
@@ -95,7 +97,13 @@ void setup() {
     startWebServer();
 
     RLOG_INFO("SYS", "event=boot stage=ready faces=%u mode=%s",
-              static_cast<unsigned>(runtimeAutoFaceCount()), runtimeState().mode.c_str());
+              static_cast<unsigned>(runtimeAutoFaceCount()), runtimeState().mode);
+
+    // Logs the reset reason immediately (PANIC / TASK_WDT / BROWNOUT / SW ...) and
+    // then periodic heap/fragmentation/stack health. No-op unless built with
+    // -D DEBUG_HEALTH=1. The reset reason is the single most useful signal for the
+    // "USB drops + needs manual reset" class of crash.
+    healthDiagnosticsBegin();
 }
 
 // Main loop
@@ -122,5 +130,6 @@ void loop() {
     servicePowerMonitor();
     serviceDeferredFaceRestore();
     serviceAutoPlayback();
+    serviceHealthDiagnostics();
     vTaskDelay(pdMS_TO_TICKS(1));
 }

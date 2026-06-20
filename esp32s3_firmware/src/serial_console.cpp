@@ -227,7 +227,7 @@ void cmdStatus(int, char**) {
     const FrameStateSnapshot     f = readFrameStateSnapshot();
     sout("=== STATUS BEGIN ===");
     sout("STATUS mode=%s playback=%s paused=%d brightness=%u color=%s",
-         runtimeState().mode.c_str(), runtimeState().playback.c_str(),
+         runtimeState().mode, runtimeState().playback,
          runtimeState().paused ? 1 : 0, f.brightness, f.colorHex);
     sout("STATUS autoFaceIndex=%u faceCount=%u autoIntervalMs=%lu",
          static_cast<unsigned>(runtimeState().autoFaceIndex),
@@ -433,7 +433,7 @@ void cmdLedStatus() {
     const ScrollSessionSnapshot sc = scrollSessionSnapshot();
     const FrameStateSnapshot     f = readFrameStateSnapshot();
     sout("OK led status mode=%s brightness=%u color=%s faceIndex=%u faceCount=%u",
-         runtimeState().mode.c_str(), f.brightness, f.colorHex,
+         runtimeState().mode, f.brightness, f.colorHex,
          static_cast<unsigned>(runtimeState().autoFaceIndex),
          static_cast<unsigned>(runtimeAutoFaceCount()));
     sout("OK led status lit=%u queuedPending=%u scrollActive=%d scrollIdx=%u lastReason=%s framesAccepted=%lu",
@@ -536,9 +536,9 @@ void cmdLed(int argc, char** argv) {
     // led color <#RRGGBB|RRGGBB> -- mirrors WebUI set_color. Hardware: changes
     // the global LED color (next render). Full 24-bit space is reachable.
     if (strcasecmp(argv[1], "color") == 0) {
-        if (argc < 3) { sout("OK led color value=%s", runtimeState().colorHex.c_str()); return; }
+        if (argc < 3) { sout("OK led color value=%s", runtimeState().colorHex); return; }
         String err;
-        if (setColor(argv[2], err)) sout("OK led color set=%s", runtimeState().colorHex.c_str());
+        if (setColor(argv[2], err)) sout("OK led color set=%s", runtimeState().colorHex);
         else                        sout("ERR led color %s", err.c_str());
         return;
     }
@@ -654,7 +654,7 @@ void cmdBattery(int argc, char** argv) {
 void cmdMode(int argc, char** argv) {
     if (argc < 2 || strcasecmp(argv[1], "status") == 0) {
         sout("OK mode status mode=%s playback=%s autoIntervalMs=%lu",
-             runtimeState().mode.c_str(), runtimeState().playback.c_str(),
+             runtimeState().mode, runtimeState().playback,
              static_cast<unsigned long>(runtimeState().autoIntervalMs));
         return;
     }
@@ -667,7 +667,7 @@ void cmdFace(int argc, char** argv) {
     if (argc < 2 || strcasecmp(argv[1], "status") == 0) {
         const uint16_t idx = runtimeState().autoFaceIndex;
         const char* id = (runtimeAutoFaceCount() > 0 && idx < runtimeAutoFaceCount())
-                             ? runtimeAutoFaces()[idx].id.c_str() : "";
+                             ? runtimeAutoFaces()[idx].id : "";
         sout("OK face status index=%u count=%u id=%s", idx, runtimeAutoFaceCount(), id);
         return;
     }
@@ -694,7 +694,7 @@ void cmdFace(int argc, char** argv) {
 void cmdAuto(int argc, char** argv) {
     if (argc < 2 || strcasecmp(argv[1], "status") == 0) {
         sout("OK auto status mode=%s intervalMs=%lu faceIndex=%u",
-             runtimeState().mode.c_str(),
+             runtimeState().mode,
              static_cast<unsigned long>(runtimeState().autoIntervalMs),
              static_cast<unsigned>(runtimeState().autoFaceIndex));
         return;
@@ -796,7 +796,7 @@ void cmdPause(int, char**) {
     const bool pausedScroll = scrollSessionSetUserPaused(true);
     if (!pausedScroll) {
         runtimeState().paused   = true;
-        runtimeState().playback = "paused";
+        assignText(runtimeState().playback, "paused");
         touchRuntimeState();
     }
     sout("OK pause scrollPaused=%d paused=%d", pausedScroll ? 1 : 0, runtimeState().paused ? 1 : 0);
@@ -809,7 +809,7 @@ void cmdResume(int, char**) {
     if (scrollSessionSnapshot().firmwareScrollPaused) resumedScroll = scrollSessionSetUserPaused(false);
     if (!resumedScroll) {
         runtimeState().paused   = false;
-        runtimeState().playback = DEFAULT_PLAYBACK;
+        assignText(runtimeState().playback, DEFAULT_PLAYBACK);
         touchRuntimeState();
     }
     sout("OK resume scrollResumed=%d paused=%d", resumedScroll ? 1 : 0, runtimeState().paused ? 1 : 0);
@@ -837,10 +837,10 @@ void cmdTerminate(int argc, char** argv) {
         setMode("manual", true);
     } else if (strcasecmp(target, "scroll") == 0 && isAutoMode()) {
         scrollSessionSetRestoreAuto(true);
-        runtimeState().mode = "manual";
+        assignText(runtimeState().mode, "manual");
         touchRuntimeState();
     }
-    sout("OK terminate target=%s mode=%s", target, runtimeState().mode.c_str());
+    sout("OK terminate target=%s mode=%s", target, runtimeState().mode);
 }
 
 // =============================================================================
@@ -907,7 +907,7 @@ void testButtons() {
 
     const String modeBefore = runtimeState().mode;
     runButtonAction("B3", "serial");
-    if (runtimeState().mode != modeBefore) tPass("buttons.b3_toggle", "from=%s to=%s", modeBefore.c_str(), runtimeState().mode.c_str());
+    if (strcmp(runtimeState().mode, modeBefore.c_str()) != 0) tPass("buttons.b3_toggle", "from=%s to=%s", modeBefore.c_str(), runtimeState().mode);
     else tFail("buttons.b3_toggle", "stuck=%s", modeBefore.c_str());
     runButtonAction("B3", "serial");  // toggle back
 
@@ -1019,7 +1019,7 @@ void testButtons() {
             tFail("buttons.combo_simultaneous_b3b1", "iv0=%lu iv1=%lu face=%u->%u",
                   (unsigned long)iv0, (unsigned long)iv1, f0, f1);
         // Simultaneous B3 released without combo-consume toggles mode; restore.
-        if (runtimeState().mode != m0) setMode(m0.c_str(), false);
+        if (strcmp(runtimeState().mode, m0.c_str()) != 0) setMode(m0.c_str(), false);
     }
 
     // (5) NOT a combo: B4+B5 pressed together. Each fires its own action once
@@ -1128,10 +1128,10 @@ void testSweeps() {
             for (int k = 0; k < 6; ++k) {
                 snprintf(hex, sizeof hex, "#%02x%02x%02x", LV[i], LV[j], LV[k]);
                 ++cTot;
-                if (!setColor(hex, err) || !(runtimeState().colorHex == hex)) ++cFail;
+                if (!setColor(hex, err) || strcmp(runtimeState().colorHex, hex) != 0) ++cFail;
             }
     static const char* BOUND[] = {"#000000", "#ffffff", "#ff0000", "#00ff00", "#0000ff", "#f971d4"};
-    for (const char* b : BOUND) { ++cTot; if (!setColor(b, err) || !(runtimeState().colorHex == b)) ++cFail; }
+    for (const char* b : BOUND) { ++cTot; if (!setColor(b, err) || strcmp(runtimeState().colorHex, b) != 0) ++cFail; }
     if (cFail == 0) tPass("sweep.color", "count=%d websafe+boundaries", cTot);
     else            tFail("sweep.color", "fail=%d/%d", cFail, cTot);
 

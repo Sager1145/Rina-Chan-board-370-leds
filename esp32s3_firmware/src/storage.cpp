@@ -75,7 +75,7 @@ bool writeStringToFileLocked(const char* path, const String& content) {
     return renamed;
 }
 
-bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize) {
+bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize, size_t maxBytes) {
     outBuf = nullptr;
     outSize = 0;
     bool exists = false;
@@ -85,6 +85,17 @@ bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize) 
     File file;
     withStorageLock([&]() { file = LittleFS.open(path, "r"); });
     if (!file) return false;
+
+    // Reject oversized files before allocating anything. A corrupt or maliciously
+    // large file would otherwise force a buffer allocation of its full size at boot,
+    // which can fail/boot-loop the board.
+    if (maxBytes != 0 && file.size() > maxBytes) {
+        const size_t actual = file.size();
+        withStorageLock([&]() { file.close(); });
+        Serial.printf("ERROR: %s too large (%u bytes > %u cap); refusing to load\n",
+                      path, static_cast<unsigned>(actual), static_cast<unsigned>(maxBytes));
+        return false;
+    }
 
     withStorageLock([&]() {
         outSize = file.size();
@@ -172,7 +183,7 @@ bool loadRuntimeSettings() {
     }
 
     Serial.printf("Runtime settings loaded: mode=%s autoIntervalMs=%lu\n",
-                  runtimeState().mode.c_str(),
+                  runtimeState().mode,
                   static_cast<unsigned long>(runtimeState().autoIntervalMs));
     return true;
 }
@@ -271,8 +282,8 @@ bool loadSavedFaces(bool applyStartupFace) {
     }
     size_t savedFacesSize = 0;
     char* contentBuf = nullptr;
-    if (!readBufferFromFileLocked(SAVED_FACES_PATH, contentBuf, savedFacesSize)) {
-        Serial.println("No saved_faces.json or failed to read; LED output starts blank");
+    if (!readBufferFromFileLocked(SAVED_FACES_PATH, contentBuf, savedFacesSize, SAVED_FACES_MAX_FILE_BYTES)) {
+        Serial.println("No saved_faces.json, too large, or failed to read; LED output starts blank");
         runtimeAutoFaceCount() = 0;
         touchRuntimeState();
         return false;
@@ -313,9 +324,9 @@ bool loadSavedFaces(bool applyStartupFace) {
         }
 
         RuntimeFace& runtime     = runtimeAutoFaces()[runtimeAutoFaceCount()++];
-        runtime.id               = String(face["id"] | "");
-        runtime.name             = String(face["name"] | runtime.id.c_str());
-        runtime.m370             = normalized;
+        assignText(runtime.id,   face["id"] | "");
+        assignText(runtime.name, face["name"] | runtime.id);
+        assignText(runtime.m370, normalized.c_str());
         runtime.order            = face["order"].is<int32_t>()
                                        ? face["order"].as<int32_t>()
                                        : static_cast<int32_t>(jsonIndex) + 1;
@@ -364,7 +375,7 @@ bool loadSavedFaces(bool applyStartupFace) {
     if (applyStartupFace) {
         String error;
         runtimeState().brightness = DEFAULT_BRIGHTNESS;
-        runtimeState().playback   = isAutoMode() ? "auto_saved_face" : DEFAULT_PLAYBACK;
+        assignText(runtimeState().playback, isAutoMode() ? "auto_saved_face" : DEFAULT_PLAYBACK);
         if (isAutoMode()) runtimeState().lastAutoSwitchMs = millis();
         runtimeState().paused     = false;
         if (!applyM370(runtimeAutoFaces()[runtimeState().autoFaceIndex].m370, STARTUP_FACE_REASON, error)) {

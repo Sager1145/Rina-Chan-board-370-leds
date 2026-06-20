@@ -120,6 +120,15 @@ constexpr uint32_t MAX_AUTO_INTERVAL_MS          = 10000;
 constexpr uint32_t AUTO_INTERVAL_BUTTON_STEP_MS  = 500;
 constexpr uint16_t MAX_AUTO_FACES                = 128;
 
+// Production safety: by default the ~144 KB scroll frame cache must live in PSRAM.
+// If PSRAM is missing/misconfigured/fails, do NOT silently fall back to internal
+// SRAM -- that starves WiFi/LwIP/WebServer/JSON of contiguous internal heap and
+// causes long-runtime OOM panics. Define ALLOW_INTERNAL_SCROLL_CACHE=1 at build
+// time only for boards intentionally run without PSRAM (text scroll degraded).
+#ifndef ALLOW_INTERNAL_SCROLL_CACHE
+#define ALLOW_INTERNAL_SCROLL_CACHE 0
+#endif
+
 constexpr uint16_t MAX_SCROLL_FRAMES             = 3072;
 constexpr uint16_t MIN_SCROLL_INTERVAL_MS        = M370_FRAME_MIN_INTERVAL_MS;
 constexpr uint16_t MAX_SCROLL_INTERVAL_MS        = 1000;
@@ -162,6 +171,15 @@ constexpr uint32_t SCROLL_MAX_UPLOAD_BODY_BYTES  = 16384;  // tighter cap on a s
 // WiFiClient default (~1000 ms) timeout (P1-B).
 constexpr uint32_t BIN_FRAME_READ_TIMEOUT_MS     = 50;
 
+// P1-6: an interrupted timeline upload (WebUI refresh / WiFi drop / browser abort mid-
+// upload) can leave a staged, never-completed replacement timeline in progress. It is
+// not playable (D2) and is replaced on the next upload, but we also reclaim it on a
+// timer so it cannot linger. Checked at most once per SCROLL_UPLOAD_STALE_CHECK_MS from
+// webServerTick(); a staged upload with no chunk activity for SCROLL_UPLOAD_STALE_
+// TIMEOUT_MS is abandoned (the active, playing timeline is never touched).
+constexpr uint32_t SCROLL_UPLOAD_STALE_TIMEOUT_MS = 10000;
+constexpr uint32_t SCROLL_UPLOAD_STALE_CHECK_MS   = 2000;
+
 constexpr uint32_t BUTTON_DEBOUNCE_MS            = 25;
 constexpr uint32_t FACE_REPEAT_DELAY_MS          = 650;
 constexpr uint32_t FACE_REPEAT_MS                = 350;
@@ -188,6 +206,11 @@ constexpr char STARTUP_FACE_REASON[]    = "startup_sequence_complete_saved_face"
 constexpr char LITTLEFS_BASE_PATH[]     = "/littlefs";
 constexpr char LITTLEFS_PARTITION_LABEL[] = "littlefs";
 constexpr char SAVED_FACES_PATH[]       = "/resources/saved_faces.json";
+// Hard cap on saved_faces.json read at load time. Matches the HTTP write cap so a
+// file we accepted over the API is always loadable, while a corrupt/oversized file
+// is rejected before allocating a buffer of its size. 128 faces * generous per-face
+// JSON stays well under this.
+constexpr size_t SAVED_FACES_MAX_FILE_BYTES = 65536;
 constexpr char SETTINGS_PATH[]          = "/resources/runtime_settings.json";
 
 #ifndef RINACHAN_VERBOSE_LOGS

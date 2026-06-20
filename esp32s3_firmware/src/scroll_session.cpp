@@ -19,11 +19,18 @@
 #include "led_renderer.h"
 #include "serial_log.h"
 #include <string.h>
+#include <Arduino.h>  // millis()
 
-bool isScrollPlayback(const String& playback) {
-    return playback == "scroll" ||
-           playback == "scroll_paused" ||
-           playback == "scroll_step";
+// P1-6: last time a scroll upload chunk was received (0 = no upload activity tracked).
+// Used to reclaim a staged replacement timeline that an interrupted upload left behind.
+static volatile uint32_t sScrollUploadActivityMs   = 0;
+static volatile bool     sScrollUploadStaleCleared = false;
+
+bool isScrollPlayback(const char* playback) {
+    if (!playback) return false;
+    return strcmp(playback, "scroll") == 0 ||
+           strcmp(playback, "scroll_paused") == 0 ||
+           strcmp(playback, "scroll_step") == 0;
 }
 
 bool scrollSessionGetRestoreAuto() {
@@ -59,10 +66,20 @@ static void resetFirmwareScrollStateLocked(bool clearTimelineMeta = false) {
     runtimeState().scrollFrameCount           = 0;
     runtimeState().scrollFrameIndex           = 0;
     runtimeState().paused                     = false;
-    if (clearTimelineMeta) clearScrollTimelineMetaLocked();
-    else invalidateScrollUploadLocked();
+    // Audit M1: a Stop/Clear or mode switch also aborts any in-progress staged replacement
+    // upload, so late-arriving chunks can never swap a new timeline in after the user has
+    // already stopped or switched away.
+    runtimeState().scrollStagingInProgress    = false;
+    runtimeState().scrollStagingFrameCount    = 0;
+    if (clearTimelineMeta) {
+        clearScrollTimelineMetaLocked();
+        clearScrollTimelineMetaStagingLocked();
+    } else {
+        invalidateScrollUploadLocked();
+        invalidateScrollStagingUploadLocked();
+    }
     if (isScrollPlayback(runtimeState().playback)) {
-        runtimeState().playback = DEFAULT_PLAYBACK;
+        assignText(runtimeState().playback, DEFAULT_PLAYBACK);
     }
 }
 
@@ -98,7 +115,7 @@ static bool setFirmwareScrollPauseFlag(bool userFlag, bool paused) {
         const bool eff = runtimeState().firmwareScrollUserPaused ||
                          runtimeState().firmwareScrollSystemPaused;
         const bool playbackChanges =
-            runtimeState().playback != (eff ? "scroll_paused" : "scroll");
+            strcmp(runtimeState().playback, eff ? "scroll_paused" : "scroll") != 0;
 
         runtimeState().firmwareScrollPaused = eff;
         runtimeState().paused               = eff;
@@ -114,7 +131,7 @@ static bool setFirmwareScrollPauseFlag(bool userFlag, bool paused) {
                   oldPaused != runtimeState().paused;
     });
 
-    if (applyPlaybackOutside) runtimeState().playback = playbackOutside;
+    if (applyPlaybackOutside) assignText(runtimeState().playback, playbackOutside);
     if (changed) touchRuntimeState();
     if (changed) {
         RLOG_INFO("SCROLL", "event=pause user=%d system=%d effective=%d",
@@ -160,7 +177,7 @@ bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits) {
     });
 
     if (hasSteppedFrame) {
-        runtimeState().playback = "scroll_step";  // Core-0 cooperative field; written outside the lock
+        assignText(runtimeState().playback, "scroll_step");  // Core-0 cooperative field; written outside the lock
         touchRuntimeState();
         RLOG_INFO("SCROLL", "event=step dir=%d idx=%u/%u",
                   direction < 0 ? -1 : 1,
@@ -228,7 +245,7 @@ ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode)
     });
 
     if (hasFirstFrame) {
-        runtimeState().playback = "scroll";
+        assignText(runtimeState().playback, "scroll");
         result.started = true;
         RLOG_INFO("SCROLL", "event=start count=%u interval_ms=%u restoreAuto=%d",
                   static_cast<unsigned>(runtimeState().scrollFrameCount),
@@ -257,9 +274,9 @@ void scrollSessionSetInterval(uint16_t intervalMs) {
 void scrollSessionMarkStoppedByButton(const String& button, const String& source) {
     ++runtimeState().scrollStopEventSeq;
     runtimeState().scrollStopEventMs     = millis();
-    runtimeState().scrollStopEventButton = button;
-    runtimeState().scrollStopEventSource = source;
-    runtimeState().scrollStopEventReason = runtimeState().lastReason;
+    assignText(runtimeState().scrollStopEventButton, button.c_str());
+    assignText(runtimeState().scrollStopEventSource, source.c_str());
+    assignText(runtimeState().scrollStopEventReason, runtimeState().lastReason);
     touchRuntimeState();
 }
 
@@ -268,11 +285,28 @@ ScrollUploadTxn scrollSessionBeginUpload(const ScrollUploadMeta& upload) {
     txn.append = false;
 
     withScrollLock([&]() {
-        runtimeState().scrollFrameCount = 0;
-        runtimeState().scrollFrameIndex = 0;
-        clearScrollTimelineMetaLocked();
+        // Audit M1: when a staging buffer exists, assemble the replacement timeline off to
+        // the side and leave the active (possibly playing) timeline completely untouched, so
+        // an interrupted/failed upload never loses the running scroll. Without the second
+        // buffer, fall back to the legacy in-place reset.
+        const bool staged = runtimeScrollDoubleBuffered();
+        txn.staged = staged;
 
-        ScrollTimelineMeta& meta = runtimeScrollMeta();
+        if (staged) {
+            runtimeState().scrollStagingFrameCount = 0;
+            runtimeState().scrollStagingInProgress = true;
+            runtimeState().scrollStagingIntervalMs = runtimeState().scrollIntervalMs;
+            clearScrollTimelineMetaStagingLocked();
+        } else {
+            runtimeState().scrollFrameCount = 0;
+            runtimeState().scrollFrameIndex = 0;
+            clearScrollTimelineMetaLocked();
+        }
+
+        ScrollTimelineMeta& meta = staged ? runtimeScrollStagingMeta() : runtimeScrollMeta();
+        char* sourceTextBuf = staged ? runtimeScrollStagingSourceText() : runtimeScrollSourceText();
+        const bool sourceTextReady = staged ? runtimeScrollStagingSourceTextReady()
+                                            : runtimeScrollSourceTextReady();
         if (upload.timelineId && upload.timelineId[0] != '\0') {
             strncpy(meta.timelineId, upload.timelineId, MAX_SCROLL_TIMELINE_ID_CHARS);
             meta.timelineId[MAX_SCROLL_TIMELINE_ID_CHARS] = '\0';
@@ -285,8 +319,8 @@ ScrollUploadTxn scrollSessionBeginUpload(const ScrollUploadMeta& upload) {
             strncpy(meta.generatorVersion, upload.generatorVersion, MAX_SCROLL_GENERATOR_CHARS);
             meta.generatorVersion[MAX_SCROLL_GENERATOR_CHARS] = '\0';
         }
-        if (upload.sourceText && runtimeScrollSourceTextReady()) {
-            memcpy(runtimeScrollSourceText(), upload.sourceText, static_cast<size_t>(upload.sourceTextBytes) + 1U);
+        if (upload.sourceText && sourceTextReady) {
+            memcpy(sourceTextBuf, upload.sourceText, static_cast<size_t>(upload.sourceTextBytes) + 1U);
             meta.sourceTextByteLength = upload.sourceTextBytes;
             meta.hasSourceText        = true;
         }
@@ -300,6 +334,9 @@ ScrollUploadTxn scrollSessionBeginUpload(const ScrollUploadMeta& upload) {
         memcpy(txn.timelineId, meta.timelineId, sizeof(txn.timelineId));
     });
 
+    // P1-6: a fresh upload starts the inactivity clock and clears any prior stale flag.
+    sScrollUploadActivityMs   = millis();
+    sScrollUploadStaleCleared = false;
     return txn;
 }
 
@@ -308,13 +345,20 @@ ScrollUploadTxn scrollSessionBeginAppend() {
     txn.append = true;
 
     withScrollLock([&]() {
-        const ScrollTimelineMeta& meta = runtimeScrollMeta();
+        // Audit M1: an append chunk belongs to the staged replacement upload when one is in
+        // progress; otherwise it extends the active timeline in place (legacy behavior, also
+        // the path taken on single-buffer boards).
+        const bool staged = runtimeScrollDoubleBuffered() &&
+                            runtimeState().scrollStagingInProgress;
+        txn.staged = staged;
+        const ScrollTimelineMeta& meta = staged ? runtimeScrollStagingMeta() : runtimeScrollMeta();
         txn.timelineBacked      = meta.timelineId[0] != '\0';
         txn.uploadComplete      = meta.uploadComplete;
         txn.nextChunkIndex      = meta.nextChunkIndex;
         txn.framesReceivedBase  = meta.framesReceived;
         txn.totalFramesExpected = meta.totalFramesExpected;
-        txn.baseIndex           = runtimeState().scrollFrameCount;
+        txn.baseIndex           = staged ? runtimeState().scrollStagingFrameCount
+                                         : runtimeState().scrollFrameCount;
         memcpy(txn.timelineId, meta.timelineId, sizeof(txn.timelineId));
     });
 
@@ -322,16 +366,22 @@ ScrollUploadTxn scrollSessionBeginAppend() {
 }
 
 bool scrollSessionWriteFrame(const ScrollUploadTxn& txn, uint16_t index, const uint8_t* packedBits) {
-    if (!packedBits || index >= MAX_SCROLL_FRAMES || !runtimeScrollFrameBufferReady()) return false;
+    if (!packedBits || index >= MAX_SCROLL_FRAMES) return false;
 
+    // Audit M1: a staged write lands in the off-screen staging buffer, which the render
+    // task never reads, so it can never corrupt the running timeline. The legacy in-place
+    // path still writes only indices at/after the current frame count, which the render
+    // task never reads either -- hence the memcpy stays safely outside the scroll lock.
     bool writable = false;
     withScrollLock([&]() {
-        writable = index >= runtimeState().scrollFrameCount ||
-                   (!txn.append && runtimeState().scrollFrameCount == 0);
+        const uint16_t cursorCount = txn.staged ? runtimeState().scrollStagingFrameCount
+                                                : runtimeState().scrollFrameCount;
+        writable = index >= cursorCount || (!txn.append && cursorCount == 0);
     });
     if (!writable) return false;
 
-    uint8_t* target = runtimeScrollFrameBits(index);
+    uint8_t* target = txn.staged ? runtimeScrollStagingFrameBits(index)
+                                 : runtimeScrollFrameBits(index);
     if (!target) return false;
     memcpy(target, packedBits, FRAME_BYTES);
     return true;
@@ -342,6 +392,36 @@ ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_
     ScrollUploadResult result;
 
     withScrollLock([&]() {
+        if (txn.staged) {
+            // Audit M1: accumulate into the staging timeline only. The active (possibly
+            // playing) timeline is left untouched here; the atomic swap that makes the new
+            // timeline live happens later in scrollSessionPromoteStaging(), driven by
+            // handleApiScroll's shouldStart decision (which correctly covers both
+            // timeline-backed and legacy totalFrames==0 uploads). Interval is recorded now
+            // but only applied to scrollIntervalMs at promotion, so the old timeline is
+            // never re-timed mid-upload.
+            const uint16_t stagedCount = static_cast<uint16_t>(txn.baseIndex + count);
+            runtimeState().scrollStagingFrameCount = stagedCount;
+            if (hasExplicitTiming) {
+                runtimeState().scrollStagingIntervalMs =
+                    constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+            }
+
+            ScrollTimelineMeta& smeta = runtimeScrollStagingMeta();
+            smeta.framesReceived = static_cast<uint16_t>(txn.framesReceivedBase + count);
+            if (txn.append) smeta.nextChunkIndex = static_cast<uint16_t>(txn.nextChunkIndex + 1U);
+            if (smeta.totalFramesExpected > 0 && smeta.framesReceived >= smeta.totalFramesExpected) {
+                smeta.uploadComplete = true;
+            }
+
+            result.frameCount     = stagedCount;
+            result.uploadComplete = smeta.uploadComplete;
+            memcpy(result.timelineId, smeta.timelineId, sizeof(result.timelineId));
+            return;
+        }
+
+        // Legacy in-place path (single-buffer boards, or appends extending the active
+        // timeline). Unchanged behavior.
         runtimeState().scrollFrameCount = static_cast<uint16_t>(txn.baseIndex + count);
         if (!txn.append || (!runtimeState().firmwareScrollActive && !runtimeState().firmwareScrollPaused)) {
             runtimeState().scrollFrameIndex = 0;
@@ -363,11 +443,79 @@ ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_
         memcpy(result.timelineId, meta.timelineId, sizeof(result.timelineId));
     });
 
+    // P1-6: each accepted chunk refreshes the inactivity clock.
+    sScrollUploadActivityMs = millis();
     return result;
+}
+
+// P1-6: reclaim a staged replacement timeline left in progress by an interrupted upload
+// (no chunk activity for timeoutMs). Only the off-screen staging buffer is touched, so
+// the active/playing timeline is never disturbed. Single-buffer boards are intentionally
+// left alone (an incomplete in-place upload is non-playable per D2 and is overwritten by
+// the next upload). Returns true if a stale upload was cleared.
+bool scrollSessionClearStaleUpload(uint32_t timeoutMs) {
+    bool cleared = false;
+    withScrollLock([&]() {
+        if (!runtimeScrollDoubleBuffered()) return;
+        if (!runtimeState().scrollStagingInProgress) return;
+        if (runtimeScrollStagingMeta().uploadComplete) return;
+        if (sScrollUploadActivityMs == 0) return;
+        if (millis() - sScrollUploadActivityMs < timeoutMs) return;
+        runtimeState().scrollStagingFrameCount = 0;
+        runtimeState().scrollStagingInProgress = false;
+        invalidateScrollStagingUploadLocked();
+        cleared = true;
+    });
+    if (cleared) {
+        sScrollUploadActivityMs   = 0;
+        sScrollUploadStaleCleared = true;
+        RLOG_WARN("SCROLL", "event=upload_stale_cleared timeout_ms=%u",
+                  static_cast<unsigned>(timeoutMs));
+    }
+    return cleared;
+}
+
+// One-shot read of the "a stale upload was cleared" flag for status reporting.
+bool scrollSessionConsumeUploadStaleCleared() {
+    if (!sScrollUploadStaleCleared) return false;
+    sScrollUploadStaleCleared = false;
+    return true;
+}
+
+bool scrollSessionPromoteStaging() {
+    bool promoted = false;
+    withScrollLock([&]() {
+        if (!runtimeScrollDoubleBuffered() || !runtimeState().scrollStagingInProgress) return;
+        if (runtimeState().scrollStagingFrameCount == 0) return;
+        // Audit M1: atomic swap of the just-uploaded staging timeline into the active slot,
+        // under the same scroll lock the render task uses. The render task therefore only
+        // ever sees the old buffer or the fully-written new buffer, never a partial write.
+        runtimeCommitScrollStagingSwap();
+        runtimeState().scrollFrameCount        = runtimeState().scrollStagingFrameCount;
+        runtimeState().scrollFrameIndex        = 0;
+        runtimeState().scrollIntervalMs        = runtimeState().scrollStagingIntervalMs;
+        runtimeState().scrollStagingInProgress = false;
+        runtimeState().scrollStagingFrameCount = 0;
+        promoted = true;
+    });
+    if (promoted) {
+        RLOG_INFO("SCROLL", "event=staging_swap frames=%u interval_ms=%u",
+                  static_cast<unsigned>(runtimeState().scrollFrameCount),
+                  static_cast<unsigned>(runtimeState().scrollIntervalMs));
+    }
+    return promoted;
 }
 
 void scrollSessionInvalidateCache() {
     withScrollLock([]() {
+        if (runtimeScrollDoubleBuffered() && runtimeState().scrollStagingInProgress) {
+            // Audit M1: a staged upload failed mid-stream (bad frame / overflow). Discard the
+            // half-built staging timeline and leave the running active timeline untouched.
+            runtimeState().scrollStagingFrameCount = 0;
+            runtimeState().scrollStagingInProgress = false;
+            invalidateScrollStagingUploadLocked();
+            return;
+        }
         runtimeState().scrollFrameCount = 0;
         invalidateScrollUploadLocked();
     });
@@ -415,11 +563,19 @@ bool scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize
             out.frameCount                = 0;
             out.frameIndex                = 0;
         } else if (out.meta.hasSourceText && runtimeScrollSourceTextReady()) {
-            const size_t bytesToCopy = static_cast<size_t>(out.meta.sourceTextByteLength) + 1U;
-            if (textBuf && textBufSize >= bytesToCopy) {
-                memcpy(textBuf, runtimeScrollSourceText(), bytesToCopy);
+            // A null textBuf means the caller wants lightweight metadata only (e.g.
+            // the polled /api/scroll/meta path): skip the text copy but keep
+            // hasSourceText / sourceTextByteLength populated so the WebUI knows text
+            // is available to fetch on demand. This is NOT a failure.
+            if (textBuf == nullptr) {
+                // intentionally no copy; copied stays true
             } else {
-                copied = false;
+                const size_t bytesToCopy = static_cast<size_t>(out.meta.sourceTextByteLength) + 1U;
+                if (textBufSize >= bytesToCopy) {
+                    memcpy(textBuf, runtimeScrollSourceText(), bytesToCopy);
+                } else {
+                    copied = false;
+                }
             }
         }
     });

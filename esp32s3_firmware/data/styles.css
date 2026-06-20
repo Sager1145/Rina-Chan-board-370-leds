@@ -2215,6 +2215,13 @@
   .scroll-restore-warning[hidden] {
     display: none;
   }
+  .scroll-restore-btn {
+    align-self: flex-start;
+    margin-top: 6px;
+  }
+  .scroll-restore-btn[hidden] {
+    display: none;
+  }
   .status-dot {
     width: 9px;
     height: 9px;
