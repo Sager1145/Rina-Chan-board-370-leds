@@ -4,6 +4,8 @@
 
 #include <Arduino.h>
 #include <stdio.h>
+#include <stdarg.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
@@ -66,15 +68,9 @@ bool parsePackedHex(const char* hex, uint8_t* out) {
 void printStatus() {
     const FrameStateSnapshot f = readFrameStateSnapshot();
     sout("=== STATUS BEGIN ===");
-    sout("STATUS mode=%s playback=%s paused=%d brightness=%u color=%s",
-         runtimeState().mode.c_str(), runtimeState().playback.c_str(), runtimeState().paused ? 1 : 0,
-         f.brightness, f.colorHex);
-    sout("STATUS faceIndex=%u faceCount=%u intervalMs=%lu",
-         static_cast<unsigned>(runtimeState().autoFaceIndex), static_cast<unsigned>(runtimeAutoFaceCount()),
-         static_cast<unsigned long>(runtimeState().autoIntervalMs));
-    sout("STATUS frameEncoding=packed-lsb-first frameBytes=%u lit=%u queued=%u accepted=%lu lastReason=%s",
-         static_cast<unsigned>(FRAME_BYTES), static_cast<unsigned>(f.litLeds),
-         static_cast<unsigned>(queuedPackedFrameCount()), static_cast<unsigned long>(f.framesAccepted), f.lastReason);
+    sout("STATUS mode=%s playback=%s paused=%d brightness=%u color=%s", runtimeState().mode.c_str(), runtimeState().playback.c_str(), runtimeState().paused ? 1 : 0, f.brightness, f.colorHex);
+    sout("STATUS faceIndex=%u faceCount=%u intervalMs=%lu", static_cast<unsigned>(runtimeState().autoFaceIndex), static_cast<unsigned>(runtimeAutoFaceCount()), static_cast<unsigned long>(runtimeState().autoIntervalMs));
+    sout("STATUS frameEncoding=packed-lsb-first frameBytes=%u lit=%u queued=%u accepted=%lu lastReason=%s", static_cast<unsigned>(FRAME_BYTES), static_cast<unsigned>(f.litLeds), static_cast<unsigned>(queuedPackedFrameCount()), static_cast<unsigned long>(f.framesAccepted), f.lastReason);
     sout("=== STATUS END ===");
 }
 
@@ -97,11 +93,7 @@ void runLine(char* line) {
     if (strcasecmp(argv[0], "help") == 0) { printHelp(); return; }
     if (strcasecmp(argv[0], "status") == 0) { printStatus(); return; }
     if (strcasecmp(argv[0], "frame") == 0 && argc >= 2) {
-        if (strcasecmp(argv[1], "clear") == 0) {
-            applyBlankFrame("serial_frame_clear");
-            sout("OK frame clear");
-            return;
-        }
+        if (strcasecmp(argv[1], "clear") == 0) { applyBlankFrame("serial_frame_clear"); sout("OK frame clear"); return; }
         if (strcasecmp(argv[1], "hex") == 0 && argc >= 3) {
             uint8_t packed[FRAME_BYTES];
             if (!parsePackedHex(argv[2], packed)) { sout("ERR frame invalid packed hex"); return; }
@@ -111,41 +103,20 @@ void runLine(char* line) {
             return;
         }
     }
-    if (strcasecmp(argv[0], "btn") == 0 && argc >= 2) {
-        if (runButtonAction(String(argv[1]), "serial")) sout("OK btn %s", argv[1]);
-        else sout("ERR btn invalid");
-        return;
-    }
-    if (strcasecmp(argv[0], "color") == 0 && argc >= 2) {
-        String error;
-        if (setColor(String(argv[1]), error)) sout("OK color %s", runtimeState().colorHex.c_str());
-        else sout("ERR color %s", error.c_str());
-        return;
-    }
-    if (strcasecmp(argv[0], "bright") == 0 && argc >= 2) {
-        setBrightness(atoi(argv[1]));
-        sout("OK bright %u", runtimeState().brightness);
-        return;
-    }
+    if (strcasecmp(argv[0], "btn") == 0 && argc >= 2) { if (runButtonAction(String(argv[1]), "serial")) sout("OK btn %s", argv[1]); else sout("ERR btn invalid"); return; }
+    if (strcasecmp(argv[0], "color") == 0 && argc >= 2) { String error; if (setColor(String(argv[1]), error)) sout("OK color %s", runtimeState().colorHex.c_str()); else sout("ERR color %s", error.c_str()); return; }
+    if (strcasecmp(argv[0], "bright") == 0 && argc >= 2) { setBrightness(atoi(argv[1])); sout("OK bright %u", runtimeState().brightness); return; }
     sout("ERR unknown command; type help");
 }
 }  // namespace
 
-void initSerialConsole() {
-    sLineLen = 0;
-    sout("Serial console ready. Type help.");
-}
+void initSerialConsole() { sLineLen = 0; sout("Serial console ready. Type help."); }
 
 void serviceSerialConsole() {
     while (Serial.available() > 0) {
         const char c = static_cast<char>(Serial.read());
         if (c == '\r') continue;
-        if (c == '\n') {
-            sLine[sLineLen] = '\0';
-            runLine(sLine);
-            sLineLen = 0;
-            continue;
-        }
+        if (c == '\n') { sLine[sLineLen] = '\0'; runLine(sLine); sLineLen = 0; continue; }
         if (sLineLen + 1 < SERIAL_CMD_MAX) sLine[sLineLen++] = c;
         else sLineLen = 0;
     }
