@@ -149,8 +149,18 @@ constexpr uint8_t  MAX_SCROLL_GENERATOR_CHARS   = 47;
 // mode-independent (manual / auto / scroll) because every mode shares these
 // endpoints. The floor leaves headroom for one heavy response plus the WiFi stack.
 constexpr uint32_t HTTP_MIN_FREE_HEAP_BYTES      = 40960;  // 40 KB internal-heap admission floor
+// Free heap alone is not enough: internal DRAM fragments over long uptime (per-poll
+// JSON response Strings, WiFi/LwIP churn), so total free can stay high while the
+// largest *contiguous* block shrinks below what one response or a WiFi buffer needs.
+// A contiguous allocation then panics even though getFreeHeap() looks healthy. We
+// therefore also require a minimum largest-free-block before doing big allocations.
+constexpr uint32_t HTTP_MIN_LARGEST_BLOCK_BYTES  = 20480;  // 20 KB largest contiguous internal block
 constexpr uint32_t HTTP_MAX_REQUEST_BODY_BYTES   = 65536;  // hard cap on any POST body we will parse
 constexpr uint32_t SCROLL_MAX_UPLOAD_BODY_BYTES  = 16384;  // tighter cap on a single /api/scroll chunk body
+// /api/frame_bin reads its body straight off the raw socket. Bound each blocking
+// read so a slow/lossy client cannot stall the Core-0 cooperative loop for the
+// WiFiClient default (~1000 ms) timeout (P1-B).
+constexpr uint32_t BIN_FRAME_READ_TIMEOUT_MS     = 50;
 
 constexpr uint32_t BUTTON_DEBOUNCE_MS            = 25;
 constexpr uint32_t FACE_REPEAT_DELAY_MS          = 650;

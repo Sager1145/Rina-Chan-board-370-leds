@@ -187,11 +187,44 @@ static void streamFileChunked(File& file, const char* contentType) {
     if (heapBuffer) free(heapBuffer);
 }
 
+// Streams a JsonDocument to the HTTP client in fixed-size chunks (P1-A). The old
+// path serialized the whole response into an Arduino String that grows by
+// doubling-reallocation in internal DRAM, then WebServer copied it again -- the
+// dominant source of internal-heap fragmentation under sustained WebUI polling.
+// This adapter sends the body with a known Content-Length and never holds more
+// than its 512-byte chunk buffer of contiguous DRAM, mirroring streamFileChunked()'s
+// proven setContentLength()+send("")+sendContent() pattern.
+class ChunkedJsonPrint final : public Print {
+public:
+    explicit ChunkedJsonPrint(WebServer& srv) : server_(srv) {}
+    size_t write(uint8_t b) override {
+        buf_[len_++] = static_cast<char>(b);
+        if (len_ == sizeof(buf_)) flush();
+        return 1;
+    }
+    size_t write(const uint8_t* data, size_t size) override {
+        for (size_t i = 0; i < size; ++i) write(data[i]);
+        return size;
+    }
+    void finish() { flush(); }
+private:
+    void flush() {
+        if (len_ == 0) return;
+        server_.sendContent(buf_, len_);
+        len_ = 0;
+    }
+    WebServer& server_;
+    char   buf_[512];
+    size_t len_ = 0;
+};
+
 static void sendJsonDocument(int status, JsonDocument& doc) {
-    String out;
-    serializeJson(doc, out);
     addCorsHeaders();
-    server.send(status, CONTENT_TYPE_JSON_UTF8, out);
+    server.setContentLength(measureJson(doc));
+    server.send(status, CONTENT_TYPE_JSON_UTF8, "");
+    ChunkedJsonPrint sink(server);
+    serializeJson(doc, sink);
+    sink.finish();
 }
 
 static void sendError(int status, const String& message) {
@@ -202,6 +235,41 @@ static void sendError(int status, const String& message) {
     String out;
     serializeJson(doc, out);
     server.send(status, CONTENT_TYPE_JSON_UTF8, out);
+}
+
+// HTTP memory admission guard -- crash protection against sudden WebUI refreshes.
+//
+// A refresh aborts the in-flight request and fires a burst of new ones, each of
+// which allocates internal DRAM (body copy, JSON response String, temporaries). If
+// a burst lands while internal heap is low/fragmented, an allocation -- ours or the
+// WiFi/LwIP stack's -- can fail and panic the board. Calling this at the top of a
+// dynamic handler sheds the request with 503 (instead of allocating and risking an
+// OOM crash) whenever free internal heap is below HTTP_MIN_FREE_HEAP_BYTES. Returns
+// true when the request was rejected; the caller must then return immediately.
+//
+// Mode-independent: every mode (manual / auto / scroll) shares these endpoints, so
+// guarding them here protects all of them. The check itself allocates nothing
+// except the small 503 body, which is only built when we are already shedding load.
+static bool httpRejectIfLowMemory(const char* what) {
+    const uint32_t freeHeap = ESP.getFreeHeap();
+    // Fragmentation guard (P1-A): plenty of free bytes but a small largest
+    // contiguous block will still OOM-panic on a contiguous allocation (a response
+    // buffer, or a WiFi/LwIP buffer). Shed when EITHER total free OR the largest
+    // internal block is below its floor, so fragmentation can no longer slip past.
+    const uint32_t largestBlock =
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (freeHeap >= HTTP_MIN_FREE_HEAP_BYTES &&
+        largestBlock >= HTTP_MIN_LARGEST_BLOCK_BYTES) {
+        return false;
+    }
+    RLOG_WARN("WEB", "event=shed_low_heap what=%s freeHeap=%u floor=%u largest=%u largestFloor=%u",
+              what ? what : "?", static_cast<unsigned>(freeHeap),
+              static_cast<unsigned>(HTTP_MIN_FREE_HEAP_BYTES),
+              static_cast<unsigned>(largestBlock),
+              static_cast<unsigned>(HTTP_MIN_LARGEST_BLOCK_BYTES));
+    server.sendHeader("Retry-After", "1");
+    sendError(503, "device temporarily low on memory; please retry");
+    return true;
 }
 
 static uint16_t statusNextPollMs(bool scrolling, bool summaryOnly) {
@@ -710,6 +778,9 @@ static void handleApiFrame() {
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
     if (server.method() != HTTP_POST)    { sendError(405, "method not allowed"); return; }
 
+    // Crash protection (manual mode): shed live frame draws under low heap.
+    if (httpRejectIfLowMemory("frame")) return;
+
 #if ENABLE_PERF_PROFILING
     uint32_t tParseStart = micros();
 #endif
@@ -868,6 +939,29 @@ static String getBinaryReasonString(uint8_t reasonEnum) {
     }
 }
 
+// Read exactly `len` bytes from the raw socket with a hard wall-clock deadline.
+// Used instead of WiFiClient::readBytes()/setTimeout() because the latter blocks
+// up to the ~1000 ms default stream timeout per call (P1-B: a slow/lossy client
+// would stall the whole Core-0 cooperative loop), and because setTimeout()'s unit
+// (seconds vs milliseconds) is not consistent across arduino-esp32 versions. This
+// helper is unambiguous: it never blocks longer than timeoutMs total and yields to
+// the scheduler while waiting. Returns true only when all bytes arrived in time.
+static bool readSocketBytesBounded(WiFiClient& client, uint8_t* out, size_t len,
+                                   uint32_t timeoutMs) {
+    const uint32_t start = millis();
+    size_t got = 0;
+    while (got < len) {
+        if (client.available() > 0) {
+            const int n = client.read(out + got, len - got);
+            if (n > 0) { got += static_cast<size_t>(n); continue; }
+        }
+        if (!client.connected() && client.available() == 0) return false;
+        if (millis() - start >= timeoutMs) return false;
+        vTaskDelay(pdMS_TO_TICKS(1));  // yield; total wait bounded by timeoutMs
+    }
+    return true;
+}
+
 static void handleApiFrameBin() {
 #if ENABLE_PERF_PROFILING
     uint32_t t0 = micros();
@@ -875,10 +969,14 @@ static void handleApiFrameBin() {
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
     if (server.method() != HTTP_POST)    { sendError(405, "method not allowed"); return; }
 
+    // Crash protection (parity with the JSON frame path): shed under low/fragmented
+    // heap before touching frame state or the WiFi stack.
+    if (httpRejectIfLowMemory("frame_bin")) return;
+
     WiFiClient client = server.client();
-    
+
     uint8_t header[6];
-    if (client.readBytes(header, 6) != 6) {
+    if (!readSocketBytesBounded(client, header, 6, BIN_FRAME_READ_TIMEOUT_MS)) {
         sendError(400, "incomplete binary header");
         return;
     }
@@ -918,7 +1016,7 @@ static void handleApiFrameBin() {
 
     if (type == 1) {
         uint8_t packed[FRAME_BYTES];
-        if (client.readBytes(packed, FRAME_BYTES) != FRAME_BYTES) {
+        if (!readSocketBytesBounded(client, packed, FRAME_BYTES, BIN_FRAME_READ_TIMEOUT_MS)) {
             sendError(400, "incomplete binary frame body");
             return;
         }
@@ -936,25 +1034,31 @@ static void handleApiFrameBin() {
         return;
     } else if (type == 2) {
         uint8_t countByte;
-        if (client.readBytes(&countByte, 1) != 1) {
+        if (!readSocketBytesBounded(client, &countByte, 1, BIN_FRAME_READ_TIMEOUT_MS)) {
             sendError(400, "incomplete binary delta count");
             return;
         }
-        
+
         uint16_t count = countByte;
         uint16_t indices[256];
         bool values[256];
-        
+
+        // P1-B: read the whole delta body in ONE bounded read instead of `count`
+        // separate blocking reads. Previously up to 255 sequential reads could each
+        // stall for the socket timeout, multiplying the worst-case Core-0 freeze.
+        const size_t bodyBytes = static_cast<size_t>(count) * 3U;
+        uint8_t entryBuf[256 * 3];
+        if (count > 0 &&
+            !readSocketBytesBounded(client, entryBuf, bodyBytes, BIN_FRAME_READ_TIMEOUT_MS)) {
+            sendError(400, "incomplete binary delta body");
+            return;
+        }
         for (uint16_t i = 0; i < count; i++) {
-            uint8_t entry[3];
-            if (client.readBytes(entry, 3) != 3) {
-                sendError(400, "incomplete binary delta entry");
-                return;
-            }
+            const uint8_t* entry = &entryBuf[static_cast<size_t>(i) * 3U];
             indices[i] = (uint16_t)entry[0] | ((uint16_t)entry[1] << 8);
             values[i] = entry[2] != 0;
         }
-        
+
         String error;
         clearQueuedM370Frames();
         if (!applyLedDeltasImmediate(indices, values, count, reason, error)) {
@@ -1005,8 +1109,20 @@ static void handleApiScroll() {
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
     if (server.method() != HTTP_POST)    { sendError(405, "method not allowed"); return; }
 
+    // Crash protection: shed the request if internal heap is too low to parse a
+    // chunk body + build the JSON reply. Prevents an OOM panic when a WebUI refresh
+    // bursts requests during an upload (see config.h HTTP_MIN_FREE_HEAP_BYTES).
+    if (httpRejectIfLowMemory("scroll_upload")) return;
+
     const String body = requestBody();
     if (body.isEmpty()) { sendError(400, "empty JSON body"); return; }
+    // Bound the body we are willing to parse. The WebUI keeps a single chunk well
+    // under this; rejecting anything larger caps per-request DRAM and stops a
+    // malformed/huge body from exhausting the heap.
+    if (body.length() > SCROLL_MAX_UPLOAD_BODY_BYTES) {
+        sendError(413, String("scroll chunk body exceeds ") + SCROLL_MAX_UPLOAD_BODY_BYTES + " bytes");
+        return;
+    }
 
     String jsonError;
     if (!jsonValidateCompleteObject(body, jsonError)) {
@@ -1275,6 +1391,11 @@ static void handleApiScroll() {
 static void handleApiScrollMeta() {
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
     if (server.method() != HTTP_GET)     { sendError(405, "method not allowed"); return; }
+
+    // Crash protection: this handler builds a large (PSRAM) doc and serializes it
+    // into a DRAM String. Shed the read if internal heap is low so a refresh-time
+    // burst of meta reads cannot OOM-panic the board.
+    if (httpRejectIfLowMemory("scroll_meta")) return;
 
     ScrollMetaOut metaOut;
 
@@ -1635,6 +1756,11 @@ static void buildCommandReply(JsonObject reply, const String& cmd, const ScrollS
 static void handleApiCommand() {
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
     if (server.method() != HTTP_POST)    { sendError(405, "method not allowed"); return; }
+
+    // Crash protection (any mode): commands drive mode switches, scroll start/stop,
+    // etc. Shed under low heap rather than allocate the parse doc and risk a panic.
+    if (httpRejectIfLowMemory("command")) return;
+
     String error;
     PsramJsonDocument doc(2048);
     if (!parseJsonBody(doc, error)) {
@@ -1715,10 +1841,21 @@ static void handleSavedFacesPost() {
         sendError(503, "LittleFS is not mounted; cannot write saved_faces.json"); return;
     }
 
+    // Crash protection: this parses a potentially large faces JSON (body copy + a
+    // PSRAM doc sized to the body) and then writes flash. Shed it when internal heap
+    // is low so a refresh-time burst cannot OOM-panic the board.
+    if (httpRejectIfLowMemory("saved_faces_write")) return;
+
     const String body = requestBody();
     if (body.isEmpty()) {
         RLOG_WARN("CMD", "event=reject source=webui cmd=saved_faces_write err=empty_body");
         sendError(400, "empty JSON body"); return;
+    }
+    if (body.length() > HTTP_MAX_REQUEST_BODY_BYTES) {
+        RLOG_WARN("CMD", "event=reject source=webui cmd=saved_faces_write err=body_too_large bytes=%u",
+                  static_cast<unsigned>(body.length()));
+        sendError(413, String("saved_faces body exceeds ") + HTTP_MAX_REQUEST_BODY_BYTES + " bytes");
+        return;
     }
 
     const size_t capacity = jsonCapacityFor(body.length());
