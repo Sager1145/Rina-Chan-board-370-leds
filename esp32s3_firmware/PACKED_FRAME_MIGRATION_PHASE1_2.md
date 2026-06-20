@@ -1,6 +1,6 @@
 # Packed frame migration Phase 1/2
 
-This document records the intended active migration away from M370 string frames.
+This document records the active migration away from M370 string frames.
 
 ## Protocol decision
 
