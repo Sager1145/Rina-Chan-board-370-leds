@@ -19,7 +19,7 @@ struct QueuedPackedFrame {
     char    reason[PACKED_FRAME_REASON_CHARS] = "";
 };
 
-static QueuedPackedFrame packedFrameQueue[M370_FRAME_QUEUE_DEPTH];
+static QueuedPackedFrame packedFrameQueue[PACKED_FRAME_QUEUE_DEPTH];
 static uint8_t packedFrameQueueHead = 0;
 static uint8_t packedFrameQueueCount = 0;
 static uint32_t lastPackedFrameApplyMs = 0;
@@ -40,11 +40,11 @@ static uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
 }
 
 static uint8_t packedFrameQueueTail() {
-    return static_cast<uint8_t>((packedFrameQueueHead + packedFrameQueueCount) % M370_FRAME_QUEUE_DEPTH);
+    return static_cast<uint8_t>((packedFrameQueueHead + packedFrameQueueCount) % PACKED_FRAME_QUEUE_DEPTH);
 }
 
 static bool packedFrameRateReady(uint32_t now) {
-    return lastPackedFrameApplyMs == 0 || millisElapsed(now, lastPackedFrameApplyMs, M370_FRAME_MIN_INTERVAL_MS);
+    return lastPackedFrameApplyMs == 0 || millisElapsed(now, lastPackedFrameApplyMs, PACKED_FRAME_MIN_INTERVAL_MS);
 }
 
 static void copyText(char* out, size_t outSize, const char* input) {
@@ -90,9 +90,9 @@ static void enqueuePackedFrame(const uint8_t* packedBits, const String& reason) 
         return;
     }
     uint8_t target = packedFrameQueueTail();
-    if (packedFrameQueueCount >= M370_FRAME_QUEUE_DEPTH) {
+    if (packedFrameQueueCount >= PACKED_FRAME_QUEUE_DEPTH) {
         target = packedFrameQueueHead;
-        packedFrameQueueHead = static_cast<uint8_t>((packedFrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
+        packedFrameQueueHead = static_cast<uint8_t>((packedFrameQueueHead + 1) % PACKED_FRAME_QUEUE_DEPTH);
         ++runtimeState().framesDropped;
     } else {
         ++packedFrameQueueCount;
@@ -259,7 +259,7 @@ void servicePackedFrameQueue() {
     const uint32_t now = millis();
     if (!packedFrameRateReady(now)) return;
     QueuedPackedFrame& item = packedFrameQueue[packedFrameQueueHead];
-    packedFrameQueueHead = static_cast<uint8_t>((packedFrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
+    packedFrameQueueHead = static_cast<uint8_t>((packedFrameQueueHead + 1) % PACKED_FRAME_QUEUE_DEPTH);
     --packedFrameQueueCount;
     ++runtimeState().framesDequeued;
     publishPackedFrameNow(item.bits, item.reason);
