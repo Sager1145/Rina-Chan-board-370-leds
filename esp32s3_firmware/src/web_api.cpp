@@ -47,6 +47,11 @@ static const char CONTENT_TYPE_JSON_UTF8[] = "application/json; charset=utf-8";
 static const char CONTENT_TYPE_HTML_UTF8[] = "text/html; charset=utf-8";
 static const char CONTENT_TYPE_TEXT_PLAIN[] = "text/plain";
 static const uint16_t STATIC_STREAM_CHUNK_BYTES = 8192;
+// While firmware text scroll is on the LED panel, each contiguous LittleFS (flash)
+// read on Core 0 must stay short: a long read disables the cache and stalls Core 1,
+// starving the timing-critical WS2812/RMT transmit and garbling the panel. During an
+// active scroll we therefore read in smaller chunks and yield after every chunk.
+static const uint16_t STATIC_STREAM_CHUNK_SCROLL_BYTES = 1024;
 static const TickType_t WEB_YIELD_TICKS = pdMS_TO_TICKS(1);
 static const size_t WEB_YIELD_EVERY_CHUNKS = 4;
 
@@ -91,8 +96,16 @@ static void addCorsHeaders() {
 
 static void addStaticAssetHeaders(const String& path) {
     server.sendHeader("Access-Control-Allow-Origin", "*");
-    if (path.endsWith(".html") || path.endsWith(".htm") ||
-        path.endsWith(".js") || path.endsWith(".css")) {
+    // Only the entry document (index.html) is served no-cache, so a freshly flashed
+    // build's fingerprinted "?v=<hash>" asset URLs are always picked up. Every other
+    // asset (js/css/woff2/png/json/...) is referenced with a content-hash "?v=" query
+    // that is rewritten at build time by scripts/gzip_webui_assets.py, so its URL
+    // changes whenever the bytes change. That makes those assets safe to cache
+    // immutably -- and, crucially, it stops a plain WebUI refresh from re-streaming
+    // ~100KB+ of app.js / styles.css out of LittleFS (flash) on every reload. Those
+    // sustained flash reads on Core 0 were stalling the cache and starving the Core-1
+    // WS2812/RMT transmit, which corrupted ("乱码") the LED panel during text scrolling.
+    if (path.endsWith(".html") || path.endsWith(".htm")) {
         server.sendHeader("Cache-Control", "no-cache");
     } else {
         server.sendHeader("Cache-Control", "public, max-age=31536000, immutable");
@@ -133,16 +146,32 @@ static void streamFileChunked(File& file, const char* contentType) {
     server.setContentLength(fileSizeLocked(file));
     server.send(200, contentType, "");
 
-    uint8_t* heapBuffer = static_cast<uint8_t*>(malloc(STATIC_STREAM_CHUNK_BYTES));
+    // When the LED panel is actively scrolling text, shorten each flash read and yield
+    // after every chunk so the Core-1 WS2812/RMT transmit is not starved by a long
+    // cache-disabling read on Core 0 (the root cause of refresh-time panel garble).
+    // Checked once per request (not per chunk) to avoid extra scroll-lock traffic.
+    const bool scrollDisplaying = scrollSessionSnapshot().scrolling();
+    const size_t requestChunk = scrollDisplaying ? STATIC_STREAM_CHUNK_SCROLL_BYTES
+                                                  : STATIC_STREAM_CHUNK_BYTES;
+    const size_t yieldEvery   = scrollDisplaying ? 1U : WEB_YIELD_EVERY_CHUNKS;
+
+    uint8_t* heapBuffer = static_cast<uint8_t*>(malloc(requestChunk));
     uint8_t  stackFallback[512];
     uint8_t* buffer    = heapBuffer ? heapBuffer : stackFallback;
-    const size_t chunkBytes = heapBuffer ? STATIC_STREAM_CHUNK_BYTES : sizeof(stackFallback);
+    const size_t chunkBytes = heapBuffer ? requestChunk : sizeof(stackFallback);
 
     size_t chunksSent = 0;
     while (true) {
         size_t bytesRead = 0;
         bool hasData = false;
 
+        // The flash read below is automatically serialized against the Core-1 WS2812
+        // transmit: withStorageLock() also holds the HardwareBus mutex for the whole
+        // flash transaction (see sync.cpp). A LittleFS read transiently disables the
+        // flash cache on both cores, which would stall an in-flight strip.show() and
+        // garble the panel ("乱码"); coupling the locks makes that overlap impossible.
+        // Acquire/release is per chunk and the loop yields between chunks, so the LED
+        // render task still gets the bus to show() between reads and the scroll runs.
         withStorageLock([&]() {
             hasData = file.available();
             if (hasData) {
@@ -152,7 +181,7 @@ static void streamFileChunked(File& file, const char* contentType) {
 
         if (!hasData || bytesRead == 0) break;
         server.sendContent(reinterpret_cast<const char*>(buffer), bytesRead);
-        if ((++chunksSent % WEB_YIELD_EVERY_CHUNKS) == 0) vTaskDelay(WEB_YIELD_TICKS);
+        if ((++chunksSent % yieldEvery) == 0) vTaskDelay(WEB_YIELD_TICKS);
     }
 
     if (heapBuffer) free(heapBuffer);

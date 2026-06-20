@@ -5,6 +5,14 @@
 // FreeRTOS synchronization helpers
 // Existing code intentionally avoids nested mutexes. If a future change must
 // nest them, keep one global order: Scroll -> Frame -> Storage -> HardwareBus.
+//
+// IMPORTANT: lockStorage() also acquires the HardwareBus mutex for the whole flash
+// section (see sync.cpp) so that no SPI-flash transaction can overlap a WS2812
+// strip.show() and garble the panel. Consequences for callers:
+//   * Do NOT call withHardwareBusLock() inside a withStorageLock() section -- the
+//     HardwareBus mutex is non-recursive and re-taking it self-deadlocks.
+//   * Do NOT take Frame/Scroll locks inside a Storage section (would invert order).
+//   * Keep Storage sections short; strip.show() is blocked for their duration.
 
 enum class SyncDomain : uint8_t {
     Frame,
