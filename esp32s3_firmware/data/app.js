@@ -1,47 +1,47 @@
 "use strict";
 
 /*
- * RinaChanBoard WebUI 运行时。
+ * RinaChanBoard WebUI runtime.
  *
- * 这个文件刻意写成单一浏览器运行时：ESP32 把它当作静态资源直接提供，
- * 页面不使用打包工具（bundler）。下面的代码块按依赖顺序排列：
+ * This file is intentionally written for a single browser runtime: ESP32 serves it directly as a static resource,
+ * The page does not use a bundler. The following code blocks are arranged in dependency order:
  *
- * 1. WEBUI_CONFIG：所有可调常量。改动运行逻辑前应优先在这里修改，
- *    后面的常量都是这些值的别名。
- * 2. EXPRESSION_PARTS 和颜色预设：静态数据，供プレビュー、保存フェイス、
- *    パーツ 组合以及固件载荷生成使用。
- * 3. 运行时别名、マトリクス 几何与全局状态：把静态数据桥接成快速查找表
- *    和可变的 UI／固件状态。
- * 4. 共享工具、API 客户端和キュー：在任何页面专属控件初始化之前，
- *    每个功能页面都会用到的通用底层逻辑。
- * 5. 功能模块：ブートローダー、导航、マトリクス 编辑、颜色／亮度、
- *    保存フェイス、パーツ 组合、文字スクロール、调试控件。
- * 6. bootstrapWebUi()：把前面所有代码块接起来，执行首次固件同步，
- *    然后揭示 UI。
+ * 1. WEBUI_CONFIG: All adjustable constants. Before changing the running logic, you should modify it here first.
+ * The following constants are aliases for these values.
+ * 2. EXPRESSION_PARTS and color presets: static data for use, storage, and
+ * parts combination and firmware payload generation use.
+ * 3. Runtime aliases, matrix geometry and global state: bridge static data into fast lookup tables
+ * and mutable UI/firmware state.
+ * 4. Sharing tools, API clients and queue: Before any page-specific controls are initialized,
+ * Common underlying logic used in every functional page.
+ * 5. Function modules: navigation, navigation, editing, color/brightness,
+ * Save face, parts combination, text scroll, and debug control.
+ * 6. bootstrapWebUi(): Connect all the previous code blocks and perform the first firmware synchronization.
+ * Then reveal the UI.
  *
- * index.html 负责标记和元素 id，styles.css 负责布局和视觉状态，
- * 本文件负责行为。这里引用到的 id／class 都应在 index.html 中存在，
- * 并在 styles.css 中有对应样式。
+ * index.html is responsible for tags and element ids, styles.css is responsible for layout and visual state,
+ * This document is responsible for the conduct. The id/class referenced here should exist in index.html.
+ * And there are corresponding styles in styles.css.
  */
 const WEBUI_CONFIG = Object.freeze({
-  // 保存フェイス 的持久化。UI 从 LittleFS 读取这个 JSON，在内存中编辑，
-  // 并可通过固件 API 或本地文件工具写回。
+  // Save the persistence of face. The UI reads this JSON from LittleFS, edits it in memory,
+  // and can be written back via the firmware API or local file tools.
   faces: {
     resourcePath: "/resources/saved_faces.json",
     localFilename: "saved_faces.json",
     schemaFormat: "rina_faces_370_v2",
     startupFaceId: "face_08_triangle_eyes_frown",
   },
-  // 设备连接默认值：显示在调试／状态 UI 中，并在页面被直接打开
-  // （而非通过 ESP32 的强制门户 captive portal）时使用。
+  // Device connection defaults: displayed in the debug/status UI and opened directly on the page
+  // (rather than via ESP32's captive portal).
   device: {
     apSsid: "RinaChanBoard-V2",
     apPassword: "rinachan",
     apDomain: "rina.io",
     defaultApIp: "192.168.1.14",
   },
-  // 导航元数据。每个元组把逻辑页面 id 映射到可见的章节号和标签；
-  // initNav() 会据此生成顶部菜单按钮。
+  // Navigation metadata. Each tuple maps a logical page id to a visible chapter number and tag;
+  // initNav() will generate the top menu button accordingly.
   navigation: {
     pages: [
       ["basic", "6.1", "基础功能"],
@@ -51,10 +51,10 @@ const WEBUI_CONFIG = Object.freeze({
       ["debug", "6.5", "调试"],
     ],
   },
-  // LED 硬件限制与プレビュー尺寸。渲染器、亮度控件和功耗估算
-  // 都从这个块派生。
+  // LED hardware limitations and LED size. Renderers, brightness controls, and power estimates
+  // are derived from this block.
   led: {
-    defaultColor: "#f971d4",
+    defaultColor: "#ec3fc7",
     defaultBrightness: 50,
     minBrightness: 10,
     maxBrightness: 200,
@@ -65,22 +65,22 @@ const WEBUI_CONFIG = Object.freeze({
     previewSize: {
       defaultCell: 18,
       minCell: 5,
-      maxCell: 48,
+      maxCell: 62,
       minWidth: 320,
-      maxHeight: 500,
+      maxHeight: 650,
       edgeGap: 12,
     },
   },
-  // フェイス 自动轮播的时间参数。UI 预设和固件命令载荷都使用这些上下限，
-  // 让浏览器和设备的行为保持一致。
+  // face The time parameter of automatic rotation. Both UI presets and firmware command payloads use these upper and lower bounds.
+  // Keep browser and device behavior consistent.
   autoInterval: {
     minMs: 500,
     maxMs: 10000,
     buttonStepMs: 500,
     presetsMs: [500, 1000, 2000, 3000, 5000, 7500, 10000],
   },
-  // HTTP 端点和超时时间。下面的 API 辅助函数会补上 host／origin，
-  // 并把失败转换成日志／状态字段。
+  // HTTP endpoints and timeouts. The following API helper functions will add host/origin,
+  // And convert failures into log/status fields.
   api: {
     getTimeoutMs: 2500,
     postTimeoutMs: 5000,
@@ -97,23 +97,23 @@ const WEBUI_CONFIG = Object.freeze({
       status: "/api/status",
     },
   },
-  // 共享的响应式断点。视觉规则由 CSS 负责；JS 只在需要脚本侧做布局判断时
-  // 才使用这些数值。
+  // Shared reactive breakpoints. Visual rules are taken care of by CSS; JS only needs to make layout judgments on the script side.
+  // Only use these values.
   layout: {
     oneColumnMaxPx: 980,
     threeColumnsMinPx: 1471,
   },
-  // 固件写入キュー的时序。这些数值用来保护单线程的 ESP32 Web 服务器，
-  // 避免被拖动滑块等快速浏览器事件冲垮。
+  // Timing of firmware writing to queue. These values are used to protect single-threaded ESP32 web servers,
+  // Avoid getting overwhelmed by fast browser events like dragging sliders.
   firmwareQueues: {
-    m370SendIntervalMs: 45,
-    m370QueueMax: 3,
+    m370SendIntervalMs: 20,
+    m370QueueMax: 6,
     buttonCommandIntervalMs: 120,
     buttonCommandQueueMax: 4,
     scrollButtonStopFullSyncDelayMs: 140,
   },
-  // 文字スクロール的运行时限制。プレビュー、上传分块和固件スクロール播放
-  // 都从这个块读取。
+  // Runtime limitations of text scroll.preview, upload chunks and firmware scroll playback
+  // All are read from this block.
   scroll: {
     defaultFps: 10,
     fpsMin: 1,
@@ -123,11 +123,18 @@ const WEBUI_CONFIG = Object.freeze({
     uploadChunkFrames: 24,
     maxTextChars: 1000,
   },
-  // 6.4 页面的浏览器与固件位图フォント设置。这个 JSON 表很大，所以延迟加载；
-  // CSS 的 font face 声明在 styles.css 中。
+  // 6.4 Page browser and firmware bitmap settings. This JSON table is large, so it is loaded lazily;
+  // The CSS font face is declared in styles.css.
   textScroll: {
     fontModel: "ark_pixel_12px_fusion_bitmap_v4",
-    fontResource: "/resources/fonts/ark12.json",
+    // The "?v=dev" token is rewritten to a content hash at build time by
+    // scripts/gzip_webui_assets.py (app.js is in REWRITE_TARGETS). This lets the
+    // browser cache the ~2.5MB bitmap table immutably (firmware serves it with
+    // Cache-Control: immutable) while still busting the cache whenever the font
+    // bytes change. The fetch in ensureArkPixelFontReady() therefore must NOT use
+    // cache:"no-store" -- doing so would re-stream the whole table out of LittleFS
+    // on every refresh/page-entry and freeze the WebUI during text scroll.
+    fontResource: "/resources/fonts/ark12.json?v=dev",
     fontFamily: "Ark Pixel 12px Monospaced",
     fontFallbackFamily: "",
     browserFontSample:
@@ -137,12 +144,12 @@ const WEBUI_CONFIG = Object.freeze({
     spaceColumns: 6,
     missingGlyphCodePoint: 0x25a1,
   },
-  // 加载器期望使用的 UI フォント族。真正内嵌的 data URI 位于 styles.css，
-  // 并会在首屏揭示前被等待加载完成。
+  // The UI font family that the loader expects to use. The real embedded data URI is located in styles.css,
+  // And will be waited for loading to complete before the first screen is revealed.
   fonts: {
     uiFamily: "GNU Unifont",
   },
-  // 共享控件使用的交互时序与键盘路由。
+  // Interaction timing and keyboard routing used by shared controls.
   interaction: {
     buttonPressDownMs: 90,
     buttonPressUpMs: 150,
@@ -159,8 +166,8 @@ const WEBUI_CONFIG = Object.freeze({
       " ",
     ],
   },
-  // ブートローダー 的编排参数。bootstrapWebUi() 在加载遮罩仍可见时
-  // 用这些值来同步固件状态。
+  // Arrangement parameters of bootloader. bootstrapWebUi() while loading mask is still visible
+  // Use these values to synchronize firmware status.
   boot: {
     loadingIconBefore: "./resources/loading/rina_icon1_default.png",
     loadingIconAfter: "./resources/loading/rina_icon2_hover.png",
@@ -174,25 +181,25 @@ const WEBUI_CONFIG = Object.freeze({
     extraMs: 180,
     minDisplayMs: 400,
     firstPageRevealSelector: [
-      ".sidebar",
-      "#page-basic .hero",
       "#page-basic .basic-preview-card",
-      "#page-basic .control-panel > .card.control-section",
+      // 6.1 的控制卡片（亮度控制 / 自动表情切换间隔 / A-M 模式 / 颜色控制）现在位于
+      // .face-manager-stack 内（旧的 .control-panel 结构已不存在），逐个纳入瀑布揭示。
+      "#page-basic .face-manager-stack > .card",
     ],
   },
-  // 电源面板的刷新节奏。轮询器在应用首个状态快照之后，按这个间隔刷新。
+  // The refresh rhythm of the power panel. The poller refreshes at this interval after applying the first state snapshot.
   power: {
     statusRefreshMs: 900,
   },
 });
-// 数据：表情/部件库
-// 连接关系：
-// - initParts() 用 call.ids 和 parts 生成 6.3 的部件按钮。
-// - composePartsFrame() 把选中的部件叠加成 partsFrame。
-// - frameToM370()/queueFirmwareFrame() 把最终 370 LED frame 发给固件。
-// - saved-face 逻辑会把这些静态表情和用户保存表情合并成一个库。
-// 这个块只放静态数据，不读写 DOM，也不直接发 API。
-// 内嵌 LED 表情/部件库，供预览和固件载荷使用。
+// Data: Expression/part library
+// Connection relationship:
+// - initParts() uses call.ids and parts to generate 6.3 parts buttons.
+// - composePartsFrame() superimposes the selected parts into partsFrame.
+// - frameToM370()/queueFirmwareFrame() sends the final 370 LED frame to the firmware.
+// - The saved-face logic will merge these static expressions and user-saved expressions into one library.
+// This block only holds static data, does not read or write the DOM, and does not directly send APIs.
+// Embedded LED expression/widget library for preview and firmware payload.
 const EXPRESSION_PARTS = {
   format: "rina_expression_parts_370_runtime_v4",
   version: 4,
@@ -3185,13 +3192,13 @@ const EXPRESSION_PARTS = {
   },
 };
 
-// 配置别名和导航元数据
-// 连接关系：
-// - WEBUI_CONFIG 是可编辑入口；这里建立短名称，避免后续逻辑散落深层访问。
-// - PAGES 同时驱动导航按钮和 switchPage() 的目标 page id。
-// - API_ENDPOINTS 被 apiGet()/apiPost()/upload helpers 统一使用。
-// - MATRIX_VIEW_CONFIGS 把 index.html 中的矩阵 id 连接到对应 frame provider。
-// 所有可调数值优先在 WEBUI_CONFIG 中修改；这里仅建立运行时别名。
+// Configure aliases and navigation metadata
+// Connection relationship:
+// - WEBUI_CONFIG is an editable entry; create a short name here to avoid subsequent logic being scattered in deep access.
+// - PAGES drives both the navigation buttons and the target page id of switchPage().
+// - API_ENDPOINTS is used uniformly by apiGet()/apiPost()/upload helpers.
+// - MATRIX_VIEW_CONFIGS connects the matrix id in index.html to the corresponding frame provider.
+// All adjustable values are modified first in WEBUI_CONFIG; only runtime aliases are created here.
 const PAGES = WEBUI_CONFIG.navigation.pages;
 const MATRIX = EXPRESSION_PARTS.matrix;
 const ROW_RANGES = MATRIX.row_valid_x_ranges;
@@ -3212,6 +3219,11 @@ const LED_POWER_WARNING_WATTS = WEBUI_CONFIG.led.powerWarningWatts;
 const MIN_LED_BRIGHTNESS = WEBUI_CONFIG.led.minBrightness;
 const MAX_LED_BRIGHTNESS = WEBUI_CONFIG.led.maxBrightness;
 const MAX_SCROLL_TEXT_CHARS = WEBUI_CONFIG.scroll.maxTextChars;
+// Firmware bounds sourceText by UTF-8 BYTES (MAX_SCROLL_TEXT_BYTES), not characters.
+// 1000 CJK/emoji chars can exceed 4096 bytes, so a char-only limit lets the upload
+// hit a firmware 413. This default mirrors config.h and is overwritten by the live
+// value from /api/status (data.scrollLimits.maxTextBytes) in applyFirmwareRuntimeState.
+let firmwareScrollMaxTextBytes = 4096;
 const DEVICE_AP_SSID = WEBUI_CONFIG.device.apSsid;
 const DEVICE_AP_PASSWORD = WEBUI_CONFIG.device.apPassword;
 const DEVICE_AP_DOMAIN = WEBUI_CONFIG.device.apDomain;
@@ -3241,12 +3253,12 @@ const SCROLL_FPS_PRESETS = WEBUI_CONFIG.scroll.fpsPresets;
 const FIRMWARE_SCROLL_MAX_FRAMES_DEFAULT = WEBUI_CONFIG.scroll.firmwareMaxFramesDefault;
 let firmwareScrollMaxFrames = FIRMWARE_SCROLL_MAX_FRAMES_DEFAULT;
 const SCROLL_UPLOAD_CHUNK_FRAMES = WEBUI_CONFIG.scroll.uploadChunkFrames;
-// 文字滚动源文本同步：生成器身份与首块字节预算。
-// fontId = TEXT_SCROLL_FONT_MODEL。两个 ID 常量都必须通过固件的
-// [A-Za-z0-9._:-] 规则（D9，测试强制）。
-// 任何对 TEXT_SCROLL_CHAR_SPACING、空白边距、textScrollVerticalOffset() 或
-// extractFrameFromTextImage 的修改都要 bump SCROLL_GENERATOR_VERSION；
-// ark12.json 变化时 bump fontModel。
+// Text scrolling source text synchronization: generator identity versus first block byte budget.
+// fontId = TEXT_SCROLL_FONT_MODEL. Both ID constants must be passed through the firmware
+// [A-Za-z0-9._:-] Rules (D9, test mandatory).
+// Any reference to TEXT_SCROLL_CHAR_SPACING, whitespace margins, textScrollVerticalOffset() or
+// Modifications to extractFrameFromTextImage must bump SCROLL_GENERATOR_VERSION;
+// bump fontModel when ark12.json changes.
 const SCROLL_GENERATOR_VERSION = "webui-scrollgen-6.4.2";
 const SCROLL_FIRST_CHUNK_BODY_LIMIT_BYTES = 12 * 1024;
 const RUNTIME_STATUS_QUERY = WEBUI_CONFIG.api.runtimeStatusQuery;
@@ -3273,22 +3285,22 @@ const TEXT_SCROLL_FONT_STACK = TEXT_SCROLL_FALLBACK_FONT_FAMILY
   : `"${TEXT_SCROLL_FONT_FAMILY}"`;
 const TEXT_SCROLL_CHAR_SPACING = WEBUI_CONFIG.textScroll.charSpacing;
 const TEXT_SCROLL_SPACE_COLUMNS = WEBUI_CONFIG.textScroll.spaceColumns;
-const TEXT_SCROLL_MISSING_GLYPH_CP = WEBUI_CONFIG.textScroll.missingGlyphCodePoint; // 不使用系统字体回退。
+const TEXT_SCROLL_MISSING_GLYPH_CP = WEBUI_CONFIG.textScroll.missingGlyphCodePoint; // Fallback without using system fonts.
 const BOOT_STATUS_ENDPOINT = `${API_ENDPOINTS.status}${RUNTIME_STATUS_QUERY}`;
 const BOOT_STATUS_TIMEOUT_MS = WEBUI_CONFIG.api.bootStatusTimeoutMs;
 const BOOT_MIN_DISPLAY_MS = WEBUI_CONFIG.boot.minDisplayMs;
 const FIRST_PAGE_REVEAL_SELECTOR = WEBUI_CONFIG.boot.firstPageRevealSelector.join(",");
 
-// 数据：颜色预设库
-// 连接关系：
-// - initColorInput() 用 parent_color_groups 填充主色下拉框。
-// - child_color_groups 根据主色选择填充子色下拉框。
-// - setColor() 最终把选中颜色同步到预览、按钮状态和固件 frame payload。
+// Data: Color Preset Library
+// Connection relationship:
+// - initColorInput() populates the main color drop-down box with parent_color_groups.
+// - child_color_groups Populate the child color drop-down box based on the main color selection.
+// - setColor() finally synchronizes the selected color to the preview, button state and firmware frame payload.
 const parent_color_groups = [
   {
     id: 0,
     name: "默认璃奈粉色",
-    color: "f971d4",
+    color: "ec3fc7",
     desc: "父级颜色按钮，仅提供父级色",
   },
   {
@@ -3402,12 +3414,12 @@ const child_color_groups = {
   ],
 };
 
-// 矩阵几何以及物理/逻辑 LED 映射
-// 连接关系：
-// - ROW_RANGES 描述每行有效 LED 范围，用于预览格子和文字滚动裁切。
-// - XY_TO_INDEX/INDEX_TO_XY 是 UI 坐标和逻辑 370 点索引之间的双向表。
-// - PHYSICAL_TO_LOGICAL_INDEX 处理蛇形接线，把固件/灯条物理顺序映射回 UI。
-// - 所有 frame 都保持逻辑顺序；只有与固件/物理灯条交互时才转换。
+// Matrix geometry and physical/logical LED mapping
+// Connection relationship:
+// - ROW_RANGES describes the effective LED range of each row, used for preview grid and text scrolling and cropping.
+// - XY_TO_INDEX/INDEX_TO_XY are bidirectional tables between UI coordinates and logical 370 point indexes.
+// - PHYSICAL_TO_LOGICAL_INDEX handles snake wiring and maps the firmware/light strip physical order back to the UI.
+// - All frames maintain logical order; only transition when interacting with firmware/physical light strips.
 const XY_TO_INDEX = Array.from(
   {
     length: ROWS,
@@ -3444,13 +3456,13 @@ for (let logical = 0; logical < TOTAL_LEDS; logical++) {
   PHYSICAL_TO_LOGICAL_INDEX[logicalToPhysicalIndex(logical)] = logical;
 }
 
-// 运行时状态
-// 连接关系：
-// - state 是 UI 和固件的共享快照；renderState() 只读它来更新控件。
-// - currentFrame/editFrame/partsFrame/scrollFrame 是不同页面的工作缓冲区。
-// - firmware/queue 变量记录 API 发送、轮询和错误状态，避免重复请求淹没 ESP32。
-// - scroll 对象只保存 6.4 文字滚动的 timeline、播放和上传状态。
-// WebUI 控件和固件之间同步的运行时状态。
+// runtime status
+// Connection relationship:
+// - state is a shared snapshot of UI and firmware; renderState() only reads it to update controls.
+// - currentFrame/editFrame/partsFrame/scrollFrame are working buffers for different pages.
+// - firmware/queue variables record API send, poll and error status to avoid flooding the ESP32 with duplicate requests.
+// - The scroll object only saves the timeline, playback and upload status of 6.4 text scrolling.
+// Synchronized runtime state between WebUI controls and firmware.
 let state = {
   mode: "manual",
   faceIndex: 0,
@@ -3496,7 +3508,7 @@ let state = {
   chargeAdcMv: null,
   chargeIconClass: "status-dot dim",
   chargeIconColor: "#9aa6b2",
-  // 数据来源标记与同步时间戳（page-debug 重写）：区分固件实时值与本地/配置回退值。
+  // Data source tags and sync timestamps (page-debug rewrite): Differentiate between firmware real-time values and local/config fallback values.
   apIpSource: "Config",
   apDomainSource: "Config",
   lastStatusSyncAt: null,
@@ -3507,8 +3519,8 @@ let currentFrame = blankFrame();
 let editFrame = blankFrame();
 let partsFrame = blankFrame();
 let scrollFrame = blankFrame();
-// 调试预览专用缓冲：与全局 currentFrame 隔离，preview-only 操作只写这里，
-// 不污染 matrix-basic / DPS / 复制的 M370（page-debug 重写 v2 规则 1）。
+// Debug preview dedicated buffer: isolated from global currentFrame, preview-only operations are only written here,
+// Don't pollute matrix-basic/DPS/replicated M370 (page-debug rewrites v2 rule 1).
 let debugPreviewFrame = blankFrame();
 let debugPreviewSource = "none";
 let debugPreviewReason = "init";
@@ -3521,13 +3533,29 @@ let selectedCall = {
   cheek: "400",
 };
 let partsSymmetry = false;
-let liveSendEnabled = false;
+let liveSendEnabled = true;
+let liveSyncedFrame = blankFrame();
 let defaultFaces = [];
 let userFaces = [];
 let faceLibraryDocument = null;
 let faceLibraryFileHandle = null;
+let faceLibraryLoadError = "";
+let faceLibraryRefreshTimer = 0;
+let faceLibraryRefreshInFlight = null;
+let faceLibraryRefreshQueued = false;
+let faceLibraryAutoRefreshBound = false;
 let pointerFaceDrag = null;
 let logs = [];
+// Level/rendering status of communication log (6.5 debug page).
+// - logLevel filters out low-priority noise (high-frequency entries such as dragging the slider are recorded as debug and hidden by default).
+// - renderLog only updates the DOM when visible in 6.5 and merges it by animation frame to avoid rebuilding the entire segment for each log
+// Text and forced synchronous reflow; other pages are only marked dirty and will be fully rendered when entering 6.5.
+const LOG_LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
+const LOG_BUFFER_MAX = 500;   // Keep full buffer for download/copy
+const LOG_VIEW_MAX = 120;     // The most recent row actually rendered to the DOM
+let logLevel = LOG_LEVELS.info;
+let logRenderRaf = 0;
+let logDirty = false;
 let pendingFramePacket = null;
 let lastApiErrorLogAt = 0;
 let colorDomSynced = false;
@@ -3577,6 +3605,7 @@ let scroll = {
   stopBusy: false,
   fpsBusy: false,
   restoring: false,
+  lightSyncing: false,
   stepBusy: false,
   uploadProgress: 0,
   uploadLabel: "",
@@ -3590,10 +3619,10 @@ let scroll = {
   frameCounter: 0,
   fpsStarted: performance.now(),
   measuredFps: 0,
-  // 源文本同步（plan v6）：
-  // timelineId       = 当前固件/上传时间线身份
-  // framesTimelineId = scroll.frames 精确对应的时间线（仅在生成器身份 +
-  //                    帧数完全一致且文本未被截断时绑定，C2/D5/E4）
+  // Source text synchronization (plan v6):
+  // timelineId = current firmware/upload timeline identity
+  // framesTimelineId = scroll.frames exactly corresponds to the timeline (only in generator identity +
+  // Bind when the frame number is exactly the same and the text is not truncated, C2/D5/E4)
   timelineId: "",
   framesTimelineId: "",
   uploadGeneration: 0,
@@ -3602,28 +3631,29 @@ let scroll = {
   restoredFromFirmwareMeta: false,
   restoreWarning: "",
   restoredTextTruncated: false, // E4
-  textEdited: false, // 用户是否编辑过输入框（未发送的本地修改保护，C5）
+  textEdited: false, // Whether the user has edited the input box (unsent local modification protection, C5)
 };
 
-// 源文本恢复的模块级状态（plan v6 2.2/2.6）。
+// Module-level status of source text recovery (plan v6 2.2/2.6).
 let pendingScrollMeta = null;
 let scrollMetaFetchInFlight = false;
 let lastScrollMetaFetchAt = 0;
-// 启动关键读取完成前不触发 /api/scroll/meta 拉取，避免挤占单线程 ESP 服务器。
+// Do not trigger the /api/scroll/meta pull before the startup key read is completed to avoid crowding out the single-threaded ESP server.
 let scrollMetaRestoreEnabled = false;
 let lastFwScrollTimelineId = "";
 let lastFwScrollHasSourceText = false;
 let lastFwScrollFrameCount = 0;
+let lastFwScrollDisplaying = false;
 let lastScrollRestoreStatusDebugKey = "";
 let postBootScrollMetaRestoreStarted = false;
-// index.html 中输入框的出厂默认文本；视为"非用户未发送内容"，允许被恢复覆盖。
+// The factory default text of the input box in index.html; regarded as "non-user unsent content" and allowed to be overwritten by recovery.
 let scrollDefaultText = "";
 
-// 共享辅助函数和 DOM 绑定
-// 连接关系：
-// - 这一组是后续所有模块的底层工具，不能依赖任何页面初始化结果。
-// - bindControls()/setClickHandlers() 让重复初始化保持幂等，避免事件重复绑定。
-// - safeJsonParse()/parseApiJson() 是 API 层和本地资源读取的 JSON 防线。
+// Shared helper functions and DOM bindings
+// Connection relationship:
+// - This group is the underlying tool for all subsequent modules and cannot rely on any page initialization results.
+// - bindControls()/setClickHandlers() makes repeated initialization idempotent and avoids repeated binding of events.
+// - safeJsonParse()/parseApiJson() is a JSON defense line for API layer and local resource reading.
 function safeJsonParse(text, fallback = {}) {
   try {
     return JSON.parse(text);
@@ -3716,7 +3746,10 @@ const scrollMachine = (function () {
     } else if (!hasUserPaused) {
       dispatch(paused ? "PAUSE_SYSTEM" : "RESUME_SYSTEM");
     }
-    machine.device.hasSession = active || paused || (frameCount > 0 && (uploadComplete || hasSourceText));
+    // Hardware -> WebUI scroll synchronization is valid only while the LED panel
+    // is actually displaying text scrolling. Cached sourceText/frameCount alone is
+    // not a live session and must not resurrect old text after Stop/Clear.
+    machine.device.hasSession = active || paused;
     scroll.firmwareBacked = active || paused;
     if (machine.device.hasSession && machine.state === "IDLE") {
       setPhase("ACTIVE");
@@ -3728,13 +3761,6 @@ const scrollMachine = (function () {
       scroll.frameIndex = clamp(frameIndex, 0, Math.max(0, scroll.frames.length - 1));
       scroll.offset = scroll.frameIndex;
       machine.cache.frameIndex = scroll.frameIndex;
-      scroll.displayIndex = scroll.frameIndex; // re-anchor the display-only tween (fix #1)
-      scrollFrame = cloneFrame(scroll.frames[scroll.frameIndex] || blankFrame());
-      setScrollPreviewFrame(
-        scrollFrame,
-        "text_scroll_fw_sync_authoritative",
-        paused ? "scroll_paused" : active ? "scroll" : state.playback
-      );
     }
   }
 
@@ -3827,13 +3853,9 @@ const scrollMachine = (function () {
         break;
       case "RESTORE_DONE":
         if (payload && typeof payload === "object") {
-          const frameCount = Math.max(0, Math.floor(Number(payload.frameCount ?? payload.scrollFrameCount) || 0));
-          const uploadComplete = !!(payload.uploadComplete ?? payload.scrollUploadComplete);
-          const hasSourceText = !!(payload.hasSourceText ?? payload.scrollHasSourceText);
           machine.device.hasSession =
             !!payload.firmwareScrollActive ||
-            !!payload.firmwareScrollPaused ||
-            (frameCount > 0 && (uploadComplete || hasSourceText));
+            !!payload.firmwareScrollPaused;
         }
         machine.cache.identityBound = deriveIdentityBound(payload);
         setPhase(machine.device.hasSession ? "ACTIVE" : "IDLE");
@@ -3886,11 +3908,11 @@ function setClickHandlers(entries) {
     if (el) el.onclick = handler;
   }
 }
-// 按钮按压反馈
-// 连接关系：
-// - 使用事件委托监听所有 button，不需要每个模块单独处理按压动画。
-// - 只改变 CSS class 和短计时器，不改变业务状态。
-// - styles.css 中的按钮 active/pressed 样式负责最终视觉效果。
+// Button press feedback
+// Connection relationship:
+// - Use event delegation to listen to all buttons, without the need for each module to handle the press animation separately.
+// - Only the CSS class and short timer are changed, but the business status is not changed.
+// - The button active/pressed style in styles.css is responsible for the final visual effect.
 let buttonPressAnimationsReady = false;
 const buttonPressStates = new WeakMap();
 const activeButtonPointers = new Map();
@@ -4000,11 +4022,11 @@ function initButtonPressAnimations() {
     if (button) releaseButtonPressAnimation(button);
   });
 }
-// 字体加载
-// 连接关系：
-// - ensureWebUiFontReady() 等待 styles.css 中的 GNU Unifont 内嵌字体。
-// - bootstrapWebUi() 在首屏瀑布揭示前等待它，避免文字先用 fallback 闪烁。
-// - observeWebUiFont() 在字体状态变化后重新给动态生成节点补字体 class。
+// Font loading
+// Connection relationship:
+// - ensureWebUiFontReady() waits for the GNU Unifont embedded font in styles.css.
+// - bootstrapWebUi() waits for the first screen waterfall before it is revealed to avoid text flashing with fallback first.
+// - observeWebUiFont() re-adds the font class to the dynamically generated node after the font status changes.
 let uiFontObserverStarted = false;
 
 function applyWebUiFont(root = document) {
@@ -4038,9 +4060,9 @@ async function ensureWebUiFontReady() {
     }
   }
   applyWebUiFont();
-  // GNU Unifont 影响 textarea 字符的实际宽高，加载完成后必须重新测量，
-  // 否则会保留用备用字体或字体未加载时算出的旧高度（最糟糕的情况
-  // 是页面当时是 display:none，scrollHeight=0，导致 height:0px 装不下文字）。
+  // GNU Unifont affects the actual width and height of textarea characters, which must be remeasured after loading.
+  // Otherwise the old height calculated with the fallback font or when the font was not loaded is retained (worst case
+  // The page was display:none and scrollHeight=0, resulting in height:0px being unable to hold text).
   if (typeof autoResizeM370Textareas === "function") autoResizeM370Textareas();
   if (typeof autoResizeScrollTextInput === "function") autoResizeScrollTextInput();
 }
@@ -4060,12 +4082,12 @@ function observeWebUiFont() {
     subtree: true,
   });
 }
-// 文字滚动字体模型
-// 连接关系：
-// - CSS 的 Ark Pixel 字体只影响输入框/预览文字外观。
-// - ark12.json 位图表才用于真正生成 370 LED 滚动帧。
-// - ensureScrollFontsLoaded()/ensureArkPixelFontReady() 延迟加载大资源，避免拖慢启动。
-// - buildTextGlyph()/buildTextScrollBitmap() 在 6.4 timeline 构建时消费这里的数据。
+// text scroll font model
+// Connection relationship:
+// - CSS Ark Pixel font only affects the appearance of the input box/preview text.
+// - The ark12.json bitmap is used to actually generate the 370 LED scrolling frames.
+// - ensureScrollFontsLoaded()/ensureArkPixelFontReady() delays loading of large resources to avoid slow startup.
+// - buildTextGlyph()/buildTextScrollBitmap() consumes the data here when building the 6.4 timeline.
 let textScrollBrowserFontLoading = null;
 
 function applyTextScrollInputFont() {
@@ -4147,15 +4169,15 @@ function codePointOfChar(ch) {
   return ch.codePointAt(0) || 0;
 }
 
-// Emoji 格式控制符（VS15/VS16 变体选择符、ZWJ 连接符、肤色修饰符、tag 字符）。
-// LED 文字滚动采用“每个码点一个字形、与汉字同宽”的模型，这些控制符在
-// ark12.json 中存为零宽占位；渲染前直接跳过，避免 emoji 序列出现豆腐块。
+// Emoji format controllers (VS15/VS16 variant selectors, ZWJ connectors, skin color modifiers, tag characters).
+// LED text scrolling adopts the model of "one font for each code point, the same width as Chinese characters". These control characters are
+// ark12.json is stored as a zero-width placeholder; it is skipped directly before rendering to avoid tofu blocks in the emoji sequence.
 function isEmojiFormatControl(cp) {
   return (
-    (cp >= 0xfe00 && cp <= 0xfe0f) || // 变体选择符 VS15/VS16
-    cp === 0x200d || // 零宽连接符 ZWJ
-    (cp >= 0x1f3fb && cp <= 0x1f3ff) || // emoji 肤色修饰符
-    (cp >= 0xe0000 && cp <= 0xe007f) // tag 字符
+    (cp >= 0xfe00 && cp <= 0xfe0f) || // Variant selector VS15/VS16
+    cp === 0x200d || // Zero-width connector ZWJ
+    (cp >= 0x1f3fb && cp <= 0x1f3ff) || // emoji skin tone modifier
+    (cp >= 0xe0000 && cp <= 0xe007f) // tag character
   );
 }
 
@@ -4207,8 +4229,12 @@ function clearTextScrollCaches() {
 async function ensureArkPixelFontReady() {
   if (arkPixelFont.ready) return arkPixelFont;
   if (arkPixelFont.loading) return arkPixelFont.loading;
+  // Allow the browser cache to satisfy this fetch. The URL carries a build-time
+  // content hash (?v=<hash>) and the firmware serves it Cache-Control: immutable,
+  // so a cache hit is correct and avoids re-streaming ~2.5MB out of LittleFS (the
+  // main cause of "preparing scroll font" freezes / disconnects on refresh).
   arkPixelFont.loading = fetch(TEXT_SCROLL_FONT_RESOURCE, {
-    cache: "no-store",
+    cache: "force-cache",
   })
     .then(async (res) => {
       if (!res.ok)
@@ -4308,11 +4334,11 @@ function loadArkPixelFontTable(data) {
   return arkPixelFont;
 }
 
-// 通用工具函数
-// 连接关系：
-// - 这些函数不拥有状态，只做小型转换：DOM 查询、数值夹取、frame 编码、日志等。
-// - frameToM370()/m370ToFrame() 是浏览器 frame 和固件 M370 字符串之间的边界。
-// - log()/renderLog() 给调试页显示最近事件，也被 API/上传流程复用。
+// General utility functions
+// Connection relationship:
+// - These functions do not have state and only do small transformations: DOM query, value clamping, frame encoding, logging, etc.
+// - frameToM370()/m370ToFrame() is the boundary between the browser frame and the firmware M370 string.
+// - log()/renderLog() displays recent events on the debug page and is also reused by the API/upload process.
 function $(id) {
   return document.getElementById(id);
 }
@@ -4341,6 +4367,17 @@ function onCount(frame) {
   let c = 0;
   for (const v of frame) if (v) c++;
   return c;
+}
+
+function firstLitFrameIndex(frames) {
+  if (!Array.isArray(frames)) return 0;
+  const index = frames.findIndex((frame) => onCount(frame) > 0);
+  return index > 0 ? index : 0;
+}
+
+function rotateScrollTimelineToFirstLitFrame(frames) {
+  const index = firstLitFrameIndex(frames);
+  return index > 0 ? frames.slice(index).concat(frames.slice(0, index)) : frames;
 }
 
 function normalizeHexColor(v) {
@@ -4401,19 +4438,44 @@ function fallbackCopy(text) {
   ta.remove();
 }
 
-function log(msg) {
+function log(msg, level = "info") {
+  // Level filtering: High-frequency/redundant entries (such as dragging the slider) are recorded as "debug" and are discarded directly under the default level of info.
+  // Not even warehousing and rendering will happen.
+  const rank = LOG_LEVELS[level] ?? LOG_LEVELS.info;
+  if (rank > logLevel) return;
   const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
   logs.push(line);
-  if (logs.length > 500) logs.shift();
+  if (logs.length > LOG_BUFFER_MAX) logs.shift();
+  renderLog();
+}
+
+function setLogLevel(level) {
+  const next = LOG_LEVELS[level];
+  if (next === undefined) return;
+  logLevel = next;
+  // Immediate re-rendering (actually writing the DOM only when 6.5 is visible).
   renderLog();
 }
 
 function renderLog() {
-  const el = $("log");
-  if (el) {
-    el.textContent = logs.join("\n");
-    el.scrollTop = el.scrollHeight;
+  // Only updates the DOM when the 6.5 (debug) page is visible. The #log on other pages is still in the DOM, but cannot be seen by the user.
+  // So here we only mark dirty and skip expensive string reconstruction + reflow; switchPage("debug") will make up for the rendering.
+  if (document.body?.dataset?.page !== "debug") {
+    logDirty = true;
+    return;
   }
+  // Merge by animation frame: Multiple logs within one frame only trigger one DOM update.
+  if (logRenderRaf) return;
+  logRenderRaf = requestAnimationFrame(() => {
+    logRenderRaf = 0;
+    logDirty = false;
+    const el = $("log");
+    if (!el) return;
+    // Only render the most recent LOG_VIEW_MAX lines to avoid splicing the entire text each time when the buffer approaches 500 lines.
+    const view = logs.length > LOG_VIEW_MAX ? logs.slice(-LOG_VIEW_MAX) : logs;
+    el.textContent = view.join("\n");
+    el.scrollTop = el.scrollHeight;
+  });
 }
 
 function isOfflineHtmlMode() {
@@ -4433,17 +4495,17 @@ function apiUrl(path) {
   const p = String(path || "");
   if (/^https?:\/\//i.test(p)) return p;
   if (isOfflineHtmlMode()) {
-    // file:// 无法访问 ESP32 的相对 API。保留这些调用为无操作失败，
-    // 这样用户导入或打开 saved_faces.json 后，HTML 仍可离线使用。
+    // file:// has no access to ESP32's relative API. Leave these calls as no-op failures,
+    // In this way, after the user imports or opens saved_faces.json, the HTML can still be used offline.
     return null;
   }
   return p.startsWith("/") ? p : "/" + p;
 }
-// 固件 API 客户端
-// 连接关系：
-// - apiGet()/apiPost() 是所有固件 HTTP 通信的唯一入口。
-// - 上层模块只传 endpoint 和 payload；这里统一加超时、错误处理和离线模式判断。
-// - apiPostWithUploadProgress() 专门服务 6.4 的大 scroll timeline 上传。
+// Firmware API Client
+// Connection relationship:
+// - apiGet()/apiPost() is the only entry point for all firmware HTTP communications.
+// - The upper module only transmits endpoint and payload; here, timeout, error handling and offline mode judgment are unified.
+// - apiPostWithUploadProgress() specifically serves large scroll timeline uploads in 6.4.
 async function apiGet(path, options = {}) {
   const url = apiUrl(path);
   firmware.lastRequest = `GET ${path}`;
@@ -4488,44 +4550,66 @@ async function apiGet(path, options = {}) {
 }
 async function apiPost(path, payload, options = {}) {
   const url = apiUrl(path);
-  firmware.lastRequest = `POST ${path}`;
-  renderState();
+  const silent = options.silent === true;
+  const expectJson = options.expectJson !== false;
+  const isBinary = payload instanceof ArrayBuffer;
+
+  if (!silent) {
+    firmware.lastRequest = `POST ${path}`;
+    renderState();
+  }
   if (!url) {
-    firmware.online = false;
-    firmware.lastStatus = "offline html mode";
-    firmware.lastError = `offline: ${path}`;
+    if (!silent) {
+      firmware.online = false;
+      firmware.lastStatus = "offline html mode";
+      firmware.lastError = `offline: ${path}`;
+    }
     throw new Error(`offline html mode: ${path}`);
   }
   const timeoutMs = options.timeoutMs || API_POST_TIMEOUT_MS;
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
+    const headers = {};
+    if (isBinary) {
+      headers["Content-Type"] = "application/octet-stream";
+    } else {
+      headers["Content-Type"] = "application/json";
+      headers["Accept"] = "application/json";
+    }
+
     const res = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(payload || {}),
+      headers,
+      body: isBinary ? payload : JSON.stringify(payload || {}),
       signal: controller?.signal,
     });
     firmware.online = res.ok;
-    firmware.lastStatus = `${res.status} ${res.statusText || ""}`.trim();
-    if (!res.ok) {
-      firmware.lastError = firmware.lastStatus;
-      throw new Error(firmware.lastStatus);
+    if (!silent) {
+      firmware.lastStatus = `${res.status} ${res.statusText || ""}`.trim();
     }
-    const text = await res.text();
-    return parseApiJson(text, path, {
-      ok: true,
-    });
+    if (!res.ok) {
+      if (!silent) {
+        firmware.lastError = firmware.lastStatus;
+      }
+      throw new Error(res.statusText || String(res.status));
+    }
+    if (expectJson && res.status !== 204) {
+      const text = await res.text();
+      return parseApiJson(text, path, {
+        ok: true,
+      });
+    }
+    return null;
   } catch (err) {
     const message =
       err?.name === "AbortError"
         ? `POST ${path} timeout after ${timeoutMs}ms`
         : err.message || String(err);
-    firmware.online = false;
-    firmware.lastError = message;
+    if (!silent) {
+      firmware.online = false;
+      firmware.lastError = message;
+    }
     throw new Error(message);
   } finally {
     if (timeout) clearTimeout(timeout);
@@ -4559,8 +4643,18 @@ function apiPostWithUploadProgress(path, payload, onProgress = () => {}) {
       firmware.online = xhr.status >= 200 && xhr.status < 300;
       firmware.lastStatus = `${xhr.status} ${xhr.statusText || ""}`.trim();
       if (!firmware.online) {
-        firmware.lastError = firmware.lastStatus;
-        reject(new Error(firmware.lastStatus));
+        const text = String(xhr.responseText || "").trim();
+        let detail = "";
+        if (text) {
+          try {
+            const parsed = parseApiJson(text, path, {});
+            detail = parsed.error || parsed.message || text.slice(0, 180);
+          } catch (_err) {
+            detail = text.slice(0, 180);
+          }
+        }
+        firmware.lastError = detail ? `${firmware.lastStatus}: ${detail}` : firmware.lastStatus;
+        reject(new Error(firmware.lastError));
         return;
       }
       try {
@@ -4577,7 +4671,7 @@ function apiPostWithUploadProgress(path, payload, onProgress = () => {}) {
     xhr.onerror = () => {
       firmware.online = false;
       firmware.lastStatus = "network error";
-      firmware.lastError = `POST ${path} failed`;
+      firmware.lastError = `POST ${path} failed (readyState ${xhr.readyState}, status ${xhr.status || 0})`;
       reject(new Error(firmware.lastError));
     };
     xhr.ontimeout = () => {
@@ -4599,11 +4693,11 @@ function shouldLogApiError() {
   return false;
 }
 
-// 电源和固件状态同步
-// 连接关系：
-// - applyFirmwareRuntimeState() 把 /api/status 返回值合并进 state、firmware 和 scroll。
-// - renderState()/renderMatrices() 随后读取这些状态更新 UI。
-// - scroll stop 事件会触发一次更完整的同步，确保固件按钮操作能回到 WebUI。
+// Power and firmware status synchronization
+// Connection relationship:
+// - applyFirmwareRuntimeState() merges /api/status return value into state, firmware and scroll.
+// - renderState()/renderMatrices() then reads these states and updates the UI.
+// - The scroll stop event will trigger a more complete synchronization to ensure that firmware button operations can return to the WebUI.
 function finitePowerNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
@@ -4792,6 +4886,34 @@ function scrollStopEventFromStatus(data, renderer) {
   };
 }
 
+function firmwareStatusShowsTextScroll(data, renderer = data?.renderer || data || {}) {
+  // Hardware -> WebUI text-scroll recovery is allowed only while the LED panel is
+  // actually showing firmware text scroll. Running and paused scroll both count;
+  // stale playback strings, cached frame counts, or old sourceText metadata do not.
+  const explicitDisplaying = renderer?.firmwareScrollDisplaying ?? data?.firmwareScrollDisplaying;
+  if (typeof explicitDisplaying === "boolean") return explicitDisplaying;
+  return Boolean(
+    renderer?.firmwareScrollActive ||
+      data?.firmwareScrollActive ||
+      renderer?.firmwareScrollPaused ||
+      data?.firmwareScrollPaused
+  );
+}
+
+function clearRecoveredScrollCache(reason = "scroll_cache_cleared") {
+  pendingScrollMeta = null;
+  scroll.restoredSourceText = "";
+  scroll.restoredFromFirmwareMeta = false;
+  scroll.restoreWarning = "";
+  scroll.restoredTextTruncated = false;
+  lastFwScrollFrameCount = 0;
+  lastFwScrollTimelineId = "";
+  lastFwScrollHasSourceText = false;
+  lastFwScrollDisplaying = false;
+  lastScrollRestoreStatusDebugKey = "";
+  logScrollRestoreDebug("cache cleared", { reason });
+}
+
 function scheduleFirmwareScrollStopFullSync(
   source = "firmware_scroll_stop_full_status",
   delayMs = SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS,
@@ -4809,6 +4931,11 @@ function scheduleFirmwareScrollStopFullSync(
 
 function applyFirmwareRuntimeState(data, source = "firmware_status", options = {}) {
   if (!data || typeof data !== "object") return;
+  // P1-5: learn the firmware's UTF-8 byte limit for scroll source text from full status.
+  if (data.scrollLimits) {
+    const mtb = Number(data.scrollLimits.maxTextBytes);
+    if (Number.isFinite(mtb) && mtb > 0) firmwareScrollMaxTextBytes = mtb;
+  }
   const skipFrame = !!options.skipFrame;
   const renderer = data.renderer || data;
   let stateChanged = false;
@@ -4829,7 +4956,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
     state.lastNetworkSyncAt = Date.now();
     stateChanged = true;
   }
-  // 任何成功合并固件状态都更新同步时间戳（page-debug 重写）。
+  // Any successful merge of firmware status updates the sync timestamp (page-debug override).
   firmwareLastSyncAt = Date.now();
   state.lastStatusSyncAt = firmwareLastSyncAt;
 
@@ -4888,8 +5015,9 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
     const firmwareScrollSystemPaused = Boolean(
       renderer.firmwareScrollSystemPaused ?? data.firmwareScrollSystemPaused,
     );
-    scroll.firmwareBacked = firmwareScrollActive || firmwareScrollPaused;
-    const playbackIsScroll = isScrollPlaybackValue(playbackValue);
+    const firmwareDisplayingScroll = firmwareScrollActive || firmwareScrollPaused;
+    scroll.firmwareBacked = firmwareDisplayingScroll;
+    const playbackIsScroll = firmwareDisplayingScroll && isScrollPlaybackValue(playbackValue);
     if (hasSplitPauseFlags) {
       scroll.userPaused = firmwareScrollUserPaused;
       scroll.systemPaused = firmwareScrollSystemPaused;
@@ -4908,13 +5036,15 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
       playbackValue === "scroll_paused" ||
       firmwareScrollPaused;
     scroll.active = playbackValue === "scroll" && !scroll.paused;
-    state.textScrollActive = playbackIsScroll || firmwareScrollActive || firmwareScrollPaused;
-    if (!playbackIsScroll && !firmwareScrollActive && !firmwareScrollPaused) {
+    state.textScrollActive = firmwareDisplayingScroll;
+    if (!firmwareDisplayingScroll) {
       scroll.active = false;
       scroll.paused = false;
       scroll.userPaused = false;
       scroll.systemPaused = false;
+      scroll.firmwareBacked = false;
       state.textScrollActive = false;
+      if (isScrollPlaybackValue(state.playback)) state.playback = "idle";
     }
     stateChanged = true;
   }
@@ -4926,7 +5056,11 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
 
   const scrollFrameCountValue = Number(renderer.scrollFrameCount ?? data.scrollFrameCount);
   if (Number.isFinite(scrollFrameCountValue)) {
-    lastFwScrollFrameCount = Math.max(0, Math.floor(scrollFrameCountValue));
+    const displayingForFrameCount =
+      firmwareStatusShowsTextScroll(data, renderer);
+    lastFwScrollFrameCount = displayingForFrameCount
+      ? Math.max(0, Math.floor(scrollFrameCountValue))
+      : 0;
   }
   if (
     Number.isFinite(scrollFrameCountValue) &&
@@ -4934,6 +5068,9 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
     !isScrollPlaybackValue(state.playback)
   ) {
     scroll.firmwareBacked = false;
+  }
+  if (firmwareStatusShowsTextScroll(data, renderer)) {
+    applyFirmwareScrollFps(renderer, source);
   }
   scrollMachine.dispatch("FW_SYNC", renderer);
 
@@ -4973,8 +5110,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
     }
   }
 
-  const firmwareIsScrolling =
-    state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
+  const firmwareIsScrolling = firmwareStatusShowsTextScroll(data, renderer);
   const firmwareM370 = renderer.lastM370 || renderer.m370 || data.m370;
   if (
     !skipFrame &&
@@ -4984,6 +5120,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
   ) {
     try {
       currentFrame = m370ToFrame(firmwareM370);
+      if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
       if (!firmwareIsScrolling) scrollFrame = cloneFrame(currentFrame);
       state.lastRefreshReason = renderer.lastReason || data.lastReason || source;
       frameChanged = true;
@@ -5035,62 +5172,77 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
     }
   }
 
-  // C9 让本地停止后安全：scroll.timelineId 被保留，不会误触发并回填旧文字。
   const fwScrollTimelineId = String(renderer.scrollTimelineId ?? data.scrollTimelineId ?? "");
   const fwScrollHasSourceText = Boolean(renderer.scrollHasSourceText ?? data.scrollHasSourceText);
   const fwScrollUploadComplete = Boolean(
     renderer.scrollUploadComplete ?? data.scrollUploadComplete,
   );
+  const fwScrollDisplaying = firmwareStatusShowsTextScroll(data, renderer);
   if (renderer.scrollTimelineId !== undefined || data.scrollTimelineId !== undefined) {
-    lastFwScrollTimelineId = fwScrollTimelineId;
-    lastFwScrollHasSourceText = fwScrollHasSourceText;
-    const debugKey = `${fwScrollTimelineId}|${fwScrollHasSourceText}|${fwScrollUploadComplete}`;
+    lastFwScrollDisplaying = fwScrollDisplaying;
+    lastFwScrollTimelineId = fwScrollDisplaying ? fwScrollTimelineId : "";
+    lastFwScrollHasSourceText = fwScrollDisplaying && fwScrollHasSourceText;
+    if (!fwScrollDisplaying) {
+      lastFwScrollFrameCount = 0;
+    }
+    const debugKey = `${fwScrollDisplaying}|${lastFwScrollTimelineId}|${lastFwScrollHasSourceText}|${fwScrollUploadComplete}`;
     if (debugKey !== lastScrollRestoreStatusDebugKey) {
       lastScrollRestoreStatusDebugKey = debugKey;
       logScrollRestoreDebug("status fields", {
         source,
-        scrollTimelineId: fwScrollTimelineId,
-        scrollUploadComplete: fwScrollUploadComplete,
-        scrollHasSourceText: fwScrollHasSourceText,
+        scrollDisplaying: fwScrollDisplaying,
+        scrollTimelineId: lastFwScrollTimelineId,
+        scrollUploadComplete: fwScrollDisplaying && fwScrollUploadComplete,
+        scrollHasSourceText: lastFwScrollHasSourceText,
       });
     }
   }
+  // P0-3: Previously, detecting a firmware timeline that differs from the WebUI's here
+  // would AUTOMATICALLY fetch sourceText and regenerate the full preview from the poll
+  // path -- exactly the heavy work that froze the WebUI / stressed the board on refresh.
+  // That auto-restore is now removed; instead, when the firmware is displaying
+  // recoverable scroll text the WebUI hasn't reproduced, we just keep the manual
+  // "restore from firmware" button visible (see shouldShowScrollRestoreButton). The
+  // user triggers the heavy restore deliberately.
   if (
     scrollMetaRestoreEnabled &&
-    !scroll.uploading &&
-    !scroll.startBusy &&
-    !scroll.restoring &&
+    fwScrollDisplaying &&
     fwScrollTimelineId &&
     fwScrollHasSourceText &&
     fwScrollTimelineId !== scroll.timelineId &&
-    !scrollMetaFetchInFlight &&
-    performance.now() - lastScrollMetaFetchAt > 5000
+    isScrollPageActive()
   ) {
-    restoreScrollTextFromFirmware("timeline_mismatch")
-      .then((ok) => {
-        if (ok && isScrollPageActive()) {
-          restoreScrollPreviewIfNeeded("timeline_mismatch").catch((err) => {
-            warnScrollRestoreDebug("preview restore timeline-mismatch failed", {
-              error: err?.message || String(err),
-            });
-          });
-        }
-      })
-      .catch((err) => {
-        warnScrollRestoreDebug("timeline_mismatch failed", {
-          error: err?.message || String(err),
-        });
-      });
+    updateScrollUi();
   }
   if (stateChanged) renderState();
 }
 
-// 固件命令队列
-// 连接关系：
-// - UI 高频操作不会直接打到固件，而是进入 button/frame 两条队列。
-// - pumpButtonCommandQueue() 处理模式、按钮、停止/暂停等轻量命令。
-// - pumpFrameSendQueue() 处理 370 LED frame，并按 WEBUI_CONFIG 的节奏限流。
-// - guardBeforeOutput()/terminateOtherActivities() 确保 static/auto/scroll 模式互斥。
+// Firmware command queue
+// Connection relationship:
+// - UI high-frequency operations will not directly hit the firmware, but will enter the button/frame two queues.
+// - pumpButtonCommandQueue() handles lightweight commands such as mode, button, stop/pause, etc.
+// - pumpFrameSendQueue() processes 370 LED frames and limits the current according to the rhythm of WEBUI_CONFIG.
+// - guardBeforeOutput()/terminateOtherActivities() ensures static/auto/scroll modes are mutually exclusive.
+let auxCommandInFlightCount = 0;
+
+function waitForAuxCommandsIdle(timeoutMs = 500) {
+  const startedAt = performance.now();
+  return new Promise((resolve) => {
+    const check = () => {
+      if (auxCommandInFlightCount <= 0) {
+        resolve(true);
+        return;
+      }
+      if (performance.now() - startedAt >= timeoutMs) {
+        resolve(false);
+        return;
+      }
+      setTimeout(check, 16);
+    };
+    check();
+  });
+}
+
 function sendAuxCommand(cmd, payload = {}, source = "webui") {
   firmware.sentCommands++;
   const packet = {
@@ -5101,6 +5253,7 @@ function sendAuxCommand(cmd, payload = {}, source = "webui") {
     lastRequest: `POST ${API_ENDPOINTS.command}`,
     lastStatus: isOfflineHtmlMode() ? "queued offline" : "queued",
   });
+  auxCommandInFlightCount++;
   packet.promise = apiPost(API_ENDPOINTS.command, packet)
     .then((data) => {
       applyFirmwareRuntimeState(data, source);
@@ -5111,9 +5264,78 @@ function sendAuxCommand(cmd, payload = {}, source = "webui") {
         lastStatus: isOfflineHtmlMode() ? "offline html mode" : "command failed",
         lastError: err.message,
       });
-      if (!isOfflineHtmlMode() && shouldLogApiError()) log(`辅助指令发送失败: ${err.message}`);
+      if (!isOfflineHtmlMode() && shouldLogApiError()) log(`辅助指令发送失败: ${err.message}`, "error");
+    })
+    .finally(() => {
+      auxCommandInFlightCount = Math.max(0, auxCommandInFlightCount - 1);
     });
   return packet;
+}
+
+let liveFrameSeq = 0;
+function nextLiveSeq() {
+  liveFrameSeq += 1;
+  return liveFrameSeq;
+}
+
+function isLiveFrameReason(reason) {
+  return typeof reason === "string" &&
+    (reason.startsWith("custom_live_") || reason.startsWith("parts_live_"));
+}
+
+function frameToUint8Array(frame) {
+  const bytes = new Uint8Array(47);
+  for (let i = 0; i < TOTAL_LEDS; i++) {
+    if (frame[i]) {
+      const byteIdx = i >> 3;
+      const bitMask = 1 << (i & 7);
+      bytes[byteIdx] |= bitMask;
+    }
+  }
+  return bytes;
+}
+
+function serializeBinaryFrame(type, reason, seq, payload) {
+  let reasonEnum = 0;
+  if (reason.startsWith("custom_live_")) reasonEnum = 1;
+  else if (reason.startsWith("parts_live_")) reasonEnum = 2;
+  else if (reason === "webui_frame") reasonEnum = 3;
+  else if (reason === "webui_delta") reasonEnum = 4;
+
+  if (type === 1) {
+    const buffer = new ArrayBuffer(6 + 47);
+    const view = new DataView(buffer);
+    view.setUint8(0, 1);
+    view.setUint8(1, reasonEnum);
+    view.setUint32(2, seq, true);
+    const uint8s = new Uint8Array(buffer, 6);
+    uint8s.set(payload);
+    return buffer;
+  } else if (type === 2) {
+    const n = Math.min(payload.length, 255);
+    const buffer = new ArrayBuffer(7 + n * 3);
+    const view = new DataView(buffer);
+    view.setUint8(0, 2);
+    view.setUint8(1, reasonEnum);
+    view.setUint32(2, seq, true);
+    view.setUint8(6, n);
+    for (let i = 0; i < n; i++) {
+      const entry = payload[i];
+      const offset = 7 + i * 3;
+      view.setUint16(offset, entry[0], true);
+      view.setUint8(offset + 2, entry[1]);
+    }
+    return buffer;
+  }
+  return null;
+}
+
+let lastLiveFrameErrorAt = 0;
+
+function updateGlobalFrameQueueLength() {
+  const normLen = (typeof normalFramePump !== 'undefined' && normalFramePump.getQueueLength) ? normalFramePump.getQueueLength() : 0;
+  const liveLen = (typeof liveFramePump !== 'undefined' && liveFramePump.getQueueLength) ? liveFramePump.getQueueLength() : 0;
+  firmware.frameQueue = normLen + liveLen;
 }
 
 function makeRateLimitedQueue({
@@ -5128,6 +5350,9 @@ function makeRateLimitedQueue({
   offlineStatusLabel,
   errorLabel,
   logErrorStr,
+  coalesceLatest = false,
+  isLive = false,
+  postOptions = null,
 }) {
   let queue = [];
   let inFlight = false;
@@ -5143,7 +5368,7 @@ function makeRateLimitedQueue({
     if (inFlight) return;
     if (!queue.length) {
       updateQueueLength(0);
-      renderState();
+      if (!isLive) renderState();
       return;
     }
     const now = performance.now();
@@ -5159,25 +5384,33 @@ function makeRateLimitedQueue({
     lastAt = performance.now();
     incrementSent();
 
-    setFirmwareStatus({
-      lastRequest: `POST ${endpoint}`,
-      lastStatus: isOfflineHtmlMode() && offlineStatusLabel
-        ? offlineStatusLabel
-        : `${statusLabel} (${queue.length}/${maxDepth})`,
-    });
+    if (!isLive) {
+      setFirmwareStatus({
+        lastRequest: `POST ${endpoint}`,
+        lastStatus: isOfflineHtmlMode() && offlineStatusLabel
+          ? offlineStatusLabel
+          : `${statusLabel} (${queue.length}/${maxDepth})`,
+      });
+    }
 
-    apiPost(endpoint, q.request)
+    const requestOptions = postOptions || (isLive ? { silent: true, expectJson: false, timeoutMs: 1800 } : {});
+    apiPost(endpoint, q.request, requestOptions)
       .then((data) => {
-        if (onResult) onResult(data, q.source);
-        if (q.resolve) q.resolve(data);
+        const successValue = requestOptions.expectJson === false ? true : data;
+        if (onResult && data) onResult(data, q.source);
+        if (q.resolve) q.resolve(isLive ? true : successValue);
       })
       .catch((err) => {
-        setFirmwareStatus({
-          lastStatus: isOfflineHtmlMode() && offlineStatusLabel ? "offline html mode" : errorLabel,
-          lastError: err.message,
-        });
-        if (shouldLogApiError() && (!isOfflineHtmlMode() || !offlineStatusLabel)) {
-          log(`${logErrorStr}: ${err.message}`);
+        const now = performance.now();
+        if (!isLive || now - lastLiveFrameErrorAt > 2000) {
+          lastLiveFrameErrorAt = now;
+          setFirmwareStatus({
+            lastStatus: isOfflineHtmlMode() && offlineStatusLabel ? "offline html mode" : errorLabel,
+            lastError: err.message,
+          });
+          if (shouldLogApiError() && (!isOfflineHtmlMode() || !offlineStatusLabel)) {
+            log(`${logErrorStr}: ${err.message}`, "error");
+          }
         }
         if (q.fallback) q.fallback();
         if (q.resolve) q.resolve(null);
@@ -5186,14 +5419,67 @@ function makeRateLimitedQueue({
         inFlight = false;
         updateQueueLength(queue.length);
         schedule(0);
-        renderState();
+        if (!isLive) {
+          renderState();
+        }
       });
   }
 
   return {
+    clear(reason = "queue_clear") {
+      if (timer) {
+        clearTimeout(timer);
+        timer = 0;
+      }
+      if (queue.length) {
+        for (const dropped of queue) {
+          if (dropped && dropped.resolve) dropped.resolve(null);
+          incrementDropped();
+        }
+        queue = [];
+      }
+      updateQueueLength(0);
+      if (!isLive) {
+        setFirmwareStatus({
+          lastRequest: `POST ${endpoint}`,
+          lastStatus: `${statusLabel} cleared by ${reason}`,
+        });
+        renderState();
+      }
+    },
+    isBusy() {
+      return inFlight || queue.length > 0;
+    },
+    getQueueLength() {
+      return queue.length;
+    },
+    waitForIdle(timeoutMs = 500) {
+      const startedAt = performance.now();
+      return new Promise((resolve) => {
+        const check = () => {
+          if (!inFlight && queue.length === 0) {
+            resolve(true);
+            return;
+          }
+          if (performance.now() - startedAt >= timeoutMs) {
+            resolve(false);
+            return;
+          }
+          setTimeout(check, 16);
+        };
+        check();
+      });
+    },
     enqueue(request, source = "unknown", fallback = null) {
       const queued = { request, source, fallback, promise: null, resolve: null };
       queued.promise = new Promise((res) => { queued.resolve = res; });
+      if (coalesceLatest && queue.length) {
+        for (const dropped of queue) {
+          if (dropped && dropped.resolve) dropped.resolve(null);
+          incrementDropped();
+        }
+        queue = [];
+      }
       if (queue.length >= maxDepth) {
         const dropped = queue.shift();
         if (dropped && dropped.resolve) dropped.resolve(null);
@@ -5201,12 +5487,14 @@ function makeRateLimitedQueue({
       }
       queue.push(queued);
       updateQueueLength(queue.length);
-      setFirmwareStatus({
-        lastRequest: `POST ${endpoint}`,
-        lastStatus: isOfflineHtmlMode() && offlineStatusLabel
-          ? offlineStatusLabel
-          : `${statusLabel} (${queue.length}/${maxDepth})`,
-      });
+      if (!isLive) {
+        setFirmwareStatus({
+          lastRequest: `POST ${endpoint}`,
+          lastStatus: isOfflineHtmlMode() && offlineStatusLabel
+            ? offlineStatusLabel
+            : `${statusLabel} (${queue.length}/${maxDepth})`,
+        });
+      }
       schedule(0);
       return queued;
     }
@@ -5227,11 +5515,12 @@ const buttonCommandPump = makeRateLimitedQueue({
   logErrorStr: "button command failed; using local fallback"
 });
 
-const frameSendPump = makeRateLimitedQueue({
+const normalFramePump = makeRateLimitedQueue({
   endpoint: API_ENDPOINTS.frame,
   intervalMs: WEBUI_M370_SEND_INTERVAL_MS,
   maxDepth: WEBUI_M370_QUEUE_MAX,
-  updateQueueLength: (len) => { firmware.frameQueue = len; },
+  coalesceLatest: false,
+  updateQueueLength: () => { updateGlobalFrameQueueLength(); },
   incrementSent: () => { firmware.sentFrames++; },
   incrementDropped: () => { firmware.droppedFrames++; },
   statusLabel: "queued frame",
@@ -5239,6 +5528,38 @@ const frameSendPump = makeRateLimitedQueue({
   errorLabel: "frame failed",
   logErrorStr: "M370 帧发送失败"
 });
+
+const liveFramePump = makeRateLimitedQueue({
+  endpoint: API_ENDPOINTS.frame,
+  intervalMs: 5,
+  maxDepth: 1,
+  coalesceLatest: true,
+  updateQueueLength: () => { updateGlobalFrameQueueLength(); },
+  incrementSent: () => { firmware.sentFrames++; },
+  incrementDropped: () => { firmware.droppedFrames++; },
+  statusLabel: "queued live frame",
+  offlineStatusLabel: "queued offline",
+  errorLabel: "live frame failed",
+  logErrorStr: "Live 帧发送失败",
+  isLive: true
+});
+
+const frameSendPump = {
+  clear(reason) {
+    normalFramePump.clear(reason);
+    liveFramePump.clear(reason);
+  },
+  async waitForIdle(timeoutMs) {
+    const results = await Promise.all([
+      normalFramePump.waitForIdle(timeoutMs),
+      liveFramePump.waitForIdle(timeoutMs)
+    ]);
+    return results[0] && results[1];
+  },
+  isBusy() {
+    return normalFramePump.isBusy() || liveFramePump.isBusy();
+  }
+};
 
 function sendButtonCommand(button, source = "webui_button", fallback = null) {
   if (["B1", "B2", "B3"].includes(String(button).toUpperCase())) {
@@ -5263,9 +5584,48 @@ function queueFirmwareFrame(frame, reason = "frame_update", playback = "idle") {
     m370,
     reason,
     mode: playback,
+    playback,
     at: Date.now(),
   };
-  frameSendPump.enqueue(pendingFramePacket, reason, null);
+  const pump = isLiveFrameReason(reason) ? liveFramePump : normalFramePump;
+  return pump.enqueue(pendingFramePacket, reason, null);
+}
+
+function frameDeltaChanges(fromFrame, toFrame) {
+  const changes = [];
+  for (let i = 0; i < TOTAL_LEDS; i++) {
+    const next = !!toFrame[i];
+    if (!!fromFrame[i] !== next) changes.push([i, next ? 1 : 0]);
+  }
+  return changes;
+}
+
+function applyDeltaChangesToFrame(frame, changes) {
+  for (const change of changes) {
+    const idx = Number(change?.[0]);
+    if (Number.isInteger(idx) && idx >= 0 && idx < TOTAL_LEDS) frame[idx] = !!change[1];
+  }
+}
+
+function queueFirmwareLedDeltas(changes, reason = "live_delta", playback = "idle") {
+  if (!changes.length) return null;
+  const nextFrame = cloneFrame(liveSyncedFrame || currentFrame);
+  applyDeltaChangesToFrame(nextFrame, changes);
+  const payload = {
+    type: "m370_frame",
+    m370: frameToM370(nextFrame),
+    reason,
+    mode: playback,
+    playback,
+    at: Date.now(),
+  };
+  pendingFramePacket = payload;
+  const pump = isLiveFrameReason(reason) ? liveFramePump : normalFramePump;
+  const queued = pump.enqueue(payload, reason, null);
+  queued.promise.then((data) => {
+    if (data) liveSyncedFrame = cloneFrame(nextFrame);
+  });
+  return queued;
 }
 
 function setScrollPreviewFrame(frame, reason = "text_scroll_preview", playback = "scroll") {
@@ -5285,13 +5645,13 @@ function orFrameIntoFrame(targetFrame, sourceFrame) {
 }
 
 function orPartIntoFrame(frame, part) {
-  // 标准 WebUI/M370 路径：使用 part.m370，因为它是按逻辑行优先排列的数据。
-  // 旧版 strip_indices 是物理蛇形位置，因此需要映射回逻辑单元。
+  // Standard WebUI/M370 path: Use part.m370 as it is logical row-major data.
+  // Legacy strip_indices are physical snake locations and therefore need to be mapped back to logical units.
   if (part && typeof part.m370 === "string") {
     orFrameIntoFrame(frame, m370ToFrame(part.m370));
     return;
   }
-  // 仅作为畸形旧资源的兜底。
+  // It is only used as a backup for deformed old resources.
   for (const idx of part?.strip_indices || []) {
     const logical = physicalToLogicalIndex(idx);
     if (logical >= 0 && logical < TOTAL_LEDS) frame[logical] = true;
@@ -5318,7 +5678,10 @@ function sendPartsFrame(reason = "parts_compose_send", writeLog = true) {
 }
 
 function sendPartsFrameIfLive(reason = "parts_live_send") {
-  if (liveSendEnabled) sendPartsFrame(reason, false);
+  if (!liveSendEnabled) return;
+  currentFrame = cloneFrame(partsFrame);
+  const changes = frameDeltaChanges(liveSyncedFrame, partsFrame);
+  queueFirmwareLedDeltas(changes, reason, "idle");
 }
 
 function resolvePartId(callKey, id) {
@@ -5342,9 +5705,9 @@ function terminateOtherActivities(targetMode = "static", reason = "mode_change")
   const ended = [];
   const previousPlayback = state.playback;
 
-  // 单向保护规则：
-  // 启动/发送另一种模式是硬中断，不是临时暂停。
-  // 这里停止的内容不会在新模式结束后自动恢复。
+  // One-way protection rules:
+  // Another mode of start/send is a hard interrupt, not a temporary pause.
+  // Content stopped here will not automatically resume after the new mode ends.
   if (targetMode !== "face" && isAutoModeValue(state.mode)) {
     state.restoreAutoAfterScroll = targetMode === "scroll";
     state.mode = "manual";
@@ -5398,9 +5761,44 @@ function guardBeforeOutput(reason = "mode_change", playback = null) {
   return terminateOtherActivities(classifyOutputMode(reason, playback), reason);
 }
 
+async function prepareForTextScrollUpload() {
+  const settleTimeoutMs = 1200;
+  if (liveSendEnabled) {
+    setLiveSendEnabled(false, "文字滚动准备");
+  }
+  pendingFramePacket = null;
+  frameSendPump.clear("text_scroll_prepare");
+  buttonCommandPump.clear("text_scroll_prepare");
+  await Promise.all([
+    frameSendPump.waitForIdle(settleTimeoutMs),
+    buttonCommandPump.waitForIdle(settleTimeoutMs),
+    waitForAuxCommandsIdle(settleTimeoutMs),
+  ]);
+
+  const ended = guardBeforeOutput("text_scroll_start", "scroll");
+  const packet = ended.length
+    ? null
+    : sendAuxCommand(
+        "terminate_other_activities",
+        {
+          targetMode: "scroll",
+          ended: ["text_scroll_prepare"],
+        },
+        "text_scroll_prepare",
+      );
+  await Promise.all([
+    packet ? packet.promise : Promise.resolve(null),
+    frameSendPump.waitForIdle(settleTimeoutMs),
+    buttonCommandPump.waitForIdle(settleTimeoutMs),
+    waitForAuxCommandsIdle(settleTimeoutMs),
+  ]);
+  await sleepMs(120);
+}
+
 function setCurrentFrame(frame, reason = "manual_update", playback = null) {
   guardBeforeOutput(reason, playback);
   currentFrame = cloneFrame(frame);
+  if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
   state.lastRefreshReason = reason;
   state.refreshCount++;
   if (playback !== null) state.playback = playback;
@@ -5434,7 +5832,7 @@ function setColor(hex, source = "color_change") {
   updateDps();
   renderMatrices();
   renderState();
-  log(`颜色更新 ${c} (${source})`);
+  log(`颜色更新 ${c} (${source})`, "debug");  // May trigger high frequency with color picker/slider
   if (source !== "firmware_sync")
     sendAuxCommand(
       "set_color",
@@ -5458,7 +5856,7 @@ function setBrightness(v, source = "brightness_change") {
     lastUserBrightnessMs = Date.now();
   }
   applyBrightnessLocal(v);
-  log(`亮度更新 raw=${state.brightness} (${source})`);
+  log(`亮度更新 raw=${state.brightness} (${source})`, "debug");  // Dragging the slider will trigger high frequency
   sendAuxCommand(
     "set_brightness",
     {
@@ -5468,11 +5866,11 @@ function setBrightness(v, source = "brightness_change") {
   );
 }
 
-// 启动加载器和初始固件同步
-// 连接关系：
-// - loading-overlay 的视觉状态由 index.html 标记和 styles.css 动画控制。
-// - 本块只负责切换 data-boot-phase/class，并把首个固件快照预加载进 state。
-// - bootstrapWebUi() 调用这些函数，让网络读取和加载动画时间重叠。
+// Boot loader and initial firmware synchronization
+// Connection relationship:
+// - The visual state of the loading-overlay is controlled by the index.html tag and styles.css animation.
+// - This block is only responsible for switching data-boot-phase/class and preloading the first firmware snapshot into state.
+// - bootstrapWebUi() calls these functions to allow network reading and loading animation times to overlap.
 let bootRuntimeSnapshot = {
   attempted: false,
   ok: false,
@@ -5485,7 +5883,7 @@ function unlockBootPageScroll() {
     document.documentElement.removeAttribute("data-scroll-lock");
   }
 }
-// ── Rina 加载遮罩动画 ─────────────────────────────────
+// -- Rina loading mask animation ---------------------------------
 (function () {
   const ICON_BEFORE = WEBUI_CONFIG.boot.loadingIconBefore;
   const ICON_AFTER = WEBUI_CONFIG.boot.loadingIconAfter;
@@ -5774,8 +6172,8 @@ function unlockBootPageScroll() {
     overlay.setAttribute("aria-label", "页面加载中");
     started = true;
     window.rinaLoaderStartedAt = haloCycleStart;
-    // 悬停加载图片刻意不在这里（第 3 阶段）预加载。它会在
-    // doFinish() 中延迟加载，也就是第 4 阶段首屏揭示之后，以保持初始预加载最小。
+    // Hover loading images are intentionally not preloaded here (stage 3). it will be in
+    // Lazy loading in doFinish(), just after the first stage reveal in stage 4, to keep initial preloading to a minimum.
     if (finishQueued) {
       finishQueued = false;
       requestAnimationFrame(requestFinish);
@@ -5883,10 +6281,9 @@ async function preloadFirmwareRuntimeState() {
   }
   try {
     lastFirmwareStatusPollAt = performance.now();
-    // 获取完整状态（包含 renderer.lastM370 中的第一帧 LED），
-    // 而不是 runtimeOnly/noFrame 摘要，并用 skipFrame:false 应用它，
-    // 让基础矩阵预览在加载动画期间就由第一帧填充。
-    const data = await bootFastJsonGet(firmwareStatusPath(false));
+    // Post-loader boot sync uses the lightweight runtime summary. It intentionally
+    // skips frame data so startup cannot compete with scroll/source sync or LED output.
+    const data = await bootFastJsonGet(firmwareStatusPath(true));
     rememberFirmwareStatusPoll(data);
     bootRuntimeSnapshot = {
       attempted: true,
@@ -5895,7 +6292,7 @@ async function preloadFirmwareRuntimeState() {
       data,
     };
     applyFirmwareRuntimeState(data, "page_boot_runtime", {
-      skipFrame: false,
+      skipFrame: true,
     });
     setFirmwareStatus({
       lastStatus: "firmware runtime read ok",
@@ -5908,12 +6305,12 @@ async function preloadFirmwareRuntimeState() {
       lastStatus: "firmware runtime read failed",
       lastError: bootRuntimeSnapshot.error,
     });
-    if (shouldLogApiError()) log(`启动读取固件状态失败: ${bootRuntimeSnapshot.error}`);
+    if (shouldLogApiError()) log(`启动读取固件状态失败: ${bootRuntimeSnapshot.error}`, "error");
     return bootRuntimeSnapshot;
   }
 }
 async function syncRuntimeStateFromFirmware(source = "webui_load") {
-  if (firmwareFullStatusInFlight) return false;
+  if (firmwareFullStatusInFlight || scroll.lightSyncing || scrollMetaFetchInFlight) return false;
   firmwareFullStatusInFlight = true;
   try {
     lastFirmwareStatusPollAt = performance.now();
@@ -5926,14 +6323,14 @@ async function syncRuntimeStateFromFirmware(source = "webui_load") {
     return true;
   } catch (err) {
     if (!isOfflineHtmlMode() && shouldLogApiError())
-      log(`读取固件运行/预览状态失败: ${err.message}`);
+      log(`读取固件运行/预览状态失败: ${err.message}`, "error");
     return false;
   } finally {
     firmwareFullStatusInFlight = false;
   }
 }
 async function syncRuntimeSummaryFromFirmware(source = "firmware_poll_runtime_summary") {
-  if (firmwareRuntimeSummaryInFlight) return false;
+  if (firmwareRuntimeSummaryInFlight || scroll.lightSyncing || scrollMetaFetchInFlight) return false;
   firmwareRuntimeSummaryInFlight = true;
   try {
     lastFirmwareStatusPollAt = performance.now();
@@ -5945,7 +6342,7 @@ async function syncRuntimeSummaryFromFirmware(source = "firmware_poll_runtime_su
       });
     return true;
   } catch (err) {
-    if (!isOfflineHtmlMode() && shouldLogApiError()) log(`读取固件轻量状态失败: ${err.message}`);
+    if (!isOfflineHtmlMode() && shouldLogApiError()) log(`读取固件轻量状态失败: ${err.message}`, "error");
     return false;
   } finally {
     firmwareRuntimeSummaryInFlight = false;
@@ -5955,19 +6352,15 @@ async function syncRuntimeSummaryFromFirmware(source = "firmware_poll_runtime_su
 function startFirmwareStatusPolling() {
   if (firmwareStatusPollTimer || isOfflineHtmlMode()) return;
   firmwareStatusPollTimer = setInterval(() => {
+    // P1-6: while a scroll upload is in flight, skip status polling so the single-
+    // threaded ESP32 WebServer isn't fighting concurrent reads against the upload.
+    if (scroll.uploading || scroll.startBusy || scroll.restoring || scroll.lightSyncing || scrollMetaFetchInFlight) return;
     const firmwareIsScrolling =
       state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
-    const scrollPageNeedsFastStopNotice = firmwareIsScrolling && isScrollPageActive();
-    const minInterval = scrollPageNeedsFastStopNotice
-      ? Math.min(550, firmwareNextPollMs)
-      : Math.max(1000, firmwareNextPollMs);
+    const minInterval = Math.max(1000, firmwareNextPollMs);
     if (performance.now() - lastFirmwareStatusPollAt < minInterval) return;
     if (firmwareIsScrolling) {
-      syncRuntimeSummaryFromFirmware(
-        scrollPageNeedsFastStopNotice
-          ? "firmware_poll_scroll_runtime"
-          : "firmware_poll_scroll_summary",
-      );
+      syncRuntimeSummaryFromFirmware("firmware_poll_scroll_summary");
     } else {
       syncRuntimeStateFromFirmware("firmware_poll");
     }
@@ -5978,7 +6371,12 @@ async function refreshPowerStatusFromFirmware(source = "power_timer", force = fa
     isOfflineHtmlMode() ||
     powerStatusRefreshInFlight ||
     firmwareFullStatusInFlight ||
-    firmwareRuntimeSummaryInFlight
+    firmwareRuntimeSummaryInFlight ||
+    scroll.uploading || // P1-6: don't poll power during a scroll upload
+    scroll.startBusy ||
+    scroll.restoring ||
+    scroll.lightSyncing ||
+    scrollMetaFetchInFlight
   )
     return;
   const now = performance.now();
@@ -5991,7 +6389,7 @@ async function refreshPowerStatusFromFirmware(source = "power_timer", force = fa
     applyPowerData(powerPayload);
     renderState();
   } catch (err) {
-    if (shouldLogApiError()) log(`power status refresh failed: ${err.message}`);
+    if (shouldLogApiError()) log(`power status refresh failed: ${err.message}`, "error");
   } finally {
     powerStatusRefreshInFlight = false;
   }
@@ -6085,19 +6483,19 @@ function responsiveColumnCount() {
   return 2;
 }
 
-// page-debug 重写：旧 JS masonry 布局已由 .debug-grid CSS 网格取代。
-// 两个函数保留为 no-op 以兼容现有调用点（switchPage 等），布局完全交给 CSS。
+// page-debug rewrite: The old JS masonry layout has been replaced by the .debug-layout CSS grid.
+// Both functions are left no-op for compatibility with existing call sites (switchPage, etc.), and layout is left entirely to CSS.
 function scheduleDebugMasonryLayout() {
-  /* no-op：.debug-grid 由 CSS 处理布局 */
+  /* no-op: .debug-layout is handled by CSS */
 }
 
 function setupDebugMasonryLayout() {
-  /* no-op：.debug-grid 由 CSS 处理布局；进入调试页时仍触发一次矩阵适配 */
+  /* no-op: .debug-layout handles layout by CSS; matrix adaptation is still triggered when entering the debug page */
   scheduleMatrixFitRender(2);
 }
 
 function switchPage(id) {
-  // 页面切换只是 WebUI 导航；真正改 LED 输出的按钮/帧写入会各自中断滚动。
+  // Page switching is just WebUI navigation; buttons/frame writes that actually change LED output will each interrupt scrolling.
   document.body.dataset.page = id;
   for (const [pid] of PAGES) {
     $("page-" + pid).classList.toggle("active", pid === id);
@@ -6109,7 +6507,7 @@ function switchPage(id) {
   scheduleMatrixFitRender(2);
   if (id === "scroll") {
     ensureScrollFontsLoaded();
-    // 进入 6.4 时按需从恢复的源文本重建预览帧（plan v6 2.5）。
+    // Rebuild preview frames from recovered source text on demand when going into 6.4 (plan v6 2.5).
     restoreScrollPreviewIfNeeded("page_entry").catch((err) => {
       warnScrollRestoreDebug("preview restore page-entry failed", {
         error: err?.message || String(err),
@@ -6130,14 +6528,19 @@ function switchPage(id) {
       const a = $("parts-m370-text");
       if (a) autoResizeTextarea(a);
     });
+  if (isFaceLibraryPage(id)) {
+    scheduleFaceLibraryRefresh(`${id}_page_enter`, 0);
+  }
   if (id === "debug") {
+    // Entering 6.5: flush any log lines accumulated while the panel was hidden.
+    if (logDirty) renderLog();
     requestAnimationFrame(() => {
       setupDebugMasonryLayout(true);
       const a = $("debug-m370");
       if (a) autoResizeTextarea(a);
       refreshDebugM370Validation();
     });
-    // 进入 6.5：轻量运行时摘要 + 电源状态；只读面板由 renderState->renderDebugReadouts 渲染。
+    // Into 6.5: Lightweight runtime summary + power state; read-only panels are rendered by renderState->renderDebugReadouts.
     syncRuntimeSummaryFromFirmware("debug_page_enter");
     refreshPowerStatusFromFirmware("debug_page_enter", true);
     renderDebugReadouts();
@@ -6148,11 +6551,11 @@ function switchPage(id) {
   }
 }
 
-// 导航、响应式布局和自定义选择器
-// 连接关系：
-// - initNav() 根据 PAGES 生成顶部页面菜单，菜单按钮切换 .page.active。
-// - switchPage() 负责页面生命周期：进入 6.4 时启动字体懒加载，离开时保持状态同步。
-// - 响应式辅助只设置必要 class/尺寸；真正布局仍由 styles.css 的 grid/media rules 决定。
+// Navigation, responsive layout and custom selectors
+// Connection relationship:
+// - initNav() generates the top page menu based on PAGES, and the menu button switches .page.active.
+// - switchPage() is responsible for the page life cycle: start lazy loading of fonts when entering 6.4, and maintain status synchronization when leaving.
+// - Responsive auxiliary only sets necessary classes/sizes; the actual layout is still determined by the grid/media rules of styles.css.
 function initNav() {
   const nav = $("nav");
   nav.innerHTML = "";
@@ -6207,8 +6610,8 @@ function viewportBoundsForFixedMenu() {
 let selectScrollLock = null;
 function lockPageScrollForSelects() {
   if (selectScrollLock) return;
-  // 只是一个标记：通过拦截事件阻止滚动，保持
-  // 滚动条可见且布局不变（不修改 overflow）。
+  // Just a flag: prevent scrolling by intercepting events, keeping
+  // The scrollbars are visible and the layout is unchanged (the overflow is not modified).
   selectScrollLock = true;
 }
 
@@ -6220,7 +6623,7 @@ function syncSelectPageScrollLock() {
   if (document.querySelector(".select-shell.open")) lockPageScrollForSelects();
   else unlockPageScrollForSelects();
 }
-// 阻止下拉菜单外的 touchmove（触摸滚动）
+// Prevent touchmove outside dropdown menu (touch scrolling)
 function selectMenuCanScroll(menu) {
   return (
     !!menu &&
@@ -6235,14 +6638,14 @@ function blockPageTouchMoveWhileSelectOpen(ev) {
   if (selectMenuCanScroll(menu)) return;
   ev.preventDefault();
 }
-// 阻止下拉菜单外的 wheel 事件（鼠标/触控板滚动）
+// Prevent wheel events outside dropdown menus (mouse/trackpad scrolling)
 function blockPageWheelWhileSelectOpen(ev) {
   if (!selectScrollLock) return;
   const menu = ev.target?.closest?.(".select-menu");
   if (selectMenuCanScroll(menu)) return;
   ev.preventDefault();
 }
-// 阻止下拉菜单外的键盘滚动键
+// Block keyboard scroll keys outside dropdown menu
 function blockPageKeyScrollWhileSelectOpen(ev) {
   if (!selectScrollLock) return;
   const menu = ev.target?.closest?.(".select-menu");
@@ -6258,24 +6661,24 @@ function positionSelectMenu(shell, options = {}) {
   const viewport = viewportBoundsForFixedMenu();
   const viewportPadding = 8;
   const menuGap = 8;
-  // verticalOnly：跳过宽度/左偏移重算（用于窗口滚动事件，防止水平跳动）
+  // verticalOnly: Skip width/left offset recalculation (used for window scroll events to prevent horizontal jumping)
   if (!options.verticalOnly) {
-    // 镜像切换按钮的精确宽度和左边缘，不做舍入或夹取。
-    shell._selectMenuWidth = r.width; // 保持为真值，让“已打开”标记持续有效
+    // Mirror the exact width and left edge of the toggle button, without rounding or clipping.
+    shell._selectMenuWidth = r.width; // Keep true to keep the "opened" flag active
     menu.style.width = r.width + "px";
     menu.style.left = r.left + "px";
   }
-  // 默认放在下方；空间不足时翻到上方
+  // By default, it is placed at the bottom; when there is insufficient space, it is flipped to the top.
   const spaceBelow = Math.max(0, viewport.bottom - r.bottom - menuGap - viewportPadding);
   const spaceAbove = Math.max(0, r.top - viewport.top - menuGap - viewportPadding);
   const openBelow = spaceBelow >= 96 || spaceBelow >= spaceAbove;
-  // 可用高度等于所选方向的完整空间，不设置任意上限。
-  // 菜单会尽量展开以显示所有按钮；只有放不下时才进行不可见滚动。
+  // The available height is equal to the full space in the selected direction, without any upper limit.
+  // The menu will expand as much as possible to show all buttons; it will only scroll invisible if it cannot fit.
   const availableHeight = Math.max(48, openBelow ? spaceBelow : spaceAbove);
   const menuStyle = getComputedStyle(menu);
   const borderY =
     parseFloat(menuStyle.borderTopWidth || "0") + parseFloat(menuStyle.borderBottomWidth || "0");
-  const naturalH = menu.scrollHeight; // 内容完整高度，包含内边距但不含边框
+  const naturalH = menu.scrollHeight; // Content full height, including padding but not borders
   const naturalOuterH = Math.ceil(naturalH + borderY);
   const fitsAllOptions = naturalOuterH <= availableHeight + 1;
   const menuH = fitsAllOptions ? naturalOuterH : availableHeight;
@@ -6455,7 +6858,7 @@ function initCustomSelectDropdowns() {
   window.addEventListener("wheel", blockPageWheelWhileSelectOpen, {
     passive: false,
   });
-  // 滚动或调整尺寸时重新定位已打开的菜单
+  // Reposition an open menu when scrolling or resizing
   const reposition = () => {
     document.querySelectorAll(".select-shell.open").forEach((shell) => positionSelectMenu(shell));
   };
@@ -6472,12 +6875,12 @@ function initCustomSelectDropdowns() {
   window.visualViewport?.addEventListener("resize", reposition, {
     passive: true,
   });
-  // visualViewport 滚动（双指缩放后的平移）：需要完整重定位
+  // visualViewport scrolling (pan after pinch zoom): complete repositioning required
   window.visualViewport?.addEventListener("scroll", reposition, {
     passive: true,
   });
-  // 窗口滚动：只更新垂直位置，避免水平宽度/左偏移跳动。
-  // 滚动锁定时完全跳过（页面并未真正滚动，这些事件是冗余的）。
+  // Window scrolling: Only update vertical position, avoid horizontal width/left offset jumping.
+  // Completely skipped when scroll is locked (the page is not actually scrolling, these events are redundant).
   window.addEventListener(
     "scroll",
     () => {
@@ -6495,15 +6898,66 @@ function initCustomSelectDropdowns() {
   );
 }
 
-// LED 矩阵渲染和编辑
-// 连接关系：
-// - initMatrix() 把 index.html 中的矩阵容器变成 370 个可渲染 cell。
-// - MATRIX_VIEW_CONFIGS 指定每个矩阵读取哪个 frame provider。
-// - 点击编辑只修改对应缓冲区；setCurrentFrame()/queueFirmwareFrame() 才把结果推给固件。
-// - renderMatrices() 是所有页面共享的最终视觉刷新点。
+// LED matrix rendering and editing
+// Connection relationship:
+// - initMatrix() turns the matrix container in index.html into 370 renderable cells.
+// - MATRIX_VIEW_CONFIGS specifies which frame provider to read for each matrix.
+// - Click Edit to only modify the corresponding buffer; use setCurrentFrame()/queueFirmwareFrame() to push the result to the firmware.
+// - renderMatrices() is the final visual refresh point shared by all pages.
+// Superimpose the rinaboard.png background image behind the matrix: wrap the matrix into .rinaboard-stage,
+// And inject a decorative basemap. All LED previews share the same structure and alignment style.
+// Idempotent: If it has been wrapped, it will not be processed again.
+// LED 预览背景图（rinaboard.png）较大，单独纳入加载序列：加载动画开始后才请求它，
+// 加载完成（或失败/超时）后再开始卡片瀑布揭示。这样首屏关键资源（HTML/CSS/JS/字体）
+// 先就位，避免这张大图与其它请求在单连接的固件 Web 服务器上互相抢占、拖到首次加载超时。
+const RINABOARD_IMAGE_SRC = "resources/pictures/rinaboard.png";
+const RINABOARD_PRELOAD_TIMEOUT_MS = 8000;
+let rinaboardImagePromise = null;
+function preloadRinaboardImage() {
+  if (rinaboardImagePromise) return rinaboardImagePromise;
+  rinaboardImagePromise = new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const img = new Image();
+    img.onload = finish;
+    img.onerror = finish; // 缺图/失败也不能卡住启动
+    img.src = RINABOARD_IMAGE_SRC;
+    if (img.complete) finish(); // 已在缓存中
+    // 安全阀：图片很慢或超时也不能让卡片瀑布永远等待。
+    setTimeout(finish, RINABOARD_PRELOAD_TIMEOUT_MS);
+  });
+  return rinaboardImagePromise;
+}
+
+function ensureRinaboardStage(el) {
+  if (!el || el.closest(".rinaboard-stage")) return;
+  const parent = el.parentNode;
+  if (!parent) return;
+  const stage = document.createElement("div");
+  stage.className = "rinaboard-stage";
+  const img = document.createElement("img");
+  img.className = "rinaboard-bg-img";
+  // 同一 URL，命中 preloadRinaboardImage() 预加载的浏览器缓存，立即显示。
+  img.src = RINABOARD_IMAGE_SRC;
+  img.alt = "";
+  img.setAttribute("aria-hidden", "true");
+  img.draggable = false;
+  img.onload = () => {
+    scheduleMatrixFitRender(2);
+  };
+  parent.insertBefore(stage, el);
+  stage.appendChild(img);
+  stage.appendChild(el);
+}
+
 function initMatrix(id, frameProvider, editable = false, editHandler = null, compact = false) {
   const el = $(id);
   if (!el) return;
+  ensureRinaboardStage(el);
   el.innerHTML = "";
   if (compact) el.classList.add("compact");
   
@@ -6554,7 +7008,7 @@ function elementOuterBlockSize(el) {
 
 function matrixMaxContentHeight(wrap, configuredMaxHeight) {
   if (!(configuredMaxHeight > 0)) return Infinity;
-  const card = wrap.closest(".led-preview-card,.debug-measure-card");
+  const card = wrap.closest(".led-preview-card");
   if (!card) return configuredMaxHeight;
   const cardStyle = getComputedStyle(card);
   const cardChrome =
@@ -6577,6 +7031,19 @@ function matrixMaxContentHeight(wrap, configuredMaxHeight) {
 function fitMatrix(view) {
   const wrap = view.el.closest(".matrix-wrap");
   if (!wrap) return;
+
+  const stage = view.el.closest(".rinaboard-stage");
+  if (stage) {
+    const img = stage.querySelector(".rinaboard-bg-img");
+    if (img) {
+      const rect = img.getBoundingClientRect();
+      if (rect.width > 0) {
+        const scale = rect.width / 4000;
+        stage.style.setProperty("--alignment-scale", String(scale));
+      }
+    }
+  }
+
   const wrapStyle = getComputedStyle(wrap);
   const cs = getComputedStyle(view.el);
   const gap = parseFloat(cs.getPropertyValue("--gap")) || (view.compact ? 2 : 3);
@@ -6596,16 +7063,18 @@ function fitMatrix(view) {
   const edgeRatioRaw = parseFloat(wrapStyle.getPropertyValue("--led-preview-edge-ratio"));
   const edgeRatio = Number.isFinite(edgeRatioRaw) && edgeRatioRaw >= 0 ? edgeRatioRaw : 0.1;
 
-  // 平滑实时缩放：保持透明内边距与 --cell 成比例。
-  // 适配公式会在包装层内预留 2 * edgeRatio * cell，
-  // 因此 LED 矩阵边距会随 LED 网格一起缩放，
-  // 不会在卡片尺寸变化时保持固定。
+  // Smooth real-time scaling: Keep transparent padding proportional to --cell.
+  // The adaptation formula will reserve 2 * edgeRatio * cells in the packaging layer,
+  // So the LED matrix margins scale with the LED grid,
+  // Does not remain fixed when card size changes.
   const wrapRect = wrap.getBoundingClientRect();
   if (wrapRect.width <= 0 || wrap.offsetParent === null) {
-    const cell = clamp(defaultCell, minCell, maxCell);
+    // Floor to whole pixels so every cell lands on an exact device-pixel
+    // boundary and the gap renders uniformly between all LEDs.
+    const cell = Math.max(1, Math.floor(clamp(defaultCell, minCell, maxCell)));
     const edgeGap = cell * edgeRatio;
-    view.el.style.setProperty("--cell", cell.toFixed(4) + "px");
-    view.el.dataset.cellPx = cell.toFixed(4);
+    view.el.style.setProperty("--cell", cell + "px");
+    view.el.dataset.cellPx = String(cell);
     wrap.style.setProperty("--matrix-edge-gap", edgeGap.toFixed(4) + "px");
     return;
   }
@@ -6626,10 +7095,12 @@ function fitMatrix(view) {
     ? (heightBudget - gap * (ROWS - 1)) / heightDenom
     : Infinity;
   const fitCell = Math.min(cellByWidth, cellByHeight, maxCell);
-  const cell = clamp(fitCell, minCell, maxCell);
+  // Floor to whole pixels so every cell lands on an exact device-pixel boundary
+  // and the gap renders uniformly between all LEDs (no alternating 1px/2px lines).
+  const cell = Math.max(1, Math.floor(clamp(fitCell, minCell, maxCell)));
   const edgeGap = cell * edgeRatio;
-  view.el.style.setProperty("--cell", cell.toFixed(4) + "px");
-  view.el.dataset.cellPx = cell.toFixed(4);
+  view.el.style.setProperty("--cell", cell + "px");
+  view.el.dataset.cellPx = String(cell);
   wrap.style.setProperty("--matrix-edge-gap", edgeGap.toFixed(4) + "px");
 }
 
@@ -6662,7 +7133,7 @@ function observeMatrixWraps() {
   if (typeof ResizeObserver !== "undefined") {
     matrixResizeObserver = new ResizeObserver(onResize);
     document
-      .querySelectorAll(".matrix-wrap,.led-preview-card,.debug-measure-card")
+      .querySelectorAll(".matrix-wrap,.led-preview-card,.rinaboard-stage")
       .forEach((el) => matrixResizeObserver.observe(el));
   } else {
     matrixResizeObserver = {
@@ -6696,7 +7167,7 @@ function observeMatrixWraps() {
 
 function renderMatrices() {
   for (const view of matrixViews) {
-    // 隐藏的矩阵不执行渲染，标记为脏状态，下次可见时全量更新
+    // The hidden matrix does not perform rendering and is marked as dirty. It will be fully updated the next time it is visible.
     if (view.el.offsetParent === null) {
       view.dirty = true;
       continue;
@@ -6710,7 +7181,7 @@ function renderMatrices() {
         const idx = XY_TO_INDEX[y][x];
         if (idx >= 0) {
           const isOn = !!frame[idx];
-          // 仅在状态改变或脏标记时更新 DOM
+          // Only update DOM when state changes or dirty mark
           if (view.dirty || isOn !== !!lastState[idx]) {
             cells[n].classList.toggle("on", isOn);
             lastState[idx] = isOn ? 1 : 0;
@@ -6760,14 +7231,36 @@ function batteryPowerText() {
   return state.batteryPowered === false ? "未上电" : state.batteryStateText || "电池";
 }
 
-// UI 渲染器
-// 连接关系：
-// - renderState() 是 state -> DOM 的集中出口，避免业务函数到处改 UI 文案。
-// - renderFaceLibrary()/renderPartButtons()/updateScrollUi() 处理各自复杂子视图。
-// - 所有渲染函数都应是幂等的：重复调用只能刷新，不应重复绑定事件或改变业务状态。
+function firmwareConnectionUiState() {
+  const online = !!firmware.online;
+  if (online) return { label: "在线", dotClass: "status-dot" };
+  const hasError = !!(firmware.lastError && firmware.lastError !== "—");
+  return { label: hasError ? "错误" : "离线", dotClass: "status-dot danger" };
+}
+
+// UI renderer
+// Connection relationship:
+// - renderState() is a centralized outlet for state -> DOM, preventing business functions from changing UI copy everywhere.
+// - renderFaceLibrary()/renderPartButtons()/updateScrollUi() handle their respective complex subviews.
+// - All rendering functions should be idempotent: repeated calls can only refresh, and should not repeatedly bind events or change business status.
 function renderState() {
-  // 共享 UI（页眉电池/充电徽章、模式切换）在任何页面都要更新，不受 page-debug 影响。
+  // Shared UI (header battery/charging badge, mode switching) must be updated on any page and is not affected by page-debug.
   updateModeToggleUi();
+  const runtimeDot = $("badge-runtime-dot"),
+    runtimeLabel = $("badge-runtime-label"),
+    runtimeBadge = $("badge-runtime");
+  if (runtimeDot && runtimeLabel) {
+    const connection = firmwareConnectionUiState();
+    runtimeDot.className = connection.dotClass;
+    runtimeLabel.textContent = connection.label;
+    if (runtimeBadge) {
+      runtimeBadge.title = firmware.online
+        ? "固件连接在线"
+        : firmware.lastError
+          ? `固件连接${connection.label}: ${firmware.lastError}`
+          : `固件连接${connection.label}`;
+    }
+  }
   const battDot = $("badge-battery-dot"),
     battLabel = $("badge-battery-label");
   if (battDot && battLabel) {
@@ -6790,9 +7283,9 @@ function renderState() {
         ? `充电中 ${formatVolts(state.chargeV)}`
         : formatChargingBadge(state.charging);
   }
-  // 调试页只读面板：仅在 6.5 活动时渲染，且只重写只读 kv/徽章/预览元信息，
-  // 绝不重建交互控件（M370/原始 JSON/勾选框）。renderState 有 44 处调用点，
-  // 因此必须按页面 gate 以免每次轮询/请求清空用户输入（v2 规则 4）。
+  // Debug page read-only panel: only renders when 6.5 is active, and only rewrites read-only kv/badge/preview meta information,
+  // Never rebuild interactive controls (M370/raw JSON/checkboxes). renderState has 44 call points,
+  // Therefore the page must be gated to avoid clearing user input on every poll/request (v2 rule 4).
   renderDebugReadouts();
 }
 
@@ -6818,9 +7311,9 @@ function escapeHtml(s) {
 
 function autoResizeTextarea(el) {
   if (!el) return;
-  // 如果元素（或任一祖先）是 display:none，offsetParent 会是 null，
-  // scrollHeight 也会返回 0。此时直接退出，避免把高度压成 0px；
-  // 页面显示后 switchPage() 会再次调用这里。
+  // If the element (or any ancestor) is display:none, offsetParent will be null,
+  // and scrollHeight will also return 0. Exit early to avoid collapsing the height to 0px.
+  // switchPage() will call this again once the page becomes visible.
   if (el.offsetParent === null && el !== document.body) {
     el.dataset.pendingAutoresize = "1";
     return;
@@ -6853,11 +7346,11 @@ function updateM370Views() {
   }
 }
 
-// 颜色、亮度和模式控制
-// 连接关系：
-// - 初始化函数把 index.html 控件接到 state setters。
-// - setColor()/setBrightness() 更新 state、预览 frame 和固件输出队列。
-// - 自动/手动模式按钮最终走 sendButtonCommand()/queueFirmwareFrame()，保持 UI 与设备一致。
+// Color, brightness, and mode controls
+// Relationship:
+// - Initialization functions bind controls in index.html to state setters.
+// - setColor()/setBrightness() update the local state, preview frames, and firmware output queue.
+// - Auto/Manual mode buttons invoke sendButtonCommand()/queueFirmwareFrame() to sync WebUI and firmware states.
 function initColorInput() {
   const input = $("color-input");
   if (!input) return;
@@ -7181,10 +7674,25 @@ function initCustom() {
   initFaceManagerControls();
 }
 
-function toggleLiveSend(label = "实时发送") {
-  liveSendEnabled = !liveSendEnabled;
+function syncLiveSendBaseline(frame = currentFrame) {
+  liveSyncedFrame = cloneFrame(frame || blankFrame());
+}
+
+function setLiveSendEnabled(enabled, label = "实时发送") {
+  const next = !!enabled;
+  if (liveSendEnabled === next) {
+    updateLiveToggles();
+    if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
+    return;
+  }
+  liveSendEnabled = next;
+  if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
   updateLiveToggles();
   log(`${label} ${liveSendEnabled ? "开启" : "关闭"}`);
+}
+
+function toggleLiveSend(label = "实时发送") {
+  setLiveSendEnabled(!liveSendEnabled, label);
 }
 
 function updateLiveToggles() {
@@ -7194,6 +7702,7 @@ function updateLiveToggles() {
     btn.classList.toggle("active", liveSendEnabled);
     btn.setAttribute("aria-pressed", liveSendEnabled ? "true" : "false");
     btn.textContent = "实时";
+    btn.title = liveSendEnabled ? "实时发送已开启" : "实时发送已关闭";
   });
 }
 
@@ -7204,14 +7713,31 @@ function sendCustomFrame(reason = "custom_face_send", writeLog = true) {
 }
 
 function sendCustomFrameIfLive(reason = "custom_live_send") {
-  if (liveSendEnabled) sendCustomFrame(reason, false);
+  if (!liveSendEnabled) return;
+  currentFrame = cloneFrame(editFrame);
+  const changes = frameDeltaChanges(liveSyncedFrame, editFrame);
+  queueFirmwareLedDeltas(changes, reason, "idle");
+}
+
+// During rapid sequential editing (holding/clicking cells), matrix preview and M370 textarea refreshes
+// are coalesced into the next animation frame to avoid heavy full-page re-renders. Incremental delta commands
+// are still dispatched immediately to minimize latency.
+let customEditRenderRaf = 0;
+function scheduleCustomEditRender() {
+  if (customEditRenderRaf) return;
+  customEditRenderRaf = requestAnimationFrame(() => {
+    customEditRenderRaf = 0;
+    renderMatrices();
+    updateM370Views();
+  });
 }
 
 function editCell(idx, value, tool) {
   editFrame[idx] = !!value;
-  renderMatrices();
-  updateM370Views();
+  // Dispatch incremental delta changes immediately to keep synchronization latency minimal.
   sendCustomFrameIfLive("custom_live_send");
+  // Coalesce local UI rendering into the next animation frame.
+  scheduleCustomEditRender();
 }
 
 function preferredStartupDefaultId(faces) {
@@ -7242,6 +7768,7 @@ function applyStartupDefaultFaceLocal(reason = "text_scroll_stop_default_saved_f
   if (!face) return false;
   state.faceIndex = index;
   currentFrame = m370ToFrame(face.m370);
+  if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
   scrollFrame = cloneFrame(currentFrame);
   state.lastRefreshReason = reason;
   state.refreshCount++;
@@ -7259,6 +7786,7 @@ function applyKnownFaceIndexLocal(reason = "firmware_face_index_preview") {
   if (!face || typeof face.m370 !== "string") return false;
   state.faceIndex = index;
   currentFrame = m370ToFrame(face.m370);
+  if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
   scrollFrame = cloneFrame(currentFrame);
   state.lastRefreshReason = reason;
   renderMatrices();
@@ -7266,11 +7794,11 @@ function applyKnownFaceIndexLocal(reason = "firmware_face_index_preview") {
   renderSavedFaces();
   return true;
 }
-// 已保存表情库持久化
-// 连接关系：
-// - loadFaceLibrary() 先读 LittleFS 默认库，再合并本地/用户表情。
-// - save/export/import 只处理 JSON 文档；真正点阵显示仍走 setCurrentFrame()。
-// - createFaceRow()/reorderFace()/deleteFace() 是 6.2 和 6.3 共享的列表 UI。
+// Saved face library persistence
+// Relationship:
+// - loadFaceLibrary() reads the default library from LittleFS and merges local/user-saved faces.
+// - save/export/import manage JSON payloads; physical matrix updates invoke setCurrentFrame().
+// - createFaceRow()/reorderFace()/deleteFace() share the table UI for sections 6.2 and 6.3.
 async function loadFaceLibrary() {
   const doc = await loadUnifiedFacesDocument();
   faceLibraryDocument = normalizeFaceDocument(doc, "custom");
@@ -7288,6 +7816,102 @@ async function loadFaceLibrary() {
   renderState();
   return library;
 }
+
+function isFaceLibraryPage(id = document.body?.dataset?.page) {
+  return id === "custom" || id === "parts";
+}
+
+function refreshFaceLibraryFromFirmware(reason = "face_library_refresh") {
+  if (!isFaceLibraryPage()) return Promise.resolve(null);
+  if (faceLibraryRefreshInFlight) {
+    faceLibraryRefreshQueued = true;
+    return faceLibraryRefreshInFlight;
+  }
+  setFirmwareStatus({
+    savedFacesSync: "refreshing saved_faces.json",
+  });
+  faceLibraryRefreshInFlight = loadFaceLibrary()
+    .catch((err) => {
+      setFirmwareStatus({
+        savedFacesSync: "refresh saved_faces.json failed",
+      });
+      if (shouldLogApiError()) log(`saved_faces.json auto refresh failed: ${err.message}`, "error");
+      return null;
+    })
+    .finally(() => {
+      faceLibraryRefreshInFlight = null;
+      if (faceLibraryRefreshQueued) {
+        faceLibraryRefreshQueued = false;
+        scheduleFaceLibraryRefresh(`${reason}_queued`, 0);
+      }
+    });
+  return faceLibraryRefreshInFlight;
+}
+
+function scheduleFaceLibraryRefresh(reason = "face_library_auto_refresh", delay = 240) {
+  if (!isFaceLibraryPage()) return;
+  window.clearTimeout(faceLibraryRefreshTimer);
+  faceLibraryRefreshTimer = window.setTimeout(() => {
+    faceLibraryRefreshTimer = 0;
+    refreshFaceLibraryFromFirmware(reason);
+  }, Math.max(0, delay));
+}
+
+function persistFaceDocumentsAndRefresh(reason = "save_faces", delay = 120) {
+  return persistFaceDocuments(reason).then((savedToFirmware) => {
+    if (savedToFirmware) scheduleFaceLibraryRefresh(reason, delay);
+    return savedToFirmware;
+  });
+}
+
+function initFaceLibraryAutoRefresh() {
+  if (faceLibraryAutoRefreshBound) return;
+  faceLibraryAutoRefreshBound = true;
+  const skipButtonIds = new Set([
+    "custom-save",
+    "parts-save-bottom",
+  ]);
+  ["page-custom", "page-parts"].forEach((pageId) => {
+    const page = $(pageId);
+    if (!page) return;
+    page.addEventListener("click", (ev) => {
+      const button = ev.target?.closest?.("button");
+      if (!button || button.closest(".face-library-list")) return;
+      if (skipButtonIds.has(button.id)) return;
+      if (button.classList.contains("faces-json-load")) return;
+      if (button.classList.contains("faces-json-open-local")) return;
+      if (button.classList.contains("faces-json-save-local")) return;
+      if (button.classList.contains("faces-json-import-btn")) return;
+      scheduleFaceLibraryRefresh("face_page_button_action");
+    });
+    page.addEventListener("change", (ev) => {
+      const target = ev.target;
+      if (!target || target.closest?.(".face-library-list")) return;
+      if (target.classList?.contains("faces-json-import-file")) return;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      ) {
+        scheduleFaceLibraryRefresh("face_page_field_change");
+      }
+    });
+    page.addEventListener(
+      "pointerup",
+      (ev) => {
+        const target = ev.target;
+        if (!target || target.closest?.("button,input,textarea,select,.face-library-list")) return;
+        if (target.closest?.("#matrix-custom-edit,#part-groups")) {
+          scheduleFaceLibraryRefresh("face_page_pointer_action", 480);
+        }
+      },
+      {
+        passive: true,
+      },
+    );
+  });
+}
+
 async function fetchJsonDocument(path) {
   const res = await fetch(path, {
     cache: "no-store",
@@ -7310,6 +7934,7 @@ async function loadUnifiedFacesDocument() {
   };
   try {
     const apiDoc = await apiGet(API_ENDPOINTS.savedFaces);
+    faceLibraryLoadError = "";
     setFirmwareStatus({
       savedFacesSync: "loaded from /api/saved_faces",
     });
@@ -7322,6 +7947,7 @@ async function loadUnifiedFacesDocument() {
     for (const path of candidates) {
       try {
         const doc = await fetchJsonDocument(path);
+        faceLibraryLoadError = "";
         setFirmwareStatus({
           savedFacesSync: `loaded from ${path}`,
         });
@@ -7334,6 +7960,10 @@ async function loadUnifiedFacesDocument() {
           ? "file:// cannot auto-read JSON; import saved_faces.json"
           : "saved_faces.json not found",
     });
+    faceLibraryLoadError =
+      location.protocol === "file:"
+        ? ""
+        : "无法加载 saved_faces.json：/api/saved_faces 与本地资源均不可用。";
     log(
       location.protocol === "file:"
         ? "浏览器 file:// 通常不能自动读取旁边的 saved_faces.json；请点击“导入 saved_faces.json”。"
@@ -7509,22 +8139,22 @@ function buildUnifiedFaceDocument() {
 async function saveFaceLibraryToLocalFile() {
   if (!faceLibraryFileHandle)
     throw new Error(
-      "尚未打开本地 saved_faces.json。请先点击“打开本地 saved_faces.json”，或使用下载/导入流程。",
+      "尚未打开本地文件。请先点击“打开本地文件”，或使用下载/导入流程。",
     );
   if (!window.showOpenFilePicker && !faceLibraryFileHandle.createWritable)
-    throw new Error("当前浏览器不支持 File System Access API。请使用“下载 saved_faces.json”。");
+    throw new Error("当前浏览器不支持 File System Access API。请使用“下载表情列表”。");
   const writable = await faceLibraryFileHandle.createWritable();
   await writable.write(JSON.stringify(faceLibraryDocument || buildUnifiedFaceDocument(), null, 2));
   await writable.close();
   setFirmwareStatus({
     savedFacesSync: "saved to opened local saved_faces.json",
   });
-  log("已保存到已打开的本地 saved_faces.json");
+  log("已保存到已打开的本地表情列表文件");
 }
 async function openLocalFaceLibraryFile() {
   if (!window.showOpenFilePicker) {
     alert(
-      "当前浏览器不支持直接打开并写回本地文件。请使用“导入 saved_faces.json”与“下载 saved_faces.json”。",
+      "当前浏览器不支持直接打开并写回本地文件。请使用“导入表情”与“下载表情列表”。",
     );
     return;
   }
@@ -7568,20 +8198,31 @@ async function persistFaceDocuments(reason = "save_faces") {
     document: faceLibraryDocument,
     reason,
   })
-    .then(() =>
+    .then(() => {
       setFirmwareStatus({
         savedFacesSync: "saved to firmware saved_faces.json",
-      }),
-    )
-    .catch(() =>
+      });
+      // Only when the POST of /api/saved_faces returns successfully can it be truly synchronized to the firmware.
+      log(`saved_faces.json 已同步到固件：默认 ${defaultFaces.length} 项，用户 ${userFaces.length} 项`);
+      return true;
+    })
+    .catch((err) => {
       setFirmwareStatus({
         savedFacesSync: faceLibraryFileHandle
           ? "saved locally; firmware offline"
           : "save failed/offline; use JSON download/import",
-      }),
-    )
+      });
+      // POST failed: MUST NOT remember "synchronized". Record the real results truthfully (including whether they have been written to local files).
+      const detail = err?.message ? `：${err.message}` : "";
+      if (faceLibraryFileHandle) {
+        log(`saved_faces.json 已写入本地文件，但同步到固件失败${detail}`, "warn");
+      } else {
+        log(`saved_faces.json 同步到固件失败${detail}；改动未写回固件，请使用下载/导入 JSON 流程`, "error");
+      }
+      return false;
+    })
     .finally(() => {
-      log(`saved_faces.json 已同步：默认 ${defaultFaces.length} 项，用户 ${userFaces.length} 项`);
+      // Only perform UI refreshes that have nothing to do with success or failure; do not record conclusive logs such as "synchronized" here.
       renderState();
     });
 }
@@ -7599,16 +8240,17 @@ function downloadJsonFile(filename, doc) {
 
 function downloadFacesJson() {
   downloadJsonFile("saved_faces.json", buildUnifiedFaceDocument());
-  log("已导出统一 saved_faces.json");
+  log("已导出表情列表");
 }
 async function importFacesJsonText(text, reason = "import_saved_faces_json") {
+  faceLibraryLoadError = "";
   faceLibraryDocument = normalizeFaceDocument(JSON.parse(text), "custom");
   splitFaceLibraryDocument(faceLibraryDocument);
   state.faceIndex = 0;
   renderSavedFaces();
   renderState();
-  await persistFaceDocuments(reason);
-  log(`已导入统一 saved_faces.json：默认 ${defaultFaces.length} 项，用户 ${userFaces.length} 项`);
+  await persistFaceDocumentsAndRefresh(reason);
+  log(`已导入表情列表：默认 ${defaultFaces.length} 项，用户 ${userFaces.length} 项`);
 }
 async function importFacesJsonFile(file) {
   await importFacesJsonText(await file.text(), "import_saved_faces_json");
@@ -7667,7 +8309,7 @@ function saveFace(name, frame, type) {
   renderSavedFaces();
   renderState();
   log(`保存${faceTypeLabel(faceType)}: ${clean}`);
-  persistFaceDocuments("save_user_face");
+  persistFaceDocumentsAndRefresh("save_user_face");
 }
 
 function renderSavedFaces() {
@@ -7676,8 +8318,12 @@ function renderSavedFaces() {
   const library = getAllFaces();
   lists.forEach((box) => {
     box.innerHTML = "";
-    if (!library.length) return;
     const frag = document.createDocumentFragment();
+    if (!library.length) {
+      if (faceLibraryLoadError) frag.appendChild(createFaceLibraryErrorRow(faceLibraryLoadError));
+      box.appendChild(frag);
+      return;
+    }
     library.forEach((f, i) => {
       const row = createFaceRow(f, i, library.length);
       row.classList.toggle("active", i === state.faceIndex);
@@ -7688,16 +8334,105 @@ function renderSavedFaces() {
   renderState();
 }
 
-function clearFaceDragOver(scope = document) {
-  scope.querySelectorAll(".saved-row.drag-over").forEach((x) => x.classList.remove("drag-over"));
+function createFaceLibraryErrorRow(message) {
+  const row = document.createElement("div");
+  row.className = "saved-row saved-row-error";
+  row.dataset.index = "-1";
+  row.dataset.faceId = "load_error";
+
+  const index = document.createElement("div");
+  index.className = "saved-index";
+  index.textContent = "!";
+
+  const item = document.createElement("div");
+  item.className = "list-item saved-face-card";
+
+  const handle = document.createElement("button");
+  handle.className = "drag-handle";
+  handle.type = "button";
+  handle.title = "无法排序";
+  handle.setAttribute("aria-label", "无法排序");
+  handle.disabled = true;
+
+  const body = document.createElement("div");
+  body.className = "saved-face-body";
+  const nameInput = document.createElement("input");
+  nameInput.className = "saved-name-input";
+  nameInput.value = "无法加载 saved_faces.json";
+  nameInput.readOnly = true;
+  const meta = document.createElement("div");
+  meta.className = "small saved-meta";
+  meta.textContent = message || "无法加载表情列表。";
+  body.appendChild(nameInput);
+  body.appendChild(meta);
+
+  const actions = document.createElement("div");
+  actions.className = "face-action-bar";
+  const mkDisabled = (label, title, cls = "") => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.className = "icon-btn" + (cls ? " " + cls : "");
+    b.textContent = label;
+    b.disabled = true;
+    return b;
+  };
+  actions.appendChild(mkDisabled("↑", "无法上移"));
+  actions.appendChild(mkDisabled("↓", "无法下移"));
+  actions.appendChild(mkDisabled("✏️", "无法重命名"));
+  actions.appendChild(mkDisabled("🗑️", "无法删除", "btn-delete"));
+  actions.appendChild(mkDisabled("💡", "无法上传到固件", "btn-apply"));
+
+  item.appendChild(handle);
+  item.appendChild(body);
+  item.appendChild(actions);
+  row.appendChild(index);
+  row.appendChild(item);
+  return row;
 }
 
-function faceRowIndexFromPoint(clientX, clientY, list) {
+function clearFaceDragOver(scope = document) {
+  scope
+    .querySelectorAll(".saved-row.drag-over,.saved-row.insert-before,.saved-row.insert-after")
+    .forEach((x) => x.classList.remove("drag-over", "insert-before", "insert-after"));
+}
+
+function faceInsertSlotFromPoint(clientX, clientY, list) {
+  const rows = Array.from(list.querySelectorAll(".saved-row"))
+    .map((row) => ({ row, index: Number(row.dataset.index) }))
+    .filter((entry) => Number.isInteger(entry.index) && entry.index >= 0)
+    .sort((a, b) => a.index - b.index);
+  if (!rows.length) return null;
+
   const target = document.elementFromPoint(clientX, clientY);
   const row = target && target.closest && target.closest(".saved-row");
-  if (!row || row.closest(".face-library-list") !== list) return null;
-  const index = Number(row.dataset.index);
-  return Number.isInteger(index) ? index : null;
+  if (row && row.closest(".face-library-list") === list) {
+    const index = Number(row.dataset.index);
+    if (!Number.isInteger(index) || index < 0) return null;
+    const rect = row.getBoundingClientRect();
+    return clientY < rect.top + rect.height / 2 ? index : index + 1;
+  }
+
+  const first = rows[0].row.getBoundingClientRect();
+  if (clientY < first.top) return 0;
+  const lastEntry = rows[rows.length - 1];
+  const last = lastEntry.row.getBoundingClientRect();
+  if (clientY > last.bottom) return lastEntry.index + 1;
+  return null;
+}
+
+function showFaceInsertIndicator(list, slot, from) {
+  clearFaceDragOver(list);
+  if (!Number.isInteger(slot) || slot === from || slot === from + 1) return;
+  const targetSlot = Math.max(0, slot);
+  const beforeRow = list.querySelector(`.saved-row[data-index="${targetSlot}"]`);
+  if (beforeRow) {
+    beforeRow.classList.add("insert-before");
+    return;
+  }
+  const afterRow = list.querySelector(`.saved-row[data-index="${targetSlot - 1}"]`);
+  if (afterRow) afterRow.classList.add("insert-after");
 }
 
 function autoScrollFaceList(clientY) {
@@ -7724,34 +8459,34 @@ function attachFaceReorderHandle(handle, row, index) {
     ev.preventDefault();
     pointerFaceDrag = {
       from: index,
-      to: index,
+      slot: index,
       list,
       row,
       pointerId: ev.pointerId,
     };
-    row.classList.add("dragging", "drag-over");
+    row.classList.add("dragging");
     handle.setPointerCapture?.(ev.pointerId);
   });
   handle.addEventListener("pointermove", (ev) => {
     if (!pointerFaceDrag || pointerFaceDrag.pointerId !== ev.pointerId) return;
     ev.preventDefault();
     autoScrollFaceList(ev.clientY);
-    const to = faceRowIndexFromPoint(ev.clientX, ev.clientY, pointerFaceDrag.list);
-    if (to === null) return;
-    pointerFaceDrag.to = to;
-    clearFaceDragOver(pointerFaceDrag.list);
-    const targetRow = pointerFaceDrag.list.querySelector(`.saved-row[data-index="${to}"]`);
-    if (targetRow) targetRow.classList.add("drag-over");
+    const slot = faceInsertSlotFromPoint(ev.clientX, ev.clientY, pointerFaceDrag.list);
+    if (slot === null) return;
+    pointerFaceDrag.slot = slot;
+    showFaceInsertIndicator(pointerFaceDrag.list, slot, pointerFaceDrag.from);
   });
   const finish = (ev) => {
     if (!pointerFaceDrag || pointerFaceDrag.pointerId !== ev.pointerId) return;
     ev.preventDefault();
-    const { from, to, list, row: dragRow } = pointerFaceDrag;
+    const { from, slot, list, row: dragRow } = pointerFaceDrag;
     handle.releasePointerCapture?.(ev.pointerId);
     clearFaceDragOver(list);
     dragRow.classList.remove("dragging");
     pointerFaceDrag = null;
-    if (from !== to) reorderFace(from, to);
+    if (Number.isInteger(slot) && slot !== from && slot !== from + 1) {
+      reorderFace(from, from < slot ? slot - 1 : slot);
+    }
   };
   handle.addEventListener("pointerup", finish);
   handle.addEventListener("pointercancel", finish);
@@ -7768,7 +8503,7 @@ function createFaceRow(f, i, total) {
   const item = document.createElement("div");
   item.className = "list-item saved-face-card";
 
-  // 拖拽手柄
+  // Drag handle
   const handle = document.createElement("button");
   handle.className = "drag-handle";
   handle.type = "button";
@@ -7777,7 +8512,7 @@ function createFaceRow(f, i, total) {
   handle.setAttribute("aria-label", "拖拽排序");
   attachFaceReorderHandle(handle, row, i);
 
-  // 中间：命名框 + 元数据徽章
+  // Middle: naming box + metadata badge
   const body = document.createElement("div");
   body.className = "saved-face-body";
   const nameInput = document.createElement("input");
@@ -7795,7 +8530,9 @@ function createFaceRow(f, i, total) {
     if (target && target.name !== next) {
       target.name = next;
       target.updatedAt = new Date().toISOString();
-      persistFaceDocuments(f.type === "default" ? "rename_default_face" : "rename_user_face");
+      persistFaceDocumentsAndRefresh(
+        f.type === "default" ? "rename_default_face" : "rename_user_face",
+      );
       renderState();
       log(`重命名${faceTypeLabel(target.type)} #${i + 1}: ${next}`);
     }
@@ -7813,7 +8550,7 @@ function createFaceRow(f, i, total) {
   body.appendChild(nameInput);
   body.appendChild(meta);
 
-  // 右侧操作栏：应用 / 上移 / 下移 / 重命名 / 删除
+  // Right operation bar: Apply/Move up/Move down/Rename/Delete
   const actions = document.createElement("div");
   actions.className = "face-action-bar";
 
@@ -7880,7 +8617,7 @@ function reorderFace(from, to) {
   library.splice(to, 0, moved);
   reassignOrderFromLibrary(library);
   state.faceIndex = to;
-  persistFaceDocuments("reorder_faces");
+  persistFaceDocumentsAndRefresh("reorder_faces");
   renderSavedFaces();
   log(`表情排序 ${from + 1} -> ${to + 1}`);
 }
@@ -7896,17 +8633,17 @@ function deleteFace(i) {
   if (!confirm(`删除该${faceTypeLabel(face.type)}？`)) return;
   userFaces = userFaces.filter((f) => f.id !== face.id);
   state.faceIndex = getAllFaces().length ? clamp(state.faceIndex, 0, getAllFaces().length - 1) : 0;
-  persistFaceDocuments("delete_user_face");
+  persistFaceDocumentsAndRefresh("delete_user_face");
   renderSavedFaces();
   log(`删除${faceTypeLabel(face.type)} #${i + 1}`);
 }
 
-// 表情部件组合器
-// 连接关系：
-// - initParts() 用 EXPRESSION_PARTS 生成 6.3 部件按钮。
-// - selectPart()/randomParts() 改变 selectedCall。
-// - composePartsFrame() 把 selectedCall 转成 partsFrame，再交给矩阵预览和固件队列。
-// - 对称眼睛逻辑只改选择状态，不直接改 DOM；renderPartButtons() 负责显示同步。
+// Expression widget combiner
+// Connection relationship:
+// - initParts() generates 6.3 part buttons with EXPRESSION_PARTS.
+// - selectPart()/randomParts() changes selectedCall.
+// - composePartsFrame() converts selectedCall into partsFrame, and then passes it to the matrix preview and firmware queue.
+// - The symmetrical eye logic only changes the selection state and does not directly change the DOM; renderPartButtons() is responsible for display synchronization.
 function initParts() {
   const groups = $("part-groups");
   groups.innerHTML = "";
@@ -8089,7 +8826,7 @@ function randomParts() {
   for (const key of ["mouth", "cheek"]) {
     let arr = EXPRESSION_PARTS.call.ids[key].slice();
     if (key !== "cheek") arr = arr.filter((id) => String(id) !== "0");
-    // cheek=400 表示明确的空脸颊调用，在随机模式中仍然有效。
+    // cheek=400 indicates an explicit empty cheek call, which still works in random mode.
     selectedCall[key] = String(arr[Math.floor(Math.random() * arr.length)]);
   }
   composePartsFrame();
@@ -8101,12 +8838,12 @@ function randomParts() {
   );
 }
 
-// 文字滚动时间线
-// 连接关系：
-// - 输入框和 FPS 控件先清洗成 scroll.text/currentFps。
-// - prepareTextScrollTimeline() 用 Ark 位图表生成 browser preview frames。
-// - uploadFirmwareScrollTimeline() 把同一批 frames 分块发给 /api/scroll。
-// - start/pause/resume/stop 同时维护本地 preview 状态和固件 playback 状态。
+// Text scrolling timeline
+// Connection relationship:
+// - The input box and FPS control are first cleaned to scroll.text/currentFps.
+// - prepareTextScrollTimeline() generates browser preview frames using Ark bitmaps.
+// - uploadFirmwareScrollTimeline() sends the same batch of frames to /api/scroll in chunks.
+// - start/pause/resume/stop maintains local preview status and firmware playback status at the same time.
 function truncateScrollText(text) {
   const out = [];
   let visibleCount = 0;
@@ -8116,6 +8853,22 @@ function truncateScrollText(text) {
     out.push(ch);
   }
   return out.join("");
+}
+
+function scrollTextVisibleCharCount(text) {
+  let visibleCount = 0;
+  for (const ch of Array.from(normalizeTextScrollEmojiPresentation(String(text ?? "")))) {
+    if (!isEmojiFormatControl(codePointOfChar(ch))) visibleCount++;
+  }
+  return visibleCount;
+}
+
+function scrollTextExceedsUiCharLimit(text) {
+  return scrollTextVisibleCharCount(text) > MAX_SCROLL_TEXT_CHARS;
+}
+
+function normalizeScrollTextForCompare(text) {
+  return truncateScrollText(normalizeTextScrollEmojiPresentation(String(text ?? "")));
 }
 
 function sanitizeScrollTextInput(commit = false) {
@@ -8158,28 +8911,29 @@ function autoResizeScrollTextInput() {
   });
 }
 
-let scrollBitmapFontLazyStarted = false;
-// 仅在实际使用文字滚动功能时，才延迟获取较大的 Ark Pixel 文字滚动资源
-// （约 830KB 单一合并 woff2（含 emoji 与回退字形）+ 约 2.5MB 位图字形表），
-// 让约 2.4MB 资源避开启动/启动后瀑布流。底层两个加载器都会缓存
-// 各自的承诺对象，因此重复调用（例如每次进入滚动页面）成本很低。
+// Delayed fetching of larger Ark Pixel text scrolling resources only when text scrolling functionality is actually used
+// (~830KB single merged woff2 (including emoji and fallback glyphs) + ~2.5MB bitmap glyph table),
+// Keep ~2.4MB of resources out of the boot/post-launch waterfall. Both underlying loaders will cache
+// Respective promise objects, so repeated calls (e.g. every time you enter a scrolling page) are cheap.
 function ensureScrollFontsLoaded() {
+  // P0-3: Page entry / refresh only warms the lightweight textarea (browser) font.
+  // The ~2.5MB Ark bitmap table (ensureArkPixelFontReady) is intentionally NOT loaded
+  // here -- it is loaded lazily by the paths that actually rasterize frames (Send via
+  // prepareTextScrollTimelineAsync, Restore via prepareTextScrollTimelineForRestoreAsync,
+  // and Step), each of which awaits ensureArkPixelFontReady() itself. This keeps merely
+  // opening or refreshing into 6.4 from triggering a 2.5MB LittleFS transfer that froze
+  // the WebUI ("preparing scroll font" hang / disconnect).
   ensureTextScrollBrowserFontReady().then((loaded) => {
     if (loaded) autoResizeScrollTextInput();
   });
-  if (scrollBitmapFontLazyStarted) return;
-  scrollBitmapFontLazyStarted = true;
-  ensureArkPixelFontReady()
-    .then(() => log("Ark Pixel Font 12px bitmap table loaded"))
-    .catch((err) => log(`Ark Pixel Font bitmap table load failed: ${err.message}`));
 }
 
 function initScroll() {
   applyTextScrollInputFont();
   autoResizeScrollTextInput();
-  // 较大的 Ark Pixel 资源不会在这里随启动获取。它们会在
-  // 首次进入文字滚动页面时延迟加载（见 switchPage -> ensureScrollFontsLoaded），
-  // 而滚动启动路径也会等待 ensureArkPixelFontReady()，因此即使用户直接播放也安全。
+  // The larger Ark Pixel assets are not available on launch here. they will be in
+  // Lazy loading when entering the text scrolling page for the first time (see switchPage -> ensureScrollFontsLoaded),
+  // The scroll launch path will also wait for ensureArkPixelFontReady(), so it is safe even if the user plays directly.
   $("scroll-play").onclick = startScroll;
   $("scroll-pause").onclick = togglePauseScroll;
   $("scroll-stop").onclick = stopScroll;
@@ -8194,6 +8948,8 @@ function initScroll() {
   // contract is visual movement direction.
   setScrollStepHandler("scroll-step-prev", 1);
   setScrollStepHandler("scroll-step-next", -1);
+  const restoreBtn = $("scroll-restore-btn");
+  if (restoreBtn) restoreBtn.hidden = true;
   setClickHandlers([
     [
       "scroll-speed-reset-default",
@@ -8219,7 +8975,7 @@ function initScroll() {
   );
   const textEl = $("scroll-text");
   if (textEl) {
-    // 记录出厂默认文本：恢复路径把它视为可覆盖的非用户内容。
+    // Log factory default text: The recovery path treats this as overwriteable non-user content.
     scrollDefaultText = String(textEl.value ?? "");
     textEl.maxLength = MAX_SCROLL_TEXT_CHARS;
     textEl.addEventListener("input", () => {
@@ -8324,6 +9080,32 @@ function syncScrollFpsUi(fps) {
   return clean;
 }
 
+function firmwareScrollFpsFromPayload(payload = {}) {
+  const rawFps = Number(payload.uiFps ?? payload.scrollFps ?? payload.fps);
+  if (Number.isFinite(rawFps) && rawFps > 0) {
+    return clamp(Math.round(rawFps), SCROLL_FPS_MIN, SCROLL_FPS_MAX);
+  }
+  const intervalMs = Number(payload.scrollIntervalMs ?? payload.intervalMs);
+  if (Number.isFinite(intervalMs) && intervalMs > 0) {
+    return clamp(Math.round(1000 / intervalMs), SCROLL_FPS_MIN, SCROLL_FPS_MAX);
+  }
+  return null;
+}
+
+function applyFirmwareScrollFps(payload = {}, source = "firmware_scroll_fps") {
+  if (scroll.fpsBusy || scroll.startBusy || scroll.uploading) return false;
+  const fps = firmwareScrollFpsFromPayload(payload);
+  if (!Number.isFinite(fps)) return false;
+  const before = getScrollFps();
+  syncScrollFpsUi(fps);
+  state.refreshPolicy = `firmware_scroll_${fps}fps_interval_${Math.max(1, Math.round(1000 / fps))}ms`;
+  if (before !== fps) {
+    logScrollRestoreDebug("fps synced", { source, fps });
+    updateScrollUi();
+  }
+  return true;
+}
+
 function restartScrollPreviewTimer() {
   if (scroll.timer) clearInterval(scroll.timer);
   scroll.timer = null;
@@ -8363,7 +9145,7 @@ function markScrollTextDirty() {
   scroll.dirty = true;
   scroll.signature = "";
   scrollMachine.dispatch("TEXT_EDITED");
-  scroll.framesTimelineId = ""; // C2：本地帧不再代表任何已上传时间线
+  scroll.framesTimelineId = ""; // C2: Local frames no longer represent any uploaded timeline
   scroll.restoredTextTruncated = false; // E4
   scroll.textEdited = true;
   pendingScrollMeta = null;
@@ -8420,7 +9202,7 @@ function hasScrollFrameCache() {
 }
 
 function hasRestorableFirmwareScrollSource() {
-  return !!(lastFwScrollTimelineId && lastFwScrollHasSourceText);
+  return !!(lastFwScrollDisplaying && lastFwScrollTimelineId && lastFwScrollHasSourceText);
 }
 
 function hasUsableOrRestorableScrollFrames() {
@@ -8483,13 +9265,15 @@ function resetScrollControlsAfterButton(reason = "gpio_button", options = {}) {
   state.textScrollActive = false;
   if (isScrollPlaybackValue(state.playback)) state.playback = "idle";
   state.lastRefreshReason = `${reason}_reset_scroll_ui`;
-  // GPIO 停止重置路径：清掉恢复状态；C9 —— 保留 scroll.timelineId 和
-  // scroll.framesTimelineId，避免旧文字在停止后被 mismatch 重拉自动回填。
-  pendingScrollMeta = null;
-  scroll.restoredSourceText = "";
-  scroll.restoredFromFirmwareMeta = false;
-  scroll.restoreWarning = "";
-  scroll.restoredTextTruncated = false;
+  // Exiting text-scroll through GPIO/WebUI button is equivalent to Stop/Clear:
+  // local preview frames and firmware recovery identity are terminally cleared so
+  // a later refresh cannot pull the old uploaded source string back into WebUI.
+  scroll.frames = [];
+  scroll.signature = "";
+  scroll.timelineId = "";
+  scroll.framesTimelineId = "";
+  scroll.dirty = true;
+  clearRecoveredScrollCache(reason);
   resetScrollUploadProgress();
   if (preserveCurrentFrame) {
     scrollFrame = cloneFrame(currentFrame);
@@ -8518,7 +9302,7 @@ async function buildFirmwareScrollFrames(onProgress = () => {}) {
   }
   return frames;
 }
-// 永远追加而不是覆盖；updateScrollUi 渲染多行。
+// Always append rather than overwrite; updateScrollUi renders multiple lines.
 function setScrollRestoreWarning(message) {
   if (!message) return;
   if (scroll.restoreWarning && scroll.restoreWarning.split("\n").includes(message)) return;
@@ -8532,7 +9316,7 @@ function makeScrollTimelineId() {
   return `scroll-${Date.now().toString(36)}-${rand}`;
 }
 
-// 即使 1 帧也放不下时抛出明确错误（经由现有上传失败 alert 呈现）。
+// Throw an explicit error when even 1 frame cannot fit (rendered via existing upload failure alert).
 function chooseFirstChunkFrames(firstChunkPayloadBuilder) {
   const encoder = new TextEncoder();
   const measure = (count) =>
@@ -8555,7 +9339,7 @@ function chooseFirstChunkFrames(firstChunkPayloadBuilder) {
     );
   count = clamp(count, 1, SCROLL_UPLOAD_CHUNK_FRAMES);
   while (count > 1 && measure(count) > SCROLL_FIRST_CHUNK_BODY_LIMIT_BYTES) count--;
-  while (
+  while(
     count < SCROLL_UPLOAD_CHUNK_FRAMES &&
     measure(count + 1) <= SCROLL_FIRST_CHUNK_BODY_LIMIT_BYTES
   ) {
@@ -8564,15 +9348,15 @@ function chooseFirstChunkFrames(firstChunkPayloadBuilder) {
   return count;
 }
 
-// generatorVersion + fps，每个分块都带 timelineId 和 chunkIndex。
-// SF1：首块帧数可变，分块按运行偏移切片（不能复用固定步长循环）；
-// chunkIndex 仍然每块 +1，固件按 chunkIndex 校验顺序、按帧数校验总量。
+// generatorVersion + fps, each chunk has timelineId and chunkIndex.
+// SF1: The number of frames in the first block is variable, and the blocks are sliced according to the running offset (fixed step cycles cannot be reused);
+// The chunkIndex is still +1 for each block, and the firmware checks the sequence according to chunkIndex and the total amount according to the number of frames.
 async function uploadScrollTimelineAttempt(frames, timelineId) {
   const uploadToken = scrollMachine.token("upload");
   scrollMachine.dispatch("UPLOAD_BEGIN", {}, uploadToken);
 
   scroll.timelineId = timelineId;
-  scroll.framesTimelineId = timelineId; // 本地帧正是这次发送的时间线
+  scroll.framesTimelineId = timelineId; // The local frame is the timeline of this transmission
   const sourceText = sanitizeScrollTextInput(true);
   const fps = getScrollFps();
   const intervalMs = Math.max(1, Math.round(1000 / fps));
@@ -8641,19 +9425,23 @@ async function uploadScrollTimelineAttempt(frames, timelineId) {
   setScrollUploadProgress(0.9, `帧数据已完成，设置 ${fps} fps`);
   scrollMachine.dispatch("UPLOAD_COMMIT_DONE", {}, uploadToken);
 
-  try {
-    data = await apiPost(API_ENDPOINTS.command, {
-      cmd: "start_scroll",
-      payload: {
-        timelineId,
-        fps,
-        intervalMs,
-        source: "webui_text_scroll_after_frames",
-      },
-    });
-  } catch (err) {
-    scrollMachine.dispatch("START_FAIL", {}, uploadToken);
-    throw err;
+  if (data && data.started) {
+    log("固件已在上传结束时自动启动滚动播放，无需重复发送 start_scroll 命令。");
+  } else {
+    try {
+      data = await apiPost(API_ENDPOINTS.command, {
+        cmd: "start_scroll",
+        payload: {
+          timelineId,
+          fps,
+          intervalMs,
+          source: "webui_text_scroll_after_frames",
+        },
+      });
+    } catch (err) {
+      scrollMachine.dispatch("START_FAIL", {}, uploadToken);
+      throw err;
+    }
   }
 
   if (!scrollMachine.isCurrent(uploadToken)) {
@@ -8674,7 +9462,7 @@ async function uploadScrollTimelineAttempt(frames, timelineId) {
   );
 }
 
-// 任意分块或 start_scroll 返回 409 时，用全新 timelineId 从第 0 块完整重试一次（C10）。
+// On any chunking or when start_scroll returns 409, retry completely from chunk 0 with a new timelineId (C10).
 async function uploadFirmwareScrollTimeline() {
   setScrollUploadProgress(0.04, "准备滚动帧");
   const frames = await buildFirmwareScrollFrames((progress) => {
@@ -8689,6 +9477,39 @@ async function uploadFirmwareScrollTimeline() {
     return await uploadScrollTimelineAttempt(frames, makeScrollTimelineId());
   }
 }
+// P1-5: reject source text whose UTF-8 byte length exceeds the firmware limit BEFORE
+// generating frames / uploading, so the user gets a clear message instead of a 413
+// (or a partial upload) mid-transfer. Returns true if the text is too large.
+// P1-6: turn raw HTTP error strings (which begin with the status code) into actionable
+// guidance for the common scroll-upload failure modes.
+function describeScrollUploadError(err) {
+  const msg = String(err?.message || err || "");
+  const code = (msg.match(/^(\d{3})\b/) || [])[1];
+  switch (code) {
+    case "413":
+      return `文字或单次帧数据过大，超过固件上限，请缩短文本。(${msg})`;
+    case "507":
+      return `固件内存/PSRAM 不足，无法缓存滚动帧；请稍后重试或缩短文本。(${msg})`;
+    case "503":
+      return `固件正忙或可用内存偏低，暂时拒绝了上传；请稍后重试。(${msg})`;
+    case "409":
+      return `固件缓存/分块冲突，自动重试后仍失败；请重新发送。(${msg})`;
+    default:
+      return msg;
+  }
+}
+
+function scrollTextExceedsByteLimit(text) {
+  const bytes = new TextEncoder().encode(text).length;
+  if (bytes > firmwareScrollMaxTextBytes) {
+    alert(
+      `文字 UTF-8 长度 ${bytes} 字节，超过固件上限 ${firmwareScrollMaxTextBytes} 字节，请缩短文本。`,
+    );
+    return true;
+  }
+  return false;
+}
+
 async function startScroll() {
   if (scroll.commandBusy || scroll.startBusy) return;
   const text = sanitizeScrollTextInput(true);
@@ -8696,6 +9517,7 @@ async function startScroll() {
     alert("空文本不进入文字滚动播放");
     return;
   }
+  if (scrollTextExceedsByteLimit(text)) return;
   resetScrollUploadProgress();
   scrollMachine.dispatch("GENERATE");
   scroll.commandBusy = true;
@@ -8703,8 +9525,8 @@ async function startScroll() {
   scroll.uploading = true;
   setScrollUploadProgress(0.02, "准备发送");
   scroll.returnMode = isAutoModeValue(state.mode) ? "auto" : "manual";
-  guardBeforeOutput("text_scroll_start", "scroll");
-  // D7：新的发送先清掉一切恢复状态，避免旧 pendingScrollMeta 干扰。
+  await prepareForTextScrollUpload();
+  // D7: The new sending clears all recovery status first to avoid interference from the old pendingScrollMeta.
   pendingScrollMeta = null;
   scroll.restoredSourceText = "";
   scroll.restoredFromFirmwareMeta = false;
@@ -8732,7 +9554,6 @@ async function startScroll() {
   scroll.textEdited = false;
   if (scroll.timer) clearInterval(scroll.timer);
   scroll.timer = null;
-  resetScrollPreviewToFirstFrame("text_scroll_start_reset_preview", null);
   scroll.active = false;
   scroll.paused = false;
   scroll.userPaused = false;
@@ -8745,6 +9566,7 @@ async function startScroll() {
   scroll.frameCounter = 0;
   try {
     const data = await uploadFirmwareScrollTimeline();
+    resetScrollPreviewToFirstFrame("text_scroll_start_reset_preview", "scroll");
     applyFirmwareRuntimeState(data, "text_scroll_upload_complete");
     scroll.firmwareBacked = true;
     scroll.commandBusy = false;
@@ -8763,8 +9585,8 @@ async function startScroll() {
     state.textScrollActive = false;
     state.playback = "idle";
     resetScrollUploadProgress();
-    log(`文字滚动固件上传失败；已停止，未启用 WebUI 逐帧发送：${err.message}`);
-    alert(`文字滚动上传失败：${err.message}`);
+    log(`文字滚动固件上传失败；已停止，未启用 WebUI 逐帧发送：${describeScrollUploadError(err)}`);
+    alert(`文字滚动上传失败：${describeScrollUploadError(err)}`);
     updateScrollUi();
     renderState();
     return;
@@ -8906,16 +9728,8 @@ async function stopScroll() {
     scroll.timelineId = "";
     scroll.framesTimelineId = "";
     scroll.dirty = true;
-    lastFwScrollFrameCount = 0;
-    lastFwScrollTimelineId = "";
-    lastFwScrollHasSourceText = false;
-    lastScrollRestoreStatusDebugKey = "";
-    // 本地停止：彻底清掉恢复状态和本地帧身份，避免清屏后旧缓存被恢复路径回填。
-    pendingScrollMeta = null;
-    scroll.restoredSourceText = "";
-    scroll.restoredFromFirmwareMeta = false;
-    scroll.restoreWarning = "";
-    scroll.restoredTextTruncated = false;
+    // Local stop: completely clear recovery identity so refresh cannot resurrect the old source text.
+    clearRecoveredScrollCache("text_scroll_stopped_clear");
     state.textScrollActive = false;
     state.refreshPolicy = "dirty-frame / 按需刷新";
     scrollFrame = blankFrame();
@@ -8949,7 +9763,7 @@ async function stopScroll() {
   }
 }
 
-// direction < 0 表示文字向右移动一格。
+// direction < 0 means the text moves one space to the right.
 function setScrollStepHandler(buttonId, direction) {
   const button = $(buttonId);
   if (!button) return;
@@ -9005,12 +9819,9 @@ function advanceScroll(manual = false, direction = 1) {
   const delta = direction < 0 ? -1 : 1;
   const len = scroll.frames.length;
 
-  // Anti-drift (plan sec 7 / audit fix #1): when the firmware owns the scroll session,
-  // FW_SYNC is the SOLE writer of the canonical cursor (scroll.frameIndex). The local
-  // timer is demoted to a display-only tween here -- it advances a separate visual index
-  // (scroll.displayIndex) for smoothness between polls but never writes
-  // scroll.frameIndex/offset. Each FW_SYNC re-anchors scroll.displayIndex to the firmware
-  // index, so the preview and the LEDs cannot drift apart by construction.
+  // When firmware owns the scroll session, keep the page preview/display counter local.
+  // FW_SYNC may still update scroll.frameIndex for device state, but it must not anchor
+  // scroll.displayIndex or the "current frame" label.
   if (!manual && scrollMachine.snapshot().device.hasSession) {
     const base = Number.isFinite(scroll.displayIndex) ? scroll.displayIndex : scroll.frameIndex;
     scroll.displayIndex = (((base + delta) % len) + len) % len;
@@ -9061,10 +9872,16 @@ async function prepareTextScrollTimelineAsync(force) {
   }
 }
 
-async function prepareTextScrollTimelineForRestoreAsync(force, onProgress = () => {}) {
+async function prepareTextScrollTimelineForRestoreAsync(
+  force,
+  onProgress = () => {},
+  shouldCancel = null,
+) {
+  const cancelled = () => typeof shouldCancel === "function" && shouldCancel();
   try {
     onProgress(0.04, "准备文字滚动字体");
     await ensureArkPixelFontReady();
+    if (cancelled()) return false;
     const text = sanitizeScrollTextInput(true);
     if (!text.trim()) {
       scroll.frames = [];
@@ -9089,17 +9906,27 @@ async function prepareTextScrollTimelineForRestoreAsync(force, onProgress = () =
     const frames = [];
     for (let offset = 0; offset <= maxOffset; offset++) {
       frames.push(extractFrameFromTextImage(source, offset));
-      if (offset === 0 || offset === maxOffset || offset % 12 === 0) {
+      // P2-7: yield more often (every 6 frames vs 12) so long text keeps the WebUI
+      // responsive, and bail out promptly if the restore was superseded/cancelled
+      // (Stop / Back / page switch) instead of grinding through every frame.
+      if (offset === 0 || offset === maxOffset || offset % 6 === 0) {
         const ratio = (offset + 1) / total;
         onProgress(0.12 + ratio * 0.76, `生成同步预览 ${offset + 1}/${total}`);
         await nextUiFrame();
+        if (cancelled()) {
+          scroll.frames = [];
+          scroll.frameIndex = 0;
+          scroll.offset = 0;
+          scroll.dirty = true;
+          return false;
+        }
       }
     }
 
-    scroll.frames = frames;
+    scroll.frames = rotateScrollTimelineToFirstLitFrame(frames);
     scroll.signature = sig;
     scroll.dirty = false;
-    scroll.frameIndex = Math.min(scroll.frameIndex, Math.max(0, frames.length - 1));
+    scroll.frameIndex = Math.min(scroll.frameIndex, Math.max(0, scroll.frames.length - 1));
     scroll.offset = scroll.frameIndex;
     log(
       `文字滚动同步预览已生成：${frames.length} 帧，逐帧推进 1 LED，垂直居中偏移 ${textScrollVerticalOffset()} 行，约 ${((frames.length * 47) / 1024).toFixed(1)} KB packed`,
@@ -9130,19 +9957,54 @@ function prepareTextScrollTimeline(force) {
   }
   const sig = scrollSignature();
   if (!force && !scroll.dirty && scroll.signature === sig && scroll.frames.length) return;
+
+  // M4: keep the main thread responsive on very long text. Abort generation as early as
+  // possible when the projected frame count would exceed the firmware cache cap, so we
+  // never materialize thousands of 370-cell frame arrays (plus a duplicate bitmap and the
+  // later M370/JSON copies) on low-end phones. The upload path enforces the same cap, so
+  // this only surfaces the limit earlier and more cheaply.
+  const abortScrollTooLong = (projectedFrames) => {
+    scroll.frames = [];
+    scroll.frameIndex = 0;
+    scroll.offset = 0;
+    scroll.dirty = false;
+    scroll.signature = sig;
+    setScrollRestoreWarning(
+      `文字过长：约需 ${projectedFrames} 帧，超过固件缓存上限 ${firmwareScrollMaxFrames} 帧；请缩短文本。`,
+    );
+    log(
+      `文字滚动未生成：预计 ${projectedFrames} 帧超过固件上限 ${firmwareScrollMaxFrames}，已提前中止以保持界面流畅。`,
+    );
+    updateScrollUi();
+  };
+
+  // Cheap pre-rasterization guard: even at an unrealistic 1px-per-glyph lower bound this
+  // many code points cannot fit, so reject before building the bitmap at all.
+  const codepointCount = Array.from(text).length;
+  if (codepointCount - COLS + 1 > firmwareScrollMaxFrames) {
+    abortScrollTooLong(codepointCount - COLS + 1);
+    return;
+  }
+
   const source = buildTextScrollBitmap(text);
   const maxOffset = Math.max(1, source.width - COLS);
+  // Precise cap on the actual rasterized width, before the per-frame extraction loop.
+  const projectedFrames = maxOffset + 1;
+  if (projectedFrames > firmwareScrollMaxFrames) {
+    abortScrollTooLong(projectedFrames);
+    return;
+  }
   const frames = [];
   for (let offset = 0; offset <= maxOffset; offset++) {
     const frame = extractFrameFromTextImage(source, offset);
     frames.push(frame);
   }
-  scroll.frames = frames;
+  scroll.frames = rotateScrollTimelineToFirstLitFrame(frames);
   scroll.signature = sig;
   scroll.dirty = false;
-  scroll.frameIndex = Math.min(scroll.frameIndex, Math.max(0, frames.length - 1));
+  scroll.frameIndex = Math.min(scroll.frameIndex, Math.max(0, scroll.frames.length - 1));
   scroll.offset = scroll.frameIndex;
-  scrollFrame = cloneFrame(frames[scroll.frameIndex] || blankFrame());
+  scrollFrame = cloneFrame(scroll.frames[scroll.frameIndex] || blankFrame());
   setScrollPreviewFrame(
     scrollFrame,
     "text_scroll_generated_m370_timeline",
@@ -9189,9 +10051,10 @@ function localTimelineMatchesMeta(meta) {
 }
 
 // Fill from firmware only when there are no unsent local edits; never marks dirty.
-function setScrollTextFromFirmware(text) {
+function setScrollTextFromFirmware(text, options = {}) {
   const el = $("scroll-text");
   const restoredText = String(text ?? "");
+  const force = !!options.force;
   let ok = false;
   let reason = "applied";
   const before = el ? String(el.value ?? "") : "";
@@ -9201,7 +10064,7 @@ function setScrollTextFromFirmware(text) {
     reason = "empty_text";
   } else if (scroll.textEdited) {
     reason = "local_text_edited";
-  } else if (before && before !== restoredText && before !== scrollDefaultText) {
+  } else if (!force && before && before !== restoredText && before !== scrollDefaultText) {
     reason = "local_value_present";
   } else {
     el.value = restoredText;
@@ -9243,11 +10106,14 @@ function applyFirmwareScrollFrameIndex(data, reason = "text_scroll_firmware_fram
   if (!Number.isFinite(index)) return false;
   scroll.frameIndex = clamp(index, 0, Math.max(0, scroll.frames.length - 1));
   scroll.offset = scroll.frameIndex;
-  setScrollPreviewFrame(
-    scroll.frames[scroll.frameIndex] || blankFrame(),
-    reason,
-    scroll.paused || state.playback === "scroll_paused" ? "scroll_paused" : state.playback,
-  );
+  if (reason === "text_scroll_manual_step_preview") {
+    scroll.displayIndex = scroll.frameIndex;
+    setScrollPreviewFrame(
+      scroll.frames[scroll.displayIndex] || blankFrame(),
+      reason,
+      scroll.paused || state.playback === "scroll_paused" ? "scroll_paused" : state.playback,
+    );
+  }
   updateScrollUi();
   return true;
 }
@@ -9358,18 +10224,37 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
     if (!scrollMachine.isCurrent(restoreToken)) return false;
     lastScrollMetaFetchAt = performance.now();
     logScrollRestoreDebug("meta response", meta);
-    if (!meta?.ok || !meta.hasSourceText) {
+    const metaDisplayingScroll = !!(meta?.firmwareScrollActive || meta?.firmwareScrollPaused);
+    if (!meta?.ok || !metaDisplayingScroll || !meta.hasSourceText) {
       logScrollRestoreDebug("meta skipped", {
         source,
         ok: !!meta?.ok,
+        displayingScroll: metaDisplayingScroll,
         hasSourceText: !!meta?.hasSourceText,
         scrollTimelineId: meta?.scrollTimelineId || "",
+      });
+      if (!metaDisplayingScroll) {
+        clearRecoveredScrollCache(`${source}_not_displaying_scroll`);
+      }
+      scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
+      return false;
+    }
+
+    // This firmware head returns sourceText directly from /api/scroll/meta.
+    // This build has no dedicated scroll-source route, so keep recovery bound
+    // to the same metadata object that provided the timeline and cursor.
+    meta.sourceText = meta.hasSourceText ? String(meta.sourceText ?? "") : "";
+    if (!scrollMachine.isCurrent(restoreToken)) return false;
+    if (!meta.sourceText) {
+      logScrollRestoreDebug("source unavailable", {
+        source,
+        timelineId: meta?.scrollTimelineId || "",
       });
       scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
       return false;
     }
 
-    // C5：未发送本地修改保护，必须先于任何元数据绑定。
+    // C5: Local modification protection not sent, must precede any metadata binding.
     const currentValue = $("scroll-text")?.value || "";
     const restoredText = String(meta.sourceText ?? "");
     const hasLocalUnsentText =
@@ -9388,7 +10273,7 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
       return false;
     }
 
-    scroll.restoreWarning = ""; // D6：干净恢复从空白警告开始
+    scroll.restoreWarning = ""; // D6: Clean recovery starts with blank warning
     scroll.restoredTextTruncated = false; // E4
     scroll.textEdited = false;
     scroll.restoredSourceText = restoredText;
@@ -9397,6 +10282,7 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
     lastFwScrollTimelineId = scroll.timelineId;
     lastFwScrollHasSourceText = !!meta.hasSourceText;
     lastFwScrollFrameCount = Math.max(0, Number(meta.frameCount || 0) || 0);
+    lastFwScrollDisplaying = true;
     scroll.restoredFromFirmwareMeta = true;
     applyScrollRuntimeMeta(meta, `scroll_restore_meta_${source}`);
     logScrollRestoreDebug("binding meta", {
@@ -9410,24 +10296,25 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
       uploadComplete: meta.uploadComplete,
     });
     setScrollTextFromFirmware(restoredText);
-    // D10/E4：检测 sanitize 截断（超长第三方文本）；截断恢复永远不能绑定
-    // framesTimelineId，即使帧数碰巧一致。
-    const valueAfterSanitize = $("scroll-text")?.value || "";
-    if (valueAfterSanitize && valueAfterSanitize !== restoredText) {
+    // Only report truncation when the firmware text truly exceeds the WebUI editable
+    // visible-character limit. Do not compare raw firmware text to sanitize() output:
+    // emoji presentation normalization / format-control stripping can change the string
+    // without any actual truncation.
+    if (scrollTextExceedsUiCharLimit(restoredText)) {
       scroll.restoredTextTruncated = true; // E4
       setScrollRestoreWarning("硬件滚动文字超过 WebUI 输入上限，已截断显示；预览仅供参考。"); // E5
+    } else {
+      scroll.restoredTextTruncated = false;
     }
-    syncScrollFpsUi(
-      clamp(Number(meta.uiFps) || DEFAULT_SCROLL_FPS, SCROLL_FPS_MIN, SCROLL_FPS_MAX),
-    );
+    applyFirmwareScrollFps(meta, `scroll_restore_${source}`);
     if (!exactGeneratorMatch(meta)) {
-      setScrollRestoreWarning("文字已从硬件恢复，但字体/生成器版本不同，预览可能与 LED 不一致。"); // E5：追加而非覆盖
+      setScrollRestoreWarning("文字已从硬件恢复，但字体/生成器版本不同，预览可能与 LED 不一致。"); // E5: append instead of overwrite
     }
     updateScrollUi();
-    // C4：恢复时 6.4 已是当前页面，或固件正在滚动/暂停，则立即重建预览。
-    // 刷新时页面默认回 basic，但 paused 状态仍需要马上生成并停在当前帧。
-    // ensureScrollFontsLoaded() 返回 undefined（不能 .then()）；
-    // restoreScrollPreviewIfNeeded 内部经 prepareTextScrollTimelineAsync 等字体。
+    // C4: When restoring, 6.4 is already the current page, or the firmware is scrolling/pausing, the preview will be rebuilt immediately.
+    // The page returns to basic by default when refreshing, but the paused state still needs to be generated immediately and stopped at the current frame.
+    // ensureScrollFontsLoaded() returns undefined (cannot .then());
+    // restoreScrollPreviewIfNeeded internally uses prepareTextScrollTimelineAsync and other fonts.
     if (autoPreview && (isScrollPageActive() || meta.firmwareScrollActive || meta.firmwareScrollPaused)) {
       ensureScrollFontsLoaded();
       restoreScrollPreviewIfNeeded(
@@ -9470,25 +10357,75 @@ async function ensureLocalScrollFramesRestored(source = "scroll_action_restore")
   }
 }
 
+async function syncScrollStateTextFpsLightweightAfterBoot(source = "post_loader_scroll_sync") {
+  if (scroll.lightSyncing || scroll.restoring || scroll.uploading || scroll.startBusy || scrollMetaFetchInFlight) return false;
+  scroll.lightSyncing = true;
+  scrollMetaFetchInFlight = true;
+  try {
+    const meta = await apiGet(API_ENDPOINTS.scrollMeta);
+    lastScrollMetaFetchAt = performance.now();
+    logScrollRestoreDebug("light sync meta", { source, meta });
+
+    const displaying = !!(meta?.firmwareScrollDisplaying || meta?.firmwareScrollActive || meta?.firmwareScrollPaused);
+    applyScrollRuntimeMeta(meta, `${source}_meta`);
+    applyFirmwareScrollFps(meta, source);
+
+    if (!meta?.ok || !displaying || !meta.hasSourceText || scroll.textEdited) {
+      updateScrollUi();
+      renderState();
+      return false;
+    }
+
+    const restoredText = meta.hasSourceText ? String(meta.sourceText ?? "") : "";
+    if (restoredText && String(meta.scrollTimelineId || "")) {
+      scroll.restoreWarning = "";
+      scroll.restoredSourceText = restoredText;
+      scroll.timelineId = String(meta.scrollTimelineId || "");
+      scroll.restoredFromFirmwareMeta = true;
+      pendingScrollMeta = null;
+      setScrollTextFromFirmware(restoredText, { force: true });
+      scroll.restoredTextTruncated = scrollTextExceedsUiCharLimit(restoredText);
+      if (scroll.restoredTextTruncated) {
+        setScrollRestoreWarning("硬件滚动文字超过 WebUI 输入上限，已截断显示；预览仅供参考。");
+      }
+      applyFirmwareScrollFps(meta, `${source}_meta_source`);
+    }
+
+    updateScrollUi();
+    renderState();
+    return true;
+  } finally {
+    scrollMetaFetchInFlight = false;
+    scroll.lightSyncing = false;
+  }
+}
+
 function kickPostBootScrollMetaRestore(source = "post_boot") {
   if (postBootScrollMetaRestoreStarted) {
     logScrollRestoreDebug("post_boot already started", { source });
-    return;
+    return Promise.resolve(false);
   }
   postBootScrollMetaRestoreStarted = true;
   scrollMetaRestoreEnabled = true;
-  logScrollRestoreDebug("post_boot kick", {
-    source,
-    currentPage: document.body?.dataset?.page || "",
-    lastFwScrollTimelineId,
-    lastFwScrollHasSourceText,
-  });
-  restoreScrollTextFromFirmware(source).catch((err) => {
-    warnScrollRestoreDebug("post_boot failed", {
+  // Automatic, lightweight sync only: status + source string + FPS. No manual button,
+  // no Ark bitmap load, and no local preview-frame regeneration on refresh/boot.
+  return syncScrollStateTextFpsLightweightAfterBoot(source).catch((err) => {
+    warnScrollRestoreDebug("post-loader light sync failed", {
       source,
       error: err?.message || String(err),
     });
+    return false;
   });
+}
+
+async function manualRestoreScrollFromFirmware() {
+  // Product behavior no longer exposes a manual restore button. Keep this as a
+  // compatibility no-op for stale cached HTML or external test harnesses.
+  return syncScrollStateTextFpsLightweightAfterBoot("manual_restore_compat");
+}
+
+function shouldShowScrollRestoreButton() {
+  return false;
 }
 
 async function restoreScrollPreviewIfNeeded(source = "restore_preview", restoreToken = null) {
@@ -9501,7 +10438,7 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview", restoreT
     framesTimelineId: scroll.framesTimelineId,
     framesLength: scroll.frames.length,
   });
-  setScrollTextFromFirmware(scroll.restoredSourceText); // 迟到的 DOM 填充
+  setScrollTextFromFirmware(scroll.restoredSourceText); // Late DOM padding
   if (!pendingScrollMeta) {
     logScrollRestoreDebug("preview restore end", {
       source,
@@ -9554,9 +10491,13 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview", restoreT
   }
   try {
     setScrollRestorePreviewProgress(0.02, "开始生成同步预览");
-    const prepared = await prepareTextScrollTimelineForRestoreAsync(true, (progress, label) => {
-      setScrollRestorePreviewProgress(progress, label);
-    });
+    const prepared = await prepareTextScrollTimelineForRestoreAsync(
+      true,
+      (progress, label) => {
+        setScrollRestorePreviewProgress(progress, label);
+      },
+      restoreToken ? () => !scrollMachine.isCurrent(restoreToken) : null,
+    );
     if (!scrollMachine.isCurrent(restoreToken)) return;
     if (!prepared) {
       pendingScrollMeta = null;
@@ -9579,7 +10520,7 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview", restoreT
   pendingScrollMeta = null;
   applyScrollRuntimeMeta(latestMeta, `scroll_restore_preview_${source}`);
 
-  // D5/E4：仅在文本未截断 + 生成器身份精确匹配 + 帧数一致时绑定帧身份。
+  // D5/E4: Bind frame identity only if text is not truncated + generator identity matches exactly + frame number is consistent.
   if (
     !scroll.restoredTextTruncated && // E4
     exactGeneratorMatch(latestMeta) &&
@@ -9593,7 +10534,7 @@ async function restoreScrollPreviewIfNeeded(source = "restore_preview", restoreT
     }
   }
 
-  // H-B：预览帧生成完成后，使用最新固件 frameIndex 同步当前帧。
+  // H-B: After the preview frame is generated, use the latest firmware frameIndex to synchronize the current frame.
   applyRestoredScrollPreviewFrame(latestMeta);
   completeScrollRestorePreviewProgress("同步预览完成");
   logScrollRestoreDebug("preview restore end", {
@@ -9675,7 +10616,7 @@ function normalizeGlyphRows(rows, width, height) {
       out.push(row.padEnd(w, "0").slice(0, w));
       continue;
     }
-    // 防御性兜底：兼容可能仍是十六进制字符串的旧版压缩行。
+    // Defensive fallback: Compatible with older compressed lines that may still be hex strings.
     let bits = "";
     const clean = row.replace(/[^0-9a-fA-F]/g, "");
     for (const ch of clean) bits += parseInt(ch, 16).toString(2).padStart(4, "0");
@@ -9834,8 +10775,8 @@ function applyScrollButtonUiState(key, el, nextState) {
   if (same) return;
   scrollButtonUiCache[key] = { ...nextState };
   setDomDisabledIfChanged(el, nextState.disabled);
-  // aria-disabled 必须跟随 disabled，否则 HTML 里初始的 aria-disabled="true"
-  // （scroll-pause / scroll-stop）永远不会被清除，导致读屏播报错误且按压动画失效。
+  // aria-disabled must follow disabled, otherwise the initial aria-disabled="true" in HTML
+  // (scroll-pause/scroll-stop) will never be cleared, resulting in screen reading errors and invalid press animation.
   setDomAttrIfChanged(el, "aria-disabled", nextState.disabled ? "true" : "false");
   if (nextState.text !== undefined) {
     setDomTextIfChanged(el, nextState.text);
@@ -9915,19 +10856,22 @@ function updateScrollUi() {
               : "idle";
 
   if (stateEl) setDomTextIfChanged(stateEl, label);
-  if (indexEl) setDomTextIfChanged(indexEl, `${scroll.frameIndex || 0} / ${scroll.frames?.length || 0}`);
+  if (indexEl) {
+    const displayIndex = Number.isFinite(scroll.displayIndex) ? scroll.displayIndex : scroll.frameIndex || 0;
+    setDomTextIfChanged(indexEl, `${displayIndex || 0} / ${scroll.frames?.length || 0}`);
+  }
 
   const nonResumableSystemPause = scroll.systemPaused && !scroll.userPaused;
 
-  // commandBusy / pauseBusy / stepBusy / fpsBusy 是单次往返 aux 命令（暂停/继续/
-  // 停止/逐帧/帧率）的重入锁，每个处理函数都已在入口 `if (scroll.commandBusy ...) return`
-  // 自行拦截重复点击。因此这些短暂的在途标志**不应**反映到按钮 disabled 上——否则
-  // 每次普通点击都会让所有按钮闪一下 disabled→enabled。只有真正的长过程
-  // （上传 uploading / 恢复 restoring）才需要在按钮上可见地禁用控件。
+  // commandBusy / pauseBusy / stepBusy / fpsBusy are single round-trip aux commands (pause/continue/
+  // Stop / frame by frame / frame rate) reentrant lock, each handler function has been in the entry `if (scroll.commandBusy ...) return`
+  // Block repeated clicks yourself. Therefore these transient in-transit flags should not be reflected on the disabled button - otherwise
+  // Every normal click will cause all buttons to flash disabled->enabled. only real long process
+  // (uploading / restoring) requires visibly disabling the control on the button.
   const anyCommandBusy = hardBusy;
 
-  // 暂停/继续只有在真正正在播放或处于可控暂停时才有意义；仅有输入文字或缓存帧
-  // （idle）不应让暂停按钮显示为可用/已按下。
+  // Pause/resume only makes sense when actually playing or in a controlled pause; only when text is entered or frames are cached
+  // (idle) Pause button should not be shown as available/pressed.
   const scrollLiveOrPaused = scrollPlayingNow || effectivePaused;
 
   applyScrollButtonUiState("send", playBtn, {
@@ -9969,20 +10913,27 @@ function updateScrollUi() {
   if (progressBar) progressBar.value = Math.round(clamp(scroll.uploadProgress || 0, 0, 1) * 100);
   if (progressLabel) setDomTextIfChanged(progressLabel, scroll.uploadLabel || "等待发送");
 
-  // 恢复警告（可多行，E5）；textContent + CSS white-space:pre-line 渲染换行。
+  // Restore warnings (can be multi-line, E5); textContent + CSS white-space:pre-line renders newlines.
   const restoreWarnEl = $("scroll-restore-warning");
   if (restoreWarnEl) {
     setDomTextIfChanged(restoreWarnEl, scroll.restoreWarning || "");
     restoreWarnEl.hidden = !scroll.restoreWarning;
   }
+
+  // No manual restore button: boot/page-entry sync is automatic and lightweight.
+  const restoreBtnEl = $("scroll-restore-btn");
+  if (restoreBtnEl) {
+    restoreBtnEl.hidden = true;
+    setDomDisabledIfChanged(restoreBtnEl, true);
+  }
 }
 
-// 矩阵预览共用同一条初始化路径，确保尺寸和渲染保持一致。
-// 调试控件和延迟初始化
-// 连接关系：
-// - initializeMatrixViews() 必须在渲染前建立所有矩阵实例。
-// - debug controls 只发送诊断命令或本地测试 frame，不改变页面结构。
-// - deferred init 让首屏先显示，较重的列表/调试/字体读取在加载遮罩之后继续完成。
+// Matrix previews share the same initialization path to ensure consistent size and rendering.
+// Debugging controls and lazy initialization
+// Connection relationship:
+// - initializeMatrixViews() must create all matrix instances before rendering.
+// - debug controls only send diagnostic commands or local test frames and do not change the page structure.
+// - deferred init makes the first screen appear first, and the heavier list/debug/font reading continues to complete after the mask is loaded.
 function initializeMatrixViews() {
   matrixViews = [];
   initMatrix("matrix-basic", () => currentFrame, false, null, false);
@@ -10020,8 +10971,8 @@ function resetBatteryVoltageRecord(kind) {
 }
 
 // ============================================================
-// page-debug 重写：诊断渲染助手 + 11 面板渲染器 + 安全动作助手。
-// 说明：function 声明会被提升，因此放在 renderState/updateDps 之后也可被调用。
+// page-debug rewrite: diagnostic rendering helper + 11 panel renderer + safe action helper.
+// Note: The function declaration will be promoted, so it can also be called after renderState/updateDps.
 // ============================================================
 let debugApPasswordShown = false;
 
@@ -10042,7 +10993,7 @@ function debugSourceClass(source) {
   );
 }
 
-// 单条 kv 行的显式来源元数据（不再从 label 文本推断来源，v2 规则 2）。
+// Explicit source metadata for individual kv lines (source no longer inferred from label text, v2 rule 2).
 function buildDebugRow({ label, value, source = "", stale = false, note = "", html = false }) {
   const v = value === null || value === undefined || value === "" ? "—" : value;
   return { label, value: v, source, stale: !!stale, note, html: !!html };
@@ -10069,7 +11020,7 @@ function renderDebugBadge(label, dotClass = "status-dot") {
   return `<span class="badge"><span class="${dotClass}"></span>${escapeHtml(label)}</span>`;
 }
 
-// DPS / 全亮警告共用的参数化功耗估算（从 updateDps 抽出，v2 规则 6）。
+// Parametric power estimate common to DPS / full-light warning (pulled from updateDps, v2 rule 6).
 function estimateFrameWatts(frame, colorHex, brightness) {
   const rgb = hexToRgb(colorHex);
   const colorFactor = (rgb.r + rgb.g + rgb.b) / (LED_FULL_BRIGHTNESS * 3);
@@ -10082,7 +11033,7 @@ function estimateFrameWatts(frame, colorHex, brightness) {
   );
 }
 
-// 纯函数：保存表情 -> 帧，无副作用（preview-only 用，v2 规则 5）。
+// Pure function: save expression -> frame, no side effects (for preview-only, v2 rule 5).
 function getSavedFaceFrame(i) {
   const face = getAllFaces()[i];
   return face && typeof face.m370 === "string" ? m370ToFrame(face.m370) : blankFrame();
@@ -10143,8 +11094,8 @@ function parseM370ToFrameOrError(text) {
   }
 }
 
-// preview-only 仅写 debugPreviewFrame（不碰 currentFrame/setCurrentFrame/queueFirmwareFrame，
-// 不调用 updateDps）；send 走 setCurrentFrame 再镜像到预览缓冲（v2 规则 1）。
+// preview-only only writes debugPreviewFrame (does not touch currentFrame/setCurrentFrame/queueFirmwareFrame,
+// updateDps is not called); send uses setCurrentFrame and then mirrors to the preview buffer (v2 rule 1).
 function applyDebugFrame(frame, source = "debug pattern", options = {}) {
   if (options.send) {
     setCurrentFrame(frame, options.reason || "debug_send", "idle");
@@ -10168,7 +11119,7 @@ function confirmDangerAction({ title = "确认操作", body = "", confirmWord = 
   return window.confirm(`${title}\n\n${body}`);
 }
 
-// 复制诊断 JSON；绝不包含 AP 密码（v2 规则 10）。
+// Copy the diagnostic JSON; never include the AP password (v2 rule 10).
 function copyDebugDiagnostics(scope = "full") {
   const summary = {
     mode: state.mode,
@@ -10235,7 +11186,7 @@ function copyDebugDiagnostics(scope = "full") {
   log(`已复制诊断 JSON (${scope})；可能含 SSID/IP/域名，已排除 AP 密码`);
 }
 
-// ---- 只读面板渲染器（由 renderDebugReadouts 在 debug 页活动时调用）----
+// ---- Read-only panel renderer (called by renderDebugReadouts when the debug page is active) ----
 function renderDebugReadouts() {
   if (document.body?.dataset?.page !== "debug") return;
   renderDebugDeviceSummary();
@@ -10252,12 +11203,8 @@ function renderDebugDeviceSummary() {
   const online = firmware.online;
   const stale = !online;
 
-  const linkBadge = online
-    ? renderDebugBadge("在线", "status-dot")
-    : renderDebugBadge(
-        firmware.lastError && firmware.lastError !== "—" ? "错误" : "离线",
-        "status-dot danger",
-      );
+  const connection = firmwareConnectionUiState();
+  const linkBadge = renderDebugBadge(connection.label, connection.dotClass);
 
   let outTxt = "未知",
     outDot = "status-dot dim";
@@ -10455,7 +11402,7 @@ function renderDebugPreviewPanel() {
   ]);
 }
 
-// 离线/在线发送是否应被阻止（send-to-firmware 控件）。
+// Whether offline/online sending should be blocked (send-to-firmware control).
 function debugSendBlockedOffline(resultId) {
   if (!firmware.online || isOfflineHtmlMode()) {
     showDebugActionResult(resultId, { ok: false, msg: "固件离线，无法发送到固件" });
@@ -10464,8 +11411,8 @@ function debugSendBlockedOffline(resultId) {
   return false;
 }
 
-// 统一处理“模拟指令”按钮：忙碌禁用 + 结果反馈 + 成功后只刷新运行时摘要。
-// 处理两种离线情形（v2 §7）：无 promise（离线 HTML 本地回退）/ promise 失败（网络断开）。
+// Unified handling of "simulate command" buttons: busy disable + result feedback + only refresh runtime summary on success.
+// Handle two offline scenarios (v2 section7): no promise (offline HTML local fallback) / promise failure (network disconnection).
 function runDebugSimCommand(btnEl, label, packet) {
   showDebugActionResult("debug-sim-result", { pending: true, msg: `${label}：发送中…` });
   if (btnEl) btnEl.disabled = true;
@@ -10532,10 +11479,10 @@ function refreshDebugRawValidation() {
   if (sendBtn) sendBtn.disabled = !(valid && confirmed && !isOfflineHtmlMode() && firmware.online);
 }
 
-// 调试控件：仅预览的本地图案 / 发送到固件 / M370 校验 / 危险动作等。
+// Debugging controls: local pattern preview only/send to firmware/M370 verification/dangerous actions, etc.
 function initializeDebugControls() {
   setClickHandlers([
-    // --- 2. 固件连接 / API 健康 ---
+    // --- 2. Firmware Connection/API Health ---
     [
       "firmware-ping",
       () => {
@@ -10576,7 +11523,7 @@ function initializeDebugControls() {
       },
     ],
 
-    // --- 3. 电源 / 电池 / ADC ---
+    // --- 3. Power supply / battery / ADC ---
     [
       "debug-refresh-power",
       () => {
@@ -10608,7 +11555,7 @@ function initializeDebugControls() {
       },
     ],
 
-    // --- 4. 网络 / 接入点 ---
+    // --- 4. Network/Access Point ---
     [
       "debug-ap-pass-toggle",
       () => {
@@ -10618,13 +11565,13 @@ function initializeDebugControls() {
     ],
     ["debug-network-refresh", () => syncRuntimeStateFromFirmware("debug_network_refresh")],
 
-    // --- 5. 暂停滚动（与按钮模拟器同组） ---
+    // --- 5. Pause scrolling (same group as button simulator) ---
     [
       "firmware-pause",
       () => runDebugSimCommand($("firmware-pause"), "暂停滚动", sendAuxCommand("pause_scroll", {}, "debug_firmware_pause")),
     ],
 
-    // --- 6. LED 测试：仅预览 ---
+    // --- 6. LED Test: Preview Only ---
     [
       "debug-preview-off",
       () => {
@@ -10654,7 +11601,7 @@ function initializeDebugControls() {
       },
     ],
 
-    // --- 6. LED 测试：发送到固件 ---
+    // --- 6. LED test: send to firmware ---
     [
       "debug-send-off",
       () => {
@@ -10708,7 +11655,7 @@ function initializeDebugControls() {
       },
     ],
 
-    // --- 6. M370 输入 ---
+    // --- 6. M370 input ---
     [
       "debug-m370-preview",
       () => {
@@ -10753,10 +11700,10 @@ function initializeDebugControls() {
       },
     ],
 
-    // --- 7. 预览面板复制 ---
+    // --- 7. Preview panel copy ---
     ["debug-preview-copy", () => copyText(frameToM370(debugPreviewFrame))],
 
-    // --- 9. 通信日志 ---
+    // --- 9. Communication log ---
     [
       "log-clear",
       () => {
@@ -10767,7 +11714,7 @@ function initializeDebugControls() {
     ["log-download", () => downloadJsonFile("rina_webui_log.txt", logs.join("\n"))],
     ["log-copy", () => copyText(logs.join("\n"))],
 
-    // --- 10. 高级原始指令 ---
+    // --- 10. Advanced primitive instructions ---
     ["debug-raw-validate", () => refreshDebugRawValidation()],
     [
       "debug-raw-send",
@@ -10811,7 +11758,7 @@ function initializeDebugControls() {
       },
     ],
 
-    // --- 11. 危险区 ---
+    // --- 11. Danger Zone ---
     [
       "debug-clear-user-faces",
       () => {
@@ -10833,13 +11780,19 @@ function initializeDebugControls() {
     ],
   ]);
 
-  // 输入/勾选监听（非 click）。
+  // Input/check monitoring (not click).
   $("debug-m370")?.addEventListener("input", refreshDebugM370Validation);
   $("debug-raw-json")?.addEventListener("input", refreshDebugRawValidation);
   $("debug-raw-confirm")?.addEventListener("change", refreshDebugRawValidation);
   refreshDebugRawValidation();
 
-  // GPIO / 按钮模拟器：带忙碌禁用 + 结果反馈。
+  // Communication log level selection: Turning down the level can significantly reduce the rendering overhead of high-frequency/redundant entries.
+  const logLevelSelect = $("log-level-select");
+  if (logLevelSelect) {
+    logLevelSelect.addEventListener("change", () => setLogLevel(logLevelSelect.value));
+  }
+
+  // GPIO/button emulator: with busy disable + result feedback.
   document.querySelectorAll("[data-gpio]").forEach((button) => {
     button.addEventListener("click", () => {
       const code = String(button.dataset.gpio || "").toUpperCase();
@@ -10911,6 +11864,9 @@ async function revealFirstPageWaterfall() {
   if (firstPageRevealStarted) return;
   firstPageRevealStarted = true;
   prepareFirstPageProgressiveReveal();
+  // 等 LED 预览背景图加载完成后再开始卡片瀑布（图片在加载动画开始后即已发起预加载）。
+  // preloadRinaboardImage() 在加载失败/超时时也会 resolve，所以这里不会永久阻塞。
+  await preloadRinaboardImage();
   await new Promise((resolve) => requestAnimationFrame(resolve));
   delete document.documentElement.dataset.firstPageReveal;
   await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -10930,6 +11886,7 @@ function initFirstPageUiBeforeShow() {
   initBrightness();
   initBasicControls();
   initCustomSelectDropdowns();
+  initFaceLibraryAutoRefresh();
 }
 
 function renderFirstPageUiBeforeShow() {
@@ -10979,9 +11936,6 @@ async function runPostBootDeferredReads(bootOk = false) {
   await new Promise((resolve) => requestAnimationFrame(resolve));
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  // 否则那些慢请求会让 /api/scroll/meta 看起来完全没有发生。
-  kickPostBootScrollMetaRestore("post_boot_deferred_start");
-
   const bootPlaybackIsScroll =
     state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
   try {
@@ -10994,10 +11948,12 @@ async function runPostBootDeferredReads(bootOk = false) {
     setFirmwareStatus({
       savedFacesSync: "deferred load failed",
     });
-    if (shouldLogApiError()) log(`延后读取 saved_faces.json 失败：${err.message}`);
+    if (shouldLogApiError()) log(`延后读取 saved_faces.json 失败：${err.message}`, "error");
   }
 
-  const matrixSynced = await syncRuntimeStateFromFirmware("post_load_matrix_preview");
+  const matrixSynced = bootPlaybackIsScroll
+    ? await syncRuntimeSummaryFromFirmware("post_load_scroll_summary")
+    : await syncRuntimeStateFromFirmware("post_load_matrix_preview");
   if (!matrixSynced && getAllFaces().length && !bootPlaybackIsScroll) {
     if (bootOk) applyKnownFaceIndexLocal("post_load_face_index_fallback");
     else applyStartupDefaultFaceLocal("post_load_default_face_fallback");
@@ -11007,29 +11963,32 @@ async function runPostBootDeferredReads(bootOk = false) {
   renderState();
   scheduleMatrixFitRender(3);
 
-  // 关键启动读取（运行时状态 + saved_faces + 预览）完成后，且加载动画仍在屏幕上时，
-  // 在后台预热文字滚动浏览器字体（ark12.woff2，约 830KB，已并入 emoji 与回退字形）。这样文字滚动页面
-  // 会提前拥有字体，用户打开后就不会再过几秒才替换字体。
-  // 它会在关键读取之后启动，避免与这些读取竞争单线程 ESP Web 服务器。
-  // 较大的 2.5MB ark12.json 位图字形表仍保持延迟加载，首次进入文字滚动页面时加载；见 switchPage。
+  // After the key startup read (runtime state + saved_faces + preview) completes and the loading animation is still on screen,
+  // Warm text scrolling browser fonts in the background (ark12.woff2, ~830KB, emoji and fallback glyphs incorporated). This text scrolls the page
+  // You'll have the fonts ahead of time, so users won't have to wait a few seconds to replace them after opening them.
+  // It starts after critical reads to avoid competing with the single-threaded ESP web server on those reads.
+  // The larger 2.5MB ark12.json bitmap glyph table remains lazy loaded and is loaded when first entering a text scrolling page; see switchPage.
   ensureTextScrollBrowserFontReady().catch(() => {});
 }
 
-// 应用启动
-// 连接关系：
-// - bootstrapWebUi() 是唯一启动入口：先字体和基础 UI，再首屏揭示，再固件同步。
-// - 它调用前面所有模块的 init/render 函数，但模块本身不应反向调用 bootstrap。
-// - 启动失败会写入日志和状态，不阻塞用户查看本地 UI。
+// Application launch
+// Connection relationship:
+// - bootstrapWebUi() is the only startup entry: fonts and basic UI first, then first screen display, and then firmware synchronization.
+// - It calls the init/render functions of all previous modules, but the module itself should not call bootstrap in reverse.
+// - If the startup fails, the log and status will be written, without blocking the user from viewing the local UI.
 async function bootstrapWebUi() {
   const bootStart = performance.now();
   let bootOk = false;
   try {
     if (window.rinaStartLoaderAnimation) await window.rinaStartLoaderAnimation();
+    // 加载动画已开始播放：现在才请求 LED 预览背景大图，让它与字体/UI 初始化并行下载。
+    // 卡片瀑布揭示（revealFirstPageWaterfall）会等这张图就绪后再开始。
+    preloadRinaboardImage();
     prepareFirstPageProgressiveReveal();
-    // UI 字体（GNU Unifont，内嵌 data URI）必须在第 4 阶段
-    // 瀑布揭示前完全就绪，这样首屏揭示时就已经显示正确字体。
-    // 它是内嵌的（无网络请求），因此这个 await 很快。ark12 滚动字体保持
-    // 延后，并在第 4 阶段之后通过 initScroll 加载。
+    // UI fonts (GNU Unifont, embedded data URI) must be in stage 4
+    // Completely ready before the waterfall is revealed, so that the correct font is displayed when the fold is revealed.
+    // It's inline (no network requests), so this await is fast. ark12 scroll font preservation
+    // Defer and load via initScroll after stage 4.
     await ensureWebUiFontReady().catch((err) => console.warn("WebUI font bootstrap failed", err));
     initFirstPageUiBeforeShow();
     initializeBasicPreviewMatrix();
@@ -11038,31 +11997,8 @@ async function bootstrapWebUi() {
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const firstPageRevealPromise = revealFirstPageWaterfall();
 
-    // 先处理第 4 阶段：等待首屏瀑布揭示完成。
+    // Work on stage 4 first: Wait for the above-the-fold waterfall reveal to complete.
     await firstPageRevealPromise;
-
-    // 在最短显示窗口开始时启动固件启动读取（现在包含第一帧 LED），
-    // 让它与原本空闲的等待时间重叠。第一帧矩阵 + 运行时状态会在
-    // 加载动画仍显示时应用，因此加载器关闭/揭示页面时，
-    // 基础矩阵预览已经填充完成，同时不会让关闭过程等待网络。
-    const runtimePingPromise = preloadFirmwareRuntimeState()
-      .then(() => {
-        bootOk = !!bootRuntimeSnapshot.ok;
-        applyBrightnessLocal(state.brightness);
-        syncAutoIntervalUi();
-        updateM370Views();
-        updateScrollUi();
-        setFirmwareStatus({
-          savedFacesSync: "deferred until WebUI ready",
-        });
-        renderSavedFaces();
-        renderMatrices();
-        renderState();
-        fitAllMatrices();
-      })
-      .catch((err) => {
-        if (shouldLogApiError()) log(`runtime 状态读取失败：${err.message || err}`);
-      });
 
     await waitForBootLoaderMinimum(bootStart);
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -11071,15 +12007,25 @@ async function bootstrapWebUi() {
     scheduleMatrixFitRender(4);
     initDeferredUiAfterShow();
 
-    // 确保运行时快照（以及 bootOk）先稳定下来，
-    // 再启动依赖它的延迟读取和状态轮询。
-    await runtimePingPromise;
-    kickPostBootScrollMetaRestore("post_runtime_ready");
+    // Loader is now fully gone. Only now perform the first firmware sync so network/JSON
+    // work cannot compete with the loading animation render pipeline. Use lightweight
+    // status + scroll text/FPS sync; do not rebuild scroll preview frames here.
+    await preloadFirmwareRuntimeState();
+    bootOk = !!bootRuntimeSnapshot.ok;
+    applyBrightnessLocal(state.brightness);
+    syncAutoIntervalUi();
+    updateM370Views();
+    updateScrollUi();
+    renderSavedFaces();
+    renderMatrices();
+    renderState();
+    fitAllMatrices();
+    await kickPostBootScrollMetaRestore("post_loader_runtime_ready");
 
     startFirmwareStatusPolling();
     startPowerStatusPolling();
     runPostBootDeferredReads(bootOk).catch((err) => {
-      if (shouldLogApiError()) log(`延后读取 saved_faces/预览矩阵失败：${err.message}`);
+      if (shouldLogApiError()) log(`延后读取 saved_faces/预览矩阵失败：${err.message}`, "error");
     });
     log(
       bootOk
@@ -11106,12 +12052,12 @@ async function bootstrapWebUi() {
     startFirmwareStatusPolling();
     startPowerStatusPolling();
     runPostBootDeferredReads(bootOk).catch((err) => {
-      if (shouldLogApiError()) log(`引导读取 saved_faces/预览矩阵失败：${err.message || err}`);
+      if (shouldLogApiError()) log(`引导读取 saved_faces/预览矩阵失败：${err.message || err}`, "error");
     });
   }
 }
 
-// 唯一启动入口：脚本位于 <body> 末尾，DOM 通常已就绪；仍做一次 readyState 防护。
+// The only startup entry: the script is at the end of <body>, and the DOM is usually ready; still do a readyState protection.
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", bootstrapWebUi);
 } else {

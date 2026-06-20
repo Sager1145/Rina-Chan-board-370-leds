@@ -1,23 +1,23 @@
-/* 本文件定义 WebUI 字体、主题、布局和响应式组件状态；selector/class 名保持 English 以匹配 HTML/JS。 */
-/* Rina WebUI 样式：主题令牌、布局规则和组件状态。 */
+/* This file defines WebUI fonts, themes, layouts, and responsive component states. Selector and class names are kept in English to match HTML and JS. */
+/* Rina WebUI styles: theme tokens, layout rules, and component states. */
 /*
-  CSS 文件结构说明：
-  1. 字体和 :root 主题令牌先建立排版、颜色、间距和控件尺寸。
-  2. 全局重置和启动滚动锁定规则稳定移动端首屏。
-  3. 外壳、导航、页面、卡片和控件规则定义主要布局。
-  4. 矩阵规则渲染 22 x 18 逻辑 LED 预览。
-  5. 页面专项规则覆盖保存表情、部件组合、调试、加载动画和文字滚动布局。
-  源文件应维护未压缩版本；.gz 文件只作为 LittleFS 构建产物临时生成。
+  CSS File Structure Overview:
+  1. Fonts and :root theme tokens establish typography, colors, spacing, and control sizes.
+  2. Global reset and boot scroll lock rules stabilize the mobile first-screen experience.
+  3. Shell, navigation, page, card, and control rules define the primary layouts.
+  4. Matrix rules render the 22 x 18 logical LED preview.
+  5. Page-specific rules cover saved faces, part combination, debug console, loading animation, and text scrolling layouts.
+  Source files should be maintained in their uncompressed versions; .gz files are only temporarily generated as LittleFS build artifacts.
 */
 
-/* 字体资源和 WebUI 主题令牌。 */
-  /* GNU Unifont 备用字体改为独立 LittleFS 文件 /resources/fonts/unifont.woff2；
-     由 index.html 的 <link rel="preload"> 最先加载。不再内嵌 base64 data URI。 */
+/* Font resources and WebUI theme tokens. */
+  /* GNU Unifont fallback font is changed to a separate LittleFS file: /resources/fonts/unifont.woff2;
+     it is loaded first via <link rel="preload"> in index.html. No longer embedded as a base64 data URI. */
   @font-face{font-family:"GNU Unifont";src:url("/resources/fonts/unifont.woff2?v=17.0.04-webui-2") format("woff2");font-weight:400;font-style:normal;font-display:block;}
 
-  /* Ark 12px 文字滚动字体说明：
-     基础字形、融合回退字形（例如 然 / 燃 / 滚 / 滾）以及 Mona12 单色 emoji
-     都合并进同一个 ark12.woff2；浏览器通过下面的 unicode-range 命中这张字体。 */
+  /* Ark 12px text scrolling font description:
+     Basic glyphs, merged fallback glyphs, and Mona12 monochrome emojis
+     are all merged into ark12.woff2. The browser hits this font via the unicode-range defined below. */
   @font-face {
     font-family: "Ark Pixel 12px Monospaced";
     src: url("/resources/fonts/ark12.woff2?v=20260612-digits-shift") format("woff2");
@@ -202,15 +202,21 @@
   }
 
 
-  /* 布局和控件共享的主题令牌。
-     这些变量统一控制排版、颜色、控件尺寸、LED 预览单元格和页面边距。 */
-  /* 中文块：样式规则 :root 控制对应 UI 的布局、视觉或响应式状态。 */
+  /* Theme tokens shared across layout and controls.
+     These variables uniformly control typography, colors, control sizes, LED preview cells, and page margins. */
   :root {
     --ui-font: "GNU Unifont";
     --scroll-font: "Ark Pixel 12px Monospaced";
     --bg: #0f1117;
     --panel: #161a24;
     --panel2: #1e2430;
+    --top-glass-bg: rgba(15, 17, 23, 0.74);
+    --top-glass-bg-strong: rgba(15, 17, 23, 0.86);
+    --preview-glass-bg: rgba(15, 17, 23, 0.62);
+    --preview-glass-bg-strong: rgba(15, 17, 23, 0.78);
+    --preview-glass-border: rgba(244, 247, 251, 0.08);
+    --glass-seam-overlap: 0px;
+    --top-glass-blur: 14px;
     --text: #f4f7fb;
     --muted: #9aa6b2;
     --line: #2b3344;
@@ -235,26 +241,38 @@
     --sidebar-padding-x: 18px;
     --led-preview-default-cell: 18px;
     --led-preview-min-cell: 5px;
-    --led-preview-max-cell: 48px;
+    /* 最大可缩放 LED 像元尺寸：在原 48px 基础上 +30% ≈ 62px（取整）。 */
+    --led-preview-max-cell: 62px;
     --led-preview-min-width: 320px;
-    --led-preview-max-height: 500px;
+    /* 预览高度通常是真正的缩放上限（18 行）；同样 +30%：500 → 650px（取整），
+       与 --led-preview-max-cell 一起把预览的最大可缩放尺寸整体放大约 30%。 */
+    --led-preview-max-height: 650px;
     --led-preview-edge-ratio: .1000;
     --cell: var(--led-preview-default-cell);
-    --gap: 4px;
-    --led-color: #f971d4;
+    --gap: 1px;
+    --led-color: #ec3fc7;
     --control-height: 44px;
     --page-min-width: 320px;
+    --top-page-nav-max-width: 500px;
+    --content-padding: 18px;
+    --content-padding-top: 0px;
+    --topbar-content-height: 49.25px;
+    --topbar-sticky-height: calc(max(var(--control-height), var(--topbar-content-height)) + var(--sidebar-padding-y) * 2);
+    --hero-sticky-height: 57px;
+    --hero-sticky-top: calc(var(--topbar-sticky-height) + var(--content-padding-top) - 1px);
+    --led-preview-sticky-top: calc(var(--hero-sticky-top) + var(--hero-sticky-height));
+    --alignment-left-offset: 597.66px;
+    --alignment-top-offset: 850.71px;
+    --alignment-cell-size: 127.43px;
+    --alignment-gap: 0.00px;
   }
 
 
-  /* 文档和表单控件的基础默认值。
-     这里稳定盒模型、页面滚动行为和输入控件尺寸，供所有页面共用。 */
-  /* 中文块：样式规则 * 控制对应 UI 的布局、视觉或响应式状态。 */
+  /* Base default values for documents and form controls.
+     This stabilizes the box model, page scrolling behaviors, and input control dimensions for use across all pages. */
   * {
     box-sizing: border-box
   }
-
-  /* 中文块：样式规则 html 控制对应 UI 的布局、视觉或响应式状态。 */
   html {
     min-width: var(--page-min-width);
     overflow-x: auto;
@@ -263,20 +281,14 @@
     scrollbar-color: var(--line) var(--bg);
     color-scheme: dark;
   }
-
-  /* 中文块：样式规则 html::-webkit-scrollbar 控制对应 UI 的布局、视觉或响应式状态。 */
   html::-webkit-scrollbar {
     width: 12px;
     height: 12px;
     background: var(--bg);
   }
-
-  /* 中文块：样式规则 html::-webkit-scrollbar-track 控制对应 UI 的布局、视觉或响应式状态。 */
   html::-webkit-scrollbar-track {
     background: var(--bg);
   }
-
-  /* 中文块：样式规则 html::-webkit-scrollbar-thumb 控制对应 UI 的布局、视觉或响应式状态。 */
   html::-webkit-scrollbar-thumb {
     background: var(--line);
     border: 3px solid var(--bg);
@@ -284,7 +296,6 @@
   }
 
   html,
-  /* 中文块：样式规则 body 控制对应 UI 的布局、视觉或响应式状态。 */
   body {
     margin: 0;
     min-height: 100%;
@@ -297,23 +308,17 @@
     -webkit-font-smoothing: none;
     text-rendering: geometricPrecision;
   }
-
-  /* 中文块：样式规则 body 控制对应 UI 的布局、视觉或响应式状态。 */
   body {
     min-width: var(--page-min-width);
     padding: 0;
     overscroll-behavior-x: none;
     overflow-y: visible;
   }
-
-  /* 中文块：样式规则 html[data-scroll-lock="boot"] 控制对应 UI 的布局、视觉或响应式状态。 */
   html[data-scroll-lock="boot"] {
     overflow-y: scroll;
     scrollbar-gutter: stable;
     scrollbar-width: auto;
   }
-
-  /* 中文块：样式规则 html[data-scroll-lock="boot"] body 控制对应 UI 的布局、视觉或响应式状态。 */
   html[data-scroll-lock="boot"] body {
     position: fixed;
     inset: 0;
@@ -324,13 +329,11 @@
   }
 
   html[data-scroll-lock="boot"] body,
-  /* 中文块：样式规则 html[data-scroll-lock="boot"] body * 控制对应 UI 的布局、视觉或响应式状态。 */
   html[data-scroll-lock="boot"] body * {
     scrollbar-width: none;
   }
 
   html[data-scroll-lock="boot"] body::-webkit-scrollbar,
-  /* 中文块：样式规则 html[data-scroll-lock="boot"] body *::-webkit-scrollbar 控制对应 UI 的布局、视觉或响应式状态。 */
   html[data-scroll-lock="boot"] body *::-webkit-scrollbar {
     display: none;
     width: 0;
@@ -348,7 +351,6 @@
   dialog,
   [role="button"],
   [role="menu"],
-  /* 中文块：样式规则 [role="menuitem"] 控制对应 UI 的布局、视觉或响应式状态。 */
   [role="menuitem"] {
     font-family: var(--ui-font) !important;
     font-size: inherit;
@@ -363,7 +365,6 @@
   select,
   textarea,
   .brand-nav-toggle,
-  /* 中文块：样式规则 .select-toggle 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-toggle {
     touch-action: manipulation;
   }
@@ -389,12 +390,9 @@
   .v,
   .num,
   .log,
-  /* 中文块：样式规则 .mono 控制对应 UI 的布局、视觉或响应式状态。 */
   .mono {
     font-family: var(--ui-font) !important;
   }
-
-  /* 中文块：样式规则 body #scroll-text 控制对应 UI 的布局、视觉或响应式状态。 */
   body #scroll-text {
     font-family: var(--scroll-font) !important;
     font-size: 12px !important;
@@ -404,12 +402,9 @@
   }
 
   body #scroll-text::before,
-  /* 中文块：样式规则 body #scroll-text::after 控制对应 UI 的布局、视觉或响应式状态。 */
   body #scroll-text::after {
     font-family: var(--scroll-font) !important;
   }
-
-  /* 中文块：样式规则 button 控制对应 UI 的布局、视觉或响应式状态。 */
   button {
     --button-hover-color: var(--accent2);
     --button-hover-y: 0px;
@@ -431,8 +426,6 @@
     transition: transform 140ms cubic-bezier(.2, .8, .2, 1), border-color .12s, background .12s, box-shadow .12s, filter 120ms cubic-bezier(.2, .8, .2, 1);
     -webkit-tap-highlight-color: transparent;
   }
-
-  /* 中文块：样式规则 button.is-pressing:not(:disabled) 控制对应 UI 的布局、视觉或响应式状态。 */
   button.is-pressing:not(:disabled) {
     --button-hover-y: 0px;
     --button-press-y: 2px;
@@ -442,8 +435,6 @@
     filter: brightness(.9);
     transition-duration: 90ms;
   }
-
-  /* 中文块：样式规则 button.is-releasing:not(:disabled) 控制对应 UI 的布局、视觉或响应式状态。 */
   button.is-releasing:not(:disabled) {
     --button-hover-y: 0px;
     --button-press-y: 0px;
@@ -451,8 +442,6 @@
     filter: brightness(1);
     transition-duration: 150ms;
   }
-
-  /* 中文块：样式规则 .part-card.is-pressing .part-mini 控制对应 UI 的布局、视觉或响应式状态。 */
   .part-card.is-pressing .part-mini {
     transform: scale(.93);
     border-color: var(--button-hover-color);
@@ -460,22 +449,16 @@
       var(--button-hover-color) 22%, transparent);
     transition: 90ms transform cubic-bezier(.2, .8, .2, 1), border-color .12s, box-shadow .12s;
   }
-
-  /* 中文块：样式规则 .part-card.is-releasing .part-mini 控制对应 UI 的布局、视觉或响应式状态。 */
   .part-card.is-releasing .part-mini {
     transform: scale(1);
     transition: 150ms transform cubic-bezier(.2, .8, .2, 1), border-color .15s, box-shadow .15s;
   }
-
-  /* 中文块：样式规则 button.compact-btn 控制对应 UI 的布局、视觉或响应式状态。 */
   button.compact-btn {
     min-width: var(--control-height);
     padding: var(--control-padding-y) var(--control-compact-padding-x);
     font-size: var(--control-font-size);
     font-weight: 800;
   }
-
-  /* 中文块：样式规则 button:hover:not(:disabled) 控制对应 UI 的布局、视觉或响应式状态。 */
   button:hover:not(:disabled) {
     --button-hover-y: -1px;
     border-color: var(--button-hover-color);
@@ -483,12 +466,9 @@
   }
 
   button.is-pressing:hover:not(:disabled),
-  /* 中文块：样式规则 button.is-releasing:hover:not(:disabled) 控制对应 UI 的布局、视觉或响应式状态。 */
   button.is-releasing:hover:not(:disabled) {
     --button-hover-y: 0px;
   }
-
-  /* 中文块：样式规则 button.primary 控制对应 UI 的布局、视觉或响应式状态。 */
   button.primary {
     --button-hover-color: var(--accent);
     background: var(--primary-gradient);
@@ -496,31 +476,23 @@
     color: #fff;
     font-weight: 700
   }
-
-  /* 中文块：样式规则 button.ok 控制对应 UI 的布局、视觉或响应式状态。 */
   button.ok {
     --button-hover-color: #59d98e;
     background: #163824;
     border-color: #216b3f;
     color: #b8ffd4
   }
-
-  /* 中文块：样式规则 button.danger 控制对应 UI 的布局、视觉或响应式状态。 */
   button.danger {
     --button-hover-color: #ff7890;
     background: #3a1820;
     border-color: #7b2b3b;
     color: #ffd0d8
   }
-
-  /* 中文块：样式规则 button.active 控制对应 UI 的布局、视觉或响应式状态。 */
   button.active {
     --button-hover-color: var(--accent);
     border-color: var(--accent);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent)
   }
-
-  /* 中文块：样式规则 button:disabled 控制对应 UI 的布局、视觉或响应式状态。 */
   button:disabled {
     opacity: .42;
     cursor: not-allowed;
@@ -529,7 +501,6 @@
 
   input,
   select,
-  /* 中文块：样式规则 textarea 控制对应 UI 的布局、视觉或响应式状态。 */
   textarea {
     background: #0c0f15;
     border: 1px solid var(--line);
@@ -540,20 +511,15 @@
     line-height: var(--control-line-height);
     outline: none;
   }
-
-  /* 中文块：样式规则 input:not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="che... 控制对应 UI 的布局、视觉或响应式状态。 */
   input:not([type="range"]):not([type="file"]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]) {
     height: var(--control-height);
   }
 
   input:focus,
   select:focus,
-  /* 中文块：样式规则 textarea:focus 控制对应 UI 的布局、视觉或响应式状态。 */
   textarea:focus {
     border-color: var(--accent2);
   }
-
-  /* 中文块：样式规则 input[type="range"] 控制对应 UI 的布局、视觉或响应式状态。 */
   input[type="range"] {
     padding: 0;
     width: 100%;
@@ -561,8 +527,6 @@
     accent-color: var(--accent);
     touch-action: pan-y;
   }
-
-  /* 中文块：样式规则 textarea 控制对应 UI 的布局、视觉或响应式状态。 */
   textarea {
     width: 100%;
     min-height: 90px;
@@ -573,7 +537,6 @@
 
   #custom-m370,
   #parts-m370-text,
-  /* 中文块：样式规则 #debug-m370 控制对应 UI 的布局、视觉或响应式状态。 */
   #debug-m370 {
     min-height: 0;
     resize: none;
@@ -581,8 +544,6 @@
     white-space: pre-wrap;
     word-break: break-all;
   }
-
-  /* 中文块：样式规则 #scroll-text 控制对应 UI 的布局、视觉或响应式状态。 */
   #scroll-text {
     --scroll-text-min-height: 42px;
     min-height: var(--scroll-text-min-height);
@@ -599,40 +560,50 @@
     font-synthesis: none;
     font-variant-emoji: text;
   }
-
-  /* 中文块：样式规则 a 控制对应 UI 的布局、视觉或响应式状态。 */
   a {
     color: var(--accent2)
   }
-
-  /* 说明 WebUI 样式和响应式布局 中当前代码块的职责和维护约束。
-     连接关系：
-     说明 WebUI 样式和响应式布局 中当前代码块的职责和维护约束。
-     说明 WebUI 样式和响应式布局 中当前代码块的职责和维护约束。
-     说明界面布局、组件状态或响应式规则。*/
-  /* 中文块：样式规则 .sidebar 控制对应 UI 的布局、视觉或响应式状态。 */
   .sidebar {
-    position: relative;
+    position: sticky;
+    top: 0;
     z-index: 2147482999;
     overflow: visible;
     border-right: 0;
+    border-top: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
-    background: linear-gradient(180deg, #151927, #0f1117);
+    background: linear-gradient(180deg, rgba(21, 25, 39, 0.82), var(--top-glass-bg-strong));
+    backdrop-filter: saturate(150%) blur(var(--top-glass-blur));
+    -webkit-backdrop-filter: saturate(150%) blur(var(--top-glass-blur));
     padding: var(--sidebar-padding-y) var(--sidebar-padding-x);
     display: grid;
     grid-template-columns: 1fr;
     gap: 14px;
     align-items: center;
   }
-
-  /* 中文块：样式规则 .top-page-nav 控制对应 UI 的布局、视觉或响应式状态。 */
-  .top-page-nav {
+  /* .sidebar::after,
+  .hero::after {
+    content: "";
     position: absolute;
-    top: calc(var(--control-height) + var(--sidebar-padding-y) * 2 + var(--page-edge-gap));
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: var(--glass-seam-overlap);
+    background: linear-gradient(180deg, var(--top-glass-bg), rgba(15, 17, 23, 0));
+    backdrop-filter: saturate(145%) blur(var(--top-glass-blur));
+    -webkit-backdrop-filter: saturate(145%) blur(var(--top-glass-blur));
+    pointer-events: none;
+  } */
+  .top-page-nav {
+    position: fixed;
+    top: calc(var(--topbar-sticky-height) + var(--page-edge-gap));
     right: var(--page-edge-gap);
-    left: var(--page-edge-gap);
-    width: auto;
-    z-index: 2147483000;
+    left: auto;
+    width: min(calc(100% - var(--page-edge-gap) * 2), var(--top-page-nav-max-width));
+    max-width: var(--top-page-nav-max-width);
+    /* 必须低于 .loading-overlay(2147483000)：加载遮罩的模糊还没消失、但鼠标已可点击时，
+       打开顶部导航不应盖在模糊层之上。isolation:isolate 使其子元素（.nav-shell/.nav）的
+       高 z-index 都被收纳在本层内，因此整棵导航子树都位于遮罩之下。 */
+    z-index: 2147482999;
     isolation: isolate;
     display: grid;
     gap: 8px;
@@ -650,8 +621,6 @@
       border-color .24s cubic-bezier(.16, 1, .3, 1), box-shadow .24s cubic-bezier(.16, 1, .3, 1);
     will-change: opacity, transform;
   }
-
-  /* 中文块：样式规则 .top-page-nav.open 控制对应 UI 的布局、视觉或响应式状态。 */
   .top-page-nav.open {
     opacity: 1;
     transform: translateY(0);
@@ -660,8 +629,6 @@
     box-shadow: 0 18px 46px #00000090;
     overflow: visible;
   }
-
-  /* 中文块：样式规则 .top-page-nav .nav-shell 控制对应 UI 的布局、视觉或响应式状态。 */
   .top-page-nav .nav-shell {
     width: 100%;
     margin: -2px;
@@ -669,20 +636,14 @@
     max-height: calc(min(60vh, 380px) - 22px);
     overflow: hidden;
   }
-
-  /* 中文块：样式规则 .top-page-nav.open .nav-shell 控制对应 UI 的布局、视觉或响应式状态。 */
   .top-page-nav.open .nav-shell {
     overflow: auto;
     scrollbar-width: thin;
   }
-
-  /* 中文块：样式规则 .app 控制对应 UI 的布局、视觉或响应式状态。 */
   .app {
     display: block;
     min-height: calc(100vh - 160px);
   }
-
-  /* 中文块：样式规则 .brand 控制对应 UI 的布局、视觉或响应式状态。 */
   .brand {
     display: flex;
     gap: 8px;
@@ -691,8 +652,6 @@
     min-width: 0;
     flex-wrap: nowrap;
   }
-
-  /* 中文块：样式规则 .brand-copy>.row 控制对应 UI 的布局、视觉或响应式状态。 */
   .brand-copy>.row {
     display: flex;
     align-items: center;
@@ -703,8 +662,6 @@
     overflow: visible;
     margin-top: 3px;
   }
-
-  /* 中文块：样式规则 .brand-copy>.row .badge 控制对应 UI 的布局、视觉或响应式状态。 */
   .brand-copy>.row .badge {
     flex: 0 0 auto;
     margin: 0;
@@ -714,15 +671,11 @@
     gap: 4px;
     white-space: nowrap;
   }
-
-  /* 中文块：样式规则 .brand-copy 控制对应 UI 的布局、视觉或响应式状态。 */
   .brand-copy {
     flex: 1 1 0;
     min-width: 0;
     overflow: hidden;
   }
-
-  /* 中文块：样式规则 .brand h1 控制对应 UI 的布局、视觉或响应式状态。 */
   .brand h1 {
     font-size: 17px;
     margin: 0;
@@ -731,8 +684,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-
-  /* 中文块：样式规则 .brand-nav-toggle 控制对应 UI 的布局、视觉或响应式状态。 */
   .brand-nav-toggle {
     margin-left: auto;
     flex: 0 0 var(--control-height);
@@ -747,34 +698,24 @@
     color: var(--text);
     outline: none;
   }
-
-  /* 中文块：样式规则 .brand-nav-toggle:hover:not(:disabled) 控制对应 UI 的布局、视觉或响应式状态。 */
   .brand-nav-toggle:hover:not(:disabled) {
     background: linear-gradient(180deg, #20283a, #121a27);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--button-hover-color) 34%, transparent), 0 12px 30px #00000035;
   }
-
-  /* 中文块：样式规则 .brand-nav-toggle:focus-visible 控制对应 UI 的布局、视觉或响应式状态。 */
   .brand-nav-toggle:focus-visible {
     border-color: var(--accent2);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent2) 25%, transparent), 0 18px 46px #00000060;
   }
-
-  /* 中文块：样式规则 .brand-nav-toggle.active 控制对应 UI 的布局、视觉或响应式状态。 */
   .brand-nav-toggle.active {
     --button-hover-color: var(--accent);
     border-color: var(--accent);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent), 0 12px 30px #00000035;
   }
-
-  /* 中文块：样式规则 .nav-shell 控制对应 UI 的布局、视觉或响应式状态。 */
   .nav-shell {
     position: relative;
     margin-top: 12px;
     z-index: 2147483001;
   }
-
-  /* 中文块：样式规则 .select-toggle 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-toggle {
     width: 100%;
     max-width: 100%;
@@ -795,20 +736,14 @@
     font-weight: 700;
     outline: none;
   }
-
-  /* 中文块：样式规则 .select-toggle:hover:not(:disabled) 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-toggle:hover:not(:disabled) {
     background: #1c2438;
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--button-hover-color) 34%, transparent), 0 12px 30px #00000035;
   }
-
-  /* 中文块：样式规则 .select-toggle:focus-visible 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-toggle:focus-visible {
     border-color: var(--accent2);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent2) 25%, transparent), 0 18px 46px #00000060;
   }
-
-  /* 中文块：样式规则 .select-label 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-label {
     flex: 1;
     min-width: 0;
@@ -817,15 +752,11 @@
     font-weight: 700;
     font-size: inherit;
   }
-
-  /* 中文块：样式规则 .menu-icon 控制对应 UI 的布局、视觉或响应式状态。 */
   .menu-icon {
     display: inline-grid;
     gap: 4px;
     flex: 0 0 auto;
   }
-
-  /* 中文块：样式规则 .menu-icon span 控制对应 UI 的布局、视觉或响应式状态。 */
   .menu-icon span {
     display: block;
     width: 18px;
@@ -833,8 +764,6 @@
     border-radius: 999px;
     background: currentColor;
   }
-
-  /* 中文块：样式规则 .select-caret 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-caret {
     color: var(--muted);
     transition: .12s transform, .12s color;
@@ -847,17 +776,12 @@
   }
 
   .select-shell:hover .select-caret,
-  /* 中文块：样式规则 .select-shell:focus-within .select-caret 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-shell:focus-within .select-caret {
     color: var(--accent2);
   }
-
-  /* 中文块：样式规则 .select-shell.open .select-caret 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-shell.open .select-caret {
     transform: rotate(180deg);
   }
-
-  /* 中文块：样式规则 .nav 控制对应 UI 的布局、视觉或响应式状态。 */
   .nav {
     display: grid;
     gap: 8px;
@@ -868,8 +792,6 @@
     max-height: none;
     overflow: visible;
   }
-
-  /* 中文块：样式规则 .select-menu 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-menu {
     display: none;
     gap: 8px;
@@ -897,8 +819,6 @@
       border-color .24s cubic-bezier(.16, 1, .3, 1), box-shadow .24s cubic-bezier(.16, 1, .3, 1);
     will-change: opacity, transform;
   }
-
-  /* 中文块：样式规则 .select-menu.open 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-menu.open {
     opacity: 1;
     transform: translateY(0);
@@ -906,13 +826,9 @@
     border-color: var(--line);
     box-shadow: 0 18px 46px #00000090;
   }
-
-  /* 中文块：样式规则 .select-menu::-webkit-scrollbar 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-menu::-webkit-scrollbar {
     display: none;
   }
-
-  /* 中文块：样式规则 .nav button 控制对应 UI 的布局、视觉或响应式状态。 */
   .nav button {
     min-height: var(--control-height);
     text-align: left;
@@ -931,19 +847,13 @@
     font-weight: 700;
     outline: none;
   }
-
-  /* 中文块：样式规则 .nav button:hover:not(:disabled) 控制对应 UI 的布局、视觉或响应式状态。 */
   .nav button:hover:not(:disabled) {
     background: #273040;
   }
-
-  /* 中文块：样式规则 .nav button:focus-visible 控制对应 UI 的布局、视觉或响应式状态。 */
   .nav button:focus-visible {
     outline: 2px solid color-mix(in srgb, var(--accent2) 45%, transparent);
     outline-offset: 2px;
   }
-
-  /* 中文块：样式规则 .nav button.active 控制对应 UI 的布局、视觉或响应式状态。 */
   .nav button.active {
     --button-hover-color: var(--accent);
     background: var(--primary-gradient);
@@ -953,15 +863,12 @@
   }
 
   .nav.open button.active:hover:not(:disabled),
-  /* 中文块：样式规则 .nav button.active:hover:not(:disabled) 控制对应 UI 的布局、视觉或响应式状态。 */
   .nav button.active:hover:not(:disabled) {
     background: var(--primary-gradient);
     border-color: var(--button-hover-color);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--button-hover-color) 34%, transparent);
     color: #fff;
   }
-
-  /* 中文块：样式规则 .select-option 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-option {
     min-height: var(--control-height);
     text-align: left;
@@ -980,27 +887,19 @@
     font-weight: 700;
     outline: none;
   }
-
-  /* 中文块：样式规则 .select-option:hover:not(:disabled) 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-option:hover:not(:disabled) {
     background: #1c2438;
   }
-
-  /* 中文块：样式规则 .select-option:focus-visible 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-option:focus-visible {
     border-color: var(--accent2);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent2) 25%, transparent), 0 14px 32px #00000055;
   }
-
-  /* 中文块：样式规则 .select-option.active 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-option.active {
     --button-hover-color: var(--option-color, var(--accent));
     border-color: var(--option-color, var(--accent));
     background: linear-gradient(180deg, #172033, #111827);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--option-color, var(--accent)) 28%, transparent), 0 8px 22px #00000028;
   }
-
-  /* 中文块：样式规则 .nav .num 控制对应 UI 的布局、视觉或响应式状态。 */
   .nav .num {
     color: var(--muted);
     font-size: 12px;
@@ -1009,27 +908,19 @@
     text-shadow: none;
     transition: color .18s cubic-bezier(.33, 1, .68, 1), text-shadow .18s cubic-bezier(.33, 1, .68, 1);
   }
-
-  /* 中文块：样式规则 .top-page-nav.open .nav button.active .num 控制对应 UI 的布局、视觉或响应式状态。 */
   .top-page-nav.open .nav button.active .num {
     color: #fff;
     text-shadow: 0 0 4px #fff, 0 0 10px rgba(255, 255, 255, .95), 0 0 18px rgba(255, 255, 255, .75);
   }
-
-  /* 中文块：样式规则 .select-shell 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-shell {
     position: relative;
     width: 100%;
     min-width: 0;
     z-index: 50;
   }
-
-  /* 中文块：样式规则 .select-shell.open 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-shell.open {
     z-index: 2147482500;
   }
-
-  /* 中文块：样式规则 .select-shell select 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-shell select {
     position: absolute !important;
     left: 0;
@@ -1042,8 +933,6 @@
     appearance: none;
     -webkit-appearance: none;
   }
-
-  /* 中文块：样式规则 .select-option span:first-child 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-option span:first-child {
     min-width: 0;
     overflow: clip;
@@ -1052,8 +941,6 @@
     white-space: nowrap;
     line-height: inherit;
   }
-
-  /* 中文块：样式规则 .select-option .num 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-option .num {
     color: var(--muted);
     font-size: 12px;
@@ -1061,64 +948,147 @@
     white-space: nowrap;
     line-height: inherit;
   }
-
-  /* 中文块：样式规则 .select-option.active .num 控制对应 UI 的布局、视觉或响应式状态。 */
   .select-option.active .num {
     color: var(--option-color, var(--accent));
     text-shadow: 0 0 9px color-mix(in srgb, var(--option-color, var(--accent)) 72%, transparent),
       0 0 18px color-mix(in srgb, var(--option-color, var(--accent)) 36%, transparent);
   }
-
-  /* 中文块：样式规则 .content 控制对应 UI 的布局、视觉或响应式状态。 */
   .content {
-    padding: 18px;
-    max-width: 1480px;
+    padding: var(--content-padding-top) var(--content-padding) var(--content-padding);
     width: 100%;
-    margin: 0 auto;
     min-width: 0;
     overflow-x: hidden;
   }
 
+  body[data-page="basic"] .content,
+  body[data-page="custom"] .content,
+  body[data-page="parts"] .content,
+  body[data-page="scroll"] .content,
+  body[data-page="debug"] .content {
+    overflow-x: clip;
+  }
 
-  /* 响应式布局调整。 */
-  @media (min-width:1471px) {
+  #page-basic .led-preview-card,
+  #page-custom .led-preview-card,
+  #page-parts .led-preview-card,
+  #page-scroll .led-preview-card,
+  #page-debug .led-preview-card {
+    position: sticky;
+    top: var(--led-preview-sticky-top);
+    z-index: 20;
+    align-self: start;
+    overflow: visible;
+  }
 
-    body[data-page="parts"] .content,
-    body[data-page="debug"] .content {
-      max-width: 2209px;
-    }
+  /* #page-basic .led-preview-card::before,
+  #page-custom .led-preview-card::before,
+  #page-parts .led-preview-card::before,
+  #page-scroll .led-preview-card::before,
+  #page-debug .led-preview-card::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(var(--glass-seam-overlap) * -1);
+    height: var(--glass-seam-overlap);
+    background: var(--preview-glass-bg-strong);
+    backdrop-filter: saturate(140%) blur(var(--top-glass-blur));
+    -webkit-backdrop-filter: saturate(140%) blur(var(--top-glass-blur));
+    pointer-events: none;
+    z-index: 1;
+  } */
 
-    .parts-outer-layout {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-    }
 
-    .parts-left-col {
-      display: contents;
-    }
-
-    #parts-preview-card {
-      grid-column: 1;
-      grid-row: 1;
-    }
-
-    #part-groups {
-      grid-column: 2;
-      grid-row: 1;
-    }
-
-    .parts-manager-col {
-      grid-column: 3;
-      grid-row: 1;
+  @media (min-width: 981px) {
+    /* In two-column and three-column layouts, all columns except the sticky LED preview card
+       must have a margin between their top and the bottom of the title bar (.hero) that matches
+       the gap between cards. */
+    .page > .grid > :not(.led-preview-card) {
+      margin-top: 14px;
     }
   }
 
-  /* 中文块：样式规则 .page 控制对应 UI 的布局、视觉或响应式状态。 */
+
+  /* Responsive layout adjustments. */
+  @media (min-width:1471px) {
+
+    .hero>div:first-child {
+      max-width: 2209px;
+    }
+
+    /* Page 6.2 & 6.3 & 6.5: Widescreen 3-column layout transition */
+    body[data-page="custom"] .grid,
+    body[data-page="parts"] .grid,
+    body[data-page="debug"] .grid {
+      max-width: 2209px;
+    }
+
+    #page-custom > .grid.cols-2,
+    #page-parts > .grid.cols-2,
+    #page-debug > .grid.cols-2 {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    /* 让 .face-manager-stack 的直接子项（中列容器 + saved_faces 卡片）成为外层网格项。 */
+    #page-custom .face-manager-stack,
+    #page-parts .face-manager-stack,
+    #page-debug .debug-panel-stack {
+      display: contents;
+    }
+
+    /* Column placements for Page 6.2 */
+    #page-custom .led-preview-card {
+      grid-column: 1;
+    }
+
+    #page-custom .face-control-panel {
+      grid-column: 2;
+    }
+
+    #page-custom .face-manager-panel {
+      grid-column: 3;
+    }
+
+    /* 第一列：LED 预览（粘性）。第二列：控制按钮 + 表情部件（由 .parts-mid-col 自己
+       纵向堆叠，高度独立于其它列，所以表情部件卡片始终紧贴控制按钮卡片，不会被很高的
+       预览卡片或 saved_faces 卡片推下去）。第三列：统一 saved_faces.json 卡片。 */
+    #parts-preview-card {
+      grid-column: 1;
+    }
+
+    #page-parts .parts-mid-col {
+      grid-column: 2;
+    }
+
+    #page-parts .face-manager-panel {
+      grid-column: 3;
+    }
+
+    #debug-preview-panel {
+      grid-column: 1;
+    }
+
+    #page-debug .debug-mid-col {
+      grid-column: 2;
+    }
+
+    #page-debug .debug-side-col {
+      grid-column: 3;
+    }
+
+    #page-custom .face-control-panel,
+    #page-custom .face-manager-panel,
+    .parts-mid-col,
+    #page-parts .face-manager-panel,
+    .debug-mid-col,
+    .debug-side-col {
+      margin-top: 14px;
+    }
+  }
   .page {
     display: none;
     animation: fade .16s ease-out;
   }
-
-  /* 中文块：样式规则 .page.active 控制对应 UI 的布局、视觉或响应式状态。 */
   .page.active {
     display: block;
   }
@@ -1134,28 +1104,39 @@
       transform: none
     }
   }
-
-  /* 中文块：样式规则 .hero 控制对应 UI 的布局、视觉或响应式状态。 */
   .hero {
+    position: sticky;
+    top: var(--hero-sticky-top);
+    z-index: 30;
     display: flex;
     gap: 16px;
     align-items: center;
     justify-content: space-between;
-    min-height: 56px;
-    margin-bottom: 8px;
+    width: calc(100% + var(--content-padding) * 2);
+    margin-left: calc(var(--content-padding) * -1);
+    margin-right: calc(var(--content-padding) * -1);
+    min-height: var(--hero-sticky-height);
+    margin-top: -1px;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--top-glass-bg-strong), var(--top-glass-bg));
+    backdrop-filter: saturate(145%) blur(var(--top-glass-blur));
+    -webkit-backdrop-filter: saturate(145%) blur(var(--top-glass-blur));
   }
-
-  /* 中文块：样式规则 .hero>div:first-child 控制对应 UI 的布局、视觉或响应式状态。 */
   .hero>div:first-child {
     display: flex;
     align-items: center;
     justify-content: flex-start;
     align-self: stretch;
-    min-height: 56px;
+    min-height: calc(var(--hero-sticky-height) - 1px);
+    padding-left: var(--content-padding);
+    padding-right: var(--content-padding);
+    box-sizing: border-box;
     text-align: left;
+    max-width: 1480px;
+    width: 100%;
+    margin: 0 auto;
   }
-
-  /* 中文块：样式规则 .hero h2 控制对应 UI 的布局、视觉或响应式状态。 */
   .hero h2 {
     font-size: 26px;
     margin: 0;
@@ -1165,16 +1146,13 @@
     justify-content: flex-start;
     min-height: 100%;
     text-align: left;
+    padding-left: 8px;
   }
-
-  /* 中文块：样式规则 .hero p 控制对应 UI 的布局、视觉或响应式状态。 */
   .hero p {
     margin: 0;
     color: var(--muted);
     line-height: 1.55
   }
-
-  /* 中文块：样式规则 .badge 控制对应 UI 的布局、视觉或响应式状态。 */
   .badge {
     display: inline-flex;
     align-items: center;
@@ -1188,28 +1166,18 @@
     margin: 3px;
     white-space: nowrap;
   }
-
-  /* 中文块：样式规则 .grid 控制对应 UI 的布局、视觉或响应式状态。 */
   .grid {
     display: grid;
     gap: 14px;
     align-items: start;
     min-width: 0;
+    max-width: 1480px;
+    width: 100%;
+    margin: 0 auto;
   }
-
-  /* 中文块：样式规则 .cols-2 控制对应 UI 的布局、视觉或响应式状态。 */
   .cols-2 {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
-
-  /* 说明界面布局、组件状态或响应式规则。
-     连接关系：
-     说明界面布局、组件状态或响应式规则。
-       说明界面布局、组件状态或响应式规则。
-       说明文字滚动、帧缓存或播放状态处理。
-     说明 GPIO 按钮、组合键或本地 overlay 反馈。
-       说明 WebUI 样式和响应式布局 中当前代码块的职责和维护约束。*/
-  /* 中文块：样式规则 .card 控制对应 UI 的布局、视觉或响应式状态。 */
   .card {
     background: linear-gradient(180deg, var(--panel), #121621);
     border: 1px solid var(--line);
@@ -1218,8 +1186,6 @@
     box-shadow: var(--card-shadow);
     min-width: 320px;
   }
-
-  /* 中文块：样式规则 .card h3 控制对应 UI 的布局、视觉或响应式状态。 */
   .card h3 {
     margin: 0 0 2px;
     font-size: 16px;
@@ -1230,8 +1196,6 @@
     gap: 8px;
     color: var(--text);
   }
-
-  /* 中文块：样式规则 .card h4 控制对应 UI 的布局、视觉或响应式状态。 */
   .card h4 {
     margin: 0 0 2px;
     font-size: 16px;
@@ -1242,81 +1206,43 @@
     gap: 8px;
     color: var(--text);
   }
-
-  /* 中文块：样式规则 .row 控制对应 UI 的布局、视觉或响应式状态。 */
   .row {
     display: flex;
     align-items: flex-end;
     gap: 10px;
     flex-wrap: wrap;
   }
-
-  /* 中文块：样式规则 .toggle-button 控制对应 UI 的布局、视觉或响应式状态。 */
   .toggle-button {
     white-space: nowrap;
   }
-
-  /* 中文块：样式规则 .toggle-button.active 控制对应 UI 的布局、视觉或响应式状态。 */
   .toggle-button.active {
     --button-hover-color: var(--accent);
     border-color: var(--accent);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
   }
-
-  /* 中文块：样式规则 .control-panel 控制对应 UI 的布局、视觉或响应式状态。 */
   .control-panel {
     display: grid;
     gap: 14px;
     min-width: 0;
   }
-
-  /* 中文块：样式规则 .basic-layout 控制对应 UI 的布局、视觉或响应式状态。 */
-  .basic-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 14px;
-    align-items: start;
-    container-type: inline-size;
-  }
-
-  /* 中文块：样式规则 .basic-layout>.control-panel 控制对应 UI 的布局、视觉或响应式状态。 */
-  .basic-layout>.control-panel {
-    order: 2;
-  }
-
-  /* 中文块：样式规则 .basic-layout>.basic-preview-card 控制对应 UI 的布局、视觉或响应式状态。 */
-  .basic-layout>.basic-preview-card {
-    order: 1;
-  }
-
-  /* 中文块：样式规则 .basic-preview-card 控制对应 UI 的布局、视觉或响应式状态。 */
   .basic-preview-card {
     min-width: 0;
   }
-
-  /* 中文块：样式规则 .basic-preview-card .matrix-wrap 控制对应 UI 的布局、视觉或响应式状态。 */
   .basic-preview-card .matrix-wrap {
     min-height: 0;
   }
-
-  /* 中文块：样式规则 .control-panel>h3 控制对应 UI 的布局、视觉或响应式状态。 */
   .control-panel>h3 {
     display: none;
   }
-
-  /* 中文块：样式规则 .control-section 控制对应 UI 的布局、视觉或响应式状态。 */
   .control-section {
     display: grid;
     gap: 10px;
   }
-
-  /* 中文块：样式规则 .control-section.card 控制对应 UI 的布局、视觉或响应式状态。 */
   .control-section.card {
     min-width: 0;
   }
 
   .control-section h3,
-  /* 中文块：样式规则 .control-section h4 控制对应 UI 的布局、视觉或响应式状态。 */
   .control-section h4 {
     margin: 0 0 2px;
     font-size: 16px;
@@ -1327,96 +1253,66 @@
     gap: 8px;
     color: var(--text);
   }
-
-  /* 中文块：样式规则 .slider-step-row 控制对应 UI 的布局、视觉或响应式状态。 */
   .slider-step-row {
     display: flex;
     justify-content: flex-end;
     gap: 10px;
     align-items: center;
   }
-
-  /* 中文块：样式规则 .slider-step-row button 控制对应 UI 的布局、视觉或响应式状态。 */
   .slider-step-row button {
     white-space: nowrap;
   }
-
-  /* 中文块：样式规则 .slider-step-row .compact-btn 控制对应 UI 的布局、视觉或响应式状态。 */
   .slider-step-row .compact-btn {
     min-width: 74px;
   }
-
-  /* 中文块：样式规则 .slider-step-row .push-right 控制对应 UI 的布局、视觉或响应式状态。 */
   .slider-step-row .push-right {
     margin-left: auto;
   }
-
-  /* 中文块：样式规则 .brightness-row 控制对应 UI 的布局、视觉或响应式状态。 */
   .brightness-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 68px;
     gap: 10px;
     align-items: center;
   }
-
-  /* 中文块：样式规则 .brightness-row input[type="range"] 控制对应 UI 的布局、视觉或响应式状态。 */
   .brightness-row input[type="range"] {
     min-width: 0;
   }
-
-  /* 中文块：样式规则 .brightness-row .slider-number 控制对应 UI 的布局、视觉或响应式状态。 */
   .brightness-row .slider-number {
     width: 100%;
     min-width: 0;
     text-align: center;
   }
-
-  /* 中文块：样式规则 .scroll-fps-control 控制对应 UI 的布局、视觉或响应式状态。 */
   .scroll-fps-control {
     flex: 1 1 100%;
     min-width: min(100%, 260px);
   }
-
-  /* 中文块：样式规则 .equal-fields 控制对应 UI 的布局、视觉或响应式状态。 */
   .equal-fields {
     display: grid;
     grid-template-columns: repeat(2, minmax(120px, 160px));
     gap: 10px;
     align-items: end;
   }
-
-  /* 中文块：样式规则 .equal-fields .field 控制对应 UI 的布局、视觉或响应式状态。 */
   .equal-fields .field {
     min-width: 0;
   }
-
-  /* 中文块：样式规则 .equal-fields input 控制对应 UI 的布局、视觉或响应式状态。 */
   .equal-fields input {
     width: 100%;
   }
-
-  /* 中文块：样式规则 .button-row 控制对应 UI 的布局、视觉或响应式状态。 */
   .button-row {
     display: flex;
     align-items: flex-end;
     gap: 10px;
     flex-wrap: wrap;
   }
-
-  /* 中文块：样式规则 .button-row button 控制对应 UI 的布局、视觉或响应式状态。 */
   .button-row button {
     white-space: nowrap;
   }
-
-  /* 中文块：样式规则 .mode-button-row 控制对应 UI 的布局、视觉或响应式状态。 */
   .mode-button-row {
     justify-content: flex-start;
     flex-wrap: wrap;
     overflow: visible;
     scrollbar-width: auto;
   }
-
-  /* 中文块：样式规则 .mode-button-row button 控制对应 UI 的布局、视觉或响应式状态。 */
   .mode-button-row button {
     min-height: var(--control-height);
     display: inline-flex;
@@ -1429,7 +1325,6 @@
   }
 
   .mode-button-row #face-prev,
-  /* 中文块：样式规则 .mode-button-row #face-next 控制对应 UI 的布局、视觉或响应式状态。 */
   .mode-button-row #face-next,
   .scroll-action-row #scroll-step-prev,
   .scroll-action-row #scroll-step-next {
@@ -1438,32 +1333,22 @@
     padding: 0;
     font-size: calc(var(--control-font-size) + 3px);
   }
-
-  /* 中文块：样式规则 .mode-button-row .compact-btn 控制对应 UI 的布局、视觉或响应式状态。 */
   .mode-button-row .compact-btn {
     min-width: 74px;
     padding: 0 var(--control-compact-padding-x);
   }
-
-  /* 中文块：样式规则 .mode-button-row .push-right 控制对应 UI 的布局、视觉或响应式状态。 */
   .mode-button-row .push-right {
     margin-left: auto;
   }
-
-  /* 中文块：样式规则 .mode-button-row .toggle-button 控制对应 UI 的布局、视觉或响应式状态。 */
   .mode-button-row .toggle-button {
     min-width: 68px;
     padding-left: 8px;
     padding-right: 8px;
   }
-
-  /* 中文块：样式规则 .status-merged 控制对应 UI 的布局、视觉或响应式状态。 */
   .status-merged {
     max-height: 260px;
     overflow: auto;
   }
-
-  /* 中文块：样式规则 .stack 控制对应 UI 的布局、视觉或响应式状态。 */
   .stack {
     display: grid;
     gap: 10px;
@@ -1472,47 +1357,10 @@
     max-width: 100%;
     scrollbar-width: thin;
   }
-
-  /* 中文块：样式规则 .parts-outer-layout 控制对应 UI 的布局、视觉或响应式状态。 */
-  .parts-outer-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 14px;
-    align-items: start;
-  }
-
-  /* 中文块：样式规则 .parts-left-col 控制对应 UI 的布局、视觉或响应式状态。 */
-  .parts-left-col {
-    display: grid;
-    gap: 14px;
-    align-content: start;
-    min-width: 0;
-  }
-
-  /* 中文块：样式规则 .parts-manager-col 控制对应 UI 的布局、视觉或响应式状态。 */
-  .parts-manager-col {
-    min-width: 0;
-  }
-
-  /* 中文块：样式规则 #part-groups 控制对应 UI 的布局、视觉或响应式状态。 */
   #part-groups {
     min-width: 0;
   }
-
-  /* 中文块：样式规则 @media (max-width:980px) 控制对应 UI 的布局、视觉或响应式状态。 */
   @media (max-width:980px) {
-    .parts-outer-layout {
-      grid-template-columns: 1fr;
-    }
-
-    .basic-layout {
-      grid-template-columns: 1fr;
-    }
-
-    .basic-layout>.control-panel,
-    .basic-layout>.basic-preview-card {
-      order: unset;
-    }
 
     :root {
       --page-edge-gap: 12px;
@@ -1522,13 +1370,15 @@
       --control-font-size: 15px;
       --control-padding-y: 9px;
       --control-padding-x: 13px;
+      --content-padding: 8px;
+      --hero-sticky-height: 49px;
     }
 
     .top-page-nav {
-      top: calc(var(--control-height) + var(--sidebar-padding-y) * 2 + var(--page-edge-gap));
+      top: calc(var(--topbar-sticky-height) + var(--page-edge-gap));
       right: var(--page-edge-gap);
-      left: var(--page-edge-gap);
-      width: auto;
+      left: auto;
+      width: min(calc(100% - var(--page-edge-gap) * 2), var(--top-page-nav-max-width));
       padding: 8px;
     }
 
@@ -1551,17 +1401,27 @@
     }
 
     .content {
-      padding: 8px;
+      padding: var(--content-padding-top) var(--content-padding) var(--content-padding);
     }
 
     .cols-2 {
       grid-template-columns: 1fr;
     }
 
+    #page-basic .led-preview-card,
+    #page-custom .led-preview-card,
+    #page-parts .led-preview-card,
+    #page-scroll .led-preview-card,
+    #page-debug .led-preview-card {
+      width: calc(100% + var(--content-padding) * 2);
+      max-width: none !important;
+      margin-left: calc(var(--content-padding) * -1);
+      margin-right: calc(var(--content-padding) * -1);
+    }
+
     .hero {
       display: grid;
       align-items: center;
-      min-height: 48px;
     }
 
     .hero>div:first-child {
@@ -1569,7 +1429,7 @@
       align-items: center;
       justify-content: flex-start;
       align-self: stretch;
-      min-height: 48px;
+      min-height: calc(var(--hero-sticky-height) - 1px);
       text-align: left;
     }
 
@@ -1577,58 +1437,52 @@
       --led-preview-default-cell: 14px;
       --led-preview-max-cell: 22px;
       --cell: var(--led-preview-default-cell);
-      --gap: 3px;
+      --gap: 1px;
     }
 
-    /* 卡片在手机端允许缩到屏幕宽度，不强制320px */
+    /* Cards are allowed to shrink to screen width on mobile, not forced to 320px */
     .card {
       min-width: 0;
     }
 
-    /* 亮度行最小列宽放宽，防止在窄屏溢出 */
+    /* Minimum column width for the brightness row is relaxed to prevent overflow on narrow screens */
     .brightness-row {
       grid-template-columns: minmax(0, 1fr) 68px;
     }
 
-    /* 字段最小宽度放宽 */
+    /* Minimum field width relaxed */
     .field {
       min-width: 0;
     }
 
-    /* 滑块步进行允许换行 */
+    /* Slider step row allowed to wrap */
     .slider-step-row {
       flex-wrap: wrap;
     }
 
-    /* 按钮行紧凑按钮最小宽度适配 */
+    /* Minimum width adaptation for compact buttons in button rows */
     .slider-step-row .compact-btn {
       min-width: 60px;
     }
 
-    /* 主视觉区域文字防溢出 */
+    /* Prevents text overflow in primary visual areas */
     .hero h2 {
       font-size: 20px;
       word-break: break-word;
     }
 
-    /* 键值区键宽缩减 */
+    /* Key-value area key width reduced */
     .kv {
       grid-template-columns: 120px 1fr;
     }
   }
-
-  /* 中文块：样式规则 body[data-page="debug"] 控制对应 UI 的布局、视觉或响应式状态。 */
   body[data-page="debug"] {
-    overflow-y: auto;
+    overflow-y: visible;
   }
-
-  /* 中文块：样式规则 body[data-page="debug"] .content 控制对应 UI 的布局、视觉或响应式状态。 */
   body[data-page="debug"] .content {
     overflow-y: visible;
     padding-bottom: 40px;
   }
-
-  /* 中文块：样式规则 .debug-layout 控制对应 UI 的布局、视觉或响应式状态。 */
   .debug-layout {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1637,31 +1491,23 @@
     overflow: visible;
     padding-bottom: 24px;
   }
-
-  /* 中文块：样式规则 .debug-column 控制对应 UI 的布局、视觉或响应式状态。 */
-  .debug-column {
+  .debug-mid-col,
+  .debug-side-col {
     display: grid;
     gap: 14px;
     align-content: start;
     min-width: 0;
-    height: max-content;
   }
-
-  /* 中文块：样式规则 .debug-layout .card 控制对应 UI 的布局、视觉或响应式状态。 */
   .debug-layout .card {
     min-width: 0;
     width: auto;
     margin: 0;
     overflow: visible;
   }
-
-  /* 中文块：样式规则 .debug-layout .card.stack 控制对应 UI 的布局、视觉或响应式状态。 */
   .debug-layout .card.stack {
     overflow: visible;
     max-width: none;
   }
-
-  /* 中文块：样式规则 .debug-layout .status-merged 控制对应 UI 的布局、视觉或响应式状态。 */
   .debug-layout .status-merged {
     max-height: none;
     overflow: visible;
@@ -1670,38 +1516,27 @@
   .debug-layout .row,
   .debug-layout .kv,
   .debug-layout textarea,
-  /* 中文块：样式规则 .debug-layout input 控制对应 UI 的布局、视觉或响应式状态。 */
   .debug-layout input {
     min-width: 0;
     max-width: 100%;
   }
-
-  /* 中文块：样式规则 .debug-layout .row 控制对应 UI 的布局、视觉或响应式状态。 */
   .debug-layout .row {
     width: 100%;
   }
-
-  /* 中文块：样式规则 .debug-layout .kv span 控制对应 UI 的布局、视觉或响应式状态。 */
   .debug-layout .kv span {
     min-width: 0;
     overflow-wrap: anywhere;
     word-break: break-word;
   }
-
-  /* 中文块：样式规则 .debug-log-card .row input 控制对应 UI 的布局、视觉或响应式状态。 */
   .debug-log-card .row input {
     flex: 1 1 260px;
     min-width: 0;
   }
-
-  /* 中文块：样式规则 .debug-log-card .log 控制对应 UI 的布局、视觉或响应式状态。 */
   .debug-log-card .log {
     height: clamp(180px, 30vh, 320px);
     min-height: 180px;
     overflow: auto;
   }
-
-  /* 中文块：样式规则 .debug-measure-grid 控制对应 UI 的布局、视觉或响应式状态。 */
   .debug-measure-grid {
     display: grid;
     grid-template-columns: 1fr;
@@ -1709,53 +1544,33 @@
     align-items: start;
     min-width: 0;
   }
-
-  /* 中文块：样式规则 .debug-measure-controls 控制对应 UI 的布局、视觉或响应式状态。 */
   .debug-measure-controls {
     display: grid;
     gap: 10px;
     min-width: 0;
     align-content: start;
   }
-
-  /* 中文块：样式规则 .debug-measure-card .matrix-wrap 控制对应 UI 的布局、视觉或响应式状态。 */
-  .debug-measure-card .matrix-wrap {
-    justify-self: stretch;
-    max-width: 100%;
-  }
-
-  /* 中文块：样式规则 @media (min-width:1471px) 控制对应 UI 的布局、视觉或响应式状态。 */
   @media (min-width:1471px) {
 
-    .parts-outer-layout,
     .debug-layout {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
-
-  /* 中文块：样式规则 @media (max-width:980px) 控制对应 UI 的布局、视觉或响应式状态。 */
   @media (max-width:980px) {
 
-    .parts-outer-layout,
     .debug-layout {
       grid-template-columns: 1fr;
     }
   }
-
-  /* 中文块：样式规则 .field 控制对应 UI 的布局、视觉或响应式状态。 */
   .field {
     display: grid;
     gap: 6px;
     min-width: 120px;
   }
-
-  /* 中文块：样式规则 .field label 控制对应 UI 的布局、视觉或响应式状态。 */
   .field label {
     font-size: 12px;
     color: var(--muted)
   }
-
-  /* 中文块：样式规则 .kv 控制对应 UI 的布局、视觉或响应式状态。 */
   .kv {
     display: grid;
     grid-template-columns: 170px 1fr;
@@ -1763,25 +1578,17 @@
     font-size: 13px;
     align-items: center;
   }
-
-  /* 中文块：样式规则 .kv .k 控制对应 UI 的布局、视觉或响应式状态。 */
   .kv .k {
     color: var(--muted)
   }
-
-  /* 中文块：样式规则 .mono 控制对应 UI 的布局、视觉或响应式状态。 */
   .mono {
     font-family: var(--ui-font) !important;
   }
-
-  /* 中文块：样式规则 .small 控制对应 UI 的布局、视觉或响应式状态。 */
   .small {
     font-size: 12px;
     color: var(--muted);
     line-height: 1.45
   }
-
-  /* 中文块：样式规则 .hint 控制对应 UI 的布局、视觉或响应式状态。 */
   .hint {
     font-size: 12px;
     color: #d7e0ee;
@@ -1791,8 +1598,6 @@
     padding: 10px;
     line-height: 1.5
   }
-
-  /* 中文块：样式规则 .warning 控制对应 UI 的布局、视觉或响应式状态。 */
   .warning {
     display: none;
     border: 1px solid #80621b;
@@ -1802,13 +1607,9 @@
     padding: 9px 10px;
     font-size: 12px;
   }
-
-  /* 中文块：样式规则 .warning.show 控制对应 UI 的布局、视觉或响应式状态。 */
   .warning.show {
     display: block;
   }
-
-  /* 中文块：样式规则 .color-swatch 控制对应 UI 的布局、视觉或响应式状态。 */
   .color-swatch {
     width: var(--control-height);
     height: var(--control-height);
@@ -1818,8 +1619,6 @@
     background: var(--led-color);
     box-shadow: 0 0 24px color-mix(in srgb, var(--led-color) 55%, transparent)
   }
-
-  /* 中文块：样式规则 .color-control-row 控制对应 UI 的布局、视觉或响应式状态。 */
   .color-control-row {
     display: grid;
     grid-template-columns: max-content var(--control-height);
@@ -1827,19 +1626,13 @@
     gap: 10px;
     max-width: 100%;
   }
-
-  /* 中文块：样式规则 .color-control-row .color-swatch 控制对应 UI 的布局、视觉或响应式状态。 */
   .color-control-row .color-swatch {
     order: 2;
   }
-
-  /* 中文块：样式规则 .color-control-row .field 控制对应 UI 的布局、视觉或响应式状态。 */
   .color-control-row .field {
     order: 1;
     min-width: 0;
   }
-
-  /* 中文块：样式规则 .color-control-row #color-input 控制对应 UI 的布局、视觉或响应式状态。 */
   .color-control-row #color-input {
     width: calc(7ch + var(--button-padding-x) + var(--button-padding-x) + 2px);
     min-width: calc(7ch + var(--button-padding-x) + var(--button-padding-x) + 2px);
@@ -1852,8 +1645,6 @@
     letter-spacing: 0;
     font-variant-numeric: normal;
   }
-
-  /* 中文块：样式规则 .color-dropdown-grid 控制对应 UI 的布局、视觉或响应式状态。 */
   .color-dropdown-grid {
     display: grid;
     grid-template-columns: 1fr;
@@ -1861,18 +1652,9 @@
     align-items: stretch;
     max-width: 420px;
   }
-
-  /* 中文块：样式规则 .color-dropdown-grid .select-shell 控制对应 UI 的布局、视觉或响应式状态。 */
   .color-dropdown-grid .select-shell {
     min-height: var(--control-height);
   }
-
-  /* 处理 LED 矩阵、灯带刷新或硬件时序约束。
-     连接关系：
-     处理 LED 矩阵、灯带刷新或硬件时序约束。
-     说明界面布局、组件状态或响应式规则。
-     处理 LED 矩阵、灯带刷新或硬件时序约束。*/
-  /* 中文块：样式规则 .matrix-wrap 控制对应 UI 的布局、视觉或响应式状态。 */
   .matrix-wrap {
     overflow: hidden;
     width: 100%;
@@ -1891,8 +1673,6 @@
     --matrix-max-height: var(--led-preview-max-height);
     --matrix-edge-gap: calc(var(--led-preview-default-cell) * var(--led-preview-edge-ratio));
   }
-
-  /* 中文块：样式规则 .matrix-wrap.fill-column 控制对应 UI 的布局、视觉或响应式状态。 */
   .matrix-wrap.fill-column {
     display: grid;
     place-items: center;
@@ -1900,9 +1680,20 @@
     min-width: 0;
     min-height: 0;
   }
-
-  /* 中文块：样式规则 .led-preview-card 控制对应 UI 的布局、视觉或响应式状态。 */
   .led-preview-card {
+    /* Same color as the page background (opaque) so that the sticky preview card blocks the cards scrolling beneath it.
+       The outer frame has no border-radius (sharp-corner design). */
+    --led-preview-frame-y: 12px;
+    --led-preview-frame-x: 12px;
+    width: 100%;
+    min-width: 0;
+    background: linear-gradient(180deg, var(--preview-glass-bg-strong), var(--preview-glass-bg));
+    border: 0;
+    border-radius: 0 !important;
+    backdrop-filter: saturate(140%) blur(var(--top-glass-blur));
+    -webkit-backdrop-filter: saturate(140%) blur(var(--top-glass-blur));
+    box-shadow: none;
+    padding: var(--led-preview-frame-y) var(--led-preview-frame-x);
     min-inline-size: min(var(--led-preview-min-width), 100%);
     display: flex;
     flex-direction: column;
@@ -1912,46 +1703,22 @@
     max-height: var(--led-preview-max-height);
     overflow: hidden;
   }
-
-  /* 中文块：样式规则 .led-preview-card>h3 控制对应 UI 的布局、视觉或响应式状态。 */
   .led-preview-card>h3 {
     flex: 0 0 auto;
   }
 
-  /* 中文块：样式规则 .led-preview-card .matrix-wrap 控制对应 UI 的布局、视觉或响应式状态。 */
+  /* Sharp-corner design: remove border-radius to achieve a sharp-corner outer frame. */
+  .led-preview-card .rinaboard-stage {
+    border-radius: 0 !important;
+    overflow: hidden;
+  }
   .led-preview-card .matrix-wrap {
     flex: 0 1 auto;
     min-height: 0;
   }
-
-  /* 中文块：样式规则 .led-preview-card .matrix-wrap.fill-column 控制对应 UI 的布局、视觉或响应式状态。 */
   .led-preview-card .matrix-wrap.fill-column {
     width: 100%;
   }
-
-  /* 中文块：样式规则 .debug-measure-card 控制对应 UI 的布局、视觉或响应式状态。 */
-  .debug-measure-card {
-    min-inline-size: min(var(--led-preview-min-width), 100%);
-    max-height: none;
-    overflow: visible;
-  }
-
-  /* 中文块：样式规则 .debug-measure-card .debug-measure-grid 控制对应 UI 的布局、视觉或响应式状态。 */
-  .debug-measure-card .debug-measure-grid {
-    min-height: 0;
-  }
-
-  /* 中文块：样式规则 .debug-measure-card .matrix-wrap 控制对应 UI 的布局、视觉或响应式状态。 */
-  .debug-measure-card .matrix-wrap {
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-    overflow: hidden;
-    min-height: 0;
-    --matrix-max-height: 360px;
-  }
-
-  /* 中文块：样式规则 .matrix 控制对应 UI 的布局、视觉或响应式状态。 */
   .matrix {
     display: grid;
     grid-template-columns: repeat(22, var(--cell));
@@ -1965,42 +1732,59 @@
     -webkit-user-select: none;
     box-sizing: border-box;
   }
-
-  /* 中文块：样式规则 .led 控制对应 UI 的布局、视觉或响应式状态。 */
   .led {
-    width: var(--cell);
-    height: var(--cell);
+    width: max(1px, calc(var(--cell) - 1px));
+    height: max(1px, calc(var(--cell) - 1px));
+    justify-self: center;
+    align-self: center;
     box-sizing: border-box;
     border-radius: max(2px, calc(var(--cell) * .28));
     background: #202635;
     border: 1px solid #30394c;
     box-shadow: inset 0 0 3px #000;
   }
-
-  /* 中文块：样式规则 .led.on 控制对应 UI 的布局、视觉或响应式状态。 */
   .led.on {
-    background: var(--led-color);
+    background: radial-gradient(circle at 50% 42%,
+        color-mix(in srgb, var(--led-color) 94%, #fff) 0 8%,
+        var(--led-color) 30%,
+        color-mix(in srgb, var(--led-color) 94%, #120817) 100%);
     border-color: color-mix(in srgb, var(--led-color) 75%, #fff);
-    box-shadow: 0 0 10px color-mix(in srgb, var(--led-color) 80%, transparent), inset 0 0 4px #fff8;
+    box-shadow:
+      0 0 2px color-mix(in srgb, var(--led-color) 88%, #fff),
+      0 0 calc((var(--cell) - 1px) * .5) var(--led-color),
+      inset 0 0 4px #fff8;
   }
-
-  /* 中文块：样式规则 .led.invalid 控制对应 UI 的布局、视觉或响应式状态。 */
   .led.invalid {
     visibility: hidden;
     pointer-events: none;
   }
-
-  /* 中文块：样式规则 .led.editable 控制对应 UI 的布局、视觉或响应式状态。 */
   .led.editable {
     cursor: pointer;
   }
 
-  /* 中文块：样式规则 .matrix.editable-matrix 控制对应 UI 的布局、视觉或响应式状态。 */
+  /* ===== LED preview windows ONLY =========================================
+     Scope: .matrix-wrap.fill-column.led-preview-wrap (the 5 LED preview grids).
+     Goal: borderless cells, flat fill, keep a tiny edge bloom on lit cells,
+     and a significantly reduced corner radius.
+     Everything is scoped to .led-preview-wrap so no other matrix, page element,
+     or non-LED style is touched. Specificity (.led-preview-wrap .led = 0,2,0;
+     .led.on override = 0,3,0 + !important) beats the base .led rules AND the
+     mobile @media .led/.led.on !important box-shadow rules. */
+  .led-preview-wrap .led {
+    border: none;
+    border-radius: max(1px, calc(var(--cell) * .06));
+    box-shadow: none;
+  }
+
+  .led-preview-wrap .led.on {
+    border: none;
+    box-shadow:
+      0 0 2px color-mix(in srgb, var(--led-color) 88%, #fff),
+      0 0 calc((var(--cell) - 1px) * .5) var(--led-color) !important;
+  }
   .matrix.editable-matrix {
     touch-action: manipulation;
   }
-
-  /* 中文块：样式规则 .part-list 控制对应 UI 的布局、视觉或响应式状态。 */
   .part-list {
     display: flex;
     flex-wrap: nowrap;
@@ -2011,8 +1795,6 @@
     padding: 8px 8px 12px;
     scrollbar-width: thin;
   }
-
-  /* 中文块：样式规则 .part-card 控制对应 UI 的布局、视觉或响应式状态。 */
   .part-card {
     display: grid;
     grid-template-columns: 1fr;
@@ -2033,35 +1815,25 @@
     flex: 0 0 60px;
     box-shadow: none !important;
   }
-
-  /* 中文块：样式规则 .part-card:hover:not(:disabled) 控制对应 UI 的布局、视觉或响应式状态。 */
   .part-card:hover:not(:disabled) {
     --button-hover-y: -1px;
     border-color: transparent !important;
     background: transparent !important;
   }
-
-  /* 中文块：样式规则 .part-card:hover:not(:disabled) .part-mini 控制对应 UI 的布局、视觉或响应式状态。 */
   .part-card:hover:not(:disabled) .part-mini {
     border-color: var(--button-hover-color);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--button-hover-color) 34%, transparent), 0 0 14px color-mix(in srgb,
       var(--button-hover-color) 22%, transparent);
   }
-
-  /* 中文块：样式规则 .part-card.active 控制对应 UI 的布局、视觉或响应式状态。 */
   .part-card.active {
     border: 0 !important;
     background: transparent !important;
     box-shadow: none !important;
   }
-
-  /* 中文块：样式规则 .part-card.active .part-mini 控制对应 UI 的布局、视觉或响应式状态。 */
   .part-card.active .part-mini {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent), 0 0 16px color-mix(in srgb, var(--accent) 25%, transparent);
   }
-
-  /* 中文块：样式规则 .part-card .part-meta 控制对应 UI 的布局、视觉或响应式状态。 */
   .part-card .part-meta {
     min-width: 0;
     overflow: visible;
@@ -2071,8 +1843,6 @@
     align-content: center;
     line-height: 1;
   }
-
-  /* 中文块：样式规则 .part-card .part-display-id 控制对应 UI 的布局、视觉或响应式状态。 */
   .part-card .part-display-id {
     display: block;
     font-size: 16px;
@@ -2084,13 +1854,9 @@
     margin: 0;
     padding: 0;
   }
-
-  /* 中文块：样式规则 .part-card .small 控制对应 UI 的布局、视觉或响应式状态。 */
   .part-card .small {
     display: none !important;
   }
-
-  /* 中文块：样式规则 .part-mini 控制对应 UI 的布局、视觉或响应式状态。 */
   .part-mini {
     display: grid;
     grid-template-columns: repeat(8, 5px);
@@ -2108,47 +1874,66 @@
     box-sizing: border-box;
     overflow: visible;
   }
-
-  /* 中文块：样式规则 .pix 控制对应 UI 的布局、视觉或响应式状态。 */
   .pix {
     width: 5px;
     height: 5px;
     border-radius: 1px;
     background: #18202d;
   }
-
-  /* 中文块：样式规则 .pix.on 控制对应 UI 的布局、视觉或响应式状态。 */
   .pix.on {
     background: var(--led-color);
     box-shadow: 0 0 6px var(--led-color)
   }
-
-  /* 中文块：样式规则 .list 控制对应 UI 的布局、视觉或响应式状态。 */
   .list {
     display: grid;
     gap: 8px;
   }
+  .face-manager-stack {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+    min-width: 0;
+  }
 
-  /* 中文块：样式规则 .face-manager-panel 控制对应 UI 的布局、视觉或响应式状态。 */
+  /* 6.3 中列容器：把“控制按钮卡片”和“表情部件卡片”作为一个整体纵向堆叠。
+     在窄屏（1/2 列）时它只是 face-manager-stack 里的一段；在 ≥1471px 三列布局下，
+     它整体成为第二列，内部堆叠高度独立于预览列与 saved_faces 列。 */
+  .parts-mid-col {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+    min-width: 0;
+  }
+
+  .face-control-panel,
   .face-manager-panel {
     container-type: inline-size;
     --face-control-size: var(--control-height);
   }
 
-  /* 中文块：样式规则 .face-library-list 控制对应 UI 的布局、视觉或响应式状态。 */
+  .save-name-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    align-items: end;
+  }
+
+  .save-name-row .field {
+    min-width: 0;
+  }
+
+  .save-name-row button {
+    justify-self: end;
+  }
   .face-library-list {
     overscroll-behavior: contain;
   }
-
-  /* 中文块：样式规则 .saved-row 控制对应 UI 的布局、视觉或响应式状态。 */
   .saved-row {
+    position: relative;
     display: grid;
     grid-template-columns: 42px minmax(0, 1fr);
     gap: 8px;
     align-items: stretch;
   }
-
-  /* 中文块：样式规则 .saved-index 控制对应 UI 的布局、视觉或响应式状态。 */
   .saved-index {
     display: flex;
     align-items: center;
@@ -2162,8 +1947,6 @@
     font-weight: 900;
     font-variant-numeric: tabular-nums;
   }
-
-  /* 中文块：样式规则 .list-item 控制对应 UI 的布局、视觉或响应式状态。 */
   .list-item {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -2175,35 +1958,23 @@
     padding: 10px;
     min-width: 0;
   }
-
-  /* 中文块：样式规则 .saved-face-card 控制对应 UI 的布局、视觉或响应式状态。 */
   .saved-face-card {
     grid-template-columns: auto minmax(0, 1fr);
     grid-template-areas: "drag body" "drag actions";
     gap: 8px 10px;
   }
-
-  /* 中文块：样式规则 .saved-face-card>.drag-handle 控制对应 UI 的布局、视觉或响应式状态。 */
   .saved-face-card>.drag-handle {
     grid-area: drag;
   }
-
-  /* 中文块：样式规则 .saved-face-card>.saved-face-body 控制对应 UI 的布局、视觉或响应式状态。 */
   .saved-face-card>.saved-face-body {
     grid-area: body;
   }
-
-  /* 中文块：样式规则 .saved-face-card>.face-action-bar 控制对应 UI 的布局、视觉或响应式状态。 */
   .saved-face-card>.face-action-bar {
     grid-area: actions;
   }
-
-  /* 中文块：样式规则 .saved-face-body 控制对应 UI 的布局、视觉或响应式状态。 */
   .saved-face-body {
     min-width: 0;
   }
-
-  /* 中文块：样式规则 .face-action-bar 控制对应 UI 的布局、视觉或响应式状态。 */
   .face-action-bar {
     display: flex;
     gap: 5px;
@@ -2217,13 +1988,9 @@
     overflow-y: visible;
     scrollbar-width: none;
   }
-
-  /* 中文块：样式规则 .face-action-bar::-webkit-scrollbar 控制对应 UI 的布局、视觉或响应式状态。 */
   .face-action-bar::-webkit-scrollbar {
     display: none;
   }
-
-  /* 中文块：样式规则 .face-action-bar button 控制对应 UI 的布局、视觉或响应式状态。 */
   .face-action-bar button {
     min-height: var(--control-height);
     padding: var(--button-padding-y) var(--button-padding-x);
@@ -2232,8 +1999,6 @@
     border-radius: var(--button-radius);
     white-space: nowrap;
   }
-
-  /* 中文块：样式规则 .face-action-bar .icon-btn 控制对应 UI 的布局、视觉或响应式状态。 */
   .face-action-bar .icon-btn {
     display: inline-flex;
     align-items: center;
@@ -2249,45 +2014,71 @@
     flex: 0 0 var(--face-control-size);
     box-sizing: border-box;
   }
-
-  /* 中文块：样式规则 .face-action-bar .btn-apply 控制对应 UI 的布局、视觉或响应式状态。 */
   .face-action-bar .btn-apply {
     --button-hover-color: #ffe36e;
     margin-left: auto;
   }
-
-  /* 中文块：样式规则 .face-action-bar .btn-delete 控制对应 UI 的布局、视觉或响应式状态。 */
   .face-action-bar .btn-delete {
     --button-hover-color: #ff7890;
     border-color: #7b2b3b;
     color: #ffd0d8;
     background: #3a1820;
   }
-
-  /* 中文块：样式规则 .face-action-bar .btn-delete:active:not(:disabled) 控制对应 UI 的布局、视觉或响应式状态。 */
   .face-action-bar .btn-delete:active:not(:disabled) {
     background: #5a1a24;
   }
-
-  /* 中文块：样式规则 .face-action-bar button:disabled 控制对应 UI 的布局、视觉或响应式状态。 */
   .face-action-bar button:disabled {
     opacity: .38;
     pointer-events: none;
   }
 
-  /* 中文块：样式规则 .saved-row.drag-over .list-item 控制对应 UI 的布局、视觉或响应式状态。 */
-  .saved-row.drag-over .list-item {
-    border-color: var(--accent2);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent2) 20%, transparent);
+  .saved-row.insert-before::before,
+  .saved-row.insert-after::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--accent);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent),
+      0 0 10px color-mix(in srgb, var(--accent) 62%, transparent);
+    animation: insert-line-fade .14s ease-out;
+    pointer-events: none;
+    z-index: 3;
   }
 
-  /* 中文块：样式规则 .saved-row.active .list-item 控制对应 UI 的布局、视觉或响应式状态。 */
+  .saved-row.insert-before::before {
+    top: -5px;
+  }
+
+  .saved-row.insert-after::after {
+    bottom: -5px;
+  }
+
+  @keyframes insert-line-fade {
+    from {
+      opacity: 0;
+      transform: scaleX(.82);
+    }
+    to {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+  }
   .saved-row.active .list-item {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 16%, transparent);
   }
 
-  /* 中文块：样式规则 .drag-handle 控制对应 UI 的布局、视觉或响应式状态。 */
+  .saved-row-error .list-item {
+    border-color: color-mix(in srgb, #f59e0b 55%, var(--line));
+  }
+
+  .saved-row-error .saved-meta {
+    color: #ffe5a4;
+  }
   .drag-handle {
     align-self: start;
     width: var(--face-control-size);
@@ -2308,8 +2099,6 @@
     box-sizing: border-box;
     flex: 0 0 var(--face-control-size);
   }
-
-  /* 中文块：样式规则 .drag-handle::before 控制对应 UI 的布局、视觉或响应式状态。 */
   .drag-handle::before {
     content: "";
     display: block;
@@ -2318,19 +2107,13 @@
     background: linear-gradient(to bottom, currentColor 0 2px, transparent 2px 5px, currentColor 5px 7px, transparent 7px 10px, currentColor 10px 12px);
     border-radius: 1px;
   }
-
-  /* 中文块：样式规则 .drag-handle:active 控制对应 UI 的布局、视觉或响应式状态。 */
   .drag-handle:active {
     cursor: grabbing;
   }
-
-  /* 中文块：样式规则 .saved-row.dragging .list-item 控制对应 UI 的布局、视觉或响应式状态。 */
   .saved-row.dragging .list-item {
     opacity: .9;
     border-color: var(--accent);
   }
-
-  /* 中文块：样式规则 .saved-name-input 控制对应 UI 的布局、视觉或响应式状态。 */
   .saved-name-input {
     width: 100%;
     height: var(--control-height);
@@ -2342,13 +2125,9 @@
     font-weight: inherit;
     background: #0c0f15;
   }
-
-  /* 中文块：样式规则 .saved-meta 控制对应 UI 的布局、视觉或响应式状态。 */
   .saved-meta {
     margin-top: 4px;
   }
-
-  /* 中文块：样式规则 .face-source-badge 控制对应 UI 的布局、视觉或响应式状态。 */
   .face-source-badge {
     display: inline-flex;
     align-items: center;
@@ -2361,36 +2140,26 @@
     color: #d9e4f2;
     white-space: nowrap;
   }
-
-  /* 中文块：样式规则 .face-source-badge.default 控制对应 UI 的布局、视觉或响应式状态。 */
   .face-source-badge.default {
     border-color: #7a6220;
     color: #ffe3a1;
     background: #2b210f;
   }
-
-  /* 中文块：样式规则 .face-source-badge.custom 控制对应 UI 的布局、视觉或响应式状态。 */
   .face-source-badge.custom {
     border-color: #216b3f;
     color: #b8ffd4;
     background: #163824;
   }
-
-  /* 中文块：样式规则 .face-source-badge.parts 控制对应 UI 的布局、视觉或响应式状态。 */
   .face-source-badge.parts {
     border-color: #4f3a87;
     color: #ded1ff;
     background: #211838;
   }
-
-  /* 中文块：样式规则 .saved-name-input[readonly] 控制对应 UI 的布局、视觉或响应式状态。 */
   .saved-name-input[readonly] {
     opacity: .85;
     cursor: not-allowed;
     border-style: dashed;
   }
-
-  /* 中文块：样式规则 .log 控制对应 UI 的布局、视觉或响应式状态。 */
   .log {
     height: 270px;
     overflow: auto;
@@ -2403,19 +2172,13 @@
     white-space: pre-wrap;
     color: #b8c5d6;
   }
-
-  /* 中文块：样式规则 .scroll-upload-progress 控制对应 UI 的布局、视觉或响应式状态。 */
   .scroll-upload-progress {
     display: grid;
     gap: 6px;
   }
-
-  /* 中文块：样式规则 .scroll-upload-progress[hidden] 控制对应 UI 的布局、视觉或响应式状态。 */
   .scroll-upload-progress[hidden] {
     display: none;
   }
-
-  /* 中文块：样式规则 .scroll-upload-progress progress 控制对应 UI 的布局、视觉或响应式状态。 */
   .scroll-upload-progress progress {
     width: 100%;
     height: 14px;
@@ -2425,33 +2188,23 @@
     background: #0b0e14;
     overflow: hidden;
   }
-
-  /* 中文块：样式规则 .scroll-upload-progress progress::-webkit-progress-bar 控制对应 UI 的布局、视觉或响应式状态。 */
   .scroll-upload-progress progress::-webkit-progress-bar {
     background: #0b0e14;
     border-radius: 999px;
   }
-
-  /* 中文块：样式规则 .scroll-upload-progress progress::-webkit-progress-value 控制对应 UI 的布局、视觉或响应式状态。 */
   .scroll-upload-progress progress::-webkit-progress-value {
     background: var(--primary-gradient);
     border-radius: 999px;
   }
-
-  /* 中文块：样式规则 .scroll-upload-progress progress::-moz-progress-bar 控制对应 UI 的布局、视觉或响应式状态。 */
   .scroll-upload-progress progress::-moz-progress-bar {
     background: var(--accent);
     border-radius: 999px;
   }
-
-  /* 中文块：样式规则 .scroll-upload-label 控制对应 UI 的布局、视觉或响应式状态。 */
   .scroll-upload-label {
     font-size: 12px;
     color: var(--muted);
     line-height: 1.35;
   }
-
-  /* 中文块：样式规则 .scroll-restore-warning 渲染源文本恢复警告（可多行）。 */
   .scroll-restore-warning {
     font-size: 12px;
     color: #f59e0b;
@@ -2462,8 +2215,13 @@
   .scroll-restore-warning[hidden] {
     display: none;
   }
-
-  /* 中文块：样式规则 .status-dot 控制对应 UI 的布局、视觉或响应式状态。 */
+  .scroll-restore-btn {
+    align-self: flex-start;
+    margin-top: 6px;
+  }
+  .scroll-restore-btn[hidden] {
+    display: none;
+  }
   .status-dot {
     width: 9px;
     height: 9px;
@@ -2472,33 +2230,23 @@
     display: inline-block;
     box-shadow: 0 0 10px var(--ok)
   }
-
-  /* 中文块：样式规则 .status-dot.dim 控制对应 UI 的布局、视觉或响应式状态。 */
   .status-dot.dim {
     background: var(--muted);
     box-shadow: none;
   }
-
-  /* 中文块：样式规则 .status-dot.warn 控制对应 UI 的布局、视觉或响应式状态。 */
   .status-dot.warn {
     background: #f59e0b;
     box-shadow: 0 0 8px #f59e0b;
   }
-
-  /* 中文块：样式规则 .status-dot.danger 控制对应 UI 的布局、视觉或响应式状态。 */
   .status-dot.danger {
     background: #ef4444;
     box-shadow: 0 0 8px #ef4444;
   }
-
-  /* 中文块：样式规则 @media (min-width:981px) 控制对应 UI 的布局、视觉或响应式状态。 */
   @media (min-width:981px) {
     .matrix-wrap {
       --matrix-max-height: var(--led-preview-max-height);
     }
   }
-
-  /* 中文块：样式规则 @container (max-width:560px) 控制对应 UI 的布局、视觉或响应式状态。 */
   @container (max-width:560px) {
     .saved-row {
       grid-template-columns: 38px minmax(0, 1fr);
@@ -2543,8 +2291,6 @@
       min-height: var(--control-height);
     }
   }
-
-  /* 中文块：样式规则 @media (max-width:520px) 控制对应 UI 的布局、视觉或响应式状态。 */
   @media (max-width:520px) {
     .kv {
       grid-template-columns: 1fr
@@ -2570,12 +2316,11 @@
     :root {
       --led-preview-default-cell: 12px;
       --cell: var(--led-preview-default-cell);
-      --gap: 2px;
+      --gap: 1px;
     }
   }
 
   @media (hover:none),
-  /* 中文块：样式规则 (pointer:coarse) 控制对应 UI 的布局、视觉或响应式状态。 */
   (pointer:coarse) {
 
     button:hover:not(:disabled):not(.is-pressing),
@@ -2651,8 +2396,6 @@
       box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent), 0 0 16px color-mix(in srgb, var(--accent) 25%, transparent);
     }
   }
-
-  /* 中文块：样式规则 @media (max-width:640px) 控制对应 UI 的布局、视觉或响应式状态。 */
   @media (max-width:640px) {
     :root {
       --control-height: 40px;
@@ -2675,18 +2418,21 @@
     }
   }
 
-  /* ── 320px 最小宽度适配：确保所有元素在最窄屏幕下正常显示 ── */
+  /* -- 320px minimum width adaptation: ensures all elements display properly on the narrowest screen -- */
 
   @media (max-width:400px) {
 
-    /* 在接近320px时进一步压缩 */
-    .content {
-      padding: 6px;
-    }
-
+    /* Further compression when approaching 320px */
     :root {
       --sidebar-padding-y: 8px;
       --sidebar-padding-x: 8px;
+      --content-padding: 6px;
+      --topbar-content-height: 45.5px;
+      --hero-sticky-height: 45px;
+    }
+
+    .content {
+      padding: var(--content-padding-top) var(--content-padding) var(--content-padding);
     }
 
     .sidebar {
@@ -2707,9 +2453,8 @@
       font-weight: 700;
     }
 
-    .hero,
     .hero>div:first-child {
-      min-height: 44px;
+      min-height: calc(var(--hero-sticky-height) - 1px);
     }
 
     .hero h2 {
@@ -2720,7 +2465,7 @@
       font-size: 14px;
     }
 
-    /* 按钮组允许换行 */
+    /* Button groups allowed to wrap */
     .mode-button-row {
       gap: 6px;
     }
@@ -2733,14 +2478,14 @@
       gap: 6px;
     }
 
-    /* 行内元素换行 */
+    /* Inline elements wrap */
     .row {
       gap: 6px;
     }
 
-    /* 表单控件高度紧凑 */
+    /* Form controls height compacted */
 
-    /* 亮度行保持滑动条 + 短数字框双列 */
+    /* Brightness row maintains a two-column layout for the slider and the short input box */
     .brightness-row {
       grid-template-columns: minmax(0, 1fr) 64px;
       gap: 8px;
@@ -2750,23 +2495,23 @@
       text-align: center;
     }
 
-    /* 等宽字段保持双列但允许缩 */
+    /* Equal-width fields maintain a two-column layout but are allowed to shrink */
     .equal-fields {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 6px;
     }
 
-    /* 颜色下拉网格确保不超出 */
+    /* Color dropdown grid ensures no overflow */
     .color-dropdown-grid {
       max-width: 100%;
     }
 
-    /* 日志高度压缩 */
+    /* Log height compressed */
     .log {
       height: 180px;
     }
 
-    /* 矩阵单元格缩小 */
+    /* Matrix cells scaled down */
     :root {
       --control-height: 36px;
       --control-font-size: 13px;
@@ -2775,11 +2520,9 @@
       --control-compact-padding-x: 8px;
       --led-preview-default-cell: 10px;
       --cell: var(--led-preview-default-cell);
-      --gap: 2px
+      --gap: 1px
     }
   }
-
-  /* 中文块：样式规则 :root 控制对应 UI 的布局、视觉或响应式状态。 */
   :root {
     --rina-icon-size: 96px;
     --rina-avatar-frame-width: 5px;
@@ -2797,12 +2540,10 @@
     --rina-loader-x: 50vw;
     --rina-loader-y: 50vh;
     --rina-reveal-radius: 0px;
-    --rina-reveal-edge: 1px;
+    --rina-reveal-edge: 100px;
     --rina-reveal-x: 50%;
     --rina-reveal-y: 50%;
   }
-
-  /* 中文块：样式规则 .loading-overlay 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay {
     position: fixed;
     inset: 0;
@@ -2818,32 +2559,25 @@
   .loading-overlay.is-animating .flash-halo,
   .loading-overlay.is-animating .avatar-circle,
   .loading-overlay.is-animating .avatar-before,
-  /* 中文块：样式规则 .loading-overlay.is-animating .avatar-after 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay.is-animating .avatar-after {
     will-change: transform, opacity;
     backface-visibility: hidden;
   }
-
-  /* 中文块：样式规则 .loading-overlay.is-animating .blur-screen 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay.is-animating .blur-screen {
     will-change: mask-image, -webkit-mask-image, opacity;
     transform: translateZ(0);
   }
-
-  /* 中文块：样式规则 .blur-screen 控制对应 UI 的布局、视觉或响应式状态。 */
   .blur-screen {
     position: absolute;
     inset: 0;
     z-index: 1;
-    background: transparent;
+    background: rgba(15, 17, 23, 0.55);
     backdrop-filter: blur(var(--rina-blur-size));
     -webkit-backdrop-filter: blur(var(--rina-blur-size));
     opacity: 1;
     pointer-events: none;
     will-change: opacity, -webkit-mask-image, mask-image;
   }
-
-  /* 中文块：样式规则 .blur-screen.is-revealing 控制对应 UI 的布局、视觉或响应式状态。 */
   .blur-screen.is-revealing {
     -webkit-mask-image: radial-gradient(circle at var(--rina-reveal-x) var(--rina-reveal-y),
       transparent 0,
@@ -2860,19 +2594,13 @@
     -webkit-mask-size: 100% 100%;
     mask-size: 100% 100%;
   }
-
-  /* 中文块：样式规则 .loading-overlay.is-hidden 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay.is-hidden {
     opacity: 0;
     pointer-events: none;
   }
-
-  /* 中文块：样式规则 .loading-overlay.is-scroll-passthrough 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay.is-scroll-passthrough {
     pointer-events: none;
   }
-
-  /* 中文块：样式规则 .loading-box 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-box {
     position: fixed;
     left: var(--rina-loader-x);
@@ -2885,13 +2613,9 @@
     opacity: 1;
     transition: opacity 120ms ease;
   }
-
-  /* 中文块：样式规则 .loading-overlay.is-assets-pending .loading-box 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay.is-assets-pending .loading-box {
     opacity: 0;
   }
-
-  /* 中文块：样式规则 .loader-stage 控制对应 UI 的布局、视觉或响应式状态。 */
   .loader-stage {
     position: relative;
     z-index: 0;
@@ -2902,8 +2626,6 @@
     place-items: center;
     overflow: visible;
   }
-
-  /* 中文块：样式规则 .avatar-circle 控制对应 UI 的布局、视觉或响应式状态。 */
   .avatar-circle {
     position: relative;
     z-index: 200;
@@ -2918,13 +2640,9 @@
     transition: transform var(--rina-image-pop-duration) cubic-bezier(.16, 1.25, .3, 1), opacity 260ms cubic-bezier(.4, 0, .2, 1);
     will-change: transform, opacity;
   }
-
-  /* 中文块：样式规则 .avatar-circle::before 控制对应 UI 的布局、视觉或响应式状态。 */
   .avatar-circle::before {
     display: none;
   }
-
-  /* 中文块：样式规则 .avatar-circle img 控制对应 UI 的布局、视觉或响应式状态。 */
   .avatar-circle img {
     position: absolute;
     left: 0;
@@ -2941,44 +2659,30 @@
     transform: scale(1);
     transition: transform var(--rina-image-pop-duration) cubic-bezier(.16, 1.25, .3, 1), opacity 180ms ease;
   }
-
-  /* 中文块：样式规则 .avatar-before 控制对应 UI 的布局、视觉或响应式状态。 */
   .avatar-before {
     z-index: 220;
     opacity: 1;
   }
-
-  /* 中文块：样式规则 .avatar-after 控制对应 UI 的布局、视觉或响应式状态。 */
   .avatar-after {
     z-index: 230;
     opacity: 0;
   }
-
-  /* 中文块：样式规则 .loading-overlay.is-image-pop .avatar-circle 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay.is-image-pop .avatar-circle {
     transform: scale(var(--rina-icon-pop-scale));
     box-shadow: none;
   }
-
-  /* 中文块：样式规则 .loading-overlay.is-image-pop .avatar-before 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay.is-image-pop .avatar-before {
     opacity: 0;
     transform: scale(1.025);
     transition: opacity 0s linear 180ms, transform var(--rina-image-pop-duration) cubic-bezier(.16, 1.25, .3, 1);
   }
-
-  /* 中文块：样式规则 .loading-overlay.is-image-pop .avatar-after 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay.is-image-pop .avatar-after {
     opacity: 1;
     transform: scale(1.025);
   }
-
-  /* 中文块：样式规则 .loading-overlay.is-final-release .avatar-circle 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay.is-final-release .avatar-circle {
     animation: rinaBoot-avatarShrinkThenRelease var(--rina-image-release-duration) forwards;
   }
-
-  /* 中文块：样式规则 .flash-halo 控制对应 UI 的布局、视觉或响应式状态。 */
   .flash-halo {
     position: absolute;
     inset: 0;
@@ -3003,13 +2707,9 @@
       filter var(--rina-halo-contract-duration) cubic-bezier(.4, 0, .2, 1);
     will-change: transform, opacity;
   }
-
-  /* 中文块：样式规则 .loading-overlay.is-ring-contracting .flash-halo 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay.is-ring-contracting .flash-halo {
     animation: rinaBoot-haloContractOut var(--rina-halo-contract-duration) cubic-bezier(.55, .085, .68, .53) forwards;
   }
-
-  /* 中文块：样式规则 .loading-overlay.is-halo-hidden .flash-halo 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay.is-halo-hidden .flash-halo {
     visibility: hidden;
     opacity: 0;
@@ -3018,8 +2718,6 @@
     animation: none;
     transition: none;
   }
-
-  /* 中文块：样式规则 .loading-text 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-text {
     color: rgba(249, 200, 240, .85);
     font-size: 15px;
@@ -3028,8 +2726,6 @@
     text-transform: uppercase;
     transition: opacity 220ms ease, transform 220ms ease;
   }
-
-  /* 中文块：样式规则 .loading-overlay.is-ring-contracting .loading-text 控制对应 UI 的布局、视觉或响应式状态。 */
   .loading-overlay.is-ring-contracting .loading-text {
     opacity: 0;
     transform: translateY(6px);
@@ -3086,28 +2782,20 @@
       opacity: 0;
     }
   }
-
-  /* 中文块：样式规则 .boot-reveal-item 控制对应 UI 的布局、视觉或响应式状态。 */
   .boot-reveal-item {
     visibility: hidden;
     opacity: 0;
     transform: translateY(10px);
     transition: opacity 320ms ease, transform 360ms cubic-bezier(.16, 1, .3, 1);
   }
-
-  /* 中文块：样式规则 html[data-first-page-reveal="preparing"] .boot-reveal-item 控制对应 UI 的布局、视觉或响应式状态。 */
   html[data-first-page-reveal="preparing"] .boot-reveal-item {
     transition: none;
   }
-
-  /* 中文块：样式规则 .boot-reveal-item.is-revealed 控制对应 UI 的布局、视觉或响应式状态。 */
   .boot-reveal-item.is-revealed {
     visibility: visible;
     opacity: 1;
     transform: translateY(0);
   }
-
-  /* 中文块：样式规则 @media(prefers-reduced-motion:reduce) 控制对应 UI 的布局、视觉或响应式状态。 */
   @media(prefers-reduced-motion:reduce) {
     .flash-halo {
       animation-duration: 2.6s;
@@ -3118,8 +2806,6 @@
       transform: none;
     }
   }
-
-  /* 中文块：样式规则 html[data-boot-phase="preload"] body>*:not(.loading-overlay) 控制对应 UI 的布局、视觉或响应式状态。 */
   html[data-boot-phase="preload"] body>*:not(.loading-overlay) {
     visibility: hidden;
     pointer-events: none;
@@ -3127,84 +2813,64 @@
 
 
 /* --------------------------------------------------------------------------
-   6.4 文字滚动页面：两卡片布局（预览 + 控制）
-   与 6.1 基础功能页面统一的实现方式：
-   - 仅两张 card：第一张为只读预览，第二张承载全部功能。
-   - 第二张 card 内部用 .control-section 分区，并复用 6.1 的
-     说明 GPIO 按钮、组合键或本地 overlay 反馈。
-     这样对齐、间距和 6.1 亮度控制完全一致，无需任何 !important 强制对齐。
-   - 宽屏：预览（左）与控制（右）左右分栏；手机：单列堆叠，
-     两张 card 之间的间距由 .scroll-layout 的 gap 统一控制。
-   - 所有分区标题统一为 h3，由 .control-section h3 给出统一的 margin/字号。
+   6.4 Text Scrolling Page: Two-card layout (Preview + Control)
+   Unified implementation style consistent with the 6.1 Basic Functions Page:
+   - Only two cards: the first is a read-only preview, the second hosts all functional options.
+   - The second card uses internal .control-section divisions and reuses the GPIO buttons,
+     combinations, or local overlay feedback from 6.1.
+     This aligns spacing and alignment perfectly with 6.1 brightness controls without requiring any !important overrides.
+   - Wide screens: Preview (left) and Control (right) columns are split side-by-side; Mobile: Single column stack.
+     The gap between the two cards is controlled uniformly by .scroll-layout's gap property.
+   - All section titles are unified as h3, styled with a consistent margin/font-size from .control-section h3.
    -------------------------------------------------------------------------- */
-/* 中文块：样式规则 .scroll-layout 控制对应 UI 的布局、视觉或响应式状态。 */
 .scroll-layout {
-  /* 说明界面布局、组件状态或响应式规则。
-     连接关系：
-     说明界面布局、组件状态或响应式规则。
-     说明界面布局、组件状态或响应式规则。
-       说明界面布局、组件状态或响应式规则。
-     说明界面布局、组件状态或响应式规则。
-       说明界面布局、组件状态或响应式规则。*/
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px;
   align-items: start;
   container-type: inline-size;
 }
-
-/* 中文块：样式规则 .scroll-preview-card 控制对应 UI 的布局、视觉或响应式状态。 */
 .scroll-preview-card {
   min-width: 0;
 }
-
-/* 中文块：样式规则 .scroll-preview-card .matrix-wrap 控制对应 UI 的布局、视觉或响应式状态。 */
 .scroll-preview-card .matrix-wrap {
   min-height: 0;
 }
 
-/* 控制 card：内部分区之间的间距与 6.1 控制面板一致。 */
 .scroll-control-card {
   display: grid;
   gap: 14px;
   align-content: start;
   min-width: 0;
 }
-
-/* 中文块：样式规则 .scroll-control-card > .control-section 控制对应 UI 的布局、视觉或响应式状态。 */
 .scroll-control-card > .control-section {
   min-width: 0;
 }
 
-/* 滚动文字输入框占满分区宽度。 */
+/* Text scrolling input box occupies the full section width. */
 .scroll-control-card .scroll-text-field {
   min-width: 0;
 }
-
-/* 中文块：样式规则 .scroll-control-card .scroll-text-field textarea 控制对应 UI 的布局、视觉或响应式状态。 */
 .scroll-control-card .scroll-text-field textarea {
   width: 100%;
   box-sizing: border-box;
 }
 
-/* 播放控制按钮行：左对齐自动换行，行为与 6.1 的 .button-row 一致。 */
+/* Playback control button row: left-aligned with automatic wrapping, behaving identically to .button-row in 6.1. */
 .scroll-control-card .scroll-action-row {
   justify-content: flex-start;
 }
 
-/* 中文块：样式规则 @media (max-width: 980px) 控制对应 UI 的布局、视觉或响应式状态。 */
+.scroll-status-kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, max-content) max-content minmax(0, max-content);
+  align-items: center;
+  justify-content: start;
+  gap: 8px 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
 @media (max-width: 980px) {
-  /* 说明界面布局、组件状态或响应式规则。
-     连接关系：
-     说明界面布局、组件状态或响应式规则。
-     说明界面布局、组件状态或响应式规则。
-       说明界面布局、组件状态或响应式规则。
-       说明界面布局、组件状态或响应式规则。*/
-  .scroll-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  #page-scroll .scroll-layout > .card,
   #page-scroll .scroll-control-card,
   #page-scroll .scroll-control-card > .control-section,
   #page-scroll .scroll-control-card .scroll-text-field,
@@ -3235,13 +2901,15 @@
   }
 }
 
-/* 性能优化：在移动端或性能受限设备上削弱高代价重绘属性 */
+/* Performance optimization: reduce high-cost repaint properties on mobile or performance-constrained devices */
 @media (max-width: 768px) {
   .led {
     box-shadow: none !important;
   }
   .led.on {
-    box-shadow: 0 0 2px var(--led-color) !important;
+    box-shadow:
+      0 0 2px color-mix(in srgb, var(--led-color) 88%, #fff),
+      0 0 calc((var(--cell) - 1px) * .5) var(--led-color) !important;
   }
   .blur-screen {
     backdrop-filter: blur(4px) !important;
@@ -3249,34 +2917,7 @@
   }
 }
 
-/* ============================================================
-   6.5 设备诊断 / 调试控制台 (page-debug 重写)
-   复用现有 .card/.kv/.badge/.warning/button.danger 等样式；
-   下列为重写新增的最小样式集。
-   ============================================================ */
-.debug-grid {
-  display: grid;
-  gap: 14px;
-  align-items: start;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-.debug-grid > .card,
-.debug-grid > details.card {
-  min-width: 0;
-}
-.debug-span-2 {
-  grid-column: 1 / -1;
-}
-@media (max-width: 980px) {
-  .debug-grid {
-    grid-template-columns: 1fr;
-  }
-  .debug-span-2 {
-    grid-column: auto;
-  }
-}
-
-/* 数据来源标签 chip */
+/* Data source badge chip */
 .debug-source {
   display: inline-block;
   font-size: 10px;
@@ -3298,14 +2939,92 @@
 .debug-source.src-fallback { color: #ffc9a4; border-color: #7b4a2b; }
 .debug-source.is-stale { opacity: 0.7; filter: grayscale(0.3); }
 
-/* 模拟按钮：弱化为次级样式，避免被误认为常规用户控件 */
+/* ===== 370 LED Preview: Matrix overlaid on top of rinaboard.png background =====
+   Applies to EVERY LED preview (all pages). The .rinaboard-stage wrapper is
+   injected by initMatrix() so the structure/style stays identical everywhere.
+
+   The badge picture sits behind, and the LED grid is overlaid so that:
+      - the top-left corner of the FIRST visible LED (grid row 0, col 2)
+        lands on image pixel (852.0, 850.7)
+     - the bottom-right corner of the LAST visible LED (grid row 17, col 18)
+       lands on image pixel (3018.5, 3144)
+   in the picture's native 4000 x 3351 space (0,0 = top-left of the picture).
+
+   The grid spans the full 22x18 matrix; percentages below place the full grid
+   box so the two reference cells land exactly on those pixels. */
+.rinaboard-stage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  margin: 0 auto;
+}
+
+.rinaboard-stage .rinaboard-bg-img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  /* keep the whole card within the preview height budget (reserve header/gaps).
+     --matrix-max-height is set per-context (e.g. 360px on the debug card). */
+  max-height: calc(var(--matrix-max-height, var(--led-preview-max-height, 500px)) - 70px);
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+
+/* The matrix overlays the picture. Positions are calculated in native pixel coordinates
+   multiplied by the stage scaling factor, guaranteeing that cells remain perfectly square. */
+.rinaboard-stage > .matrix {
+  position: absolute;
+  left: calc(var(--alignment-left-offset, 597.66px) * var(--alignment-scale, 1));
+  top: calc(var(--alignment-top-offset, 850.71px) * var(--alignment-scale, 1));
+  gap: calc(var(--alignment-gap, 0px) * var(--alignment-scale, 1));
+  display: grid;
+  grid-template-columns: repeat(22, calc(var(--alignment-cell-size, 127.43px) * var(--alignment-scale, 1)));
+  grid-template-rows: repeat(18, calc(var(--alignment-cell-size, 127.43px) * var(--alignment-scale, 1)));
+  width: auto;
+  height: auto;
+  pointer-events: none;
+}
+
+/* Editable preview still needs to receive pointer events for drawing. */
+.rinaboard-stage > .matrix.editable-matrix {
+  pointer-events: auto;
+}
+
+/* Cells fill their grid tracks exactly (no dependence on the JS --cell). */
+.rinaboard-stage > .matrix .led {
+  width: calc(100% - 1px);
+  height: calc(100% - 1px);
+  justify-self: center;
+  align-self: center;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  /* off LEDs are fully transparent so the picture shows through; only lit LEDs show color */
+  background: transparent;
+}
+
+.rinaboard-stage > .matrix .led.on {
+  background: radial-gradient(circle at 50% 42%,
+      color-mix(in srgb, var(--led-color) 94%, #fff) 0 8%,
+      var(--led-color) 30%,
+      color-mix(in srgb, var(--led-color) 94%, #120817) 100%);
+}
+
+.rinaboard-stage > .matrix .led.invalid {
+  visibility: hidden;
+}
+
+/* Simulated button: styled as secondary to avoid being mistaken for normal user controls */
 button.debug-sim {
   background: #14161d;
   border-style: dashed;
   color: #c4cdda;
 }
 
-/* 危险区卡片 */
+/* Danger zone card */
 .card.debug-danger {
   border-color: #7b2b3b;
   background: linear-gradient(180deg, #1c1014, #141016);
@@ -3314,7 +3033,7 @@ button.debug-sim {
   color: #ffd0d8;
 }
 
-/* 操作结果行 */
+/* Operation result row */
 .debug-result {
   font-size: 12px;
   min-height: 16px;
@@ -3326,7 +3045,7 @@ button.debug-sim {
 .debug-result.err { color: #ff9bb0; }
 .debug-result.pending { color: #ffe5a4; }
 
-/* 校验信息行 */
+/* Validation message row */
 .debug-validation {
   font-size: 12px;
   min-height: 16px;
@@ -3334,7 +3053,7 @@ button.debug-sim {
 .debug-validation.ok { color: #b8ffd4; }
 .debug-validation.err { color: #ff9bb0; }
 
-/* 折叠高级块 */
+/* Collapsible advanced block */
 details.debug-advanced > summary {
   cursor: pointer;
   font-weight: 700;
@@ -3349,13 +3068,13 @@ details.card.debug-advanced {
   display: block;
 }
 
-/* 掩码密码行的等宽显示 */
+/* Monospace display for masked password fields */
 .debug-masked {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 1px;
 }
 
-/* 原始指令确认行 */
+/* Raw command confirmation row */
 .debug-confirm-row {
   display: flex;
   align-items: center;
