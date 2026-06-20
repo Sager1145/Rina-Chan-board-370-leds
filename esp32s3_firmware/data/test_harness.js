@@ -1,4 +1,4 @@
-/* Packed-frame shim loaded after app.js. */
+/* WebUI test helper + packed-frame shim. Loaded after app.js. */
 (function(){
   if(window.__packedFrameShim)return;
   window.__packedFrameShim=true;
@@ -47,7 +47,8 @@
     addParam(params,'sourceText',payload.sourceText);
     addParam(params,'fontId',payload.fontId);
     addParam(params,'generatorVersion',payload.generatorVersion);
-    var url=(typeof apiUrl==='function'?apiUrl(path):path)+'?'+params.toString();
+    var base=(typeof apiUrl==='function'?apiUrl(path):path);
+    var url=base+'?'+params.toString();
     return new Promise(function(resolve,reject){
       var xhr=new XMLHttpRequest();
       xhr.open('POST',url,true);
@@ -107,7 +108,20 @@
     }
     return window.queueFirmwareFrame(frame,reason||'live_delta',playback||'idle');
   };
-  window.__ui={version:'packed-frame-shim',list:function(){return[];},find:function(){return[];},rescan:function(){cleanLabels();return{count:0};}};
-  cleanLabels();
-  try{new MutationObserver(cleanLabels).observe(document.body,{childList:true,subtree:true});}catch(e){}
+
+  var selector='button,a[href],input:not([type=hidden]),select,textarea,summary,[role="button"],[role="menuitem"],[data-gpio]';
+  var registry=new Map();
+  function pageOf(el){var sec=el&&el.closest&&el.closest('section.page,section[id]');return sec&&sec.id?sec.id:'';}
+  function labelOf(el){return String((el&&el.getAttribute&&(
+    el.getAttribute('aria-label')||el.getAttribute('title')||el.getAttribute('placeholder')||el.getAttribute('name')
+  ))||(el&&el.textContent||'').replace(/\s+/g,' ').trim()||(el&&el.value)||'').slice(0,80);}
+  function visible(el){return !!(el&&(el.offsetParent||el.getClientRects().length)&&!el.hasAttribute('hidden'));}
+  function slug(s){return String(s||'').trim().toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9_-]/g,'').replace(/-+/g,'-').replace(/^-|-$/g,'').slice(0,40);}
+  function tag(el){if(!el||!el.setAttribute)return;var id=el.getAttribute('data-testid')||el.id||('ctl-'+slug(pageOf(el)+'-'+labelOf(el))); if(!id)id='ctl'; var base=id,n=2; while(registry.has(id)&&registry.get(id)!==el)id=base+'-'+n++; el.setAttribute('data-testid',id); registry.set(id,el);}
+  function scan(){cleanLabels(); registry.clear(); var nodes=document.querySelectorAll(selector); for(var i=0;i<nodes.length;i++)try{tag(nodes[i]);}catch(e){} return registry.size;}
+  function info(el){var r=el.getBoundingClientRect();return{testid:el.getAttribute('data-testid'),label:labelOf(el),tag:el.tagName.toLowerCase(),type:el.getAttribute('type')||el.getAttribute('role')||el.getAttribute('data-gpio')||'',page:pageOf(el),visible:visible(el),disabled:!!el.disabled||el.getAttribute('aria-disabled')==='true',value:'value'in el?el.value:undefined,rect:{x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height)}};}
+  function resolve(ref){scan(); if(ref==null)return null; var s=String(ref); if(registry.has(s))return registry.get(s); return document.querySelector('[data-testid="'+s.replace(/"/g,'')+'"]')||document.getElementById(s);}
+  window.__ui={version:'packed-frame-shim-2',list:function(opts){opts=opts||{};scan();var out=[];registry.forEach(function(el){if(opts.visibleOnly&&!visible(el))return;if(opts.page&&pageOf(el)!==opts.page)return;out.push(info(el));});return out.sort(function(a,b){return a.rect.y-b.rect.y||a.rect.x-b.rect.x;});},find:function(q){q=String(q||'').toLowerCase();return this.list().filter(function(e){return(e.testid+' '+e.label).toLowerCase().indexOf(q)>=0;});},click:function(ref){var el=resolve(ref);if(!el)return{ok:false,error:'not found: '+ref};el.scrollIntoView&&el.scrollIntoView({block:'center',inline:'center'});el.click();return{ok:true,testid:el.getAttribute('data-testid'),label:labelOf(el)};},setValue:function(ref,value){var el=resolve(ref);if(!el)return{ok:false,error:'not found: '+ref};el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return{ok:true,testid:el.getAttribute('data-testid'),value:el.value};},get:function(ref){var el=resolve(ref);return el?Object.assign({ok:true},info(el)):{ok:false,error:'not found: '+ref};},rescan:function(){return{count:scan()};}};
+  scan();
+  try{new MutationObserver(function(){setTimeout(scan,50);}).observe(document.body,{childList:true,subtree:true});}catch(e){}
 })();
