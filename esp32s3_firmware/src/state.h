@@ -4,8 +4,6 @@
 #include <freertos/portmacro.h>
 #include "config.h"
 
-constexpr uint8_t PACKED_FRAME_REASON_CHARS = M370_FRAME_REASON_CHARS;
-
 // 本头文件定义固件共享运行时状态、保存表情缓存和 RuntimeStore
 // 单例接口。跨模块读写这些字段时，调用方需要按 sync.h 的锁策略保护。
 
