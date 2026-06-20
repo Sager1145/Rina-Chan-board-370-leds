@@ -133,11 +133,7 @@ static bool runButtonActionImpl(const String& button, const String& source) {
     if (code == "B1" || code == "B2") {
         // B1/B2 leave text scrolling for saved-face navigation, so treat them as
         // Stop/Clear first when a scroll is actually being displayed.
-        if (firmwareIsDisplayingTextScroll()) {
-            stopFirmwareScroll(false, true);
-            scrollSessionSetRestoreAuto(false);
-            applyBlankFrameImmediate("scroll_exit_clear");
-        }
+        stopFirmwareScrollForNonScrollOutput("button_saved_face_non_scroll");
     }
     if (code == "B1") {
         const bool handled = applyRelativeSavedFace( 1, source + "_B1_next_saved_face", true);

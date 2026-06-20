@@ -72,8 +72,14 @@ static bool setFirmwareScrollPauseFlag(bool userFlag, bool paused) {
     const char* playbackOutside = "scroll";
 
     withScrollLock([&]() {
-        if (runtimeState().scrollFrameCount == 0 && !runtimeState().firmwareScrollActive &&
-            !runtimeState().firmwareScrollPaused) {
+        const bool displayingScroll = runtimeState().firmwareScrollActive ||
+                                      runtimeState().firmwareScrollPaused;
+        // Pause/resume is only a state sync operation for a scroll session that is
+        // currently displayed on the LEDs (running or paused).  A cached timeline
+        // alone must never be resurrected by a pause/resume command after Stop/Clear
+        // or after switching to Manual/Auto/Saved Face.
+        if (!displayingScroll || runtimeState().scrollFrameCount == 0) {
+            runtimeState().firmwareScrollActive = false;
             runtimeState().firmwareScrollUserPaused = false;
             runtimeState().firmwareScrollSystemPaused = false;
             runtimeState().firmwareScrollPaused = false;
@@ -132,7 +138,9 @@ bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits) {
 
     bool hasSteppedFrame = false;
     withScrollLock([&]() {
-        if (runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady()) {
+        const bool displayingScroll = runtimeState().firmwareScrollActive ||
+                                      runtimeState().firmwareScrollPaused;
+        if (displayingScroll && runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady()) {
             const uint16_t frameCount = runtimeState().scrollFrameCount;
             runtimeState().scrollFrameIndex =
                 direction < 0
@@ -174,8 +182,7 @@ ScrollStopResult scrollSessionStop(bool restoreAuto, bool clearDisplay) {
         // so Stop/Clear is a real terminal point and stale sourceText cannot be
         // restored by a later WebUI refresh.
         wasDisplayingScroll = runtimeState().firmwareScrollActive ||
-                               runtimeState().firmwareScrollPaused ||
-                               isScrollPlayback(runtimeState().playback);
+                               runtimeState().firmwareScrollPaused;
         changed = firmwareScrollHasRuntimeStateLocked();
         resetFirmwareScrollStateLocked(clearDisplay);
     });
@@ -393,8 +400,7 @@ bool scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize
         // Cached uploads that are not currently displayed must not resurrect an old
         // string after Stop/Clear or a mode switch.
         const bool displayingScroll = runtimeState().firmwareScrollActive ||
-                                      runtimeState().firmwareScrollPaused ||
-                                      isScrollPlayback(runtimeState().playback);
+                                      runtimeState().firmwareScrollPaused;
         if (!displayingScroll) {
             out.meta.timelineId[0]       = '\0';
             out.meta.fontId[0]           = '\0';

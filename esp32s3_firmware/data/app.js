@@ -4869,6 +4869,34 @@ function scrollStopEventFromStatus(data, renderer) {
   };
 }
 
+function firmwareStatusShowsTextScroll(data, renderer = data?.renderer || data || {}) {
+  // Hardware -> WebUI text-scroll recovery is allowed only while the LED panel is
+  // actually showing firmware text scroll. Running and paused scroll both count;
+  // stale playback strings, cached frame counts, or old sourceText metadata do not.
+  const explicitDisplaying = renderer?.firmwareScrollDisplaying ?? data?.firmwareScrollDisplaying;
+  if (typeof explicitDisplaying === "boolean") return explicitDisplaying;
+  return Boolean(
+    renderer?.firmwareScrollActive ||
+      data?.firmwareScrollActive ||
+      renderer?.firmwareScrollPaused ||
+      data?.firmwareScrollPaused
+  );
+}
+
+function clearRecoveredScrollCache(reason = "scroll_cache_cleared") {
+  pendingScrollMeta = null;
+  scroll.restoredSourceText = "";
+  scroll.restoredFromFirmwareMeta = false;
+  scroll.restoreWarning = "";
+  scroll.restoredTextTruncated = false;
+  lastFwScrollFrameCount = 0;
+  lastFwScrollTimelineId = "";
+  lastFwScrollHasSourceText = false;
+  lastFwScrollDisplaying = false;
+  lastScrollRestoreStatusDebugKey = "";
+  logScrollRestoreDebug("cache cleared", { reason });
+}
+
 function scheduleFirmwareScrollStopFullSync(
   source = "firmware_scroll_stop_full_status",
   delayMs = SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS,
@@ -4965,8 +4993,9 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
     const firmwareScrollSystemPaused = Boolean(
       renderer.firmwareScrollSystemPaused ?? data.firmwareScrollSystemPaused,
     );
-    scroll.firmwareBacked = firmwareScrollActive || firmwareScrollPaused;
-    const playbackIsScroll = isScrollPlaybackValue(playbackValue);
+    const firmwareDisplayingScroll = firmwareScrollActive || firmwareScrollPaused;
+    scroll.firmwareBacked = firmwareDisplayingScroll;
+    const playbackIsScroll = firmwareDisplayingScroll && isScrollPlaybackValue(playbackValue);
     if (hasSplitPauseFlags) {
       scroll.userPaused = firmwareScrollUserPaused;
       scroll.systemPaused = firmwareScrollSystemPaused;
@@ -4985,13 +5014,15 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
       playbackValue === "scroll_paused" ||
       firmwareScrollPaused;
     scroll.active = playbackValue === "scroll" && !scroll.paused;
-    state.textScrollActive = playbackIsScroll || firmwareScrollActive || firmwareScrollPaused;
-    if (!playbackIsScroll && !firmwareScrollActive && !firmwareScrollPaused) {
+    state.textScrollActive = firmwareDisplayingScroll;
+    if (!firmwareDisplayingScroll) {
       scroll.active = false;
       scroll.paused = false;
       scroll.userPaused = false;
       scroll.systemPaused = false;
+      scroll.firmwareBacked = false;
       state.textScrollActive = false;
+      if (isScrollPlaybackValue(state.playback)) state.playback = "idle";
     }
     stateChanged = true;
   }
@@ -5004,7 +5035,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
   const scrollFrameCountValue = Number(renderer.scrollFrameCount ?? data.scrollFrameCount);
   if (Number.isFinite(scrollFrameCountValue)) {
     const displayingForFrameCount =
-      state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
+      firmwareStatusShowsTextScroll(data, renderer);
     lastFwScrollFrameCount = displayingForFrameCount
       ? Math.max(0, Math.floor(scrollFrameCountValue))
       : 0;
@@ -5054,8 +5085,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
     }
   }
 
-  const firmwareIsScrolling =
-    state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
+  const firmwareIsScrolling = firmwareStatusShowsTextScroll(data, renderer);
   const firmwareM370 = renderer.lastM370 || renderer.m370 || data.m370;
   if (
     !skipFrame &&
@@ -5122,10 +5152,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
   const fwScrollUploadComplete = Boolean(
     renderer.scrollUploadComplete ?? data.scrollUploadComplete,
   );
-  const fwScrollDisplaying =
-    state.textScrollActive ||
-    scroll.firmwareBacked ||
-    isScrollPlaybackValue(state.playback);
+  const fwScrollDisplaying = firmwareStatusShowsTextScroll(data, renderer);
   if (renderer.scrollTimelineId !== undefined || data.scrollTimelineId !== undefined) {
     lastFwScrollDisplaying = fwScrollDisplaying;
     lastFwScrollTimelineId = fwScrollDisplaying ? fwScrollTimelineId : "";
@@ -9188,16 +9215,7 @@ function resetScrollControlsAfterButton(reason = "gpio_button", options = {}) {
   scroll.timelineId = "";
   scroll.framesTimelineId = "";
   scroll.dirty = true;
-  pendingScrollMeta = null;
-  scroll.restoredSourceText = "";
-  scroll.restoredFromFirmwareMeta = false;
-  scroll.restoreWarning = "";
-  scroll.restoredTextTruncated = false;
-  lastFwScrollFrameCount = 0;
-  lastFwScrollTimelineId = "";
-  lastFwScrollHasSourceText = false;
-  lastFwScrollDisplaying = false;
-  lastScrollRestoreStatusDebugKey = "";
+  clearRecoveredScrollCache(reason);
   resetScrollUploadProgress();
   if (preserveCurrentFrame) {
     scrollFrame = cloneFrame(currentFrame);
@@ -9618,17 +9636,8 @@ async function stopScroll() {
     scroll.timelineId = "";
     scroll.framesTimelineId = "";
     scroll.dirty = true;
-    lastFwScrollFrameCount = 0;
-    lastFwScrollTimelineId = "";
-    lastFwScrollHasSourceText = false;
-    lastFwScrollDisplaying = false;
-    lastScrollRestoreStatusDebugKey = "";
-    // Local stop: Completely clear the recovery status and local frame identity to avoid the old cache being backfilled by the recovery path after clearing the screen.
-    pendingScrollMeta = null;
-    scroll.restoredSourceText = "";
-    scroll.restoredFromFirmwareMeta = false;
-    scroll.restoreWarning = "";
-    scroll.restoredTextTruncated = false;
+    // Local stop: completely clear recovery identity so refresh cannot resurrect the old source text.
+    clearRecoveredScrollCache("text_scroll_stopped_clear");
     state.textScrollActive = false;
     state.refreshPolicy = "dirty-frame / 按需刷新";
     scrollFrame = blankFrame();
@@ -10081,13 +10090,7 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
         scrollTimelineId: meta?.scrollTimelineId || "",
       });
       if (!metaDisplayingScroll) {
-        pendingScrollMeta = null;
-        scroll.restoredSourceText = "";
-        scroll.restoredFromFirmwareMeta = false;
-        lastFwScrollTimelineId = "";
-        lastFwScrollHasSourceText = false;
-        lastFwScrollFrameCount = 0;
-        lastFwScrollDisplaying = false;
+        clearRecoveredScrollCache(`${source}_not_displaying_scroll`);
       }
       scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
       return false;

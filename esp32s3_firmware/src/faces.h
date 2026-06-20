@@ -4,6 +4,7 @@
 bool isAutoMode();
 
 bool firmwareIsDisplayingTextScroll();
+bool stopFirmwareScrollForNonScrollOutput(const String& reason = "scroll_exit_clear");
 
 String normalizedMode(const char* input);
 

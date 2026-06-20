@@ -186,7 +186,8 @@ static ScrollSessionSnapshot readScrollStateSnapshot() {
 }
 
 static void addScrollStateFields(JsonObject target, const ScrollSessionSnapshot& snapshot) {
-    const bool displayingScroll = snapshot.scrolling() || isScrollPlayback(runtimeState().playback);
+    const bool displayingScroll = snapshot.scrolling();
+    target["firmwareScrollDisplaying"]   = displayingScroll;
     target["firmwareScrollActive"]       = snapshot.firmwareScrollActive;
     target["firmwareScrollPaused"]       = snapshot.firmwareScrollPaused;
     target["firmwareScrollUserPaused"]   = snapshot.firmwareScrollUserPaused;
@@ -381,7 +382,9 @@ static void pauseFirmwareScrollIfActive(bool& changed) {
 static void resumeFirmwareScrollIfCached(bool& changed, bool requirePaused = false) {
     bool canResume = false;
     withScrollLock([&]() {
-        canResume = runtimeState().scrollFrameCount > 0 &&
+        const bool displayingScroll = runtimeState().firmwareScrollActive ||
+                                      runtimeState().firmwareScrollPaused;
+        canResume = displayingScroll && runtimeState().scrollFrameCount > 0 &&
                     (!requirePaused || runtimeState().firmwareScrollPaused);
     });
     if (canResume) changed = scrollSessionSetUserPaused(false);
@@ -744,10 +747,7 @@ static void handleApiFrame() {
     if (!isScrollPlayback(String(mode))) {
         // A non-scroll frame replaces text scrolling, equivalent to Stop/Clear
         // before entering the target display mode.
-        if (firmwareIsDisplayingTextScroll()) {
-            stopFirmwareScroll(false, true);
-            applyBlankFrameImmediate("scroll_exit_clear");
-        }
+        stopFirmwareScrollForNonScrollOutput("api_frame_non_scroll");
     }
     if (reason.startsWith("custom_") || reason.startsWith("parts_")) {
         setMode("manual", false);
@@ -881,10 +881,7 @@ static void handleApiFrameBin() {
     }
 
     // Stop text scroll when a new frame is received
-    if (firmwareIsDisplayingTextScroll()) {
-        stopFirmwareScroll(false, true);
-        applyBlankFrameImmediate("scroll_exit_clear");
-    }
+    stopFirmwareScrollForNonScrollOutput("api_frame_bin_non_scroll");
 
 #if ENABLE_PERF_PROFILING
     uint32_t tApplyStart = micros();
@@ -1288,6 +1285,7 @@ static void handleApiScrollMeta() {
     doc["frameCount"]           = metaOut.frameCount;
     doc["frameIndex"]           = metaOut.frameIndex;
     doc["uploadComplete"]       = metaOut.meta.uploadComplete;
+    doc["firmwareScrollDisplaying"] = metaOut.active || metaOut.paused;
     doc["firmwareScrollActive"] = metaOut.active;
     doc["firmwareScrollPaused"] = metaOut.paused;
     doc["firmwareScrollUserPaused"] = metaOut.userPaused;
@@ -1512,7 +1510,7 @@ static bool commandTerminateOtherActivities(JsonDocument& doc, JsonVariant paylo
     (void)doc;
     (void)error;
     const char* targetMode = payload["targetMode"] | "";
-    if (strcmp(targetMode, "scroll") != 0) stopFirmwareScroll(false, true);
+    if (strcmp(targetMode, "scroll") != 0) stopFirmwareScrollForNonScrollOutput("api_terminate_non_scroll");
     if (strcmp(targetMode, "face") != 0 && strcmp(targetMode, "scroll") != 0) {
         setMode("manual", true);
     } else if (strcmp(targetMode, "scroll") == 0 && isAutoMode()) {

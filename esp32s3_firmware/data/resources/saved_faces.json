@@ -7,7 +7,7 @@
     "m370HexChars": 93
   },
   "startupDefaultId": "face_08_triangle_eyes_frown",
-  "updatedAt": "2026-06-19T13:13:06.938Z",
+  "updatedAt": "2026-06-19T01:06:51.266Z",
   "faces": [
     {
       "id": "face_01_surprised_winking_with_mouth",
@@ -172,6 +172,21 @@
       "sourceFile": "saved_faces.json",
       "savedAt": "2026-05-09T08:51:53+00:00",
       "updatedAt": null,
+      "call": null
+    },
+    {
+      "id": "custom_1781831211262",
+      "name": "\u81ea\u5b9a\u81c9\u81c9\ud83c\udf89",
+      "type": "custom",
+      "m370": "M370:800002000008000020000080000000000000000000000000000000000000000000000000000000000000000000000",
+      "order": 12,
+      "editable": true,
+      "deletable": true,
+      "locked": false,
+      "is_startup_default": false,
+      "sourceFile": "saved_faces.json",
+      "savedAt": "2026-06-19T01:06:51.262Z",
+      "updatedAt": "2026-06-19T01:06:51.262Z",
       "call": null
     }
   ]
