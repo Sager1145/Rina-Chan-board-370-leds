@@ -254,9 +254,16 @@ void serviceDeferredFaceRestore() {
     }
 }
 
+static bool shouldForceClearWhenStoppingScroll() {
+    return runtimeState().firmwareScrollActive ||
+           runtimeState().firmwareScrollPaused ||
+           isScrollPlayback(runtimeState().playback);
+}
+
 void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
     cancelDeferredFaceRestore();
-    const ScrollStopResult r = scrollSessionStop(restoreAuto, clearDisplay);
+    const bool effectiveClearDisplay = clearDisplay || shouldForceClearWhenStoppingScroll();
+    const ScrollStopResult r = scrollSessionStop(restoreAuto, effectiveClearDisplay);
     if (r.cleared) {
         if (r.shouldRestoreDefault) scheduleStartupDefaultFaceRestoreAfterBlank(r.restoreAuto);
     } else if (r.restoreAuto) {
