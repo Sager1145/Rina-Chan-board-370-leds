@@ -90,7 +90,7 @@ void setup() {
 
 void loop() {
     // 稳定后，再执行延迟恢复和自动播放。
-    serviceM370FrameQueue();
+    servicePackedFrameQueue();
     if (!g_syncReady) {
         renderCurrentFrameToLedStrip();
     }
