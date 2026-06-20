@@ -78,10 +78,16 @@ void unlockScroll() {
 }
 
 void lockStorage() {
+    // Storage logically nests before HardwareBus. Holding both serializes LittleFS
+    // flash transactions with WS2812 strip.show(), preventing WebUI refresh/static
+    // streaming or JSON writes from overlapping LED timing on the bus/cache path.
     if (sStorageMutex) xSemaphoreTake(sStorageMutex, portMAX_DELAY);
+    if (sHardwareBusMutex) xSemaphoreTake(sHardwareBusMutex, portMAX_DELAY);
 }
 
 void unlockStorage() {
+    // Reverse of lockStorage(): HardwareBus first, then Storage.
+    if (sHardwareBusMutex) xSemaphoreGive(sHardwareBusMutex);
     if (sStorageMutex) xSemaphoreGive(sStorageMutex);
 }
 
