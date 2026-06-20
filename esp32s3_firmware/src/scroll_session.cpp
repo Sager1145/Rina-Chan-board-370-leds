@@ -24,6 +24,13 @@ void scrollSessionSetRestoreAuto(bool value) {
     });
 }
 
+static uint8_t uiFpsFromScrollInterval(uint16_t intervalMs) {
+    const uint16_t constrained = constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+    if (constrained == 0) return 0;
+    const uint32_t rounded = (1000UL + (constrained / 2U)) / constrained;
+    return static_cast<uint8_t>(constrain(rounded, 1UL, 255UL));
+}
+
 static bool firmwareScrollHasRuntimeStateLocked() {
     return runtimeState().firmwareScrollActive ||
            runtimeState().firmwareScrollPaused ||
@@ -186,6 +193,7 @@ ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode)
             result.engagedRestoreAuto = runtimeState().restoreAutoAfterScroll;
             runtimeState().scrollIntervalMs =
                 constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+            runtimeScrollMeta().uiFps = uiFpsFromScrollInterval(runtimeState().scrollIntervalMs);
             runtimeState().scrollFrameIndex           = 0;
             runtimeState().lastScrollFrameMs          = millis();
             runtimeState().firmwareScrollActive       = true;
@@ -214,6 +222,7 @@ void scrollSessionSetInterval(uint16_t intervalMs) {
     withScrollLock([&]() {
         runtimeState().scrollIntervalMs =
             constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+        runtimeScrollMeta().uiFps = uiFpsFromScrollInterval(runtimeState().scrollIntervalMs);
         runtimeState().lastScrollFrameMs = millis();
     });
     touchRuntimeState();
@@ -320,6 +329,7 @@ ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_
         if (hasExplicitTiming) {
             runtimeState().scrollIntervalMs =
                 constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+            runtimeScrollMeta().uiFps = uiFpsFromScrollInterval(runtimeState().scrollIntervalMs);
         }
 
         ScrollTimelineMeta& meta = runtimeScrollMeta();
