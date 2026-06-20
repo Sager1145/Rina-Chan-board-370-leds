@@ -28,6 +28,7 @@
 #include "scroll.h"
 #include "scroll_session.h"
 #include "serial_log.h"
+#include "perf_counters.h"
 #include <DNSServer.h>
 #include <WebServer.h>
 #include <WiFi.h>
@@ -185,17 +186,18 @@ static ScrollSessionSnapshot readScrollStateSnapshot() {
 }
 
 static void addScrollStateFields(JsonObject target, const ScrollSessionSnapshot& snapshot) {
+    const bool displayingScroll = snapshot.scrolling() || isScrollPlayback(runtimeState().playback);
     target["firmwareScrollActive"]       = snapshot.firmwareScrollActive;
     target["firmwareScrollPaused"]       = snapshot.firmwareScrollPaused;
     target["firmwareScrollUserPaused"]   = snapshot.firmwareScrollUserPaused;
     target["firmwareScrollSystemPaused"] = snapshot.firmwareScrollSystemPaused;
     target["restoreAutoAfterScroll"]     = snapshot.restoreAutoAfterScroll;
-    target["scrollFrameCount"]           = snapshot.scrollFrameCount;
-    target["scrollFrameIndex"]           = snapshot.scrollFrameIndex;
+    target["scrollFrameCount"]           = displayingScroll ? snapshot.scrollFrameCount : 0;
+    target["scrollFrameIndex"]           = displayingScroll ? snapshot.scrollFrameIndex : 0;
     target["scrollIntervalMs"]           = snapshot.scrollIntervalMs;
-    target["scrollTimelineId"]           = String(snapshot.scrollTimelineId);
-    target["scrollUploadComplete"]       = snapshot.scrollUploadComplete;
-    target["scrollHasSourceText"]        = snapshot.scrollHasSourceText;
+    target["scrollTimelineId"]           = displayingScroll ? String(snapshot.scrollTimelineId) : String();
+    target["scrollUploadComplete"]       = displayingScroll && snapshot.scrollUploadComplete;
+    target["scrollHasSourceText"]        = displayingScroll && snapshot.scrollHasSourceText;
 }
 
 static void addScrollStopEvent(JsonObject target) {
@@ -662,7 +664,6 @@ static bool readLedDeltaList(JsonDocument& doc, uint16_t* indices, bool* values,
         if (valueVariant.isNull()) valueVariant = doc["value"];
         if (!appendDelta(idxRaw, valueVariant)) return false;
     }
-
     if (count == 0) {
         error = "missing LED delta changes";
         return false;
@@ -671,8 +672,15 @@ static bool readLedDeltaList(JsonDocument& doc, uint16_t* indices, bool* values,
 }
 
 static void handleApiFrame() {
+#if ENABLE_PERF_PROFILING
+    uint32_t t0 = micros();
+#endif
     if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
     if (server.method() != HTTP_POST)    { sendError(405, "method not allowed"); return; }
+
+#if ENABLE_PERF_PROFILING
+    uint32_t tParseStart = micros();
+#endif
     String error;
     PsramJsonDocument doc(4096);
     if (!parseJsonBody(doc, error)) { sendError(400, error); return; }
@@ -698,6 +706,11 @@ static void handleApiFrame() {
         sendError(400, error);
         return;
     }
+#if ENABLE_PERF_PROFILING
+    uint32_t parseUs = micros() - tParseStart;
+#else
+    uint32_t parseUs = 0;
+#endif
 
     String normalizedM370;
     if (hasM370 && !normalizeM370(String(m370), normalizedM370, error)) {
@@ -710,16 +723,40 @@ static void handleApiFrame() {
     const char* mode = doc["mode"] | "";
     if (strlen(mode) == 0) mode = doc["playback"] | "idle";
     const String reason = doc["reason"] | "api_frame";
+    const bool liveFrame = reason.startsWith("custom_live_") || reason.startsWith("parts_live_");
+
+    // Sequence number check
+    const uint32_t seq = doc["seq"] | 0;
+    static uint32_t lastLiveSeq = 0;
+    if (liveFrame && seq > 0) {
+        if (seq == 1) {
+            lastLiveSeq = 1;
+        } else if (seq <= lastLiveSeq) {
+            server.send(204);
+#if ENABLE_PERF_PROFILING
+            perfRecordApiFrame(micros() - t0, parseUs, 0, 0, server.arg("plain").length(), deltaCount, liveFrame, deltaCount > 0);
+#endif
+            return;
+        }
+        lastLiveSeq = seq;
+    }
 
     if (!isScrollPlayback(String(mode))) {
-        stopFirmwareScroll(false);
+        // A non-scroll frame replaces text scrolling, equivalent to Stop/Clear
+        // before entering the target display mode.
+        if (firmwareIsDisplayingTextScroll()) {
+            stopFirmwareScroll(false, true);
+            applyBlankFrameImmediate("scroll_exit_clear");
+        }
     }
     if (reason.startsWith("custom_") || reason.startsWith("parts_")) {
         setMode("manual", false);
     }
     runtimeState().playback = mode;
 
-    const bool liveFrame = reason.startsWith("custom_live_") || reason.startsWith("parts_live_");
+#if ENABLE_PERF_PROFILING
+    uint32_t tApplyStart = micros();
+#endif
     if (deltaCount > 0) {
         clearQueuedM370Frames();
         if (!applyLedDeltasImmediate(deltaIndices, deltaValues, deltaCount, reason, error)) {
@@ -733,6 +770,11 @@ static void handleApiFrame() {
         sendError(400, error);
         return;
     }
+#if ENABLE_PERF_PROFILING
+    uint32_t applyUs = micros() - tApplyStart;
+#else
+    uint32_t applyUs = 0;
+#endif
 
     const char* faceId = doc["faceId"] | "";
     if (strlen(faceId) > 0 && ensureSavedFacesLoaded()) {
@@ -747,20 +789,15 @@ static void handleApiFrame() {
         }
     }
 
-    // Live edits (custom/parts real-time mode) fire one HTTP request per changed
-    // cell. The single-threaded web server must answer quickly so the next delta
-    // can be sent without backing up. The browser already knows the resulting
-    // frame for live edits, so skip the heavy work below (frame-lock snapshot,
-    // lit-count popcount, saved-face lookup, full M370 string) and return a tiny
-    // acknowledgement instead.
+#if ENABLE_PERF_PROFILING
+    uint32_t tResponseStart = micros();
+#endif
     if (liveFrame) {
-        DynamicJsonDocument liveReply(192);
-        liveReply["ok"]           = true;
-        liveReply["accepted"]     = true;
-        liveReply["v"]            = runtimeStateVersion();
-        liveReply["version"]      = runtimeStateVersion();
-        liveReply["next_poll_ms"] = statusNextPollMs(false, false);
-        sendJsonDocument(200, liveReply);
+        server.send(204);
+#if ENABLE_PERF_PROFILING
+        uint32_t responseUs = micros() - tResponseStart;
+        perfRecordApiFrame(micros() - t0, parseUs, applyUs, responseUs, server.arg("plain").length(), deltaCount, liveFrame, deltaCount > 0);
+#endif
         return;
     }
 
@@ -786,6 +823,156 @@ static void handleApiFrame() {
     reply["m370"]          = fs.lastM370;
     reply["lit"]           = fs.litLeds;
     sendJsonDocument(200, reply);
+#if ENABLE_PERF_PROFILING
+    uint32_t responseUs = micros() - tResponseStart;
+    perfRecordApiFrame(micros() - t0, parseUs, applyUs, responseUs, server.arg("plain").length(), deltaCount, liveFrame, deltaCount > 0);
+#endif
+}
+
+static String getBinaryReasonString(uint8_t reasonEnum) {
+    switch (reasonEnum) {
+        case 1: return "custom_live_send";
+        case 2: return "parts_live_send";
+        case 3: return "webui_frame";
+        case 4: return "webui_delta";
+        default: return "binary_frame";
+    }
+}
+
+static void handleApiFrameBin() {
+#if ENABLE_PERF_PROFILING
+    uint32_t t0 = micros();
+#endif
+    if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
+    if (server.method() != HTTP_POST)    { sendError(405, "method not allowed"); return; }
+
+    WiFiClient client = server.client();
+    
+    uint8_t header[6];
+    if (client.readBytes(header, 6) != 6) {
+        sendError(400, "incomplete binary header");
+        return;
+    }
+    
+    uint8_t type = header[0];
+    uint8_t reasonEnum = header[1];
+    uint32_t seq = (uint32_t)header[2] | ((uint32_t)header[3] << 8) | ((uint32_t)header[4] << 16) | ((uint32_t)header[5] << 24);
+    
+    String reason = getBinaryReasonString(reasonEnum);
+    const bool liveFrame = reason.startsWith("custom_live_") || reason.startsWith("parts_live_");
+
+    // Sequence number check
+    static uint32_t lastLiveSeq = 0;
+    if (liveFrame && seq > 0) {
+        if (seq == 1) {
+            lastLiveSeq = 1;
+        } else if (seq <= lastLiveSeq) {
+            server.send(204);
+#if ENABLE_PERF_PROFILING
+            perfRecordApiFrame(micros() - t0, 0, 0, 0, 6, 0, liveFrame, false);
+#endif
+            return;
+        }
+        lastLiveSeq = seq;
+    }
+
+    if (reason.startsWith("custom_") || reason.startsWith("parts_")) {
+        setMode("manual", false);
+    }
+
+    // Stop text scroll when a new frame is received
+    if (firmwareIsDisplayingTextScroll()) {
+        stopFirmwareScroll(false, true);
+        applyBlankFrameImmediate("scroll_exit_clear");
+    }
+
+#if ENABLE_PERF_PROFILING
+    uint32_t tApplyStart = micros();
+#endif
+
+    if (type == 1) {
+        uint8_t packed[FRAME_BYTES];
+        if (client.readBytes(packed, FRAME_BYTES) != FRAME_BYTES) {
+            sendError(400, "incomplete binary frame body");
+            return;
+        }
+        
+        clearQueuedM370Frames();
+        applyPackedFrameImmediate(packed, reason);
+
+#if ENABLE_PERF_PROFILING
+        uint32_t applyUs = micros() - tApplyStart;
+#endif
+        server.send(204);
+#if ENABLE_PERF_PROFILING
+        perfRecordApiFrame(micros() - t0, 0, applyUs, 0, 6 + FRAME_BYTES, 0, liveFrame, false);
+#endif
+        return;
+    } else if (type == 2) {
+        uint8_t countByte;
+        if (client.readBytes(&countByte, 1) != 1) {
+            sendError(400, "incomplete binary delta count");
+            return;
+        }
+        
+        uint16_t count = countByte;
+        uint16_t indices[256];
+        bool values[256];
+        
+        for (uint16_t i = 0; i < count; i++) {
+            uint8_t entry[3];
+            if (client.readBytes(entry, 3) != 3) {
+                sendError(400, "incomplete binary delta entry");
+                return;
+            }
+            indices[i] = (uint16_t)entry[0] | ((uint16_t)entry[1] << 8);
+            values[i] = entry[2] != 0;
+        }
+        
+        String error;
+        clearQueuedM370Frames();
+        if (!applyLedDeltasImmediate(indices, values, count, reason, error)) {
+            sendError(400, error);
+            return;
+        }
+
+#if ENABLE_PERF_PROFILING
+        uint32_t applyUs = micros() - tApplyStart;
+#endif
+        server.send(204);
+#if ENABLE_PERF_PROFILING
+        perfRecordApiFrame(micros() - t0, 0, applyUs, 0, 7 + count * 3, count, liveFrame, true);
+#endif
+        return;
+    } else {
+        sendError(400, "invalid binary packet type");
+    }
+}
+
+static void handleApiPerf() {
+    if (server.method() == HTTP_OPTIONS) { handleOptions(); return; }
+    
+    if (server.method() == HTTP_POST) {
+#if ENABLE_PERF_PROFILING
+        perfClearCounters();
+#endif
+        DynamicJsonDocument doc(128);
+        doc["ok"] = true;
+        doc["cleared"] = true;
+        sendJsonDocument(200, doc);
+        return;
+    }
+    
+    if (server.method() != HTTP_GET) { sendError(405, "method not allowed"); return; }
+    
+    DynamicJsonDocument doc(4096);
+    doc["ok"] = true;
+#if ENABLE_PERF_PROFILING
+    perfSerializeCounters(doc);
+#else
+    doc["profilingEnabled"] = false;
+#endif
+    sendJsonDocument(200, doc);
 }
 
 static void handleApiScroll() {
@@ -936,7 +1123,9 @@ static void handleApiScroll() {
         }
 
         clearQueuedM370Frames();
-        stopFirmwareScroll(false);
+        // Replacing one text-scroll upload with another only needs to halt the old
+        // player; scrollSessionBeginUpload below clears the old timeline/source.
+        stopFirmwareScroll(false, false);
         clearQueuedM370Frames();
         ScrollUploadMeta uploadMeta;
         uploadMeta.timelineId       = timelineIdPresent ? timelineId.c_str() : "";
@@ -1323,7 +1512,7 @@ static bool commandTerminateOtherActivities(JsonDocument& doc, JsonVariant paylo
     (void)doc;
     (void)error;
     const char* targetMode = payload["targetMode"] | "";
-    if (strcmp(targetMode, "scroll") != 0) stopFirmwareScroll(false, false);
+    if (strcmp(targetMode, "scroll") != 0) stopFirmwareScroll(false, true);
     if (strcmp(targetMode, "face") != 0 && strcmp(targetMode, "scroll") != 0) {
         setMode("manual", true);
     } else if (strcmp(targetMode, "scroll") == 0 && isAutoMode()) {
@@ -1604,6 +1793,8 @@ void startWebServer() {
     server.on("/api/status",      HTTP_ANY, handleApiStatus);
     server.on("/api/power",       HTTP_ANY, handleApiPower);
     server.on("/api/frame",       HTTP_ANY, handleApiFrame);
+    server.on("/api/frame_bin",   HTTP_ANY, handleApiFrameBin);
+    server.on("/api/perf",        HTTP_ANY, handleApiPerf);
     server.on("/api/scroll",      HTTP_ANY, handleApiScroll);
     server.on("/api/scroll/meta", HTTP_ANY, handleApiScrollMeta);
     server.on("/api/command",     HTTP_ANY, handleApiCommand);

@@ -19,6 +19,8 @@
 #include "storage.h"
 #include "utils.h"
 #include "serial_log.h"
+#include "led_renderer.h"
+#include "perf_counters.h"
 
 #include <algorithm>
 #include <ArduinoJson.h>
@@ -453,6 +455,17 @@ void initPowerMonitor() {
 }
 
 void servicePowerMonitor(bool force) {
+#if ENABLE_PERF_PROFILING
+    uint32_t t0 = micros();
+#endif
+
+    if (!force && isLiveFrameActivityRecent(250)) {
+#if ENABLE_PERF_PROFILING
+        perfRecordPowerService(micros() - t0);
+#endif
+        return;
+    }
+
     const uint32_t now = millis();
 
     if (force || powerStatus.lastBatteryMs == 0 ||
@@ -466,6 +479,10 @@ void servicePowerMonitor(bool force) {
 
     serviceBatteryCalibrationSave(now);
     servicePowerWebPublish(now, force);
+
+#if ENABLE_PERF_PROFILING
+    perfRecordPowerService(micros() - t0);
+#endif
 }
 
 PowerStatus readPowerStatusSnapshot() {

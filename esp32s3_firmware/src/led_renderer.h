@@ -28,6 +28,7 @@ bool applyLedDeltasImmediate(const uint16_t* indices, const bool* values, uint16
 void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason);
 
 void applyBlankFrame(const String& reason);
+void applyBlankFrameImmediate(const String& reason);
 
 void serviceM370FrameQueue();
 
@@ -52,3 +53,6 @@ void renderCurrentFrameToLedStrip();
 void initLedIndexMap();
 
 void ledStripBegin();
+
+void markLiveFrameActivity();
+bool isLiveFrameActivityRecent(uint32_t windowMs = 250);

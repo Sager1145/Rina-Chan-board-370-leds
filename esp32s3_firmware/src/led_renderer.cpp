@@ -13,6 +13,7 @@
  * - Provides the base layout mapping tables utilized in text rendering and scrolling.
  */
 #include "led_renderer.h"
+#include "perf_counters.h"
 #include "state.h"
 #include "sync.h"
 #include "scroll.h"
@@ -33,6 +34,7 @@ struct QueuedM370Frame {
     char    m370[5 + M370_HEX_CHARS + 1] = "";
     char    reason[M370_FRAME_REASON_CHARS] = "";
     bool    hasM370 = false;
+    uint32_t enqueueUs = 0;
 };
 
 static QueuedM370Frame m370FrameQueue[M370_FRAME_QUEUE_DEPTH];
@@ -106,6 +108,9 @@ static void copyText(char* out, size_t outSize, const char* input) {
 }
 
 static void publishPackedFrameNow(const uint8_t* packedBits, const char* normalizedM370, const char* reason) {
+#if ENABLE_PERF_PROFILING
+    currentFrameAcceptedUs = micros();
+#endif
     withFrameLock([&]() {
         memcpy(runtimeFrameBits(), packedBits, FRAME_BYTES);
         if (normalizedM370 && normalizedM370[0] != '\0') {
@@ -133,6 +138,9 @@ static void enqueuePackedM370Frame(const uint8_t* packedBits, const char* normal
         target = m370FrameQueueHead;
         m370FrameQueueHead = static_cast<uint8_t>((m370FrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
         ++runtimeState().framesDropped;
+#if ENABLE_PERF_PROFILING
+        perfRecordQueueDropped();
+#endif
     } else {
         ++m370FrameQueueCount;
     }
@@ -146,6 +154,10 @@ static void enqueuePackedM370Frame(const uint8_t* packedBits, const char* normal
         m370FrameQueue[target].hasM370 = false;
     }
     copyText(m370FrameQueue[target].reason, sizeof(m370FrameQueue[target].reason), reason.c_str());
+#if ENABLE_PERF_PROFILING
+    m370FrameQueue[target].enqueueUs = micros();
+    perfRecordQueueEnqueue();
+#endif
     ++runtimeState().framesQueued;
 }
 
@@ -156,6 +168,9 @@ void initLedIndexMap() {
 }
 
 void requestLedRender() {
+#if ENABLE_PERF_PROFILING
+    lastRenderRequestUs = micros();
+#endif
     if (xPortInIsrContext()) {
         portENTER_CRITICAL_ISR(&ledRenderRequestMux);
         ledRenderRequested = true;
@@ -254,6 +269,12 @@ FrameStateSnapshot readFrameStateSnapshot() {
 }
 
 void renderCurrentFrameToLedStrip() {
+#if ENABLE_PERF_PROFILING
+    renderStartUs = micros();
+    uint32_t t0 = renderStartUs;
+    uint32_t reqToStart = renderStartUs - lastRenderRequestUs;
+#endif
+
     // After setup(), this function is expected to run only on the Core 1
     // render task. The static buffers below rely on that single-caller
     // invariant.
@@ -283,6 +304,9 @@ void renderCurrentFrameToLedStrip() {
         strip.setBrightness(brightness);
         lastAppliedBrightness = brightness;
     }
+#if ENABLE_PERF_PROFILING
+    uint32_t tPixelLoopStart = micros();
+#endif
     const bool overlayActive = copyButtonAnimationOverlay(overlayRgb, LED_COUNT);
     if (overlayActive) {
         for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
@@ -301,11 +325,21 @@ void renderCurrentFrameToLedStrip() {
             );
         }
     }
+#if ENABLE_PERF_PROFILING
+    uint32_t pixelLoopUs = micros() - tPixelLoopStart;
+    uint32_t tShowStart = micros();
+#endif
 
     delayMicroseconds(LED_SIGNAL_RESET_US);
     withHardwareBusLock([]() {
         strip.show();
     });
+#if ENABLE_PERF_PROFILING
+    showDoneUs = micros();
+    uint32_t showUs = showDoneUs - tShowStart;
+    uint32_t totalUs = showDoneUs - t0;
+    perfRecordRender(reqToStart, pixelLoopUs, showUs, totalUs);
+#endif
     lastLedShowUs = micros();
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
@@ -407,6 +441,7 @@ bool applyM370(const String& input, const String& reason, String& error) {
 }
 
 bool applyM370Immediate(const String& input, const String& reason, String& error) {
+    markLiveFrameActivity();
     String normalized;
     if (!normalizeM370(input, normalized, error)) {
         ++runtimeState().framesRejected;
@@ -425,6 +460,7 @@ bool applyM370Immediate(const String& input, const String& reason, String& error
 
 bool applyLedDeltasImmediate(const uint16_t* indices, const bool* values, uint16_t count,
                              const String& reason, String& error) {
+    markLiveFrameActivity();
     if (!indices || !values || count == 0) {
         error = "missing LED delta changes";
         ++runtimeState().framesRejected;
@@ -453,6 +489,7 @@ bool applyLedDeltasImmediate(const uint16_t* indices, const bool* values, uint16
 
 void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason) {
     if (!packedBits) return;
+    markLiveFrameActivity();
     publishPackedFrameNow(packedBits, nullptr, reason.c_str());
     // RAM-only record; no per-frame Serial logging (read on demand instead).
     const uint16_t lit = countLitLedsLocked(packedBits);
@@ -464,6 +501,13 @@ void applyBlankFrame(const String& reason) {
     enqueuePackedM370Frame(blank, blankM370Text(), reason);
     // RAM-only record; no per-frame Serial logging (read on demand instead).
     rinaLogRecordLedCommand(reason.c_str(), 0, "clear");
+}
+
+void applyBlankFrameImmediate(const String& reason) {
+    clearQueuedM370Frames();
+    uint8_t blank[FRAME_BYTES] = {};
+    publishPackedFrameNow(blank, blankM370Text(), reason.c_str());
+    rinaLogRecordLedCommand(reason.c_str(), 0, "clear_immediate");
 }
 
 void serviceM370FrameQueue() {
@@ -485,6 +529,11 @@ void serviceM370FrameQueue() {
         m370FrameQueueCount = 1;
         runtimeState().framesDropped  += skipped;
         runtimeState().framesDequeued += skipped;
+#if ENABLE_PERF_PROFILING
+        for (uint8_t s = 0; s < skipped; ++s) {
+            perfRecordQueueDropped();
+        }
+#endif
     }
 
     QueuedM370Frame& item = m370FrameQueue[m370FrameQueueHead];
@@ -492,18 +541,37 @@ void serviceM370FrameQueue() {
     --m370FrameQueueCount;
     ++runtimeState().framesDequeued;
 
+#if ENABLE_PERF_PROFILING
+    perfRecordQueueDequeue(micros() - item.enqueueUs);
+#endif
+
     publishPackedFrameNow(item.bits, item.hasM370 ? item.m370 : nullptr, item.reason);
 }
 
 void clearQueuedM370Frames() {
     if (m370FrameQueueCount == 0) return;
     runtimeState().framesDropped += m370FrameQueueCount;
+#if ENABLE_PERF_PROFILING
+    for (uint8_t i = 0; i < m370FrameQueueCount; ++i) {
+        perfRecordQueueDropped();
+    }
+#endif
     m370FrameQueueHead = 0;
     m370FrameQueueCount = 0;
 }
 
 uint8_t queuedM370FrameCount() {
     return m370FrameQueueCount;
+}
+
+static volatile uint32_t lastLiveFrameMs = 0;
+
+void markLiveFrameActivity() {
+    lastLiveFrameMs = millis();
+}
+
+bool isLiveFrameActivityRecent(uint32_t windowMs) {
+    return (millis() - lastLiveFrameMs) < windowMs;
 }
 
 void setColorStateNoRender(const String& input) {

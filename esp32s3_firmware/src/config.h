@@ -187,6 +187,9 @@ constexpr char SETTINGS_PATH[]          = "/resources/runtime_settings.json";
 // The console depends on the logger (it drives the `log` commands and reads the
 // LED history), so the combination console=1 + diagnostics=0 is rejected.
 // =============================================================================
+#ifndef ENABLE_PERF_PROFILING
+#define ENABLE_PERF_PROFILING 1
+#endif
 #ifndef ENABLE_SERIAL_DIAGNOSTICS
 #define ENABLE_SERIAL_DIAGNOSTICS 1
 #endif

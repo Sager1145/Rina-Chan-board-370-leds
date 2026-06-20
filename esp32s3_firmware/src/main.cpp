@@ -103,14 +103,20 @@ void setup() {
 // for the LED render/scroll task to prevent network loads from disrupting WS2812/RMT timings.
 
 void loop() {
+    // Poll hardware buttons first to capture user interactions immediately
+    serviceHardwareButtons();
+    
     // After stabilizing, perform deferred recovery and auto playback.
     serviceM370FrameQueue();
     if (!g_syncReady) {
         renderCurrentFrameToLedStrip();
     }
     webServerTick();
-    serviceRuntimeSlowStatePublish();
+    
+    // Poll hardware buttons a second time to handle inputs arriving during slow HTTP requests
     serviceHardwareButtons();
+    
+    serviceRuntimeSlowStatePublish();
     serviceSerialConsole();
     serviceButtonAnimations();
     servicePowerMonitor();

@@ -106,7 +106,7 @@ const WEBUI_CONFIG = Object.freeze({
   // Timing of firmware writing to queue. These values are used to protect single-threaded ESP32 web servers,
   // Avoid getting overwhelmed by fast browser events like dragging sliders.
   firmwareQueues: {
-    m370SendIntervalMs: 16,
+    m370SendIntervalMs: 33,
     m370QueueMax: 3,
     buttonCommandIntervalMs: 120,
     buttonCommandQueueMax: 4,
@@ -3630,6 +3630,7 @@ let scrollMetaRestoreEnabled = false;
 let lastFwScrollTimelineId = "";
 let lastFwScrollHasSourceText = false;
 let lastFwScrollFrameCount = 0;
+let lastFwScrollDisplaying = false;
 let lastScrollRestoreStatusDebugKey = "";
 let postBootScrollMetaRestoreStarted = false;
 // The factory default text of the input box in index.html; regarded as "non-user unsent content" and allowed to be overwritten by recovery.
@@ -3732,7 +3733,10 @@ const scrollMachine = (function () {
     } else if (!hasUserPaused) {
       dispatch(paused ? "PAUSE_SYSTEM" : "RESUME_SYSTEM");
     }
-    machine.device.hasSession = active || paused || (frameCount > 0 && (uploadComplete || hasSourceText));
+    // Hardware -> WebUI scroll synchronization is valid only while the LED panel
+    // is actually displaying text scrolling. Cached sourceText/frameCount alone is
+    // not a live session and must not resurrect old text after Stop/Clear.
+    machine.device.hasSession = active || paused;
     scroll.firmwareBacked = active || paused;
     if (machine.device.hasSession && machine.state === "IDLE") {
       setPhase("ACTIVE");
@@ -3836,13 +3840,9 @@ const scrollMachine = (function () {
         break;
       case "RESTORE_DONE":
         if (payload && typeof payload === "object") {
-          const frameCount = Math.max(0, Math.floor(Number(payload.frameCount ?? payload.scrollFrameCount) || 0));
-          const uploadComplete = !!(payload.uploadComplete ?? payload.scrollUploadComplete);
-          const hasSourceText = !!(payload.hasSourceText ?? payload.scrollHasSourceText);
           machine.device.hasSession =
             !!payload.firmwareScrollActive ||
-            !!payload.firmwareScrollPaused ||
-            (frameCount > 0 && (uploadComplete || hasSourceText));
+            !!payload.firmwareScrollPaused;
         }
         machine.cache.identityBound = deriveIdentityBound(payload);
         setPhase(machine.device.hasSession ? "ACTIVE" : "IDLE");
@@ -4533,44 +4533,66 @@ async function apiGet(path, options = {}) {
 }
 async function apiPost(path, payload, options = {}) {
   const url = apiUrl(path);
-  firmware.lastRequest = `POST ${path}`;
-  renderState();
+  const silent = options.silent === true;
+  const expectJson = options.expectJson !== false;
+  const isBinary = payload instanceof ArrayBuffer;
+
+  if (!silent) {
+    firmware.lastRequest = `POST ${path}`;
+    renderState();
+  }
   if (!url) {
-    firmware.online = false;
-    firmware.lastStatus = "offline html mode";
-    firmware.lastError = `offline: ${path}`;
+    if (!silent) {
+      firmware.online = false;
+      firmware.lastStatus = "offline html mode";
+      firmware.lastError = `offline: ${path}`;
+    }
     throw new Error(`offline html mode: ${path}`);
   }
   const timeoutMs = options.timeoutMs || API_POST_TIMEOUT_MS;
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
+    const headers = {};
+    if (isBinary) {
+      headers["Content-Type"] = "application/octet-stream";
+    } else {
+      headers["Content-Type"] = "application/json";
+      headers["Accept"] = "application/json";
+    }
+
     const res = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(payload || {}),
+      headers,
+      body: isBinary ? payload : JSON.stringify(payload || {}),
       signal: controller?.signal,
     });
     firmware.online = res.ok;
-    firmware.lastStatus = `${res.status} ${res.statusText || ""}`.trim();
-    if (!res.ok) {
-      firmware.lastError = firmware.lastStatus;
-      throw new Error(firmware.lastStatus);
+    if (!silent) {
+      firmware.lastStatus = `${res.status} ${res.statusText || ""}`.trim();
     }
-    const text = await res.text();
-    return parseApiJson(text, path, {
-      ok: true,
-    });
+    if (!res.ok) {
+      if (!silent) {
+        firmware.lastError = firmware.lastStatus;
+      }
+      throw new Error(res.statusText || String(res.status));
+    }
+    if (expectJson && res.status !== 204) {
+      const text = await res.text();
+      return parseApiJson(text, path, {
+        ok: true,
+      });
+    }
+    return null;
   } catch (err) {
     const message =
       err?.name === "AbortError"
         ? `POST ${path} timeout after ${timeoutMs}ms`
         : err.message || String(err);
-    firmware.online = false;
-    firmware.lastError = message;
+    if (!silent) {
+      firmware.online = false;
+      firmware.lastError = message;
+    }
     throw new Error(message);
   } finally {
     if (timeout) clearTimeout(timeout);
@@ -4981,7 +5003,11 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
 
   const scrollFrameCountValue = Number(renderer.scrollFrameCount ?? data.scrollFrameCount);
   if (Number.isFinite(scrollFrameCountValue)) {
-    lastFwScrollFrameCount = Math.max(0, Math.floor(scrollFrameCountValue));
+    const displayingForFrameCount =
+      state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
+    lastFwScrollFrameCount = displayingForFrameCount
+      ? Math.max(0, Math.floor(scrollFrameCountValue))
+      : 0;
   }
   if (
     Number.isFinite(scrollFrameCountValue) &&
@@ -5091,28 +5117,37 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
     }
   }
 
-  // C9 makes it safe after local stop: scroll.timelineId is retained and will not be accidentally triggered and backfilled with old text.
   const fwScrollTimelineId = String(renderer.scrollTimelineId ?? data.scrollTimelineId ?? "");
   const fwScrollHasSourceText = Boolean(renderer.scrollHasSourceText ?? data.scrollHasSourceText);
   const fwScrollUploadComplete = Boolean(
     renderer.scrollUploadComplete ?? data.scrollUploadComplete,
   );
+  const fwScrollDisplaying =
+    state.textScrollActive ||
+    scroll.firmwareBacked ||
+    isScrollPlaybackValue(state.playback);
   if (renderer.scrollTimelineId !== undefined || data.scrollTimelineId !== undefined) {
-    lastFwScrollTimelineId = fwScrollTimelineId;
-    lastFwScrollHasSourceText = fwScrollHasSourceText;
-    const debugKey = `${fwScrollTimelineId}|${fwScrollHasSourceText}|${fwScrollUploadComplete}`;
+    lastFwScrollDisplaying = fwScrollDisplaying;
+    lastFwScrollTimelineId = fwScrollDisplaying ? fwScrollTimelineId : "";
+    lastFwScrollHasSourceText = fwScrollDisplaying && fwScrollHasSourceText;
+    if (!fwScrollDisplaying) {
+      lastFwScrollFrameCount = 0;
+    }
+    const debugKey = `${fwScrollDisplaying}|${lastFwScrollTimelineId}|${lastFwScrollHasSourceText}|${fwScrollUploadComplete}`;
     if (debugKey !== lastScrollRestoreStatusDebugKey) {
       lastScrollRestoreStatusDebugKey = debugKey;
       logScrollRestoreDebug("status fields", {
         source,
-        scrollTimelineId: fwScrollTimelineId,
-        scrollUploadComplete: fwScrollUploadComplete,
-        scrollHasSourceText: fwScrollHasSourceText,
+        scrollDisplaying: fwScrollDisplaying,
+        scrollTimelineId: lastFwScrollTimelineId,
+        scrollUploadComplete: fwScrollDisplaying && fwScrollUploadComplete,
+        scrollHasSourceText: lastFwScrollHasSourceText,
       });
     }
   }
   if (
     scrollMetaRestoreEnabled &&
+    fwScrollDisplaying &&
     !scroll.uploading &&
     !scroll.startBusy &&
     !scroll.restoring &&
@@ -5196,6 +5231,70 @@ function sendAuxCommand(cmd, payload = {}, source = "webui") {
   return packet;
 }
 
+let liveFrameSeq = 0;
+function nextLiveSeq() {
+  liveFrameSeq += 1;
+  return liveFrameSeq;
+}
+
+function isLiveFrameReason(reason) {
+  return typeof reason === "string" &&
+    (reason.startsWith("custom_live_") || reason.startsWith("parts_live_"));
+}
+
+function frameToUint8Array(frame) {
+  const bytes = new Uint8Array(47);
+  for (let i = 0; i < TOTAL_LEDS; i++) {
+    if (frame[i]) {
+      const byteIdx = i >> 3;
+      const bitMask = 1 << (i & 7);
+      bytes[byteIdx] |= bitMask;
+    }
+  }
+  return bytes;
+}
+
+function serializeBinaryFrame(type, reason, seq, payload) {
+  let reasonEnum = 0;
+  if (reason.startsWith("custom_live_")) reasonEnum = 1;
+  else if (reason.startsWith("parts_live_")) reasonEnum = 2;
+  else if (reason === "webui_frame") reasonEnum = 3;
+  else if (reason === "webui_delta") reasonEnum = 4;
+
+  if (type === 1) {
+    const buffer = new ArrayBuffer(6 + 47);
+    const view = new DataView(buffer);
+    view.setUint8(0, 1);
+    view.setUint8(1, reasonEnum);
+    view.setUint32(2, seq, true);
+    const uint8s = new Uint8Array(buffer, 6);
+    uint8s.set(payload);
+    return buffer;
+  } else if (type === 2) {
+    const n = Math.min(payload.length, 255);
+    const buffer = new ArrayBuffer(7 + n * 3);
+    const view = new DataView(buffer);
+    view.setUint8(0, 2);
+    view.setUint8(1, reasonEnum);
+    view.setUint32(2, seq, true);
+    view.setUint8(6, n);
+    for (let i = 0; i < n; i++) {
+      const entry = payload[i];
+      const offset = 7 + i * 3;
+      view.setUint16(offset, entry[0], true);
+      view.setUint8(offset + 2, entry[1]);
+    }
+    return buffer;
+  }
+  return null;
+}
+
+function updateGlobalFrameQueueLength() {
+  const normLen = (typeof normalFramePump !== 'undefined' && normalFramePump.getQueueLength) ? normalFramePump.getQueueLength() : 0;
+  const liveLen = (typeof liveFramePump !== 'undefined' && liveFramePump.getQueueLength) ? liveFramePump.getQueueLength() : 0;
+  firmware.frameQueue = normLen + liveLen;
+}
+
 function makeRateLimitedQueue({
   endpoint,
   intervalMs,
@@ -5209,6 +5308,7 @@ function makeRateLimitedQueue({
   errorLabel,
   logErrorStr,
   coalesceLatest = false,
+  isLive = false,
 }) {
   let queue = [];
   let inFlight = false;
@@ -5224,7 +5324,7 @@ function makeRateLimitedQueue({
     if (inFlight) return;
     if (!queue.length) {
       updateQueueLength(0);
-      renderState();
+      if (!isLive) renderState();
       return;
     }
     const now = performance.now();
@@ -5240,25 +5340,29 @@ function makeRateLimitedQueue({
     lastAt = performance.now();
     incrementSent();
 
-    setFirmwareStatus({
-      lastRequest: `POST ${endpoint}`,
-      lastStatus: isOfflineHtmlMode() && offlineStatusLabel
-        ? offlineStatusLabel
-        : `${statusLabel} (${queue.length}/${maxDepth})`,
-    });
+    if (!isLive) {
+      setFirmwareStatus({
+        lastRequest: `POST ${endpoint}`,
+        lastStatus: isOfflineHtmlMode() && offlineStatusLabel
+          ? offlineStatusLabel
+          : `${statusLabel} (${queue.length}/${maxDepth})`,
+      });
+    }
 
-    apiPost(endpoint, q.request)
+    apiPost(endpoint, q.request, isLive ? { silent: true, expectJson: false } : {})
       .then((data) => {
         if (onResult) onResult(data, q.source);
-        if (q.resolve) q.resolve(data);
+        if (q.resolve) q.resolve(isLive ? true : data);
       })
       .catch((err) => {
-        setFirmwareStatus({
-          lastStatus: isOfflineHtmlMode() && offlineStatusLabel ? "offline html mode" : errorLabel,
-          lastError: err.message,
-        });
-        if (shouldLogApiError() && (!isOfflineHtmlMode() || !offlineStatusLabel)) {
-          log(`${logErrorStr}: ${err.message}`, "error");
+        if (!isLive) {
+          setFirmwareStatus({
+            lastStatus: isOfflineHtmlMode() && offlineStatusLabel ? "offline html mode" : errorLabel,
+            lastError: err.message,
+          });
+          if (shouldLogApiError() && (!isOfflineHtmlMode() || !offlineStatusLabel)) {
+            log(`${logErrorStr}: ${err.message}`, "error");
+          }
         }
         if (q.fallback) q.fallback();
         if (q.resolve) q.resolve(null);
@@ -5267,7 +5371,9 @@ function makeRateLimitedQueue({
         inFlight = false;
         updateQueueLength(queue.length);
         schedule(0);
-        renderState();
+        if (!isLive) {
+          renderState();
+        }
       });
   }
 
@@ -5285,14 +5391,19 @@ function makeRateLimitedQueue({
         queue = [];
       }
       updateQueueLength(0);
-      setFirmwareStatus({
-        lastRequest: `POST ${endpoint}`,
-        lastStatus: `${statusLabel} cleared by ${reason}`,
-      });
-      renderState();
+      if (!isLive) {
+        setFirmwareStatus({
+          lastRequest: `POST ${endpoint}`,
+          lastStatus: `${statusLabel} cleared by ${reason}`,
+        });
+        renderState();
+      }
     },
     isBusy() {
       return inFlight || queue.length > 0;
+    },
+    getQueueLength() {
+      return queue.length;
     },
     waitForIdle(timeoutMs = 500) {
       const startedAt = performance.now();
@@ -5328,12 +5439,14 @@ function makeRateLimitedQueue({
       }
       queue.push(queued);
       updateQueueLength(queue.length);
-      setFirmwareStatus({
-        lastRequest: `POST ${endpoint}`,
-        lastStatus: isOfflineHtmlMode() && offlineStatusLabel
-          ? offlineStatusLabel
-          : `${statusLabel} (${queue.length}/${maxDepth})`,
-      });
+      if (!isLive) {
+        setFirmwareStatus({
+          lastRequest: `POST ${endpoint}`,
+          lastStatus: isOfflineHtmlMode() && offlineStatusLabel
+            ? offlineStatusLabel
+            : `${statusLabel} (${queue.length}/${maxDepth})`,
+        });
+      }
       schedule(0);
       return queued;
     }
@@ -5354,12 +5467,12 @@ const buttonCommandPump = makeRateLimitedQueue({
   logErrorStr: "button command failed; using local fallback"
 });
 
-const frameSendPump = makeRateLimitedQueue({
+const normalFramePump = makeRateLimitedQueue({
   endpoint: API_ENDPOINTS.frame,
   intervalMs: WEBUI_M370_SEND_INTERVAL_MS,
   maxDepth: WEBUI_M370_QUEUE_MAX,
   coalesceLatest: true,
-  updateQueueLength: (len) => { firmware.frameQueue = len; },
+  updateQueueLength: () => { updateGlobalFrameQueueLength(); },
   incrementSent: () => { firmware.sentFrames++; },
   incrementDropped: () => { firmware.droppedFrames++; },
   statusLabel: "queued frame",
@@ -5367,6 +5480,38 @@ const frameSendPump = makeRateLimitedQueue({
   errorLabel: "frame failed",
   logErrorStr: "M370 帧发送失败"
 });
+
+const liveFramePump = makeRateLimitedQueue({
+  endpoint: "/api/frame_bin",
+  intervalMs: 5,
+  maxDepth: 1,
+  coalesceLatest: true,
+  updateQueueLength: () => { updateGlobalFrameQueueLength(); },
+  incrementSent: () => { firmware.sentFrames++; },
+  incrementDropped: () => { firmware.droppedFrames++; },
+  statusLabel: "queued live frame",
+  offlineStatusLabel: "queued offline",
+  errorLabel: "live frame failed",
+  logErrorStr: "Live 帧发送失败",
+  isLive: true
+});
+
+const frameSendPump = {
+  clear(reason) {
+    normalFramePump.clear(reason);
+    liveFramePump.clear(reason);
+  },
+  async waitForIdle(timeoutMs) {
+    const results = await Promise.all([
+      normalFramePump.waitForIdle(timeoutMs),
+      liveFramePump.waitForIdle(timeoutMs)
+    ]);
+    return results[0] && results[1];
+  },
+  isBusy() {
+    return normalFramePump.isBusy() || liveFramePump.isBusy();
+  }
+};
 
 function sendButtonCommand(button, source = "webui_button", fallback = null) {
   if (["B1", "B2", "B3"].includes(String(button).toUpperCase())) {
@@ -5385,15 +5530,24 @@ function sendButtonCommand(button, source = "webui_button", fallback = null) {
 }
 
 function queueFirmwareFrame(frame, reason = "frame_update", playback = "idle") {
-  const m370 = frameToM370(frame);
-  pendingFramePacket = {
-    type: "m370_frame",
-    m370,
-    reason,
-    mode: playback,
-    at: Date.now(),
-  };
-  frameSendPump.enqueue(pendingFramePacket, reason, null);
+  const isLive = isLiveFrameReason(reason);
+  if (isLive) {
+    const seq = nextLiveSeq();
+    const payload = serializeBinaryFrame(1, reason, seq, frameToUint8Array(frame));
+    pendingFramePacket = payload;
+    liveFramePump.enqueue(payload, reason, null);
+  } else {
+    const m370 = frameToM370(frame);
+    const packet = {
+      type: "m370_frame",
+      m370,
+      reason,
+      mode: playback,
+      at: Date.now(),
+    };
+    pendingFramePacket = packet;
+    normalFramePump.enqueue(packet, reason, null);
+  }
 }
 
 function frameDeltaChanges(fromFrame, toFrame) {
@@ -5414,19 +5568,31 @@ function applyDeltaChangesToFrame(frame, changes) {
 
 function queueFirmwareLedDeltas(changes, reason = "live_delta", playback = "idle") {
   if (!changes.length) return null;
-  const packet = {
-    type: "led_delta",
-    changes,
-    reason,
-    mode: playback,
-    at: Date.now(),
-  };
-  pendingFramePacket = packet;
-  const queued = frameSendPump.enqueue(packet, reason, null);
-  queued.promise.then((data) => {
-    if (data) applyDeltaChangesToFrame(liveSyncedFrame, changes);
-  });
-  return queued;
+  const isLive = isLiveFrameReason(reason);
+  if (isLive) {
+    const seq = nextLiveSeq();
+    const payload = serializeBinaryFrame(2, reason, seq, changes);
+    pendingFramePacket = payload;
+    const queued = liveFramePump.enqueue(payload, reason, null);
+    queued.promise.then((data) => {
+      if (data) applyDeltaChangesToFrame(liveSyncedFrame, changes);
+    });
+    return queued;
+  } else {
+    const packet = {
+      type: "led_delta",
+      changes,
+      reason,
+      mode: playback,
+      at: Date.now(),
+    };
+    pendingFramePacket = packet;
+    const queued = normalFramePump.enqueue(packet, reason, null);
+    queued.promise.then((data) => {
+      if (data) applyDeltaChangesToFrame(liveSyncedFrame, changes);
+    });
+    return queued;
+  }
 }
 
 function setScrollPreviewFrame(frame, reason = "text_scroll_preview", playback = "scroll") {
@@ -8951,7 +9117,7 @@ function hasScrollFrameCache() {
 }
 
 function hasRestorableFirmwareScrollSource() {
-  return !!(lastFwScrollTimelineId && lastFwScrollHasSourceText);
+  return !!(lastFwScrollDisplaying && lastFwScrollTimelineId && lastFwScrollHasSourceText);
 }
 
 function hasUsableOrRestorableScrollFrames() {
@@ -9014,13 +9180,24 @@ function resetScrollControlsAfterButton(reason = "gpio_button", options = {}) {
   state.textScrollActive = false;
   if (isScrollPlaybackValue(state.playback)) state.playback = "idle";
   state.lastRefreshReason = `${reason}_reset_scroll_ui`;
-  // GPIO stop reset path: clear recovery status; C9 - retain scroll.timelineId and
-  // scroll.framesTimelineId, to prevent old text from being automatically backfilled by mismatch after stopping.
+  // Exiting text-scroll through GPIO/WebUI button is equivalent to Stop/Clear:
+  // local preview frames and firmware recovery identity are terminally cleared so
+  // a later refresh cannot pull the old uploaded source string back into WebUI.
+  scroll.frames = [];
+  scroll.signature = "";
+  scroll.timelineId = "";
+  scroll.framesTimelineId = "";
+  scroll.dirty = true;
   pendingScrollMeta = null;
   scroll.restoredSourceText = "";
   scroll.restoredFromFirmwareMeta = false;
   scroll.restoreWarning = "";
   scroll.restoredTextTruncated = false;
+  lastFwScrollFrameCount = 0;
+  lastFwScrollTimelineId = "";
+  lastFwScrollHasSourceText = false;
+  lastFwScrollDisplaying = false;
+  lastScrollRestoreStatusDebugKey = "";
   resetScrollUploadProgress();
   if (preserveCurrentFrame) {
     scrollFrame = cloneFrame(currentFrame);
@@ -9444,6 +9621,7 @@ async function stopScroll() {
     lastFwScrollFrameCount = 0;
     lastFwScrollTimelineId = "";
     lastFwScrollHasSourceText = false;
+    lastFwScrollDisplaying = false;
     lastScrollRestoreStatusDebugKey = "";
     // Local stop: Completely clear the recovery status and local frame identity to avoid the old cache being backfilled by the recovery path after clearing the screen.
     pendingScrollMeta = null;
@@ -9893,13 +10071,24 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
     if (!scrollMachine.isCurrent(restoreToken)) return false;
     lastScrollMetaFetchAt = performance.now();
     logScrollRestoreDebug("meta response", meta);
-    if (!meta?.ok || !meta.hasSourceText) {
+    const metaDisplayingScroll = !!(meta?.firmwareScrollActive || meta?.firmwareScrollPaused);
+    if (!meta?.ok || !metaDisplayingScroll || !meta.hasSourceText) {
       logScrollRestoreDebug("meta skipped", {
         source,
         ok: !!meta?.ok,
+        displayingScroll: metaDisplayingScroll,
         hasSourceText: !!meta?.hasSourceText,
         scrollTimelineId: meta?.scrollTimelineId || "",
       });
+      if (!metaDisplayingScroll) {
+        pendingScrollMeta = null;
+        scroll.restoredSourceText = "";
+        scroll.restoredFromFirmwareMeta = false;
+        lastFwScrollTimelineId = "";
+        lastFwScrollHasSourceText = false;
+        lastFwScrollFrameCount = 0;
+        lastFwScrollDisplaying = false;
+      }
       scrollMachine.dispatch("RESTORE_DONE", {}, restoreToken);
       return false;
     }
@@ -9932,6 +10121,7 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
     lastFwScrollTimelineId = scroll.timelineId;
     lastFwScrollHasSourceText = !!meta.hasSourceText;
     lastFwScrollFrameCount = Math.max(0, Number(meta.frameCount || 0) || 0);
+    lastFwScrollDisplaying = true;
     scroll.restoredFromFirmwareMeta = true;
     applyScrollRuntimeMeta(meta, `scroll_restore_meta_${source}`);
     logScrollRestoreDebug("binding meta", {
@@ -10012,11 +10202,16 @@ function kickPostBootScrollMetaRestore(source = "post_boot") {
   }
   postBootScrollMetaRestoreStarted = true;
   scrollMetaRestoreEnabled = true;
+  if (!lastFwScrollDisplaying) {
+    logScrollRestoreDebug("post_boot skipped", { source, reason: "not_displaying_scroll" });
+    return;
+  }
   logScrollRestoreDebug("post_boot kick", {
     source,
     currentPage: document.body?.dataset?.page || "",
     lastFwScrollTimelineId,
     lastFwScrollHasSourceText,
+    lastFwScrollDisplaying,
   });
   restoreScrollTextFromFirmware(source).catch((err) => {
     warnScrollRestoreDebug("post_boot failed", {

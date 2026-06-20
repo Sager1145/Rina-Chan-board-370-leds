@@ -17,6 +17,7 @@
 #include "led_renderer.h"
 #include "storage.h"   // Describes the responsibilities and maintenance constraints of the current code block in saved faces and playback mode.
 #include "utils.h"
+#include "sync.h"
 #include "scroll_session.h"
 #include "serial_log.h"
 
@@ -39,11 +40,32 @@ String normalizedMode(const char* input) {
     return mode;
 }
 
+bool firmwareIsDisplayingTextScroll() {
+    bool displaying = false;
+    withScrollLock([&]() {
+        displaying = runtimeState().firmwareScrollActive ||
+                     runtimeState().firmwareScrollPaused ||
+                     isScrollPlayback(runtimeState().playback);
+    });
+    return displaying;
+}
+
 bool setMode(const char* input, bool persistSettings) {
     const String mode = normalizedMode(input);
+    if (mode != "auto" && mode != "manual") return false;
+
     const String oldMode = runtimeState().mode;
     const bool settingsChanged = runtimeState().mode != mode;
     bool changed = false;
+
+    // Any entry into a non-scroll mode while text scroll is displayed is equivalent
+    // to pressing Stop/Clear first. This covers WebUI, GPIO, Serial, and internal
+    // callers that route through setMode().
+    if (firmwareIsDisplayingTextScroll()) {
+        stopFirmwareScroll(false, true);
+        scrollSessionSetRestoreAuto(false);
+        applyBlankFrameImmediate("scroll_exit_clear");
+    }
 
     if (mode == "auto") {
         if (runtimeState().mode != "auto") {
@@ -116,6 +138,14 @@ bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playb
         return false;
     }
 
+    // Saved-face display is a non-scroll mode. If text scrolling is currently on
+    // the LEDs, leave it by the same Stop/Clear path before applying the face.
+    if (firmwareIsDisplayingTextScroll()) {
+        stopFirmwareScroll(false, true);
+        scrollSessionSetRestoreAuto(false);
+        applyBlankFrameImmediate("scroll_exit_clear");
+    }
+
     runtimeState().autoFaceIndex = index % runtimeAutoFaceCount();
     if (playback) runtimeState().playback = playback;
 
@@ -161,7 +191,7 @@ bool toggleModeFromButtonAction(const String& source) {
     const bool hadOtherPlayback = playbackIsNonFaceActivity();
     const bool immediateFace    = source == "gpio" || source == "api_button";
 
-    stopFirmwareScroll(false, false);
+    stopFirmwareScroll(false, true);
     scrollSessionSetRestoreAuto(false);
 
     if (!setMode(targetAuto ? "auto" : "manual", true)) return false;

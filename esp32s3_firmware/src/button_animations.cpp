@@ -474,7 +474,8 @@ void startButtonAnimationForGpioAction(const String& buttonCode) {
     const uint32_t now = millis();
     AnimationState next;
     next.startedMs = now;
-    next.expiresMs = now + FLASH_HOLD_MS;
+    const uint32_t holdMs = isLiveFrameActivityRecent(500) ? 150 : FLASH_HOLD_MS;
+    next.expiresMs = now + holdMs;
     next.nextRenderMs = now + 33;
 
     if (code == "B3") {

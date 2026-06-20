@@ -493,7 +493,7 @@ void cmdLedTestPattern(int argc, char** argv) {
     uint8_t bits[FRAME_BYTES] = {0};
 
     if (strcasecmp(name, "all_off") == 0) {
-        applyBlankFrame("serial_led_test_all_off");
+        applyBlankFrameImmediate("serial_led_test_all_off");
         sout("OK led test pattern all_off lit=0");
         return;
     }
@@ -525,6 +525,7 @@ void cmdLedTestPattern(int argc, char** argv) {
 
     char reason[40];
     snprintf(reason, sizeof(reason), "serial_test_pattern_%s", name);
+    stopFirmwareScroll(false, true);
     applyPackedFrameImmediate(bits, reason);
     sout("OK led test pattern %s lit=%u", name, countPackedLit(bits));
 }
@@ -562,7 +563,8 @@ void cmdLed(int argc, char** argv) {
         return;
     }
     if (strcasecmp(argv[1], "clear") == 0) {
-        applyBlankFrame("serial_led_clear");
+        stopFirmwareScroll(false, true);
+        applyBlankFrameImmediate("serial_led_clear");
         sout("OK led clear");
         return;
     }
@@ -817,6 +819,7 @@ void cmdResume(int, char**) {
 // through the real apply path. Hardware: replaces the current display frame.
 void cmdFrame(int argc, char** argv) {
     if (argc < 2) { sout("ERR frame usage='frame <M370:hex | 93-hex>'"); return; }
+    stopFirmwareScroll(false, true);
     String err;
     if (applyM370(argv[1], "serial_frame", err)) {
         sout("OK frame accepted lit=%u", countLitLeds());
@@ -829,7 +832,7 @@ void cmdFrame(int argc, char** argv) {
 // competing activities before switching to a target mode.
 void cmdTerminate(int argc, char** argv) {
     const char* target = (argc >= 2) ? argv[1] : "all";
-    if (strcasecmp(target, "scroll") != 0) stopFirmwareScroll(false, false);
+    if (strcasecmp(target, "scroll") != 0) stopFirmwareScroll(false, true);
     if (strcasecmp(target, "face") != 0 && strcasecmp(target, "scroll") != 0) {
         setMode("manual", true);
     } else if (strcasecmp(target, "scroll") == 0 && isAutoMode()) {

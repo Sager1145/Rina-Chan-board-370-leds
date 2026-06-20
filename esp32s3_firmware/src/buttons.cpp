@@ -20,6 +20,7 @@
 #include "button_animations.h"
 #include "scroll_session.h"
 #include "serial_log.h"
+#include "perf_counters.h"
 
 // Map an internal runButtonAction() source token to the human/agent-facing
 // label used in BUTTON log lines. The runButtonAction source values themselves
@@ -130,8 +131,13 @@ static bool runButtonActionImpl(const String& button, const String& source) {
     }
 
     if (code == "B1" || code == "B2") {
-        stopFirmwareScroll(false);
-        scrollSessionSetRestoreAuto(false);
+        // B1/B2 leave text scrolling for saved-face navigation, so treat them as
+        // Stop/Clear first when a scroll is actually being displayed.
+        if (firmwareIsDisplayingTextScroll()) {
+            stopFirmwareScroll(false, true);
+            scrollSessionSetRestoreAuto(false);
+            applyBlankFrameImmediate("scroll_exit_clear");
+        }
     }
     if (code == "B1") {
         const bool handled = applyRelativeSavedFace( 1, source + "_B1_next_saved_face", true);
@@ -174,12 +180,18 @@ static bool runButtonActionImpl(const String& button, const String& source) {
 // funnels through here, so this single hook covers them all without changing
 // any action semantics.
 bool runButtonAction(const String& button, const String& source) {
+#if ENABLE_PERF_PROFILING
+    uint32_t t0 = micros();
+#endif
     const bool handled = runButtonActionImpl(button, source);
     String code = button;
     code.trim();
     code.toUpperCase();
     RLOG_INFO("BUTTON", "source=%s id=%s event=action handled=%d",
               buttonSourceLabel(source.c_str()), code.c_str(), handled ? 1 : 0);
+#if ENABLE_PERF_PROFILING
+    perfRecordButtonAction(micros() - t0);
+#endif
     return handled;
 }
 
@@ -259,6 +271,9 @@ void initHardwareButtons() {
 }
 
 void serviceHardwareButtons() {
+#if ENABLE_PERF_PROFILING
+    uint32_t t0 = micros();
+#endif
     const uint32_t now = millis();
     for (uint8_t i = 0; i < BUTTON_COUNT; ++i) {
         ButtonRuntime& button    = buttons[i];
@@ -297,6 +312,9 @@ void serviceHardwareButtons() {
     serviceButtonAnimationButtonInputs(isHardwareButtonPressed("B6"),
                                        isHardwareButtonPressed("B2"),
                                        isHardwareButtonPressed("B3"));
+#if ENABLE_PERF_PROFILING
+    perfRecordButtonScan(micros() - t0);
+#endif
 }
 
 // --- Serial diagnostics button emulation API --------------------------------

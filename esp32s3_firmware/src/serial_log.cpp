@@ -1,4 +1,5 @@
 #include "serial_log.h"
+#include "perf_counters.h"
 
 #if ENABLE_SERIAL_DIAGNOSTICS
 
@@ -95,6 +96,10 @@ void rinaSerialInit() {
 void rinaSerialWrite(const uint8_t* data, size_t len) {
     if (!data || len == 0) return;
 
+    size_t attempted = len;
+    size_t emitted = 0;
+    size_t dropped = 0;
+
     // Non-blocking by design. Diagnostics must never stall the Core-0 control loop
     // (frame queue + buttons + HTTP) on a serial port that no host is draining.
     //
@@ -103,8 +108,15 @@ void rinaSerialWrite(const uint8_t* data, size_t len) {
     // a host IS connected we still only write if the whole line fits in the TX buffer
     // right now (availableForWrite >= len); otherwise we drop the line. Requiring the
     // full line preserves the "one write per line, never interleaved" guarantee.
-    if (Serial && static_cast<size_t>(Serial.availableForWrite()) >= len) {
-        Serial.write(data, len);
+    if (Serial) {
+        if (static_cast<size_t>(Serial.availableForWrite()) >= len) {
+            Serial.write(data, len);
+            emitted = len;
+        } else {
+            dropped = len;
+        }
+    } else {
+        dropped = len;
     }
 #if ENABLE_SERIAL_UART0_MIRROR
     // UART0 mirror: same rule -- only emit when the line fits in the TX ring now, so a
@@ -112,6 +124,10 @@ void rinaSerialWrite(const uint8_t* data, size_t len) {
     if (static_cast<size_t>(Serial0.availableForWrite()) >= len) {
         Serial0.write(data, len);
     }
+#endif
+
+#if ENABLE_PERF_PROFILING
+    perfRecordSerialLogBytes(attempted, emitted, dropped);
 #endif
 }
 

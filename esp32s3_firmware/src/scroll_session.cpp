@@ -165,22 +165,30 @@ bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits) {
 ScrollStopResult scrollSessionStop(bool restoreAuto, bool clearDisplay) {
     ScrollStopResult r;
     r.restoreAuto = restoreAuto;
-    r.cleared     = clearDisplay;
 
     bool changed = false;
+    bool wasDisplayingScroll = false;
     withScrollLock([&]() {
+        // "Clear" is a display action only when the hardware is currently showing
+        // text-scroll output. The cache clear still happens when clearDisplay is true,
+        // so Stop/Clear is a real terminal point and stale sourceText cannot be
+        // restored by a later WebUI refresh.
+        wasDisplayingScroll = runtimeState().firmwareScrollActive ||
+                               runtimeState().firmwareScrollPaused ||
+                               isScrollPlayback(runtimeState().playback);
         changed = firmwareScrollHasRuntimeStateLocked();
         resetFirmwareScrollStateLocked(clearDisplay);
     });
 
     r.stopped = changed;
-    if (changed) touchRuntimeState();
-    RLOG_INFO("SCROLL", "event=stop stopped=%d cleared=%d restoreAuto=%d",
-              changed ? 1 : 0, clearDisplay ? 1 : 0, restoreAuto ? 1 : 0);
+    r.cleared = clearDisplay && wasDisplayingScroll;
+    if (changed || clearDisplay) touchRuntimeState();
+    RLOG_INFO("SCROLL", "event=stop stopped=%d cleared=%d cacheCleared=%d restoreAuto=%d",
+              changed ? 1 : 0, r.cleared ? 1 : 0, clearDisplay ? 1 : 0, restoreAuto ? 1 : 0);
     if (changed || clearDisplay) clearQueuedM370Frames();
 
-    if (clearDisplay) {
-        applyBlankFrame("firmware_text_scroll_stop_clear");
+    if (r.cleared) {
+        applyBlankFrameImmediate("scroll_stop_clear");
         if (restoreAuto) r.shouldRestoreDefault = true;
     }
     return r;
@@ -380,7 +388,27 @@ bool scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize
         out.userPaused       = runtimeState().firmwareScrollUserPaused;
         out.systemPaused     = runtimeState().firmwareScrollSystemPaused;
 
-        if (out.meta.hasSourceText && runtimeScrollSourceTextReady()) {
+        // Hardware -> WebUI source-text recovery is only valid while the LED panel
+        // is actually displaying text scrolling, including a user/system pause.
+        // Cached uploads that are not currently displayed must not resurrect an old
+        // string after Stop/Clear or a mode switch.
+        const bool displayingScroll = runtimeState().firmwareScrollActive ||
+                                      runtimeState().firmwareScrollPaused ||
+                                      isScrollPlayback(runtimeState().playback);
+        if (!displayingScroll) {
+            out.meta.timelineId[0]       = '\0';
+            out.meta.fontId[0]           = '\0';
+            out.meta.generatorVersion[0] = '\0';
+            out.meta.sourceTextByteLength = 0;
+            out.meta.totalFramesExpected  = 0;
+            out.meta.framesReceived       = 0;
+            out.meta.nextChunkIndex       = 0;
+            out.meta.uiFps                = 0;
+            out.meta.uploadComplete       = false;
+            out.meta.hasSourceText        = false;
+            out.frameCount                = 0;
+            out.frameIndex                = 0;
+        } else if (out.meta.hasSourceText && runtimeScrollSourceTextReady()) {
             const size_t bytesToCopy = static_cast<size_t>(out.meta.sourceTextByteLength) + 1U;
             if (textBuf && textBufSize >= bytesToCopy) {
                 memcpy(textBuf, runtimeScrollSourceText(), bytesToCopy);

@@ -3,6 +3,8 @@
 
 bool isAutoMode();
 
+bool firmwareIsDisplayingTextScroll();
+
 String normalizedMode(const char* input);
 
 bool setMode(const char* input, bool persistSettings = true);
