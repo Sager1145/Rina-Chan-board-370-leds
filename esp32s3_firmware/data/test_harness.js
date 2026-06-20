@@ -221,7 +221,7 @@
         if (opts.visibleOnly && !visible(e.el)) continue;
         if (opts.page && pageOf(e.el) !== opts.page) continue;
         var info = entry(e.el);
-        if (opts.type && info.type !== opts.type) continue;
+        if (opts.type && info.type !== "" && opts.type !== info.type) continue;
         out.push(info);
       }
       out.sort(function (a, b) {
@@ -377,11 +377,19 @@
  *   the matching /api/frame request still lets firmware set manual mode as source
  *   of truth.
  * - If live is disabled, the no-op is logged so the failure mode is visible.
+ * - 6.2 custom LED clicks also send a full-frame direct fallback from editFrame so
+ *   a stale delta baseline, disabled live flag, or coalesced live queue cannot make
+ *   the physical LEDs miss a click while the local preview/M370 already changed.
  * ========================================================================== */
 (function () {
   "use strict";
   if (window.__rinaLiveOutputPatchInstalled) return;
   window.__rinaLiveOutputPatchInstalled = true;
+
+  const API_FRAME_ENDPOINT = "/api/frame";
+  let directSendTimer = 0;
+  let directSendInFlight = false;
+  let pendingDirectPayload = null;
 
   function safeLog(message, level) {
     try {
@@ -424,6 +432,173 @@
     }
   }
 
+  function toggleLooksEnabled(id) {
+    const btn = document.getElementById(id);
+    if (!btn) return false;
+    return btn.classList.contains("active") || btn.getAttribute("aria-pressed") === "true";
+  }
+
+  function normalizeM370Text(text) {
+    let s = String(text || "").trim();
+    if (!s) return "";
+    if (s.toUpperCase().startsWith("M370:")) s = s.slice(5);
+    s = s.replace(/\s+/g, "");
+    if (!/^[0-9a-fA-F]{93}$/.test(s)) return "";
+    return "M370:" + s.toUpperCase();
+  }
+
+  function customEditFrameM370() {
+    try {
+      if (typeof frameToM370 === "function" && typeof editFrame !== "undefined") {
+        return normalizeM370Text(frameToM370(editFrame));
+      }
+    } catch (_) {}
+    const ta = document.getElementById("custom-m370");
+    return normalizeM370Text(ta && ta.value);
+  }
+
+  function partsFrameM370() {
+    try {
+      if (typeof frameToM370 === "function" && typeof partsFrame !== "undefined") {
+        return normalizeM370Text(frameToM370(partsFrame));
+      }
+    } catch (_) {}
+    const ta = document.getElementById("parts-m370-text");
+    return normalizeM370Text(ta && ta.value);
+  }
+
+  function applyLiveReply(data, reason) {
+    try {
+      if (data && typeof applyFirmwareRuntimeState === "function") {
+        applyFirmwareRuntimeState(data, reason || "live_direct_reply");
+      }
+    } catch (err) {
+      console.warn("[rina-live-patch] reply sync failed", err);
+    }
+    forceManualUiForLiveOutput(reason || "live_direct_reply");
+  }
+
+  async function postLiveFrameDirect(payload) {
+    if (typeof apiPost === "function") {
+      return apiPost(API_FRAME_ENDPOINT, payload, { silent: true, expectJson: true, timeoutMs: 1800 });
+    }
+    const url = typeof apiUrl === "function" ? apiUrl(API_FRAME_ENDPOINT) : API_FRAME_ENDPOINT;
+    if (!url) throw new Error("offline html mode: " + API_FRAME_ENDPOINT);
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText || ""}`.trim());
+    const text = await res.text();
+    try {
+      return text ? JSON.parse(text) : { ok: true };
+    } catch (_) {
+      return { ok: true };
+    }
+  }
+
+  function pumpDirectSend() {
+    if (directSendInFlight || !pendingDirectPayload) return;
+    const payload = pendingDirectPayload;
+    pendingDirectPayload = null;
+    directSendInFlight = true;
+    postLiveFrameDirect(payload)
+      .then((data) => applyLiveReply(data, payload.reason))
+      .catch((err) => {
+        safeLog(`Live 直接补发失败: ${err.message || err}`, "error");
+      })
+      .finally(() => {
+        directSendInFlight = false;
+        if (pendingDirectPayload) {
+          directSendTimer = window.setTimeout(pumpDirectSend, 5);
+        }
+      });
+  }
+
+  function enqueueDirectLiveFrame(m370, reason) {
+    const normalized = normalizeM370Text(m370);
+    if (!normalized) return;
+    pendingDirectPayload = {
+      type: "m370_frame",
+      m370: normalized,
+      reason,
+      mode: "idle",
+      playback: "idle",
+      at: Date.now(),
+    };
+    forceManualUiForLiveOutput(reason);
+    window.clearTimeout(directSendTimer);
+    directSendTimer = window.setTimeout(pumpDirectSend, 5);
+  }
+
+  function restoreLiveIfUiSaysEnabled(toggleId, label) {
+    try {
+      if (toggleLooksEnabled(toggleId) && !liveEnabledNow() && typeof setLiveSendEnabled === "function") {
+        setLiveSendEnabled(true, label || "实时点击恢复");
+      }
+    } catch (_) {}
+  }
+
+  function scheduleCustomDirectLiveSend(reason) {
+    if (!toggleLooksEnabled("custom-live-toggle") && !liveEnabledNow()) return;
+    restoreLiveIfUiSaysEnabled("custom-live-toggle", "自定义实时点击恢复");
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const m370 = customEditFrameM370();
+        enqueueDirectLiveFrame(m370, reason || "custom_live_direct");
+      });
+    });
+  }
+
+  function schedulePartsDirectLiveSend(reason) {
+    if (!toggleLooksEnabled("parts-live-toggle") && !liveEnabledNow()) return;
+    restoreLiveIfUiSaysEnabled("parts-live-toggle", "部件实时点击恢复");
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const m370 = partsFrameM370();
+        enqueueDirectLiveFrame(m370, reason || "parts_live_direct");
+      });
+    });
+  }
+
+  function installDirectCustomClickFallback() {
+    const matrix = document.getElementById("matrix-custom-edit");
+    if (matrix && !matrix.__rinaDirectLiveFallback) {
+      matrix.__rinaDirectLiveFallback = true;
+      matrix.addEventListener(
+        "click",
+        (ev) => {
+          const cell = ev.target && ev.target.closest && ev.target.closest(".led.editable");
+          if (!cell || !matrix.contains(cell)) return;
+          scheduleCustomDirectLiveSend("custom_live_direct");
+        },
+        true,
+      );
+    }
+
+    const customButtons = ["custom-clear", "custom-fill", "custom-invert", "custom-import"];
+    customButtons.forEach((id) => {
+      const btn = document.getElementById(id);
+      if (!btn || btn.__rinaDirectLiveFallback) return;
+      btn.__rinaDirectLiveFallback = true;
+      btn.addEventListener("click", () => scheduleCustomDirectLiveSend(`custom_live_${id.replace(/^custom-/, "")}_direct`), true);
+    });
+
+    const partGroups = document.getElementById("part-groups");
+    if (partGroups && !partGroups.__rinaDirectLiveFallback) {
+      partGroups.__rinaDirectLiveFallback = true;
+      partGroups.addEventListener("click", () => schedulePartsDirectLiveSend("parts_live_direct"), true);
+    }
+
+    ["parts-random", "parts-reset", "parts-symmetry-toggle", "parts-import-m370"].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (!btn || btn.__rinaDirectLiveFallback) return;
+      btn.__rinaDirectLiveFallback = true;
+      btn.addEventListener("click", () => schedulePartsDirectLiveSend(`parts_live_${id.replace(/^parts-/, "")}_direct`), true);
+    });
+  }
+
   if (typeof prepareForTextScrollUpload === "function") {
     const originalPrepareForTextScrollUpload = prepareForTextScrollUpload;
     prepareForTextScrollUpload = async function patchedPrepareForTextScrollUpload() {
@@ -447,7 +622,7 @@
     sendCustomFrameIfLive = function patchedSendCustomFrameIfLive(reason) {
       const liveReason = reason || "custom_live_send";
       if (!liveEnabledNow()) {
-        safeLog("自定义实时发送已关闭：本次 LED 点击只更新本地画板，未发送到固件", "debug");
+        safeLog("自定义实时发送已关闭：本次 LED 点击只更新本地画板；直接补发链路会在实时按钮开启时接管", "debug");
         return null;
       }
       forceManualUiForLiveOutput(liveReason);
@@ -460,11 +635,19 @@
     sendPartsFrameIfLive = function patchedSendPartsFrameIfLive(reason) {
       const liveReason = reason || "parts_live_send";
       if (!liveEnabledNow()) {
-        safeLog("部件实时发送已关闭：本次选择只更新本地预览，未发送到固件", "debug");
+        safeLog("部件实时发送已关闭：本次选择只更新本地预览；直接补发链路会在实时按钮开启时接管", "debug");
         return null;
       }
       forceManualUiForLiveOutput(liveReason);
       return originalSendPartsFrameIfLive.apply(this, arguments.length ? arguments : [liveReason]);
     };
   }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", installDirectCustomClickFallback);
+  } else {
+    installDirectCustomClickFallback();
+  }
+  setTimeout(installDirectCustomClickFallback, 500);
+  setTimeout(installDirectCustomClickFallback, 1800);
 })();
