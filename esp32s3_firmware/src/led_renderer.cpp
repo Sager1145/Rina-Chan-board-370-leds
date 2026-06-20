@@ -14,20 +14,15 @@ static portMUX_TYPE ledRenderRequestMux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool ledRenderRequested = false;
 static uint32_t lastLedShowUs = 0;
 
-struct QueuedM370Frame {
+struct QueuedPackedFrame {
     uint8_t bits[FRAME_BYTES] = {};
-    char    m370[5 + M370_HEX_CHARS + 1] = "";
-    char    reason[M370_FRAME_REASON_CHARS] = "";
-    bool    hasM370 = false;
+    char    reason[PACKED_FRAME_REASON_CHARS] = "";
 };
 
-static QueuedM370Frame m370FrameQueue[M370_FRAME_QUEUE_DEPTH];
-static uint8_t m370FrameQueueHead = 0;
-static uint8_t m370FrameQueueCount = 0;
-static uint32_t lastM370FrameApplyMs = 0;
-// Frame-queue state is owned by the Core 0 cooperative loop and HTTP/button
-// handlers. Keep service/enqueue/clear calls on Core 0 unless this queue is
-// made atomic or guarded by a mutex.
+static QueuedPackedFrame packedFrameQueue[M370_FRAME_QUEUE_DEPTH];
+static uint8_t packedFrameQueueHead = 0;
+static uint8_t packedFrameQueueCount = 0;
+static uint32_t lastPackedFrameApplyMs = 0;
 
 static uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
     if (logicalIndex >= LED_COUNT) return logicalIndex;
@@ -44,48 +39,12 @@ static uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
     return logicalIndex;
 }
 
-static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* outBits);
-
-static uint8_t m370FrameQueueTail() {
-    return static_cast<uint8_t>((m370FrameQueueHead + m370FrameQueueCount) % M370_FRAME_QUEUE_DEPTH);
+static uint8_t packedFrameQueueTail() {
+    return static_cast<uint8_t>((packedFrameQueueHead + packedFrameQueueCount) % M370_FRAME_QUEUE_DEPTH);
 }
 
-static bool m370FrameRateReady(uint32_t now) {
-    return lastM370FrameApplyMs == 0 ||
-           millisElapsed(now, lastM370FrameApplyMs, M370_FRAME_MIN_INTERVAL_MS);
-}
-
-static bool hasM370Prefix(const String& value) {
-    return value.length() >= 5 &&
-           (value.charAt(0) == 'M' || value.charAt(0) == 'm') &&
-           value.charAt(1) == '3' &&
-           value.charAt(2) == '7' &&
-           value.charAt(3) == '0' &&
-           value.charAt(4) == ':';
-}
-
-static bool isLiveM370Reason(const String& reason) {
-    // The immediate-publish "live" branch (clearQueuedM370Frames + publishPackedFrameNow
-    // straight from the web handler) did not reliably refresh the WS2812 strip for real-time
-    // WebUI edits, whereas the normal queued path (enqueuePackedM370Frame, serviced from the
-    // main loop) always does. Route every frame — including real-time edits — through the
-    // proven queued path. Signature kept so the call site stays intact and easy to revert.
-    (void)reason;
-    return false;
-}
-
-static char upperHexChar(char c) {
-    return (c >= 'a' && c <= 'f') ? static_cast<char>(c - ('a' - 'A')) : c;
-}
-
-static const char* blankM370Text() {
-    static char text[5 + M370_HEX_CHARS + 1] = {};
-    if (text[0] == '\0') {
-        memcpy(text, "M370:", 5);
-        memset(text + 5, '0', M370_HEX_CHARS);
-        text[5 + M370_HEX_CHARS] = '\0';
-    }
-    return text;
+static bool packedFrameRateReady(uint32_t now) {
+    return lastPackedFrameApplyMs == 0 || millisElapsed(now, lastPackedFrameApplyMs, M370_FRAME_MIN_INTERVAL_MS);
 }
 
 static void copyText(char* out, size_t outSize, const char* input) {
@@ -96,54 +55,55 @@ static void copyText(char* out, size_t outSize, const char* input) {
     out[i] = '\0';
 }
 
-static void publishPackedFrameNow(const uint8_t* packedBits, const char* normalizedM370, const char* reason) {
+bool validatePackedFrame(const uint8_t* packedBits, String& error) {
+    if (!packedBits) {
+        error = "packed frame is null";
+        return false;
+    }
+    const uint16_t usedBitsInLastByte = LED_COUNT & 7U;
+    if (usedBitsInLastByte != 0) {
+        const uint8_t validMask = static_cast<uint8_t>((1U << usedBitsInLastByte) - 1U);
+        if ((packedBits[FRAME_BYTES - 1] & static_cast<uint8_t>(~validMask)) != 0) {
+            error = "packed frame has non-zero unused bits";
+            return false;
+        }
+    }
+    return true;
+}
+
+static void publishPackedFrameNow(const uint8_t* packedBits, const char* reason) {
     withFrameLock([&]() {
         memcpy(runtimeFrameBits(), packedBits, FRAME_BYTES);
-        if (normalizedM370 && normalizedM370[0] != '\0') {
-            runtimeState().lastM370 = normalizedM370;
-        }
         runtimeState().lastReason = reason ? reason : "";
         ++runtimeState().framesAccepted;
         touchRuntimeState();
         showCurrentFrameNoLock();
     });
-    lastM370FrameApplyMs = millis();
+    lastPackedFrameApplyMs = millis();
 }
 
-static void enqueuePackedM370Frame(const uint8_t* packedBits, const char* normalizedM370, const String& reason) {
+static void enqueuePackedFrame(const uint8_t* packedBits, const String& reason) {
     if (!packedBits) return;
-
     const uint32_t now = millis();
-    if (m370FrameQueueCount == 0 && m370FrameRateReady(now)) {
-        publishPackedFrameNow(packedBits, normalizedM370, reason.c_str());
+    if (packedFrameQueueCount == 0 && packedFrameRateReady(now)) {
+        publishPackedFrameNow(packedBits, reason.c_str());
         return;
     }
-
-    uint8_t target = m370FrameQueueTail();
-    if (m370FrameQueueCount >= M370_FRAME_QUEUE_DEPTH) {
-        target = m370FrameQueueHead;
-        m370FrameQueueHead = static_cast<uint8_t>((m370FrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
+    uint8_t target = packedFrameQueueTail();
+    if (packedFrameQueueCount >= M370_FRAME_QUEUE_DEPTH) {
+        target = packedFrameQueueHead;
+        packedFrameQueueHead = static_cast<uint8_t>((packedFrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
         ++runtimeState().framesDropped;
     } else {
-        ++m370FrameQueueCount;
+        ++packedFrameQueueCount;
     }
-
-    memcpy(m370FrameQueue[target].bits, packedBits, FRAME_BYTES);
-    if (normalizedM370 && normalizedM370[0] != '\0') {
-        copyText(m370FrameQueue[target].m370, sizeof(m370FrameQueue[target].m370), normalizedM370);
-        m370FrameQueue[target].hasM370 = true;
-    } else {
-        m370FrameQueue[target].m370[0] = '\0';
-        m370FrameQueue[target].hasM370 = false;
-    }
-    copyText(m370FrameQueue[target].reason, sizeof(m370FrameQueue[target].reason), reason.c_str());
+    memcpy(packedFrameQueue[target].bits, packedBits, FRAME_BYTES);
+    copyText(packedFrameQueue[target].reason, sizeof(packedFrameQueue[target].reason), reason.c_str());
     ++runtimeState().framesQueued;
 }
 
 void initLedIndexMap() {
-    for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
-        logicalToPhysicalMap[logical] = logicalToPhysicalLedIndex(logical);
-    }
+    for (uint16_t logical = 0; logical < LED_COUNT; ++logical) logicalToPhysicalMap[logical] = logicalToPhysicalLedIndex(logical);
 }
 
 void requestLedRender() {
@@ -202,16 +162,13 @@ uint16_t countLitLedsLocked(const uint8_t* bits) {
     return lit;
 }
 
-uint16_t countLitLeds() {
-    return countLitLedsLocked(runtimeFrameBits());
-}
+uint16_t countLitLeds() { return countLitLedsLocked(runtimeFrameBits()); }
 
 FrameStateSnapshot readFrameStateSnapshot() {
     FrameStateSnapshot s;
     withFrameLock([&]() {
         strlcpy(s.colorHex, runtimeState().colorHex.c_str(), sizeof(s.colorHex));
         s.brightness = runtimeState().brightness;
-        strlcpy(s.lastM370, runtimeState().lastM370.c_str(), sizeof(s.lastM370));
         strlcpy(s.lastReason, runtimeState().lastReason.c_str(), sizeof(s.lastReason));
         s.litLeds = countLitLedsLocked(runtimeFrameBits());
         s.framesAccepted = runtimeState().framesAccepted;
@@ -220,30 +177,22 @@ FrameStateSnapshot readFrameStateSnapshot() {
 }
 
 void renderCurrentFrameToLedStrip() {
-    // After setup(), this function is expected to run only on the Core 1
-    // render task. The static buffers below rely on that single-caller
-    // invariant.
     uint8_t localFrame[FRAME_BYTES];
     static uint8_t overlayRgb[LED_COUNT * 3];
     uint8_t brightness = DEFAULT_BRIGHTNESS;
     uint8_t colorR = 0, colorG = 0, colorB = 0;
-
     withFrameLock([&]() {
         memcpy(localFrame, runtimeFrameBits(), FRAME_BYTES);
         brightness = runtimeState().brightness;
-        colorR     = runtimeState().colorR;
-        colorG     = runtimeState().colorG;
-        colorB     = runtimeState().colorB;
+        colorR = runtimeState().colorR;
+        colorG = runtimeState().colorG;
+        colorB = runtimeState().colorB;
     });
-
     const uint32_t nowUs = micros();
     if (lastLedShowUs != 0) {
         const uint32_t elapsedUs = nowUs - lastLedShowUs;
-        if (elapsedUs < LED_RENDER_MIN_GAP_US) {
-            delayMicroseconds(LED_RENDER_MIN_GAP_US - elapsedUs);
-        }
+        if (elapsedUs < LED_RENDER_MIN_GAP_US) delayMicroseconds(LED_RENDER_MIN_GAP_US - elapsedUs);
     }
-
     static uint8_t lastAppliedBrightness = DEFAULT_BRIGHTNESS;
     if (brightness != lastAppliedBrightness) {
         strip.setBrightness(brightness);
@@ -253,25 +202,14 @@ void renderCurrentFrameToLedStrip() {
     if (overlayActive) {
         for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
             const uint16_t offset = logical * 3U;
-            strip.setPixelColor(
-                logicalToPhysicalMap[logical],
-                strip.Color(overlayRgb[offset], overlayRgb[offset + 1], overlayRgb[offset + 2])
-            );
+            strip.setPixelColor(logicalToPhysicalMap[logical], strip.Color(overlayRgb[offset], overlayRgb[offset + 1], overlayRgb[offset + 2]));
         }
     } else {
         const uint32_t rgb = strip.Color(colorR, colorG, colorB);
-        for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
-            strip.setPixelColor(
-                logicalToPhysicalMap[logical],
-                packedFrameBit(localFrame, logical) ? rgb : 0
-            );
-        }
+        for (uint16_t logical = 0; logical < LED_COUNT; ++logical) strip.setPixelColor(logicalToPhysicalMap[logical], packedFrameBit(localFrame, logical) ? rgb : 0);
     }
-
     delayMicroseconds(LED_SIGNAL_RESET_US);
-    withHardwareBusLock([]() {
-        strip.show();
-    });
+    withHardwareBusLock([]() { strip.show(); });
     lastLedShowUs = micros();
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
@@ -281,152 +219,68 @@ void ledStripBegin() {
     strip.setBrightness(DEFAULT_BRIGHTNESS);
     strip.clear();
     delayMicroseconds(LED_SIGNAL_RESET_US);
-    withHardwareBusLock([]() {
-        strip.show();
-    });
+    withHardwareBusLock([]() { strip.show(); });
     lastLedShowUs = micros();
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
 
-bool normalizeM370(const String& input, String& normalized, String& error) {
-    String payload = input;
-    payload.trim();
-
-    const size_t start = hasM370Prefix(payload) ? 5U : 0U;
-    char compact[M370_HEX_CHARS + 1];
-    size_t compactLen = 0;
-
-    for (size_t i = start; i < payload.length(); ++i) {
-        const char c = payload.charAt(i);
-        if (c == ' ' || c == '\r' || c == '\n' || c == '\t') continue;
-        if (hexNibble(c) < 0) {
-            error = "M370 contains a non-hex character";
-            return false;
-        }
-        if (compactLen < M370_HEX_CHARS) compact[compactLen] = upperHexChar(c);
-        ++compactLen;
-    }
-
-    if (compactLen != M370_HEX_CHARS) {
-        error = "M370 must be 93 hex chars, optionally prefixed with M370:";
-        return false;
-    }
-
-    compact[M370_HEX_CHARS] = '\0';
-    normalized = "M370:";
-    normalized += compact;
-    return true;
-}
-
-bool m370ToPackedBits(const String& input, uint8_t* outBits, String& error) {
-    if (!outBits) {
-        error = "output buffer is null";
-        return false;
-    }
-
-    String normalized;
-    if (!normalizeM370(input, normalized, error)) return false;
-
-    decodeNormalizedM370ToPackedBits(normalized, outBits);
-    return true;
-}
-
-static void decodeNormalizedM370ToPackedBits(const String& normalized, uint8_t* outBits) {
-    memset(outBits, 0, FRAME_BYTES);
-
-    const char* hex = normalized.c_str() + 5;
-    for (uint16_t nib = 0; nib < M370_HEX_CHARS; ++nib) {
-        const int value = hexNibble(hex[nib]);
-        if (value <= 0) continue;  // 说明 M370 帧解析和 LED 渲染 中当前代码块的职责和维护约束。
-        const uint16_t baseBit = static_cast<uint16_t>(nib) * 4U;
-        for (uint8_t k = 0; k < 4U; ++k) {
-            if ((value & (1 << (3 - k))) == 0) continue;
-            const uint16_t bit = baseBit + k;
-            if (bit < M370_BITS) outBits[bit >> 3] |= 1U << (bit & 7U);
-        }
-    }
-}
-
-String blankM370() {
-    return String(blankM370Text());
-}
-
-bool applyM370(const String& input, const String& reason, String& error) {
-    String normalized;
-    if (!normalizeM370(input, normalized, error)) {
+bool applyPackedFrameQueued(const uint8_t* packedBits, const String& reason, String& error) {
+    if (!validatePackedFrame(packedBits, error)) {
         ++runtimeState().framesRejected;
+        touchRuntimeStateSlow();
         return false;
     }
-
-    uint8_t packed[FRAME_BYTES];
-    decodeNormalizedM370ToPackedBits(normalized, packed);
-
-    const bool liveFrame = isLiveM370Reason(reason);
-    if (liveFrame) {
-        clearQueuedM370Frames();
-        publishPackedFrameNow(packed, normalized.c_str(), reason.c_str());
-    } else {
-        enqueuePackedM370Frame(packed, normalized.c_str(), reason);
-    }
-    // Output-only diagnostics, emitted after the (possibly synchronous) publish
-    // returns so no Serial I/O ever happens while the frame lock is held.
-    const uint16_t lit = countLitLedsLocked(packed);
-    RLOG_INFO("LED", "event=apply reason=%s lit=%u bytes=%u brightness=%u",
-              reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES),
-              runtimeState().brightness);
-    rinaLogRecordLedCommand(reason.c_str(), lit, liveFrame ? "live" : "frame");
+    enqueuePackedFrame(packedBits, reason);
+    const uint16_t lit = countLitLedsLocked(packedBits);
+    RLOG_INFO("LED", "event=apply_packed reason=%s lit=%u bytes=%u brightness=%u", reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES), runtimeState().brightness);
+    rinaLogRecordLedCommand(reason.c_str(), lit, "packed");
     return true;
 }
 
 void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason) {
     if (!packedBits) return;
-    publishPackedFrameNow(packedBits, nullptr, reason.c_str());
+    String error;
+    if (!validatePackedFrame(packedBits, error)) return;
+    publishPackedFrameNow(packedBits, reason.c_str());
     const uint16_t lit = countLitLedsLocked(packedBits);
-    RLOG_INFO("LED", "event=apply reason=%s lit=%u bytes=%u brightness=%u",
-              reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES),
-              runtimeState().brightness);
+    RLOG_INFO("LED", "event=apply_immediate_packed reason=%s lit=%u bytes=%u brightness=%u", reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES), runtimeState().brightness);
     rinaLogRecordLedCommand(reason.c_str(), lit, "immediate");
 }
 
 void applyBlankFrame(const String& reason) {
     uint8_t blank[FRAME_BYTES] = {};
-    enqueuePackedM370Frame(blank, blankM370Text(), reason);
-    RLOG_INFO("LED", "event=clear reason=%s lit=0 bytes=%u",
-              reason.c_str(), static_cast<unsigned>(FRAME_BYTES));
+    enqueuePackedFrame(blank, reason);
+    RLOG_INFO("LED", "event=clear reason=%s lit=0 bytes=%u", reason.c_str(), static_cast<unsigned>(FRAME_BYTES));
     rinaLogRecordLedCommand(reason.c_str(), 0, "clear");
 }
 
-void serviceM370FrameQueue() {
-    if (m370FrameQueueCount == 0) return;
+void servicePackedFrameQueue() {
+    if (packedFrameQueueCount == 0) return;
     const uint32_t now = millis();
-    if (!m370FrameRateReady(now)) return;
-
-    QueuedM370Frame& item = m370FrameQueue[m370FrameQueueHead];
-    m370FrameQueueHead = static_cast<uint8_t>((m370FrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
-    --m370FrameQueueCount;
+    if (!packedFrameRateReady(now)) return;
+    QueuedPackedFrame& item = packedFrameQueue[packedFrameQueueHead];
+    packedFrameQueueHead = static_cast<uint8_t>((packedFrameQueueHead + 1) % M370_FRAME_QUEUE_DEPTH);
+    --packedFrameQueueCount;
     ++runtimeState().framesDequeued;
-
-    publishPackedFrameNow(item.bits, item.hasM370 ? item.m370 : nullptr, item.reason);
+    publishPackedFrameNow(item.bits, item.reason);
 }
 
-void clearQueuedM370Frames() {
-    if (m370FrameQueueCount == 0) return;
-    runtimeState().framesDropped += m370FrameQueueCount;
-    m370FrameQueueHead = 0;
-    m370FrameQueueCount = 0;
+void clearQueuedPackedFrames() {
+    if (packedFrameQueueCount == 0) return;
+    runtimeState().framesDropped += packedFrameQueueCount;
+    packedFrameQueueHead = 0;
+    packedFrameQueueCount = 0;
 }
 
-uint8_t queuedM370FrameCount() {
-    return m370FrameQueueCount;
-}
+uint8_t queuedPackedFrameCount() { return packedFrameQueueCount; }
 
 void setColorStateNoRender(const String& input) {
     uint8_t r, g, b;
     if (!parseColorHex(input, r, g, b)) return;
     runtimeState().colorHex = formatColorHex(r, g, b);
-    runtimeState().colorR   = r;
-    runtimeState().colorG   = g;
-    runtimeState().colorB   = b;
+    runtimeState().colorR = r;
+    runtimeState().colorG = g;
+    runtimeState().colorB = b;
 }
 
 bool setColor(const String& input, String& error) {
@@ -437,9 +291,9 @@ bool setColor(const String& input, String& error) {
     }
     withFrameLock([&]() {
         runtimeState().colorHex = formatColorHex(r, g, b);
-        runtimeState().colorR   = r;
-        runtimeState().colorG   = g;
-        runtimeState().colorB   = b;
+        runtimeState().colorR = r;
+        runtimeState().colorG = g;
+        runtimeState().colorB = b;
         touchRuntimeStateSlow();
         showCurrentFrameNoLock();
     });
