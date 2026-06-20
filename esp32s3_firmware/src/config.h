@@ -133,6 +133,25 @@ constexpr uint8_t  MAX_SCROLL_TIMELINE_ID_CHARS = 47;
 constexpr uint8_t  MAX_SCROLL_FONT_ID_CHARS     = 47;
 constexpr uint8_t  MAX_SCROLL_GENERATOR_CHARS   = 47;
 
+// =============================================================================
+// HTTP server memory hardening -- crash protection against sudden WebUI refreshes.
+//
+// A browser refresh aborts the in-flight request and immediately fires a burst of
+// new ones (index.html + assets + /api/status + /api/scroll/meta + /api/frame ...).
+// Every dynamic endpoint allocates *internal* DRAM: the request-body copy, the
+// serialized JSON response String, per-frame temporaries. If such a burst lands
+// while internal heap is already low or fragmented, an allocation -- ours or the
+// WiFi/LwIP stack's -- can fail and panic the board (the "crash on refresh").
+//
+// Defence is admission control: before a handler does its big allocations it checks
+// the free internal heap, and if it is below this floor it sheds the request with
+// HTTP 503 instead of attempting the allocation and risking an OOM crash. This is
+// mode-independent (manual / auto / scroll) because every mode shares these
+// endpoints. The floor leaves headroom for one heavy response plus the WiFi stack.
+constexpr uint32_t HTTP_MIN_FREE_HEAP_BYTES      = 40960;  // 40 KB internal-heap admission floor
+constexpr uint32_t HTTP_MAX_REQUEST_BODY_BYTES   = 65536;  // hard cap on any POST body we will parse
+constexpr uint32_t SCROLL_MAX_UPLOAD_BODY_BYTES  = 16384;  // tighter cap on a single /api/scroll chunk body
+
 constexpr uint32_t BUTTON_DEBOUNCE_MS            = 25;
 constexpr uint32_t FACE_REPEAT_DELAY_MS          = 650;
 constexpr uint32_t FACE_REPEAT_MS                = 350;
