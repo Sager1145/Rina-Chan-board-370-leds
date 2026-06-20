@@ -3,8 +3,15 @@
  *
  * This file is loaded by index.html after app.js. It keeps a small __ui helper for
  * browser-driven tests and installs a production safety shim for 6.2/6.3 live LED
- * output. The shim intentionally sends a complete M370 frame through the normal
- * app.js setCurrentFrame()/api frame path instead of relying only on live deltas.
+ * output.
+ *
+ * Live-output rule:
+ * - A 6.2 LED click in realtime mode must behave like pressing Send once.
+ * - If the board is still in the same custom/parts manual output context, publish
+ *   the changed frame without clearing first (diff/re-sync path).
+ * - If another playback context is active, first publish a blank live frame, then
+ *   publish the complete edited frame so scroll/auto/previous output cannot leak
+ *   into the new custom frame.
  * ========================================================================== */
 (function () {
   "use strict";
@@ -174,7 +181,7 @@
   }
 
   window.__ui = {
-    version: "1.1-live-output-fix",
+    version: "1.2-live-click-refresh",
     list: function (opts) {
       opts = opts || {};
       var out = [];
@@ -257,18 +264,22 @@
 
 (function () {
   "use strict";
-  if (window.__rinaLiveOutputFixV2Installed) return;
-  window.__rinaLiveOutputFixV2Installed = true;
+  if (window.__rinaLiveClickRefreshV3Installed) return;
+  window.__rinaLiveClickRefreshV3Installed = true;
   window.__rinaLiveOutputPatchInstalled = true;
 
   var API_FRAME_ENDPOINT = "/api/frame";
-  var installTimer = 0;
-  var importFallbackBound = false;
+  var installAttempts = 0;
+  var liveFallbackBound = false;
+  var lastCustomLiveSendAt = 0;
+  var lastPartsLiveSendAt = 0;
+  var customSendSeq = 0;
+  var partsSendSeq = 0;
 
   function safeLog(message, level) {
     try {
       if (typeof log === "function") log(message, level || "debug");
-      else console.debug("[rina-live-output-fix]", message);
+      else console.debug("[rina-live-click-refresh]", message);
     } catch (_) {}
   }
 
@@ -277,6 +288,21 @@
       if (typeof cloneFrame === "function") return cloneFrame(frame);
     } catch (_) {}
     return Array.prototype.slice.call(frame || []).slice(0, 370).map(Boolean);
+  }
+
+  function blankFrameSafe() {
+    try {
+      if (typeof blankFrame === "function") return blankFrame();
+    } catch (_) {}
+    return new Array(370).fill(false);
+  }
+
+  function normalizeFrame(frame) {
+    var out = blankFrameSafe();
+    var src = Array.prototype.slice.call(frame || []);
+    var n = Math.min(out.length, src.length);
+    for (var i = 0; i < n; i++) out[i] = !!src[i];
+    return out;
   }
 
   function liveToggleLooksEnabled(id) {
@@ -297,24 +323,53 @@
         setLiveSendEnabled(true, label || "实时输出恢复");
       }
     } catch (err) {
-      console.warn("[rina-live-output-fix] failed to restore live flag", err);
+      console.warn("[rina-live-click-refresh] failed to restore live flag", err);
     }
   }
 
-  function currentPlaybackIsScroll() {
+  function activePageId() {
+    var page = document.querySelector("section.page.active");
+    return page && page.id ? page.id : "";
+  }
+
+  function isAutoModeActive() {
     try {
-      return typeof isScrollPlaybackValue === "function" && isScrollPlaybackValue(state.playback);
+      return typeof isAutoModeValue === "function" && isAutoModeValue(state.mode);
     } catch (_) {
       return false;
     }
   }
 
+  function isScrollActive() {
+    try {
+      return !!state.textScrollActive || (typeof isScrollPlaybackValue === "function" && isScrollPlaybackValue(state.playback));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function playbackIsManualIdle() {
+    try {
+      if (isAutoModeActive()) return false;
+      if (isScrollActive()) return false;
+      var playback = String(state.playback || "idle");
+      return playback === "idle" || playback === "static" || playback === "manual";
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function isSameOutputContext(kind) {
+    var page = activePageId();
+    if (kind === "custom" && page !== "page-custom") return false;
+    if (kind === "parts" && page !== "page-parts") return false;
+    return playbackIsManualIdle();
+  }
+
   function forceManualUi(reason) {
     try {
       if (typeof state === "undefined") return;
-      var wasAuto = typeof isAutoModeValue === "function" && isAutoModeValue(state.mode);
-      var wasScroll = !!state.textScrollActive || currentPlaybackIsScroll();
-      if (typeof guardBeforeOutput === "function" && (wasAuto || wasScroll)) guardBeforeOutput(reason || "custom_live_send", "idle");
+      if (typeof guardBeforeOutput === "function") guardBeforeOutput(reason || "custom_live_rebase", "idle");
       state.mode = "manual";
       state.playback = "idle";
       state.textScrollActive = false;
@@ -322,7 +377,7 @@
       if (typeof updateScrollUi === "function") updateScrollUi();
       if (typeof renderState === "function") renderState();
     } catch (err) {
-      console.warn("[rina-live-output-fix] force manual UI failed", err);
+      console.warn("[rina-live-click-refresh] force manual UI failed", err);
     }
   }
 
@@ -338,13 +393,23 @@
     }
   }
 
-  async function postFrameFallback(frame, reason) {
-    var m370 = frameToNormalizedM370(frame);
-    if (!m370) return null;
-    var payload = { type: "m370_frame", m370: m370, reason: reason, mode: "idle", playback: "idle", at: Date.now() };
+  async function postFrameNow(frame, reason, label, meta) {
+    var snapshot = normalizeFrame(frame);
+    var m370 = frameToNormalizedM370(snapshot);
+    if (!m370) throw new Error("invalid M370 from " + label);
+    var payload = Object.assign({
+      type: "m370_frame",
+      m370: m370,
+      reason: reason,
+      mode: "idle",
+      playback: "idle",
+      at: Date.now(),
+    }, meta || {});
+
     if (typeof apiPost === "function") {
       return apiPost(API_FRAME_ENDPOINT, payload, { silent: false, expectJson: true, timeoutMs: 2500 });
     }
+
     var url = typeof apiUrl === "function" ? apiUrl(API_FRAME_ENDPOINT) : API_FRAME_ENDPOINT;
     if (!url) throw new Error("offline html mode: " + API_FRAME_ENDPOINT);
     var res = await fetch(url, {
@@ -357,34 +422,102 @@
     try { return body ? JSON.parse(body) : { ok: true }; } catch (_) { return { ok: true }; }
   }
 
-  function sendFullLiveFrame(frame, reason, toggleId, label) {
+  function localFrameDelta(fromFrame, toFrame) {
+    if (typeof frameDeltaChanges === "function") {
+      try { return frameDeltaChanges(fromFrame, toFrame) || []; } catch (_) {}
+    }
+    var from = normalizeFrame(fromFrame);
+    var to = normalizeFrame(toFrame);
+    var changes = [];
+    for (var i = 0; i < to.length; i++) if (!!from[i] !== !!to[i]) changes.push([i, to[i] ? 1 : 0]);
+    return changes;
+  }
+
+  function applyChanges(frame, changes) {
+    var out = normalizeFrame(frame);
+    for (var i = 0; i < changes.length; i++) {
+      var idx = Number(changes[i] && changes[i][0]);
+      if (Number.isInteger(idx) && idx >= 0 && idx < out.length) out[idx] = !!changes[i][1];
+    }
+    return out;
+  }
+
+  function currentBaselineFrame() {
+    try {
+      if (typeof liveSyncedFrame !== "undefined" && liveSyncedFrame) return cloneFrameSafe(liveSyncedFrame);
+    } catch (_) {}
+    try {
+      if (typeof currentFrame !== "undefined" && currentFrame) return cloneFrameSafe(currentFrame);
+    } catch (_) {}
+    return blankFrameSafe();
+  }
+
+  function syncBaseline(frame) {
+    try {
+      if (typeof syncLiveSendBaseline === "function") syncLiveSendBaseline(frame);
+      else if (typeof liveSyncedFrame !== "undefined") liveSyncedFrame = cloneFrameSafe(frame);
+    } catch (_) {}
+  }
+
+  function applyRuntimeState(data, reason) {
+    try {
+      if (data && typeof applyFirmwareRuntimeState === "function") applyFirmwareRuntimeState(data, reason);
+    } catch (_) {}
+  }
+
+  async function publishDiffOrResync(frame, reason, label) {
+    var target = normalizeFrame(frame);
+    var baseline = currentBaselineFrame();
+    var changes = localFrameDelta(baseline, target);
+    var frameToPublish = changes.length ? applyChanges(baseline, changes) : target;
+    var postReason = changes.length ? reason : reason + "_resync";
+    var data = await postFrameNow(frameToPublish, postReason, label, {
+      livePath: "diff_or_resync",
+      deltaCount: changes.length,
+      deltaOnly: changes.length > 0,
+    });
+    syncBaseline(frameToPublish);
+    applyRuntimeState(data, postReason);
+    safeLog(label + "实时" + (changes.length ? "diff" : "重发") + "已发布: " + postReason + " changes=" + changes.length, "debug");
+    return data || { ok: true };
+  }
+
+  async function publishClearThenFull(frame, reason, label) {
+    var target = normalizeFrame(frame);
+    var clearReason = reason + "_clear_before_full";
+    forceManualUi(clearReason);
+    var clearData = await postFrameNow(blankFrameSafe(), clearReason, label + "清屏", {
+      livePath: "clear_before_full",
+      clearBeforeFull: true,
+    });
+    applyRuntimeState(clearData, clearReason);
+    var data = await postFrameNow(target, reason, label, {
+      livePath: "full_after_clear",
+      fullAfterClear: true,
+    });
+    syncBaseline(target);
+    applyRuntimeState(data, reason);
+    forceManualUi(reason);
+    safeLog(label + "实时已清屏并发布完整帧: " + reason, "debug");
+    return data || { ok: true };
+  }
+
+  function sendLiveFrameByContext(frame, reason, toggleId, label, kind) {
     if (!liveEnabled(toggleId)) {
       safeLog(label + "实时发送关闭：只更新本地预览，未发固件帧", "debug");
       return null;
     }
     restoreLiveFlagFromToggle(toggleId, label + "实时输出恢复");
-    var snapshot = cloneFrameSafe(frame);
-    forceManualUi(reason);
-    try {
-      if (typeof setCurrentFrame === "function") {
-        setCurrentFrame(snapshot, reason, "idle");
-        if (typeof syncLiveSendBaseline === "function") syncLiveSendBaseline(snapshot);
-        safeLog(label + "实时完整帧已进入固件发送链路: " + reason, "debug");
-        return { ok: true, path: "setCurrentFrame", reason: reason };
-      }
-    } catch (err) {
-      console.warn("[rina-live-output-fix] setCurrentFrame path failed, using direct fallback", err);
-    }
-    return postFrameFallback(snapshot, reason)
-      .then(function (data) {
-        try { if (data && typeof applyFirmwareRuntimeState === "function") applyFirmwareRuntimeState(data, reason); } catch (_) {}
-        forceManualUi(reason);
-        return data || { ok: true, path: "direct" };
-      })
-      .catch(function (err) {
-        safeLog(label + "实时完整帧发送失败: " + (err && err.message ? err.message : err), "error");
-        return null;
-      });
+    var snapshot = normalizeFrame(frame);
+    var sameContext = isSameOutputContext(kind);
+    var promise = sameContext
+      ? publishDiffOrResync(snapshot, reason, label)
+      : publishClearThenFull(snapshot, reason, label);
+    promise.catch(function (err) {
+      safeLog(label + "实时帧发送失败: " + (err && err.message ? err.message : err), "error");
+      return null;
+    });
+    return { ok: true, queued: true, path: sameContext ? "diff_or_resync" : "clear_then_full", reason: reason };
   }
 
   function customFrameSnapshot() {
@@ -400,67 +533,102 @@
   function patchLiveSendFunctions() {
     var installed = true;
     try {
-      if (typeof sendCustomFrameIfLive === "function" && !sendCustomFrameIfLive.__rinaFullFrameLive) {
+      if (typeof sendCustomFrameIfLive === "function" && !sendCustomFrameIfLive.__rinaClickRefreshV3) {
         var patchedCustom = function patchedSendCustomFrameIfLive(reason) {
           var frame = customFrameSnapshot();
           if (!frame) return null;
-          return sendFullLiveFrame(frame, reason || "custom_live_send", "custom-live-toggle", "自定义画板");
+          lastCustomLiveSendAt = Date.now();
+          return sendLiveFrameByContext(frame, reason || "custom_live_send", "custom-live-toggle", "自定义画板", "custom");
         };
-        patchedCustom.__rinaFullFrameLive = true;
+        patchedCustom.__rinaClickRefreshV3 = true;
         sendCustomFrameIfLive = patchedCustom;
       }
-      installed = installed && typeof sendCustomFrameIfLive === "function" && !!sendCustomFrameIfLive.__rinaFullFrameLive;
+      installed = installed && typeof sendCustomFrameIfLive === "function" && !!sendCustomFrameIfLive.__rinaClickRefreshV3;
     } catch (err) {
       installed = false;
-      console.warn("[rina-live-output-fix] custom patch failed", err);
+      console.warn("[rina-live-click-refresh] custom patch failed", err);
     }
 
     try {
-      if (typeof sendPartsFrameIfLive === "function" && !sendPartsFrameIfLive.__rinaFullFrameLive) {
+      if (typeof sendPartsFrameIfLive === "function" && !sendPartsFrameIfLive.__rinaClickRefreshV3) {
         var patchedParts = function patchedSendPartsFrameIfLive(reason) {
           var frame = partsFrameSnapshot();
           if (!frame) return null;
-          return sendFullLiveFrame(frame, reason || "parts_live_send", "parts-live-toggle", "部件组合");
+          lastPartsLiveSendAt = Date.now();
+          return sendLiveFrameByContext(frame, reason || "parts_live_send", "parts-live-toggle", "部件组合", "parts");
         };
-        patchedParts.__rinaFullFrameLive = true;
+        patchedParts.__rinaClickRefreshV3 = true;
         sendPartsFrameIfLive = patchedParts;
       }
-      installed = installed && typeof sendPartsFrameIfLive === "function" && !!sendPartsFrameIfLive.__rinaFullFrameLive;
+      installed = installed && typeof sendPartsFrameIfLive === "function" && !!sendPartsFrameIfLive.__rinaClickRefreshV3;
     } catch (err) {
       installed = false;
-      console.warn("[rina-live-output-fix] parts patch failed", err);
+      console.warn("[rina-live-click-refresh] parts patch failed", err);
     }
     return installed;
   }
 
-  function bindImportFallbacks() {
-    if (importFallbackBound) return;
-    importFallbackBound = true;
+  function scheduleCustomFallback(reason) {
+    var seq = ++customSendSeq;
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        if (seq !== customSendSeq) return;
+        if (Date.now() - lastCustomLiveSendAt < 80) return;
+        if (typeof sendCustomFrameIfLive === "function") sendCustomFrameIfLive(reason || "custom_live_click_fallback");
+      });
+    });
+  }
+
+  function schedulePartsFallback(reason) {
+    var seq = ++partsSendSeq;
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        if (seq !== partsSendSeq) return;
+        if (Date.now() - lastPartsLiveSendAt < 80) return;
+        if (typeof sendPartsFrameIfLive === "function") sendPartsFrameIfLive(reason || "parts_live_change_fallback");
+      });
+    });
+  }
+
+  function bindLiveFallbackEvents() {
+    if (liveFallbackBound) return;
+    liveFallbackBound = true;
+
+    var customMatrix = document.getElementById("matrix-custom-edit");
+    if (customMatrix) {
+      customMatrix.addEventListener("click", function (ev) {
+        if (!ev.target || !ev.target.closest || !ev.target.closest(".led")) return;
+        scheduleCustomFallback("custom_live_click");
+      });
+    }
+
+    ["custom-clear", "custom-fill", "custom-invert"].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (!btn) return;
+      btn.addEventListener("click", function () { scheduleCustomFallback("custom_live_" + id.replace("custom-", "")); });
+    });
+
     var customImport = document.getElementById("custom-import");
     if (customImport) {
-      customImport.addEventListener("click", function () {
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () {
-            if (typeof sendCustomFrameIfLive === "function") sendCustomFrameIfLive("custom_live_import");
-          });
-        });
-      });
+      customImport.addEventListener("click", function () { scheduleCustomFallback("custom_live_import"); });
     }
-    var partsImport = document.getElementById("parts-import-m370");
-    if (partsImport) {
-      partsImport.addEventListener("click", function () {
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () {
-            if (typeof sendPartsFrameIfLive === "function") sendPartsFrameIfLive("parts_live_import");
-          });
-        });
-      });
+
+    var partsRoot = document.getElementById("part-groups");
+    if (partsRoot) {
+      partsRoot.addEventListener("click", function () { schedulePartsFallback("parts_live_select"); });
+      partsRoot.addEventListener("change", function () { schedulePartsFallback("parts_live_select"); });
     }
+
+    ["parts-random", "parts-reset", "parts-import-m370"].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (!btn) return;
+      btn.addEventListener("click", function () { schedulePartsFallback("parts_live_" + id.replace("parts-", "")); });
+    });
   }
 
   function patchScrollPrepareLiveRestore() {
     try {
-      if (typeof prepareForTextScrollUpload === "function" && !prepareForTextScrollUpload.__rinaLiveRestore) {
+      if (typeof prepareForTextScrollUpload === "function" && !prepareForTextScrollUpload.__rinaLiveRestoreV3) {
         var originalPrepare = prepareForTextScrollUpload;
         var patchedPrepare = async function patchedPrepareForTextScrollUpload() {
           var restoreLiveAfterPrepare = liveEnabled("custom-live-toggle") || liveEnabled("parts-live-toggle");
@@ -470,20 +638,20 @@
             if (restoreLiveAfterPrepare && typeof setLiveSendEnabled === "function") setLiveSendEnabled(true, "文字滚动准备结束恢复实时");
           }
         };
-        patchedPrepare.__rinaLiveRestore = true;
+        patchedPrepare.__rinaLiveRestoreV3 = true;
         prepareForTextScrollUpload = patchedPrepare;
       }
     } catch (err) {
-      console.warn("[rina-live-output-fix] scroll prepare patch failed", err);
+      console.warn("[rina-live-click-refresh] scroll prepare patch failed", err);
     }
   }
 
   function install() {
     var ok = patchLiveSendFunctions();
     patchScrollPrepareLiveRestore();
-    bindImportFallbacks();
-    if (!ok && installTimer < 20) {
-      installTimer += 1;
+    bindLiveFallbackEvents();
+    if (!ok && installAttempts < 30) {
+      installAttempts += 1;
       setTimeout(install, 150);
     }
   }
