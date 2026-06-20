@@ -1016,27 +1016,37 @@
       max-width: 2209px;
     }
 
+    /* Page 6.2 & 6.3 & 6.5: Widescreen 3-column layout transition */
+    body[data-page="custom"] .grid,
+    body[data-page="parts"] .grid,
     body[data-page="debug"] .grid {
       max-width: 2209px;
     }
 
-    /* Page 6.3: Widescreen 3-column layout transition */
-    body[data-page="parts"] .grid {
-      max-width: 2209px;
-    }
-
-    #page-parts > .grid.cols-2 {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-    }
-
+    #page-custom > .grid.cols-2,
+    #page-parts > .grid.cols-2,
     #page-debug > .grid.cols-2 {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
     }
 
     /* 让 .face-manager-stack 的直接子项（中列容器 + saved_faces 卡片）成为外层网格项。 */
+    #page-custom .face-manager-stack,
     #page-parts .face-manager-stack,
     #page-debug .debug-panel-stack {
       display: contents;
+    }
+
+    /* Column placements for Page 6.2 */
+    #page-custom .led-preview-card {
+      grid-column: 1;
+    }
+
+    #page-custom .face-control-panel {
+      grid-column: 2;
+    }
+
+    #page-custom .face-manager-panel {
+      grid-column: 3;
     }
 
     /* 第一列：LED 预览（粘性）。第二列：控制按钮 + 表情部件（由 .parts-mid-col 自己
@@ -1066,6 +1076,8 @@
       grid-column: 3;
     }
 
+    #page-custom .face-control-panel,
+    #page-custom .face-manager-panel,
     .parts-mid-col,
     #page-parts .face-manager-panel,
     .debug-mid-col,
@@ -1402,6 +1414,7 @@
     #page-scroll .led-preview-card,
     #page-debug .led-preview-card {
       width: calc(100% + var(--content-padding) * 2);
+      max-width: none !important;
       margin-left: calc(var(--content-padding) * -1);
       margin-right: calc(var(--content-padding) * -1);
     }
