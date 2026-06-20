@@ -11,6 +11,8 @@ static constexpr uint8_t DEFERRED_RESTORE_NONE            = 0;
 static constexpr uint8_t DEFERRED_RESTORE_STARTUP_DEFAULT = 1;
 static constexpr uint8_t DEFERRED_RESTORE_CURRENT_FACE    = 2;
 
+static bool shouldForceClearWhenStoppingScroll();
+
 bool isAutoMode() {
     return runtimeState().mode == "auto";
 }
@@ -31,6 +33,11 @@ bool setMode(const char* input, bool persistSettings) {
     const String oldMode = runtimeState().mode;
     const bool settingsChanged = runtimeState().mode != mode;
     bool changed = false;
+
+    if (mode != "auto" && mode != "manual") return false;
+    if (shouldForceClearWhenStoppingScroll()) {
+        stopFirmwareScroll(false, true);
+    }
 
     if (mode == "auto") {
         if (runtimeState().mode != "auto") {
@@ -63,8 +70,6 @@ bool setMode(const char* input, bool persistSettings) {
             runtimeState().playback = DEFAULT_PLAYBACK;
             changed = true;
         }
-    } else {
-        return false;
     }
     if (changed) touchRuntimeState();
     if (persistSettings && settingsChanged) saveRuntimeSettings();
