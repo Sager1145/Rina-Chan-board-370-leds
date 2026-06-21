@@ -32,11 +32,11 @@ struct Rgb {
     uint8_t b;
 };
 
-constexpr Rgb MODE_COLOR       = {180, 0, 255};
+constexpr Rgb MODE_COLOR = {180, 0, 255};
 constexpr Rgb BRIGHTNESS_COLOR = {0, 120, 255};
-constexpr Rgb EDGE_COLOR       = {0, 120, 255};
-constexpr Rgb WHITE_COLOR      = {255, 255, 255};
-constexpr Rgb RED_COLOR        = {255, 0, 0};
+constexpr Rgb EDGE_COLOR = {0, 120, 255};
+constexpr Rgb WHITE_COLOR = {255, 255, 255};
+constexpr Rgb RED_COLOR = {255, 0, 0};
 
 enum class OverlayKind : uint8_t {
     None,
@@ -105,42 +105,98 @@ const char* const GLYPH_DOT[] = {".", ".", ".", ".", ".", ".", "#"};
 const char* const GLYPH_PCT[] = {"#.#", "..#", ".#.", ".#.", "#..", "#.#", "..."};
 
 const char* const BIG_A[] = {
-    "...####...", "..######..", ".##....##.", ".##....##.", ".##....##.", ".##....##.",
-    ".########.", ".########.", ".##....##.", ".##....##.", ".##....##.", ".##....##.",
+    "...####...",
+    "..######..",
+    ".##....##.",
+    ".##....##.",
+    ".##....##.",
+    ".##....##.",
+    ".########.",
+    ".########.",
+    ".##....##.",
+    ".##....##.",
+    ".##....##.",
+    ".##....##.",
     ".##....##.",
 };
 
 const char* const BIG_M[] = {
-    "##......##", "###....###", "####..####", "##.####.##", "##..##..##", "##......##",
-    "##......##", "##......##", "##......##", "##......##", "##......##", "##......##",
+    "##......##",
+    "###....###",
+    "####..####",
+    "##.####.##",
+    "##..##..##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
+    "##......##",
     "##......##",
 };
 
 const char* const CLOCK_ICON[] = {
-    "......................", ".........####.........", "........#...##........",
-    "........#..#.#........", "........#....#........", "........#....#........",
-    ".........####.........", "......................", "......................",
-    "......................", "......................", "......................",
-    "......................", "......................", "......................",
-    "......................", "......................", "......................",
+    "......................",
+    ".........####.........",
+    "........#...##........",
+    "........#..#.#........",
+    "........#....#........",
+    "........#....#........",
+    ".........####.........",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
 };
 
 const char* const SUN_ICON[] = {
-    "......................", ".......#......#.##....", "....##.#......#.......",
-    "........#....#........", ".........####..#......", ".......#........#.....",
-    "......#....#..........", "...........#..........", "......................",
-    "......................", "......................", "......................",
-    "......................", "......................", "......................",
-    "......................", "......................", "......................",
+    "......................",
+    ".......#......#.##....",
+    "....##.#......#.......",
+    "........#....#........",
+    ".........####..#......",
+    ".......#........#.....",
+    "......#....#..........",
+    "...........#..........",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
 };
 
 const char* const BATTERY_ICON[] = {
-    "......................", "......#########.......", "......#........#......",
-    "......#........#......", "......#........#......", "......#########.......",
-    "......................", "......................", "......................",
-    "......................", "......................", "......................",
-    "......................", "......................", "......................",
-    "......................", "......................", "......................",
+    "......................",
+    "......#########.......",
+    "......#........#......",
+    "......#........#......",
+    "......#........#......",
+    "......#########.......",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
+    "......................",
 };
 
 struct Glyph {
@@ -150,41 +206,61 @@ struct Glyph {
 
 Glyph glyphFor(char ch) {
     switch (ch) {
-        case '0': return {GLYPH_0, 5};
-        case '1': return {GLYPH_1, 5};
-        case '2': return {GLYPH_2, 5};
-        case '3': return {GLYPH_3, 5};
-        case '4': return {GLYPH_4, 5};
-        case '5': return {GLYPH_5, 5};
-        case '6': return {GLYPH_6, 5};
-        case '7': return {GLYPH_7, 5};
-        case '8': return {GLYPH_8, 5};
-        case '9': return {GLYPH_9, 5};
-        case 'S': return {GLYPH_S, 5};
-        case 'V': return {GLYPH_V, 5};
-        case '.': return {GLYPH_DOT, 1};
-        case '%': return {GLYPH_PCT, 3};
-        default:  return {nullptr, 0};
+    case '0':
+        return {GLYPH_0, 5};
+    case '1':
+        return {GLYPH_1, 5};
+    case '2':
+        return {GLYPH_2, 5};
+    case '3':
+        return {GLYPH_3, 5};
+    case '4':
+        return {GLYPH_4, 5};
+    case '5':
+        return {GLYPH_5, 5};
+    case '6':
+        return {GLYPH_6, 5};
+    case '7':
+        return {GLYPH_7, 5};
+    case '8':
+        return {GLYPH_8, 5};
+    case '9':
+        return {GLYPH_9, 5};
+    case 'S':
+        return {GLYPH_S, 5};
+    case 'V':
+        return {GLYPH_V, 5};
+    case '.':
+        return {GLYPH_DOT, 1};
+    case '%':
+        return {GLYPH_PCT, 3};
+    default:
+        return {nullptr, 0};
     }
 }
 
 bool overlayExpired(const AnimationState& state, uint32_t now) {
-    if (!state.active || state.expiresMs == 0) return false;
-    if (state.kind == OverlayKind::Battery && !state.batterySingleShot) return false;
+    if (!state.active || state.expiresMs == 0)
+        return false;
+    if (state.kind == OverlayKind::Battery && !state.batterySingleShot)
+        return false;
     return millisReached(now, state.expiresMs);
 }
 
 int16_t xyToLogical(uint8_t x, uint8_t y) {
-    if (x >= COLS || y >= ROWS) return -1;
+    if (x >= COLS || y >= ROWS)
+        return -1;
     const uint8_t rowLength = ROW_LENGTHS[y];
     const uint8_t leftPad = (COLS - rowLength) / 2;
-    if (x < leftPad || x >= leftPad + rowLength) return -1;
+    if (x < leftPad || x >= leftPad + rowLength)
+        return -1;
     return static_cast<int16_t>(ROW_OFFSETS[y] + (x - leftPad));
 }
 
 void putPixel(uint8_t* out, uint8_t x, uint8_t y, Rgb color) {
     const int16_t logical = xyToLogical(x, y);
-    if (logical < 0) return;
+    if (logical < 0)
+        return;
     const uint16_t offset = static_cast<uint16_t>(logical) * 3U;
     out[offset] = color.r;
     out[offset + 1] = color.g;
@@ -197,7 +273,8 @@ void clearOverlay(uint8_t* out) {
 
 void drawBitmap(uint8_t* out, const char* const* rows, uint8_t width, uint8_t height,
                 int8_t x0, int8_t y0, Rgb color) {
-    if (!rows) return;
+    if (!rows)
+        return;
     for (uint8_t y = 0; y < height; ++y) {
         for (uint8_t x = 0; x < width; ++x) {
             if (rows[y][x] == '#') {
@@ -213,31 +290,36 @@ void drawBitmap(uint8_t* out, const char* const* rows, uint8_t width, uint8_t he
 
 void drawText(uint8_t* out, const char* text, Rgb color, bool hasIcon, bool voltageLayout = false) {
     constexpr uint8_t GAP = 1;
-    constexpr uint8_t MAX_TEXT_GLYPHS = 8;  // 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
+    constexpr uint8_t MAX_TEXT_GLYPHS = 8; // 说明 按钮反馈、电量提示和网络信息 overlay 中当前代码块的职责和维护约束。
 
     uint8_t len = 0;
     uint8_t totalW = 0;
     for (; len < MAX_TEXT_GLYPHS && text[len] != '\0'; ++len) {
-        if (len > 0) totalW += GAP;
+        if (len > 0)
+            totalW += GAP;
         totalW += glyphFor(text[len]).width;
     }
-    if (len == 0 || totalW > COLS) return;
+    if (len == 0 || totalW > COLS)
+        return;
 
     int8_t x0 = static_cast<int8_t>((COLS - totalW) / 2);
     const int8_t y0 = hasIcon ? 9 : 5;
 
     for (uint8_t i = 0; i < len; ++i) {
         const Glyph g = glyphFor(text[i]);
-        if (g.rows && g.width > 0) drawBitmap(out, g.rows, g.width, 7, x0, y0, color);
+        if (g.rows && g.width > 0)
+            drawBitmap(out, g.rows, g.width, 7, x0, y0, color);
         x0 += g.width + GAP;
-        if (voltageLayout && i == 2) ++x0;
+        if (voltageLayout && i == 2)
+            ++x0;
     }
 }
 
 void drawIconText(uint8_t* out, const char* text, Rgb color, const char* const* iconRows,
                   bool voltageLayout = false, Rgb textColor = {0, 0, 0}, bool useTextColor = false) {
     clearOverlay(out);
-    if (iconRows) drawBitmap(out, iconRows, COLS, ROWS, 0, 0, color);
+    if (iconRows)
+        drawBitmap(out, iconRows, COLS, ROWS, 0, 0, color);
     drawText(out, text, useTextColor ? textColor : color, iconRows != nullptr, voltageLayout);
 }
 
@@ -251,13 +333,16 @@ void formatInterval(uint32_t intervalMs, char* out, size_t outSize) {
     const uint16_t tenths = static_cast<uint16_t>((intervalMs + 50U) / 100U);
     const uint16_t whole = tenths / 10U;
     const uint16_t frac = tenths % 10U;
-    if (whole == 10 && frac == 0) snprintf(out, outSize, "10S");
-    else snprintf(out, outSize, "%u.%uS", whole, frac);
+    if (whole == 10 && frac == 0)
+        snprintf(out, outSize, "10S");
+    else
+        snprintf(out, outSize, "%u.%uS", whole, frac);
 }
 
 Rgb batteryColor(uint8_t percent) {
     const uint8_t p = min<uint8_t>(percent, 100);
-    if (p <= 10) return RED_COLOR;
+    if (p <= 10)
+        return RED_COLOR;
     if (p <= 30) {
         const float t = (static_cast<float>(p) - 10.0f) / 20.0f;
         return {255, static_cast<uint8_t>(165.0f * t), 0};
@@ -275,8 +360,10 @@ Rgb batteryColor(uint8_t percent) {
 
 uint8_t batteryFillCols(uint8_t percent) {
     const uint8_t p = min<uint8_t>(percent, 100);
-    if (p < 10) return 0;
-    if (p > 90) return 8;
+    if (p < 10)
+        return 0;
+    if (p > 90)
+        return 8;
     return static_cast<uint8_t>(((static_cast<uint16_t>(p) - 10U) * 8U + 79U) / 80U);
 }
 
@@ -328,9 +415,11 @@ void drawBatteryPage(uint8_t* out, const AnimationState& state, uint32_t now) {
 }
 
 void overlayEdgeFlash(uint8_t* out, const AnimationState& state, uint32_t now) {
-    if (state.edge == EdgeKind::None) return;
+    if (state.edge == EdgeKind::None)
+        return;
     const uint32_t elapsed = now - state.edgeStartedMs;
-    if (elapsed > EDGE_FLASH_MS) return;
+    if (elapsed > EDGE_FLASH_MS)
+        return;
 
     float factor = 0.0f;
     if (elapsed <= EDGE_ATTACK_MS) {
@@ -347,15 +436,16 @@ void overlayEdgeFlash(uint8_t* out, const AnimationState& state, uint32_t now) {
         const float spatial = max(0.20f, 1.0f - (dist / 10.5f));
         const float level = factor * spatial;
         putPixel(out, x, y, {
-            static_cast<uint8_t>(static_cast<float>(base.r) * level),
-            static_cast<uint8_t>(static_cast<float>(base.g) * level),
-            static_cast<uint8_t>(static_cast<float>(base.b) * level),
-        });
+                                static_cast<uint8_t>(static_cast<float>(base.r) * level),
+                                static_cast<uint8_t>(static_cast<float>(base.g) * level),
+                                static_cast<uint8_t>(static_cast<float>(base.b) * level),
+                            });
     }
 }
 
 void pauseScrollForOverlay() {
-    if (sAnim.pausedScroll) return;
+    if (sAnim.pausedScroll)
+        return;
 
     bool shouldPause = false;
     withScrollLock([&]() {
@@ -376,7 +466,8 @@ void resumeScrollAfterOverlayIfNeeded() {
     sAnim.pausedScroll = false;
     portEXIT_CRITICAL(&sAnimMux);
 
-    if (!resume) return;
+    if (!resume)
+        return;
 
     scrollSessionSetSystemPaused(false);
 }
@@ -397,7 +488,8 @@ void stopOverlay(bool requestRender) {
 
     if (wasActive) {
         resumeScrollAfterOverlayIfNeeded();
-        if (requestRender) requestLedRender();
+        if (requestRender)
+            requestLedRender();
     }
 }
 
@@ -493,7 +585,8 @@ void startButtonAnimationForGpioAction(const String& buttonCode) {
 }
 
 void handleButtonAnimationGpioPress(const char* buttonCode) {
-    if (!buttonCode || strcmp(buttonCode, "B6") != 0) return;
+    if (!buttonCode || strcmp(buttonCode, "B6") != 0)
+        return;
     const uint32_t now = millis();
     portENTER_CRITICAL(&sAnimMux);
     sAnim.b6Pressed = true;
@@ -503,7 +596,8 @@ void handleButtonAnimationGpioPress(const char* buttonCode) {
 }
 
 void handleButtonAnimationGpioRelease(const char* buttonCode) {
-    if (!buttonCode || strcmp(buttonCode, "B6") != 0) return;
+    if (!buttonCode || strcmp(buttonCode, "B6") != 0)
+        return;
 
     bool longFired = false;
     portENTER_CRITICAL(&sAnimMux);
@@ -513,8 +607,10 @@ void handleButtonAnimationGpioRelease(const char* buttonCode) {
     sAnim.b6PressedAtMs = 0;
     portEXIT_CRITICAL(&sAnimMux);
 
-    if (longFired) stopOverlay(true);
-    else startBatteryOverlay(true);
+    if (longFired)
+        stopOverlay(true);
+    else
+        startBatteryOverlay(true);
 }
 
 void serviceButtonAnimationButtonInputs(bool b6Pressed, bool b2Pressed, bool b3Pressed) {
@@ -527,10 +623,12 @@ void serviceButtonAnimationButtonInputs(bool b6Pressed, bool b2Pressed, bool b3P
         sAnim.b6LongFired = true;
         shouldStartLong = true;
     }
-    if (!b6Pressed) sAnim.b6Pressed = false;
+    if (!b6Pressed)
+        sAnim.b6Pressed = false;
     portEXIT_CRITICAL(&sAnimMux);
 
-    if (shouldStartLong) startBatteryOverlay(false);
+    if (shouldStartLong)
+        startBatteryOverlay(false);
 }
 
 void serviceButtonAnimations() {
@@ -550,7 +648,8 @@ void serviceButtonAnimations() {
     portEXIT_CRITICAL(&sAnimMux);
 
     PowerStatus power;
-    if (needPower) power = readPowerStatusSnapshot();
+    if (needPower)
+        power = readPowerStatusSnapshot();
 
     portENTER_CRITICAL(&sAnimMux);
     if (sAnim.active) {
@@ -588,12 +687,15 @@ void serviceButtonAnimations() {
     }
     portEXIT_CRITICAL(&sAnimMux);
 
-    if (stop) stopOverlay(true);
-    else if (request) requestLedRender();
+    if (stop)
+        stopOverlay(true);
+    else if (request)
+        requestLedRender();
 }
 
 bool copyButtonAnimationOverlay(uint8_t* rgbOut, uint16_t ledCount) {
-    if (!rgbOut || ledCount < LED_COUNT) return false;
+    if (!rgbOut || ledCount < LED_COUNT)
+        return false;
 
     AnimationState state;
     const uint32_t now = millis();
@@ -601,8 +703,10 @@ bool copyButtonAnimationOverlay(uint8_t* rgbOut, uint16_t ledCount) {
     state = sAnim;
     portEXIT_CRITICAL(&sAnimMux);
 
-    if (!state.active) return false;
-    if (overlayExpired(state, now)) return false;
+    if (!state.active)
+        return false;
+    if (overlayExpired(state, now))
+        return false;
 
     if (state.kind == OverlayKind::Mode) {
         clearOverlay(rgbOut);

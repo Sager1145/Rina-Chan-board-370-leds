@@ -16,14 +16,14 @@ enum class SyncDomain : uint8_t {
 };
 
 class ScopedLock final {
-public:
+  public:
     explicit ScopedLock(SyncDomain domain);
     ~ScopedLock();
 
     ScopedLock(const ScopedLock&) = delete;
     ScopedLock& operator=(const ScopedLock&) = delete;
 
-private:
+  private:
     SyncDomain domain_;
     bool locked_ = false;
 };

@@ -139,8 +139,7 @@ const WEBUI_CONFIG = Object.freeze({
     fontResource: "/resources/fonts/ark12.json?v=dev",
     fontFamily: "Ark Pixel 12px Monospaced",
     fontFallbackFamily: "",
-    browserFontSample:
-      "RinaChanBoard 370 LED \u7ee7\u7eed \u6682\u505c \u3053\u3093\u306b\u3061\u306f \u7483\u5948\u3061\u3083\u3093\u30dc\u30fc\u30c9 \u7136\u71c3\u6eda\u6efe \ud83c\udfe0\ufe0e\ud83d\ude00\ufe0e",
+    browserFontSample: "RinaChanBoard 370 LED \u7ee7\u7eed \u6682\u505c \u3053\u3093\u306b\u3061\u306f \u7483\u5948\u3061\u3083\u3093\u30dc\u30fc\u30c9 \u7136\u71c3\u6eda\u6efe \ud83c\udfe0\ufe0e\ud83d\ude00\ufe0e",
     browserFallbackFontSample: "",
     charSpacing: 0,
     spaceColumns: 6,
@@ -236,58 +235,48 @@ const EXPRESSION_PARTS = {
   encoding: {
     row_hex: "local bitmap rows; bit7 is local x=0; use only size[0] bits",
     frame: "94 hex chars; 47 bytes packed LSB-first (LED i in byte i>>3, mask 1<<(i&7)); the theoretical minimum 370-LED frame",
-    strip_indices:
-      "physical serpentine LED indices mapped back to logical packed-frame cells when used as fallback",
+    strip_indices: "physical serpentine LED indices mapped back to logical packed-frame cells when used as fallback",
   },
   layout: {
-    eye_left: [
-      {
-        x: 2,
-        y: 1,
-        w: 8,
-        h: 8,
-        mirror_x: false,
-        role: "left_eye",
-      },
-    ],
-    eye_right: [
-      {
-        x: 12,
-        y: 1,
-        w: 8,
-        h: 8,
-        mirror_x: false,
-        role: "right_eye",
-      },
-    ],
-    mouth: [
-      {
-        x: 7,
-        y: 9,
-        w: 8,
-        h: 8,
-        mirror_x: false,
-        role: "mouth",
-      },
-    ],
-    cheek: [
-      {
-        x: 2,
-        y: 9,
-        w: 4,
-        h: 4,
-        mirror_x: true,
-        role: "left_cheek",
-      },
-      {
-        x: 16,
-        y: 9,
-        w: 4,
-        h: 4,
-        mirror_x: false,
-        role: "right_cheek",
-      },
-    ],
+    eye_left: [{
+      x: 2,
+      y: 1,
+      w: 8,
+      h: 8,
+      mirror_x: false,
+      role: "left_eye",
+    }, ],
+    eye_right: [{
+      x: 12,
+      y: 1,
+      w: 8,
+      h: 8,
+      mirror_x: false,
+      role: "right_eye",
+    }, ],
+    mouth: [{
+      x: 7,
+      y: 9,
+      w: 8,
+      h: 8,
+      mirror_x: false,
+      role: "mouth",
+    }, ],
+    cheek: [{
+      x: 2,
+      y: 9,
+      w: 4,
+      h: 4,
+      mirror_x: true,
+      role: "left_cheek",
+    }, {
+      x: 16,
+      y: 9,
+      w: 4,
+      h: 4,
+      mirror_x: false,
+      role: "right_cheek",
+    }, ],
   },
   call: {
     fields: {
@@ -506,8 +495,7 @@ const EXPRESSION_PARTS = {
         0: "0",
       },
     },
-    compose:
-      "Resolve call IDs through call.map, OR selected parts by frame or strip_indices, then apply selected color and global brightness.",
+    compose: "Resolve call IDs through call.map, OR selected parts by frame or strip_indices, then apply selected color and global brightness.",
   },
   groups: {
     empty: ["0"],
@@ -663,13 +651,11 @@ const EXPRESSION_PARTS = {
         "..##....",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000000000000C00000300C000003000000000000000000000000000000000000000000000000000000000",
       strip_indices: [82, 83, 116, 117, 126, 127, 160, 161],
       lit_count: 8,
@@ -691,13 +677,11 @@ const EXPRESSION_PARTS = {
         "..##....",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000001000000C00000300C000003000000000000000000000000000000000000000000000000000000000",
       strip_indices: [75, 82, 83, 116, 117, 126, 127, 160, 161],
       lit_count: 9,
@@ -719,13 +703,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000008000005002002000000000000000000000000000000000000000000000000000000000000",
       strip_indices: [83, 115, 117, 125, 129],
       lit_count: 5,
@@ -747,13 +729,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000018000009002004000000000000000000000000000000000000000000000000000000000000",
       strip_indices: [83, 84, 114, 117, 125, 130],
       lit_count: 6,
@@ -775,13 +755,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000040000014008008001004000000000000000000000000000000000000000000000000000000000000",
       strip_indices: [73, 82, 84, 114, 118, 124, 130],
       lit_count: 7,
@@ -803,13 +781,11 @@ const EXPRESSION_PARTS = {
         ".##.....",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000030000018000008008001001800000000000000000000000000000000000000000000000000000000",
       strip_indices: [74, 75, 83, 84, 114, 127, 128, 161, 162],
       lit_count: 9,
@@ -831,13 +807,11 @@ const EXPRESSION_PARTS = {
         ".####...",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000006000006000002007800000000000000000000000000000000000000000000000000000000",
       strip_indices: [81, 82, 115, 116, 129, 159, 160, 161, 162],
       lit_count: 9,
@@ -859,13 +833,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000000000000000000000E007000000000000000000000000000000000000000000000000000000000000",
       strip_indices: [125, 126, 127, 128, 129, 130],
       lit_count: 6,
@@ -887,13 +859,11 @@ const EXPRESSION_PARTS = {
         "#.#.....",
         ".#......",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000000000000000000000E007001400000200000000000000000000000000000000000000000000000000",
       strip_indices: [125, 126, 127, 128, 129, 130, 161, 163, 169],
       lit_count: 9,
@@ -915,13 +885,11 @@ const EXPRESSION_PARTS = {
         "..####..",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000000000000000000000200000F000000000000000000000000000000000000000000000000000000000",
       strip_indices: [125, 158, 159, 160, 161],
       lit_count: 5,
@@ -943,13 +911,11 @@ const EXPRESSION_PARTS = {
         "..###...",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000002002007000000000000000000000000000000000000000000000000000000000",
       strip_indices: [125, 129, 159, 160, 161],
       lit_count: 5,
@@ -971,13 +937,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000042000009008001000000000000000000000000000000000000000000000000000000000000",
       strip_indices: [81, 86, 114, 117, 127, 128],
       lit_count: 6,
@@ -999,13 +963,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000008001008007000000000000000000000000000000000000000000000000000000000000",
       strip_indices: [117, 118, 127, 128, 129, 130],
       lit_count: 6,
@@ -1027,13 +989,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000008003000003000000000000000000000000000000000000000000000000000000000000",
       strip_indices: [116, 117, 118, 128, 129],
       lit_count: 5,
@@ -1055,13 +1015,11 @@ const EXPRESSION_PARTS = {
         "....##..",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000000000000000800100800000C000000000000000000000000000000000000000000000000000000000",
       strip_indices: [117, 118, 127, 158, 159],
       lit_count: 5,
@@ -1083,13 +1041,11 @@ const EXPRESSION_PARTS = {
         "...##...",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000000000000000000300C003006000000000000000000000000000000000000000000000000000000000",
       strip_indices: [116, 117, 126, 127, 128, 129, 159, 160],
       lit_count: 8,
@@ -1111,13 +1067,11 @@ const EXPRESSION_PARTS = {
         "..##....",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000008000000800800300C000003000000000000000000000000000000000000000000000000000000000",
       strip_indices: [72, 83, 116, 117, 118, 126, 127, 160, 161],
       lit_count: 9,
@@ -1139,13 +1093,11 @@ const EXPRESSION_PARTS = {
         "..##....",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000001000000400000700C000003000000000000000000000000000000000000000000000000000000000",
       strip_indices: [75, 82, 115, 116, 117, 126, 127, 160, 161],
       lit_count: 9,
@@ -1167,13 +1119,11 @@ const EXPRESSION_PARTS = {
         "..##....",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000000000000C00800500E001003000000000000000000000000000000000000000000000000000000000",
       strip_indices: [82, 83, 115, 117, 118, 125, 126, 127, 128, 160, 161],
       lit_count: 11,
@@ -1195,13 +1145,11 @@ const EXPRESSION_PARTS = {
         "#.##....",
         ".#......",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000000000000C00800500E001003400000200000000000000000000000000000000000000000000000000",
       strip_indices: [82, 83, 115, 117, 118, 125, 126, 127, 128, 160, 161, 163, 169],
       lit_count: 13,
@@ -1223,13 +1171,11 @@ const EXPRESSION_PARTS = {
         "..##....",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000000000000C00800300E001003000000000000000000000000000000000000000000000000000000000",
       strip_indices: [82, 83, 116, 117, 118, 125, 126, 127, 128, 160, 161],
       lit_count: 11,
@@ -1251,13 +1197,11 @@ const EXPRESSION_PARTS = {
         "........",
         "...#....",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000E0000022000004008000000000000800000000000000000000000000000000000000000000000000",
       strip_indices: [72, 73, 74, 81, 85, 115, 127, 171],
       lit_count: 8,
@@ -1279,13 +1223,11 @@ const EXPRESSION_PARTS = {
         ".#...#..",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000010010014000002004001008800000000000000000000000000000000000000000000000000000000",
       strip_indices: [71, 75, 82, 84, 116, 126, 128, 158, 162],
       lit_count: 9,
@@ -1307,13 +1249,11 @@ const EXPRESSION_PARTS = {
         "...#....",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "000000000000004000001C00800F00C001002000000000000000000000000000000000000000000000000000000000",
       strip_indices: [73, 82, 83, 84, 114, 115, 116, 117, 118, 126, 127, 128, 160],
       lit_count: 13,
@@ -1335,13 +1275,11 @@ const EXPRESSION_PARTS = {
         "..###...",
         "........",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000E0000022008008002002007000000000000000000000000000000000000000000000000000000000",
       strip_indices: [72, 73, 74, 81, 85, 114, 118, 125, 129, 159, 160, 161],
       lit_count: 12,
@@ -1363,13 +1301,11 @@ const EXPRESSION_PARTS = {
         "..#.#...",
         "...#....",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "00000000000400A0000022004010002002005000000800000000000000000000000000000000000000000000000000",
       strip_indices: [42, 72, 74, 81, 85, 113, 119, 125, 129, 159, 161, 171],
       lit_count: 12,
@@ -1391,13 +1327,11 @@ const EXPRESSION_PARTS = {
         "..#.#...",
         "...#....",
       ],
-      placement: [
-        {
-          x: 2,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000B0010049004010002002005000000800000000000000000000000000000000000000000000000000",
       strip_indices: [71, 72, 74, 75, 80, 83, 86, 113, 119, 125, 129, 159, 161, 171],
       lit_count: 14,
@@ -1419,13 +1353,11 @@ const EXPRESSION_PARTS = {
         "....##..",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000C000003000000C0000030000000000000000000000000000000000000000000000000000",
       strip_indices: [94, 95, 104, 105, 138, 139, 148, 149],
       lit_count: 8,
@@ -1447,13 +1379,11 @@ const EXPRESSION_PARTS = {
         "....##..",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000800C000003000000C0000030000000000000000000000000000000000000000000000000000",
       strip_indices: [60, 94, 95, 104, 105, 138, 139, 148, 149],
       lit_count: 9,
@@ -1475,13 +1405,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000400000280000110000000000000000000000000000000000000000000000000000000000",
       strip_indices: [94, 104, 106, 136, 140],
       lit_count: 5,
@@ -1503,13 +1431,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000600000240080100000000000000000000000000000000000000000000000000000000000",
       strip_indices: [93, 94, 104, 107, 135, 140],
       lit_count: 6,
@@ -1531,13 +1457,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000200A00000440080200000000000000000000000000000000000000000000000000000000000",
       strip_indices: [62, 93, 95, 103, 107, 135, 141],
       lit_count: 7,
@@ -1559,13 +1483,11 @@ const EXPRESSION_PARTS = {
         ".....##.",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000C00600000040000060000060000000000000000000000000000000000000000000000000000",
       strip_indices: [60, 61, 93, 94, 107, 137, 138, 147, 148],
       lit_count: 9,
@@ -1587,13 +1509,11 @@ const EXPRESSION_PARTS = {
         "...####.",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000800100180000010080070000000000000000000000000000000000000000000000000000",
       strip_indices: [95, 96, 105, 106, 136, 147, 148, 149, 150],
       lit_count: 9,
@@ -1615,13 +1535,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000000000000000000000801F0000000000000000000000000000000000000000000000000000000000",
       strip_indices: [135, 136, 137, 138, 139, 140],
       lit_count: 6,
@@ -1643,13 +1561,11 @@ const EXPRESSION_PARTS = {
         ".....#.#",
         "......#.",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000000000000000000000801F00000A0000010000000000000000000000000000000000000000000000",
       strip_indices: [135, 136, 137, 138, 139, 140, 146, 148, 184],
       lit_count: 9,
@@ -1671,13 +1587,11 @@ const EXPRESSION_PARTS = {
         "..####..",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000000000000000000000001000C0030000000000000000000000000000000000000000000000000000",
       strip_indices: [140, 148, 149, 150, 151],
       lit_count: 5,
@@ -1699,13 +1613,11 @@ const EXPRESSION_PARTS = {
         "...###..",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000110080030000000000000000000000000000000000000000000000000000",
       strip_indices: [136, 140, 148, 149, 150],
       lit_count: 5,
@@ -1727,13 +1639,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000080100240000060000000000000000000000000000000000000000000000000000000000",
       strip_indices: [91, 96, 104, 107, 137, 138],
       lit_count: 6,
@@ -1755,13 +1665,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000600080070000000000000000000000000000000000000000000000000000000000",
       strip_indices: [103, 104, 135, 136, 137, 138],
       lit_count: 6,
@@ -1783,13 +1691,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000700000030000000000000000000000000000000000000000000000000000000000",
       strip_indices: [103, 104, 105, 136, 137],
       lit_count: 5,
@@ -1811,13 +1717,11 @@ const EXPRESSION_PARTS = {
         "..##....",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000000000000000006000000400C0000000000000000000000000000000000000000000000000000000",
       strip_indices: [103, 104, 138, 150, 151],
       lit_count: 5,
@@ -1839,13 +1743,11 @@ const EXPRESSION_PARTS = {
         "...##...",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000000000000000003000000F0080010000000000000000000000000000000000000000000000000000",
       strip_indices: [104, 105, 136, 137, 138, 139, 149, 150],
       lit_count: 8,
@@ -1867,13 +1769,11 @@ const EXPRESSION_PARTS = {
         "....##..",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000000001004000007000000C0000030000000000000000000000000000000000000000000000000000",
       strip_indices: [63, 94, 103, 104, 105, 138, 139, 148, 149],
       lit_count: 9,
@@ -1895,13 +1795,11 @@ const EXPRESSION_PARTS = {
         "....##..",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000000008008000003800000C0000030000000000000000000000000000000000000000000000000000",
       strip_indices: [60, 95, 104, 105, 106, 138, 139, 148, 149],
       lit_count: 9,
@@ -1923,13 +1821,11 @@ const EXPRESSION_PARTS = {
         "....##..",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000C000006800001E0000030000000000000000000000000000000000000000000000000000",
       strip_indices: [94, 95, 103, 104, 106, 137, 138, 139, 140, 148, 149],
       lit_count: 11,
@@ -1951,13 +1847,11 @@ const EXPRESSION_PARTS = {
         "....##.#",
         "......#.",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000C000006800001E00000B0000010000000000000000000000000000000000000000000000",
       strip_indices: [94, 95, 103, 104, 106, 137, 138, 139, 140, 146, 148, 149, 184],
       lit_count: 13,
@@ -1979,13 +1873,11 @@ const EXPRESSION_PARTS = {
         "....##..",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000C000007000001E0000030000000000000000000000000000000000000000000000000000",
       strip_indices: [94, 95, 103, 104, 105, 137, 138, 139, 140, 148, 149],
       lit_count: 11,
@@ -2007,13 +1899,11 @@ const EXPRESSION_PARTS = {
         "........",
         "....#...",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000200400000100000040000000040000000000000000000000000000000000000000000000000",
       strip_indices: [62, 94, 105, 138, 182],
       lit_count: 5,
@@ -2035,13 +1925,11 @@ const EXPRESSION_PARTS = {
         "..#...#.",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000800800A000001000000A0040040000000000000000000000000000000000000000000000000000",
       strip_indices: [60, 64, 93, 95, 105, 137, 139, 147, 151],
       lit_count: 9,
@@ -2063,13 +1951,11 @@ const EXPRESSION_PARTS = {
         "....#...",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000200E000007C00000E0000010000000000000000000000000000000000000000000000000000",
       strip_indices: [62, 93, 94, 95, 103, 104, 105, 106, 107, 137, 138, 139, 149],
       lit_count: 13,
@@ -2091,13 +1977,11 @@ const EXPRESSION_PARTS = {
         "...###..",
         "........",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000700100100440000110080030000000000000000000000000000000000000000000000000000",
       strip_indices: [61, 62, 63, 92, 96, 103, 107, 136, 140, 148, 149, 150],
       lit_count: 12,
@@ -2119,13 +2003,11 @@ const EXPRESSION_PARTS = {
         "...#.#..",
         "....#...",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000002000000500100100820000110080020040000000000000000000000000000000000000000000000000",
       strip_indices: [53, 61, 63, 92, 96, 102, 108, 136, 140, 148, 150, 182],
       lit_count: 12,
@@ -2147,13 +2029,11 @@ const EXPRESSION_PARTS = {
         "...#.#..",
         "....#...",
       ],
-      placement: [
-        {
-          x: 12,
-          y: 1,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 12,
+        y: 1,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000800D00480200820000110080020040000000000000000000000000000000000000000000000000",
       strip_indices: [60, 61, 63, 64, 91, 94, 97, 102, 108, 136, 140, 148, 150, 182],
       lit_count: 14,
@@ -2175,13 +2055,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000000000F80100000000000000000000",
       strip_indices: [283, 284, 285, 286, 287, 288],
       lit_count: 6,
@@ -2203,13 +2081,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000201000F80100000000000000000000",
       strip_indices: [261, 268, 283, 284, 285, 286, 287, 288],
       lit_count: 8,
@@ -2231,13 +2107,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000000000F80140200000000000000000",
       strip_indices: [283, 284, 285, 286, 287, 288, 302, 309],
       lit_count: 8,
@@ -2259,13 +2133,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000000000000000000000000000000000000000000000000000002010000801000F0000000000000000",
       strip_indices: [261, 268, 283, 288, 304, 305, 306, 307],
       lit_count: 8,
@@ -2287,13 +2159,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000804000400800900000060000000000000000",
       strip_indices: [239, 246, 262, 267, 284, 287, 305, 306],
       lit_count: 8,
@@ -2315,13 +2185,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000400800900000060000000000000000",
       strip_indices: [262, 267, 284, 287, 305, 306],
       lit_count: 6,
@@ -2343,13 +2211,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000C00800400080140200000000000000000",
       strip_indices: [242, 243, 263, 266, 283, 288, 302, 309],
       lit_count: 8,
@@ -2371,13 +2237,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000000300900080100000000000000000",
       strip_indices: [264, 265, 284, 287, 303, 308],
       lit_count: 6,
@@ -2399,13 +2263,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000000000000000000000000000000000000000000000000020002014008801000F0000000000000000",
       strip_indices: [240, 261, 266, 268, 283, 284, 288, 304, 305, 306, 307],
       lit_count: 11,
@@ -2427,13 +2289,11 @@ const EXPRESSION_PARTS = {
         "...##...",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000807F00201000080100090060000000000000",
       strip_indices: [
         239, 240, 241, 242, 243, 244, 245, 246, 261, 268, 283, 288, 304, 307, 325, 326,
@@ -2457,13 +2317,11 @@ const EXPRESSION_PARTS = {
         "..####..",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000807F002010000402801000F0000000000000",
       strip_indices: [
         239, 240, 241, 242, 243, 244, 245, 246, 261, 268, 282, 289, 303, 308, 324, 325, 326, 327,
@@ -2487,13 +2345,11 @@ const EXPRESSION_PARTS = {
         "...##...",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000001E00400800080100090060000000000000",
       strip_indices: [241, 242, 243, 244, 262, 267, 283, 288, 304, 307, 325, 326],
       lit_count: 12,
@@ -2515,13 +2371,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000003F00400800900000060000000000000000",
       strip_indices: [240, 241, 242, 243, 244, 245, 262, 267, 284, 287, 305, 306],
       lit_count: 12,
@@ -2543,13 +2397,11 @@ const EXPRESSION_PARTS = {
         "########",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000001E004008000402402000FC030000000000",
       strip_indices: [
         241, 242, 243, 244, 262, 267, 282, 289, 302, 309, 322, 323, 324, 325, 326, 327, 328, 329,
@@ -2573,13 +2425,11 @@ const EXPRESSION_PARTS = {
         ".######.",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000001E004008000801402000F8010000000000",
       strip_indices: [
         241, 242, 243, 244, 262, 267, 283, 288, 302, 309, 323, 324, 325, 326, 327, 328,
@@ -2603,13 +2453,11 @@ const EXPRESSION_PARTS = {
         "..#..#..",
         "...##...",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000C00800400080180100090000003000000",
       strip_indices: [242, 243, 263, 266, 283, 288, 303, 308, 324, 327, 344, 345],
       lit_count: 12,
@@ -2631,13 +2479,11 @@ const EXPRESSION_PARTS = {
         "...##...",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000003000001200800400900000090060000000000000",
       strip_indices: [220, 221, 241, 244, 263, 266, 284, 287, 304, 307, 325, 326],
       lit_count: 12,
@@ -2659,13 +2505,11 @@ const EXPRESSION_PARTS = {
         "...##...",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "000000000000000000000000000000000000000000000000C000004800001200800400900000090060000000000000",
       strip_indices: [198, 199, 219, 222, 241, 244, 263, 266, 284, 287, 304, 307, 325, 326],
       lit_count: 14,
@@ -2687,13 +2531,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000C00800400900000060000000000000000",
       strip_indices: [242, 243, 263, 266, 284, 287, 305, 306],
       lit_count: 8,
@@ -2715,13 +2557,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000E01F000402C03F0000000000000000",
       strip_indices: [
         261, 262, 263, 264, 265, 266, 267, 268, 282, 289, 302, 303, 304, 305, 306, 307, 308, 309,
@@ -2745,13 +2585,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000E01F000402801F0000000000000000",
       strip_indices: [
         261, 262, 263, 264, 265, 266, 267, 268, 282, 289, 303, 304, 305, 306, 307, 308,
@@ -2775,13 +2613,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000C00F000402C03F0000000000000000",
       strip_indices: [
         262, 263, 264, 265, 266, 267, 282, 289, 302, 303, 304, 305, 306, 307, 308, 309,
@@ -2805,13 +2641,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000C00F000801000F0000000000000000",
       strip_indices: [262, 263, 264, 265, 266, 267, 283, 288, 304, 305, 306, 307],
       lit_count: 12,
@@ -2833,13 +2667,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000000000000000000000000000000000000000000000000000008007000801801F0000000000000000",
       strip_indices: [263, 264, 265, 266, 283, 288, 303, 304, 305, 306, 307, 308],
       lit_count: 12,
@@ -2861,13 +2693,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000C00F000801801F0000000000000000",
       strip_indices: [262, 263, 264, 265, 266, 267, 283, 288, 303, 304, 305, 306, 307, 308],
       lit_count: 14,
@@ -2889,13 +2719,11 @@ const EXPRESSION_PARTS = {
         "#......#",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000804000400800F80180100004020000000000",
       strip_indices: [239, 246, 262, 267, 283, 284, 285, 286, 287, 288, 303, 308, 322, 329],
       lit_count: 14,
@@ -2917,13 +2745,11 @@ const EXPRESSION_PARTS = {
         ".##..##.",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000003300201300040240260098010000000000",
       strip_indices: [
         240, 241, 244, 245, 261, 264, 265, 268, 282, 289, 302, 305, 306, 309, 323, 324, 327, 328,
@@ -2947,13 +2773,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000C00C00640200000000000000000000",
       strip_indices: [262, 263, 266, 267, 282, 285, 286, 289],
       lit_count: 8,
@@ -2975,13 +2799,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000800400680100000000000000000000",
       strip_indices: [263, 266, 283, 285, 286, 288],
       lit_count: 6,
@@ -3003,13 +2825,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000000000400800680100090000000000000000",
       strip_indices: [262, 267, 283, 285, 286, 288, 304, 307],
       lit_count: 8,
@@ -3031,13 +2851,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000000000002100400B00900000000000000000000000",
       strip_indices: [240, 245, 262, 264, 265, 267, 284, 287],
       lit_count: 8,
@@ -3059,13 +2877,11 @@ const EXPRESSION_PARTS = {
         "........",
         "........",
       ],
-      placement: [
-        {
-          x: 7,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 7,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000000000000000000000000000000000000000000000000000000008002801000D0000000000000000",
       strip_indices: [267, 283, 286, 288, 304, 306, 307],
       lit_count: 7,
@@ -3078,18 +2894,15 @@ const EXPRESSION_PARTS = {
       size: [4, 4],
       row_hex: ["00", "60", "00", "00"],
       preview: ["....", ".##.", "....", "...."],
-      placement: [
-        {
-          x: 2,
-          y: 9,
-          mirror_x: true,
-        },
-        {
-          x: 16,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 9,
+        mirror_x: true,
+      }, {
+        x: 16,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000600018000000000000000000000000000000000000",
       strip_indices: [213, 214, 227, 228],
       lit_count: 4,
@@ -3102,18 +2915,15 @@ const EXPRESSION_PARTS = {
       size: [4, 4],
       row_hex: ["00", "50", "00", "00"],
       preview: ["....", ".#.#", "....", "...."],
-      placement: [
-        {
-          x: 2,
-          y: 9,
-          mirror_x: true,
-        },
-        {
-          x: 16,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 9,
+        mirror_x: true,
+      }, {
+        x: 16,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000500028000000000000000000000000000000000000",
       strip_indices: [212, 214, 227, 229],
       lit_count: 4,
@@ -3126,18 +2936,15 @@ const EXPRESSION_PARTS = {
       size: [4, 4],
       row_hex: ["50", "A0", "00", "00"],
       preview: [".#.#", "#.#.", "....", "...."],
-      placement: [
-        {
-          x: 2,
-          y: 9,
-          mirror_x: true,
-        },
-        {
-          x: 16,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 9,
+        mirror_x: true,
+      }, {
+        x: 16,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "00000000000000000000000000000000000000000000004001A0A00014000000000000000000000000000000000000",
       strip_indices: [190, 192, 205, 207, 213, 215, 226, 228],
       lit_count: 8,
@@ -3150,18 +2957,15 @@ const EXPRESSION_PARTS = {
       size: [4, 4],
       row_hex: ["A0", "50", "00", "00"],
       preview: ["#.#.", ".#.#", "....", "...."],
-      placement: [
-        {
-          x: 2,
-          y: 9,
-          mirror_x: true,
-        },
-        {
-          x: 16,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 9,
+        mirror_x: true,
+      }, {
+        x: 16,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000800250500028000000000000000000000000000000000000",
       strip_indices: [191, 193, 204, 206, 212, 214, 227, 229],
       lit_count: 8,
@@ -3174,18 +2978,15 @@ const EXPRESSION_PARTS = {
       size: [4, 4],
       row_hex: ["00", "70", "00", "70"],
       preview: ["....", ".###", "....", ".###"],
-      placement: [
-        {
-          x: 2,
-          y: 9,
-          mirror_x: true,
-        },
-        {
-          x: 16,
-          y: 9,
-          mirror_x: false,
-        },
-      ],
+      placement: [{
+        x: 2,
+        y: 9,
+        mirror_x: true,
+      }, {
+        x: 16,
+        y: 9,
+        mirror_x: false,
+      }, ],
       frame: "0000000000000000000000000000000000000000000000000000700038000000078003000000000000000000000000",
       strip_indices: [212, 213, 214, 227, 228, 229, 256, 257, 258, 271, 272, 273],
       lit_count: 12,
@@ -3268,28 +3069,28 @@ const SCROLL_GENERATOR_VERSION = "webui-scrollgen-6.4.2";
 const SCROLL_FIRST_CHUNK_BODY_LIMIT_BYTES = 12 * 1024;
 // Firmware scroll-rate sync: estimate the device's ACTUAL scroll fps from periodic frame-index
 // samples and retune only the preview timer (never the fps slider/buttons or frame data).
-const HW_RATE_WINDOW_MS = 8000;     // keep ~8s of (time, index) samples
-const HW_RATE_MIN_SAMPLES = 3;      // need at least this many samples before estimating
-const HW_RATE_MIN_SPAN_MS = 2000;   // ...spanning at least this much time
-const HW_RATE_MIN_FRAMES = 3;       // ...and at least this many advanced frames
-const HW_RATE_FPS_MIN = 0.2;        // ignore estimates outside a sane range
+const HW_RATE_WINDOW_MS = 8000; // keep ~8s of (time, index) samples
+const HW_RATE_MIN_SAMPLES = 3; // need at least this many samples before estimating
+const HW_RATE_MIN_SPAN_MS = 2000; // ...spanning at least this much time
+const HW_RATE_MIN_FRAMES = 3; // ...and at least this many advanced frames
+const HW_RATE_FPS_MIN = 0.2; // ignore estimates outside a sane range
 const HW_RATE_FPS_MAX = 120;
-const HW_RATE_EMA_ALPHA = 0.4;      // smoothing of the measured fps
-const HW_RATE_RETUNE_RATIO = 0.05;  // only retune the preview timer on >5% interval change
-const HW_PHASE_GAIN = 0.12;         // proportional gain: preview speed factor = 1 + gain*phaseError
-const HW_PHASE_MAX_ADJ = 0.25;      // cap preview speed change to +/-25% (smooth, no skip/hold/jump)
+const HW_RATE_EMA_ALPHA = 0.4; // smoothing of the measured fps
+const HW_RATE_RETUNE_RATIO = 0.05; // only retune the preview timer on >5% interval change
+const HW_PHASE_GAIN = 0.12; // proportional gain: preview speed factor = 1 + gain*phaseError
+const HW_PHASE_MAX_ADJ = 0.25; // cap preview speed change to +/-25% (smooth, no skip/hold/jump)
 // Preview speed controller (driven by /api/preview_sync presentedFrameIndex + presentedAtUs).
 // The preview never jumps/holds/skips frames during live scrolling; it only runs slightly faster
 // or slower to converge its phase onto the LED's actually-presented frame.
-const PREVIEW_SYNC_POLL_MS = 250;            // how often to poll /api/preview_sync while scrolling
-const PREVIEW_PHASE_DEADBAND_FRAMES = 0.65;  // within this phase error, run at exactly base speed
-const PREVIEW_GENTLE_MIN = 0.97;             // small steady-state correction band
+const PREVIEW_SYNC_POLL_MS = 250; // how often to poll /api/preview_sync while scrolling
+const PREVIEW_PHASE_DEADBAND_FRAMES = 0.65; // within this phase error, run at exactly base speed
+const PREVIEW_GENTLE_MIN = 0.97; // small steady-state correction band
 const PREVIEW_GENTLE_MAX = 1.03;
-const PREVIEW_CATCHUP_MIN = 0.9;             // wider band when far out of phase
+const PREVIEW_CATCHUP_MIN = 0.9; // wider band when far out of phase
 const PREVIEW_CATCHUP_MAX = 1.1;
-const PREVIEW_CATCHUP_THRESHOLD_FRAMES = 4;  // |phase error| beyond this uses the catch-up band
-const PREVIEW_ALIGN_HORIZON_MS = 1000;       // aim to close the phase error over ~this long
-const PREVIEW_SPEED_SLEW_PER_SEC = 0.04;     // ramp the speed multiplier at most 4%/s (no jolts)
+const PREVIEW_CATCHUP_THRESHOLD_FRAMES = 4; // |phase error| beyond this uses the catch-up band
+const PREVIEW_ALIGN_HORIZON_MS = 1000; // aim to close the phase error over ~this long
+const PREVIEW_SPEED_SLEW_PER_SEC = 0.04; // ramp the speed multiplier at most 4%/s (no jolts)
 const RUNTIME_STATUS_QUERY = WEBUI_CONFIG.api.runtimeStatusQuery;
 const SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS =
   WEBUI_CONFIG.firmwareQueues.scrollButtonStopFullSyncDelayMs;
@@ -3309,12 +3110,13 @@ const TEXT_SCROLL_FALLBACK_FONT_FAMILY = WEBUI_CONFIG.textScroll.fontFallbackFam
 const TEXT_SCROLL_BROWSER_FONT_SAMPLE = WEBUI_CONFIG.textScroll.browserFontSample;
 const TEXT_SCROLL_BROWSER_FALLBACK_FONT_SAMPLE =
   WEBUI_CONFIG.textScroll.browserFallbackFontSample || "";
-const TEXT_SCROLL_FONT_STACK = TEXT_SCROLL_FALLBACK_FONT_FAMILY
-  ? `"${TEXT_SCROLL_FALLBACK_FONT_FAMILY}", "${TEXT_SCROLL_FONT_FAMILY}"`
-  : `"${TEXT_SCROLL_FONT_FAMILY}"`;
+const TEXT_SCROLL_FONT_STACK = TEXT_SCROLL_FALLBACK_FONT_FAMILY ?
+  `"${TEXT_SCROLL_FALLBACK_FONT_FAMILY}", "${TEXT_SCROLL_FONT_FAMILY}"` :
+  `"${TEXT_SCROLL_FONT_FAMILY}"`;
 const TEXT_SCROLL_CHAR_SPACING = WEBUI_CONFIG.textScroll.charSpacing;
 const TEXT_SCROLL_SPACE_COLUMNS = WEBUI_CONFIG.textScroll.spaceColumns;
-const TEXT_SCROLL_MISSING_GLYPH_CP = WEBUI_CONFIG.textScroll.missingGlyphCodePoint; // Fallback without using system fonts.
+const TEXT_SCROLL_MISSING_GLYPH_CP = WEBUI_CONFIG.textScroll
+  .missingGlyphCodePoint; // Fallback without using system fonts.
 const BOOT_STATUS_ENDPOINT = `${API_ENDPOINTS.status}${RUNTIME_STATUS_QUERY}`;
 const BOOT_STATUS_TIMEOUT_MS = WEBUI_CONFIG.api.bootStatusTimeoutMs;
 const BOOT_MIN_DISPLAY_MS = WEBUI_CONFIG.boot.minDisplayMs;
@@ -3325,44 +3127,37 @@ const FIRST_PAGE_REVEAL_SELECTOR = WEBUI_CONFIG.boot.firstPageRevealSelector.joi
 // - initColorInput() populates the main color drop-down box with parent_color_groups.
 // - child_color_groups Populate the child color drop-down box based on the main color selection.
 // - setColor() finally synchronizes the selected color to the preview, button state and firmware frame payload.
-const parent_color_groups = [
-  {
-    id: 0,
-    name: "默认璃奈粉色",
-    color: "ec3fc7",
-    desc: "父级颜色按钮，仅提供父级色",
-  },
-  {
-    id: 1,
-    name: "μ's-洋红色",
-    color: "e4007f",
-    desc: "μ's 子颜色组",
-  },
-  {
-    id: 2,
-    name: "Aqours-水蓝色",
-    color: "00a1e8",
-    desc: "Aqours / Saint Snow / 子团体颜色组",
-  },
-  {
-    id: 3,
-    name: "虹咲学园-金色",
-    color: "f8b656",
-    desc: "虹咲 / 子团体颜色组",
-  },
-  {
-    id: 4,
-    name: "Liella!-紫色",
-    color: "a5469b",
-    desc: "Liella! / 子团体颜色组",
-  },
-  {
-    id: 5,
-    name: "蓮ノ空-粉色",
-    color: "fb8a9b",
-    desc: "蓮ノ空 子颜色组",
-  },
-];
+const parent_color_groups = [{
+  id: 0,
+  name: "默认璃奈粉色",
+  color: "ec3fc7",
+  desc: "父级颜色按钮，仅提供父级色",
+}, {
+  id: 1,
+  name: "μ's-洋红色",
+  color: "e4007f",
+  desc: "μ's 子颜色组",
+}, {
+  id: 2,
+  name: "Aqours-水蓝色",
+  color: "00a1e8",
+  desc: "Aqours / Saint Snow / 子团体颜色组",
+}, {
+  id: 3,
+  name: "虹咲学园-金色",
+  color: "f8b656",
+  desc: "虹咲 / 子团体颜色组",
+}, {
+  id: 4,
+  name: "Liella!-紫色",
+  color: "a5469b",
+  desc: "Liella! / 子团体颜色组",
+}, {
+  id: 5,
+  name: "蓮ノ空-粉色",
+  color: "fb8a9b",
+  desc: "蓮ノ空 子颜色组",
+}, ];
 const child_color_groups = {
   1: [
     ["高坂穗乃果-橙色", "f38500"],
@@ -3449,8 +3244,7 @@ const child_color_groups = {
 // - XY_TO_INDEX/INDEX_TO_XY are bidirectional tables between UI coordinates and logical 370 point indexes.
 // - PHYSICAL_TO_LOGICAL_INDEX handles snake wiring and maps the firmware/light strip physical order back to the UI.
 // - All frames maintain logical order; only transition when interacting with firmware/physical light strips.
-const XY_TO_INDEX = Array.from(
-  {
+const XY_TO_INDEX = Array.from({
     length: ROWS,
   },
   () => Array(COLS).fill(-1),
@@ -3578,9 +3372,14 @@ let logs = [];
 // - logLevel filters out low-priority noise (high-frequency entries such as dragging the slider are recorded as debug and hidden by default).
 // - renderLog only updates the DOM when visible in 6.5 and merges it by animation frame to avoid rebuilding the entire segment for each log
 // Text and forced synchronous reflow; other pages are only marked dirty and will be fully rendered when entering 6.5.
-const LOG_LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
-const LOG_BUFFER_MAX = 500;   // Keep full buffer for download/copy
-const LOG_VIEW_MAX = 120;     // The most recent row actually rendered to the DOM
+const LOG_LEVELS = {
+  error: 0,
+  warn: 1,
+  info: 2,
+  debug: 3
+};
+const LOG_BUFFER_MAX = 500; // Keep full buffer for download/copy
+const LOG_VIEW_MAX = 120; // The most recent row actually rendered to the DOM
 let logLevel = LOG_LEVELS.info;
 let logRenderRaf = 0;
 let logDirty = false;
@@ -3648,28 +3447,28 @@ let scroll = {
   fpsStarted: performance.now(),
   measuredFps: 0,
   // Firmware scroll-rate sync (preview-speed calibration; see recordFirmwareScrollSample).
-  hwSamples: [],        // [{t, cum}] cumulative advanced frames vs time
-  hwLastIndex: null,    // last raw firmware frame index (for wrap detection)
+  hwSamples: [], // [{t, cum}] cumulative advanced frames vs time
+  hwLastIndex: null, // last raw firmware frame index (for wrap detection)
   hwLastT: 0,
-  hwCum: 0,             // running cumulative advanced frames
-  hwMeasuredFps: 0,     // smoothed measured device fps (0 = no estimate yet)
+  hwCum: 0, // running cumulative advanced frames
+  hwMeasuredFps: 0, // smoothed measured device fps (0 = no estimate yet)
   previewIntervalMs: 0, // measured preview-timer interval (0 = use user fps)
-  phaseError: 0,        // signed frames the device index leads the WebUI display (ground truth)
-  phaseAccum: 0,        // fractional accumulator for smooth integer phase correction
+  phaseError: 0, // signed frames the device index leads the WebUI display (ground truth)
+  phaseAccum: 0, // fractional accumulator for smooth integer phase correction
   // Presented-frame sync (see recordPresentedSyncSample / /api/preview_sync):
-  hwLastSeq: 0,             // last presentedSeq consumed (ordering / dedupe)
+  hwLastSeq: 0, // last presentedSeq consumed (ordering / dedupe)
   hwLastUnwrappedFrame: null,
-  phaseErrorFiltered: 0,    // low-pass of the raw phase error fed to the speed controller
-  previewSpeedMultiplier: 1,        // current applied preview-speed multiplier (slew-limited)
-  previewTargetSpeedMultiplier: 1,  // desired multiplier from the phase controller
-  lastSpeedUpdateMs: 0,             // last nextPreviewDelayMs() timestamp (for slew dt)
-  syncState: "observe",             // observe | gentle | catchup | locked
+  phaseErrorFiltered: 0, // low-pass of the raw phase error fed to the speed controller
+  previewSpeedMultiplier: 1, // current applied preview-speed multiplier (slew-limited)
+  previewTargetSpeedMultiplier: 1, // desired multiplier from the phase controller
+  lastSpeedUpdateMs: 0, // last nextPreviewDelayMs() timestamp (for slew dt)
+  syncState: "observe", // observe | gentle | catchup | locked
   previewStale: false,
   previewDropped: false,
   staleReason: "",
   dropReason: "",
   syncStableSinceMs: 0,
-  ignoreRateUntilSeq: 0,            // presented samples <= this seq are position-only (no fps est.)
+  ignoreRateUntilSeq: 0, // presented samples <= this seq are position-only (no fps est.)
   // Source text synchronization (plan v6):
   // timelineId = current firmware/upload timeline identity
   // framesTimelineId = scroll.frames exactly corresponds to the timeline (only in generator identity +
@@ -3725,19 +3524,33 @@ function parseApiJson(text, path, fallback = {}) {
     throw new Error(`invalid JSON from ${path}: ${err.message || err}`);
   }
 }
-const scrollMachine = (function () {
+const scrollMachine = (function() {
   const machine = {
     state: "IDLE",
     pauseReasons: new Set(),
     epoch: 0,
-    gen: { upload: 0, restore: 0, step: 0, statusPoll: 0 },
-    device: { hasSession: false },
-    cache: { identityBound: false, frameIndex: 0 }
+    gen: {
+      upload: 0,
+      restore: 0,
+      step: 0,
+      statusPoll: 0
+    },
+    device: {
+      hasSession: false
+    },
+    cache: {
+      identityBound: false,
+      frameIndex: 0
+    }
   };
 
   function token(domain) {
     machine.gen[domain] = (machine.gen[domain] || 0) + 1;
-    return { epoch: machine.epoch, dom: machine.gen[domain], domain };
+    return {
+      epoch: machine.epoch,
+      dom: machine.gen[domain],
+      domain
+    };
   }
 
   function isCurrent(t) {
@@ -3783,7 +3596,8 @@ const scrollMachine = (function () {
 
   function applyFirmwareCursor(payload = {}) {
     // FIX 4: Prevent sync preview glitch during upload/starting
-    const isBusyState = machine.state === "GENERATING" || machine.state === "UPLOADING" || machine.state === "STARTING";
+    const isBusyState = machine.state === "GENERATING" || machine.state === "UPLOADING" || machine.state ===
+      "STARTING";
     if (isBusyState) return;
 
     const frameCount = Math.max(0, Math.floor(Number(payload.frameCount ?? payload.scrollFrameCount) || 0));
@@ -3921,8 +3735,7 @@ const scrollMachine = (function () {
         break;
       case "RESTORE_DONE":
         if (payload && typeof payload === "object") {
-          machine.device.hasSession =
-            !!payload.firmwareScrollActive ||
+          machine.device.hasSession = !!payload.firmwareScrollActive ||
             !!payload.firmwareScrollPaused;
         }
         machine.cache.identityBound = deriveIdentityBound(payload);
@@ -3971,7 +3784,12 @@ const scrollMachine = (function () {
     };
   }
 
-  return { dispatch, snapshot, token, isCurrent };
+  return {
+    dispatch,
+    snapshot,
+    token,
+    isCurrent
+  };
 })();
 
 const boundControls = new WeakMap();
@@ -4070,8 +3888,7 @@ function initButtonPressAnimations() {
       try {
         button.setPointerCapture?.(ev.pointerId);
       } catch (_) {}
-    },
-    {
+    }, {
       passive: true,
     },
   );
@@ -4082,8 +3899,7 @@ function initButtonPressAnimations() {
       if (!button) return;
       activeButtonPointers.delete(ev.pointerId);
       releaseButtonPressAnimation(button);
-    },
-    {
+    }, {
       passive: true,
     },
   );
@@ -4094,8 +3910,7 @@ function initButtonPressAnimations() {
       if (!button) return;
       activeButtonPointers.delete(ev.pointerId);
       cancelButtonPressAnimation(button);
-    },
-    {
+    }, {
       passive: true,
     },
   );
@@ -4213,8 +4028,7 @@ function ensureTextScrollBrowserFontReady() {
         `12px "${TEXT_SCROLL_FONT_FAMILY}"`,
         TEXT_SCROLL_BROWSER_FONT_SAMPLE,
       );
-      const loadedFallback =
-        !TEXT_SCROLL_FALLBACK_FONT_FAMILY ||
+      const loadedFallback = !TEXT_SCROLL_FALLBACK_FONT_FAMILY ||
         !TEXT_SCROLL_BROWSER_FALLBACK_FONT_SAMPLE ||
         document.fonts.check(
           `12px "${TEXT_SCROLL_FALLBACK_FONT_FAMILY}"`,
@@ -4322,8 +4136,8 @@ async function ensureArkPixelFontReady() {
   // so a cache hit is correct and avoids re-streaming ~2.5MB out of LittleFS (the
   // main cause of "preparing scroll font" freezes / disconnects on refresh).
   arkPixelFont.loading = fetch(TEXT_SCROLL_FONT_RESOURCE, {
-    cache: "force-cache",
-  })
+      cache: "force-cache",
+    })
     .then(async (res) => {
       if (!res.ok)
         throw new Error(`${res.status} ${res.statusText || "font resource missing"}`.trim());
@@ -4384,18 +4198,16 @@ function loadArkPixelFontTable(data) {
     } else {
       packed = {
         ...g,
-        rows: Array.isArray(g.rows)
-          ? g.rows.map(String)
-          : decodePackedGlyphRows(g.rowsHex || "", Number(g.width || 0)),
+        rows: Array.isArray(g.rows) ?
+          g.rows.map(String) : decodePackedGlyphRows(g.rowsHex || "", Number(g.width || 0)),
       };
     }
     const advanceValue = Number(packed.advance);
     const fallbackAdvance = Number(data.defaultAdvance || 12);
     arkPixelFont.glyphs.set(cp, {
       cp,
-      advance: Number.isFinite(advanceValue)
-        ? Math.max(0, advanceValue)
-        : Math.max(1, fallbackAdvance),
+      advance: Number.isFinite(advanceValue) ?
+        Math.max(0, advanceValue) : Math.max(1, fallbackAdvance),
       width: Math.max(0, Number(packed.width || 0)),
       height: Math.max(0, Number(packed.height || 0)),
       xOffset: Number(packed.xOffset || 0),
@@ -4410,9 +4222,9 @@ function loadArkPixelFontTable(data) {
   if (missingFusionGlyphs.length) {
     throw new Error(
       "Ark Pixel fusion bitmap table missing required patched glyphs: " +
-        missingFusionGlyphs
-          .map((cp) => "U+" + cp.toString(16).toUpperCase().padStart(4, "0"))
-          .join(", "),
+      missingFusionGlyphs
+      .map((cp) => "U+" + cp.toString(16).toUpperCase().padStart(4, "0"))
+      .join(", "),
     );
   }
   arkPixelFont.ready = true;
@@ -4453,7 +4265,8 @@ function cloneFrame(frame) {
 
 function onCount(frame) {
   let c = 0;
-  for (const v of frame) if (v) c++;
+  for (const v of frame)
+    if (v) c++;
   return c;
 }
 
@@ -4513,6 +4326,7 @@ function bytesToBase64(bytes) {
   for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
   return btoa(s);
 }
+
 function packedFrameToBase64(frame) {
   return bytesToBase64(frameToUint8Array(frame));
 }
@@ -4702,9 +4516,9 @@ async function apiGet(path, options = {}) {
     return parseApiJson(text, path, {});
   } catch (err) {
     const message =
-      err?.name === "AbortError"
-        ? `GET ${path} timeout after ${timeoutMs}ms`
-        : err.message || String(err);
+      err?.name === "AbortError" ?
+      `GET ${path} timeout after ${timeoutMs}ms` :
+      err.message || String(err);
     firmware.online = false;
     firmware.lastError = message;
     throw new Error(message);
@@ -4767,9 +4581,9 @@ async function apiPost(path, payload, options = {}) {
     return null;
   } catch (err) {
     const message =
-      err?.name === "AbortError"
-        ? `POST ${path} timeout after ${timeoutMs}ms`
-        : err.message || String(err);
+      err?.name === "AbortError" ?
+      `POST ${path} timeout after ${timeoutMs}ms` :
+      err.message || String(err);
     if (!silent) {
       firmware.online = false;
       firmware.lastError = message;
@@ -4952,14 +4766,14 @@ function applyPowerData(powerData) {
     stateChanged = setPowerStateField("batteryPowered", batteryPowered) || stateChanged;
   if (typeof powerData.batteryDisconnected === "boolean")
     stateChanged =
-      setPowerStateField("batteryDisconnected", powerData.batteryDisconnected) || stateChanged;
+    setPowerStateField("batteryDisconnected", powerData.batteryDisconnected) || stateChanged;
   if (typeof powerData.batteryLowVoltageUnpowered === "boolean")
     stateChanged =
-      setPowerStateField("batteryLowVoltageUnpowered", powerData.batteryLowVoltageUnpowered) ||
-      stateChanged;
+    setPowerStateField("batteryLowVoltageUnpowered", powerData.batteryLowVoltageUnpowered) ||
+    stateChanged;
   if (typeof powerData.batteryStateText === "string" && powerData.batteryStateText)
     stateChanged =
-      setPowerStateField("batteryStateText", powerData.batteryStateText) || stateChanged;
+    setPowerStateField("batteryStateText", powerData.batteryStateText) || stateChanged;
   stateChanged = setFinitePowerField("batteryMinV", powerData.batteryRangeMin) || stateChanged;
   stateChanged = setFinitePowerField("batteryMaxV", powerData.batteryRangeMax) || stateChanged;
   stateChanged =
@@ -5083,9 +4897,9 @@ function firmwareStatusShowsTextScroll(data, renderer = data?.renderer || data |
   if (typeof explicitDisplaying === "boolean") return explicitDisplaying;
   return Boolean(
     renderer?.firmwareScrollActive ||
-      data?.firmwareScrollActive ||
-      renderer?.firmwareScrollPaused ||
-      data?.firmwareScrollPaused
+    data?.firmwareScrollActive ||
+    renderer?.firmwareScrollPaused ||
+    data?.firmwareScrollPaused
   );
 }
 
@@ -5100,7 +4914,9 @@ function clearRecoveredScrollCache(reason = "scroll_cache_cleared") {
   lastFwScrollHasSourceText = false;
   lastFwScrollDisplaying = false;
   lastScrollRestoreStatusDebugKey = "";
-  logScrollRestoreDebug("cache cleared", { reason });
+  logScrollRestoreDebug("cache cleared", {
+    reason
+  });
 }
 
 function scheduleFirmwareScrollStopFullSync(
@@ -5154,9 +4970,9 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
     data.vbat !== undefined ||
     data.batteryPercent !== undefined ||
     data.vcharge !== undefined ||
-    data.charging !== undefined
-      ? data
-      : null;
+    data.charging !== undefined ?
+    data :
+    null;
   const powerPayload = nestedPowerPayload || flatPowerPayload;
   if (powerPayload && (nestedPowerPayload || shouldApplyPowerFromStatusSource(source))) {
     stateChanged = applyPowerData(powerPayload) || stateChanged;
@@ -5247,9 +5063,9 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
   if (Number.isFinite(scrollFrameCountValue)) {
     const displayingForFrameCount =
       firmwareStatusShowsTextScroll(data, renderer);
-    lastFwScrollFrameCount = displayingForFrameCount
-      ? Math.max(0, Math.floor(scrollFrameCountValue))
-      : 0;
+    lastFwScrollFrameCount = displayingForFrameCount ?
+      Math.max(0, Math.floor(scrollFrameCountValue)) :
+      0;
   }
   if (
     Number.isFinite(scrollFrameCountValue) &&
@@ -5309,8 +5125,9 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
       setScrollPreviewFrame(
         faceFrame(face),
         renderer.lastReason || data.lastReason || source || "face_index_sync",
-        null,
-        { syncLiveBaseline: true },
+        null, {
+          syncLiveBaseline: true
+        },
       );
       frameChanged = false;
       stateChanged = true;
@@ -5328,11 +5145,9 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
 
   const firmwareReason = String(renderer.lastReason || data.lastReason || "");
   const event = scrollStopEventFromStatus(data, renderer);
-  const newButtonStopEvent =
-    !!event &&
+  const newButtonStopEvent = !!event &&
     event.seq > lastScrollStopEventSeq &&
-    event.source === "gpio" &&
-    ["B1", "B2", "B3"].includes(event.button);
+    event.source === "gpio" && ["B1", "B2", "B3"].includes(event.button);
   if (event && event.seq > lastScrollStopEventSeq) lastScrollStopEventSeq = event.seq;
 
   const fallbackButtonStop =
@@ -5352,8 +5167,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
   if (shouldStopScrollPreview) {
     const hasCurrentFacePreview = frameChanged && !state.textScrollActive && !scroll.firmwareBacked;
     resetScrollControlsAfterButton(
-      newButtonStopEvent ? `firmware_gpio_${event.button}` : "firmware_gpio_button",
-      {
+      newButtonStopEvent ? `firmware_gpio_${event.button}` : "firmware_gpio_button", {
         preserveCurrentFrame: hasCurrentFacePreview,
       },
     );
@@ -5376,7 +5190,8 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
     if (!fwScrollDisplaying) {
       lastFwScrollFrameCount = 0;
     }
-    const debugKey = `${fwScrollDisplaying}|${lastFwScrollTimelineId}|${lastFwScrollHasSourceText}|${fwScrollUploadComplete}`;
+    const debugKey =
+      `${fwScrollDisplaying}|${lastFwScrollTimelineId}|${lastFwScrollHasSourceText}|${fwScrollUploadComplete}`;
     if (debugKey !== lastScrollRestoreStatusDebugKey) {
       lastScrollRestoreStatusDebugKey = debugKey;
       logScrollRestoreDebug("status fields", {
@@ -5470,8 +5285,10 @@ function frameToUint8Array(frame) {
 let lastLiveFrameErrorAt = 0;
 
 function updateGlobalFrameQueueLength() {
-  const normLen = (typeof normalFramePump !== 'undefined' && normalFramePump.getQueueLength) ? normalFramePump.getQueueLength() : 0;
-  const liveLen = (typeof liveFramePump !== 'undefined' && liveFramePump.getQueueLength) ? liveFramePump.getQueueLength() : 0;
+  const normLen = (typeof normalFramePump !== 'undefined' && normalFramePump.getQueueLength) ? normalFramePump
+    .getQueueLength() : 0;
+  const liveLen = (typeof liveFramePump !== 'undefined' && liveFramePump.getQueueLength) ? liveFramePump
+    .getQueueLength() : 0;
   firmware.frameQueue = normLen + liveLen;
 }
 
@@ -5524,13 +5341,16 @@ function makeRateLimitedQueue({
     if (!isLive) {
       setFirmwareStatus({
         lastRequest: `POST ${endpoint}`,
-        lastStatus: isOfflineHtmlMode() && offlineStatusLabel
-          ? offlineStatusLabel
-          : `${statusLabel} (${queue.length}/${maxDepth})`,
+        lastStatus: isOfflineHtmlMode() && offlineStatusLabel ?
+          offlineStatusLabel : `${statusLabel} (${queue.length}/${maxDepth})`,
       });
     }
 
-    const requestOptions = postOptions || (isLive ? { silent: true, expectJson: false, timeoutMs: 1800 } : {});
+    const requestOptions = postOptions || (isLive ? {
+      silent: true,
+      expectJson: false,
+      timeoutMs: 1800
+    } : {});
     // Frame packets carry a packed 47-byte binary body plus per-packet reason/playback,
     // which travel as query params; everything else posts JSON as before.
     let sendPath = endpoint;
@@ -5618,8 +5438,16 @@ function makeRateLimitedQueue({
       });
     },
     enqueue(request, source = "unknown", fallback = null) {
-      const queued = { request, source, fallback, promise: null, resolve: null };
-      queued.promise = new Promise((res) => { queued.resolve = res; });
+      const queued = {
+        request,
+        source,
+        fallback,
+        promise: null,
+        resolve: null
+      };
+      queued.promise = new Promise((res) => {
+        queued.resolve = res;
+      });
       if (coalesceLatest && queue.length) {
         for (const dropped of queue) {
           if (dropped && dropped.resolve) dropped.resolve(null);
@@ -5637,9 +5465,8 @@ function makeRateLimitedQueue({
       if (!isLive) {
         setFirmwareStatus({
           lastRequest: `POST ${endpoint}`,
-          lastStatus: isOfflineHtmlMode() && offlineStatusLabel
-            ? offlineStatusLabel
-            : `${statusLabel} (${queue.length}/${maxDepth})`,
+          lastStatus: isOfflineHtmlMode() && offlineStatusLabel ?
+            offlineStatusLabel : `${statusLabel} (${queue.length}/${maxDepth})`,
         });
       }
       schedule(0);
@@ -5653,9 +5480,15 @@ const buttonCommandPump = makeRateLimitedQueue({
   intervalMs: WEBUI_BUTTON_COMMAND_INTERVAL_MS,
   maxDepth: WEBUI_BUTTON_COMMAND_QUEUE_MAX,
   onResult: applyFirmwareRuntimeState,
-  updateQueueLength: (len) => { firmware.buttonQueue = len; },
-  incrementSent: () => { firmware.sentCommands++; },
-  incrementDropped: () => { firmware.droppedCommands++; },
+  updateQueueLength: (len) => {
+    firmware.buttonQueue = len;
+  },
+  incrementSent: () => {
+    firmware.sentCommands++;
+  },
+  incrementDropped: () => {
+    firmware.droppedCommands++;
+  },
   statusLabel: "queued button",
   offlineStatusLabel: null,
   errorLabel: "button command failed",
@@ -5667,9 +5500,15 @@ const normalFramePump = makeRateLimitedQueue({
   intervalMs: WEBUI_FRAME_SEND_INTERVAL_MS,
   maxDepth: WEBUI_FRAME_QUEUE_MAX,
   coalesceLatest: false,
-  updateQueueLength: () => { updateGlobalFrameQueueLength(); },
-  incrementSent: () => { firmware.sentFrames++; },
-  incrementDropped: () => { firmware.droppedFrames++; },
+  updateQueueLength: () => {
+    updateGlobalFrameQueueLength();
+  },
+  incrementSent: () => {
+    firmware.sentFrames++;
+  },
+  incrementDropped: () => {
+    firmware.droppedFrames++;
+  },
   statusLabel: "queued frame",
   offlineStatusLabel: "queued offline",
   errorLabel: "frame failed",
@@ -5681,9 +5520,15 @@ const liveFramePump = makeRateLimitedQueue({
   intervalMs: 5,
   maxDepth: 1,
   coalesceLatest: true,
-  updateQueueLength: () => { updateGlobalFrameQueueLength(); },
-  incrementSent: () => { firmware.sentFrames++; },
-  incrementDropped: () => { firmware.droppedFrames++; },
+  updateQueueLength: () => {
+    updateGlobalFrameQueueLength();
+  },
+  incrementSent: () => {
+    firmware.sentFrames++;
+  },
+  incrementDropped: () => {
+    firmware.droppedFrames++;
+  },
   statusLabel: "queued live frame",
   offlineStatusLabel: "queued offline",
   errorLabel: "live frame failed",
@@ -5712,7 +5557,12 @@ function sendButtonCommand(button, source = "webui_button", fallback = null) {
   if (["B1", "B2", "B3"].includes(String(button).toUpperCase())) {
     resetScrollControlsAfterButton(source);
   }
-  const packet = { cmd: "button", payload: { button } };
+  const packet = {
+    cmd: "button",
+    payload: {
+      button
+    }
+  };
   if (isOfflineHtmlMode()) {
     if (fallback) fallback();
     packet.source = source;
@@ -5796,7 +5646,8 @@ function setScrollPreviewFrame(frame, reason = "text_scroll_preview", playback =
 }
 
 function orFrameIntoFrame(targetFrame, sourceFrame) {
-  for (let i = 0; i < TOTAL_LEDS; i++) if (sourceFrame[i]) targetFrame[i] = true;
+  for (let i = 0; i < TOTAL_LEDS; i++)
+    if (sourceFrame[i]) targetFrame[i] = true;
 }
 
 function orPartIntoFrame(frame, part) {
@@ -5903,8 +5754,7 @@ function terminateOtherActivities(targetMode = "static", reason = "mode_change")
     renderState();
     log(`防冲突：${reason} 前终止 ${ended.join(" / ")}；不会自动恢复`);
     sendAuxCommand(
-      "terminate_other_activities",
-      {
+      "terminate_other_activities", {
         targetMode,
         ended,
       },
@@ -5933,16 +5783,15 @@ async function prepareForTextScrollUpload() {
   ]);
 
   const ended = guardBeforeOutput("text_scroll_start", "scroll");
-  const packet = ended.length
-    ? null
-    : sendAuxCommand(
-        "terminate_other_activities",
-        {
-          targetMode: "scroll",
-          ended: ["text_scroll_prepare"],
-        },
-        "text_scroll_prepare",
-      );
+  const packet = ended.length ?
+    null :
+    sendAuxCommand(
+      "terminate_other_activities", {
+        targetMode: "scroll",
+        ended: ["text_scroll_prepare"],
+      },
+      "text_scroll_prepare",
+    );
   await Promise.all([
     packet ? packet.promise : Promise.resolve(null),
     frameSendPump.waitForIdle(settleTimeoutMs),
@@ -5989,11 +5838,10 @@ function setColor(hex, source = "color_change") {
   updateDps();
   renderMatrices();
   renderState();
-  log(`颜色更新 ${c} (${source})`, "debug");  // May trigger high frequency with color picker/slider
+  log(`颜色更新 ${c} (${source})`, "debug"); // May trigger high frequency with color picker/slider
   if (source !== "firmware_sync")
     sendAuxCommand(
-      "set_color",
-      {
+      "set_color", {
         hex: c,
       },
       source,
@@ -6013,10 +5861,9 @@ function setBrightness(v, source = "brightness_change") {
     lastUserBrightnessMs = Date.now();
   }
   applyBrightnessLocal(v);
-  log(`亮度更新 raw=${state.brightness} (${source})`, "debug");  // Dragging the slider will trigger high frequency
+  log(`亮度更新 raw=${state.brightness} (${source})`, "debug"); // Dragging the slider will trigger high frequency
   sendAuxCommand(
-    "set_brightness",
-    {
+    "set_brightness", {
       raw: state.brightness,
     },
     source,
@@ -6041,7 +5888,7 @@ function unlockBootPageScroll() {
   }
 }
 // -- Rina loading mask animation ---------------------------------
-(function () {
+(function() {
   const ICON_BEFORE = WEBUI_CONFIG.boot.loadingIconBefore;
   const ICON_AFTER = WEBUI_CONFIG.boot.loadingIconAfter;
   const HOLD_MS = WEBUI_CONFIG.boot.holdMs,
@@ -6338,7 +6185,7 @@ function unlockBootPageScroll() {
   }
   window.rinaLoaderComplete = requestFinish;
   window.rinaLoadingImagesReadyPromise = preloadInitialLoadingImage();
-  window.rinaStartLoaderAnimation = async function () {
+  window.rinaStartLoaderAnimation = async function() {
     await window.rinaLoadingImagesReadyPromise;
     initOverlay();
   };
@@ -6483,7 +6330,9 @@ async function loadStaticFramePreviewFromFirmware(reason = "boot_static_frame") 
     const res = await fetch(url, {
       method: "GET",
       cache: "no-store",
-      headers: { Accept: "text/plain" },
+      headers: {
+        Accept: "text/plain"
+      },
       signal: controller?.signal,
     });
     firmware.online = res.ok;
@@ -6582,7 +6431,8 @@ function startFirmwareStatusPolling() {
   firmwareStatusPollTimer = setInterval(() => {
     // P1-6: while a scroll upload is in flight, skip status polling so the single-
     // threaded ESP32 WebServer isn't fighting concurrent reads against the upload.
-    if (scroll.uploading || scroll.startBusy || scroll.restoring || scroll.lightSyncing || scrollMetaFetchInFlight) return;
+    if (scroll.uploading || scroll.startBusy || scroll.restoring || scroll.lightSyncing || scrollMetaFetchInFlight)
+      return;
     const firmwareIsScrolling =
       state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
     const minInterval = Math.max(1000, firmwareNextPollMs);
@@ -6790,7 +6640,9 @@ function switchPage(id) {
       renderDebugPreviewPanel();
     });
     // Into 6.5: use the same shared preview refresh path as 6.1, then render debug-only readouts.
-    refreshSharedPreviewFromFirmware("debug_page_enter", { debugPanel: true }).catch((err) => {
+    refreshSharedPreviewFromFirmware("debug_page_enter", {
+      debugPanel: true
+    }).catch((err) => {
       if (shouldLogApiError()) log(`debug preview refresh failed: ${err.message || err}`, "error");
     });
     refreshPowerStatusFromFirmware("debug_page_enter", true);
@@ -6861,6 +6713,7 @@ function viewportBoundsForFixedMenu() {
   };
 }
 let selectScrollLock = null;
+
 function lockPageScrollForSelects() {
   if (selectScrollLock) return;
   // Just a flag: prevent scrolling by intercepting events, keeping
@@ -7143,8 +6996,7 @@ function initCustomSelectDropdowns() {
           verticalOnly: true,
         }),
       );
-    },
-    {
+    }, {
       passive: true,
       capture: true,
     },
@@ -7166,6 +7018,7 @@ function initCustomSelectDropdowns() {
 const RINABOARD_IMAGE_SRC = "resources/pictures/rinaboard.png";
 const RINABOARD_PRELOAD_TIMEOUT_MS = 8000;
 let rinaboardImagePromise = null;
+
 function preloadRinaboardImage() {
   if (rinaboardImagePromise) return rinaboardImagePromise;
   rinaboardImagePromise = new Promise((resolve) => {
@@ -7213,7 +7066,7 @@ function initMatrix(id, frameProvider, editable = false, editHandler = null, com
   ensureRinaboardStage(el);
   el.innerHTML = "";
   if (compact) el.classList.add("compact");
-  
+
   const frag = document.createDocumentFragment();
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
@@ -7300,12 +7153,12 @@ function fitMatrix(view) {
   const wrapStyle = getComputedStyle(wrap);
   const cs = getComputedStyle(view.el);
   const gap = parseFloat(cs.getPropertyValue("--gap")) || (view.compact ? 2 : 3);
-  const defaultCell = view.compact
-    ? 8
-    : matrixSizeNumber(wrapStyle, "--matrix-default-cell", LED_PREVIEW_SIZE.defaultCell);
-  const minCell = view.compact
-    ? 4
-    : matrixSizeNumber(wrapStyle, "--matrix-min-cell", LED_PREVIEW_SIZE.minCell);
+  const defaultCell = view.compact ?
+    8 :
+    matrixSizeNumber(wrapStyle, "--matrix-default-cell", LED_PREVIEW_SIZE.defaultCell);
+  const minCell = view.compact ?
+    4 :
+    matrixSizeNumber(wrapStyle, "--matrix-min-cell", LED_PREVIEW_SIZE.minCell);
   const cssMaxCell = matrixSizeNumber(wrapStyle, "--matrix-max-cell", LED_PREVIEW_SIZE.maxCell);
   const configuredMaxHeight = matrixSizeNumber(
     wrapStyle,
@@ -7338,15 +7191,15 @@ function fitMatrix(view) {
     (parseFloat(wrapStyle.borderTopWidth) || 0) + (parseFloat(wrapStyle.borderBottomWidth) || 0);
   const widthBudget = Math.max(1, wrapRect.width - borderX);
   const maxContentHeight = matrixMaxContentHeight(wrap, configuredMaxHeight);
-  const heightBudget = Number.isFinite(maxContentHeight)
-    ? Math.max(1, maxContentHeight - borderY)
-    : Infinity;
+  const heightBudget = Number.isFinite(maxContentHeight) ?
+    Math.max(1, maxContentHeight - borderY) :
+    Infinity;
   const widthDenom = COLS + 2 * edgeRatio;
   const heightDenom = ROWS + 2 * edgeRatio;
   const cellByWidth = (widthBudget - gap * (COLS - 1)) / widthDenom;
-  const cellByHeight = Number.isFinite(heightBudget)
-    ? (heightBudget - gap * (ROWS - 1)) / heightDenom
-    : Infinity;
+  const cellByHeight = Number.isFinite(heightBudget) ?
+    (heightBudget - gap * (ROWS - 1)) / heightDenom :
+    Infinity;
   const fitCell = Math.min(cellByWidth, cellByHeight, maxCell);
   // Floor to whole pixels so every cell lands on an exact device-pixel boundary
   // and the gap renders uniformly between all LEDs (no alternating 1px/2px lines).
@@ -7428,7 +7281,7 @@ function renderMatrices() {
     const frame = view.frameProvider();
     const cells = view.el.children;
     const lastState = view.lastState;
-    
+
     for (let y = 0, n = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++, n++) {
         const idx = XY_TO_INDEX[y][x];
@@ -7486,9 +7339,15 @@ function batteryPowerText() {
 
 function firmwareConnectionUiState() {
   const online = !!firmware.online;
-  if (online) return { label: "在线", dotClass: "status-dot" };
+  if (online) return {
+    label: "在线",
+    dotClass: "status-dot"
+  };
   const hasError = !!(firmware.lastError && firmware.lastError !== "—");
-  return { label: hasError ? "错误" : "离线", dotClass: "status-dot danger" };
+  return {
+    label: hasError ? "错误" : "离线",
+    dotClass: "status-dot danger"
+  };
 }
 
 // UI renderer
@@ -7507,11 +7366,11 @@ function renderState() {
     runtimeDot.className = connection.dotClass;
     runtimeLabel.textContent = connection.label;
     if (runtimeBadge) {
-      runtimeBadge.title = firmware.online
-        ? "固件连接在线"
-        : firmware.lastError
-          ? `固件连接${connection.label}: ${firmware.lastError}`
-          : `固件连接${connection.label}`;
+      runtimeBadge.title = firmware.online ?
+        "固件连接在线" :
+        firmware.lastError ?
+        `固件连接${connection.label}: ${firmware.lastError}` :
+        `固件连接${connection.label}`;
     }
   }
   const battDot = $("badge-battery-dot"),
@@ -7520,9 +7379,9 @@ function renderState() {
     const pct = state.batteryPercent,
       vbat = state.batteryV;
     battLabel.textContent =
-      state.batteryPowered === false
-        ? `未上电 ${formatVolts(vbat)}`
-        : `电池 ${formatVolts(vbat)}  ${formatBatteryPercent(pct)}`;
+      state.batteryPowered === false ?
+      `未上电 ${formatVolts(vbat)}` :
+      `电池 ${formatVolts(vbat)}  ${formatBatteryPercent(pct)}`;
     battDot.className = state.batteryIconClass || "status-dot dim";
     battDot.style.backgroundColor = state.batteryIconColor || "";
   }
@@ -7532,9 +7391,9 @@ function renderState() {
     chgDot.className = state.chargeIconClass || "status-dot dim";
     chgDot.style.backgroundColor = state.chargeIconColor || "";
     chgLabel.textContent =
-      state.charging === true
-        ? `充电中 ${formatVolts(state.chargeV)}`
-        : formatChargingBadge(state.charging);
+      state.charging === true ?
+      `充电中 ${formatVolts(state.chargeV)}` :
+      formatChargingBadge(state.charging);
   }
   // Debug page read-only panel: only renders when 6.5 is active, and only rewrites read-only kv/badge/preview meta information,
   // Never rebuild interactive controls (packed frame/raw JSON/checkboxes). renderState has 44 call points,
@@ -7552,13 +7411,13 @@ function escapeHtml(s) {
   return String(s).replace(
     /[&<>"']/g,
     (c) =>
-      ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;",
-      })[c],
+    ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    })[c],
   );
 }
 
@@ -7700,9 +7559,9 @@ function renderChildColors() {
     childSelect.appendChild(opt);
   }
   childSelect.value =
-    state.colorSelection === "child" && state.selectedChildColor
-      ? state.selectedChildColor
-      : "__parent__";
+    state.colorSelection === "child" && state.selectedChildColor ?
+    state.selectedChildColor :
+    "__parent__";
   childSelect.onchange = () => {
     const v = childSelect.value;
     if (v === "__parent__") {
@@ -7749,9 +7608,9 @@ function initBrightness() {
 }
 
 function resetBrightnessDefault() {
-  const value = Number.isFinite(Number(state.defaultBrightness))
-    ? state.defaultBrightness
-    : DEFAULT_LED_BRIGHTNESS;
+  const value = Number.isFinite(Number(state.defaultBrightness)) ?
+    state.defaultBrightness :
+    DEFAULT_LED_BRIGHTNESS;
   setBrightness(value, "default_brightness_reset");
 }
 
@@ -7799,8 +7658,7 @@ function toggleModeLocal(source) {
   renderState();
   log(`A/M 模式切换为 ${state.mode} (${source})`);
   sendAuxCommand(
-    "set_mode",
-    {
+    "set_mode", {
       mode: modePayloadValue(),
       label: state.mode,
     },
@@ -7835,8 +7693,7 @@ function setAutoIntervalMs(ms, source = "auto_interval_change") {
     `自动切换间隔设置为 ${formatIntervalSeconds(state.autoInterval)} 秒 (${state.autoInterval} ms)`,
   );
   sendAuxCommand(
-    "set_auto_interval",
-    {
+    "set_auto_interval", {
       ms: state.autoInterval,
     },
     source,
@@ -7979,6 +7836,7 @@ function sendCustomFrameIfLive(reason = "custom_live_send") {
 // are coalesced into the next animation frame to avoid heavy full-page re-renders. Incremental delta commands
 // are still dispatched immediately to minimize latency.
 let customEditRenderRaf = 0;
+
 function scheduleCustomEditRender() {
   if (customEditRenderRaf) return;
   customEditRenderRaf = requestAnimationFrame(() => {
@@ -7992,7 +7850,8 @@ function editCell(idx, value, tool) {
   editFrame[idx] = !!value;
   // [实时诊断DIAG-A] 一行诊断：确认新代码是否已加载 + 实时开关 + 固件在线状态。
   // 看到带 DIAG-A 的日志即说明新 app.js 已生效。
-  log(`[DIAG-A] 点击LED idx=${idx} 目标=${value ? "亮" : "灭"} 实时开关liveSendEnabled=${liveSendEnabled} 固件在线=${firmware.online}`, "info");
+  log(`[DIAG-A] 点击LED idx=${idx} 目标=${value ? "亮" : "灭"} 实时开关liveSendEnabled=${liveSendEnabled} 固件在线=${firmware.online}`,
+    "info");
   // Dispatch incremental delta changes immediately to keep synchronization latency minimal.
   sendCustomFrameIfLive("custom_live_send");
   // Coalesce local UI rendering into the next animation frame.
@@ -8161,8 +8020,7 @@ function initFaceLibraryAutoRefresh() {
         if (target.closest?.("#matrix-custom-edit,#part-groups")) {
           scheduleFaceLibraryRefresh("face_page_pointer_action", 480);
         }
-      },
-      {
+      }, {
         passive: true,
       },
     );
@@ -8199,9 +8057,7 @@ async function loadUnifiedFacesDocument() {
     return apiDoc;
   } catch (apiErr) {
     const candidates =
-      location.protocol === "file:"
-        ? [FACE_LIBRARY_FILENAME]
-        : [FACE_LIBRARY_RESOURCE, FACE_LIBRARY_FILENAME];
+      location.protocol === "file:" ? [FACE_LIBRARY_FILENAME] : [FACE_LIBRARY_RESOURCE, FACE_LIBRARY_FILENAME];
     for (const path of candidates) {
       try {
         const doc = await fetchJsonDocument(path);
@@ -8213,19 +8069,17 @@ async function loadUnifiedFacesDocument() {
       } catch (fileErr) {}
     }
     setFirmwareStatus({
-      savedFacesSync:
-        location.protocol === "file:"
-          ? "file:// cannot auto-read JSON; import saved_faces.json"
-          : "saved_faces.json not found",
+      savedFacesSync: location.protocol === "file:" ?
+        "file:// cannot auto-read JSON; import saved_faces.json" : "saved_faces.json not found",
     });
     faceLibraryLoadError =
-      location.protocol === "file:"
-        ? ""
-        : "无法加载 saved_faces.json：/api/saved_faces 与本地资源均不可用。";
+      location.protocol === "file:" ?
+      "" :
+      "无法加载 saved_faces.json：/api/saved_faces 与本地资源均不可用。";
     log(
-      location.protocol === "file:"
-        ? "浏览器 file:// 通常不能自动读取旁边的 saved_faces.json；请点击“导入 saved_faces.json”。"
-        : "saved_faces.json 未读取到，使用空表情库。",
+      location.protocol === "file:" ?
+      "浏览器 file:// 通常不能自动读取旁边的 saved_faces.json；请点击“导入 saved_faces.json”。" :
+      "saved_faces.json 未读取到，使用空表情库。",
     );
     return empty;
   }
@@ -8265,15 +8119,13 @@ function faceOrderFromIndex(index) {
 
 function normalizeFaceDocument(doc, fallbackType = "custom") {
   const out =
-    doc && typeof doc === "object" && !Array.isArray(doc)
-      ? {
-          ...doc,
-        }
-      : {
-          format: FACE_SCHEMA_FORMAT,
-          version: 4,
-          faces: Array.isArray(doc) ? doc : [],
-        };
+    doc && typeof doc === "object" && !Array.isArray(doc) ? {
+      ...doc,
+    } : {
+      format: FACE_SCHEMA_FORMAT,
+      version: 4,
+      faces: Array.isArray(doc) ? doc : [],
+    };
   out.format = FACE_SCHEMA_FORMAT;
   out.version = Number(out.version || 4);
   out.category = "unified_saved_faces";
@@ -8330,13 +8182,13 @@ function normalizeFaceType(v) {
 }
 
 function faceTypeLabel(type) {
-  return type === "default"
-    ? "默认表情"
-    : type === "parts"
-      ? "部件表情"
-      : type === "custom"
-        ? "自定义表情"
-        : "保存表情";
+  return type === "default" ?
+    "默认表情" :
+    type === "parts" ?
+    "部件表情" :
+    type === "custom" ?
+    "自定义表情" :
+    "保存表情";
 }
 
 function getAllFaces() {
@@ -8347,7 +8199,7 @@ function getAllFaces() {
     }))
     .sort(
       (a, b) =>
-        (Number(a.order) || 0) - (Number(b.order) || 0) || String(a.id).localeCompare(String(b.id)),
+      (Number(a.order) || 0) - (Number(b.order) || 0) || String(a.id).localeCompare(String(b.id)),
     );
 }
 
@@ -8365,8 +8217,7 @@ function reassignOrderFromLibrary(library) {
 function buildUnifiedFaceDocument() {
   const faces = getAllFaces()
     .map((f, i) => {
-      const normalized = normalizeFace(
-        {
+      const normalized = normalizeFace({
           ...f,
           order: faceOrderFromIndex(i),
         },
@@ -8418,14 +8269,12 @@ async function openLocalFaceLibraryFile() {
   }
   const [handle] = await window.showOpenFilePicker({
     multiple: false,
-    types: [
-      {
-        description: "Rina saved_faces.json",
-        accept: {
-          "application/json": [".json"],
-        },
+    types: [{
+      description: "Rina saved_faces.json",
+      accept: {
+        "application/json": [".json"],
       },
-    ],
+    }, ],
   });
   faceLibraryFileHandle = handle;
   const file = await handle.getFile();
@@ -8452,10 +8301,10 @@ async function persistFaceDocuments(reason = "save_faces") {
     savedFacesSync: "saving unified saved_faces.json",
   });
   return apiPost(API_ENDPOINTS.savedFaces, {
-    path: FACE_LIBRARY_RESOURCE,
-    document: faceLibraryDocument,
-    reason,
-  })
+      path: FACE_LIBRARY_RESOURCE,
+      document: faceLibraryDocument,
+      reason,
+    })
     .then(() => {
       setFirmwareStatus({
         savedFacesSync: "saved to firmware saved_faces.json",
@@ -8466,9 +8315,8 @@ async function persistFaceDocuments(reason = "save_faces") {
     })
     .catch((err) => {
       setFirmwareStatus({
-        savedFacesSync: faceLibraryFileHandle
-          ? "saved locally; firmware offline"
-          : "save failed/offline; use JSON download/import",
+        savedFacesSync: faceLibraryFileHandle ?
+          "saved locally; firmware offline" : "save failed/offline; use JSON download/import",
       });
       // POST failed: MUST NOT remember "synchronized". Record the real results truthfully (including whether they have been written to local files).
       const detail = err?.message ? `：${err.message}` : "";
@@ -8542,8 +8390,8 @@ function saveFace(name, frame, type) {
     );
   const clean =
     String(name || "face")
-      .trim()
-      .slice(0, 64) || "face";
+    .trim()
+    .slice(0, 64) || "face";
   const nextOrder = Math.max(0, ...getAllFaces().map((f) => Number(f.order) || 0)) + 1;
   userFaces.push({
     id: `${faceType}_${Date.now()}`,
@@ -8556,12 +8404,9 @@ function saveFace(name, frame, type) {
     sourceFile: FACE_LIBRARY_FILENAME,
     savedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    call:
-      faceType === "parts"
-        ? {
-            ...selectedCall,
-          }
-        : null,
+    call: faceType === "parts" ? {
+      ...selectedCall,
+    } : null,
   });
   state.faceIndex = getAllFaces().findIndex((f) => f.id === userFaces[userFaces.length - 1].id);
   renderSavedFaces();
@@ -8658,7 +8503,10 @@ function clearFaceDragOver(scope = document) {
 
 function faceInsertSlotFromPoint(clientX, clientY, list) {
   const rows = Array.from(list.querySelectorAll(".saved-row"))
-    .map((row) => ({ row, index: Number(row.dataset.index) }))
+    .map((row) => ({
+      row,
+      index: Number(row.dataset.index)
+    }))
     .filter((entry) => Number.isInteger(entry.index) && entry.index >= 0)
     .sort((a, b) => a.index - b.index);
   if (!rows.length) return null;
@@ -8737,7 +8585,12 @@ function attachFaceReorderHandle(handle, row, index) {
   const finish = (ev) => {
     if (!pointerFaceDrag || pointerFaceDrag.pointerId !== ev.pointerId) return;
     ev.preventDefault();
-    const { from, slot, list, row: dragRow } = pointerFaceDrag;
+    const {
+      from,
+      slot,
+      list,
+      row: dragRow
+    } = pointerFaceDrag;
     handle.releasePointerCapture?.(ev.pointerId);
     clearFaceDragOver(list);
     dragRow.classList.remove("dragging");
@@ -8778,9 +8631,9 @@ function createFaceRow(f, i, total) {
   nameInput.value = f.name || `face_${i + 1}`;
   nameInput.maxLength = 64;
   nameInput.title =
-    f.type === "default"
-      ? "默认表情可重命名、可排序，但不可删除；回车或失焦保存"
-      : "直接编辑名称后回车或失焦保存";
+    f.type === "default" ?
+    "默认表情可重命名、可排序，但不可删除；回车或失焦保存" :
+    "直接编辑名称后回车或失焦保存";
   const commitName = () => {
     const next = nameInput.value.trim().slice(0, 64) || f.name || `face_${i + 1}`;
     const list = f.type === "default" ? defaultFaces : userFaces;
@@ -8804,7 +8657,8 @@ function createFaceRow(f, i, total) {
   const meta = document.createElement("div");
   meta.className = "small saved-meta";
   const badgeClass = f.type === "default" ? "default" : f.type === "parts" ? "parts" : "custom";
-  meta.innerHTML = `<span class="face-source-badge ${badgeClass}">${faceTypeLabel(f.type)}</span> · ${onCount(faceFrame(f))} LED`;
+  meta.innerHTML =
+    `<span class="face-source-badge ${badgeClass}">${faceTypeLabel(f.type)}</span> · ${onCount(faceFrame(f))} LED`;
   body.appendChild(nameInput);
   body.appendChild(meta);
 
@@ -8968,7 +8822,7 @@ function initParts() {
   $("parts-save-bottom").onclick = () =>
     saveFace(
       $("parts-name").value ||
-        `parts_${selectedCall.leye}_${selectedCall.reye}_${selectedCall.mouth}_${selectedCall.cheek}`,
+      `parts_${selectedCall.leye}_${selectedCall.reye}_${selectedCall.mouth}_${selectedCall.cheek}`,
       partsFrame,
       "parts",
     );
@@ -9026,8 +8880,7 @@ function previewRows(part) {
   const size = part.size || [8, 8];
   const w = clamp(size[0] || 8, 1, 8),
     h = clamp(size[1] || 8, 1, 8);
-  const out = Array.from(
-    {
+  const out = Array.from({
       length: 8,
     },
     () => ".".repeat(8).split(""),
@@ -9043,14 +8896,16 @@ function previewRows(part) {
       const row = String(part.preview[y] || "")
         .padEnd(w, ".")
         .slice(0, w);
-      for (let x = 0; x < w; x++) if (row[x] === "#") out[oy + y][ox + x] = "#";
+      for (let x = 0; x < w; x++)
+        if (row[x] === "#") out[oy + y][ox + x] = "#";
     }
     return out.map((r) => r.join(""));
   }
   for (let y = 0; y < h; y++) {
     const raw = (part.row_hex || [])[y] || "00";
     const bits = parseInt(raw, 16);
-    for (let x = 0; x < w; x++) if (bits & (1 << (7 - x))) out[oy + y][ox + x] = "#";
+    for (let x = 0; x < w; x++)
+      if (bits & (1 << (7 - x))) out[oy + y][ox + x] = "#";
   }
   return out.map((r) => r.join(""));
 }
@@ -9090,9 +8945,9 @@ function randomParts() {
   composePartsFrame();
   renderPartButtons();
   log(
-    partsSymmetry
-      ? "随机选择表情部件（左右眼同编号，嘴巴不选 0，脸颊允许 400）"
-      : "随机选择表情部件（眼睛/嘴巴不选 0，脸颊允许 400）",
+    partsSymmetry ?
+    "随机选择表情部件（左右眼同编号，嘴巴不选 0，脸颊允许 400）" :
+    "随机选择表情部件（眼睛/嘴巴不选 0，脸颊允许 400）",
   );
 }
 
@@ -9147,7 +9002,8 @@ function sanitizeScrollTextInput(commit = false) {
     if (typeof el.setSelectionRange === "function") {
       el.setSelectionRange(Math.min(nextStart, clean.length), Math.min(nextEnd, clean.length));
     }
-    if (Array.from(normalized).filter((ch) => !isEmojiFormatControl(codePointOfChar(ch))).length > MAX_SCROLL_TEXT_CHARS) {
+    if (Array.from(normalized).filter((ch) => !isEmojiFormatControl(codePointOfChar(ch))).length >
+      MAX_SCROLL_TEXT_CHARS) {
       log(`滚动文字超过 ${MAX_SCROLL_TEXT_CHARS} 字，已自动截断。`);
     }
   }
@@ -9155,6 +9011,7 @@ function sanitizeScrollTextInput(commit = false) {
 }
 
 let scrollTextInputResizeQueued = false;
+
 function autoResizeScrollTextInput() {
   if (scrollTextInputResizeQueued) return;
   scrollTextInputResizeQueued = true;
@@ -9356,7 +9213,10 @@ function applyFirmwareScrollFps(payload = {}, source = "firmware_scroll_fps") {
   syncScrollFpsUi(fps);
   state.refreshPolicy = `firmware_scroll_${fps}fps_interval_${Math.max(1, Math.round(1000 / fps))}ms`;
   if (before !== fps) {
-    logScrollRestoreDebug("fps synced", { source, fps });
+    logScrollRestoreDebug("fps synced", {
+      source,
+      fps
+    });
     updateScrollUi();
   }
   return true;
@@ -9422,7 +9282,10 @@ function snapPreviewToFirmwareFrame(fwIndex, reason = "text_scroll_index_sync") 
 // scrolling (not paused); otherwise the estimator resets.
 function recordFirmwareScrollSample(frameIndex, frameCount, live) {
   const loop = frameCount > 0 ? frameCount : scroll.frames.length;
-  if (!live || loop <= 0 || !Number.isFinite(frameIndex)) { resetFirmwareScrollRate(); return; }
+  if (!live || loop <= 0 || !Number.isFinite(frameIndex)) {
+    resetFirmwareScrollRate();
+    return;
+  }
   // Phase reference (firmware index is ground truth): signed shortest offset by which the device
   // index leads the WebUI display. Only when the local timeline matches the device frame count.
   if (frameCount > 0 && frameCount === scroll.frames.length) {
@@ -9436,7 +9299,10 @@ function recordFirmwareScrollSample(frameIndex, frameCount, live) {
     scroll.hwLastIndex = frameIndex;
     scroll.hwLastT = now;
     scroll.hwCum = 0;
-    scroll.hwSamples = [{ t: now, cum: 0 }];
+    scroll.hwSamples = [{
+      t: now,
+      cum: 0
+    }];
     return;
   }
   const dtMs = now - scroll.hwLastT;
@@ -9449,7 +9315,10 @@ function recordFirmwareScrollSample(frameIndex, frameCount, live) {
   scroll.hwCum += delta;
   scroll.hwLastIndex = frameIndex;
   scroll.hwLastT = now;
-  scroll.hwSamples.push({ t: now, cum: scroll.hwCum });
+  scroll.hwSamples.push({
+    t: now,
+    cum: scroll.hwCum
+  });
   const cutoff = now - HW_RATE_WINDOW_MS;
   while (scroll.hwSamples.length > 2 && scroll.hwSamples[0].t < cutoff) scroll.hwSamples.shift();
   const s = scroll.hwSamples;
@@ -9458,15 +9327,25 @@ function recordFirmwareScrollSample(frameIndex, frameCount, live) {
   if (s.length < HW_RATE_MIN_SAMPLES || spanMs < HW_RATE_MIN_SPAN_MS || spanFrames < HW_RATE_MIN_FRAMES) return;
   // Least-squares slope of cumulative frames vs time (frames per ms).
   const t0 = s[0].t;
-  let n = s.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
-  for (const pt of s) { const x = pt.t - t0; sx += x; sy += pt.cum; sxx += x * x; sxy += x * pt.cum; }
+  let n = s.length,
+    sx = 0,
+    sy = 0,
+    sxx = 0,
+    sxy = 0;
+  for (const pt of s) {
+    const x = pt.t - t0;
+    sx += x;
+    sy += pt.cum;
+    sxx += x * x;
+    sxy += x * pt.cum;
+  }
   const denom = n * sxx - sx * sx;
   if (denom <= 0) return;
   const fps = ((n * sxy - sx * sy) / denom) * 1000;
   if (!Number.isFinite(fps) || fps < HW_RATE_FPS_MIN || fps > HW_RATE_FPS_MAX) return;
-  scroll.hwMeasuredFps = scroll.hwMeasuredFps > 0
-    ? scroll.hwMeasuredFps * (1 - HW_RATE_EMA_ALPHA) + fps * HW_RATE_EMA_ALPHA
-    : fps;
+  scroll.hwMeasuredFps = scroll.hwMeasuredFps > 0 ?
+    scroll.hwMeasuredFps * (1 - HW_RATE_EMA_ALPHA) + fps * HW_RATE_EMA_ALPHA :
+    fps;
   state.firmwareScrollFps = scroll.hwMeasuredFps;
   const newInterval = Math.max(1, Math.round(1000 / scroll.hwMeasuredFps));
   const prev = scroll.previewIntervalMs;
@@ -9528,19 +9407,25 @@ function estimatePresentedFpsByRegression(samples) {
   if (spanMs < HW_RATE_MIN_SPAN_MS || spanFrames < HW_RATE_MIN_FRAMES) return null;
   const t0 = first.tMs;
   const n = samples.length;
-  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  let sx = 0,
+    sy = 0,
+    sxx = 0,
+    sxy = 0;
   for (const pt of samples) {
     const x = pt.tMs - t0;
     const y = pt.unwrappedFrame;
-    sx += x; sy += y; sxx += x * x; sxy += x * y;
+    sx += x;
+    sy += y;
+    sxx += x * x;
+    sxy += x * y;
   }
   const denom = n * sxx - sx * sx;
   if (denom <= 0) return null;
   const fps = ((n * sxy - sx * sy) / denom) * 1000;
   if (!Number.isFinite(fps) || fps < HW_RATE_FPS_MIN || fps > HW_RATE_FPS_MAX) return null;
-  scroll.hwMeasuredFps = scroll.hwMeasuredFps > 0
-    ? scroll.hwMeasuredFps * (1 - HW_RATE_EMA_ALPHA) + fps * HW_RATE_EMA_ALPHA
-    : fps;
+  scroll.hwMeasuredFps = scroll.hwMeasuredFps > 0 ?
+    scroll.hwMeasuredFps * (1 - HW_RATE_EMA_ALPHA) + fps * HW_RATE_EMA_ALPHA :
+    fps;
   return scroll.hwMeasuredFps;
 }
 
@@ -9645,12 +9530,22 @@ function recordPresentedSyncSample(payload = {}, options = {}) {
   if (shouldUseForRate && Number.isFinite(presentedAtUs)) {
     const tMs = presentedAtUs / 1000;
     if (!scroll.hwSamples.length) {
-      scroll.hwSamples.push({ seq, tMs, frameIndex, unwrappedFrame: frameIndex });
+      scroll.hwSamples.push({
+        seq,
+        tMs,
+        frameIndex,
+        unwrappedFrame: frameIndex
+      });
     } else {
       const last = scroll.hwSamples[scroll.hwSamples.length - 1];
       if (seq > last.seq && tMs > last.tMs) {
         const delta = forwardFrameDelta(frameIndex, last.frameIndex, frameCount);
-        scroll.hwSamples.push({ seq, tMs, frameIndex, unwrappedFrame: last.unwrappedFrame + delta });
+        scroll.hwSamples.push({
+          seq,
+          tMs,
+          frameIndex,
+          unwrappedFrame: last.unwrappedFrame + delta
+        });
       }
     }
     const cutoff = presentedAtUs / 1000 - HW_RATE_WINDOW_MS;
@@ -9745,7 +9640,9 @@ function markPreviewSyncTransportFailed(reason = "preview_sync_failed") {
   const now = performance.now();
   const staleByCount = previewSyncTransportFailCount >= PREVIEW_SYNC_TRANSPORT_FAIL_LIMIT;
   const staleByAge = previewSyncLastOkMs > 0 && now - previewSyncLastOkMs >= PREVIEW_SYNC_STALE_MS;
-  if (staleByCount || staleByAge) scrollMachine.dispatch("SYNC_STALE", { reason });
+  if (staleByCount || staleByAge) scrollMachine.dispatch("SYNC_STALE", {
+    reason
+  });
 }
 
 async function pollPreviewSyncOnce(options = {}) {
@@ -9758,7 +9655,9 @@ async function pollPreviewSyncOnce(options = {}) {
     return null;
   }
   try {
-    const payload = await apiGet(API_ENDPOINTS.previewSync, { timeoutMs: API_GET_TIMEOUT_MS });
+    const payload = await apiGet(API_ENDPOINTS.previewSync, {
+      timeoutMs: API_GET_TIMEOUT_MS
+    });
     if (!payload || payload.ok === false || !payload.valid) {
       markPreviewSyncTransportFailed("invalid_preview_sync_payload");
       return null;
@@ -9771,7 +9670,9 @@ async function pollPreviewSyncOnce(options = {}) {
     return payload;
   } catch (err) {
     if (shouldLogApiError()) {
-      logScrollRestoreDebug("preview sync failed", { error: err?.message || String(err) });
+      logScrollRestoreDebug("preview sync failed", {
+        error: err?.message || String(err)
+      });
     }
     markPreviewSyncTransportFailed("preview_sync_transport_error");
     return null;
@@ -9798,7 +9699,11 @@ function stopPreviewSyncPoller() {
 // After pause/resume: align the preview to the LED's actual frame once, but keep that sample out
 // of fps estimation (pause stops ticks; resume resets the firmware's lastScrollFrameMs).
 async function syncPreviewAfterPauseResume(reason) {
-  const sample = await pollPreviewSyncOnce({ force: true, forceSnap: true, excludeFromRate: true });
+  const sample = await pollPreviewSyncOnce({
+    force: true,
+    forceSnap: true,
+    excludeFromRate: true
+  });
   if (sample && Number.isFinite(Number(sample.presentedSeq))) {
     scroll.ignoreRateUntilSeq = Math.max(
       scroll.ignoreRateUntilSeq || 0,
@@ -9827,8 +9732,7 @@ function setScrollFps(fps, source = "text_scroll_fps_change") {
     scroll.commandBusy = true;
     updateScrollUi();
     sendAuxCommand(
-      "set_scroll_interval",
-      {
+      "set_scroll_interval", {
         fps: clean,
         intervalMs: getScrollFrameIntervalMs(),
       },
@@ -10010,7 +9914,9 @@ function enterScrollPreviewStale(reason = "preview_sync_stale") {
 function enterScrollPreviewDropped(reason = "preview_identity_mismatch") {
   resetFirmwareScrollRate();
   scroll.dropReason = reason;
-  resetScrollControlsAfterButton(reason, { preserveCurrentFrame: false });
+  resetScrollControlsAfterButton(reason, {
+    preserveCurrentFrame: false
+  });
   scroll.previewDropped = true;
   scroll.previewStale = false;
   scroll.syncState = "dropped";
@@ -10021,16 +9927,22 @@ function enterScrollPreviewDropped(reason = "preview_identity_mismatch") {
 function scheduleScrollDropRecovery(reason = "scroll_preview_dropped") {
   if (scrollDropRecoverInFlight) return scrollDropRecoverInFlight;
   scrollDropRecoverInFlight = (async () => {
-    const ok = await syncRuntimeSummaryFromFirmware(`${reason}_status`);
-    if (ok && state.textScrollActive) {
-      scrollMachine.dispatch("DROP_DONE", { restore: true });
-      await restoreScrollTextFromFirmware(`${reason}_restore`, { autoPreview: true });
+      const ok = await syncRuntimeSummaryFromFirmware(`${reason}_status`);
+      if (ok && state.textScrollActive) {
+        scrollMachine.dispatch("DROP_DONE", {
+          restore: true
+        });
+        await restoreScrollTextFromFirmware(`${reason}_restore`, {
+          autoPreview: true
+        });
+        return true;
+      }
+      scrollMachine.dispatch("DROP_DONE", {
+        restore: false
+      });
+      await loadStaticFramePreviewFromFirmware(`${reason}_reload_current_frame`);
       return true;
-    }
-    scrollMachine.dispatch("DROP_DONE", { restore: false });
-    await loadStaticFramePreviewFromFirmware(`${reason}_reload_current_frame`);
-    return true;
-  })()
+    })()
     .catch((err) => {
       logScrollRestoreDebug("scroll drop recovery failed", {
         reason,
@@ -10068,9 +9980,9 @@ async function buildFirmwareScrollFrames(onProgress = () => {}) {
 function setScrollRestoreWarning(message) {
   if (!message) return;
   if (scroll.restoreWarning && scroll.restoreWarning.split("\n").includes(message)) return;
-  scroll.restoreWarning = scroll.restoreWarning
-    ? `${scroll.restoreWarning}\n${message}`
-    : message;
+  scroll.restoreWarning = scroll.restoreWarning ?
+    `${scroll.restoreWarning}\n${message}` :
+    message;
 }
 
 function makeScrollTimelineId() {
@@ -10129,22 +10041,21 @@ async function uploadScrollTimelineAttempt(frames, timelineId) {
     const size = chunkIndex === 0 ? firstChunkFrames : SCROLL_UPLOAD_CHUNK_FRAMES;
     const chunk = frames.slice(offset, offset + size);
     const payload =
-      chunkIndex === 0
-        ? buildFirstChunkPayload(chunk.length)
-        : {
-            frames: chunk,
-            stepLedPerFrame: 1,
-            start: false,
-            append: true,
-            timelineId,
-            chunkIndex,
-            chunkFrames: chunk.length,
-            totalFrames: frames.length,
-            source: "webui_text_scroll_frames_with_source_text",
-            storage: "ram",
-            persist: false,
-            saveToFlash: false,
-          };
+      chunkIndex === 0 ?
+      buildFirstChunkPayload(chunk.length) : {
+        frames: chunk,
+        stepLedPerFrame: 1,
+        start: false,
+        append: true,
+        timelineId,
+        chunkIndex,
+        chunkFrames: chunk.length,
+        totalFrames: frames.length,
+        source: "webui_text_scroll_frames_with_source_text",
+        storage: "ram",
+        persist: false,
+        saveToFlash: false,
+      };
     const chunkNumber = chunkIndex;
     data = await apiPostWithUploadProgress(API_ENDPOINTS.scroll, payload, (progress) => {
       if (!scrollMachine.isCurrent(uploadToken)) return;
@@ -10191,8 +10102,7 @@ async function uploadScrollTimelineAttempt(frames, timelineId) {
   scrollMachine.dispatch("START_CONFIRMED", {}, uploadToken);
   applyFirmwareRuntimeState(data, "text_scroll_upload_start_after_frames");
   setScrollUploadProgress(0.98, "启动滚动播放");
-  return Object.assign(
-    {
+  return Object.assign({
       frames: frames.length,
       fps,
       scrollIntervalMs: intervalMs,
@@ -10446,8 +10356,7 @@ async function stopScroll() {
   updateScrollUi();
   try {
     const packet = sendAuxCommand(
-      "stop_scroll",
-      {
+      "stop_scroll", {
         clear: true,
         restoreAuto,
       },
@@ -10495,9 +10404,9 @@ async function stopScroll() {
     }
     renderSavedFaces();
     log(
-      restoreAuto
-        ? "文字滚动停止/清屏，已清空滚动缓存，并回到 A 自动保存表情切换模式"
-        : "文字滚动停止/清屏，已清空滚动缓存，并保持 M 手动模式",
+      restoreAuto ?
+      "文字滚动停止/清屏，已清空滚动缓存，并回到 A 自动保存表情切换模式" :
+      "文字滚动停止/清屏，已清空滚动缓存，并保持 M 手动模式",
     );
   } catch (err) {
     if (restartPreviewOnFailure) restartScrollPreviewTimer();
@@ -10529,8 +10438,7 @@ function setScrollStepHandler(buttonId, direction) {
       guardBeforeOutput("text_scroll_manual_step", "scroll");
       const source = direction < 0 ? "text_scroll_manual_step_right" : "text_scroll_manual_step_left";
       const packet = sendAuxCommand(
-        "scroll_step",
-        {
+        "scroll_step", {
           direction,
         },
         source,
@@ -11097,7 +11005,9 @@ async function ensureLocalScrollFramesRestored(source = "scroll_action_restore")
   scroll.restoring = true;
   updateScrollUi();
   try {
-    const restored = await restoreScrollTextFromFirmware(source, { autoPreview: false });
+    const restored = await restoreScrollTextFromFirmware(source, {
+      autoPreview: false
+    });
     if (!restored && !pendingScrollMeta) return false;
     await restoreScrollPreviewIfNeeded(source);
     return scroll.frames.length > 0;
@@ -11108,13 +11018,17 @@ async function ensureLocalScrollFramesRestored(source = "scroll_action_restore")
 }
 
 async function syncScrollStateTextFpsLightweightAfterBoot(source = "post_loader_scroll_sync") {
-  if (scroll.lightSyncing || scroll.restoring || scroll.uploading || scroll.startBusy || scrollMetaFetchInFlight) return false;
+  if (scroll.lightSyncing || scroll.restoring || scroll.uploading || scroll.startBusy || scrollMetaFetchInFlight)
+    return false;
   scroll.lightSyncing = true;
   scrollMetaFetchInFlight = true;
   try {
     const meta = await apiGet(API_ENDPOINTS.scrollMeta);
     lastScrollMetaFetchAt = performance.now();
-    logScrollRestoreDebug("light sync meta", { source, meta });
+    logScrollRestoreDebug("light sync meta", {
+      source,
+      meta
+    });
 
     const displaying = !!(meta?.firmwareScrollDisplaying || meta?.firmwareScrollActive || meta?.firmwareScrollPaused);
     applyScrollRuntimeMeta(meta, `${source}_meta`);
@@ -11133,7 +11047,9 @@ async function syncScrollStateTextFpsLightweightAfterBoot(source = "post_loader_
       scroll.timelineId = String(meta.scrollTimelineId || "");
       scroll.restoredFromFirmwareMeta = true;
       pendingScrollMeta = null;
-      setScrollTextFromFirmware(restoredText, { force: true });
+      setScrollTextFromFirmware(restoredText, {
+        force: true
+      });
       scroll.restoredTextTruncated = scrollTextExceedsUiCharLimit(restoredText);
       if (scroll.restoredTextTruncated) {
         setScrollRestoreWarning("硬件滚动文字超过 WebUI 输入上限，已截断显示；预览仅供参考。");
@@ -11152,7 +11068,9 @@ async function syncScrollStateTextFpsLightweightAfterBoot(source = "post_loader_
 
 function kickPostBootScrollMetaRestore(source = "post_boot") {
   if (postBootScrollMetaRestoreStarted) {
-    logScrollRestoreDebug("post_boot already started", { source });
+    logScrollRestoreDebug("post_boot already started", {
+      source
+    });
     return Promise.resolve(false);
   }
   postBootScrollMetaRestoreStarted = true;
@@ -11163,7 +11081,9 @@ function kickPostBootScrollMetaRestore(source = "post_boot") {
   // then converges the preview to the device's measured ACTUAL speed. restoreScrollTextFrom
   // Firmware triggers the preview rebuild whenever the firmware is scrolling, even if the
   // current page isn't 6.4, so a refresh restores the running scroll without user action.
-  return restoreScrollTextFromFirmware(source, { autoPreview: true }).catch((err) => {
+  return restoreScrollTextFromFirmware(source, {
+    autoPreview: true
+  }).catch((err) => {
     warnScrollRestoreDebug("post-loader full restore failed", {
       source,
       error: err?.message || String(err),
@@ -11312,8 +11232,7 @@ function buildTextScrollBitmap(text) {
     if (next && !glyphs[i].isSpace && !next.isSpace) contentWidth += TEXT_SCROLL_CHAR_SPACING;
   }
   const width = Math.max(COLS * 2 + 8, leadingBlank + contentWidth + trailingBlank);
-  const bitmap = Array.from(
-    {
+  const bitmap = Array.from({
       length: ROWS,
     },
     () => Array(width).fill(false),
@@ -11396,16 +11315,15 @@ function buildTextGlyph(ch) {
   const height = Math.max(
     0,
     Number(raw.height) ||
-      (Array.isArray(raw.rows) ? raw.rows.length : arkPixelFont.lineHeight || 12),
+    (Array.isArray(raw.rows) ? raw.rows.length : arkPixelFont.lineHeight || 12),
   );
   const rawAdvance = Number(raw.advance);
   const glyph = {
     cp,
     char: ch,
     isSpace: false,
-    advance: Number.isFinite(rawAdvance)
-      ? Math.max(0, rawAdvance)
-      : Math.max(1, arkPixelFont.defaultAdvance || width || 12),
+    advance: Number.isFinite(rawAdvance) ?
+      Math.max(0, rawAdvance) : Math.max(1, arkPixelFont.defaultAdvance || width || 12),
     width,
     height,
     xOffset: Number(raw.xOffset || 0),
@@ -11517,7 +11435,9 @@ function applyScrollButtonUiState(key, el, nextState) {
     prevState.title === nextState.title &&
     prevState.pressed === nextState.pressed;
   if (same) return;
-  scrollButtonUiCache[key] = { ...nextState };
+  scrollButtonUiCache[key] = {
+    ...nextState
+  };
   setDomDisabledIfChanged(el, nextState.disabled);
   // aria-disabled must follow disabled, otherwise the initial aria-disabled="true" in HTML
   // (scroll-pause/scroll-stop) will never be cleared, resulting in screen reading errors and invalid press animation.
@@ -11575,8 +11495,7 @@ function updateScrollUi() {
     scroll.userPaused ||
     scroll.systemPaused;
 
-  const scrollPlayingNow =
-    !effectivePaused &&
+  const scrollPlayingNow = !effectivePaused &&
     !scroll.previewStale &&
     !scroll.previewDropped &&
     (scroll.active ||
@@ -11587,23 +11506,23 @@ function updateScrollUi() {
 
   const hardBusy = scroll.uploading || scroll.restoring;
 
-  const label = scroll.startBusy
-    ? "uploading"
-    : scroll.restoring
-      ? "syncing"
-      : progressVisible
-        ? "uploading"
-        : scroll.previewDropped
-          ? "dropped"
-          : scroll.previewStale
-            ? "stale"
-            : effectivePaused
-              ? "paused"
-              : scroll.active || state.playback === "scroll"
-                ? "playing"
-                : scroll.dirty
-                  ? "dirty/idle"
-                  : "idle";
+  const label = scroll.startBusy ?
+    "uploading" :
+    scroll.restoring ?
+    "syncing" :
+    progressVisible ?
+    "uploading" :
+    scroll.previewDropped ?
+    "dropped" :
+    scroll.previewStale ?
+    "stale" :
+    effectivePaused ?
+    "paused" :
+    scroll.active || state.playback === "scroll" ?
+    "playing" :
+    scroll.dirty ?
+    "dirty/idle" :
+    "idle";
 
   if (stateEl) setDomTextIfChanged(stateEl, label);
   if (indexEl) {
@@ -11630,8 +11549,7 @@ function updateScrollUi() {
   });
 
   applyScrollButtonUiState("pause", pauseBtn, {
-    disabled:
-      anyCommandBusy ||
+    disabled: anyCommandBusy ||
       nonResumableSystemPause ||
       scroll.previewStale ||
       scroll.previewDropped ||
@@ -11650,13 +11568,23 @@ function updateScrollUi() {
     scroll.previewStale ||
     scroll.previewDropped ||
     !hasFramesForStep;
-  applyScrollButtonUiState("stepPrev", stepPrevBtn, { disabled: stepDisabled });
-  applyScrollButtonUiState("stepNext", stepNextBtn, { disabled: stepDisabled });
+  applyScrollButtonUiState("stepPrev", stepPrevBtn, {
+    disabled: stepDisabled
+  });
+  applyScrollButtonUiState("stepNext", stepNextBtn, {
+    disabled: stepDisabled
+  });
 
   const speedDisabled = anyCommandBusy;
-  applyScrollButtonUiState("speedMinus", speedMinusBtn, { disabled: speedDisabled });
-  applyScrollButtonUiState("speedPlus", speedPlusBtn, { disabled: speedDisabled });
-  applyScrollButtonUiState("speedReset", speedResetBtn, { disabled: speedDisabled });
+  applyScrollButtonUiState("speedMinus", speedMinusBtn, {
+    disabled: speedDisabled
+  });
+  applyScrollButtonUiState("speedPlus", speedPlusBtn, {
+    disabled: speedDisabled
+  });
+  applyScrollButtonUiState("speedReset", speedResetBtn, {
+    disabled: speedDisabled
+  });
 
   if (speedRangeEl) {
     setDomDisabledIfChanged(speedRangeEl, speedDisabled);
@@ -11676,11 +11604,11 @@ function updateScrollUi() {
   // Restore warnings (can be multi-line, E5); textContent + CSS white-space:pre-line renders newlines.
   const restoreWarnEl = $("scroll-restore-warning");
   if (restoreWarnEl) {
-    const previewNotice = scroll.previewDropped
-      ? `Scroll preview dropped stale cache; recovering from firmware (${scroll.dropReason || "identity mismatch"}).`
-      : scroll.previewStale
-        ? `Scroll preview sync is stale; local animation is paused until firmware sync recovers (${scroll.staleReason || "sync stale"}).`
-        : "";
+    const previewNotice = scroll.previewDropped ?
+      `Scroll preview dropped stale cache; recovering from firmware (${scroll.dropReason || "identity mismatch"}).` :
+      scroll.previewStale ?
+      `Scroll preview sync is stale; local animation is paused until firmware sync recovers (${scroll.staleReason || "sync stale"}).` :
+      "";
     const warning = previewNotice || scroll.restoreWarning || "";
     setDomTextIfChanged(restoreWarnEl, warning);
     restoreWarnEl.hidden = !warning;
@@ -11738,22 +11666,34 @@ function fmtDebugTime(ts) {
 }
 
 function debugSourceClass(source) {
-  return (
-    {
-      Firmware: "src-fw",
-      Browser: "src-br",
-      Resource: "src-res",
-      Config: "src-cfg",
-      Computed: "src-cmp",
-      Fallback: "src-fallback",
-    }[source] || ""
-  );
+  return ({
+    Firmware: "src-fw",
+    Browser: "src-br",
+    Resource: "src-res",
+    Config: "src-cfg",
+    Computed: "src-cmp",
+    Fallback: "src-fallback",
+  } [source] || "");
 }
 
 // Explicit source metadata for individual kv lines (source no longer inferred from label text, v2 rule 2).
-function buildDebugRow({ label, value, source = "", stale = false, note = "", html = false }) {
+function buildDebugRow({
+  label,
+  value,
+  source = "",
+  stale = false,
+  note = "",
+  html = false
+}) {
   const v = value === null || value === undefined || value === "" ? "—" : value;
-  return { label, value: v, source, stale: !!stale, note, html: !!html };
+  return {
+    label,
+    value: v,
+    source,
+    stale: !!stale,
+    note,
+    html: !!html
+  };
 }
 
 function renderDebugKvList(targetId, rows) {
@@ -11762,12 +11702,12 @@ function renderDebugKvList(targetId, rows) {
   el.innerHTML = rows
     .map((r) => {
       const valHtml = r.html ? String(r.value) : escapeHtml(String(r.value));
-      const chip = r.source
-        ? `<span class="debug-source ${debugSourceClass(r.source)}${r.stale ? " is-stale" : ""}">${escapeHtml(r.stale ? r.source + " · 旧值" : r.source)}</span>`
-        : "";
-      const note = r.note
-        ? ` <span class="debug-source src-cmp">${escapeHtml(r.note)}</span>`
-        : "";
+      const chip = r.source ?
+        `<span class="debug-source ${debugSourceClass(r.source)}${r.stale ? " is-stale" : ""}">${escapeHtml(r.stale ? r.source + " · 旧值" : r.source)}</span>` :
+        "";
+      const note = r.note ?
+        ` <span class="debug-source src-cmp">${escapeHtml(r.note)}</span>` :
+        "";
       return `<span class="k">${escapeHtml(r.label)}</span><span>${valHtml}${chip}${note}</span>`;
     })
     .join("");
@@ -11828,17 +11768,31 @@ function validatePackedFrameInput(text) {
   const expectedLen = PACKED_FRAME_HEX_CHARS;
   try {
     parsePackedFrameText(raw);
-    return { valid: true, normalizedLen: compact.length, expectedLen, error: "" };
+    return {
+      valid: true,
+      normalizedLen: compact.length,
+      expectedLen,
+      error: ""
+    };
   } catch (err) {
-    return { valid: false, normalizedLen: compact.length, expectedLen, error: err.message || String(err) };
+    return {
+      valid: false,
+      normalizedLen: compact.length,
+      expectedLen,
+      error: err.message || String(err)
+    };
   }
 }
 
 function parsePackedFrameOrError(text) {
   try {
-    return { frame: parsePackedFrameText(text) };
+    return {
+      frame: parsePackedFrameText(text)
+    };
   } catch (err) {
-    return { error: err.message || String(err) };
+    return {
+      error: err.message || String(err)
+    };
   }
 }
 
@@ -11862,7 +11816,11 @@ function applyDebugFrame(frame, source = "debug pattern", options = {}) {
   renderDebugPreviewPanel();
 }
 
-function confirmDangerAction({ title = "确认操作", body = "", confirmWord = "" } = {}) {
+function confirmDangerAction({
+  title = "确认操作",
+  body = "",
+  confirmWord = ""
+} = {}) {
   if (confirmWord) {
     const ans = window.prompt(`${title}\n\n${body}\n\n输入 ${confirmWord} 以确认：`);
     return ans != null && ans.trim().toUpperCase() === confirmWord.toUpperCase();
@@ -11950,7 +11908,10 @@ function renderDebugReadouts() {
 
 function renderDebugDeviceSummary() {
   const lib = getAllFaces();
-  const face = lib[state.faceIndex] || { name: "—", type: "—" };
+  const face = lib[state.faceIndex] || {
+    name: "—",
+    type: "—"
+  };
   const online = firmware.online;
   const stale = !online;
 
@@ -11999,10 +11960,26 @@ function renderDebugDeviceSummary() {
 
   const netKnown = state.apIpSource === "Firmware";
   renderDebugKvList("debug-summary-conclusions", [
-    buildDebugRow({ label: "固件连接", value: linkBadge, html: true }),
-    buildDebugRow({ label: "输出状态", value: renderDebugBadge(outTxt, outDot), html: true }),
-    buildDebugRow({ label: "电源状态", value: renderDebugBadge(powerTxt, powerDot), html: true }),
-    buildDebugRow({ label: "帧管线", value: renderDebugBadge(pipeTxt, pipeDot), html: true }),
+    buildDebugRow({
+      label: "固件连接",
+      value: linkBadge,
+      html: true
+    }),
+    buildDebugRow({
+      label: "输出状态",
+      value: renderDebugBadge(outTxt, outDot),
+      html: true
+    }),
+    buildDebugRow({
+      label: "电源状态",
+      value: renderDebugBadge(powerTxt, powerDot),
+      html: true
+    }),
+    buildDebugRow({
+      label: "帧管线",
+      value: renderDebugBadge(pipeTxt, pipeDot),
+      html: true
+    }),
     buildDebugRow({
       label: "网络",
       value: renderDebugBadge(netKnown ? "固件 IP 已知" : "配置回退", netKnown ? "status-dot" : "status-dot warn"),
@@ -12011,84 +11988,264 @@ function renderDebugDeviceSummary() {
   ]);
 
   const colorHex = normalizeHexColor(state.color) || "#000000";
-  const colorSwatch = `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${colorHex};vertical-align:middle"></span> ${escapeHtml(state.color)}`;
+  const colorSwatch =
+    `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${colorHex};vertical-align:middle"></span> ${escapeHtml(state.color)}`;
   renderDebugKvList("debug-summary-kv", [
-    buildDebugRow({ label: "当前模式", value: state.mode, source: "Firmware", stale }),
+    buildDebugRow({
+      label: "当前模式",
+      value: state.mode,
+      source: "Firmware",
+      stale
+    }),
     buildDebugRow({
       label: "表情序号",
       value: `${lib.length ? state.faceIndex + 1 : 0} / ${lib.length}`,
       source: "Firmware",
       stale,
     }),
-    buildDebugRow({ label: "表情名称", value: face.name, source: "Firmware", stale }),
-    buildDebugRow({ label: "表情属性", value: faceTypeLabel(face.type), source: "Resource" }),
-    buildDebugRow({ label: "亮度", value: `${state.brightness}/255`, source: "Firmware", stale }),
-    buildDebugRow({ label: "颜色", value: colorSwatch, html: true }),
-    buildDebugRow({ label: "播放状态", value: state.playback, source: "Firmware", stale }),
+    buildDebugRow({
+      label: "表情名称",
+      value: face.name,
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "表情属性",
+      value: faceTypeLabel(face.type),
+      source: "Resource"
+    }),
+    buildDebugRow({
+      label: "亮度",
+      value: `${state.brightness}/255`,
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "颜色",
+      value: colorSwatch,
+      html: true
+    }),
+    buildDebugRow({
+      label: "播放状态",
+      value: state.playback,
+      source: "Firmware",
+      stale
+    }),
     buildDebugRow({
       label: "文字滚动",
       value: state.textScrollActive ? "active" : "inactive",
       source: "Firmware",
       stale,
     }),
-    buildDebugRow({ label: "实际 FPS", value: Number(state.actualFps || 0).toFixed(1), source: "Firmware", stale }),
+    buildDebugRow({
+      label: "实际 FPS",
+      value: Number(state.actualFps || 0).toFixed(1),
+      source: "Firmware",
+      stale
+    }),
     buildDebugRow({
       label: "AP IP",
       value: state.apIp,
       source: state.apIpSource,
       stale: stale && state.apIpSource === "Firmware",
     }),
-    buildDebugRow({ label: "电池", value: batteryPowerText(), source: "Firmware", stale }),
-    buildDebugRow({ label: "最近状态同步", value: fmtDebugTime(state.lastStatusSyncAt), source: "Browser" }),
+    buildDebugRow({
+      label: "电池",
+      value: batteryPowerText(),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "最近状态同步",
+      value: fmtDebugTime(state.lastStatusSyncAt),
+      source: "Browser"
+    }),
   ]);
 }
 
 function renderDebugFirmwareHealth() {
   renderDebugKvList("debug-firmware-kv", [
-    buildDebugRow({ label: "online", value: firmware.online ? "✓ connected" : "✗ offline", source: "Firmware" }),
-    buildDebugRow({ label: "最近请求", value: firmware.lastRequest, source: "Browser" }),
-    buildDebugRow({ label: "最近状态", value: firmware.lastStatus, source: "Firmware" }),
-    buildDebugRow({ label: "最近错误", value: firmware.lastError, source: "Firmware" }),
-    buildDebugRow({ label: "最近成功同步", value: fmtDebugTime(firmwareLastSyncAt), source: "Browser" }),
-    buildDebugRow({ label: "sent frames", value: String(firmware.sentFrames), source: "Browser", note: "浏览器队列诊断" }),
-    buildDebugRow({ label: "sent commands", value: String(firmware.sentCommands), source: "Browser", note: "浏览器队列诊断" }),
-    buildDebugRow({ label: "frame queue", value: `${firmware.frameQueue}/${WEBUI_FRAME_QUEUE_MAX}`, source: "Browser" }),
-    buildDebugRow({ label: "button queue", value: `${firmware.buttonQueue}/${WEBUI_BUTTON_COMMAND_QUEUE_MAX}`, source: "Browser" }),
-    buildDebugRow({ label: "dropped frames", value: String(firmware.droppedFrames), source: "Browser" }),
-    buildDebugRow({ label: "dropped commands", value: String(firmware.droppedCommands), source: "Browser" }),
-    buildDebugRow({ label: "savedFacesSync", value: firmware.savedFacesSync, source: "Firmware" }),
+    buildDebugRow({
+      label: "online",
+      value: firmware.online ? "✓ connected" : "✗ offline",
+      source: "Firmware"
+    }),
+    buildDebugRow({
+      label: "最近请求",
+      value: firmware.lastRequest,
+      source: "Browser"
+    }),
+    buildDebugRow({
+      label: "最近状态",
+      value: firmware.lastStatus,
+      source: "Firmware"
+    }),
+    buildDebugRow({
+      label: "最近错误",
+      value: firmware.lastError,
+      source: "Firmware"
+    }),
+    buildDebugRow({
+      label: "最近成功同步",
+      value: fmtDebugTime(firmwareLastSyncAt),
+      source: "Browser"
+    }),
+    buildDebugRow({
+      label: "sent frames",
+      value: String(firmware.sentFrames),
+      source: "Browser",
+      note: "浏览器队列诊断"
+    }),
+    buildDebugRow({
+      label: "sent commands",
+      value: String(firmware.sentCommands),
+      source: "Browser",
+      note: "浏览器队列诊断"
+    }),
+    buildDebugRow({
+      label: "frame queue",
+      value: `${firmware.frameQueue}/${WEBUI_FRAME_QUEUE_MAX}`,
+      source: "Browser"
+    }),
+    buildDebugRow({
+      label: "button queue",
+      value: `${firmware.buttonQueue}/${WEBUI_BUTTON_COMMAND_QUEUE_MAX}`,
+      source: "Browser"
+    }),
+    buildDebugRow({
+      label: "dropped frames",
+      value: String(firmware.droppedFrames),
+      source: "Browser"
+    }),
+    buildDebugRow({
+      label: "dropped commands",
+      value: String(firmware.droppedCommands),
+      source: "Browser"
+    }),
+    buildDebugRow({
+      label: "savedFacesSync",
+      value: firmware.savedFacesSync,
+      source: "Firmware"
+    }),
   ]);
 }
 
 function renderDebugPowerPanel() {
   const stale = !firmware.online;
   renderDebugKvList("debug-power-kv", [
-    buildDebugRow({ label: "供电状态", value: state.batteryPowered === false ? "未上电" : "已上电", source: "Firmware", stale }),
-    buildDebugRow({ label: "电池显示", value: batteryPowerText(), source: "Firmware", stale }),
-    buildDebugRow({ label: "电量百分比", value: formatBatteryPercent(state.batteryPercent), source: "Firmware", stale }),
-    buildDebugRow({ label: "Vbat 滤波", value: formatVolts(state.batteryV), source: "Firmware", stale }),
-    buildDebugRow({ label: "Vbat 瞬时", value: formatVolts(state.batteryLastInstantVbat), source: "Firmware", stale }),
-    buildDebugRow({ label: "Vbat 最低", value: formatVolts(state.batteryMinV), source: "Firmware", stale }),
-    buildDebugRow({ label: "Vbat 最高", value: formatVolts(state.batteryMaxV), source: "Firmware", stale }),
-    buildDebugRow({ label: "最近电源同步", value: fmtDebugTime(state.lastPowerSyncAt), source: "Browser" }),
+    buildDebugRow({
+      label: "供电状态",
+      value: state.batteryPowered === false ? "未上电" : "已上电",
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "电池显示",
+      value: batteryPowerText(),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "电量百分比",
+      value: formatBatteryPercent(state.batteryPercent),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "Vbat 滤波",
+      value: formatVolts(state.batteryV),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "Vbat 瞬时",
+      value: formatVolts(state.batteryLastInstantVbat),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "Vbat 最低",
+      value: formatVolts(state.batteryMinV),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "Vbat 最高",
+      value: formatVolts(state.batteryMaxV),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "最近电源同步",
+      value: fmtDebugTime(state.lastPowerSyncAt),
+      source: "Browser"
+    }),
   ]);
   renderDebugKvList("debug-adc-kv", [
-    buildDebugRow({ label: "电池 ADC raw", value: formatMilliVolts(state.batteryAdcMv), source: "Firmware", stale }),
-    buildDebugRow({ label: "上次电池 ADC", value: formatMilliVolts(state.batteryPrevAdcMv), source: "Firmware", stale }),
-    buildDebugRow({ label: "充电 ADC raw", value: formatMilliVolts(state.chargeAdcMv), source: "Firmware", stale }),
-    buildDebugRow({ label: "Vcharge", value: formatVolts(state.chargeV), source: "Firmware", stale }),
-    buildDebugRow({ label: "充电状态", value: formatChargingState(state.charging), source: "Firmware", stale }),
-    buildDebugRow({ label: "低压未上电锁定", value: state.batteryLowVoltageUnpowered ? "是" : "否", source: "Firmware", stale }),
-    buildDebugRow({ label: "未上电低阈值", value: formatVolts(state.batteryUnpoweredLowThreshold), source: "Config" }),
+    buildDebugRow({
+      label: "电池 ADC raw",
+      value: formatMilliVolts(state.batteryAdcMv),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "上次电池 ADC",
+      value: formatMilliVolts(state.batteryPrevAdcMv),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "充电 ADC raw",
+      value: formatMilliVolts(state.chargeAdcMv),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "Vcharge",
+      value: formatVolts(state.chargeV),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "充电状态",
+      value: formatChargingState(state.charging),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "低压未上电锁定",
+      value: state.batteryLowVoltageUnpowered ? "是" : "否",
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "未上电低阈值",
+      value: formatVolts(state.batteryUnpoweredLowThreshold),
+      source: "Config"
+    }),
     buildDebugRow({
       label: "断电快速压降",
       value: `${formatMilliVolts(state.batteryDisconnectDropMv)} / 阈值 ${formatMilliVolts(state.batteryDisconnectDropThresholdMv)}`,
       source: "Firmware",
       stale,
     }),
-    buildDebugRow({ label: "断电低 ADC 阈值", value: formatMilliVolts(state.batteryDisconnectLowThresholdMv), source: "Firmware", stale }),
-    buildDebugRow({ label: "恢复 ADC 阈值", value: formatMilliVolts(state.batteryReconnectThresholdMv), source: "Firmware", stale }),
-    buildDebugRow({ label: "DPS 状态", value: state.dpsActive ? "active" : "inactive", source: "Computed" }),
+    buildDebugRow({
+      label: "断电低 ADC 阈值",
+      value: formatMilliVolts(state.batteryDisconnectLowThresholdMv),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "恢复 ADC 阈值",
+      value: formatMilliVolts(state.batteryReconnectThresholdMv),
+      source: "Firmware",
+      stale
+    }),
+    buildDebugRow({
+      label: "DPS 状态",
+      value: state.dpsActive ? "active" : "inactive",
+      source: "Computed"
+    }),
   ]);
   renderDpsWarning();
 }
@@ -12096,7 +12253,11 @@ function renderDebugPowerPanel() {
 function renderDebugNetworkPanel() {
   const stale = !firmware.online;
   renderDebugKvList("debug-network-kv", [
-    buildDebugRow({ label: "AP SSID", value: DEVICE_AP_SSID, source: "Config" }),
+    buildDebugRow({
+      label: "AP SSID",
+      value: DEVICE_AP_SSID,
+      source: "Config"
+    }),
     buildDebugRow({
       label: "AP 密码",
       value: debugApPasswordShown ? DEVICE_AP_PASSWORD : "•".repeat(8),
@@ -12122,41 +12283,132 @@ function renderDebugNetworkPanel() {
 function renderDebugResourcePanel() {
   const c = EXPRESSION_PARTS.counts;
   renderDebugKvList("debug-resource-kv", [
-    buildDebugRow({ label: "LED 数量", value: TOTAL_LEDS, source: "Config" }),
-    buildDebugRow({ label: "矩阵", value: `${COLS}x${ROWS} / 不规则 370`, source: "Config" }),
-    buildDebugRow({ label: "帧格式", value: `packed-lsb-first · ${PACKED_FRAME_BYTES} bytes / ${PACKED_FRAME_HEX_CHARS} hex`, source: "Config" }),
-    buildDebugRow({ label: "物理接线", value: SERPENTINE_WIRING ? "serpentine / 奇数行反向" : "linear", source: "Config" }),
-    buildDebugRow({ label: "JSON format", value: EXPRESSION_PARTS.format, source: "Resource" }),
-    buildDebugRow({ label: "version", value: EXPRESSION_PARTS.version, source: "Resource" }),
-    buildDebugRow({ label: "stored_unique_parts", value: c.stored_unique_parts, source: "Resource" }),
-    buildDebugRow({ label: "callable_ids", value: c.callable_ids, source: "Resource" }),
-    buildDebugRow({ label: "eye_left", value: c.stored_by_group.eye_left, source: "Resource" }),
-    buildDebugRow({ label: "eye_right", value: c.stored_by_group.eye_right, source: "Resource" }),
-    buildDebugRow({ label: "mouth", value: c.stored_by_group.mouth, source: "Resource" }),
-    buildDebugRow({ label: "cheek", value: c.callable_by_group.cheek, source: "Resource" }),
-    buildDebugRow({ label: "default_faces", value: defaultFaces.length, source: "Resource" }),
-    buildDebugRow({ label: "user_saved_faces", value: userFaces.length, source: "Resource" }),
-    buildDebugRow({ label: "saved_faces_path", value: firmware.savedFacesPath, source: "Config" }),
-    buildDebugRow({ label: "savedFacesSync", value: firmware.savedFacesSync, source: "Firmware" }),
-    buildDebugRow({ label: "parts_eye_symmetry", value: partsSymmetry ? "on" : "off", source: "Config" }),
+    buildDebugRow({
+      label: "LED 数量",
+      value: TOTAL_LEDS,
+      source: "Config"
+    }),
+    buildDebugRow({
+      label: "矩阵",
+      value: `${COLS}x${ROWS} / 不规则 370`,
+      source: "Config"
+    }),
+    buildDebugRow({
+      label: "帧格式",
+      value: `packed-lsb-first · ${PACKED_FRAME_BYTES} bytes / ${PACKED_FRAME_HEX_CHARS} hex`,
+      source: "Config"
+    }),
+    buildDebugRow({
+      label: "物理接线",
+      value: SERPENTINE_WIRING ? "serpentine / 奇数行反向" : "linear",
+      source: "Config"
+    }),
+    buildDebugRow({
+      label: "JSON format",
+      value: EXPRESSION_PARTS.format,
+      source: "Resource"
+    }),
+    buildDebugRow({
+      label: "version",
+      value: EXPRESSION_PARTS.version,
+      source: "Resource"
+    }),
+    buildDebugRow({
+      label: "stored_unique_parts",
+      value: c.stored_unique_parts,
+      source: "Resource"
+    }),
+    buildDebugRow({
+      label: "callable_ids",
+      value: c.callable_ids,
+      source: "Resource"
+    }),
+    buildDebugRow({
+      label: "eye_left",
+      value: c.stored_by_group.eye_left,
+      source: "Resource"
+    }),
+    buildDebugRow({
+      label: "eye_right",
+      value: c.stored_by_group.eye_right,
+      source: "Resource"
+    }),
+    buildDebugRow({
+      label: "mouth",
+      value: c.stored_by_group.mouth,
+      source: "Resource"
+    }),
+    buildDebugRow({
+      label: "cheek",
+      value: c.callable_by_group.cheek,
+      source: "Resource"
+    }),
+    buildDebugRow({
+      label: "default_faces",
+      value: defaultFaces.length,
+      source: "Resource"
+    }),
+    buildDebugRow({
+      label: "user_saved_faces",
+      value: userFaces.length,
+      source: "Resource"
+    }),
+    buildDebugRow({
+      label: "saved_faces_path",
+      value: firmware.savedFacesPath,
+      source: "Config"
+    }),
+    buildDebugRow({
+      label: "savedFacesSync",
+      value: firmware.savedFacesSync,
+      source: "Firmware"
+    }),
+    buildDebugRow({
+      label: "parts_eye_symmetry",
+      value: partsSymmetry ? "on" : "off",
+      source: "Config"
+    }),
   ]);
 }
 
 function renderDebugPreviewPanel() {
   const frameHex = packedFrameToHex(debugPreviewFrame);
   renderDebugKvList("debug-preview-kv", [
-    buildDebugRow({ label: "来源", value: debugPreviewSource, source: "Computed" }),
-    buildDebugRow({ label: "更新原因", value: debugPreviewReason, source: "Browser" }),
-    buildDebugRow({ label: "更新时间", value: fmtDebugTime(debugPreviewUpdatedAt), source: "Browser" }),
-    buildDebugRow({ label: "亮点数", value: onCount(debugPreviewFrame), source: "Computed" }),
-    buildDebugRow({ label: "帧 hex 长度", value: `${frameHex.length} 字符`, source: "Computed" }),
+    buildDebugRow({
+      label: "来源",
+      value: debugPreviewSource,
+      source: "Computed"
+    }),
+    buildDebugRow({
+      label: "更新原因",
+      value: debugPreviewReason,
+      source: "Browser"
+    }),
+    buildDebugRow({
+      label: "更新时间",
+      value: fmtDebugTime(debugPreviewUpdatedAt),
+      source: "Browser"
+    }),
+    buildDebugRow({
+      label: "亮点数",
+      value: onCount(debugPreviewFrame),
+      source: "Computed"
+    }),
+    buildDebugRow({
+      label: "帧 hex 长度",
+      value: `${frameHex.length} 字符`,
+      source: "Computed"
+    }),
   ]);
 }
 
 // Whether offline/online sending should be blocked (send-to-firmware control).
 function debugSendBlockedOffline(resultId) {
   if (!firmware.online || isOfflineHtmlMode()) {
-    showDebugActionResult(resultId, { ok: false, msg: "固件离线，无法发送到固件" });
+    showDebugActionResult(resultId, {
+      ok: false,
+      msg: "固件离线，无法发送到固件"
+    });
     return true;
   }
   return false;
@@ -12165,19 +12417,25 @@ function debugSendBlockedOffline(resultId) {
 // Unified handling of "simulate command" buttons: busy disable + result feedback + only refresh runtime summary on success.
 // Handle two offline scenarios (v2 section7): no promise (offline HTML local fallback) / promise failure (network disconnection).
 function runDebugSimCommand(btnEl, label, packet) {
-  showDebugActionResult("debug-sim-result", { pending: true, msg: `${label}：发送中…` });
+  showDebugActionResult("debug-sim-result", {
+    pending: true,
+    msg: `${label}：发送中…`
+  });
   if (btnEl) btnEl.disabled = true;
   const done = (ok, msg) => {
     if (btnEl) btnEl.disabled = false;
-    showDebugActionResult("debug-sim-result", { ok, msg: `${label}：${msg}` });
+    showDebugActionResult("debug-sim-result", {
+      ok,
+      msg: `${label}：${msg}`
+    });
     if (ok) syncRuntimeSummaryFromFirmware(`debug_sim_${label}`);
   };
   const p = packet && packet.promise;
   if (p && typeof p.then === "function") {
     p.then(() =>
-      firmware.online
-        ? done(true, "成功，已刷新运行时状态")
-        : done(false, `失败：${firmware.lastError || "网络错误"}`),
+      firmware.online ?
+      done(true, "成功，已刷新运行时状态") :
+      done(false, `失败：${firmware.lastError || "网络错误"}`),
     ).catch((err) => done(false, `失败：${err?.message || err}`));
   } else {
     done(false, isOfflineHtmlMode() ? "离线（已执行本地回退）" : "已发送");
@@ -12237,7 +12495,10 @@ function initializeDebugControls() {
     [
       "firmware-ping",
       () => {
-        showDebugActionResult("debug-firmware-result", { pending: true, msg: "刷新固件状态中…" });
+        showDebugActionResult("debug-firmware-result", {
+          pending: true,
+          msg: "刷新固件状态中…"
+        });
         syncRuntimeStateFromFirmware("firmware_ping")
           .then(() =>
             showDebugActionResult("debug-firmware-result", {
@@ -12246,7 +12507,10 @@ function initializeDebugControls() {
             }),
           )
           .catch((err) =>
-            showDebugActionResult("debug-firmware-result", { ok: false, msg: `失败：${err?.message || err}` }),
+            showDebugActionResult("debug-firmware-result", {
+              ok: false,
+              msg: `失败：${err?.message || err}`
+            }),
           );
       },
     ],
@@ -12254,7 +12518,10 @@ function initializeDebugControls() {
       "debug-fw-refresh-power",
       () => {
         refreshPowerStatusFromFirmware("debug_fw_refresh_power", true);
-        showDebugActionResult("debug-firmware-result", { ok: true, msg: "已请求刷新电源状态" });
+        showDebugActionResult("debug-firmware-result", {
+          ok: true,
+          msg: "已请求刷新电源状态"
+        });
       },
     ],
     [
@@ -12263,14 +12530,20 @@ function initializeDebugControls() {
         firmware.lastError = "—";
         lastApiErrorLogAt = 0;
         renderState();
-        showDebugActionResult("debug-firmware-result", { ok: true, msg: "已清除本地 API 错误" });
+        showDebugActionResult("debug-firmware-result", {
+          ok: true,
+          msg: "已清除本地 API 错误"
+        });
       },
     ],
     [
       "debug-copy-diag",
       () => {
         copyDebugDiagnostics("full");
-        showDebugActionResult("debug-firmware-result", { ok: true, msg: "已复制诊断 JSON（不含 AP 密码）" });
+        showDebugActionResult("debug-firmware-result", {
+          ok: true,
+          msg: "已复制诊断 JSON（不含 AP 密码）"
+        });
       },
     ],
 
@@ -12279,7 +12552,10 @@ function initializeDebugControls() {
       "debug-refresh-power",
       () => {
         refreshPowerStatusFromFirmware("debug_refresh_power", true);
-        showDebugActionResult("debug-power-result", { ok: true, msg: "已请求刷新电池状态" });
+        showDebugActionResult("debug-power-result", {
+          ok: true,
+          msg: "已请求刷新电池状态"
+        });
       },
     ],
     ["debug-reset-battery-min", () => resetBatteryVoltageRecord("min")],
@@ -12290,10 +12566,9 @@ function initializeDebugControls() {
         state.batteryLastInstantVbat = Number($("battery-v")?.value || state.batteryV);
         state.chargeV = Number($("charge-v")?.value || state.chargeV);
         state.charging = Number(state.chargeV || 0) > 4.0;
-        state.batteryLowVoltageUnpowered =
-          !state.charging &&
+        state.batteryLowVoltageUnpowered = !state.charging &&
           Number(state.batteryLastInstantVbat || 0) <
-            Number(state.batteryUnpoweredLowThreshold || 5.0);
+          Number(state.batteryUnpoweredLowThreshold || 5.0);
         state.batteryPowered = state.charging || !state.batteryLowVoltageUnpowered;
         state.batteryV = state.batteryPowered ? state.batteryLastInstantVbat : 0;
         state.batteryPercent = null;
@@ -12302,7 +12577,10 @@ function initializeDebugControls() {
         state.batteryIconClass = icon.cls;
         state.batteryIconColor = icon.color;
         renderState();
-        showDebugActionResult("debug-power-result", { ok: true, msg: "已应用浏览器本地 ADC 模拟" });
+        showDebugActionResult("debug-power-result", {
+          ok: true,
+          msg: "已应用浏览器本地 ADC 模拟"
+        });
       },
     ],
 
@@ -12319,36 +12597,57 @@ function initializeDebugControls() {
     // --- 5. Pause scrolling (same group as button simulator) ---
     [
       "firmware-pause",
-      () => runDebugSimCommand($("firmware-pause"), "暂停滚动", sendAuxCommand("pause_scroll", {}, "debug_firmware_pause")),
+      () => runDebugSimCommand($("firmware-pause"), "暂停滚动", sendAuxCommand("pause_scroll", {},
+        "debug_firmware_pause")),
     ],
 
     // --- 6. LED Test: Preview Only ---
     [
       "debug-preview-off",
       () => {
-        applyDebugFrame(blankFrame(), "debug pattern", { reason: "debug_preview_off" });
-        showDebugActionResult("debug-lab-result", { ok: true, msg: "预览：全黑（未发送）" });
+        applyDebugFrame(blankFrame(), "debug pattern", {
+          reason: "debug_preview_off"
+        });
+        showDebugActionResult("debug-lab-result", {
+          ok: true,
+          msg: "预览：全黑（未发送）"
+        });
       },
     ],
     [
       "debug-preview-checker",
       () => {
-        applyDebugFrame(makePatternFrame("checker"), "debug pattern", { reason: "debug_preview_checker" });
-        showDebugActionResult("debug-lab-result", { ok: true, msg: "预览：棋盘（未发送）" });
+        applyDebugFrame(makePatternFrame("checker"), "debug pattern", {
+          reason: "debug_preview_checker"
+        });
+        showDebugActionResult("debug-lab-result", {
+          ok: true,
+          msg: "预览：棋盘（未发送）"
+        });
       },
     ],
     [
       "debug-preview-border",
       () => {
-        applyDebugFrame(makePatternFrame("border"), "debug pattern", { reason: "debug_preview_border" });
-        showDebugActionResult("debug-lab-result", { ok: true, msg: "预览：边框（未发送）" });
+        applyDebugFrame(makePatternFrame("border"), "debug pattern", {
+          reason: "debug_preview_border"
+        });
+        showDebugActionResult("debug-lab-result", {
+          ok: true,
+          msg: "预览：边框（未发送）"
+        });
       },
     ],
     [
       "debug-preview-saved",
       () => {
-        applyDebugFrame(getSavedFaceFrame(state.faceIndex), "saved face", { reason: "debug_preview_saved" });
-        showDebugActionResult("debug-lab-result", { ok: true, msg: "预览：当前保存表情（未发送）" });
+        applyDebugFrame(getSavedFaceFrame(state.faceIndex), "saved face", {
+          reason: "debug_preview_saved"
+        });
+        showDebugActionResult("debug-lab-result", {
+          ok: true,
+          msg: "预览：当前保存表情（未发送）"
+        });
       },
     ],
 
@@ -12357,8 +12656,14 @@ function initializeDebugControls() {
       "debug-send-off",
       () => {
         if (debugSendBlockedOffline("debug-lab-result")) return;
-        applyDebugFrame(blankFrame(), "firmware", { send: true, reason: "debug_send_off" });
-        showDebugActionResult("debug-lab-result", { ok: true, msg: "全黑：已发送固件帧" });
+        applyDebugFrame(blankFrame(), "firmware", {
+          send: true,
+          reason: "debug_send_off"
+        });
+        showDebugActionResult("debug-lab-result", {
+          ok: true,
+          msg: "全黑：已发送固件帧"
+        });
       },
     ],
     [
@@ -12371,38 +12676,65 @@ function initializeDebugControls() {
         if (watts >= LED_POWER_WARNING_WATTS) {
           if (warnEl) warnEl.classList.add("show");
           if (!confirm(`全亮帧功耗估算约 ${watts.toFixed(1)}W，超过 ${LED_POWER_WARNING_WATTS}W 警戒线。确认发送？`)) {
-            showDebugActionResult("debug-lab-result", { ok: false, msg: "已取消全亮发送" });
+            showDebugActionResult("debug-lab-result", {
+              ok: false,
+              msg: "已取消全亮发送"
+            });
             return;
           }
         } else if (warnEl) {
           warnEl.classList.remove("show");
         }
-        applyDebugFrame(allOn, "firmware", { send: true, reason: "debug_send_all_on" });
-        showDebugActionResult("debug-lab-result", { ok: true, msg: `全亮：已发送固件帧（约 ${watts.toFixed(1)}W）` });
+        applyDebugFrame(allOn, "firmware", {
+          send: true,
+          reason: "debug_send_all_on"
+        });
+        showDebugActionResult("debug-lab-result", {
+          ok: true,
+          msg: `全亮：已发送固件帧（约 ${watts.toFixed(1)}W）`
+        });
       },
     ],
     [
       "debug-send-checker",
       () => {
         if (debugSendBlockedOffline("debug-lab-result")) return;
-        applyDebugFrame(makePatternFrame("checker"), "firmware", { send: true, reason: "debug_send_checker" });
-        showDebugActionResult("debug-lab-result", { ok: true, msg: "棋盘：已发送固件帧" });
+        applyDebugFrame(makePatternFrame("checker"), "firmware", {
+          send: true,
+          reason: "debug_send_checker"
+        });
+        showDebugActionResult("debug-lab-result", {
+          ok: true,
+          msg: "棋盘：已发送固件帧"
+        });
       },
     ],
     [
       "debug-send-border",
       () => {
         if (debugSendBlockedOffline("debug-lab-result")) return;
-        applyDebugFrame(makePatternFrame("border"), "firmware", { send: true, reason: "debug_send_border" });
-        showDebugActionResult("debug-lab-result", { ok: true, msg: "边框：已发送固件帧" });
+        applyDebugFrame(makePatternFrame("border"), "firmware", {
+          send: true,
+          reason: "debug_send_border"
+        });
+        showDebugActionResult("debug-lab-result", {
+          ok: true,
+          msg: "边框：已发送固件帧"
+        });
       },
     ],
     [
       "debug-send-saved",
       () => {
         if (debugSendBlockedOffline("debug-lab-result")) return;
-        applyDebugFrame(getSavedFaceFrame(state.faceIndex), "firmware", { send: true, reason: "debug_send_saved" });
-        showDebugActionResult("debug-lab-result", { ok: true, msg: "当前保存表情：已发送固件帧" });
+        applyDebugFrame(getSavedFaceFrame(state.faceIndex), "firmware", {
+          send: true,
+          reason: "debug_send_saved"
+        });
+        showDebugActionResult("debug-lab-result", {
+          ok: true,
+          msg: "当前保存表情：已发送固件帧"
+        });
       },
     ],
 
@@ -12413,11 +12745,19 @@ function initializeDebugControls() {
         const res = parsePackedFrameOrError($("debug-frame")?.value || "");
         refreshDebugFrameValidation();
         if (res.error) {
-          showDebugActionResult("debug-lab-result", { ok: false, msg: `packed frame 无效：${res.error}（未发送）` });
+          showDebugActionResult("debug-lab-result", {
+            ok: false,
+            msg: `packed frame 无效：${res.error}（未发送）`
+          });
           return;
         }
-        applyDebugFrame(res.frame, "packed frame input", { reason: "debug_frame_preview" });
-        showDebugActionResult("debug-lab-result", { ok: true, msg: "packed frame：已解析为预览（未发送）" });
+        applyDebugFrame(res.frame, "packed frame input", {
+          reason: "debug_frame_preview"
+        });
+        showDebugActionResult("debug-lab-result", {
+          ok: true,
+          msg: "packed frame：已解析为预览（未发送）"
+        });
       },
     ],
     [
@@ -12426,12 +12766,21 @@ function initializeDebugControls() {
         const res = parsePackedFrameOrError($("debug-frame")?.value || "");
         refreshDebugFrameValidation();
         if (res.error) {
-          showDebugActionResult("debug-lab-result", { ok: false, msg: `packed frame 无效：${res.error}（已阻止发送）` });
+          showDebugActionResult("debug-lab-result", {
+            ok: false,
+            msg: `packed frame 无效：${res.error}（已阻止发送）`
+          });
           return;
         }
         if (debugSendBlockedOffline("debug-lab-result")) return;
-        applyDebugFrame(res.frame, "firmware", { send: true, reason: "debug_frame_send" });
-        showDebugActionResult("debug-lab-result", { ok: true, msg: "packed frame：已发送固件帧" });
+        applyDebugFrame(res.frame, "firmware", {
+          send: true,
+          reason: "debug_frame_send"
+        });
+        showDebugActionResult("debug-lab-result", {
+          ok: true,
+          msg: "packed frame：已发送固件帧"
+        });
       },
     ],
     [
@@ -12447,7 +12796,10 @@ function initializeDebugControls() {
       "debug-frame-copy",
       () => {
         copyText(packedFrameToHex(debugPreviewFrame));
-        showDebugActionResult("debug-lab-result", { ok: true, msg: "已复制调试预览 packed frame" });
+        showDebugActionResult("debug-lab-result", {
+          ok: true,
+          msg: "已复制调试预览 packed frame"
+        });
       },
     ],
 
@@ -12472,25 +12824,40 @@ function initializeDebugControls() {
       () => {
         const raw = $("debug-raw-json")?.value || "";
         if (!$("debug-raw-confirm")?.checked) {
-          showDebugActionResult("debug-raw-result", { ok: false, msg: "请先勾选确认框" });
+          showDebugActionResult("debug-raw-result", {
+            ok: false,
+            msg: "请先勾选确认框"
+          });
           return;
         }
         let packet;
         try {
           packet = JSON.parse(raw);
         } catch (err) {
-          showDebugActionResult("debug-raw-result", { ok: false, msg: `JSON 格式错误：${err.message}` });
+          showDebugActionResult("debug-raw-result", {
+            ok: false,
+            msg: `JSON 格式错误：${err.message}`
+          });
           return;
         }
         if (!packet || typeof packet !== "object" || typeof packet.cmd !== "string") {
-          showDebugActionResult("debug-raw-result", { ok: false, msg: "JSON 必须是对象且包含字符串 cmd 字段" });
+          showDebugActionResult("debug-raw-result", {
+            ok: false,
+            msg: "JSON 必须是对象且包含字符串 cmd 字段"
+          });
           return;
         }
         if (isOfflineHtmlMode() || !firmware.online) {
-          showDebugActionResult("debug-raw-result", { ok: false, msg: "固件离线，无法发送" });
+          showDebugActionResult("debug-raw-result", {
+            ok: false,
+            msg: "固件离线，无法发送"
+          });
           return;
         }
-        showDebugActionResult("debug-raw-result", { pending: true, msg: "发送中…" });
+        showDebugActionResult("debug-raw-result", {
+          pending: true,
+          msg: "发送中…"
+        });
         firmware.sentCommands++;
         setFirmwareStatus({
           lastRequest: `POST ${API_ENDPOINTS.command}`,
@@ -12499,12 +12866,21 @@ function initializeDebugControls() {
         apiPost(API_ENDPOINTS.command, packet)
           .then((data) => {
             applyFirmwareRuntimeState(data, "debug_raw_command");
-            showDebugActionResult("debug-raw-result", { ok: true, msg: "原始指令已发送" });
+            showDebugActionResult("debug-raw-result", {
+              ok: true,
+              msg: "原始指令已发送"
+            });
           })
           .catch((err) => {
-            setFirmwareStatus({ lastStatus: "raw command failed", lastError: err.message });
+            setFirmwareStatus({
+              lastStatus: "raw command failed",
+              lastError: err.message
+            });
             log(`raw command failed: ${err.message}`);
-            showDebugActionResult("debug-raw-result", { ok: false, msg: `失败：${err.message}` });
+            showDebugActionResult("debug-raw-result", {
+              ok: false,
+              msg: `失败：${err.message}`
+            });
           });
       },
     ],
@@ -12519,14 +12895,20 @@ function initializeDebugControls() {
           confirmWord: "CLEAR",
         });
         if (!ok) {
-          showDebugActionResult("debug-danger-result", { ok: false, msg: "已取消（未做任何改动）" });
+          showDebugActionResult("debug-danger-result", {
+            ok: false,
+            msg: "已取消（未做任何改动）"
+          });
           return;
         }
         userFaces = [];
         persistFaceDocuments("debug_reset_user_faces");
         renderSavedFaces();
         renderState();
-        showDebugActionResult("debug-danger-result", { ok: true, msg: "已清空用户表情；默认表情保留" });
+        showDebugActionResult("debug-danger-result", {
+          ok: true,
+          msg: "已清空用户表情；默认表情保留"
+        });
       },
     ],
   ]);
@@ -12556,7 +12938,9 @@ function initializeDebugControls() {
         runDebugSimCommand(
           button,
           label,
-          sendAuxCommand("battery_overlay", { singleShot: code === "B6S" }, `debug_gpio_${code}`),
+          sendAuxCommand("battery_overlay", {
+            singleShot: code === "B6S"
+          }, `debug_gpio_${code}`),
         );
         return;
       }
@@ -12566,7 +12950,10 @@ function initializeDebugControls() {
         });
         return;
       }
-      showDebugActionResult("debug-sim-result", { ok: false, msg: `不支持的模拟 GPIO：${code}` });
+      showDebugActionResult("debug-sim-result", {
+        ok: false,
+        msg: `不支持的模拟 GPIO：${code}`
+      });
     });
   });
 }
@@ -12575,6 +12962,7 @@ let deferredUiInitialized = false;
 let basicPreviewMatrixInitialized = false;
 let firstPageRevealPrepared = false;
 let firstPageRevealStarted = false;
+
 function initializeBasicPreviewMatrix() {
   if (basicPreviewMatrixInitialized) return;
   basicPreviewMatrixInitialized = true;
@@ -12702,9 +13090,9 @@ async function runPostBootDeferredReads(bootOk = false) {
     if (shouldLogApiError()) log(`延后读取 saved_faces.json 失败：${err.message}`, "error");
   }
 
-  const matrixSynced = bootPlaybackIsScroll
-    ? await syncRuntimeSummaryFromFirmware("post_load_scroll_summary")
-    : await syncRuntimeStateFromFirmware("post_load_matrix_preview");
+  const matrixSynced = bootPlaybackIsScroll ?
+    await syncRuntimeSummaryFromFirmware("post_load_scroll_summary") :
+    await syncRuntimeStateFromFirmware("post_load_matrix_preview");
   if (!matrixSynced && getAllFaces().length && !bootPlaybackIsScroll) {
     if (bootOk) applyKnownFaceIndexLocal("post_load_face_index_fallback");
     else applyStartupDefaultFaceLocal("post_load_default_face_fallback");
@@ -12791,9 +13179,9 @@ async function bootstrapWebUi() {
       if (shouldLogApiError()) log(`延后读取 saved_faces/预览矩阵失败：${err.message}`, "error");
     });
     log(
-      bootOk
-        ? "WebUI 启动：先初始化 UI，再读取 runtime-only 固件运行状态；读取完成后触发加载动画结束。saved_faces 与 LED 预览矩阵会在页面显示后异步读取。"
-        : "WebUI 启动：先初始化 UI；固件状态读取失败/离线后使用本地默认页面结束加载动画。saved_faces 与预览矩阵会在页面显示后尝试读取。",
+      bootOk ?
+      "WebUI 启动：先初始化 UI，再读取 runtime-only 固件运行状态；读取完成后触发加载动画结束。saved_faces 与 LED 预览矩阵会在页面显示后异步读取。" :
+      "WebUI 启动：先初始化 UI；固件状态读取失败/离线后使用本地默认页面结束加载动画。saved_faces 与预览矩阵会在页面显示后尝试读取。",
     );
   } catch (err) {
     console.error("WebUI bootstrap failed", err);

@@ -20,90 +20,90 @@
 // - stateVersion/slowUiDirty are publish cursors for the WebUI; preserve the
 //   existing monotonic non-zero version behavior.
 struct RuntimeState {
-    String   colorHex            = DEFAULT_COLOR;
-    uint8_t  colorR              = 0xf9;
-    uint8_t  colorG              = 0x71;
-    uint8_t  colorB              = 0xd4;
-    uint8_t  brightness          = DEFAULT_BRIGHTNESS;
-    String   mode                = DEFAULT_MODE;
-    String   playback            = DEFAULT_PLAYBACK;
-    String   lastReason          = "boot";
-    bool     paused              = false;
+    String colorHex = DEFAULT_COLOR;
+    uint8_t colorR = 0xf9;
+    uint8_t colorG = 0x71;
+    uint8_t colorB = 0xd4;
+    uint8_t brightness = DEFAULT_BRIGHTNESS;
+    String mode = DEFAULT_MODE;
+    String playback = DEFAULT_PLAYBACK;
+    String lastReason = "boot";
+    bool paused = false;
 
-    uint32_t framesAccepted      = 0;
-    uint32_t framesRejected      = 0;
-    uint32_t framesQueued        = 0;
-    uint32_t framesDequeued      = 0;
-    uint32_t framesDropped       = 0;
-    uint32_t commandsAccepted    = 0;
-    uint32_t commandsRejected    = 0;
-    uint32_t savedFacesWrites    = 0;
-    uint32_t settingsWrites      = 0;
-    uint32_t bootMs              = 0;
-    uint32_t stateVersion        = 1;
-    bool     slowUiDirty         = false;
+    uint32_t framesAccepted = 0;
+    uint32_t framesRejected = 0;
+    uint32_t framesQueued = 0;
+    uint32_t framesDequeued = 0;
+    uint32_t framesDropped = 0;
+    uint32_t commandsAccepted = 0;
+    uint32_t commandsRejected = 0;
+    uint32_t savedFacesWrites = 0;
+    uint32_t settingsWrites = 0;
+    uint32_t bootMs = 0;
+    uint32_t stateVersion = 1;
+    bool slowUiDirty = false;
     uint32_t lastSlowUiPublishMs = 0;
 
-    uint32_t autoIntervalMs      = DEFAULT_AUTO_INTERVAL_MS;
-    uint32_t lastAutoSwitchMs    = 0;
-    uint16_t autoFaceIndex       = 0;
+    uint32_t autoIntervalMs = DEFAULT_AUTO_INTERVAL_MS;
+    uint32_t lastAutoSwitchMs = 0;
+    uint16_t autoFaceIndex = 0;
 
-    bool     firmwareScrollActive  = false;
-    bool     firmwareScrollPaused  = false;
-    bool     firmwareScrollUserPaused = false;
-    bool     firmwareScrollSystemPaused = false;
-    bool     restoreAutoAfterScroll = false;
-    uint16_t scrollFrameCount      = 0;
-    uint16_t scrollFrameIndex      = 0;
-    uint16_t scrollIntervalMs      = DEFAULT_SCROLL_INTERVAL_MS;
-    uint32_t lastScrollFrameMs     = 0;
+    bool firmwareScrollActive = false;
+    bool firmwareScrollPaused = false;
+    bool firmwareScrollUserPaused = false;
+    bool firmwareScrollSystemPaused = false;
+    bool restoreAutoAfterScroll = false;
+    uint16_t scrollFrameCount = 0;
+    uint16_t scrollFrameIndex = 0;
+    uint16_t scrollIntervalMs = DEFAULT_SCROLL_INTERVAL_MS;
+    uint32_t lastScrollFrameMs = 0;
 
-    uint32_t scrollStopEventSeq       = 0;
-    uint32_t scrollStopEventMs        = 0;
-    String   scrollStopEventButton;
-    String   scrollStopEventSource;
-    String   scrollStopEventReason;
+    uint32_t scrollStopEventSeq = 0;
+    uint32_t scrollStopEventMs = 0;
+    String scrollStopEventButton;
+    String scrollStopEventSource;
+    String scrollStopEventReason;
 
-    bool     deferredFaceRestoreActive  = false;
-    uint8_t  deferredFaceRestoreKind    = 0;
-    bool     deferredFaceRestoreAutoMode = false;
-    uint32_t deferredFaceRestoreDueMs   = 0;
-    String   deferredFaceRestoreReason;
+    bool deferredFaceRestoreActive = false;
+    uint8_t deferredFaceRestoreKind = 0;
+    bool deferredFaceRestoreAutoMode = false;
+    uint32_t deferredFaceRestoreDueMs = 0;
+    String deferredFaceRestoreReason;
 };
 
 struct FrameStateSnapshot {
-    char     colorHex[8] = {0};
-    uint8_t  brightness  = 0;
-    char     lastReason[PACKED_FRAME_REASON_CHARS] = {0};
-    uint16_t litLeds        = 0;
+    char colorHex[8] = {0};
+    uint8_t brightness = 0;
+    char lastReason[PACKED_FRAME_REASON_CHARS] = {0};
+    uint16_t litLeds = 0;
     uint32_t framesAccepted = 0;
 };
 
 struct ScrollTimelineMeta {
-    char     timelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1]     = {0};
-    char     fontId[MAX_SCROLL_FONT_ID_CHARS + 1]             = {0};
-    char     generatorVersion[MAX_SCROLL_GENERATOR_CHARS + 1] = {0};
+    char timelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
+    char fontId[MAX_SCROLL_FONT_ID_CHARS + 1] = {0};
+    char generatorVersion[MAX_SCROLL_GENERATOR_CHARS + 1] = {0};
     uint16_t sourceTextByteLength = 0;
-    uint16_t totalFramesExpected  = 0;
-    uint16_t framesReceived       = 0;
-    uint16_t nextChunkIndex       = 0;
-    uint8_t  uiFps                = 0;
-    bool     uploadComplete       = false;
-    bool     hasSourceText        = false;
+    uint16_t totalFramesExpected = 0;
+    uint16_t framesReceived = 0;
+    uint16_t nextChunkIndex = 0;
+    uint8_t uiFps = 0;
+    bool uploadComplete = false;
+    bool hasSourceText = false;
 };
 
 struct RuntimeFace {
-    String   id;
-    String   name;
-    uint8_t  frameBits[FRAME_BYTES] = {};
-    int32_t  order           = 0;
-    uint16_t jsonIndex       = 0;
-    bool     isDefault       = false;
-    bool     isStartupDefault = false;
+    String id;
+    String name;
+    uint8_t frameBits[FRAME_BYTES] = {};
+    int32_t order = 0;
+    uint16_t jsonIndex = 0;
+    bool isDefault = false;
+    bool isStartupDefault = false;
 };
 
 class RuntimeStore final {
-public:
+  public:
     static RuntimeStore& instance();
     RuntimeState& state() { return state_; }
     const RuntimeState& state() const { return state_; }
@@ -126,20 +126,20 @@ public:
     bool& fsMounted() { return fsMounted_; }
     const bool& fsMounted() const { return fsMounted_; }
 
-private:
+  private:
     RuntimeStore() = default;
     RuntimeStore(const RuntimeStore&) = delete;
     RuntimeStore& operator=(const RuntimeStore&) = delete;
 
     RuntimeState state_;
-    RuntimeFace  autoFaces_[MAX_AUTO_FACES] = {};
-    uint16_t     autoFaceCount_ = 0;
-    uint8_t      frameBits_[FRAME_BYTES] = {};
-    uint8_t*     scrollFrameBits_ = nullptr;
-    bool         scrollFrameBitsInPsram_ = false;
+    RuntimeFace autoFaces_[MAX_AUTO_FACES] = {};
+    uint16_t autoFaceCount_ = 0;
+    uint8_t frameBits_[FRAME_BYTES] = {};
+    uint8_t* scrollFrameBits_ = nullptr;
+    bool scrollFrameBitsInPsram_ = false;
     ScrollTimelineMeta scrollMeta_;
-    char*        scrollSourceText_ = nullptr;
-    bool         fsMounted_ = false;
+    char* scrollSourceText_ = nullptr;
+    bool fsMounted_ = false;
 };
 
 RuntimeState& runtimeState();

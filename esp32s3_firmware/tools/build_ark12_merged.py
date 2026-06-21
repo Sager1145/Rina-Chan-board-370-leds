@@ -26,6 +26,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 EXPECTED_OFFICIAL_ARK12_MONO_COUNT = 24408  # 说明字体、字形、Unicode 范围或 Web font 资源处理。
 
+
 @dataclass
 # 中文块：BdfGlyph 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 class BdfGlyph:
@@ -222,7 +223,8 @@ def write_output_json(merged: Dict[int, BdfGlyph], out_path: Path, stats: Dict[s
         "glyphs": glyph_items,
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(metadata, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    out_path.write_text(json.dumps(metadata, ensure_ascii=False,
+                        separators=(",", ":")), encoding="utf-8")
 
 
 # 中文块：validate_json 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
@@ -239,7 +241,8 @@ def validate_json(path: Path, sample_text: str, strict_sample: bool = False) -> 
     max_rows = max((len(entry[6].split('/')) for entry in glyphs.values()), default=0)
     non_12 = sum(1 for entry in glyphs.values() if len(entry[6].split('/')) != 12)
     print(f"[validate] glyph count: {count}")
-    print(f"[validate] expected official Ark 12 mono count: about {EXPECTED_OFFICIAL_ARK12_MONO_COUNT}")
+    print(
+        f"[validate] expected official Ark 12 mono count: about {EXPECTED_OFFICIAL_ARK12_MONO_COUNT}")
     print(f"[validate] max bitmap rows: {max_rows}; entries with rows != 12: {non_12}")
     if missing:
         print("[validate] sample missing glyphs:")
@@ -259,12 +262,15 @@ def validate_json(path: Path, sample_text: str, strict_sample: bool = False) -> 
 # 中文块：main 是脚本流程中的独立处理单元，处理对应输入、转换或输出。
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--bdf-root", required=True, help="Folder containing extracted Ark Pixel 12px monospaced BDF files.")
+    ap.add_argument("--bdf-root", required=True,
+                    help="Folder containing extracted Ark Pixel 12px monospaced BDF files.")
     ap.add_argument("--out", required=True, help="Output merged JSON path.")
     ap.add_argument("--release-version", default="2026.05.07")
-    ap.add_argument("--languages", default="zh_cn,ja,zh_tw", help="Merge priority low->high. Default: zh_cn,ja,zh_tw")
+    ap.add_argument("--languages", default="zh_cn,ja,zh_tw",
+                    help="Merge priority low->high. Default: zh_cn,ja,zh_tw")
     ap.add_argument("--sample", default="English symbols !@#$ 你好 简体 繁體 日本語 こんにちは 璃奈ちゃんボード 國 龍 辺 高 髙")
-    ap.add_argument("--strict-sample", action="store_true", help="Fail when any character in --sample is missing. Default is warning-only because Ark 12 is not a complete CJK font.")
+    ap.add_argument("--strict-sample", action="store_true",
+                    help="Fail when any character in --sample is missing. Default is warning-only because Ark 12 is not a complete CJK font.")
     args = ap.parse_args(argv)
 
     bdf_root = Path(args.bdf_root).resolve()

@@ -16,11 +16,11 @@ for cs in char_strings:
             if not (t[-1].isdigit() or t.startswith("-") or t == "0"):
                 op_idx = i
                 break
-                
+
         if op_idx != -1:
             op = tokens[op_idx]
             args = tokens[:op_idx]
-            
+
             if op == "rmoveto":
                 if len(args) == 3:
                     args[2] = str(int(args[2]) + 100)
@@ -38,7 +38,7 @@ for cs in char_strings:
                     args[1] = str(int(args[1]) + 100)
                 elif len(args) == 1:
                     args[0] = str(int(args[0]) + 100)
-                    
+
             tokens[:op_idx+1] = args + [op]
             cs.text = "\n" + " ".join(tokens) + "\n"
 

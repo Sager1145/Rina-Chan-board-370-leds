@@ -506,7 +506,8 @@ def main(argv=None) -> int:
     )
     args = ap.parse_args(argv)
 
-    text_files = [Path(p).resolve() for p in args.text_file] if args.text_file else DEFAULT_TEXT_FILES
+    text_files = [Path(p).resolve()
+                  for p in args.text_file] if args.text_file else DEFAULT_TEXT_FILES
     external_css = Path(args.external_css).resolve() if args.external_css else None
     # 中文块：独立模式优先；设置了 --external-css 时绝不再把字体嵌入 CSS。
     embed_index = None if external_css is not None else (

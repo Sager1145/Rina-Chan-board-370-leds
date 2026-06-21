@@ -19,8 +19,8 @@ PowerStatus powerStatus;
 // tear-free copy across cores (Bug 8 / Addendum A2).
 static portMUX_TYPE sPowerStatusMux = portMUX_INITIALIZER_UNLOCKED;
 
-constexpr float BATTERY_EMA_TAU_S = 20.0f;   // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-constexpr float CHARGE_EMA_ALPHA  = 0.20f;
+constexpr float BATTERY_EMA_TAU_S = 20.0f; // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
+constexpr float CHARGE_EMA_ALPHA = 0.20f;
 
 static uint16_t readTrimmedAdcMilliVolts(uint8_t pin) {
     uint16_t samples[POWER_ADC_SAMPLES];
@@ -34,22 +34,26 @@ static uint16_t readTrimmedAdcMilliVolts(uint8_t pin) {
     constexpr uint8_t first = POWER_ADC_TRIM_COUNT;
     constexpr uint8_t last = POWER_ADC_SAMPLES - POWER_ADC_TRIM_COUNT;
     uint32_t sum = 0;
-    for (uint8_t i = first; i < last; ++i) sum += samples[i];
+    for (uint8_t i = first; i < last; ++i)
+        sum += samples[i];
     return static_cast<uint16_t>(sum / (last - first));
 }
 
 static float sanitizedCalibMax(float value) {
-    if (!isfinite(value)) return BATTERY_FULL_V;
+    if (!isfinite(value))
+        return BATTERY_FULL_V;
     return max(value, BATTERY_FULL_V);
 }
 
 static float sanitizedCalibMin(float value) {
-    if (!isfinite(value)) return BATTERY_EMPTY_V;
+    if (!isfinite(value))
+        return BATTERY_EMPTY_V;
     return min(value, BATTERY_EMPTY_V);
 }
 
 static float jsonFloatOr(JsonVariantConst value, float fallback) {
-    if (value.isNull()) return fallback;
+    if (value.isNull())
+        return fallback;
     const float parsed = value.as<float>();
     return isfinite(parsed) ? parsed : fallback;
 }
@@ -61,8 +65,10 @@ static void ensureBatteryCalibrationDefaults(uint32_t now) {
         powerStatus.batteryCalibMaxV = BATTERY_FULL_V;
         powerStatus.batteryCalibMinV = BATTERY_EMPTY_V;
     }
-    if (powerStatus.lastCalibMaxMs == 0) powerStatus.lastCalibMaxMs = now;
-    if (powerStatus.lastCalibMinMs == 0) powerStatus.lastCalibMinMs = now;
+    if (powerStatus.lastCalibMaxMs == 0)
+        powerStatus.lastCalibMaxMs = now;
+    if (powerStatus.lastCalibMinMs == 0)
+        powerStatus.lastCalibMinMs = now;
 }
 
 static void markBatteryCalibrationDirty(uint32_t now) {
@@ -73,17 +79,20 @@ static void markBatteryCalibrationDirty(uint32_t now) {
 }
 
 static uint8_t batteryPercentFromVoltage(float vbat) {
-    if (!isfinite(vbat)) return 0;
+    if (!isfinite(vbat))
+        return 0;
     const uint8_t n = BATTERY_PERCENT_LUT_SIZE;
-    if (vbat >= BATTERY_PERCENT_LUT[0].voltage)     return 100;
-    if (vbat <= BATTERY_PERCENT_LUT[n - 1].voltage) return 0;
+    if (vbat >= BATTERY_PERCENT_LUT[0].voltage)
+        return 100;
+    if (vbat <= BATTERY_PERCENT_LUT[n - 1].voltage)
+        return 0;
     for (uint8_t i = 0; i + 1 < n; ++i) {
-        const float vHi = BATTERY_PERCENT_LUT[i    ].voltage;
+        const float vHi = BATTERY_PERCENT_LUT[i].voltage;
         const float vLo = BATTERY_PERCENT_LUT[i + 1].voltage;
         if (vbat < vHi && vbat >= vLo) {
-            const float pHi = static_cast<float>(BATTERY_PERCENT_LUT[i    ].percent);
+            const float pHi = static_cast<float>(BATTERY_PERCENT_LUT[i].percent);
             const float pLo = static_cast<float>(BATTERY_PERCENT_LUT[i + 1].percent);
-            const float t   = (vbat - vLo) / (vHi - vLo);
+            const float t = (vbat - vLo) / (vHi - vLo);
             return static_cast<uint8_t>(lroundf(pLo + t * (pHi - pLo)));
         }
     }
@@ -111,7 +120,8 @@ static bool loadBatteryCalibration(uint32_t now) {
     withStorageLock([&]() {
         file = LittleFS.open(BATTERY_CALIB_PATH, "r");
     });
-    if (!file) return false;
+    if (!file)
+        return false;
 
     DynamicJsonDocument doc(512);
     DeserializationError err;
@@ -135,7 +145,8 @@ static bool loadBatteryCalibration(uint32_t now) {
 }
 
 static bool saveBatteryCalibration(uint32_t now) {
-    if (!runtimeFsMounted()) return false;
+    if (!runtimeFsMounted())
+        return false;
     bool resourcesOk = false;
     withStorageLock([&]() {
         resourcesOk = LittleFS.exists("/resources") || LittleFS.mkdir("/resources");
@@ -177,8 +188,10 @@ static void updateBatteryCalibration(float vbat, bool freezeCalibration, uint32_
 }
 
 static void serviceBatteryCalibrationSave(uint32_t now) {
-    if (!powerStatus.batteryCalibDirty) return;
-    if (!millisElapsed(now, powerStatus.batteryCalibDirtySinceMs, BATTERY_CALIB_SAVE_DELAY_MS)) return;
+    if (!powerStatus.batteryCalibDirty)
+        return;
+    if (!millisElapsed(now, powerStatus.batteryCalibDirtySinceMs, BATTERY_CALIB_SAVE_DELAY_MS))
+        return;
     saveBatteryCalibration(now);
 }
 
@@ -234,8 +247,10 @@ void resetBatteryVoltageMinimum() {
 }
 
 static bool finiteChanged(float previous, float current, float epsilon) {
-    if (!isfinite(previous) && !isfinite(current)) return false;
-    if (!isfinite(previous) || !isfinite(current)) return true;
+    if (!isfinite(previous) && !isfinite(current))
+        return false;
+    if (!isfinite(previous) || !isfinite(current))
+        return true;
     return fabsf(previous - current) >= epsilon;
 }
 
@@ -266,7 +281,8 @@ static void servicePowerWebPublish(uint32_t now, bool force) {
         powerStatus.webSlowDirty = true;
     }
 
-    if (!force && !millisElapsed(now, powerStatus.lastWebSlowPublishMs, POWER_WEB_SLOW_PUBLISH_MS)) return;
+    if (!force && !millisElapsed(now, powerStatus.lastWebSlowPublishMs, POWER_WEB_SLOW_PUBLISH_MS))
+        return;
 
     const bool slowChanged =
         force ||
@@ -282,12 +298,15 @@ static void servicePowerWebPublish(uint32_t now, bool force) {
         powerStatus.lastWebSlowPublishMs = now;
     }
 }
-struct BatteryEdge { bool hugeRawDrop; bool stillDisconnected; };
+struct BatteryEdge {
+    bool hugeRawDrop;
+    bool stillDisconnected;
+};
 static BatteryEdge detectBatteryDisconnect(uint16_t adcMv, uint16_t prevAdcMv, bool hadPrev, bool wasDisconnected) {
     const bool drop = hadPrev && prevAdcMv > adcMv &&
-        static_cast<uint16_t>(prevAdcMv - adcMv) >= BATTERY_DISCONNECT_ADC_DROP_MV &&
-        adcMv <= BATTERY_DISCONNECT_ADC_LOW_MV;
-    return { drop, wasDisconnected && adcMv < BATTERY_RECONNECT_ADC_MV };
+                      static_cast<uint16_t>(prevAdcMv - adcMv) >= BATTERY_DISCONNECT_ADC_DROP_MV &&
+                      adcMv <= BATTERY_DISCONNECT_ADC_LOW_MV;
+    return {drop, wasDisconnected && adcMv < BATTERY_RECONNECT_ADC_MV};
 }
 
 static void sampleBattery(uint32_t now) {
@@ -346,13 +365,15 @@ static void sampleBattery(uint32_t now) {
         portEXIT_CRITICAL(&sPowerStatusMux);
         powerStatus.lastBatteryMs = now;
         updateBatteryCalibration(instantVbat, true, now);
-        if (!wasLowVoltageUnpowered) markPowerWebSlowDirty(now);
+        if (!wasLowVoltageUnpowered)
+            markPowerWebSlowDirty(now);
         return;
     }
 
     //
-    if (wasLowVoltageUnpowered) powerStatus.vbat = NAN;
-    powerStatus.batteryLowVoltageUnpowered = false;  // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
+    if (wasLowVoltageUnpowered)
+        powerStatus.vbat = NAN;
+    powerStatus.batteryLowVoltageUnpowered = false; // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
 
     //
     float nextVbat;
@@ -368,21 +389,21 @@ static void sampleBattery(uint32_t now) {
                 0.001f, 10.0f);
             const float emaAlpha = 1.0f - expf(-dtS / BATTERY_EMA_TAU_S);
             nextVbat = (powerStatus.vbat * (1.0f - emaAlpha)) +
-                                (instantVbat * emaAlpha);
+                       (instantVbat * emaAlpha);
         }
     }
 
     const bool freezeCalibration = chargerPresent ||
-        powerStatus.batteryDisconnected ||
-        powerStatus.batteryLowVoltageUnpowered ||
-        nextVbat < BATTERY_UNPOWERED_LOW_V;
+                                   powerStatus.batteryDisconnected ||
+                                   powerStatus.batteryLowVoltageUnpowered ||
+                                   nextVbat < BATTERY_UNPOWERED_LOW_V;
     updateBatteryCalibration(nextVbat, freezeCalibration, now);
 
     uint8_t nextPercent = powerStatus.batteryPercent;
     {
         const uint8_t rawPct = batteryPercentFromVoltage(nextVbat);
-        const int16_t delta  = static_cast<int16_t>(rawPct) -
-                                static_cast<int16_t>(powerStatus.batteryPercent);
+        const int16_t delta = static_cast<int16_t>(rawPct) -
+                              static_cast<int16_t>(powerStatus.batteryPercent);
         if (!powerStatus.batteryValid || delta > 1 || delta < -1) {
             nextPercent = rawPct;
         }
@@ -393,7 +414,8 @@ static void sampleBattery(uint32_t now) {
     powerStatus.batteryValid = true;
     portEXIT_CRITICAL(&sPowerStatusMux);
     powerStatus.lastBatteryMs = now;
-    if (wasDisconnected || wasLowVoltageUnpowered) markPowerWebSlowDirty(now);
+    if (wasDisconnected || wasLowVoltageUnpowered)
+        markPowerWebSlowDirty(now);
     RLOG_DEBUG("ADC", "event=battery vbat_raw=%u vbat=%.2f percent=%u charging=%d",
                powerStatus.batteryAdcMv, nextVbat, nextPercent,
                powerStatus.charging ? 1 : 0);
@@ -407,7 +429,7 @@ static void sampleCharge(uint32_t now) {
     const float instantVcharge = vadc * CHARGE_CAL_SCALE + CHARGE_CAL_OFFSET_V;
 
     //
-    const bool instantCharging    = instantVcharge > CHARGE_PRESENT_V;
+    const bool instantCharging = instantVcharge > CHARGE_PRESENT_V;
     const bool chargerStateChange = (powerStatus.charging != instantCharging);
 
     float nextVcharge;
@@ -415,7 +437,7 @@ static void sampleCharge(uint32_t now) {
         nextVcharge = instantVcharge;
     } else {
         nextVcharge = (powerStatus.vcharge * (1.0f - CHARGE_EMA_ALPHA)) +
-                               (instantVcharge * CHARGE_EMA_ALPHA);
+                      (instantVcharge * CHARGE_EMA_ALPHA);
     }
 
     portENTER_CRITICAL(&sPowerStatusMux);

@@ -109,7 +109,8 @@ def parse_bdf(path: Path, max_codepoint: Optional[int] = None) -> dict:
             packed_rows = "/".join(bits_to_hex(row) for row in bitmap_rows)
             cp_key = f"{encoding:04X}" if encoding <= 0xFFFF else f"{encoding:X}"
             # 说明字体、字形、Unicode 范围或 Web font 资源处理。
-            font["glyphs"][cp_key] = [int(dwidth), int(width), int(height), int(xoff), int(yoff), int(dst_y), packed_rows]
+            font["glyphs"][cp_key] = [int(dwidth), int(width), int(
+                height), int(xoff), int(yoff), int(dst_y), packed_rows]
             glyph_count += 1
         i += 1
 
@@ -123,7 +124,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True, help="Ark Pixel Font BDF file")
     ap.add_argument("--output", required=True, help="Output compact JSON table")
-    ap.add_argument("--max-codepoint", default="0xFFFF", help="Limit output codepoints to keep LittleFS resource size bounded")
+    ap.add_argument("--max-codepoint", default="0xFFFF",
+                    help="Limit output codepoints to keep LittleFS resource size bounded")
     args = ap.parse_args()
 
     max_cp = None if args.max_codepoint.lower() in {"none", "all"} else int(args.max_codepoint, 0)
@@ -131,7 +133,8 @@ def main() -> None:
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), "utf-8")
-    print(f"[compile_ark_bdf] wrote {out} ({out.stat().st_size} bytes, {len(data['glyphs'])} glyphs)")
+    print(
+        f"[compile_ark_bdf] wrote {out} ({out.stat().st_size} bytes, {len(data['glyphs'])} glyphs)")
 
 
 if __name__ == "__main__":

@@ -69,7 +69,8 @@ void setup() {
     delay(LED_BOOT_STARTUP_SETTLE_MS);
 
     // 从 WebServer 和按钮轮询中隔离出来。
-    if (g_syncReady) startScrollRenderTask();
+    if (g_syncReady)
+        startScrollRenderTask();
 
     initHardwareButtons();
 

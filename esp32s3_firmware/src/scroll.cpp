@@ -22,14 +22,14 @@ static void fillScrollPresentationContextLocked(LedPresentationContext& ctx,
     ctx.valid = true;
     ctx.source = source;
     strlcpy(ctx.timelineId, meta.timelineId, sizeof(ctx.timelineId));
-    ctx.frameIndex        = rs.scrollFrameIndex;
-    ctx.frameCount        = rs.scrollFrameCount;
+    ctx.frameIndex = rs.scrollFrameIndex;
+    ctx.frameCount = rs.scrollFrameCount;
     ctx.nominalIntervalMs = rs.scrollIntervalMs;
-    ctx.uiFps             = meta.uiFps;
+    ctx.uiFps = meta.uiFps;
     ctx.firmwareScrollActive = rs.firmwareScrollActive;
     ctx.firmwareScrollPaused = rs.firmwareScrollPaused;
-    ctx.userPaused           = rs.firmwareScrollUserPaused;
-    ctx.systemPaused         = rs.firmwareScrollSystemPaused;
+    ctx.userPaused = rs.firmwareScrollUserPaused;
+    ctx.systemPaused = rs.firmwareScrollSystemPaused;
     ctx.rateEligible = rateEligible && rs.firmwareScrollActive &&
                        !rs.firmwareScrollPaused && rs.scrollFrameCount > 0;
     strlcpy(ctx.reason, reason ? reason : "", sizeof(ctx.reason));
@@ -41,8 +41,8 @@ static void scrollRenderTask(void* parameter) {
 
     for (;;) {
         bool mainTaskRenderPending = consumeLedRenderRequest();
-        bool shouldRender          = mainTaskRenderPending;
-        bool hasScrollFrame        = false;
+        bool shouldRender = mainTaskRenderPending;
+        bool hasScrollFrame = false;
         LedPresentationContext scrollCtx;
         bool hasScrollCtx = false;
 
@@ -62,15 +62,18 @@ static void scrollRenderTask(void* parameter) {
             withFrameLock([&]() {
                 if (!mainTaskRenderPending) {
                     mainTaskRenderPending = consumeLedRenderRequest();
-                    if (mainTaskRenderPending) shouldRender = true;
+                    if (mainTaskRenderPending)
+                        shouldRender = true;
                 }
                 if (runtimeState().firmwareScrollActive) {
                     memcpy(runtimeFrameBits(), nextFrame, FRAME_BYTES);
                     ++runtimeState().framesAccepted;
                     // Hand the renderer this tick's exact frame identity before it latches.
-                    if (hasScrollCtx) setPendingLedPresentationContext(scrollCtx);
+                    if (hasScrollCtx)
+                        setPendingLedPresentationContext(scrollCtx);
                 } else {
-                    if (!mainTaskRenderPending) shouldRender = false;
+                    if (!mainTaskRenderPending)
+                        shouldRender = false;
                 }
             });
         }
@@ -96,7 +99,8 @@ static void scrollRenderTask(void* parameter) {
 }
 
 void startScrollRenderTask() {
-    if (sScrollTaskHandle) return;
+    if (sScrollTaskHandle)
+        return;
 
     const BaseType_t ok = xTaskCreatePinnedToCore(
         scrollRenderTask,
@@ -105,8 +109,7 @@ void startScrollRenderTask() {
         nullptr,
         LED_RENDER_TASK_PRIORITY,
         &sScrollTaskHandle,
-        LED_RENDER_TASK_CORE
-    );
+        LED_RENDER_TASK_CORE);
 
     if (ok != pdPASS) {
         sScrollTaskHandle = nullptr;
@@ -115,7 +118,8 @@ void startScrollRenderTask() {
 }
 
 void notifyScrollRenderTask() {
-    if (!sScrollTaskHandle) return;
+    if (!sScrollTaskHandle)
+        return;
 
     if (xPortInIsrContext()) {
         BaseType_t higherPriorityTaskWoken = pdFALSE;

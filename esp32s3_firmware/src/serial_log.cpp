@@ -15,8 +15,8 @@
 // the line; DEBUG adds ADC reads, TRACE adds scroll ticks. These are runtime
 // adjustable via the `log level ...` and `log on|off` serial commands.
 // -----------------------------------------------------------------------------
-static bool         sLogEnabled = true;
-static RinaLogLevel sLogLevel   = RINA_LOG_INFO;
+static bool sLogEnabled = true;
+static RinaLogLevel sLogLevel = RINA_LOG_INFO;
 
 // Line assembly happens into a stack buffer and is flushed with a single
 // Serial.write so two cores can never interleave a partial line.
@@ -26,40 +26,62 @@ static constexpr size_t LOG_LINE_MAX = 240;
 // only from the Core-0 serial console. A tiny critical section keeps the copy
 // coherent without ever holding a lock across Serial I/O.
 static constexpr uint8_t LED_HISTORY_CAP = 16;
-static LedCmdRecord  sLedHistory[LED_HISTORY_CAP];
-static uint8_t       sLedHistoryHead  = 0;   // next write slot
-static uint8_t       sLedHistoryCount = 0;
-static portMUX_TYPE  sLedHistoryMux   = portMUX_INITIALIZER_UNLOCKED;
+static LedCmdRecord sLedHistory[LED_HISTORY_CAP];
+static uint8_t sLedHistoryHead = 0; // next write slot
+static uint8_t sLedHistoryCount = 0;
+static portMUX_TYPE sLedHistoryMux = portMUX_INITIALIZER_UNLOCKED;
 
 void rinaLogInit() {
     rinaSerialInit();
-    sLedHistoryHead  = 0;
+    sLedHistoryHead = 0;
     sLedHistoryCount = 0;
 }
 
 void rinaLogSetEnabled(bool enabled) { sLogEnabled = enabled; }
-bool rinaLogEnabled()                { return sLogEnabled; }
+bool rinaLogEnabled() { return sLogEnabled; }
 void rinaLogSetLevel(RinaLogLevel level) { sLogLevel = level; }
-RinaLogLevel rinaLogLevel()          { return sLogLevel; }
+RinaLogLevel rinaLogLevel() { return sLogLevel; }
 
 const char* rinaLogLevelName(RinaLogLevel level) {
     switch (level) {
-        case RINA_LOG_ERROR: return "ERROR";
-        case RINA_LOG_WARN:  return "WARN";
-        case RINA_LOG_INFO:  return "INFO";
-        case RINA_LOG_DEBUG: return "DEBUG";
-        case RINA_LOG_TRACE: return "TRACE";
-        default:             return "INFO";
+    case RINA_LOG_ERROR:
+        return "ERROR";
+    case RINA_LOG_WARN:
+        return "WARN";
+    case RINA_LOG_INFO:
+        return "INFO";
+    case RINA_LOG_DEBUG:
+        return "DEBUG";
+    case RINA_LOG_TRACE:
+        return "TRACE";
+    default:
+        return "INFO";
     }
 }
 
 bool rinaLogParseLevel(const char* name, RinaLogLevel& out) {
-    if (!name) return false;
-    if (strcasecmp(name, "ERROR") == 0) { out = RINA_LOG_ERROR; return true; }
-    if (strcasecmp(name, "WARN")  == 0) { out = RINA_LOG_WARN;  return true; }
-    if (strcasecmp(name, "INFO")  == 0) { out = RINA_LOG_INFO;  return true; }
-    if (strcasecmp(name, "DEBUG") == 0) { out = RINA_LOG_DEBUG; return true; }
-    if (strcasecmp(name, "TRACE") == 0) { out = RINA_LOG_TRACE; return true; }
+    if (!name)
+        return false;
+    if (strcasecmp(name, "ERROR") == 0) {
+        out = RINA_LOG_ERROR;
+        return true;
+    }
+    if (strcasecmp(name, "WARN") == 0) {
+        out = RINA_LOG_WARN;
+        return true;
+    }
+    if (strcasecmp(name, "INFO") == 0) {
+        out = RINA_LOG_INFO;
+        return true;
+    }
+    if (strcasecmp(name, "DEBUG") == 0) {
+        out = RINA_LOG_DEBUG;
+        return true;
+    }
+    if (strcasecmp(name, "TRACE") == 0) {
+        out = RINA_LOG_TRACE;
+        return true;
+    }
     return false;
 }
 
@@ -78,7 +100,8 @@ void rinaSerialInit() {
 }
 
 void rinaSerialWrite(const uint8_t* data, size_t len) {
-    if (!data || len == 0) return;
+    if (!data || len == 0)
+        return;
     Serial.write(data, len);
 #if ENABLE_SERIAL_UART0_MIRROR
     Serial0.write(data, len);
@@ -87,7 +110,8 @@ void rinaSerialWrite(const uint8_t* data, size_t len) {
 
 int rinaSerialAvailable() {
     const int usbAvailable = Serial.available();
-    if (usbAvailable > 0) return usbAvailable;
+    if (usbAvailable > 0)
+        return usbAvailable;
 #if ENABLE_SERIAL_UART0_MIRROR
     return Serial0.available();
 #else
@@ -96,9 +120,11 @@ int rinaSerialAvailable() {
 }
 
 int rinaSerialRead() {
-    if (Serial.available() > 0) return Serial.read();
+    if (Serial.available() > 0)
+        return Serial.read();
 #if ENABLE_SERIAL_UART0_MIRROR
-    if (Serial0.available() > 0) return Serial0.read();
+    if (Serial0.available() > 0)
+        return Serial0.read();
 #endif
     return -1;
 }
@@ -111,8 +137,10 @@ void rinaLogEmit(RinaLogLevel level, const char* category, const char* fmt, ...)
                      static_cast<unsigned long>(millis()),
                      rinaLogLevelName(level),
                      category ? category : "?");
-    if (n < 0) return;
-    if (static_cast<size_t>(n) >= sizeof(buf)) n = sizeof(buf) - 1;
+    if (n < 0)
+        return;
+    if (static_cast<size_t>(n) >= sizeof(buf))
+        n = sizeof(buf) - 1;
 
     // Body.
     va_list args;
@@ -121,7 +149,8 @@ void rinaLogEmit(RinaLogLevel level, const char* category, const char* fmt, ...)
     va_end(args);
     if (m > 0) {
         n += m;
-        if (static_cast<size_t>(n) >= sizeof(buf)) n = sizeof(buf) - 1;
+        if (static_cast<size_t>(n) >= sizeof(buf))
+            n = sizeof(buf) - 1;
     }
 
     // Trailing newline inside the same buffer -> one write, no interleave.
@@ -136,7 +165,8 @@ void rinaLogEmit(RinaLogLevel level, const char* category, const char* fmt, ...)
 
 bool rinaLogRateReady(uint32_t& lastMs, uint32_t intervalMs) {
     const uint32_t now = millis();
-    if (lastMs != 0 && (now - lastMs) < intervalMs) return false;
+    if (lastMs != 0 && (now - lastMs) < intervalMs)
+        return false;
     lastMs = now;
     return true;
 }
@@ -144,17 +174,19 @@ bool rinaLogRateReady(uint32_t& lastMs, uint32_t intervalMs) {
 void rinaLogRecordLedCommand(const char* reason, uint16_t lit, const char* source) {
     portENTER_CRITICAL(&sLedHistoryMux);
     LedCmdRecord& rec = sLedHistory[sLedHistoryHead];
-    rec.ms  = millis();
+    rec.ms = millis();
     rec.lit = lit;
     strlcpy(rec.reason, reason ? reason : "", sizeof(rec.reason));
     strlcpy(rec.source, source ? source : "", sizeof(rec.source));
     sLedHistoryHead = static_cast<uint8_t>((sLedHistoryHead + 1) % LED_HISTORY_CAP);
-    if (sLedHistoryCount < LED_HISTORY_CAP) ++sLedHistoryCount;
+    if (sLedHistoryCount < LED_HISTORY_CAP)
+        ++sLedHistoryCount;
     portEXIT_CRITICAL(&sLedHistoryMux);
 }
 
 uint8_t rinaLogCopyLedHistory(LedCmdRecord* out, uint8_t maxEntries) {
-    if (!out || maxEntries == 0) return 0;
+    if (!out || maxEntries == 0)
+        return 0;
     portENTER_CRITICAL(&sLedHistoryMux);
     const uint8_t count = sLedHistoryCount < maxEntries ? sLedHistoryCount : maxEntries;
     // Walk oldest -> newest so callers print in chronological order.
@@ -169,4 +201,4 @@ uint8_t rinaLogCopyLedHistory(LedCmdRecord* out, uint8_t maxEntries) {
 
 uint8_t rinaLogLedHistoryCapacity() { return LED_HISTORY_CAP; }
 
-#endif  // ENABLE_SERIAL_DIAGNOSTICS
+#endif // ENABLE_SERIAL_DIAGNOSTICS

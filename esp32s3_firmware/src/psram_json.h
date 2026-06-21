@@ -6,7 +6,8 @@
 struct SpiRamAllocator {
     void* allocate(size_t size) {
         void* ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (ptr != nullptr) return ptr;
+        if (ptr != nullptr)
+            return ptr;
         return heap_caps_malloc(size, MALLOC_CAP_8BIT);
     }
 
@@ -16,7 +17,8 @@ struct SpiRamAllocator {
 
     void* reallocate(void* pointer, size_t newSize) {
         void* ptr = heap_caps_realloc(pointer, newSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (ptr != nullptr) return ptr;
+        if (ptr != nullptr)
+            return ptr;
         return heap_caps_realloc(pointer, newSize, MALLOC_CAP_8BIT);
     }
 };

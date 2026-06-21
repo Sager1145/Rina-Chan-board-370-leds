@@ -15,12 +15,12 @@
 
 enum class LedPresentationSource : uint8_t {
     Unknown = 0,
-    ScrollTick,   // Core-1 自动滚动推进的一帧（可用于估速）
-    ScrollStart,  // start_scroll 的第一帧（对齐用，不估速）
-    ScrollStep,   // 手动单步（对齐用，不估速）
-    ManualFrame,  // 其它即时帧（不估速）
-    Clear,        // 清屏
-    Overlay,      // 按钮动画等叠加层（不估速）
+    ScrollTick,  // Core-1 自动滚动推进的一帧（可用于估速）
+    ScrollStart, // start_scroll 的第一帧（对齐用，不估速）
+    ScrollStep,  // 手动单步（对齐用，不估速）
+    ManualFrame, // 其它即时帧（不估速）
+    Clear,       // 清屏
+    Overlay,     // 按钮动画等叠加层（不估速）
 };
 
 // Identity + state captured BEFORE a frame is rendered. The caller fills this in
@@ -32,15 +32,15 @@ struct LedPresentationContext {
 
     char timelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
 
-    uint16_t frameIndex        = 0;
-    uint16_t frameCount        = 0;
+    uint16_t frameIndex = 0;
+    uint16_t frameCount = 0;
     uint16_t nominalIntervalMs = DEFAULT_SCROLL_INTERVAL_MS;
-    uint8_t  uiFps             = 0;
+    uint8_t uiFps = 0;
 
     bool firmwareScrollActive = false;
     bool firmwareScrollPaused = false;
-    bool userPaused           = false;
-    bool systemPaused         = false;
+    bool userPaused = false;
+    bool systemPaused = false;
 
     // True only for continuous scroll ticks. False for start/step/manual/clear/overlay
     // and pause boundaries — those samples may be used to align position but never to
@@ -61,19 +61,19 @@ struct LedPresentedSample {
 
     uint16_t presentedFrameIndex = 0;
     uint16_t presentedFrameCount = 0;
-    uint16_t nominalIntervalMs   = DEFAULT_SCROLL_INTERVAL_MS;
-    uint8_t  uiFps               = 0;
+    uint16_t nominalIntervalMs = DEFAULT_SCROLL_INTERVAL_MS;
+    uint8_t uiFps = 0;
 
     bool firmwareScrollActive = false;
     bool firmwareScrollPaused = false;
-    bool userPaused           = false;
-    bool systemPaused         = false;
-    bool rateEligible         = false;
+    bool userPaused = false;
+    bool systemPaused = false;
+    bool rateEligible = false;
 
     // Device monotonic microseconds. micros() wraps (~71 min); the WebUI handles
     // monotonic deltas using presentedSeq ordering and a bounded time window.
-    uint32_t renderStartUs    = 0;
-    uint32_t presentedAtUs    = 0;
+    uint32_t renderStartUs = 0;
+    uint32_t presentedAtUs = 0;
     uint32_t renderDurationUs = 0;
 
     char reason[PACKED_FRAME_REASON_CHARS] = {0};

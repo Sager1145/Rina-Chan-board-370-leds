@@ -48,4 +48,4 @@ uint32_t maxRefreshUs();
 // Number of refresh() calls that reported a transport error.
 uint32_t refreshFailCount();
 
-}  // namespace leddrv
+} // namespace leddrv

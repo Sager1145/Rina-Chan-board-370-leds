@@ -28,7 +28,8 @@ bool RuntimeStore::initScrollFrameBuffer() {
         }
     }
 
-    if (scrollFrameBits_ != nullptr) return true;
+    if (scrollFrameBits_ != nullptr)
+        return true;
 
     if (ESP.getPsramSize() > 0) {
         scrollFrameBits_ = static_cast<uint8_t*>(
@@ -43,7 +44,7 @@ bool RuntimeStore::initScrollFrameBuffer() {
         if (scrollFrameBits_ == nullptr) {
             Serial.printf("WARN: scroll buffer unavailable; need %u bytes of PSRAM or internal SRAM\n",
                           static_cast<unsigned>(SCROLL_FRAME_BUFFER_BYTES));
-            return false;  // 说明文字滚动、帧缓存或播放状态处理。
+            return false; // 说明文字滚动、帧缓存或播放状态处理。
         }
         Serial.printf("WARN: PSRAM scroll buffer unavailable; using %u-byte internal SRAM heap fallback\n",
                       static_cast<unsigned>(SCROLL_FRAME_BUFFER_BYTES));
@@ -59,12 +60,14 @@ bool RuntimeStore::initScrollFrameBuffer() {
 }
 
 uint8_t* RuntimeStore::scrollFrameBits(uint16_t index) {
-    if (index >= MAX_SCROLL_FRAMES || scrollFrameBits_ == nullptr) return nullptr;
+    if (index >= MAX_SCROLL_FRAMES || scrollFrameBits_ == nullptr)
+        return nullptr;
     return scrollFrameBits_ + (static_cast<size_t>(index) * FRAME_BYTES);
 }
 
 const uint8_t* RuntimeStore::scrollFrameBits(uint16_t index) const {
-    if (index >= MAX_SCROLL_FRAMES || scrollFrameBits_ == nullptr) return nullptr;
+    if (index >= MAX_SCROLL_FRAMES || scrollFrameBits_ == nullptr)
+        return nullptr;
     return scrollFrameBits_ + (static_cast<size_t>(index) * FRAME_BYTES);
 }
 
@@ -120,23 +123,24 @@ void invalidateScrollUploadLocked() {
     // EH-A：坏帧数据使播放缓存失效，但有意保留 sourceText / timelineId /
     // fontId / generatorVersion，恢复路径仍可从文本重建预览。
     ScrollTimelineMeta& meta = runtimeScrollMeta();
-    meta.uploadComplete      = false;
-    meta.framesReceived      = 0;
+    meta.uploadComplete = false;
+    meta.framesReceived = 0;
     meta.totalFramesExpected = 0;
-    meta.nextChunkIndex      = 0;
+    meta.nextChunkIndex = 0;
 }
 
 void clearScrollTimelineMetaLocked() {
     invalidateScrollUploadLocked();
     ScrollTimelineMeta& meta = runtimeScrollMeta();
-    meta.timelineId[0]        = '\0';
-    meta.fontId[0]            = '\0';
-    meta.generatorVersion[0]  = '\0';
+    meta.timelineId[0] = '\0';
+    meta.fontId[0] = '\0';
+    meta.generatorVersion[0] = '\0';
     meta.sourceTextByteLength = 0;
-    meta.hasSourceText        = false;
-    meta.uiFps                = 0;
+    meta.hasSourceText = false;
+    meta.uiFps = 0;
     char* text = runtimeScrollSourceText();
-    if (text != nullptr) text[0] = '\0';
+    if (text != nullptr)
+        text[0] = '\0';
 }
 
 bool& runtimeFsMounted() {
@@ -149,7 +153,8 @@ uint32_t runtimeStateVersion() {
 
 void touchRuntimeState() {
     ++runtimeState().stateVersion;
-    if (runtimeState().stateVersion == 0) runtimeState().stateVersion = 1;
+    if (runtimeState().stateVersion == 0)
+        runtimeState().stateVersion = 1;
 }
 
 void touchRuntimeStateSlow() {
@@ -158,9 +163,11 @@ void touchRuntimeStateSlow() {
 
 void serviceRuntimeSlowStatePublish() {
     RuntimeState& state = runtimeState();
-    if (!state.slowUiDirty) return;
+    if (!state.slowUiDirty)
+        return;
     const uint32_t now = millis();
-    if (!millisElapsed(now, state.lastSlowUiPublishMs, POWER_WEB_SLOW_PUBLISH_MS)) return;
+    if (!millisElapsed(now, state.lastSlowUiPublishMs, POWER_WEB_SLOW_PUBLISH_MS))
+        return;
     state.slowUiDirty = false;
     state.lastSlowUiPublishMs = now;
     touchRuntimeState();

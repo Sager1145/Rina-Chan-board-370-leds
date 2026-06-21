@@ -22,13 +22,20 @@ static uint32_t presentedSeq = 0;
 
 static const char* presentationSourceName(LedPresentationSource source) {
     switch (source) {
-        case LedPresentationSource::ScrollTick:  return "scroll_tick";
-        case LedPresentationSource::ScrollStart: return "scroll_start";
-        case LedPresentationSource::ScrollStep:  return "scroll_step";
-        case LedPresentationSource::ManualFrame: return "manual_frame";
-        case LedPresentationSource::Clear:       return "clear";
-        case LedPresentationSource::Overlay:     return "overlay";
-        default:                                 return "unknown";
+    case LedPresentationSource::ScrollTick:
+        return "scroll_tick";
+    case LedPresentationSource::ScrollStart:
+        return "scroll_start";
+    case LedPresentationSource::ScrollStep:
+        return "scroll_step";
+    case LedPresentationSource::ManualFrame:
+        return "manual_frame";
+    case LedPresentationSource::Clear:
+        return "clear";
+    case LedPresentationSource::Overlay:
+        return "overlay";
+    default:
+        return "unknown";
     }
 }
 
@@ -52,7 +59,8 @@ static LedPresentationContext consumePendingLedPresentationContext() {
 // stray refresh can never clobber the last good scroll sample the WebUI is tracking.
 static void publishLedPresentedSample(const LedPresentationContext& ctx,
                                       uint32_t renderStartUs, uint32_t renderEndUs) {
-    if (!ctx.valid) return;
+    if (!ctx.valid)
+        return;
 
     LedPresentedSample sample;
     sample.valid = true;
@@ -61,15 +69,15 @@ static void publishLedPresentedSample(const LedPresentationContext& ctx,
     strlcpy(sample.timelineId, ctx.timelineId, sizeof(sample.timelineId));
     sample.presentedFrameIndex = ctx.frameIndex;
     sample.presentedFrameCount = ctx.frameCount;
-    sample.nominalIntervalMs   = ctx.nominalIntervalMs;
-    sample.uiFps               = ctx.uiFps;
+    sample.nominalIntervalMs = ctx.nominalIntervalMs;
+    sample.uiFps = ctx.uiFps;
     sample.firmwareScrollActive = ctx.firmwareScrollActive;
     sample.firmwareScrollPaused = ctx.firmwareScrollPaused;
-    sample.userPaused           = ctx.userPaused;
-    sample.systemPaused         = ctx.systemPaused;
-    sample.rateEligible         = ctx.rateEligible;
-    sample.renderStartUs    = renderStartUs;
-    sample.presentedAtUs    = renderEndUs;
+    sample.userPaused = ctx.userPaused;
+    sample.systemPaused = ctx.systemPaused;
+    sample.rateEligible = ctx.rateEligible;
+    sample.renderStartUs = renderStartUs;
+    sample.presentedAtUs = renderEndUs;
     sample.renderDurationUs = renderEndUs - renderStartUs;
     strlcpy(sample.reason, ctx.reason, sizeof(sample.reason));
 
@@ -101,7 +109,7 @@ LedPresentedSample readLedPresentedSample() {
 
 struct QueuedPackedFrame {
     uint8_t bits[FRAME_BYTES] = {};
-    char    reason[PACKED_FRAME_REASON_CHARS] = "";
+    char reason[PACKED_FRAME_REASON_CHARS] = "";
 };
 
 static QueuedPackedFrame packedFrameQueue[PACKED_FRAME_QUEUE_DEPTH];
@@ -110,15 +118,18 @@ static uint8_t packedFrameQueueCount = 0;
 static uint32_t lastPackedFrameApplyMs = 0;
 
 static uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
-    if (logicalIndex >= LED_COUNT) return logicalIndex;
-    if (!SERPENTINE_WIRING) return logicalIndex;
+    if (logicalIndex >= LED_COUNT)
+        return logicalIndex;
+    if (!SERPENTINE_WIRING)
+        return logicalIndex;
 
     for (uint8_t row = 0; row < MATRIX_ROWS; ++row) {
-        const uint16_t rowStart  = ROW_OFFSETS[row];
-        const uint8_t  rowLength = ROW_LENGTHS[row];
-        if (logicalIndex < rowStart || logicalIndex >= rowStart + rowLength) continue;
-        const uint16_t localX    = logicalIndex - rowStart;
-        const bool     reverseRow = SERPENTINE_ODD_ROWS_REVERSED && ((row & 1U) != 0);
+        const uint16_t rowStart = ROW_OFFSETS[row];
+        const uint8_t rowLength = ROW_LENGTHS[row];
+        if (logicalIndex < rowStart || logicalIndex >= rowStart + rowLength)
+            continue;
+        const uint16_t localX = logicalIndex - rowStart;
+        const bool reverseRow = SERPENTINE_ODD_ROWS_REVERSED && ((row & 1U) != 0);
         return reverseRow ? rowStart + (rowLength - 1U - localX) : logicalIndex;
     }
     return logicalIndex;
@@ -133,10 +144,13 @@ static bool packedFrameRateReady(uint32_t now) {
 }
 
 static void copyText(char* out, size_t outSize, const char* input) {
-    if (outSize == 0) return;
-    if (!input) input = "";
+    if (outSize == 0)
+        return;
+    if (!input)
+        input = "";
     size_t i = 0;
-    for (; i + 1 < outSize && input[i] != '\0'; ++i) out[i] = input[i];
+    for (; i + 1 < outSize && input[i] != '\0'; ++i)
+        out[i] = input[i];
     out[i] = '\0';
 }
 
@@ -168,7 +182,8 @@ static void publishPackedFrameNow(const uint8_t* packedBits, const char* reason)
 }
 
 static void enqueuePackedFrame(const uint8_t* packedBits, const String& reason) {
-    if (!packedBits) return;
+    if (!packedBits)
+        return;
     const uint32_t now = millis();
     if (packedFrameQueueCount == 0 && packedFrameRateReady(now)) {
         publishPackedFrameNow(packedBits, reason.c_str());
@@ -188,7 +203,8 @@ static void enqueuePackedFrame(const uint8_t* packedBits, const String& reason) 
 }
 
 void initLedIndexMap() {
-    for (uint16_t logical = 0; logical < LED_COUNT; ++logical) logicalToPhysicalMap[logical] = logicalToPhysicalLedIndex(logical);
+    for (uint16_t logical = 0; logical < LED_COUNT; ++logical)
+        logicalToPhysicalMap[logical] = logicalToPhysicalLedIndex(logical);
 }
 
 void requestLedRender() {
@@ -216,20 +232,25 @@ bool consumeLedRenderRequest() {
 void showCurrentFrameNoLock() { requestLedRender(); }
 
 void setFrameBit(uint16_t index, bool on) {
-    if (index >= LED_COUNT) return;
+    if (index >= LED_COUNT)
+        return;
     const uint16_t byteIndex = index >> 3;
-    const uint8_t  bitMask   = 1U << (index & 7U);
-    if (on) runtimeFrameBits()[byteIndex] |=  bitMask;
-    else    runtimeFrameBits()[byteIndex] &= ~bitMask;
+    const uint8_t bitMask = 1U << (index & 7U);
+    if (on)
+        runtimeFrameBits()[byteIndex] |= bitMask;
+    else
+        runtimeFrameBits()[byteIndex] &= ~bitMask;
 }
 
 bool frameBit(uint16_t index) {
-    if (index >= LED_COUNT) return false;
+    if (index >= LED_COUNT)
+        return false;
     return (runtimeFrameBits()[index >> 3] & (1U << (index & 7U))) != 0;
 }
 
 bool packedFrameBit(const uint8_t* bits, uint16_t index) {
-    if (!bits || index >= LED_COUNT) return false;
+    if (!bits || index >= LED_COUNT)
+        return false;
     return (bits[index >> 3] & (1U << (index & 7U))) != 0;
 }
 
@@ -277,7 +298,8 @@ void renderCurrentFrameToLedStrip() {
     const uint32_t nowUs = micros();
     if (lastLedShowUs != 0) {
         const uint32_t elapsedUs = nowUs - lastLedShowUs;
-        if (elapsedUs < LED_RENDER_MIN_GAP_US) delayMicroseconds(LED_RENDER_MIN_GAP_US - elapsedUs);
+        if (elapsedUs < LED_RENDER_MIN_GAP_US)
+            delayMicroseconds(LED_RENDER_MIN_GAP_US - elapsedUs);
     }
     static uint8_t lastAppliedBrightness = DEFAULT_BRIGHTNESS;
     if (brightness != lastAppliedBrightness) {
@@ -295,8 +317,10 @@ void renderCurrentFrameToLedStrip() {
         ctx.rateEligible = false;
     } else {
         for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
-            if (packedFrameBit(localFrame, logical)) leddrv::setPixel(logicalToPhysicalMap[logical], colorR, colorG, colorB);
-            else                                     leddrv::setPixel(logicalToPhysicalMap[logical], 0, 0, 0);
+            if (packedFrameBit(localFrame, logical))
+                leddrv::setPixel(logicalToPhysicalMap[logical], colorR, colorG, colorB);
+            else
+                leddrv::setPixel(logicalToPhysicalMap[logical], 0, 0, 0);
         }
     }
     delayMicroseconds(LED_SIGNAL_RESET_US);
@@ -334,12 +358,15 @@ bool applyPackedFrameQueued(const uint8_t* packedBits, const String& reason, Str
 
 void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason,
                                const LedPresentationContext* ctx) {
-    if (!packedBits) return;
+    if (!packedBits)
+        return;
     String error;
-    if (!validatePackedFrame(packedBits, error)) return;
+    if (!validatePackedFrame(packedBits, error))
+        return;
     // Hand the renderer the precise identity of this frame (scroll start/step) before the
     // render request is raised, so the resulting presented sample carries the right frame index.
-    if (ctx) setPendingLedPresentationContext(*ctx);
+    if (ctx)
+        setPendingLedPresentationContext(*ctx);
     publishPackedFrameNow(packedBits, reason.c_str());
     const uint16_t lit = countLitLedsLocked(packedBits);
     RLOG_INFO("LED", "event=apply_immediate_packed reason=%s lit=%u bytes=%u brightness=%u", reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES), runtimeState().brightness);
@@ -354,9 +381,11 @@ void applyBlankFrame(const String& reason) {
 }
 
 void servicePackedFrameQueue() {
-    if (packedFrameQueueCount == 0) return;
+    if (packedFrameQueueCount == 0)
+        return;
     const uint32_t now = millis();
-    if (!packedFrameRateReady(now)) return;
+    if (!packedFrameRateReady(now))
+        return;
     QueuedPackedFrame& item = packedFrameQueue[packedFrameQueueHead];
     packedFrameQueueHead = static_cast<uint8_t>((packedFrameQueueHead + 1) % PACKED_FRAME_QUEUE_DEPTH);
     --packedFrameQueueCount;
@@ -365,7 +394,8 @@ void servicePackedFrameQueue() {
 }
 
 void clearQueuedPackedFrames() {
-    if (packedFrameQueueCount == 0) return;
+    if (packedFrameQueueCount == 0)
+        return;
     runtimeState().framesDropped += packedFrameQueueCount;
     packedFrameQueueHead = 0;
     packedFrameQueueCount = 0;
@@ -375,7 +405,8 @@ uint8_t queuedPackedFrameCount() { return packedFrameQueueCount; }
 
 void setColorStateNoRender(const String& input) {
     uint8_t r, g, b;
-    if (!parseColorHex(input, r, g, b)) return;
+    if (!parseColorHex(input, r, g, b))
+        return;
     runtimeState().colorHex = formatColorHex(r, g, b);
     runtimeState().colorR = r;
     runtimeState().colorG = g;

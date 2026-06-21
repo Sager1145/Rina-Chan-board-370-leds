@@ -171,7 +171,8 @@ def patch_bitmap_json(json_path: Path, mona: TTFont, out_path: Optional[Path] = 
         json.dumps(data, ensure_ascii=False, separators=(",", ":")),
         encoding="utf-8",
     )
-    print(f"[mona-merge] wrote {target} added={added} zero_width_controls={zero_width} total_glyphs={len(glyphs)}")
+    print(
+        f"[mona-merge] wrote {target} added={added} zero_width_controls={zero_width} total_glyphs={len(glyphs)}")
     return added, zero_width
 
 
@@ -238,7 +239,7 @@ def build_t2_bytecode(contours: List[List[Tuple[int, int]]], shift: int, width: 
             deltas.append(y - cy)
             cx, cy = x, y
         for i in range(0, len(deltas), 48):  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
-            emit(deltas[i : i + 48], 5)  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
+            emit(deltas[i: i + 48], 5)  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
     if pending_width is not None:
         emit([pending_width], 14)  # 说明字体、字形、Unicode 范围或 Web font 资源处理。
     else:
@@ -308,7 +309,8 @@ def prep_addon_payload(
     tmp = out_path.with_suffix(out_path.suffix + ".tmp")
     tmp.write_bytes(pickle.dumps(entries))
     tmp.replace(out_path)  # 说明 Mona12 emoji 合并 中当前代码块的职责和维护约束。
-    print(f"[mona-merge] wrote addon payload {out_path} ({len(entries)} glyphs of {len(seen)} total work items)")
+    print(
+        f"[mona-merge] wrote addon payload {out_path} ({len(entries)} glyphs of {len(seen)} total work items)")
     return len(entries)
 
 
@@ -320,7 +322,8 @@ def load_payload_entries(payload_path: Path) -> List[Tuple[int, str, bytes, int,
         return pickle.loads(payload_path.read_bytes())
     parts = sorted(payload_path.parent.glob(payload_path.name + ".part_*"))
     if not parts:
-        raise RuntimeError(f"No addon payload found: {payload_path}(.part_*) — run --woff2-phase prep first")
+        raise RuntimeError(
+            f"No addon payload found: {payload_path}(.part_*) — run --woff2-phase prep first")
     entries: List[Tuple[int, str, bytes, int, int]] = []
     seen: set = set()
     for part in parts:
@@ -471,7 +474,7 @@ def format_unicode_ranges(cps: List[int]) -> str:
     parts = [f"U+{a:04X}" if a == b else f"U+{a:04X}-{b:04X}" for a, b in ranges]
     lines = []
     for i in range(0, len(parts), 8):
-        lines.append("      " + ", ".join(parts[i : i + 8]))
+        lines.append("      " + ", ".join(parts[i: i + 8]))
     return ",\n".join(lines)
 
 
@@ -497,21 +500,26 @@ def patch_styles_css(css_path: Path, merged_woff2: Path, cache_bust: str = CACHE
     )
     m = face_re.search(css)
     if not m:
-        raise RuntimeError("Could not locate base ark12.woff2 @font-face unicode-range block in styles.css")
-    css = css[: m.start(2)] + format_unicode_ranges(cps) + css[m.end(2) :]
+        raise RuntimeError(
+            "Could not locate base ark12.woff2 @font-face unicode-range block in styles.css")
+    css = css[: m.start(2)] + format_unicode_ranges(cps) + css[m.end(2):]
 
     css_path.write_text(css, encoding="utf-8")
-    print(f"[mona-merge] patched {css_path}: cache-bust -> {cache_bust}-base, unicode-range rebuilt ({len(cps)} codepoints)")
+    print(
+        f"[mona-merge] patched {css_path}: cache-bust -> {cache_bust}-base, unicode-range rebuilt ({len(cps)} codepoints)")
 
 
 # ---------------------------------------------------------------------------
 
 # 中文块：解析 CLI 参数并依次执行 bitmap、webfont 和 CSS patch。
 def main(argv: Optional[List[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mona-font", required=True, help="Input addon WOFF2/TTF (Mona12Emoji, ark12_fallback, ...). Must be a glyf font with pure polygon outlines on the 100-unit pixel grid.")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--mona-font", required=True,
+                    help="Input addon WOFF2/TTF (Mona12Emoji, ark12_fallback, ...). Must be a glyf font with pure polygon outlines on the 100-unit pixel grid.")
     ap.add_argument("--project-dir", default=".", help="esp32s3_firmware project root")
-    ap.add_argument("--glyph-prefix", default="mona", help="Prefix for new glyph names in the merged CFF (default: mona)")
+    ap.add_argument("--glyph-prefix", default="mona",
+                    help="Prefix for new glyph names in the merged CFF (default: mona)")
     ap.add_argument(
         "--extra-addon",
         action="append",
@@ -519,7 +527,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         metavar="PATH:PREFIX",
         help="Additional addon font merged in the same webfont pass (e.g. ark12_fallback.woff2:fb). Repeatable.",
     )
-    ap.add_argument("--cache-bust", default=CACHE_BUST, help="Cache-bust token written into styles.css ?v= for ark12.woff2")
+    ap.add_argument("--cache-bust", default=CACHE_BUST,
+                    help="Cache-bust token written into styles.css ?v= for ark12.woff2")
     ap.add_argument("--skip-json", action="store_true")
     ap.add_argument("--skip-woff2", action="store_true")
     ap.add_argument("--skip-css", action="store_true")

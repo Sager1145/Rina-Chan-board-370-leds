@@ -11,12 +11,14 @@
 
 bool mountFilesystem() {
     runtimeFsMounted() = LittleFS.begin(false, LITTLEFS_BASE_PATH, 10, LITTLEFS_PARTITION_LABEL);
-    if (!runtimeFsMounted()) Serial.println("LittleFS mount failed. Upload data with: pio run -t uploadfs");
+    if (!runtimeFsMounted())
+        Serial.println("LittleFS mount failed. Upload data with: pio run -t uploadfs");
     return runtimeFsMounted();
 }
 
 static bool ensureResourcesDirectory() {
-    if (!runtimeFsMounted()) return false;
+    if (!runtimeFsMounted())
+        return false;
     bool ok = false;
     withStorageLock([&]() { ok = LittleFS.exists("/resources") || LittleFS.mkdir("/resources"); });
     return ok;
@@ -25,10 +27,12 @@ static bool ensureResourcesDirectory() {
 bool readStringFromFileLocked(const char* path, String& outContent) {
     bool exists = false;
     withStorageLock([&]() { exists = LittleFS.exists(path); });
-    if (!exists) return false;
+    if (!exists)
+        return false;
     File file;
     withStorageLock([&]() { file = LittleFS.open(path, "r"); });
-    if (!file) return false;
+    if (!file)
+        return false;
     withStorageLock([&]() { outContent = file.readString(); file.close(); });
     return true;
 }
@@ -37,14 +41,16 @@ bool writeStringToFileLocked(const char* path, const String& content) {
     const String tempPath = String(path) + ".tmp";
     File file;
     withStorageLock([&]() { LittleFS.remove(tempPath); file = LittleFS.open(tempPath, "w"); });
-    if (!file) return false;
+    if (!file)
+        return false;
     bool renamed = false;
     withStorageLock([&]() {
         const size_t written = file.print(content);
         file.flush();
         file.close();
         renamed = (written > 0) && LittleFS.rename(tempPath, path);
-        if (!renamed) LittleFS.remove(tempPath);
+        if (!renamed)
+            LittleFS.remove(tempPath);
     });
     return renamed;
 }
@@ -54,14 +60,17 @@ bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize) 
     outSize = 0;
     bool exists = false;
     withStorageLock([&]() { exists = LittleFS.exists(path); });
-    if (!exists) return false;
+    if (!exists)
+        return false;
     File file;
     withStorageLock([&]() { file = LittleFS.open(path, "r"); });
-    if (!file) return false;
+    if (!file)
+        return false;
     withStorageLock([&]() {
         outSize = file.size();
         outBuf = static_cast<char*>(heap_caps_malloc(outSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        if (!outBuf) outBuf = static_cast<char*>(malloc(outSize + 1));
+        if (!outBuf)
+            outBuf = static_cast<char*>(malloc(outSize + 1));
         if (outBuf) {
             file.readBytes(outBuf, outSize);
             outBuf[outSize] = '\0';
@@ -73,17 +82,27 @@ bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize) 
 
 bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written, String& error) {
     written = 0;
-    if (!runtimeFsMounted()) { error = "LittleFS is not mounted"; return false; }
+    if (!runtimeFsMounted()) {
+        error = "LittleFS is not mounted";
+        return false;
+    }
     String serialized;
     serializeJson(document, serialized);
-    if (serialized.length() == 0 && !document.isNull()) { error = "failed to serialize JSON document"; return false; }
-    if (!writeStringToFileLocked(path, serialized)) { error = String("failed to write/commit file: ") + path; return false; }
+    if (serialized.length() == 0 && !document.isNull()) {
+        error = "failed to serialize JSON document";
+        return false;
+    }
+    if (!writeStringToFileLocked(path, serialized)) {
+        error = String("failed to write/commit file: ") + path;
+        return false;
+    }
     written = serialized.length();
     return true;
 }
 
 bool saveRuntimeSettings() {
-    if (!runtimeFsMounted()) return false;
+    if (!runtimeFsMounted())
+        return false;
     if (!ensureResourcesDirectory()) {
         Serial.println("Failed to ensure /resources for runtime settings");
         return false;
@@ -106,7 +125,8 @@ bool saveRuntimeSettings() {
 }
 
 bool loadRuntimeSettings() {
-    if (!runtimeFsMounted()) return false;
+    if (!runtimeFsMounted())
+        return false;
     String fileContent;
     if (!readStringFromFileLocked(SETTINGS_PATH, fileContent)) {
         Serial.println("runtime_settings.json not found or open failed; writing defaults");
@@ -122,20 +142,25 @@ bool loadRuntimeSettings() {
         return false;
     }
     const char* mode = doc["mode"] | DEFAULT_MODE;
-    if (!setMode(mode, false)) setMode(DEFAULT_MODE, false);
-    if (doc["autoIntervalMs"].is<uint32_t>()) setAutoInterval(doc["autoIntervalMs"].as<uint32_t>(), false);
+    if (!setMode(mode, false))
+        setMode(DEFAULT_MODE, false);
+    if (doc["autoIntervalMs"].is<uint32_t>())
+        setAutoInterval(doc["autoIntervalMs"].as<uint32_t>(), false);
     Serial.printf("Runtime settings loaded: mode=%s autoIntervalMs=%lu\n", runtimeState().mode.c_str(), static_cast<unsigned long>(runtimeState().autoIntervalMs));
     return true;
 }
 
 static bool defaultFaceIdNumberIsInvalid(const char* id) {
-    if (id == nullptr || strncmp(id, "face_", 5) != 0) return false;
+    if (id == nullptr || strncmp(id, "face_", 5) != 0)
+        return false;
     const char* p = id + 5;
-    if (*p < '0' || *p > '9') return false;
+    if (*p < '0' || *p > '9')
+        return false;
     uint32_t value = 0;
     uint8_t digits = 0;
     while (*p >= '0' && *p <= '9') {
-        if (++digits > 9) return true;
+        if (++digits > 9)
+            return true;
         value = value * 10 + static_cast<uint32_t>(*p - '0');
         ++p;
     }
@@ -143,13 +168,25 @@ static bool defaultFaceIdNumberIsInvalid(const char* id) {
 }
 
 static bool readPackedFrameBytes(JsonObject face, uint8_t* out, String& error) {
-    if (!out) { error = "frame output buffer is null"; return false; }
+    if (!out) {
+        error = "frame output buffer is null";
+        return false;
+    }
     JsonArray bytes = face["frameBytes"].as<JsonArray>();
-    if (bytes.isNull()) { error = "face.frameBytes must be an array"; return false; }
-    if (bytes.size() != FRAME_BYTES) { error = String("face.frameBytes must contain ") + FRAME_BYTES + " bytes"; return false; }
+    if (bytes.isNull()) {
+        error = "face.frameBytes must be an array";
+        return false;
+    }
+    if (bytes.size() != FRAME_BYTES) {
+        error = String("face.frameBytes must contain ") + FRAME_BYTES + " bytes";
+        return false;
+    }
     uint16_t i = 0;
     for (JsonVariant value : bytes) {
-        if (!value.is<uint8_t>()) { error = "face.frameBytes entries must be 0..255"; return false; }
+        if (!value.is<uint8_t>()) {
+            error = "face.frameBytes entries must be 0..255";
+            return false;
+        }
         out[i++] = value.as<uint8_t>();
     }
     return validatePackedFrame(out, error);
@@ -157,39 +194,68 @@ static bool readPackedFrameBytes(JsonObject face, uint8_t* out, String& error) {
 
 bool validateSavedFaces(JsonVariant document, String& error) {
     const char* category = document["category"] | "";
-    if (strcmp(category, "unified_saved_faces") != 0) { error = "document.category must be unified_saved_faces"; return false; }
+    if (strcmp(category, "unified_saved_faces") != 0) {
+        error = "document.category must be unified_saved_faces";
+        return false;
+    }
     JsonArray faces = document["faces"].as<JsonArray>();
-    if (faces.isNull()) { error = "document.faces must be an array"; return false; }
-    if (faces.size() > MAX_AUTO_FACES) { error = String("too many faces; firmware max is ") + MAX_AUTO_FACES; return false; }
+    if (faces.isNull()) {
+        error = "document.faces must be an array";
+        return false;
+    }
+    if (faces.size() > MAX_AUTO_FACES) {
+        error = String("too many faces; firmware max is ") + MAX_AUTO_FACES;
+        return false;
+    }
 
     uint16_t defaultCount = 0;
     uint8_t frame[FRAME_BYTES];
     for (JsonObject face : faces) {
         const char* type = face["type"] | "";
         const char* id = face["id"] | "";
-        if (!face["order"].is<int32_t>() || face["order"].as<int32_t>() < 1) { error = "face order must be 1-based and >= 1"; return false; }
+        if (!face["order"].is<int32_t>() || face["order"].as<int32_t>() < 1) {
+            error = "face order must be 1-based and >= 1";
+            return false;
+        }
         if (strcmp(type, "default") == 0) {
             ++defaultCount;
-            if (defaultFaceIdNumberIsInvalid(id)) { error = "default face id numbers must start at 1"; return false; }
+            if (defaultFaceIdNumberIsInvalid(id)) {
+                error = "default face id numbers must start at 1";
+                return false;
+            }
         }
-        if (!readPackedFrameBytes(face, frame, error)) { error = String("invalid face packed frame: ") + error; return false; }
+        if (!readPackedFrameBytes(face, frame, error)) {
+            error = String("invalid face packed frame: ") + error;
+            return false;
+        }
     }
-    if (defaultCount == 0) { error = "saved_faces.json must keep at least one type:\"default\" face"; return false; }
+    if (defaultCount == 0) {
+        error = "saved_faces.json must keep at least one type:\"default\" face";
+        return false;
+    }
     return true;
 }
 
 size_t writeSavedFaces(JsonVariant document, String& error) {
-    if (!runtimeFsMounted()) { error = "LittleFS is not mounted"; return 0; }
-    if (!ensureResourcesDirectory()) { error = "failed to ensure /resources for saved_faces.json"; return 0; }
+    if (!runtimeFsMounted()) {
+        error = "LittleFS is not mounted";
+        return 0;
+    }
+    if (!ensureResourcesDirectory()) {
+        error = "failed to ensure /resources for saved_faces.json";
+        return 0;
+    }
     size_t written = 0;
-    if (!writeJsonFileAtomic(SAVED_FACES_PATH, document, written, error)) return 0;
+    if (!writeJsonFileAtomic(SAVED_FACES_PATH, document, written, error))
+        return 0;
     ++runtimeState().savedFacesWrites;
     touchRuntimeState();
     return written;
 }
 
 bool ensureSavedFacesLoaded() {
-    if (runtimeAutoFaceCount() > 0) return true;
+    if (runtimeAutoFaceCount() > 0)
+        return true;
     return loadSavedFaces(false) && runtimeAutoFaceCount() > 0;
 }
 
@@ -221,15 +287,20 @@ bool loadSavedFaces(bool applyStartupFace) {
     JsonArray faces = doc["faces"].as<JsonArray>();
     String previousFaceId;
     const uint16_t previousFaceIndex = runtimeState().autoFaceIndex;
-    if (runtimeAutoFaceCount() > 0 && runtimeState().autoFaceIndex < runtimeAutoFaceCount()) previousFaceId = runtimeAutoFaces()[runtimeState().autoFaceIndex].id;
+    if (runtimeAutoFaceCount() > 0 && runtimeState().autoFaceIndex < runtimeAutoFaceCount())
+        previousFaceId = runtimeAutoFaces()[runtimeState().autoFaceIndex].id;
     runtimeAutoFaceCount() = 0;
     uint16_t jsonIndex = 0;
 
     for (JsonObject face : faces) {
-        if (runtimeAutoFaceCount() >= MAX_AUTO_FACES) break;
+        if (runtimeAutoFaceCount() >= MAX_AUTO_FACES)
+            break;
         uint8_t packed[FRAME_BYTES];
         String error;
-        if (!readPackedFrameBytes(face, packed, error)) { ++jsonIndex; continue; }
+        if (!readPackedFrameBytes(face, packed, error)) {
+            ++jsonIndex;
+            continue;
+        }
         RuntimeFace& runtime = runtimeAutoFaces()[runtimeAutoFaceCount()++];
         runtime.id = String(face["id"] | "");
         runtime.name = String(face["name"] | runtime.id.c_str());
@@ -241,22 +312,28 @@ bool loadSavedFaces(bool applyStartupFace) {
         ++jsonIndex;
     }
 
-    if (runtimeAutoFaceCount() == 0) return false;
+    if (runtimeAutoFaceCount() == 0)
+        return false;
     std::sort(runtimeAutoFaces(), runtimeAutoFaces() + runtimeAutoFaceCount(), [](const RuntimeFace& a, const RuntimeFace& b) {
-        if (a.order != b.order) return a.order < b.order;
+        if (a.order != b.order)
+            return a.order < b.order;
         return a.jsonIndex < b.jsonIndex;
     });
 
     int selectedIndex = -1;
     int firstDefaultIndex = -1;
     for (uint16_t i = 0; i < runtimeAutoFaceCount(); ++i) {
-        if (runtimeAutoFaces()[i].isDefault && firstDefaultIndex < 0) firstDefaultIndex = i;
+        if (runtimeAutoFaces()[i].isDefault && firstDefaultIndex < 0)
+            firstDefaultIndex = i;
         if (selectedIndex < 0) {
-            if (!applyStartupFace && !previousFaceId.isEmpty() && previousFaceId == runtimeAutoFaces()[i].id) selectedIndex = i;
-            else if (applyStartupFace && ((!startupId.isEmpty() && startupId == runtimeAutoFaces()[i].id) || runtimeAutoFaces()[i].isStartupDefault)) selectedIndex = i;
+            if (!applyStartupFace && !previousFaceId.isEmpty() && previousFaceId == runtimeAutoFaces()[i].id)
+                selectedIndex = i;
+            else if (applyStartupFace && ((!startupId.isEmpty() && startupId == runtimeAutoFaces()[i].id) || runtimeAutoFaces()[i].isStartupDefault))
+                selectedIndex = i;
         }
     }
-    if (selectedIndex < 0) selectedIndex = (!applyStartupFace && previousFaceIndex < runtimeAutoFaceCount()) ? previousFaceIndex : (firstDefaultIndex >= 0 ? firstDefaultIndex : 0);
+    if (selectedIndex < 0)
+        selectedIndex = (!applyStartupFace && previousFaceIndex < runtimeAutoFaceCount()) ? previousFaceIndex : (firstDefaultIndex >= 0 ? firstDefaultIndex : 0);
     runtimeState().autoFaceIndex = static_cast<uint16_t>(selectedIndex);
     touchRuntimeState();
     Serial.printf("Loaded %u saved faces for firmware auto mode\n", runtimeAutoFaceCount());
@@ -265,7 +342,8 @@ bool loadSavedFaces(bool applyStartupFace) {
         String error;
         runtimeState().brightness = DEFAULT_BRIGHTNESS;
         runtimeState().playback = isAutoMode() ? "auto_saved_face" : DEFAULT_PLAYBACK;
-        if (isAutoMode()) runtimeState().lastAutoSwitchMs = millis();
+        if (isAutoMode())
+            runtimeState().lastAutoSwitchMs = millis();
         runtimeState().paused = false;
         if (!applyPackedFrameQueued(runtimeAutoFaces()[runtimeState().autoFaceIndex].frameBits, STARTUP_FACE_REASON, error)) {
             Serial.printf("startup packed frame failed: %s\n", error.c_str());

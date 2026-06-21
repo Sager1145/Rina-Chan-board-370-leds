@@ -17,4 +17,3 @@ void serviceButtonAnimationButtonInputs(bool b6Pressed, bool b2Pressed, bool b3P
 void serviceButtonAnimations();
 
 bool copyButtonAnimationOverlay(uint8_t* rgbOut, uint16_t ledCount);
-
