@@ -3274,6 +3274,8 @@ const HW_RATE_FPS_MIN = 0.2;        // ignore estimates outside a sane range
 const HW_RATE_FPS_MAX = 120;
 const HW_RATE_EMA_ALPHA = 0.4;      // smoothing of the measured fps
 const HW_RATE_RETUNE_RATIO = 0.05;  // only retune the preview timer on >5% interval change
+const HW_PHASE_GAIN = 0.12;         // proportional gain: preview speed factor = 1 + gain*phaseError
+const HW_PHASE_MAX_ADJ = 0.25;      // cap preview speed change to +/-25% (smooth, no skip/hold/jump)
 const RUNTIME_STATUS_QUERY = WEBUI_CONFIG.api.runtimeStatusQuery;
 const SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS =
   WEBUI_CONFIG.firmwareQueues.scrollButtonStopFullSyncDelayMs;
@@ -3639,6 +3641,8 @@ let scroll = {
   hwCum: 0,             // running cumulative advanced frames
   hwMeasuredFps: 0,     // smoothed measured device fps (0 = no estimate yet)
   previewIntervalMs: 0, // measured preview-timer interval (0 = use user fps)
+  phaseError: 0,        // signed frames the device index leads the WebUI display (ground truth)
+  phaseAccum: 0,        // fractional accumulator for smooth integer phase correction
   // Source text synchronization (plan v6):
   // timelineId = current firmware/upload timeline identity
   // framesTimelineId = scroll.frames exactly corresponds to the timeline (only in generator identity +
@@ -6522,7 +6526,7 @@ document.addEventListener("visibilitychange", () => {
     startPowerStatusPolling();
     if (typeof scroll !== "undefined" && scroll._wasActiveBeforeHide && scroll.active && !scroll.paused) {
       if (typeof advanceScroll === "function" && typeof getScrollFrameIntervalMs === "function") {
-        scroll.timer = setInterval(() => advanceScroll(false), getScrollFrameIntervalMs());
+        previewTickLoop();
       }
       scroll._wasActiveBeforeHide = false;
     }
@@ -9218,6 +9222,8 @@ function resetFirmwareScrollRate() {
   scroll.hwCum = 0;
   scroll.hwMeasuredFps = 0;
   scroll.previewIntervalMs = 0;
+  scroll.phaseError = 0;
+  scroll.phaseAccum = 0;
 }
 
 // Preview timer interval: measured device interval while firmware owns the session and an
@@ -9228,9 +9234,23 @@ function effectivePreviewIntervalMs() {
 }
 
 function retunePreviewTimer() {
-  if (!scroll.timer || !scroll.active || scroll.paused) return;
-  clearInterval(scroll.timer);
-  scroll.timer = setInterval(() => advanceScroll(false), effectivePreviewIntervalMs());
+  // No-op: the self-scheduling preview loop reads the effective interval and the phase speed
+  // factor fresh on every tick, so a measured-rate change is picked up automatically.
+}
+
+// Hard frame-index sync (used on pause/resume): align the WebUI preview to the firmware's
+// actual frame index — the LED's real displayed frame is ground truth — then clear the gradual
+// phase aligner so it re-references from this synced point. Never touches the fps slider/buttons.
+function snapPreviewToFirmwareFrame(fwIndex, reason = "text_scroll_index_sync") {
+  if (!scroll.frames.length || !Number.isFinite(fwIndex)) return;
+  const idx = clamp(Math.round(fwIndex), 0, scroll.frames.length - 1);
+  scroll.frameIndex = idx;
+  scroll.offset = idx;
+  scroll.displayIndex = idx;
+  scroll.phaseError = 0;
+  scroll.phaseAccum = 0;
+  scrollFrame = cloneFrame(scroll.frames[idx]);
+  setScrollPreviewFrame(scrollFrame, reason, null);
 }
 
 // Record one firmware frame-index sample and, once enough have accumulated, derive the device
@@ -9239,6 +9259,14 @@ function retunePreviewTimer() {
 function recordFirmwareScrollSample(frameIndex, frameCount, live) {
   const loop = frameCount > 0 ? frameCount : scroll.frames.length;
   if (!live || loop <= 0 || !Number.isFinite(frameIndex)) { resetFirmwareScrollRate(); return; }
+  // Phase reference (firmware index is ground truth): signed shortest offset by which the device
+  // index leads the WebUI display. Only when the local timeline matches the device frame count.
+  if (frameCount > 0 && frameCount === scroll.frames.length) {
+    const dispBase = Number.isFinite(scroll.displayIndex) ? scroll.displayIndex : scroll.frameIndex;
+    let perr = (((frameIndex - dispBase) % loop) + loop) % loop;
+    if (perr > loop / 2) perr -= loop;
+    scroll.phaseError = perr;
+  }
   const now = performance.now();
   if (scroll.hwLastIndex === null) {
     scroll.hwLastIndex = frameIndex;
@@ -9285,12 +9313,36 @@ function recordFirmwareScrollSample(frameIndex, frameCount, live) {
   }
 }
 
-function restartScrollPreviewTimer() {
-  if (scroll.timer) clearInterval(scroll.timer);
-  scroll.timer = null;
-  if (scroll.active && !scroll.paused) {
-    scroll.timer = setInterval(() => advanceScroll(false), effectivePreviewIntervalMs());
+// Phase alignment by speed modulation: each preview tick advances exactly one frame, but the
+// delay until the next tick is shortened (run faster) when the display is behind the firmware
+// and lengthened (run slower) when ahead, so the phase converges smoothly over a few seconds
+// without ever skipping, holding, or jumping a frame. The fps slider/buttons are never touched.
+function nextPreviewDelayMs() {
+  const base = effectivePreviewIntervalMs();
+  let factor = 1;
+  if (scroll.phaseError) {
+    factor = 1 + clamp(scroll.phaseError * HW_PHASE_GAIN, -HW_PHASE_MAX_ADJ, HW_PHASE_MAX_ADJ);
+    // Drain the error estimate by the frames we expect to gain on the device this tick;
+    // the next firmware sample re-anchors phaseError to the true offset (ground truth).
+    scroll.phaseError -= 1 - 1 / factor;
+    if (Math.abs(scroll.phaseError) < 0.05) scroll.phaseError = 0;
   }
+  return Math.max(1, Math.round(base / factor));
+}
+
+function previewTickLoop() {
+  scroll.timer = setTimeout(() => {
+    scroll.timer = null;
+    if (!scroll.active || scroll.paused) return;
+    advanceScroll(false);
+    if (scroll.active && !scroll.paused) previewTickLoop();
+  }, nextPreviewDelayMs());
+}
+
+function restartScrollPreviewTimer() {
+  if (scroll.timer) { clearTimeout(scroll.timer); clearInterval(scroll.timer); }
+  scroll.timer = null;
+  if (scroll.active && !scroll.paused) previewTickLoop();
 }
 
 function setScrollFps(fps, source = "text_scroll_fps_change") {
@@ -9793,7 +9845,8 @@ async function pauseScroll() {
       if (scroll.timer) clearInterval(scroll.timer);
       scroll.timer = null;
       applyFirmwareRuntimeState(data, "text_scroll_paused_result");
-      log("文字滚动已暂停，固件停在当前帧；WebUI 不逐帧发送");
+      snapPreviewToFirmwareFrame(Number(data.scrollFrameIndex), "text_scroll_pause_sync");
+      log("文字滚动已暂停，已按固件(LED)实际帧编号对齐预览");
     } else {
       log("暂停命令未确认，保持现有滚动状态并等待下一次固件同步");
     }
@@ -9825,6 +9878,7 @@ async function resumeScroll() {
     if (data) {
       scrollMachine.dispatch("RESUME_USER");
       applyFirmwareRuntimeState(data, "text_scroll_resumed_result");
+      snapPreviewToFirmwareFrame(Number(data.scrollFrameIndex), "text_scroll_resume_sync");
       scroll.fpsStarted = performance.now();
       scroll.frameCounter = 0;
       if (scroll.systemPaused) {
@@ -9983,6 +10037,8 @@ function advanceScroll(manual = false, direction = 1) {
   // scroll.displayIndex or the "current frame" label.
   if (!manual && scrollMachine.snapshot().device.hasSession) {
     const base = Number.isFinite(scroll.displayIndex) ? scroll.displayIndex : scroll.frameIndex;
+    // Always advance exactly one frame; phase alignment is done purely by modulating the preview
+    // timer speed (see nextPreviewDelayMs) — never by skipping, holding, or jumping frames.
     scroll.displayIndex = (((base + delta) % len) + len) % len;
     scrollFrame = cloneFrame(scroll.frames[scroll.displayIndex]);
     setScrollPreviewFrame(scrollFrame, "text_scroll_fw_tween_display_only", "scroll");
