@@ -1,5 +1,6 @@
 name: Apply custom live toggle fix
 
+# One-shot workflow used to patch app.js and delete itself.
 on:
   push:
     paths:
