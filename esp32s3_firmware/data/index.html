@@ -248,9 +248,9 @@
                   <button id="custom-fill" type="button">全亮</button>
                   <button id="custom-invert" type="button">反转</button>
                 </div>
-                <textarea id="custom-m370" spellcheck="false"></textarea>
+                <textarea id="custom-frame" spellcheck="false"></textarea>
                 <div class="row">
-                  <button id="custom-copy" type="button">复制 M370</button>
+                  <button id="custom-copy" type="button">复制 packed frame</button>
                   <button id="custom-import" type="button">从文本导入到画板</button>
                 </div>
               </div>
@@ -311,10 +311,10 @@
                     左右眼对称
                   </button>
                 </div>
-                <textarea id="parts-m370-text" spellcheck="false"></textarea>
+                <textarea id="parts-frame-text" spellcheck="false"></textarea>
                 <div class="row">
-                  <button id="parts-copy-m370" type="button">复制 M370</button>
-                  <button id="parts-import-m370" type="button">从文本导入到当前输出</button>
+                  <button id="parts-copy-frame" type="button">复制 packed frame</button>
+                  <button id="parts-import-frame" type="button">从文本导入到当前输出</button>
                 </div>
               </div>
               <div class="grid" id="part-groups"></div>
@@ -549,9 +549,9 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               <div class="debug-result" id="debug-sim-result"></div>
             </div>
 
-            <!-- 6. LED Test / M370 Protocol Lab -->
+            <!-- 6. LED Test / Packed Frame Protocol Lab -->
             <div class="card stack" id="debug-protocol-lab">
-              <h3>LED 测试 / M370 协议实验室</h3>
+              <h3>LED 测试 / Packed Frame 协议实验室</h3>
               <h4>安全 LED 测试图案</h4>
               <div class="hint">仅预览（不发送到固件）：</div>
               <div class="row">
@@ -571,14 +571,14 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
                 <button id="debug-send-border" type="button">边框</button>
                 <button id="debug-send-saved" type="button">当前保存表情</button>
               </div>
-              <h4>M370 输入</h4>
-              <textarea id="debug-m370" placeholder="输入 93 hex 或 M370:&lt;93 hex&gt;"></textarea>
-              <div class="debug-validation" id="debug-m370-validation"></div>
+              <h4>Packed Frame 输入</h4>
+              <textarea id="debug-frame" placeholder="输入 94 hex packed frame、47-byte JSON 数组或 base64"></textarea>
+              <div class="debug-validation" id="debug-frame-validation"></div>
               <div class="row">
-                <button id="debug-m370-preview" type="button">解析为预览</button>
-                <button id="debug-m370-send" type="button">解析并发送固件</button>
-                <button id="debug-m370-clear" type="button">清空输入</button>
-                <button id="debug-m370-copy" type="button">复制调试预览 M370</button>
+                <button id="debug-frame-preview" type="button">解析为预览</button>
+                <button id="debug-frame-send" type="button">解析并发送固件</button>
+                <button id="debug-frame-clear" type="button">清空输入</button>
+                <button id="debug-frame-copy" type="button">复制调试预览 packed frame</button>
               </div>
               <div class="debug-result" id="debug-lab-result"></div>
             </div>
@@ -588,7 +588,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               <h3>调试预览信息</h3>
               <div class="kv" id="debug-preview-kv"></div>
               <div class="row">
-                <button id="debug-preview-copy" type="button">复制调试预览 M370</button>
+                <button id="debug-preview-copy" type="button">复制调试预览 packed frame</button>
               </div>
             </div>
 
@@ -597,7 +597,7 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
               <h3>资源 / 矩阵 / 表情库</h3>
               <div class="kv" id="debug-resource-kv"></div>
               <div class="hint">
-                表情部件资源由 HTML 合成为 M370；默认与用户表情均来自同一个
+                表情部件资源由 HTML 合成为 packed frame；默认与用户表情均来自同一个
                 /resources/saved_faces.json，经 /api/saved_faces 写回固件。
               </div>
             </div>
@@ -666,7 +666,4 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
     <script src="app.js?v=20260619-no-title-gap-v1"></script>
     <!-- Test instrumentation for AI agents: tags every control with
          data-testid + data-test-code and exposes window.__ui. Purely additive;
-         no effect on normal UI behavior. See SERIAL_TEST_PLAN.md section 9c. -->
-    <script src="test_harness.js?v=test-harness-1"></script>
-  </body>
-</html>
+         no effect on normal UI behavior. See 

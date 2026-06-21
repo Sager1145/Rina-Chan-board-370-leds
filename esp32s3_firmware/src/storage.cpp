@@ -142,42 +142,17 @@ static bool defaultFaceIdNumberIsInvalid(const char* id) {
     return value < 1;
 }
 
-static uint8_t highNibble(uint8_t v) { return static_cast<uint8_t>((v >> 4) & 0x0F); }
-static uint8_t lowNibble(uint8_t v) { return static_cast<uint8_t>(v & 0x0F); }
-
-static void legacyM370PackedBytesToCanonical(const uint8_t* legacy, uint8_t* out) {
-    memset(out, 0, FRAME_BYTES);
-    for (uint16_t bitIndex = 0; bitIndex < LED_COUNT; ++bitIndex) {
-        const uint16_t hexIndex = bitIndex >> 2;
-        const uint8_t packedByte = legacy[hexIndex >> 1];
-        const uint8_t nibble = (hexIndex & 1U) == 0 ? highNibble(packedByte) : lowNibble(packedByte);
-        const uint8_t legacyMask = static_cast<uint8_t>(1U << (3U - (bitIndex & 3U)));
-        if ((nibble & legacyMask) != 0) out[bitIndex >> 3] |= static_cast<uint8_t>(1U << (bitIndex & 7U));
-    }
-    out[FRAME_BYTES - 1] &= 0x03;
-}
-
-static bool readPackedFrameBytes(JsonObject face, uint8_t* out, String& error, bool legacyM370BytePairs) {
+static bool readPackedFrameBytes(JsonObject face, uint8_t* out, String& error) {
     if (!out) { error = "frame output buffer is null"; return false; }
     JsonArray bytes = face["frameBytes"].as<JsonArray>();
     if (bytes.isNull()) { error = "face.frameBytes must be an array"; return false; }
     if (bytes.size() != FRAME_BYTES) { error = String("face.frameBytes must contain ") + FRAME_BYTES + " bytes"; return false; }
-    uint8_t raw[FRAME_BYTES];
     uint16_t i = 0;
     for (JsonVariant value : bytes) {
         if (!value.is<uint8_t>()) { error = "face.frameBytes entries must be 0..255"; return false; }
-        raw[i++] = value.as<uint8_t>();
+        out[i++] = value.as<uint8_t>();
     }
-    if (legacyM370BytePairs) legacyM370PackedBytesToCanonical(raw, out);
-    else memcpy(out, raw, FRAME_BYTES);
     return validatePackedFrame(out, error);
-}
-
-static bool documentUsesLegacyM370BytePairs(JsonVariant document) {
-    const char* format = document["format"] | "";
-    if (strcmp(format, "rina_packed_faces_370_v1") == 0) return true;
-    const char* encoding = document["matrix"]["frameEncoding"] | "";
-    return strcmp(encoding, "legacy-m370-byte-pairs") == 0;
 }
 
 bool validateSavedFaces(JsonVariant document, String& error) {
@@ -186,7 +161,6 @@ bool validateSavedFaces(JsonVariant document, String& error) {
     JsonArray faces = document["faces"].as<JsonArray>();
     if (faces.isNull()) { error = "document.faces must be an array"; return false; }
     if (faces.size() > MAX_AUTO_FACES) { error = String("too many faces; firmware max is ") + MAX_AUTO_FACES; return false; }
-    const bool legacyM370BytePairs = documentUsesLegacyM370BytePairs(document);
 
     uint16_t defaultCount = 0;
     uint8_t frame[FRAME_BYTES];
@@ -198,7 +172,7 @@ bool validateSavedFaces(JsonVariant document, String& error) {
             ++defaultCount;
             if (defaultFaceIdNumberIsInvalid(id)) { error = "default face id numbers must start at 1"; return false; }
         }
-        if (!readPackedFrameBytes(face, frame, error, legacyM370BytePairs)) { error = String("invalid face packed frame: ") + error; return false; }
+        if (!readPackedFrameBytes(face, frame, error)) { error = String("invalid face packed frame: ") + error; return false; }
     }
     if (defaultCount == 0) { error = "saved_faces.json must keep at least one type:\"default\" face"; return false; }
     return true;
@@ -243,7 +217,6 @@ bool loadSavedFaces(bool applyStartupFace) {
         return false;
     }
 
-    const bool legacyM370BytePairs = documentUsesLegacyM370BytePairs(doc.as<JsonVariant>());
     const String startupId = doc["startupDefaultId"] | "";
     JsonArray faces = doc["faces"].as<JsonArray>();
     String previousFaceId;
@@ -256,7 +229,7 @@ bool loadSavedFaces(bool applyStartupFace) {
         if (runtimeAutoFaceCount() >= MAX_AUTO_FACES) break;
         uint8_t packed[FRAME_BYTES];
         String error;
-        if (!readPackedFrameBytes(face, packed, error, legacyM370BytePairs)) { ++jsonIndex; continue; }
+        if (!readPackedFrameBytes(face, packed, error)) { ++jsonIndex; continue; }
         RuntimeFace& runtime = runtimeAutoFaces()[runtimeAutoFaceCount()++];
         runtime.id = String(face["id"] | "");
         runtime.name = String(face["name"] | runtime.id.c_str());
@@ -286,7 +259,7 @@ bool loadSavedFaces(bool applyStartupFace) {
     if (selectedIndex < 0) selectedIndex = (!applyStartupFace && previousFaceIndex < runtimeAutoFaceCount()) ? previousFaceIndex : (firstDefaultIndex >= 0 ? firstDefaultIndex : 0);
     runtimeState().autoFaceIndex = static_cast<uint16_t>(selectedIndex);
     touchRuntimeState();
-    Serial.printf("Loaded %u saved faces for firmware auto mode%s\n", runtimeAutoFaceCount(), legacyM370BytePairs ? " (legacy face bytes converted)" : "");
+    Serial.printf("Loaded %u saved faces for firmware auto mode\n", runtimeAutoFaceCount());
 
     if (applyStartupFace) {
         String error;

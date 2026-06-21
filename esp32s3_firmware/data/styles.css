@@ -535,9 +535,9 @@
     font-size: var(--control-font-size);
   }
 
-  #custom-m370,
-  #parts-m370-text,
-  #debug-m370 {
+  #custom-frame,
+  #parts-frame-text,
+  #debug-frame {
     min-height: 0;
     resize: none;
     overflow: hidden;
@@ -3076,10 +3076,4 @@ details.card.debug-advanced {
 
 /* Raw command confirmation row */
 .debug-confirm-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: #cfe0ff;
-}
-.debug-confirm-row input { min-height: auto; }
+  disp
