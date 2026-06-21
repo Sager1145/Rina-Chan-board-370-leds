@@ -277,6 +277,16 @@ function Install-BundledArk12FusionResources([string]$FontDir) {
 }
 
 # 中文块：Build-AndEmbedUnifontWebFont 负责生成构建流程需要的资源。
+function Sync-Ark12FusionResources([string]$FontDir) {
+    $Python = Get-PythonCommand
+    $SyncTool = Join-Path $ProjectDir "tools\sync_ark12_css_glyphs.py"
+    if (-not (Test-Path $SyncTool)) {
+        throw "Missing Ark12 CSS glyph sync tool: $SyncTool"
+    }
+    Invoke-PythonChecked $Python @($SyncTool, "--project-dir", $ProjectDir, "--install-bundled") "Ark12 CSS glyph fusion sync failed."
+    Get-Item (Join-Path $FontDir "ark12.woff2"), (Join-Path $FontDir "ark12.json") -ErrorAction SilentlyContinue | Format-Table Name, Length
+}
+
 function Build-AndEmbedUnifontWebFont([string]$CacheDir) {
     $Python = Get-PythonCommand
     Ensure-PythonFontModules $Python
@@ -333,15 +343,8 @@ function Prepare-FontResources {
 
     Ensure-EmbeddedUnifontWebFont -CacheDir $CacheDir
 
-    if ((Test-Path $ArkWebFont) -and (Test-MergedArk12Json $CompiledJson)) {
-        Write-Host "[font] existing fused Ark12 text-scroll resources found; no rebuild required."
-        Get-Item $ArkWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
-        return
-    }
-
-    Write-Host "[font] fused Ark12 resources are missing or stale; installing bundled fusion files."
-    Install-BundledArk12FusionResources -FontDir $FontDir
-    Get-Item $ArkWebFont, $CompiledJson -ErrorAction SilentlyContinue | Format-Table Name, Length
+    Write-Host "[font] synchronizing fused Ark12 glyph resources."
+    Sync-Ark12FusionResources -FontDir $FontDir
     return
 
     if (-not (Test-Path $MergeTool)) {
@@ -549,6 +552,10 @@ function Assert-RequiredFontResources {
     if (-not (Test-MergedArk12Json (Join-Path $FontDir "ark12.json"))) {
         throw "Fused Ark12 JSON validation failed. Required patched glyphs include 然 / 燃 / 滚 / 滾. Re-run without -SkipPrepareFonts."
     }
+    $Python = Get-PythonCommand
+    Ensure-PythonFontModules $Python
+    $SyncTool = Join-Path $ProjectDir "tools\sync_ark12_css_glyphs.py"
+    Invoke-PythonChecked $Python @($SyncTool, "--project-dir", $ProjectDir) "Ark12 CSS glyph fusion validation failed. Re-run without -SkipPrepareFonts."
     Assert-EmbeddedUnifontWebUi
     Write-Host "[font] required LittleFS font resources are present. WebUI Unifont is embedded in styles.css only."
 }

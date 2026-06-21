@@ -190,6 +190,9 @@ assert_required_font_resources() {
     done
     [ "$missing" = "0" ] || die "required font resources are missing. Re-run without --skip-prepare-fonts before uploadfs."
     test_merged_ark12_json || die "fused Ark12 JSON validation failed (needs 然/燃/滚/滾 + >=32000 glyphs). Re-run without --skip-prepare-fonts."
+    ensure_python_font_modules
+    "$PYTHON" "$PROJECT_DIR/tools/sync_ark12_css_glyphs.py" --project-dir "$PROJECT_DIR" || \
+        die "Ark12 CSS glyph fusion validation failed. Re-run without --skip-prepare-fonts."
     local sha
     sha="$(assert_standalone_unifont_webui)" || die "standalone GNU Unifont WebUI validation failed."
     fontmsg "standalone GNU Unifont validated sha256=$sha"
@@ -276,18 +279,20 @@ install_bundled_ark12_fusion_resources() {
     fontmsg "installed bundled Ark12 fusion resources (single merged woff2 incl. 然 / 燃 / 滚 / 滾 + Mona12 emoji)."
 }
 
+sync_ark12_fusion_resources() {
+    local tool="$PROJECT_DIR/tools/sync_ark12_css_glyphs.py"
+    [ -f "$tool" ] || die "missing Ark12 CSS glyph sync tool: $tool"
+    "$PYTHON" "$tool" --project-dir "$PROJECT_DIR" --install-bundled || \
+        die "Ark12 CSS glyph fusion sync failed."
+    ls -l "$ARK_WOFF2" "$ARK_JSON" 2>/dev/null || true
+}
+
 prepare_font_resources() {
     mkdir -p "$FONT_DIR" "$CACHE_DIR"
     remove_legacy_font_resources
     build_and_embed_unifont_webfont
-    if [ -f "$ARK_WOFF2" ] && test_merged_ark12_json; then
-        fontmsg "existing fused Ark12 text-scroll resources found; no rebuild required."
-        ls -l "$ARK_WOFF2" "$ARK_JSON" 2>/dev/null || true
-        return 0
-    fi
-    fontmsg "fused Ark12 resources are missing or stale; installing bundled fusion files."
-    install_bundled_ark12_fusion_resources
-    ls -l "$ARK_WOFF2" "$ARK_JSON" 2>/dev/null || true
+    fontmsg "synchronizing fused Ark12 glyph resources."
+    sync_ark12_fusion_resources
 }
 
 # ---------------------------------------------------------------------------
