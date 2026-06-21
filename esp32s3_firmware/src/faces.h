@@ -25,7 +25,7 @@ void serviceDeferredFaceRestore();
 
 void stopFirmwareScroll(bool restoreAuto, bool clearDisplay = false);
 
-void startFirmwareScroll(uint16_t intervalMs);
+void startFirmwareScroll(uint16_t intervalMs, uint8_t uiFps = 0);
 
 bool playbackIsNonFaceActivity();
 

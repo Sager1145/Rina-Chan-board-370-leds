@@ -55,6 +55,11 @@ static uint8_t uiFpsFromScrollInterval(uint16_t intervalMs) {
     return static_cast<uint8_t>(constrain(rounded, 1UL, 255UL));
 }
 
+static uint8_t normalizedUiFps(uint8_t uiFps, uint16_t intervalMs) {
+    if (uiFps > 0) return static_cast<uint8_t>(constrain(uiFps, 1U, 60U));
+    return uiFpsFromScrollInterval(intervalMs);
+}
+
 static bool firmwareScrollHasRuntimeStateLocked() {
     return runtimeState().firmwareScrollActive ||
            runtimeState().firmwareScrollPaused ||
@@ -199,7 +204,7 @@ ScrollStopResult scrollSessionStop(bool restoreAuto, bool clearDisplay) {
     return r;
 }
 
-ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode) {
+ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode, uint8_t uiFps) {
     ScrollStartResult result;
     clearQueuedPackedFrames();
 
@@ -213,7 +218,7 @@ ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode)
             result.engagedRestoreAuto = runtimeState().restoreAutoAfterScroll;
             runtimeState().scrollIntervalMs =
                 constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
-            runtimeScrollMeta().uiFps = uiFpsFromScrollInterval(runtimeState().scrollIntervalMs);
+            runtimeScrollMeta().uiFps = normalizedUiFps(uiFps, runtimeState().scrollIntervalMs);
             runtimeState().scrollFrameIndex           = 0;
             runtimeState().lastScrollFrameMs          = millis();
             runtimeState().firmwareScrollActive       = true;
@@ -242,11 +247,11 @@ ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode)
     return result;
 }
 
-void scrollSessionSetInterval(uint16_t intervalMs) {
+void scrollSessionSetInterval(uint16_t intervalMs, uint8_t uiFps) {
     withScrollLock([&]() {
         runtimeState().scrollIntervalMs =
             constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
-        runtimeScrollMeta().uiFps = uiFpsFromScrollInterval(runtimeState().scrollIntervalMs);
+        runtimeScrollMeta().uiFps = normalizedUiFps(uiFps, runtimeState().scrollIntervalMs);
         runtimeState().lastScrollFrameMs = millis();
     });
     touchRuntimeState();
@@ -353,7 +358,7 @@ bool scrollSessionWriteFrame(const ScrollUploadTxn& txn, uint16_t index, const u
 }
 
 ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_t count,
-                                             bool hasExplicitTiming, uint16_t intervalMs) {
+                                             bool hasExplicitTiming, uint16_t intervalMs, uint8_t uiFps) {
     ScrollUploadResult result;
 
     withScrollLock([&]() {
@@ -364,7 +369,7 @@ ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_
         if (hasExplicitTiming) {
             runtimeState().scrollIntervalMs =
                 constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
-            runtimeScrollMeta().uiFps = uiFpsFromScrollInterval(runtimeState().scrollIntervalMs);
+            runtimeScrollMeta().uiFps = normalizedUiFps(uiFps, runtimeState().scrollIntervalMs);
         }
 
         ScrollTimelineMeta& meta = runtimeScrollMeta();
@@ -433,6 +438,7 @@ ScrollSessionSnapshot scrollSessionSnapshot() {
         snapshot.scrollFrameIndex           = runtimeState().scrollFrameIndex;
         snapshot.scrollIntervalMs           = runtimeState().scrollIntervalMs;
         const ScrollTimelineMeta& meta = runtimeScrollMeta();
+        snapshot.uiFps                      = meta.uiFps;
         memcpy(snapshot.scrollTimelineId, meta.timelineId, sizeof(snapshot.scrollTimelineId));
         snapshot.scrollUploadComplete       = meta.uploadComplete;
         snapshot.scrollHasSourceText        = meta.hasSourceText;

@@ -189,9 +189,9 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
     } else if (r.restoreAuto) setMode("auto", false);
 }
 
-void startFirmwareScroll(uint16_t intervalMs) {
+void startFirmwareScroll(uint16_t intervalMs, uint8_t uiFps) {
     cancelDeferredFaceRestore();
-    const ScrollStartResult r = scrollSessionStart(intervalMs, isAutoMode());
+    const ScrollStartResult r = scrollSessionStart(intervalMs, isAutoMode(), uiFps);
     if (r.engagedRestoreAuto) runtimeState().mode = "manual";
 }
 

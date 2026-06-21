@@ -109,7 +109,7 @@ constexpr uint32_t AUTO_INTERVAL_BUTTON_STEP_MS  = 500;
 constexpr uint16_t MAX_AUTO_FACES                = 128;
 
 constexpr uint16_t MAX_SCROLL_FRAMES             = 3072;
-constexpr uint16_t MIN_SCROLL_INTERVAL_MS        = PACKED_FRAME_MIN_INTERVAL_MS;
+constexpr uint16_t MIN_SCROLL_INTERVAL_MS        = 17;  // 60 fps nominal scroll playback.
 constexpr uint16_t MAX_SCROLL_INTERVAL_MS        = 1000;
 constexpr uint16_t DEFAULT_SCROLL_INTERVAL_MS    = 100;
 constexpr uint8_t  SCROLL_DRIFT_RESET_INTERVALS  = 4;

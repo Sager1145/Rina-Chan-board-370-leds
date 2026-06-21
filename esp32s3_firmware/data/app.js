@@ -3248,8 +3248,8 @@ const MATRIX_VIEW_CONFIGS = [
   ["matrix-basic", () => currentFrame, false, null, false],
   ["matrix-custom-edit", () => editFrame, true, editCell, false],
   ["matrix-parts", () => partsFrame, false, null, false],
-  ["matrix-scroll", () => scrollFrame, false, null, false],
-  ["matrix-debug", () => debugPreviewFrame, false, null, false],
+  ["matrix-scroll", () => currentFrame, false, null, false],
+  ["matrix-debug", () => currentFrame, false, null, false],
 ];
 const DEFAULT_SCROLL_FPS = WEBUI_CONFIG.scroll.defaultFps;
 const SCROLL_FPS_MIN = WEBUI_CONFIG.scroll.fpsMin;
@@ -3548,8 +3548,7 @@ let currentFrame = blankFrame();
 let editFrame = blankFrame();
 let partsFrame = blankFrame();
 let scrollFrame = blankFrame();
-// Debug preview dedicated buffer: isolated from global currentFrame, preview-only operations are only written here,
-// Don't pollute matrix-basic/DPS/replicated packed frame (page-debug rewrites v2 rule 1).
+// Debug metadata/copy buffer mirrors currentFrame so 6.1/6.4/6.5 previews render from one source.
 let debugPreviewFrame = blankFrame();
 let debugPreviewSource = "none";
 let debugPreviewReason = "init";
@@ -3665,6 +3664,10 @@ let scroll = {
   previewTargetSpeedMultiplier: 1,  // desired multiplier from the phase controller
   lastSpeedUpdateMs: 0,             // last nextPreviewDelayMs() timestamp (for slew dt)
   syncState: "observe",             // observe | gentle | catchup | locked
+  previewStale: false,
+  previewDropped: false,
+  staleReason: "",
+  dropReason: "",
   syncStableSinceMs: 0,
   ignoreRateUntilSeq: 0,            // presented samples <= this seq are position-only (no fps est.)
   // Source text synchronization (plan v6):
@@ -3692,6 +3695,12 @@ let lastFwScrollFrameCount = 0;
 let lastFwScrollDisplaying = false;
 let lastScrollRestoreStatusDebugKey = "";
 let postBootScrollMetaRestoreStarted = false;
+let staticFrameReloadInFlight = null;
+let scrollDropRecoverInFlight = null;
+let previewSyncTimer = null;
+let previewSyncTransportFailCount = 0;
+let previewSyncLastOkMs = 0;
+let previewSyncLastFailReason = "";
 // The factory default text of the input box in index.html; regarded as "non-user unsent content" and allowed to be overwritten by recovery.
 let scrollDefaultText = "";
 
@@ -3752,8 +3761,14 @@ const scrollMachine = (function () {
     machine.state = next;
     scroll.restoring = next === "RESTORING";
     scroll.uploading = next === "UPLOADING" || scroll.uploading;
-    scroll.active = next === "ACTIVE" && machine.pauseReasons.size === 0;
-    if (next === "IDLE") scroll.active = false;
+    scroll.previewStale = next === "STALE";
+    scroll.previewDropped = next === "DROPPED";
+    scroll.active =
+      next === "ACTIVE" &&
+      machine.pauseReasons.size === 0 &&
+      !scroll.previewStale &&
+      !scroll.previewDropped;
+    if (next === "IDLE" || next === "STALE" || next === "DROPPED") scroll.active = false;
   }
 
   function deriveIdentityBound(meta = {}) {
@@ -3837,6 +3852,10 @@ const scrollMachine = (function () {
     RESTORE_DONE: ["RESTORING"],
     FW_SYNC: null,
     TEXT_EDITED: null,
+    SYNC_STALE: ["ACTIVE", "STEPPING", "RESTORING"],
+    FW_SYNC_RECOVERED: ["STALE"],
+    IDENTITY_MISMATCH: null,
+    DROP_DONE: ["DROPPED"],
   };
 
   function dispatch(event, payload = {}, t = null) {
@@ -3914,6 +3933,26 @@ const scrollMachine = (function () {
         break;
       case "TEXT_EDITED":
         machine.cache.identityBound = false;
+        break;
+      case "SYNC_STALE":
+        enterScrollPreviewStale(payload.reason || "preview_sync_stale");
+        setPhase("STALE");
+        break;
+      case "FW_SYNC_RECOVERED":
+        scroll.previewStale = false;
+        scroll.staleReason = "";
+        scroll.syncState = "observe";
+        setPhase(machine.device.hasSession ? "ACTIVE" : "IDLE");
+        syncPauseBacking();
+        break;
+      case "IDENTITY_MISMATCH":
+        enterScrollPreviewDropped(payload.reason || "preview_identity_mismatch");
+        setPhase("DROPPED");
+        break;
+      case "DROP_DONE":
+        scroll.previewDropped = false;
+        scroll.dropReason = "";
+        setPhase(payload && payload.restore ? "RESTORING" : "IDLE");
         break;
       default:
         return false;
@@ -5185,7 +5224,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
       scroll.systemPaused ||
       playbackValue === "scroll_paused" ||
       firmwareScrollPaused;
-    scroll.active = playbackValue === "scroll" && !scroll.paused;
+    scroll.active = playbackValue === "scroll" && !scroll.paused && !scroll.previewStale && !scroll.previewDropped;
     state.textScrollActive = firmwareDisplayingScroll;
     if (!firmwareDisplayingScroll) {
       scroll.active = false;
@@ -5266,13 +5305,17 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
   // frameBytes (browser-side decode of the theoretical-minimum frame).
   if (!skipFrame && !firmwareIsScrolling && faceChanged) {
     const face = getAllFaces()[state.faceIndex];
-    if (face) {
-      currentFrame = faceFrame(face);
-      if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
-      scrollFrame = cloneFrame(currentFrame);
-      state.lastRefreshReason = renderer.lastReason || data.lastReason || source;
-      frameChanged = true;
+    if (face && Array.isArray(face.frameBytes)) {
+      setScrollPreviewFrame(
+        faceFrame(face),
+        renderer.lastReason || data.lastReason || source || "face_index_sync",
+        null,
+        { syncLiveBaseline: true },
+      );
+      frameChanged = false;
       stateChanged = true;
+    } else {
+      scheduleStaticFrameReloadFromFirmware("face_index_cache_miss");
     }
   }
 
@@ -5731,9 +5774,18 @@ function queueFirmwareLedDeltas(changes, reason = "live_delta", playback = "idle
   return queued;
 }
 
-function setScrollPreviewFrame(frame, reason = "text_scroll_preview", playback = "scroll") {
-  scrollFrame = cloneFrame(frame);
+function setSharedPreviewFrame(frame, reason = "preview_update", source = "current preview") {
   currentFrame = cloneFrame(frame);
+  scrollFrame = cloneFrame(currentFrame);
+  debugPreviewFrame = cloneFrame(currentFrame);
+  debugPreviewSource = source;
+  debugPreviewReason = reason;
+  debugPreviewUpdatedAt = Date.now();
+}
+
+function setScrollPreviewFrame(frame, reason = "text_scroll_preview", playback = "scroll", opts = {}) {
+  setSharedPreviewFrame(frame, reason);
+  if (opts.syncLiveBaseline && liveSendEnabled) syncLiveSendBaseline(currentFrame);
   state.lastRefreshReason = reason;
   state.refreshCount++;
   if (playback !== null) state.playback = playback;
@@ -5825,8 +5877,7 @@ function terminateOtherActivities(targetMode = "static", reason = "mode_change")
       state.textScrollActive ||
       isScrollPlaybackValue(previousPlayback))
   ) {
-    if (scroll.timer) clearInterval(scroll.timer);
-    scroll.timer = null;
+    stopScrollPreviewTimer();
     scroll.active = false;
     scroll.paused = false;
     scroll.userPaused = false;
@@ -5836,6 +5887,10 @@ function terminateOtherActivities(targetMode = "static", reason = "mode_change")
     scroll.commandBusy = false;
     scroll.restoring = false;
     scroll.stepBusy = false;
+    scroll.previewStale = false;
+    scroll.previewDropped = false;
+    scroll.staleReason = "";
+    scroll.dropReason = "";
     state.textScrollActive = false;
     if (isScrollPlaybackValue(state.playback)) state.playback = "idle";
     ended.push("text_scroll");
@@ -5899,7 +5954,7 @@ async function prepareForTextScrollUpload() {
 
 function setCurrentFrame(frame, reason = "manual_update", playback = null) {
   guardBeforeOutput(reason, playback);
-  currentFrame = cloneFrame(frame);
+  setSharedPreviewFrame(frame, reason);
   if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
   state.lastRefreshReason = reason;
   state.refreshCount++;
@@ -6449,12 +6504,9 @@ async function loadStaticFramePreviewFromFirmware(reason = "boot_static_frame") 
     if (state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback)) {
       return false;
     }
-    currentFrame = packedBytesToFrame(bytes);
-    if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
-    scrollFrame = cloneFrame(currentFrame);
-    state.lastRefreshReason = reason;
-    renderMatrices();
-    updatePackedFrameViews();
+    setScrollPreviewFrame(packedBytesToFrame(bytes), reason, null, {
+      syncLiveBaseline: true,
+    });
     return true;
   } catch (err) {
     if (err?.name === "AbortError") {
@@ -6467,6 +6519,23 @@ async function loadStaticFramePreviewFromFirmware(reason = "boot_static_frame") 
     if (timeout) clearTimeout(timeout);
   }
 }
+
+function scheduleStaticFrameReloadFromFirmware(reason = "static_frame_reload") {
+  if (staticFrameReloadInFlight) return staticFrameReloadInFlight;
+  staticFrameReloadInFlight = loadStaticFramePreviewFromFirmware(reason)
+    .catch((err) => {
+      logScrollRestoreDebug("static frame reload failed", {
+        reason,
+        error: err?.message || String(err),
+      });
+      return false;
+    })
+    .finally(() => {
+      staticFrameReloadInFlight = null;
+    });
+  return staticFrameReloadInFlight;
+}
+
 async function syncRuntimeStateFromFirmware(source = "webui_load") {
   if (firmwareFullStatusInFlight || scroll.lightSyncing || scrollMetaFetchInFlight) return false;
   firmwareFullStatusInFlight = true;
@@ -6580,8 +6649,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     stopPollingTimers();
     if (typeof scroll !== "undefined" && scroll.timer) {
-      clearInterval(scroll.timer);
-      scroll.timer = null;
+      stopScrollPreviewTimer();
       scroll._wasActiveBeforeHide = true;
     }
   } else {
@@ -6654,6 +6722,22 @@ function setupDebugMasonryLayout() {
   scheduleMatrixFitRender(2);
 }
 
+function isFirmwarePreviewScrolling() {
+  return state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
+}
+
+async function refreshSharedPreviewFromFirmware(reason = "preview_page_enter", options = {}) {
+  scheduleMatrixFitRender(3);
+  const syncOk = await syncRuntimeStateFromFirmware(reason);
+  if (syncOk && !isFirmwarePreviewScrolling()) {
+    await scheduleStaticFrameReloadFromFirmware(`${reason}_current_frame`);
+  }
+  renderMatrices();
+  if (options.debugPanel) renderDebugPreviewPanel();
+  scheduleMatrixFitRender(2);
+  return syncOk;
+}
+
 function switchPage(id) {
   // Page switching is just WebUI navigation; buttons/frame writes that actually change LED output will each interrupt scrolling.
   document.body.dataset.page = id;
@@ -6667,6 +6751,9 @@ function switchPage(id) {
   scheduleMatrixFitRender(2);
   if (id === "scroll") {
     ensureScrollFontsLoaded();
+    refreshSharedPreviewFromFirmware("scroll_page_enter").catch((err) => {
+      if (shouldLogApiError()) log(`scroll preview refresh failed: ${err.message || err}`, "error");
+    });
     // Rebuild preview frames from recovered source text on demand when going into 6.4 (plan v6 2.5).
     restoreScrollPreviewIfNeeded("page_entry").catch((err) => {
       warnScrollRestoreDebug("preview restore page-entry failed", {
@@ -6699,14 +6786,20 @@ function switchPage(id) {
       const a = $("debug-frame");
       if (a) autoResizeTextarea(a);
       refreshDebugFrameValidation();
+      renderMatrices();
+      renderDebugPreviewPanel();
     });
-    // Into 6.5: Lightweight runtime summary + power state; read-only panels are rendered by renderState->renderDebugReadouts.
-    syncRuntimeSummaryFromFirmware("debug_page_enter");
+    // Into 6.5: use the same shared preview refresh path as 6.1, then render debug-only readouts.
+    refreshSharedPreviewFromFirmware("debug_page_enter", { debugPanel: true }).catch((err) => {
+      if (shouldLogApiError()) log(`debug preview refresh failed: ${err.message || err}`, "error");
+    });
     refreshPowerStatusFromFirmware("debug_page_enter", true);
     renderDebugReadouts();
   }
   if (id === "basic") {
-    syncRuntimeStateFromFirmware("basic_page_enter");
+    refreshSharedPreviewFromFirmware("basic_page_enter").catch((err) => {
+      if (shouldLogApiError()) log(`basic preview refresh failed: ${err.message || err}`, "error");
+    });
     refreshPowerStatusFromFirmware("basic_page_enter", true);
   }
 }
@@ -7933,9 +8026,8 @@ function applyStartupDefaultFaceLocal(reason = "text_scroll_stop_default_saved_f
   const face = getAllFaces()[index];
   if (!face) return false;
   state.faceIndex = index;
-  currentFrame = faceFrame(face);
+  setSharedPreviewFrame(faceFrame(face), reason);
   if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
-  scrollFrame = cloneFrame(currentFrame);
   state.lastRefreshReason = reason;
   state.refreshCount++;
   renderMatrices();
@@ -7951,9 +8043,8 @@ function applyKnownFaceIndexLocal(reason = "firmware_face_index_preview") {
   const face = library[index];
   if (!face || !Array.isArray(face.frameBytes)) return false;
   state.faceIndex = index;
-  currentFrame = faceFrame(face);
+  setSharedPreviewFrame(faceFrame(face), reason);
   if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
-  scrollFrame = cloneFrame(currentFrame);
   state.lastRefreshReason = reason;
   renderMatrices();
   updatePackedFrameViews();
@@ -9294,6 +9385,9 @@ function resetFirmwareScrollRate() {
   scroll.syncState = "observe";
   scroll.syncStableSinceMs = 0;
   scroll.ignoreRateUntilSeq = 0;
+  previewSyncTransportFailCount = 0;
+  previewSyncLastOkMs = 0;
+  previewSyncLastFailReason = "";
 }
 
 // Preview timer interval: measured device interval while firmware owns the session and an
@@ -9419,6 +9513,11 @@ function forwardFrameDelta(nextIndex, prevIndex, frameCount) {
   return (((nextIndex - prevIndex) % frameCount) + frameCount) % frameCount;
 }
 
+function scrollMachineIsActiveOrStepping() {
+  const phase = scrollMachine.snapshot().state;
+  return phase === "ACTIVE" || phase === "STEPPING";
+}
+
 // Least-squares slope of unwrapped presented-frame vs device time (presentedAtUs-derived ms).
 function estimatePresentedFpsByRegression(samples) {
   if (!Array.isArray(samples) || samples.length < HW_RATE_MIN_SAMPLES) return null;
@@ -9495,10 +9594,28 @@ function recordPresentedSyncSample(payload = {}, options = {}) {
   // A different timeline: cannot estimate rate and cannot align our stale local frames to it.
   if (scroll.framesTimelineId && timelineId && scroll.framesTimelineId !== timelineId) {
     resetFirmwareScrollRate();
-    return;
+    scrollMachine.dispatch("IDENTITY_MISMATCH", {
+      reason: "preview_sync_timeline_mismatch",
+      localTimelineId: scroll.framesTimelineId,
+      firmwareTimelineId: timelineId,
+    });
+    return false;
   }
   // Without a matching local frame cache there is nothing to drive the preview with.
-  if (!scroll.frames.length || frameCount !== scroll.frames.length) return;
+  if (!scroll.frames.length || frameCount !== scroll.frames.length) {
+    const sameTimeline = !timelineId || scroll.framesTimelineId === timelineId;
+    const identityBound = scrollMachine.snapshot().cache.identityBound;
+    if (sameTimeline && identityBound && scrollMachineIsActiveOrStepping()) {
+      resetFirmwareScrollRate();
+      scrollMachine.dispatch("IDENTITY_MISMATCH", {
+        reason: "preview_sync_frame_count_mismatch",
+        localFrameCount: scroll.frames.length,
+        firmwareFrameCount: frameCount,
+      });
+      return false;
+    }
+    return;
+  }
 
   const source = String(payload.source || "");
   const sourceIsDiscontinuous =
@@ -9545,6 +9662,7 @@ function recordPresentedSyncSample(payload = {}, options = {}) {
 
   // 4) Steer the preview speed from the phase error — only speed, never frame skips.
   updatePreviewSpeedController(frameCount);
+  return true;
 }
 
 // Phase alignment by speed modulation: each preview tick advances exactly one frame, but the delay
@@ -9565,32 +9683,69 @@ function nextPreviewDelayMs() {
   return Math.max(1, Math.round(base / next));
 }
 
+function stopScrollPreviewTimer() {
+  if (scroll.timer) {
+    clearTimeout(scroll.timer);
+    clearInterval(scroll.timer);
+  }
+  scroll.timer = null;
+}
+
 function previewTickLoop() {
+  if (scroll.previewStale || scroll.previewDropped) return;
   scroll.timer = setTimeout(() => {
     scroll.timer = null;
-    if (!scroll.active || scroll.paused) return;
+    if (!scroll.active || scroll.paused || scroll.previewStale || scroll.previewDropped) return;
     advanceScroll(false);
-    if (scroll.active && !scroll.paused) previewTickLoop();
+    if (!scroll.active || scroll.paused || scroll.previewStale || scroll.previewDropped) return;
+    previewTickLoop();
   }, nextPreviewDelayMs());
 }
 
 function restartScrollPreviewTimer() {
-  if (scroll.timer) { clearTimeout(scroll.timer); clearInterval(scroll.timer); }
-  scroll.timer = null;
-  if (scroll.active && !scroll.paused) previewTickLoop();
+  stopScrollPreviewTimer();
+  if (scroll.active && !scroll.paused && !scroll.previewStale && !scroll.previewDropped) previewTickLoop();
 }
 
 // --- Preview-sync poller --------------------------------------------------------------------
 // A lightweight, self-scheduling poll of /api/preview_sync (NOT mixed into the main status poll)
 // that runs only while a scroll session is live and the page is visible.
-let previewSyncTimer = null;
+const PREVIEW_SYNC_TRANSPORT_FAIL_LIMIT = 3;
+const PREVIEW_SYNC_STALE_MS = 5000;
 
 function shouldPollPreviewSync() {
   return (
     !document.hidden &&
     (scroll.active || scroll.firmwareBacked || state.textScrollActive) &&
+    !scroll.previewDropped &&
     scroll.frames.length > 0
   );
+}
+
+function markPreviewSyncOk(payload = {}) {
+  previewSyncTransportFailCount = 0;
+  previewSyncLastOkMs = performance.now();
+  previewSyncLastFailReason = "";
+  if (scroll.previewStale) {
+    snapPreviewToFirmwareFrame(
+      Number(payload.presentedFrameIndex ?? payload.frameIndex),
+      "preview_sync_recovered",
+    );
+    scroll.previewTargetSpeedMultiplier = 1;
+    scroll.previewSpeedMultiplier = 1;
+    scroll.syncState = "observe";
+    scrollMachine.dispatch("FW_SYNC_RECOVERED", payload);
+    restartScrollPreviewTimer();
+  }
+}
+
+function markPreviewSyncTransportFailed(reason = "preview_sync_failed") {
+  previewSyncTransportFailCount++;
+  previewSyncLastFailReason = reason;
+  const now = performance.now();
+  const staleByCount = previewSyncTransportFailCount >= PREVIEW_SYNC_TRANSPORT_FAIL_LIMIT;
+  const staleByAge = previewSyncLastOkMs > 0 && now - previewSyncLastOkMs >= PREVIEW_SYNC_STALE_MS;
+  if (staleByCount || staleByAge) scrollMachine.dispatch("SYNC_STALE", { reason });
 }
 
 async function pollPreviewSyncOnce(options = {}) {
@@ -9604,16 +9759,21 @@ async function pollPreviewSyncOnce(options = {}) {
   }
   try {
     const payload = await apiGet(API_ENDPOINTS.previewSync, { timeoutMs: API_GET_TIMEOUT_MS });
-    if (!payload || payload.ok === false || !payload.valid) return null;
-    recordPresentedSyncSample(payload, {
+    if (!payload || payload.ok === false || !payload.valid) {
+      markPreviewSyncTransportFailed("invalid_preview_sync_payload");
+      return null;
+    }
+    const accepted = recordPresentedSyncSample(payload, {
       excludeFromRate: !!options.excludeFromRate,
       forceSnap: !!options.forceSnap,
     });
+    if (accepted !== false) markPreviewSyncOk(payload);
     return payload;
   } catch (err) {
     if (shouldLogApiError()) {
       logScrollRestoreDebug("preview sync failed", { error: err?.message || String(err) });
     }
+    markPreviewSyncTransportFailed("preview_sync_transport_error");
     return null;
   }
 }
@@ -9792,8 +9952,7 @@ function resetScrollPreviewToFirstFrame(
 
 function resetScrollControlsAfterButton(reason = "gpio_button", options = {}) {
   const preserveCurrentFrame = !!options.preserveCurrentFrame;
-  if (scroll.timer) clearInterval(scroll.timer);
-  scroll.timer = null;
+  stopScrollPreviewTimer();
   scroll.active = false;
   scroll.paused = false;
   scroll.userPaused = false;
@@ -9803,6 +9962,10 @@ function resetScrollControlsAfterButton(reason = "gpio_button", options = {}) {
   scroll.commandBusy = false;
   scroll.restoring = false;
   scroll.stepBusy = false;
+  scroll.previewStale = false;
+  scroll.previewDropped = false;
+  scroll.staleReason = "";
+  scroll.dropReason = "";
   scroll.offset = 0;
   scroll.frameIndex = 0;
   state.textScrollActive = false;
@@ -9819,14 +9982,68 @@ function resetScrollControlsAfterButton(reason = "gpio_button", options = {}) {
   clearRecoveredScrollCache(reason);
   resetScrollUploadProgress();
   if (preserveCurrentFrame) {
-    scrollFrame = cloneFrame(currentFrame);
+    setSharedPreviewFrame(currentFrame, reason);
   } else {
-    scrollFrame = blankFrame();
+    setSharedPreviewFrame(blankFrame(), reason);
   }
   renderMatrices();
   updateScrollUi();
   renderState();
 }
+
+function enterScrollPreviewStale(reason = "preview_sync_stale") {
+  scroll.previewStale = true;
+  scroll.previewDropped = false;
+  scroll.syncState = "stale";
+  scroll.staleReason = reason;
+  stopScrollPreviewTimer();
+  logScrollRestoreDebug("scroll preview stale", {
+    reason,
+    failCount: previewSyncTransportFailCount,
+    lastOkMs: previewSyncLastOkMs,
+    lastFailReason: previewSyncLastFailReason,
+  });
+  updateScrollUi();
+  renderState();
+}
+
+function enterScrollPreviewDropped(reason = "preview_identity_mismatch") {
+  resetFirmwareScrollRate();
+  scroll.dropReason = reason;
+  resetScrollControlsAfterButton(reason, { preserveCurrentFrame: false });
+  scroll.previewDropped = true;
+  scroll.previewStale = false;
+  scroll.syncState = "dropped";
+  updateScrollUi();
+  scheduleScrollDropRecovery(reason);
+}
+
+function scheduleScrollDropRecovery(reason = "scroll_preview_dropped") {
+  if (scrollDropRecoverInFlight) return scrollDropRecoverInFlight;
+  scrollDropRecoverInFlight = (async () => {
+    const ok = await syncRuntimeSummaryFromFirmware(`${reason}_status`);
+    if (ok && state.textScrollActive) {
+      scrollMachine.dispatch("DROP_DONE", { restore: true });
+      await restoreScrollTextFromFirmware(`${reason}_restore`, { autoPreview: true });
+      return true;
+    }
+    scrollMachine.dispatch("DROP_DONE", { restore: false });
+    await loadStaticFramePreviewFromFirmware(`${reason}_reload_current_frame`);
+    return true;
+  })()
+    .catch((err) => {
+      logScrollRestoreDebug("scroll drop recovery failed", {
+        reason,
+        error: err?.message || String(err),
+      });
+      return false;
+    })
+    .finally(() => {
+      scrollDropRecoverInFlight = null;
+    });
+  return scrollDropRecoverInFlight;
+}
+
 async function buildFirmwareScrollFrames(onProgress = () => {}) {
   const source = scroll.frames;
   if (!source.length) return [];
@@ -10074,19 +10291,23 @@ async function startScroll() {
   }
   // The input is about to be sent, so it is no longer an unsent local edit.
   scroll.textEdited = false;
-  if (scroll.timer) clearInterval(scroll.timer);
-  scroll.timer = null;
+  stopScrollPreviewTimer();
   scroll.active = false;
   scroll.paused = false;
   scroll.userPaused = false;
   scroll.systemPaused = false;
   scroll.firmwareBacked = false;
   scroll.dirtyNoticeLogged = false;
+  scroll.previewStale = false;
+  scroll.previewDropped = false;
+  scroll.staleReason = "";
+  scroll.dropReason = "";
   state.textScrollActive = false;
   state.refreshPolicy = `text_scroll_${getScrollFps()}fps_interval_${getScrollFrameIntervalMs()}ms`;
   scroll.fpsStarted = performance.now();
   scroll.frameCounter = 0;
   resetFirmwareScrollRate();
+  scroll.syncState = "uploading";
   try {
     const data = await uploadFirmwareScrollTimeline();
     resetScrollPreviewToFirstFrame("text_scroll_start_reset_preview", "scroll");
@@ -10154,8 +10375,7 @@ async function pauseScroll() {
     const data = await packet.promise;
     if (data) {
       scrollMachine.dispatch("PAUSE_USER");
-      if (scroll.timer) clearInterval(scroll.timer);
-      scroll.timer = null;
+      stopScrollPreviewTimer();
       applyFirmwareRuntimeState(data, "text_scroll_paused_result");
       snapPreviewToFirmwareFrame(Number(data.scrollFrameIndex), "text_scroll_pause_sync");
       // Re-align to the LED's actually-presented frame; this sample is excluded from fps est.
@@ -10199,8 +10419,7 @@ async function resumeScroll() {
       scroll.fpsStarted = performance.now();
       scroll.frameCounter = 0;
       if (scroll.systemPaused) {
-        if (scroll.timer) clearInterval(scroll.timer);
-        scroll.timer = null;
+        stopScrollPreviewTimer();
       } else {
         restartScrollPreviewTimer();
       }
@@ -10217,11 +10436,10 @@ async function resumeScroll() {
 }
 
 async function stopScroll() {
-  if (scroll.commandBusy || scroll.stopBusy || !hasScrollFrameCache()) return;
+  if (scroll.commandBusy || scroll.stopBusy || (!hasScrollFrameCache() && !scroll.previewDropped)) return;
   const restoreAuto = scroll.returnMode === "auto" || state.restoreAutoAfterScroll;
   const restartPreviewOnFailure = scroll.active && !scroll.paused;
-  if (scroll.timer) clearInterval(scroll.timer);
-  scroll.timer = null;
+  stopScrollPreviewTimer();
   scroll.commandBusy = true;
   scroll.stopBusy = true;
   scrollMachine.dispatch("STOP");
@@ -10262,8 +10480,7 @@ async function stopScroll() {
     clearRecoveredScrollCache("text_scroll_stopped_clear");
     state.textScrollActive = false;
     state.refreshPolicy = "dirty-frame / 按需刷新";
-    scrollFrame = blankFrame();
-    currentFrame = blankFrame();
+    setSharedPreviewFrame(blankFrame(), "text_scroll_stopped_clear");
     state.lastRefreshReason = "text_scroll_stopped_clear";
     state.playback = "idle";
     renderMatrices();
@@ -10326,10 +10543,7 @@ function setScrollStepHandler(buttonId, direction) {
         // that in the machine and stop the local preview timer so the held frame is not
         // tweened past while playback is paused on the stepped frame.
         scrollMachine.dispatch("PAUSE_USER");
-        if (scroll.timer) {
-          clearInterval(scroll.timer);
-          scroll.timer = null;
-        }
+        stopScrollPreviewTimer();
       } else {
         log("逐格移动命令未确认，保持当前预览并等待下一次固件同步");
       }
@@ -10679,15 +10893,14 @@ function applyScrollRuntimeMeta(meta, source = "scroll_meta") {
     }
   }
   scroll.paused = firmwarePaused || scroll.userPaused || scroll.systemPaused;
-  scroll.active = firmwareRunning && !firmwarePaused;
+  scroll.active = firmwareRunning && !firmwarePaused && !scroll.previewStale && !scroll.previewDropped;
   state.textScrollActive = firmwareRunning;
   if (firmwarePaused) state.playback = "scroll_paused";
   else if (firmwareActive) state.playback = "scroll";
   else if (isScrollPlaybackValue(state.playback)) state.playback = "idle";
   state.lastRefreshReason = source;
   if (!scroll.active && scroll.timer) {
-    clearInterval(scroll.timer);
-    scroll.timer = null;
+    stopScrollPreviewTimer();
   }
   updateScrollUi();
   renderState();
@@ -11364,6 +11577,8 @@ function updateScrollUi() {
 
   const scrollPlayingNow =
     !effectivePaused &&
+    !scroll.previewStale &&
+    !scroll.previewDropped &&
     (scroll.active ||
       scroll.firmwareBacked ||
       state.textScrollActive ||
@@ -11378,13 +11593,17 @@ function updateScrollUi() {
       ? "syncing"
       : progressVisible
         ? "uploading"
-        : effectivePaused
-          ? "paused"
-          : scroll.active || state.playback === "scroll"
-            ? "playing"
-            : scroll.dirty
-              ? "dirty/idle"
-              : "idle";
+        : scroll.previewDropped
+          ? "dropped"
+          : scroll.previewStale
+            ? "stale"
+            : effectivePaused
+              ? "paused"
+              : scroll.active || state.playback === "scroll"
+                ? "playing"
+                : scroll.dirty
+                  ? "dirty/idle"
+                  : "idle";
 
   if (stateEl) setDomTextIfChanged(stateEl, label);
   if (indexEl) {
@@ -11406,21 +11625,31 @@ function updateScrollUi() {
   const scrollLiveOrPaused = scrollPlayingNow || effectivePaused;
 
   applyScrollButtonUiState("send", playBtn, {
-    disabled: anyCommandBusy || scroll.startBusy || !hasInputContent,
+    disabled: anyCommandBusy || scroll.startBusy || scroll.previewDropped || !hasInputContent,
     text: scroll.uploading ? "发送中…" : "发送",
   });
 
   applyScrollButtonUiState("pause", pauseBtn, {
-    disabled: anyCommandBusy || nonResumableSystemPause || !scrollLiveOrPaused,
+    disabled:
+      anyCommandBusy ||
+      nonResumableSystemPause ||
+      scroll.previewStale ||
+      scroll.previewDropped ||
+      !scrollLiveOrPaused,
     text: effectivePaused ? "继续" : "暂停",
     pressed: scrollPlayingNow,
   });
 
   applyScrollButtonUiState("stop", stopBtn, {
-    disabled: anyCommandBusy || !hasFrameCache,
+    disabled: anyCommandBusy || (!hasFrameCache && !scroll.previewDropped),
   });
 
-  const stepDisabled = anyCommandBusy || scrollPlayingNow || !hasFramesForStep;
+  const stepDisabled =
+    anyCommandBusy ||
+    scrollPlayingNow ||
+    scroll.previewStale ||
+    scroll.previewDropped ||
+    !hasFramesForStep;
   applyScrollButtonUiState("stepPrev", stepPrevBtn, { disabled: stepDisabled });
   applyScrollButtonUiState("stepNext", stepNextBtn, { disabled: stepDisabled });
 
@@ -11447,8 +11676,14 @@ function updateScrollUi() {
   // Restore warnings (can be multi-line, E5); textContent + CSS white-space:pre-line renders newlines.
   const restoreWarnEl = $("scroll-restore-warning");
   if (restoreWarnEl) {
-    setDomTextIfChanged(restoreWarnEl, scroll.restoreWarning || "");
-    restoreWarnEl.hidden = !scroll.restoreWarning;
+    const previewNotice = scroll.previewDropped
+      ? `Scroll preview dropped stale cache; recovering from firmware (${scroll.dropReason || "identity mismatch"}).`
+      : scroll.previewStale
+        ? `Scroll preview sync is stale; local animation is paused until firmware sync recovers (${scroll.staleReason || "sync stale"}).`
+        : "";
+    const warning = previewNotice || scroll.restoreWarning || "";
+    setDomTextIfChanged(restoreWarnEl, warning);
+    restoreWarnEl.hidden = !warning;
   }
 }
 
@@ -11460,11 +11695,9 @@ function updateScrollUi() {
 // - deferred init makes the first screen appear first, and the heavier list/debug/font reading continues to complete after the mask is loaded.
 function initializeMatrixViews() {
   matrixViews = [];
-  initMatrix("matrix-basic", () => currentFrame, false, null, false);
-  initMatrix("matrix-custom-edit", () => editFrame, true, editCell, false);
-  initMatrix("matrix-parts", () => partsFrame, false, null, false);
-  initMatrix("matrix-scroll", () => scrollFrame, false, null, false);
-  initMatrix("matrix-debug", () => debugPreviewFrame, false, null, false);
+  MATRIX_VIEW_CONFIGS.forEach(([id, frameProvider, editable, editHandler, compact]) => {
+    initMatrix(id, frameProvider, editable, editHandler, compact);
+  });
 }
 
 function resetBatteryVoltageRecord(kind) {
@@ -11609,20 +11842,23 @@ function parsePackedFrameOrError(text) {
   }
 }
 
-// preview-only only writes debugPreviewFrame (does not touch currentFrame/setCurrentFrame/queueFirmwareFrame,
-// updateDps is not called); send uses setCurrentFrame and then mirrors to the preview buffer (v2 rule 1).
+// Preview-only updates the shared WebUI preview without sending to firmware; send uses
+// setCurrentFrame(), which updates the same preview and queues the firmware frame.
 function applyDebugFrame(frame, source = "debug pattern", options = {}) {
   if (options.send) {
     setCurrentFrame(frame, options.reason || "debug_send", "idle");
-    debugPreviewFrame = cloneFrame(currentFrame);
     debugPreviewSource = "firmware";
   } else {
-    debugPreviewFrame = cloneFrame(frame);
-    debugPreviewSource = source;
+    setSharedPreviewFrame(frame, options.reason || source, source);
+    state.lastRefreshReason = options.reason || source;
+    state.refreshCount++;
+    updateDps();
+    updatePackedFrameViews();
   }
   debugPreviewReason = options.reason || source;
   debugPreviewUpdatedAt = Date.now();
   renderMatrices();
+  renderState();
   renderDebugPreviewPanel();
 }
 

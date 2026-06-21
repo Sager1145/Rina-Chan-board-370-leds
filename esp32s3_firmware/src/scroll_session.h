@@ -63,6 +63,7 @@ struct ScrollSessionSnapshot {
     uint16_t scrollFrameCount           = 0;
     uint16_t scrollFrameIndex           = 0;
     uint16_t scrollIntervalMs           = DEFAULT_SCROLL_INTERVAL_MS;
+    uint8_t  uiFps                      = 0;
     char     scrollTimelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
     bool     scrollUploadComplete       = false;
     bool     scrollHasSourceText        = false;
@@ -74,12 +75,12 @@ struct ScrollSessionSnapshot {
 
 bool isScrollPlayback(const String& playback);
 
-ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode);
+ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode, uint8_t uiFps = 0);
 ScrollStopResult  scrollSessionStop(bool restoreAuto, bool clearDisplay);
 bool scrollSessionSetUserPaused(bool paused);
 bool scrollSessionSetSystemPaused(bool paused);
 bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits);
-void scrollSessionSetInterval(uint16_t intervalMs);
+void scrollSessionSetInterval(uint16_t intervalMs, uint8_t uiFps = 0);
 // Store the original source text into the current scroll session meta (RAM). Used when the
 // WebUI sends the text in the start_scroll command body instead of the upload query string.
 void scrollSessionSetSourceText(const char* text, uint16_t bytes);
@@ -92,7 +93,7 @@ ScrollUploadTxn    scrollSessionBeginUpload(const ScrollUploadMeta& meta);
 ScrollUploadTxn    scrollSessionBeginAppend();
 bool               scrollSessionWriteFrame(const ScrollUploadTxn& txn, uint16_t index, const uint8_t* packedBits);
 ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_t count,
-                                             bool hasExplicitTiming, uint16_t intervalMs);
+                                             bool hasExplicitTiming, uint16_t intervalMs, uint8_t uiFps = 0);
 void               scrollSessionInvalidateCache();
 void               scrollSessionClearTimeline();
 bool               scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize);
