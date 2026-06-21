@@ -12,6 +12,93 @@ static portMUX_TYPE ledRenderRequestMux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool ledRenderRequested = false;
 static uint32_t lastLedShowUs = 0;
 
+// --- Presented-frame telemetry --------------------------------------------------------------
+// pendingPresentationContext is set just before a frame is rendered (scroll tick / start / step);
+// renderCurrentFrameToLedStrip() consumes it and, after the LED latch, stores latestPresentedSample.
+static portMUX_TYPE ledPresentationMux = portMUX_INITIALIZER_UNLOCKED;
+static LedPresentationContext pendingPresentationContext;
+static LedPresentedSample latestPresentedSample;
+static uint32_t presentedSeq = 0;
+
+static const char* presentationSourceName(LedPresentationSource source) {
+    switch (source) {
+        case LedPresentationSource::ScrollTick:  return "scroll_tick";
+        case LedPresentationSource::ScrollStart: return "scroll_start";
+        case LedPresentationSource::ScrollStep:  return "scroll_step";
+        case LedPresentationSource::ManualFrame: return "manual_frame";
+        case LedPresentationSource::Clear:       return "clear";
+        case LedPresentationSource::Overlay:     return "overlay";
+        default:                                 return "unknown";
+    }
+}
+
+void setPendingLedPresentationContext(const LedPresentationContext& ctx) {
+    portENTER_CRITICAL(&ledPresentationMux);
+    pendingPresentationContext = ctx;
+    portEXIT_CRITICAL(&ledPresentationMux);
+}
+
+static LedPresentationContext consumePendingLedPresentationContext() {
+    LedPresentationContext ctx;
+    portENTER_CRITICAL(&ledPresentationMux);
+    ctx = pendingPresentationContext;
+    pendingPresentationContext = LedPresentationContext{};
+    portEXIT_CRITICAL(&ledPresentationMux);
+    return ctx;
+}
+
+// Publish a presented sample for a frame whose identity was known (ctx.valid). Plain renders
+// without a context (brightness/color refreshes, queue flushes) are intentionally skipped so a
+// stray refresh can never clobber the last good scroll sample the WebUI is tracking.
+static void publishLedPresentedSample(const LedPresentationContext& ctx,
+                                      uint32_t renderStartUs, uint32_t renderEndUs) {
+    if (!ctx.valid) return;
+
+    LedPresentedSample sample;
+    sample.valid = true;
+    sample.presentedSeq = ++presentedSeq;
+    sample.source = ctx.source;
+    strlcpy(sample.timelineId, ctx.timelineId, sizeof(sample.timelineId));
+    sample.presentedFrameIndex = ctx.frameIndex;
+    sample.presentedFrameCount = ctx.frameCount;
+    sample.nominalIntervalMs   = ctx.nominalIntervalMs;
+    sample.uiFps               = ctx.uiFps;
+    sample.firmwareScrollActive = ctx.firmwareScrollActive;
+    sample.firmwareScrollPaused = ctx.firmwareScrollPaused;
+    sample.userPaused           = ctx.userPaused;
+    sample.systemPaused         = ctx.systemPaused;
+    sample.rateEligible         = ctx.rateEligible;
+    sample.renderStartUs    = renderStartUs;
+    sample.presentedAtUs    = renderEndUs;
+    sample.renderDurationUs = renderEndUs - renderStartUs;
+    strlcpy(sample.reason, ctx.reason, sizeof(sample.reason));
+
+    portENTER_CRITICAL(&ledPresentationMux);
+    latestPresentedSample = sample;
+    portEXIT_CRITICAL(&ledPresentationMux);
+
+    // No touchRuntimeState(): per-frame telemetry must not bump the UI state version.
+    // TRACE-only, rate-limited to <=1/sec.
+    static uint32_t sLastPresentLogMs = 0;
+    if (rinaLogShouldEmit(RINA_LOG_TRACE) && rinaLogRateReady(sLastPresentLogMs, 1000)) {
+        RLOG_TRACE("LED", "event=present seq=%lu source=%s idx=%u/%u dur_us=%lu eligible=%d",
+                   static_cast<unsigned long>(sample.presentedSeq),
+                   presentationSourceName(sample.source),
+                   static_cast<unsigned>(sample.presentedFrameIndex),
+                   static_cast<unsigned>(sample.presentedFrameCount),
+                   static_cast<unsigned long>(sample.renderDurationUs),
+                   sample.rateEligible ? 1 : 0);
+    }
+}
+
+LedPresentedSample readLedPresentedSample() {
+    LedPresentedSample sample;
+    portENTER_CRITICAL(&ledPresentationMux);
+    sample = latestPresentedSample;
+    portEXIT_CRITICAL(&ledPresentationMux);
+    return sample;
+}
+
 struct QueuedPackedFrame {
     uint8_t bits[FRAME_BYTES] = {};
     char    reason[PACKED_FRAME_REASON_CHARS] = "";
@@ -175,6 +262,7 @@ FrameStateSnapshot readFrameStateSnapshot() {
 }
 
 void renderCurrentFrameToLedStrip() {
+    LedPresentationContext ctx = consumePendingLedPresentationContext();
     uint8_t localFrame[FRAME_BYTES];
     static uint8_t overlayRgb[LED_COUNT * 3];
     uint8_t brightness = DEFAULT_BRIGHTNESS;
@@ -202,6 +290,9 @@ void renderCurrentFrameToLedStrip() {
             const uint16_t offset = logical * 3U;
             leddrv::setPixel(logicalToPhysicalMap[logical], overlayRgb[offset], overlayRgb[offset + 1], overlayRgb[offset + 2]);
         }
+        // An overlay (e.g. button animation) is covering the scroll frame, so this latch does
+        // not represent a clean scroll frame — never let it drive fps estimation.
+        ctx.rateEligible = false;
     } else {
         for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
             if (packedFrameBit(localFrame, logical)) leddrv::setPixel(logicalToPhysicalMap[logical], colorR, colorG, colorB);
@@ -209,8 +300,12 @@ void renderCurrentFrameToLedStrip() {
         }
     }
     delayMicroseconds(LED_SIGNAL_RESET_US);
+    const uint32_t renderStartUs = micros();
     withHardwareBusLock([]() { leddrv::refresh(); });
-    lastLedShowUs = micros();
+    const uint32_t renderEndUs = micros();
+    lastLedShowUs = renderEndUs;
+    // The LED has now actually latched this frame: record it as the presented sample.
+    publishLedPresentedSample(ctx, renderStartUs, renderEndUs);
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
 
@@ -237,10 +332,14 @@ bool applyPackedFrameQueued(const uint8_t* packedBits, const String& reason, Str
     return true;
 }
 
-void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason) {
+void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason,
+                               const LedPresentationContext* ctx) {
     if (!packedBits) return;
     String error;
     if (!validatePackedFrame(packedBits, error)) return;
+    // Hand the renderer the precise identity of this frame (scroll start/step) before the
+    // render request is raised, so the resulting presented sample carries the right frame index.
+    if (ctx) setPendingLedPresentationContext(*ctx);
     publishPackedFrameNow(packedBits, reason.c_str());
     const uint16_t lit = countLitLedsLocked(packedBits);
     RLOG_INFO("LED", "event=apply_immediate_packed reason=%s lit=%u bytes=%u brightness=%u", reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES), runtimeState().brightness);

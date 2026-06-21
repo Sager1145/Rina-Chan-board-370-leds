@@ -6,6 +6,30 @@
 #include "serial_log.h"
 #include <string.h>
 
+void scrollSessionFillPresentationContext(LedPresentationContext& ctx,
+                                          LedPresentationSource source,
+                                          const char* reason, bool rateEligible) {
+    withScrollLock([&]() {
+        const RuntimeState& rs = runtimeState();
+        const ScrollTimelineMeta& meta = runtimeScrollMeta();
+        ctx = LedPresentationContext{};
+        ctx.valid = true;
+        ctx.source = source;
+        strlcpy(ctx.timelineId, meta.timelineId, sizeof(ctx.timelineId));
+        ctx.frameIndex        = rs.scrollFrameIndex;
+        ctx.frameCount        = rs.scrollFrameCount;
+        ctx.nominalIntervalMs = rs.scrollIntervalMs;
+        ctx.uiFps             = meta.uiFps;
+        ctx.firmwareScrollActive = rs.firmwareScrollActive;
+        ctx.firmwareScrollPaused = rs.firmwareScrollPaused;
+        ctx.userPaused           = rs.firmwareScrollUserPaused;
+        ctx.systemPaused         = rs.firmwareScrollSystemPaused;
+        ctx.rateEligible = rateEligible && rs.firmwareScrollActive &&
+                           !rs.firmwareScrollPaused && rs.scrollFrameCount > 0;
+        strlcpy(ctx.reason, reason ? reason : "", sizeof(ctx.reason));
+    });
+}
+
 bool isScrollPlayback(const String& playback) {
     return playback == "scroll" ||
            playback == "scroll_paused" ||
@@ -205,11 +229,15 @@ ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode)
     if (hasFirstFrame) {
         runtimeState().playback = "scroll";
         result.started = true;
+        // Report the start frame (index 0) for position alignment, but never for fps estimation.
+        LedPresentationContext ctx;
+        scrollSessionFillPresentationContext(ctx, LedPresentationSource::ScrollStart,
+                                             "firmware_text_scroll_start", false);
         RLOG_INFO("SCROLL", "event=start count=%u interval_ms=%u restoreAuto=%d",
                   static_cast<unsigned>(runtimeState().scrollFrameCount),
                   static_cast<unsigned>(runtimeState().scrollIntervalMs),
                   result.engagedRestoreAuto ? 1 : 0);
-        applyPackedFrameImmediate(firstFrame, "firmware_text_scroll_start");
+        applyPackedFrameImmediate(firstFrame, "firmware_text_scroll_start", &ctx);
     }
     return result;
 }

@@ -93,6 +93,7 @@ const WEBUI_CONFIG = Object.freeze({
       command: "/api/command",
       scroll: "/api/scroll",
       scrollMeta: "/api/scroll/meta",
+      previewSync: "/api/preview_sync",
       savedFaces: "/api/saved_faces",
       power: "/api/power",
       status: "/api/status",
@@ -3277,6 +3278,18 @@ const HW_RATE_EMA_ALPHA = 0.4;      // smoothing of the measured fps
 const HW_RATE_RETUNE_RATIO = 0.05;  // only retune the preview timer on >5% interval change
 const HW_PHASE_GAIN = 0.12;         // proportional gain: preview speed factor = 1 + gain*phaseError
 const HW_PHASE_MAX_ADJ = 0.25;      // cap preview speed change to +/-25% (smooth, no skip/hold/jump)
+// Preview speed controller (driven by /api/preview_sync presentedFrameIndex + presentedAtUs).
+// The preview never jumps/holds/skips frames during live scrolling; it only runs slightly faster
+// or slower to converge its phase onto the LED's actually-presented frame.
+const PREVIEW_SYNC_POLL_MS = 250;            // how often to poll /api/preview_sync while scrolling
+const PREVIEW_PHASE_DEADBAND_FRAMES = 0.65;  // within this phase error, run at exactly base speed
+const PREVIEW_GENTLE_MIN = 0.97;             // small steady-state correction band
+const PREVIEW_GENTLE_MAX = 1.03;
+const PREVIEW_CATCHUP_MIN = 0.9;             // wider band when far out of phase
+const PREVIEW_CATCHUP_MAX = 1.1;
+const PREVIEW_CATCHUP_THRESHOLD_FRAMES = 4;  // |phase error| beyond this uses the catch-up band
+const PREVIEW_ALIGN_HORIZON_MS = 1000;       // aim to close the phase error over ~this long
+const PREVIEW_SPEED_SLEW_PER_SEC = 0.04;     // ramp the speed multiplier at most 4%/s (no jolts)
 const RUNTIME_STATUS_QUERY = WEBUI_CONFIG.api.runtimeStatusQuery;
 const SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS =
   WEBUI_CONFIG.firmwareQueues.scrollButtonStopFullSyncDelayMs;
@@ -3644,6 +3657,16 @@ let scroll = {
   previewIntervalMs: 0, // measured preview-timer interval (0 = use user fps)
   phaseError: 0,        // signed frames the device index leads the WebUI display (ground truth)
   phaseAccum: 0,        // fractional accumulator for smooth integer phase correction
+  // Presented-frame sync (see recordPresentedSyncSample / /api/preview_sync):
+  hwLastSeq: 0,             // last presentedSeq consumed (ordering / dedupe)
+  hwLastUnwrappedFrame: null,
+  phaseErrorFiltered: 0,    // low-pass of the raw phase error fed to the speed controller
+  previewSpeedMultiplier: 1,        // current applied preview-speed multiplier (slew-limited)
+  previewTargetSpeedMultiplier: 1,  // desired multiplier from the phase controller
+  lastSpeedUpdateMs: 0,             // last nextPreviewDelayMs() timestamp (for slew dt)
+  syncState: "observe",             // observe | gentle | catchup | locked
+  syncStableSinceMs: 0,
+  ignoreRateUntilSeq: 0,            // presented samples <= this seq are position-only (no fps est.)
   // Source text synchronization (plan v6):
   // timelineId = current firmware/upload timeline identity
   // framesTimelineId = scroll.frames exactly corresponds to the timeline (only in generator identity +
@@ -3787,8 +3810,9 @@ const scrollMachine = (function () {
       scroll.offset = scroll.frameIndex;
       machine.cache.frameIndex = scroll.frameIndex;
     }
-    // Sample the device frame index to estimate its real fps and calibrate the preview speed.
-    recordFirmwareScrollSample(frameIndex, frameCount, active && !paused);
+    // Rate/phase calibration is now driven by the dedicated /api/preview_sync poller
+    // (recordPresentedSyncSample), which uses the LED's actually-presented frame index and
+    // device timestamp instead of this logical status cursor. See startPreviewSyncPoller().
   }
 
   // Allowed source phases per event (audit fix #5). `null` = valid from any phase.
@@ -6503,6 +6527,7 @@ async function syncRuntimeSummaryFromFirmware(source = "firmware_poll_runtime_su
 }
 
 function startFirmwareStatusPolling() {
+  startPreviewSyncPoller();
   if (firmwareStatusPollTimer || isOfflineHtmlMode()) return;
   firmwareStatusPollTimer = setInterval(() => {
     // P1-6: while a scroll upload is in flight, skip status polling so the single-
@@ -6566,6 +6591,7 @@ function stopPollingTimers() {
     clearInterval(powerStatusPollTimer);
     powerStatusPollTimer = null;
   }
+  stopPreviewSyncPoller();
 }
 window.addEventListener("pagehide", stopPollingTimers);
 
@@ -9280,6 +9306,15 @@ function resetFirmwareScrollRate() {
   scroll.previewIntervalMs = 0;
   scroll.phaseError = 0;
   scroll.phaseAccum = 0;
+  // Presented-frame sync state.
+  scroll.hwLastSeq = 0;
+  scroll.hwLastUnwrappedFrame = null;
+  scroll.phaseErrorFiltered = 0;
+  scroll.previewSpeedMultiplier = 1;
+  scroll.previewTargetSpeedMultiplier = 1;
+  scroll.syncState = "observe";
+  scroll.syncStableSinceMs = 0;
+  scroll.ignoreRateUntilSeq = 0;
 }
 
 // Preview timer interval: measured device interval while firmware owns the session and an
@@ -9369,21 +9404,186 @@ function recordFirmwareScrollSample(frameIndex, frameCount, live) {
   }
 }
 
-// Phase alignment by speed modulation: each preview tick advances exactly one frame, but the
-// delay until the next tick is shortened (run faster) when the display is behind the firmware
-// and lengthened (run slower) when ahead, so the phase converges smoothly over a few seconds
-// without ever skipping, holding, or jumping a frame. The fps slider/buttons are never touched.
+// --- Presented-frame sync (/api/preview_sync) -----------------------------------------------
+// Upgrades the rate/phase estimation from the logical scroll cursor (status/meta polls) to the
+// LED's ACTUALLY-presented frame: (presentedFrameIndex, presentedAtUs). The firmware never
+// pushes full frames and the fps slider/buttons stay authoritative; we only steer the internal
+// preview interval + a slew-limited speed multiplier.
+
+// Internal-only preview base rate from a measured fps. Never touches the slider/buttons.
+function applyMeasuredPreviewFpsOnly(fps, source = "preview_sync_measured_fps") {
+  if (!Number.isFinite(fps) || fps <= 0) return false;
+  const nextInterval = Math.max(1, 1000 / fps);
+  const prevInterval = scroll.previewIntervalMs || 0;
+  scroll.hwMeasuredFps = fps;
+  state.firmwareScrollFps = fps;
+  if (prevInterval <= 0) {
+    scroll.previewIntervalMs = nextInterval;
+  } else {
+    const alpha = 0.18;
+    scroll.previewIntervalMs = prevInterval * (1 - alpha) + nextInterval * alpha;
+  }
+  return true;
+}
+
+// Signed shortest distance from `current` to `target` on a ring of `frameCount`, in [-N/2, N/2].
+function shortestFrameDelta(target, current, frameCount) {
+  if (!frameCount || frameCount <= 0) return 0;
+  let d = (((target - current) % frameCount) + frameCount) % frameCount;
+  if (d > frameCount / 2) d -= frameCount;
+  return d;
+}
+
+// Forward (always non-negative) advance from prevIndex to nextIndex on the ring.
+function forwardFrameDelta(nextIndex, prevIndex, frameCount) {
+  if (!frameCount || frameCount <= 0) return 0;
+  return (((nextIndex - prevIndex) % frameCount) + frameCount) % frameCount;
+}
+
+// Least-squares slope of unwrapped presented-frame vs device time (presentedAtUs-derived ms).
+function estimatePresentedFpsByRegression(samples) {
+  if (!Array.isArray(samples) || samples.length < HW_RATE_MIN_SAMPLES) return null;
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  const spanMs = last.tMs - first.tMs;
+  const spanFrames = last.unwrappedFrame - first.unwrappedFrame;
+  if (spanMs < HW_RATE_MIN_SPAN_MS || spanFrames < HW_RATE_MIN_FRAMES) return null;
+  const t0 = first.tMs;
+  const n = samples.length;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const pt of samples) {
+    const x = pt.tMs - t0;
+    const y = pt.unwrappedFrame;
+    sx += x; sy += y; sxx += x * x; sxy += x * y;
+  }
+  const denom = n * sxx - sx * sx;
+  if (denom <= 0) return null;
+  const fps = ((n * sxy - sx * sy) / denom) * 1000;
+  if (!Number.isFinite(fps) || fps < HW_RATE_FPS_MIN || fps > HW_RATE_FPS_MAX) return null;
+  scroll.hwMeasuredFps = scroll.hwMeasuredFps > 0
+    ? scroll.hwMeasuredFps * (1 - HW_RATE_EMA_ALPHA) + fps * HW_RATE_EMA_ALPHA
+    : fps;
+  return scroll.hwMeasuredFps;
+}
+
+// Translate the (low-passed) phase error into a TARGET speed multiplier. Inside the deadband the
+// target is exactly 1.0 (run at base speed). Larger errors widen the correction band. The actual
+// applied multiplier is slew-limited in nextPreviewDelayMs() so the speed never jolts.
+function updatePreviewSpeedController(frameCount) {
+  const err = Number(scroll.phaseError || 0);
+  const absErr = Math.abs(err);
+  if (!Number.isFinite(err) || frameCount <= 0) {
+    scroll.previewTargetSpeedMultiplier = 1;
+    return;
+  }
+  if (absErr < PREVIEW_PHASE_DEADBAND_FRAMES) {
+    scroll.previewTargetSpeedMultiplier = 1;
+    if (scroll.syncState !== "locked") {
+      scroll.syncStableSinceMs = performance.now();
+      scroll.syncState = "locked";
+    }
+    return;
+  }
+  const measuredFps = scroll.hwMeasuredFps || getScrollFps();
+  const horizonFrames = Math.max(1, measuredFps * (PREVIEW_ALIGN_HORIZON_MS / 1000));
+  const catchup = absErr >= PREVIEW_CATCHUP_THRESHOLD_FRAMES;
+  const minMul = catchup ? PREVIEW_CATCHUP_MIN : PREVIEW_GENTLE_MIN;
+  const maxMul = catchup ? PREVIEW_CATCHUP_MAX : PREVIEW_GENTLE_MAX;
+  // err > 0: the LED is ahead of the preview, so the preview should run faster (multiplier > 1).
+  const target = clamp(1 + err / horizonFrames, minMul, maxMul);
+  scroll.previewTargetSpeedMultiplier = target;
+  scroll.syncState = catchup ? "catchup" : "gentle";
+}
+
+// Consume one /api/preview_sync payload. Aligns position (paused / forced), estimates fps from
+// rate-eligible continuous-tick samples, and feeds the phase error to the speed controller.
+function recordPresentedSyncSample(payload = {}, options = {}) {
+  const frameCount = Number(payload.presentedFrameCount ?? payload.frameCount);
+  const frameIndex = Number(payload.presentedFrameIndex ?? payload.frameIndex);
+  const seq = Number(payload.presentedSeq);
+  const presentedAtUs = Number(payload.presentedAtUs);
+  const timelineId = String(payload.scrollTimelineId || "");
+  const active = !!payload.firmwareScrollActive;
+  const paused = !!payload.firmwareScrollPaused;
+  const rateEligible = !!payload.rateEligible && active && !paused && !options.excludeFromRate;
+
+  if (
+    !Number.isFinite(frameCount) || frameCount <= 0 ||
+    !Number.isFinite(frameIndex) || !Number.isFinite(seq)
+  ) {
+    return;
+  }
+  // A different timeline: cannot estimate rate and cannot align our stale local frames to it.
+  if (scroll.framesTimelineId && timelineId && scroll.framesTimelineId !== timelineId) {
+    resetFirmwareScrollRate();
+    return;
+  }
+  // Without a matching local frame cache there is nothing to drive the preview with.
+  if (!scroll.frames.length || frameCount !== scroll.frames.length) return;
+
+  const source = String(payload.source || "");
+  const sourceIsDiscontinuous =
+    source === "scroll_start" || source === "scroll_step" ||
+    source === "manual_frame" || source === "clear";
+  const shouldUseForRate =
+    rateEligible && !sourceIsDiscontinuous && seq > (scroll.ignoreRateUntilSeq || 0);
+
+  // 1) Phase error (LED ground truth vs local preview display), low-passed for the controller.
+  const localDisplay = Number.isFinite(scroll.displayIndex) ? scroll.displayIndex : scroll.frameIndex;
+  const phaseError = shortestFrameDelta(frameIndex, localDisplay, frameCount);
+  const phaseAlpha = 0.25;
+  scroll.phaseErrorFiltered =
+    (scroll.phaseErrorFiltered || 0) * (1 - phaseAlpha) + phaseError * phaseAlpha;
+  scroll.phaseError = scroll.phaseErrorFiltered;
+
+  // 2) Paused / forced: hard-snap (the LED is stopped, so no visible "catch-up" jump) and exclude
+  //    these samples from rate estimation.
+  if (paused || options.forceSnap) {
+    snapPreviewToFirmwareFrame(frameIndex, "preview_sync_paused_or_command");
+    scroll.ignoreRateUntilSeq = Math.max(scroll.ignoreRateUntilSeq || 0, seq + 2);
+    scroll.syncState = "observe";
+    return;
+  }
+
+  // 3) Estimate the real fps from presented timestamps (device time), never HTTP arrival time.
+  if (shouldUseForRate && Number.isFinite(presentedAtUs)) {
+    const tMs = presentedAtUs / 1000;
+    if (!scroll.hwSamples.length) {
+      scroll.hwSamples.push({ seq, tMs, frameIndex, unwrappedFrame: frameIndex });
+    } else {
+      const last = scroll.hwSamples[scroll.hwSamples.length - 1];
+      if (seq > last.seq && tMs > last.tMs) {
+        const delta = forwardFrameDelta(frameIndex, last.frameIndex, frameCount);
+        scroll.hwSamples.push({ seq, tMs, frameIndex, unwrappedFrame: last.unwrappedFrame + delta });
+      }
+    }
+    const cutoff = presentedAtUs / 1000 - HW_RATE_WINDOW_MS;
+    while (scroll.hwSamples.length > 2 && scroll.hwSamples[0].tMs < cutoff) scroll.hwSamples.shift();
+    const fps = estimatePresentedFpsByRegression(scroll.hwSamples);
+    if (Number.isFinite(fps)) applyMeasuredPreviewFpsOnly(fps, "presented_frame_regression");
+  }
+  scroll.hwLastSeq = seq;
+
+  // 4) Steer the preview speed from the phase error — only speed, never frame skips.
+  updatePreviewSpeedController(frameCount);
+}
+
+// Phase alignment by speed modulation: each preview tick advances exactly one frame, but the delay
+// until the next tick is shortened (faster) or lengthened (slower) so the phase converges smoothly
+// onto the LED's presented frame — never skipping, holding, or jumping. The slider/buttons are
+// never touched, and the applied speed multiplier is slew-limited so the speed change is gradual.
 function nextPreviewDelayMs() {
   const base = effectivePreviewIntervalMs();
-  let factor = 1;
-  if (scroll.phaseError) {
-    factor = 1 + clamp(scroll.phaseError * HW_PHASE_GAIN, -HW_PHASE_MAX_ADJ, HW_PHASE_MAX_ADJ);
-    // Drain the error estimate by the frames we expect to gain on the device this tick;
-    // the next firmware sample re-anchors phaseError to the true offset (ground truth).
-    scroll.phaseError -= 1 - 1 / factor;
-    if (Math.abs(scroll.phaseError) < 0.05) scroll.phaseError = 0;
-  }
-  return Math.max(1, Math.round(base / factor));
+  const now = performance.now();
+  const last = scroll.lastSpeedUpdateMs || now;
+  const dt = Math.max(0, (now - last) / 1000);
+  scroll.lastSpeedUpdateMs = now;
+  const current = scroll.previewSpeedMultiplier || 1;
+  const target = scroll.previewTargetSpeedMultiplier || 1;
+  const maxDelta = PREVIEW_SPEED_SLEW_PER_SEC * dt;
+  const next = current + clamp(target - current, -maxDelta, maxDelta);
+  scroll.previewSpeedMultiplier = next;
+  return Math.max(1, Math.round(base / next));
 }
 
 function previewTickLoop() {
@@ -9399,6 +9599,82 @@ function restartScrollPreviewTimer() {
   if (scroll.timer) { clearTimeout(scroll.timer); clearInterval(scroll.timer); }
   scroll.timer = null;
   if (scroll.active && !scroll.paused) previewTickLoop();
+}
+
+// --- Preview-sync poller --------------------------------------------------------------------
+// A lightweight, self-scheduling poll of /api/preview_sync (NOT mixed into the main status poll)
+// that runs only while a scroll session is live and the page is visible.
+let previewSyncTimer = null;
+
+function shouldPollPreviewSync() {
+  return (
+    !document.hidden &&
+    (scroll.active || scroll.firmwareBacked || state.textScrollActive) &&
+    scroll.frames.length > 0
+  );
+}
+
+async function pollPreviewSyncOnce(options = {}) {
+  if (!shouldPollPreviewSync() && !options.force) return null;
+  // Don't pile onto the single-threaded ESP server while a heavy request is in flight.
+  if (
+    !options.force &&
+    (firmwareFullStatusInFlight || scrollMetaFetchInFlight || scroll.uploading || scroll.startBusy)
+  ) {
+    return null;
+  }
+  try {
+    const payload = await apiGet(API_ENDPOINTS.previewSync, { timeoutMs: API_GET_TIMEOUT_MS });
+    if (!payload || payload.ok === false || !payload.valid) return null;
+    recordPresentedSyncSample(payload, {
+      excludeFromRate: !!options.excludeFromRate,
+      forceSnap: !!options.forceSnap,
+    });
+    return payload;
+  } catch (err) {
+    if (shouldLogApiError()) {
+      logScrollRestoreDebug("preview sync failed", { error: err?.message || String(err) });
+    }
+    return null;
+  }
+}
+
+function startPreviewSyncPoller() {
+  if (previewSyncTimer || isOfflineHtmlMode()) return;
+  const loop = async () => {
+    previewSyncTimer = null;
+    if (shouldPollPreviewSync()) await pollPreviewSyncOnce();
+    previewSyncTimer = setTimeout(loop, PREVIEW_SYNC_POLL_MS);
+  };
+  previewSyncTimer = setTimeout(loop, PREVIEW_SYNC_POLL_MS);
+}
+
+function stopPreviewSyncPoller() {
+  if (previewSyncTimer) {
+    clearTimeout(previewSyncTimer);
+    previewSyncTimer = null;
+  }
+}
+
+// After pause/resume: align the preview to the LED's actual frame once, but keep that sample out
+// of fps estimation (pause stops ticks; resume resets the firmware's lastScrollFrameMs).
+async function syncPreviewAfterPauseResume(reason) {
+  const sample = await pollPreviewSyncOnce({ force: true, forceSnap: true, excludeFromRate: true });
+  if (sample && Number.isFinite(Number(sample.presentedSeq))) {
+    scroll.ignoreRateUntilSeq = Math.max(
+      scroll.ignoreRateUntilSeq || 0,
+      Number(sample.presentedSeq) + 2,
+    );
+  }
+  scroll.previewTargetSpeedMultiplier = 1;
+  scroll.previewSpeedMultiplier = 1;
+  scroll.syncState = "observe";
+  logScrollRestoreDebug("pause/resume frame sync", {
+    reason,
+    presentedSeq: sample?.presentedSeq,
+    frameIndex: sample?.presentedFrameIndex ?? sample?.frameIndex,
+    excludedFromRate: true,
+  });
 }
 
 function setScrollFps(fps, source = "text_scroll_fps_change") {
@@ -9903,6 +10179,8 @@ async function pauseScroll() {
       scroll.timer = null;
       applyFirmwareRuntimeState(data, "text_scroll_paused_result");
       snapPreviewToFirmwareFrame(Number(data.scrollFrameIndex), "text_scroll_pause_sync");
+      // Re-align to the LED's actually-presented frame; this sample is excluded from fps est.
+      await syncPreviewAfterPauseResume("pause_scroll");
       log("文字滚动已暂停，已按固件(LED)实际帧编号对齐预览");
     } else {
       log("暂停命令未确认，保持现有滚动状态并等待下一次固件同步");
@@ -9936,6 +10214,9 @@ async function resumeScroll() {
       scrollMachine.dispatch("RESUME_USER");
       applyFirmwareRuntimeState(data, "text_scroll_resumed_result");
       snapPreviewToFirmwareFrame(Number(data.scrollFrameIndex), "text_scroll_resume_sync");
+      // Align to the LED's actual frame and hold the first samples out of fps estimation, since
+      // the firmware resets its scroll clock (lastScrollFrameMs) on resume.
+      await syncPreviewAfterPauseResume("resume_scroll");
       scroll.fpsStarted = performance.now();
       scroll.frameCounter = 0;
       if (scroll.systemPaused) {

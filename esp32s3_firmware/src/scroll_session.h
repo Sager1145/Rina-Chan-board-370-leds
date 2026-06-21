@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include "config.h"
 #include "state.h"
+#include "led_presentation.h"
 
 struct ScrollStartResult {
     bool started            = false;
@@ -98,3 +99,10 @@ bool               scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size
 ScrollSessionSnapshot scrollSessionSnapshot();
 
 bool scrollSessionTickCursorLocked(uint32_t now, uint8_t* outFrameBits);
+
+// Fill a presentation context from the current scroll session state (acquires the scroll lock
+// internally). Used by start/step paths so the presented sample carries the right frame identity.
+// rateEligible is forced false unless the session is actively (non-paused) scrolling.
+void scrollSessionFillPresentationContext(LedPresentationContext& ctx,
+                                          LedPresentationSource source,
+                                          const char* reason, bool rateEligible);
