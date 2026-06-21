@@ -3686,8 +3686,6 @@ let scroll = {
 let pendingScrollMeta = null;
 let scrollMetaFetchInFlight = false;
 let lastScrollMetaFetchAt = 0;
-// Do not trigger the /api/scroll/meta pull before the startup key read is completed to avoid crowding out the single-threaded ESP server.
-let scrollMetaRestoreEnabled = false;
 let lastFwScrollTimelineId = "";
 let lastFwScrollHasSourceText = false;
 let lastFwScrollFrameCount = 0;
@@ -5346,23 +5344,6 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
         scrollHasSourceText: lastFwScrollHasSourceText,
       });
     }
-  }
-  // P0-3: Previously, detecting a firmware timeline that differs from the WebUI's here
-  // would AUTOMATICALLY fetch sourceText and regenerate the full preview from the poll
-  // path -- exactly the heavy work that froze the WebUI / stressed the board on refresh.
-  // That auto-restore is now removed; instead, when the firmware is displaying
-  // recoverable scroll text the WebUI hasn't reproduced, we just keep the manual
-  // "restore from firmware" button visible (see shouldShowScrollRestoreButton). The
-  // user triggers the heavy restore deliberately.
-  if (
-    scrollMetaRestoreEnabled &&
-    fwScrollDisplaying &&
-    fwScrollTimelineId &&
-    fwScrollHasSourceText &&
-    fwScrollTimelineId !== scroll.timelineId &&
-    isScrollPageActive()
-  ) {
-    updateScrollUi();
   }
   if (stateChanged) renderState();
 }
@@ -9134,8 +9115,6 @@ function initScroll() {
   // contract is visual movement direction.
   setScrollStepHandler("scroll-step-prev", 1);
   setScrollStepHandler("scroll-step-next", -1);
-  const restoreBtn = $("scroll-restore-btn");
-  if (restoreBtn) restoreBtn.hidden = true;
   setClickHandlers([
     [
       "scroll-speed-reset-default",
@@ -10964,7 +10943,6 @@ function kickPostBootScrollMetaRestore(source = "post_boot") {
     return Promise.resolve(false);
   }
   postBootScrollMetaRestoreStarted = true;
-  scrollMetaRestoreEnabled = true;
   // Full automatic restore on every refresh/boot: read /api/scroll/meta, and when the firmware
   // is displaying text scroll with recoverable sourceText, pull the source string + set FPS,
   // regenerate the preview frames BROWSER-SIDE, snap to the firmware's current frame index, and
@@ -10979,16 +10957,6 @@ function kickPostBootScrollMetaRestore(source = "post_boot") {
     });
     return false;
   });
-}
-
-async function manualRestoreScrollFromFirmware() {
-  // Product behavior no longer exposes a manual restore button. Keep this as a
-  // compatibility no-op for stale cached HTML or external test harnesses.
-  return syncScrollStateTextFpsLightweightAfterBoot("manual_restore_compat");
-}
-
-function shouldShowScrollRestoreButton() {
-  return false;
 }
 
 async function restoreScrollPreviewIfNeeded(source = "restore_preview", restoreToken = null) {
@@ -11481,13 +11449,6 @@ function updateScrollUi() {
   if (restoreWarnEl) {
     setDomTextIfChanged(restoreWarnEl, scroll.restoreWarning || "");
     restoreWarnEl.hidden = !scroll.restoreWarning;
-  }
-
-  // No manual restore button: boot/page-entry sync is automatic and lightweight.
-  const restoreBtnEl = $("scroll-restore-btn");
-  if (restoreBtnEl) {
-    restoreBtnEl.hidden = true;
-    setDomDisabledIfChanged(restoreBtnEl, true);
   }
 }
 
@@ -12630,3 +12591,4 @@ if (document.readyState === "loading") {
 } else {
   bootstrapWebUi();
 }
+// (manual scroll-restore button removed; restore is fully automatic via kickPostBootScrollMetaRestore)
