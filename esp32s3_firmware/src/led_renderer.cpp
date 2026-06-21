@@ -5,9 +5,7 @@
 #include "utils.h"
 #include "button_animations.h"
 #include "serial_log.h"
-#include <Adafruit_NeoPixel.h>
-
-static Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+#include "led_driver.h"
 
 static uint16_t logicalToPhysicalMap[LED_COUNT] = {};
 static portMUX_TYPE ledRenderRequestMux = portMUX_INITIALIZER_UNLOCKED;
@@ -195,31 +193,33 @@ void renderCurrentFrameToLedStrip() {
     }
     static uint8_t lastAppliedBrightness = DEFAULT_BRIGHTNESS;
     if (brightness != lastAppliedBrightness) {
-        strip.setBrightness(brightness);
+        leddrv::setBrightness(brightness);
         lastAppliedBrightness = brightness;
     }
     const bool overlayActive = copyButtonAnimationOverlay(overlayRgb, LED_COUNT);
     if (overlayActive) {
         for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
             const uint16_t offset = logical * 3U;
-            strip.setPixelColor(logicalToPhysicalMap[logical], strip.Color(overlayRgb[offset], overlayRgb[offset + 1], overlayRgb[offset + 2]));
+            leddrv::setPixel(logicalToPhysicalMap[logical], overlayRgb[offset], overlayRgb[offset + 1], overlayRgb[offset + 2]);
         }
     } else {
-        const uint32_t rgb = strip.Color(colorR, colorG, colorB);
-        for (uint16_t logical = 0; logical < LED_COUNT; ++logical) strip.setPixelColor(logicalToPhysicalMap[logical], packedFrameBit(localFrame, logical) ? rgb : 0);
+        for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
+            if (packedFrameBit(localFrame, logical)) leddrv::setPixel(logicalToPhysicalMap[logical], colorR, colorG, colorB);
+            else                                     leddrv::setPixel(logicalToPhysicalMap[logical], 0, 0, 0);
+        }
     }
     delayMicroseconds(LED_SIGNAL_RESET_US);
-    withHardwareBusLock([]() { strip.show(); });
+    withHardwareBusLock([]() { leddrv::refresh(); });
     lastLedShowUs = micros();
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
 
 void ledStripBegin() {
-    strip.begin();
-    strip.setBrightness(DEFAULT_BRIGHTNESS);
-    strip.clear();
+    leddrv::begin();
+    leddrv::setBrightness(DEFAULT_BRIGHTNESS);
+    leddrv::clear();
     delayMicroseconds(LED_SIGNAL_RESET_US);
-    withHardwareBusLock([]() { strip.show(); });
+    withHardwareBusLock([]() { leddrv::refresh(); });
     lastLedShowUs = micros();
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }

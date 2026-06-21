@@ -224,6 +224,23 @@ void scrollSessionSetInterval(uint16_t intervalMs) {
     touchRuntimeState();
 }
 
+void scrollSessionSetSourceText(const char* text, uint16_t bytes) {
+    withScrollLock([&]() {
+        ScrollTimelineMeta& meta = runtimeScrollMeta();
+        if (text && bytes > 0 && runtimeScrollSourceTextReady()) {
+            uint16_t n = bytes > MAX_SCROLL_TEXT_BYTES ? MAX_SCROLL_TEXT_BYTES : bytes;
+            memcpy(runtimeScrollSourceText(), text, n);
+            runtimeScrollSourceText()[n] = '\0';
+            meta.sourceTextByteLength = n;
+            meta.hasSourceText        = true;
+        } else {
+            meta.sourceTextByteLength = 0;
+            meta.hasSourceText        = false;
+        }
+    });
+    touchRuntimeState();
+}
+
 void scrollSessionMarkStoppedByButton(const String& button, const String& source) {
     ++runtimeState().scrollStopEventSeq;
     runtimeState().scrollStopEventMs     = millis();

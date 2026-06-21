@@ -10,9 +10,12 @@
 #include <strings.h>
 #include <ctype.h>
 
+#include <esp_heap_caps.h>
+
 #include "state.h"
 #include "sync.h"
 #include "led_renderer.h"
+#include "led_driver.h"
 #include "buttons.h"
 #include "faces.h"
 #include "power_monitor.h"
@@ -71,6 +74,14 @@ void printStatus() {
     sout("STATUS mode=%s playback=%s paused=%d brightness=%u color=%s", runtimeState().mode.c_str(), runtimeState().playback.c_str(), runtimeState().paused ? 1 : 0, f.brightness, f.colorHex);
     sout("STATUS faceIndex=%u faceCount=%u intervalMs=%lu", static_cast<unsigned>(runtimeState().autoFaceIndex), static_cast<unsigned>(runtimeAutoFaceCount()), static_cast<unsigned long>(runtimeState().autoIntervalMs));
     sout("STATUS frameEncoding=packed-lsb-first frameBytes=%u lit=%u queued=%u accepted=%lu lastReason=%s", static_cast<unsigned>(FRAME_BYTES), static_cast<unsigned>(f.litLeds), static_cast<unsigned>(queuedPackedFrameCount()), static_cast<unsigned long>(f.framesAccepted), f.lastReason);
+    sout("STATUS ledBackend=%s dma=%d ledReady=%d refreshUs=%lu refreshMaxUs=%lu refreshFail=%lu",
+         leddrv::backendName(), leddrv::dmaEnabled() ? 1 : 0, leddrv::ready() ? 1 : 0,
+         static_cast<unsigned long>(leddrv::lastRefreshUs()),
+         static_cast<unsigned long>(leddrv::maxRefreshUs()),
+         static_cast<unsigned long>(leddrv::refreshFailCount()));
+    sout("STATUS heapFree=%u largestBlock=%u",
+         static_cast<unsigned>(ESP.getFreeHeap()),
+         static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
     sout("=== STATUS END ===");
 }
 

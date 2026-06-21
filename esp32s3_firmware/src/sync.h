@@ -5,8 +5,8 @@
 // FreeRTOS synchronization helpers.
 // Global nesting order: Scroll -> Frame -> Storage -> HardwareBus.
 // Storage lock intentionally also owns HardwareBus because LittleFS flash I/O
-// can stall cache/bus access long enough to disturb WS2812 output if strip.show()
-// overlaps static-file or JSON file reads/writes.
+// can stall cache/bus access long enough to disturb WS2812 output if the LED
+// transmit (leddrv::refresh()) overlaps static-file or JSON file reads/writes.
 
 enum class SyncDomain : uint8_t {
     Frame,

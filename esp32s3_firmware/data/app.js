@@ -89,6 +89,7 @@ const WEBUI_CONFIG = Object.freeze({
     runtimeStatusQuery: "?runtimeOnly=1&noFrame=1",
     endpoints: {
       frame: "/api/frame",
+      currentFrame: "/api/frame/current",
       command: "/api/command",
       scroll: "/api/scroll",
       scrollMeta: "/api/scroll/meta",
@@ -4754,7 +4755,6 @@ function apiPostWithUploadProgress(path, payload, onProgress = () => {}) {
   addParam("totalFrames", payload.totalFrames);
   addParam("source", payload.source);
   addParam("timelineId", payload.timelineId);
-  addParam("sourceText", payload.sourceText);
   addParam("fontId", payload.fontId);
   addParam("generatorVersion", payload.generatorVersion);
   const url = base + "?" + params.toString();
@@ -6404,6 +6404,62 @@ async function preloadFirmwareRuntimeState() {
     });
     if (shouldLogApiError()) log(`启动读取固件状态失败: ${bootRuntimeSnapshot.error}`, "error");
     return bootRuntimeSnapshot;
+  }
+}
+// Boot static-frame preview: the runtime-only status JSON intentionally omits the raw frame,
+// and the face-index re-derivation only covers SAVED faces, not arbitrary custom/parts/debug
+// frames. To show the *actual* current LED frame before the loader hides, pull the live packed
+// frame from /api/frame/current (base64 text of FRAME_BYTES) and decode it browser-side.
+// Caller must skip this when the firmware is scrolling (text scroll goes through the scroll
+// preview restore path instead).
+async function loadStaticFramePreviewFromFirmware(reason = "boot_static_frame") {
+  if (isOfflineHtmlMode()) return false;
+  const url = apiUrl(API_ENDPOINTS.currentFrame || "/api/frame/current");
+  if (!url) return false;
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), BOOT_STATUS_TIMEOUT_MS) : null;
+  try {
+    lastFirmwareStatusPollAt = performance.now();
+    const res = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      headers: { Accept: "text/plain" },
+      signal: controller?.signal,
+    });
+    firmware.online = res.ok;
+    firmware.lastStatus = `${res.status} ${res.statusText || ""}`.trim();
+    if (!res.ok) {
+      firmware.lastError = firmware.lastStatus;
+      throw new Error(firmware.lastStatus);
+    }
+    const text = String(await res.text()).trim();
+    const bin = atob(text);
+    if (bin.length !== PACKED_FRAME_BYTES) {
+      throw new Error(`当前帧应 base64 解码为 ${PACKED_FRAME_BYTES} 字节（实际 ${bin.length}）`);
+    }
+    const bytes = new Uint8Array(PACKED_FRAME_BYTES);
+    for (let i = 0; i < PACKED_FRAME_BYTES; i++) bytes[i] = bin.charCodeAt(i) & 255;
+    // Don't clobber a live scroll preview if the firmware started scrolling between the
+    // runtime read and this fetch.
+    if (state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback)) {
+      return false;
+    }
+    currentFrame = packedBytesToFrame(bytes);
+    if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
+    scrollFrame = cloneFrame(currentFrame);
+    state.lastRefreshReason = reason;
+    renderMatrices();
+    updatePackedFrameViews();
+    return true;
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      if (shouldLogApiError()) log(`启动读取当前静态帧超时（${BOOT_STATUS_TIMEOUT_MS}ms）`, "error");
+    } else if (shouldLogApiError()) {
+      log(`启动读取当前静态帧失败：${err.message || err}`, "error");
+    }
+    return false;
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 async function syncRuntimeStateFromFirmware(source = "webui_load") {
@@ -9645,6 +9701,7 @@ async function uploadScrollTimelineAttempt(frames, timelineId) {
           timelineId,
           fps,
           intervalMs,
+          sourceText, // raw UTF-8 in the POST body (kept out of the URL); firmware stores it in scroll meta
           source: "webui_text_scroll_after_frames",
         },
       });
@@ -10304,6 +10361,11 @@ function setScrollTextFromFirmware(text, options = {}) {
 function applyRestoredScrollPreviewFrame(meta, reason = "text_scroll_restore_preview") {
   scroll.frameIndex = clamp(Number(meta.frameIndex) || 0, 0, Math.max(0, scroll.frames.length - 1));
   scroll.offset = scroll.frameIndex;
+  // Index-first sync: snap the preview display to the firmware's current frame (LED is ground
+  // truth), then clear the rate sync so the preview starts at the firmware's set speed and the
+  // PLL re-measures and converges to the actual speed over the next few seconds.
+  scroll.displayIndex = scroll.frameIndex;
+  resetFirmwareScrollRate();
   if (scroll.active && !scroll.paused) restartScrollPreviewTimer();
   setScrollPreviewFrame(
     scroll.frames[scroll.frameIndex] || blankFrame(),
@@ -10622,10 +10684,15 @@ function kickPostBootScrollMetaRestore(source = "post_boot") {
   }
   postBootScrollMetaRestoreStarted = true;
   scrollMetaRestoreEnabled = true;
-  // Automatic, lightweight sync only: status + source string + FPS. No manual button,
-  // no Ark bitmap load, and no local preview-frame regeneration on refresh/boot.
-  return syncScrollStateTextFpsLightweightAfterBoot(source).catch((err) => {
-    warnScrollRestoreDebug("post-loader light sync failed", {
+  // Full automatic restore on every refresh/boot: read /api/scroll/meta, and when the firmware
+  // is displaying text scroll with recoverable sourceText, pull the source string + set FPS,
+  // regenerate the preview frames BROWSER-SIDE, snap to the firmware's current frame index, and
+  // start animating the preview. The PLL (recordFirmwareScrollSample, driven by status polls)
+  // then converges the preview to the device's measured ACTUAL speed. restoreScrollTextFrom
+  // Firmware triggers the preview rebuild whenever the firmware is scrolling, even if the
+  // current page isn't 6.4, so a refresh restores the running scroll without user action.
+  return restoreScrollTextFromFirmware(source, { autoPreview: true }).catch((err) => {
+    warnScrollRestoreDebug("post-loader full restore failed", {
       source,
       error: err?.message || String(err),
     });
@@ -12220,6 +12287,18 @@ async function bootstrapWebUi() {
     bootOk = !!bootRuntimeSnapshot.ok;
     applyBrightnessLocal(state.brightness);
     syncAutoIntervalUi();
+    // Before the loader hides: if the firmware is NOT scrolling, pull and render the live
+    // static frame so the preview shows the real current LED frame (not a local default).
+    // If it IS scrolling, skip the static frame entirely and go straight to the scroll
+    // preview restore below.
+    const firmwareScrollingAtBoot = !!(
+      state.textScrollActive ||
+      scroll.firmwareBacked ||
+      isScrollPlaybackValue(state.playback)
+    );
+    if (bootOk && !firmwareScrollingAtBoot) {
+      await loadStaticFramePreviewFromFirmware("boot_static_frame");
+    }
     updatePackedFrameViews();
     updateScrollUi();
     renderSavedFaces();
@@ -12264,6 +12343,7 @@ async function bootstrapWebUi() {
 }
 
 // The only startup entry: the script is at the end of <body>, and the DOM is usually ready; still do a readyState protection.
+// (boot: static-frame preview before loader hides when idle; full scroll-preview restore when scrolling)
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", bootstrapWebUi);
 } else {

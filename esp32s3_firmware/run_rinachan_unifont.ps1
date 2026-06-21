@@ -4,6 +4,13 @@ param(
     [switch]$UploadFS,
     [switch]$SkipPrepareFonts,
     [switch]$NoDownload,
+    # 中文块：构建/上传所用的 PlatformIO 环境。默认 esp32s3-rmt-dma —— 这是带
+    # RMT+DMA、IRAM 编码器、ISR 钉在 Core 1、整帧 DMA 缓冲的抗 Wi-Fi 乱码后端。
+    # 老的 Adafruit 基线后端是 "esp32s3"（仅用于对比测试，不抗 Wi-Fi 干扰）。
+    [string]$Environment = "esp32s3-rmt-dma",
+    # -Monitor：上传后自动打开串口监视（用同一个 Environment，避免看错固件）。
+    [switch]$Monitor,
+    [int]$MonitorBaud = 115200,
     [string]$ArkVersion = "2026.05.07",
     [string]$ArkLanguages = "zh_cn,ja,zh_tw",
     [string]$UnifontVersion = "17.0.04"
@@ -569,19 +576,26 @@ Assert-LittleFSNameLengths
 
 Push-Location $ProjectDir
 try {
+    Write-Host "[run] PlatformIO environment: $Environment"
     if ($UploadFirmware) {
-        Write-Host "[run] uploading firmware and partition table..."
-        Invoke-PlatformIoChecked @("run", "-t", "upload") "Firmware upload failed."
+        Write-Host "[run] uploading firmware and partition table (env=$Environment)..."
+        Invoke-PlatformIoChecked @("run", "-e", $Environment, "-t", "upload") "Firmware upload failed."
     }
     if ($UploadFS) {
         Sync-WebAssetGzipFiles
-        Write-Host "[run] uploading LittleFS..."
-        Invoke-PlatformIoChecked @("run", "-t", "uploadfs") "LittleFS upload failed."
+        Write-Host "[run] uploading LittleFS (env=$Environment)..."
+        Invoke-PlatformIoChecked @("run", "-e", $Environment, "-t", "uploadfs") "LittleFS upload failed."
     }
     if (-not $UploadFirmware -and -not $UploadFS) {
-        Write-Host "[run] no upload switch supplied; running PlatformIO build only..."
-        Invoke-PlatformIoChecked @("run") "PlatformIO build failed."
+        Write-Host "[run] no upload switch supplied; running PlatformIO build only (env=$Environment)..."
+        Invoke-PlatformIoChecked @("run", "-e", $Environment) "PlatformIO build failed."
         Write-Host "[run] build complete. Use -UploadFirmware and/or -UploadFS to upload."
+    }
+    if ($Monitor) {
+        # 中文块：用同一个 env 打开串口监视，避免“烧 rmt-dma 却监视 esp32s3”看错固件。
+        # 启动日志里应出现：LEDDRV event=begin backend=rmt-dma dma=1 isr_core=1 whole_frame=1
+        Write-Host "[run] opening serial monitor (env=$Environment baud=$MonitorBaud). Ctrl+C to quit."
+        & python -m platformio device monitor -e $Environment -b $MonitorBaud
     }
 } finally {
     Pop-Location

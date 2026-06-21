@@ -79,6 +79,9 @@ bool scrollSessionSetUserPaused(bool paused);
 bool scrollSessionSetSystemPaused(bool paused);
 bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits);
 void scrollSessionSetInterval(uint16_t intervalMs);
+// Store the original source text into the current scroll session meta (RAM). Used when the
+// WebUI sends the text in the start_scroll command body instead of the upload query string.
+void scrollSessionSetSourceText(const char* text, uint16_t bytes);
 void scrollSessionMarkStoppedByButton(const String& button, const String& source);
 
 bool scrollSessionGetRestoreAuto();

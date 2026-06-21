@@ -11,7 +11,11 @@
 #   ./run_rinachan_unifont.sh --skip-prepare-fonts
 #   ./run_rinachan_unifont.sh --no-download       # 缺失时直接失败而非下载
 #   ./run_rinachan_unifont.sh --check-only        # 仅执行校验，不调用 pio
+#   ./run_rinachan_unifont.sh --env esp32s3       # 指定 env（默认 esp32s3-rmt-dma）
+#   ./run_rinachan_unifont.sh --upload-firmware --monitor   # 烧录后用同一 env 监视串口
+#   ./run_rinachan_unifont.sh --monitor-baud 115200
 #
+# 默认 env = esp32s3-rmt-dma（抗 Wi-Fi 乱码后端）。基线 Adafruit 后端用 --env esp32s3。
 # 兼容 macOS 自带的 bash 3.2。
 
 set -u
@@ -22,6 +26,12 @@ SKIP_PREPARE_FONTS=0
 NO_DOWNLOAD=0
 CHECK_ONLY=0
 UNIFONT_VERSION="17.0.04"
+# 中文块：默认 PlatformIO 环境 esp32s3-rmt-dma —— 带 RMT+DMA / IRAM 编码器 /
+# ISR 钉 Core 1 / 整帧 DMA 缓冲的抗 Wi-Fi 乱码后端。基线后端是 "esp32s3"(Adafruit,
+# 仅对比用)。--monitor 上传后用同一 env 打开串口监视，避免看错固件。
+ENVIRONMENT="esp32s3-rmt-dma"
+MONITOR=0
+MONITOR_BAUD=115200
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -30,6 +40,9 @@ while [ $# -gt 0 ]; do
         --skip-prepare-fonts) SKIP_PREPARE_FONTS=1 ;;
         --no-download) NO_DOWNLOAD=1 ;;
         --check-only) CHECK_ONLY=1 ;;
+        --env) shift; ENVIRONMENT="$1" ;;
+        --monitor) MONITOR=1 ;;
+        --monitor-baud) shift; MONITOR_BAUD="$1" ;;
         --unifont-version) shift; UNIFONT_VERSION="$1" ;;
         -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
         *) echo "[error] unknown option: $1" >&2; exit 2 ;;
@@ -343,17 +356,24 @@ PIO="$(find_pio)" || die "PlatformIO 'pio' not found. Install with: brew install
 cd "$PROJECT_DIR" || die "cannot cd to project dir"
 trap remove_web_asset_gzip_files EXIT
 
+step "PlatformIO environment: $ENVIRONMENT"
 if [ "$UPLOAD_FIRMWARE" = "1" ]; then
-    step "uploading firmware and partition table..."
-    "$PIO" run -t upload || die "firmware upload failed."
+    step "uploading firmware and partition table (env=$ENVIRONMENT)..."
+    "$PIO" run -e "$ENVIRONMENT" -t upload || die "firmware upload failed."
 fi
 if [ "$UPLOAD_FS" = "1" ]; then
     sync_web_asset_gzip_files
-    step "uploading LittleFS..."
-    "$PIO" run -t uploadfs || die "LittleFS upload failed."
+    step "uploading LittleFS (env=$ENVIRONMENT)..."
+    "$PIO" run -e "$ENVIRONMENT" -t uploadfs || die "LittleFS upload failed."
 fi
 if [ "$UPLOAD_FIRMWARE" = "0" ] && [ "$UPLOAD_FS" = "0" ]; then
-    step "no upload switch supplied; running PlatformIO build only..."
-    "$PIO" run || die "PlatformIO build failed."
+    step "no upload switch supplied; running PlatformIO build only (env=$ENVIRONMENT)..."
+    "$PIO" run -e "$ENVIRONMENT" || die "PlatformIO build failed."
     step "build complete. Use --upload-firmware and/or --upload-fs to upload."
+fi
+if [ "$MONITOR" = "1" ]; then
+    # 中文块：用同一 env 打开串口监视，避免“烧 rmt-dma 却监视 esp32s3”看错固件。
+    # 启动日志应出现：LEDDRV event=begin backend=rmt-dma dma=1 isr_core=1 whole_frame=1
+    step "opening serial monitor (env=$ENVIRONMENT baud=$MONITOR_BAUD). Ctrl+C to quit."
+    "$PIO" device monitor -e "$ENVIRONMENT" -b "$MONITOR_BAUD"
 fi

@@ -131,6 +131,42 @@ constexpr uint8_t  LED_RENDER_TASK_PRIORITY      = 3;
 
 constexpr uint16_t LED_SIGNAL_RESET_US           = 300;
 constexpr uint16_t LED_RENDER_MIN_GAP_US         = 2500;
+
+// 中文说明：LED 物理传输后端选择（见 led_driver.cpp）。
+//   ADAFRUIT = 历史 Adafruit_NeoPixel 后端，作为默认与安全回退；
+//   RMT      = ESP-IDF 5.x 新 RMT TX 驱动，可选 DMA（ESP32-S3 支持）。
+// 通过 platformio.ini 的 build_flags 选择，例如 -D RINACHAN_LED_BACKEND=1。
+// 三组测试固件：默认(adafruit) / esp32s3-rmt(无DMA) / esp32s3-rmt-dma(DMA)。
+#define RINACHAN_LED_BACKEND_ADAFRUIT 0
+#define RINACHAN_LED_BACKEND_RMT      1
+#ifndef RINACHAN_LED_BACKEND
+#define RINACHAN_LED_BACKEND RINACHAN_LED_BACKEND_ADAFRUIT
+#endif
+// RMT backend tunables (only used when RINACHAN_LED_BACKEND == RMT).
+#ifndef RINACHAN_LED_RMT_WITH_DMA
+#define RINACHAN_LED_RMT_WITH_DMA 0
+#endif
+#ifndef RINACHAN_LED_RMT_RESOLUTION_HZ
+#define RINACHAN_LED_RMT_RESOLUTION_HZ 10000000  // 10 MHz, per Espressif example
+#endif
+// 中文：RMT ISR 优先级。驱动只接受 1..3（0=自动）。3 = 抗 Wi-Fi 抖动最好。
+#ifndef RINACHAN_LED_RMT_INTR_PRIORITY
+#define RINACHAN_LED_RMT_INTR_PRIORITY 3
+#endif
+#ifndef RINACHAN_LED_RMT_MEM_BLOCK_SYMBOLS
+// 中文：DMA 时为 DMA 缓冲符号数。**ESP-IDF 的 RMT DMA 硬上限是 2047，且必须是偶数**
+// （驱动报错：mem_block_symbols can't exceed 2047 / must be even and at least 48），
+// 所以无法把整帧（370*24=8880 symbol）一次装下——那是 I2S/LCD 才能做的。这里取
+// 合法最大值 2046：缓冲越大、一帧内 refill 次数越少、抗 Wi-Fi 抖动越强。
+// 配合 IRAM 编码器 + intr_priority=3 + 关 Wi-Fi 省电，实测已不再乱码。
+// 非 DMA 时为专用 RMT 内存块大小（偶数、>=48，硬件总量有限），默认 64。
+// led_driver 的 begin() 会自动降级重试（2046→1024→…→64），不会黑屏。
+#  if RINACHAN_LED_RMT_WITH_DMA
+#    define RINACHAN_LED_RMT_MEM_BLOCK_SYMBOLS 2046
+#  else
+#    define RINACHAN_LED_RMT_MEM_BLOCK_SYMBOLS 64
+#  endif
+#endif
 constexpr uint16_t LED_STOP_CLEAR_BLANK_HOLD_MS  = 90;
 constexpr uint16_t LED_BOOT_DATA_LOW_HOLD_MS     = 20;
 constexpr uint16_t LED_BOOT_CLEAR_HOLD_MS        = 350;
