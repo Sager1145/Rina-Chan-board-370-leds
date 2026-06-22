@@ -682,7 +682,7 @@ static void command() {
     else if (strcmp(cmd, "resume_scroll") == 0)
         scrollSessionSetUserPaused(false);
     else if (strcmp(cmd, "stop_scroll") == 0)
-        stopFirmwareScroll(cbool(d, p, "restoreAuto", scrollSessionGetRestoreAuto()), cbool(d, p, "clear", true));
+        stopFirmwareScroll(cbool(d, p, "restoreAuto", scrollSessionGetRestoreAuto()), cbool(d, p, "clear", true), true);
     else if (strcmp(cmd, "pause") == 0) {
         runtimeState().paused = true;
         runtimeState().playback = "paused";
@@ -703,7 +703,7 @@ static void command() {
     } else if (strcmp(cmd, "button") == 0)
         ok = runButtonAction(String(cstr(d, p, "button", "")), "webui");
     else if (strcmp(cmd, "terminate_other_activities") == 0) {
-        stopFirmwareScroll(false, true);
+        stopFirmwareScroll(false, true, false);
         setMode(cstr(d, p, "targetMode", "manual"), false);
     } else if (strcmp(cmd, "reset_battery_min") == 0)
         resetBatteryVoltageMinimum();

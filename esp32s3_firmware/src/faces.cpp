@@ -38,7 +38,7 @@ bool setMode(const char* input, bool persistSettings) {
     if (mode != "auto" && mode != "manual")
         return false;
     if (shouldForceClearWhenStoppingScroll())
-        stopFirmwareScroll(false, true);
+        stopFirmwareScroll(false, true, false);
     if (mode == "auto") {
         if (runtimeState().mode != "auto") {
             runtimeState().mode = "auto";
@@ -145,7 +145,7 @@ bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode) {
 bool toggleModeFromButtonAction(const String& source) {
     const bool targetAuto = !isAutoMode();
     const bool hadOtherPlayback = playbackIsNonFaceActivity();
-    stopFirmwareScroll(false, false);
+    stopFirmwareScroll(false, false, false);
     scrollSessionSetRestoreAuto(false);
     if (!setMode(targetAuto ? "auto" : "manual", true))
         return false;
@@ -236,12 +236,12 @@ void serviceDeferredFaceRestore() {
 
 static bool shouldForceClearWhenStoppingScroll() { return runtimeState().firmwareScrollActive || runtimeState().firmwareScrollPaused || isScrollPlayback(runtimeState().playback); }
 
-void stopFirmwareScroll(bool restoreAuto, bool clearDisplay) {
+void stopFirmwareScroll(bool restoreAuto, bool clearDisplay, bool restoreDefaultAfterClear) {
     cancelDeferredFaceRestore();
     const bool effectiveClearDisplay = clearDisplay || shouldForceClearWhenStoppingScroll();
     const ScrollStopResult r = scrollSessionStop(restoreAuto, effectiveClearDisplay);
     if (r.cleared) {
-        if (r.shouldRestoreDefault)
+        if (restoreDefaultAfterClear && r.shouldRestoreDefault)
             scheduleStartupDefaultFaceRestoreAfterBlank(r.restoreAuto);
     } else if (r.restoreAuto)
         setMode("auto", false);
