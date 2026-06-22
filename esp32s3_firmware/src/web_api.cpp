@@ -686,6 +686,14 @@ static void command() {
         runtimeState().paused = false;
         runtimeState().playback = DEFAULT_PLAYBACK;
         touchRuntimeState();
+    } else if (strcmp(cmd, "apply_saved_face") == 0) {
+        stopFirmwareScroll(false, false);
+        scrollSessionSetRestoreAuto(false);
+        const int index = cint(d, p, "index", runtimeState().autoFaceIndex);
+        ok = applySavedFaceIndex(
+            static_cast<uint16_t>(index < 0 ? 0 : index),
+            String(cstr(d, p, "reason", "webui_apply_saved_face")),
+            cstr(d, p, "playback", DEFAULT_PLAYBACK));
     } else if (strcmp(cmd, "button") == 0)
         ok = runButtonAction(String(cstr(d, p, "button", "")), "webui");
     else if (strcmp(cmd, "terminate_other_activities") == 0) {

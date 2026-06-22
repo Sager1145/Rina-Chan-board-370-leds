@@ -3339,6 +3339,7 @@ let state = {
 };
 let currentFrame = blankFrame();
 let editFrame = blankFrame();
+let customHiddenFrame = Array(COLS * ROWS).fill(false);
 let partsFrame = blankFrame();
 let scrollFrame = blankFrame();
 // Debug metadata/copy buffer mirrors currentFrame so 6.1/6.5 previews render from one source.
@@ -3494,6 +3495,7 @@ let lastFwScrollDisplaying = false;
 let lastScrollRestoreStatusDebugKey = "";
 let postBootScrollMetaRestoreStarted = false;
 let staticFrameReloadInFlight = null;
+let lastSavedFacePreviewSyncKey = "";
 let scrollDropRecoverInFlight = null;
 let previewSyncTimer = null;
 let previewSyncTransportFailCount = 0;
@@ -4260,6 +4262,14 @@ function blankFrame() {
 
 function cloneFrame(frame) {
   return frame.slice(0, TOTAL_LEDS).map(Boolean);
+}
+
+function framesEqual(a, b) {
+  if (!a || !b) return false;
+  for (let i = 0; i < TOTAL_LEDS; i++) {
+    if (!!a[i] !== !!b[i]) return false;
+  }
+  return true;
 }
 
 function onCount(frame) {
@@ -5103,6 +5113,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
   }
 
   const faceIndexValue = Number(renderer.autoFaceIndex ?? data.autoFaceIndex);
+  let syncedFaceFrameFromStatus = false;
   if (Number.isFinite(faceIndexValue)) {
     const library = getAllFaces();
     const maxIndex = Math.max(0, library.length - 1);
@@ -5118,17 +5129,35 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
   // The firmware status JSON does not echo the raw frame. When it reports a new face
   // index, re-derive the WebUI preview locally by decoding that saved face's packed
   // frameBytes (browser-side decode of the theoretical-minimum frame).
-  if (!skipFrame && !firmwareIsScrolling && faceChanged) {
-    const face = getAllFaces()[state.faceIndex];
-    if (face && Array.isArray(face.frameBytes)) {
-      setScrollPreviewFrame(
-        faceFrame(face),
-        renderer.lastReason || data.lastReason || source || "face_index_sync",
-        null, {
-          syncLiveBaseline: true
-        },
-      );
-      frameChanged = false;
+  const firmwareReason = String(renderer.lastReason || data.lastReason || "");
+  const savedFaceStatusKey = `${renderer.v ?? data.v ?? ""}:${state.faceIndex}:${firmwareReason}`;
+  const isNewSavedFaceStatus = savedFaceStatusKey !== lastSavedFacePreviewSyncKey;
+  const statusFace = getAllFaces()[state.faceIndex];
+  const statusFaceFrame = statusFace && Array.isArray(statusFace.frameBytes) ? faceFrame(statusFace) : null;
+  const currentPreviewDiffersFromStatusFace =
+    !!statusFaceFrame && !framesEqual(currentFrame, statusFaceFrame);
+  const shouldSyncSavedFaceFromStatus =
+    !skipFrame &&
+    !firmwareIsScrolling &&
+    Number.isFinite(faceIndexValue) &&
+    (faceChanged ||
+      (isNewSavedFaceStatus && statusReasonIsSavedFace(firmwareReason)) ||
+      (statusReasonIsSavedFace(firmwareReason) && currentPreviewDiffersFromStatusFace) ||
+      statusReasonIsSavedFace(source));
+  if (shouldSyncSavedFaceFromStatus) {
+    syncedFaceFrameFromStatus = syncSavedFacePreviewByIndex(
+      state.faceIndex,
+      firmwareReason || source || "face_index_sync", {
+        playback: null,
+        syncLiveBaseline: true,
+        syncVisibleEditor: faceChanged || isNewSavedFaceStatus || statusReasonIsSavedFace(source),
+        render: false,
+      },
+    );
+    if (syncedFaceFrameFromStatus) {
+      lastSavedFacePreviewSyncKey = savedFaceStatusKey;
+      updateDps();
+      frameChanged = true;
       stateChanged = true;
     } else {
       scheduleStaticFrameReloadFromFirmware("face_index_cache_miss");
@@ -5136,13 +5165,12 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
   }
 
   syncAutoIntervalUi();
-  if (faceChanged) renderSavedFaces();
+  if (faceChanged || syncedFaceFrameFromStatus) renderSavedFaces();
   if (frameChanged) {
     renderMatrices();
     updatePackedFrameViews();
   }
 
-  const firmwareReason = String(renderer.lastReason || data.lastReason || "");
   const event = scrollStopEventFromStatus(data, renderer);
   const newButtonStopEvent = !!event &&
     event.seq > lastScrollStopEventSeq &&
@@ -5552,9 +5580,14 @@ const frameSendPump = {
   }
 };
 
-function sendButtonCommand(button, source = "webui_button", fallback = null) {
+function sendButtonCommand(button, source = "webui_button", fallback = null, options = {}) {
   if (["B1", "B2", "B3"].includes(String(button).toUpperCase())) {
     resetScrollControlsAfterButton(source);
+  }
+  let fallbackApplied = false;
+  if (options.optimisticLocal && fallback) {
+    fallback();
+    fallbackApplied = true;
   }
   const packet = {
     cmd: "button",
@@ -5563,12 +5596,12 @@ function sendButtonCommand(button, source = "webui_button", fallback = null) {
     }
   };
   if (isOfflineHtmlMode()) {
-    if (fallback) fallback();
+    if (fallback && !fallbackApplied) fallback();
     packet.source = source;
     packet.offline = true;
     return packet;
   }
-  const queued = buttonCommandPump.enqueue(packet, source, fallback);
+  const queued = buttonCommandPump.enqueue(packet, source, fallbackApplied ? null : fallback);
   packet.promise = queued.promise;
   return packet;
 }
@@ -5705,6 +5738,16 @@ function classifyOutputMode(reason = "", playback = null) {
   return p || "static";
 }
 
+function statusReasonIsSavedFace(reason = "") {
+  const r = String(reason || "");
+  return (
+    r.includes("saved_face") ||
+    r.includes("startup_face") ||
+    /(^|[_/\s-])B1($|[_/\s-])/.test(r) ||
+    /(^|[_/\s-])B2($|[_/\s-])/.test(r)
+  );
+}
+
 function terminateOtherActivities(targetMode = "static", reason = "mode_change") {
   const ended = [];
   const previousPlayback = state.playback;
@@ -5801,7 +5844,11 @@ async function prepareForTextScrollUpload() {
 }
 
 function setCurrentFrame(frame, reason = "manual_update", playback = null) {
+  const outputMode = classifyOutputMode(reason, playback);
   guardBeforeOutput(reason, playback);
+  if (outputMode !== "face" && outputMode !== "scroll") {
+    state.mode = "manual";
+  }
   setSharedPreviewFrame(frame, reason);
   if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
   state.lastRefreshReason = reason;
@@ -6318,7 +6365,7 @@ async function preloadFirmwareRuntimeState() {
 // frame from /api/frame/current (base64 text of FRAME_BYTES) and decode it browser-side.
 // Caller must skip this when the firmware is scrolling (text scroll goes through the scroll
 // preview restore path instead).
-async function loadStaticFramePreviewFromFirmware(reason = "boot_static_frame") {
+async function loadStaticFramePreviewFromFirmware(reason = "boot_static_frame", options = {}) {
   if (isOfflineHtmlMode()) return false;
   const url = apiUrl(API_ENDPOINTS.currentFrame || "/api/frame/current");
   if (!url) return false;
@@ -6349,7 +6396,10 @@ async function loadStaticFramePreviewFromFirmware(reason = "boot_static_frame") 
     for (let i = 0; i < PACKED_FRAME_BYTES; i++) bytes[i] = bin.charCodeAt(i) & 255;
     // Don't clobber a live scroll preview if the firmware started scrolling between the
     // runtime read and this fetch.
-    if (state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback)) {
+    if (
+      !options.allowDuringScroll &&
+      (state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback))
+    ) {
       return false;
     }
     setScrollPreviewFrame(packedBytesToFrame(bytes), reason, null, {
@@ -6368,9 +6418,9 @@ async function loadStaticFramePreviewFromFirmware(reason = "boot_static_frame") 
   }
 }
 
-function scheduleStaticFrameReloadFromFirmware(reason = "static_frame_reload") {
+function scheduleStaticFrameReloadFromFirmware(reason = "static_frame_reload", options = {}) {
   if (staticFrameReloadInFlight) return staticFrameReloadInFlight;
-  staticFrameReloadInFlight = loadStaticFramePreviewFromFirmware(reason)
+  staticFrameReloadInFlight = loadStaticFramePreviewFromFirmware(reason, options)
     .catch((err) => {
       logScrollRestoreDebug("static frame reload failed", {
         reason,
@@ -6578,8 +6628,17 @@ function isFirmwarePreviewScrolling() {
 async function refreshSharedPreviewFromFirmware(reason = "preview_page_enter", options = {}) {
   scheduleMatrixFitRender(3);
   const syncOk = await syncRuntimeStateFromFirmware(reason);
-  if (syncOk && !isFirmwarePreviewScrolling()) {
-    await scheduleStaticFrameReloadFromFirmware(`${reason}_current_frame`);
+  const allowStaticFrameRead = !isFirmwarePreviewScrolling() || !!options.allowStaticFrameDuringScroll;
+  if (syncOk && allowStaticFrameRead) {
+    await scheduleStaticFrameReloadFromFirmware(`${reason}_current_frame`, {
+      allowDuringScroll: !!options.allowStaticFrameDuringScroll,
+    });
+  }
+  if (options.syncCustomEditFrame && allowStaticFrameRead) {
+    syncCustomEditFrameFromCurrentPreview(`${reason}_custom_edit_sync`);
+  }
+  if (options.syncPartsFrame && allowStaticFrameRead) {
+    syncPartsFrameFromCurrentPreview(`${reason}_parts_frame_sync`);
   }
   renderMatrices();
   if (options.debugPanel) renderDebugPreviewPanel();
@@ -6608,6 +6667,15 @@ function switchPage(id) {
       const a = $("parts-frame-text");
       if (a) autoResizeTextarea(a);
     });
+  if (id === "custom" || id === "parts") {
+    refreshSharedPreviewFromFirmware(`${id}_page_enter`, {
+      allowStaticFrameDuringScroll: true,
+      syncCustomEditFrame: id === "custom",
+      syncPartsFrame: id === "parts",
+    }).catch((err) => {
+      if (shouldLogApiError()) log(`${id} static preview refresh failed: ${err.message || err}`, "error");
+    });
+  }
   if (isFaceLibraryPage(id)) {
     scheduleFaceLibraryRefresh(`${id}_page_enter`, 0);
   }
@@ -7064,13 +7132,15 @@ function initMatrix(id, frameProvider, editable = false, editHandler = null, com
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
       const idx = XY_TO_INDEX[y][x];
+      const gridIndex = gridIndexAt(x, y);
       const cell = document.createElement("div");
       cell.className =
-        "led" + (idx < 0 ? " invalid" : "") + (editable && idx >= 0 ? " editable" : "");
+        "led" + (idx < 0 ? " invalid" : "") + (editable ? " editable" : "");
+      cell.dataset.x = x;
+      cell.dataset.y = y;
+      cell.dataset.grid = gridIndex;
       if (idx >= 0) {
         cell.dataset.idx = idx;
-        cell.dataset.x = x;
-        cell.dataset.y = y;
       }
       frag.appendChild(cell);
     }
@@ -7082,7 +7152,7 @@ function initMatrix(id, frameProvider, editable = false, editHandler = null, com
     frameProvider,
     compact: !!compact,
     dirty: true,
-    lastState: new Uint8Array(370)
+    lastState: new Uint8Array(TOTAL_LEDS + ROWS * COLS)
   };
   matrixViews.push(view);
   if (editable) {
@@ -7278,12 +7348,14 @@ function renderMatrices() {
     for (let y = 0, n = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++, n++) {
         const idx = XY_TO_INDEX[y][x];
-        if (idx >= 0) {
-          const isOn = !!frame[idx];
+        const stateIndex = idx >= 0 ? idx : TOTAL_LEDS + n;
+        const isOn = idx >= 0 ? !!frame[idx] :
+          view.el.id === "matrix-custom-edit" && !!customHiddenFrame[n];
+        if (idx >= 0 || view.el.id === "matrix-custom-edit") {
           // Only update DOM when state changes or dirty mark
-          if (view.dirty || isOn !== !!lastState[idx]) {
+          if (view.dirty || isOn !== !!lastState[stateIndex]) {
             cells[n].classList.toggle("on", isOn);
-            lastState[idx] = isOn ? 1 : 0;
+            lastState[stateIndex] = isOn ? 1 : 0;
           }
         }
       }
@@ -7296,10 +7368,14 @@ function attachDrawing(el, editHandler) {
   const getCell = (target) => target && target.closest && target.closest(".led.editable");
   el.addEventListener("click", (ev) => {
     const cell = getCell(ev.target);
-    if (!cell || !cell.dataset.idx) return;
+    if (!cell) return;
     ev.stopPropagation();
-    const idx = Number(cell.dataset.idx);
-    editHandler(idx, !editFrame[idx], "toggle");
+    const idx = cell.dataset.idx === undefined ? -1 : Number(cell.dataset.idx);
+    const gridIndex = Number(cell.dataset.grid);
+    const nextValue = idx >= 0 ? !editFrame[idx] : !customHiddenFrame[gridIndex];
+    editHandler(idx, nextValue, "toggle", {
+      gridIndex
+    });
   });
 }
 
@@ -7648,6 +7724,7 @@ function updateModeToggleUi() {
 function toggleModeLocal(source) {
   guardBeforeOutput("am_mode_toggle", "face");
   state.mode = isAutoModeValue(state.mode) ? "manual" : "auto";
+  applyKnownFaceIndexLocal(source);
   renderState();
   log(`A/M 模式切换为 ${state.mode} (${source})`);
   sendAuxCommand(
@@ -7660,7 +7737,14 @@ function toggleModeLocal(source) {
 }
 
 function toggleMode(source) {
-  sendButtonCommand("B3", source, () => toggleModeLocal(source));
+  sendButtonCommand("B3", source, () => {
+    guardBeforeOutput("am_mode_toggle", "face");
+    state.mode = isAutoModeValue(state.mode) ? "manual" : "auto";
+    applyKnownFaceIndexLocal(source);
+    renderState();
+  }, {
+    optimisticLocal: true,
+  });
 }
 
 function formatIntervalSeconds(ms) {
@@ -7704,38 +7788,61 @@ function adjustInterval(delta) {
 function nextFaceLocal() {
   const library = getAllFaces();
   if (!library.length) return;
-  state.faceIndex = (state.faceIndex + 1) % library.length;
-  applySavedFace(state.faceIndex, "B1/WebUI next");
+  syncSavedFacePreviewByIndex((state.faceIndex + 1) % library.length, "B1/WebUI next", {
+    playback: null,
+    syncVisibleEditor: true,
+  });
 }
 
 function prevFaceLocal() {
   const library = getAllFaces();
   if (!library.length) return;
-  state.faceIndex = (state.faceIndex - 1 + library.length) % library.length;
-  applySavedFace(state.faceIndex, "B2/WebUI prev");
+  syncSavedFacePreviewByIndex((state.faceIndex - 1 + library.length) % library.length, "B2/WebUI prev", {
+    playback: null,
+    syncVisibleEditor: true,
+  });
 }
 
 function nextFace() {
-  sendButtonCommand("B1", "B1/WebUI next", nextFaceLocal);
+  sendButtonCommand("B1", "B1/WebUI next", nextFaceLocal, {
+    optimisticLocal: true,
+  });
 }
 
 function prevFace() {
-  sendButtonCommand("B2", "B2/WebUI prev", prevFaceLocal);
+  sendButtonCommand("B2", "B2/WebUI prev", prevFaceLocal, {
+    optimisticLocal: true,
+  });
 }
 
 function applySavedFace(i, reason = "saved_face_apply") {
   const library = getAllFaces();
-  const face = library[i];
+  if (!library.length) return;
+  const index = clamp(Number(i) || 0, 0, library.length - 1);
+  const face = library[index];
   if (!face) return;
-  state.faceIndex = i;
-  setCurrentFrame(faceFrame(face), reason, "idle");
-  renderSavedFaces();
-  log(`应用表情 #${i + 1}: ${face.name} / ${faceTypeLabel(face.type)}`);
+  const playback = isAutoModeValue(state.mode) ? "auto_saved_face" : "idle";
+  terminateOtherActivities("face", reason);
+  syncSavedFacePreviewByIndex(index, reason, {
+    playback,
+    syncVisibleEditor: true,
+  });
+  sendAuxCommand(
+    "apply_saved_face", {
+      index,
+      reason,
+      playback,
+    },
+    reason,
+  );
+  log(`应用表情 #${index + 1}: ${face.name} / ${faceTypeLabel(face.type)}`);
 }
 
 function initCustom() {
+  initCustomMatrixShiftControls();
   $("custom-clear").onclick = () => {
     editFrame = blankFrame();
+    customHiddenFrame = Array(COLS * ROWS).fill(false);
     renderMatrices();
     updatePackedFrameViews();
     sendCustomFrameIfLive("custom_live_clear");
@@ -7743,6 +7850,7 @@ function initCustom() {
   };
   $("custom-fill").onclick = () => {
     editFrame = blankFrame().map(() => true);
+    customHiddenFrame = Array(COLS * ROWS).fill(true);
     renderMatrices();
     updatePackedFrameViews();
     sendCustomFrameIfLive("custom_live_fill");
@@ -7750,6 +7858,7 @@ function initCustom() {
   };
   $("custom-invert").onclick = () => {
     editFrame = editFrame.map((v) => !v);
+    customHiddenFrame = customHiddenFrame.map((v, gridIndex) => XY_TO_INDEX[Math.floor(gridIndex / COLS)][gridIndex % COLS] < 0 ? !v : v);
     renderMatrices();
     updatePackedFrameViews();
     sendCustomFrameIfLive("custom_live_invert");
@@ -7764,6 +7873,7 @@ function initCustom() {
   $("custom-import").onclick = () => {
     try {
       editFrame = parsePackedFrameText($("custom-frame").value);
+      customHiddenFrame = Array(COLS * ROWS).fill(false);
       renderMatrices();
       updatePackedFrameViews();
       log("导入自定义 packed frame 成功");
@@ -7775,6 +7885,74 @@ function initCustom() {
     saveFace($("custom-name").value || "custom_face", editFrame, "custom");
   updateLiveToggles();
   initFaceManagerControls();
+}
+
+function initCustomMatrixShiftControls() {
+  const matrix = $("matrix-custom-edit");
+  const stage = matrix?.closest(".rinaboard-stage");
+  if (!stage || stage.querySelector(".custom-matrix-shift-btn")) return;
+  const buttons = [{
+      dir: "up",
+      label: "上移",
+      glyph: "↑",
+      dx: 0,
+      dy: -1,
+    },
+    {
+      dir: "down",
+      label: "下移",
+      glyph: "↓",
+      dx: 0,
+      dy: 1,
+    },
+    {
+      dir: "left",
+      label: "左移",
+      glyph: "←",
+      dx: -1,
+      dy: 0,
+    },
+    {
+      dir: "right",
+      label: "右移",
+      glyph: "→",
+      dx: 1,
+      dy: 0,
+    },
+  ];
+  for (const item of buttons) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `custom-matrix-shift-btn shift-${item.dir}`;
+    button.textContent = item.glyph;
+    button.title = `${item.label}整个画板一格`;
+    button.setAttribute("aria-label", `${item.label}整个画板一格`);
+    button.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      shiftCustomEditFrame(item.dx, item.dy, item.label);
+    });
+    stage.appendChild(button);
+  }
+}
+
+function shiftCustomEditFrame(dx, dy, label = "移动") {
+  const sourceGrid = customFullEditGrid();
+  const nextGrid = Array(COLS * ROWS).fill(false);
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const fromGridIndex = gridIndexAt(x, y);
+      if (!sourceGrid[fromGridIndex]) continue;
+      const targetX = (x + dx + COLS) % COLS;
+      const targetY = (y + dy + ROWS) % ROWS;
+      nextGrid[gridIndexAt(targetX, targetY)] = true;
+    }
+  }
+  applyCustomFullEditGrid(nextGrid);
+  renderMatrices();
+  updatePackedFrameViews();
+  sendCustomFrameIfLive(`custom_shift_${dx}_${dy}`);
+  log(`自定义画板${label}一格`);
 }
 
 function syncLiveSendBaseline(frame = currentFrame) {
@@ -7826,7 +8004,20 @@ function sendCustomFrameIfLive(reason = "custom_live_send") {
   }
   // Real-time mode: every LED toggle is equivalent to pressing the custom 发送 button.
   log("[DIAG-B] liveSendEnabled=true → 调用与发送按钮相同的 sendCustomFrame()", "info");
-  sendCustomFrame("custom_face_send", false);
+  sendCustomFrame(reason, false);
+}
+
+function syncCustomEditFrameFromCurrentPreview(reason = "custom_edit_from_preview") {
+  editFrame = cloneFrame(currentFrame || blankFrame());
+  customHiddenFrame = Array(COLS * ROWS).fill(false);
+  updatePackedFrameViews();
+  log(`自定义画板已基于当前静态预览同步：${reason}`, "debug");
+}
+
+function syncPartsFrameFromCurrentPreview(reason = "parts_frame_from_preview") {
+  partsFrame = cloneFrame(currentFrame || blankFrame());
+  updatePackedFrameViews();
+  log(`表情部件预览已基于当前静态预览同步：${reason}`, "debug");
 }
 
 // During rapid sequential editing (holding/clicking cells), matrix preview and packed-frame textarea refreshes
@@ -7843,16 +8034,51 @@ function scheduleCustomEditRender() {
   });
 }
 
-function editCell(idx, value, tool) {
-  editFrame[idx] = !!value;
+function editCell(idx, value, tool, meta = {}) {
+  if (idx >= 0) {
+    editFrame[idx] = !!value;
+  } else {
+    customHiddenFrame[meta.gridIndex] = !!value;
+  }
   // [实时诊断DIAG-A] 一行诊断：确认新代码是否已加载 + 实时开关 + 固件在线状态。
   // 看到带 DIAG-A 的日志即说明新 app.js 已生效。
-  log(`[DIAG-A] 点击LED idx=${idx} 目标=${value ? "亮" : "灭"} 实时开关liveSendEnabled=${liveSendEnabled} 固件在线=${firmware.online}`,
+  log(`[DIAG-A] 点击LED idx=${idx} grid=${meta.gridIndex ?? ""} 目标=${value ? "亮" : "灭"} 实时开关liveSendEnabled=${liveSendEnabled} 固件在线=${firmware.online}`,
     "info");
   // Dispatch incremental delta changes immediately to keep synchronization latency minimal.
   sendCustomFrameIfLive("custom_live_send");
   // Coalesce local UI rendering into the next animation frame.
   scheduleCustomEditRender();
+}
+
+function gridIndexAt(x, y) {
+  return y * COLS + x;
+}
+
+function customFullEditGrid() {
+  const grid = Array(COLS * ROWS).fill(false);
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const gridIndex = gridIndexAt(x, y);
+      const idx = XY_TO_INDEX[y][x];
+      grid[gridIndex] = idx >= 0 ? !!editFrame[idx] : !!customHiddenFrame[gridIndex];
+    }
+  }
+  return grid;
+}
+
+function applyCustomFullEditGrid(grid) {
+  const nextEdit = blankFrame();
+  const nextHidden = Array(COLS * ROWS).fill(false);
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      const gridIndex = gridIndexAt(x, y);
+      const idx = XY_TO_INDEX[y][x];
+      if (idx >= 0) nextEdit[idx] = !!grid[gridIndex];
+      else nextHidden[gridIndex] = !!grid[gridIndex];
+    }
+  }
+  editFrame = nextEdit;
+  customHiddenFrame = nextHidden;
 }
 
 function preferredStartupDefaultId(faces) {
@@ -7876,36 +8102,57 @@ function startupDefaultFaceIndex() {
   return idx >= 0 ? idx : 0;
 }
 
+function syncSavedFacePreviewByIndex(index, reason = "saved_face_index_sync", options = {}) {
+  const library = getAllFaces();
+  if (!library.length) return false;
+  const nextIndex = clamp(Number(index) || 0, 0, library.length - 1);
+  const face = library[nextIndex];
+  if (!face || !Array.isArray(face.frameBytes)) return false;
+  const frame = faceFrame(face);
+  const page = document.body?.dataset?.page || "";
+  const currentAlreadyMatches = state.faceIndex === nextIndex && framesEqual(currentFrame, frame);
+  state.faceIndex = nextIndex;
+  if (!currentAlreadyMatches) {
+    setSharedPreviewFrame(frame, reason, "saved face");
+    if (options.syncLiveBaseline && liveSendEnabled) syncLiveSendBaseline(currentFrame);
+    state.lastRefreshReason = reason;
+    state.refreshCount++;
+  }
+  if (options.playback !== undefined && options.playback !== null) state.playback = options.playback;
+  if (options.syncCustomEditFrame || (options.syncVisibleEditor && page === "custom")) {
+    editFrame = cloneFrame(frame);
+    customHiddenFrame = Array(COLS * ROWS).fill(false);
+  }
+  if (options.syncPartsFrame || (options.syncVisibleEditor && page === "parts")) {
+    partsFrame = cloneFrame(frame);
+  }
+  if (options.render !== false) {
+    updateDps();
+    renderMatrices();
+    updatePackedFrameViews();
+    updateSavedFaceSelectionUi();
+    renderState();
+  }
+  return true;
+}
+
 function applyStartupDefaultFaceLocal(reason = "text_scroll_stop_default_saved_face") {
   const index = startupDefaultFaceIndex();
   if (index < 0) return false;
-  const face = getAllFaces()[index];
-  if (!face) return false;
-  state.faceIndex = index;
-  setSharedPreviewFrame(faceFrame(face), reason);
-  if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
-  state.lastRefreshReason = reason;
-  state.refreshCount++;
-  renderMatrices();
-  updatePackedFrameViews();
-  renderSavedFaces();
-  return true;
+  return syncSavedFacePreviewByIndex(index, reason, {
+    syncLiveBaseline: true,
+    syncVisibleEditor: true,
+  });
 }
 
 function applyKnownFaceIndexLocal(reason = "firmware_face_index_preview") {
   const library = getAllFaces();
   if (!library.length) return false;
   const index = clamp(Number(state.faceIndex) || 0, 0, library.length - 1);
-  const face = library[index];
-  if (!face || !Array.isArray(face.frameBytes)) return false;
-  state.faceIndex = index;
-  setSharedPreviewFrame(faceFrame(face), reason);
-  if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
-  state.lastRefreshReason = reason;
-  renderMatrices();
-  updatePackedFrameViews();
-  renderSavedFaces();
-  return true;
+  return syncSavedFacePreviewByIndex(index, reason, {
+    syncLiveBaseline: true,
+    syncVisibleEditor: true,
+  });
 }
 // Saved face library persistence
 // Relationship:
@@ -7914,14 +8161,26 @@ function applyKnownFaceIndexLocal(reason = "firmware_face_index_preview") {
 // - createFaceRow()/reorderFace()/deleteFace() share the table UI for sections 6.2 and 6.3.
 async function loadFaceLibrary() {
   const doc = await loadUnifiedFacesDocument();
+  const previousLibrary = getAllFaces();
+  const previousFaceIndex = state.faceIndex;
+  const previousSelectedId = previousLibrary[previousFaceIndex]?.id || "";
   faceLibraryDocument = normalizeFaceDocument(doc, "custom");
   splitFaceLibraryDocument(faceLibraryDocument);
   const library = getAllFaces();
   if (library.length) {
-    const startupId = faceLibraryDocument?.startupDefaultId;
-    const startupIndex = startupId ? library.findIndex((f) => f.id === startupId) : -1;
-    state.faceIndex =
-      startupIndex >= 0 ? startupIndex : clamp(state.faceIndex, 0, library.length - 1);
+    const preservedIndex = previousSelectedId ?
+      library.findIndex((f) => f.id === previousSelectedId) :
+      -1;
+    if (preservedIndex >= 0) {
+      state.faceIndex = preservedIndex;
+    } else if (previousLibrary.length) {
+      state.faceIndex = clamp(previousFaceIndex, 0, library.length - 1);
+    } else {
+      const startupId = faceLibraryDocument?.startupDefaultId;
+      const startupIndex = startupId ? library.findIndex((f) => f.id === startupId) : -1;
+      state.faceIndex =
+        startupIndex >= 0 ? startupIndex : clamp(state.faceIndex, 0, library.length - 1);
+    }
   } else {
     state.faceIndex = 0;
   }
@@ -8412,6 +8671,15 @@ function saveFace(name, frame, type) {
   persistFaceDocumentsAndRefresh("save_user_face");
 }
 
+function updateSavedFaceSelectionUi() {
+  document.querySelectorAll(".face-library-list .saved-row").forEach((row) => {
+    const index = Number(row.dataset.index);
+    const active = Number.isInteger(index) && index === state.faceIndex;
+    row.classList.toggle("active", active);
+    row.setAttribute("aria-selected", active ? "true" : "false");
+  });
+}
+
 function renderSavedFaces() {
   const lists = document.querySelectorAll(".face-library-list");
   if (!lists.length) return;
@@ -8427,10 +8695,12 @@ function renderSavedFaces() {
     library.forEach((f, i) => {
       const row = createFaceRow(f, i, library.length);
       row.classList.toggle("active", i === state.faceIndex);
+      row.setAttribute("aria-selected", i === state.faceIndex ? "true" : "false");
       frag.appendChild(row);
     });
     box.appendChild(frag);
   });
+  updateSavedFaceSelectionUi();
   renderState();
 }
 

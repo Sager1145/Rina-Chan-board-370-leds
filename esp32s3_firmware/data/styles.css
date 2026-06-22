@@ -1704,6 +1704,12 @@ body[data-page="debug"] .content {
   overflow: hidden;
 }
 
+.custom-preview-card,
+.custom-preview-card .matrix-wrap,
+.custom-preview-card .rinaboard-stage {
+  overflow: visible !important;
+}
+
 .led-preview-card .matrix-wrap {
   flex: 0 1 auto;
   min-height: 0;
@@ -1758,6 +1764,21 @@ body[data-page="debug"] .content {
 
 .led.editable {
   cursor: pointer;
+}
+
+.matrix.editable-matrix .led.invalid {
+  visibility: visible;
+  pointer-events: auto;
+  cursor: pointer;
+  opacity: 0;
+  background: color-mix(in srgb, var(--led-color) 18%, #f7e7f3);
+  outline: none;
+}
+
+.matrix.editable-matrix .led.invalid.on {
+  opacity: 1;
+  background: color-mix(in srgb, var(--led-color) 32%, #f7e7f3);
+  box-shadow: 0 0 2px color-mix(in srgb, var(--led-color) 26%, #f7e7f3) !important;
 }
 
 /* ===== LED preview windows ONLY =========================================
@@ -3101,6 +3122,72 @@ html[data-boot-phase="preload"] body>*:not(.loading-overlay) {
   pointer-events: auto;
 }
 
+.custom-preview-card .rinaboard-stage {
+  --custom-shift-button-size: 34px;
+  --custom-shift-button-gap: 10px;
+  --custom-matrix-width: calc((var(--alignment-cell-size, 127.43px) * 22 + var(--alignment-gap, 0px) * 21) * var(--alignment-scale, 1));
+  --custom-matrix-height: calc((var(--alignment-cell-size, 127.43px) * 18 + var(--alignment-gap, 0px) * 17) * var(--alignment-scale, 1));
+  --custom-matrix-left: calc(var(--alignment-left-offset, 597.66px) * var(--alignment-scale, 1));
+  --custom-matrix-top: calc(var(--alignment-top-offset, 850.71px) * var(--alignment-scale, 1));
+}
+
+.custom-matrix-shift-btn {
+  position: absolute;
+  z-index: 4;
+  width: var(--custom-shift-button-size);
+  height: var(--custom-shift-button-size);
+  inline-size: var(--custom-shift-button-size);
+  block-size: var(--custom-shift-button-size);
+  min-width: 0;
+  max-width: var(--custom-shift-button-size);
+  min-height: 0;
+  max-height: var(--custom-shift-button-size);
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border-radius: 50%;
+  pointer-events: auto;
+  line-height: 1;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 88%, #fff);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .28);
+}
+
+.custom-matrix-shift-btn:hover {
+  border-color: var(--accent);
+}
+
+.custom-matrix-shift-btn.shift-up,
+.custom-matrix-shift-btn.shift-down {
+  left: calc(var(--custom-matrix-left) + var(--custom-matrix-width) / 2 - var(--custom-shift-button-size) / 2);
+}
+
+.custom-matrix-shift-btn.shift-left,
+.custom-matrix-shift-btn.shift-right {
+  top: calc(var(--custom-matrix-top) + var(--custom-matrix-height) / 2 - var(--custom-shift-button-size) / 2);
+}
+
+.custom-matrix-shift-btn.shift-up {
+  top: calc(var(--custom-matrix-top) - var(--custom-shift-button-size) - var(--custom-shift-button-gap));
+}
+
+.custom-matrix-shift-btn.shift-down {
+  top: calc(var(--custom-matrix-top) + var(--custom-matrix-height) + var(--custom-shift-button-gap));
+}
+
+.custom-matrix-shift-btn.shift-left {
+  left: calc(var(--custom-matrix-left) - var(--custom-shift-button-size) - var(--custom-shift-button-gap));
+}
+
+.custom-matrix-shift-btn.shift-right {
+  left: calc(var(--custom-matrix-left) + var(--custom-matrix-width) + var(--custom-shift-button-gap));
+}
+
 /* Cells fill their grid tracks exactly (no dependence on the JS --cell). */
 .rinaboard-stage>.matrix .led {
   width: calc(100% - 1px);
@@ -3123,6 +3210,21 @@ html[data-boot-phase="preload"] body>*:not(.loading-overlay) {
 
 .rinaboard-stage>.matrix .led.invalid {
   visibility: hidden;
+}
+
+.custom-preview-card .rinaboard-stage>.matrix.editable-matrix .led.invalid {
+  visibility: visible;
+  pointer-events: auto;
+  cursor: pointer;
+  opacity: 0;
+  background: color-mix(in srgb, var(--led-color) 18%, #f7e7f3);
+  outline: none;
+}
+
+.custom-preview-card .rinaboard-stage>.matrix.editable-matrix .led.invalid.on {
+  opacity: 1;
+  background: color-mix(in srgb, var(--led-color) 32%, #f7e7f3);
+  box-shadow: 0 0 2px color-mix(in srgb, var(--led-color) 26%, #f7e7f3) !important;
 }
 
 /* Simulated button: styled as secondary to avoid being mistaken for normal user controls */
