@@ -330,6 +330,17 @@ button.ok {
   color: #b8ffd4
 }
 
+button.ok.editing-saved-face {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 34%, transparent), 0 0 16px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+#custom-save.editing,
+#custom-name.editing {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
 button.danger {
   --button-hover-color: #ff7890;
   background: #3a1820;
@@ -2080,6 +2091,14 @@ body[data-page="debug"] .content {
   background: #5a1a24;
 }
 
+.face-action-bar .btn-cancel-edit {
+  --button-hover-color: #ffb86b;
+  border-color: #8a5a24;
+  color: #ffe0b7;
+  background: #332211;
+  font-weight: 900;
+}
+
 .face-action-bar button:disabled {
   opacity: .38;
   pointer-events: none;
@@ -2125,6 +2144,11 @@ body[data-page="debug"] .content {
 .saved-row.active .list-item {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.saved-row.editing .list-item {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 34%, transparent), 0 0 20px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .saved-row-error .list-item {
@@ -2184,6 +2208,11 @@ body[data-page="debug"] .content {
   line-height: var(--control-line-height);
   font-weight: inherit;
   background: #0c0f15;
+}
+
+.saved-name-input.editing-saved-face-name {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .saved-meta {

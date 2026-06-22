@@ -3358,8 +3358,22 @@ let partsSymmetry = false;
 let partsEditBaselineActive = false;
 let editRevertBaselineActive = false;
 let editRevertFrame = blankFrame();
+const faceEdit = {
+  active: false,
+  faceId: "",
+  baselineFrame: null,
+  baselineParts: null,
+  baselineType: "custom",
+  baselineName: "",
+  baselineIndex: -1,
+  startedAt: 0,
+};
+let editingSavedFaceId = null;
+let savedFaceSelectionActive = false;
 let liveSendEnabled = true;
 let liveSyncedFrame = blankFrame();
+let customEditorManualDirty = false;
+let customEditorPageSyncPromise = null;
 let defaultFaces = [];
 let userFaces = [];
 let faceLibraryDocument = null;
@@ -3804,11 +3818,13 @@ function bindControls(selector, eventName, handler) {
     const token = `${selector}:${eventName}`;
     let bound = boundControls.get(el);
     if (!bound) {
-      bound = new Set();
+      bound = new Map();
       boundControls.set(el, bound);
     }
-    if (bound.has(token)) return;
-    bound.add(token);
+    const previous = bound.get(token);
+    if (previous === handler) return;
+    if (previous) el.removeEventListener(eventName, previous);
+    bound.set(token, handler);
     el.addEventListener(eventName, handler);
   });
 }
@@ -5142,6 +5158,7 @@ function applyFirmwareRuntimeState(data, source = "firmware_status", options = {
     !!statusFaceFrame && !framesEqual(currentFrame, statusFaceFrame);
   const shouldSyncSavedFaceFromStatus =
     !skipFrame &&
+    !editingSavedFaceId &&
     !firmwareIsScrolling &&
     Number.isFinite(faceIndexValue) &&
     (faceChanged ||
@@ -5664,18 +5681,27 @@ function orPartIntoFrame(frame, part) {
   }
 }
 
-function composePartsFrame(options = {}) {
+function frameFromPartsCall(call) {
   const frame = blankFrame();
   for (const key of ["leye", "reye", "mouth", "cheek"]) {
-    const requested = String(selectedCall[key] ?? "0");
+    const requested = String(call?.[key] ?? "0");
     const resolved = resolvePartId(key, requested);
     const part = EXPRESSION_PARTS.parts[resolved] || EXPRESSION_PARTS.parts["0"];
     orPartIntoFrame(frame, part);
   }
+  return frame;
+}
+
+function composePartsFrame(options = {}) {
+  const frame = frameFromPartsCall(selectedCall);
   partsFrame = frame;
   partsEditBaselineActive = !!options.activateBaseline;
   editRevertBaselineActive = !!options.activateBaseline;
   editRevertFrame = cloneFrame(partsFrame);
+  if (options.activateBaseline) {
+    editingSavedFaceId = null;
+    savedFaceSelectionActive = false;
+  }
   if (options.syncEdit !== false) {
     editFrame = cloneFrame(partsFrame);
     customHiddenFrame = Array(COLS * ROWS).fill(false);
@@ -5686,12 +5712,52 @@ function composePartsFrame(options = {}) {
 }
 
 function isPartsEditModified() {
+  return hasSavedFaceEditDelta();
+}
+
+function hasSavedFaceEditDelta() {
   return editRevertBaselineActive && !framesEqual(editFrame, editRevertFrame);
+}
+
+function updateFaceEditPreviewUi() {
+  const save = $("custom-save");
+  const name = $("custom-name");
+  const editing = !!(faceEdit.active || editingSavedFaceId);
+  if (save) {
+    save.classList.toggle("editing-saved-face", editing);
+    save.classList.toggle("editing", editing);
+  }
+  if (name) name.classList.toggle("editing", editing);
+  document.querySelectorAll(".saved-name-input.editing-saved-face-name").forEach((input) => {
+    input.classList.remove("editing-saved-face-name");
+  });
+  if (!editingSavedFaceId) return;
+  document
+    .querySelectorAll(`.saved-row[data-face-id="${CSS.escape(editingSavedFaceId)}"] .saved-name-input`)
+    .forEach((input) => input.classList.add("editing-saved-face-name"));
+}
+
+function savedFaceRowIsActive(face, index) {
+  if (!face) return false;
+  if (faceEdit.active && face.id === faceEdit.faceId) return true;
+  if (editingSavedFaceId && face.id === editingSavedFaceId) return true;
+  return savedFaceSelectionActive && !faceEdit.active && index === activeFaceIndexByFrame();
+}
+
+function updateSavedFaceSelectionFromFrameEdit() {
+  customEditorManualDirty = true;
+  if (faceEdit.active || editingSavedFaceId) {
+    savedFaceSelectionActive = false;
+    return;
+  }
+  partsEditBaselineActive = false;
+  editRevertBaselineActive = false;
+  savedFaceSelectionActive = false;
 }
 
 function updatePartsEditStateUi() {
   const modified = isPartsEditModified();
-  const canSaveAsParts = partsEditBaselineActive && framesEqual(editFrame, partsFrame);
+  const canSaveAsParts = !!currentCompletePartsData();
   const save = $("custom-save");
   if (save) save.textContent = canSaveAsParts ? "保存部件表情" : "保存自定义表情";
   const revert = $("parts-revert");
@@ -5705,12 +5771,18 @@ function updatePartsEditStateUi() {
 }
 
 function saveMergedFace() {
-  const canSaveAsParts = partsEditBaselineActive && framesEqual(editFrame, partsFrame);
-  const type = canSaveAsParts ? "parts" : "custom";
+  const {
+    type,
+    partsData
+  } = classifyCurrentSavedFaceType();
   const fallbackName = type === "custom" ?
     "custom_face" :
-    `parts_${selectedCall.leye}_${selectedCall.reye}_${selectedCall.mouth}_${selectedCall.cheek}`;
-  saveFace($("custom-name")?.value || fallbackName, editFrame, type);
+    `parts_${partsData.leye}_${partsData.reye}_${partsData.mouth}_${partsData.cheek}`;
+  const editingFaceId = faceEdit.faceId || editingSavedFaceId;
+  const editingFace = editingFaceId ? getAllFaces().find((f) => f.id === editingFaceId) : null;
+  const typedName = $("custom-name")?.value?.trim();
+  const name = typedName || editingFace?.name || fallbackName;
+  upsertSavedFaceFromEditor(name, editFrame, type, partsData);
 }
 
 function sendPartsFrame(reason = "parts_compose_send", writeLog = true) {
@@ -6612,14 +6684,34 @@ function partsMatrixDisplayFrame() {
   return shouldHideEditorPreviewForScroll() ? blankFrame() : partsFrame;
 }
 
+function hasProtectedFaceEditorState() {
+  return !!editingSavedFaceId || faceEdit.active || customEditorManualDirty || hasSavedFaceEditDelta();
+}
+
+function trackCustomEditorPageSync(promise) {
+  const tracked = Promise.resolve(promise).catch(() => null);
+  customEditorPageSyncPromise = tracked;
+  tracked.finally(() => {
+    if (customEditorPageSyncPromise === tracked) customEditorPageSyncPromise = null;
+  });
+  return tracked;
+}
+
+async function waitForCustomEditorPageSync() {
+  const pending = customEditorPageSyncPromise;
+  if (pending) await pending;
+}
+
 function prefillStaticPreviewPagesFromCurrent(reason = "static_preview_prefill", options = {}) {
   if (isFirmwarePreviewScrolling()) return false;
+  const preserveEditor = options.preserveEditor !== false && hasProtectedFaceEditorState();
   const frame = cloneFrame(currentFrame || blankFrame());
-  if (options.custom !== false) {
+  if (options.custom !== false && !preserveEditor) {
     editFrame = cloneFrame(frame);
     customHiddenFrame = Array(COLS * ROWS).fill(false);
+    customEditorManualDirty = false;
   }
-  if (options.parts !== false) {
+  if (options.parts !== false && !preserveEditor) {
     partsFrame = cloneFrame(frame);
   }
   if (options.updatePacked !== false) updatePackedFrameViews();
@@ -6661,7 +6753,8 @@ async function refreshSharedPreviewFromFirmware(reason = "preview_page_enter", o
 function switchPage(id) {
   // Page switching is just WebUI navigation; buttons/frame writes that actually change LED output will each interrupt scrolling.
   let prefilledStaticPreview = false;
-  if ((id === "basic" || id === "custom" || id === "parts") && !isFirmwarePreviewScrolling()) {
+  const preserveFaceEdit = faceEdit.active && (id === "custom" || id === "parts");
+  if (!preserveFaceEdit && (id === "basic" || id === "custom" || id === "parts") && !isFirmwarePreviewScrolling()) {
     prefilledStaticPreview = prefillStaticPreviewPagesFromCurrent(`${id}_page_enter_prefill`, {
       render: false,
       updatePacked: id !== "basic",
@@ -6691,14 +6784,15 @@ function switchPage(id) {
       if (a) autoResizeTextarea(a);
     });
   if (id === "custom" || id === "parts") {
-    refreshSharedPreviewFromFirmware(`${id}_page_enter`, {
+    const refreshPromise = refreshSharedPreviewFromFirmware(`${id}_page_enter`, {
       allowStaticFrameDuringScroll: false,
-      prefillStaticPreviews: true,
-      syncCustomEditFrame: id === "custom" || id === "parts",
+      prefillStaticPreviews: !faceEdit.active,
+      syncCustomEditFrame: !faceEdit.active && (id === "custom" || id === "parts"),
       syncPartsFrame: false,
     }).catch((err) => {
       if (shouldLogApiError()) log(`${id} static preview refresh failed: ${err.message || err}`, "error");
     });
+    if (id === "custom" && !faceEdit.active) trackCustomEditorPageSync(refreshPromise);
   }
   if (isFaceLibraryPage(id)) {
     scheduleFaceLibraryRefresh(`${id}_page_enter`, 0);
@@ -7812,6 +7906,7 @@ function prevFace() {
 }
 
 function applySavedFace(i, reason = "saved_face_apply") {
+  clearEditingSavedFaceMode();
   const library = getAllFaces();
   if (!library.length) return;
   const index = clamp(Number(i) || 0, 0, library.length - 1);
@@ -7835,6 +7930,38 @@ function applySavedFace(i, reason = "saved_face_apply") {
   log(`应用表情 #${index + 1}: ${face.name} / ${faceTypeLabel(face.type)}`);
 }
 
+function editSavedFace(i) {
+  const library = getAllFaces();
+  if (!library.length) return;
+  const index = clamp(Number(i) || 0, 0, library.length - 1);
+  beginFaceEdit(index, "face_library_edit");
+}
+
+function cancelEditingSavedFace() {
+  cancelFaceEdit("face_library_cancel_edit");
+}
+
+function clearEditingSavedFaceMode(render = true) {
+  if (!editingSavedFaceId && !faceEdit.active) return false;
+  faceEdit.active = false;
+  faceEdit.faceId = "";
+  faceEdit.baselineFrame = null;
+  faceEdit.baselineParts = null;
+  faceEdit.baselineType = "custom";
+  faceEdit.baselineName = "";
+  faceEdit.baselineIndex = -1;
+  faceEdit.startedAt = 0;
+  customEditorManualDirty = false;
+  editingSavedFaceId = null;
+  document.body?.classList?.remove("face-editing");
+  if (render) {
+    updateFaceEditPreviewUi();
+    updateSavedFaceSelectionUi();
+    renderPartButtons();
+  }
+  return true;
+}
+
 function initCustom() {
   initCustomMatrixShiftControls();
   const initialFrameText = $("custom-frame")?.value?.trim();
@@ -7847,53 +7974,60 @@ function initCustom() {
     }
   }
   $("custom-clear").onclick = () => {
-    partsEditBaselineActive = false;
-    editRevertBaselineActive = false;
     editFrame = blankFrame();
     customHiddenFrame = Array(COLS * ROWS).fill(false);
+    updateSavedFaceSelectionFromFrameEdit();
     renderMatrices();
     updatePackedFrameViews();
     renderPartButtons();
+    updateSavedFaceSelectionUi();
     sendCustomFrameIfLive("custom_live_clear");
     log("自定义画板清空");
   };
   $("custom-fill").onclick = () => {
-    partsEditBaselineActive = false;
-    editRevertBaselineActive = false;
     editFrame = blankFrame().map(() => true);
     customHiddenFrame = Array(COLS * ROWS).fill(true);
+    updateSavedFaceSelectionFromFrameEdit();
     renderMatrices();
     updatePackedFrameViews();
     renderPartButtons();
+    updateSavedFaceSelectionUi();
     sendCustomFrameIfLive("custom_live_fill");
     log("自定义画板全亮");
   };
   $("custom-invert").onclick = () => {
-    partsEditBaselineActive = false;
-    editRevertBaselineActive = false;
     editFrame = editFrame.map((v) => !v);
     customHiddenFrame = customHiddenFrame.map((v, gridIndex) => XY_TO_INDEX[Math.floor(gridIndex / COLS)][gridIndex % COLS] < 0 ? !v : v);
+    updateSavedFaceSelectionFromFrameEdit();
     renderMatrices();
     updatePackedFrameViews();
     renderPartButtons();
+    updateSavedFaceSelectionUi();
     sendCustomFrameIfLive("custom_live_invert");
     log("自定义画板反转");
   };
-  $("custom-send").onclick = () => sendCustomFrame("custom_face_send", true);
-  $("custom-live-toggle").onclick = () => toggleLiveSend("实时发送", "custom");
+  $("custom-send").onclick = () => {
+    clearEditingSavedFaceMode();
+    sendCustomFrame("custom_face_send", true);
+  };
+  $("custom-live-toggle").onclick = () => {
+    clearEditingSavedFaceMode();
+    toggleLiveSend("实时发送", "custom");
+  };
   $("custom-copy").onclick = () => {
+    clearEditingSavedFaceMode();
     copyText(packedFrameToHex(editFrame));
     log("复制自定义 packed frame");
   };
   $("custom-import").onclick = () => {
     try {
-      partsEditBaselineActive = false;
-      editRevertBaselineActive = false;
       editFrame = parsePackedFrameText($("custom-frame").value);
       customHiddenFrame = Array(COLS * ROWS).fill(false);
+      updateSavedFaceSelectionFromFrameEdit();
       renderMatrices();
       updatePackedFrameViews();
       renderPartButtons();
+      updateSavedFaceSelectionUi();
       log("导入自定义 packed frame 成功");
     } catch (e) {
       alert(e.message);
@@ -7947,13 +8081,16 @@ function initCustomMatrixShiftControls() {
     button.addEventListener("click", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      shiftCustomEditFrame(item.dx, item.dy, item.label);
+      shiftCustomEditFrame(item.dx, item.dy, item.label).catch((err) => {
+        if (shouldLogApiError()) log(`custom shift failed: ${err.message || err}`, "error");
+      });
     });
     stage.appendChild(button);
   }
 }
 
-function shiftCustomEditFrame(dx, dy, label = "移动") {
+async function shiftCustomEditFrame(dx, dy, label = "移动") {
+  await waitForCustomEditorPageSync();
   const sourceGrid = customFullEditGrid();
   const nextGrid = Array(COLS * ROWS).fill(false);
   for (let y = 0; y < ROWS; y++) {
@@ -8028,8 +8165,11 @@ function sendCustomFrameIfLive(reason = "custom_live_send") {
 function syncCustomEditFrameFromCurrentPreview(reason = "custom_edit_from_preview") {
   editFrame = cloneFrame(currentFrame || blankFrame());
   customHiddenFrame = Array(COLS * ROWS).fill(false);
+  customEditorManualDirty = false;
   partsEditBaselineActive = false;
   editRevertBaselineActive = false;
+  editingSavedFaceId = null;
+  savedFaceSelectionActive = false;
   updatePackedFrameViews();
   log(`自定义画板已基于当前静态预览同步：${reason}`, "debug");
 }
@@ -8038,6 +8178,8 @@ function syncPartsFrameFromCurrentPreview(reason = "parts_frame_from_preview") {
   partsFrame = cloneFrame(currentFrame || blankFrame());
   partsEditBaselineActive = false;
   editRevertBaselineActive = false;
+  editingSavedFaceId = null;
+  savedFaceSelectionActive = false;
   updatePackedFrameViews();
   log(`表情部件预览已基于当前静态预览同步：${reason}`, "debug");
 }
@@ -8062,7 +8204,9 @@ function editCell(idx, value, tool, meta = {}) {
   } else {
     customHiddenFrame[meta.gridIndex] = !!value;
   }
+  updateSavedFaceSelectionFromFrameEdit();
   renderPartButtons();
+  updateSavedFaceSelectionUi();
   // [实时诊断DIAG-A] 一行诊断：确认新代码是否已加载 + 实时开关 + 固件在线状态。
   // 看到带 DIAG-A 的日志即说明新 app.js 已生效。
   log(`[DIAG-A] 点击LED idx=${idx} grid=${meta.gridIndex ?? ""} 目标=${value ? "亮" : "灭"} 实时开关liveSendEnabled=${liveSendEnabled} 固件在线=${firmware.online}`,
@@ -8102,7 +8246,9 @@ function applyCustomFullEditGrid(grid) {
   }
   editFrame = nextEdit;
   customHiddenFrame = nextHidden;
+  updateSavedFaceSelectionFromFrameEdit();
   renderPartButtons();
+  updateSavedFaceSelectionUi();
 }
 
 function preferredStartupDefaultId(faces) {
@@ -8144,7 +8290,7 @@ function normalizeSelectedPartCall(call) {
   return next;
 }
 
-function normalizeSavedFacePartsData(face) {
+function normalizeSavedFacePartsData(face, expectedFrame = null) {
   const raw = face?.parts && typeof face.parts === "object" ? face.parts : face?.call;
   if (!raw || typeof raw !== "object") return null;
   const out = {};
@@ -8155,7 +8301,46 @@ function normalizeSavedFacePartsData(face) {
     if (!ids.some((id) => String(id) === value)) return null;
     out[key] = value;
   }
+  if (expectedFrame && !framesEqual(frameFromPartsCall(out), expectedFrame)) return null;
   return out;
+}
+
+function currentPartsDataForFrame(frame, options = {}) {
+  if (options.requirePartsContext !== false && !partsEditBaselineActive) return null;
+  return normalizeSavedFacePartsData({
+    parts: selectedCall,
+  }, frame);
+}
+
+function buildPartsFrameForCall(call) {
+  const saved = {
+    ...selectedCall,
+  };
+  selectedCall = {
+    ...call,
+  };
+  const frame = frameFromPartsCall(selectedCall);
+  selectedCall = saved;
+  return cloneFrame(frame);
+}
+
+function currentCompletePartsData() {
+  const partsData = normalizeSavedFacePartsData({
+    parts: selectedCall,
+  });
+  if (!partsData) return null;
+  return framesEqual(editFrame, buildPartsFrameForCall(partsData)) ? partsData : null;
+}
+
+function classifyCurrentSavedFaceType() {
+  const partsData = currentCompletePartsData();
+  return partsData ? {
+    type: "parts",
+    partsData,
+  } : {
+    type: "custom",
+    partsData: null,
+  };
 }
 
 function syncSavedFacePreviewByIndex(index, reason = "saved_face_index_sync", options = {}) {
@@ -8165,11 +8350,13 @@ function syncSavedFacePreviewByIndex(index, reason = "saved_face_index_sync", op
   const face = library[nextIndex];
   if (!face || !Array.isArray(face.frameBytes)) return false;
   const frame = faceFrame(face);
-  const partsData = normalizeSavedFacePartsData(face);
+  const partsData = normalizeSavedFacePartsData(face, frame);
   if (partsData) selectedCall = partsData;
   partsEditBaselineActive = !!partsData;
   editRevertBaselineActive = !!partsData || !!options.savedRevertBaseline;
   if (editRevertBaselineActive) editRevertFrame = cloneFrame(frame);
+  editingSavedFaceId = options.editSavedFace ? face.id : null;
+  savedFaceSelectionActive = true;
   const page = document.body?.dataset?.page || "";
   const currentAlreadyMatches = state.faceIndex === nextIndex && framesEqual(currentFrame, frame);
   state.faceIndex = nextIndex;
@@ -8183,11 +8370,13 @@ function syncSavedFacePreviewByIndex(index, reason = "saved_face_index_sync", op
   if (!isFirmwarePreviewScrolling() && options.prefillStaticPreviews !== false) {
     editFrame = cloneFrame(frame);
     customHiddenFrame = Array(COLS * ROWS).fill(false);
+    customEditorManualDirty = false;
     if (partsData) partsFrame = cloneFrame(frame);
   }
   if (options.syncCustomEditFrame || (options.syncVisibleEditor && page === "custom")) {
     editFrame = cloneFrame(frame);
     customHiddenFrame = Array(COLS * ROWS).fill(false);
+    customEditorManualDirty = false;
   }
   if (options.syncPartsFrame || (options.syncVisibleEditor && page === "parts")) {
     if (partsData) partsFrame = cloneFrame(frame);
@@ -8203,6 +8392,128 @@ function syncSavedFacePreviewByIndex(index, reason = "saved_face_index_sync", op
     renderPartButtons();
   }
   return true;
+}
+
+function currentFrameMatchesFace(face) {
+  if (!face) return false;
+  const frame = faceFrame(face);
+  return framesEqual(editFrame, frame) || framesEqual(currentFrame, frame);
+}
+
+function activeFaceIndexByFrame() {
+  const library = getAllFaces();
+  return library.findIndex((f) => currentFrameMatchesFace(f));
+}
+
+function clearFaceEditState(reason = "clear_face_edit") {
+  faceEdit.active = false;
+  faceEdit.faceId = "";
+  faceEdit.baselineFrame = null;
+  faceEdit.baselineParts = null;
+  faceEdit.baselineType = "custom";
+  faceEdit.baselineName = "";
+  faceEdit.baselineIndex = -1;
+  faceEdit.startedAt = 0;
+  editingSavedFaceId = null;
+  document.body?.classList?.remove("face-editing");
+  updateFaceEditPreviewUi();
+  renderPartButtons();
+  updateSavedFaceSelectionUi();
+  log(`face edit state cleared: ${reason}`, "debug");
+}
+
+function beginFaceEdit(index, reason = "face_edit_begin") {
+  const library = getAllFaces();
+  const face = library[index];
+  if (!face || face.type === "default") return false;
+  const frame = faceFrame(face);
+  const partsData = normalizeSavedFacePartsData(face, frame);
+
+  faceEdit.active = true;
+  faceEdit.faceId = face.id;
+  faceEdit.baselineFrame = cloneFrame(frame);
+  faceEdit.baselineParts = partsData ? {
+    ...partsData,
+  } : null;
+  faceEdit.baselineType = partsData ? "parts" : "custom";
+  faceEdit.baselineName = face.name || "";
+  faceEdit.baselineIndex = index;
+  faceEdit.startedAt = Date.now();
+  editingSavedFaceId = face.id;
+  savedFaceSelectionActive = true;
+
+  state.faceIndex = index;
+  editFrame = cloneFrame(frame);
+  customHiddenFrame = Array(COLS * ROWS).fill(false);
+  customEditorManualDirty = false;
+  editRevertFrame = cloneFrame(frame);
+  editRevertBaselineActive = true;
+  partsEditBaselineActive = !!partsData;
+  if (partsData) {
+    selectedCall = {
+      ...partsData,
+    };
+    partsFrame = cloneFrame(frame);
+  }
+
+  const nameInput = $("custom-name");
+  if (nameInput) nameInput.value = face.name || `face_${index + 1}`;
+  document.body?.classList?.add("face-editing");
+  setSharedPreviewFrame(frame, reason, "face edit baseline");
+  renderMatrices();
+  updatePackedFrameViews();
+  renderPartButtons();
+  renderSavedFaces();
+  renderState();
+  return true;
+}
+
+function cancelFaceEdit(reason = "face_edit_cancel") {
+  if (!faceEdit.active || !faceEdit.baselineFrame) {
+    clearFaceEditState(reason);
+    return;
+  }
+  const frame = cloneFrame(faceEdit.baselineFrame);
+  editFrame = cloneFrame(frame);
+  customHiddenFrame = Array(COLS * ROWS).fill(false);
+  customEditorManualDirty = false;
+  editRevertFrame = cloneFrame(frame);
+  editRevertBaselineActive = true;
+  savedFaceSelectionActive = true;
+  if (faceEdit.baselineParts) {
+    selectedCall = {
+      ...faceEdit.baselineParts,
+    };
+    partsFrame = cloneFrame(frame);
+    partsEditBaselineActive = true;
+  } else {
+    partsEditBaselineActive = false;
+  }
+  setSharedPreviewFrame(frame, reason, "face edit cancel");
+  if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
+  clearFaceEditState(reason);
+  renderMatrices();
+  updatePackedFrameViews();
+  renderSavedFaces();
+}
+
+function revertFaceEdit(reason = "face_edit_revert") {
+  if (!editRevertBaselineActive || !editRevertFrame) return;
+  editFrame = cloneFrame(editRevertFrame);
+  customHiddenFrame = Array(COLS * ROWS).fill(false);
+  if (faceEdit.active && faceEdit.baselineParts) {
+    selectedCall = {
+      ...faceEdit.baselineParts,
+    };
+    partsFrame = cloneFrame(editRevertFrame);
+    partsEditBaselineActive = true;
+  }
+  savedFaceSelectionActive = !faceEdit.active;
+  renderMatrices();
+  updatePackedFrameViews();
+  renderPartButtons();
+  updateSavedFaceSelectionUi();
+  if (liveSendEnabled) sendCustomFrameIfLive(reason);
 }
 
 function applyStartupDefaultFaceLocal(reason = "text_scroll_stop_default_saved_face") {
@@ -8228,11 +8539,20 @@ function applyKnownFaceIndexLocal(reason = "firmware_face_index_preview") {
 // - loadFaceLibrary() reads the default library from LittleFS and merges local/user-saved faces.
 // - save/export/import manage JSON payloads; physical matrix updates invoke setCurrentFrame().
 // - createFaceRow()/reorderFace()/deleteFace() share the table UI for sections 6.2 and 6.3.
-async function loadFaceLibrary() {
-  const doc = await loadUnifiedFacesDocument();
+async function loadFaceLibrary(options = {}) {
+  const preserveEditing = !!options.preserveEditing;
   const previousLibrary = getAllFaces();
   const previousFaceIndex = state.faceIndex;
   const previousSelectedId = previousLibrary[previousFaceIndex]?.id || "";
+  if (preserveEditing && (faceEdit.active || editingSavedFaceId)) return previousLibrary;
+  if (!preserveEditing) clearEditingSavedFaceMode(false);
+  const doc = await loadUnifiedFacesDocument();
+  if (preserveEditing && (faceEdit.active || editingSavedFaceId)) {
+    setFirmwareStatus({
+      savedFacesSync: "refresh deferred while editing",
+    });
+    return previousLibrary;
+  }
   faceLibraryDocument = normalizeFaceDocument(doc, "custom");
   splitFaceLibraryDocument(faceLibraryDocument);
   const library = getAllFaces();
@@ -8264,6 +8584,7 @@ function isFaceLibraryPage(id = document.body?.dataset?.page) {
 
 function refreshFaceLibraryFromFirmware(reason = "face_library_refresh") {
   if (!isFaceLibraryPage()) return Promise.resolve(null);
+  if (faceEdit.active || editingSavedFaceId) return Promise.resolve(null);
   if (faceLibraryRefreshInFlight) {
     faceLibraryRefreshQueued = true;
     return faceLibraryRefreshInFlight;
@@ -8271,7 +8592,9 @@ function refreshFaceLibraryFromFirmware(reason = "face_library_refresh") {
   setFirmwareStatus({
     savedFacesSync: "refreshing saved_faces.json",
   });
-  faceLibraryRefreshInFlight = loadFaceLibrary()
+  faceLibraryRefreshInFlight = loadFaceLibrary({
+      preserveEditing: true,
+    })
     .catch((err) => {
       setFirmwareStatus({
         savedFacesSync: "refresh saved_faces.json failed",
@@ -8291,6 +8614,7 @@ function refreshFaceLibraryFromFirmware(reason = "face_library_refresh") {
 
 function scheduleFaceLibraryRefresh(reason = "face_library_auto_refresh", delay = 240) {
   if (!isFaceLibraryPage()) return;
+  if (faceEdit.active || editingSavedFaceId) return;
   window.clearTimeout(faceLibraryRefreshTimer);
   faceLibraryRefreshTimer = window.setTimeout(() => {
     faceLibraryRefreshTimer = 0;
@@ -8479,7 +8803,8 @@ function normalizeFace(f, i = 0, fallbackType = "custom") {
   if (!Array.isArray(f.frameBytes) || f.frameBytes.length !== PACKED_FRAME_BYTES) return null;
   const frameBytes = f.frameBytes.map((v) => Number(v) & 255);
   const declaredType = normalizeFaceType(f.type || f.source || fallbackType);
-  const partsData = declaredType === "default" ? null : normalizeSavedFacePartsData(f);
+  const partsData =
+    declaredType === "default" ? null : normalizeSavedFacePartsData(f, packedBytesToFrame(frameBytes));
   const type = declaredType === "default" ? "default" : partsData ? "parts" : "custom";
   const id = String(f.id || `${type}_${i + 1}`);
   const normalized = {
@@ -8697,34 +9022,99 @@ async function importFacesJsonFile(file) {
 }
 
 function initFaceManagerControls() {
-  bindControls(".faces-json-load", "click", () => loadFaceLibrary());
-  bindControls(".faces-json-open-local", "click", () =>
-    openLocalFaceLibraryFile().catch((err) => alert(err.message)),
-  );
+  bindControls(".faces-json-load", "click", () => {
+    clearEditingSavedFaceMode();
+    loadFaceLibrary();
+  });
+  bindControls(".faces-json-open-local", "click", () => {
+    clearEditingSavedFaceMode();
+    openLocalFaceLibraryFile().catch((err) => alert(err.message));
+  });
   bindControls(".faces-json-save-local", "click", () => {
+    clearEditingSavedFaceMode();
     faceLibraryDocument = buildUnifiedFaceDocument();
     saveFaceLibraryToLocalFile().catch((err) => alert(err.message));
   });
-  bindControls(".faces-json-download-all", "click", downloadFacesJson);
-  bindControls(".faces-json-import-btn", "click", (e) =>
-    e.currentTarget.parentElement.querySelector(".faces-json-import-file")?.click(),
-  );
+  bindControls(".faces-json-download-all", "click", () => {
+    clearEditingSavedFaceMode();
+    downloadFacesJson();
+  });
+  bindControls(".faces-json-import-btn", "click", (e) => {
+    clearEditingSavedFaceMode();
+    e.currentTarget.parentElement.querySelector(".faces-json-import-file")?.click();
+  });
   bindControls(".faces-json-import-file", "change", (e) => {
+    clearEditingSavedFaceMode();
     const file = e.currentTarget.files?.[0];
     if (file) importFacesJsonFile(file).catch((err) => alert(err.message));
     e.currentTarget.value = "";
   });
 }
 
-function saveFace(name, frame, type) {
+function applySavedFacePayload(target, name, frame, type, partsData = null) {
+  const faceType = normalizeFaceType(type);
+  partsData = faceType === "parts" ? partsData || currentCompletePartsData() : null;
+  const savedType = faceType === "parts" && partsData ? "parts" : "custom";
+  target.name = String(name || "face").trim().slice(0, 64) || "face";
+  target.type = savedType;
+  target.frameBytes = Array.from(frameToUint8Array(frame));
+  target.editable = true;
+  target.deletable = target.type !== "default";
+  target.sourceFile = FACE_LIBRARY_FILENAME;
+  target.updatedAt = new Date().toISOString();
+  if (!target.savedAt) target.savedAt = target.updatedAt;
+  if (savedType === "parts") {
+    target.parts = {
+      ...partsData,
+    };
+    target.call = {
+      ...partsData,
+    };
+  } else {
+    delete target.parts;
+    delete target.call;
+  }
+  return target;
+}
+
+function updateEditingSavedFace(name, frame, type, partsData = null) {
+  const targetId = faceEdit.faceId || editingSavedFaceId;
+  const target = userFaces.find((f) => f.id === targetId);
+  if (!target) {
+    editingSavedFaceId = null;
+    saveFace(name, frame, type, partsData);
+    return;
+  }
+  applySavedFacePayload(target, name, frame, type, partsData);
+  editRevertBaselineActive = true;
+  editRevertFrame = cloneFrame(frame);
+  partsEditBaselineActive = target.type === "parts";
+  if (target.type === "parts") {
+    const savedPartsData = normalizeSavedFacePartsData(target, frame);
+    if (savedPartsData) selectedCall = {
+      ...savedPartsData,
+    };
+    partsFrame = cloneFrame(frame);
+  }
+  editingSavedFaceId = null;
+  savedFaceSelectionActive = true;
+  state.faceIndex = getAllFaces().findIndex((f) => f.id === target.id);
+  renderSavedFaces();
+  renderPartButtons();
+  updateFaceEditPreviewUi();
+  renderState();
+  log(`保存${faceTypeLabel(target.type)}: ${target.name}`);
+  clearFaceEditState("save_edit_done");
+  persistFaceDocumentsAndRefresh("update_user_face");
+}
+
+function saveFace(name, frame, type, partsData = null) {
   const faceType = normalizeFaceType(type);
   if (faceType === "default")
     throw new Error(
       '不能通过保存按钮新建默认表情；默认表情只能来自 saved_faces.json 的 type:"default" 项。',
     );
-  const partsData = faceType === "parts" ? normalizeSavedFacePartsData({
-    parts: selectedCall,
-  }) : null;
+  partsData = faceType === "parts" ? partsData || currentCompletePartsData() : null;
   const clean =
     String(name || "face")
     .trim()
@@ -8756,21 +9146,52 @@ function saveFace(name, frame, type) {
   editRevertFrame = cloneFrame(frame);
   partsEditBaselineActive = saved.type === "parts";
   if (saved.type === "parts") partsFrame = cloneFrame(frame);
+  editingSavedFaceId = null;
+  savedFaceSelectionActive = true;
   state.faceIndex = getAllFaces().findIndex((f) => f.id === userFaces[userFaces.length - 1].id);
   renderSavedFaces();
   renderPartButtons();
   renderState();
   log(`保存${faceTypeLabel(saved.type)}: ${clean}`);
+  clearFaceEditState("save_new_done");
   persistFaceDocumentsAndRefresh("save_user_face");
 }
 
+function upsertSavedFaceFromEditor(name, frame, type, partsData = null) {
+  const targetId = faceEdit.faceId || editingSavedFaceId;
+  if (!targetId) {
+    saveFace(name, frame, type, partsData);
+    return;
+  }
+  const old = getAllFaces().find((f) => f.id === targetId);
+  if (!old) {
+    clearFaceEditState("edited_face_missing");
+    saveFace(name, frame, type, partsData);
+    return;
+  }
+  if (old.type === "default" || old.locked) {
+    saveFace(`${name || old.name}_copy`, frame, type, partsData);
+    return;
+  }
+  if (!userFaces.some((f) => f.id === old.id)) {
+    saveFace(name, frame, type, partsData);
+    return;
+  }
+  updateEditingSavedFace(name, frame, type, partsData);
+}
+
 function updateSavedFaceSelectionUi() {
+  const library = getAllFaces();
   document.querySelectorAll(".face-library-list .saved-row").forEach((row) => {
     const index = Number(row.dataset.index);
-    const active = Number.isInteger(index) && index === state.faceIndex;
+    const face = Number.isInteger(index) ? library[index] : null;
+    const editing = !!(faceEdit.active && face && face.id === faceEdit.faceId);
+    const active = Number.isInteger(index) && savedFaceRowIsActive(face, index);
     row.classList.toggle("active", active);
+    row.classList.toggle("editing", editing);
     row.setAttribute("aria-selected", active ? "true" : "false");
   });
+  updateFaceEditPreviewUi();
 }
 
 function renderSavedFaces() {
@@ -8787,8 +9208,11 @@ function renderSavedFaces() {
     }
     library.forEach((f, i) => {
       const row = createFaceRow(f, i, library.length);
-      row.classList.toggle("active", i === state.faceIndex);
-      row.setAttribute("aria-selected", i === state.faceIndex ? "true" : "false");
+      const active = savedFaceRowIsActive(f, i);
+      const editing = !!(faceEdit.active && f.id === faceEdit.faceId);
+      row.classList.toggle("active", active);
+      row.classList.toggle("editing", editing);
+      row.setAttribute("aria-selected", active ? "true" : "false");
       frag.appendChild(row);
     });
     box.appendChild(frag);
@@ -8998,8 +9422,14 @@ function createFaceRow(f, i, total) {
     const next = nameInput.value.trim().slice(0, 64) || f.name || `face_${i + 1}`;
     const list = f.type === "default" ? defaultFaces : userFaces;
     const target = list.find((x) => x.id === f.id);
+    if (editingSavedFaceId && editingSavedFaceId !== f.id) clearEditingSavedFaceMode();
     if (target && target.name !== next) {
       target.name = next;
+      if (editingSavedFaceId === f.id) {
+        faceEdit.baselineName = next;
+        const saveNameInput = $("custom-name");
+        if (saveNameInput) saveNameInput.value = next;
+      }
       target.updatedAt = new Date().toISOString();
       persistFaceDocumentsAndRefresh(
         f.type === "default" ? "rename_default_face" : "rename_user_face",
@@ -9040,10 +9470,14 @@ function createFaceRow(f, i, total) {
 
   actions.appendChild(mkBtn("↑", "上移", "", () => moveFace(i, -1), i <= 0));
   actions.appendChild(mkBtn("↓", "下移", "", () => moveFace(i, 1), i >= total - 1));
+  const editingThisFace = editingSavedFaceId === f.id;
   actions.appendChild(
-    mkBtn("✏️", "重命名", "", () => {
-      nameInput.focus();
-      nameInput.select();
+    editingThisFace ?
+    mkBtn("\u274C", "\u53D6\u6D88\u7F16\u8F91", "btn-cancel-edit", cancelEditingSavedFace) :
+    f.type === "default" ?
+    mkBtn("\u270F\uFE0F", "\u9ED8\u8BA4\u8868\u60C5\u4E0D\u53EF\u7F16\u8F91", "", () => {}, true) :
+    mkBtn("\u270F\uFE0F", "\u7F16\u8F91\u8868\u60C5", "", () => {
+      editSavedFace(i);
     }),
   );
   if (f.type !== "default") {
@@ -9072,6 +9506,7 @@ function moveFace(i, d) {
 }
 
 function reorderFace(from, to) {
+  clearEditingSavedFaceMode();
   const library = getAllFaces();
   from = Number(from);
   to = Number(to);
@@ -9095,6 +9530,7 @@ function reorderFace(from, to) {
 }
 
 function deleteFace(i) {
+  clearEditingSavedFaceMode();
   const library = getAllFaces();
   const face = library[i];
   if (!face) return;
@@ -9143,7 +9579,10 @@ function initParts() {
       btn.title = `显示编号 ${displayIndex} / 调用 ID ${id} / asset ${assetName}`;
       const metaHtml = `<div class="part-meta"><b class="part-display-id">${displayIndex}</b></div>`;
       btn.innerHTML = `${miniPreviewHtml(part)}${metaHtml}`;
-      btn.onclick = () => selectPart(key, String(id));
+      btn.onclick = () => {
+        clearEditingSavedFaceMode();
+        selectPart(key, String(id));
+      };
       list.appendChild(btn);
     });
   }
@@ -9152,10 +9591,12 @@ function initParts() {
   const partsLiveToggle = $("parts-live-toggle");
   if (partsLiveToggle) partsLiveToggle.onclick = () => toggleLiveSend("实时发送", "parts");
   $("parts-random").onclick = () => {
+    clearEditingSavedFaceMode();
     randomParts();
     sendPartsFrame("parts_random_send");
   };
   $("parts-symmetry-toggle").onclick = () => {
+    clearEditingSavedFaceMode();
     partsSymmetry = !partsSymmetry;
     if (partsSymmetry) syncSymmetricEyesFrom("leye");
     composePartsFrame({
@@ -9166,6 +9607,7 @@ function initParts() {
     log(`左右眼对称 ${partsSymmetry ? "开启" : "关闭"}`);
   };
   $("parts-reset").onclick = () => {
+    clearEditingSavedFaceMode();
     selectedCall = {
       leye: "101",
       reye: "201",
@@ -9181,6 +9623,7 @@ function initParts() {
     log("表情部件恢复默认");
   };
   const _copyPartsFrame = () => {
+    clearEditingSavedFaceMode();
     copyText(packedFrameToHex(partsFrame));
     log("复制 packed frame");
   };
@@ -9188,17 +9631,12 @@ function initParts() {
   if (partsCopyFrame) partsCopyFrame.onclick = _copyPartsFrame;
   const partsRevert = $("parts-revert");
   if (partsRevert) partsRevert.onclick = () => {
-    if (!editRevertBaselineActive) return;
-    editFrame = cloneFrame(editRevertFrame);
-    customHiddenFrame = Array(COLS * ROWS).fill(false);
-    renderMatrices();
-    updatePackedFrameViews();
-    renderPartButtons();
-    sendPartsFrameIfLive("parts_live_revert");
+    revertFaceEdit("parts_live_revert");
   };
   const partsImportFrame = $("parts-import-frame");
   if (partsImportFrame) partsImportFrame.onclick = () => {
     try {
+      clearEditingSavedFaceMode();
       setCurrentFrame(parsePackedFrameText($("parts-frame-text").value), "parts_frame_import", "idle");
       log("部件页 packed frame 文本已应用到当前输出");
     } catch (e) {
@@ -9304,6 +9742,7 @@ function renderPartButtons() {
     sym.classList.toggle("active", !!partsSymmetry);
     sym.setAttribute("aria-pressed", partsSymmetry ? "true" : "false");
   }
+  updateFaceEditPreviewUi();
 }
 
 function randomParts() {
@@ -10016,6 +10455,7 @@ function applyPreviewSyncRuntimeHints(payload = {}) {
   const reason = String(payload.lastReason || payload.reason || "");
   const faceIndexValue = Number(payload.autoFaceIndex);
   if (
+    !editingSavedFaceId &&
     !isFirmwarePreviewScrolling() &&
     Number.isFinite(faceIndexValue) &&
     statusReasonIsSavedFace(reason)
