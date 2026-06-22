@@ -304,120 +304,70 @@ RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
             </div>
           </div>
         </section>
-        <section class="page" id="page-custom">
+        <section class="page" id="page-parts">
           <div class="hero">
             <div>
               <h2>6.2 自定义表情页面</h2>
             </div>
           </div>
           <div class="grid cols-2">
-            <div class="card stack led-preview-card custom-preview-card">
+            <div class="card stack led-preview-card custom-preview-card" id="parts-preview-card">
               <div class="matrix-wrap fill-column led-preview-wrap">
                 <div class="matrix" id="matrix-custom-edit"></div>
               </div>
             </div>
-            <div class="face-manager-stack">
-              <div class="card stack face-control-panel">
-                <div class="row">
-                  <button class="primary" id="custom-send" type="button">发送</button>
-                  <button
-                    class="toggle-button active"
-                    id="custom-live-toggle"
-                    type="button"
-                  aria-pressed="true"
-                >
-                  实时
-                </button>
-                  <button id="custom-clear" type="button">清空</button>
-                  <button id="custom-fill" type="button">全亮</button>
-                  <button id="custom-invert" type="button">反转</button>
-                </div>
-                <textarea id="custom-frame" spellcheck="false"></textarea>
-                <div class="row">
-                  <button id="custom-copy" type="button">复制 packed frame</button>
-                  <button id="custom-import" type="button">从文本导入到画板</button>
-                </div>
-              </div>
-              <div class="card stack face-manager-panel" data-manager="custom">
-                <h3>统一 saved_faces.json</h3>
-                <div class="row save-name-row">
-                  <div class="field">
-                    <input id="custom-name" value="custom_face" />
-                  </div>
-                  <button class="ok" id="custom-save" type="button">保存自定义表情</button>
-                </div>
-                <div class="row">
-                  <button class="faces-json-open-local" type="button">
-                    打开本地文件
-                  </button>
-                  <button class="faces-json-download-all" type="button">下载表情列表</button>
-                </div>
-                <h3>统一表情列表</h3>
-                <div class="list face-library-list"></div>
-              </div>
-            </div>
-          </div>
-        </section>
-        <section class="page" id="page-parts">
-          <div class="hero">
-            <div>
-              <h2>6.3 表情部件组合页面</h2>
-            </div>
-          </div>
-          <div class="grid cols-2">
-            <div class="card stack led-preview-card" id="parts-preview-card">
-              <div class="matrix-wrap fill-column led-preview-wrap">
-                <div class="matrix" id="matrix-parts"></div>
-              </div>
-            </div>
             <div class="face-manager-stack" data-manager="parts">
               <div class="parts-mid-col">
-              <div class="card stack face-control-panel">
-                <div class="row">
-                  <button class="primary" id="parts-apply" type="button">发送</button>
-                  <button
-                    class="toggle-button active"
-                    id="parts-live-toggle"
-                    type="button"
-                    aria-pressed="true"
-                  >
-                    实时
-                  </button>
-                  <button id="parts-random" type="button">随机</button>
-                  <button id="parts-reset" type="button">默认</button>
-                  <button
-                    class="toggle-button"
-                    id="parts-symmetry-toggle"
-                    type="button"
-                    title="开启后左右眼按显示编号同步，手动选择和随机均生效"
-                    aria-pressed="false"
-                  >
-                    左右眼对称
-                  </button>
+                <div class="card stack face-control-panel">
+                  <div class="row">
+                    <button class="primary" id="custom-send" type="button">发送</button>
+                    <button
+                      class="toggle-button active"
+                      id="custom-live-toggle"
+                      type="button"
+                      aria-pressed="true"
+                    >
+                      实时
+                    </button>
+                    <button id="custom-clear" type="button">清空</button>
+                    <button id="custom-fill" type="button">全亮</button>
+                    <button id="custom-invert" type="button">反转</button>
+                    <button id="parts-random" type="button">随机</button>
+                    <button id="parts-reset" type="button">默认</button>
+                    <button
+                      class="toggle-button"
+                      id="parts-symmetry-toggle"
+                      type="button"
+                      title="左右眼同步选择"
+                      aria-pressed="false"
+                    >
+                      左右眼对称
+                    </button>
+                    <button id="parts-revert" type="button">回退修改</button>
+                  </div>
+                  <textarea id="custom-frame" spellcheck="false">0000000000000000000003000303300001023000030300030000A00014947F0A201000080100090060000000000000</textarea>
+                  <div class="row">
+                    <button id="custom-copy" type="button">复制 packed frame</button>
+                    <button id="custom-import" type="button">从文本导入到画板</button>
+                  </div>
                 </div>
-                <textarea id="parts-frame-text" spellcheck="false"></textarea>
-                <div class="row">
-                  <button id="parts-copy-frame" type="button">复制 packed frame</button>
-                  <button id="parts-import-frame" type="button">从文本导入到当前输出</button>
-                </div>
-              </div>
-              <div class="grid" id="part-groups"></div>
+                <div class="grid" id="part-groups"></div>
               </div>
               <div class="card stack face-manager-panel" data-manager="parts">
-                <h3>统一 saved_faces.json</h3>
+                <h3>保存到 saved_faces.json</h3>
                 <div class="row save-name-row">
                   <div class="field">
-                    <input id="parts-name" value="parts_face" />
+                    <input id="custom-name" value="parts_face" />
                   </div>
-                  <button class="ok" id="parts-save-bottom" type="button">保存部件表情</button>
+                  <button class="ok" id="custom-save" type="button">保存部件表情</button>
                 </div>
                 <div class="row">
                   <button class="faces-json-open-local" type="button">
                     打开本地文件
                   </button>
-                  <button class="faces-json-download-all" type="button">下载表情列表</button>
+                  <button class="faces-json-download-all" type="button">下载全部表情</button>
                 </div>
-                <h3>统一表情列表</h3>
+                <h3>已保存表情</h3>
                 <div class="list face-library-list"></div>
               </div>
             </div>
