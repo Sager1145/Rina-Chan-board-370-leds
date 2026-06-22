@@ -3047,8 +3047,8 @@ const LAYOUT_THREE_COLUMNS_MIN_PX = WEBUI_CONFIG.layout.threeColumnsMinPx;
 const API_ENDPOINTS = Object.freeze(WEBUI_CONFIG.api.endpoints);
 const MATRIX_VIEW_CONFIGS = [
   ["matrix-basic", () => currentFrame, false, null, false],
-  ["matrix-custom-edit", () => editFrame, true, editCell, false],
-  ["matrix-parts", () => partsFrame, false, null, false],
+  ["matrix-custom-edit", customMatrixDisplayFrame, true, editCell, false],
+  ["matrix-parts", partsMatrixDisplayFrame, false, null, false],
   ["matrix-debug", () => currentFrame, false, null, false],
 ];
 const DEFAULT_SCROLL_FPS = WEBUI_CONFIG.scroll.defaultFps;
@@ -3082,6 +3082,7 @@ const HW_PHASE_MAX_ADJ = 0.25; // cap preview speed change to +/-25% (smooth, no
 // The preview never jumps/holds/skips frames during live scrolling; it only runs slightly faster
 // or slower to converge its phase onto the LED's actually-presented frame.
 const PREVIEW_SYNC_POLL_MS = 250; // how often to poll /api/preview_sync while scrolling
+const BUTTON_EVENT_SYNC_POLL_MS = 80; // lightweight GPIO/button index sync when not scrolling
 const PREVIEW_PHASE_DEADBAND_FRAMES = 0.65; // within this phase error, run at exactly base speed
 const PREVIEW_GENTLE_MIN = 0.97; // small steady-state correction band
 const PREVIEW_GENTLE_MAX = 1.03;
@@ -3501,6 +3502,7 @@ let previewSyncTimer = null;
 let previewSyncTransportFailCount = 0;
 let previewSyncLastOkMs = 0;
 let previewSyncLastFailReason = "";
+let lastPreviewSyncRuntimeVersion = null;
 // The factory default text of the input box in index.html; regarded as "non-user unsent content" and allowed to be overwritten by recovery.
 let scrollDefaultText = "";
 
@@ -6625,6 +6627,34 @@ function isFirmwarePreviewScrolling() {
   return state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
 }
 
+function shouldHideEditorPreviewForScroll() {
+  return isFirmwarePreviewScrolling();
+}
+
+function customMatrixDisplayFrame() {
+  return shouldHideEditorPreviewForScroll() ? blankFrame() : editFrame;
+}
+
+function partsMatrixDisplayFrame() {
+  return shouldHideEditorPreviewForScroll() ? blankFrame() : partsFrame;
+}
+
+function prefillStaticPreviewPagesFromCurrent(reason = "static_preview_prefill", options = {}) {
+  if (isFirmwarePreviewScrolling()) return false;
+  const frame = cloneFrame(currentFrame || blankFrame());
+  if (options.custom !== false) {
+    editFrame = cloneFrame(frame);
+    customHiddenFrame = Array(COLS * ROWS).fill(false);
+  }
+  if (options.parts !== false) {
+    partsFrame = cloneFrame(frame);
+  }
+  if (options.updatePacked !== false) updatePackedFrameViews();
+  if (options.render !== false) renderMatrices();
+  log(`static preview prefilled: ${reason}`, "debug");
+  return true;
+}
+
 async function refreshSharedPreviewFromFirmware(reason = "preview_page_enter", options = {}) {
   scheduleMatrixFitRender(3);
   const syncOk = await syncRuntimeStateFromFirmware(reason);
@@ -6634,11 +6664,19 @@ async function refreshSharedPreviewFromFirmware(reason = "preview_page_enter", o
       allowDuringScroll: !!options.allowStaticFrameDuringScroll,
     });
   }
-  if (options.syncCustomEditFrame && allowStaticFrameRead) {
-    syncCustomEditFrameFromCurrentPreview(`${reason}_custom_edit_sync`);
-  }
-  if (options.syncPartsFrame && allowStaticFrameRead) {
-    syncPartsFrameFromCurrentPreview(`${reason}_parts_frame_sync`);
+  if (allowStaticFrameRead && !isFirmwarePreviewScrolling()) {
+    if (options.prefillStaticPreviews) {
+      prefillStaticPreviewPagesFromCurrent(`${reason}_all_static_preview_sync`, {
+        render: false,
+      });
+    } else {
+      if (options.syncCustomEditFrame) {
+        syncCustomEditFrameFromCurrentPreview(`${reason}_custom_edit_sync`);
+      }
+      if (options.syncPartsFrame) {
+        syncPartsFrameFromCurrentPreview(`${reason}_parts_frame_sync`);
+      }
+    }
   }
   renderMatrices();
   if (options.debugPanel) renderDebugPreviewPanel();
@@ -6648,6 +6686,13 @@ async function refreshSharedPreviewFromFirmware(reason = "preview_page_enter", o
 
 function switchPage(id) {
   // Page switching is just WebUI navigation; buttons/frame writes that actually change LED output will each interrupt scrolling.
+  let prefilledStaticPreview = false;
+  if ((id === "basic" || id === "custom" || id === "parts") && !isFirmwarePreviewScrolling()) {
+    prefilledStaticPreview = prefillStaticPreviewPagesFromCurrent(`${id}_page_enter_prefill`, {
+      render: false,
+      updatePacked: id !== "basic",
+    });
+  }
   document.body.dataset.page = id;
   for (const [pid] of PAGES) {
     $("page-" + pid).classList.toggle("active", pid === id);
@@ -6656,6 +6701,9 @@ function switchPage(id) {
   }
   updateCurrentPageLabel(id);
   setNavMenuOpen(false);
+  if (prefilledStaticPreview || ((id === "custom" || id === "parts") && isFirmwarePreviewScrolling())) {
+    renderMatrices();
+  }
   scheduleMatrixFitRender(2);
   if (id === "custom")
     requestAnimationFrame(() => {
@@ -6669,7 +6717,8 @@ function switchPage(id) {
     });
   if (id === "custom" || id === "parts") {
     refreshSharedPreviewFromFirmware(`${id}_page_enter`, {
-      allowStaticFrameDuringScroll: true,
+      allowStaticFrameDuringScroll: false,
+      prefillStaticPreviews: true,
       syncCustomEditFrame: id === "custom",
       syncPartsFrame: id === "parts",
     }).catch((err) => {
@@ -6700,7 +6749,9 @@ function switchPage(id) {
     renderDebugReadouts();
   }
   if (id === "basic") {
-    refreshSharedPreviewFromFirmware("basic_page_enter").catch((err) => {
+    refreshSharedPreviewFromFirmware("basic_page_enter", {
+      prefillStaticPreviews: true,
+    }).catch((err) => {
       if (shouldLogApiError()) log(`basic preview refresh failed: ${err.message || err}`, "error");
     });
     ensureScrollFontsLoaded();
@@ -7350,7 +7401,7 @@ function renderMatrices() {
         const idx = XY_TO_INDEX[y][x];
         const stateIndex = idx >= 0 ? idx : TOTAL_LEDS + n;
         const isOn = idx >= 0 ? !!frame[idx] :
-          view.el.id === "matrix-custom-edit" && !!customHiddenFrame[n];
+          view.el.id === "matrix-custom-edit" && !shouldHideEditorPreviewForScroll() && !!customHiddenFrame[n];
         if (idx >= 0 || view.el.id === "matrix-custom-edit") {
           // Only update DOM when state changes or dirty mark
           if (view.dirty || isOn !== !!lastState[stateIndex]) {
@@ -7971,6 +8022,7 @@ function setLiveSendEnabled(enabled, label = "实时发送", source = "") {
   updateLiveToggles();
   if (liveSendEnabled) {
     if (!wasEnabled && source === "custom") sendCustomFrame("custom_face_send", false);
+    else if (!wasEnabled && source === "parts") sendPartsFrame("parts_compose_send", false);
     else syncLiveSendBaseline(currentFrame);
   }
   log(`${label} ${liveSendEnabled ? "开启" : "关闭"}`);
@@ -8119,6 +8171,11 @@ function syncSavedFacePreviewByIndex(index, reason = "saved_face_index_sync", op
     state.refreshCount++;
   }
   if (options.playback !== undefined && options.playback !== null) state.playback = options.playback;
+  if (!isFirmwarePreviewScrolling() && options.prefillStaticPreviews !== false) {
+    editFrame = cloneFrame(frame);
+    customHiddenFrame = Array(COLS * ROWS).fill(false);
+    partsFrame = cloneFrame(frame);
+  }
   if (options.syncCustomEditFrame || (options.syncVisibleEditor && page === "custom")) {
     editFrame = cloneFrame(frame);
     customHiddenFrame = Array(COLS * ROWS).fill(false);
@@ -9055,7 +9112,7 @@ function initParts() {
     });
   }
   $("parts-apply").onclick = () => sendPartsFrame();
-  $("parts-live-toggle").onclick = () => toggleLiveSend("实时发送");
+  $("parts-live-toggle").onclick = () => toggleLiveSend("实时发送", "parts");
   $("parts-random").onclick = () => {
     randomParts();
     sendPartsFrame("parts_random_send");
@@ -9879,10 +9936,41 @@ const PREVIEW_SYNC_STALE_MS = 5000;
 function shouldPollPreviewSync() {
   return (
     !document.hidden &&
-    (scroll.active || scroll.firmwareBacked || state.textScrollActive) &&
+    ((scroll.active || scroll.firmwareBacked || state.textScrollActive) ||
+      (!scroll.uploading && !scroll.startBusy && getAllFaces().length > 0)) &&
     !scroll.previewDropped &&
-    scroll.frames.length > 0
+    (scroll.frames.length > 0 || !isFirmwarePreviewScrolling())
   );
+}
+
+function previewSyncPollDelayMs() {
+  return isFirmwarePreviewScrolling() ? PREVIEW_SYNC_POLL_MS : BUTTON_EVENT_SYNC_POLL_MS;
+}
+
+function applyPreviewSyncRuntimeHints(payload = {}) {
+  const version = Number(payload.v ?? payload.version);
+  if (Number.isFinite(version) && version === lastPreviewSyncRuntimeVersion) return false;
+  if (Number.isFinite(version)) lastPreviewSyncRuntimeVersion = version;
+
+  const modeValue = payload.mode;
+  if (modeValue) state.mode = isAutoModeValue(modeValue) ? "auto" : "manual";
+  if (typeof payload.playback === "string" && payload.playback) state.playback = payload.playback;
+
+  const reason = String(payload.lastReason || payload.reason || "");
+  const faceIndexValue = Number(payload.autoFaceIndex);
+  if (
+    !isFirmwarePreviewScrolling() &&
+    Number.isFinite(faceIndexValue) &&
+    statusReasonIsSavedFace(reason)
+  ) {
+    const synced = syncSavedFacePreviewByIndex(faceIndexValue, reason || "preview_sync_saved_face", {
+      playback: null,
+      syncVisibleEditor: true,
+    });
+    if (synced) return true;
+  }
+  renderState();
+  return false;
 }
 
 function markPreviewSyncOk(payload = {}) {
@@ -9926,7 +10014,16 @@ async function pollPreviewSyncOnce(options = {}) {
     const payload = await apiGet(API_ENDPOINTS.previewSync, {
       timeoutMs: API_GET_TIMEOUT_MS
     });
-    if (!payload || payload.ok === false || !payload.valid) {
+    if (!payload || payload.ok === false) {
+      markPreviewSyncTransportFailed("invalid_preview_sync_payload");
+      return null;
+    }
+    applyPreviewSyncRuntimeHints(payload);
+    if (!payload.valid) {
+      if (!isFirmwarePreviewScrolling()) {
+        markPreviewSyncOk(payload);
+        return payload;
+      }
       markPreviewSyncTransportFailed("invalid_preview_sync_payload");
       return null;
     }
@@ -9952,9 +10049,9 @@ function startPreviewSyncPoller() {
   const loop = async () => {
     previewSyncTimer = null;
     if (shouldPollPreviewSync()) await pollPreviewSyncOnce();
-    previewSyncTimer = setTimeout(loop, PREVIEW_SYNC_POLL_MS);
+    previewSyncTimer = setTimeout(loop, previewSyncPollDelayMs());
   };
-  previewSyncTimer = setTimeout(loop, PREVIEW_SYNC_POLL_MS);
+  previewSyncTimer = setTimeout(loop, previewSyncPollDelayMs());
 }
 
 function stopPreviewSyncPoller() {

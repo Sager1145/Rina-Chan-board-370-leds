@@ -531,9 +531,15 @@ static void previewSync() {
         return;
     }
     LedPresentedSample s = readLedPresentedSample();
-    DynamicJsonDocument d(1024);
+    FrameStateSnapshot fs = readFrameStateSnapshot();
+    DynamicJsonDocument d(1280);
     d["ok"] = true;
     d["v"] = runtimeStateVersion();
+    d["mode"] = runtimeState().mode;
+    d["playback"] = runtimeState().playback;
+    d["autoFaceIndex"] = runtimeState().autoFaceIndex;
+    d["autoFaceCount"] = runtimeAutoFaceCount();
+    d["lastReason"] = fs.lastReason;
     d["valid"] = s.valid;
     d["presentedSeq"] = s.presentedSeq;
     d["source"] = ledPresentationSourceToJson(s.source);
