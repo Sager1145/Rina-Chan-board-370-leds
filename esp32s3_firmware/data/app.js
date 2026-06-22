@@ -5622,42 +5622,6 @@ function queueFirmwareFrame(frame, reason = "frame_update", playback = "idle") {
   return pump.enqueue(pendingFramePacket, reason, null);
 }
 
-function frameDeltaChanges(fromFrame, toFrame) {
-  const changes = [];
-  for (let i = 0; i < TOTAL_LEDS; i++) {
-    const next = !!toFrame[i];
-    if (!!fromFrame[i] !== next) changes.push([i, next ? 1 : 0]);
-  }
-  return changes;
-}
-
-function applyDeltaChangesToFrame(frame, changes) {
-  for (const change of changes) {
-    const idx = Number(change?.[0]);
-    if (Number.isInteger(idx) && idx >= 0 && idx < TOTAL_LEDS) frame[idx] = !!change[1];
-  }
-}
-
-function queueFirmwareLedDeltas(changes, reason = "live_delta", playback = "idle") {
-  if (!changes.length) return null;
-  const nextFrame = cloneFrame(liveSyncedFrame || currentFrame);
-  applyDeltaChangesToFrame(nextFrame, changes);
-  const payload = {
-    __frameBinary: true,
-    body: frameBase64Body(nextFrame),
-    reason,
-    playback,
-    at: Date.now(),
-  };
-  pendingFramePacket = payload;
-  const pump = isLiveFrameReason(reason) ? liveFramePump : normalFramePump;
-  const queued = pump.enqueue(payload, reason, null);
-  queued.promise.then((data) => {
-    if (data) liveSyncedFrame = cloneFrame(nextFrame);
-  });
-  return queued;
-}
-
 function setSharedPreviewFrame(frame, reason = "preview_update", source = "current preview") {
   currentFrame = cloneFrame(frame);
   scrollFrame = cloneFrame(currentFrame);
@@ -6594,35 +6558,6 @@ function updateCurrentPageLabel(id) {
   }
 }
 
-function modeForPage(id) {
-  if (id === "scroll") return "scroll";
-  if (id === "custom") return "custom";
-  if (id === "parts") return "parts";
-  if (id === "debug") return "debug";
-  return "face";
-}
-let debugLayoutCards = [];
-let debugLayoutColumnCount = 0;
-let debugLayoutRaf = 0;
-
-function responsiveColumnCount() {
-  const width = window.innerWidth || document.documentElement.clientWidth || 0;
-  if (width <= LAYOUT_ONE_COLUMN_MAX_PX) return 1;
-  if (width >= LAYOUT_THREE_COLUMNS_MIN_PX) return 3;
-  return 2;
-}
-
-// page-debug rewrite: The old JS masonry layout has been replaced by the .debug-layout CSS grid.
-// Both functions are left no-op for compatibility with existing call sites (switchPage, etc.), and layout is left entirely to CSS.
-function scheduleDebugMasonryLayout() {
-  /* no-op: .debug-layout is handled by CSS */
-}
-
-function setupDebugMasonryLayout() {
-  /* no-op: .debug-layout handles layout by CSS; matrix adaptation is still triggered when entering the debug page */
-  scheduleMatrixFitRender(2);
-}
-
 function isFirmwarePreviewScrolling() {
   return state.textScrollActive || scroll.firmwareBacked || isScrollPlaybackValue(state.playback);
 }
@@ -6732,7 +6667,7 @@ function switchPage(id) {
     // Entering 6.5: flush any log lines accumulated while the panel was hidden.
     if (logDirty) renderLog();
     requestAnimationFrame(() => {
-      setupDebugMasonryLayout(true);
+      scheduleMatrixFitRender(2);
       const a = $("debug-frame");
       if (a) autoResizeTextarea(a);
       refreshDebugFrameValidation();
@@ -7363,20 +7298,11 @@ function observeMatrixWraps() {
   window.addEventListener("resize", onResize, {
     passive: true,
   });
-  window.addEventListener("resize", () => scheduleDebugMasonryLayout(true), {
-    passive: true,
-  });
   window.addEventListener("orientationchange", onResize, {
-    passive: true,
-  });
-  window.addEventListener("orientationchange", () => scheduleDebugMasonryLayout(true), {
     passive: true,
   });
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", onResize, {
-      passive: true,
-    });
-    window.visualViewport.addEventListener("resize", () => scheduleDebugMasonryLayout(), {
       passive: true,
     });
     window.visualViewport.addEventListener("scroll", onResize, {
@@ -7519,12 +7445,6 @@ function renderState() {
   // Never rebuild interactive controls (packed frame/raw JSON/checkboxes). renderState has 44 call points,
   // Therefore the page must be gated to avoid clearing user input on every poll/request (v2 rule 4).
   renderDebugReadouts();
-}
-
-function kvRows(rows) {
-  return rows
-    .map(([k, v]) => `<span class="k">${escapeHtml(k)}</span><span>${escapeHtml(String(v))}</span>`)
-    .join("");
 }
 
 function escapeHtml(s) {
@@ -7770,21 +7690,6 @@ function updateModeToggleUi() {
   btn.classList.toggle("active", isAuto);
   btn.setAttribute("aria-pressed", isAuto ? "true" : "false");
   btn.textContent = isAuto ? "A 自动" : "M 手动";
-}
-
-function toggleModeLocal(source) {
-  guardBeforeOutput("am_mode_toggle", "face");
-  state.mode = isAutoModeValue(state.mode) ? "manual" : "auto";
-  applyKnownFaceIndexLocal(source);
-  renderState();
-  log(`A/M 模式切换为 ${state.mode} (${source})`);
-  sendAuxCommand(
-    "set_mode", {
-      mode: modePayloadValue(),
-      label: state.mode,
-    },
-    source,
-  );
 }
 
 function toggleMode(source) {
@@ -9304,10 +9209,6 @@ function scrollTextExceedsUiCharLimit(text) {
   return scrollTextVisibleCharCount(text) > MAX_SCROLL_TEXT_CHARS;
 }
 
-function normalizeScrollTextForCompare(text) {
-  return truncateScrollText(normalizeTextScrollEmojiPresentation(String(text ?? "")));
-}
-
 function sanitizeScrollTextInput(commit = false) {
   const el = $("scroll-text");
   const raw = el ? String(el.value ?? "") : "";
@@ -10179,10 +10080,6 @@ function hasRestorableFirmwareScrollSource() {
 
 function hasUsableOrRestorableScrollFrames() {
   return scroll.frames.length > 0 || hasRestorableFirmwareScrollSource();
-}
-
-function isScrollCommandBusy() {
-  return !!(scroll.commandBusy || scroll.restoring || scroll.stepBusy);
 }
 
 function isUserControllablePaused() {
@@ -12111,13 +12008,6 @@ function renderDpsWarning() {
     const el = $(id);
     if (el) el.classList.toggle("show", !!state.dpsActive);
   });
-}
-
-function setDebugActionBusy(actionId, busy) {
-  const el = $(actionId);
-  if (!el) return;
-  el.disabled = !!busy;
-  el.classList.toggle("busy", !!busy);
 }
 
 function showDebugActionResult(resultId, result) {

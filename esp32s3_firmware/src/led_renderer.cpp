@@ -242,12 +242,6 @@ void setFrameBit(uint16_t index, bool on) {
         runtimeFrameBits()[byteIndex] &= ~bitMask;
 }
 
-bool frameBit(uint16_t index) {
-    if (index >= LED_COUNT)
-        return false;
-    return (runtimeFrameBits()[index >> 3] & (1U << (index & 7U))) != 0;
-}
-
 bool packedFrameBit(const uint8_t* bits, uint16_t index) {
     if (!bits || index >= LED_COUNT)
         return false;
@@ -267,8 +261,6 @@ uint16_t countLitLedsLocked(const uint8_t* bits) {
     }
     return lit;
 }
-
-uint16_t countLitLeds() { return countLitLedsLocked(runtimeFrameBits()); }
 
 FrameStateSnapshot readFrameStateSnapshot() {
     FrameStateSnapshot s;

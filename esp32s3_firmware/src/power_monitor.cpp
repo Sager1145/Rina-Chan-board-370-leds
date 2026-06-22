@@ -210,8 +210,6 @@ static bool batteryCanRecordMinimumVoltage() {
 static void markPowerCalibrationChanged(uint32_t now) {
     markBatteryCalibrationDirty(now);
     saveBatteryCalibration(now);
-    powerStatus.webFastDirty = true;
-    powerStatus.webSlowDirty = true;
     powerStatus.lastWebSlowPublishMs = now;
     touchRuntimeState();
 }
@@ -254,13 +252,7 @@ static bool finiteChanged(float previous, float current, float epsilon) {
     return fabsf(previous - current) >= epsilon;
 }
 
-static void markPowerWebFastDirty() {
-    powerStatus.webFastDirty = true;
-    touchRuntimeState();
-}
-
 static void markPowerWebSlowDirty(uint32_t now) {
-    powerStatus.webSlowDirty = true;
     powerStatus.lastWebSlowPublishMs = now;
     powerStatus.webPublishedBatteryValid = powerStatus.batteryValid;
     powerStatus.webPublishedChargeValid = powerStatus.chargeValid;
@@ -277,8 +269,7 @@ static void servicePowerWebPublish(uint32_t now, bool force) {
         powerStatus.webPublishedChargeValid = powerStatus.chargeValid;
         powerStatus.webPublishedCharging = powerStatus.charging;
         powerStatus.webPublishedChargingKnown = true;
-        markPowerWebFastDirty();
-        powerStatus.webSlowDirty = true;
+        touchRuntimeState();
     }
 
     if (!force && !millisElapsed(now, powerStatus.lastWebSlowPublishMs, POWER_WEB_SLOW_PUBLISH_MS))
@@ -486,15 +477,4 @@ PowerStatus readPowerStatusSnapshot() {
     snapshot = powerStatus;
     portEXIT_CRITICAL(&sPowerStatusMux);
     return snapshot;
-}
-
-bool powerStatusWebSlowDirty() {
-    return powerStatus.webSlowDirty;
-}
-
-void clearPowerStatusWebDirty(bool includeSlow) {
-    powerStatus.webFastDirty = false;
-    if (includeSlow) {
-        powerStatus.webSlowDirty = false;
-    }
 }

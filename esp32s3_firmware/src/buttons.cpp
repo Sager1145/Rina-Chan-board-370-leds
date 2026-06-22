@@ -181,8 +181,8 @@ static void handleHardwareButtonPress(ButtonRuntime& button, uint32_t now) {
     button.pressedAtMs = now;
     button.lastRepeatMs = now;
     button.comboConsumed = false;
-    const char* src = button.pressFromSerial ? "serial" : "gpio";
-    const char* srcLabel = button.pressFromSerial ? "serial" : "physical";
+    const char* src = "gpio";
+    const char* srcLabel = "physical";
     RLOG_INFO("BUTTON", "source=%s id=%s event=press", srcLabel, button.code);
     handleButtonAnimationGpioPress(button.code);
 
@@ -207,8 +207,8 @@ static void handleHardwareButtonPress(ButtonRuntime& button, uint32_t now) {
 }
 
 static void handleHardwareButtonRelease(ButtonRuntime& button) {
-    const char* src = button.pressFromSerial ? "serial" : "gpio";
-    const char* srcLabel = button.pressFromSerial ? "serial" : "physical";
+    const char* src = "gpio";
+    const char* srcLabel = "physical";
     RLOG_INFO("BUTTON", "source=%s id=%s event=release", srcLabel, button.code);
     if (strcmp(button.code, "B3") == 0 && !button.comboConsumed) {
         fireHardwareButtonAction("B3", src);
@@ -238,9 +238,8 @@ static void serviceHardwareButtonRepeats(uint32_t now) {
             continue;
 
         button.lastRepeatMs = now;
-        const char* src = button.pressFromSerial ? "serial" : "gpio";
-        RLOG_INFO("BUTTON", "source=%s id=%s event=repeat",
-                  button.pressFromSerial ? "serial" : "physical", button.code);
+        const char* src = "gpio";
+        RLOG_INFO("BUTTON", "source=physical id=%s event=repeat", button.code);
         fireHardwareButtonAction(button.code, src);
     }
 }
@@ -261,16 +260,7 @@ void serviceHardwareButtons() {
     const uint32_t now = millis();
     for (uint8_t i = 0; i < BUTTON_COUNT; ++i) {
         ButtonRuntime& button = buttons[i];
-        const bool physRaw = digitalRead(button.pin) == LOW;
-        // Effective raw = physical OR serial-emulated. Conflicts resolve
-        // deterministically to "pressed" (either source asserting wins) and are
-        // logged so an observer can see the overlap.
-        const bool rawPressed = physRaw || button.emuPressed;
-
-        if (physRaw && button.emuPressed) {
-            RLOG_DEBUG("BUTTON", "id=%s event=conflict physical=1 serial=1 effective=press",
-                       button.code);
-        }
+        const bool rawPressed = digitalRead(button.pin) == LOW;
 
         if (rawPressed != button.rawPressed) {
             button.rawPressed = rawPressed;
@@ -283,44 +273,13 @@ void serviceHardwareButtons() {
 
         button.pressed = rawPressed;
         if (button.pressed) {
-            // Latch the source of this press for action/repeat tagging: serial
-            // if the emulated overlay is the (only) thing asserting it.
-            button.pressFromSerial = button.emuPressed && !physRaw;
             handleHardwareButtonPress(button, now);
         } else {
             handleHardwareButtonRelease(button);
-            button.pressFromSerial = false;
         }
     }
     serviceHardwareButtonRepeats(now);
     serviceButtonAnimationButtonInputs(isHardwareButtonPressed("B6"),
                                        isHardwareButtonPressed("B2"),
                                        isHardwareButtonPressed("B3"));
-}
-
-// --- Serial diagnostics button emulation API --------------------------------
-// These only mutate the per-button emuPressed overlay; the real debounce/repeat
-// state machine in serviceHardwareButtons() does all the work, guaranteeing an
-// emulated button behaves byte-for-byte like a physical one. With no serial
-// commands issued, emuPressed stays false and the overlay is invisible.
-
-bool buttonCodeValid(const char* code) {
-    return code != nullptr && buttonByCode(code) != nullptr;
-}
-
-void emulateButtonRawSet(const char* code, bool pressed) {
-    ButtonRuntime* b = buttonByCode(code);
-    if (!b)
-        return;
-    b->emuPressed = pressed;
-}
-
-bool buttonPhysicalPressed(const char* code) {
-    ButtonRuntime* b = buttonByCode(code);
-    return b && (digitalRead(b->pin) == LOW);
-}
-
-bool buttonEmulatedPressed(const char* code) {
-    ButtonRuntime* b = buttonByCode(code);
-    return b && b->emuPressed;
 }

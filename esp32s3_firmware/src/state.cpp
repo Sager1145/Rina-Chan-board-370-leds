@@ -95,14 +95,6 @@ bool runtimeScrollFrameBufferReady() {
     return RuntimeStore::instance().scrollFrameBufferReady();
 }
 
-bool runtimeScrollFrameBufferInPsram() {
-    return RuntimeStore::instance().scrollFrameBufferInPsram();
-}
-
-size_t runtimeScrollFrameBufferBytes() {
-    return SCROLL_FRAME_BUFFER_BYTES;
-}
-
 uint8_t* runtimeScrollFrameBits(uint16_t index) {
     return RuntimeStore::instance().scrollFrameBits(index);
 }

@@ -35,8 +35,6 @@ struct PowerStatus {
     bool webPublishedChargeValid = false;
     bool webPublishedCharging = false;
     bool webPublishedChargingKnown = false;
-    bool webFastDirty = true;
-    bool webSlowDirty = true;
 };
 
 extern PowerStatus powerStatus;
@@ -46,10 +44,6 @@ void initPowerMonitor();
 void servicePowerMonitor(bool force = false);
 
 PowerStatus readPowerStatusSnapshot();
-
-bool powerStatusWebSlowDirty();
-
-void clearPowerStatusWebDirty(bool includeSlow);
 
 void resetBatteryVoltageMinimum();
 

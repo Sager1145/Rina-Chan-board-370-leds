@@ -403,21 +403,6 @@ ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_
     return result;
 }
 
-void scrollSessionInvalidateCache() {
-    withScrollLock([]() {
-        runtimeState().scrollFrameCount = 0;
-        invalidateScrollUploadLocked();
-    });
-}
-
-void scrollSessionClearTimeline() {
-    withScrollLock([]() {
-        runtimeState().scrollFrameCount = 0;
-        runtimeState().scrollFrameIndex = 0;
-        clearScrollTimelineMetaLocked();
-    });
-}
-
 bool scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize) {
     if (textBuf && textBufSize > 0)
         textBuf[0] = '\0';

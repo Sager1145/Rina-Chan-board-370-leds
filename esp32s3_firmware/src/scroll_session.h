@@ -94,8 +94,6 @@ ScrollUploadTxn scrollSessionBeginAppend();
 bool scrollSessionWriteFrame(const ScrollUploadTxn& txn, uint16_t index, const uint8_t* packedBits);
 ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_t count,
                                              bool hasExplicitTiming, uint16_t intervalMs, uint8_t uiFps = 0);
-void scrollSessionInvalidateCache();
-void scrollSessionClearTimeline();
 bool scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize);
 ScrollSessionSnapshot scrollSessionSnapshot();
 

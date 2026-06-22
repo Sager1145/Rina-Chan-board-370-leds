@@ -148,8 +148,6 @@ uint16_t& runtimeAutoFaceCount();
 uint8_t* runtimeFrameBits();
 bool initRuntimeScrollFrameBuffer();
 bool runtimeScrollFrameBufferReady();
-bool runtimeScrollFrameBufferInPsram();
-size_t runtimeScrollFrameBufferBytes();
 uint8_t* runtimeScrollFrameBits(uint16_t index);
 ScrollTimelineMeta& runtimeScrollMeta();
 char* runtimeScrollSourceText();
