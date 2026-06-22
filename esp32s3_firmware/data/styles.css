@@ -863,7 +863,6 @@ a {
 body[data-page="basic"] .content,
 body[data-page="custom"] .content,
 body[data-page="parts"] .content,
-body[data-page="scroll"] .content,
 body[data-page="debug"] .content {
   overflow-x: clip;
 }
@@ -871,7 +870,6 @@ body[data-page="debug"] .content {
 #page-basic .led-preview-card,
 #page-custom .led-preview-card,
 #page-parts .led-preview-card,
-#page-scroll .led-preview-card,
 #page-debug .led-preview-card {
   position: sticky;
   top: var(--led-preview-sticky-top);
@@ -883,7 +881,6 @@ body[data-page="debug"] .content {
 /* #page-basic .led-preview-card::before,
   #page-custom .led-preview-card::before,
   #page-parts .led-preview-card::before,
-  #page-scroll .led-preview-card::before,
   #page-debug .led-preview-card::before {
     content: "";
     position: absolute;
@@ -915,13 +912,15 @@ body[data-page="debug"] .content {
     max-width: 2209px;
   }
 
-  /* Page 6.2 & 6.3 & 6.5: Widescreen 3-column layout transition */
+  /* Page 6.1 & 6.2 & 6.3 & 6.5: Widescreen 3-column layout transition */
+  body[data-page="basic"] .grid,
   body[data-page="custom"] .grid,
   body[data-page="parts"] .grid,
   body[data-page="debug"] .grid {
     max-width: 2209px;
   }
 
+  #page-basic>.grid.cols-2,
   #page-custom>.grid.cols-2,
   #page-parts>.grid.cols-2,
   #page-debug>.grid.cols-2 {
@@ -929,10 +928,24 @@ body[data-page="debug"] .content {
   }
 
   /* 让 .face-manager-stack 的直接子项（中列容器 + saved_faces 卡片）成为外层网格项。 */
+  #page-basic .face-manager-stack,
   #page-custom .face-manager-stack,
   #page-parts .face-manager-stack,
   #page-debug .debug-panel-stack {
     display: contents;
+  }
+
+  /* Column placements for Page 6.1 */
+  #page-basic .led-preview-card {
+    grid-column: 1;
+  }
+
+  #page-basic .basic-mid-col {
+    grid-column: 2;
+  }
+
+  #page-basic .basic-scroll-col {
+    grid-column: 3;
   }
 
   /* Column placements for Page 6.2 */
@@ -975,6 +988,8 @@ body[data-page="debug"] .content {
     grid-column: 3;
   }
 
+  .basic-mid-col,
+  .basic-scroll-col,
   #page-custom .face-control-panel,
   #page-custom .face-manager-panel,
   .parts-mid-col,
@@ -1353,7 +1368,6 @@ body[data-page="debug"] .content {
   #page-basic .led-preview-card,
   #page-custom .led-preview-card,
   #page-parts .led-preview-card,
-  #page-scroll .led-preview-card,
   #page-debug .led-preview-card {
     width: calc(100% + var(--content-padding) * 2);
     max-width: none !important;
@@ -1894,9 +1908,11 @@ body[data-page="debug"] .content {
   min-width: 0;
 }
 
-/* 6.3 中列容器：把“控制按钮卡片”和“表情部件卡片”作为一个整体纵向堆叠。
+/* 6.1 / 6.3 中列容器：把相关功能卡片作为一个整体纵向堆叠。
      在窄屏（1/2 列）时它只是 face-manager-stack 里的一段；在 ≥1471px 三列布局下，
-     它整体成为第二列，内部堆叠高度独立于预览列与 saved_faces 列。 */
+     它整体成为独立列，内部堆叠高度独立于其它列。 */
+.basic-mid-col,
+.basic-scroll-col,
 .parts-mid-col {
   display: grid;
   gap: 14px;
@@ -2889,32 +2905,12 @@ html[data-boot-phase="preload"] body>*:not(.loading-overlay) {
 }
 
 /* --------------------------------------------------------------------------
-   6.4 Text Scrolling Page: Two-card layout (Preview + Control)
-   Unified implementation style consistent with the 6.1 Basic Functions Page:
-   - Only two cards: the first is a read-only preview, the second hosts all functional options.
-   - The second card uses internal .control-section divisions and reuses the GPIO buttons,
+   Text scrolling cards embedded in the 6.1 Basic Functions Page:
+   - The cards use internal .control-section divisions and reuse the GPIO buttons,
      combinations, or local overlay feedback from 6.1.
      This aligns spacing and alignment perfectly with 6.1 brightness controls without requiring any !important overrides.
-   - Wide screens: Preview (left) and Control (right) columns are split side-by-side; Mobile: Single column stack.
-     The gap between the two cards is controlled uniformly by .scroll-layout's gap property.
    - All section titles are unified as h3, styled with a consistent margin/font-size from .control-section h3.
    -------------------------------------------------------------------------- */
-.scroll-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 14px;
-  align-items: start;
-  container-type: inline-size;
-}
-
-.scroll-preview-card {
-  min-width: 0;
-}
-
-.scroll-preview-card .matrix-wrap {
-  min-height: 0;
-}
-
 .scroll-control-card {
   display: grid;
   gap: 14px;
@@ -2943,7 +2939,7 @@ html[data-boot-phase="preload"] body>*:not(.loading-overlay) {
 
 .scroll-status-kv {
   display: grid;
-  grid-template-columns: max-content minmax(0, max-content) max-content minmax(0, max-content);
+  grid-template-columns: repeat(3, max-content minmax(0, max-content));
   align-items: center;
   justify-content: start;
   gap: 8px 12px;
@@ -2953,30 +2949,30 @@ html[data-boot-phase="preload"] body>*:not(.loading-overlay) {
 
 @media (max-width: 980px) {
 
-  #page-scroll .scroll-control-card,
-  #page-scroll .scroll-control-card>.control-section,
-  #page-scroll .scroll-control-card .scroll-text-field,
-  #page-scroll .scroll-control-card .slider-step-row,
-  #page-scroll .scroll-control-card .brightness-row,
-  #page-scroll .scroll-control-card .button-row {
+  #page-basic .basic-scroll-col .scroll-control-card,
+  #page-basic .basic-scroll-col .scroll-control-card>.control-section,
+  #page-basic .basic-scroll-col .scroll-control-card .scroll-text-field,
+  #page-basic .basic-scroll-col .scroll-control-card .slider-step-row,
+  #page-basic .basic-scroll-col .scroll-control-card .brightness-row,
+  #page-basic .basic-scroll-col .scroll-control-card .button-row {
     width: 100%;
     max-width: 100%;
     min-width: 0;
     box-sizing: border-box;
   }
 
-  #page-scroll .scroll-control-card .slider-step-row {
+  #page-basic .basic-scroll-col .scroll-control-card .slider-step-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(60px, max-content) minmax(60px, max-content);
     align-items: center;
   }
 
-  #page-scroll .scroll-control-card .slider-step-row .push-right {
+  #page-basic .basic-scroll-col .scroll-control-card .slider-step-row .push-right {
     justify-self: end;
     margin-left: 0;
   }
 
-  #page-scroll #scroll-speed-reset-default {
+  #page-basic .basic-scroll-col #scroll-speed-reset-default {
     justify-self: start;
     width: auto;
     max-width: max-content;

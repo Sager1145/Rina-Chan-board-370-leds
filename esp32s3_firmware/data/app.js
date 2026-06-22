@@ -47,7 +47,6 @@ const WEBUI_CONFIG = Object.freeze({
       ["basic", "6.1", "基础功能"],
       ["custom", "6.2", "自定义表情"],
       ["parts", "6.3", "表情部件"],
-      ["scroll", "6.4", "文字滚动"],
       ["debug", "6.5", "调试"],
     ],
   },
@@ -125,7 +124,7 @@ const WEBUI_CONFIG = Object.freeze({
     uploadChunkFrames: 24,
     maxTextChars: 1000,
   },
-  // 6.4 Page browser and firmware bitmap settings. This JSON table is large, so it is loaded lazily;
+  // Text-scroll browser and firmware bitmap settings. This JSON table is large, so it is loaded lazily;
   // The CSS font face is declared in styles.css.
   textScroll: {
     fontModel: "ark_pixel_12px_fusion_bitmap_v4",
@@ -185,7 +184,8 @@ const WEBUI_CONFIG = Object.freeze({
       "#page-basic .basic-preview-card",
       // 6.1 的控制卡片（亮度控制 / 自动表情切换间隔 / A-M 模式 / 颜色控制）现在位于
       // .face-manager-stack 内（旧的 .control-panel 结构已不存在），逐个纳入瀑布揭示。
-      "#page-basic .face-manager-stack > .card",
+      "#page-basic .basic-mid-col > .card",
+      "#page-basic .basic-scroll-col > .card",
     ],
   },
   // The refresh rhythm of the power panel. The poller refreshes at this interval after applying the first state snapshot.
@@ -3049,7 +3049,6 @@ const MATRIX_VIEW_CONFIGS = [
   ["matrix-basic", () => currentFrame, false, null, false],
   ["matrix-custom-edit", () => editFrame, true, editCell, false],
   ["matrix-parts", () => partsFrame, false, null, false],
-  ["matrix-scroll", () => currentFrame, false, null, false],
   ["matrix-debug", () => currentFrame, false, null, false],
 ];
 const DEFAULT_SCROLL_FPS = WEBUI_CONFIG.scroll.defaultFps;
@@ -3284,7 +3283,7 @@ for (let logical = 0; logical < TOTAL_LEDS; logical++) {
 // - state is a shared snapshot of UI and firmware; renderState() only reads it to update controls.
 // - currentFrame/editFrame/partsFrame/scrollFrame are working buffers for different pages.
 // - firmware/queue variables record API send, poll and error status to avoid flooding the ESP32 with duplicate requests.
-// - The scroll object only saves the timeline, playback and upload status of 6.4 text scrolling.
+// - The scroll object only saves the timeline, playback and upload status of text scrolling.
 // Synchronized runtime state between WebUI controls and firmware.
 let state = {
   mode: "manual",
@@ -3342,7 +3341,7 @@ let currentFrame = blankFrame();
 let editFrame = blankFrame();
 let partsFrame = blankFrame();
 let scrollFrame = blankFrame();
-// Debug metadata/copy buffer mirrors currentFrame so 6.1/6.4/6.5 previews render from one source.
+// Debug metadata/copy buffer mirrors currentFrame so 6.1/6.5 previews render from one source.
 let debugPreviewFrame = blankFrame();
 let debugPreviewSource = "none";
 let debugPreviewReason = "init";
@@ -3990,7 +3989,7 @@ function observeWebUiFont() {
 // - CSS Ark Pixel font only affects the appearance of the input box/preview text.
 // - The ark12.json bitmap is used to actually generate the 370 LED scrolling frames.
 // - ensureScrollFontsLoaded()/ensureArkPixelFontReady() delays loading of large resources to avoid slow startup.
-// - buildTextGlyph()/buildTextScrollBitmap() consumes the data here when building the 6.4 timeline.
+// - buildTextGlyph()/buildTextScrollBitmap() consumes the data here when building the text-scroll timeline.
 let textScrollBrowserFontLoading = null;
 
 function applyTextScrollInputFont() {
@@ -4466,7 +4465,7 @@ function setFirmwareStatus(patch) {
 }
 
 function isScrollPageActive() {
-  return document.body?.dataset?.page === "scroll";
+  return document.body?.dataset?.page === "basic";
 }
 
 function apiUrl(path) {
@@ -4483,7 +4482,7 @@ function apiUrl(path) {
 // Connection relationship:
 // - apiGet()/apiPost() is the only entry point for all firmware HTTP communications.
 // - The upper module only transmits endpoint and payload; here, timeout, error handling and offline mode judgment are unified.
-// - apiPostWithUploadProgress() specifically serves large scroll timeline uploads in 6.4.
+// - apiPostWithUploadProgress() specifically serves large scroll timeline uploads.
 async function apiGet(path, options = {}) {
   const url = apiUrl(path);
   firmware.lastRequest = `GET ${path}`;
@@ -6599,22 +6598,6 @@ function switchPage(id) {
   updateCurrentPageLabel(id);
   setNavMenuOpen(false);
   scheduleMatrixFitRender(2);
-  if (id === "scroll") {
-    ensureScrollFontsLoaded();
-    refreshSharedPreviewFromFirmware("scroll_page_enter").catch((err) => {
-      if (shouldLogApiError()) log(`scroll preview refresh failed: ${err.message || err}`, "error");
-    });
-    // Rebuild preview frames from recovered source text on demand when going into 6.4 (plan v6 2.5).
-    restoreScrollPreviewIfNeeded("page_entry").catch((err) => {
-      warnScrollRestoreDebug("preview restore page-entry failed", {
-        error: err?.message || String(err),
-      });
-    });
-    requestAnimationFrame(() => {
-      autoResizeScrollTextInput();
-      updateScrollUi();
-    });
-  }
   if (id === "custom")
     requestAnimationFrame(() => {
       const a = $("custom-frame");
@@ -6652,6 +6635,16 @@ function switchPage(id) {
     refreshSharedPreviewFromFirmware("basic_page_enter").catch((err) => {
       if (shouldLogApiError()) log(`basic preview refresh failed: ${err.message || err}`, "error");
     });
+    ensureScrollFontsLoaded();
+    restoreScrollPreviewIfNeeded("basic_page_entry").catch((err) => {
+      warnScrollRestoreDebug("preview restore basic-page-entry failed", {
+        error: err?.message || String(err),
+      });
+    });
+    requestAnimationFrame(() => {
+      autoResizeScrollTextInput();
+      updateScrollUi();
+    });
     refreshPowerStatusFromFirmware("basic_page_enter", true);
   }
 }
@@ -6659,7 +6652,7 @@ function switchPage(id) {
 // Navigation, responsive layout and custom selectors
 // Connection relationship:
 // - initNav() generates the top page menu based on PAGES, and the menu button switches .page.active.
-// - switchPage() is responsible for the page life cycle: start lazy loading of fonts when entering 6.4, and maintain status synchronization when leaving.
+// - switchPage() is responsible for page life cycle work such as refresh, resizing, and status synchronization.
 // - Responsive auxiliary only sets necessary classes/sizes; the actual layout is still determined by the grid/media rules of styles.css.
 function initNav() {
   const nav = $("nav");
@@ -7763,7 +7756,7 @@ function initCustom() {
     log("自定义画板反转");
   };
   $("custom-send").onclick = () => sendCustomFrame("custom_face_send", true);
-  $("custom-live-toggle").onclick = () => toggleLiveSend("实时发送");
+  $("custom-live-toggle").onclick = () => toggleLiveSend("实时发送", "custom");
   $("custom-copy").onclick = () => {
     copyText(packedFrameToHex(editFrame));
     log("复制自定义 packed frame");
@@ -7788,21 +7781,25 @@ function syncLiveSendBaseline(frame = currentFrame) {
   liveSyncedFrame = cloneFrame(frame || blankFrame());
 }
 
-function setLiveSendEnabled(enabled, label = "实时发送") {
+function setLiveSendEnabled(enabled, label = "实时发送", source = "") {
   const next = !!enabled;
   if (liveSendEnabled === next) {
     updateLiveToggles();
     if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
     return;
   }
+  const wasEnabled = liveSendEnabled;
   liveSendEnabled = next;
-  if (liveSendEnabled) syncLiveSendBaseline(currentFrame);
   updateLiveToggles();
+  if (liveSendEnabled) {
+    if (!wasEnabled && source === "custom") sendCustomFrame("custom_face_send", false);
+    else syncLiveSendBaseline(currentFrame);
+  }
   log(`${label} ${liveSendEnabled ? "开启" : "关闭"}`);
 }
 
-function toggleLiveSend(label = "实时发送") {
-  setLiveSendEnabled(!liveSendEnabled, label);
+function toggleLiveSend(label = "实时发送", source = "") {
+  setLiveSendEnabled(!liveSendEnabled, label, source);
 }
 
 function updateLiveToggles() {
@@ -9036,7 +9033,7 @@ function ensureScrollFontsLoaded() {
   // here -- it is loaded lazily by the paths that actually rasterize frames (Send via
   // prepareTextScrollTimelineAsync, Restore via prepareTextScrollTimelineForRestoreAsync,
   // and Step), each of which awaits ensureArkPixelFontReady() itself. This keeps merely
-  // opening or refreshing into 6.4 from triggering a 2.5MB LittleFS transfer that froze
+  // opening or refreshing the UI from triggering a 2.5MB LittleFS transfer that froze
   // the WebUI ("preparing scroll font" hang / disconnect).
   ensureTextScrollBrowserFontReady().then((loaded) => {
     if (loaded) autoResizeScrollTextInput();
@@ -9046,8 +9043,9 @@ function ensureScrollFontsLoaded() {
 function initScroll() {
   applyTextScrollInputFont();
   autoResizeScrollTextInput();
+  ensureScrollFontsLoaded();
   // The larger Ark Pixel assets are not available on launch here. they will be in
-  // Lazy loading when entering the text scrolling page for the first time (see switchPage -> ensureScrollFontsLoaded),
+  // Lazy loading when text scroll generation or restore needs the bitmap table.
   // The scroll launch path will also wait for ensureArkPixelFontReady(), so it is safe even if the user plays directly.
   $("scroll-play").onclick = startScroll;
   $("scroll-pause").onclick = togglePauseScroll;
@@ -10389,20 +10387,18 @@ async function stopScroll() {
     clearRecoveredScrollCache("text_scroll_stopped_clear");
     state.textScrollActive = false;
     state.refreshPolicy = "dirty-frame / 按需刷新";
-    setSharedPreviewFrame(blankFrame(), "text_scroll_stopped_clear");
-    state.lastRefreshReason = "text_scroll_stopped_clear";
-    state.playback = "idle";
-    renderMatrices();
-    updatePackedFrameViews();
-
     state.playback = restoreAuto ? "auto_saved_face" : "idle";
     state.mode = restoreAuto ? "auto" : "manual";
     state.restoreAutoAfterScroll = false;
-    if (restoreAuto) {
-      const delay = data.deferredFaceRestoreActive ? SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS : 20;
-      scheduleFirmwareScrollStopFullSync("text_scroll_stop_restore_auto_status", delay);
+    if (!applyStartupDefaultFaceLocal("text_scroll_stopped_clear_default_face")) {
+      setSharedPreviewFrame(blankFrame(), "text_scroll_stopped_clear");
+      state.lastRefreshReason = "text_scroll_stopped_clear";
+      renderMatrices();
+      updatePackedFrameViews();
+      renderSavedFaces();
     }
-    renderSavedFaces();
+    const delay = data.deferredFaceRestoreActive ? SCROLL_BUTTON_STOP_FULL_SYNC_DELAY_MS : 20;
+    scheduleFirmwareScrollStopFullSync("text_scroll_stop_default_face_status", delay);
     log(
       restoreAuto ?
       "文字滚动停止/清屏，已清空滚动缓存，并回到 A 自动保存表情切换模式" :
@@ -10466,7 +10462,6 @@ function setScrollStepHandler(buttonId, direction) {
 }
 
 function advanceScroll(manual = false, direction = 1) {
-  prepareTextScrollTimeline(false);
   if (!scroll.frames.length) return;
   const delta = direction < 0 ? -1 : 1;
   const len = scroll.frames.length;
@@ -10969,7 +10964,7 @@ async function restoreScrollTextFromFirmware(source = "post_boot", options = {})
       setScrollRestoreWarning("文字已从硬件恢复，但字体/生成器版本不同，预览可能与 LED 不一致。"); // E5: append instead of overwrite
     }
     updateScrollUi();
-    // C4: When restoring, 6.4 is already the current page, or the firmware is scrolling/pausing, the preview will be rebuilt immediately.
+    // C4: When restoring, the text-scroll controls are visible, or the firmware is scrolling/pausing, the preview will be rebuilt immediately.
     // The page returns to basic by default when refreshing, but the paused state still needs to be generated immediately and stopped at the current frame.
     // ensureScrollFontsLoaded() returns undefined (cannot .then());
     // restoreScrollPreviewIfNeeded internally uses prepareTextScrollTimelineAsync and other fonts.
@@ -11080,7 +11075,7 @@ function kickPostBootScrollMetaRestore(source = "post_boot") {
   // start animating the preview. The PLL (recordFirmwareScrollSample, driven by status polls)
   // then converges the preview to the device's measured ACTUAL speed. restoreScrollTextFrom
   // Firmware triggers the preview rebuild whenever the firmware is scrolling, even if the
-  // current page isn't 6.4, so a refresh restores the running scroll without user action.
+  // current page may not be the basic page, so a refresh restores the running scroll without user action.
   return restoreScrollTextFromFirmware(source, {
     autoPreview: true
   }).catch((err) => {
@@ -11470,6 +11465,7 @@ function updatePresetButtonActiveState(disabled = false) {
 function updateScrollUi() {
   const stateEl = $("scroll-state");
   const indexEl = $("scroll-frame-index");
+  const actualFpsEl = $("scroll-actual-fps");
   const pauseBtn = $("scroll-pause");
   const playBtn = $("scroll-play");
   const stopBtn = $("scroll-stop");
@@ -11528,6 +11524,13 @@ function updateScrollUi() {
   if (indexEl) {
     const displayIndex = Number.isFinite(scroll.displayIndex) ? scroll.displayIndex : scroll.frameIndex || 0;
     setDomTextIfChanged(indexEl, `${displayIndex || 0} / ${scroll.frames?.length || 0}`);
+  }
+  if (actualFpsEl) {
+    const measuredFps = Number(scroll.hwMeasuredFps || state.firmwareScrollFps || state.actualFps || 0);
+    const fpsText = effectivePaused ? "0.0 fps" :
+      Number.isFinite(measuredFps) && measuredFps > 0 ? `${measuredFps.toFixed(1)} fps` :
+      "-- fps";
+    setDomTextIfChanged(actualFpsEl, fpsText);
   }
 
   const nonResumableSystemPause = scroll.systemPaused && !scroll.userPaused;

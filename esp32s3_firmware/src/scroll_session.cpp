@@ -211,8 +211,7 @@ ScrollStopResult scrollSessionStop(bool restoreAuto, bool clearDisplay) {
 
     if (clearDisplay) {
         applyBlankFrame("firmware_text_scroll_stop_clear");
-        if (restoreAuto)
-            r.shouldRestoreDefault = true;
+        r.shouldRestoreDefault = true;
     }
     return r;
 }

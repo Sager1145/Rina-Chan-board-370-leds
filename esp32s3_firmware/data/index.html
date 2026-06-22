@@ -120,7 +120,8 @@
                 <div class="matrix" id="matrix-basic"></div>
               </div>
             </div>
-            <div class="face-manager-stack">
+            <div class="face-manager-stack" data-manager="basic">
+              <div class="basic-mid-col">
               <div class="card control-section face-control-panel">
                 <h3>亮度控制</h3>
                 <div class="slider-step-row">
@@ -216,6 +217,89 @@
                     </div>
                   </div>
                 </div>
+              </div>
+              </div>
+              <div class="basic-scroll-col">
+              <div class="card scroll-control-card face-control-panel">
+                <div class="control-section">
+                  <h3>滚动文字输入</h3>
+                  <div class="field scroll-text-field">
+                    <textarea id="scroll-text" maxlength="1000" rows="1" spellcheck="false">
+RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
+                    >
+                  </div>
+                </div>
+                <div class="control-section">
+                  <div class="button-row scroll-action-row">
+                    <button class="primary" id="scroll-play" type="button">发送</button>
+                    <button
+                      class="toggle-button"
+                      id="scroll-pause"
+                      type="button"
+                      aria-disabled="true"
+                      aria-pressed="false"
+                      disabled
+                    >
+                      暂停
+                    </button>
+                    <button id="scroll-stop" type="button" aria-disabled="true" disabled>
+                      停止/清屏
+                    </button>
+                    <button id="scroll-step-prev" type="button" title="上一帧" aria-label="上一帧">←</button>
+                    <button id="scroll-step-next" type="button" title="下一帧" aria-label="下一帧">→</button>
+                  </div>
+                  <div class="scroll-upload-progress" id="scroll-upload-progress" hidden>
+                    <progress id="scroll-upload-bar" max="100" value="0"></progress>
+                    <span class="scroll-upload-label" id="scroll-upload-label">等待发送</span>
+                  </div>
+                  <!-- Scroll text/state/FPS now sync automatically after the loader; no manual restore button. -->
+                  <div class="scroll-restore-warning" id="scroll-restore-warning" hidden></div>
+                  <div class="kv scroll-status-kv">
+                    <span class="k">状态</span>
+                    <span id="scroll-state">idle</span>
+                    <span class="k">当前帧</span>
+                    <span id="scroll-frame-index">0 / 0</span>
+                    <span class="k">实际帧率</span>
+                    <span id="scroll-actual-fps">-- fps</span>
+                  </div>
+                </div>
+              </div>
+              <div class="card scroll-control-card face-manager-panel">
+                <div class="control-section">
+                  <h3>帧率 fps</h3>
+                  <div class="slider-step-row">
+                    <button id="scroll-speed-reset-default" type="button">重置默认帧率</button>
+                    <button class="compact-btn push-right" id="scroll-speed-minus" type="button">
+                      −5
+                    </button>
+                    <button class="compact-btn" id="scroll-speed-plus" type="button">+5</button>
+                  </div>
+                  <div class="brightness-row">
+                    <input
+                      id="scroll-speed-range"
+                      type="range"
+                      autocomplete="off"
+                      max="60"
+                      min="1"
+                      step="1"
+                      value="10"
+                    />
+                    <input
+                      class="slider-number"
+                      id="scroll-speed"
+                      type="number"
+                      autocomplete="off"
+                      inputmode="numeric"
+                      max="60"
+                      min="1"
+                      pattern="[0-9]*"
+                      step="1"
+                      value="10"
+                    />
+                  </div>
+                  <div class="button-row" id="scroll-speed-presets"></div>
+                </div>
+              </div>
               </div>
             </div>
           </div>
@@ -335,100 +419,6 @@
                 </div>
                 <h3>统一表情列表</h3>
                 <div class="list face-library-list"></div>
-              </div>
-            </div>
-          </div>
-        </section>
-        <section class="page" id="page-scroll">
-          <div class="hero">
-            <div>
-              <h2>6.4 文字滚动页面</h2>
-            </div>
-          </div>
-          <div class="grid cols-2">
-            <div class="card scroll-preview-card led-preview-card">
-              <div class="matrix-wrap fill-column led-preview-wrap">
-                <div class="matrix" id="matrix-scroll"></div>
-              </div>
-            </div>
-            <div class="face-manager-stack">
-              <div class="card scroll-control-card face-control-panel">
-                <div class="control-section">
-                  <h3>滚动文字输入</h3>
-                  <div class="field scroll-text-field">
-                    <textarea id="scroll-text" maxlength="1000" rows="1" spellcheck="false">
-RinaChanBoard 370 LED こんにちは 璃奈ちゃんボード</textarea
-                    >
-                  </div>
-                </div>
-                <div class="control-section">
-                  <div class="button-row scroll-action-row">
-                    <button class="primary" id="scroll-play" type="button">发送</button>
-                    <button
-                      class="toggle-button"
-                      id="scroll-pause"
-                      type="button"
-                      aria-disabled="true"
-                      aria-pressed="false"
-                      disabled
-                    >
-                      暂停
-                    </button>
-                    <button id="scroll-stop" type="button" aria-disabled="true" disabled>
-                      停止/清屏
-                    </button>
-                    <button id="scroll-step-prev" type="button" title="上一帧" aria-label="上一帧">←</button>
-                    <button id="scroll-step-next" type="button" title="下一帧" aria-label="下一帧">→</button>
-                  </div>
-                  <div class="scroll-upload-progress" id="scroll-upload-progress" hidden>
-                    <progress id="scroll-upload-bar" max="100" value="0"></progress>
-                    <span class="scroll-upload-label" id="scroll-upload-label">等待发送</span>
-                  </div>
-                  <!-- Scroll text/state/FPS now sync automatically after the loader; no manual restore button. -->
-                  <div class="scroll-restore-warning" id="scroll-restore-warning" hidden></div>
-                  <div class="kv scroll-status-kv">
-                    <span class="k">状态</span>
-                    <span id="scroll-state">idle</span>
-                    <span class="k">当前帧</span>
-                    <span id="scroll-frame-index">0 / 0</span>
-                  </div>
-                </div>
-              </div>
-              <div class="card scroll-control-card face-manager-panel">
-                <div class="control-section">
-                  <h3>帧率 fps</h3>
-                  <div class="slider-step-row">
-                    <button id="scroll-speed-reset-default" type="button">重置默认帧率</button>
-                    <button class="compact-btn push-right" id="scroll-speed-minus" type="button">
-                      −5
-                    </button>
-                    <button class="compact-btn" id="scroll-speed-plus" type="button">+5</button>
-                  </div>
-                  <div class="brightness-row">
-                    <input
-                      id="scroll-speed-range"
-                      type="range"
-                      autocomplete="off"
-                      max="60"
-                      min="1"
-                      step="1"
-                      value="10"
-                    />
-                    <input
-                      class="slider-number"
-                      id="scroll-speed"
-                      type="number"
-                      autocomplete="off"
-                      inputmode="numeric"
-                      max="60"
-                      min="1"
-                      pattern="[0-9]*"
-                      step="1"
-                      value="10"
-                    />
-                  </div>
-                  <div class="button-row" id="scroll-speed-presets"></div>
-                </div>
               </div>
             </div>
           </div>
