@@ -13,7 +13,12 @@ param(
     [int]$MonitorBaud = 115200,
     [string]$ArkVersion = "2026.05.07",
     [string]$ArkLanguages = "zh_cn,ja,zh_tw",
-    [string]$UnifontVersion = "17.0.04"
+    [string]$UnifontVersion = "17.0.04",
+    # -Version v1|v2：在构建/上传前切换 WebUI 与固件里的版本标识。
+    # v2 = 当前实现（默认，不改动）；v1 = 把 WebUI 与 config.h 里所有
+    # "V2" 文案改成 "V1" 再构建/上传。再次用 -Version v2 可改回。
+    [ValidateSet("v1", "v2")]
+    [string]$Version = "v2"
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,6 +32,7 @@ $IndexHtml = Join-Path $ProjectDir "data\index.html"
 $StylesCss = Join-Path $ProjectDir "data\styles.css"
 $AppJs = Join-Path $ProjectDir "data\app.js"
 $MainCpp = Join-Path $ProjectDir "src\main.cpp"
+$ConfigH = Join-Path $ProjectDir "src\config.h"
 
 if (-not (Test-Path $PlatformioIni) -or -not (Test-Path $IndexHtml) -or -not (Test-Path $StylesCss) -or -not (Test-Path $AppJs) -or -not (Test-Path $MainCpp)) {
     throw "This script must be run from inside the extracted esp32s3_firmware project folder."
@@ -37,6 +43,28 @@ Write-Host "[run] project root: $ProjectDir"
 # 中文块：Write-Step 负责输出状态或文件内容，是构建/上传流程中的一个步骤。
 function Write-Step([string]$Message) {
     Write-Host "[run] $Message"
+}
+
+# 中文块：Apply-VersionLabel 在 V1/V2 之间切换 WebUI 与固件里的版本标识。
+# v2 = 当前实现；v1 = 把 index.html / app.js / config.h 里所有 "V2" 改成 "V1"。
+# 这些文件里只会出现其中一种标识（无杂散 V1/V2），所以替换是安全且幂等的。
+function Apply-VersionLabel([string]$TargetVersion) {
+    if ($TargetVersion -eq "v1") {
+        $from = "V2"; $to = "V1"
+    } else {
+        $from = "V1"; $to = "V2"
+    }
+    Write-Step "version label = $($TargetVersion.ToUpper()) (replacing '$from' -> '$to' in WebUI + config.h)."
+    $enc = New-Object System.Text.UTF8Encoding($false)
+    foreach ($file in @($IndexHtml, $AppJs, $ConfigH)) {
+        if (-not (Test-Path $file)) { continue }
+        $content = [System.IO.File]::ReadAllText($file)
+        $updated = $content.Replace($from, $to)
+        if ($updated -ne $content) {
+            [System.IO.File]::WriteAllText($file, $updated, $enc)
+            Write-Host "[version] updated $([System.IO.Path]::GetFileName($file))"
+        }
+    }
 }
 
 # 中文块：Get-PythonCommand 负责取得路径、命令或配置值，供后续步骤使用。
@@ -571,6 +599,8 @@ function Assert-LittleFSNameLengths {
     }
     Write-Host "[littlefs] all LittleFS file/directory names are <= 31 characters."
 }
+
+Apply-VersionLabel $Version
 
 if (-not $SkipPrepareFonts) {
     Prepare-FontResources

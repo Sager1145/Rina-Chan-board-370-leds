@@ -14,8 +14,10 @@
 #   ./run_rinachan_unifont.sh --env esp32s3       # 指定 env（默认 esp32s3-rmt-dma）
 #   ./run_rinachan_unifont.sh --upload-firmware --monitor   # 烧录后用同一 env 监视串口
 #   ./run_rinachan_unifont.sh --monitor-baud 115200
+#   ./run_rinachan_unifont.sh --version v1        # 把 WebUI/config.h 里的 "V2" 改成 "V1"（默认 v2）
 #
 # 默认 env = esp32s3-rmt-dma（抗 Wi-Fi 乱码后端）。基线 Adafruit 后端用 --env esp32s3。
+# --version v1|v2：在构建/上传前切换版本标识（v2 = 当前实现）。
 # 兼容 macOS 自带的 bash 3.2。
 
 set -u
@@ -26,6 +28,9 @@ SKIP_PREPARE_FONTS=0
 NO_DOWNLOAD=0
 CHECK_ONLY=0
 UNIFONT_VERSION="17.0.04"
+# 中文块：UI/固件版本标识。v2 = 当前实现（默认）；v1 = 把 index.html / app.js /
+# config.h 里所有 "V2" 文案改成 "V1" 再构建/上传。用 --version v2 可改回。
+VERSION="v2"
 # 中文块：默认 PlatformIO 环境 esp32s3-rmt-dma —— 带 RMT+DMA / IRAM 编码器 /
 # ISR 钉 Core 1 / 整帧 DMA 缓冲的抗 Wi-Fi 乱码后端。基线后端是 "esp32s3"(Adafruit,
 # 仅对比用)。--monitor 上传后用同一 env 打开串口监视，避免看错固件。
@@ -44,11 +49,17 @@ while [ $# -gt 0 ]; do
         --monitor) MONITOR=1 ;;
         --monitor-baud) shift; MONITOR_BAUD="$1" ;;
         --unifont-version) shift; UNIFONT_VERSION="$1" ;;
-        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+        --version) shift; VERSION="$1" ;;
+        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
         *) echo "[error] unknown option: $1" >&2; exit 2 ;;
     esac
     shift
 done
+
+case "$VERSION" in
+    v1|v2) ;;
+    *) echo "[error] invalid --version '$VERSION' (use v1 or v2)" >&2; exit 2 ;;
+esac
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DATA_DIR="$PROJECT_DIR/data"
@@ -64,6 +75,22 @@ FUSION_DIR="$PROJECT_DIR/tools/font_fusion"
 step() { echo "[run] $*"; }
 fontmsg() { echo "[font] $*"; }
 die() { echo "[error] $*" >&2; exit 1; }
+
+# 中文块：apply_version_label 在 V1/V2 之间切换 WebUI 与固件里的版本标识。
+# v2 = 当前实现；v1 = 把 index.html / app.js / config.h 里所有 "V2" 改成 "V1"。
+# 这些文件只含其中一种标识（无杂散 V1/V2），所以替换安全且幂等。
+apply_version_label() {
+    local target="$1" from to f
+    if [ "$target" = "v1" ]; then from="V2"; to="V1"; else from="V1"; to="V2"; fi
+    step "version label = $target (replacing '$from' -> '$to' in WebUI + config.h)."
+    for f in "$INDEX_HTML" "$APP_JS" "$PROJECT_DIR/src/config.h"; do
+        [ -f "$f" ] || continue
+        if grep -q "$from" "$f"; then
+            perl -i -pe "s/\Q$from\E/$to/g" "$f" || die "version label rewrite failed for $f"
+            echo "[version] updated $(basename "$f")"
+        fi
+    done
+}
 
 [ -f "$PROJECT_DIR/platformio.ini" ] || die "run this script from inside the esp32s3_firmware project folder."
 [ -f "$INDEX_HTML" ] && [ -f "$STYLES_CSS" ] && [ -f "$PROJECT_DIR/src/main.cpp" ] || \
@@ -342,6 +369,8 @@ find_pio() {
 # ---------------------------------------------------------------------------
 # 主流程（对应 PowerShell 脚本）
 # ---------------------------------------------------------------------------
+apply_version_label "$VERSION"
+
 if [ "$SKIP_PREPARE_FONTS" = "0" ]; then
     prepare_font_resources
 else

@@ -13,13 +13,7 @@
 /* Font resources and WebUI theme tokens. */
 /* GNU Unifont fallback font is changed to a separate LittleFS file: /resources/fonts/unifont.woff2;
      it is loaded first via <link rel="preload"> in index.html. No longer embedded as a base64 data URI. */
-@font-face {
-  font-family: "GNU Unifont";
-  src: url("/resources/fonts/unifont.woff2?v=17.0.04-webui-2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: block;
-}
+@font-face{font-family:"GNU Unifont";src:url("/resources/fonts/unifont.woff2?v=17.0.04-webui-2") format("woff2");font-weight:400;font-style:normal;font-display:block;}
 
 /* Ark 12px text scrolling font description:
      Basic glyphs, merged fallback glyphs, and Mona12 monochrome emojis
