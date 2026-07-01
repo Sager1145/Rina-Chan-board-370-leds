@@ -5,5 +5,5 @@
 - `ark12.woff2` is the single merged browser font for the text-scroll input/browser preview: Ark Pixel 12px base + fused fallback CJK glyphs + Mona12 emoji, all in one CFF webfont. No separate `ark12_fallback.woff2` exists anymore; its glyphs are merged in. `styles.css` intentionally omits the giant Ark `unicode-range`; the upload scripts validate the WOFF2 cmap against `ark12.json`.
 - Emoji glyphs are forced to the full-width kanji advance (1200/1200 em). Emoji format controls (VS15/VS16, ZWJ, skin-tone modifiers, tag characters) are zero-width.
 - GNU Unifont is not stored here as `unifont.woff2`. The WebUI Unifont subset is embedded directly inside `data/styles.css` as a `data:font/woff2;base64,...` URL.
-- `run_rinachan_unifont.ps1` (Windows) / `run_rinachan_unifont.sh` (macOS) validate the fused Ark12 resources before upload and copy the bundled files from `tools/font_fusion` if needed.
+- `run_rinachan_unifont.ps1` (Windows) / `run_rinachan_unifont.sh` (macOS) validate the fused Ark12 resources before upload. This folder is the single source of truth (the old `tools/font_fusion` bundle mirror was removed); regenerate assets with `tools/merge_mona12_emoji.py` / `tools/build_ark12_merged.py`.
 - To re-merge addon glyphs into both the JSON table and the webfont, use `tools/merge_mona12_emoji.py` (see its docstring; supports `--extra-addon path:prefix`).

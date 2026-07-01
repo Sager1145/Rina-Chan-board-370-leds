@@ -549,12 +549,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     root = Path(args.project_dir).resolve()
     mona = TTFont(args.mona_font)
 
+    # data/resources/fonts/ is the single source of truth (the old
+    # tools/font_fusion mirror was removed).
     json_targets = [
         root / "data" / "resources" / "fonts" / "ark12.json",
-        root / "tools" / "font_fusion" / "ark12_fusion.json",
     ]
     woff2_main = root / "data" / "resources" / "fonts" / "ark12.woff2"
-    woff2_targets = [woff2_main, root / "tools" / "font_fusion" / "ark12_base.woff2"]
+    woff2_targets = [woff2_main]
     css_path = root / "data" / "styles.css"
 
     if not args.skip_json:

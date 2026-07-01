@@ -198,9 +198,6 @@ constexpr char SETTINGS_PATH[] = "/resources/runtime_settings.json";
 #ifndef ENABLE_SERIAL_CONSOLE
 #define ENABLE_SERIAL_CONSOLE 1
 #endif
-#ifndef ENABLE_FIRMWARE_TESTS
-#define ENABLE_FIRMWARE_TESTS 1
-#endif
 #ifndef ENABLE_SERIAL_UART0_MIRROR
 #define ENABLE_SERIAL_UART0_MIRROR 0
 #endif

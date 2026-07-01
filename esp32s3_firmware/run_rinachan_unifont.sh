@@ -70,7 +70,6 @@ STYLES_CSS="$DATA_DIR/styles.css"
 APP_JS="$DATA_DIR/app.js"
 ARK_JSON="$FONT_DIR/ark12.json"
 ARK_WOFF2="$FONT_DIR/ark12.woff2"
-FUSION_DIR="$PROJECT_DIR/tools/font_fusion"
 
 step() { echo "[run] $*"; }
 fontmsg() { echo "[font] $*"; }
@@ -291,26 +290,15 @@ build_and_embed_unifont_webfont() {
     fontmsg "wrote standalone LittleFS unifont.woff2 ($size bytes); styles.css references it via url()."
 }
 
-install_bundled_ark12_fusion_resources() {
-    local bundled_json="$FUSION_DIR/ark12_fusion.json"
-    local bundled_woff2="$FUSION_DIR/ark12_base.woff2"
-    local f
-    for f in "$bundled_json" "$bundled_woff2"; do
-        [ -f "$f" ] || die "bundled Ark12 fusion resource is missing: $f"
-    done
-    cp -f "$bundled_json" "$ARK_JSON"
-    cp -f "$bundled_woff2" "$ARK_WOFF2"
-    # 融合后的回退层 + Mona12 emoji 已合并进（INTO）ark12.woff2。
-    rm -f "$FONT_DIR/ark12_fallback.woff2"
-    test_merged_ark12_json || die "bundled Ark12 fusion JSON validation failed after copy."
-    fontmsg "installed bundled Ark12 fusion resources (single merged woff2 incl. 然 / 燃 / 滚 / 滾 + Mona12 emoji)."
-}
-
+# 中文：data/resources/fonts/ 是唯一字体资源来源（旧 tools/font_fusion 镜像已
+# 移除）。此处只做校验；重新生成资源请用 tools/merge_mona12_emoji.py /
+# tools/build_ark12_merged.py。
 sync_ark12_fusion_resources() {
     local tool="$PROJECT_DIR/tools/sync_ark12_css_glyphs.py"
     [ -f "$tool" ] || die "missing Ark12 CSS glyph sync tool: $tool"
-    "$PYTHON" "$tool" --project-dir "$PROJECT_DIR" --install-bundled || \
-        die "Ark12 CSS glyph fusion sync failed."
+    rm -f "$FONT_DIR/ark12_fallback.woff2"
+    "$PYTHON" "$tool" --project-dir "$PROJECT_DIR" || \
+        die "Ark12 CSS glyph fusion validation failed."
     ls -l "$ARK_WOFF2" "$ARK_JSON" 2>/dev/null || true
 }
 
@@ -318,7 +306,7 @@ prepare_font_resources() {
     mkdir -p "$FONT_DIR" "$CACHE_DIR"
     remove_legacy_font_resources
     build_and_embed_unifont_webfont
-    fontmsg "synchronizing fused Ark12 glyph resources."
+    fontmsg "validating fused Ark12 glyph resources."
     sync_ark12_fusion_resources
 }
 

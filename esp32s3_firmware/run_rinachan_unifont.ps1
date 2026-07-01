@@ -279,39 +279,21 @@ function Test-MergedArk12Json([string]$Path) {
     }
 }
 
-# 中文块：Install-BundledArk12FusionResources 封装构建/上传流程中的一个独立步骤。
-function Install-BundledArk12FusionResources([string]$FontDir) {
-    $FusionDir = Join-Path $ProjectDir "tools\font_fusion"
-    $BundledJson = Join-Path $FusionDir "ark12_fusion.json"
-    $BundledBaseWoff2 = Join-Path $FusionDir "ark12_base.woff2"
-    foreach ($Path in @($BundledJson, $BundledBaseWoff2)) {
-        if (-not (Test-Path $Path)) {
-            throw "Bundled Ark12 fusion resource is missing: $Path"
-        }
-    }
-    Copy-Item -Force $BundledJson (Join-Path $FontDir "ark12.json")
-    Copy-Item -Force $BundledBaseWoff2 (Join-Path $FontDir "ark12.woff2")
-    # 中文说明：说明字体、字形、Unicode 范围或 Web font 资源处理。
-    # 中文说明：说明字体、字形、Unicode 范围或 Web font 资源处理。
-    $LegacyFallback = Join-Path $FontDir "ark12_fallback.woff2"
-    if (Test-Path $LegacyFallback) {
-        Write-Host "[font] removing obsolete split fallback font: $LegacyFallback"
-        Remove-Item -Force $LegacyFallback
-    }
-    if (-not (Test-MergedArk12Json (Join-Path $FontDir "ark12.json"))) {
-        throw "Bundled Ark12 fusion JSON validation failed after copy."
-    }
-    Write-Host "[font] installed bundled Ark12 fusion resources (single merged woff2 incl. 然 / 燃 / 滚 / 滾 + Mona12 emoji)."
-}
-
-# 中文块：Build-AndEmbedUnifontWebFont 负责生成构建流程需要的资源。
+# 中文块：Sync-Ark12FusionResources 只做校验。data\resources\fonts\ 是唯一字体
+# 资源来源（旧 tools\font_fusion 镜像已移除）；重新生成资源请用
+# tools\merge_mona12_emoji.py / tools\build_ark12_merged.py。
 function Sync-Ark12FusionResources([string]$FontDir) {
     $Python = Get-PythonCommand
     $SyncTool = Join-Path $ProjectDir "tools\sync_ark12_css_glyphs.py"
     if (-not (Test-Path $SyncTool)) {
         throw "Missing Ark12 CSS glyph sync tool: $SyncTool"
     }
-    Invoke-PythonChecked $Python @($SyncTool, "--project-dir", $ProjectDir, "--install-bundled") "Ark12 CSS glyph fusion sync failed."
+    $LegacyFallback = Join-Path $FontDir "ark12_fallback.woff2"
+    if (Test-Path $LegacyFallback) {
+        Write-Host "[font] removing obsolete split fallback font: $LegacyFallback"
+        Remove-Item -Force $LegacyFallback
+    }
+    Invoke-PythonChecked $Python @($SyncTool, "--project-dir", $ProjectDir) "Ark12 CSS glyph fusion validation failed."
     Get-Item (Join-Path $FontDir "ark12.woff2"), (Join-Path $FontDir "ark12.json") -ErrorAction SilentlyContinue | Format-Table Name, Length
 }
 

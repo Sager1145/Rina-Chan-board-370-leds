@@ -10,13 +10,16 @@ The WebUI no longer keeps a giant Ark @font-face unicode-range in CSS. This
 tool makes the upload scripts prove that the WOFF2 cmap and JSON glyph table
 still describe the same codepoint set before LittleFS is built. If a future
 CSS unicode-range is present, it is treated as an extra constraint.
+
+data/resources/fonts/ is the single source of truth; the former
+tools/font_fusion bundle mirror was removed. To regenerate the assets, use
+tools/merge_mona12_emoji.py / tools/build_ark12_merged.py.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import re
-import shutil
 import sys
 from pathlib import Path
 from typing import Iterable, Optional, Set
@@ -99,26 +102,7 @@ def assert_same(label: str, expected_label: str, expected: Set[int], actual: Set
         )
 
 
-def copy_bundled(project_dir: Path) -> None:
-    fusion_dir = project_dir / "tools" / "font_fusion"
-    font_dir = project_dir / "data" / "resources" / "fonts"
-    pairs = (
-        (fusion_dir / "ark12_fusion.json", font_dir / "ark12.json"),
-        (fusion_dir / "ark12_base.woff2", font_dir / "ark12.woff2"),
-    )
-    for src, dst in pairs:
-        if not src.exists():
-            raise RuntimeError(f"Bundled Ark12 fusion resource is missing: {src}")
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src, dst)
-        print(f"[ark12-sync] copied {src.relative_to(project_dir)} -> {dst.relative_to(project_dir)}")
-    legacy = font_dir / "ark12_fallback.woff2"
-    if legacy.exists():
-        legacy.unlink()
-        print(f"[ark12-sync] removed obsolete {legacy.relative_to(project_dir)}")
-
-
-def validate(project_dir: Path, *, validate_bundle: bool) -> tuple[int, int, int, bool]:
+def validate(project_dir: Path) -> tuple[int, int, int, bool]:
     css_path = project_dir / "data" / "styles.css"
     font_dir = project_dir / "data" / "resources" / "fonts"
     css_cps = parse_css_codepoints(css_path)
@@ -127,14 +111,6 @@ def validate(project_dir: Path, *, validate_bundle: bool) -> tuple[int, int, int
     targets = [
         ("data/resources/fonts/ark12.json", load_json_codepoints(font_dir / "ark12.json")),
     ]
-    if validate_bundle:
-        fusion_dir = project_dir / "tools" / "font_fusion"
-        targets.extend(
-            [
-                ("tools/font_fusion/ark12_fusion.json", load_json_codepoints(fusion_dir / "ark12_fusion.json")),
-                ("tools/font_fusion/ark12_base.woff2", load_woff2_codepoints(fusion_dir / "ark12_base.woff2")),
-            ]
-        )
 
     for label, cps in targets:
         assert_same(label, "data/resources/fonts/ark12.woff2 cmap", woff2_cps, cps)
@@ -146,26 +122,10 @@ def validate(project_dir: Path, *, validate_bundle: bool) -> tuple[int, int, int
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-dir", default=".", help="esp32s3_firmware project root")
-    parser.add_argument(
-        "--install-bundled",
-        action="store_true",
-        help="Copy tools/font_fusion assets into data/resources/fonts before validation.",
-    )
-    parser.add_argument(
-        "--skip-bundle-validation",
-        action="store_true",
-        help="Only validate deployed data/resources/fonts files.",
-    )
     args = parser.parse_args(argv)
 
     project_dir = Path(args.project_dir).resolve()
-    if args.install_bundled:
-        copy_bundled(project_dir)
-
-    glyph_count, target_count, json_count, css_range_present = validate(
-        project_dir,
-        validate_bundle=not args.skip_bundle_validation,
-    )
+    glyph_count, target_count, json_count, css_range_present = validate(project_dir)
     css_note = "CSS unicode-range checked" if css_range_present else "CSS unicode-range omitted"
     print(
         f"[ark12-sync] OK: ark12.woff2 and ark12.json cover "
