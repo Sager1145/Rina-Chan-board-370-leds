@@ -62,16 +62,6 @@ static void fireHardwareButtonAction(const char* code, const char* source) {
     }
 }
 
-static bool isScrollInterruptButton(const String& code) {
-    return code == "B1" || code == "B2" || code == "B3";
-}
-
-static bool isFirmwareScrollOrPreviewActive() {
-    return runtimeState().firmwareScrollActive ||
-           runtimeState().firmwareScrollPaused ||
-           isScrollPlayback(runtimeState().playback);
-}
-
 static bool finishButtonAction(const String& code, const String& source, bool handled) {
     if (handled && source == "gpio") {
         startButtonAnimationForGpioAction(code);
@@ -110,14 +100,8 @@ static bool runButtonActionImpl(const String& button, const String& source) {
     if (code.isEmpty())
         return false;
 
-    const bool shouldNotifyScrollStop = isScrollInterruptButton(code) &&
-                                        source == "gpio" &&
-                                        isFirmwareScrollOrPreviewActive();
-
     if (code == "B3") {
         const bool handled = toggleModeFromButtonAction(source);
-        if (handled && shouldNotifyScrollStop)
-            scrollSessionMarkStoppedByButton(code, source);
         return finishButtonAction(code, source, handled);
     }
 
@@ -125,18 +109,10 @@ static bool runButtonActionImpl(const String& button, const String& source) {
         stopFirmwareScroll(false);
         scrollSessionSetRestoreAuto(false);
     }
-    if (code == "B1") {
-        const bool handled = applyRelativeSavedFace(1, source + "_B1_next_saved_face");
-        if (handled && shouldNotifyScrollStop)
-            scrollSessionMarkStoppedByButton(code, source);
-        return handled;
-    }
-    if (code == "B2") {
-        const bool handled = applyRelativeSavedFace(-1, source + "_B2_prev_saved_face");
-        if (handled && shouldNotifyScrollStop)
-            scrollSessionMarkStoppedByButton(code, source);
-        return handled;
-    }
+    if (code == "B1")
+        return applyRelativeSavedFace(1, source + "_B1_next_saved_face");
+    if (code == "B2")
+        return applyRelativeSavedFace(-1, source + "_B2_prev_saved_face");
 
     if (code == "B4") {
         return adjustBrightnessFromButton(code, source,

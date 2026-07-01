@@ -20,25 +20,6 @@ static LedPresentationContext pendingPresentationContext;
 static LedPresentedSample latestPresentedSample;
 static uint32_t presentedSeq = 0;
 
-static const char* presentationSourceName(LedPresentationSource source) {
-    switch (source) {
-    case LedPresentationSource::ScrollTick:
-        return "scroll_tick";
-    case LedPresentationSource::ScrollStart:
-        return "scroll_start";
-    case LedPresentationSource::ScrollStep:
-        return "scroll_step";
-    case LedPresentationSource::ManualFrame:
-        return "manual_frame";
-    case LedPresentationSource::Clear:
-        return "clear";
-    case LedPresentationSource::Overlay:
-        return "overlay";
-    default:
-        return "unknown";
-    }
-}
-
 void setPendingLedPresentationContext(const LedPresentationContext& ctx) {
     portENTER_CRITICAL(&ledPresentationMux);
     pendingPresentationContext = ctx;
@@ -91,7 +72,7 @@ static void publishLedPresentedSample(const LedPresentationContext& ctx,
     if (rinaLogShouldEmit(RINA_LOG_TRACE) && rinaLogRateReady(sLastPresentLogMs, 1000)) {
         RLOG_TRACE("LED", "event=present seq=%lu source=%s idx=%u/%u dur_us=%lu eligible=%d",
                    static_cast<unsigned long>(sample.presentedSeq),
-                   presentationSourceName(sample.source),
+                   ledPresentationSourceName(sample.source),
                    static_cast<unsigned>(sample.presentedFrameIndex),
                    static_cast<unsigned>(sample.presentedFrameCount),
                    static_cast<unsigned long>(sample.renderDurationUs),

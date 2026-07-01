@@ -23,6 +23,27 @@ enum class LedPresentationSource : uint8_t {
     Overlay,     // 按钮动画等叠加层（不估速）
 };
 
+// Canonical wire/log name for a presentation source. Shared by the serial log
+// (led_renderer.cpp) and the /api/preview_sync JSON (web_api.cpp).
+inline const char* ledPresentationSourceName(LedPresentationSource source) {
+    switch (source) {
+    case LedPresentationSource::ScrollTick:
+        return "scroll_tick";
+    case LedPresentationSource::ScrollStart:
+        return "scroll_start";
+    case LedPresentationSource::ScrollStep:
+        return "scroll_step";
+    case LedPresentationSource::ManualFrame:
+        return "manual_frame";
+    case LedPresentationSource::Clear:
+        return "clear";
+    case LedPresentationSource::Overlay:
+        return "overlay";
+    default:
+        return "unknown";
+    }
+}
+
 // Identity + state captured BEFORE a frame is rendered. The caller fills this in
 // and hands it to the renderer via setPendingLedPresentationContext(); the renderer
 // timestamps it and turns it into a LedPresentedSample after the actual LED latch.

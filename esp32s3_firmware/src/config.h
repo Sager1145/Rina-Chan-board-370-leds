@@ -72,9 +72,7 @@ constexpr BatteryLutPoint BATTERY_PERCENT_LUT[] = {
 };
 constexpr uint8_t BATTERY_PERCENT_LUT_SIZE =
     static_cast<uint8_t>(sizeof(BATTERY_PERCENT_LUT) / sizeof(BATTERY_PERCENT_LUT[0]));
-constexpr uint32_t BATTERY_CALIB_SHRINK_TIMEOUT_MS = 7UL * 24UL * 60UL * 60UL * 1000UL;
 constexpr uint32_t BATTERY_CALIB_SAVE_DELAY_MS = 15000;
-constexpr float BATTERY_CALIB_SHRINK_STEP_V = 0.02f;
 constexpr float BATTERY_CALIB_MIN_SPAN_V = 0.10f;
 
 constexpr uint16_t PACKED_FRAME_BITS = LED_COUNT;

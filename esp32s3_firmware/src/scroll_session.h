@@ -84,14 +84,16 @@ void scrollSessionSetInterval(uint16_t intervalMs, uint8_t uiFps = 0);
 // Store the original source text into the current scroll session meta (RAM). Used when the
 // WebUI sends the text in the start_scroll command body instead of the upload query string.
 void scrollSessionSetSourceText(const char* text, uint16_t bytes);
-void scrollSessionMarkStoppedByButton(const String& button, const String& source);
 
 bool scrollSessionGetRestoreAuto();
 void scrollSessionSetRestoreAuto(bool value);
 
 ScrollUploadTxn scrollSessionBeginUpload(const ScrollUploadMeta& meta);
 ScrollUploadTxn scrollSessionBeginAppend();
-bool scrollSessionWriteFrame(const ScrollUploadTxn& txn, uint16_t index, const uint8_t* packedBits);
+// Copy `count` contiguous packed frames (count * FRAME_BYTES bytes) into the scroll
+// buffer starting at startIndex. Takes the scroll lock once for the whole chunk.
+bool scrollSessionWriteFrames(const ScrollUploadTxn& txn, uint16_t startIndex,
+                              const uint8_t* packedFrames, uint16_t count);
 ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_t count,
                                              bool hasExplicitTiming, uint16_t intervalMs, uint8_t uiFps = 0);
 bool scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize);
@@ -105,3 +107,10 @@ bool scrollSessionTickCursorLocked(uint32_t now, uint8_t* outFrameBits);
 void scrollSessionFillPresentationContext(LedPresentationContext& ctx,
                                           LedPresentationSource source,
                                           const char* reason, bool rateEligible);
+
+// Same as scrollSessionFillPresentationContext, but the caller must already hold the
+// scroll lock (used by the Core-1 scroll tick, which fills the context inside its
+// existing locked section).
+void scrollSessionFillPresentationContextLocked(LedPresentationContext& ctx,
+                                                LedPresentationSource source,
+                                                const char* reason, bool rateEligible);

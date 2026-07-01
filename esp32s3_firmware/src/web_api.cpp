@@ -440,16 +440,17 @@ static void scroll() {
     }
     const uint8_t* raw = rawvec.data();
     String err;
+    // Validate every frame first (lock-free), then write the whole chunk with a
+    // single scroll-lock acquisition instead of one lock cycle per frame.
     for (uint16_t i = 0; i < n; i++) {
-        const uint8_t* fr = raw + (size_t)i * FRAME_BYTES;
-        if (!validatePackedFrame(fr, err)) {
+        if (!validatePackedFrame(raw + (size_t)i * FRAME_BYTES, err)) {
             sendError(400, String("invalid scroll frame: ") + err);
             return;
         }
-        if (!scrollSessionWriteFrame(txn, txn.baseIndex + i, fr)) {
-            sendError(500, "failed to write scroll frame");
-            return;
-        }
+    }
+    if (!scrollSessionWriteFrames(txn, txn.baseIndex, raw, n)) {
+        sendError(500, "failed to write scroll frames");
+        return;
     }
     ScrollUploadResult res = scrollSessionCommitUpload(txn, n, server.hasArg("intervalMs") || server.hasArg("fps"), interval, uiFps);
     if (start)
@@ -501,24 +502,6 @@ static void scrollMeta() {
     sendJson(200, d);
 }
 
-static const char* ledPresentationSourceToJson(LedPresentationSource source) {
-    switch (source) {
-    case LedPresentationSource::ScrollTick:
-        return "scroll_tick";
-    case LedPresentationSource::ScrollStart:
-        return "scroll_start";
-    case LedPresentationSource::ScrollStep:
-        return "scroll_step";
-    case LedPresentationSource::ManualFrame:
-        return "manual_frame";
-    case LedPresentationSource::Clear:
-        return "clear";
-    case LedPresentationSource::Overlay:
-        return "overlay";
-    default:
-        return "unknown";
-    }
-}
 // Lightweight: ONLY the actually-presented (LED-latched) frame index + device timestamp. Never the
 // full packed frame and never the (potentially large) sourceText. Polled ~4x/sec while scrolling.
 static void previewSync() {
@@ -542,7 +525,7 @@ static void previewSync() {
     d["lastReason"] = fs.lastReason;
     d["valid"] = s.valid;
     d["presentedSeq"] = s.presentedSeq;
-    d["source"] = ledPresentationSourceToJson(s.source);
+    d["source"] = ledPresentationSourceName(s.source);
     d["reason"] = s.reason;
     d["scrollTimelineId"] = s.timelineId;
     d["presentedFrameIndex"] = s.presentedFrameIndex;

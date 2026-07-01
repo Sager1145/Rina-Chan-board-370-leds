@@ -11,30 +11,6 @@
 
 static TaskHandle_t sScrollTaskHandle = nullptr;
 
-// Build the presentation context for a scroll frame. MUST be called while holding the
-// scroll lock (reads runtimeState()/runtimeScrollMeta()).
-static void fillScrollPresentationContextLocked(LedPresentationContext& ctx,
-                                                LedPresentationSource source,
-                                                const char* reason, bool rateEligible) {
-    const RuntimeState& rs = runtimeState();
-    const ScrollTimelineMeta& meta = runtimeScrollMeta();
-    ctx = LedPresentationContext{};
-    ctx.valid = true;
-    ctx.source = source;
-    strlcpy(ctx.timelineId, meta.timelineId, sizeof(ctx.timelineId));
-    ctx.frameIndex = rs.scrollFrameIndex;
-    ctx.frameCount = rs.scrollFrameCount;
-    ctx.nominalIntervalMs = rs.scrollIntervalMs;
-    ctx.uiFps = meta.uiFps;
-    ctx.firmwareScrollActive = rs.firmwareScrollActive;
-    ctx.firmwareScrollPaused = rs.firmwareScrollPaused;
-    ctx.userPaused = rs.firmwareScrollUserPaused;
-    ctx.systemPaused = rs.firmwareScrollSystemPaused;
-    ctx.rateEligible = rateEligible && rs.firmwareScrollActive &&
-                       !rs.firmwareScrollPaused && rs.scrollFrameCount > 0;
-    strlcpy(ctx.reason, reason ? reason : "", sizeof(ctx.reason));
-}
-
 static void scrollRenderTask(void* parameter) {
     (void)parameter;
     uint8_t nextFrame[FRAME_BYTES];
@@ -50,7 +26,7 @@ static void scrollRenderTask(void* parameter) {
             hasScrollFrame = scrollSessionTickCursorLocked(millis(), nextFrame);
             if (hasScrollFrame) {
                 shouldRender = true;
-                fillScrollPresentationContextLocked(
+                scrollSessionFillPresentationContextLocked(
                     scrollCtx, LedPresentationSource::ScrollTick,
                     "firmware_text_scroll_tick", true);
                 hasScrollCtx = true;

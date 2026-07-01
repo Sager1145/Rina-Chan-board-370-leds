@@ -22,7 +22,6 @@ namespace leddrv {
 static uint32_t sLastRefreshUs = 0;
 static uint32_t sMaxRefreshUs = 0;
 static uint32_t sRefreshFail = 0;
-static uint8_t sBrightness = DEFAULT_BRIGHTNESS;
 static bool sReady = false;
 
 uint32_t lastRefreshUs() { return sLastRefreshUs; }
@@ -72,7 +71,6 @@ bool begin() {
 // Adafruit applies brightness inside show(); forward the value natively so the
 // default build is byte-for-byte identical to the previous firmware.
 void setBrightness(uint8_t brightness) {
-    sBrightness = brightness;
     strip.setBrightness(brightness);
 }
 
@@ -173,7 +171,8 @@ static esp_err_t ws2812_encoder_del(rmt_encoder_t* encoder) {
 // ---- backend state ---------------------------------------------------------
 static rmt_channel_handle_t sChannel = nullptr;
 static rmt_encoder_handle_t sEncoder = nullptr;
-static uint8_t sPixels[LED_COUNT * 3] = {}; // GRB order, brightness pre-scaled
+static uint8_t sBrightness = DEFAULT_BRIGHTNESS; // applied per-component in setPixel
+static uint8_t sPixels[LED_COUNT * 3] = {};      // GRB order, brightness pre-scaled
 
 #if RINACHAN_LED_RMT_WITH_DMA
 const char* backendName() { return "rmt-dma"; }

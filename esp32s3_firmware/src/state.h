@@ -58,12 +58,6 @@ struct RuntimeState {
     uint16_t scrollIntervalMs = DEFAULT_SCROLL_INTERVAL_MS;
     uint32_t lastScrollFrameMs = 0;
 
-    uint32_t scrollStopEventSeq = 0;
-    uint32_t scrollStopEventMs = 0;
-    String scrollStopEventButton;
-    String scrollStopEventSource;
-    String scrollStopEventReason;
-
     bool deferredFaceRestoreActive = false;
     uint8_t deferredFaceRestoreKind = 0;
     bool deferredFaceRestoreAutoMode = false;

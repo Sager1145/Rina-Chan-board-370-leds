@@ -6,27 +6,33 @@
 #include "serial_log.h"
 #include <string.h>
 
+void scrollSessionFillPresentationContextLocked(LedPresentationContext& ctx,
+                                                LedPresentationSource source,
+                                                const char* reason, bool rateEligible) {
+    const RuntimeState& rs = runtimeState();
+    const ScrollTimelineMeta& meta = runtimeScrollMeta();
+    ctx = LedPresentationContext{};
+    ctx.valid = true;
+    ctx.source = source;
+    strlcpy(ctx.timelineId, meta.timelineId, sizeof(ctx.timelineId));
+    ctx.frameIndex = rs.scrollFrameIndex;
+    ctx.frameCount = rs.scrollFrameCount;
+    ctx.nominalIntervalMs = rs.scrollIntervalMs;
+    ctx.uiFps = meta.uiFps;
+    ctx.firmwareScrollActive = rs.firmwareScrollActive;
+    ctx.firmwareScrollPaused = rs.firmwareScrollPaused;
+    ctx.userPaused = rs.firmwareScrollUserPaused;
+    ctx.systemPaused = rs.firmwareScrollSystemPaused;
+    ctx.rateEligible = rateEligible && rs.firmwareScrollActive &&
+                       !rs.firmwareScrollPaused && rs.scrollFrameCount > 0;
+    strlcpy(ctx.reason, reason ? reason : "", sizeof(ctx.reason));
+}
+
 void scrollSessionFillPresentationContext(LedPresentationContext& ctx,
                                           LedPresentationSource source,
                                           const char* reason, bool rateEligible) {
     withScrollLock([&]() {
-        const RuntimeState& rs = runtimeState();
-        const ScrollTimelineMeta& meta = runtimeScrollMeta();
-        ctx = LedPresentationContext{};
-        ctx.valid = true;
-        ctx.source = source;
-        strlcpy(ctx.timelineId, meta.timelineId, sizeof(ctx.timelineId));
-        ctx.frameIndex = rs.scrollFrameIndex;
-        ctx.frameCount = rs.scrollFrameCount;
-        ctx.nominalIntervalMs = rs.scrollIntervalMs;
-        ctx.uiFps = meta.uiFps;
-        ctx.firmwareScrollActive = rs.firmwareScrollActive;
-        ctx.firmwareScrollPaused = rs.firmwareScrollPaused;
-        ctx.userPaused = rs.firmwareScrollUserPaused;
-        ctx.systemPaused = rs.firmwareScrollSystemPaused;
-        ctx.rateEligible = rateEligible && rs.firmwareScrollActive &&
-                           !rs.firmwareScrollPaused && rs.scrollFrameCount > 0;
-        strlcpy(ctx.reason, reason ? reason : "", sizeof(ctx.reason));
+        scrollSessionFillPresentationContextLocked(ctx, source, reason, rateEligible);
     });
 }
 
@@ -286,15 +292,6 @@ void scrollSessionSetSourceText(const char* text, uint16_t bytes) {
     touchRuntimeState();
 }
 
-void scrollSessionMarkStoppedByButton(const String& button, const String& source) {
-    ++runtimeState().scrollStopEventSeq;
-    runtimeState().scrollStopEventMs = millis();
-    runtimeState().scrollStopEventButton = button;
-    runtimeState().scrollStopEventSource = source;
-    runtimeState().scrollStopEventReason = runtimeState().lastReason;
-    touchRuntimeState();
-}
-
 ScrollUploadTxn scrollSessionBeginUpload(const ScrollUploadMeta& upload) {
     ScrollUploadTxn txn;
     txn.append = false;
@@ -353,22 +350,30 @@ ScrollUploadTxn scrollSessionBeginAppend() {
     return txn;
 }
 
-bool scrollSessionWriteFrame(const ScrollUploadTxn& txn, uint16_t index, const uint8_t* packedBits) {
-    if (!packedBits || index >= MAX_SCROLL_FRAMES || !runtimeScrollFrameBufferReady())
+bool scrollSessionWriteFrames(const ScrollUploadTxn& txn, uint16_t startIndex,
+                              const uint8_t* packedFrames, uint16_t count) {
+    if (!packedFrames || count == 0 || startIndex >= MAX_SCROLL_FRAMES ||
+        count > static_cast<uint16_t>(MAX_SCROLL_FRAMES - startIndex) ||
+        !runtimeScrollFrameBufferReady())
         return false;
 
+    // One lock acquisition for the whole chunk (previously one per frame). Chunk
+    // indexes are monotonic, so if the first target slot is outside the currently
+    // playable range (>= scrollFrameCount), every later slot is too — the same
+    // rule the old per-frame check applied to each index individually.
     bool writable = false;
     withScrollLock([&]() {
-        writable = index >= runtimeState().scrollFrameCount ||
+        writable = startIndex >= runtimeState().scrollFrameCount ||
                    (!txn.append && runtimeState().scrollFrameCount == 0);
     });
     if (!writable)
         return false;
 
-    uint8_t* target = runtimeScrollFrameBits(index);
+    uint8_t* target = runtimeScrollFrameBits(startIndex);
     if (!target)
         return false;
-    memcpy(target, packedBits, FRAME_BYTES);
+    // Source frames and the scroll buffer are both contiguous: single memcpy.
+    memcpy(target, packedFrames, static_cast<size_t>(count) * FRAME_BYTES);
     return true;
 }
 

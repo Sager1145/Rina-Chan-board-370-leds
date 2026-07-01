@@ -179,13 +179,9 @@ static bool saveBatteryCalibration(uint32_t now) {
     return true;
 }
 
-static void updateBatteryCalibration(float vbat, bool freezeCalibration, uint32_t now) {
-    // Automatic running min/max calibration is intentionally disabled. Manual
-    // reset commands remain the only path that changes batteryCalibMinV/MaxV.
-    ensureBatteryCalibrationDefaults(now);
-    (void)vbat;
-    (void)freezeCalibration;
-}
+// Note: automatic running min/max calibration is intentionally disabled. The manual
+// reset commands (resetBatteryVoltageMinimum/Maximum) are the only paths that change
+// batteryCalibMinV/MaxV; they sanitize via ensureBatteryCalibrationDefaults themselves.
 
 static void serviceBatteryCalibrationSave(uint32_t now) {
     if (!powerStatus.batteryCalibDirty)
@@ -355,7 +351,6 @@ static void sampleBattery(uint32_t now) {
         powerStatus.batteryValid = true;
         portEXIT_CRITICAL(&sPowerStatusMux);
         powerStatus.lastBatteryMs = now;
-        updateBatteryCalibration(instantVbat, true, now);
         if (!wasLowVoltageUnpowered)
             markPowerWebSlowDirty(now);
         return;
@@ -383,12 +378,6 @@ static void sampleBattery(uint32_t now) {
                        (instantVbat * emaAlpha);
         }
     }
-
-    const bool freezeCalibration = chargerPresent ||
-                                   powerStatus.batteryDisconnected ||
-                                   powerStatus.batteryLowVoltageUnpowered ||
-                                   nextVbat < BATTERY_UNPOWERED_LOW_V;
-    updateBatteryCalibration(nextVbat, freezeCalibration, now);
 
     uint8_t nextPercent = powerStatus.batteryPercent;
     {
