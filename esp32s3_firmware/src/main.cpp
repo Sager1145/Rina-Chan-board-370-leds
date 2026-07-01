@@ -34,6 +34,9 @@ void setup() {
 
     // Bring up the diagnostic logger + serial test console early (both no-ops
     // when their feature gates are 0). Non-blocking; only adds serial output.
+    // Bug fix (B4): rinaLogInit() was declared but never called; it initializes the
+    // optional UART0 mirror and resets the LED command history ring.
+    rinaLogInit();
     initSerialConsole();
     RLOG_INFO("SYS", "event=boot stage=serial_ready");
 

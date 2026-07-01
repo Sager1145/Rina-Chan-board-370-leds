@@ -255,6 +255,14 @@ FrameStateSnapshot readFrameStateSnapshot() {
     return s;
 }
 
+// Consistency note (C3): this function is NOT reentrant — `overlayRgb`,
+// `lastAppliedBrightness` and `lastLedShowUs` are unguarded statics. It is safe only
+// because its callers are mutually exclusive by construction:
+//   - setup() calls it once, BEFORE the Core 1 render task starts;
+//   - after startScrollRenderTask(), ONLY the Core 1 task calls it;
+//   - the Core 0 loop calls it ONLY in the !g_syncReady fallback, in which case the
+//     Core 1 task was never started.
+// Do not add new call sites without revisiting this invariant.
 void renderCurrentFrameToLedStrip() {
     LedPresentationContext ctx = consumePendingLedPresentationContext();
     uint8_t localFrame[FRAME_BYTES];

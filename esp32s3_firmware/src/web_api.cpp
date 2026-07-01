@@ -21,6 +21,8 @@
 #include <math.h>
 #include <vector>
 #include "mbedtls/base64.h"
+#include "utils.h"
+#include "psram_json.h"
 
 static WebServer server(HTTP_PORT);
 static DNSServer dnsServer;
@@ -133,11 +135,35 @@ static void staticCacheHeaders(const String& p) {
     }
 }
 static bool clientAcceptsGzip() { return server.hasHeader("Accept-Encoding") && server.header("Accept-Encoding").indexOf("gzip") >= 0; }
+// Consistency fix (C2): WebServer::streamFile() reads flash WITHOUT the Storage lock,
+// bypassing the sync.h invariant that LittleFS I/O must be serialized with the WS2812
+// transmit (Storage owns HardwareBus for exactly that reason). Stream manually in small
+// chunks instead, taking the Storage lock around each flash read. Each locked window is
+// tiny (one 1 KB flash read), so the Core 1 LED render is never blocked for more than
+// tens of microseconds at a time, while flash reads can no longer overlap a latch.
+// NOTE: unlike streamFile(), this helper does NOT auto-derive Content-Encoding from the
+// ".gz" file name — the caller passes gzipEncoded explicitly and we emit the header once.
+static void sendFileChunked(File& f, const char* contentType, bool gzipEncoded) {
+    size_t remaining = 0;
+    withStorageLock([&]() { remaining = f.size(); });
+    server.setContentLength(remaining);
+    if (gzipEncoded)
+        server.sendHeader("Content-Encoding", "gzip");
+    server.send(200, contentType, "");
+    uint8_t buf[1024];
+    while (remaining > 0) {
+        const size_t want = remaining < sizeof(buf) ? remaining : sizeof(buf);
+        size_t n = 0;
+        withStorageLock([&]() { n = f.read(buf, want); });
+        if (n == 0)
+            break; // short read: stop; client sees a truncated body and retries
+        server.sendContent(reinterpret_cast<const char*>(buf), n);
+        remaining -= n;
+    }
+}
+
 // Serve `p`, preferring a pre-compressed `<p>.gz` sibling (built by scripts/gzip_webui_assets.py)
 // when the client accepts gzip. Content-Type and cache policy are derived from the ORIGINAL path.
-// IMPORTANT: WebServer::streamFile() AUTOMATICALLY emits `Content-Encoding: gzip` when the streamed
-// file name ends in ".gz" — so we must NOT add that header ourselves (doing so sends it twice and
-// the browser fails to decode every asset). We only add Vary; streamFile handles the encoding.
 static bool serveFile(String p) {
     if (!runtimeFsMounted())
         return false;
@@ -160,7 +186,7 @@ static bool serveFile(String p) {
     staticCacheHeaders(p);
     if (gz)
         server.sendHeader("Vary", "Accept-Encoding");
-    server.streamFile(f, typeFor(p)); // sets Content-Length + (for .gz) Content-Encoding: gzip
+    sendFileChunked(f, typeFor(p), gz); // locked chunked reads; emits Content-Encoding for .gz
     withStorageLock([&]() { f.close(); });
     return true;
 }
@@ -480,10 +506,22 @@ static void scrollMeta() {
         sendError(405, "method not allowed");
         return;
     }
-    DynamicJsonDocument d(1024);
+    // Bug fix (B1/B2): sourceText can be up to MAX_SCROLL_TEXT_BYTES (4096). The old
+    // 1024-byte doc could not hold it, so ArduinoJson silently dropped the string and
+    // the response carried "sourceText": null while hasSourceText was true. The old
+    // stack buffer also put 4 KB on the ~8 KB loopTask stack. Stage the text in a
+    // heap buffer (PSRAM-first) and size the doc to fit the full text.
+    const size_t textCap = static_cast<size_t>(MAX_SCROLL_TEXT_BYTES) + 1U;
+    char* text = static_cast<char*>(heap_caps_malloc(textCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!text)
+        text = static_cast<char*>(malloc(textCap));
+    if (!text) {
+        sendError(507, "insufficient memory for scroll meta");
+        return;
+    }
+    PsramJsonDocument d(static_cast<size_t>(MAX_SCROLL_TEXT_BYTES) + 2048);
     ScrollMetaOut o;
-    char text[MAX_SCROLL_TEXT_BYTES + 1];
-    bool copied = scrollSessionCopyMeta(o, text, sizeof(text));
+    bool copied = scrollSessionCopyMeta(o, text, textCap);
     d["ok"] = true;
     d["scrollTimelineId"] = o.meta.timelineId;
     d["hasSourceText"] = o.meta.hasSourceText && copied;
@@ -500,6 +538,7 @@ static void scrollMeta() {
     d["firmwareScrollActive"] = o.active;
     d["firmwareScrollPaused"] = o.paused;
     sendJson(200, d);
+    free(text); // heap_caps_malloc/malloc are both freed via free() on ESP-IDF
 }
 
 // Lightweight: ONLY the actually-presented (LED-latched) frame index + device timestamp. Never the
@@ -731,7 +770,7 @@ static void savedFaces() {
             return;
         }
         cors();
-        server.streamFile(f, JSON_CT);
+        sendFileChunked(f, JSON_CT, false); // C2: locked chunked reads instead of streamFile
         withStorageLock([&]() { f.close(); });
         return;
     }
@@ -741,7 +780,11 @@ static void savedFaces() {
             sendError(400, "empty JSON body");
             return;
         }
-        DynamicJsonDocument d(16384);
+        // Bug fix (B3): a fixed 16 KB doc capped uploads at roughly 15-20 faces
+        // (NoMemory surfaced as a misleading "invalid JSON" 400) while the firmware
+        // supports MAX_AUTO_FACES=128. Size by payload like loadSavedFaces() does,
+        // preferring PSRAM so large face sets never squeeze the internal heap.
+        PsramJsonDocument d(jsonCapacityFor(b.length()));
         DeserializationError e = deserializeJson(d, b, DeserializationOption::NestingLimit(32));
         if (e) {
             sendError(400, String("invalid JSON: ") + e.c_str());

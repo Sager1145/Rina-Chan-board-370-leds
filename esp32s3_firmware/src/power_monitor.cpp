@@ -334,36 +334,40 @@ static void sampleBattery(uint32_t now) {
         return;
     }
 
+    // Consistency fix (C1): never write consumer-visible fields (batteryDisconnected,
+    // batteryLowVoltageUnpowered, vbat, batteryPercent, batteryValid) outside
+    // sPowerStatusMux. Previously the disconnect/low-voltage transitions wrote
+    // vbat = NAN and batteryDisconnected = false unlocked, so a Core 1 reader
+    // (battery overlay) could snapshot a half-updated state (e.g. vbat = NAN with
+    // batteryValid = true). All transitional values are now computed into locals
+    // and committed in a single critical section per exit path.
     const bool wasDisconnected = powerStatus.batteryDisconnected;
     const bool wasLowVoltageUnpowered = powerStatus.batteryLowVoltageUnpowered;
-    if (wasDisconnected) {
-        powerStatus.batteryDisconnected = false;
-        powerStatus.batteryDisconnectedSinceMs = 0;
-        powerStatus.batteryDisconnectDropMv = 0;
-        powerStatus.vbat = NAN;
-    }
 
     if (lowVoltageUnpowered) {
         portENTER_CRITICAL(&sPowerStatusMux);
+        powerStatus.batteryDisconnected = false;
         powerStatus.batteryLowVoltageUnpowered = true;
         powerStatus.vbat = 0.0f;
         powerStatus.batteryPercent = 0;
         powerStatus.batteryValid = true;
         portEXIT_CRITICAL(&sPowerStatusMux);
+        if (wasDisconnected) {
+            powerStatus.batteryDisconnectedSinceMs = 0;
+            powerStatus.batteryDisconnectDropMv = 0;
+        }
         powerStatus.lastBatteryMs = now;
         if (!wasLowVoltageUnpowered)
             markPowerWebSlowDirty(now);
         return;
     }
 
-    //
-    if (wasLowVoltageUnpowered)
-        powerStatus.vbat = NAN;
-    powerStatus.batteryLowVoltageUnpowered = false; // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
-
-    //
+    // Battery is powered: restart the EMA (rather than blend with a stale/invalid
+    // value) if we are recovering from a disconnect or low-voltage state — the same
+    // effect the old code achieved by poking vbat = NAN before the EMA step.
     float nextVbat;
-    if (!powerStatus.batteryValid || !isfinite(powerStatus.vbat)) {
+    if (wasDisconnected || wasLowVoltageUnpowered ||
+        !powerStatus.batteryValid || !isfinite(powerStatus.vbat)) {
         nextVbat = instantVbat;
     } else {
         const uint32_t elapsedMs = now - powerStatus.lastBatteryMs;
@@ -389,10 +393,16 @@ static void sampleBattery(uint32_t now) {
         }
     }
     portENTER_CRITICAL(&sPowerStatusMux);
+    powerStatus.batteryDisconnected = false;
+    powerStatus.batteryLowVoltageUnpowered = false;
     powerStatus.vbat = nextVbat;
     powerStatus.batteryPercent = nextPercent;
     powerStatus.batteryValid = true;
     portEXIT_CRITICAL(&sPowerStatusMux);
+    if (wasDisconnected) {
+        powerStatus.batteryDisconnectedSinceMs = 0;
+        powerStatus.batteryDisconnectDropMv = 0;
+    }
     powerStatus.lastBatteryMs = now;
     if (wasDisconnected || wasLowVoltageUnpowered)
         markPowerWebSlowDirty(now);

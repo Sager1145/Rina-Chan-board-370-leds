@@ -2,6 +2,15 @@
 
 Date: 2026-07-02 · Scope: all C++ in `src/` (~6,200 lines, 35 files). Web UI (`data/app.js`, 14k lines) not covered in this pass.
 
+> **Status update (same day):** All bugs (B1–B4) and all cross-core consistency gaps (C1–C3) are **FIXED**. Optimization items O1–O8 are intentionally untouched.
+>
+> - B1/B2 — `scrollMeta()` now uses a PSRAM-first heap buffer + `PsramJsonDocument(MAX_SCROLL_TEXT_BYTES + 2048)`; full sourceText survives, no 4 KB stack buffer (web_api.cpp).
+> - B3 — saved_faces POST now uses `PsramJsonDocument(jsonCapacityFor(b.length()))`, matching the load path; full 128-face uploads accepted (web_api.cpp).
+> - B4 — `rinaLogInit()` is now called from `setup()` before `initSerialConsole()` (main.cpp).
+> - C1 — `sampleBattery()` computes transitions into locals and commits every consumer-visible field (`batteryDisconnected`, `batteryLowVoltageUnpowered`, `vbat`, `batteryPercent`, `batteryValid`) in a single critical section per exit path; behavior preserved, including EMA restart on recovery (power_monitor.cpp).
+> - C2 — resolved in favor of *keeping* the sync.h invariant: new `sendFileChunked()` streams files in 1 KB chunks with the Storage lock (which owns HardwareBus) held per chunk; replaces both `streamFile()` call sites (static assets + saved_faces GET). It emits `Content-Encoding: gzip` explicitly for `.gz` siblings since `streamFile()`'s name-based auto-header no longer applies (web_api.cpp).
+> - C3 — non-reentrancy invariant of `renderCurrentFrameToLedStrip()` now documented at the definition (led_renderer.cpp).
+
 ## Verdict
 
 The firmware is **well optimized overall**. The hot paths (LED render, scroll tick, frame queue) are clean: precomputed logical→physical index map, single-memcpy chunk writes for scroll uploads, snapshot-under-lock pattern everywhere, IRAM RMT encoder, PSRAM-first allocation, rate-limited logging. No deadlocks found (lock order Scroll→Frame→Storage→HardwareBus is respected; locks are never nested across domains in the render/scroll paths).
