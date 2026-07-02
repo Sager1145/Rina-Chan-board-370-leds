@@ -24,7 +24,30 @@
 #include "utils.h"
 #include "psram_json.h"
 
-static WebServer server(HTTP_PORT);
+// Optimization (O3): WebServer::arg() returns its value BY VALUE (String), so every
+// POST handler used to pay a full heap copy of the request body — up to ~190 KB for a
+// scroll upload, briefly held alongside the base64-decode buffer. The body lives in the
+// protected _postArgs/_currentArgs tables; this subclass exposes a const reference to
+// it using EXACTLY the same lookup order as WebServer::arg(name) (checked against
+// arduino-esp32 3.x WebServer.cpp). The reference is valid for the duration of the
+// current request, which is the only scope in which the handlers use it.
+class RinaWebServer final : public WebServer {
+  public:
+    using WebServer::WebServer;
+    const String& plainBody() const {
+        for (int j = 0; j < _postArgsLen; ++j) {
+            if (_postArgs[j].key == "plain")
+                return _postArgs[j].value;
+        }
+        for (int i = 0; i < _currentArgCount; ++i) {
+            if (_currentArgs[i].key == "plain")
+                return _currentArgs[i].value;
+        }
+        return emptyString;
+    }
+};
+
+static RinaWebServer server(HTTP_PORT);
 static DNSServer dnsServer;
 static bool dnsServerActive = false;
 static const char JSON_CT[] = "application/json; charset=utf-8";
@@ -53,7 +76,9 @@ static void options() {
     cors();
     server.send(204, TXT_CT, "");
 }
-static String body() { return server.hasArg("plain") ? server.arg("plain") : ""; }
+// O3: returns a reference into the server's request storage — zero copies. Valid only
+// while handling the current request (all call sites are request handlers).
+static const String& body() { return server.plainBody(); }
 // The sync WebServer exposes the POST body via arg("plain") as a String, which truncates at the
 // first 0x00. Packed frames are mostly zeros, so the WebUI sends them base64-encoded; decode here.
 static bool decodeBase64Body(const String& b64, uint8_t* out, size_t cap, size_t& outLen) {
@@ -150,7 +175,16 @@ static void sendFileChunked(File& f, const char* contentType, bool gzipEncoded) 
     if (gzipEncoded)
         server.sendHeader("Content-Encoding", "gzip");
     server.send(200, contentType, "");
-    uint8_t buf[1024];
+    // Perf (F1, OPTIMIZATION_REVIEW_2026-07-02_WEBUI): 4 KB chunks quarter the number of
+    // Storage-lock cycles (each cycle takes TWO mutexes, see sync.h) and sendContent TCP
+    // writes per asset vs the old 1 KB — the gzipped app.js alone paid 100+ of each per
+    // cold load. `static` rather than stack because the loopTask stack is tight (~8 KB,
+    // see B2 in CODE_REVIEW_2026-07-02) and the sync WebServer handles exactly one
+    // request at a time on one task, so this buffer can never be shared by two requests.
+    // Each locked window is still a single flash read (~100-200 us for 4 KB), so the C2
+    // invariant holds: flash I/O stays serialized with the WS2812 latch without ever
+    // blocking the Core 1 render for more than a fraction of a frame.
+    static uint8_t buf[4096];
     while (remaining > 0) {
         const size_t want = remaining < sizeof(buf) ? remaining : sizeof(buf);
         size_t n = 0;
@@ -258,8 +292,12 @@ static void status() {
         sendError(405, "method not allowed");
         return;
     }
-    servicePowerMonitor();
-    DynamicJsonDocument d(6144);
+    // O2: no servicePowerMonitor() here — the main loop already services it every
+    // ~1 ms (the sampler itself is gated at BATTERY/CHARGE_SAMPLE_MS), so the call
+    // only added up to ~8 ms of ADC latency to this endpoint for <=1 ms of freshness.
+    // O5: 3072 bytes fits the measured payload (<2 KB of pool; keys are linked
+    // literals) with >50% margin; the old 6144 doubled the per-poll heap churn.
+    DynamicJsonDocument d(3072);
     FrameStateSnapshot fs = readFrameStateSnapshot();
     d["ok"] = true;
     d["v"] = runtimeStateVersion();
@@ -330,7 +368,7 @@ static void power() {
         sendError(405, "method not allowed");
         return;
     }
-    servicePowerMonitor();
+    // O2: no servicePowerMonitor() here — see status(); the loop keeps the snapshot fresh.
     DynamicJsonDocument d(1024);
     d["ok"] = true;
     addPower(d.createNestedObject("power"));
@@ -350,7 +388,7 @@ static void frame() {
         sendError(405, "method not allowed");
         return;
     }
-    String b = body();
+    const String& b = body(); // O3: reference, not a copy
     uint8_t fr[FRAME_BYTES];
     size_t flen = 0;
     if (!decodeBase64Body(b, fr, sizeof(fr), flen) || flen != FRAME_BYTES) {
@@ -421,7 +459,7 @@ static void scroll() {
         sendError(507, "scroll frame buffer unavailable");
         return;
     }
-    String b = body();
+    const String& b = body(); // O3: reference, not a copy
     if (b.isEmpty()) {
         sendError(400, "empty packed scroll body");
         return;
@@ -584,19 +622,6 @@ static void previewSync() {
     sendJson(200, d);
 }
 
-static bool parseJson(JsonDocument& d, String& err) {
-    String b = body();
-    if (b.isEmpty()) {
-        err = "empty JSON body";
-        return false;
-    }
-    DeserializationError e = deserializeJson(d, b);
-    if (e) {
-        err = String("invalid JSON: ") + e.c_str();
-        return false;
-    }
-    return true;
-}
 static const char* cstr(JsonDocument& d, JsonVariant p, const char* k, const char* fb = "") {
     if (!p.isNull() && p[k].is<const char*>())
         return p[k].as<const char*>();
@@ -659,9 +684,21 @@ static void command() {
         return;
     }
     String err;
-    DynamicJsonDocument d((size_t)MAX_SCROLL_TEXT_BYTES + 4096);
-    if (!parseJson(d, err)) {
-        sendError(400, err);
+    const String& b = body(); // O3: reference, not a copy
+    if (b.isEmpty()) {
+        sendError(400, "empty JSON body");
+        return;
+    }
+    // O4: size the parse doc by payload instead of a fixed 8.3 KB for EVERY command
+    // (a set_brightness body is ~30 bytes). String input means values are copied into
+    // the pool, so 3x body length + slack is a generous bound; cap at the old ceiling
+    // so the worst case (start_scroll with 4 KB sourceText) behaves exactly as before.
+    constexpr size_t kCmdDocCeiling = (size_t)MAX_SCROLL_TEXT_BYTES + 4096;
+    const size_t cmdDocCap = (size_t)b.length() * 3U + 512U;
+    DynamicJsonDocument d(cmdDocCap < kCmdDocCeiling ? cmdDocCap : kCmdDocCeiling);
+    DeserializationError e = deserializeJson(d, b);
+    if (e) {
+        sendError(400, String("invalid JSON: ") + e.c_str());
         return;
     }
     const char* cmd = d["cmd"] | "";
@@ -775,7 +812,7 @@ static void savedFaces() {
         return;
     }
     if (server.method() == HTTP_POST) {
-        String b = body();
+        const String& b = body(); // O3: reference, not a copy
         if (b.isEmpty()) {
             sendError(400, "empty JSON body");
             return;

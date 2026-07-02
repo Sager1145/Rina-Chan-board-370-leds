@@ -3081,6 +3081,17 @@ const HW_PHASE_MAX_ADJ = 0.25; // cap preview speed change to +/-25% (smooth, no
 // The preview never jumps/holds/skips frames during live scrolling; it only runs slightly faster
 // or slower to converge its phase onto the LED's actually-presented frame.
 const PREVIEW_SYNC_POLL_MS = 250; // how often to poll /api/preview_sync while scrolling
+// INTENTIONAL polling rate — do NOT back this off (decision 2026-07-02, W1 in
+// OPTIMIZATION_REVIEW_2026-07-02_WEBUI.md). While idle (not scrolling), /api/preview_sync
+// is polled every 80 ms (~12.5 req/s) so that physical button presses on the board
+// (B1–B6: face switch, mode, brightness, battery overlay) are reflected in the open
+// WebUI within ~80 ms. This latency is a product requirement; the cost (steady requests
+// against the single-threaded ESP32 WebServer + phone radio) was reviewed and accepted.
+// The endpoint is deliberately tiny (~1 KB JSON, no sourceText, no frame data) and the
+// poller already suspends when the tab is hidden (visibilitychange), is guarded against
+// piling onto in-flight heavy requests (pollPreviewSyncOnce), and skips work when the
+// state version is unchanged (applyPreviewSyncRuntimeHints). Any future adaptive
+// backoff must keep the ~80 ms button-to-UI latency while the user is interacting.
 const BUTTON_EVENT_SYNC_POLL_MS = 80; // lightweight GPIO/button index sync when not scrolling
 const PREVIEW_PHASE_DEADBAND_FRAMES = 0.65; // within this phase error, run at exactly base speed
 const PREVIEW_GENTLE_MIN = 0.97; // small steady-state correction band
@@ -7535,6 +7546,22 @@ function firmwareConnectionUiState() {
 // - renderState() is a centralized outlet for state -> DOM, preventing business functions from changing UI copy everywhere.
 // - renderFaceLibrary()/renderPartButtons()/updateScrollUi() handle their respective complex subviews.
 // - All rendering functions should be idempotent: repeated calls can only refresh, and should not repeatedly bind events or change business status.
+//
+// Perf (W2, OPTIMIZATION_REVIEW_2026-07-02_WEBUI): renderState() has ~44 call sites and
+// runs 12-15x/s at idle (apiGet/apiPost call it on every request start, and the
+// preview-sync poller ticks at 80 ms). The header badges therefore memoize their
+// last-written values and skip the DOM write when nothing changed — pure dedupe, output
+// is byte-identical whenever state actually changes. The cache assumes the badge
+// elements are the static header nodes from index.html and are never re-created; if
+// that ever changes, clear renderStateDomCache when rebuilding them.
+const renderStateDomCache = {};
+
+function domWriteIfChanged(key, value, write) {
+  if (renderStateDomCache[key] === value) return;
+  renderStateDomCache[key] = value;
+  write(value);
+}
+
 function renderState() {
   // Shared UI (header battery/charging badge, mode switching) must be updated on any page and is not affected by page-debug.
   updateModeToggleUi();
@@ -7543,14 +7570,15 @@ function renderState() {
     runtimeBadge = $("badge-runtime");
   if (runtimeDot && runtimeLabel) {
     const connection = firmwareConnectionUiState();
-    runtimeDot.className = connection.dotClass;
-    runtimeLabel.textContent = connection.label;
+    domWriteIfChanged("runtimeDotClass", connection.dotClass, (v) => (runtimeDot.className = v));
+    domWriteIfChanged("runtimeLabel", connection.label, (v) => (runtimeLabel.textContent = v));
     if (runtimeBadge) {
-      runtimeBadge.title = firmware.online ?
+      const runtimeTitle = firmware.online ?
         "固件连接在线" :
         firmware.lastError ?
         `固件连接${connection.label}: ${firmware.lastError}` :
         `固件连接${connection.label}`;
+      domWriteIfChanged("runtimeTitle", runtimeTitle, (v) => (runtimeBadge.title = v));
     }
   }
   const battDot = $("badge-battery-dot"),
@@ -7558,22 +7586,24 @@ function renderState() {
   if (battDot && battLabel) {
     const pct = state.batteryPercent,
       vbat = state.batteryV;
-    battLabel.textContent =
+    const battText =
       state.batteryPowered === false ?
       `未上电 ${formatVolts(vbat)}` :
       `电池 ${formatVolts(vbat)}  ${formatBatteryPercent(pct)}`;
-    battDot.className = state.batteryIconClass || "status-dot dim";
-    battDot.style.backgroundColor = state.batteryIconColor || "";
+    domWriteIfChanged("battLabel", battText, (v) => (battLabel.textContent = v));
+    domWriteIfChanged("battDotClass", state.batteryIconClass || "status-dot dim", (v) => (battDot.className = v));
+    domWriteIfChanged("battDotColor", state.batteryIconColor || "", (v) => (battDot.style.backgroundColor = v));
   }
   const chgDot = $("badge-charging-dot"),
     chgLabel = $("badge-charging-label");
   if (chgDot && chgLabel) {
-    chgDot.className = state.chargeIconClass || "status-dot dim";
-    chgDot.style.backgroundColor = state.chargeIconColor || "";
-    chgLabel.textContent =
+    domWriteIfChanged("chgDotClass", state.chargeIconClass || "status-dot dim", (v) => (chgDot.className = v));
+    domWriteIfChanged("chgDotColor", state.chargeIconColor || "", (v) => (chgDot.style.backgroundColor = v));
+    const chgText =
       state.charging === true ?
       `充电中 ${formatVolts(state.chargeV)}` :
       formatChargingBadge(state.charging);
+    domWriteIfChanged("chgLabel", chgText, (v) => (chgLabel.textContent = v));
   }
   // Debug page read-only panel: only renders when 6.5 is active, and only rewrites read-only kv/badge/preview meta information,
   // Never rebuild interactive controls (packed frame/raw JSON/checkboxes). renderState has 44 call points,
@@ -7821,6 +7851,11 @@ function updateModeToggleUi() {
   const btn = $("mode-toggle");
   if (!btn) return;
   const isAuto = isAutoModeValue(state.mode);
+  // Perf (W2): called from every renderState(); skip the three DOM writes when the
+  // mode did not change (classList.toggle with the same state is already a no-op,
+  // but setAttribute/textContent are not).
+  if (renderStateDomCache.modeToggleAuto === isAuto) return;
+  renderStateDomCache.modeToggleAuto = isAuto;
   btn.classList.toggle("active", isAuto);
   btn.setAttribute("aria-pressed", isAuto ? "true" : "false");
   btn.textContent = isAuto ? "A 自动" : "M 手动";
@@ -10440,6 +10475,9 @@ function shouldPollPreviewSync() {
 }
 
 function previewSyncPollDelayMs() {
+  // Idle (not scrolling) intentionally polls FASTER (80 ms) than scrolling (250 ms):
+  // hardware button feedback must feel instant, while scroll preview phase correction
+  // only needs 4 samples/s. See the BUTTON_EVENT_SYNC_POLL_MS comment before changing.
   return isFirmwarePreviewScrolling() ? PREVIEW_SYNC_POLL_MS : BUTTON_EVENT_SYNC_POLL_MS;
 }
 

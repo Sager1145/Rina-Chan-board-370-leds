@@ -1650,6 +1650,14 @@ body[data-page="debug"] .content {
 
 .matrix-wrap {
   overflow: hidden;
+  /* Perf (W3, OPTIMIZATION_REVIEW_2026-07-02_WEBUI): each lit .led paints a radial
+     gradient + 2-3 box-shadows, and scroll preview toggles dozens of cells per tick.
+     Paint containment keeps that repaint invalidation inside the wrap instead of
+     letting it escape to the card/page. Visually a no-op here: overflow:hidden above
+     already clips painting to this same box, so containment adds isolation, not new
+     clipping. NOTE: .custom-preview-card .matrix-wrap overrides overflow to visible
+     and therefore also resets contain to none below — keep the two overrides paired. */
+  contain: layout paint;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -1713,6 +1721,10 @@ body[data-page="debug"] .content {
 .custom-preview-card .matrix-wrap,
 .custom-preview-card .rinaboard-stage {
   overflow: visible !important;
+  /* Paired with the .matrix-wrap contain rule (W3): this card intentionally lets the
+     glow spill outside the wrap, so paint containment must be disabled here too —
+     otherwise contain:paint would clip what overflow:visible is meant to show. */
+  contain: none !important;
 }
 
 .led-preview-card .matrix-wrap {

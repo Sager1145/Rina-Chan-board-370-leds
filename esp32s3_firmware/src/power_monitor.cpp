@@ -22,15 +22,8 @@ static portMUX_TYPE sPowerStatusMux = portMUX_INITIALIZER_UNLOCKED;
 constexpr float BATTERY_EMA_TAU_S = 20.0f; // 说明 电源、电池和 ADC 采样 中当前代码块的职责和维护约束。
 constexpr float CHARGE_EMA_ALPHA = 0.20f;
 
-static uint16_t readTrimmedAdcMilliVolts(uint8_t pin) {
-    uint16_t samples[POWER_ADC_SAMPLES];
-    for (uint8_t i = 0; i < POWER_ADC_SAMPLES; ++i) {
-        samples[i] = static_cast<uint16_t>(analogReadMilliVolts(pin));
-        delayMicroseconds(250);
-    }
-
+static uint16_t trimmedMeanMilliVolts(uint16_t* samples) {
     std::sort(samples, samples + POWER_ADC_SAMPLES);
-
     constexpr uint8_t first = POWER_ADC_TRIM_COUNT;
     constexpr uint8_t last = POWER_ADC_SAMPLES - POWER_ADC_TRIM_COUNT;
     uint32_t sum = 0;
@@ -38,6 +31,32 @@ static uint16_t readTrimmedAdcMilliVolts(uint8_t pin) {
         sum += samples[i];
     return static_cast<uint16_t>(sum / (last - first));
 }
+
+// Blocking acquisition: 16 reads + 250 us pauses ~= 4 ms per pin. Used ONLY on the
+// force path (boot), where routes are not open yet and a valid first sample matters.
+static uint16_t readTrimmedAdcMilliVoltsBlocking(uint8_t pin) {
+    uint16_t samples[POWER_ADC_SAMPLES];
+    for (uint8_t i = 0; i < POWER_ADC_SAMPLES; ++i) {
+        samples[i] = static_cast<uint16_t>(analogReadMilliVolts(pin));
+        delayMicroseconds(250);
+    }
+    return trimmedMeanMilliVolts(samples);
+}
+
+// Optimization (O1): periodic sampling no longer busy-waits ~8 ms per second inside
+// the cooperative loop (which stalled webServerTick/buttons/frame queue). Instead,
+// servicePowerMonitor() takes ONE ~100 us ADC conversion per call and finalizes the
+// same 16-sample trimmed mean once the set is complete (~16 loop passes ~= 16 ms,
+// negligible against the 1000 ms sample period). Sample spacing grows from 250 us to
+// ~1 ms+, which if anything improves rejection of periodic (Wi-Fi burst) noise; the
+// trimming/averaging math and all downstream processing are unchanged.
+struct NonBlockingAdcAcq {
+    uint16_t samples[POWER_ADC_SAMPLES];
+    uint8_t count = 0;
+    bool acquiring = false;
+};
+static NonBlockingAdcAcq sBatteryAcq;
+static NonBlockingAdcAcq sChargeAcq;
 
 static float sanitizedCalibMax(float value) {
     if (!isfinite(value))
@@ -296,8 +315,7 @@ static BatteryEdge detectBatteryDisconnect(uint16_t adcMv, uint16_t prevAdcMv, b
     return {drop, wasDisconnected && adcMv < BATTERY_RECONNECT_ADC_MV};
 }
 
-static void sampleBattery(uint32_t now) {
-    const uint16_t adcMv = readTrimmedAdcMilliVolts(BATTERY_ADC_PIN);
+static void sampleBattery(uint32_t now, uint16_t adcMv) {
     const uint16_t prevAdcMv = powerStatus.batteryAdcMv;
     const bool hadPreviousAdc = powerStatus.batteryPrevAdcKnown;
     const BatteryEdge edge = detectBatteryDisconnect(adcMv, prevAdcMv, hadPreviousAdc, powerStatus.batteryDisconnected);
@@ -411,8 +429,7 @@ static void sampleBattery(uint32_t now) {
                powerStatus.charging ? 1 : 0);
 }
 
-static void sampleCharge(uint32_t now) {
-    const uint16_t adcMv = readTrimmedAdcMilliVolts(CHARGE_ADC_PIN);
+static void sampleCharge(uint32_t now, uint16_t adcMv) {
     const float vadc = static_cast<float>(adcMv) / 1000.0f;
     powerStatus.chargeAdcMv = adcMv;
 
@@ -453,13 +470,45 @@ void initPowerMonitor() {
 void servicePowerMonitor(bool force) {
     const uint32_t now = millis();
 
-    if (force || powerStatus.lastBatteryMs == 0 ||
-        millisElapsed(now, powerStatus.lastBatteryMs, BATTERY_SAMPLE_MS)) {
-        sampleBattery(now);
-    }
-    if (force || powerStatus.lastChargeMs == 0 ||
-        millisElapsed(now, powerStatus.lastChargeMs, CHARGE_SAMPLE_MS)) {
-        sampleCharge(now);
+    if (force) {
+        // Boot/manual path: synchronous acquisition, identical to the old behavior.
+        // Discard any in-flight non-blocking acquisition so samples never mix.
+        sBatteryAcq.acquiring = false;
+        sBatteryAcq.count = 0;
+        sChargeAcq.acquiring = false;
+        sChargeAcq.count = 0;
+        sampleBattery(now, readTrimmedAdcMilliVoltsBlocking(BATTERY_ADC_PIN));
+        sampleCharge(now, readTrimmedAdcMilliVoltsBlocking(CHARGE_ADC_PIN));
+    } else {
+        // O1: start an acquisition when its window is due.
+        if (!sBatteryAcq.acquiring &&
+            (powerStatus.lastBatteryMs == 0 ||
+             millisElapsed(now, powerStatus.lastBatteryMs, BATTERY_SAMPLE_MS))) {
+            sBatteryAcq.acquiring = true;
+            sBatteryAcq.count = 0;
+        }
+        if (!sChargeAcq.acquiring &&
+            (powerStatus.lastChargeMs == 0 ||
+             millisElapsed(now, powerStatus.lastChargeMs, CHARGE_SAMPLE_MS))) {
+            sChargeAcq.acquiring = true;
+            sChargeAcq.count = 0;
+        }
+        // One ADC conversion (~100 us) per service call; battery first, then charge.
+        if (sBatteryAcq.acquiring) {
+            sBatteryAcq.samples[sBatteryAcq.count++] =
+                static_cast<uint16_t>(analogReadMilliVolts(BATTERY_ADC_PIN));
+            if (sBatteryAcq.count >= POWER_ADC_SAMPLES) {
+                sBatteryAcq.acquiring = false;
+                sampleBattery(now, trimmedMeanMilliVolts(sBatteryAcq.samples));
+            }
+        } else if (sChargeAcq.acquiring) {
+            sChargeAcq.samples[sChargeAcq.count++] =
+                static_cast<uint16_t>(analogReadMilliVolts(CHARGE_ADC_PIN));
+            if (sChargeAcq.count >= POWER_ADC_SAMPLES) {
+                sChargeAcq.acquiring = false;
+                sampleCharge(now, trimmedMeanMilliVolts(sChargeAcq.samples));
+            }
+        }
     }
 
     serviceBatteryCalibrationSave(now);

@@ -24,27 +24,35 @@ static bool ensureResourcesDirectory() {
     return ok;
 }
 
+// Optimization (O6): these helpers used to cycle the Storage lock (which takes TWO
+// mutexes: Storage + HardwareBus) up to three times per call for exists/open/IO. The
+// I/O phase was always a single hold, so consolidating exists+open into that same hold
+// does not lengthen the longest lock window — it just removes two take/give pairs per
+// call and the exists->open TOCTOU gap. Behavior (return values, atomic rename) is
+// unchanged.
 bool readStringFromFileLocked(const char* path, String& outContent) {
-    bool exists = false;
-    withStorageLock([&]() { exists = LittleFS.exists(path); });
-    if (!exists)
-        return false;
-    File file;
-    withStorageLock([&]() { file = LittleFS.open(path, "r"); });
-    if (!file)
-        return false;
-    withStorageLock([&]() { outContent = file.readString(); file.close(); });
-    return true;
+    bool ok = false;
+    withStorageLock([&]() {
+        if (!LittleFS.exists(path))
+            return;
+        File file = LittleFS.open(path, "r");
+        if (!file)
+            return;
+        outContent = file.readString();
+        file.close();
+        ok = true;
+    });
+    return ok;
 }
 
 bool writeStringToFileLocked(const char* path, const String& content) {
     const String tempPath = String(path) + ".tmp";
-    File file;
-    withStorageLock([&]() { LittleFS.remove(tempPath); file = LittleFS.open(tempPath, "w"); });
-    if (!file)
-        return false;
     bool renamed = false;
     withStorageLock([&]() {
+        LittleFS.remove(tempPath);
+        File file = LittleFS.open(tempPath, "w");
+        if (!file)
+            return;
         const size_t written = file.print(content);
         file.flush();
         file.close();
@@ -58,15 +66,12 @@ bool writeStringToFileLocked(const char* path, const String& content) {
 bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize) {
     outBuf = nullptr;
     outSize = 0;
-    bool exists = false;
-    withStorageLock([&]() { exists = LittleFS.exists(path); });
-    if (!exists)
-        return false;
-    File file;
-    withStorageLock([&]() { file = LittleFS.open(path, "r"); });
-    if (!file)
-        return false;
     withStorageLock([&]() {
+        if (!LittleFS.exists(path))
+            return;
+        File file = LittleFS.open(path, "r");
+        if (!file)
+            return;
         outSize = file.size();
         outBuf = static_cast<char*>(heap_caps_malloc(outSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         if (!outBuf)
@@ -77,6 +82,8 @@ bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize) 
         }
         file.close();
     });
+    if (!outBuf)
+        outSize = 0;
     return outBuf != nullptr;
 }
 

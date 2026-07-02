@@ -2,7 +2,18 @@
 
 Date: 2026-07-02 · Scope: all C++ in `src/` (~6,200 lines, 35 files). Web UI (`data/app.js`, 14k lines) not covered in this pass.
 
-> **Status update (same day):** All bugs (B1–B4) and all cross-core consistency gaps (C1–C3) are **FIXED**. Optimization items O1–O8 are intentionally untouched.
+> **Status update (same day):** All bugs (B1–B4) and all cross-core consistency gaps (C1–C3) are **FIXED**. Optimizations **O1–O6 are IMPLEMENTED** (details below); **O7/O8 intentionally skipped**.
+>
+> **Optimization implementation notes:**
+>
+> - O1 — `servicePowerMonitor()` now takes ONE ~100 µs ADC conversion per loop pass and finalizes the same 16-sample trimmed mean when the set completes (~16 ms after the window is due, vs a 1000 ms period). The 2×4 ms busy-wait per second is gone from the cooperative loop. The `force` path (boot, before routes open) keeps the original synchronous acquisition and discards any in-flight non-blocking set so samples never mix. Trim/average math and all downstream processing unchanged (power_monitor.cpp).
+> - O2 — `servicePowerMonitor()` removed from `/api/status` and `/api/power`; the loop services it every ~1 ms and the sampler is gated at 1 s, so the handler calls bought ≤1 ms of freshness for up to 8 ms of latency (web_api.cpp).
+> - O3 — verified against arduino-esp32 3.x sources that `WebServer::arg()` returns `String` **by value** (the naive `const String&` wrapper would dangle). Implemented instead as a `RinaWebServer` subclass exposing `plainBody()` — a const reference into the protected `_postArgs`/`_currentArgs` tables, mirroring `arg("plain")`'s exact lookup order. `body()` and all four call sites are now zero-copy; peak RAM during a scroll upload drops by one full body copy (web_api.cpp).
+> - O4 — `/api/command` doc is sized `3×body+512`, capped at the old 8.3 KB ceiling, so a 30-byte `set_brightness` no longer allocates 8 KB and the worst case (`start_scroll` + 4 KB sourceText) is byte-identical to before. `parseJson()` folded into `command()` (its only caller) (web_api.cpp).
+> - O5 — `/api/status` doc 6144 → 3072 (measured pool need ≈1.6 KB; keys and endpoint literals are linked, not copied) (web_api.cpp).
+> - O6 — `readStringFromFileLocked` / `writeStringToFileLocked` / `readBufferFromFileLocked` now take the Storage lock (2 mutexes) once instead of 2–3 times; the longest hold is unchanged since I/O was already a single hold, and the exists→open TOCTOU gap is gone (storage.cpp).
+> - O7 — **skipped**: converting `mode`/`playback` Strings to enums touches state, faces, scroll-session, buttons, and both API serializers for a per-loop cost of one short-circuited String compare (~tens of ns). Risk outweighs benefit; revisit only during a broader state refactor.
+> - O8 — **skipped by design**: async RMT double-buffering would break the "presented sample = latch completed" telemetry contract that `/api/preview_sync` and the WebUI fps estimator rely on, for headroom (>60 fps) the product doesn't need.
 >
 > - B1/B2 — `scrollMeta()` now uses a PSRAM-first heap buffer + `PsramJsonDocument(MAX_SCROLL_TEXT_BYTES + 2048)`; full sourceText survives, no 4 KB stack buffer (web_api.cpp).
 > - B3 — saved_faces POST now uses `PsramJsonDocument(jsonCapacityFor(b.length()))`, matching the load path; full 128-face uploads accepted (web_api.cpp).
