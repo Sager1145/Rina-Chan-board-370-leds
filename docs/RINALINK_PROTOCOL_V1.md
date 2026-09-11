@@ -209,3 +209,34 @@ the app can put the board on a network. It exposes only:
 them, sets mode `sta_or_ap`, connects), `POST /api/wifi/mode {mode}`,
 `POST /api/wifi/ap {ssid,password}`. Nothing else (no frames, faces or commands) is
 reachable over HTTP. All handlers run in `loop()` and delegate to the Wi-Fi manager.
+
+## 8. v1.2 — iPhone Personal Hotspot profile (auto-connect when no Wi-Fi is around)
+
+The board keeps **two** station credential sets in NVS: `home` (router) and `hotspot`
+(the phone's Personal Hotspot). Whenever it needs a station link it runs a scan and joins
+the first configured network that is visible, preferring `home`; if neither is visible it
+falls back to its own SoftAP (`sta_or_ap`) and re-scans every 60 s. This lets the board
+follow the phone anywhere: at home it uses the router, outdoors it joins the phone.
+
+iOS cannot read the Personal Hotspot password, and the hotspot name is only available as
+the device name, so the app pre-fills the name, asks for the password once, stores it in
+the Keychain, and provisions the board over BLE.
+
+| cmd | payload | reply |
+|---|---|---|
+| `wifi_set_hotspot_credentials` | `{ssid, password}` | `{ok}` — stored under NVS keys `hssid`/`hpass` |
+| `wifi_clear_hotspot_credentials` | — | `{ok}` |
+| `wifi_status` | — | gains `homeSsid`, `hotspotSsid` (names only, never passwords), `activeProfile: "home"|"hotspot"|"none"`, `scanPending: bool` |
+
+Selection algorithm (`wifi_manager`): on every STA attempt → async scan (≤3 s) → if
+`homeSsid` visible join it; else if `hotspotSsid` visible join it; else (mode `sta_or_ap`)
+keep/raise the SoftAP and retry the scan every `WIFI_STA_RETRY_MS`. A profile that fails
+to associate 3 times in a row is skipped for one retry cycle. `EV_WIFI` is pushed on every
+transition and carries `activeProfile` and the station `ip`.
+
+App flow ("iPhone 热点" section of the Connection tab): user turns on Personal Hotspot →
+app (connected over BLE) sends `wifi_set_hotspot_credentials` + `wifi_set_mode sta_or_ap` +
+`wifi_connect` → waits for `EV_WIFI staConnected && activeProfile=="hotspot"` → opens TCP
+to the reported `ip` (the phone is the hotspot gateway, so the board is directly reachable;
+Bonjour also works on the hotspot interface) and remembers `hotspot-tcp` as the preferred
+transport for that board.
