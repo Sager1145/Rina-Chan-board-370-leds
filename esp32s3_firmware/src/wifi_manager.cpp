@@ -10,10 +10,21 @@ namespace {
 Preferences prefs;
 
 String g_mode = "ap";          // off | ap | sta | sta_or_ap
-String g_ssid;
-String g_pass;
+
+// Two station credential profiles (docs/RINALINK_PROTOCOL_V1.md §8): "home"
+// (the router) and "hotspot" (the phone's Personal Hotspot).
+String g_homeSsid;
+String g_homePass;
+String g_hotspotSsid;
+String g_hotspotPass;
 String g_apSsid = AP_SSID;
 String g_apPass = AP_PASSWORD;
+
+String g_activeProfile = "none";     // none | home | hotspot — currently joined/joining profile
+String g_connectingProfile = "none"; // profile the in-flight WiFi.begin() belongs to
+uint8_t g_homeFailCount = 0;
+uint8_t g_hotspotFailCount = 0;
+bool g_staSelectionPending = false;  // waiting on a scan completion to pick a profile
 
 bool g_staTrying = false;      // currently attempting a STA connection
 uint32_t g_staAttemptStartMs = 0;
@@ -70,9 +81,99 @@ void startSoftAp() {
     g_apActive = true;
 }
 
+void setActiveProfile(const String& profile) {
+    if (g_activeProfile != profile) {
+        g_activeProfile = profile;
+        markChanged();
+    }
+}
+
+bool ssidVisibleInScan(const String& ssid) {
+    if (ssid.isEmpty())
+        return false;
+    for (uint8_t i = 0; i < g_scanResultCount; i++) {
+        if (g_scanResults[i].ssid == ssid)
+            return true;
+    }
+    return false;
+}
+
+void beginProfile(const String& profile, const String& ssid, const String& pass) {
+    WiFi.begin(ssid.c_str(), pass.c_str());
+    g_connectingProfile = profile;
+    g_staTrying = true;
+    g_staAttemptStartMs = millis();
+}
+
+// Scan couldn't even start (e.g. driver busy) — join directly instead of
+// churning forever on an empty scan result. Prefers "home", then "hotspot";
+// skips a profile that just hit its fail limit unless it's the only one.
+void staDirectFallback() {
+    bool homeOk = g_homeSsid.length() && g_homeFailCount < WIFI_PROFILE_FAIL_LIMIT;
+    bool hotspotOk = g_hotspotSsid.length() && g_hotspotFailCount < WIFI_PROFILE_FAIL_LIMIT;
+    if (homeOk) {
+        beginProfile("home", g_homeSsid, g_homePass);
+    } else if (hotspotOk) {
+        beginProfile("hotspot", g_hotspotSsid, g_hotspotPass);
+    } else if (g_homeSsid.length()) {
+        g_homeFailCount = 0;
+        beginProfile("home", g_homeSsid, g_homePass);
+    } else if (g_hotspotSsid.length()) {
+        g_hotspotFailCount = 0;
+        beginProfile("hotspot", g_hotspotSsid, g_hotspotPass);
+    }
+}
+
+// Whenever a STA attempt is due (boot, wifi_connect, credentials change,
+// retry timer) start (or piggyback on) the shared async scan; the result is
+// consumed by evaluateScanResults() to pick "home" over "hotspot", or fall
+// back to AP-only serving (sta_or_ap) / keep retrying (sta).
+void startStaSelection() {
+    if (!(g_homeSsid.length() || g_hotspotSsid.length()))
+        return;
+    if (wifiManagerScanInProgress()) {
+        g_staSelectionPending = true;
+        return;
+    }
+    g_staSelectionPending = true;
+    if (!wifiManagerStartScan()) {
+        g_staSelectionPending = false;
+        staDirectFallback();
+    }
+}
+
+void evaluateScanResults() {
+    g_staSelectionPending = false;
+    bool homeEligible = g_homeSsid.length() && ssidVisibleInScan(g_homeSsid);
+    bool hotspotEligible = g_hotspotSsid.length() && ssidVisibleInScan(g_hotspotSsid);
+    // A profile that just hit its fail limit is skipped for exactly this one
+    // selection cycle, then its counter resets for a fresh set of tries.
+    if (homeEligible && g_homeFailCount >= WIFI_PROFILE_FAIL_LIMIT) {
+        homeEligible = false;
+        g_homeFailCount = 0;
+    }
+    if (hotspotEligible && g_hotspotFailCount >= WIFI_PROFILE_FAIL_LIMIT) {
+        hotspotEligible = false;
+        g_hotspotFailCount = 0;
+    }
+
+    if (homeEligible) {
+        beginProfile("home", g_homeSsid, g_homePass);
+    } else if (hotspotEligible) {
+        beginProfile("hotspot", g_hotspotSsid, g_hotspotPass);
+    } else {
+        // Nothing configured is visible: sta_or_ap keeps the SoftAP up, sta
+        // just keeps retrying; both cases wait for the retry timer below.
+        g_lastStaRetryMs = millis();
+        setActiveProfile("none");
+    }
+}
+
 void applyMode() {
     g_staTrying = false;
+    g_staSelectionPending = false;
     g_apActive = false;
+    setActiveProfile("none");
     if (g_mode == "off") {
         WiFi.softAPdisconnect(true);
         WiFi.disconnect(true);
@@ -90,10 +191,7 @@ void applyMode() {
     if (g_mode == "sta") {
         WiFi.mode(WIFI_STA);
         WiFi.setSleep(false);
-        if (g_ssid.length())
-            WiFi.begin(g_ssid.c_str(), g_pass.c_str());
-        g_staTrying = true;
-        g_staAttemptStartMs = millis();
+        startStaSelection();
         markChanged();
         return;
     }
@@ -101,11 +199,7 @@ void applyMode() {
     WiFi.mode(WIFI_AP_STA);
     WiFi.setSleep(false);
     startSoftAp();
-    if (g_ssid.length()) {
-        WiFi.begin(g_ssid.c_str(), g_pass.c_str());
-        g_staTrying = true;
-        g_staAttemptStartMs = millis();
-    }
+    startStaSelection();
     markChanged();
 }
 
@@ -113,15 +207,17 @@ void applyMode() {
 
 void wifiManagerBegin() {
     prefs.begin("rinawifi", false);
-    g_ssid = prefs.getString("ssid", "");
-    g_pass = prefs.getString("pass", "");
+    g_homeSsid = prefs.getString("ssid", "");
+    g_homePass = prefs.getString("pass", "");
+    g_hotspotSsid = prefs.getString("hssid", "");
+    g_hotspotPass = prefs.getString("hpass", "");
     g_apSsid = prefs.getString("apssid", AP_SSID);
     g_apPass = prefs.getString("appass", AP_PASSWORD);
     String storedMode = prefs.getString("mode", "");
     if (storedMode.length()) {
         g_mode = storedMode;
     } else {
-        g_mode = g_ssid.length() ? "sta_or_ap" : "ap";
+        g_mode = (g_homeSsid.length() || g_hotspotSsid.length()) ? "sta_or_ap" : "ap";
     }
     g_prevMode = g_mode;
     applyMode();
@@ -129,32 +225,34 @@ void wifiManagerBegin() {
 
 void wifiManagerService() {
     if (g_mode != "off") {
-        // STA connection watchdog: sta_or_ap falls back to AP-only-serving after
-        // the timeout (SoftAP is already up); `sta` retries forever.
+        bool staConfigured = g_homeSsid.length() || g_hotspotSsid.length();
+        // STA connection watchdog: sta_or_ap falls back to AP-only-serving
+        // after the timeout (SoftAP is already up); `sta` retries via the
+        // same WIFI_STA_RETRY_MS timer below.
         if (g_staTrying) {
             if (WiFi.status() == WL_CONNECTED) {
                 g_staTrying = false;
+                if (g_connectingProfile == "home")
+                    g_homeFailCount = 0;
+                else if (g_connectingProfile == "hotspot")
+                    g_hotspotFailCount = 0;
+                setActiveProfile(g_connectingProfile);
                 markChanged();
             } else if (millisReached(millis(), g_staAttemptStartMs + WIFI_STA_CONNECT_TIMEOUT_MS)) {
                 g_staTrying = false;
                 g_lastStaRetryMs = millis();
-                if (g_mode == "sta") {
-                    // keep retrying forever
-                    WiFi.disconnect();
-                    WiFi.begin(g_ssid.c_str(), g_pass.c_str());
-                    g_staTrying = true;
-                    g_staAttemptStartMs = millis();
-                } else {
-                    markChanged(); // dropped into AP fallback
-                }
+                if (g_connectingProfile == "home" && g_homeFailCount < 255)
+                    g_homeFailCount++;
+                else if (g_connectingProfile == "hotspot" && g_hotspotFailCount < 255)
+                    g_hotspotFailCount++;
+                setActiveProfile("none");
+                markChanged(); // dropped into AP fallback / will retry
             }
-        } else if (g_ssid.length() && WiFi.status() != WL_CONNECTED &&
+        } else if (!g_staSelectionPending && staConfigured && WiFi.status() != WL_CONNECTED &&
                    (g_mode == "sta" || g_mode == "sta_or_ap")) {
             if (millisReached(millis(), g_lastStaRetryMs + WIFI_STA_RETRY_MS)) {
                 g_lastStaRetryMs = millis();
-                WiFi.begin(g_ssid.c_str(), g_pass.c_str());
-                g_staTrying = true;
-                g_staAttemptStartMs = millis();
+                startStaSelection();
             }
         }
 
@@ -205,6 +303,8 @@ void wifiManagerService() {
             // scan; sta / sta_or_ap keep STA enabled regardless.
             if (g_mode == "ap")
                 WiFi.enableSTA(false);
+            if (g_staSelectionPending)
+                evaluateScanResults();
         }
     }
 }
@@ -215,12 +315,18 @@ bool wifiManagerStateChanged() {
     return v;
 }
 
+// Non-consuming variant for observers that must not steal the EV_WIFI edge
+// (web_setup.cpp uses it to decide when to re-check whether HTTP should be up).
+bool wifiManagerStateChangedPeek() {
+    return g_stateChanged;
+}
+
 void wifiManagerGetStatusJson(JsonObject out) {
     bool staConnected = WiFi.status() == WL_CONNECTED;
     out["ok"] = true;
     out["mode"] = g_mode;
     out["staConnected"] = staConnected;
-    out["ssid"] = staConnected ? WiFi.SSID() : g_ssid;
+    out["ssid"] = staConnected ? WiFi.SSID() : g_homeSsid;
     out["ip"] = staConnected ? WiFi.localIP().toString() : String("");
     out["rssi"] = staConnected ? WiFi.RSSI() : 0;
     out["apActive"] = g_apActive;
@@ -229,6 +335,10 @@ void wifiManagerGetStatusJson(JsonObject out) {
     out["hostname"] = RINALINK_HOSTNAME;
     out["tcpPort"] = RINALINK_TCP_PORT;
     out["clients"] = g_apActive ? WiFi.softAPgetStationNum() : 0;
+    out["homeSsid"] = g_homeSsid;
+    out["hotspotSsid"] = g_hotspotSsid;
+    out["activeProfile"] = g_activeProfile;
+    out["scanPending"] = g_scanInProgress;
 }
 
 bool wifiManagerStartScan() {
@@ -274,18 +384,47 @@ void wifiManagerGetScanJson(JsonArray out) {
 bool wifiManagerSetCredentials(const String& ssid, const String& password) {
     if (ssid.isEmpty())
         return false;
-    g_ssid = ssid;
-    g_pass = password;
-    prefs.putString("ssid", g_ssid);
-    prefs.putString("pass", g_pass);
+    g_homeSsid = ssid;
+    g_homePass = password;
+    prefs.putString("ssid", g_homeSsid);
+    prefs.putString("pass", g_homePass);
+    g_homeFailCount = 0;
+    markChanged();
+    if (g_mode == "sta" || g_mode == "sta_or_ap")
+        startStaSelection();
     return true;
 }
 
 void wifiManagerClearCredentials() {
-    g_ssid = "";
-    g_pass = "";
+    g_homeSsid = "";
+    g_homePass = "";
     prefs.putString("ssid", "");
     prefs.putString("pass", "");
+    g_homeFailCount = 0;
+    markChanged();
+}
+
+bool wifiManagerSetHotspotCredentials(const String& ssid, const String& password) {
+    if (ssid.isEmpty())
+        return false;
+    g_hotspotSsid = ssid;
+    g_hotspotPass = password;
+    prefs.putString("hssid", g_hotspotSsid);
+    prefs.putString("hpass", g_hotspotPass);
+    g_hotspotFailCount = 0;
+    markChanged();
+    if (g_mode == "sta" || g_mode == "sta_or_ap")
+        startStaSelection();
+    return true;
+}
+
+void wifiManagerClearHotspotCredentials() {
+    g_hotspotSsid = "";
+    g_hotspotPass = "";
+    prefs.putString("hssid", "");
+    prefs.putString("hpass", "");
+    g_hotspotFailCount = 0;
+    markChanged();
 }
 
 bool wifiManagerSetMode(const String& mode) {
@@ -301,12 +440,8 @@ bool wifiManagerSetMode(const String& mode) {
 void wifiManagerConnect() {
     if (g_mode == "off")
         return;
-    g_lastStaRetryMs = 0; // let the next service() tick retry immediately
-    if (g_ssid.length()) {
-        WiFi.begin(g_ssid.c_str(), g_pass.c_str());
-        g_staTrying = true;
-        g_staAttemptStartMs = millis();
-    }
+    g_lastStaRetryMs = millis() - WIFI_STA_RETRY_MS; // make the next service() tick eligible to retry
+    startStaSelection();
 }
 
 bool wifiManagerSetAp(const String& ssid, const String& password) {

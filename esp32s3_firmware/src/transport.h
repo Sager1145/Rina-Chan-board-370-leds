@@ -47,7 +47,6 @@ public:
     virtual bool send(ClientId id, const uint8_t* data, size_t len, bool isEvent = false) = 0;
     // Preferred max payload for chunked blob replies / event throttling hints.
     virtual uint16_t preferredChunkBytes(ClientId id) const = 0;
-    virtual bool isConnected(ClientId id) const = 0;
     virtual void disconnect(ClientId id) = 0;
 };
 

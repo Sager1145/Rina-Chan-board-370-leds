@@ -4,12 +4,12 @@
 
 // 中文说明：LED “实际已显示帧” telemetry 类型。
 // renderCurrentFrameToLedStrip() 在 leddrv::refresh() 完成（LED 真正点亮）后，
-// 把当前帧的身份与时间戳封存为 LedPresentedSample，供 /api/preview_sync 上报给 WebUI。
+// 把当前帧的身份与时间戳封存为 LedPresentedSample，供 EV_PREVIEW_SYNC 推送给 App。
 // 关键原则：固件只“报告”实际显示帧，绝不改 FPS slider，也不回传完整帧数据。
 //
 // English: telemetry describing the frame the LED panel has ACTUALLY presented.
 // The renderer publishes one LedPresentedSample right after leddrv::refresh()
-// (i.e. once the WS2812 latch/transmit has completed) so the WebUI can estimate
+// (i.e. once the WS2812 latch/transmit has completed) so the app can estimate
 // the real scroll fps from (presentedFrameIndex, presentedAtUs) pairs and gently
 // steer its internal preview speed — never the user's fps controls.
 
@@ -91,7 +91,7 @@ struct LedPresentedSample {
     bool systemPaused = false;
     bool rateEligible = false;
 
-    // Device monotonic microseconds. micros() wraps (~71 min); the WebUI handles
+    // Device monotonic microseconds. micros() wraps (~71 min); the app handles
     // monotonic deltas using presentedSeq ordering and a bounded time window.
     uint32_t renderStartUs = 0;
     uint32_t presentedAtUs = 0;

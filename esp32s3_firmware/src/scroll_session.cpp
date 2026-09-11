@@ -180,8 +180,11 @@ bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits) {
             runtimeState().firmwareScrollUserPaused = true;
             runtimeState().firmwareScrollPaused = true;
             runtimeState().paused = true;
-            memcpy(outFrameBits, runtimeScrollFrameBits(runtimeState().scrollFrameIndex), FRAME_BYTES);
-            hasSteppedFrame = true;
+            const uint8_t* src = runtimeScrollFrameBits(runtimeState().scrollFrameIndex);
+            if (src) {
+                memcpy(outFrameBits, src, FRAME_BYTES);
+                hasSteppedFrame = true;
+            }
         }
     });
 
@@ -244,8 +247,11 @@ ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode,
             runtimeState().firmwareScrollUserPaused = false;
             runtimeState().firmwareScrollSystemPaused = false;
             runtimeState().paused = false;
-            memcpy(firstFrame, runtimeScrollFrameBits(0), FRAME_BYTES);
-            hasFirstFrame = true;
+            const uint8_t* src = runtimeScrollFrameBits(0);
+            if (src) {
+                memcpy(firstFrame, src, FRAME_BYTES);
+                hasFirstFrame = true;
+            }
         }
     });
 
@@ -323,7 +329,6 @@ ScrollUploadTxn scrollSessionBeginUpload(const ScrollUploadMeta& upload) {
         meta.totalFramesExpected = upload.totalFrames;
         meta.nextChunkIndex = 1;
 
-        txn.timelineBacked = meta.timelineId[0] != '\0';
         txn.totalFramesExpected = meta.totalFramesExpected;
         txn.nextChunkIndex = meta.nextChunkIndex;
         memcpy(txn.timelineId, meta.timelineId, sizeof(txn.timelineId));
@@ -338,8 +343,6 @@ ScrollUploadTxn scrollSessionBeginAppend() {
 
     withScrollLock([&]() {
         const ScrollTimelineMeta& meta = runtimeScrollMeta();
-        txn.timelineBacked = meta.timelineId[0] != '\0';
-        txn.uploadComplete = meta.uploadComplete;
         txn.nextChunkIndex = meta.nextChunkIndex;
         txn.framesReceivedBase = meta.framesReceived;
         txn.totalFramesExpected = meta.totalFramesExpected;
@@ -382,7 +385,9 @@ ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_
     ScrollUploadResult result;
 
     withScrollLock([&]() {
-        runtimeState().scrollFrameCount = static_cast<uint16_t>(txn.baseIndex + count);
+        const uint32_t rawCount = static_cast<uint32_t>(txn.baseIndex) + static_cast<uint32_t>(count);
+        runtimeState().scrollFrameCount =
+            static_cast<uint16_t>(rawCount > MAX_SCROLL_FRAMES ? MAX_SCROLL_FRAMES : rawCount);
         if (!txn.append || (!runtimeState().firmwareScrollActive && !runtimeState().firmwareScrollPaused)) {
             runtimeState().scrollFrameIndex = 0;
         }
@@ -478,6 +483,9 @@ bool scrollSessionTickCursorLocked(uint32_t now, uint8_t* outFrameBits) {
     else
         runtimeState().lastScrollFrameMs = now;
 
-    memcpy(outFrameBits, runtimeScrollFrameBits(runtimeState().scrollFrameIndex), FRAME_BYTES);
+    const uint8_t* src = runtimeScrollFrameBits(runtimeState().scrollFrameIndex);
+    if (!src)
+        return false;
+    memcpy(outFrameBits, src, FRAME_BYTES);
     return true;
 }

@@ -18,11 +18,8 @@
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <esp_heap_caps.h>
-#include <esp_psram.h>
 #include <math.h>
 #include <string.h>
-#include <functional>
-#include <vector>
 #include <freertos/task.h>
 
 using rinalink::Carrier;
@@ -81,9 +78,13 @@ struct BlobSession {
     uint8_t* facesBuf = nullptr;
     size_t facesCap = 0;
 
-    // scroll_bitmap (§7.1): raw bitmap bytes are staged here; expansion into packed
-    // frames + the scrollSessionBeginUpload() call happen at BLOB_END so a failed/
-    // aborted upload never disturbs the currently-playing timeline.
+    // scroll_bitmap (§7.1): raw bitmap bytes are staged here. At BLOB_END, every
+    // frame is expanded into a full PSRAM staging buffer BEFORE
+    // scrollSessionBeginUpload() is ever called, so a BLOB_ABORT or a validation
+    // failure before that point never disturbs the currently-playing timeline.
+    // Expansion itself is deterministic bit math, so once the staging allocation
+    // succeeds, a failure between BeginUpload and the commit (which does wipe the
+    // live timeline) is possible only on OOM, not on malformed input.
     uint8_t* bitmapBuf = nullptr;
     uint16_t bitmapWidth = 0;
     uint16_t bitmapStride = 0;
@@ -171,7 +172,6 @@ static int g_activeScrollBlobSlot = -1;
 
 // Pending wifi_scan requester (item 4): only one scan can be in flight.
 static int g_wifiScanRequesterSlot = -1;
-static uint8_t g_wifiScanRequesterSeq = 0;
 
 // EV_LOG ring (item 9): filled from any task via the serial_log sink, drained on
 // the loop task by serviceProtocolEvents().
@@ -213,9 +213,11 @@ static void resetBlob(ClientSlot& c) {
 
 // --- Framing / reply helpers -----------------------------------------------------------
 // isEvent=true marks unsolicited events so a back-pressured carrier (TCP) can drop
-// the send instead of blocking loop() (item 6/8). On send failure we mark the client
-// disconnectPending; the actual teardown happens at the top of the next
-// serviceProtocol() pass (item 1/8).
+// the send instead of blocking loop() (item 6/8). A dropped EVENT (isEvent=true,
+// ok=false) is expected under back-pressure and must NOT tear the client down --
+// only a failed reply/request-response send (isEvent=false) unregisters the
+// client; the actual teardown happens at the top of the next serviceProtocol()
+// pass (item 1/8).
 static void sendFrame(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags,
                        const uint8_t* payload, uint16_t len, bool isEvent = false) {
     if (c.disconnectPending || !c.transport)
@@ -224,33 +226,27 @@ static void sendFrame(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags,
     size_t total = transportFrame(buf, type, seq, flags, payload, len);
     uint8_t slot = static_cast<uint8_t>(&c - g_clients);
     bool ok = c.transport->send(ClientId{slot}, buf, total, isEvent);
-    if (!ok) {
-        RLOG_WARN("PROTO", "event=send_failed slot=%u type=%u isEvent=%d", (unsigned)slot, (unsigned)type, (int)isEvent);
+    if (!ok && !isEvent) {
+        RLOG_DEBUG("PROTO", "event=send_failed slot=%u type=%u", (unsigned)slot, (unsigned)type);
         rinalink::transportUnregisterClient(ClientId{slot});
     }
 }
 
-static void sendJsonReply(ClientSlot& c, uint8_t reqType, uint8_t seq, JsonDocument& doc) {
-    static char jsonBuf[MAX_PAYLOAD_BYTES];
-    size_t n = serializeJson(doc, jsonBuf, sizeof(jsonBuf));
-    if (n >= sizeof(jsonBuf))
-        n = sizeof(jsonBuf) - 1;
-    sendFrame(c, static_cast<uint8_t>(reqType | 0x80), seq, 0, reinterpret_cast<const uint8_t*>(jsonBuf), (uint16_t)n);
-}
-
-// Serializes into a large PSRAM buffer and, if the result does not fit in one
-// MAX_PAYLOAD_BYTES frame, sends it as multiple frames with FLAG_MORE set on all
-// but the last (same type|0x80 and seq). Used by handlers whose JSON reply can
-// legitimately exceed MAX_PAYLOAD_BYTES (item 2), e.g. GET_SCROLL_META with a large
-// sourceText. The iOS client already aggregates MORE frames.
-static void sendJsonReplyChunked(ClientSlot& c, uint8_t reqType, uint8_t seq, JsonDocument& doc,
-                                  char* jsonBuf, size_t bufCap) {
-    size_t n = serializeJson(doc, jsonBuf, bufCap);
-    if (n >= bufCap)
-        n = bufCap - 1;
-    uint8_t type = static_cast<uint8_t>(reqType | 0x80);
+// Single JSON emitter for every reply/event path. Serializes into one shared
+// scratch buffer (sized for the largest known reply, GET_SCROLL_META's
+// sourceText) and, if the result does not fit in one MAX_PAYLOAD_BYTES frame,
+// splits it into multiple frames with FLAG_MORE set on all but the last (same
+// type/seq). The iOS client already aggregates MORE frames. Consolidates the
+// former sendJsonReply / sendEvent / sendErrorReply / sendJsonReplyChunked.
+static void emitJson(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags, JsonDocument& doc,
+                      bool isEvent = false) {
+    constexpr size_t kScratchCap = static_cast<size_t>(MAX_SCROLL_TEXT_BYTES) + 2048U;
+    static char scratch[kScratchCap];
+    size_t n = serializeJson(doc, scratch, kScratchCap);
+    if (n >= kScratchCap)
+        n = kScratchCap - 1;
     if (n == 0) {
-        sendFrame(c, type, seq, 0, nullptr, 0);
+        sendFrame(c, type, seq, flags, nullptr, 0, isEvent);
         return;
     }
     size_t off = 0;
@@ -259,17 +255,18 @@ static void sendJsonReplyChunked(ClientSlot& c, uint8_t reqType, uint8_t seq, Js
         if (chunk > MAX_PAYLOAD_BYTES)
             chunk = MAX_PAYLOAD_BYTES;
         bool more = (off + chunk) < n;
-        sendFrame(c, type, seq, more ? FLAG_MORE : 0, reinterpret_cast<const uint8_t*>(jsonBuf + off), (uint16_t)chunk);
+        uint8_t outFlags = static_cast<uint8_t>(flags | (more ? FLAG_MORE : 0));
+        sendFrame(c, type, seq, outFlags, reinterpret_cast<const uint8_t*>(scratch + off), (uint16_t)chunk, isEvent);
         off += chunk;
     }
 }
 
+static void sendJsonReply(ClientSlot& c, uint8_t reqType, uint8_t seq, JsonDocument& doc) {
+    emitJson(c, static_cast<uint8_t>(reqType | 0x80), seq, 0, doc, false);
+}
+
 static void sendEvent(ClientSlot& c, uint8_t evType, JsonDocument& doc) {
-    static char jsonBuf[MAX_PAYLOAD_BYTES];
-    size_t n = serializeJson(doc, jsonBuf, sizeof(jsonBuf));
-    if (n >= sizeof(jsonBuf))
-        n = sizeof(jsonBuf) - 1;
-    sendFrame(c, evType, 0, 0, reinterpret_cast<const uint8_t*>(jsonBuf), (uint16_t)n, /*isEvent=*/true);
+    emitJson(c, evType, 0, 0, doc, true);
 }
 
 static void sendErrorReply(ClientSlot& c, uint8_t seq, int code, const String& msg, int32_t expectedOffset = -1) {
@@ -279,9 +276,7 @@ static void sendErrorReply(ClientSlot& c, uint8_t seq, int code, const String& m
     d["code"] = code;
     if (expectedOffset >= 0)
         d["expectedOffset"] = expectedOffset;
-    static char jsonBuf[512];
-    size_t n = serializeJson(d, jsonBuf, sizeof(jsonBuf));
-    sendFrame(c, msg::ERR, seq, 0, reinterpret_cast<const uint8_t*>(jsonBuf), (uint16_t)n);
+    emitJson(c, msg::ERR, seq, 0, d, false);
 }
 
 // --- Storage helpers -----------------------------------------------------------------
@@ -480,6 +475,18 @@ static void handleWifiCmd(ClientSlot& c, uint8_t seq, const char* cmd, JsonDocum
         DynamicJsonDocument out(64);
         out["ok"] = true;
         sendJsonReply(c, msg::CMD, seq, out);
+    } else if (strcmp(cmd, "wifi_set_hotspot_credentials") == 0) {
+        bool ok = wifiManagerSetHotspotCredentials(cstr(d, p, "ssid", ""), cstr(d, p, "password", ""));
+        DynamicJsonDocument out(128);
+        out["ok"] = ok;
+        if (!ok)
+            out["error"] = "ssid required";
+        sendJsonReply(c, msg::CMD, seq, out);
+    } else if (strcmp(cmd, "wifi_clear_hotspot_credentials") == 0) {
+        wifiManagerClearHotspotCredentials();
+        DynamicJsonDocument out(64);
+        out["ok"] = true;
+        sendJsonReply(c, msg::CMD, seq, out);
     } else if (strcmp(cmd, "wifi_set_mode") == 0) {
         bool ok = wifiManagerSetMode(cstr(d, p, "mode", ""));
         DynamicJsonDocument out(128);
@@ -537,7 +544,10 @@ static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName,
         return;
     }
     PsramJsonDocument doc(jsonCapacityFor(fileSize) + 8192);
-    DeserializationError de = deserializeJson(doc, contentBuf, fileSize, DeserializationOption::NestingLimit(32));
+    // Deserialize in copy mode (const char*) so doc's string storage is independent
+    // of contentBuf: zero-copy mode (non-const char*) would leave doc's strings
+    // pointing into contentBuf, which is freed below (item A2: use-after-free).
+    DeserializationError de = deserializeJson(doc, (const char*)contentBuf, fileSize, DeserializationOption::NestingLimit(32));
     free(contentBuf);
     if (de) {
         sendErrorReply(c, seq, 500, String(cmdName) + ": saved_faces.json parse failed: " + de.c_str());
@@ -669,6 +679,11 @@ static void handleFaceReorder(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonV
     mutateFacesDocument(c, seq, "face_reorder", [&](PsramJsonDocument& doc, int& errCode, String& errMsg) -> bool {
         JsonArray faces = doc["faces"].as<JsonArray>();
         const size_t faceCount = faces.size();
+        if (faceCount > MAX_AUTO_FACES) {
+            errCode = 413;
+            errMsg = "too many faces on disk for reorder";
+            return false;
+        }
         if (ids.size() != faceCount) {
             errCode = 400;
             errMsg = "ids must list every face exactly once";
@@ -1054,19 +1069,10 @@ static void handleGetScrollMeta(ClientSlot& c, uint8_t seq) {
     d["firmwareScrollActive"] = o.active;
     d["firmwareScrollPaused"] = o.paused;
 
-    // The serialized JSON (sourceText up to 4 KB) can exceed MAX_PAYLOAD_BYTES, so
-    // this reply must be able to span multiple frames (item 2).
-    constexpr size_t kOutCap = static_cast<size_t>(MAX_SCROLL_TEXT_BYTES) + 2048U;
-    char* outBuf = static_cast<char*>(heap_caps_malloc(kOutCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!outBuf)
-        outBuf = static_cast<char*>(malloc(kOutCap));
-    if (!outBuf) {
-        free(text);
-        sendErrorReply(c, seq, 507, "insufficient memory for scroll meta reply");
-        return;
-    }
-    sendJsonReplyChunked(c, msg::GET_SCROLL_META, seq, d, outBuf, kOutCap);
-    free(outBuf);
+    // The serialized JSON (sourceText up to 4 KB) can exceed MAX_PAYLOAD_BYTES;
+    // emitJson (via sendJsonReply) spans it across multiple FLAG_MORE frames as
+    // needed (item 2).
+    sendJsonReply(c, msg::GET_SCROLL_META, seq, d);
     free(text);
 }
 
@@ -1394,6 +1400,10 @@ static void handleBlobChunk(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
             return;
         }
         uint16_t n = dataLen / FRAME_BYTES;
+        if ((uint32_t)c.blob.framesReceived + n > c.blob.totalFrames) {
+            sendErrorReply(c, seq, 413, "scroll chunk exceeds totalFrames");
+            return;
+        }
         String err;
         for (uint16_t i = 0; i < n; i++) {
             if (!validatePackedFrame(data + (size_t)i * FRAME_BYTES, err)) {
@@ -1533,6 +1543,36 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
                 vTaskDelay(pdMS_TO_TICKS(1));
         }
 
+        // Item A7: expand every frame into a PSRAM staging buffer BEFORE touching
+        // the live timeline. Expansion is deterministic bit math over
+        // c.blob.bitmapBuf, so once this allocation succeeds it cannot fail;
+        // scrollSessionBeginUpload() (which wipes the currently-playing timeline)
+        // and the single WriteFrames call below only run after the full
+        // expansion already exists in hand, so a failure after BeginUpload is
+        // possible only on OOM.
+        const size_t stagingBytes = (size_t)frameCount * FRAME_BYTES;
+        uint8_t* stagingBuf = static_cast<uint8_t*>(heap_caps_malloc(stagingBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (!stagingBuf)
+            stagingBuf = static_cast<uint8_t*>(malloc(stagingBytes));
+        if (!stagingBuf) {
+            resetBlob(c);
+            sendErrorReply(c, seq, 507, "insufficient memory for scroll_bitmap expansion");
+            return;
+        }
+        uint16_t framesSinceYield = 0;
+        for (uint16_t i = 0; i < frameCount; ++i) {
+            uint32_t srcOffset = (uint32_t)(i + rotation) % frameCount;
+            scrollBitmapBuildFrame(c.blob, srcOffset, stagingBuf + (size_t)i * FRAME_BYTES);
+            // Yield roughly every 256 frames so a large expansion never starves loop().
+            if (++framesSinceYield >= 256) {
+                framesSinceYield = 0;
+                vTaskDelay(pdMS_TO_TICKS(1));
+            }
+        }
+        uint32_t dt = micros() - t0;
+        RLOG_INFO("PROTO", "event=scroll_bitmap_expand frames=%u width=%u rotation=%u durationUs=%lu",
+                  (unsigned)frameCount, (unsigned)c.blob.bitmapWidth, (unsigned)rotation, (unsigned long)dt);
+
         ScrollUploadMeta meta;
         meta.timelineId = c.blob.bitmapTimelineId.c_str();
         meta.fontId = c.blob.bitmapFontId.c_str();
@@ -1543,38 +1583,14 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
         meta.uiFps = c.blob.uiFps;
         ScrollUploadTxn txn = scrollSessionBeginUpload(meta);
 
-        constexpr uint16_t kBatchFrames = 64;
-        static uint8_t stagingBuf[kBatchFrames * FRAME_BYTES];
-        uint16_t written = 0;
-        uint16_t batchesSinceYield = 0;
-        bool writeFailed = false;
-        while (written < frameCount) {
-            uint16_t batch = frameCount - written;
-            if (batch > kBatchFrames)
-                batch = kBatchFrames;
-            for (uint16_t i = 0; i < batch; ++i) {
-                uint32_t srcOffset = (uint32_t)(written + i + rotation) % frameCount;
-                scrollBitmapBuildFrame(c.blob, srcOffset, stagingBuf + (size_t)i * FRAME_BYTES);
-            }
-            if (!scrollSessionWriteFrames(txn, written, stagingBuf, batch)) {
-                writeFailed = true;
-                break;
-            }
-            written += batch;
-            // Yield roughly every 256 frames so a large expansion never starves loop().
-            if (++batchesSinceYield >= 4) {
-                batchesSinceYield = 0;
-                vTaskDelay(pdMS_TO_TICKS(1));
-            }
-        }
-        uint32_t dt = micros() - t0;
-        RLOG_INFO("PROTO", "event=scroll_bitmap_expand frames=%u width=%u rotation=%u durationUs=%lu",
-                  (unsigned)frameCount, (unsigned)c.blob.bitmapWidth, (unsigned)rotation, (unsigned long)dt);
-        if (writeFailed) {
+        bool writeOk = scrollSessionWriteFrames(txn, 0, stagingBuf, frameCount);
+        heap_caps_free(stagingBuf);
+        if (!writeOk) {
             resetBlob(c);
             sendErrorReply(c, seq, 500, "failed to write scroll frames");
             return;
         }
+        uint16_t written = frameCount;
 
         ScrollUploadResult res = scrollSessionCommitUpload(txn, written, c.blob.hasExplicitTiming,
                                                             c.blob.intervalMs, c.blob.uiFps);
@@ -1817,7 +1833,11 @@ void transportMarkResyncNeeded(ClientId id) {
     portENTER_CRITICAL(&c.mux);
     c.inboundLen = 0;
     portEXIT_CRITICAL(&c.mux);
+    // resyncNeeded is part of the connect/disconnect flag group guarded by
+    // g_registryMux (see ClientSlot's contract comment), not c.mux.
+    portENTER_CRITICAL(&g_registryMux);
     c.resyncNeeded = true;
+    portEXIT_CRITICAL(&g_registryMux);
 }
 
 size_t transportFrame(uint8_t* out, uint8_t type, uint8_t seq, uint8_t flags,
@@ -1844,8 +1864,11 @@ constexpr uint8_t MAX_FRAMES_PER_CLIENT_PASS = 8;
 static void processClientInbound(ClientSlot& c) {
     static uint8_t local[INBOUND_BUFFER_BYTES];
 
-    if (c.resyncNeeded) {
-        c.resyncNeeded = false;
+    portENTER_CRITICAL(&g_registryMux);
+    bool needsResync = c.resyncNeeded;
+    c.resyncNeeded = false;
+    portEXIT_CRITICAL(&g_registryMux);
+    if (needsResync) {
         sendErrorReply(c, 0, 413, "inbound overflow");
     }
 
@@ -1907,7 +1930,7 @@ static void serviceProtocolEvents() {
     // Drain the EV_LOG ring (item 9): copy out under the lock, then fan out to
     // subscribed clients without holding it.
     if (g_logRing && g_logCount > 0) {
-        LogRingEntry local[LOG_RING_CAP];
+        static LogRingEntry local[LOG_RING_CAP]; // loop-task only; avoid ~2.8 KB of stack
         uint8_t count;
         portENTER_CRITICAL(&g_logRingMux);
         count = g_logCount;
@@ -2075,6 +2098,13 @@ static void finalizePendingRegistryChanges() {
 
         if (doDisconnect) {
             Carrier carrier = c.carrier;
+            // Item A3: capture the transport before clearing the slot so we can
+            // still tell the carrier to tear this client down after the registry
+            // no longer claims it (TCP stops the socket + clears its slot
+            // mapping; BLE clears its own mapping and disconnects the peer).
+            // Without this, a carrier could keep pushing bytes into a slot that
+            // a different client later claims.
+            ITransport* transport = c.transport;
             resetSlotSessionState(c);
             portENTER_CRITICAL(&g_registryMux);
             c.transport = nullptr;
@@ -2083,6 +2113,8 @@ static void finalizePendingRegistryChanges() {
             c.disconnectPending = false;
             c.used = false;
             portEXIT_CRITICAL(&g_registryMux);
+            if (transport)
+                transport->disconnect(ClientId{i});
             RLOG_INFO("PROTO", "event=client_disconnect slot=%u carrier=%d", (unsigned)i, (int)carrier);
         } else if (doConnect) {
             resetSlotSessionState(c);

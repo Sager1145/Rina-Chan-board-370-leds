@@ -28,8 +28,6 @@ struct ScrollUploadMeta {
 
 struct ScrollUploadTxn {
     bool append = false;
-    bool timelineBacked = false;
-    bool uploadComplete = false;
     uint16_t baseIndex = 0;
     uint16_t framesReceivedBase = 0;
     uint16_t totalFramesExpected = 0;
@@ -82,7 +80,7 @@ bool scrollSessionSetSystemPaused(bool paused);
 bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits);
 void scrollSessionSetInterval(uint16_t intervalMs, uint8_t uiFps = 0);
 // Store the original source text into the current scroll session meta (RAM). Used when the
-// WebUI sends the text in the start_scroll command body instead of the upload query string.
+// the app sends the text in the start_scroll command (or in the scroll blob meta).
 void scrollSessionSetSourceText(const char* text, uint16_t bytes);
 
 bool scrollSessionGetRestoreAuto();

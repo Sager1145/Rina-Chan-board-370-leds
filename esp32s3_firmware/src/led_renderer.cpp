@@ -37,7 +37,7 @@ static LedPresentationContext consumePendingLedPresentationContext() {
 
 // Publish a presented sample for a frame whose identity was known (ctx.valid). Plain renders
 // without a context (brightness/color refreshes, queue flushes) are intentionally skipped so a
-// stray refresh can never clobber the last good scroll sample the WebUI is tracking.
+// stray refresh can never clobber the last good scroll sample the app is tracking.
 static void publishLedPresentedSample(const LedPresentationContext& ctx,
                                       uint32_t renderStartUs, uint32_t renderEndUs) {
     if (!ctx.valid)
@@ -151,10 +151,13 @@ bool validatePackedFrame(const uint8_t* packedBits, String& error) {
     return true;
 }
 
-static void publishPackedFrameNow(const uint8_t* packedBits, const char* reason) {
+static void publishPackedFrameNow(const uint8_t* packedBits, const char* reason,
+                                   const LedPresentationContext* ctx = nullptr) {
     withFrameLock([&]() {
+        if (ctx)
+            setPendingLedPresentationContext(*ctx);
         memcpy(runtimeFrameBits(), packedBits, FRAME_BYTES);
-        runtimeState().lastReason = reason ? reason : "";
+        strlcpy(runtimeState().lastReason, reason ? reason : "", sizeof(runtimeState().lastReason));
         ++runtimeState().framesAccepted;
         touchRuntimeState();
         showCurrentFrameNoLock();
@@ -189,15 +192,9 @@ void initLedIndexMap() {
 }
 
 void requestLedRender() {
-    if (xPortInIsrContext()) {
-        portENTER_CRITICAL_ISR(&ledRenderRequestMux);
-        ledRenderRequested = true;
-        portEXIT_CRITICAL_ISR(&ledRenderRequestMux);
-    } else {
-        portENTER_CRITICAL(&ledRenderRequestMux);
-        ledRenderRequested = true;
-        portEXIT_CRITICAL(&ledRenderRequestMux);
-    }
+    portENTER_CRITICAL_SAFE(&ledRenderRequestMux);
+    ledRenderRequested = true;
+    portEXIT_CRITICAL_SAFE(&ledRenderRequestMux);
     notifyScrollRenderTask();
 }
 
@@ -212,7 +209,7 @@ bool consumeLedRenderRequest() {
 
 void showCurrentFrameNoLock() { requestLedRender(); }
 
-void setFrameBit(uint16_t index, bool on) {
+static void setFrameBit(uint16_t index, bool on) {
     if (index >= LED_COUNT)
         return;
     const uint16_t byteIndex = index >> 3;
@@ -223,13 +220,13 @@ void setFrameBit(uint16_t index, bool on) {
         runtimeFrameBits()[byteIndex] &= ~bitMask;
 }
 
-bool packedFrameBit(const uint8_t* bits, uint16_t index) {
+static bool packedFrameBit(const uint8_t* bits, uint16_t index) {
     if (!bits || index >= LED_COUNT)
         return false;
     return (bits[index >> 3] & (1U << (index & 7U))) != 0;
 }
 
-uint16_t countLitLedsLocked(const uint8_t* bits) {
+static uint16_t countLitLeds(const uint8_t* bits) {
     uint16_t lit = 0;
     for (uint16_t byteIndex = 0; byteIndex < FRAME_BYTES; ++byteIndex) {
         uint8_t value = bits[byteIndex];
@@ -248,8 +245,8 @@ FrameStateSnapshot readFrameStateSnapshot() {
     withFrameLock([&]() {
         strlcpy(s.colorHex, runtimeState().colorHex.c_str(), sizeof(s.colorHex));
         s.brightness = runtimeState().brightness;
-        strlcpy(s.lastReason, runtimeState().lastReason.c_str(), sizeof(s.lastReason));
-        s.litLeds = countLitLedsLocked(runtimeFrameBits());
+        strlcpy(s.lastReason, runtimeState().lastReason, sizeof(s.lastReason));
+        s.litLeds = countLitLeds(runtimeFrameBits());
         s.framesAccepted = runtimeState().framesAccepted;
     });
     return s;
@@ -331,9 +328,8 @@ bool applyPackedFrameQueued(const uint8_t* packedBits, const String& reason, Str
         return false;
     }
     enqueuePackedFrame(packedBits, reason);
-    const uint16_t lit = countLitLedsLocked(packedBits);
+    const uint16_t lit = countLitLeds(packedBits);
     RLOG_INFO("LED", "event=apply_packed reason=%s lit=%u bytes=%u brightness=%u", reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES), runtimeState().brightness);
-    rinaLogRecordLedCommand(reason.c_str(), lit, "packed");
     return true;
 }
 
@@ -344,21 +340,18 @@ void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason,
     String error;
     if (!validatePackedFrame(packedBits, error))
         return;
-    // Hand the renderer the precise identity of this frame (scroll start/step) before the
-    // render request is raised, so the resulting presented sample carries the right frame index.
-    if (ctx)
-        setPendingLedPresentationContext(*ctx);
-    publishPackedFrameNow(packedBits, reason.c_str());
-    const uint16_t lit = countLitLedsLocked(packedBits);
+    // Hand the renderer the precise identity of this frame (scroll start/step) inside the same
+    // frame-lock critical section that installs the bits, so the resulting presented sample
+    // always carries the right frame index.
+    publishPackedFrameNow(packedBits, reason.c_str(), ctx);
+    const uint16_t lit = countLitLeds(packedBits);
     RLOG_INFO("LED", "event=apply_immediate_packed reason=%s lit=%u bytes=%u brightness=%u", reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES), runtimeState().brightness);
-    rinaLogRecordLedCommand(reason.c_str(), lit, "immediate");
 }
 
 void applyBlankFrame(const String& reason) {
     uint8_t blank[FRAME_BYTES] = {};
     enqueuePackedFrame(blank, reason);
     RLOG_INFO("LED", "event=clear reason=%s lit=0 bytes=%u", reason.c_str(), static_cast<unsigned>(FRAME_BYTES));
-    rinaLogRecordLedCommand(reason.c_str(), 0, "clear");
 }
 
 void servicePackedFrameQueue() {
@@ -400,15 +393,16 @@ bool setColor(const String& input, String& error) {
         error = "color must be #RRGGBB or RRGGBB (hex)";
         return false;
     }
+    const String colorHex = formatColorHex(r, g, b);
     withFrameLock([&]() {
-        runtimeState().colorHex = formatColorHex(r, g, b);
+        runtimeState().colorHex = colorHex;
         runtimeState().colorR = r;
         runtimeState().colorG = g;
         runtimeState().colorB = b;
         touchRuntimeStateSlow();
         showCurrentFrameNoLock();
     });
-    RLOG_INFO("LED", "event=color value=%s", formatColorHex(r, g, b).c_str());
+    RLOG_INFO("LED", "event=color value=%s", colorHex.c_str());
     return true;
 }
 
@@ -433,7 +427,7 @@ void showFilesystemErrorPattern() {
         memset(runtimeFrameBits(), 0, FRAME_BYTES);
         for (uint16_t i = 0; i < 12 && i < LED_COUNT; i++)
             setFrameBit(i, true);
-        runtimeState().lastReason = "littlefs_mount_failed";
+        strlcpy(runtimeState().lastReason, "littlefs_mount_failed", sizeof(runtimeState().lastReason));
         showCurrentFrameNoLock();
     });
 }

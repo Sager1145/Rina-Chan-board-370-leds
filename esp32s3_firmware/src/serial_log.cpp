@@ -36,19 +36,8 @@ static char levelChar(RinaLogLevel level) {
 // Serial.write so two cores can never interleave a partial line.
 static constexpr size_t LOG_LINE_MAX = 240;
 
-// LED command history ring. Pushed only from the Core-0 LED apply path, read
-// only from the Core-0 serial console. A tiny critical section keeps the copy
-// coherent without ever holding a lock across Serial I/O.
-static constexpr uint8_t LED_HISTORY_CAP = 16;
-static LedCmdRecord sLedHistory[LED_HISTORY_CAP];
-static uint8_t sLedHistoryHead = 0; // next write slot
-static uint8_t sLedHistoryCount = 0;
-static portMUX_TYPE sLedHistoryMux = portMUX_INITIALIZER_UNLOCKED;
-
 void rinaLogInit() {
     rinaSerialInit();
-    sLedHistoryHead = 0;
-    sLedHistoryCount = 0;
 }
 
 void rinaLogSetEnabled(bool enabled) { sLogEnabled = enabled; }
@@ -122,27 +111,6 @@ void rinaSerialWrite(const uint8_t* data, size_t len) {
 #endif
 }
 
-int rinaSerialAvailable() {
-    const int usbAvailable = Serial.available();
-    if (usbAvailable > 0)
-        return usbAvailable;
-#if ENABLE_SERIAL_UART0_MIRROR
-    return Serial0.available();
-#else
-    return 0;
-#endif
-}
-
-int rinaSerialRead() {
-    if (Serial.available() > 0)
-        return Serial.read();
-#if ENABLE_SERIAL_UART0_MIRROR
-    if (Serial0.available() > 0)
-        return Serial0.read();
-#endif
-    return -1;
-}
-
 void rinaLogEmit(RinaLogLevel level, const char* category, const char* fmt, ...) {
     char buf[LOG_LINE_MAX];
 
@@ -190,35 +158,5 @@ bool rinaLogRateReady(uint32_t& lastMs, uint32_t intervalMs) {
     lastMs = now;
     return true;
 }
-
-void rinaLogRecordLedCommand(const char* reason, uint16_t lit, const char* source) {
-    portENTER_CRITICAL(&sLedHistoryMux);
-    LedCmdRecord& rec = sLedHistory[sLedHistoryHead];
-    rec.ms = millis();
-    rec.lit = lit;
-    strlcpy(rec.reason, reason ? reason : "", sizeof(rec.reason));
-    strlcpy(rec.source, source ? source : "", sizeof(rec.source));
-    sLedHistoryHead = static_cast<uint8_t>((sLedHistoryHead + 1) % LED_HISTORY_CAP);
-    if (sLedHistoryCount < LED_HISTORY_CAP)
-        ++sLedHistoryCount;
-    portEXIT_CRITICAL(&sLedHistoryMux);
-}
-
-uint8_t rinaLogCopyLedHistory(LedCmdRecord* out, uint8_t maxEntries) {
-    if (!out || maxEntries == 0)
-        return 0;
-    portENTER_CRITICAL(&sLedHistoryMux);
-    const uint8_t count = sLedHistoryCount < maxEntries ? sLedHistoryCount : maxEntries;
-    // Walk oldest -> newest so callers print in chronological order.
-    const uint8_t start = static_cast<uint8_t>(
-        (sLedHistoryHead + LED_HISTORY_CAP - count) % LED_HISTORY_CAP);
-    for (uint8_t i = 0; i < count; ++i) {
-        out[i] = sLedHistory[(start + i) % LED_HISTORY_CAP];
-    }
-    portEXIT_CRITICAL(&sLedHistoryMux);
-    return count;
-}
-
-uint8_t rinaLogLedHistoryCapacity() { return LED_HISTORY_CAP; }
 
 #endif // ENABLE_SERIAL_DIAGNOSTICS

@@ -6,10 +6,6 @@
 
 bool validatePackedFrame(const uint8_t* packedBits, String& error);
 
-void setFrameBit(uint16_t index, bool on);
-
-bool packedFrameBit(const uint8_t* bits, uint16_t index);
-
 FrameStateSnapshot readFrameStateSnapshot();
 
 bool applyPackedFrameQueued(const uint8_t* packedBits, const String& reason, String& error);
@@ -25,7 +21,7 @@ void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason,
 // publishes a LedPresentedSample. Safe to call from Core 1 (uses a critical section).
 void setPendingLedPresentationContext(const LedPresentationContext& ctx);
 
-// Read the most recently presented (LED-latched) frame sample. Used by /api/preview_sync.
+// Read the most recently presented (LED-latched) frame sample. Used by GET_PREVIEW_SYNC / EV_PREVIEW_SYNC.
 LedPresentedSample readLedPresentedSample();
 
 void applyBlankFrame(const String& reason);

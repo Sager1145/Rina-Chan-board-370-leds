@@ -13,7 +13,6 @@
 #include <esp_heap_caps.h>
 
 #include "state.h"
-#include "sync.h"
 #include "led_renderer.h"
 #include "led_driver.h"
 #include "buttons.h"
@@ -103,6 +102,8 @@ void printHelp() {
     sout("  btn <B1..B6>");
     sout("  color <#RRGGBB>");
     sout("  bright <10..200>");
+    sout("  log on|off");
+    sout("  log level <lvl>");
     sout("Packed frame format: 47 bytes, logical LED index, LSB-first within each byte.");
 }
 
@@ -159,6 +160,28 @@ void runLine(char* line) {
         setBrightness(atoi(argv[1]));
         sout("OK bright %u", runtimeState().brightness);
         return;
+    }
+    if (strcasecmp(argv[0], "log") == 0 && argc >= 2) {
+        if (strcasecmp(argv[1], "on") == 0) {
+            rinaLogSetEnabled(true);
+            sout("OK log on");
+            return;
+        }
+        if (strcasecmp(argv[1], "off") == 0) {
+            rinaLogSetEnabled(false);
+            sout("OK log off");
+            return;
+        }
+        if (strcasecmp(argv[1], "level") == 0 && argc >= 3) {
+            RinaLogLevel level;
+            if (!rinaLogParseLevel(argv[2], level)) {
+                sout("ERR log level invalid");
+                return;
+            }
+            rinaLogSetLevel(level);
+            sout("OK log level %s", rinaLogLevelName(level));
+            return;
+        }
     }
     sout("ERR unknown command; type help");
 }

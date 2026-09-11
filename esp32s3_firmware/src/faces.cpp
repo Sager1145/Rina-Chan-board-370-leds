@@ -12,10 +12,11 @@ static constexpr uint8_t DEFERRED_RESTORE_STARTUP_DEFAULT = 1;
 static constexpr uint8_t DEFERRED_RESTORE_CURRENT_FACE = 2;
 
 static bool shouldForceClearWhenStoppingScroll();
+static void scheduleCurrentSavedFaceRestoreAfterBlank(bool autoMode, const String& reason);
 
 bool isAutoMode() { return runtimeState().mode == "auto"; }
 
-String normalizedMode(const char* input) {
+static String normalizedMode(const char* input) {
     String mode = input ? String(input) : String();
     mode.trim();
     if (mode == "自动" || mode == "A")
@@ -91,12 +92,17 @@ void setAutoInterval(uint32_t ms, bool persistSettings) {
     RLOG_INFO("AUTO", "event=interval_change interval_ms=%lu persist=%d", static_cast<unsigned long>(nextInterval), persistSettings ? 1 : 0);
 }
 
-bool playbackIsNonFaceActivity() {
+static bool lastReasonStartsWith(const char* prefix) {
+    return strncmp(runtimeState().lastReason, prefix, strlen(prefix)) == 0;
+}
+
+static bool playbackIsNonFaceActivity() {
     if (runtimeState().firmwareScrollActive || runtimeState().firmwareScrollPaused)
         return true;
     if (isScrollPlayback(runtimeState().playback))
         return true;
-    if (runtimeState().lastReason.startsWith("text_scroll_") || runtimeState().lastReason.startsWith("custom_") || runtimeState().lastReason.startsWith("parts_") || runtimeState().lastReason.startsWith("debug_"))
+    if (lastReasonStartsWith("text_scroll_") || lastReasonStartsWith("custom_") ||
+        lastReasonStartsWith("parts_") || lastReasonStartsWith("debug_"))
         return true;
     if (runtimeState().playback == DEFAULT_PLAYBACK || runtimeState().playback == "auto_saved_face")
         return false;
@@ -131,7 +137,7 @@ bool applyRelativeSavedFace(int8_t delta, const String& reason) {
     return applySavedFaceIndex(static_cast<uint16_t>(next), reason, DEFAULT_PLAYBACK);
 }
 
-bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode) {
+static bool applyCurrentSavedFaceForMode(const String& reason, bool autoMode) {
     if (!ensureSavedFacesLoaded())
         return false;
     const char* playback = autoMode ? "auto_saved_face" : DEFAULT_PLAYBACK;
@@ -190,7 +196,7 @@ static bool applyStartupDefaultFaceAfterScrollStop(bool restoreAutoMode) {
     return true;
 }
 
-void cancelDeferredFaceRestore() {
+static void cancelDeferredFaceRestore() {
     const bool changed = runtimeState().deferredFaceRestoreActive || runtimeState().deferredFaceRestoreKind != DEFERRED_RESTORE_NONE || runtimeState().deferredFaceRestoreDueMs != 0;
     runtimeState().deferredFaceRestoreActive = false;
     runtimeState().deferredFaceRestoreKind = DEFERRED_RESTORE_NONE;
@@ -211,7 +217,7 @@ static void scheduleDeferredFaceRestore(uint8_t kind, bool autoMode, const Strin
 }
 
 static void scheduleStartupDefaultFaceRestoreAfterBlank(bool autoMode) { scheduleDeferredFaceRestore(DEFERRED_RESTORE_STARTUP_DEFAULT, autoMode, "firmware_text_scroll_stop_default_saved_face"); }
-void scheduleCurrentSavedFaceRestoreAfterBlank(bool autoMode, const String& reason) { scheduleDeferredFaceRestore(DEFERRED_RESTORE_CURRENT_FACE, autoMode, reason); }
+static void scheduleCurrentSavedFaceRestoreAfterBlank(bool autoMode, const String& reason) { scheduleDeferredFaceRestore(DEFERRED_RESTORE_CURRENT_FACE, autoMode, reason); }
 
 void serviceDeferredFaceRestore() {
     if (!runtimeState().deferredFaceRestoreActive)

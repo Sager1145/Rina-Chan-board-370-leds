@@ -289,7 +289,10 @@ bool loadSavedFaces(bool applyStartupFace) {
     }
 
     PsramJsonDocument doc(jsonCapacityFor(savedFacesSize));
-    DeserializationError err = deserializeJson(doc, contentBuf, DeserializationOption::NestingLimit(32));
+    // Deserialize from a const pointer so ArduinoJson COPIES strings into the
+    // document; a non-const char* selects zero-copy mode and the free() below
+    // would leave every string in `doc` dangling.
+    DeserializationError err = deserializeJson(doc, static_cast<const char*>(contentBuf), DeserializationOption::NestingLimit(32));
     free(contentBuf);
     if (err) {
         Serial.printf("saved_faces.json parse failed: %s\n", err.c_str());

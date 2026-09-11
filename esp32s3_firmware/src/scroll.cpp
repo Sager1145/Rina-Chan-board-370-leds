@@ -21,6 +21,9 @@ static void scrollRenderTask(void* parameter) {
         bool hasScrollFrame = false;
         LedPresentationContext scrollCtx;
         bool hasScrollCtx = false;
+        bool scrollActiveLocked = false;
+        uint16_t scrollFrameIndexLocked = 0;
+        uint16_t scrollFrameCountLocked = 0;
 
         withScrollLock([&]() {
             hasScrollFrame = scrollSessionTickCursorLocked(millis(), nextFrame);
@@ -30,6 +33,9 @@ static void scrollRenderTask(void* parameter) {
                     scrollCtx, LedPresentationSource::ScrollTick,
                     "firmware_text_scroll_tick", true);
                 hasScrollCtx = true;
+                scrollActiveLocked = runtimeState().firmwareScrollActive;
+                scrollFrameIndexLocked = runtimeState().scrollFrameIndex;
+                scrollFrameCountLocked = runtimeState().scrollFrameCount;
             }
         });
 
@@ -41,7 +47,7 @@ static void scrollRenderTask(void* parameter) {
                     if (mainTaskRenderPending)
                         shouldRender = true;
                 }
-                if (runtimeState().firmwareScrollActive) {
+                if (scrollActiveLocked) {
                     memcpy(runtimeFrameBits(), nextFrame, FRAME_BYTES);
                     ++runtimeState().framesAccepted;
                     // Hand the renderer this tick's exact frame identity before it latches.
@@ -61,8 +67,8 @@ static void scrollRenderTask(void* parameter) {
             static uint32_t sLastTickLogMs = 0;
             if (rinaLogShouldEmit(RINA_LOG_TRACE) && rinaLogRateReady(sLastTickLogMs, 1000)) {
                 RLOG_TRACE("SCROLL", "event=tick idx=%u/%u",
-                           static_cast<unsigned>(runtimeState().scrollFrameIndex),
-                           static_cast<unsigned>(runtimeState().scrollFrameCount));
+                           static_cast<unsigned>(scrollFrameIndexLocked),
+                           static_cast<unsigned>(scrollFrameCountLocked));
             }
         }
 
@@ -97,11 +103,6 @@ void notifyScrollRenderTask() {
     if (!sScrollTaskHandle)
         return;
 
-    if (xPortInIsrContext()) {
-        BaseType_t higherPriorityTaskWoken = pdFALSE;
-        vTaskNotifyGiveFromISR(sScrollTaskHandle, &higherPriorityTaskWoken);
-        portYIELD_FROM_ISR(higherPriorityTaskWoken);
-    } else {
-        xTaskNotifyGive(sScrollTaskHandle);
-    }
+    // No ISR callers exist (only loop-task and Core-1 task code calls this).
+    xTaskNotifyGive(sScrollTaskHandle);
 }

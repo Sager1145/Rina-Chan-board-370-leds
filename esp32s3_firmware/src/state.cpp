@@ -158,7 +158,7 @@ void serviceRuntimeSlowStatePublish() {
     if (!state.slowUiDirty)
         return;
     const uint32_t now = millis();
-    if (!millisElapsed(now, state.lastSlowUiPublishMs, POWER_WEB_SLOW_PUBLISH_MS))
+    if (!millisElapsed(now, state.lastSlowUiPublishMs, POWER_SLOW_PUBLISH_MS))
         return;
     state.slowUiDirty = false;
     state.lastSlowUiPublishMs = now;

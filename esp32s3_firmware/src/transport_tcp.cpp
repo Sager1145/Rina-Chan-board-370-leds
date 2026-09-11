@@ -95,11 +95,6 @@ class TcpTransport final : public ITransport {
 
     uint16_t preferredChunkBytes(ClientId /*id*/) const override { return 4032; }
 
-    bool isConnected(ClientId id) const override {
-        TcpSlot* s = findSlot(id);
-        return s && s->client.connected();
-    }
-
     void disconnect(ClientId id) override {
         TcpSlot* s = findSlot(id);
         if (!s)
@@ -146,7 +141,7 @@ void tcpTransportService() {
 
     // Accept a new client into a free slot.
     if (g_server.hasClient()) {
-        WiFiClient incoming = g_server.available();
+        WiFiClient incoming = g_server.accept();
         int freeIdx = -1;
         for (int i = 0; i < MAX_TCP_SLOTS; i++) {
             if (!g_slots[i].registered) {

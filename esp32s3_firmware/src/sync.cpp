@@ -88,7 +88,7 @@ void unlockScroll() {
 void lockStorage() {
     // Storage logically nests before HardwareBus. Holding both serializes LittleFS
     // flash transactions with the WS2812 transmit (leddrv::refresh()), preventing
-    // WebUI refresh/static streaming or JSON writes from overlapping LED timing on
+    // RinaLink replies or JSON writes from overlapping LED timing on
     // the bus/cache path. This still matters with the RMT+DMA backend: DMA reduces
     // ISR refill pressure but does not immunise LED timing against flash-cache stalls.
     if (sStorageMutex)

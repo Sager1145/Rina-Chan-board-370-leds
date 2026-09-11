@@ -33,14 +33,6 @@ enum RinaLogLevel : uint8_t {
     RINA_LOG_TRACE = 4,
 };
 
-// Recent-LED-command ring record (history for `led command_history`).
-struct LedCmdRecord {
-    uint32_t ms = 0;
-    uint16_t lit = 0;
-    char reason[40] = {0};
-    char source[12] = {0};
-};
-
 // Sink hook: receives every formatted log line (any task) so another subsystem
 // (e.g. protocol.cpp's EV_LOG fan-out) can mirror diagnostics without owning
 // the Serial port. `level` is a single character ('E','W','I','D','T').
@@ -74,17 +66,10 @@ void rinaLogSetSink(RinaLogSink sink);
 // mirrored to Serial0 and reads drain whichever port has buffered input.
 void rinaSerialInit();
 void rinaSerialWrite(const uint8_t* data, size_t len);
-int rinaSerialAvailable();
-int rinaSerialRead();
 
 // Rate-limit helper for high-frequency call sites (e.g. scroll tick). Returns
 // true at most once per `intervalMs`; pass a static uint32_t cursor.
 bool rinaLogRateReady(uint32_t& lastMs, uint32_t intervalMs);
-
-// LED command history ring (output-only; pushed by the LED apply path).
-void rinaLogRecordLedCommand(const char* reason, uint16_t lit, const char* source);
-uint8_t rinaLogCopyLedHistory(LedCmdRecord* out, uint8_t maxEntries); // newest last
-uint8_t rinaLogLedHistoryCapacity();
 
 #define RLOG_AT(level, cat, ...)                                                \
     do {                                                                        \
@@ -109,12 +94,7 @@ static inline bool rinaLogParseLevel(const char*, RinaLogLevel&) { return false;
 static inline bool rinaLogShouldEmit(RinaLogLevel) { return false; }
 static inline void rinaSerialInit() {}
 static inline void rinaSerialWrite(const uint8_t*, size_t) {}
-static inline int rinaSerialAvailable() { return 0; }
-static inline int rinaSerialRead() { return -1; }
 static inline bool rinaLogRateReady(uint32_t&, uint32_t) { return false; }
-static inline void rinaLogRecordLedCommand(const char*, uint16_t, const char*) {}
-static inline uint8_t rinaLogCopyLedHistory(LedCmdRecord*, uint8_t) { return 0; }
-static inline uint8_t rinaLogLedHistoryCapacity() { return 0; }
 static inline void rinaLogSetSink(RinaLogSink) {}
 
 #define RLOG_ERROR(cat, ...) do {} while (0)

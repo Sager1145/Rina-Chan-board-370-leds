@@ -10,12 +10,12 @@
 // Map an internal runButtonAction() source token to the human/agent-facing
 // label used in BUTTON log lines. The runButtonAction source values themselves
 // are NEVER changed (they feed lastReason and the public API), only the log
-// label is normalized: gpio->physical, serial->serial, api_button->webui.
+// label is normalized: gpio->physical, serial->serial, rinalink->rinalink.
 static const char* buttonSourceLabel(const char* source) {
     if (strcmp(source, "gpio") == 0)
         return "physical";
-    if (strcmp(source, "api_button") == 0)
-        return "webui";
+    if (strcmp(source, "rinalink") == 0)
+        return "rinalink";
     return source; // "serial" and any future source pass through unchanged
 }
 
@@ -72,7 +72,7 @@ static bool finishButtonAction(const String& code, const String& source, bool ha
 static bool adjustBrightnessFromButton(const String& code, const String& source,
                                        int delta, const char* reasonSuffix) {
     setBrightness(static_cast<int>(runtimeState().brightness) + delta);
-    runtimeState().lastReason = source + reasonSuffix;
+    strlcpy(runtimeState().lastReason, (source + reasonSuffix).c_str(), sizeof(runtimeState().lastReason));
     touchRuntimeStateSlow();
     return finishButtonAction(code, source, true);
 }
@@ -88,13 +88,13 @@ static bool adjustAutoIntervalFromButton(const String& code, const String& sourc
     }
 
     setAutoInterval(nextInterval);
-    runtimeState().lastReason = source + reasonSuffix;
+    strlcpy(runtimeState().lastReason, (source + reasonSuffix).c_str(), sizeof(runtimeState().lastReason));
     touchRuntimeState();
     return finishButtonAction(code, source, true);
 }
 
-static bool runButtonActionImpl(const String& button, const String& source) {
-    String code = button;
+static bool runButtonActionImpl(const String& button, const String& source, String& code) {
+    code = button;
     code.trim();
     code.toUpperCase();
     if (code.isEmpty())
@@ -140,14 +140,12 @@ static bool runButtonActionImpl(const String& button, const String& source) {
 }
 
 // Public entry point: identical behavior to before, plus one canonical BUTTON
-// log line. Every logical button action (physical, serial-emulated, or WebUI)
+// log line. Every logical button action (physical, serial-emulated, or RinaLink app)
 // funnels through here, so this single hook covers them all without changing
 // any action semantics.
 bool runButtonAction(const String& button, const String& source) {
-    const bool handled = runButtonActionImpl(button, source);
-    String code = button;
-    code.trim();
-    code.toUpperCase();
+    String code;
+    const bool handled = runButtonActionImpl(button, source, code);
     RLOG_INFO("BUTTON", "source=%s id=%s event=action handled=%d",
               buttonSourceLabel(source.c_str()), code.c_str(), handled ? 1 : 0);
     return handled;

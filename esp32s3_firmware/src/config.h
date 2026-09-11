@@ -16,6 +16,10 @@ constexpr uint16_t RINALINK_TCP_PORT = 5370;
 constexpr char RINALINK_HOSTNAME[] = "rinaboard";
 constexpr uint32_t WIFI_STA_CONNECT_TIMEOUT_MS = 15000;
 constexpr uint32_t WIFI_STA_RETRY_MS = 60000;
+// v1.2 (docs/RINALINK_PROTOCOL_V1.md §8): a station profile ("home"/"hotspot")
+// that fails to associate this many times in a row is skipped for one retry
+// cycle (its fail counter is then reset so it gets a fresh 3 tries).
+constexpr uint8_t WIFI_PROFILE_FAIL_LIMIT = 3;
 constexpr uint32_t TCP_IDLE_TIMEOUT_MS = 20000;
 
 #include <IPAddress.h>
@@ -39,10 +43,6 @@ constexpr uint8_t BUTTON_B6_PIN = 42;
 
 constexpr uint8_t BATTERY_ADC_PIN = 10;
 constexpr uint8_t CHARGE_ADC_PIN = 1;
-constexpr float BATTERY_DIVIDER_R1_K = 100.0f;
-constexpr float BATTERY_DIVIDER_R2_K = 57.0f;
-constexpr float CHARGE_DIVIDER_R1_K = 270.0f;
-constexpr float CHARGE_DIVIDER_R2_K = 47.0f;
 constexpr float BATTERY_CAL_SCALE = 2.708333f;
 constexpr float BATTERY_CAL_OFFSET_V = 0.2033f;
 constexpr float CHARGE_CAL_SCALE = 6.684982f;
@@ -57,7 +57,7 @@ static_assert(POWER_ADC_TRIM_COUNT * 2U < POWER_ADC_SAMPLES,
               "trimmed ADC sampling must leave at least one averaged sample");
 constexpr uint32_t BATTERY_SAMPLE_MS = 1000;
 constexpr uint32_t CHARGE_SAMPLE_MS = 1000;
-constexpr uint32_t POWER_WEB_SLOW_PUBLISH_MS = 10000;
+constexpr uint32_t POWER_SLOW_PUBLISH_MS = 10000;
 constexpr float POWER_WEB_VBAT_EPS_V = 0.01f;
 constexpr float POWER_WEB_VCHARGE_EPS_V = 0.05f;
 constexpr uint16_t BATTERY_DISCONNECT_ADC_DROP_MV = 1000;
@@ -86,7 +86,6 @@ constexpr uint8_t BATTERY_PERCENT_LUT_SIZE =
 constexpr uint32_t BATTERY_CALIB_SAVE_DELAY_MS = 15000;
 constexpr float BATTERY_CALIB_MIN_SPAN_V = 0.10f;
 
-constexpr uint16_t PACKED_FRAME_BITS = LED_COUNT;
 constexpr uint16_t FRAME_BYTES = (LED_COUNT + 7) / 8;
 static_assert(FRAME_BYTES == 47, "370 LEDs require exactly 47 packed bytes");
 

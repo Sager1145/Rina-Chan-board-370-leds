@@ -99,21 +99,24 @@ public:
         return static_cast<uint16_t>(v);
     }
 
-    bool isConnected(rinalink::ClientId id) const override {
-        portENTER_CRITICAL(&mMux);
-        const bool result = mConnected && mClientId.slot == id.slot;
-        portEXIT_CRITICAL(&mMux);
-        return result;
-    }
 
     void disconnect(rinalink::ClientId id) override {
-        uint16_t connHandle;
-        bool connected;
+        uint16_t connHandle = 0;
+        bool shouldDisconnect = false;
         portENTER_CRITICAL(&mMux);
-        connHandle = mConnHandle;
-        connected = mConnected && mClientId.slot == id.slot;
+        if (mConnected && mClientId.slot == id.slot) {
+            connHandle = mConnHandle;
+            shouldDisconnect = true;
+            // Item A3: clear our own mapping now so the async NimBLE onDisconnect
+            // callback (which may arrive after this call returns) sees
+            // wasConnected==false in onPeerDisconnected() and does NOT call
+            // transportUnregisterClient() again for a slot the registry has
+            // already reclaimed.
+            mConnected = false;
+            mMtu = DEFAULT_ATT_MTU;
+        }
         portEXIT_CRITICAL(&mMux);
-        if (connected && mServer != nullptr)
+        if (shouldDisconnect && mServer != nullptr)
             mServer->disconnect(connHandle);
     }
 

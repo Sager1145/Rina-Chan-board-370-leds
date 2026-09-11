@@ -17,7 +17,7 @@
 // - mode/playback/lastReason/auto* counters and persistence counters are
 //   Core-0 cooperative-loop state. Do not write them from Core 1 or an ISR
 //   without adding an explicit lock/ownership change.
-// - stateVersion/slowUiDirty are publish cursors for the WebUI; preserve the
+// - stateVersion/slowUiDirty are publish cursors for RinaLink EV_STATUS; preserve the
 //   existing monotonic non-zero version behavior.
 struct RuntimeState {
     String colorHex = DEFAULT_COLOR;
@@ -27,7 +27,7 @@ struct RuntimeState {
     uint8_t brightness = DEFAULT_BRIGHTNESS;
     String mode = DEFAULT_MODE;
     String playback = DEFAULT_PLAYBACK;
-    String lastReason = "boot";
+    char lastReason[PACKED_FRAME_REASON_CHARS] = "boot";
     bool paused = false;
 
     uint32_t framesAccepted = 0;
@@ -109,7 +109,6 @@ class RuntimeStore final {
     const uint8_t* frameBits() const { return frameBits_; }
     bool initScrollFrameBuffer();
     bool scrollFrameBufferReady() const { return scrollFrameBits_ != nullptr; }
-    bool scrollFrameBufferInPsram() const { return scrollFrameBitsInPsram_; }
     uint8_t* scrollFrameBits(uint16_t index);
     const uint8_t* scrollFrameBits(uint16_t index) const;
     ScrollTimelineMeta& scrollMeta() { return scrollMeta_; }

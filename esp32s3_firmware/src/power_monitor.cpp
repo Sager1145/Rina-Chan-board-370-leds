@@ -97,7 +97,21 @@ static void markBatteryCalibrationDirty(uint32_t now) {
     powerStatus.batteryCalibDirty = true;
 }
 
-static uint8_t batteryPercentFromVoltage(float vbat) {
+// Maps a measured pack voltage from the calibrated [min,max] span onto the nominal
+// [BATTERY_EMPTY_V, BATTERY_FULL_V] span before the LUT lookup, so reset_battery_min /
+// reset_battery_max actually shift the reported percentage. With default calibration
+// (min == BATTERY_EMPTY_V, max == BATTERY_FULL_V) this is the identity.
+static float applyBatteryCalibration(float vbat) {
+    const float minV = powerStatus.batteryCalibMinV;
+    const float maxV = powerStatus.batteryCalibMaxV;
+    if (!isfinite(vbat) || !(maxV - minV >= BATTERY_CALIB_MIN_SPAN_V))
+        return vbat;
+    const float t = (vbat - minV) / (maxV - minV);
+    return BATTERY_EMPTY_V + t * (BATTERY_FULL_V - BATTERY_EMPTY_V);
+}
+
+static uint8_t batteryPercentFromVoltage(float vbatRaw) {
+    const float vbat = applyBatteryCalibration(vbatRaw);
     if (!isfinite(vbat))
         return 0;
     const uint8_t n = BATTERY_PERCENT_LUT_SIZE;
@@ -123,7 +137,6 @@ static bool loadBatteryCalibration(uint32_t now) {
     powerStatus.batteryCalibMinV = BATTERY_EMPTY_V;
     powerStatus.lastCalibMaxMs = now;
     powerStatus.lastCalibMinMs = now;
-    powerStatus.batteryCalibLoaded = false;
 
     bool calibExists = false;
     if (runtimeFsMounted()) {
@@ -156,7 +169,6 @@ static bool loadBatteryCalibration(uint32_t now) {
     powerStatus.batteryCalibMaxV = sanitizedCalibMax(jsonFloatOr(doc["v_max"], BATTERY_FULL_V));
     powerStatus.batteryCalibMinV = sanitizedCalibMin(jsonFloatOr(doc["v_min"], BATTERY_EMPTY_V));
     ensureBatteryCalibrationDefaults(now);
-    powerStatus.batteryCalibLoaded = true;
     Serial.printf("Battery calibration loaded: v_min=%.3f v_max=%.3f\n",
                   powerStatus.batteryCalibMinV,
                   powerStatus.batteryCalibMaxV);
@@ -194,7 +206,6 @@ static bool saveBatteryCalibration(uint32_t now) {
     }
     powerStatus.batteryCalibDirty = false;
     powerStatus.batteryCalibDirtySinceMs = 0;
-    powerStatus.batteryCalibLoaded = true;
     return true;
 }
 
@@ -225,7 +236,7 @@ static bool batteryCanRecordMinimumVoltage() {
 static void markPowerCalibrationChanged(uint32_t now) {
     markBatteryCalibrationDirty(now);
     saveBatteryCalibration(now);
-    powerStatus.lastWebSlowPublishMs = now;
+    powerStatus.lastSlowPublishMs = now;
     touchRuntimeState();
 }
 
@@ -267,41 +278,41 @@ static bool finiteChanged(float previous, float current, float epsilon) {
     return fabsf(previous - current) >= epsilon;
 }
 
-static void markPowerWebSlowDirty(uint32_t now) {
-    powerStatus.lastWebSlowPublishMs = now;
-    powerStatus.webPublishedBatteryValid = powerStatus.batteryValid;
-    powerStatus.webPublishedChargeValid = powerStatus.chargeValid;
-    powerStatus.webPublishedVbat = powerStatus.vbat;
-    powerStatus.webPublishedVcharge = powerStatus.vcharge;
-    powerStatus.webPublishedBatteryPercent = powerStatus.batteryPercent;
+static void markPowerSlowPublishDirty(uint32_t now) {
+    powerStatus.lastSlowPublishMs = now;
+    powerStatus.slowPublishedBatteryValid = powerStatus.batteryValid;
+    powerStatus.slowPublishedChargeValid = powerStatus.chargeValid;
+    powerStatus.slowPublishedVbat = powerStatus.vbat;
+    powerStatus.slowPublishedVcharge = powerStatus.vcharge;
+    powerStatus.slowPublishedBatteryPercent = powerStatus.batteryPercent;
     touchRuntimeState();
 }
 
-static void servicePowerWebPublish(uint32_t now, bool force) {
-    if (force || !powerStatus.webPublishedChargingKnown ||
-        powerStatus.webPublishedChargeValid != powerStatus.chargeValid ||
-        powerStatus.webPublishedCharging != powerStatus.charging) {
-        powerStatus.webPublishedChargeValid = powerStatus.chargeValid;
-        powerStatus.webPublishedCharging = powerStatus.charging;
-        powerStatus.webPublishedChargingKnown = true;
+static void servicePowerSlowPublish(uint32_t now, bool force) {
+    if (force || !powerStatus.slowPublishedChargingKnown ||
+        powerStatus.slowPublishedChargeValid != powerStatus.chargeValid ||
+        powerStatus.slowPublishedCharging != powerStatus.charging) {
+        powerStatus.slowPublishedChargeValid = powerStatus.chargeValid;
+        powerStatus.slowPublishedCharging = powerStatus.charging;
+        powerStatus.slowPublishedChargingKnown = true;
         touchRuntimeState();
     }
 
-    if (!force && !millisElapsed(now, powerStatus.lastWebSlowPublishMs, POWER_WEB_SLOW_PUBLISH_MS))
+    if (!force && !millisElapsed(now, powerStatus.lastSlowPublishMs, POWER_SLOW_PUBLISH_MS))
         return;
 
     const bool slowChanged =
         force ||
-        powerStatus.webPublishedBatteryValid != powerStatus.batteryValid ||
-        powerStatus.webPublishedChargeValid != powerStatus.chargeValid ||
-        finiteChanged(powerStatus.webPublishedVbat, powerStatus.vbat, POWER_WEB_VBAT_EPS_V) ||
-        finiteChanged(powerStatus.webPublishedVcharge, powerStatus.vcharge, POWER_WEB_VCHARGE_EPS_V) ||
-        powerStatus.webPublishedBatteryPercent != powerStatus.batteryPercent;
+        powerStatus.slowPublishedBatteryValid != powerStatus.batteryValid ||
+        powerStatus.slowPublishedChargeValid != powerStatus.chargeValid ||
+        finiteChanged(powerStatus.slowPublishedVbat, powerStatus.vbat, POWER_WEB_VBAT_EPS_V) ||
+        finiteChanged(powerStatus.slowPublishedVcharge, powerStatus.vcharge, POWER_WEB_VCHARGE_EPS_V) ||
+        powerStatus.slowPublishedBatteryPercent != powerStatus.batteryPercent;
 
     if (slowChanged) {
-        markPowerWebSlowDirty(now);
+        markPowerSlowPublishDirty(now);
     } else {
-        powerStatus.lastWebSlowPublishMs = now;
+        powerStatus.lastSlowPublishMs = now;
     }
 }
 struct BatteryEdge {
@@ -322,13 +333,11 @@ static void sampleBattery(uint32_t now, uint16_t adcMv) {
     const bool hugeRawDrop = edge.hugeRawDrop;
     const bool stillDisconnected = edge.stillDisconnected;
 
-    powerStatus.batteryPrevAdcMv = hadPreviousAdc ? prevAdcMv : adcMv;
     powerStatus.batteryAdcMv = adcMv;
     powerStatus.batteryPrevAdcKnown = true;
 
     const float vadc = static_cast<float>(adcMv) / 1000.0f;
     const float instantVbat = vadc * BATTERY_CAL_SCALE + BATTERY_CAL_OFFSET_V;
-    powerStatus.batteryLastInstantVbat = instantVbat;
 
     const bool chargerPresent = powerStatus.chargeValid && powerStatus.charging;
     const bool rawDropUnpowered = (hugeRawDrop || stillDisconnected) && !chargerPresent;
@@ -336,9 +345,6 @@ static void sampleBattery(uint32_t now, uint16_t adcMv) {
 
     if (rawDropUnpowered) {
         if (!powerStatus.batteryDisconnected) {
-            powerStatus.batteryDisconnectedSinceMs = now;
-            powerStatus.lastBatteryDisconnectEventMs = now;
-            powerStatus.batteryDisconnectDropMv = static_cast<uint16_t>(prevAdcMv - adcMv);
         }
         portENTER_CRITICAL(&sPowerStatusMux);
         powerStatus.batteryDisconnected = true;
@@ -348,7 +354,7 @@ static void sampleBattery(uint32_t now, uint16_t adcMv) {
         powerStatus.batteryValid = true;
         portEXIT_CRITICAL(&sPowerStatusMux);
         powerStatus.lastBatteryMs = now;
-        markPowerWebSlowDirty(now);
+        markPowerSlowPublishDirty(now);
         return;
     }
 
@@ -371,12 +377,10 @@ static void sampleBattery(uint32_t now, uint16_t adcMv) {
         powerStatus.batteryValid = true;
         portEXIT_CRITICAL(&sPowerStatusMux);
         if (wasDisconnected) {
-            powerStatus.batteryDisconnectedSinceMs = 0;
-            powerStatus.batteryDisconnectDropMv = 0;
         }
         powerStatus.lastBatteryMs = now;
         if (!wasLowVoltageUnpowered)
-            markPowerWebSlowDirty(now);
+            markPowerSlowPublishDirty(now);
         return;
     }
 
@@ -418,12 +422,10 @@ static void sampleBattery(uint32_t now, uint16_t adcMv) {
     powerStatus.batteryValid = true;
     portEXIT_CRITICAL(&sPowerStatusMux);
     if (wasDisconnected) {
-        powerStatus.batteryDisconnectedSinceMs = 0;
-        powerStatus.batteryDisconnectDropMv = 0;
     }
     powerStatus.lastBatteryMs = now;
     if (wasDisconnected || wasLowVoltageUnpowered)
-        markPowerWebSlowDirty(now);
+        markPowerSlowPublishDirty(now);
     RLOG_DEBUG("ADC", "event=battery vbat_raw=%u vbat=%.2f percent=%u charging=%d",
                powerStatus.batteryAdcMv, nextVbat, nextPercent,
                powerStatus.charging ? 1 : 0);
@@ -512,7 +514,7 @@ void servicePowerMonitor(bool force) {
     }
 
     serviceBatteryCalibrationSave(now);
-    servicePowerWebPublish(now, force);
+    servicePowerSlowPublish(now, force);
 }
 
 PowerStatus readPowerStatusSnapshot() {

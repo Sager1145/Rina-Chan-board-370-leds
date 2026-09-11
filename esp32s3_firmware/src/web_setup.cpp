@@ -50,6 +50,7 @@ button.secondary{background:#333;color:#eee}
 <div class="row"><span>信号 / RSSI</span><span id="rssi">-</span></div>
 <div class="row"><span>热点 / Hotspot</span><span id="ap">-</span></div>
 <div class="row"><span>客户端 / Clients</span><span id="clients">-</span></div>
+<div class="row"><span>已选网络 / Active profile</span><span id="prof">-</span></div>
 </div>
 
 <div class="card">
@@ -77,6 +78,17 @@ button.secondary{background:#333;color:#eee}
 </div>
 
 <div class="card">
+<label>&nbsp;</label>
+<div class="row"><span>手机热点 / Phone hotspot</span><span id="hs">-</span></div>
+<label>SSID</label>
+<input id="hssid" placeholder="Hotspot name (phone)">
+<label>密码 / Password</label>
+<input id="hpass" type="password" placeholder="Password">
+<button onclick="setHotspot()">保存 / Save</button>
+<div class="msg" id="hsMsg"></div>
+</div>
+
+<div class="card">
 <label>热点名称 / Hotspot name</label>
 <input id="apssid" placeholder="Hotspot SSID">
 <label>热点密码 / Hotspot password (留空=开放 / empty=open, &ge;8 chars)</label>
@@ -100,6 +112,9 @@ function refresh(){
     document.getElementById('rssi').textContent=s.staConnected?(s.rssi+' dBm'):'-';
     document.getElementById('ap').textContent=s.apActive?(s.apSsid+' '+s.apIp):'关闭 / off';
     document.getElementById('clients').textContent=s.clients||0;
+    document.getElementById('hs').textContent=s.hotspotSsid?s.hotspotSsid:'未设置 / not set';
+    var pn={home:'家庭 / home',hotspot:'手机热点 / hotspot',none:'无 / none'};
+    document.getElementById('prof').textContent=pn[s.activeProfile]||'-';
     document.getElementById('modeSel').value=s.mode||'off';
     if(window._connecting && s.staConnected){
       window._connecting=false;
@@ -133,6 +148,14 @@ function connect(){
   document.getElementById('staMsg').textContent='连接中... / connecting...';
   window._connecting=true;
   j('/api/wifi/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:ssid,password:pass})});
+}
+function setHotspot(){
+  var s=document.getElementById('hssid').value;
+  var p=document.getElementById('hpass').value;
+  if(!s){document.getElementById('hsMsg').textContent='请输入SSID / enter SSID';return}
+  j('/api/wifi/hotspot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:s,password:p})}).then(r=>{
+    document.getElementById('hsMsg').textContent=r.ok?'已保存 / saved':'失败 / failed';
+  });
 }
 function setMode(){
   var m=document.getElementById('modeSel').value;
@@ -168,7 +191,7 @@ void handleRoot() {
 }
 
 void handleStatus() {
-    StaticJsonDocument<512> d;
+    StaticJsonDocument<768> d;
     JsonObject o = d.to<JsonObject>();
     wifiManagerGetStatusJson(o);
     String body;
@@ -191,7 +214,8 @@ void handleScanPost() {
 }
 
 void handleScanGet() {
-    StaticJsonDocument<1024> d;
+    // 20 networks × {ssid,rssi,secure} + copied SSID strings ≈ 1.7 KB; 1024 truncated silently.
+    DynamicJsonDocument d(2560);
     d["ok"] = true;
     d["scanning"] = wifiManagerScanInProgress();
     JsonArray nets = d.createNestedArray("networks");
@@ -220,8 +244,30 @@ void handleCredentials() {
         sendJsonError(400, "ssid_required");
         return;
     }
+    // Answer first: switching mode may restart the SoftAP and drop this very
+    // connection, so the 200 must be on the wire before the radio changes.
+    StaticJsonDocument<32> out;
+    out["ok"] = true;
+    String body;
+    serializeJson(out, body);
+    g_server.send(200, "application/json", body);
+    g_server.client().flush();
     wifiManagerSetMode("sta_or_ap");
     wifiManagerConnect();
+}
+
+void handleHotspot() {
+    StaticJsonDocument<512> d;
+    if (!parseBody(d)) {
+        sendJsonError(400, "invalid_json");
+        return;
+    }
+    String ssid = d["ssid"] | "";
+    String pass = d["password"] | "";
+    if (!wifiManagerSetHotspotCredentials(ssid, pass)) {
+        sendJsonError(400, "ssid_required");
+        return;
+    }
     StaticJsonDocument<32> out;
     out["ok"] = true;
     String body;
@@ -274,31 +320,54 @@ void handleNotFound() {
     sendJsonError(404, "not_found");
 }
 
-void startServer() {
+void registerRoutes() {
     g_server.on("/", HTTP_GET, handleRoot);
     g_server.on("/api/wifi/status", HTTP_GET, handleStatus);
     g_server.on("/api/wifi/scan", HTTP_POST, handleScanPost);
     g_server.on("/api/wifi/scan", HTTP_GET, handleScanGet);
     g_server.on("/api/wifi/credentials", HTTP_POST, handleCredentials);
+    g_server.on("/api/wifi/hotspot", HTTP_POST, handleHotspot);
     g_server.on("/api/wifi/mode", HTTP_POST, handleMode);
     g_server.on("/api/wifi/ap", HTTP_POST, handleAp);
     g_server.onNotFound(handleNotFound);
+}
+
+void startServer() {
     g_server.begin();
 }
+
+bool g_routesRegistered = false;
+uint32_t g_lastUpCheckMs = 0;
+bool g_wantHttp = false;
+bool g_wantDns = false;
 
 } // namespace
 
 void webSetupBegin() {
-    // Server/DNS are started lazily by webSetupService() once Wi-Fi comes up.
+    // Routes are registered exactly once (WebServer::stop() does not free the
+    // handler chain); the server/DNS are started lazily by webSetupService().
+    if (!g_routesRegistered) {
+        registerRoutes();
+        g_routesRegistered = true;
+    }
 }
 
 void webSetupService() {
-    StaticJsonDocument<512> statusDoc;
-    JsonObject status = statusDoc.to<JsonObject>();
-    wifiManagerGetStatusJson(status);
-    bool staConnected = status["staConnected"] | false;
-    bool apActive = status["apActive"] | false;
-    bool wantHttp = staConnected || apActive;
+    // Re-evaluate the up/down decision only when the Wi-Fi manager reports a
+    // change or every 500 ms, not on every loop() iteration.
+    uint32_t now = millis();
+    if (wifiManagerStateChangedPeek() || (uint32_t)(now - g_lastUpCheckMs) >= 500) {
+        g_lastUpCheckMs = now;
+        StaticJsonDocument<512> statusDoc;
+        JsonObject status = statusDoc.to<JsonObject>();
+        wifiManagerGetStatusJson(status);
+        bool staConnected = status["staConnected"] | false;
+        bool apActive = status["apActive"] | false;
+        g_wantHttp = staConnected || apActive;
+        g_wantDns = apActive;
+    }
+    bool wantHttp = g_wantHttp;
+    bool apActive = g_wantDns;
 
     if (wantHttp && !g_httpUp) {
         startServer();
