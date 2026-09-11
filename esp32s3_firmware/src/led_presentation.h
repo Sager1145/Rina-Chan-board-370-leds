@@ -24,7 +24,7 @@ enum class LedPresentationSource : uint8_t {
 };
 
 // Canonical wire/log name for a presentation source. Shared by the serial log
-// (led_renderer.cpp) and the /api/preview_sync JSON (web_api.cpp).
+// (led_renderer.cpp) and the RinaLink GET_PREVIEW_SYNC/EV_PREVIEW_SYNC JSON (protocol.cpp).
 inline const char* ledPresentationSourceName(LedPresentationSource source) {
     switch (source) {
     case LedPresentationSource::ScrollTick:

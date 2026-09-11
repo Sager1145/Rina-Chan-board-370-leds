@@ -421,3 +421,19 @@ void setBrightness(int raw) {
     });
     RLOG_INFO("LED", "event=brightness value=%d", raw);
 }
+
+// Diagnostic pattern shown at boot when LittleFS fails to mount.
+void showFilesystemErrorPattern() {
+    withFrameLock([]() {
+        runtimeState().colorHex = "#ff0000";
+        runtimeState().colorR = 0xff;
+        runtimeState().colorG = 0;
+        runtimeState().colorB = 0;
+        runtimeState().brightness = DEFAULT_BRIGHTNESS;
+        memset(runtimeFrameBits(), 0, FRAME_BYTES);
+        for (uint16_t i = 0; i < 12 && i < LED_COUNT; i++)
+            setFrameBit(i, true);
+        runtimeState().lastReason = "littlefs_mount_failed";
+        showCurrentFrameNoLock();
+    });
+}

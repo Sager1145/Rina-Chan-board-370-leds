@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # 本脚本合并 Ark Pixel BDF 字体并生成固件/WebUI 可读 JSON；必要 English 参数名保持和 CLI/API 一致。
+# NOTE (RinaLink v1 migration): the firmware WebUI is gone; the output of this script
+# (ark12.json) now ships inside the iOS app bundle at ios/RinaBoard/Resources instead
+# of data/resources/fonts/. The scroll-text rasterizer that consumes it also moved to
+# the iOS app (see docs/RINALINK_PROTOCOL_V1.md section 6).
 """
 Build a merged Ark Pixel 12px monospaced bitmap JSON for RinaChanBoard.
 

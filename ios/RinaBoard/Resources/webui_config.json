@@ -1,0 +1,162 @@
+{
+ "api": {
+  "bootStatusTimeoutMs": 2500,
+  "endpoints": {
+   "command": "/api/command",
+   "currentFrame": "/api/frame/current",
+   "frame": "/api/frame",
+   "power": "/api/power",
+   "previewSync": "/api/preview_sync",
+   "savedFaces": "/api/saved_faces",
+   "scroll": "/api/scroll",
+   "scrollMeta": "/api/scroll/meta",
+   "status": "/api/status"
+  },
+  "getTimeoutMs": 2500,
+  "postTimeoutMs": 5000,
+  "runtimeStatusQuery": "?runtimeOnly=1&noFrame=1",
+  "uploadTimeoutMs": 15000
+ },
+ "autoInterval": {
+  "buttonStepMs": 500,
+  "maxMs": 10000,
+  "minMs": 500,
+  "presetsMs": [
+   500,
+   1000,
+   2000,
+   3000,
+   5000,
+   7500,
+   10000
+  ]
+ },
+ "boot": {
+  "blurDurationMs": 850,
+  "extraMs": 180,
+  "firstPageRevealSelector": [
+   "#page-basic .basic-preview-card",
+   "#page-basic .basic-mid-col > .card",
+   "#page-basic .basic-scroll-col > .card"
+  ],
+  "haloBreathMs": 1620,
+  "haloContractMs": 520,
+  "haloPeakRatio": 0.5,
+  "haloToleranceMs": 24,
+  "holdMs": 260,
+  "imageReleaseMs": 2100,
+  "loadingIconAfter": "./resources/loading/rina_icon2_hover.png",
+  "loadingIconBefore": "./resources/loading/rina_icon1_default.png",
+  "minDisplayMs": 400
+ },
+ "device": {
+  "apDomain": "rina.io",
+  "apPassword": "rinachan",
+  "apSsid": "RinaChanBoard-V2",
+  "defaultApIp": "192.168.1.14"
+ },
+ "faces": {
+  "localFilename": "saved_faces.json",
+  "resourcePath": "/resources/saved_faces.json",
+  "schemaFormat": "rina_packed_faces_370_v2",
+  "startupFaceId": "face_08_triangle_eyes_frown"
+ },
+ "firmwareQueues": {
+  "buttonCommandIntervalMs": 120,
+  "buttonCommandQueueMax": 4,
+  "frameQueueMax": 6,
+  "frameSendIntervalMs": 20,
+  "scrollButtonStopFullSyncDelayMs": 140
+ },
+ "fonts": {
+  "uiFamily": "GNU Unifont"
+ },
+ "interaction": {
+  "buttonPressDownMs": 90,
+  "buttonPressUpMs": 150,
+  "pageScrollKeys": [
+   "ArrowUp",
+   "ArrowDown",
+   "ArrowLeft",
+   "ArrowRight",
+   "PageUp",
+   "PageDown",
+   "Home",
+   "End",
+   " "
+  ],
+  "selectMenuHideDelayMs": 260
+ },
+ "layout": {
+  "oneColumnMaxPx": 980,
+  "threeColumnsMinPx": 1471
+ },
+ "led": {
+  "channelCount": 5,
+  "defaultBrightness": 50,
+  "defaultColor": "#ec3fc7",
+  "estimatedWattsPerChannel": 0.06,
+  "fullBrightness": 255,
+  "maxBrightness": 200,
+  "minBrightness": 10,
+  "powerWarningWatts": 40,
+  "previewSize": {
+   "defaultCell": 18,
+   "edgeGap": 12,
+   "maxCell": 62,
+   "maxHeight": 650,
+   "minCell": 5,
+   "minWidth": 320
+  }
+ },
+ "navigation": {
+  "pages": [
+   [
+    "basic",
+    "6.1",
+    "基础控制"
+   ],
+   [
+    "parts",
+    "6.2",
+    "自定义表情页面"
+   ],
+   [
+    "debug",
+    "6.5",
+    "调试"
+   ]
+  ]
+ },
+ "power": {
+  "statusRefreshMs": 900
+ },
+ "scroll": {
+  "defaultFps": 10,
+  "firmwareMaxFramesDefault": 3072,
+  "fpsMax": 60,
+  "fpsMin": 1,
+  "fpsPresets": [
+   1,
+   10,
+   20,
+   30,
+   40,
+   50,
+   60
+  ],
+  "maxTextChars": 1000,
+  "uploadChunkFrames": 24
+ },
+ "textScroll": {
+  "browserFallbackFontSample": "",
+  "browserFontSample": "RinaChanBoard 370 LED 继续 暂停 こんにちは 璃奈ちゃんボード 然燃滚滾 🏠︎😀︎",
+  "charSpacing": 0,
+  "fontFallbackFamily": "",
+  "fontFamily": "Ark Pixel 12px Monospaced",
+  "fontModel": "ark_pixel_12px_fusion_bitmap_v4",
+  "fontResource": "/resources/fonts/ark12.json?v=dev",
+  "missingGlyphCodePoint": 9633,
+  "spaceColumns": 6
+ }
+}

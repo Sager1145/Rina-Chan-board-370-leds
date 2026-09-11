@@ -3,9 +3,20 @@
 
 constexpr char AP_SSID[] = "RinaChanBoard-V2";
 constexpr char AP_PASSWORD[] = "rinachan";
+
+// Wi-Fi setup page (docs/RINALINK_PROTOCOL_V1.md §7.3): captive-portal domain
+// resolved to the board's IP by the DNS server while the SoftAP is active.
 constexpr char AP_DOMAIN[] = "rina.io";
-constexpr uint16_t HTTP_PORT = 80;
-constexpr uint16_t DNS_PORT = 53;
+constexpr uint16_t WEB_SETUP_PORT = 80;
+constexpr uint16_t WEB_SETUP_DNS_PORT = 53;
+
+// RinaLink v1 (see docs/RINALINK_PROTOCOL_V1.md): one TCP port, carried over
+// Wi-Fi STA or the board's own SoftAP; BLE carries the same framed protocol.
+constexpr uint16_t RINALINK_TCP_PORT = 5370;
+constexpr char RINALINK_HOSTNAME[] = "rinaboard";
+constexpr uint32_t WIFI_STA_CONNECT_TIMEOUT_MS = 15000;
+constexpr uint32_t WIFI_STA_RETRY_MS = 60000;
+constexpr uint32_t TCP_IDLE_TIMEOUT_MS = 20000;
 
 #include <IPAddress.h>
 
@@ -207,4 +218,4 @@ constexpr char SETTINGS_PATH[] = "/resources/runtime_settings.json";
 #endif
 
 constexpr char FIRMWARE_NAME[] = "RinaChanBoard-V2";
-constexpr char FIRMWARE_VERSION[] = "packed-frame-protocol-1.1";
+constexpr char FIRMWARE_VERSION[] = "rinalink-2.0.0";

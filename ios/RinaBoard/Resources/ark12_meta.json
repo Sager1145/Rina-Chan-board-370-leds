@@ -1,0 +1,15 @@
+{
+ "ascent": 10,
+ "defaultAdvance": 12,
+ "descent": 2,
+ "family": "Ark Pixel 12px Monospaced Merged Trad Priority",
+ "format": "rina_ark_pixel_font_bitmap_v1",
+ "glyphCount": 33476,
+ "lineHeight": 12,
+ "rows": 12,
+ "rowsEncodingNote": "app.js loadArkPixelFontTable()/decodePackedGlyphRows(): glyph entries may be either a packed tuple [advance,width,height,xOffset,yOffset,dstY,rowsHex] where rowsHex is N '/'-joined hex nibble rows decoded MSB-first into bit strings truncated to `width` bits (the format used by this ark12.json snapshot), or a legacy object form carrying either `rowsHex` (same slash-joined hex format) or already-decoded `rows` as raw '0'/'1' bit strings. Only the packed tuple form was found in this snapshot.",
+ "rowsEncodingVariantsFound": [
+  "tuple_packed_rows_hex_slash_joined"
+ ],
+ "source": "merged Ark Pixel 12px Monospaced BDF v2026.05.07: zh_cn + ja + zh_tw; zh_tw overrides conflicts; patched missing CJK glyphs using fallback rasterizer"
+}

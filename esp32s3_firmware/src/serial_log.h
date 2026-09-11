@@ -41,6 +41,11 @@ struct LedCmdRecord {
     char source[12] = {0};
 };
 
+// Sink hook: receives every formatted log line (any task) so another subsystem
+// (e.g. protocol.cpp's EV_LOG fan-out) can mirror diagnostics without owning
+// the Serial port. `level` is a single character ('E','W','I','D','T').
+typedef void (*RinaLogSink)(char level, const char* tag, const char* msg);
+
 #if ENABLE_SERIAL_DIAGNOSTICS
 
 // Lifecycle / runtime control (driven by the `log ...` serial commands).
@@ -59,6 +64,10 @@ bool rinaLogShouldEmit(RinaLogLevel level);
 // Emit one fully-formatted line (single Serial.write, newline embedded).
 void rinaLogEmit(RinaLogLevel level, const char* category, const char* fmt, ...)
     __attribute__((format(printf, 3, 4)));
+
+// Install (or clear with nullptr) the log sink. Invoked from rinaLogEmit()'s
+// formatting path, from any task.
+void rinaLogSetSink(RinaLogSink sink);
 
 // Shared diagnostics transport. The primary port is Serial (USB-CDC when
 // ARDUINO_USB_CDC_ON_BOOT=1). With ENABLE_SERIAL_UART0_MIRROR=1, writes are
@@ -106,6 +115,7 @@ static inline bool rinaLogRateReady(uint32_t&, uint32_t) { return false; }
 static inline void rinaLogRecordLedCommand(const char*, uint16_t, const char*) {}
 static inline uint8_t rinaLogCopyLedHistory(LedCmdRecord*, uint8_t) { return 0; }
 static inline uint8_t rinaLogLedHistoryCapacity() { return 0; }
+static inline void rinaLogSetSink(RinaLogSink) {}
 
 #define RLOG_ERROR(cat, ...) do {} while (0)
 #define RLOG_WARN(cat, ...)  do {} while (0)

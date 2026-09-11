@@ -20,4 +20,7 @@ bool validateSavedFaces(JsonVariant document, String& error);
 
 size_t writeSavedFaces(JsonVariant document, String& error);
 
+// Monotonic counter incremented on every successful writeSavedFaces() call.
+uint32_t savedFacesGeneration();
+
 bool ensureSavedFacesLoaded();

@@ -243,6 +243,13 @@ bool validateSavedFaces(JsonVariant document, String& error) {
     return true;
 }
 
+// Incremented on every successful saved_faces.json write (item 12); GET_FACES
+// clients can pass back the gen they last saw and get a 409 if it has since
+// changed underneath a multi-chunk download.
+static uint32_t g_savedFacesGeneration = 0;
+
+uint32_t savedFacesGeneration() { return g_savedFacesGeneration; }
+
 size_t writeSavedFaces(JsonVariant document, String& error) {
     if (!runtimeFsMounted()) {
         error = "LittleFS is not mounted";
@@ -256,6 +263,7 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
     if (!writeJsonFileAtomic(SAVED_FACES_PATH, document, written, error))
         return 0;
     ++runtimeState().savedFacesWrites;
+    ++g_savedFacesGeneration;
     touchRuntimeState();
     return written;
 }

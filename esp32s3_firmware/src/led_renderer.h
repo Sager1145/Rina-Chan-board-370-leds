@@ -53,3 +53,6 @@ void renderCurrentFrameToLedStrip();
 void initLedIndexMap();
 
 void ledStripBegin();
+
+// Diagnostic pattern shown at boot when LittleFS fails to mount.
+void showFilesystemErrorPattern();

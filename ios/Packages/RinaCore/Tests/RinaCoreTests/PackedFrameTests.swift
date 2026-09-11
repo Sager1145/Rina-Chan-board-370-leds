@@ -1,0 +1,91 @@
+import XCTest
+@testable import RinaCore
+
+final class PackedFrameTests: XCTestCase {
+    func testEmptyFrameValid() {
+        let frame = PackedFrame()
+        XCTAssertTrue(frame.validate())
+        XCTAssertEqual(frame.litCount, 0)
+    }
+
+    func testSetClearToggle() {
+        var frame = PackedFrame()
+        frame.set(0)
+        XCTAssertTrue(frame[0])
+        frame.toggle(0)
+        XCTAssertFalse(frame[0])
+        frame.set(369)
+        XCTAssertTrue(frame[369])
+        frame.clear(369)
+        XCTAssertFalse(frame[369])
+    }
+
+    func testInvalidTailBitsRejected() {
+        var bytes = [UInt8](repeating: 0, count: 47)
+        bytes[46] = 0b1000_0000
+        XCTAssertNil(PackedFrame(bytes: bytes))
+    }
+
+    func testWrongLengthRejected() {
+        XCTAssertNil(PackedFrame(bytes: [UInt8](repeating: 0, count: 40)))
+    }
+
+    func testHex94RoundTrip() {
+        var frame = PackedFrame()
+        frame.set(5)
+        frame.set(369)
+        let hex = frame.hex94
+        XCTAssertEqual(hex.count, 94)
+        let decoded = PackedFrame(hex94: hex)
+        XCTAssertEqual(decoded, frame)
+    }
+
+    func testBase64RoundTrip() {
+        var frame = PackedFrame()
+        frame.fill()
+        let b64 = frame.base64
+        let decoded = PackedFrame(base64: b64)
+        XCTAssertEqual(decoded, frame)
+        XCTAssertEqual(decoded?.litCount, 370)
+    }
+
+    func testBitsArrayInit() {
+        var bits = [Int](repeating: 0, count: 370)
+        bits[0] = 1
+        bits[100] = 1
+        let frame = PackedFrame(bits: bits)
+        XCTAssertNotNil(frame)
+        XCTAssertTrue(frame![0])
+        XCTAssertTrue(frame![100])
+        XCTAssertEqual(frame!.litCount, 2)
+    }
+
+    func testInvert() {
+        var frame = PackedFrame()
+        frame.set(0)
+        frame.invert()
+        XCTAssertFalse(frame[0])
+        XCTAssertTrue(frame[1])
+        XCTAssertTrue(frame.validate())
+        XCTAssertEqual(frame.litCount, 369)
+    }
+
+    func testFillThenClear() {
+        var frame = PackedFrame()
+        frame.fill()
+        XCTAssertEqual(frame.litCount, 370)
+        XCTAssertTrue(frame.validate())
+        frame.clearAll()
+        XCTAssertEqual(frame.litCount, 0)
+    }
+
+    func testUnion() {
+        var a = PackedFrame()
+        a.set(1)
+        var b = PackedFrame()
+        b.set(2)
+        a.formUnion(b)
+        XCTAssertTrue(a[1])
+        XCTAssertTrue(a[2])
+    }
+}

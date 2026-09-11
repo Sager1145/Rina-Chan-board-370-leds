@@ -17,6 +17,20 @@
 // -----------------------------------------------------------------------------
 static bool sLogEnabled = true;
 static RinaLogLevel sLogLevel = RINA_LOG_INFO;
+static RinaLogSink sLogSink = nullptr;
+
+void rinaLogSetSink(RinaLogSink sink) { sLogSink = sink; }
+
+static char levelChar(RinaLogLevel level) {
+    switch (level) {
+    case RINA_LOG_ERROR: return 'E';
+    case RINA_LOG_WARN: return 'W';
+    case RINA_LOG_INFO: return 'I';
+    case RINA_LOG_DEBUG: return 'D';
+    case RINA_LOG_TRACE: return 'T';
+    default: return 'I';
+    }
+}
 
 // Line assembly happens into a stack buffer and is flushed with a single
 // Serial.write so two cores can never interleave a partial line.
@@ -143,6 +157,7 @@ void rinaLogEmit(RinaLogLevel level, const char* category, const char* fmt, ...)
         n = sizeof(buf) - 1;
 
     // Body.
+    const int headerLen = n;
     va_list args;
     va_start(args, fmt);
     int m = vsnprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), fmt, args);
@@ -152,6 +167,11 @@ void rinaLogEmit(RinaLogLevel level, const char* category, const char* fmt, ...)
         if (static_cast<size_t>(n) >= sizeof(buf))
             n = sizeof(buf) - 1;
     }
+
+    // vsnprintf always null-terminates within its bounds, so buf+headerLen is
+    // a valid C string here regardless of truncation. Callable from any task.
+    if (sLogSink)
+        sLogSink(levelChar(level), category ? category : "?", buf + headerLen);
 
     // Trailing newline inside the same buffer -> one write, no interleave.
     if (static_cast<size_t>(n) < sizeof(buf) - 1) {

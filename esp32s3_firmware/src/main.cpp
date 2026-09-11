@@ -9,7 +9,11 @@
 #include "scroll.h"
 #include "buttons.h"
 #include "button_animations.h"
-#include "web_api.h"
+#include "wifi_manager.h"
+#include "web_setup.h"
+#include "protocol.h"
+#include "transport_tcp.h"
+#include "transport_ble.h"
 #include "power_monitor.h"
 #include "serial_log.h"
 #include "serial_console.h"
@@ -71,7 +75,7 @@ void setup() {
     consumeLedRenderRequest();
     delay(LED_BOOT_STARTUP_SETTLE_MS);
 
-    // 从 WebServer 和按钮轮询中隔离出来。
+    // 从 RinaLink 协议调度和按钮轮询中隔离出来。
     if (g_syncReady)
         startScrollRenderTask();
 
@@ -80,16 +84,20 @@ void setup() {
     // 路由开放前先采一次样。
     initPowerMonitor();
 
-    // 都已就绪，客户端连上来即可读取完整状态。
-    startAccessPoint();
-    startWebServer();
+    // 都已就绪，客户端连上来即可读取完整状态。RinaLink v1: Wi-Fi manager (STA/AP
+    // state machine) + protocol dispatcher + TCP/BLE carriers.
+    wifiManagerBegin();
+    webSetupBegin();
+    protocolBegin();
+    tcpTransportBegin();
+    bleTransportBegin();
 
     RLOG_INFO("SYS", "event=boot stage=ready faces=%u mode=%s",
               static_cast<unsigned>(runtimeAutoFaceCount()), runtimeState().mode.c_str());
 }
 
 // Main loop
-// WebServer/HTTP、按钮、电源和帧队列都在这里合作式调度；Core 1 专门留给
+// RinaLink 协议调度（TCP/BLE）、按钮、电源和帧队列都在这里合作式调度；Core 1 专门留给
 // LED render/scroll task，避免网络负载破坏 WS2812/RMT 时序。
 
 void loop() {
@@ -98,7 +106,11 @@ void loop() {
     if (!g_syncReady) {
         renderCurrentFrameToLedStrip();
     }
-    webServerTick();
+    wifiManagerService();
+    webSetupService();
+    tcpTransportService();
+    bleTransportService();
+    serviceProtocol();
     serviceRuntimeSlowStatePublish();
     serviceHardwareButtons();
     serviceSerialConsole();

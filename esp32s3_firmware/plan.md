@@ -23,15 +23,18 @@ of WS2812 LEDs) driven by an ESP32-S3. The firmware:
 - shows button-triggered LED overlay animations (mode A/M, brightness, auto-interval,
   battery pages),
 - monitors battery/charger voltage via two ADC channels,
-- hosts a Wi-Fi SoftAP + DNS captive domain + HTTP server serving a single-page WebUI
-  and a JSON/binary API,
+- speaks the RinaLink v1 binary protocol (see `docs/RINALINK_PROTOCOL_V1.md`) over BLE
+  (always on, used for first-time Wi-Fi provisioning) and TCP :5370 (Wi-Fi STA or the
+  board's own SoftAP `RinaChanBoard-V2` / `192.168.1.14`),
 - persists faces, runtime settings, and battery calibration on LittleFS,
 - exposes a USB-CDC serial console and structured serial logging (`RLOG_*`).
 
-The WebUI (vanilla JS, no bundler, one 14k-line `app.js` served from LittleFS) provides
-live LED preview, a pixel face editor, a parts-based face composer, text-scroll control
-with a browser-side bitmap-font rasterizer, saved-face library management, and a debug
-console page.
+**The HTTP WebUI has been removed.** There is no browser client, no captive-portal DNS,
+and no HTTP server anymore. The board is controlled by the RinaLink iOS app, which talks
+BLE for provisioning and Wi-Fi management and TCP for everything else (frames, scroll
+uploads, saved faces, status/power/preview events) using one shared framed message format
+dispatched by `src/protocol.cpp`. The scroll-text rasterizer and parts library that used
+to live in `app.js` now live in the iOS app.
 
 ### 1.2 Target hardware / runtime environment
 
@@ -60,7 +63,11 @@ console page.
 | Firmware | Hardware buttons (debounce/combos/repeat) | `src/buttons.h/.cpp` |
 | Firmware | Button/battery LED overlay animations | `src/button_animations.h/.cpp` |
 | Firmware | Battery/charge ADC monitor + calibration persistence | `src/power_monitor.h/.cpp` |
-| Firmware | HTTP API + static file server + AP/DNS | `src/web_api.h/.cpp` |
+| Firmware | RinaLink dispatcher (frame parse, CMD table, blobs, events) | `src/protocol.h/.cpp` |
+| Firmware | Transport-agnostic client registry / framing | `src/transport.h` |
+| Firmware | TCP carrier (Wi-Fi STA/AP, port 5370) | `src/transport_tcp.h/.cpp` |
+| Firmware | BLE carrier (NimBLE GATT, provisioning) | `src/transport_ble.h/.cpp` |
+| Firmware | Wi-Fi mode state machine + NVS credentials | `src/wifi_manager.h/.cpp` |
 | Firmware | LittleFS mount + atomic JSON persistence | `src/storage.h/.cpp` |
 | Firmware | 4 FreeRTOS mutexes + RAII lock helpers | `src/sync.h/.cpp` |
 | Firmware | Structured serial log + LED command history ring | `src/serial_log.h/.cpp` |
@@ -71,19 +78,23 @@ console page.
 | Build | PlatformIO envs + pre/post scripts | `platformio.ini`, `scripts/*.py` |
 | Tooling | Font pipeline (BDF → bitmap JSON, woff2 subsets) | `tools/*.py`, `run_rinachan_unifont.ps1/.sh` |
 
-### 1.4 Firmware ↔ WebUI relationship
+### 1.4 Firmware ↔ RinaLink app relationship
 
-- The firmware is the single source of truth for displayed state. The WebUI mirrors it
-  by polling (`/api/status`, `/api/preview_sync`, `/api/power`) and pushes changes via
-  `/api/frame`, `/api/command`, `/api/scroll`, `/api/saved_faces`.
-- Scroll frames are generated **in the browser** from the `ark12.json` bitmap glyph
-  table, uploaded in chunks into firmware RAM/PSRAM, and played back **by the firmware**.
-  The WebUI runs a cosmetic local preview whose *speed* (never frame position jumps) is
-  phase-locked to the LED's actually-presented frames reported by `/api/preview_sync`.
-- `saved_faces.json` lives on LittleFS; the WebUI edits it in memory and POSTs the whole
-  unified document back; the firmware validates, writes atomically, and hot-reloads.
-- No localStorage/sessionStorage is used anywhere; all WebUI state is rebuilt from the
-  firmware on every page load.
+- The firmware is the single source of truth for displayed state. There is no WebUI
+  anymore; the RinaLink iOS app mirrors firmware state by subscribing to
+  `GET_STATUS`/`EV_STATUS`, `GET_PREVIEW_SYNC`/`EV_PREVIEW_SYNC`, and `EV_POWER`, and
+  pushes changes via `SET_FRAME`, `CMD`, and the `scroll`/`faces` BLOB messages (see
+  `docs/RINALINK_PROTOCOL_V1.md`).
+- Scroll frames are generated **in the iOS app** from the `ark12.json` bitmap glyph
+  table, uploaded in chunks (BLOB_BEGIN/CHUNK/END, kind `"scroll"`) into firmware
+  RAM/PSRAM, and played back **by the firmware**. The app runs a cosmetic local preview
+  whose *speed* (never frame position jumps) is phase-locked to the LED's
+  actually-presented frames reported by `EV_PREVIEW_SYNC`.
+- `saved_faces.json` lives on LittleFS; the app edits it in memory and uploads the whole
+  unified document back via the `faces` BLOB kind; the firmware validates, writes
+  atomically, and hot-reloads.
+- No localStorage/sessionStorage is used anywhere; all app state is rebuilt from the
+  firmware on every connection.
 
 ### 1.5 Compatibility baseline
 

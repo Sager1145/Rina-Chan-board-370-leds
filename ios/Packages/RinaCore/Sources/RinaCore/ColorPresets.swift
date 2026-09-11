@@ -1,0 +1,95 @@
+import Foundation
+
+/// Decoded `color_presets.json` (`parent_color_groups`/`child_color_groups`
+/// in the legacy `app.js`, ~L3140-L3249). 6 parent color groups, 67 total
+/// child colors.
+public struct ColorPresets: Codable, Sendable {
+    public struct Parent: Codable, Sendable, Equatable, Identifiable {
+        public let id: Int
+        public let name: String
+        public let color: String
+        public let desc: String
+    }
+
+    public struct Child: Codable, Sendable, Equatable {
+        public let name: String
+        public let hex: String
+    }
+
+    public let parents: [Parent]
+    public let children: [String: [Child]]
+
+    public init(jsonData: Data) throws {
+        self = try JSONDecoder().decode(ColorPresets.self, from: jsonData)
+    }
+
+    /// The child colors belonging to `parentId` (string-keyed, e.g. "1"), in
+    /// JSON order, or an empty array if `parentId` has none.
+    public func children(of parentId: String) -> [Child] {
+        children[parentId] ?? []
+    }
+
+    /// The child colors belonging to `parent.id`.
+    public func children(of parent: Parent) -> [Child] {
+        children(of: String(parent.id))
+    }
+
+    /// Finds the parent/child pair whose child hex matches `hex`
+    /// (case-insensitive, `#` optional).
+    public func lookup(hex: String) -> (parent: Parent, child: Child)? {
+        let target = RGBHex.normalize(hex)
+        for parent in parents {
+            for child in children(of: parent) where RGBHex.normalize(child.hex) == target {
+                return (parent, child)
+            }
+        }
+        return nil
+    }
+
+    /// The parent group that contains a child with `hex`, or nil.
+    public func parent(containing hex: String) -> Parent? {
+        lookup(hex: hex)?.parent
+    }
+}
+
+/// Hex color parsing/formatting and the LED power estimate used by the
+/// legacy WebUI's power meter (FEATURE_INVENTORY C2).
+public enum RGBHex {
+    /// Parses `"#rrggbb"` (or `"rrggbb"`, case-insensitive) into 0...255 RGB
+    /// components. Returns nil for malformed input.
+    public static func parseHex(_ hex: String) -> (r: Int, g: Int, b: Int)? {
+        var cleaned = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.hasPrefix("#") { cleaned.removeFirst() }
+        guard cleaned.count == 6, let value = UInt32(cleaned, radix: 16) else { return nil }
+        let r = Int((value >> 16) & 0xFF)
+        let g = Int((value >> 8) & 0xFF)
+        let b = Int(value & 0xFF)
+        return (r, g, b)
+    }
+
+    /// Formats RGB components (each clamped to 0...255) as lowercase `#rrggbb`.
+    public static func formatHex(r: Int, g: Int, b: Int) -> String {
+        let clampedR = min(max(r, 0), 255)
+        let clampedG = min(max(g, 0), 255)
+        let clampedB = min(max(b, 0), 255)
+        return String(format: "#%02x%02x%02x", clampedR, clampedG, clampedB)
+    }
+
+    /// Normalizes a hex string to lowercase `#rrggbb` for comparison, or the
+    /// original trimmed/lowercased string if it doesn't parse.
+    static func normalize(_ hex: String) -> String {
+        guard let (r, g, b) = parseHex(hex) else {
+            return hex.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+        return formatHex(r: r, g: g, b: b)
+    }
+
+    /// Estimated power draw in watts (FEATURE_INVENTORY C2):
+    /// `litCount * 0.06W/channel * 5 channels * (brightness/255) * (r+g+b)/765`.
+    public static func estimatedWatts(litCount: Int, brightness: Int, hex: String) -> Double {
+        guard let (r, g, b) = parseHex(hex) else { return 0 }
+        let brightnessFraction = Double(brightness) / 255.0
+        let colorFraction = Double(r + g + b) / 765.0
+        return Double(litCount) * 0.06 * 5.0 * brightnessFraction * colorFraction
+    }
+}

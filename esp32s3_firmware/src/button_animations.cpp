@@ -639,7 +639,7 @@ void serviceButtonAnimations() {
     // Snapshot power state OUTSIDE sAnimMux. readPowerStatusSnapshot() takes its
     // own spinlock and copies a ~120-byte struct; calling it while holding
     // sAnimMux would nest spinlocks and extend the interrupts-disabled window on
-    // the WiFi/HTTP core (audit M1). serviceButtonAnimations() runs only on
+    // the Wi-Fi/RinaLink core (audit M1). serviceButtonAnimations() runs only on
     // Core 0's cooperative loop, so sAnim cannot be mutated between these two
     // critical sections.
     bool needPower = false;

@@ -14,7 +14,7 @@
 PowerStatus powerStatus;
 
 // powerStatus is written by the Core 0 control loop (servicePowerMonitor) and read
-// by the Core 1 button/battery overlay and HTTP handlers. Consumer-visible fields
+// by the Core 1 button/battery overlay and the RinaLink protocol handlers. Consumer-visible fields
 // are committed under this spinlock so readPowerStatusSnapshot() yields a coherent,
 // tear-free copy across cores (Bug 8 / Addendum A2).
 static portMUX_TYPE sPowerStatusMux = portMUX_INITIALIZER_UNLOCKED;
@@ -44,7 +44,7 @@ static uint16_t readTrimmedAdcMilliVoltsBlocking(uint8_t pin) {
 }
 
 // Optimization (O1): periodic sampling no longer busy-waits ~8 ms per second inside
-// the cooperative loop (which stalled webServerTick/buttons/frame queue). Instead,
+// the cooperative loop (which stalled protocol/buttons/frame queue servicing). Instead,
 // servicePowerMonitor() takes ONE ~100 us ADC conversion per call and finalizes the
 // same 16-sample trimmed mean once the set is complete (~16 loop passes ~= 16 ms,
 // negligible against the 1000 ms sample period). Sample spacing grows from 250 us to
@@ -517,7 +517,7 @@ void servicePowerMonitor(bool force) {
 
 PowerStatus readPowerStatusSnapshot() {
     // powerStatus is updated by the Core 0 control loop; the Core 1 overlay and the
-    // HTTP handlers must read a coherent copy. Writers commit the consumer-visible
+    // RinaLink protocol handlers must read a coherent copy. Writers commit the consumer-visible
     // fields under sPowerStatusMux, so copying under the same lock yields a tear-free
     // snapshot rather than a mix of old/new fields.
     PowerStatus snapshot;
