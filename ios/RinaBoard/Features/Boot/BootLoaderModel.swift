@@ -57,7 +57,6 @@ final class BootLoaderModel {
     private var breathStart: Date?
     private var finishRequested = false
     private var doneContinuations: [CheckedContinuation<Void, Never>] = []
-    private var breathTask: Task<Void, Never>?
 
     private var breathPeriodMs: Double {
         reduceMotion ? Self.haloBreathReducedMs : Self.haloBreathMs
@@ -71,10 +70,18 @@ final class BootLoaderModel {
         breathStart = startTime
         phase = .breathing
         startBreathing()
+        // Fallback: the waterfall is triggered by the Control tab's onAppear. If the
+        // app opens on another tab (or that view never appears), still finish the
+        // loader after a short grace period so the overlay can never get stuck.
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard let self, self.phase == .breathing, !self.finishRequested else { return }
+            if self.revealedCount == 0 { self.revealedCount = Int.max / 2 } // reveal everything
+            await self.requestFinish()
+        }
     }
 
     private func startBreathing() {
-        breathTask?.cancel()
         let period = breathPeriodMs / 1000.0
         withAnimation(
             .timingCurve(0.42, 0, 0.58, 1, duration: period / 2)
@@ -122,6 +129,9 @@ final class BootLoaderModel {
         await runContractAndPop()
         await runHold()
         await runReleaseAndReveal()
+        // P5: overlay opacity fades to 0 over `extraMs`, removed after that;
+        // finish() itself must land at P4start + 2100 + 180 = 2280ms (spec).
+        try? await Task.sleep(nanoseconds: UInt64(Self.extraMs * 1_000_000))
         finish()
     }
 
@@ -142,7 +152,6 @@ final class BootLoaderModel {
 
     private func runContractAndPop() async {
         phase = .contracting
-        breathTask?.cancel()
 
         withAnimation(.timingCurve(0.55, 0.085, 0.68, 0.53, duration: Self.haloContractMs / 1000)) {
             haloScale = 0.65
@@ -196,6 +205,10 @@ final class BootLoaderModel {
                 self.avatarScale = 2.35
                 self.avatarOpacity = 0
             }
+            // Await the remainder of the 2100ms release keyframe so callers
+            // observe the full P4 duration, not just the moment the
+            // animation was triggered.
+            try? await Task.sleep(nanoseconds: UInt64((Self.releaseMs - Self.imgShrinkMs) * 1_000_000))
         }()
 
         async let reveal: Void = { @MainActor in
@@ -204,11 +217,9 @@ final class BootLoaderModel {
             await self.runRevealMask()
         }()
 
+        // P4 total is max(releaseMs, imgShrinkMs + blurDurationMs); both
+        // branches above now run to completion so awaiting them covers it.
         _ = await (releaseTail, reveal)
-
-        let elapsedInPhase = max(Self.releaseMs, Self.imgShrinkMs + Self.blurDurationMs)
-        // Ensure phase-4 total time has elapsed before P5.
-        _ = elapsedInPhase
     }
 
     private func runRevealMask() async {
@@ -227,9 +238,8 @@ final class BootLoaderModel {
     }
 
     private func finish() {
-        withAnimation(.easeOut(duration: Self.extraMs / 1000)) {
-            // overlay opacity handled by BootLoaderOverlay observing `isVisible`.
-        }
+        // Overlay opacity/removal is driven by BootLoaderOverlay observing
+        // `isVisible`; the `extraMs` fade window has already elapsed above.
         phase = .done
         let continuations = doneContinuations
         doneContinuations.removeAll()

@@ -23,16 +23,18 @@ enum DebugLogLevel: Int, Comparable, CaseIterable {
 }
 
 struct DebugLogEntry: Identifiable {
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+
     let id = UUID()
     let date = Date()
     let level: DebugLogLevel
     let message: String
 
-    var timeString: String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss.SSS"
-        return f.string(from: date)
-    }
+    var timeString: String { Self.timeFormatter.string(from: date) }
 }
 
 enum DebugLogFilter: String, CaseIterable, Identifiable {
@@ -163,18 +165,7 @@ enum DebugPattern: String, CaseIterable, Identifiable {
 
 enum DebugPackedParse {
     static func parse(_ text: String) -> PackedFrame? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if let f = PackedFrame(hex94: trimmed) { return f }
-        if let data = try? JSONSerialization.jsonObject(with: Data(trimmed.utf8)) as? [Any] {
-            let ints = data.compactMap { ($0 as? NSNumber)?.intValue }
-            if ints.count == PackedFrame.byteCount {
-                let bytes = ints.map { UInt8(clamping: $0) }
-                return PackedFrame(bytes: bytes)
-            }
-        }
-        if let f = PackedFrame(base64: trimmed) { return f }
-        return nil
+        try? PackedFrame.parse(text: text)
     }
 }
 
@@ -185,6 +176,7 @@ enum DebugPackedParse {
 final class DebugViewModel {
     // C1 preview
     var debugFrame = PackedFrame()
+    private(set) var isLocalPatternActive = false
 
     // C2 device overview
     var statusRows: [(key: String, value: String)] = []
@@ -249,8 +241,9 @@ final class DebugViewModel {
             return
         }
         firmwareLogTask = Task { [weak self] in
+            guard !Task.isCancelled else { return }
             _ = try? await connection.command(.logSubscribe(on: true))
-            guard let self else { return }
+            guard !Task.isCancelled, let self else { return }
             for await event in connection.events() {
                 if Task.isCancelled { break }
                 if case .log(let entry) = event {
@@ -270,12 +263,12 @@ final class DebugViewModel {
         }
     }
 
-    func copyLog() {
-        UIPasteboard.general.string = logs.map { "[\($0.timeString)] \($0.level.label): \($0.message)" }.joined(separator: "\n")
-    }
-
     var logShareText: String {
         logs.map { "[\($0.timeString)] \($0.level.label): \($0.message)" }.joined(separator: "\n")
+    }
+
+    func copyLog() {
+        UIPasteboard.general.string = logShareText
     }
 
     // MARK: C2/C3 refresh
@@ -284,7 +277,7 @@ final class DebugViewModel {
         do {
             let data = try await connection.getStatusRaw()
             statusRows = DebugJSON.flatten(data)
-            recomputePower()
+            recomputePower(connection: connection)
             log(.info, "刷新状态成功")
         } catch {
             lastLocalError = "\(error)"
@@ -295,7 +288,7 @@ final class DebugViewModel {
     func refreshPower(connection: BoardConnection) async {
         do {
             _ = try await connection.getPowerRaw()
-            recomputePower()
+            recomputePower(connection: connection)
             log(.info, "刷新电源成功")
         } catch {
             lastLocalError = "\(error)"
@@ -312,15 +305,15 @@ final class DebugViewModel {
         }
     }
 
-    private func recomputePower() {
-        guard let connectionStatus = statusRowsAsLookup() else { return }
-        let lit = debugFrame.litCount
+    private func recomputePower(connection: BoardConnection) {
+        let connectionStatus = statusRowsAsLookup()
+        let lit = connection.currentFrame.litCount
         let brightness = connectionStatus["brightness"].flatMap { Int($0) } ?? 50
         let color = connectionStatus["color"] ?? "#f971d4"
         estimatedWatts = RGBHex.estimatedWatts(litCount: lit, brightness: brightness, hex: color)
     }
 
-    private func statusRowsAsLookup() -> [String: String]? {
+    private func statusRowsAsLookup() -> [String: String] {
         var dict: [String: String] = [:]
         for row in statusRows {
             let shortKey = row.key.split(separator: ".").last.map(String.init) ?? row.key
@@ -384,6 +377,7 @@ final class DebugViewModel {
         do {
             _ = try await connection.setFrame(frame, playback: .idle, reason: pattern.sendReason)
             debugFrame = frame
+            isLocalPatternActive = true
             log(.info, "已发送图案: \(pattern.label)")
         } catch {
             log(.error, "发送图案失败(\(pattern.label)): \(error)")
@@ -392,7 +386,15 @@ final class DebugViewModel {
 
     func previewPattern(_ pattern: DebugPattern, connection: BoardConnection) {
         debugFrame = pattern.frame(savedFrame: connection.currentFrame)
+        isLocalPatternActive = true
         log(.debug, "本地预览: \(pattern.label)")
+    }
+
+    /// Keeps the C1 preview mirroring the board's live frame until the user
+    /// opts into a local test pattern / packed-frame-lab preview.
+    func syncDebugFrameWithLiveFrame(_ frame: PackedFrame) {
+        guard !isLocalPatternActive else { return }
+        debugFrame = frame
     }
 
     // MARK: C9 packed-frame lab
@@ -410,6 +412,7 @@ final class DebugViewModel {
     func applyPackedLabToPreview() {
         guard let frame = packedLabValid else { return }
         debugFrame = frame
+        isLocalPatternActive = true
         log(.debug, "已解析为本地预览")
     }
 
@@ -419,6 +422,7 @@ final class DebugViewModel {
         do {
             _ = try await connection.setFrame(frame, playback: .idle, reason: "debug_packed_lab")
             debugFrame = frame
+            isLocalPatternActive = true
             log(.info, "已发送解析帧")
         } catch {
             log(.error, "发送解析帧失败: \(error)")

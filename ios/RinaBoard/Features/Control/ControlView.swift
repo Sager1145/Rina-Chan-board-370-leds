@@ -6,6 +6,7 @@ import RinaCore
 struct ControlView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BootLoaderModel.self) private var bootLoader
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel = ControlViewModel()
 
     @State private var brightnessFieldText = "50"
@@ -55,6 +56,16 @@ struct ControlView: View {
         .onChange(of: connection.connectionState) { _, state in
             if state == .connected {
                 Task { await viewModel.restoreOnConnect(connection: connection) }
+            } else {
+                viewModel.suspendPLL()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                viewModel.resumePLLIfNeeded()
+            default:
+                viewModel.suspendPLL()
             }
         }
     }
@@ -88,7 +99,7 @@ struct ControlView: View {
     // MARK: A1 Live preview
 
     private var previewCard: some View {
-        card {
+        CardContainer {
             LEDMatrixView(
                 frame: connection.currentFrame,
                 color: Color(hex: viewModel.colorHexDraft) ?? Color(hex: "#f971d4") ?? .pink,
@@ -130,7 +141,7 @@ struct ControlView: View {
     // MARK: A2 Brightness
 
     private var brightnessCard: some View {
-        card {
+        CardContainer {
             Text("亮度").font(.headline)
             HStack {
                 Slider(
@@ -147,9 +158,17 @@ struct ControlView: View {
                 .disabled(!isConnected)
                 TextField("亮度", text: $brightnessFieldText)
                     .keyboardType(.numberPad)
-                    .frame(width: 52)
+                    .frame(minWidth: 52)
+                    .fixedSize(horizontal: false, vertical: true)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { commitBrightnessField() }
+                    .onChange(of: brightnessFieldText) { _, _ in commitBrightnessField() }
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("完成") { commitBrightnessField() }
+                        }
+                    }
                     .disabled(!isConnected)
             }
             HStack(spacing: 8) {
@@ -181,7 +200,7 @@ struct ControlView: View {
     // MARK: A3/A4/A5 Mode, face, auto interval
 
     private var modeFaceCard: some View {
-        card {
+        CardContainer {
             Text("模式与表情").font(.headline)
             HStack {
                 Button {
@@ -207,7 +226,7 @@ struct ControlView: View {
     }
 
     private var autoIntervalCard: some View {
-        card {
+        CardContainer {
             Text("自动切换间隔").font(.headline)
             HStack {
                 Slider(
@@ -220,14 +239,15 @@ struct ControlView: View {
                 )
                 Text(String(format: "%.1fs", viewModel.autoIntervalDraft))
                     .font(.footnote.monospacedDigit())
-                    .frame(width: 48)
+                    .frame(minWidth: 48)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
                 Button("−0.5") { Task { await viewModel.setAutoInterval(viewModel.autoIntervalDraft - 0.5, connection: connection) } }
                 Button("+0.5") { Task { await viewModel.setAutoInterval(viewModel.autoIntervalDraft + 0.5, connection: connection) } }
                 Spacer()
             }
-            presetChips([0.5, 1, 2, 3, 5, 7.5, 10].map { $0 }, format: { String(format: "%.1gs", $0) }) { value in
+            presetChips([0.5, 1, 2, 3, 5, 7.5, 10], format: Self.presetSecondsLabel) { value in
                 Task { await viewModel.setAutoInterval(value, connection: connection) }
             }
             .disabled(!isConnected)
@@ -238,7 +258,7 @@ struct ControlView: View {
     // MARK: A6/A7 Colour
 
     private var colorCard: some View {
-        card {
+        CardContainer {
             Text("颜色").font(.headline)
             HStack {
                 TextField("#RRGGBB", text: $colorFieldText)
@@ -315,7 +335,7 @@ struct ControlView: View {
     // MARK: A8-A15 Scroll text
 
     private var scrollCard: some View {
-        card {
+        CardContainer {
             Text("滚动文字").font(.headline)
             TextEditor(text: Binding(
                 get: { viewModel.scrollText },
@@ -393,7 +413,8 @@ struct ControlView: View {
                 )
                 Text("\(Int(viewModel.scrollFps))")
                     .font(.footnote.monospacedDigit())
-                    .frame(width: 32)
+                    .frame(minWidth: 32)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
                 Button("−5") { Task { await viewModel.setScrollFps(viewModel.scrollFps - 5, connection: connection) } }
@@ -414,7 +435,14 @@ struct ControlView: View {
                 Text("本地预览 · \(timeline.frameCount) 帧").font(.caption2).foregroundStyle(.secondary)
             }
 
-            let phase = viewModel.localPhase ?? ControlViewModel.phaseLabel(connection.preview.map { $0.firmwareScrollActive == true ? ($0.firmwareScrollPaused == true ? "STEPPING" : "ACTIVE") : "IDLE" })
+            let phase = viewModel.localPhase ?? ControlViewModel.phaseLabel(
+                viewModel.isStepping ? Optional("STEPPING") : connection.preview.map {
+                    $0.firmwareScrollActive == true ? ($0.firmwareScrollPaused == true ? "PAUSED" : "ACTIVE") : "IDLE"
+                }
+            )
+            if let summary = viewModel.uploadSummary {
+                Text(summary).font(.caption2).foregroundStyle(.secondary)
+            }
             HStack {
                 Text("状态: \(phase)").font(.footnote)
                 Spacer()
@@ -435,15 +463,15 @@ struct ControlView: View {
 
     // MARK: Shared helpers
 
-    @ViewBuilder
-    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            content()
+    /// "0.5s", "1s", "7.5s", "10s" — strips a trailing ".0" but keeps other
+    /// fractional digits (unlike "%.1g" which drops trailing zeros globally,
+    /// e.g. mangling "10" into "1e+01" on some libc's).
+    private static func presetSecondsLabel(_ seconds: Double) -> String {
+        let rounded = (seconds * 10).rounded() / 10
+        if rounded == rounded.rounded() {
+            return "\(Int(rounded))s"
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        return "\(rounded)s"
     }
 
     private func presetChips(_ values: [Int], onSelect: @escaping (Int) -> Void) -> some View {

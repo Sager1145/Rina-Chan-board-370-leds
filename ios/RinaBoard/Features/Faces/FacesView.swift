@@ -100,10 +100,9 @@ struct FacesView: View {
 
         card {
             Text("Packed Frame (94位十六进制)").font(.subheadline).foregroundStyle(.secondary)
-            TextField("47字节帧的十六进制", text: hexBinding)
+            Text(viewModel.hex94)
                 .font(.system(.footnote, design: .monospaced))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                .textSelection(.enabled)
 
             HStack {
                 Button("复制") { viewModel.copyHex() }
@@ -124,11 +123,6 @@ struct FacesView: View {
         }
 
         saveCard
-    }
-
-    /// Read-only mirror of `editFrame`'s hex; edits go through `importFrame`.
-    private var hexBinding: Binding<String> {
-        Binding(get: { viewModel.hex94 }, set: { _ in })
     }
 
     // MARK: 部件 (parts composer)
@@ -172,7 +166,7 @@ struct FacesView: View {
             saveCard
         } else {
             card {
-                Text("部件库加载失败").foregroundStyle(.red)
+                Text(viewModel.loadError ?? "部件库加载失败").foregroundStyle(.red)
             }
         }
     }

@@ -37,7 +37,7 @@ final class FacesViewModel {
     // MARK: Resources
 
     let library: PartsLibrary?
-    private let loadError: String?
+    let loadError: String?
 
     init(bundle: Bundle = .main) {
         do {
@@ -151,31 +151,16 @@ final class FacesViewModel {
     }
 
     func importFrame(from text: String, connection: BoardConnection) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
+        do {
+            let frame = try PackedFrame.parse(text: text)
+            apply(imported: frame, connection: connection)
+        } catch PackedFrameParseError.empty {
             errorMessage = "请输入内容"
-            return
-        }
-        if let frame = PackedFrame(hex94: trimmed) {
-            apply(imported: frame, connection: connection)
-            return
-        }
-        if let frame = PackedFrame(base64: trimmed) {
-            apply(imported: frame, connection: connection)
-            return
-        }
-        if let data = trimmed.data(using: .utf8),
-           let ints = try? JSONDecoder().decode([Int].self, from: data),
-           ints.count == PackedFrame.byteCount {
-            let bytes = ints.map { UInt8(clamping: $0) }
-            if let frame = PackedFrame(bytes: bytes) {
-                apply(imported: frame, connection: connection)
-                return
-            }
+        } catch PackedFrameParseError.wrongIntCount, PackedFrameParseError.intOutOfRange {
             errorMessage = "帧数据无效（尾部位必须为 0）"
-            return
+        } catch {
+            errorMessage = "无法识别的格式：需要 94 位十六进制 / 47 整数 JSON 数组 / base64"
         }
-        errorMessage = "无法识别的格式：需要 94 位十六进制 / 47 整数 JSON 数组 / base64"
     }
 
     private func apply(imported frame: PackedFrame, connection: BoardConnection) {
@@ -396,19 +381,21 @@ final class FacesViewModel {
     /// Ensures every face has a non-empty id/order and that at least one
     /// `default` face survives, mirroring the WebUI's `normalizeFace` guard.
     private func normalize(_ document: inout FaceDocument) {
-        var hasDefault = document.faces.contains { $0.type == .default }
-        for i in document.faces.indices {
-            if document.faces[i].id.isEmpty {
-                document.faces[i].id = "custom_\(String(Int(Date().timeIntervalSince1970 * 1000) + i, radix: 36))"
-            }
-            if document.faces[i].order == 0 {
-                document.faces[i].order = i + 1
-            }
+        for i in document.faces.indices where document.faces[i].id.isEmpty {
+            document.faces[i].id = "custom_\(String(Int(Date().timeIntervalSince1970 * 1000) + i, radix: 36))"
         }
-        if !hasDefault, let first = document.faces.indices.first {
+        // Reassign sequential unique order 1...n, stable by existing order then index.
+        let orderedIndices = document.faces.indices.sorted { a, b in
+            let orderA = document.faces[a].order
+            let orderB = document.faces[b].order
+            return orderA != orderB ? orderA < orderB : a < b
+        }
+        for (rank, idx) in orderedIndices.enumerated() {
+            document.faces[idx].order = rank + 1
+        }
+        if !document.faces.contains(where: { $0.type == .default }), let first = document.faces.indices.first {
             document.faces[first].type = .default
             document.faces[first].deletable = false
-            hasDefault = true
         }
     }
 }

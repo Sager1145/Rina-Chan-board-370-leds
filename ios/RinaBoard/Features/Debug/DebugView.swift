@@ -34,6 +34,9 @@ struct DebugView: View {
             .onChange(of: connection.connectionState) { _, newValue in
                 vm.log(.info, "连接状态: \(String(describing: newValue))")
             }
+            .onChange(of: connection.currentFrame) { _, newValue in
+                vm.syncDebugFrameWithLiveFrame(newValue)
+            }
         }
     }
 

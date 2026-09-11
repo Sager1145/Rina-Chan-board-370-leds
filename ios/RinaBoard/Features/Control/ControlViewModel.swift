@@ -17,6 +17,10 @@ final class ControlViewModel {
     // MARK: Mode / face (A3/A4)
     var modeOverride: String?
     private var modeOverrideUntil: Date = .distantPast
+    /// Optimistic local preview of `autoFaceIndex` while a B1/B2 step is
+    /// in flight, suppressing firmware echo for 2s like the other overrides.
+    var faceIndexOverride: Int?
+    private var faceIndexOverrideUntil: Date = .distantPast
 
     // MARK: Auto interval (A5)
     var autoIntervalDraft: Double = 3.0 // seconds
@@ -40,10 +44,12 @@ final class ControlViewModel {
     var errorMessage: String?
     var timeline: ScrollTimeline?
     var boundTimelineId: String?
-    var latestMeta: ScrollMeta?
     /// e.g. "已发送 812 B（位图）" / "已发送 15264 B（逐帧回退）" — set after
-    /// every successful `sendScroll()` so the view can show what was actually sent.
+    /// every successful `sendScroll()`; shown in the scroll card's readouts row.
     var uploadSummary: String?
+    /// Whether a single-frame step (A12) is currently in flight, so the view
+    /// can show "单步" instead of inferring phase from the last `preview` sample.
+    var isStepping = false
 
     /// Preview speed-lock (PLL) core, ported bit-for-bit from the WebUI
     /// (SCROLL_RASTERIZER_SPEC §6). Exposed read-only via the computed
@@ -62,15 +68,42 @@ final class ControlViewModel {
         }
     }
 
-    /// The wire `generatorVersion` (an integer per `ScrollMeta`/`BLOB_BEGIN`,
-    /// distinct from `ScrollRasterizer.generatorVersion`'s human-readable
-    /// string). Bumped only if the rasterizer's bit-identical output changes.
-    static let wireGeneratorVersion = ScrollRasterizer.generatorVersion
-
     private var font: ArkPixelFont?
     private var pllTask: Task<Void, Never>?
     private var scrollLockoutUntil: Date = .distantPast
     private var didLoadDefaults = false
+    /// Bound at the start of any command so the coalescing senders below
+    /// (created lazily, without a `connection` parameter) know where to send.
+    private weak var activeConnection: BoardConnection?
+
+    @ObservationIgnored private let brightnessSender: LatestValueSender<Int>
+    @ObservationIgnored private let autoIntervalSender: LatestValueSender<Double>
+    @ObservationIgnored private let fpsSender: LatestValueSender<Double>
+
+    init() {
+        // A closure that captures `self` (even weakly) is escaping and trips
+        // Swift's definite-initialization check before all stored properties
+        // (including the senders themselves) are set. Route the capture
+        // through a box that's populated *after* `self` is fully
+        // initialized instead.
+        let box = ControlViewModelBox()
+        brightnessSender = LatestValueSender<Int>(minInterval: 0.12) { raw in
+            guard let self = box.value, let connection = self.activeConnection else { return }
+            await self.run(connection) { _ = try await $0.command(.setBrightness(raw: raw)) }
+        }
+        autoIntervalSender = LatestValueSender<Double>(minInterval: 0.12) { seconds in
+            guard let self = box.value, let connection = self.activeConnection else { return }
+            let ms = Int((seconds * 1000).rounded())
+            await self.run(connection) { _ = try await $0.command(.setAutoInterval(ms: ms)) }
+        }
+        fpsSender = LatestValueSender<Double>(minInterval: 0.12) { fps in
+            guard let self = box.value, let connection = self.activeConnection, self.boundTimelineId != nil else { return }
+            let fpsInt = Int(fps.rounded())
+            let ms = ScrollRasterizer.intervalMs(forFps: fpsInt)
+            await self.run(connection) { _ = try await $0.command(.setScrollInterval(intervalMs: ms, fps: fpsInt)) }
+        }
+        box.value = self
+    }
 
     enum ControlError: LocalizedError {
         case fontMissing
@@ -130,13 +163,23 @@ final class ControlViewModel {
         modeOverride ?? status?.renderer?.mode ?? "manual"
     }
 
+    func syncFaceIndex(from status: DeviceStatus?) {
+        guard Date() >= faceIndexOverrideUntil else { return }
+        faceIndexOverride = nil
+    }
+
+    func effectiveFaceIndex(status: DeviceStatus?) -> Int? {
+        faceIndexOverride ?? status?.renderer?.autoFaceIndex
+    }
+
     // MARK: Brightness
 
     func setBrightness(_ raw: Int, connection: BoardConnection) async {
         let clamped = min(200, max(10, raw))
         brightnessDraft = Double(clamped)
         brightnessTouchUntil = Date().addingTimeInterval(2)
-        await run(connection) { _ = try await $0.command(.setBrightness(raw: clamped)) }
+        activeConnection = connection
+        brightnessSender.submit(clamped)
     }
 
     // MARK: Mode / face
@@ -148,8 +191,21 @@ final class ControlViewModel {
         await run(connection) { _ = try await $0.command(.button(button: "B3")) }
     }
 
+    /// A3/A4: if a scroll is currently active, stop it first (without
+    /// clearing the frame or restoring the pre-scroll auto mode — that's the
+    /// firmware's job on the *next* explicit stop) so B1/B2 face-stepping
+    /// doesn't fight the scroll renderer; then optimistically preview the new
+    /// face index locally before the firmware's status/preview catches up.
     func step(face direction: Int, connection: BoardConnection) async {
         let button = direction > 0 ? "B1" : "B2"
+        if connection.status?.renderer?.firmwareScrollActive == true {
+            await run(connection) { _ = try await $0.command(.stopScroll(restoreAuto: false, clear: false)) }
+        }
+        if let count = connection.status?.renderer?.autoFaceCount, count > 0 {
+            let current = effectiveFaceIndex(status: connection.status) ?? 0
+            faceIndexOverride = ((current + direction) % count + count) % count
+            faceIndexOverrideUntil = Date().addingTimeInterval(2)
+        }
         await run(connection) { _ = try await $0.command(.button(button: button)) }
     }
 
@@ -159,8 +215,8 @@ final class ControlViewModel {
         let clamped = min(10, max(0.5, seconds))
         autoIntervalDraft = clamped
         autoIntervalTouchUntil = Date().addingTimeInterval(2)
-        let ms = Int((clamped * 1000).rounded())
-        await run(connection) { _ = try await $0.command(.setAutoInterval(ms: ms)) }
+        activeConnection = connection
+        autoIntervalSender.submit(clamped)
     }
 
     // MARK: Colour
@@ -241,7 +297,7 @@ final class ControlViewModel {
                     fps: Double(fpsInt),
                     timelineId: built.timelineId,
                     fontId: ScrollRasterizer.fontId,
-                    generatorVersion: Self.wireGeneratorVersion,
+                    generatorVersion: ScrollRasterizer.generatorVersion,
                     sourceText: built.text,
                     onProgress: progressHandler
                 )
@@ -307,6 +363,8 @@ final class ControlViewModel {
     }
 
     func stepFrame(direction: Int, connection: BoardConnection) async {
+        isStepping = true
+        defer { isStepping = false }
         await run(connection) { _ = try await $0.command(.scrollStep(direction: direction)) }
     }
 
@@ -315,21 +373,19 @@ final class ControlViewModel {
         scrollFps = clamped
         // Live retune only while a session with the same timeline is active.
         guard boundTimelineId != nil else { return }
-        let fpsInt = Int(clamped.rounded())
-        let ms = ScrollRasterizer.intervalMs(forFps: fpsInt)
-        await run(connection) { _ = try await $0.command(.setScrollInterval(intervalMs: ms, fps: fpsInt)) }
+        activeConnection = connection
+        fpsSender.submit(clamped)
     }
 
     // MARK: Restore on connect (SCROLL_RASTERIZER_SPEC §7)
 
     func restoreOnConnect(connection: BoardConnection) async {
         guard let meta = try? await connection.getScrollMeta() else { return }
-        latestMeta = meta
         guard meta.uploadComplete == true,
               let frameCount = meta.frameCount, frameCount > 0,
               let sourceText = meta.sourceText, !sourceText.isEmpty,
               meta.fontId == ScrollRasterizer.fontId,
-              meta.generatorVersion == Self.wireGeneratorVersion
+              meta.generatorVersion == ScrollRasterizer.generatorVersion
         else { return }
 
         do {
@@ -390,6 +446,21 @@ final class ControlViewModel {
         }
     }
 
+    /// Suspends the local preview loop without discarding the bound timeline
+    /// (app backgrounded or the board disconnected); call `resumePLLIfNeeded`
+    /// to restart it once foregrounded/reconnected.
+    func suspendPLL() {
+        pllTask?.cancel()
+        pllTask = nil
+    }
+
+    /// Restarts the preview loop if a timeline is still bound (app
+    /// foregrounded again).
+    func resumePLLIfNeeded() {
+        guard boundTimelineId != nil, pllTask == nil else { return }
+        startPLLIfNeeded()
+    }
+
     /// Feeds one `preview` sample into the PLL core (identity check, phase
     /// filtering, rate estimation, pause/step snap — SCROLL_RASTERIZER_SPEC
     /// §6/§7); called from the view's `onChange(of: connection.preview)`.
@@ -420,6 +491,7 @@ final class ControlViewModel {
         case "ACTIVE": return "播放中"
         case "STEPPING": return "单步"
         case "STOPPING": return "停止中"
+        case "PAUSED": return "已暂停"
         case "RESTORING": return "恢复中"
         case "STALE": return "已过期"
         case "DROPPED": return "已丢弃"
@@ -427,11 +499,27 @@ final class ControlViewModel {
         }
     }
 
+    // MARK: Init helper
+
     private func run(_ connection: BoardConnection, _ body: @escaping (BoardConnection) async throws -> Void) async {
         do {
             try await body(connection)
+        } catch is CancellationError {
+            // Superseded by a newer coalesced send; not a user-facing error.
+        } catch RatePumpError.dropped {
+            // Evicted by a later in-flight command with the same key
+            // (e.g. rapid slider drags); the latest value always wins.
         } catch {
             errorMessage = String(describing: error)
         }
     }
+}
+
+/// Post-init weak capture cell so the coalescing senders' closures don't
+/// capture `self` directly during `ControlViewModel.init` (which would trip
+/// Swift's definite-initialization check on the sender properties
+/// themselves).
+@MainActor
+private final class ControlViewModelBox {
+    weak var value: ControlViewModel?
 }
