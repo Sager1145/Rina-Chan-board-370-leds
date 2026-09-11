@@ -122,13 +122,4 @@ public enum RinaResources {
         return value
     }
 
-    /// `matrix_geometry.json`'s `physical_to_logical_index` array (370
-    /// entries), for use with `PartsLibrary.frameFromStripIndices(_:physicalToLogicalIndex:)`.
-    public static func physicalToLogicalIndexTable(bundle: Bundle = .main) throws -> [Int] {
-        struct Doc: Codable { let physicalToLogicalIndex: [Int]
-            enum CodingKeys: String, CodingKey { case physicalToLogicalIndex = "physical_to_logical_index" }
-        }
-        let doc = try JSONDecoder().decode(Doc.self, from: matrixGeometryJSON(bundle: bundle))
-        return doc.physicalToLogicalIndex
-    }
 }

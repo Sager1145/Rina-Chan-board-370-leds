@@ -28,6 +28,7 @@ public struct BLEInfo: Codable, Equatable, Sendable {
 /// discovers RX (write)/TX (notify)/INFO (read) characteristics, and slices
 /// outgoing writes to the negotiated MTU.
 @Observable
+@MainActor
 public final class BLETransport: NSObject, RinaTransport, @unchecked Sendable {
     public let kind: TransportKind = .bluetooth
 
@@ -64,6 +65,7 @@ public final class BLETransport: NSObject, RinaTransport, @unchecked Sendable {
     // MARK: connect() continuation state (C2)
 
     private var poweredOnContinuation: CheckedContinuation<Void, Error>?
+    private var poweredOnTimeoutTask: Task<Void, Never>?
     private var connectContinuation: CheckedContinuation<Void, Error>?
     private var connectTimeoutTask: Task<Void, Never>?
 
@@ -82,7 +84,9 @@ public final class BLETransport: NSObject, RinaTransport, @unchecked Sendable {
         return AsyncStream { continuation in
             self.stateContinuations[id] = continuation
             continuation.onTermination = { [weak self] _ in
-                self?.stateContinuations.removeValue(forKey: id)
+                Task { @MainActor [weak self] in
+                    self?.stateContinuations.removeValue(forKey: id)
+                }
             }
         }
     }
@@ -92,7 +96,9 @@ public final class BLETransport: NSObject, RinaTransport, @unchecked Sendable {
         return AsyncStream { continuation in
             self.incomingContinuations[id] = continuation
             continuation.onTermination = { [weak self] _ in
-                self?.incomingContinuations.removeValue(forKey: id)
+                Task { @MainActor [weak self] in
+                    self?.incomingContinuations.removeValue(forKey: id)
+                }
             }
         }
     }
@@ -143,17 +149,39 @@ public final class BLETransport: NSObject, RinaTransport, @unchecked Sendable {
         }
     }
 
+    /// A3: never overwrite a still-pending `poweredOnContinuation` — resume
+    /// the stale one with `.cancelled` first so it can't be leaked/silently
+    /// dropped (e.g. two overlapping `connect()` calls).
+    private func resumePoweredOn(_ result: Result<Void, Error>) {
+        poweredOnTimeoutTask?.cancel()
+        poweredOnTimeoutTask = nil
+        guard let continuation = poweredOnContinuation else { return }
+        poweredOnContinuation = nil
+        switch result {
+        case .success: continuation.resume()
+        case .failure(let error): continuation.resume(throwing: error)
+        }
+    }
+
     private func waitForPoweredOn() async throws {
         switch centralManager.state {
         case .poweredOn:
             return
-        case .unauthorized, .unsupported:
-            throw RinaTransportError.underlying("bluetooth unauthorized or unsupported")
+        case .unauthorized, .unsupported, .poweredOff:
+            throw RinaTransportError.underlying("bluetooth unauthorized, unsupported, or powered off")
         default:
             break
         }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            if poweredOnContinuation != nil {
+                resumePoweredOn(.failure(RinaTransportError.cancelled))
+            }
             self.poweredOnContinuation = continuation
+            self.poweredOnTimeoutTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.resumePoweredOn(.failure(RinaTransportError.timeout))
+            }
         }
     }
 
@@ -186,6 +214,7 @@ public final class BLETransport: NSObject, RinaTransport, @unchecked Sendable {
         txCharacteristic = nil
         infoCharacteristic = nil
         resumeConnect(.failure(RinaTransportError.cancelled))
+        resumePoweredOn(.failure(RinaTransportError.cancelled))
         resumeWriteReady()
         emitState(.disconnected)
     }
@@ -220,112 +249,139 @@ public final class BLETransport: NSObject, RinaTransport, @unchecked Sendable {
     }
 }
 
+// MARK: - CBCentralManagerDelegate / CBPeripheralDelegate
+//
+// The class is `@MainActor`, but CoreBluetooth requires these delegate
+// methods to be `nonisolated`. Since the central manager is created with
+// `queue: .main`, all of these callbacks are already dispatched on the main
+// queue/thread, so `MainActor.assumeIsolated` is safe here and preserves
+// callback ordering (a `Task { @MainActor in }` hop would not).
 extension BLETransport: CBCentralManagerDelegate {
-    public func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        switch central.state {
-        case .poweredOn:
-            poweredOnContinuation?.resume()
-            poweredOnContinuation = nil
-        case .unauthorized, .unsupported:
-            let message = "bluetooth unauthorized or unsupported"
-            poweredOnContinuation?.resume(throwing: RinaTransportError.underlying(message))
-            poweredOnContinuation = nil
-            lastError = message
-            emitState(.failed(message))
-        default:
-            emitState(.failed("bluetooth unavailable"))
+    public nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        MainActor.assumeIsolated {
+            switch central.state {
+            case .poweredOn:
+                resumePoweredOn(.success(()))
+            case .unauthorized, .unsupported, .poweredOff:
+                // A3: resume any waiter instead of leaving `connect()` hung
+                // forever when Bluetooth is off/unauthorized/unsupported.
+                let message = central.state == .poweredOff ? "bluetooth is powered off" : "bluetooth unauthorized or unsupported"
+                resumePoweredOn(.failure(RinaTransportError.underlying(message)))
+                lastError = message
+                emitState(.failed(message))
+            default:
+                emitState(.failed("bluetooth unavailable"))
+            }
         }
     }
 
-    public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? peripheral.name ?? "RinaBoard"
-        if let existing = discoveredPeripherals.first(where: { $0.id == peripheral.identifier }) {
-            existing.rssi = RSSI.intValue
-            existing.name = name
-        } else {
-            discoveredPeripherals.append(DiscoveredPeripheral(id: peripheral.identifier, name: name, rssi: RSSI.intValue))
+    public nonisolated func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
+        MainActor.assumeIsolated {
+            let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? peripheral.name ?? "RinaBoard"
+            if let existing = discoveredPeripherals.first(where: { $0.id == peripheral.identifier }) {
+                existing.rssi = RSSI.intValue
+                existing.name = name
+            } else {
+                discoveredPeripherals.append(DiscoveredPeripheral(id: peripheral.identifier, name: name, rssi: RSSI.intValue))
+            }
+            if targetPeripheral == nil, peripheral.identifier == peripheralIdentifier {
+                targetPeripheral = peripheral
+            }
         }
-        if targetPeripheral == nil, peripheral.identifier == peripheralIdentifier {
+    }
+
+    public nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        MainActor.assumeIsolated {
             targetPeripheral = peripheral
+            peripheral.discoverServices([serviceCBUUID])
         }
     }
 
-    public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        targetPeripheral = peripheral
-        peripheral.discoverServices([serviceCBUUID])
+    public nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        MainActor.assumeIsolated {
+            let message = error?.localizedDescription ?? "connect failed"
+            emitState(.failed(message))
+            resumeConnect(.failure(RinaTransportError.underlying(message)))
+        }
     }
 
-    public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        let message = error?.localizedDescription ?? "connect failed"
-        emitState(.failed(message))
-        resumeConnect(.failure(RinaTransportError.underlying(message)))
-    }
-
-    public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        rxCharacteristic = nil
-        txCharacteristic = nil
-        infoCharacteristic = nil
-        emitState(.disconnected)
-        resumeConnect(.failure(error.map { RinaTransportError.underlying($0.localizedDescription) } ?? RinaTransportError.notConnected))
-        resumeWriteReady()
+    public nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        MainActor.assumeIsolated {
+            rxCharacteristic = nil
+            txCharacteristic = nil
+            infoCharacteristic = nil
+            emitState(.disconnected)
+            resumeConnect(.failure(error.map { RinaTransportError.underlying($0.localizedDescription) } ?? RinaTransportError.notConnected))
+            resumeWriteReady()
+        }
     }
 }
 
 extension BLETransport: CBPeripheralDelegate {
-    public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        guard let service = peripheral.services?.first(where: { $0.uuid == serviceCBUUID }) else {
+    public nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        MainActor.assumeIsolated {
+            guard let service = peripheral.services?.first(where: { $0.uuid == serviceCBUUID }) else {
+                if let error {
+                    resumeConnect(.failure(RinaTransportError.underlying(error.localizedDescription)))
+                }
+                return
+            }
+            peripheral.discoverCharacteristics([rxCBUUID, txCBUUID, infoCBUUID], for: service)
+        }
+    }
+
+    public nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        MainActor.assumeIsolated {
+            guard let characteristics = service.characteristics else {
+                if let error {
+                    resumeConnect(.failure(RinaTransportError.underlying(error.localizedDescription)))
+                }
+                return
+            }
+            for characteristic in characteristics {
+                switch characteristic.uuid {
+                case rxCBUUID:
+                    rxCharacteristic = characteristic
+                case txCBUUID:
+                    txCharacteristic = characteristic
+                    peripheral.setNotifyValue(true, for: characteristic)
+                case infoCBUUID:
+                    infoCharacteristic = characteristic
+                    peripheral.readValue(for: characteristic)
+                default:
+                    break
+                }
+            }
+        }
+    }
+
+    public nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        MainActor.assumeIsolated {
+            guard characteristic.uuid == txCBUUID else { return }
             if let error {
                 resumeConnect(.failure(RinaTransportError.underlying(error.localizedDescription)))
+                return
             }
-            return
+            guard rxCharacteristic != nil else { return }
+            resumeConnect(.success(()))
         }
-        peripheral.discoverCharacteristics([rxCBUUID, txCBUUID, infoCBUUID], for: service)
     }
 
-    public func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        guard let characteristics = service.characteristics else {
-            if let error {
-                resumeConnect(.failure(RinaTransportError.underlying(error.localizedDescription)))
-            }
-            return
-        }
-        for characteristic in characteristics {
-            switch characteristic.uuid {
-            case rxCBUUID:
-                rxCharacteristic = characteristic
-            case txCBUUID:
-                txCharacteristic = characteristic
-                peripheral.setNotifyValue(true, for: characteristic)
-            case infoCBUUID:
-                infoCharacteristic = characteristic
-                peripheral.readValue(for: characteristic)
-            default:
-                break
+    public nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        MainActor.assumeIsolated {
+            guard let value = characteristic.value else { return }
+            if characteristic.uuid == txCBUUID {
+                emitIncoming(value)
+            } else if characteristic.uuid == infoCBUUID {
+                infoJSON = value
+                bleInfo = try? JSONDecoder().decode(BLEInfo.self, from: value)
             }
         }
     }
 
-    public func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
-        guard characteristic.uuid == txCBUUID else { return }
-        if let error {
-            resumeConnect(.failure(RinaTransportError.underlying(error.localizedDescription)))
-            return
+    public nonisolated func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
+        MainActor.assumeIsolated {
+            resumeWriteReady()
         }
-        guard rxCharacteristic != nil else { return }
-        resumeConnect(.success(()))
-    }
-
-    public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard let value = characteristic.value else { return }
-        if characteristic.uuid == txCBUUID {
-            emitIncoming(value)
-        } else if characteristic.uuid == infoCBUUID {
-            infoJSON = value
-            bleInfo = try? JSONDecoder().decode(BLEInfo.self, from: value)
-        }
-    }
-
-    public func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
-        resumeWriteReady()
     }
 }

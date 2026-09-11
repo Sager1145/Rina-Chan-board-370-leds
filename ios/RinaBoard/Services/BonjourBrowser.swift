@@ -16,6 +16,11 @@ public struct DiscoveredBoard: Identifiable, Equatable, Sendable {
         self.port = port
         self.endpoint = endpoint
     }
+
+    /// Whether this entry has a usable connection target yet. `name` is a
+    /// Bonjour service name, not a hostname, and must never be used as a TCP
+    /// host — until this is `true` the row should be disabled.
+    public var isResolved: Bool { endpoint != nil || host != nil }
 }
 
 /// Browses `_rinalink._tcp` on the local network (home Wi-Fi discovery, §E3).

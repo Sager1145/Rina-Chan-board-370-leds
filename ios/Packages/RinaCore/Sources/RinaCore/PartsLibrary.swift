@@ -261,6 +261,12 @@ public struct PartsLibrary: Codable, Sendable {
     public func randomSymmetricCall(using generator: inout some RandomNumberGenerator) -> PartsCall {
         let leyeIds = ids(for: .leye)
         let reyeIds = ids(for: .reye)
+        // Guard empty id lists (e.g. an unloaded/partial parts library):
+        // fall back to the "empty" placeholder rather than indexing an
+        // empty array below.
+        guard !leyeIds.isEmpty, !reyeIds.isEmpty else {
+            return PartsCall(leye: "0", reye: "0", mouth: "0", cheek: "400")
+        }
         let maxEyeIndex = min(leyeIds.count, reyeIds.count) - 1
         let upperBound = max(1, maxEyeIndex)
         let eyeIndex = 1 + Int.random(in: 0..<upperBound, using: &generator)

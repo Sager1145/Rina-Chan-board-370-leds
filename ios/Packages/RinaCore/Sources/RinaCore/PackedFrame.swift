@@ -22,12 +22,6 @@ public struct PackedFrame: Equatable, Hashable, Sendable {
         guard validate() else { return nil }
     }
 
-    /// Creates a frame from raw bytes without validating (use sparingly, e.g.
-    /// while decoding data that will be validated right after).
-    public init(unsafeBytes bytes: [UInt8]) {
-        precondition(bytes.count == Self.byteCount, "PackedFrame requires exactly 47 bytes")
-        self.bytes = bytes
-    }
 
     /// Creates a frame from an array of 370 booleans/ints (`0`/non-zero), the
     /// representation used by `saved_faces.json` (`frameBytes` int arrays are
@@ -141,4 +135,46 @@ public struct PackedFrame: Equatable, Hashable, Sendable {
     public init?(data: Data) {
         self.init(bytes: [UInt8](data))
     }
+
+    // MARK: Text parsing (shared by Faces/Debug packed-frame text I/O)
+
+    /// Parses `text` as one of the three accepted packed-frame text formats,
+    /// tried in order: 94-char hex, a 47-element JSON int array, or base64.
+    /// Strict: a JSON int array must have exactly `byteCount` elements, each
+    /// in `0...255` — out-of-range ints are rejected instead of silently
+    /// clamped.
+    public static func parse(text: String) throws -> PackedFrame {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw PackedFrameParseError.empty }
+        if let frame = PackedFrame(hex94: trimmed) { return frame }
+        if let data = trimmed.data(using: .utf8),
+           let ints = try? JSONDecoder().decode([Int].self, from: data) {
+            guard ints.count == Self.byteCount else {
+                throw PackedFrameParseError.wrongIntCount(ints.count)
+            }
+            var out = [UInt8]()
+            out.reserveCapacity(Self.byteCount)
+            for value in ints {
+                guard value >= 0, value <= 255 else {
+                    throw PackedFrameParseError.intOutOfRange(value)
+                }
+                out.append(UInt8(value))
+            }
+            guard let frame = PackedFrame(bytes: out) else {
+                throw PackedFrameParseError.invalidFormat
+            }
+            return frame
+        }
+        if let frame = PackedFrame(base64: trimmed) { return frame }
+        throw PackedFrameParseError.invalidFormat
+    }
+}
+
+/// Errors from `PackedFrame.parse(text:)`.
+public enum PackedFrameParseError: Error, Sendable, Equatable {
+    case empty
+    /// A recognizable format (hex/base64) but the tail-bit invariant failed.
+    case invalidFormat
+    case wrongIntCount(Int)
+    case intOutOfRange(Int)
 }

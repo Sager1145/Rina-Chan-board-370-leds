@@ -27,8 +27,12 @@ public enum RinaLinkEncoder {
     /// split by the caller into multiple `BLOB_CHUNK` messages; this function
     /// does not itself slice.
     public static func encode(_ frame: RinaLinkFrame) -> Data {
+        precondition(
+            frame.payload.count <= RinaLinkFrameConstants.maxPayloadBytes,
+            "RinaLinkEncoder.encode: payload (\(frame.payload.count) bytes) exceeds maxPayloadBytes (\(RinaLinkFrameConstants.maxPayloadBytes)); caller must slice into BLOB_CHUNK messages first"
+        )
         var out = Data(capacity: RinaLinkFrameConstants.headerBytes + frame.payload.count)
-        let length = UInt16(clamping: frame.payload.count)
+        let length = UInt16(frame.payload.count)
         out.append(RinaLinkFrameConstants.magic)
         out.append(frame.type)
         out.append(frame.seq)

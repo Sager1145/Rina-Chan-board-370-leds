@@ -45,6 +45,10 @@ public enum RinaCommand: Sendable {
     case wifiSetMode(mode: String)
     case wifiConnect
     case wifiSetAp(ssid: String, password: String)
+    // iPhone Personal Hotspot profile (RINALINK_PROTOCOL_V1 §8): a second
+    // station credential set the board tries when `home` isn't visible.
+    case wifiSetHotspotCredentials(ssid: String, password: String)
+    case wifiClearHotspotCredentials
     // Incremental saved-face commands (RINALINK_PROTOCOL_V1 §7.2), replacing
     // whole-document `BLOB kind:"faces"` re-uploads for everyday edits.
     case faceRename(id: String, name: String)
@@ -85,6 +89,8 @@ public enum RinaCommand: Sendable {
         case .wifiSetMode: return "wifi_set_mode"
         case .wifiConnect: return "wifi_connect"
         case .wifiSetAp: return "wifi_set_ap"
+        case .wifiSetHotspotCredentials: return "wifi_set_hotspot_credentials"
+        case .wifiClearHotspotCredentials: return "wifi_clear_hotspot_credentials"
         case .faceRename: return "face_rename"
         case .faceReorder: return "face_reorder"
         case .faceDelete: return "face_delete"
@@ -115,7 +121,8 @@ public enum RinaCommand: Sendable {
         case .scrollStep(let direction):
             fields["direction"] = direction
         case .pauseScroll, .resumeScroll, .pause, .resume, .resetBatteryMin, .resetBatteryMax,
-             .reboot, .getInfo, .wifiStatus, .wifiScan, .wifiScanResult, .wifiClearCredentials, .wifiConnect:
+             .reboot, .getInfo, .wifiStatus, .wifiScan, .wifiScanResult, .wifiClearCredentials, .wifiConnect,
+             .wifiClearHotspotCredentials:
             break
         case .logSubscribe(let on):
             fields["on"] = on
@@ -143,6 +150,9 @@ public enum RinaCommand: Sendable {
         case .wifiSetMode(let mode):
             fields["mode"] = mode
         case .wifiSetAp(let ssid, let password):
+            fields["ssid"] = ssid
+            fields["password"] = password
+        case .wifiSetHotspotCredentials(let ssid, let password):
             fields["ssid"] = ssid
             fields["password"] = password
         case .faceRename(let id, let name):

@@ -17,7 +17,6 @@ public enum BoardEvent: Sendable {
     case power(PowerStatus)
     case wifi(WifiStatus)
     case wifiScan(WifiScanReply)
-    case raw(RinaLinkFrame)
 }
 
 /// Owns the single active `RinaTransport`, decodes/encodes RinaLink frames,
@@ -50,6 +49,10 @@ public final class BoardConnection {
     private let decoder = RinaLinkDecoder()
     private var nextSeq: UInt8 = 1
     private var pending: [UInt8: PendingRequest] = [:]
+    /// Seqs that just timed out, kept out of circulation for 2s so a reply
+    /// that finally arrives after the timeout can't be delivered to a
+    /// different (reused) request that happens to land on the same seq.
+    private var quarantinedSeqs: Set<UInt8> = []
     private var incomingTask: Task<Void, Never>?
     private var stateTask: Task<Void, Never>?
     private var pingTask: Task<Void, Never>?
@@ -64,6 +67,11 @@ public final class BoardConnection {
 
     private struct PendingRequest {
         let replyType: UInt8
+        /// When false (GET_FACES), a terminal frame resolves the request
+        /// immediately regardless of `FLAG_MORE` — for that message `MORE`
+        /// means "call again with a higher offset", not "more chunks of this
+        /// same reply are coming on this seq" (A1).
+        let aggregateMore: Bool
         var accumulated = Data()
         let continuation: CheckedContinuation<RinaLinkFrame, Error>
         let timeoutTask: Task<Void, Never>
@@ -73,13 +81,20 @@ public final class BoardConnection {
 
     // MARK: Connection lifecycle
 
-    public func connect(using transport: RinaTransport) async {
+    /// Swaps in `transport` as the active transport and connects it. Returns
+    /// `true` once `connectionState == .connected`, `false` on failure — kept
+    /// `@discardableResult` so existing call sites that only poll
+    /// `connectionState` afterwards keep working unmodified.
+    @discardableResult
+    public func connect(using transport: RinaTransport) async -> Bool {
         reconnectTask?.cancel()
         pingTask?.cancel()
-        // H6: tear down any previous transport/tasks before swapping in the new one.
-        self.transport?.disconnect()
+        // A5: cancel the old state/incoming tasks *before* disconnecting the
+        // old transport, so a stray state/incoming event emitted synchronously
+        // from `disconnect()` can't race the new transport's setup below.
         stateTask?.cancel()
         incomingTask?.cancel()
+        self.transport?.disconnect()
         failAllPending(RinaTransportError.cancelled)
 
         self.transport = transport
@@ -104,12 +119,18 @@ public final class BoardConnection {
         do {
             try await transport.connect()
             reconnectAttempts = 0
+            // A5: set the terminal state explicitly instead of waiting for the
+            // transport's own state stream to catch up, so callers awaiting
+            // `connect(using:)` never observe a stale `.connecting` state.
+            connectionState = .connected
             startPingLoopIfNeeded()
             // Make the default event subscriptions explicit rather than relying
             // on firmware defaults.
             _ = try? await command(.subscribe(preview: true, status: true, power: true, log: false))
+            return true
         } catch {
             connectionState = .failed(String(describing: error))
+            return false
         }
     }
 
@@ -193,8 +214,30 @@ public final class BoardConnection {
     /// an independent stream; the underlying continuation is removed when
     /// that stream's consumer stops iterating.
     public func events() -> AsyncStream<BoardEvent> {
+        subscribeEvents().stream
+    }
+
+    /// Like `events()`, but also returns the subscription id (see
+    /// `subscribeEvents()`) so a caller that subscribes *before* sending a
+    /// command (to avoid racing a fast reply/event) can explicitly
+    /// `unsubscribe(_:)` once done, instead of relying on stream iteration
+    /// termination to clean up.
+    public func subscribeToEvents() -> (id: UUID, stream: AsyncStream<BoardEvent>) {
+        subscribeEvents()
+    }
+
+    /// Explicitly tears down a subscription created by `subscribeToEvents()`.
+    public func unsubscribe(_ id: UUID) {
+        eventContinuations.removeValue(forKey: id)
+    }
+
+    /// Like `events()`, but also returns the subscription id so a caller that
+    /// might never actually iterate the stream (e.g. `wifiScan()`'s
+    /// synchronous-reply fast path) can unsubscribe explicitly (A6) instead of
+    /// leaking the continuation in `eventContinuations` forever.
+    private func subscribeEvents() -> (id: UUID, stream: AsyncStream<BoardEvent>) {
         let id = UUID()
-        return AsyncStream { continuation in
+        let stream = AsyncStream<BoardEvent> { continuation in
             eventContinuations[id] = continuation
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor [weak self] in
@@ -202,6 +245,7 @@ public final class BoardConnection {
                 }
             }
         }
+        return (id, stream)
     }
 
     private func emit(_ event: BoardEvent) {
@@ -264,12 +308,18 @@ public final class BoardConnection {
             }
         }
 
-        // Reply matching by seq, aggregating MORE-flagged chunks.
+        // A1/quarantine: a reply for a seq we already gave up on (timed out)
+        // must not be delivered to a different, newer request that happens to
+        // have been assigned the same (reused) seq.
+        guard !quarantinedSeqs.contains(frame.seq) else { return }
+
+        // Reply matching by seq, aggregating MORE-flagged chunks only for
+        // requests that opted into aggregation (`aggregateMore == true`).
         guard var request = pending[frame.seq], frame.type == request.replyType || frame.isError else {
             return
         }
         request.accumulated.append(frame.payload)
-        if frame.isMore {
+        if request.aggregateMore, frame.isMore {
             pending[frame.seq] = request
             return
         }
@@ -297,11 +347,12 @@ public final class BoardConnection {
     // MARK: Low-level request/response
 
     private func nextSequenceNumber() -> UInt8 {
-        // Skip seq values still awaiting a reply so a wraparound can't collide
-        // with an in-flight request.
+        // Skip seq values still awaiting a reply, or still quarantined from a
+        // recent timeout, so a wraparound can't collide with an in-flight (or
+        // still-possibly-replying) request.
         var candidate = nextSeq
         var attempts = 0
-        while pending[candidate] != nil, attempts < 255 {
+        while pending[candidate] != nil || quarantinedSeqs.contains(candidate), attempts < 255 {
             candidate = candidate == 255 ? 1 : candidate + 1
             attempts += 1
         }
@@ -309,8 +360,21 @@ public final class BoardConnection {
         return candidate
     }
 
-    /// Sends one framed request and awaits its (possibly chunked) reply.
-    public func send(type: RinaLinkMessageType, payload: Data, timeout: TimeInterval = 5) async throws -> RinaLinkFrame {
+    private func quarantine(_ seq: UInt8) {
+        quarantinedSeqs.insert(seq)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            self?.quarantinedSeqs.remove(seq)
+        }
+    }
+
+    /// Sends one framed request and awaits its reply. `aggregateMore: true`
+    /// (the default) treats `FLAG_MORE` on the terminal frame as "more chunks
+    /// of this same reply follow on this seq" and keeps waiting; pass `false`
+    /// for messages (e.g. `GET_FACES`) where `FLAG_MORE` instead means "call
+    /// again with an updated offset" — the request resolves on the first
+    /// frame either way (A1).
+    public func send(type: RinaLinkMessageType, payload: Data, timeout: TimeInterval = 5, aggregateMore: Bool = true) async throws -> RinaLinkFrame {
         guard let transport else { throw RinaTransportError.notConnected }
         let seq = nextSequenceNumber()
         let data = RinaLinkEncoder.encode(type: type, seq: seq, payload: payload)
@@ -320,10 +384,11 @@ public final class BoardConnection {
                 try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 guard !Task.isCancelled, let self else { return }
                 if let request = self.pending.removeValue(forKey: seq) {
+                    self.quarantine(seq)
                     request.continuation.resume(throwing: RinaTransportError.timeout)
                 }
             }
-            pending[seq] = PendingRequest(replyType: type.replyType, continuation: continuation, timeoutTask: timeoutTask)
+            pending[seq] = PendingRequest(replyType: type.replyType, aggregateMore: aggregateMore, continuation: continuation, timeoutTask: timeoutTask)
             Task {
                 do {
                     try await transport.send(data)
@@ -402,7 +467,10 @@ public final class BoardConnection {
             if let gen { payloadDict["gen"] = gen }
             let payload = try JSONSerialization.data(withJSONObject: payloadDict)
             do {
-                let frame = try await send(type: .getFaces, payload: payload)
+                // A1: each GET_FACES request/reply is its own one-frame
+                // round-trip; FLAG_MORE on the terminal frame means "call
+                // again with a higher offset", not "more frames on this seq".
+                let frame = try await send(type: .getFaces, payload: payload, aggregateMore: false)
                 guard frame.payload.count >= 4 else { break }
                 let genBytes = [UInt8](frame.payload.prefix(4))
                 let frameGen = UInt32(genBytes[0])
@@ -433,7 +501,6 @@ public final class BoardConnection {
         kind: BlobKind,
         meta: [String: Any],
         data: Data,
-        chunkFrames: Int? = nil,
         onProgress: ((Double) -> Void)? = nil
     ) async throws -> Data {
         var beginMeta = meta
@@ -444,19 +511,44 @@ public final class BoardConnection {
         let begin = try JSONDecoder().decode(BlobBeginReply.self, from: beginFrame.payload)
 
         var offset = begin.offset ?? 0
-        let rawChunkMax = (begin.chunkMax ?? 0) > 0 ? (begin.chunkMax ?? 0) : RinaLinkConstants.blobChunkMaxTCP
+        var rawChunkMax = (begin.chunkMax ?? 0) > 0 ? (begin.chunkMax ?? 0) : RinaLinkConstants.blobChunkMaxTCP
+        // Use the transport's own preferred chunk size (MTU-derived for BLE)
+        // when it's smaller than what the board offered.
+        if let preferred = transport?.preferredChunkBytes, preferred > 0 {
+            rawChunkMax = min(rawChunkMax, preferred)
+        }
         // Leave room for the 4-byte offset header prepended to each chunk payload.
-        let chunkMax = min(rawChunkMax, RinaLinkConstants.maxPayloadBytes - 4)
+        var chunkMax = min(rawChunkMax, RinaLinkConstants.maxPayloadBytes - 4)
+        if kind == .scroll {
+            // A2: raw-frame scroll chunks must land on PackedFrame boundaries
+            // so the firmware never sees a partial 47-byte frame.
+            let aligned = (chunkMax / PackedFrame.byteCount) * PackedFrame.byteCount
+            chunkMax = aligned > 0 ? aligned : PackedFrame.byteCount
+        }
+        var didResync = false
         while offset < data.count {
             let end = min(offset + chunkMax, data.count)
             var chunkPayload = Data()
             var offsetLE = UInt32(offset).littleEndian
             withUnsafeBytes(of: &offsetLE) { chunkPayload.append(contentsOf: $0) }
             chunkPayload.append(data.subdata(in: offset..<end))
-            let chunkFrame = try await send(type: .blobChunk, payload: chunkPayload)
-            let chunkReply = try JSONDecoder().decode(BlobChunkReply.self, from: chunkFrame.payload)
-            offset = chunkReply.offset ?? end
-            onProgress?(Double(offset) / Double(max(1, data.count)))
+            do {
+                let chunkFrame = try await send(type: .blobChunk, payload: chunkPayload)
+                let chunkReply = try JSONDecoder().decode(BlobChunkReply.self, from: chunkFrame.payload)
+                let newOffset = chunkReply.offset ?? end
+                guard newOffset > offset else {
+                    throw RinaTransportError.invalidResponse
+                }
+                offset = newOffset
+                onProgress?(Double(offset) / Double(max(1, data.count)))
+            } catch let error as RinaLinkError {
+                if error.code == 400, !didResync, let expected = error.expectedOffset {
+                    didResync = true
+                    offset = expected
+                    continue
+                }
+                throw error
+            }
         }
 
         let endMeta: [String: Any] = (kind == .scroll || kind == .scrollBitmap) ? ["start": true] : [:]
@@ -589,7 +681,12 @@ public final class BoardConnection {
     /// race the subscription.
     @discardableResult
     public func wifiScan() async throws -> WifiScanReply {
-        let stream = events()
+        let (subID, stream) = subscribeEvents()
+        // A6: guarantee the subscription is torn down on every exit path
+        // (synchronous reply, timeout, or an EV_WIFI_SCAN match) — otherwise
+        // the synchronous-reply fast path below would leak the continuation
+        // in `eventContinuations` forever (it's never iterated in that case).
+        defer { eventContinuations.removeValue(forKey: subID) }
         let decoded = try await commandPump.run {
             let payload = try RinaCommand.wifiScan.encode()
             let frame = try await self.send(type: .cmd, payload: payload)
@@ -671,6 +768,7 @@ private actor RatePump {
     private var isBusy = false
 
     private struct QueueEntry {
+        let id: UUID
         let continuation: CheckedContinuation<Void, Error>
     }
 
@@ -691,15 +789,30 @@ private actor RatePump {
         }
     }
 
+    /// Honours cancellation of the calling `Task` while an operation is still
+    /// queued (not yet started): the entry is pulled from the queue and its
+    /// continuation resumed with `CancellationError` instead of eventually
+    /// running the (now-pointless) operation.
     private func waitForTurn() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            queue.append(QueueEntry(continuation: continuation))
-            while queue.count > depth {
-                let dropped = queue.removeFirst()
-                dropped.continuation.resume(throwing: RatePumpError.dropped)
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                queue.append(QueueEntry(id: id, continuation: continuation))
+                while queue.count > depth {
+                    let dropped = queue.removeFirst()
+                    dropped.continuation.resume(throwing: RatePumpError.dropped)
+                }
+                drainIfNeeded()
             }
-            drainIfNeeded()
+        } onCancel: {
+            Task { await self.cancelQueued(id) }
         }
+    }
+
+    private func cancelQueued(_ id: UUID) {
+        guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
+        let entry = queue.remove(at: index)
+        entry.continuation.resume(throwing: CancellationError())
     }
 
     private func finishTurn() {

@@ -35,7 +35,10 @@ public final class BoardStore {
 
     private func load() {
         guard let data = defaults.data(forKey: Self.defaultsKey) else { return }
-        boards = (try? JSONDecoder().decode([KnownBoard].self, from: data)) ?? []
+        // Keep the existing in-memory list (and the persisted key) untouched
+        // on decode failure instead of silently wiping known boards.
+        guard let decoded = try? JSONDecoder().decode([KnownBoard].self, from: data) else { return }
+        boards = decoded
     }
 
     private func persist() {
@@ -52,11 +55,6 @@ public final class BoardStore {
         persist()
     }
 
-    public func setPreferredTransport(_ transport: String, forBoardId id: String) {
-        guard let index = boards.firstIndex(where: { $0.id == id }) else { return }
-        boards[index].preferredTransport = transport
-        persist()
-    }
 
     public func remove(id: String) {
         boards.removeAll { $0.id == id }

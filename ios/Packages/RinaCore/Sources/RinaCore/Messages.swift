@@ -353,10 +353,19 @@ public struct WifiStatus: Codable, Equatable, Sendable {
     public var hostname: String?
     public var tcpPort: Int?
     public var clients: Int?
+    // iPhone Personal Hotspot profile (RINALINK_PROTOCOL_V1 §8): the board
+    // keeps two station credential sets (`home`/`hotspot`) and reports which
+    // one is currently associated, plus whether a background scan is pending.
+    public var homeSsid: String?
+    public var hotspotSsid: String?
+    public var activeProfile: String?
+    public var scanPending: Bool?
 
     public init(ok: Bool? = nil, mode: String? = nil, staConnected: Bool? = nil, ssid: String? = nil,
                 ip: String? = nil, rssi: Int? = nil, apActive: Bool? = nil, apSsid: String? = nil,
-                apIp: String? = nil, hostname: String? = nil, tcpPort: Int? = nil, clients: Int? = nil) {
+                apIp: String? = nil, hostname: String? = nil, tcpPort: Int? = nil, clients: Int? = nil,
+                homeSsid: String? = nil, hotspotSsid: String? = nil, activeProfile: String? = nil,
+                scanPending: Bool? = nil) {
         self.ok = ok
         self.mode = mode
         self.staConnected = staConnected
@@ -369,6 +378,10 @@ public struct WifiStatus: Codable, Equatable, Sendable {
         self.hostname = hostname
         self.tcpPort = tcpPort
         self.clients = clients
+        self.homeSsid = homeSsid
+        self.hotspotSsid = hotspotSsid
+        self.activeProfile = activeProfile
+        self.scanPending = scanPending
     }
 }
 
@@ -717,20 +730,6 @@ public struct FaceOpReply: Codable, Equatable, Sendable {
     }
 }
 
-/// Reply to `BLOB_END` for `kind: "faces"`.
-public struct FacesUploadReply: Codable, Equatable, Sendable {
-    public var ok: Bool?
-    public var v: Int?
-    public var path: String?
-    public var bytes: Int?
-
-    public init(ok: Bool? = nil, v: Int? = nil, path: String? = nil, bytes: Int? = nil) {
-        self.ok = ok
-        self.v = v
-        self.path = path
-        self.bytes = bytes
-    }
-}
 
 // MARK: - `CMD get_info` (`handleGetInfo()`)
 

@@ -5,11 +5,15 @@ public struct RinaLinkError: Error, Codable, Equatable, Sendable {
     public let ok: Bool
     public let error: String
     public let code: Int?
+    /// Present on some 400 "unexpected chunk offset" replies so the caller
+    /// can resync a `BLOB_CHUNK` upload instead of aborting it outright.
+    public let expectedOffset: Int?
 
-    public init(ok: Bool = false, error: String, code: Int? = nil) {
+    public init(ok: Bool = false, error: String, code: Int? = nil, expectedOffset: Int? = nil) {
         self.ok = ok
         self.error = error
         self.code = code
+        self.expectedOffset = expectedOffset
     }
 }
 

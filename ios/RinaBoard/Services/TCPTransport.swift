@@ -14,6 +14,12 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
     private var connection: NWConnection?
     private let queue = DispatchQueue(label: "com.rinachan.board.tcp")
 
+    // A4: `connection`/the continuation dictionaries are written from both
+    // the caller's context (`connect()`/`send()`/`disconnect()`) and from
+    // `NWConnection`'s own callback queue (`queue`) — guard every access with
+    // this lock instead of relying on both sides happening to agree on a
+    // queue.
+    private let stateLock = NSLock()
     private var stateContinuations: [UUID: AsyncStream<TransportState>.Continuation] = [:]
     private var incomingContinuations: [UUID: AsyncStream<Data>.Continuation] = [:]
 
@@ -38,9 +44,9 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
     public func stateStream() -> AsyncStream<TransportState> {
         let id = UUID()
         return AsyncStream { continuation in
-            self.stateContinuations[id] = continuation
+            self.stateLock.withLock { self.stateContinuations[id] = continuation }
             continuation.onTermination = { [weak self] _ in
-                self?.stateContinuations.removeValue(forKey: id)
+                self?.stateLock.withLock { self?.stateContinuations.removeValue(forKey: id) }
             }
         }
     }
@@ -48,31 +54,40 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
     public func incomingStream() -> AsyncStream<Data> {
         let id = UUID()
         return AsyncStream { continuation in
-            self.incomingContinuations[id] = continuation
+            self.stateLock.withLock { self.incomingContinuations[id] = continuation }
             continuation.onTermination = { [weak self] _ in
-                self?.incomingContinuations.removeValue(forKey: id)
+                self?.stateLock.withLock { self?.incomingContinuations.removeValue(forKey: id) }
             }
         }
     }
 
     private func emitState(_ state: TransportState) {
-        for continuation in stateContinuations.values { continuation.yield(state) }
+        let continuations = stateLock.withLock { Array(stateContinuations.values) }
+        for continuation in continuations { continuation.yield(state) }
     }
 
     private func emitIncoming(_ data: Data) {
-        for continuation in incomingContinuations.values { continuation.yield(data) }
+        let continuations = stateLock.withLock { Array(incomingContinuations.values) }
+        for continuation in continuations { continuation.yield(data) }
     }
 
     public func connect() async throws {
-        // H6: cancel any previous connection before reassigning.
-        connection?.cancel()
-        connection = nil
+        // H6: cancel any previous connection before reassigning. Clear its
+        // stateUpdateHandler first so a stale callback can't fire after this
+        // connection has already been superseded.
+        let previous = stateLock.withLock { () -> NWConnection? in
+            let existing = self.connection
+            self.connection = nil
+            return existing
+        }
+        previous?.stateUpdateHandler = nil
+        previous?.cancel()
 
         emitState(.connecting)
         let params = NWParameters.tcp
         let resolvedEndpoint = endpoint ?? .hostPort(host: .init(host), port: .init(rawValue: port)!)
         let connection = NWConnection(to: resolvedEndpoint, using: params)
-        self.connection = connection
+        stateLock.withLock { self.connection = connection }
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             var resumed = false
@@ -107,13 +122,20 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
     }
 
     public func disconnect() {
-        connection?.cancel()
-        connection = nil
+        let previous = stateLock.withLock { () -> NWConnection? in
+            let existing = self.connection
+            self.connection = nil
+            return existing
+        }
+        previous?.stateUpdateHandler = nil
+        previous?.cancel()
         emitState(.disconnected)
     }
 
+    private var currentConnection: NWConnection? { stateLock.withLock { connection } }
+
     public func send(_ data: Data) async throws {
-        guard let connection else { throw RinaTransportError.notConnected }
+        guard let connection = currentConnection else { throw RinaTransportError.notConnected }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
                 if let error {
@@ -126,7 +148,7 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
     }
 
     private func receiveLoop() {
-        connection?.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+        currentConnection?.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             guard let self else { return }
             if let data, !data.isEmpty {
                 self.emitIncoming(data)

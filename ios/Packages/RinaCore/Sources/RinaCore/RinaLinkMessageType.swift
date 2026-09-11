@@ -35,8 +35,6 @@ public enum RinaLinkMessageType: UInt8, Sendable {
     /// The reply type byte for a request type: `type | 0x80`.
     public var replyType: UInt8 { rawValue | 0x80 }
 
-    /// True if `raw` is `self`'s reply type (`self | 0x80`).
-    public func isReply(_ raw: UInt8) -> Bool { raw == replyType }
 }
 
 public enum RinaLinkFrameConstants {

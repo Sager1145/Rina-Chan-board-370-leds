@@ -70,6 +70,21 @@ final class RinaCommandTests: XCTestCase {
         XCTAssertNil(face?["id"])
     }
 
+    func testWifiSetHotspotCredentialsEncodesSsidAndPassword() throws {
+        let data = try RinaCommand.wifiSetHotspotCredentials(ssid: "iPhone", password: "hunter2").encode()
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(obj?["cmd"] as? String, "wifi_set_hotspot_credentials")
+        XCTAssertEqual(obj?["ssid"] as? String, "iPhone")
+        XCTAssertEqual(obj?["password"] as? String, "hunter2")
+    }
+
+    func testWifiClearHotspotCredentialsOnlyHasCmdField() throws {
+        let data = try RinaCommand.wifiClearHotspotCredentials.encode()
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(obj?.count, 1)
+        XCTAssertEqual(obj?["cmd"] as? String, "wifi_clear_hotspot_credentials")
+    }
+
     func testFacesClearUserOnlyHasCmdField() throws {
         let data = try RinaCommand.facesClearUser.encode()
         let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]

@@ -88,4 +88,57 @@ final class PackedFrameTests: XCTestCase {
         XCTAssertTrue(a[1])
         XCTAssertTrue(a[2])
     }
+
+    // MARK: parse(text:)
+
+    func testParseHex94() throws {
+        var frame = PackedFrame()
+        frame.set(5)
+        let parsed = try PackedFrame.parse(text: "  \(frame.hex94)  ")
+        XCTAssertEqual(parsed, frame)
+    }
+
+    func testParseBase64() throws {
+        var frame = PackedFrame()
+        frame.set(10)
+        let parsed = try PackedFrame.parse(text: frame.base64)
+        XCTAssertEqual(parsed, frame)
+    }
+
+    func testParseIntArray() throws {
+        var frame = PackedFrame()
+        frame.set(1)
+        let ints = frame.bytes.map { Int($0) }
+        let json = "[\(ints.map(String.init).joined(separator: ","))]"
+        let parsed = try PackedFrame.parse(text: json)
+        XCTAssertEqual(parsed, frame)
+    }
+
+    func testParseEmptyThrows() {
+        XCTAssertThrowsError(try PackedFrame.parse(text: "   ")) { error in
+            XCTAssertEqual(error as? PackedFrameParseError, .empty)
+        }
+    }
+
+    func testParseWrongIntCountThrows() {
+        let json = "[" + Array(repeating: "0", count: 10).joined(separator: ",") + "]"
+        XCTAssertThrowsError(try PackedFrame.parse(text: json)) { error in
+            XCTAssertEqual(error as? PackedFrameParseError, .wrongIntCount(10))
+        }
+    }
+
+    func testParseOutOfRangeIntThrows() {
+        var ints = [Int](repeating: 0, count: PackedFrame.byteCount)
+        ints[0] = 999
+        let json = "[\(ints.map(String.init).joined(separator: ","))]"
+        XCTAssertThrowsError(try PackedFrame.parse(text: json)) { error in
+            XCTAssertEqual(error as? PackedFrameParseError, .intOutOfRange(999))
+        }
+    }
+
+    func testParseGarbageThrowsInvalidFormat() {
+        XCTAssertThrowsError(try PackedFrame.parse(text: "not a frame")) { error in
+            XCTAssertEqual(error as? PackedFrameParseError, .invalidFormat)
+        }
+    }
 }

@@ -73,7 +73,6 @@ public struct ScrollPreviewController {
     private var userFps: Double
 
     private var hwSamples: [RateSample] = []
-    private var hwLastSeq: Int = 0
     private var ignoreRateUntilSeq: Int = 0
 
     private var previewSpeedMultiplier: Double = 1
@@ -101,7 +100,6 @@ public struct ScrollPreviewController {
         phaseError = 0
         lockState = .free
         hwSamples.removeAll()
-        hwLastSeq = 0
         ignoreRateUntilSeq = 0
         previewSpeedMultiplier = 1
         previewTargetSpeedMultiplier = 1
@@ -168,7 +166,6 @@ public struct ScrollPreviewController {
                 applyMeasuredFps(fps)
             }
         }
-        hwLastSeq = seq
         return .ok
     }
 
