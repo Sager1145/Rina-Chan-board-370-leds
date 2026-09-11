@@ -1,436 +1,10 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
-    "控制": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Control"
-          }
-        }
-      }
-    },
-    "表情": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Faces"
-          }
-        }
-      }
-    },
-    "调试": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Debug"
-          }
-        }
-      }
-    },
-    "连接": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connect"
-          }
-        }
-      }
-    },
-    "状态": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Status"
-          }
-        }
-      }
-    },
-    "传输方式": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transport"
-          }
-        }
-      }
-    },
-    "帧率": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Frame rate"
-          }
-        }
-      }
-    },
-    "IP": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "IP"
-          }
-        }
-      }
-    },
-    "信号强度": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Signal"
-          }
-        }
-      }
-    },
-    "在线": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Online"
-          }
-        }
-      }
-    },
-    "离线": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline"
-          }
-        }
-      }
-    },
-    "断开": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disconnect"
-          }
-        }
-      }
-    },
-    "蓝牙": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bluetooth"
-          }
-        }
-      }
-    },
-    "扫描附近的璃奈板": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scan for nearby boards"
-          }
-        }
-      }
-    },
-    "家庭 Wi-Fi": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Home Wi-Fi"
-          }
-        }
-      }
-    },
-    "手动输入主机名或 IP": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enter host or IP manually"
-          }
-        }
-      }
-    },
-    "热点直连": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Direct Hotspot"
-          }
-        }
-      }
-    },
-    "加入璃奈板热点并连接": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Join board hotspot and connect"
-          }
-        }
-      }
-    },
-    "切换到 Wi-Fi": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Switch to Wi-Fi"
-          }
-        }
-      }
-    },
-    "板载 Wi-Fi 设置": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Board Wi-Fi Settings"
-          }
-        }
-      }
-    },
-    "模式": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mode"
-          }
-        }
-      }
-    },
-    "关闭": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Off"
-          }
-        }
-      }
-    },
-    "仅热点": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hotspot only"
-          }
-        }
-      }
-    },
-    "家庭 Wi-Fi + 热点备用": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Home Wi-Fi + hotspot fallback"
-          }
-        }
-      }
-    },
-    "扫描网络": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scan networks"
-          }
-        }
-      }
-    },
-    "已连接网络": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connected network"
-          }
-        }
-      }
-    },
-    "无": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "None"
-          }
-        }
-      }
-    },
-    "信号": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Signal"
-          }
-        }
-      }
-    },
-    "热点状态": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hotspot status"
-          }
-        }
-      }
-    },
-    "开启": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "On"
-          }
-        }
-      }
-    },
-    "热点名称": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hotspot name"
-          }
-        }
-      }
-    },
-    "热点 IP": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hotspot IP"
-          }
-        }
-      }
-    },
-    "忘记网络": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forget network"
-          }
-        }
-      }
-    },
-    "热点名称与密码": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hotspot name & password"
-          }
-        }
-      }
-    },
-    "SSID": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSID"
-          }
-        }
-      }
-    },
-    "密码 (留空为开放网络)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Password (leave blank for open network)"
-          }
-        }
-      }
-    },
-    "保存": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Save"
-          }
-        }
-      }
-    },
-    "连接网络": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connect to Network"
-          }
-        }
-      }
-    },
-    "取消": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancel"
-          }
-        }
-      }
-    },
-    "密码": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Password"
-          }
-        }
-      }
-    },
-    "开放网络，无需密码": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open network, no password needed"
-          }
-        }
-      }
-    },
-    "出错了": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Something went wrong"
-          }
-        }
-      }
-    },
-    "好": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK"
-          }
-        }
-      }
-    },
+    "": {},
+    "#RRGGBB": {},
+    "%lld": {},
+    "%lld dBm": {},
     "%lld 字节": {
       "localizations": {
         "en": {
@@ -441,6 +15,7 @@
         }
       }
     },
+    "%lld%%": {},
     "%lld/1000 字符": {
       "localizations": {
         "en": {
@@ -451,6 +26,21 @@
         }
       }
     },
+    "+0.5": {},
+    "+5": {},
+    "+8": {},
+    "0-4095": {},
+    "1. 打开 设置 › 个人热点 并开启「允许其他人加入」\n2. 在下方填写热点名称与密码\n3. 点击发送": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Open Settings › Personal Hotspot and turn on “Allow Others to Join”\n2. Enter the hotspot name and password below\n3. Tap Send"
+          }
+        }
+      }
+    },
+    "3.3": {},
     "47字节帧的十六进制": {
       "localizations": {
         "en": {
@@ -481,6 +71,18 @@
         }
       }
     },
+    "IP": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP"
+          }
+        }
+      }
+    },
+    "JSON 无效": {},
+    "JSON 有效": {},
     "LED 后端": {
       "localizations": {
         "en": {
@@ -491,6 +93,11 @@
         }
       }
     },
+    "LED 矩阵，%lld 颗点亮": {},
+    "LOADING": {},
+    "PING": {},
+    "PLL: %@": {},
+    "PSRAM": {},
     "Packed Frame (94位十六进制)": {
       "localizations": {
         "en": {
@@ -501,12 +108,45 @@
         }
       }
     },
+    "SSID": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSID"
+          }
+        }
+      }
+    },
+    "iPhone 热点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone Hotspot"
+          }
+        }
+      }
+    },
+    "−0.5": {},
+    "−5": {},
+    "−8": {},
     "亮度": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Brightness"
+          }
+        }
+      }
+    },
+    "仅热点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hotspot only"
           }
         }
       }
@@ -531,12 +171,32 @@
         }
       }
     },
+    "传输方式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transport"
+          }
+        }
+      }
+    },
     "估算功耗": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Estimated power"
+          }
+        }
+      }
+    },
+    "估算功耗 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimated power %@"
           }
         }
       }
@@ -557,6 +217,37 @@
           "stringUnit": {
             "state": "translated",
             "value": "Low voltage and no external power"
+          }
+        }
+      }
+    },
+    "保存": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        }
+      }
+    },
+    "保存为新表情": {},
+    "信号": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signal"
+          }
+        }
+      }
+    },
+    "信号强度": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signal"
           }
         }
       }
@@ -611,12 +302,44 @@
         }
       }
     },
+    "关闭": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        }
+      }
+    },
+    "出错了": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong"
+          }
+        }
+      }
+    },
     "分享": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Share"
+          }
+        }
+      }
+    },
+    "切换为手动": {},
+    "切换为自动": {},
+    "切换到 Wi-Fi": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to Wi-Fi"
           }
         }
       }
@@ -667,6 +390,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Refresh duration"
+          }
+        }
+      }
+    },
+    "加入璃奈板热点并连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Join board hotspot and connect"
           }
         }
       }
@@ -741,6 +474,16 @@
         }
       }
     },
+    "发送到板子并连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send to board and connect"
+          }
+        }
+      }
+    },
     "发送到设备": {
       "localizations": {
         "en": {
@@ -757,6 +500,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Send to panel"
+          }
+        }
+      }
+    },
+    "取消": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
           }
         }
       }
@@ -831,6 +584,16 @@
         }
       }
     },
+    "在线": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online"
+          }
+        }
+      }
+    },
     "堆内存": {
       "localizations": {
         "en": {
@@ -871,6 +634,17 @@
         }
       }
     },
+    "好": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "完成": {},
     "完整状态字段 (%lld)": {
       "localizations": {
         "en": {
@@ -897,6 +671,56 @@
           "stringUnit": {
             "state": "translated",
             "value": "Client count"
+          }
+        }
+      }
+    },
+    "家庭 Wi-Fi": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home Wi-Fi"
+          }
+        }
+      }
+    },
+    "家庭 Wi-Fi + 热点备用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home Wi-Fi + hotspot fallback"
+          }
+        }
+      }
+    },
+    "家庭网络": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home network"
+          }
+        }
+      }
+    },
+    "密码": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password"
+          }
+        }
+      }
+    },
+    "密码 (留空为开放网络)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password (leave blank for open network)"
           }
         }
       }
@@ -941,6 +765,26 @@
         }
       }
     },
+    "已连接网络": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected network"
+          }
+        }
+      }
+    },
+    "帧 %@/%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frame %@/%@"
+          }
+        }
+      }
+    },
     "帧 %lld/%lld": {
       "localizations": {
         "en": {
@@ -961,12 +805,74 @@
         }
       }
     },
+    "帧率": {
+      "extractionState": "stale",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frame rate"
+          }
+        }
+      }
+    },
+    "序号 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Order %@"
+          }
+        }
+      }
+    },
     "序号 %lld": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Order %lld"
+          }
+        }
+      }
+    },
+    "开启": {
+      "extractionState": "stale",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On"
+          }
+        }
+      }
+    },
+    "开放网络，无需密码": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open network, no password needed"
+          }
+        }
+      }
+    },
+    "当前使用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In use"
+          }
+        }
+      }
+    },
+    "忘记网络": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forget network"
           }
         }
       }
@@ -991,6 +897,47 @@
         }
       }
     },
+    "手动": {},
+    "手动输入主机名或 IP": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter host or IP manually"
+          }
+        }
+      }
+    },
+    "手机热点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone hotspot"
+          }
+        }
+      }
+    },
+    "扫描网络": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan networks"
+          }
+        }
+      }
+    },
+    "扫描附近的璃奈板": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan for nearby boards"
+          }
+        }
+      }
+    },
     "按键模拟": {
       "localizations": {
         "en": {
@@ -1001,12 +948,44 @@
         }
       }
     },
+    "排序": {},
+    "控制": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control"
+          }
+        }
+      }
+    },
     "播放: %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Playback: %@"
+          }
+        }
+      }
+    },
+    "断开": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect"
+          }
+        }
+      }
+    },
+    "无": {
+      "extractionState": "stale",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None"
           }
         }
       }
@@ -1051,6 +1030,17 @@
         }
       }
     },
+    "更新表情": {},
+    "有效帧 (%@ 颗点亮)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valid frame (%@ lit)"
+          }
+        }
+      }
+    },
     "有效帧 (%lld 颗点亮)": {
       "localizations": {
         "en": {
@@ -1061,12 +1051,32 @@
         }
       }
     },
+    "本地预览 · %@ 帧": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local preview · %@ frames"
+          }
+        }
+      }
+    },
     "本地预览 · %lld 帧": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Local preview · %lld frames"
+          }
+        }
+      }
+    },
+    "板载 Wi-Fi 设置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Board Wi-Fi Settings"
           }
         }
       }
@@ -1087,6 +1097,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Validate JSON"
+          }
+        }
+      }
+    },
+    "模式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode"
           }
         }
       }
@@ -1151,6 +1171,16 @@
         }
       }
     },
+    "清除": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear"
+          }
+        }
+      }
+    },
     "清除错误": {
       "localizations": {
         "en": {
@@ -1167,6 +1197,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scroll text"
+          }
+        }
+      }
+    },
+    "点亮 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lit %@"
           }
         }
       }
@@ -1191,12 +1231,82 @@
         }
       }
     },
+    "热点 IP": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hotspot IP"
+          }
+        }
+      }
+    },
+    "热点名称": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hotspot name"
+          }
+        }
+      }
+    },
+    "热点名称与密码": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hotspot name & password"
+          }
+        }
+      }
+    },
+    "热点状态": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hotspot status"
+          }
+        }
+      }
+    },
+    "热点直连": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct Hotspot"
+          }
+        }
+      }
+    },
+    "状态": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        }
+      }
+    },
     "状态: %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Status: %@"
+          }
+        }
+      }
+    },
+    "状态: %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status: %lld"
           }
         }
       }
@@ -1291,6 +1401,16 @@
         }
       }
     },
+    "离线": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline"
+          }
+        }
+      }
+    },
     "粘贴帧数据…": {
       "localizations": {
         "en": {
@@ -1341,6 +1461,7 @@
         }
       }
     },
+    "自动": {},
     "自动切换间隔": {
       "localizations": {
         "en": {
@@ -1357,6 +1478,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Get info"
+          }
+        }
+      }
+    },
+    "蓝牙": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bluetooth"
+          }
+        }
+      }
+    },
+    "表情": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faces"
           }
         }
       }
@@ -1431,12 +1572,42 @@
         }
       }
     },
+    "调试": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Debug"
+          }
+        }
+      }
+    },
     "输入 CLEAR 以确认": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Type CLEAR to confirm"
+          }
+        }
+      }
+    },
+    "连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        }
+      }
+    },
+    "连接网络": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to Network"
           }
         }
       }

@@ -8,21 +8,31 @@ struct RootView: View {
     @Environment(BootLoaderModel.self) private var bootLoader
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var didAutoReconnect = false
+    /// Selected tab. Defaults to Control; `-initialTab faces|debug|connect` (a launch
+    /// argument, read through UserDefaults) preselects a tab for automated simulator runs.
+    @State private var selectedTab: String = {
+        let raw = UserDefaults.standard.string(forKey: "initialTab") ?? "control"
+        return ["control", "faces", "debug", "connect"].contains(raw) ? raw : "control"
+    }()
 
     var body: some View {
         ZStack {
-            TabView {
+            TabView(selection: $selectedTab) {
                 ControlView()
                     .tabItem { Label("控制", systemImage: "slider.horizontal.3") }
+                    .tag("control")
 
                 FacesView()
                     .tabItem { Label("表情", systemImage: "face.smiling") }
+                    .tag("faces")
 
                 DebugView()
                     .tabItem { Label("调试", systemImage: "ladybug") }
+                    .tag("debug")
 
                 ConnectionView()
                     .tabItem { Label("连接", systemImage: "antenna.radiowaves.left.and.right") }
+                    .tag("connect")
             }
             .tint(Color("AccentColor"))
             .task {
@@ -56,7 +66,7 @@ struct RootView: View {
             guard let uuid = UUID(uuidString: last.id) else { return }
             bleTransport.peripheralIdentifier = uuid
             await connection.connect(using: bleTransport)
-        case "wifi", "hotspot":
+        case "wifi", "hotspot", "hotspot-tcp":
             guard let host = last.lastHost else { return }
             let kind: TransportKind = last.preferredTransport == "hotspot" ? .hotspot : .wifi(host: host, port: RinaLinkConstants.tcpPort)
             let transport = TCPTransport(host: host, kind: kind)

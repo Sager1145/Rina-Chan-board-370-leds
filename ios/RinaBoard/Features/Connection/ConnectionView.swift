@@ -24,6 +24,7 @@ struct ConnectionView: View {
                 bluetoothSection
                 homeWifiSection
                 hotspotSection
+                phoneHotspotSection
                 boardWifiSection
             }
             .navigationTitle("连接")
@@ -160,6 +161,57 @@ struct ConnectionView: View {
                     Task { await viewModel.switchToWifi(connection: connection, boardStore: boardStore) }
                 }
             }
+        }
+    }
+
+    // MARK: iPhone 热点 (RINALINK_PROTOCOL_V1 §8)
+
+    @ViewBuilder
+    private var phoneHotspotSection: some View {
+        Section("iPhone 热点") {
+            Text("1. 打开 设置 › 个人热点 并开启「允许其他人加入」\n2. 在下方填写热点名称与密码\n3. 点击发送")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            TextField("热点名称", text: $viewModel.hotspotName)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+
+            SecureField(viewModel.hotspotPassword.isEmpty ? "热点密码" : "使用已保存的密码", text: $viewModel.hotspotPassword)
+
+            Button {
+                Task { await viewModel.provisionPhoneHotspot(connection: connection, boardStore: boardStore) }
+            } label: {
+                if viewModel.isProvisioningHotspot {
+                    ProgressView()
+                } else {
+                    Text("发送到板子并连接")
+                }
+            }
+            .disabled(!isConnected || viewModel.isProvisioningHotspot || viewModel.hotspotName.trimmingCharacters(in: .whitespaces).isEmpty)
+
+            if let status = viewModel.hotspotStatusText {
+                Text(status).font(.footnote).foregroundStyle(.secondary)
+            }
+
+            if let wifi = connection.wifi {
+                LabeledContent("家庭网络", value: wifi.homeSsid ?? "无")
+                LabeledContent("手机热点", value: wifi.hotspotSsid ?? "无")
+                LabeledContent("当前使用", value: profileLabel(wifi.activeProfile))
+            }
+
+            Button("清除", role: .destructive) {
+                Task { await viewModel.clearPhoneHotspot(connection: connection) }
+            }
+            .disabled(!isConnected)
+        }
+    }
+
+    private func profileLabel(_ profile: String?) -> String {
+        switch profile {
+        case "home": return "家庭"
+        case "hotspot": return "手机热点"
+        default: return "无"
         }
     }
 
