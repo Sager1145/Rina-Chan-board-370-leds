@@ -4,7 +4,8 @@ import RinaCore
 /// The global Control Center (design guide §5–§11).
 ///
 /// Board-wide state only: status, brightness, previous/next, auto mode,
-/// colour and saves. It never keeps its own copy of canonical board state —
+/// colour. Saving and the saved-face list live on the Control tab. It never
+/// keeps its own copy of canonical board state —
 /// everything is read from `BoardConnection` and `BoardControlCenterModel`,
 /// so a change made here is immediately visible on every tab (§51).
 ///
@@ -15,14 +16,12 @@ struct BoardControlCenterView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardControlCenterModel.self) private var model
     @Environment(FaceLibraryModel.self) private var faceLibrary
-    @Environment(ControlViewModel.self) private var editor
 
     /// Non-nil when presented as a sheet, so it can offer a Done button.
     var onDismiss: (() -> Void)?
 
     @AppStorage(AppSettingsKey.hapticsEnabled) private var hapticsEnabled = true
 
-    @State private var isSavingCurrent = false
     /// Bumped by the transport row's own taps. Board-driven state changes must
     /// not buzz the phone — only the user's presses do (§42).
     @State private var controlTicks = 0
@@ -35,23 +34,11 @@ struct BoardControlCenterView: View {
             brightnessSection
             modeSection
             colorSection
-            savesSection
         }
+        .errorAlert(errorMessage)
         .navigationTitle("面板控制")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Task { await saveCurrentState() }
-                } label: {
-                    if isSavingCurrent {
-                        ProgressView()
-                    } else {
-                        Label("保存当前", systemImage: "plus")
-                    }
-                }
-                .disabled(!isConnected || isSavingCurrent)
-            }
             if let onDismiss {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成", action: onDismiss)
@@ -63,23 +50,6 @@ struct BoardControlCenterView: View {
             if faceLibrary.faceDocument.faces.isEmpty {
                 await faceLibrary.reload(connection: connection)
             }
-        }
-        .alert("重命名", isPresented: renameBinding, presenting: faceLibrary.renamingFace) { face in
-            TextField("名称", text: Bindable(faceLibrary).renameText)
-            Button("取消", role: .cancel) {}
-            Button("确定") {
-                Task { await faceLibrary.rename(face, to: faceLibrary.renameText, connection: connection) }
-            }
-        }
-    }
-
-    /// §11: saves the Control tab's current draft as a new/updated entry.
-    private func saveCurrentState() async {
-        isSavingCurrent = true
-        defer { isSavingCurrent = false }
-        let payload = editor.upsertPayload(using: faceLibrary)
-        if case .saved(let id) = await faceLibrary.save(payload, connection: connection) {
-            editor.didSave(as: id)
         }
     }
 
@@ -106,22 +76,15 @@ struct BoardControlCenterView: View {
                                     ? Text("\(percent)% 充电中")
                                     : Text("\(percent)%"))
             }
-            LabeledContent("模式") {
-                Text(model.isAutoMode(status: connection.status) ? "自动" : "手动")
-                    .foregroundStyle(.secondary)
-            }
-            if let index = model.effectiveFaceIndex(status: connection.status),
-               let count = connection.status?.renderer?.autoFaceCount, count > 0 {
-                LabeledContent("当前表情") {
-                    Text("\(index + 1) / \(count)").foregroundStyle(.secondary).monospacedDigit()
-                }
-            }
-            if let error = model.errorMessage ?? faceLibrary.errorMessage {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-            }
         }
+    }
+
+    /// Either model's error, one alert at a time; dismissing clears both.
+    private var errorMessage: Binding<String?> {
+        Binding(
+            get: { model.errorMessage ?? faceLibrary.errorMessage },
+            set: { if $0 == nil { model.errorMessage = nil; faceLibrary.errorMessage = nil } }
+        )
     }
 
     private var boardName: String {
@@ -160,7 +123,7 @@ struct BoardControlCenterView: View {
     // MARK: §8 Brightness
 
     private var brightnessSection: some View {
-        Section("亮度") {
+        Section {
             VStack(alignment: .leading, spacing: 4) {
                 LabeledContent("亮度") {
                     Text("\(BoardControlCenterModel.percent(forRaw: model.draftBrightness))%")
@@ -172,8 +135,10 @@ struct BoardControlCenterView: View {
                         get: { model.brightnessDraft },
                         set: { model.setBrightness(Int($0), connection: connection) }
                     ),
-                    in: Double(RinaLinkConstants.brightnessMin)...Double(RinaLinkConstants.brightnessMax),
-                    step: 1
+                    // No `step:` — on iOS 26 a stepped Slider draws a tick
+                    // per step, and ~255 ticks fuse into a grey bar under the
+                    // track. The setter already snaps to whole raw values.
+                    in: Double(RinaLinkConstants.brightnessMin)...Double(RinaLinkConstants.brightnessMax)
                 ) {
                     Text("亮度")
                 } minimumValueLabel: {
@@ -189,8 +154,9 @@ struct BoardControlCenterView: View {
 
     // MARK: §9 Previous / Next / Auto
 
+    @ViewBuilder
     private var modeSection: some View {
-        Section("面板模式") {
+        Section("切换表情") {
             // A transport row: step back, the mode switch, step forward — the
             // same three controls the collapsed accessory offers, in the same
             // order, so the two surfaces read as one control set (§51).
@@ -219,7 +185,7 @@ struct BoardControlCenterView: View {
                                        : "hand.tap.fill")
                         .frame(maxWidth: .infinity, minHeight: 22)
                 }
-                .toggleStyle(.button)
+                .toggleStyle(.pill)
                 .accessibilityLabel("自动模式")
 
                 Button {
@@ -231,14 +197,17 @@ struct BoardControlCenterView: View {
                 }
                 .accessibilityLabel("下一个表情")
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
+            .buttonStyle(.pill)
             .labelStyle(.titleAndIcon)
+            .pillButtonRow()
             .listRowSeparator(.hidden)
             .disabled(!isConnected)
             .sensoryFeedback(.selection, trigger: controlTicks) { _, _ in hapticsEnabled }
+        }
 
+        // Separate section: the pill row clears its cell background, so
+        // sharing a section with the slider left a broken card under it.
+        Section {
             VStack(alignment: .leading, spacing: 4) {
                 LabeledContent("自动切换间隔") {
                     Text(String(format: "%.1fs", model.autoIntervalDraft))
@@ -264,7 +233,7 @@ struct BoardControlCenterView: View {
     // MARK: §10 Colour
 
     private var colorSection: some View {
-        Section("颜色") {
+        Section {
             ColorPicker(selection: Binding(
                 get: { model.draftColor },
                 set: { newColor in
@@ -318,37 +287,34 @@ struct BoardControlCenterView: View {
         .disabled(!isConnected)
 
         if let parentId {
+            // A group with no children (id 0, 默认璃奈粉色) exists to offer its
+            // own colour -- the legacy "父级颜色按钮". Without this fallback
+            // selecting it renders an empty row, so that colour is unreachable
+            // from the picker and the group looks broken.
             let children = presets.children(of: parentId)
-            if !children.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 2) {
-                        ForEach(children, id: \.hex) { child in
-                            Button {
-                                Task { await model.setColor(hex: child.hex, connection: connection) }
-                            } label: {
-                                Circle()
-                                    .fill(Color(hex: child.hex) ?? .rinaPink)
-                                    .frame(width: 30, height: 30)
-                                    .overlay {
-                                        if isSelectedColor(child.hex) {
-                                            Image(systemName: "checkmark")
-                                                .font(.caption.bold())
-                                                .foregroundStyle(.white)
-                                                .shadow(radius: 1)
-                                        }
-                                    }
-                                    .overlay(Circle().strokeBorder(.primary.opacity(isSelectedColor(child.hex) ? 0.8 : 0.15)))
-                                    // Inside the label, so the 44pt target is
-                                    // the button's own interaction region.
-                                    .frame(width: AppLayout.minimumTapTarget, height: AppLayout.minimumTapTarget)
-                                    .contentShape(.rect)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(child.name)
-                            .accessibilityAddTraits(isSelectedColor(child.hex) ? [.isButton, .isSelected] : .isButton)
-                        }
+            let swatches: [(name: String, hex: String)] = children.isEmpty
+                ? presets.parents
+                    .first { String($0.id) == parentId }
+                    .map { [(name: $0.name, hex: $0.color)] } ?? []
+                : children.map { (name: $0.name, hex: $0.hex) }
+            if !swatches.isEmpty {
+                // Same menu Picker as the group above. The tag is the swatch's
+                // own hex spelling; a board colour outside this group shows
+                // as 自定义 until a preset is chosen.
+                let selectedHex = swatches.first { isSelectedColor($0.hex) }?.hex
+                Picker("颜色", selection: Binding(
+                    get: { selectedHex ?? "" },
+                    set: { hex in
+                        guard !hex.isEmpty else { return }
+                        Task { await model.setColor(hex: hex, connection: connection) }
                     }
-                    .padding(.vertical, 4)
+                )) {
+                    if selectedHex == nil {
+                        Text("自定义").tag("")
+                    }
+                    ForEach(swatches, id: \.hex) { swatch in
+                        Text(swatch.name).tag(swatch.hex)
+                    }
                 }
                 .disabled(!isConnected)
             }
@@ -360,84 +326,5 @@ struct BoardControlCenterView: View {
             return false
         }
         return candidate == current
-    }
-
-    // MARK: §11 Saves
-
-    private var savesSection: some View {
-        Section {
-            if faceLibrary.isLoading && faceLibrary.faceDocument.faces.isEmpty {
-                ProgressView()
-            } else if faceLibrary.faceDocument.faces.isEmpty {
-                ContentUnavailableView("暂无表情",
-                                       systemImage: "square.on.square",
-                                       description: Text("连接面板后即可读取已保存的表情。"))
-            } else {
-                ForEach(faceLibrary.faceDocument.sortedFaces) { face in
-                    saveRow(face)
-                }
-            }
-            NavigationLink {
-                FaceLibraryView()
-            } label: {
-                Label("管理表情", systemImage: "slider.horizontal.3")
-            }
-        } header: {
-            Text("已保存的表情")
-        } footer: {
-            Text("轻点以应用到面板。")
-        }
-    }
-
-    private func saveRow(_ face: SavedFace) -> some View {
-        Button {
-            Task { await faceLibrary.apply(face, connection: connection) }
-        } label: {
-            HStack(spacing: 12) {
-                if let frame = face.packedFrame {
-                    SavedFaceThumbnail(frame: frame, accessibilityDescription: face.name)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(face.name)
-                    Text(kindLabel(face.type)).font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isConnected)
-        .swipeActions(edge: .trailing) {
-            if face.type != .default {
-                Button("删除", role: .destructive) {
-                    Task { await faceLibrary.delete(face, connection: connection) }
-                }
-            }
-        }
-        .contextMenu {
-            Button("编辑", systemImage: "pencil") { editor.loadForEditing(face) }
-            Button("重命名", systemImage: "character.cursor.ibeam") {
-                faceLibrary.renamingFace = face
-                faceLibrary.renameText = face.name
-            }
-            if face.type != .default {
-                Button("删除", systemImage: "trash", role: .destructive) {
-                    Task { await faceLibrary.delete(face, connection: connection) }
-                }
-            }
-        }
-    }
-
-    private func kindLabel(_ kind: SavedFace.Kind) -> String {
-        switch kind {
-        case .default: return NSLocalizedString("默认", comment: "saved face kind default")
-        case .custom: return NSLocalizedString("自定义", comment: "saved face kind custom")
-        case .parts: return NSLocalizedString("部件", comment: "saved face kind parts")
-        }
-    }
-
-    private var renameBinding: Binding<Bool> {
-        Binding(get: { faceLibrary.renamingFace != nil },
-                set: { if !$0 { faceLibrary.renamingFace = nil } })
     }
 }

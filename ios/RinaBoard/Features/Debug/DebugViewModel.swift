@@ -14,10 +14,23 @@ enum DebugLogLevel: Int, Comparable, CaseIterable {
 
     var label: String {
         switch self {
-        case .debug: return "详细"
-        case .info: return "信息"
-        case .warn: return "警告"
-        case .error: return "错误"
+        case .debug: return NSLocalizedString("详细", comment: "debug log level")
+        case .info: return NSLocalizedString("信息", comment: "debug log level")
+        case .warn: return NSLocalizedString("警告", comment: "debug log level")
+        case .error: return NSLocalizedString("错误", comment: "debug log level")
+        }
+    }
+}
+
+enum DebugLogSource: String, CaseIterable, Identifiable {
+    case app
+    case firmware
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .app: return NSLocalizedString("应用", comment: "debug log source")
+        case .firmware: return NSLocalizedString("固件", comment: "debug log source")
         }
     }
 }
@@ -31,19 +44,35 @@ struct DebugLogEntry: Identifiable {
 
     let id = UUID()
     let date = Date()
+    let source: DebugLogSource
     let level: DebugLogLevel
     let message: String
+
+    init(source: DebugLogSource = .app, level: DebugLogLevel, message: String) {
+        self.source = source
+        self.level = level
+        self.message = message
+    }
 
     var timeString: String { Self.timeFormatter.string(from: date) }
 }
 
 enum DebugLogFilter: String, CaseIterable, Identifiable {
-    case errorsOnly = "仅错误"
-    case warnAndUp = "警告以上"
-    case normal = "正常"
-    case verbose = "详细"
+    case errorsOnly
+    case warnAndUp
+    case normal
+    case verbose
 
     var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .errorsOnly: return NSLocalizedString("仅错误", comment: "debug log filter")
+        case .warnAndUp: return NSLocalizedString("警告以上", comment: "debug log filter")
+        case .normal: return NSLocalizedString("正常", comment: "debug log filter")
+        case .verbose: return NSLocalizedString("详细", comment: "debug log filter")
+        }
+    }
 
     var minLevel: DebugLogLevel {
         switch self {
@@ -114,11 +143,11 @@ enum DebugPattern: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .off: return "全黑"
-        case .checker: return "棋盘"
-        case .border: return "边框"
-        case .saved: return "当前保存表情"
-        case .allOn: return "全亮"
+        case .off: return NSLocalizedString("全黑", comment: "debug test pattern")
+        case .checker: return NSLocalizedString("棋盘", comment: "debug test pattern")
+        case .border: return NSLocalizedString("边框", comment: "debug test pattern")
+        case .saved: return NSLocalizedString("当前保存表情", comment: "debug test pattern")
+        case .allOn: return NSLocalizedString("全亮", comment: "debug test pattern")
         }
     }
 
@@ -169,6 +198,13 @@ enum DebugPackedParse {
     }
 }
 
+struct DebugRawField: Identifiable {
+    let source: String
+    let key: String
+    let value: String
+    var id: String { "\(source).\(key)" }
+}
+
 // MARK: - View model
 
 @Observable
@@ -180,14 +216,26 @@ final class DebugViewModel {
 
     // C2 device overview
     var statusRows: [(key: String, value: String)] = []
+    var powerRows: [(key: String, value: String)] = []
+    var statusRawText = ""
+    var powerRawText = ""
+    var statusSnapshot: DeviceStatus?
+    var powerSnapshot: PowerStatus?
     var deviceInfo: DeviceInfo?
-    var estimatedWatts: Double = 0
+    var estimatedWatts: Double?
+    var statusUpdatedAt: Date?
+    var powerUpdatedAt: Date?
+    var deviceInfoUpdatedAt: Date?
+    var isRefreshingOverview = false
+    var rawFieldSearch = ""
 
     // C3 firmware health
     var pingMs: Double?
-    var commandsSent = 0
-    var commandsFailed = 0
-    var framesSent = 0
+    var commandAttempts = 0
+    var commandRejected = 0
+    var commandFailures = 0
+    var frameAttempts = 0
+    var frameFailures = 0
     var lastLocalError: String?
 
     // C4 power panel local ADC simulation (display only)
@@ -203,8 +251,25 @@ final class DebugViewModel {
     // C10 comms log
     private(set) var logs: [DebugLogEntry] = []
     var logFilter: DebugLogFilter = .normal
-    var firmwareLogSubscribed = false
+    var logSource: DebugLogSource?
+    var logSearch = ""
+    var isLogDisplayPaused = false {
+        didSet {
+            guard isLogDisplayPaused != oldValue else { return }
+            pausedLogs = isLogDisplayPaused ? logs : nil
+        }
+    }
+    private var pausedLogs: [DebugLogEntry]?
+    enum FirmwareLogState: Equatable {
+        case off
+        case subscribing
+        case on
+        case failed(String)
+    }
+    private(set) var firmwareLogState: FirmwareLogState = .off
     private var firmwareLogTask: Task<Void, Never>?
+
+    var selectedPattern: DebugPattern?
 
     // C11 raw command
     var rawCommandText: String = "{\"cmd\":\"pause_scroll\"}"
@@ -216,40 +281,100 @@ final class DebugViewModel {
     var clearFacesConfirmText = ""
 
     var visibleLogs: [DebugLogEntry] {
-        Array(logs.filter { $0.level >= logFilter.minLevel }.suffix(120).reversed())
+        let source = pausedLogs ?? logs
+        let query = logSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Array(source.filter { entry in
+            entry.level >= logFilter.minLevel
+                && (logSource == nil || entry.source == logSource)
+                && (query.isEmpty || entry.message.localizedCaseInsensitiveContains(query))
+        }.suffix(120).reversed())
+    }
+
+    var filteredRawRows: [DebugRawField] {
+        let query = rawFieldSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rows = statusRows.map { DebugRawField(source: "STATUS", key: $0.key, value: $0.value) }
+            + powerRows.map { DebugRawField(source: "POWER", key: $0.key, value: $0.value) }
+        guard !query.isEmpty else { return rows }
+        return rows.filter {
+            $0.source.localizedCaseInsensitiveContains(query)
+                || $0.key.localizedCaseInsensitiveContains(query)
+                || $0.value.localizedCaseInsensitiveContains(query)
+        }
     }
 
     // MARK: Logging
 
-    func log(_ level: DebugLogLevel, _ message: String) {
-        logs.append(DebugLogEntry(level: level, message: message))
+    func log(_ level: DebugLogLevel, _ message: String, source: DebugLogSource = .app) {
+        logs.append(DebugLogEntry(source: source, level: level, message: message))
         if logs.count > 500 { logs.removeFirst(logs.count - 500) }
     }
 
-    func clearLog() { logs.removeAll() }
+    func clearLog() {
+        logs.removeAll()
+        pausedLogs?.removeAll()
+    }
 
     /// C10 firmware log toggle: on subscribes via `log_subscribe{on:true}` and
     /// mirrors `EV_LOG` (0x94) events into the comms log; off unsubscribes and
     /// cancels the consuming task.
     func setFirmwareLogSubscribed(_ on: Bool, connection: BoardConnection) {
-        guard on != firmwareLogSubscribed else { return }
-        firmwareLogSubscribed = on
         firmwareLogTask?.cancel()
         firmwareLogTask = nil
         guard on else {
-            Task { _ = try? await connection.command(.logSubscribe(on: false)) }
-            return
-        }
-        firmwareLogTask = Task { [weak self] in
-            guard !Task.isCancelled else { return }
-            _ = try? await connection.command(.logSubscribe(on: true))
-            guard !Task.isCancelled, let self else { return }
-            for await event in connection.events() {
-                if Task.isCancelled { break }
-                if case .log(let entry) = event {
-                    self.log(Self.debugLevel(for: entry.level), "[固件\(entry.tag ?? "")] \(entry.msg ?? "")")
+            firmwareLogState = .off
+            Task {
+                do {
+                    _ = try await connection.command(.logSubscribe(on: false))
+                } catch is CancellationError {
+                } catch {
+                    log(.warn, String(format: NSLocalizedString("关闭固件日志订阅失败：%@", comment: "debug firmware log unsubscribe failed"), error.localizedDescription))
                 }
             }
+            return
+        }
+        guard connection.connectionState == .connected else {
+            firmwareLogState = .failed(NSLocalizedString("设备未连接", comment: "debug firmware logging unavailable"))
+            return
+        }
+        firmwareLogState = .subscribing
+        firmwareLogTask = Task { [weak self] in
+            do {
+                guard !Task.isCancelled else { return }
+                let reply = try await connection.command(.logSubscribe(on: true))
+                guard reply.ok else {
+                    self?.firmwareLogState = .failed(reply.error ?? NSLocalizedString("固件拒绝订阅", comment: "debug firmware log subscription rejected"))
+                    return
+                }
+                guard !Task.isCancelled, let self else { return }
+                self.firmwareLogState = .on
+                for await event in connection.events() {
+                    if Task.isCancelled { return }
+                    if case .log(let entry) = event {
+                        let tag = entry.tag.map { "[\($0)] " } ?? ""
+                        self.log(Self.debugLevel(for: entry.level),
+                                 "\(tag)\(entry.msg ?? "")",
+                                 source: .firmware)
+                    }
+                }
+                if !Task.isCancelled {
+                    self.firmwareLogState = .failed(NSLocalizedString("固件日志流已停止", comment: "debug firmware log stream ended"))
+                }
+            } catch is CancellationError {
+            } catch {
+                self?.firmwareLogState = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func handleConnectionStateChange(_ state: BoardConnectionState) {
+        log(.info, String(format: NSLocalizedString("连接状态：%@", comment: "debug connection state log"), Self.connectionStateLabel(state)))
+        guard state != .connected else { return }
+        firmwareLogTask?.cancel()
+        firmwareLogTask = nil
+        if case .on = firmwareLogState {
+            firmwareLogState = .failed(NSLocalizedString("连接已断开", comment: "debug firmware log disconnected"))
+        } else if case .subscribing = firmwareLogState {
+            firmwareLogState = .failed(NSLocalizedString("连接已断开", comment: "debug firmware log disconnected"))
         }
     }
 
@@ -263,8 +388,35 @@ final class DebugViewModel {
         }
     }
 
+    private static func connectionStateLabel(_ state: BoardConnectionState) -> String {
+        switch state {
+        case .disconnected:
+            return NSLocalizedString("未连接", comment: "debug connection state")
+        case .connecting:
+            return NSLocalizedString("连接中", comment: "debug connection state")
+        case .connected:
+            return NSLocalizedString("已连接", comment: "debug connection state")
+        case .reconnecting(let attempt):
+            return String(format: NSLocalizedString("重连中 · 第 %lld 次", comment: "debug reconnecting state"), Int64(attempt))
+        case .failed(let message):
+            return String(format: NSLocalizedString("连接失败：%@", comment: "debug failed connection state"), message)
+        }
+    }
+
     var logShareText: String {
-        logs.map { "[\($0.timeString)] \($0.level.label): \($0.message)" }.joined(separator: "\n")
+        logs.map {
+            Self.redactSensitive("[\($0.timeString)] [\($0.source.label)] \($0.level.label): \($0.message)")
+        }.joined(separator: "\n")
+    }
+
+    private static func redactSensitive(_ value: String) -> String {
+        let pattern = #"(?i)(\"?(?:password|passwd|pwd|psk|secret|token|authorization)\"?\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|[^\s,}\]]+)"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return value }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        let hidden = NSLocalizedString("<已隐藏>", comment: "redacted debug value placeholder")
+        return expression.stringByReplacingMatches(in: value,
+                                                   range: range,
+                                                   withTemplate: "$1\(hidden)")
     }
 
     func copyLog() {
@@ -273,75 +425,109 @@ final class DebugViewModel {
 
     // MARK: C2/C3 refresh
 
+    func refreshOverview(connection: BoardConnection) async {
+        guard !isRefreshingOverview else { return }
+        guard connection.connectionState == .connected else { return }
+        isRefreshingOverview = true
+        defer { isRefreshingOverview = false }
+        await refreshStatus(connection: connection)
+        await refreshPower(connection: connection)
+        await refreshDeviceInfo(connection: connection)
+    }
+
     func refreshStatus(connection: BoardConnection) async {
         do {
             let data = try await connection.getStatusRaw()
             statusRows = DebugJSON.flatten(data)
-            recomputePower(connection: connection)
-            log(.info, "刷新状态成功")
+            statusRawText = DebugJSON.prettyString(from: data)
+            statusSnapshot = try JSONDecoder().decode(DeviceStatus.self, from: data)
+            statusUpdatedAt = Date()
+            if let power = statusSnapshot?.power {
+                powerSnapshot = power
+                powerUpdatedAt = statusUpdatedAt
+            }
+            recomputePower()
+            lastLocalError = nil
+            log(.info, NSLocalizedString("刷新状态成功", comment: "debug status refresh succeeded"))
         } catch {
-            lastLocalError = "\(error)"
-            log(.error, "刷新状态失败: \(error)")
+            lastLocalError = error.localizedDescription
+            log(.error, String(format: NSLocalizedString("刷新状态失败：%@", comment: "debug status refresh failed"), error.localizedDescription))
         }
     }
 
     func refreshPower(connection: BoardConnection) async {
         do {
-            _ = try await connection.getPowerRaw()
-            recomputePower(connection: connection)
-            log(.info, "刷新电源成功")
+            let data = try await connection.getPowerRaw()
+            powerRows = DebugJSON.flatten(data)
+            powerRawText = DebugJSON.prettyString(from: data)
+            powerSnapshot = try JSONDecoder().decode(PowerStatus.self, from: data)
+            powerUpdatedAt = Date()
+            lastLocalError = nil
+            log(.info, NSLocalizedString("刷新电源成功", comment: "debug power refresh succeeded"))
         } catch {
-            lastLocalError = "\(error)"
-            log(.error, "刷新电源失败: \(error)")
+            lastLocalError = error.localizedDescription
+            log(.error, String(format: NSLocalizedString("刷新电源失败：%@", comment: "debug power refresh failed"), error.localizedDescription))
         }
     }
 
     func refreshDeviceInfo(connection: BoardConnection) async {
         do {
             deviceInfo = try await connection.getDeviceInfo()
-            log(.info, "获取设备信息成功")
+            deviceInfoUpdatedAt = Date()
+            lastLocalError = nil
+            log(.info, NSLocalizedString("获取设备信息成功", comment: "debug device info refresh succeeded"))
         } catch {
-            log(.error, "获取设备信息失败: \(error)")
+            lastLocalError = error.localizedDescription
+            log(.error, String(format: NSLocalizedString("获取设备信息失败：%@", comment: "debug device info refresh failed"), error.localizedDescription))
         }
     }
 
-    private func recomputePower(connection: BoardConnection) {
-        let connectionStatus = statusRowsAsLookup()
-        let lit = connection.currentFrame.litCount
-        let brightness = connectionStatus["brightness"].flatMap { Int($0) } ?? 50
-        let color = connectionStatus["color"] ?? "#f971d4"
+    private func recomputePower() {
+        guard let renderer = statusSnapshot?.renderer,
+              let lit = renderer.lit,
+              let brightness = renderer.brightness,
+              let color = renderer.color else {
+            estimatedWatts = nil
+            return
+        }
         estimatedWatts = RGBHex.estimatedWatts(litCount: lit, brightness: brightness, hex: color)
     }
 
-    private func statusRowsAsLookup() -> [String: String] {
-        var dict: [String: String] = [:]
-        for row in statusRows {
-            let shortKey = row.key.split(separator: ".").last.map(String.init) ?? row.key
-            dict[shortKey] = row.value
+    func freshnessText(for date: Date?, connected: Bool) -> String {
+        guard let date else { return NSLocalizedString("未采样", comment: "debug sample freshness") }
+        let stamp = date.formatted(date: .omitted, time: .standard)
+        if !connected {
+            return String(format: NSLocalizedString("断线前 · %@", comment: "debug sample freshness while disconnected"), stamp)
         }
-        return dict
+        if Date().timeIntervalSince(date) > 30 {
+            return String(format: NSLocalizedString("可能陈旧 · %@", comment: "debug stale sample freshness"), stamp)
+        }
+        return String(format: NSLocalizedString("更新于 %@", comment: "debug fresh sample timestamp"), stamp)
+    }
+
+    static func triState(_ value: Bool?) -> String {
+        guard let value else { return NSLocalizedString("未知", comment: "unknown optional boolean") }
+        return value
+            ? NSLocalizedString("是", comment: "optional boolean yes")
+            : NSLocalizedString("否", comment: "optional boolean no")
     }
 
     func pingBoard(connection: BoardConnection) async {
         do {
             let (uptime, rtt) = try await connection.pingRoundTrip()
             pingMs = rtt
-            log(.info, "PING 往返 \(String(format: "%.1f", rtt)) ms，运行时间 \(uptime) ms")
+            log(.info, String(format: NSLocalizedString("PING 往返 %.1f ms，运行时间 %lld ms", comment: "debug ping result"), rtt, Int64(uptime)))
         } catch {
-            log(.error, "PING 失败: \(error)")
+            log(.error, String(format: NSLocalizedString("PING 失败：%@", comment: "debug ping failed"), error.localizedDescription))
         }
-    }
-
-    func clearError() {
-        lastLocalError = nil
     }
 
     func copyDiagnostics(connection: BoardConnection) {
         var obj: [String: Any] = [:]
-        if let data = try? JSONSerialization.jsonObject(with: (try? JSONEncoder().encode(connection.status)) ?? Data()) {
+        if let data = try? JSONSerialization.jsonObject(with: (try? JSONEncoder().encode(statusSnapshot)) ?? Data()) {
             obj["status"] = data
         }
-        if let data = try? JSONSerialization.jsonObject(with: (try? JSONEncoder().encode(connection.power)) ?? Data()) {
+        if let data = try? JSONSerialization.jsonObject(with: (try? JSONEncoder().encode(powerSnapshot)) ?? Data()) {
             obj["power"] = data
         }
         if let data = try? JSONSerialization.jsonObject(with: (try? JSONEncoder().encode(connection.wifi)) ?? Data()) {
@@ -350,44 +536,99 @@ final class DebugViewModel {
         if let data = try? JSONSerialization.jsonObject(with: (try? JSONEncoder().encode(connection.preview)) ?? Data()) {
             obj["preview"] = data
         }
-        obj["counters"] = ["commandsSent": commandsSent, "commandsFailed": commandsFailed, "framesSent": framesSent]
+        obj["debugSessionCounters"] = [
+            "commandAttempts": commandAttempts,
+            "commandRejected": commandRejected,
+            "commandFailures": commandFailures,
+            "frameAttempts": frameAttempts,
+            "frameFailures": frameFailures
+        ]
+        obj["sampledAt"] = [
+            "status": statusUpdatedAt?.ISO8601Format() ?? "unknown",
+            "power": powerUpdatedAt?.ISO8601Format() ?? "unknown",
+            "deviceInfo": deviceInfoUpdatedAt?.ISO8601Format() ?? "unknown"
+        ]
         UIPasteboard.general.string = DebugJSON.prettyString(from: obj)
-        log(.info, "已复制诊断 JSON")
+        log(.info, NSLocalizedString("已复制诊断 JSON", comment: "debug diagnostics copied"))
+    }
+
+    func copyRawSnapshots() {
+        let combined = "GET_STATUS\n\(statusRawText)\n\nGET_POWER\n\(powerRawText)"
+        UIPasteboard.general.string = Self.redactSensitive(combined)
+        log(.info, NSLocalizedString("已复制脱敏原始快照", comment: "debug redacted snapshots copied"))
     }
 
     // MARK: Command/frame wrappers (also drive the client-side counters)
 
     @discardableResult
     func runCommand(_ cmd: RinaCommand, connection: BoardConnection, note: String? = nil) async -> Bool {
-        commandsSent += 1
+        commandAttempts += 1
+        let outputSession = connection.output.begin(.debug)
         do {
-            let reply = try await connection.command(cmd)
-            log(.info, note ?? "\(cmd.name) -> ok=\(reply.ok)")
+            let reply = try await connection.withOutput(outputSession) {
+                try await connection.command(cmd)
+            }
+            guard reply.ok else {
+                commandRejected += 1
+                log(.warn, String(format: NSLocalizedString("%@ 被设备拒绝：%@", comment: "debug command rejected"),
+                                  cmd.name,
+                                  reply.error ?? NSLocalizedString("未知原因", comment: "unknown device rejection reason")))
+                return false
+            }
+            log(.info, note ?? String(format: NSLocalizedString("%@ -> 成功", comment: "debug command succeeded"), cmd.name))
             return reply.ok
+        } catch is CancellationError {
+            log(.debug, String(format: NSLocalizedString("%@ 已被新的输出操作替代", comment: "debug command superseded"), cmd.name))
+            return false
         } catch {
-            commandsFailed += 1
-            log(.error, "\(cmd.name) 失败: \(error)")
+            if Self.isDeviceRejection(error) {
+                commandRejected += 1
+                log(.warn, String(format: NSLocalizedString("%@ 被设备拒绝：%@", comment: "debug command rejected"), cmd.name, error.localizedDescription))
+            } else {
+                commandFailures += 1
+                log(.error, String(format: NSLocalizedString("%@ 失败：%@", comment: "debug command failed"), cmd.name, error.localizedDescription))
+            }
             return false
         }
     }
 
     func sendPattern(_ pattern: DebugPattern, connection: BoardConnection) async {
         let frame = pattern.frame(savedFrame: connection.currentFrame)
-        framesSent += 1
+        frameAttempts += 1
+        let outputSession = connection.output.begin(.debug)
         do {
-            _ = try await connection.setFrame(frame, playback: .idle, reason: pattern.sendReason)
+            let reply = try await connection.withOutput(outputSession) {
+                try await connection.setFrame(frame,
+                                              playback: .idle,
+                                              reason: pattern.sendReason,
+                                              outputSession: outputSession)
+            }
+            guard reply.ok else {
+                commandRejected += 1
+                log(.warn, String(format: NSLocalizedString("发送图案被设备拒绝：%@", comment: "debug pattern rejected"),
+                                  reply.error ?? NSLocalizedString("未知原因", comment: "unknown device rejection reason")))
+                return
+            }
             debugFrame = frame
             isLocalPatternActive = true
-            log(.info, "已发送图案: \(pattern.label)")
+            log(.info, String(format: NSLocalizedString("已发送图案：%@", comment: "debug pattern sent"), pattern.label))
+        } catch is CancellationError {
+            log(.debug, NSLocalizedString("发送图案已被新的输出操作替代", comment: "debug pattern superseded"))
         } catch {
-            log(.error, "发送图案失败(\(pattern.label)): \(error)")
+            if Self.isDeviceRejection(error) {
+                commandRejected += 1
+                log(.warn, String(format: NSLocalizedString("发送图案被设备拒绝：%@", comment: "debug pattern rejected"), error.localizedDescription))
+            } else {
+                frameFailures += 1
+                log(.error, String(format: NSLocalizedString("发送图案失败（%@）：%@", comment: "debug pattern send failed"), pattern.label, error.localizedDescription))
+            }
         }
     }
 
     func previewPattern(_ pattern: DebugPattern, connection: BoardConnection) {
         debugFrame = pattern.frame(savedFrame: connection.currentFrame)
         isLocalPatternActive = true
-        log(.debug, "本地预览: \(pattern.label)")
+        log(.debug, String(format: NSLocalizedString("本地预览：%@", comment: "debug local pattern preview"), pattern.label))
     }
 
     /// Keeps the C1 preview mirroring the board's live frame until the user
@@ -405,7 +646,7 @@ final class DebugViewModel {
             packedLabValid = frame
         } else {
             packedLabValid = nil
-            packedLabError = "无法解析：需要 94 位十六进制 / 47 项整数 JSON 数组 / base64"
+            packedLabError = NSLocalizedString("无法解析：需要 94 位十六进制 / 47 项整数 JSON 数组 / base64", comment: "debug packed frame parse error")
         }
     }
 
@@ -413,25 +654,45 @@ final class DebugViewModel {
         guard let frame = packedLabValid else { return }
         debugFrame = frame
         isLocalPatternActive = true
-        log(.debug, "已解析为本地预览")
+        log(.debug, NSLocalizedString("已解析为本地预览", comment: "debug packed frame preview parsed"))
     }
 
     func sendPackedLab(connection: BoardConnection) async {
         guard let frame = packedLabValid else { return }
-        framesSent += 1
+        frameAttempts += 1
+        let outputSession = connection.output.begin(.debug)
         do {
-            _ = try await connection.setFrame(frame, playback: .idle, reason: "debug_packed_lab")
+            let reply = try await connection.withOutput(outputSession) {
+                try await connection.setFrame(frame,
+                                              playback: .idle,
+                                              reason: "debug_packed_lab",
+                                              outputSession: outputSession)
+            }
+            guard reply.ok else {
+                commandRejected += 1
+                log(.warn, String(format: NSLocalizedString("发送解析帧被设备拒绝：%@", comment: "debug packed frame rejected"),
+                                  reply.error ?? NSLocalizedString("未知原因", comment: "unknown device rejection reason")))
+                return
+            }
             debugFrame = frame
             isLocalPatternActive = true
-            log(.info, "已发送解析帧")
+            log(.info, NSLocalizedString("已发送解析帧", comment: "debug packed frame sent"))
+        } catch is CancellationError {
+            log(.debug, NSLocalizedString("发送解析帧已被新的输出操作替代", comment: "debug packed frame superseded"))
         } catch {
-            log(.error, "发送解析帧失败: \(error)")
+            if Self.isDeviceRejection(error) {
+                commandRejected += 1
+                log(.warn, String(format: NSLocalizedString("发送解析帧被设备拒绝：%@", comment: "debug packed frame rejected"), error.localizedDescription))
+            } else {
+                frameFailures += 1
+                log(.error, String(format: NSLocalizedString("发送解析帧失败：%@", comment: "debug packed frame failed"), error.localizedDescription))
+            }
         }
     }
 
     func copyPreviewFrame() {
         UIPasteboard.general.string = debugFrame.hex94
-        log(.debug, "已复制预览帧 (hex94)")
+        log(.debug, NSLocalizedString("已复制预览帧 (hex94)", comment: "debug preview frame copied"))
     }
 
     // MARK: C11 raw command
@@ -448,30 +709,63 @@ final class DebugViewModel {
 
     func sendRawCommand(connection: BoardConnection) async {
         guard rawCommandConfirmed, let data = rawCommandText.data(using: .utf8) else { return }
-        commandsSent += 1
+        commandAttempts += 1
+        let outputSession = connection.output.begin(.debug)
         do {
-            let reply = try await connection.sendRawCommand(json: data)
+            let reply = try await connection.withOutput(outputSession) {
+                try await connection.sendRawCommand(json: data)
+            }
             rawCommandResult = DebugJSON.prettyString(from: reply)
-            log(.info, "原始指令已发送")
+            if let object = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any],
+               object["ok"] as? Bool == false {
+                commandRejected += 1
+                log(.warn, NSLocalizedString("原始指令被设备拒绝", comment: "debug raw command rejected"))
+                return
+            }
+            log(.info, NSLocalizedString("原始指令已发送", comment: "debug raw command sent"))
+        } catch is CancellationError {
+            log(.debug, NSLocalizedString("原始指令已被新的输出操作替代", comment: "debug raw command superseded"))
         } catch {
-            commandsFailed += 1
-            rawCommandResult = "错误: \(error)"
-            log(.error, "原始指令失败: \(error)")
+            commandFailures += 1
+            rawCommandResult = String(format: NSLocalizedString("错误：%@", comment: "debug raw command result error"), error.localizedDescription)
+            log(.error, String(format: NSLocalizedString("原始指令失败：%@", comment: "debug raw command failed"), error.localizedDescription))
         }
     }
 
     // MARK: C12 danger zone
 
     func clearUserFaces(connection: BoardConnection) async {
+        commandAttempts += 1
+        let outputSession = connection.output.begin(.debug)
         do {
-            let reply = try await connection.facesClearUser()
-            log(.info, "已清空用户表情，保留 \(reply.count ?? 0) 个默认表情 (gen=\(reply.gen ?? -1))")
+            let reply = try await connection.withOutput(outputSession) {
+                try await connection.facesClearUser()
+            }
+            if reply.ok == false {
+                commandRejected += 1
+                log(.warn, NSLocalizedString("清空用户表情被设备拒绝", comment: "debug clear faces rejected"))
+                return
+            }
+            log(.info, String(format: NSLocalizedString("已清空用户表情，保留 %lld 个默认表情 (gen=%lld)", comment: "debug clear faces succeeded"),
+                              Int64(reply.count ?? 0), Int64(reply.gen ?? -1)))
+        } catch is CancellationError {
+            log(.debug, NSLocalizedString("清空用户表情已被新的输出操作替代", comment: "debug clear faces superseded"))
         } catch {
-            log(.error, "清空用户表情失败: \(error)")
+            commandFailures += 1
+            log(.error, String(format: NSLocalizedString("清空用户表情失败：%@", comment: "debug clear faces failed"), error.localizedDescription))
         }
     }
 
     func reboot(connection: BoardConnection) async {
-        await runCommand(.reboot, connection: connection, note: "已请求重启设备")
+        await runCommand(.reboot, connection: connection,
+                         note: NSLocalizedString("已请求重启设备", comment: "debug reboot requested"))
+    }
+
+    private static func isDeviceRejection(_ error: Error) -> Bool {
+        if error is RinaLinkError { return true }
+        if case RinaTransportError.underlying(let message) = error {
+            return message.contains("面板拒绝")
+        }
+        return false
     }
 }

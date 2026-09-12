@@ -1,0 +1,100 @@
+import SwiftUI
+
+/// The one pill button used across the app, drawn to match the command chips
+/// on the Control tab (what `.bordered` + `.capsule` + `.small` rendered
+/// there): footnote label, tinted text on the tint at low opacity, grey
+/// when disabled.
+///
+/// A custom style rather than the system one, because the system style grows
+/// on press and follows its label's height — a play icon swapping for a
+/// ProgressView made a whole row jump. This one has a minimum height every
+/// icon and one-line title fits inside, fills the height its row gives it,
+/// and only dims while pressed; a long title still wraps rather than
+/// truncating.
+struct PillButtonStyle: ButtonStyle {
+    /// Neutral grey fill, used for a toggle that is off.
+    var isNeutral = false
+
+    @Environment(\.isEnabled) private var isEnabled
+    @ScaledMetric(relativeTo: .footnote) private var minHeight: CGFloat = 31
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.footnote)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .frame(minHeight: minHeight, maxHeight: .infinity)
+            .foregroundStyle(isEnabled ? AnyShapeStyle(.tint) : AnyShapeStyle(Color(.tertiaryLabel)))
+            .background(Capsule().fill(fill))
+            .contentShape(Capsule())
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+
+    private var fill: AnyShapeStyle {
+        isEnabled && !isNeutral
+            ? AnyShapeStyle(.tint.opacity(0.18))
+            : AnyShapeStyle(Color(.secondarySystemFill))
+    }
+}
+
+/// Button-shaped toggle in the pill style: tinted when on, grey when off.
+struct PillToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            configuration.label
+        }
+        .buttonStyle(PillButtonStyle(isNeutral: !configuration.isOn))
+        .accessibilityAddTraits(configuration.isOn ? [.isToggle, .isSelected] : .isToggle)
+    }
+}
+
+/// The repeat symbol, struck through while looping is off. SF Symbols has no
+/// `repeat.slash`, so the slash is drawn over it in the same direction as
+/// `speaker.slash`.
+struct RepeatSymbol: View {
+    var isOn: Bool
+
+    var body: some View {
+        Image(systemName: "repeat")
+            .overlay {
+                if !isOn {
+                    Capsule()
+                        .frame(width: 1.5)
+                        .padding(.vertical, -3)
+                        .rotationEffect(.degrees(-45))
+                }
+            }
+    }
+}
+
+/// Puts a row of pill buttons in place of its list cell: the cell's grouped
+/// background is cleared and the row has no insets, so the pills take the
+/// cell's full height and reach its left and right edges.
+private struct PillButtonRow: ViewModifier {
+    @Environment(\.defaultMinListRowHeight) private var rowHeight
+
+    func body(content: Content) -> some View {
+        content
+            .frame(maxWidth: .infinity, minHeight: rowHeight)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+    }
+}
+
+extension View {
+    func pillButtonRow() -> some View {
+        modifier(PillButtonRow())
+    }
+}
+
+extension ButtonStyle where Self == PillButtonStyle {
+    static var pill: PillButtonStyle { PillButtonStyle() }
+}
+
+extension ToggleStyle where Self == PillToggleStyle {
+    static var pill: PillToggleStyle { PillToggleStyle() }
+}
