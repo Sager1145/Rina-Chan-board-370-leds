@@ -2,8 +2,9 @@ import SwiftUI
 import RinaCore
 
 /// Control tab (design guide §15, §16, §18, §19): the face/frame creation
-/// surface. Board-global brightness, colour, prev/next, auto mode and saves
-/// are deliberately absent — they belong to the Control Center (§63).
+/// surface, including sending the draft and the saved-face list. Board-global
+/// brightness, colour, prev/next and auto mode are deliberately absent — they
+/// belong to the Control Center (§63).
 struct ControlView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(ControlViewModel.self) private var model
@@ -14,8 +15,14 @@ struct ControlView: View {
     @AppStorage(AppSettingsKey.hapticsEnabled) private var hapticsEnabled = true
 
     @State private var toggleCount = 0
+    /// True while a finger is on the board. The list stands down for that
+    /// stretch: on this tab a single finger on the board paints or holds it,
+    /// never scrolls the page — only the commands and parts below scroll
+    /// (§16).
+    @State private var isTouchingBoard = false
     @State private var isNamingSave = false
     @State private var saveNameDraft = ""
+    @State private var isShowingSavedFaces = false
 
     private var isConnected: Bool { connection.connectionState == .connected }
     private var boardColor: Color { controlCenter.draftColor }
@@ -27,6 +34,12 @@ struct ControlView: View {
                 previewSection
                 commandSection
                 partsSection
+            }
+            .scrollDisabled(isTouchingBoard)
+            // Every finger up ends the drag stroke, so the next one is its
+            // own undo step.
+            .onChange(of: isTouchingBoard) { _, touching in
+                if !touching { model.endStroke() }
             }
             .toolbar(.hidden, for: .navigationBar)
             // No navigation bar, so the list's default top margin only pushes
@@ -50,7 +63,9 @@ struct ControlView: View {
                 Text("保存到面板的表情库，可在控制中心中管理。")
             }
             .sensoryFeedback(.impact(weight: .light), trigger: toggleCount) { _, _ in hapticsEnabled }
+            .sheet(isPresented: $isShowingSavedFaces) { savedFacesSheet }
         }
+        .errorAlert(Bindable(model).errorMessage)
         .onAppear { bootLoader.beginWaterfall(count: 3) }
     }
 
@@ -58,29 +73,54 @@ struct ControlView: View {
 
     /// The one editable board in the app: `.editable` is what separates this
     /// preview from the read-only ones in Text, Live Video and Debug.
+    ///
+    /// A tap toggles the LED under it. A drag paints the brush's value
+    /// (§18.5) instead, so the finger can light or clear a whole run of LEDs
+    /// in one stroke; the brush toggle has no say over taps.
     private var previewSection: some View {
         Section {
             BoardPreviewRow(
                 frame: model.draftFrame,
-                interaction: .editable { led in
-                    model.toggle(led: led, connection: connection)
-                    toggleCount += 1
-                },
+                interaction: .editable(
+                    onTap: { led in
+                        model.toggle(led: led, connection: connection)
+                        toggleCount += 1
+                    },
+                    onDrag: { led in
+                        // Only a real change is worth a haptic: a stroke that
+                        // runs over cells already in the brush's state must
+                        // stay silent.
+                        if model.paint(led: led, connection: connection) {
+                            toggleCount += 1
+                        }
+                    }
+                ),
+                zoom: .pinchable(isTouching: $isTouchingBoard),
                 accessibilityDescription: previewAccessibilityDescription
             )
             .bootReveal(index: 0)
         } footer: {
-            HStack {
-                Text("\(model.draftFrame.litCount) / \(PackedFrame.ledCount) 点亮")
-                Spacer()
-                // Draft state is never shown as board-confirmed state (§37).
-                if model.hasUnsentChanges {
-                    Label("未发送", systemImage: "pencil.circle")
-                        .foregroundStyle(.orange)
-                }
-            }
-            .font(.caption)
-            .monospacedDigit()
+            previewStatus
+        }
+    }
+
+    /// Draft state is never shown as board-confirmed state (§37), so an
+    /// unsent draft wins over every other state.
+    @ViewBuilder
+    private var previewStatus: some View {
+        let litCount = Text("点亮 \(model.draftFrame.litCount) / \(PackedFrame.ledCount)")
+        if model.hasUnsentChanges {
+            BoardPreviewStatus("未发送", systemImage: "pencil.circle", tone: .pending) { litCount }
+        } else if !isConnected {
+            BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) { litCount }
+        } else if let source = connection.output.source, source != .manual {
+            // Another feature owns the board, so the draft is not what it shows.
+            BoardPreviewStatus(Text(String(format: NSLocalizedString("面板正在播放：%@",
+                                                                     comment: "board output owned by another feature"),
+                                           source.title)),
+                               systemImage: "rectangle.on.rectangle", tone: .neutral) { litCount }
+        } else {
+            BoardPreviewStatus("已同步", systemImage: "checkmark.circle", tone: .live) { litCount }
         }
     }
 
@@ -92,36 +132,37 @@ struct ControlView: View {
 
     // MARK: §18 Command section
 
-    /// Every editor command lives in one section (§18): the primary send
-    /// action, the two persistent modes as button-style toggles, the frame
-    /// operations, and the save actions. Nothing is hidden behind a toolbar
-    /// menu any more.
+    /// Editor commands (§18), one section per row: the untitled send /
+    /// saved-list / save row, part selection (live preview, random, eye sync)
+    /// and manual drawing (clear, the brush that decides whether a touch on
+    /// the board lights or clears, invert, undo). Nothing is hidden behind a
+    /// toolbar menu any more.
     private var commandSection: some View {
+        Group {
+            fileCommandSection
+            partCommandSection
+            drawingCommandSection
+        }
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        .bootReveal(index: 1)
+    }
+
+    @ViewBuilder
+    private var fileCommandSection: some View {
         Section {
             HStack(spacing: 8) {
-                Toggle(isOn: Bindable(model).livePreview) {
-                    CommandChip("实时预览", systemImage: "livephoto")
+                Button {
+                    Task { await model.send(connection: connection) }
+                } label: {
+                    CommandChip("发送", systemImage: "paperplane.fill")
                 }
-                .toggleStyle(.button)
-                .buttonStyle(.bordered)
+                .disabled(!isConnected || model.isSending)
 
                 Button {
-                    model.randomizeParts(connection: connection)
-                    toggleCount += 1
+                    isShowingSavedFaces = true
                 } label: {
-                    CommandChip("随机", systemImage: "dice.fill")
+                    CommandChip("保存列表", systemImage: "list.bullet.rectangle")
                 }
-                .buttonStyle(.bordered)
-
-                Toggle(isOn: Binding(
-                    get: { model.syncEyes },
-                    set: { model.setSyncEyes($0, connection: connection) }
-                )) {
-                    CommandChip("同步", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .toggleStyle(.button)
-                .buttonStyle(.bordered)
-                .disabled(!model.canSyncEyes)
 
                 Button {
                     saveNameDraft = model.saveName
@@ -129,10 +170,62 @@ struct ControlView: View {
                 } label: {
                     CommandChip("保存", systemImage: "square.and.arrow.down.fill")
                 }
-                .buttonStyle(.bordered)
                 .disabled(!isConnected)
             }
+            .buttonStyle(.pill)
+            .pillButtonRow()
 
+            if model.editingFaceId != nil {
+                Button {
+                    model.startNewFace()
+                } label: {
+                    CommandChip("另存为新表情", systemImage: "doc.on.doc.fill")
+                }
+                .buttonStyle(.pill)
+                .pillButtonRow()
+            }
+        }
+    }
+
+    private var partCommandSection: some View {
+        Section {
+            HStack(spacing: 8) {
+                Toggle(isOn: Bindable(model).livePreview) {
+                    CommandChip("实时预览", systemImage: "livephoto")
+                }
+                .toggleStyle(.pill)
+
+                Button {
+                    model.randomizeParts(connection: connection)
+                    toggleCount += 1
+                } label: {
+                    CommandChip("随机", systemImage: "dice.fill")
+                }
+                .buttonStyle(.pill)
+
+                Toggle(isOn: Binding(
+                    get: { model.syncEyes },
+                    set: { model.setSyncEyes($0, connection: connection) }
+                )) {
+                    CommandChip("同步", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .toggleStyle(.pill)
+                .disabled(!model.canSyncEyes)
+            }
+            .pillButtonRow()
+        } header: {
+            Text("部件选择")
+        } footer: {
+            if !model.canSyncEyes {
+                Text("当前部件数据与左右眼映射不一致，已停用逐灯同步。")
+            } else if !model.livePreview {
+                Text("实时预览已关闭，修改仅保存在本地，点击「发送」才会写入。")
+            }
+        }
+    }
+
+    private var drawingCommandSection: some View {
+        Section {
             HStack(spacing: 8) {
                 Button {
                     model.clear(connection: connection)
@@ -140,11 +233,11 @@ struct ControlView: View {
                     CommandChip("清空", systemImage: "eraser.fill")
                 }
 
-                Button {
-                    model.fill(connection: connection)
-                } label: {
-                    CommandChip("全亮", systemImage: "sun.max.fill")
+                Toggle(isOn: Bindable(model).brushOn) {
+                    CommandChip(model.brushOn ? "画亮" : "画灭",
+                                systemImage: model.brushOn ? "lightbulb.fill" : "lightbulb.slash.fill")
                 }
+                .toggleStyle(.pill)
 
                 Button {
                     model.invert(connection: connection)
@@ -153,41 +246,39 @@ struct ControlView: View {
                 }
 
                 Button {
-                    model.revertToBaseline(connection: connection)
+                    model.undo(connection: connection)
                 } label: {
-                    CommandChip("回退", systemImage: "arrow.uturn.backward")
+                    CommandChip("撤销", systemImage: "arrow.uturn.backward")
                 }
-                .disabled(!model.canRevert)
+                .disabled(!model.canUndo)
             }
-            .buttonStyle(.bordered)
-
-            if model.editingFaceId != nil {
-                Button {
-                    model.startNewFace()
-                } label: {
-                    CommandChip("另存为新表情", systemImage: "doc.on.doc.fill")
-                }
-                .buttonStyle(.bordered)
-            }
-
-            if let error = model.errorMessage {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-            }
+            .buttonStyle(.pill)
+            .pillButtonRow()
         } header: {
-            Text("命令")
-        } footer: {
-            if !model.canSyncEyes {
-                Text("当前部件数据与左右眼映射不一致，已停用逐灯同步。")
-            } else if !model.livePreview {
-                Text("实时预览已关闭，修改仅保存在本地，点击面板控制栏最右侧的「发送」才会写入。")
+            Text("手动绘画")
+        }
+    }
+
+    // MARK: §11 Saved faces
+
+    /// The full saved-face list with its edit tools (reorder, rename, delete,
+    /// import/export), as a bottom sheet over the editor. Choosing「编辑」on a
+    /// row loads it into the editor and closes the sheet.
+    private var savedFacesSheet: some View {
+        NavigationStack {
+            FaceLibraryView()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("关闭", systemImage: "xmark") { isShowingSavedFaces = false }
+                    }
+                }
+        }
+        .presentationDetents([.medium, .large])
+        .task {
+            if faceLibrary.faceDocument.faces.isEmpty {
+                await faceLibrary.reload(connection: connection)
             }
         }
-        .buttonBorderShape(.capsule)
-        .controlSize(.small)
-        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-        .bootReveal(index: 1)
     }
 
     // MARK: §19 Face parts

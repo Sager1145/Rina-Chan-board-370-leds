@@ -5,9 +5,10 @@ import RinaCore
 /// Full saved-face management (design guide §11): the complete list with
 /// rename, edit, delete, drag reorder and whole-document import/export.
 ///
-/// Native list semantics throughout — rows are `List` rows with swipe actions
-/// and a context menu, not website-style cards. Pushed from the Control
-/// Center's Saves section.
+/// Presets and user faces share one list in board order; each row's caption
+/// says which it is. Native list semantics throughout — rows are `List` rows
+/// with swipe actions and a context menu, not website-style cards. Presented
+/// as a bottom sheet from the Control tab's「保存列表」button.
 struct FaceLibraryView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(FaceLibraryModel.self) private var model
@@ -20,31 +21,27 @@ struct FaceLibraryView: View {
     @State private var exportDocument: JSONFileDocument?
 
     var body: some View {
+        let faces = model.faceDocument.sortedFaces
         List {
-            Section("默认表情") {
-                if model.defaultFaces.isEmpty {
-                    Text("暂无").font(.footnote).foregroundStyle(.secondary)
-                }
-                ForEach(model.defaultFaces) { face in row(for: face) }
+            if faces.isEmpty && !model.isLoading {
+                Text("暂无").font(.footnote).foregroundStyle(.secondary)
             }
-            Section("我的表情") {
-                if model.userFaces.isEmpty {
-                    Text("暂无").font(.footnote).foregroundStyle(.secondary)
+            ForEach(faces) { face in
+                row(for: face)
+                    .deleteDisabled(!model.canDelete(face))
+            }
+            .onDelete { offsets in
+                let doomed = offsets.map { faces[$0] }.filter(model.canDelete)
+                Task {
+                    for face in doomed {
+                        await model.delete(face, connection: connection)
+                    }
                 }
-                ForEach(model.userFaces) { face in row(for: face) }
-                    .onDelete { offsets in
-                        let doomed = offsets.map { model.userFaces[$0] }
-                        Task {
-                            for face in doomed {
-                                await model.delete(face, connection: connection)
-                            }
-                        }
-                    }
-                    .onMove { source, destination in
-                        var reordered = model.userFaces
-                        reordered.move(fromOffsets: source, toOffset: destination)
-                        Task { await model.reorderUserFaces(reordered, connection: connection) }
-                    }
+            }
+            .onMove { source, destination in
+                var reordered = faces
+                reordered.move(fromOffsets: source, toOffset: destination)
+                Task { await model.reorderFaces(reordered, connection: connection) }
             }
         }
         .navigationTitle("表情库")
@@ -58,20 +55,18 @@ struct FaceLibraryView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button(isEditing ? "完成" : "排序") { isEditing.toggle() }
+                Button(isEditing ? "完成" : "编辑") {
+                    withAnimation { isEditing.toggle() }
+                }
             }
-            ToolbarItem(placement: .secondaryAction) {
-                Menu {
-                    Button("导出全部", systemImage: "square.and.arrow.up") {
-                        exportDocument = JSONFileDocument(data: model.exportData() ?? Data())
-                        isExporting = true
-                    }
-                    Button("导入表情列表", systemImage: "square.and.arrow.down") { isImporting = true }
-                    Button("刷新", systemImage: "arrow.clockwise") {
-                        Task { await model.reload(connection: connection) }
-                    }
-                } label: {
-                    Label("更多", systemImage: "ellipsis.circle")
+            ToolbarItemGroup(placement: .secondaryAction) {
+                Button("导出全部", systemImage: "square.and.arrow.up") {
+                    exportDocument = JSONFileDocument(data: model.exportData() ?? Data())
+                    isExporting = true
+                }
+                Button("导入表情列表", systemImage: "square.and.arrow.down") { isImporting = true }
+                Button("刷新", systemImage: "arrow.clockwise") {
+                    Task { await model.reload(connection: connection) }
                 }
             }
         }
@@ -103,6 +98,7 @@ struct FaceLibraryView: View {
     @ViewBuilder
     private func row(for face: SavedFace) -> some View {
         Button {
+            guard !isEditing else { return }
             Task { await model.apply(face, connection: connection) }
         } label: {
             HStack(spacing: 12) {
@@ -115,8 +111,10 @@ struct FaceLibraryView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(face.name)
                     HStack(spacing: 6) {
-                        Text(badgeLabel(face.type))
-                        Text("序号 \(face.order)")
+                        Text(face.type == .default ? "预设" : "我的表情")
+                        if face.type == .parts {
+                            Text("部件")
+                        }
                     }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -135,14 +133,14 @@ struct FaceLibraryView: View {
                 model.renamingFace = face
                 model.renameText = face.name
             }
-            if face.type != .default {
+            if model.canDelete(face) {
                 Button("删除", systemImage: "trash", role: .destructive) {
                     Task { await model.delete(face, connection: connection) }
                 }
             }
         }
         .swipeActions(edge: .trailing) {
-            if face.type != .default {
+            if model.canDelete(face) {
                 Button("删除", role: .destructive) {
                     Task { await model.delete(face, connection: connection) }
                 }
@@ -152,14 +150,6 @@ struct FaceLibraryView: View {
                 model.renameText = face.name
             }
             .tint(.blue)
-        }
-    }
-
-    private func badgeLabel(_ type: SavedFace.Kind) -> String {
-        switch type {
-        case .default: return NSLocalizedString("默认", comment: "saved face kind default")
-        case .custom: return NSLocalizedString("自定义", comment: "saved face kind custom")
-        case .parts: return NSLocalizedString("部件", comment: "saved face kind parts")
         }
     }
 }
