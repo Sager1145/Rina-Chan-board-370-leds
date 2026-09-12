@@ -30,6 +30,8 @@ final class BootLoaderModel {
     /// False from P4b on: the overlay stops intercepting touches while the
     /// mask opens and stays inert until it is removed.
     private(set) var interceptsTouches = true
+    /// Bumped by `replay()`; the overlay keys its stage view on it.
+    private(set) var runID = 0
 
     var isVisible: Bool { phase != .done }
 
@@ -44,6 +46,8 @@ final class BootLoaderModel {
     /// screen's `onAppear` can run ahead of the root's.
     private var finishQueued = false
     private var doneContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
+    /// Card count of the last waterfall, so a replay can re-run it.
+    private var waterfallCount = 3
 
     func isCardRevealed(index: Int) -> Bool {
         revealsAllCards || revealedCount > index
@@ -82,6 +86,7 @@ final class BootLoaderModel {
     /// mask is what shows the result.
     func beginWaterfall(count: Int) {
         guard waterfall == nil, count > 0 else { return }
+        waterfallCount = count
         waterfall = Task { [weak self] in
             guard let self else { return }
             if self.reduceMotion {
@@ -133,6 +138,22 @@ final class BootLoaderModel {
             } catch { return }
             self.finish()
         }
+    }
+
+    /// Debug aid: run the whole loader again from P0 over whatever screen is
+    /// showing. Anything still in flight is cancelled first.
+    func replay() {
+        sequence?.cancel(); sequence = nil
+        waterfall?.cancel(); waterfall = nil
+        safetyNet?.cancel(); safetyNet = nil
+        finishQueued = false
+        revealedCount = 0
+        revealsAllCards = false
+        interceptsTouches = true
+        runID += 1
+        phase = .idle
+        start(reduceMotion: reduceMotion)
+        beginWaterfall(count: waterfallCount)
     }
 
     private func finish() {

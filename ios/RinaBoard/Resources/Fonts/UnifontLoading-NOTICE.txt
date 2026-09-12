@@ -1,0 +1,16 @@
+UnifontLoading.ttf — GNU Unifont, ASCII subset (U+0020–U+007E)
+
+This file is a subset of the GNU Unifont web font that the project's legacy
+WebUI ships as legacy/webui_v1/data/resources/fonts/unifont.woff2
+("GNU Unifont WebUI Offline Subset"). It is used only for the boot loader's
+"LOADING" label, to match the WebUI's pixel-font look.
+
+GNU Unifont is Copyright (C) 1998–2024 Roman Czyborra, Paul Hardy, and
+contributors, and is dual-licensed under the SIL Open Font License 1.1 and
+the GNU General Public License version 2 or later with the GNU font
+embedding exception (as recorded in the font's own licence name record).
+The project uses it under the SIL Open Font License 1.1. The subset was
+produced with fontTools; the family name is unchanged, and no Reserved
+Font Name is declared by the upstream font.
+
+Upstream: https://unifoundry.com/unifont/  ·  OFL text: https://openfontlicense.org

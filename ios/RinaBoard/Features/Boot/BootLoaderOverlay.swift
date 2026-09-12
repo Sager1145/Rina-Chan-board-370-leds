@@ -19,13 +19,26 @@ struct BootLoaderOverlay: View {
         BootStage(phase: model.phase,
                   breathPeriod: model.breathPeriod,
                   interceptsTouches: model.interceptsTouches)
+            // A replay while the loader is still up must get a fresh stage:
+            // the old one has consumed its one-shot phases and its root layer
+            // is already at opacity 0, which would leave an invisible view
+            // swallowing touches for the whole run.
+            .id(model.runID)
             .ignoresSafeArea()
             // The stage view swallows touches itself while `interceptsTouches`;
             // that does not stop VoiceOver, so also declare the overlay modal
             // or the tab bar and the list behind it stay focusable.
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("页面加载中"))
+            .accessibilityLabel(Text(accessibilityLabel))
             .accessibilityAddTraits(.isModal)
+    }
+}
+
+private extension BootLoaderOverlay {
+    /// `aria-label` flips to "loaded" when the outro starts (app.js:6259).
+    var accessibilityLabel: LocalizedStringKey {
+        if case .outro = model.phase { return "页面加载完成" }
+        return "页面加载中"
     }
 }
 
@@ -54,10 +67,27 @@ private struct BootStage: UIViewRepresentable {
 /// The legacy `.loading-overlay`: `.blur-screen` (scrim + backdrop blur with
 /// the reveal mask) under a `.loader-stage` of halo, avatar and label.
 private final class BootStageView: UIView {
-    private static let scrim = UIColor(red: 15 / 255, green: 17 / 255, blue: 23 / 255, alpha: 0.55)
-    private static let loadingPink = UIColor(red: 249 / 255, green: 200 / 255, blue: 240 / 255, alpha: 0.85)
+    /// The legacy scrim is the page background at 55 % (`--bg: #0f1117`).
+    /// Light mode uses the app's grouped background the same way, so the
+    /// backdrop reads as a frosted version of the screen behind it in both
+    /// appearances. The avatar circle stays white in both.
+    private static let scrim = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 15 / 255, green: 17 / 255, blue: 23 / 255, alpha: 0.55)
+            : UIColor(red: 242 / 255, green: 242 / 255, blue: 247 / 255, alpha: 0.55)
+    }
+    /// `rgba(249,200,240,.85)` on the dark backdrop; a deeper pink for the
+    /// light one, where the pale tint would vanish.
+    private static let loadingPink = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 249 / 255, green: 200 / 255, blue: 240 / 255, alpha: 0.85)
+            : UIColor(red: 214 / 255, green: 48 / 255, blue: 170 / 255, alpha: 0.9)
+    }
 
-    private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
+    /// A thin material so the screen stays legible through the frost, dark
+    /// in Dark Mode (the WebUI's near-black look) and light in Light Mode;
+    /// the dynamic scrim above follows the appearance.
+    private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let holeMask = RadialMaskView()
     private let halo = CALayer()
     private let avatar = UIView()
@@ -66,8 +96,9 @@ private final class BootStageView: UIView {
     private let hoverIcon = UIImageView(image: BootAssets.hoverIcon)
     private let label = UILabel()
 
-    private var isBreathing = false
-    private var outroStarted = false
+    private var breathing: (period: TimeInterval, since: Date)?
+    private var outroSince: Date?
+    private var activeObserver: NSObjectProtocol?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -84,12 +115,17 @@ private final class BootStageView: UIView {
 
         // Halo: a texture, transformed only. Rendering the blur and the drop
         // shadow live every frame is exactly the work that makes a launch
-        // animation stutter on older devices.
-        let haloImage = BootAssets.halo
-        halo.contents = haloImage.cgImage
-        halo.contentsScale = haloImage.scale
-        halo.bounds = CGRect(origin: .zero, size: haloImage.size)
+        // animation stutter on older devices. The texture is produced off
+        // the main thread (≈200 ms cold, mostly Core Image warm-up) and
+        // attached when ready; the breath animates the layer regardless.
+        let haloSide = BootTimeline.haloDiameter + BootTimeline.haloPadding * 2
+        halo.bounds = CGRect(x: 0, y: 0, width: haloSide, height: haloSide)
+        halo.contentsScale = BootAssets.haloScale
         halo.opacity = 0.28
+        Task { @MainActor [weak halo] in
+            let image = await BootAssets.haloTask.value
+            halo?.contents = image.cgImage
+        }
         halo.setAffineTransform(CGAffineTransform(scaleX: 0.965, y: 0.965))
         layer.addSublayer(halo)
 
@@ -110,19 +146,62 @@ private final class BootStageView: UIView {
         }
         hoverIcon.layer.opacity = 0
         avatar.addSubview(icons)
+        // A clipped group (`masksToBounds` + `cornerRadius` over sublayers)
+        // is composited directly while its transform is the identity, but
+        // the moment the pop's scale animation starts Core Animation renders
+        // it through an offscreen buffer sized to the layer's *bounds*, at
+        // 1× — 106 px point-sampled from the 420 px artwork, then magnified
+        // up to 2.35×: the icon snapped to a coarse dot pattern at t0 and
+        // stayed that way through the release (measured 2026-09-12: the
+        // Laplacian variance of the avatar region fell 494 → 27 between two
+        // consecutive frames). Rasterising the group explicitly, at the
+        // artwork's own density, gives the transform a 420 px bitmap
+        // instead, so every scale from 1 to 2.35 samples the full image.
+        avatar.layer.shouldRasterize = true
+        avatar.layer.rasterizationScale = BootAssets.iconScale
         addSubview(avatar)
 
-        // `.loading-text`: 15 px / 700 / .12em, below the stage.
+        // `.loading-text`: 15 px / .12em in the page font, GNU Unifont (the
+        // CSS asks for 700 but `font-synthesis: none` leaves the pixel font
+        // at its single weight). A subset with ASCII only ships in the bundle.
         label.attributedText = NSAttributedString(
             string: "LOADING",
             attributes: [
-                .font: UIFont.systemFont(ofSize: 15, weight: .bold),
+                .font: UIFont(name: "GNUUnifont-WebUIOfflineSubset", size: 15)
+                    ?? UIFont.monospacedSystemFont(ofSize: 15, weight: .bold),
                 .kern: 15 * 0.12,
                 .foregroundColor: Self.loadingPink,
             ]
         )
         label.sizeToFit()
         addSubview(label)
+
+        // UIKit strips every CA animation when the app is backgrounded, and
+        // a call or an app-switcher peek can land inside the ~3 s loader.
+        // Without this, on return the halo sits frozen or — worse — the
+        // overlay is invisible (root opacity at its model value 0) while
+        // still swallowing touches. Both entry points derive their times
+        // from `since`, so replaying them resumes mid-way.
+        // (Also posts once at launch: the replay then re-adds the breath with
+        // the same `since`/`timeOffset`, which is visually a no-op.)
+        activeObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.replayAfterForeground()
+        }
+    }
+
+    deinit {
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
+    }
+
+    private func replayAfterForeground() {
+        guard let breathing else { return }
+        let outroSince = outroSince
+        self.breathing = nil
+        self.outroSince = nil
+        breathe(period: breathing.period, since: breathing.since)
+        if let outroSince { runOutro(since: outroSince) }
     }
 
     @available(*, unavailable)
@@ -152,8 +231,8 @@ private final class BootStageView: UIView {
     /// peaking at 50 %, eased on both legs. `since` is the model's clock so
     /// the loop's phase matches its peak alignment.
     func breathe(period: TimeInterval, since: Date) {
-        guard !isBreathing else { return }
-        isBreathing = true
+        guard breathing == nil else { return }
+        breathing = (period, since)
 
         let elapsed = max(0, Date().timeIntervalSince(since))
         for (keyPath, values) in [("opacity", [0.28, 1, 0.28]), ("transform.scale", [0.965, 1.075, 0.965])] {
@@ -164,6 +243,7 @@ private final class BootStageView: UIView {
             breath.duration = period
             breath.repeatCount = .infinity
             breath.timeOffset = elapsed.truncatingRemainder(dividingBy: period)
+            breath.preferredFrameRateRange = Self.proMotion
             halo.add(breath, forKey: "breath.\(keyPath)")
         }
     }
@@ -174,13 +254,15 @@ private final class BootStageView: UIView {
     /// later phase is a Core Animation `beginTime`, so the main thread is not
     /// involved again until the model removes the overlay.
     func runOutro(since: Date) {
-        guard !outroStarted else { return }
-        outroStarted = true
+        guard outroSince == nil else { return }
+        outroSince = since
 
         let t0 = CACurrentMediaTime() - max(0, Date().timeIntervalSince(since))
         let presented = halo.presentation() ?? halo
         let haloOpacity = presented.opacity
-        let haloScale = presented.value(forKeyPath: "transform.scale") as? CGFloat ?? 1.075
+        // `transform.scale` reads back as the mean of x/y/z (m33 included);
+        // `.x` is the exact value.
+        let haloScale = presented.value(forKeyPath: "transform.scale.x") as? CGFloat ?? 1.075
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -208,17 +290,22 @@ private final class BootStageView: UIView {
         let releaseCurves = [BootTimeline.Curve.releaseIn, BootTimeline.Curve.releaseOut]
         avatar.layer.setAffineTransform(CGAffineTransform(scaleX: 2.35, y: 2.35))
         avatar.layer.opacity = 0
-        // Nothing else drives opacity until the release begins, so pin it
-        // (the pop animation covers scale over the same window).
-        avatar.layer.add(hold("opacity", at: 1, from: t0, for: BootTimeline.releaseStart), forKey: "hold")
         avatar.layer.add(keyframes("transform.scale", values: [1.22, 1.12, 2.35],
                                    keyTimes: releaseTimes, curves: releaseCurves,
                                    begin: t0 + BootTimeline.releaseStart,
-                                   duration: BootTimeline.release), forKey: "release.scale")
-        avatar.layer.add(keyframes("opacity", values: [1, 1, 0],
-                                   keyTimes: releaseTimes, curves: releaseCurves,
-                                   begin: t0 + BootTimeline.releaseStart,
-                                   duration: BootTimeline.release), forKey: "release.opacity")
+                                   duration: BootTimeline.release,
+                                   fill: .forwards), forKey: "release.scale")
+        // Opacity as one track from t0 — held at 1 through the pop and the
+        // shrink, then fading — so no gap between abutting animations can
+        // ever show the model value.
+        let releaseEnd = BootTimeline.releaseStart + BootTimeline.release
+        avatar.layer.add(keyframes("opacity", values: [1, 1, 1, 0],
+                                   keyTimes: [0,
+                                              NSNumber(value: BootTimeline.releaseStart / releaseEnd),
+                                              NSNumber(value: (BootTimeline.releaseStart + BootTimeline.imgShrink) / releaseEnd),
+                                              1],
+                                   curves: [.linear, BootTimeline.Curve.releaseIn, BootTimeline.Curve.releaseOut],
+                                   begin: t0, duration: releaseEnd), forKey: "release.opacity")
 
         // P2 — the icons grow to 1.025 inside the circle on the pop curve
         // (`.avatar-circle img`) and cross-fade *overlapping*: the hover icon
@@ -247,18 +334,35 @@ private final class BootStageView: UIView {
 
         // P4b — the radial mask opens over the blur. Installed only now, as
         // `.blur-screen.is-revealing` is: its 100 pt feather lies outside the
-        // hole, so a mask at radius 0 already dents the scrim. `closed` holds
-        // it shut until `revealStart`, then the reveal takes over.
+        // hole, so a mask at radius 0 already dents the scrim.
+        //
+        // One track from t0, in three legs — a gap between two abutting
+        // animations here would flash the whole UI through the model value
+        // (fully open):
+        //   shut …                                    until revealFeatherIn
+        //   feather widens 0 → 100 pt, hole still 0 … until revealStart
+        //   hole opens on the reveal curve …          until revealEnd
+        // The legacy goes straight from "shut" to "hole 0 with the full
+        // feather", which lands a 100 pt soft dent around the avatar in one
+        // frame (see `BootTimeline.revealFeatherIn`). Interpolating the stop
+        // array from `nil` to `progress: 0` moves only the outer stop, which
+        // is exactly the feather widening in place, and `featherIn` brings it
+        // to rest just as the hole starts moving.
         blur.mask = holeMask
         holeMask.gradient.locations = holeMask.locations(progress: 1)
-        holeMask.gradient.add(hold("locations", at: holeMask.locations(progress: nil),
-                                   from: t0, for: BootTimeline.revealStart), forKey: "closed")
-        holeMask.gradient.add(basic("locations",
-                                    from: holeMask.locations(progress: 0),
-                                    to: holeMask.locations(progress: 1),
-                                    begin: t0 + BootTimeline.revealStart,
-                                    duration: BootTimeline.reveal,
-                                    curve: .reveal), forKey: "reveal")
+        let revealEnd = BootTimeline.revealStart + BootTimeline.reveal
+        let revealAt = BootTimeline.revealStart / revealEnd
+        let featherAt = (BootTimeline.revealStart - BootTimeline.revealFeatherIn) / revealEnd
+        holeMask.gradient.add(keyframes("locations",
+                                        values: [holeMask.locations(progress: nil),
+                                                 holeMask.locations(progress: nil),
+                                                 holeMask.locations(progress: 0),
+                                                 holeMask.locations(progress: 1)],
+                                        keyTimes: [0, NSNumber(value: featherAt),
+                                                   NSNumber(value: revealAt), 1],
+                                        curves: [.linear, BootTimeline.Curve.featherIn,
+                                                 BootTimeline.Curve.reveal],
+                                        begin: t0, duration: revealEnd), forKey: "reveal")
 
         // P5 — the (by now fully punched-through) overlay snaps to opacity 0
         // (`.loading-overlay.is-hidden` has no transition); the model removes
@@ -271,6 +375,12 @@ private final class BootStageView: UIView {
 
     // MARK: Animation builders
 
+    /// ProMotion: iPhone caps Core Animation at 60 Hz unless the app opts in
+    /// (`CADisableMinimumFrameDurationOnPhone` in Info.plist) *and* the
+    /// animation asks for it; without the hint the system may still settle on
+    /// 60 Hz for a "slow" tween like the halo breath.
+    private static let proMotion = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+
     private func basic(_ keyPath: String, from: Any, to: Any,
                        begin: CFTimeInterval, duration: TimeInterval,
                        curve: CAMediaTimingFunction) -> CABasicAnimation {
@@ -280,22 +390,28 @@ private final class BootStageView: UIView {
         animation.beginTime = begin
         animation.duration = duration
         animation.timingFunction = curve
-        animation.fillMode = .forwards
+        animation.fillMode = .both
         animation.isRemovedOnCompletion = false
+        animation.preferredFrameRateRange = Self.proMotion
         return animation
     }
 
+    /// `fill` defaults to `.both` for tracks that start at t0; a track that
+    /// begins later and takes over from an earlier one (the release from the
+    /// pop) must not fill backwards or it would pre-empt its predecessor.
     private func keyframes(_ keyPath: String, values: [Any], keyTimes: [NSNumber],
                            curves: [CAMediaTimingFunction],
-                           begin: CFTimeInterval, duration: TimeInterval) -> CAKeyframeAnimation {
+                           begin: CFTimeInterval, duration: TimeInterval,
+                           fill: CAMediaTimingFillMode = .both) -> CAKeyframeAnimation {
         let animation = CAKeyframeAnimation(keyPath: keyPath)
         animation.values = values
         animation.keyTimes = keyTimes
         animation.timingFunctions = curves
         animation.beginTime = begin
         animation.duration = duration
-        animation.fillMode = .forwards
+        animation.fillMode = fill
         animation.isRemovedOnCompletion = false
+        animation.preferredFrameRateRange = Self.proMotion
         return animation
     }
 
@@ -309,11 +425,13 @@ private final class BootStageView: UIView {
         animation.beginTime = begin
         animation.duration = duration
         animation.fillMode = .backwards
+        animation.preferredFrameRateRange = Self.proMotion
         return animation
     }
 }
 
 private extension CAMediaTimingFunction {
+    static let linear = CAMediaTimingFunction(name: .linear)
     static let haloContract = BootTimeline.Curve.haloContract
     static let avatarPop = BootTimeline.Curve.avatarPop
     static let ease = BootTimeline.Curve.ease
@@ -369,41 +487,72 @@ private enum BootAssets {
     static let defaultIcon = icon("rina_icon1_default")
     static let hoverIcon = icon("rina_icon2_hover")
 
+    /// Pixels per point of the icons in the 106 pt circle (420 / 106 ≈ 3.96);
+    /// the avatar group is rasterised at this density. Falls back to the
+    /// release's largest on-screen size on a 3× panel.
+    static var iconScale: CGFloat { defaultIcon?.scale ?? 3 * 2.35 }
+
+    /// The PNGs are 420 px, decoded once and mapped to the 106 pt circle at
+    /// their full resolution (≈4×), so the 2.35× release still has headroom
+    /// on a 3× panel.
     private static func icon(_ name: String) -> UIImage? {
         guard let path = Bundle.main.path(forResource: name, ofType: "png"),
-              let image = UIImage(contentsOfFile: path) else { return nil }
-        return image.preparingForDisplay() ?? image
+              let image = UIImage(contentsOfFile: path)?.preparingForDisplay(),
+              let cgImage = image.cgImage else { return nil }
+        let scale = CGFloat(cgImage.width) / BootTimeline.avatarDiameter
+        return UIImage(cgImage: cgImage, scale: scale, orientation: .up)
     }
 
     private static let pink = CIColor(red: 249 / 255, green: 113 / 255, blue: 212 / 255)
 
-    /// The `.flash-halo` ring rendered once: the spec's radial gradient,
-    /// `blur(2.4px)`, and `drop-shadow(0 0 10px rgba(249,113,212,.36))` —
-    /// a 10 pt blur *diameter*, so sigma 5.
-    static let halo: UIImage = {
+    /// Rendered at 3× regardless of the panel: it is a soft glow.
+    static let haloScale: CGFloat = 3
+
+    /// Starts rendering the halo texture in the background; called at app
+    /// init so it is ready by the loader's first frame.
+    static let haloTask = Task.detached(priority: .userInitiated) { renderHalo() }
+
+    /// The `.flash-halo` rendered once, as the browser draws it: the radial
+    /// gradient with its stops on the farthest-corner ray (see
+    /// `BootTimeline.haloGradientRay`), clipped to the round box, then
+    /// `blur(2.4px)` and `drop-shadow(0 0 10px rgba(249,113,212,.36))` — a
+    /// 10 pt blur *diameter*, so sigma 5 — which spill past the clip.
+    private static func renderHalo() -> UIImage {
         let radius = BootTimeline.haloDiameter / 2
+        let ray = BootTimeline.haloGradientRay
         let side = BootTimeline.haloDiameter + BootTimeline.haloPadding * 2
-        let scale = UIScreen.main.scale
+        let scale = haloScale
         let format = UIGraphicsImageRendererFormat()
         format.scale = scale
         format.opaque = false
 
         let ring = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { context in
+            // `calc(50% − 18px)` etc., with 50 % = half the ray. `CGGradient`
+            // interpolates un-premultiplied, so a transparent stop must carry
+            // the neighbouring colour (`UIColor.clear` is transparent *black*
+            // and would drag the visible tail ~45 % towards black); the CSS
+            // pins its inner stop at `rgba(255,255,255,0)` for the same reason.
+            let pinkColor = UIColor(ciColor: pink)
             let stops: [(CGFloat, UIColor)] = [
-                (0, .clear),
-                ((radius - 18) / radius, .clear),
-                ((radius - 15) / radius, UIColor.white.withAlphaComponent(0.55)),
-                ((radius - 11) / radius, UIColor(ciColor: pink).withAlphaComponent(0.72)),
-                ((radius - 6) / radius, UIColor(ciColor: pink).withAlphaComponent(0.40)),
-                ((radius - 1) / radius, UIColor(ciColor: pink).withAlphaComponent(0.13)),
-                (1, .clear),
+                (0, UIColor.white.withAlphaComponent(0)),
+                ((ray / 2 - 18) / ray, UIColor.white.withAlphaComponent(0)),
+                ((ray / 2 - 15) / ray, UIColor.white.withAlphaComponent(0.55)),
+                ((ray / 2 - 11) / ray, pinkColor.withAlphaComponent(0.72)),
+                ((ray / 2 - 6) / ray, pinkColor.withAlphaComponent(0.40)),
+                ((ray / 2 - 1) / ray, pinkColor.withAlphaComponent(0.13)),
+                (1, pinkColor.withAlphaComponent(0)),
             ]
             guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
                                             colors: stops.map(\.1.cgColor) as CFArray,
                                             locations: stops.map(\.0)) else { return }
             let centre = CGPoint(x: side / 2, y: side / 2)
+            // `border-radius: 50%` clips the background to the 71 pt circle;
+            // the filters below are applied to the clipped result.
+            context.cgContext.addEllipse(in: CGRect(x: centre.x - radius, y: centre.y - radius,
+                                                    width: radius * 2, height: radius * 2))
+            context.cgContext.clip()
             context.cgContext.drawRadialGradient(gradient, startCenter: centre, startRadius: 0,
-                                                 endCenter: centre, endRadius: radius, options: [])
+                                                 endCenter: centre, endRadius: ray, options: [])
         }
 
         guard let source = CIImage(image: ring) else { return ring }
@@ -427,7 +576,21 @@ private enum BootAssets {
         let context = CIContext(options: [.useSoftwareRenderer: false])
         guard let cgImage = context.createCGImage(composed, from: source.extent) else { return ring }
         return UIImage(cgImage: cgImage, scale: scale, orientation: .up)
-    }()
+    }
+}
+
+extension BootLoaderOverlay {
+    /// Kick off the halo texture render (and image decodes) in the
+    /// background. Call once at app init; everything is idempotent.
+    static func prewarm() {
+        _ = BootAssets.haloTask
+        // Same priority as the first frame that will otherwise block on
+        // these `static let`s: `swift_once` does not donate priority.
+        Task.detached(priority: .userInitiated) {
+            _ = BootAssets.defaultIcon
+            _ = BootAssets.hoverIcon
+        }
+    }
 }
 
 // MARK: - Preview

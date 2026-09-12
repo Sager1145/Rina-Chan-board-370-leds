@@ -44,6 +44,16 @@ enum BootTimeline {
     /// round(2100 × 0.18) — the 18 % keyframe of the release track.
     static let imgShrink: TimeInterval = 0.378
     static let reveal: TimeInterval = 0.850
+    /// The reveal mask's feather lies *outside* the hole, so installing the
+    /// mask at hole radius 0 — as the legacy does — makes a 100 pt soft dent
+    /// appear around the avatar in a single frame. Measured on a 60 Hz capture
+    /// of the replay, that one frame delivered as much un-blurring in the
+    /// 60–110 pt annulus as the next 150 ms of the reveal combined, and the
+    /// hole's own `r = R·t²` start is far too slow to cover it. The port
+    /// widens the feather from 0 to its full width over this long instead,
+    /// *finishing* at `revealStart` so the hole still travels for the spec's
+    /// 850 ms. Deliberate departure; see the spec's deviations section.
+    static let revealFeatherIn: TimeInterval = 0.120
     static let extra: TimeInterval = 0.180
 
     static let waterfallStagger: TimeInterval = 0.115
@@ -72,6 +82,13 @@ enum BootTimeline {
 
     static let avatarDiameter: CGFloat = 106
     static let haloDiameter: CGFloat = 142
+    /// The halo's `radial-gradient(circle …)` has no explicit size, so CSS
+    /// sizes it `farthest-corner`: its colour-stop percentages resolve against
+    /// the ray to the 142 px box's corner, 71·√2 ≈ 100.4 px, not against the
+    /// 71 px radius the box is then clipped to by `border-radius: 50%`. That
+    /// puts the bright band *under* the avatar and leaves only a faint tail
+    /// showing — the soft haze the WebUI actually renders.
+    static let haloGradientRay: CGFloat = 71 * 2.0.squareRoot()
     /// Room around the halo for its blur and drop shadow.
     static let haloPadding: CGFloat = 24
     /// `.loading-box` is a grid: the 142 pt stage, a 20 pt gap, then the
@@ -94,10 +111,17 @@ enum BootTimeline {
         static let avatarPop = CAMediaTimingFunction(controlPoints: 0.16, 1.25, 0.3, 1)
         static let releaseIn = CAMediaTimingFunction(controlPoints: 0.34, 0, 0.2, 1)
         static let releaseOut = CAMediaTimingFunction(controlPoints: 0.12, 0.88, 0.18, 1)
-        /// The WebUI drives the mask from `requestAnimationFrame` with the
-        /// closed-form ease-in-out cubic; this is its standard bezier fit
-        /// (max deviation ≈1 %).
-        static let reveal = CAMediaTimingFunction(controlPoints: 0.65, 0, 0.35, 1)
+        /// The hole's radius grows with *constant acceleration* — a slow start
+        /// that keeps speeding up until the mask has left the screen. These
+        /// control points make the bezier exactly y = x² (x(t) = t, y(t) = t²),
+        /// not an approximation. Deliberate departure from the WebUI's
+        /// ease-in-out cubic; see the spec's "Deliberate iOS deviations".
+        static let reveal = CAMediaTimingFunction(controlPoints: 1 / 3, 0, 2 / 3, 1 / 3)
+        /// The mirror of `reveal`: these control points make the bezier exactly
+        /// y = 2x − x², constant *de*celeration. The feather widens into place
+        /// and arrives with zero velocity — which is the velocity the hole then
+        /// leaves with — so the mask's outer edge has no kink at `revealStart`.
+        static let featherIn = CAMediaTimingFunction(controlPoints: 1 / 3, 2 / 3, 2 / 3, 1)
     }
 
     // MARK: Peak alignment
