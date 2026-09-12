@@ -38,8 +38,8 @@ struct TextPlaybackControls: View {
             control("forward.frame.fill", label: "下一帧", action: onStepForward)
                 .disabled(!transportEnabled)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
+        .buttonStyle(.pill)
+        .pillButtonRow()
     }
 
     @ViewBuilder
@@ -52,13 +52,14 @@ struct TextPlaybackControls: View {
                 Group {
                     if isUploading {
                         ProgressView()
+                            .controlSize(.mini)
                     } else {
                         Image(systemName: isGeneratingFont ? "hourglass" : "play.circle.fill")
                     }
                 }
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.pill)
             .accessibilityLabel(isGeneratingFont
                                 ? LocalizedStringKey("加载字体…")
                                 : LocalizedStringKey("发送并播放"))

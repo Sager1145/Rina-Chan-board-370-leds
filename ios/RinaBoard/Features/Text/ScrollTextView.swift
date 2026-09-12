@@ -12,6 +12,9 @@ struct ScrollTextView: View {
     @Environment(TextViewModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var isEditorFocused: Bool
+    @Environment(\.displayScale) private var displayScale
+    /// Ark Pixel editor size; follows Dynamic Type, snapped to crisp steps.
+    @ScaledMetric(relativeTo: .body) private var editorFontSize: CGFloat = 16
 
     private var isConnected: Bool { connection.connectionState == .connected }
 
@@ -24,12 +27,20 @@ struct ScrollTextView: View {
                 speedSection
                 syncSection
             }
+            .errorAlert(Bindable(model).errorMessage)
             .toolbar(.hidden, for: .navigationBar)
             .contentMargins(.top, 0, for: .scrollContent)
         }
-        .onAppear { model.loadDefaultsIfNeeded() }
+        .onAppear {
+            model.loadDefaultsIfNeeded()
+            // Status changes while another tab was showing never reached onChange.
+            model.observe(status: connection.status)
+        }
         .onChange(of: connection.preview) { _, preview in
             model.observe(preview: preview)
+        }
+        .onChange(of: connection.status) { _, status in
+            model.observe(status: status)
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -51,9 +62,36 @@ struct ScrollTextView: View {
                 accessibilityDescription: previewAccessibilityDescription
             )
         } footer: {
-            if model.frameCount > 0 {
-                Text("帧 \(model.displayIndex + 1) / \(model.frameCount)")
-                    .font(.caption.monospacedDigit())
+            previewStatus
+        }
+    }
+
+    @ViewBuilder
+    private var previewStatus: some View {
+        // The playback position once frames exist; before that, how much of
+        // the board's text budget the draft uses.
+        let frameCounter = model.frameCount > 0
+            ? Text("帧 \(model.displayIndex + 1) / \(model.frameCount)")
+            : Text("\(model.byteCount) / \(ScrollText.maxTextBytes)")
+                .foregroundStyle(model.exceedsByteLimit ? .red : .secondary)
+        if model.restoreConflict {
+            BoardPreviewStatus("草稿与面板不同", systemImage: "exclamationmark.circle", tone: .pending) {
+                frameCounter
+            }
+        } else if !isConnected {
+            BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) {
+                frameCounter
+            }
+        } else {
+            let phase = model.phaseKey(connection: connection)
+            let (systemImage, tone): (String, BoardPreviewStatusTone) = switch phase {
+            case "ACTIVE": ("play.circle", .live)
+            case "PAUSED": ("pause.circle", .neutral)
+            case "IDLE": ("stop.circle", .neutral)
+            default: ("arrow.triangle.2.circlepath.circle", .pending)
+            }
+            BoardPreviewStatus(Text(TextViewModel.phaseLabel(phase)), systemImage: systemImage, tone: tone) {
+                frameCounter
             }
         }
     }
@@ -68,14 +106,17 @@ struct ScrollTextView: View {
 
     // MARK: §24 Playback
 
+    /// Two sections: the pill row clears its cell background, so sharing a
+    /// section with ordinary rows left it sitting on top of a broken card.
+    @ViewBuilder
     private var playbackSection: some View {
-        Section("播放") {
+        Section {
             // Four transport buttons only (§24): with nothing bound on the
             // board the stop slot becomes "send and play".
             TextPlaybackControls(
                 isConnected: isConnected,
                 hasTimeline: model.boundTimelineId != nil,
-                isPaused: connection.preview?.firmwareScrollPaused == true,
+                isPaused: model.boardPaused,
                 isUploading: model.isUploading,
                 isGeneratingFont: model.isGeneratingFont,
                 canSend: !model.exceedsByteLimit,
@@ -86,17 +127,88 @@ struct ScrollTextView: View {
                 onStepBackward: { Task { await model.stepFrame(direction: -1, connection: connection) } },
                 onStepForward: { Task { await model.stepFrame(direction: 1, connection: connection) } }
             )
+        }
+
+        Section {
+            // Always present, like the Preset Live tab; greyed out until a
+            // timeline is on the board.
+            progressBar
+
+            Toggle("循环播放", isOn: Binding(
+                get: { model.loopPlayback },
+                set: { loop in
+                    model.loopPlayback = loop
+                    Task { await model.setLoopPlayback(loop, connection: connection) }
+                }
+            ))
+            .disabled(loopUnsupported)
 
             if model.isUploading {
                 ProgressView(value: model.uploadProgress)
             }
-
-            if let error = model.errorMessage {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-            }
         }
+    }
+
+    /// Draggable position on the bound timeline, like the Preset Live tab's.
+    /// The preview follows the thumb while dragging; the board seeks once, on
+    /// release, so a drag never floods the command pump.
+    private var progressBar: some View {
+        let shownIndex = model.scrubIndex ?? model.displayIndex
+        return VStack(alignment: .leading, spacing: 4) {
+            Slider(
+                value: Binding(
+                    get: { Double(shownIndex) },
+                    set: { model.scrubIndex = Int($0.rounded()) }
+                ),
+                in: 0...Double(max(1, model.frameCount - 1)),
+                onEditingChanged: { editing in
+                    model.isScrubbing = editing
+                    if editing {
+                        if model.scrubIndex == nil { model.scrubIndex = model.displayIndex }
+                    } else if let target = model.scrubIndex {
+                        Task { await model.seek(toFrame: target, connection: connection) }
+                    }
+                }
+            )
+            .disabled(!isConnected || model.boundTimelineId == nil || model.frameCount < 2)
+            // A disabled Slider may never report the end of its drag.
+            .onChange(of: isConnected) { _, connected in
+                if !connected { model.cancelScrub() }
+            }
+            .accessibilityLabel("播放进度")
+            // VoiceOver adjusts through the value setter without an editing
+            // phase, which would leave the scrub stuck; seek directly instead.
+            .accessibilityAdjustableAction { direction in
+                guard model.frameCount > 1 else { return }
+                let step = max(1, model.frameCount / 20)
+                let target = model.displayIndex + (direction == .increment ? step : -step)
+                Task { await model.seek(toFrame: target, connection: connection) }
+            }
+            .accessibilityValue(model.frameCount > 0
+                                ? Text("帧 \(shownIndex + 1) / \(model.frameCount)")
+                                : Text("无内容"))
+
+            HStack {
+                Text(formatFrameTime(shownIndex))
+                Spacer()
+                Text(formatFrameTime(model.frameCount))
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Firmware without `set_scroll_loop` reports scroll state but no
+    /// `scrollLoop`; there the toggle could only ever produce a rejection.
+    private var loopUnsupported: Bool {
+        guard let renderer = connection.status?.renderer else { return false }
+        return renderer.scrollFrameCount != nil && renderer.scrollLoop == nil
+    }
+
+    /// Frames as `mm:ss` at the requested speed.
+    private func formatFrameTime(_ frames: Int) -> String {
+        let totalSeconds = Int(Double(max(0, frames)) / max(1, model.requestedFps))
+        return String(format: "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
     }
 
     // MARK: §25 Text input, §26 restore conflict
@@ -116,8 +228,7 @@ struct ScrollTextView: View {
                         Button("保留草稿") { model.keepDraft() }
                         Button("使用面板文字") { model.useBoardText() }
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(.pill)
                 }
             }
 
@@ -128,10 +239,14 @@ struct ScrollTextView: View {
                 set: { model.editText($0) }
             ))
             .frame(minHeight: 132)
-            .font(.body)
+            // Same Ark Pixel font the WebUI uses for this field and the
+            // frame generator rasterizes, so the draft previews its glyphs.
+            .font(ArkPixelInputFont.font(size: editorFontSize, displayScale: displayScale))
             .scrollContentBackground(.hidden)
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.top, 6)
+            // Leaves room for the character counter in the bottom corner.
+            .padding(.bottom, 24)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color(.tertiarySystemFill))
@@ -143,30 +258,28 @@ struct ScrollTextView: View {
             .overlay(alignment: .topLeading) {
                 if model.text.isEmpty {
                     Text("输入要滚动的文字…")
-                        .font(.body)
+                        .font(ArkPixelInputFont.font(size: editorFontSize, displayScale: displayScale))
                         .foregroundStyle(.tertiary)
                         .padding(.horizontal, 15)
                         .padding(.vertical, 14)
                         .allowsHitTesting(false)
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                Text("\(model.visibleCharCount) / \(ScrollText.maxVisibleChars)")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 8)
+                    .allowsHitTesting(false)
+                    .accessibilityLabel("字符")
+                    .accessibilityValue(Text("\(model.visibleCharCount) / \(ScrollText.maxVisibleChars)"))
+            }
             .focused($isEditorFocused)
             .animation(.easeInOut(duration: 0.15), value: isEditorFocused)
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             .accessibilityLabel("滚动文字内容")
-
-            LabeledContent("字符") {
-                Text("\(model.visibleCharCount) / \(ScrollText.maxVisibleChars)")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-            LabeledContent("字节") {
-                Text("\(model.byteCount) / \(ScrollText.maxTextBytes)")
-                    .monospacedDigit()
-                    .foregroundStyle(model.exceedsByteLimit ? .red : .secondary)
-            }
-        } header: {
-            Text("文字")
         } footer: {
             if model.exceedsByteLimit {
                 Text("超出固件 \(ScrollText.maxTextBytes) 字节上限，发送前请缩短文字；不会自动截断。")
@@ -178,7 +291,7 @@ struct ScrollTextView: View {
     // MARK: §27 Speed
 
     private var speedSection: some View {
-        Section("速度") {
+        Section {
             VStack(alignment: .leading, spacing: 4) {
                 LabeledContent("请求速度") {
                     Text(String(format: "%.0f fps", model.requestedFps))

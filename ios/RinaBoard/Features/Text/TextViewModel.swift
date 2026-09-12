@@ -14,7 +14,7 @@ import RinaCore
 final class TextViewModel {
     // MARK: Draft text (§25)
 
-    var text: String = ""
+    var text: String = "" { didSet { scheduleDraftSave() } }
     /// Set as soon as the user types, so a board-side restore can't silently
     /// discard an unsent draft (§26).
     var userEditedText = false
@@ -25,7 +25,60 @@ final class TextViewModel {
     // MARK: Speed (§27)
 
     /// The speed asked for, in the board protocol's own unit (fps).
-    var requestedFps: Double = 10
+    var requestedFps: Double = 10 { didSet { scheduleDraftSave() } }
+
+    var draftStorageError: String?
+    private var draftSaveTask: Task<Void, Never>?
+    private var uploadTask: Task<Void, Never>?
+    private var restoringDraft = false
+    private struct Draft: Codable { var version = 1; var text: String; var fps: Double }
+
+    func restoreDraft() async {
+        do {
+            guard let data = try await DraftStorage.shared.read("text"), !userEditedText else { return }
+            let draft = try JSONDecoder().decode(Draft.self, from: data)
+            guard draft.version == 1 else { return }
+            restoringDraft = true
+            text = draft.text; requestedFps = Double(clampFps(draft.fps)); userEditedText = true
+            didLoadDefaults = true
+            restoringDraft = false
+        } catch {
+            draftStorageError = String(
+                format: NSLocalizedString("无法恢复文字草稿：%@", comment: "text draft restore failed"),
+                error.localizedDescription
+            )
+        }
+    }
+
+    private func scheduleDraftSave() {
+        guard !restoringDraft else { return }
+        draftSaveTask?.cancel()
+        draftSaveTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            await self?.persistDraft()
+        }
+    }
+
+    func persistDraft() async {
+        do {
+            let data = try JSONEncoder().encode(Draft(text: text, fps: requestedFps))
+            try await DraftStorage.shared.write(data, name: "text")
+            draftStorageError = nil
+        } catch {
+            draftStorageError = String(
+                format: NSLocalizedString("文字草稿尚未保存：%@", comment: "text draft persistence failed"),
+                error.localizedDescription
+            )
+        }
+    }
+
+    func releaseOutput() {
+        uploadTask?.cancel()
+        uploadTask = nil
+        suspendPreviewLoop()
+        boundTimelineId = nil
+        localPhase = nil
+    }
 
     // MARK: Transport
 
@@ -37,7 +90,10 @@ final class TextViewModel {
     var uploadSummary: String?
     var errorMessage: String?
 
-    var timeline: ScrollTimeline?
+    /// Any replacement or clear ends a drag in progress: the old index means
+    /// nothing on another timeline, and a removed Slider may never report
+    /// the end of its drag.
+    var timeline: ScrollTimeline? { didSet { cancelScrub() } }
     var boundTimelineId: String?
 
     // MARK: Preview speed-lock
@@ -51,11 +107,36 @@ final class TextViewModel {
 
     var frameCount: Int { timeline?.frameCount ?? 0 }
 
+    /// The frame under the progress bar's thumb while it is being dragged;
+    /// the preview shows it instead of the running index until the seek lands.
+    var scrubIndex: Int?
+    /// True between drag start and release, so a seek still in flight from
+    /// the previous drag doesn't clear the new drag's thumb when it lands.
+    var isScrubbing = false
+
+    func cancelScrub() {
+        isScrubbing = false
+        scrubIndex = nil
+    }
+
+    /// Whether the board's scroll is paused, taken from `status`: preview
+    /// samples only arrive with a newly presented frame, so a plain pause
+    /// never reaches them. Set optimistically once a pause/resume is accepted.
+    var boardPaused = false
+
+    static let loopPlaybackKey = "textLoopPlayback"
+    /// Loop playback preference. The board keeps it in RAM only, so it is
+    /// pushed before every upload and after a reconnect restore.
+    var loopPlayback: Bool = UserDefaults.standard.object(forKey: TextViewModel.loopPlaybackKey) as? Bool ?? true {
+        didSet { UserDefaults.standard.set(loopPlayback, forKey: Self.loopPlaybackKey) }
+    }
+
     var previewFrame: PackedFrame {
-        guard let frames = timeline?.frames, displayIndex >= 0, displayIndex < frames.count else {
+        let index = scrubIndex ?? displayIndex
+        guard let frames = timeline?.frames, index >= 0, index < frames.count else {
             return PackedFrame()
         }
-        return frames[displayIndex]
+        return frames[index]
     }
 
     var visibleCharCount: Int { ScrollText.visibleCharCount(text) }
@@ -78,9 +159,9 @@ final class TextViewModel {
                   self.boundTimelineId != nil else { return }
             let fpsInt = Int(fps.rounded())
             let intervalMs = ScrollRasterizer.intervalMs(forFps: fpsInt)
-            await self.run(connection) {
-                _ = try await $0.command(.setScrollInterval(intervalMs: intervalMs, fps: fpsInt))
-            }
+            // Only retunes a scroll already on the board; taking the output
+            // over here would pause another tab's playback.
+            await self.sendWithoutClaim(.setScrollInterval(intervalMs: intervalMs, fps: fpsInt), connection: connection)
         }
         box.value = self
     }
@@ -116,7 +197,7 @@ final class TextViewModel {
         didLoadDefaults = true
         let defaults = RinaResources.scrollTextDefaults(bundle: .main)
         if text.isEmpty { text = defaults.defaultText }
-        requestedFps = Double(defaults.fpsDefault)
+        if !userEditedText { requestedFps = Double(defaults.fpsDefault) }
     }
 
     func editText(_ newValue: String) {
@@ -141,6 +222,25 @@ final class TextViewModel {
     // MARK: Send (§24)
 
     func send(connection: BoardConnection) async {
+        guard !isUploading else { return }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !exceedsByteLimit else {
+            errorMessage = exceedsByteLimit ? TextError.textTooLong.errorDescription : TextError.emptyText.errorDescription
+            return
+        }
+        guard connection.connectionState == .connected else { errorMessage = TextError.notConnected.errorDescription; return }
+        let token = connection.output.begin(.text)
+        let task = Task { [weak self] in
+            await BoardOutputContext.$session.withValue(token) {
+                guard let self else { return }
+                await self.sendDraft(connection: connection)
+            }
+        }
+        uploadTask = task
+        await task.value
+        if connection.output.isCurrent(token) { uploadTask = nil }
+    }
+
+    private func sendDraft(connection: BoardConnection) async {
         guard connection.connectionState == .connected else {
             errorMessage = TextError.notConnected.errorDescription
             return
@@ -163,6 +263,11 @@ final class TextViewModel {
         localPhase = "GENERATING"
         defer { isUploading = false }
 
+        // Before the upload auto-starts the scroll, so a short text can't wrap
+        // once under a stale setting. Older firmware rejects it; that must not
+        // block sending.
+        _ = try? await connection.command(.setScrollLoop(loop: loopPlayback))
+
         do {
             isGeneratingFont = (font == nil)
             let loadedFont = try await loadFontIfNeeded()
@@ -173,13 +278,18 @@ final class TextViewModel {
             let built = try await Task.detached(priority: .userInitiated) { [loadedFont] in
                 try ScrollRasterizer.makeTimeline(text: text, font: loadedFont, fps: fpsInt)
             }.value
+            if let token = BoardOutputContext.session { try connection.output.check(token) }
             uploadProgress = 0.34
             timeline = built
 
             localPhase = "UPLOADING"
             uploadProgress = 0.36
+            let token = BoardOutputContext.session
             let onProgress: (Double) -> Void = { [weak self] progress in
-                Task { @MainActor in self?.uploadProgress = 0.36 + progress * 0.5 }
+                Task { @MainActor in
+                    guard let token, connection.output.isCurrent(token) else { return }
+                    self?.uploadProgress = 0.36 + progress * 0.5
+                }
             }
             let reply: ScrollUploadReply
             do {
@@ -216,10 +326,12 @@ final class TextViewModel {
             boundTimelineId = boundId
             pll = ScrollPreviewController(frameCount: built.frameCount, userFps: Double(fpsInt))
             pll.bind(timelineId: boundId, frameCount: built.frameCount)
-            userEditedText = false
+            userEditedText = self.text != text
             uploadProgress = 1.0
             localPhase = nil
             startPreviewLoop()
+        } catch is CancellationError {
+            localPhase = nil
         } catch let error as ScrollRasterizer.RasterizerError {
             switch error {
             case .emptyText: errorMessage = TextError.emptyText.errorDescription
@@ -254,30 +366,49 @@ final class TextViewModel {
     func pause(connection: BoardConnection) async {
         guard Date() >= scrollLockoutUntil else { return }
         scrollLockoutUntil = Date().addingTimeInterval(0.25)
-        await run(connection) { _ = try await $0.command(.pauseScroll) }
+        if await run(connection, { _ = try await $0.command(.pauseScroll) }) { boardPaused = true }
     }
 
     func resume(connection: BoardConnection) async {
         guard Date() >= scrollLockoutUntil else { return }
         scrollLockoutUntil = Date().addingTimeInterval(0.25)
-        await run(connection) { _ = try await $0.command(.resumeScroll) }
+        if await run(connection, { _ = try await $0.command(.resumeScroll) }) { boardPaused = false }
     }
 
     func stop(connection: BoardConnection) async {
         let restoreAuto = connection.status?.renderer?.restoreAutoAfterScroll
             ?? (connection.preview?.playback == "scroll")
-        await run(connection) { _ = try await $0.command(.stopScroll(restoreAuto: restoreAuto, clear: true)) }
-        pllTask?.cancel()
-        pllTask = nil
-        timeline = nil
-        boundTimelineId = nil
-        pll.reset()
+        if await run(connection, { _ = try await $0.command(.stopScroll(restoreAuto: restoreAuto, clear: true)) }) {
+            pllTask?.cancel(); pllTask = nil
+            timeline = nil; boundTimelineId = nil; pll.reset()
+            boardPaused = false
+        }
+    }
+
+    /// Stored locally even while disconnected. Deliberately sent without an
+    /// output claim: a preference change must not stop another tab's output.
+    func setLoopPlayback(_ loop: Bool, connection: BoardConnection) async {
+        loopPlayback = loop
+        guard connection.connectionState == .connected else { return }
+        await sendWithoutClaim(.setScrollLoop(loop: loop), connection: connection)
     }
 
     func stepFrame(direction: Int, connection: BoardConnection) async {
         isStepping = true
         defer { isStepping = false }
-        await run(connection) { _ = try await $0.command(.scrollStep(direction: direction)) }
+        // The firmware latches a user pause on every step.
+        if await run(connection, { _ = try await $0.command(.scrollStep(direction: direction)) }) { boardPaused = true }
+    }
+
+    /// Jumps the board to an absolute frame; a playing scroll keeps playing
+    /// from there, a paused one stays paused on it.
+    func seek(toFrame index: Int, connection: BoardConnection) async {
+        defer { if !isScrubbing { scrubIndex = nil } }
+        guard frameCount > 0 else { return }
+        let clamped = min(frameCount - 1, max(0, index))
+        if await run(connection, { _ = try await $0.command(.scrollSeek(frameIndex: clamped)) }) {
+            pll.snap(to: clamped)
+        }
     }
 
     func setRequestedFps(_ fps: Double, connection: BoardConnection) {
@@ -293,6 +424,8 @@ final class TextViewModel {
     // MARK: Restore from the board (§26)
 
     func restoreOnConnect(connection: BoardConnection) async {
+        let generation = connection.connectionGeneration
+        let outputSession = connection.output.session
         guard let meta = try? await connection.getScrollMeta() else { return }
         guard meta.uploadComplete == true,
               let frameCount = meta.frameCount, frameCount > 0,
@@ -307,11 +440,17 @@ final class TextViewModel {
             let rebuilt = try await Task.detached(priority: .userInitiated) { [loadedFont] in
                 try ScrollRasterizer.makeTimeline(text: sourceText, font: loadedFont, fps: fpsInt)
             }.value
-            guard rebuilt.frameCount == frameCount else { return }
+            guard rebuilt.frameCount == frameCount,
+                  !Task.isCancelled,
+                  generation == connection.connectionGeneration,
+                  outputSession == connection.output.session else { return }
 
             timeline = rebuilt
             boundTimelineId = meta.scrollTimelineId
-            requestedFps = Double(fpsInt)
+            // Record ownership of what is already on the board, so another
+            // tab starting output releases these controls via the stop handler.
+            _ = connection.output.claim(.text)
+            if !userEditedText { requestedFps = Double(fpsInt) }
             pll = ScrollPreviewController(frameCount: rebuilt.frameCount, userFps: Double(fpsInt))
             if let timelineId = meta.scrollTimelineId {
                 pll.bind(timelineId: timelineId, frameCount: rebuilt.frameCount)
@@ -333,6 +472,7 @@ final class TextViewModel {
             } else {
                 text = sourceText
             }
+            _ = try? await connection.command(.setScrollLoop(loop: loopPlayback))
             startPreviewLoop()
         } catch {
             // Re-rasterisation failure: leave as a silent no-op restore.
@@ -352,7 +492,10 @@ final class TextViewModel {
             while !Task.isCancelled {
                 guard let self else { return }
                 let delayMs = self.pll.nextDelayMs(nowMs: self.nowMs())
-                self.pll.tick()
+                // With loop off the board holds its last frame until the pause
+                // reaches us by status; wrapping here would flash the start.
+                let heldAtEnd = !self.loopPlayback && self.displayIndex >= self.frameCount - 1
+                if !self.boardPaused && !heldAtEnd { self.pll.tick() }
                 try? await Task.sleep(nanoseconds: UInt64(max(1, delayMs) * 1_000_000))
             }
         }
@@ -383,14 +526,35 @@ final class TextViewModel {
         }
     }
 
+    /// Pause state and, while paused, the exact frame — the only way a
+    /// pause (user, or end of a non-looping scroll) reaches the app.
+    func observe(status: DeviceStatus?) {
+        guard let renderer = status?.renderer else { return }
+        boardPaused = renderer.firmwareScrollPaused == true
+        guard boundTimelineId != nil, !isUploading, localPhase == nil else { return }
+        let boardTimelineId = renderer.scrollTimelineId ?? ""
+        if renderer.scrollFrameCount == 0 || (!boardTimelineId.isEmpty && boardTimelineId != boundTimelineId) {
+            // Stopped or replaced elsewhere (hardware button, another
+            // client): unbind so the controls grey out rather than send
+            // commands the board silently accepts and ignores.
+            boundTimelineId = nil
+            suspendPreviewLoop()
+            pll.reset()
+            boardPaused = false
+            return
+        }
+        guard boardPaused, let index = renderer.scrollFrameIndex, renderer.scrollFrameCount == frameCount else { return }
+        pll.snap(to: index)
+    }
+
     // MARK: Labels
 
     func phaseKey(connection: BoardConnection) -> String {
         if let localPhase { return localPhase }
         if isStepping { return "STEPPING" }
-        guard let preview = connection.preview else { return "IDLE" }
-        guard preview.firmwareScrollActive == true else { return "IDLE" }
-        return preview.firmwareScrollPaused == true ? "PAUSED" : "ACTIVE"
+        let active = connection.status?.renderer?.firmwareScrollActive ?? connection.preview?.firmwareScrollActive
+        guard active == true else { return "IDLE" }
+        return boardPaused ? "PAUSED" : "ACTIVE"
     }
 
     static func phaseLabel(_ key: String) -> String {
@@ -418,14 +582,35 @@ final class TextViewModel {
 
     // MARK: Command plumbing
 
-    private func run(_ connection: BoardConnection,
-                     _ body: @escaping (BoardConnection) async throws -> Void) async {
+    /// For settings (speed, loop) that must never take the output from
+    /// another tab.
+    private func sendWithoutClaim(_ command: RinaCommand, connection: BoardConnection) async {
         do {
-            try await body(connection)
+            _ = try await connection.command(command)
         } catch is CancellationError {
         } catch RatePumpError.dropped {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Returns whether the command reached the board and was accepted.
+    @discardableResult
+    private func run(_ connection: BoardConnection,
+                     _ body: @escaping (BoardConnection) async throws -> Void) async -> Bool {
+        do {
+            // A transport button is an explicit request to drive the scroll,
+            // so it takes the output over; bailing out when another source
+            // owned it made the buttons silently do nothing.
+            let token = connection.output.claim(.text)
+            try await connection.withOutput(token) { try await body(connection) }
+            errorMessage = nil
+            return true
+        } catch is CancellationError {
+        } catch RatePumpError.dropped {
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        return false
     }
 }
