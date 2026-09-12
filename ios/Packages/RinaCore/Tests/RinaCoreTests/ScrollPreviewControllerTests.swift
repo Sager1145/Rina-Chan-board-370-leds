@@ -10,6 +10,53 @@ final class ScrollPreviewControllerTests: XCTestCase {
         XCTAssertEqual(shortestRingDelta(0, 0, 300), 0)
     }
 
+    func testSnapJumpsDisplayIndexOnRing() {
+        var controller = ScrollPreviewController(frameCount: 300, userFps: 10)
+        controller.bind(timelineId: "tl-1", frameCount: 300)
+        controller.snap(to: 120)
+        XCTAssertEqual(controller.displayIndex, 120)
+        XCTAssertEqual(controller.phaseError, 0)
+        controller.snap(to: 305)
+        XCTAssertEqual(controller.displayIndex, 5)
+    }
+
+    func testSeekWhilePlayingKeepsMeasuredSpeed() {
+        var controller = ScrollPreviewController(frameCount: 300, userFps: 10)
+        controller.bind(timelineId: "tl-1", frameCount: 300)
+
+        var nowMs: Double = 0
+        var seq = 1
+        var frameIndex = 250
+        func feedTicks(for durationMs: Double) {
+            let end = nowMs + durationMs
+            while nowMs < end {
+                _ = controller.record(sample: PreviewSync(
+                    presentedSeq: seq,
+                    source: "tick",
+                    scrollTimelineId: "tl-1",
+                    presentedFrameIndex: frameIndex,
+                    presentedFrameCount: 300,
+                    presentedAtUs: Int64(nowMs * 1000),
+                    firmwareScrollActive: true,
+                    firmwareScrollPaused: false,
+                    rateEligible: true
+                ), nowMs: nowMs)
+                // 4 Hz like BLE: every sample is 2–3 frames apart.
+                nowMs += 250
+                seq += 3
+                frameIndex = (frameIndex + 3) % 300
+            }
+        }
+
+        feedTicks(for: 4000)
+        // Backward seek 250-ish → 50, as the app does after the board acks.
+        frameIndex = 50
+        controller.snap(to: 50)
+        feedTicks(for: 4000)
+
+        XCTAssertEqual(controller.measuredFps, 12, accuracy: 1.5)
+    }
+
     // MARK: Steady-state rate lock
 
     func testLocksOntoSteadyTenFpsSamples() {

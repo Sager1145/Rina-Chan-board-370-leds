@@ -29,3 +29,17 @@ public enum RinaTransportError: Error, Sendable {
     case invalidResponse
     case underlying(String)
 }
+
+// Without this, UI shows the system's generic "The operation couldn't be
+// completed (RinaCore.RinaTransportError …)" instead of the actual cause.
+extension RinaTransportError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notConnected: return NSLocalizedString("面板未连接", comment: "transport error not connected")
+        case .timeout: return NSLocalizedString("面板响应超时", comment: "transport error timeout")
+        case .cancelled: return NSLocalizedString("操作已取消", comment: "transport error cancelled")
+        case .invalidResponse: return NSLocalizedString("面板回复无法解析", comment: "transport error invalid response")
+        case .underlying(let message): return message
+        }
+    }
+}

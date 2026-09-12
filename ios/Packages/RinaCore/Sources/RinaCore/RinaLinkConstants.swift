@@ -25,6 +25,10 @@ public enum RinaLinkConstants {
     public static let maxScrollTextBytes = 4096
     public static let maxFaces = 128
 
+    /// Mirrors `MAX_DEVICE_NAME_BYTES` in `esp32s3_firmware/src/config.h`.
+    /// This is a UTF-8 *byte* budget, not a character count.
+    public static let maxDeviceNameBytes = 24
+
     public static let brightnessMin = 10
     public static let brightnessMax = 200
     public static let brightnessDefault = 50

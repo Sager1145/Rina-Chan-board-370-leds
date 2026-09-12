@@ -19,6 +19,10 @@ public enum RinaCommand: Sendable {
     case setScrollInterval(intervalMs: Int?, fps: Int?)
     case startScroll(intervalMs: Int?, fps: Int?, sourceText: String?)
     case scrollStep(direction: Int)
+    /// Absolute jump on the bound scroll timeline; play/pause state is kept.
+    case scrollSeek(frameIndex: Int)
+    /// Loop preference: off pauses the scroll on its last frame.
+    case setScrollLoop(loop: Bool)
     case pauseScroll
     case resumeScroll
     case stopScroll(restoreAuto: Bool?, clear: Bool?)
@@ -56,6 +60,9 @@ public enum RinaCommand: Sendable {
     case faceDelete(id: String)
     case faceUpsert(face: FaceUpsertPayload)
     case facesClearUser
+    /// Sets (or, with an empty/omitted `name`, clears) the board's custom
+    /// display name (`RINALINK_PROTOCOL_V1` `set_device_name`).
+    case setDeviceName(name: String)
 
     public var name: String {
         switch self {
@@ -66,6 +73,8 @@ public enum RinaCommand: Sendable {
         case .setScrollInterval: return "set_scroll_interval"
         case .startScroll: return "start_scroll"
         case .scrollStep: return "scroll_step"
+        case .scrollSeek: return "scroll_seek"
+        case .setScrollLoop: return "set_scroll_loop"
         case .pauseScroll: return "pause_scroll"
         case .resumeScroll: return "resume_scroll"
         case .stopScroll: return "stop_scroll"
@@ -96,6 +105,7 @@ public enum RinaCommand: Sendable {
         case .faceDelete: return "face_delete"
         case .faceUpsert: return "face_upsert"
         case .facesClearUser: return "faces_clear_user"
+        case .setDeviceName: return "set_device_name"
         }
     }
 
@@ -120,6 +130,10 @@ public enum RinaCommand: Sendable {
             if let sourceText { fields["sourceText"] = sourceText }
         case .scrollStep(let direction):
             fields["direction"] = direction
+        case .scrollSeek(let frameIndex):
+            fields["frameIndex"] = frameIndex
+        case .setScrollLoop(let loop):
+            fields["loop"] = loop
         case .pauseScroll, .resumeScroll, .pause, .resume, .resetBatteryMin, .resetBatteryMax,
              .reboot, .getInfo, .wifiStatus, .wifiScan, .wifiScanResult, .wifiClearCredentials, .wifiConnect,
              .wifiClearHotspotCredentials:
@@ -166,6 +180,8 @@ public enum RinaCommand: Sendable {
             fields["face"] = face.jsonObject
         case .facesClearUser:
             break
+        case .setDeviceName(let name):
+            fields["name"] = name
         }
         return fields
     }

@@ -10,9 +10,9 @@ import RinaCore
 ///
 /// It carries the glanceable board state *and*, while the board is connected,
 /// the controls that are worth reaching without expanding anything:
-/// previous/next face, the auto/manual switch, the board colour (§9, §10) and
-/// sending the editor's draft frame.
-/// Everything else still lives behind the expanded sheet.
+/// previous/next face, the auto/manual switch and the board colour (§9, §10).
+/// Sending the editor's draft lives on the Control tab; everything else still
+/// lives behind the expanded sheet.
 ///
 /// Only the summary region expands the sheet. The controls are real controls,
 /// so the accessory is deliberately *not* wrapped in one big button — nesting
@@ -22,7 +22,6 @@ import RinaCore
 struct BoardControlCenterAccessory: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardControlCenterModel.self) private var model
-    @Environment(ControlViewModel.self) private var editor
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -56,26 +55,28 @@ struct BoardControlCenterAccessory: View {
             // torn out of the hierarchy mid-interaction when a link drops.
             //
             // Every control occupies the same `Self.slot`-wide cell, so the row
-            // is one even rhythm laid out from the send button leftwards — the
-            // send button is the anchor, and it is the one pinned to the bar's
+            // is one even rhythm laid out from the colour swatch leftwards — the
+            // swatch is the anchor, and it is the one pinned to the bar's
             // rounded end.
             HStack(spacing: 0) {
                 stepButton(direction: -1, symbol: "chevron.left", label: "上一个表情")
                 stepButton(direction: 1, symbol: "chevron.right", label: "下一个表情")
                 modeToggle
                 colorControl
-                sendButton
             }
             // The controls keep their intrinsic width; the summary line is what
             // truncates when the bar runs out of room.
             .layoutPriority(1)
             .disabled(!isConnected)
-            // The disc, the swatch and the send glyph are custom-tinted, so
-            // they don't pick up the system's disabled treatment on their own.
+            // The disc and the swatch are custom-tinted, so they don't pick up
+            // the system's disabled treatment on their own.
             .grayscale(isConnected ? 0 : 1)
         }
-        .padding(.leading, 12)
-        // The send button's ring has to be concentric with the capsule's
+        // Mirrors the trailing inset: the battery ring on the leading end is
+        // concentric with the capsule's leading curve, as the swatch is with
+        // the trailing one.
+        .padding(.leading, max(0, barHeight / 2 - Self.ringDiameter / 2))
+        // The colour swatch's ring has to be concentric with the capsule's
         // trailing end, so its centre sits exactly one bar-radius in from the
         // edge. The bar's radius is half its own height, measured below rather
         // than hard-coded, since the height moves with Dynamic Type and with
@@ -94,17 +95,18 @@ struct BoardControlCenterAccessory: View {
     /// One control cell. Every button on the row is exactly this wide and this
     /// tall, which is both the even spacing and the HIG minimum hit target —
     /// the trailing padding above measures the bar's own radius against it, so
-    /// the row's rhythm and the send ring's centring can never drift apart.
+    /// the row's rhythm and the trailing ring's centring can never drift apart.
     private static let slot: CGFloat = AppLayout.minimumTapTarget
+
+    /// The visible ring every control wears, and the battery ring's diameter.
+    private static let ringDiameter: CGFloat = 32
 
     // MARK: Summary (the only region that expands the sheet)
 
     private var summary: some View {
         Button(action: onExpand) {
             HStack(spacing: 8) {
-                Image(systemName: symbol)
-                    .foregroundStyle(tint)
-                    .imageScale(.medium)
+                statusBadge
                 VStack(alignment: .leading, spacing: 1) {
                     Text("面板控制")
                         .font(.subheadline.weight(.medium))
@@ -138,7 +140,7 @@ struct BoardControlCenterAccessory: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("面板控制")
-        .accessibilityValue(Text(subtitle))
+        .accessibilityValue(Text(accessibilitySummary))
         .accessibilityHint("打开面板控制中心")
     }
 
@@ -161,10 +163,14 @@ struct BoardControlCenterAccessory: View {
     }
 
     /// Auto/manual as a chrome-free toggle, the way Music draws shuffle and
-    /// repeat: the state is a solid, translucent tinted disc behind a filled
-    /// glyph when on, and a hollow ring behind an outline glyph when off.
-    /// Shape, fill and glyph all move together, so the state never rests on
-    /// colour alone (§41), and the state line spells it out as well.
+    /// repeat: an "A" on a solid, translucent tinted disc when auto is on, and
+    /// an "M" on a hollow ring when it is manual. The letter and the disc's
+    /// fill both change, so the state is carried by glyph and shape as well as
+    /// colour (§41), and the accessory's state line spells it out too.
+    ///
+    /// Drawn letters rather than the `a`/`m` SF Symbols, which are lowercase; the
+    /// rounded face and the text style keep it weight-matched to the chevrons
+    /// beside it and scaling with Dynamic Type the same way they do.
     private var modeToggle: some View {
         Toggle(isOn: Binding(
             get: { isAuto },
@@ -173,8 +179,8 @@ struct BoardControlCenterAccessory: View {
                 Task { await model.toggleAutoMode(connection: connection) }
             }
         )) {
-            Image(systemName: isAuto ? "arrow.triangle.2.circlepath" : "hand.tap")
-                .font(.subheadline.weight(.semibold))
+            Text(isAuto ? "A" : "M")
+                .font(.system(.subheadline, design: .rounded).weight(isAuto ? .bold : .semibold))
                 .foregroundStyle(isAuto ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                 .frame(width: Self.slot, height: Self.slot)
                 .background(controlRing(filled: isAuto))
@@ -194,72 +200,149 @@ struct BoardControlCenterAccessory: View {
     private func controlRing(filled: Bool = false) -> some View {
         Circle()
             .fill(filled ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear))
-            // `Color.primary`, not `.primary`: inside the send button's tinted
-            // foreground style the hierarchical form would resolve to the tint
-            // and give that one ring a different colour from the rest.
+            // `Color.primary`, not `.primary`: inside a tinted foreground style
+            // the hierarchical form would resolve to the tint and give that
+            // ring a different colour from the rest.
             .overlay(Circle().strokeBorder(Color.primary.opacity(filled ? 0 : 0.22)))
-            .frame(width: 32, height: 32)
+            .frame(width: Self.ringDiameter, height: Self.ringDiameter)
     }
 
-    /// The swatch doubles as the colour control: it is the system
-    /// `ColorPicker`, so tapping it opens Apple's own picker.
-    private var colorControl: some View {
-        ColorPicker(selection: Binding(
-            get: { model.draftColor },
-            set: { newColor in
-                Task { await model.setColor(hex: newColor.hexString, connection: connection) }
+    // MARK: Status badge
+
+    /// Leading badge. Once connected with a battery reading it is a battery
+    /// ring the size of the trailing controls' rings: the outer arc is the
+    /// charge level over a gray track, and the filled centre carries the
+    /// percentage in white. Otherwise it is the connection-state symbol. The
+    /// cell is the ring's size in every state, so the title never shifts when
+    /// the badge changes.
+    @ViewBuilder
+    private var statusBadge: some View {
+        Group {
+            if let battery {
+                BatteryRing(reading: battery)
+            } else {
+                Image(systemName: symbol)
+                    .foregroundStyle(tint)
+                    .imageScale(.medium)
             }
-        ), supportsOpacity: false) {
-            Text("面板颜色")
         }
-        .labelsHidden()
-        // Same cell as the buttons, so the swatch sits on the row's rhythm.
-        .frame(width: Self.slot, height: Self.slot)
-        // `ColorPicker` keeps its swatch at full strength when disabled; the
-        // cluster's grayscale handles the hue, this handles the weight.
+        .frame(width: Self.ringDiameter, height: Self.ringDiameter)
+        .accessibilityHidden(true)
+    }
+
+    /// What the ring shows, or `nil` for the plain connection symbol (not
+    /// connected, or no power report yet).
+    ///
+    /// The firmware reports `batteryPercent: 0` both when the reading is
+    /// invalid and when the battery is unplugged or too low to be powering the
+    /// board — the latter two with `batteryValid` still true — so all three
+    /// count as "no battery detected" rather than an empty battery.
+    private var battery: BatteryReading? {
+        // The power event only arrives once a second; the status echo carries
+        // the same object, so fall back to it rather than wait.
+        guard isConnected, let power = connection.power ?? connection.status?.power else { return nil }
+        if power.batteryValid == false
+            || power.batteryDisconnected == true
+            || power.batteryLowVoltageUnpowered == true {
+            return .notDetected
+        }
+        return power.batteryPercent.map { .level(min(100, max(0, $0))) }
+    }
+
+    /// The board colour as a solid dot inside the row's ring. Tapping it opens
+    /// a menu of the preset groups (配色组), each a submenu of its colours; a
+    /// group with no children offers its own colour directly, as the expanded
+    /// sheet's picker does. Free-form colours stay in the expanded sheet.
+    private var colorControl: some View {
+        Menu {
+            if let presets = model.colorPresets {
+                ForEach(presets.parents) { parent in
+                    let children = presets.children(of: parent)
+                    if children.isEmpty {
+                        colorMenuItem(name: parent.name, hex: parent.color)
+                    } else {
+                        Menu {
+                            ForEach(children, id: \.hex) { child in
+                                colorMenuItem(name: child.name, hex: child.hex)
+                            }
+                        } label: {
+                            Label {
+                                Text(parent.name)
+                            } icon: {
+                                swatchImage(hex: parent.color)
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            Circle()
+                .fill(model.draftColor)
+                .frame(width: Self.dotDiameter, height: Self.dotDiameter)
+                // Same cell as the buttons, so the dot sits on the row's rhythm.
+                .frame(width: Self.slot, height: Self.slot)
+                .background(controlRing())
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        // The accessory sits at the bottom of the screen, so the menu opens
+        // upwards; keep the presets in their JSON order rather than reversed.
+        .menuOrder(.fixed)
+        // The dot is custom-filled, so it keeps full strength when disabled;
+        // the cluster's grayscale handles the hue, this handles the weight.
         .opacity(isConnected ? 1 : 0.4)
         .accessibilityLabel("面板颜色")
     }
 
-    /// The editor's "send draft to the board" action, parked at the trailing
-    /// edge of the collapsed bar so it stays reachable from every tab. Tinted
-    /// rather than boxed — nothing on this bar carries a background — because
-    /// it is the only control that writes a whole frame.
-    private var sendButton: some View {
-        Button {
-            Task { await editor.send(connection: connection) }
-        } label: {
-            Group {
-                if editor.isSending {
-                    ProgressView()
-                } else {
-                    Image(systemName: "paperplane.fill")
-                        .font(.subheadline.weight(.semibold))
-                }
+    /// The solid colour dot's diameter, inside the 32pt ring.
+    private static let dotDiameter: CGFloat = 22
+
+    /// One colour in the menu, checked when it is the board's current colour.
+    private func colorMenuItem(name: String, hex: String) -> some View {
+        Toggle(isOn: Binding(
+            get: { isCurrentColor(hex) },
+            set: { _ in Task { await model.setColor(hex: hex, connection: connection) } }
+        )) {
+            Label {
+                Text(name)
+            } icon: {
+                swatchImage(hex: hex)
             }
-            .frame(width: Self.slot, height: Self.slot)
-            .background(controlRing())
-            .contentShape(.rect)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.tint)
-        .disabled(editor.isSending)
-        .accessibilityLabel("发送到面板")
+    }
+
+    /// Menus re-tint SwiftUI foreground styles to the label colour, so the
+    /// swatch is baked into an original-rendering `UIImage` instead.
+    private func swatchImage(hex: String) -> Image {
+        let color = UIColor(Color(hex: hex) ?? .rinaPink)
+        let symbol = UIImage(systemName: "circle.fill")?
+            .withTintColor(color, renderingMode: .alwaysOriginal)
+        return symbol.map { Image(uiImage: $0) } ?? Image(systemName: "circle.fill")
+    }
+
+    private func isCurrentColor(_ hex: String) -> Bool {
+        guard let candidate = RGBHex.parseHex(hex), let current = RGBHex.parseHex(model.colorHexDraft) else {
+            return false
+        }
+        return candidate == current
     }
 
     // MARK: Derived state
 
-    /// "已连接 · 亮度 62% · 自动" — the compact secondary state line.
-    private var subtitle: String {
-        var parts: [String] = [stateText]
-        if connection.connectionState == .connected {
-            parts.append(String(format: NSLocalizedString("亮度 %lld%%", comment: "brightness percent"),
-                                BoardControlCenterModel.percent(forRaw: model.draftBrightness)))
-            parts.append(isAuto
-                         ? NSLocalizedString("自动", comment: "auto mode")
-                         : NSLocalizedString("手动", comment: "manual mode"))
+    /// "已连接" — the compact secondary state line: connection state only.
+    private var subtitle: String { stateText }
+
+    /// The state line plus the battery level, which is only drawn in the ring.
+    private var accessibilitySummary: String {
+        switch battery {
+        case .level(let percent):
+            return subtitle + " · "
+                + String(format: NSLocalizedString("电量 %lld%%", comment: "battery percent"), percent)
+        case .notDetected:
+            return subtitle + " · " + NSLocalizedString("未检测到电池", comment: "battery not detected")
+        case nil:
+            return subtitle
         }
-        return parts.joined(separator: " · ")
     }
 
     private var stateText: String {
@@ -288,6 +371,67 @@ struct BoardControlCenterAccessory: View {
         case .disconnected: return .secondary
         case .failed: return .red
         }
+    }
+}
+
+@available(iOS 26.0, *)
+private enum BatteryReading: Equatable {
+    case level(Int)
+    case notDetected
+}
+
+/// Battery level as a ring: a coloured arc over a gray track, around a filled
+/// disc with the bare percentage in white. Red at 20% and below. With no
+/// battery detected the track stays empty and the red disc carries a white
+/// exclamation mark instead of a number.
+@available(iOS 26.0, *)
+private struct BatteryRing: View {
+    var reading: BatteryReading
+
+    private static let lineWidth: CGFloat = 3
+    private static let gap: CGFloat = 2
+
+    private var progress: CGFloat {
+        if case .level(let percent) = reading { return CGFloat(percent) / 100 }
+        return 0
+    }
+
+    private var color: Color {
+        if case .level(let percent) = reading, percent > 20 { return .green }
+        return .red
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.gray.opacity(0.35), lineWidth: Self.lineWidth)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(color, style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Circle()
+                .fill(color)
+                .padding(Self.lineWidth + Self.gap)
+            Group {
+                switch reading {
+                case .level(let percent):
+                    Text("\(percent)")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                case .notDetected:
+                    Image(systemName: "exclamationmark")
+                        .font(.system(size: 11, weight: .heavy))
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(Self.lineWidth + Self.gap + 1)
+        }
+        // The stroke straddles the path; inset it so the ring's outer edge is
+        // the frame's edge, like the neighbouring `strokeBorder` rings.
+        .padding(Self.lineWidth / 2)
+        .animation(.snappy, value: reading)
     }
 }
 

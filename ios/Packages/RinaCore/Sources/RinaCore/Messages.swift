@@ -72,7 +72,12 @@ public struct PowerStatus: Codable, Equatable, Sendable {
     }
 
     public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: Messages_CodingKeyAny.self)
+        // EV_POWER and GET_POWER wrap the fields as `{"ok":true,"power":{…}}`,
+        // while `status.power` is the bare object. Every field below is
+        // optional, so reading the wrapper as-is would "succeed" with only `ok`
+        // set and every battery field silently nil.
+        let outer = try decoder.container(keyedBy: Messages_CodingKeyAny.self)
+        let c = (try? outer.nestedContainer(keyedBy: Messages_CodingKeyAny.self, forKey: .init("power"))) ?? outer
         ok = try? c.decodeIfPresent(Bool.self, forKey: .init("ok"))
         charging = try? c.decodeIfPresent(Bool.self, forKey: .init("charging"))
         chargeValid = try? c.decodeIfPresent(Bool.self, forKey: .init("chargeValid"))
@@ -143,6 +148,8 @@ public struct RendererStatus: Codable, Equatable, Sendable {
     public var scrollTimelineId: String?
     public var scrollUploadComplete: Bool?
     public var scrollHasSourceText: Bool?
+    /// Firmware loop preference (`set_scroll_loop`); absent on older firmware.
+    public var scrollLoop: Bool?
 
     public init(color: String? = nil, brightness: Int? = nil, brightnessMin: Int? = nil, brightnessMax: Int? = nil,
                 mode: String? = nil, playback: String? = nil, paused: Bool? = nil, autoIntervalMs: Int? = nil,
@@ -155,7 +162,7 @@ public struct RendererStatus: Codable, Equatable, Sendable {
                 firmwareScrollSystemPaused: Bool? = nil, restoreAutoAfterScroll: Bool? = nil,
                 scrollFrameCount: Int? = nil, scrollFrameIndex: Int? = nil, scrollIntervalMs: Int? = nil,
                 uiFps: Int? = nil, scrollFps: Int? = nil, scrollTimelineId: String? = nil,
-                scrollUploadComplete: Bool? = nil, scrollHasSourceText: Bool? = nil) {
+                scrollUploadComplete: Bool? = nil, scrollHasSourceText: Bool? = nil, scrollLoop: Bool? = nil) {
         self.color = color
         self.brightness = brightness
         self.brightnessMin = brightnessMin
@@ -193,6 +200,7 @@ public struct RendererStatus: Codable, Equatable, Sendable {
         self.scrollTimelineId = scrollTimelineId
         self.scrollUploadComplete = scrollUploadComplete
         self.scrollHasSourceText = scrollHasSourceText
+        self.scrollLoop = scrollLoop
     }
 
     public init(from decoder: Decoder) throws {
@@ -234,6 +242,7 @@ public struct RendererStatus: Codable, Equatable, Sendable {
         scrollTimelineId = try? c.decodeIfPresent(String.self, forKey: .init("scrollTimelineId"))
         scrollUploadComplete = try? c.decodeIfPresent(Bool.self, forKey: .init("scrollUploadComplete"))
         scrollHasSourceText = try? c.decodeIfPresent(Bool.self, forKey: .init("scrollHasSourceText"))
+        scrollLoop = try? c.decodeIfPresent(Bool.self, forKey: .init("scrollLoop"))
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -243,7 +252,7 @@ public struct RendererStatus: Codable, Equatable, Sendable {
              ledRefreshFail, autoFaceId, autoFaceName, firmwareScrollActive, firmwareScrollPaused,
              firmwareScrollUserPaused, firmwareScrollSystemPaused, restoreAutoAfterScroll,
              scrollFrameCount, scrollFrameIndex, scrollIntervalMs, uiFps, scrollFps, scrollTimelineId,
-             scrollUploadComplete, scrollHasSourceText
+             scrollUploadComplete, scrollHasSourceText, scrollLoop
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -285,6 +294,7 @@ public struct RendererStatus: Codable, Equatable, Sendable {
         try c.encodeIfPresent(scrollTimelineId, forKey: .scrollTimelineId)
         try c.encodeIfPresent(scrollUploadComplete, forKey: .scrollUploadComplete)
         try c.encodeIfPresent(scrollHasSourceText, forKey: .scrollHasSourceText)
+        try c.encodeIfPresent(scrollLoop, forKey: .scrollLoop)
     }
 }
 
@@ -588,6 +598,13 @@ public struct CommandReply: Codable, Equatable, Sendable {
     public var scrollTimelineId: String?
     public var scrollUploadComplete: Bool?
     public var scrollHasSourceText: Bool?
+    // set_device_name / get_info: the board's user-visible name, whether it is
+    // a custom one or the MAC-derived default, and whether the custom name
+    // reached flash (it is live over BLE either way).
+    public var name: String?
+    public var defaultName: String?
+    public var customName: Bool?
+    public var persisted: Bool?
 
     public init(ok: Bool, error: String? = nil, code: Int? = nil, v: Int? = nil, cmd: String? = nil,
                 color: String? = nil, brightness: Int? = nil, mode: String? = nil, playback: String? = nil,
@@ -599,7 +616,8 @@ public struct CommandReply: Codable, Equatable, Sendable {
                 restoreAutoAfterScroll: Bool? = nil, scrollFrameCount: Int? = nil, scrollFrameIndex: Int? = nil,
                 scrollIntervalMs: Int? = nil, uiFps: Int? = nil, scrollFps: Int? = nil,
                 scrollTimelineId: String? = nil, scrollUploadComplete: Bool? = nil,
-                scrollHasSourceText: Bool? = nil) {
+                scrollHasSourceText: Bool? = nil, name: String? = nil, defaultName: String? = nil,
+                customName: Bool? = nil, persisted: Bool? = nil) {
         self.ok = ok
         self.error = error
         self.code = code
@@ -632,6 +650,10 @@ public struct CommandReply: Codable, Equatable, Sendable {
         self.scrollTimelineId = scrollTimelineId
         self.scrollUploadComplete = scrollUploadComplete
         self.scrollHasSourceText = scrollHasSourceText
+        self.name = name
+        self.defaultName = defaultName
+        self.customName = customName
+        self.persisted = persisted
     }
 }
 

@@ -169,8 +169,9 @@ final class BoardControlCenterModel {
         let current = effectiveMode(status: connection.status)
         modeOverride = current == "auto" ? "manual" : "auto"
         modeOverrideUntil = Date().addingTimeInterval(2)
-        await run(connection, reconcile: { $0.modeOverrideUntil = .distantPast }) {
-            _ = try await $0.command(.button(button: "B3"))
+        let token = connection.output.begin(modeOverride == "auto" ? .automatic : .manual)
+        await run(connection, reconcile: { $0.modeOverrideUntil = .distantPast }) { conn in
+            try await conn.withOutput(token) { _ = try await conn.command(.button(button: "B3")) }
         }
     }
 
@@ -179,17 +180,18 @@ final class BoardControlCenterModel {
     /// firmware's job on the next explicit stop) so face stepping doesn't
     /// fight the scroll renderer.
     func step(face direction: Int, connection: BoardConnection) async {
+        let token = connection.output.begin(.manual)
         let button = direction > 0 ? "B1" : "B2"
         if connection.status?.renderer?.firmwareScrollActive == true {
-            await run(connection) { _ = try await $0.command(.stopScroll(restoreAuto: false, clear: false)) }
+            await run(connection) { conn in try await conn.withOutput(token) { _ = try await conn.command(.stopScroll(restoreAuto: false, clear: false)) } }
         }
         if let count = connection.status?.renderer?.autoFaceCount, count > 0 {
             let current = effectiveFaceIndex(status: connection.status) ?? 0
             faceIndexOverride = ((current + direction) % count + count) % count
             faceIndexOverrideUntil = Date().addingTimeInterval(2)
         }
-        await run(connection, reconcile: { $0.faceIndexOverrideUntil = .distantPast }) {
-            _ = try await $0.command(.button(button: button))
+        await run(connection, reconcile: { $0.faceIndexOverrideUntil = .distantPast }) { conn in
+            try await conn.withOutput(token) { _ = try await conn.command(.button(button: button)) }
         }
     }
 

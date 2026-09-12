@@ -17,6 +17,20 @@ final class RinaCommandTests: XCTestCase {
         XCTAssertEqual(obj?["playback"] as? String, "idle")
     }
 
+    func testScrollSeekEncodesFrameIndex() throws {
+        let data = try RinaCommand.scrollSeek(frameIndex: 42).encode()
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(obj?["cmd"] as? String, "scroll_seek")
+        XCTAssertEqual(obj?["frameIndex"] as? Int, 42)
+    }
+
+    func testSetScrollLoopEncodesBool() throws {
+        let data = try RinaCommand.setScrollLoop(loop: false).encode()
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(obj?["cmd"] as? String, "set_scroll_loop")
+        XCTAssertEqual(obj?["loop"] as? Bool, false)
+    }
+
     func testNoArgCommandOnlyHasCmdField() throws {
         let data = try RinaCommand.pauseScroll.encode()
         let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -90,6 +104,51 @@ final class RinaCommandTests: XCTestCase {
         let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual(obj?.count, 1)
         XCTAssertEqual(obj?["cmd"] as? String, "faces_clear_user")
+    }
+
+    func testSetDeviceNameEncodesCmdAndName() throws {
+        let data = try RinaCommand.setDeviceName(name: "客厅").encode()
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(obj?.count, 2)
+        XCTAssertEqual(obj?["cmd"] as? String, "set_device_name")
+        XCTAssertEqual(obj?["name"] as? String, "客厅")
+    }
+
+    func testSetDeviceNameWithEmptyStringEncodesEmptyName() throws {
+        let data = try RinaCommand.setDeviceName(name: "").encode()
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(obj?["cmd"] as? String, "set_device_name")
+        XCTAssertEqual(obj?["name"] as? String, "")
+    }
+}
+
+final class DeviceNameValidatorTests: XCTestCase {
+    func test24ByteAsciiNameIsValid() {
+        let name = String(repeating: "a", count: 24)
+        XCTAssertEqual(DeviceNameValidator.validateDeviceName(name), .valid)
+    }
+
+    func test25ByteAsciiNameIsTooLong() {
+        let name = String(repeating: "a", count: 25)
+        XCTAssertEqual(DeviceNameValidator.validateDeviceName(name), .tooLong(bytes: 25))
+    }
+
+    func testWhitespaceOnlyNameIsEmpty() {
+        XCTAssertEqual(DeviceNameValidator.validateDeviceName("  "), .empty)
+    }
+
+    func testEightCharacterCJKNameIsValid() {
+        // Each CJK character is 3 UTF-8 bytes, so 8 * 3 == 24 bytes.
+        let name = String(repeating: "客", count: 8)
+        XCTAssertEqual(name.utf8.count, 24)
+        XCTAssertEqual(DeviceNameValidator.validateDeviceName(name), .valid)
+    }
+
+    func testNineCharacterCJKNameIsTooLong() {
+        // 9 * 3 == 27 bytes.
+        let name = String(repeating: "客", count: 9)
+        XCTAssertEqual(name.utf8.count, 27)
+        XCTAssertEqual(DeviceNameValidator.validateDeviceName(name), .tooLong(bytes: 27))
     }
 }
 

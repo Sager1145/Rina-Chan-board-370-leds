@@ -115,6 +115,19 @@ public struct ScrollPreviewController {
         displayIndex = (displayIndex + 1) % frameCount
     }
 
+    /// Jumps the local preview straight to `index` after an app-initiated seek,
+    /// without waiting for the board's echo. The phase filter is cleared so the
+    /// jump is not slewed in as drift.
+    public mutating func snap(to index: Int) {
+        guard frameCount > 0 else { return }
+        displayIndex = ((index % frameCount) + frameCount) % frameCount
+        phaseError = 0
+        lockState = .free
+        // Pre-jump samples would unwrap across the jump as a burst of frames
+        // and inflate the regressed speed.
+        hwSamples.removeAll()
+    }
+
     /// Consumes one `preview` sample: identity guard, pause/step snap, phase
     /// filtering, and (when rate-eligible) rate estimation.
     public mutating func record(sample: PreviewSync, nowMs: Double) -> RecordOutcome {
@@ -140,6 +153,7 @@ public struct ScrollPreviewController {
             displayIndex = normalized
             ignoreRateUntilSeq = max(ignoreRateUntilSeq, seq + 2)
             lockState = .free
+            if stepping { hwSamples.removeAll() }
             return .snapped(normalized)
         }
 
