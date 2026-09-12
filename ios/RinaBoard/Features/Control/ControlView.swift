@@ -1,506 +1,253 @@
 import SwiftUI
 import RinaCore
 
-/// Control tab (FEATURE_INVENTORY §A): live preview, brightness, mode/face,
-/// auto-interval, colour, and the scroll-text pipeline.
+/// Control tab (design guide §15, §16, §18, §19): the face/frame creation
+/// surface. Board-global brightness, colour, prev/next, auto mode and saves
+/// are deliberately absent — they belong to the Control Center (§63).
 struct ControlView: View {
     @Environment(BoardConnection.self) private var connection
+    @Environment(ControlViewModel.self) private var model
+    @Environment(BoardControlCenterModel.self) private var controlCenter
+    @Environment(FaceLibraryModel.self) private var faceLibrary
     @Environment(BootLoaderModel.self) private var bootLoader
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var viewModel = ControlViewModel()
 
-    @State private var brightnessFieldText = "50"
-    @State private var colorFieldText = "#ec3fc7"
+    @AppStorage(AppSettingsKey.hapticsEnabled) private var hapticsEnabled = true
+
+    @State private var toggleCount = 0
+    @State private var isNamingSave = false
+    @State private var saveNameDraft = ""
 
     private var isConnected: Bool { connection.connectionState == .connected }
+    private var boardColor: Color { controlCenter.draftColor }
+    private var boardBrightness: Int { controlCenter.draftBrightness }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    if let error = connection.lastError ?? viewModel.errorMessage {
-                        errorBanner(error)
+            List {
+                previewSection
+                commandSection
+                partsSection
+            }
+            .toolbar(.hidden, for: .navigationBar)
+            // No navigation bar, so the list's default top margin only pushes
+            // the board away from the status bar.
+            .contentMargins(.top, 0, for: .scrollContent)
+            .alert("保存表情", isPresented: $isNamingSave) {
+                TextField("名称", text: $saveNameDraft)
+                Button("取消", role: .cancel) {}
+                Button("保存") {
+                    Task {
+                        model.saveName = saveNameDraft
+                        let payload = model.upsertPayload(using: faceLibrary)
+                        // Only record the save when the board actually took it;
+                        // `.failed` leaves the editor's state untouched.
+                        if case .saved(let id) = await faceLibrary.save(payload, connection: connection) {
+                            model.didSave(as: id)
+                        }
                     }
-                    if viewModel.restoreConflict {
-                        warningBanner("检测到未发送的本地修改，已保留输入框内容而不是恢复板上的滚动文字。")
-                    }
-                    previewCard.bootReveal(index: 0)
-                    brightnessCard.bootReveal(index: 1)
-                    modeFaceCard.bootReveal(index: 2)
-                    autoIntervalCard.bootReveal(index: 3)
-                    colorCard.bootReveal(index: 4)
-                    scrollCard.bootReveal(index: 5)
                 }
-                .padding()
+            } message: {
+                Text("保存到面板的表情库，可在控制中心中管理。")
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle("控制")
+            .sensoryFeedback(.impact(weight: .light), trigger: toggleCount) { _, _ in hapticsEnabled }
         }
-        .onAppear {
-            viewModel.loadDefaultsIfNeeded()
-            brightnessFieldText = String(Int(viewModel.brightnessDraft))
-            colorFieldText = viewModel.colorHexDraft
-            bootLoader.beginWaterfall(count: 6)
-        }
-        .onChange(of: connection.status) { _, status in
-            viewModel.syncBrightness(from: status)
-            viewModel.syncAutoInterval(from: status)
-            viewModel.syncColor(from: status)
-            viewModel.syncMode(from: status)
-            brightnessFieldText = String(Int(viewModel.brightnessDraft))
-            colorFieldText = viewModel.colorHexDraft
-        }
-        .onChange(of: connection.preview) { _, preview in
-            viewModel.observe(preview: preview)
-        }
-        .onChange(of: connection.connectionState) { _, state in
-            if state == .connected {
-                Task { await viewModel.restoreOnConnect(connection: connection) }
-            } else {
-                viewModel.suspendPLL()
-            }
-        }
-        .onChange(of: scenePhase) { _, phase in
-            switch phase {
-            case .active:
-                viewModel.resumePLLIfNeeded()
-            default:
-                viewModel.suspendPLL()
-            }
-        }
+        .onAppear { bootLoader.beginWaterfall(count: 3) }
     }
 
-    // MARK: Banners
+    // MARK: §16 Interactive preview
 
-    private func errorBanner(_ message: String) -> some View {
-        HStack {
-            Image(systemName: "exclamationmark.triangle.fill")
-            Text(message).font(.footnote)
-            Spacer()
-        }
-        .padding(10)
-        .background(Color.red.opacity(0.15))
-        .foregroundStyle(.red)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    private func warningBanner(_ message: String) -> some View {
-        HStack {
-            Image(systemName: "exclamationmark.circle.fill")
-            Text(message).font(.footnote)
-            Spacer()
-        }
-        .padding(10)
-        .background(Color.yellow.opacity(0.2))
-        .foregroundStyle(.orange)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    // MARK: A1 Live preview
-
-    private var previewCard: some View {
-        CardContainer {
-            LEDMatrixView(
-                frame: connection.currentFrame,
-                color: Color(hex: viewModel.colorHexDraft) ?? Color(hex: "#f971d4") ?? .pink,
-                brightness: Int(viewModel.brightnessDraft)
+    /// The one editable board in the app: `.editable` is what separates this
+    /// preview from the read-only ones in Text, Live Video and Debug.
+    private var previewSection: some View {
+        Section {
+            BoardPreviewRow(
+                frame: model.draftFrame,
+                interaction: .editable { led in
+                    model.toggle(led: led, connection: connection)
+                    toggleCount += 1
+                },
+                accessibilityDescription: previewAccessibilityDescription
             )
-            .frame(maxHeight: 220)
-
+            .bootReveal(index: 0)
+        } footer: {
             HStack {
-                Label(viewModel.effectiveMode(status: connection.status) == "auto" ? "自动" : "手动",
-                      systemImage: viewModel.effectiveMode(status: connection.status) == "auto" ? "arrow.triangle.2.circlepath" : "hand.tap")
-                    .font(.footnote)
+                Text("\(model.draftFrame.litCount) / \(PackedFrame.ledCount) 点亮")
                 Spacer()
-                Text("播放: \(connection.status?.renderer?.playback ?? "—")")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("点亮 \(connection.currentFrame.litCount)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack {
-                Circle()
-                    .fill(isConnected ? Color.green : Color.gray)
-                    .frame(width: 8, height: 8)
-                Text(isConnected ? "在线" : "离线").font(.footnote)
-                if let power = connection.power {
-                    Spacer()
-                    if let pct = power.batteryPercent {
-                        Label("\(pct)%", systemImage: power.charging == true ? "battery.100.bolt" : "battery.100")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
+                // Draft state is never shown as board-confirmed state (§37).
+                if model.hasUnsentChanges {
+                    Label("未发送", systemImage: "pencil.circle")
+                        .foregroundStyle(.orange)
                 }
             }
+            .font(.caption)
+            .monospacedDigit()
         }
     }
 
-    // MARK: A2 Brightness
+    private var previewAccessibilityDescription: String {
+        String(format: NSLocalizedString("面板编辑器，%1$lld/%2$lld 颗 LED 点亮",
+                                         comment: "editable board preview accessibility summary"),
+               model.draftFrame.litCount, PackedFrame.ledCount)
+    }
 
-    private var brightnessCard: some View {
-        CardContainer {
-            Text("亮度").font(.headline)
-            HStack {
-                Slider(
-                    value: Binding(
-                        get: { viewModel.brightnessDraft },
-                        set: { newValue in
-                            brightnessFieldText = String(Int(newValue))
-                            Task { await viewModel.setBrightness(Int(newValue), connection: connection) }
-                        }
-                    ),
-                    in: 10...200,
-                    step: 1
-                )
-                .disabled(!isConnected)
-                TextField("亮度", text: $brightnessFieldText)
-                    .keyboardType(.numberPad)
-                    .frame(minWidth: 52)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { commitBrightnessField() }
-                    .onChange(of: brightnessFieldText) { _, _ in commitBrightnessField() }
-                    .toolbar {
-                        ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("完成") { commitBrightnessField() }
-                        }
-                    }
-                    .disabled(!isConnected)
-            }
+    // MARK: §18 Command section
+
+    /// Every editor command lives in one section (§18): the primary send
+    /// action, the two persistent modes as button-style toggles, the frame
+    /// operations, and the save actions. Nothing is hidden behind a toolbar
+    /// menu any more.
+    private var commandSection: some View {
+        Section {
             HStack(spacing: 8) {
-                Button("−8") { adjustBrightness(-8) }
-                Button("+8") { adjustBrightness(8) }
-                Button("默认(50)") { Task { await viewModel.setBrightness(50, connection: connection) } }
-                Spacer()
-            }
-            .disabled(!isConnected)
-            presetChips([10, 25, 50, 80, 128, 160, 200]) { value in
-                Task { await viewModel.setBrightness(value, connection: connection) }
-            }
-        }
-    }
+                Toggle(isOn: Bindable(model).livePreview) {
+                    CommandChip("实时预览", systemImage: "livephoto")
+                }
+                .toggleStyle(.button)
+                .buttonStyle(.bordered)
 
-    private func adjustBrightness(_ delta: Int) {
-        let next = Int(viewModel.brightnessDraft) + delta
-        Task { await viewModel.setBrightness(next, connection: connection) }
-    }
-
-    private func commitBrightnessField() {
-        guard let value = Int(brightnessFieldText) else {
-            brightnessFieldText = String(Int(viewModel.brightnessDraft))
-            return
-        }
-        Task { await viewModel.setBrightness(value, connection: connection) }
-    }
-
-    // MARK: A3/A4/A5 Mode, face, auto interval
-
-    private var modeFaceCard: some View {
-        CardContainer {
-            Text("模式与表情").font(.headline)
-            HStack {
                 Button {
-                    Task { await viewModel.toggleMode(connection: connection) }
+                    model.randomizeParts(connection: connection)
+                    toggleCount += 1
                 } label: {
-                    Label(viewModel.effectiveMode(status: connection.status) == "auto" ? "切换为手动" : "切换为自动",
-                          systemImage: "arrow.left.arrow.right")
+                    CommandChip("随机", systemImage: "dice.fill")
                 }
-                Spacer()
+                .buttonStyle(.bordered)
+
+                Toggle(isOn: Binding(
+                    get: { model.syncEyes },
+                    set: { model.setSyncEyes($0, connection: connection) }
+                )) {
+                    CommandChip("同步", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .toggleStyle(.button)
+                .buttonStyle(.bordered)
+                .disabled(!model.canSyncEyes)
+
                 Button {
-                    Task { await viewModel.step(face: -1, connection: connection) }
+                    saveNameDraft = model.saveName
+                    isNamingSave = true
                 } label: {
-                    Image(systemName: "chevron.left.circle")
+                    CommandChip("保存", systemImage: "square.and.arrow.down.fill")
                 }
-                Button {
-                    Task { await viewModel.step(face: 1, connection: connection) }
-                } label: {
-                    Image(systemName: "chevron.right.circle")
-                }
-            }
-            .disabled(!isConnected)
-        }
-    }
-
-    private var autoIntervalCard: some View {
-        CardContainer {
-            Text("自动切换间隔").font(.headline)
-            HStack {
-                Slider(
-                    value: Binding(
-                        get: { viewModel.autoIntervalDraft },
-                        set: { newValue in Task { await viewModel.setAutoInterval(newValue, connection: connection) } }
-                    ),
-                    in: 0.5...10,
-                    step: 0.1
-                )
-                Text(String(format: "%.1fs", viewModel.autoIntervalDraft))
-                    .font(.footnote.monospacedDigit())
-                    .frame(minWidth: 48)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 8) {
-                Button("−0.5") { Task { await viewModel.setAutoInterval(viewModel.autoIntervalDraft - 0.5, connection: connection) } }
-                Button("+0.5") { Task { await viewModel.setAutoInterval(viewModel.autoIntervalDraft + 0.5, connection: connection) } }
-                Spacer()
-            }
-            presetChips([0.5, 1, 2, 3, 5, 7.5, 10], format: Self.presetSecondsLabel) { value in
-                Task { await viewModel.setAutoInterval(value, connection: connection) }
-            }
-            .disabled(!isConnected)
-        }
-        .disabled(!isConnected)
-    }
-
-    // MARK: A6/A7 Colour
-
-    private var colorCard: some View {
-        CardContainer {
-            Text("颜色").font(.headline)
-            HStack {
-                TextField("#RRGGBB", text: $colorFieldText)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { commitColorField() }
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color(hex: viewModel.colorHexDraft) ?? .pink)
-                    .frame(width: 32, height: 32)
-                ColorPicker("", selection: Binding(
-                    get: { Color(hex: viewModel.colorHexDraft) ?? .pink },
-                    set: { newColor in
-                        let hex = newColor.hexString
-                        colorFieldText = hex
-                        Task { await viewModel.setColor(hex: hex, connection: connection) }
-                    }
-                ), supportsOpacity: false)
-                .labelsHidden()
-            }
-            .disabled(!isConnected)
-
-            if let presets = viewModel.colorPresets {
-                Menu {
-                    ForEach(presets.parents) { parent in
-                        Button(parent.name) { viewModel.selectedParentId = String(parent.id) }
-                    }
-                } label: {
-                    Label(currentParentName(presets), systemImage: "paintpalette")
-                }
+                .buttonStyle(.bordered)
                 .disabled(!isConnected)
-
-                if let parentId = viewModel.selectedParentId ?? presets.parents.first.map({ String($0.id) }) {
-                    let children = presets.children(of: parentId)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(children, id: \.hex) { child in
-                                Button {
-                                    colorFieldText = child.hex
-                                    Task { await viewModel.setColor(hex: child.hex, connection: connection) }
-                                } label: {
-                                    VStack(spacing: 4) {
-                                        Circle()
-                                            .fill(Color(hex: child.hex) ?? .pink)
-                                            .frame(width: 28, height: 28)
-                                            .overlay(
-                                                Circle().stroke(Color.primary, lineWidth: isSelected(child.hex) ? 2 : 0)
-                                            )
-                                        Text(child.name).font(.caption2).lineLimit(1)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .disabled(!isConnected)
-                }
-            }
-        }
-    }
-
-    private func currentParentName(_ presets: ColorPresets) -> String {
-        let id = viewModel.selectedParentId ?? presets.parents.first.map { String($0.id) }
-        return presets.parents.first(where: { String($0.id) == id })?.name ?? "颜色分组"
-    }
-
-    private func isSelected(_ hex: String) -> Bool {
-        RGBHex.parseHex(hex).map { RGBHex.formatHex(r: $0.r, g: $0.g, b: $0.b) } == RGBHex.parseHex(viewModel.colorHexDraft).map { RGBHex.formatHex(r: $0.r, g: $0.g, b: $0.b) }
-    }
-
-    private func commitColorField() {
-        Task { await viewModel.setColor(hex: colorFieldText, connection: connection) }
-    }
-
-    // MARK: A8-A15 Scroll text
-
-    private var scrollCard: some View {
-        CardContainer {
-            Text("滚动文字").font(.headline)
-            TextEditor(text: Binding(
-                get: { viewModel.scrollText },
-                set: { newValue in
-                    viewModel.userEditedText = true
-                    viewModel.scrollText = ScrollText.truncate(newValue)
-                }
-            ))
-            .frame(minHeight: 80)
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3)))
-            .disabled(!isConnected)
-
-            let visibleChars = ScrollText.visibleCharCount(viewModel.scrollText)
-            let byteCount = ScrollText.utf8ByteCount(viewModel.scrollText)
-            HStack {
-                Text("\(visibleChars)/1000 字符")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("\(byteCount) 字节")
-                    .font(.caption)
-                    .foregroundStyle(byteCount > 4096 ? .red : .secondary)
-            }
-            if byteCount > 4096 {
-                warningBanner("文本超过 4096 字节限制，将无法发送")
             }
 
-            HStack {
+            HStack(spacing: 8) {
                 Button {
-                    Task { await viewModel.sendScroll(connection: connection) }
+                    model.clear(connection: connection)
                 } label: {
-                    if viewModel.isGeneratingFont {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text("发送")
-                    }
+                    CommandChip("清空", systemImage: "eraser.fill")
                 }
-                .disabled(!isConnected || viewModel.isUploading)
 
-                Button("暂停") { Task { await viewModel.pauseScroll(connection: connection) } }
-                    .disabled(!isConnected)
-                Button("继续") { Task { await viewModel.resumeScroll(connection: connection) } }
-                    .disabled(!isConnected)
-                Button("停止/清屏") { Task { await viewModel.stopScroll(connection: connection) } }
-                    .disabled(!isConnected)
+                Button {
+                    model.fill(connection: connection)
+                } label: {
+                    CommandChip("全亮", systemImage: "sun.max.fill")
+                }
+
+                Button {
+                    model.invert(connection: connection)
+                } label: {
+                    CommandChip("反转", systemImage: "circle.lefthalf.filled")
+                }
+
+                Button {
+                    model.revertToBaseline(connection: connection)
+                } label: {
+                    CommandChip("回退", systemImage: "arrow.uturn.backward")
+                }
+                .disabled(!model.canRevert)
             }
             .buttonStyle(.bordered)
 
-            HStack {
-                Button { Task { await viewModel.stepFrame(direction: -1, connection: connection) } } label: {
-                    Image(systemName: "arrow.left")
+            if model.editingFaceId != nil {
+                Button {
+                    model.startNewFace()
+                } label: {
+                    CommandChip("另存为新表情", systemImage: "doc.on.doc.fill")
                 }
-                Button { Task { await viewModel.stepFrame(direction: 1, connection: connection) } } label: {
-                    Image(systemName: "arrow.right")
-                }
-                Spacer()
-            }
-            .disabled(!isConnected)
-
-            if viewModel.isUploading {
-                ProgressView(value: viewModel.uploadProgress)
+                .buttonStyle(.bordered)
             }
 
-            Divider()
-
-            Text("速度 (fps)").font(.subheadline)
-            HStack {
-                Slider(
-                    value: Binding(
-                        get: { viewModel.scrollFps },
-                        set: { newValue in Task { await viewModel.setScrollFps(newValue, connection: connection) } }
-                    ),
-                    in: 1...60,
-                    step: 1
-                )
-                Text("\(Int(viewModel.scrollFps))")
-                    .font(.footnote.monospacedDigit())
-                    .frame(minWidth: 32)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let error = model.errorMessage {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
             }
-            HStack(spacing: 8) {
-                Button("−5") { Task { await viewModel.setScrollFps(viewModel.scrollFps - 5, connection: connection) } }
-                Button("+5") { Task { await viewModel.setScrollFps(viewModel.scrollFps + 5, connection: connection) } }
-                Button("默认10") { Task { await viewModel.setScrollFps(10, connection: connection) } }
-                Spacer()
-            }
-            presetChips([1, 10, 20, 30, 40, 50, 60].map { Double($0) }, format: { String(Int($0)) }) { value in
-                Task { await viewModel.setScrollFps(value, connection: connection) }
-            }
-            .disabled(!isConnected)
-
-            Divider()
-
-            if let timeline = viewModel.timeline {
-                LEDMatrixView(frame: viewModel.previewFrame, showBoardImage: false)
-                    .frame(height: 90)
-                Text("本地预览 · \(timeline.frameCount) 帧").font(.caption2).foregroundStyle(.secondary)
-            }
-
-            let phase = viewModel.localPhase ?? ControlViewModel.phaseLabel(
-                viewModel.isStepping ? Optional("STEPPING") : connection.preview.map {
-                    $0.firmwareScrollActive == true ? ($0.firmwareScrollPaused == true ? "PAUSED" : "ACTIVE") : "IDLE"
-                }
-            )
-            if let summary = viewModel.uploadSummary {
-                Text(summary).font(.caption2).foregroundStyle(.secondary)
-            }
-            HStack {
-                Text("状态: \(phase)").font(.footnote)
-                Spacer()
-                Text("帧 \(viewModel.displayIndex)/\(viewModel.timeline?.frameCount ?? connection.preview?.frameCount ?? 0)")
-                    .font(.footnote.monospacedDigit())
-            }
-            HStack {
-                Text(String(format: "实测 %.1f fps", viewModel.measuredFps))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("PLL: \(ControlViewModel.lockStateLabel(viewModel.lockState))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        } header: {
+            Text("命令")
+        } footer: {
+            if !model.canSyncEyes {
+                Text("当前部件数据与左右眼映射不一致，已停用逐灯同步。")
+            } else if !model.livePreview {
+                Text("实时预览已关闭，修改仅保存在本地，点击面板控制栏最右侧的「发送」才会写入。")
             }
         }
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        .bootReveal(index: 1)
     }
 
-    // MARK: Shared helpers
+    // MARK: §19 Face parts
 
-    /// "0.5s", "1s", "7.5s", "10s" — strips a trailing ".0" but keeps other
-    /// fractional digits (unlike "%.1g" which drops trailing zeros globally,
-    /// e.g. mangling "10" into "1e+01" on some libc's).
-    private static func presetSecondsLabel(_ seconds: Double) -> String {
-        let rounded = (seconds * 10).rounded() / 10
-        if rounded == rounded.rounded() {
-            return "\(Int(rounded))s"
-        }
-        return "\(rounded)s"
-    }
-
-    private func presetChips(_ values: [Int], onSelect: @escaping (Int) -> Void) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(values, id: \.self) { value in
-                    Button("\(value)") { onSelect(value) }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+    @ViewBuilder
+    private var partsSection: some View {
+        if let library = model.library {
+            ForEach(PartGroup.allCases, id: \.self) { group in
+                Section(group.displayName) {
+                    FacePartSelectorView(
+                        group: group,
+                        library: library,
+                        selectedId: model.selectedCall[group],
+                        color: boardColor,
+                        brightness: boardBrightness
+                    ) { id in
+                        model.selectPart(group: group, id: id, connection: connection)
+                        toggleCount += 1
+                    }
+                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 0))
                 }
             }
-        }
-    }
-
-    private func presetChips(_ values: [Double], format: @escaping (Double) -> String, onSelect: @escaping (Double) -> Void) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(values, id: \.self) { value in
-                    Button(format(value)) { onSelect(value) }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
+            .bootReveal(index: 2)
+        } else {
+            Section {
+                ContentUnavailableView("部件库不可用",
+                                       systemImage: "exclamationmark.triangle",
+                                       description: Text(model.loadError ?? ""))
             }
+            // Same slot in the waterfall as the library it stands in for.
+            .bootReveal(index: 2)
         }
     }
 }
 
-#Preview {
-    ControlView()
-        .environment(BoardConnection())
-        .environment(BootLoaderModel())
+/// Horizontal icon + title label used by every command control (§18), kept flat
+/// so four chips share one row without clipping at larger Dynamic Type sizes.
+private struct CommandChip: View {
+    static let minHeight: CGFloat = 22
+
+    private let title: LocalizedStringKey
+    private let systemImage: String
+
+    init(_ title: LocalizedStringKey, systemImage: String) {
+        self.title = title
+        self.systemImage = systemImage
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .symbolRenderingMode(.hierarchical)
+                .imageScale(.small)
+            Text(title)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .font(.footnote)
+        .frame(maxWidth: .infinity, minHeight: Self.minHeight)
+        .contentShape(Capsule())
+        .accessibilityLabel(Text(title))
+    }
 }

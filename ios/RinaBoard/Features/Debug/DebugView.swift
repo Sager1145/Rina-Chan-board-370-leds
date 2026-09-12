@@ -15,28 +15,26 @@ struct DebugView: View {
     @State private var confirmClearFaces = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                previewSection
-                overviewSection
-                healthSection
-                powerSection
-                wifiSummarySection
-                buttonSimulatorSection
-                testPatternSection
-                packedFrameLabSection
-                commsLogSection
-                rawCommandSection
-                dangerZoneSection
-            }
-            .navigationTitle("调试")
-            .task { await vm.refreshStatus(connection: connection) }
-            .onChange(of: connection.connectionState) { _, newValue in
-                vm.log(.info, "连接状态: \(String(describing: newValue))")
-            }
-            .onChange(of: connection.currentFrame) { _, newValue in
-                vm.syncDebugFrameWithLiveFrame(newValue)
-            }
+        List {
+            previewSection
+            overviewSection
+            healthSection
+            powerSection
+            wifiSummarySection
+            buttonSimulatorSection
+            testPatternSection
+            packedFrameLabSection
+            commsLogSection
+            rawCommandSection
+            dangerZoneSection
+        }
+        .navigationTitle("调试")
+        .task { await vm.refreshStatus(connection: connection) }
+        .onChange(of: connection.connectionState) { _, newValue in
+            vm.log(.info, "连接状态: \(String(describing: newValue))")
+        }
+        .onChange(of: connection.currentFrame) { _, newValue in
+            vm.syncDebugFrameWithLiveFrame(newValue)
         }
     }
 
@@ -44,9 +42,15 @@ struct DebugView: View {
 
     @ViewBuilder
     private var previewSection: some View {
-        Section("预览 (仅本地)") {
-            LEDMatrixView(frame: vm.debugFrame, brightness: connection.status?.renderer?.brightness ?? 50)
-                .frame(height: 220)
+        Section {
+            // Debug shows the board's *reported* brightness rather than the
+            // Control Center draft, and stays on the stock tint, so the row
+            // reads as a raw device read-out.
+            BoardPreviewRow(frame: vm.debugFrame,
+                            color: .rinaPink,
+                            brightness: connection.status?.renderer?.brightness ?? 50)
+        } header: {
+            Text("预览 (仅本地)")
         }
     }
 

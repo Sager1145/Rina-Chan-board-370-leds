@@ -2,144 +2,169 @@ import SwiftUI
 import UniformTypeIdentifiers
 import RinaCore
 
-/// B10/B11: the saved-face library list (defaults + user faces), with rename,
-/// edit, delete, drag-reorder and whole-document import/export.
+/// Full saved-face management (design guide §11): the complete list with
+/// rename, edit, delete, drag reorder and whole-document import/export.
+///
+/// Native list semantics throughout — rows are `List` rows with swipe actions
+/// and a context menu, not website-style cards. Pushed from the Control
+/// Center's Saves section.
 struct FaceLibraryView: View {
-    @Bindable var viewModel: FacesViewModel
-    var connection: BoardConnection
+    @Environment(BoardConnection.self) private var connection
+    @Environment(FaceLibraryModel.self) private var model
+    @Environment(ControlViewModel.self) private var editor
+    @Environment(\.dismiss) private var dismiss
 
     @State private var isEditing = false
     @State private var isExporting = false
     @State private var isImporting = false
     @State private var exportDocument: JSONFileDocument?
 
-    private var defaults: [SavedFace] { viewModel.faceDocument.sortedFaces.filter { $0.type == .default } }
-    private var userFaces: [SavedFace] { viewModel.faceDocument.sortedFaces.filter { $0.type != .default } }
-
     var body: some View {
         List {
             Section("默认表情") {
-                if defaults.isEmpty {
+                if model.defaultFaces.isEmpty {
                     Text("暂无").font(.footnote).foregroundStyle(.secondary)
                 }
-                ForEach(defaults) { face in row(for: face) }
+                ForEach(model.defaultFaces) { face in row(for: face) }
             }
             Section("我的表情") {
-                if userFaces.isEmpty {
+                if model.userFaces.isEmpty {
                     Text("暂无").font(.footnote).foregroundStyle(.secondary)
                 }
-                ForEach(userFaces) { face in row(for: face) }
+                ForEach(model.userFaces) { face in row(for: face) }
                     .onDelete { offsets in
+                        let doomed = offsets.map { model.userFaces[$0] }
                         Task {
-                            for face in offsets.map({ userFaces[$0] }) {
-                                await viewModel.delete(face, connection: connection)
+                            for face in doomed {
+                                await model.delete(face, connection: connection)
                             }
                         }
                     }
                     .onMove { source, destination in
-                        var reordered = userFaces
+                        var reordered = model.userFaces
                         reordered.move(fromOffsets: source, toOffset: destination)
-                        Task { await viewModel.reorderUserFaces(reordered, connection: connection) }
+                        Task { await model.reorderUserFaces(reordered, connection: connection) }
                     }
             }
         }
-        .listStyle(.insetGrouped)
+        .navigationTitle("表情库")
+        .navigationBarTitleDisplayMode(.inline)
         .environment(\.editMode, .constant(isEditing ? .active : .inactive))
-        .refreshable { await viewModel.reloadLibrary(connection: connection) }
+        .refreshable { await model.reload(connection: connection) }
+        .overlay {
+            if model.isLoading && model.faceDocument.faces.isEmpty {
+                ProgressView()
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button(isEditing ? "完成" : "排序") { isEditing.toggle() }
             }
             ToolbarItem(placement: .secondaryAction) {
                 Menu {
-                    Button("导出全部") {
-                        exportDocument = JSONFileDocument(data: viewModel.exportData() ?? Data())
+                    Button("导出全部", systemImage: "square.and.arrow.up") {
+                        exportDocument = JSONFileDocument(data: model.exportData() ?? Data())
                         isExporting = true
                     }
-                    Button("导入表情列表") { isImporting = true }
-                    Button("刷新") { Task { await viewModel.reloadLibrary(connection: connection) } }
+                    Button("导入表情列表", systemImage: "square.and.arrow.down") { isImporting = true }
+                    Button("刷新", systemImage: "arrow.clockwise") {
+                        Task { await model.reload(connection: connection) }
+                    }
                 } label: {
-                    Image(systemName: "square.and.arrow.up.on.square")
+                    Label("更多", systemImage: "ellipsis.circle")
                 }
             }
         }
-        .alert("重命名", isPresented: renameBinding, presenting: viewModel.renamingFace) { face in
-            TextField("名称", text: $viewModel.renameText)
+        .alert("重命名", isPresented: renameBinding, presenting: model.renamingFace) { face in
+            TextField("名称", text: Bindable(model).renameText)
             Button("取消", role: .cancel) {}
             Button("确定") {
-                Task { await viewModel.rename(face, to: viewModel.renameText, connection: connection) }
+                Task { await model.rename(face, to: model.renameText, connection: connection) }
             }
         }
-        .fileExporter(isPresented: $isExporting, document: exportDocument, contentType: .json, defaultFilename: "saved_faces") { _ in }
+        .fileExporter(isPresented: $isExporting,
+                      document: exportDocument,
+                      contentType: .json,
+                      defaultFilename: "saved_faces") { _ in }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else { return }
             let accessed = url.startAccessingSecurityScopedResource()
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
             guard let data = try? Data(contentsOf: url) else { return }
-            Task { await viewModel.importDocument(from: data, connection: connection) }
+            Task { await model.importDocument(from: data, connection: connection) }
         }
     }
 
     private var renameBinding: Binding<Bool> {
-        Binding(get: { viewModel.renamingFace != nil }, set: { if !$0 { viewModel.renamingFace = nil } })
+        Binding(get: { model.renamingFace != nil },
+                set: { if !$0 { model.renamingFace = nil } })
     }
 
     @ViewBuilder
     private func row(for face: SavedFace) -> some View {
         Button {
-            Task { await viewModel.apply(face, connection: connection) }
+            Task { await model.apply(face, connection: connection) }
         } label: {
             HStack(spacing: 12) {
                 if let frame = face.packedFrame {
-                    LEDMatrixView(frame: frame, showBoardImage: false)
-                        .frame(width: 44, height: 36)
+                    SavedFaceThumbnail(frame: frame, accessibilityDescription: "")
                 } else {
-                    Color.gray.opacity(0.2).frame(width: 44, height: 36)
+                    Color.gray.opacity(0.2)
+                        .frame(width: SavedFaceThumbnail.size.width, height: SavedFaceThumbnail.size.height)
                 }
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(face.name)
                     HStack(spacing: 6) {
-                        Text(badgeLabel(face.type)).font(.caption2).foregroundStyle(.secondary)
-                        Text("序号 \(face.order)").font(.caption2).foregroundStyle(.secondary)
+                        Text(badgeLabel(face.type))
+                        Text("序号 \(face.order)")
                     }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Menu {
-                    Button("编辑") { viewModel.loadForEditing(face) }
-                    Button("重命名") { viewModel.renamingFace = face; viewModel.renameText = face.name }
-                    if face.type != .default {
-                        Button("删除", role: .destructive) {
-                            Task { await viewModel.delete(face, connection: connection) }
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .buttonStyle(.borderless)
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("编辑", systemImage: "pencil") {
+                editor.loadForEditing(face)
+                dismiss()
+            }
+            Button("重命名", systemImage: "character.cursor.ibeam") {
+                model.renamingFace = face
+                model.renameText = face.name
+            }
+            if face.type != .default {
+                Button("删除", systemImage: "trash", role: .destructive) {
+                    Task { await model.delete(face, connection: connection) }
+                }
+            }
+        }
         .swipeActions(edge: .trailing) {
             if face.type != .default {
                 Button("删除", role: .destructive) {
-                    Task { await viewModel.delete(face, connection: connection) }
+                    Task { await model.delete(face, connection: connection) }
                 }
             }
-            Button("重命名") { viewModel.renamingFace = face; viewModel.renameText = face.name }
-                .tint(.blue)
+            Button("重命名") {
+                model.renamingFace = face
+                model.renameText = face.name
+            }
+            .tint(.blue)
         }
     }
 
     private func badgeLabel(_ type: SavedFace.Kind) -> String {
         switch type {
-        case .default: return "默认"
-        case .custom: return "自定义"
-        case .parts: return "部件"
+        case .default: return NSLocalizedString("默认", comment: "saved face kind default")
+        case .custom: return NSLocalizedString("自定义", comment: "saved face kind custom")
+        case .parts: return NSLocalizedString("部件", comment: "saved face kind parts")
         }
     }
 }
 
-/// Whole-document JSON file for `.fileExporter` (B11).
+/// Whole-document JSON file for `.fileExporter`.
 struct JSONFileDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.json] }
     var data: Data

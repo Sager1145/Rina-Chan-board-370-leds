@@ -18,24 +18,22 @@ struct ConnectionView: View {
     private var isConnected: Bool { connection.connectionState == .connected }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                statusSection
-                bluetoothSection
-                homeWifiSection
-                hotspotSection
-                phoneHotspotSection
-                boardWifiSection
-            }
-            .navigationTitle("连接")
-            .alert("出错了", isPresented: errorBinding) {
-                Button("好", role: .cancel) {}
-            } message: {
-                Text(viewModel.lastErrorMessage ?? "")
-            }
-            .sheet(item: $networkForPassword) { network in
-                passwordSheet(for: network)
-            }
+        Form {
+            statusSection
+            bluetoothSection
+            homeWifiSection
+            hotspotSection
+            phoneHotspotSection
+            boardWifiSection
+        }
+        .navigationTitle("连接")
+        .alert("出错了", isPresented: errorBinding) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(viewModel.lastErrorMessage ?? "")
+        }
+        .sheet(item: $networkForPassword) { network in
+            passwordSheet(for: network)
         }
     }
 

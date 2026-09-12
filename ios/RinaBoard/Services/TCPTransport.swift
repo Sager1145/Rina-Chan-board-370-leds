@@ -46,7 +46,7 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
         return AsyncStream { continuation in
             self.stateLock.withLock { self.stateContinuations[id] = continuation }
             continuation.onTermination = { [weak self] _ in
-                self?.stateLock.withLock { self?.stateContinuations.removeValue(forKey: id) }
+                self?.stateLock.withLock { _ = self?.stateContinuations.removeValue(forKey: id) }
             }
         }
     }
@@ -56,7 +56,7 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
         return AsyncStream { continuation in
             self.stateLock.withLock { self.incomingContinuations[id] = continuation }
             continuation.onTermination = { [weak self] _ in
-                self?.stateLock.withLock { self?.incomingContinuations.removeValue(forKey: id) }
+                self?.stateLock.withLock { _ = self?.incomingContinuations.removeValue(forKey: id) }
             }
         }
     }
@@ -90,34 +90,49 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
         stateLock.withLock { self.connection = connection }
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            var resumed = false
+            // `stateUpdateHandler` is `@Sendable`, so the "already resumed?"
+            // flag cannot be a captured `var` — it lives behind a lock in
+            // `ResumeGate` instead.
+            let gate = ResumeGate()
             connection.stateUpdateHandler = { [weak self] newState in
                 guard let self else { return }
                 switch newState {
                 case .ready:
                     self.emitState(.connected)
                     self.receiveLoop()
-                    if !resumed {
-                        resumed = true
-                        continuation.resume()
-                    }
+                    if gate.claim() { continuation.resume() }
                 case .failed(let error):
                     self.emitState(.failed(error.localizedDescription))
-                    if !resumed {
-                        resumed = true
+                    if gate.claim() {
                         continuation.resume(throwing: RinaTransportError.underlying(error.localizedDescription))
                     }
                 case .cancelled:
                     self.emitState(.disconnected)
-                    if !resumed {
-                        resumed = true
-                        continuation.resume(throwing: RinaTransportError.cancelled)
-                    }
+                    if gate.claim() { continuation.resume(throwing: RinaTransportError.cancelled) }
                 default:
                     break
                 }
             }
             connection.start(queue: queue)
+        }
+    }
+
+    /// One-shot guard: `claim()` returns `true` for the first caller only, so a
+    /// `CheckedContinuation` shared across several `NWConnection` state
+    /// callbacks is resumed at most once. (Not *exactly* once: if the handler
+    /// is detached by `disconnect()`/a re-entrant `connect()` while the
+    /// connection is still preparing, no callback ever fires — a pre-existing
+    /// hole this gate neither creates nor closes.)
+    private final class ResumeGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var claimed = false
+
+        func claim() -> Bool {
+            lock.withLock {
+                if claimed { return false }
+                claimed = true
+                return true
+            }
         }
     }
 

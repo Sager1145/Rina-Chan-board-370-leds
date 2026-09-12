@@ -3,7 +3,37 @@
   "strings": {
     "": {},
     "#RRGGBB": {},
+    "%.1f 秒": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.1f seconds"
+          }
+        }
+      }
+    },
+    "%@，空": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, empty"
+          }
+        }
+      }
+    },
     "%lld": {},
+    "%lld / %lld 点亮": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld / %lld lit"
+          }
+        }
+      }
+    },
     "%lld dBm": {},
     "%lld 字节": {
       "localizations": {
@@ -16,6 +46,16 @@
       }
     },
     "%lld%%": {},
+    "%lld%% 充电中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%% charging"
+          }
+        }
+      }
+    },
     "%lld/1000 字符": {
       "localizations": {
         "en": {
@@ -71,6 +111,16 @@
         }
       }
     },
+    "GitHub 项目主页": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub repository"
+          }
+        }
+      }
+    },
     "IP": {
       "localizations": {
         "en": {
@@ -95,6 +145,16 @@
     },
     "LED 矩阵，%lld 颗点亮": {},
     "LOADING": {},
+    "MakerWorld 模型文件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MakerWorld model files"
+          }
+        }
+      }
+    },
     "PING": {},
     "PLL: %@": {},
     "PSRAM": {},
@@ -131,12 +191,132 @@
     "−0.5": {},
     "−5": {},
     "−8": {},
+    "上一个": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous"
+          }
+        }
+      }
+    },
+    "上一个表情": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous face"
+          }
+        }
+      }
+    },
+    "上一帧": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous frame"
+          }
+        }
+      }
+    },
+    "上传中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uploading"
+          }
+        }
+      }
+    },
+    "下一个": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
+          }
+        }
+      }
+    },
+    "下一个表情": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next face"
+          }
+        }
+      }
+    },
+    "下一帧": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next frame"
+          }
+        }
+      }
+    },
     "亮度": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Brightness"
+          }
+        }
+      }
+    },
+    "亮度 %lld%%": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brightness %lld%%"
+          }
+        }
+      }
+    },
+    "亮度、上一个/下一个、自动模式、颜色与已保存的表情。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brightness, previous/next, auto mode, colour and saved faces."
+          }
+        }
+      }
+    },
+    "亮度、颜色与上一个/下一个属于控制中心，这里不再重复。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brightness, colour and previous/next live in the Control Center and aren't duplicated here."
+          }
+        }
+      }
+    },
+    "亮度原始值": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raw brightness"
+          }
+        }
+      }
+    },
+    "亮度在界面上以百分比显示；此处为固件使用的 %lld–%lld 原始值。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brightness is shown as a percentage in the UI; this is the raw %lld–%lld value the firmware uses."
           }
         }
       }
@@ -221,6 +401,26 @@
         }
       }
     },
+    "使用已保存的密码": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use saved password"
+          }
+        }
+      }
+    },
+    "使用面板文字": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use board text"
+          }
+        }
+      }
+    },
     "保存": {
       "localizations": {
         "en": {
@@ -232,6 +432,56 @@
       }
     },
     "保存为新表情": {},
+    "保存到面板的表情库，可在控制中心中管理。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved to the board's face library; manage it in the Control Center."
+          }
+        }
+      }
+    },
+    "保存当前": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save current"
+          }
+        }
+      }
+    },
+    "保存表情": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save face"
+          }
+        }
+      }
+    },
+    "保存表情…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Face…"
+          }
+        }
+      }
+    },
+    "保留草稿": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep draft"
+          }
+        }
+      }
+    },
     "信号": {
       "localizations": {
         "en": {
@@ -258,6 +508,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stop / Clear"
+          }
+        }
+      }
+    },
+    "停止中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopping"
+          }
+        }
+      }
+    },
+    "停止并清屏": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop and clear"
           }
         }
       }
@@ -298,6 +568,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Full brightness will light all 370 LEDs; estimated power may exceed 40 W. Send anyway?"
+          }
+        }
+      }
+    },
+    "关于": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About"
           }
         }
       }
@@ -404,12 +684,62 @@
         }
       }
     },
+    "加载字体…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading font…"
+          }
+        }
+      }
+    },
+    "十六进制": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hex"
+          }
+        }
+      }
+    },
+    "协议版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protocol version"
+          }
+        }
+      }
+    },
+    "单步": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stepping"
+          }
+        }
+      }
+    },
     "危险操作": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Dangerous action"
+          }
+        }
+      }
+    },
+    "即将推出。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coming later."
           }
         }
       }
@@ -504,6 +834,26 @@
         }
       }
     },
+    "发送失败：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send failed: %@"
+          }
+        }
+      }
+    },
+    "发送并播放": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send and play"
+          }
+        }
+      }
+    },
     "取消": {
       "localizations": {
         "en": {
@@ -524,12 +874,52 @@
         }
       }
     },
+    "同步失败：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync failed: %@"
+          }
+        }
+      }
+    },
+    "同步状态": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync status"
+          }
+        }
+      }
+    },
     "名称": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Name"
+          }
+        }
+      }
+    },
+    "启动中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting"
+          }
+        }
+      }
+    },
+    "命令": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commands"
           }
         }
       }
@@ -550,6 +940,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Revert changes"
+          }
+        }
+      }
+    },
+    "固件、iOS App 与 3D 打印模型的下载地址。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where to get the firmware, the iOS app and the 3D-printable model."
           }
         }
       }
@@ -634,12 +1034,52 @@
         }
       }
     },
+    "外观跟随系统设置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance follows your system setting."
+          }
+        }
+      }
+    },
     "好": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "OK"
+          }
+        }
+      }
+    },
+    "字体资源缺失": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font resource missing"
+          }
+        }
+      }
+    },
+    "字符": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Characters"
+          }
+        }
+      }
+    },
+    "字节": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytes"
           }
         }
       }
@@ -661,6 +1101,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "Send live"
+          }
+        }
+      }
+    },
+    "实时视频": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Video"
+          }
+        }
+      }
+    },
+    "实时视频预览占位": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live video preview placeholder"
+          }
+        }
+      }
+    },
+    "实时预览": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Preview"
+          }
+        }
+      }
+    },
+    "实时预览已关闭，修改仅保存在本地，点击「发送到面板」才会写入。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Preview is off: edits stay local until you tap Send to Board."
           }
         }
       }
@@ -725,6 +1205,16 @@
         }
       }
     },
+    "导入失败：文件格式无效": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import failed: invalid file format"
+          }
+        }
+      }
+    },
     "导入表情列表": {
       "localizations": {
         "en": {
@@ -755,12 +1245,72 @@
         }
       }
     },
+    "左右眼同步": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync Left/Right Eye"
+          }
+        }
+      }
+    },
     "左右眼对称": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Mirror left/right eyes"
+          }
+        }
+      }
+    },
+    "已保存的表情": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved faces"
+          }
+        }
+      }
+    },
+    "已发送 %1$lld B（逐帧回退，位图预期 frames=%2$lld rotation=%3$lld，实际 frames=%4$lld rotation=%5$lld）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent %1$lld B (per-frame fallback; bitmap expected frames=%2$lld rotation=%3$lld, got frames=%4$lld rotation=%5$lld)"
+          }
+        }
+      }
+    },
+    "已发送 %lld B（位图）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent %lld B (bitmap)"
+          }
+        }
+      }
+    },
+    "已暂停": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused"
+          }
+        }
+      }
+    },
+    "已连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
           }
         }
       }
@@ -781,6 +1331,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Frame %@/%@"
+          }
+        }
+      }
+    },
+    "帧 %lld / %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frame %lld / %lld"
           }
         }
       }
@@ -836,6 +1396,26 @@
         }
       }
     },
+    "应用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App"
+          }
+        }
+      }
+    },
+    "应用失败：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply failed: %@"
+          }
+        }
+      }
+    },
     "开启": {
       "extractionState": "stale",
       "localizations": {
@@ -867,12 +1447,62 @@
         }
       }
     },
+    "当前表情": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current face"
+          }
+        }
+      }
+    },
+    "当前部件数据与左右眼映射不一致，已停用逐灯同步。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The part data doesn't match the left/right eye mapping, so per-LED sync is disabled."
+          }
+        }
+      }
+    },
+    "微调": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trimming"
+          }
+        }
+      }
+    },
     "忘记网络": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Forget network"
+          }
+        }
+      }
+    },
+    "恢复中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restoring"
+          }
+        }
+      }
+    },
+    "恢复默认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset to default"
           }
         }
       }
@@ -918,6 +1548,16 @@
         }
       }
     },
+    "打开面板控制中心": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the board Control Center"
+          }
+        }
+      }
+    },
     "扫描网络": {
       "localizations": {
         "en": {
@@ -959,12 +1599,62 @@
         }
       }
     },
+    "控制时保持屏幕常亮": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep screen awake while controlling"
+          }
+        }
+      }
+    },
+    "播放": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback"
+          }
+        }
+      }
+    },
     "播放: %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Playback: %@"
+          }
+        }
+      }
+    },
+    "播放中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playing"
+          }
+        }
+      }
+    },
+    "文字": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text"
+          }
+        }
+      }
+    },
+    "文本超过 4096 字节": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text exceeds 4096 bytes"
           }
         }
       }
@@ -986,6 +1676,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "None"
+          }
+        }
+      }
+    },
+    "无法加载部件库：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load the parts library: %@"
+          }
+        }
+      }
+    },
+    "显示面板照片": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show board photo"
           }
         }
       }
@@ -1030,6 +1740,26 @@
         }
       }
     },
+    "暂无表情": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No faces yet"
+          }
+        }
+      }
+    },
+    "更多": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More"
+          }
+        }
+      }
+    },
     "更新表情": {},
     "有效帧 (%@ 颗点亮)": {
       "localizations": {
@@ -1051,6 +1781,56 @@
         }
       }
     },
+    "未发送": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsent"
+          }
+        }
+      }
+    },
+    "未连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected"
+          }
+        }
+      }
+    },
+    "未连接，无法保存到面板": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected — can't save to the board"
+          }
+        }
+      }
+    },
+    "未连接，无法同步到面板": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected — can't sync to the board"
+          }
+        }
+      }
+    },
+    "未连接，无法应用表情": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected — can't apply the face"
+          }
+        }
+      }
+    },
     "本地预览 · %@ 帧": {
       "localizations": {
         "en": {
@@ -1067,6 +1847,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Local preview · %lld frames"
+          }
+        }
+      }
+    },
+    "本项目基于上述开源项目的创意与实现，向原作者致谢。各组件版权归原作者所有，并遵循其各自的开源许可证。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This project builds on the ideas and work of the open-source projects above; thanks to their authors. Each component remains the copyright of its author and is used under its own license."
           }
         }
       }
@@ -1097,6 +1887,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Validate JSON"
+          }
+        }
+      }
+    },
+    "格式应为 #RRGGBB": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format must be #RRGGBB"
           }
         }
       }
@@ -1137,6 +1937,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "This will delete all non-default faces and cannot be undone. Type CLEAR to confirm."
+          }
+        }
+      }
+    },
+    "此表情的帧数据无效": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This face has invalid frame data"
           }
         }
       }
@@ -1201,6 +2011,36 @@
         }
       }
     },
+    "滚动文字内容": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrolling text content"
+          }
+        }
+      }
+    },
+    "滚动文字预览，暂无内容": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrolling text preview, nothing to show"
+          }
+        }
+      }
+    },
+    "滚动文字预览，第 %1$lld 帧，共 %2$lld 帧": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrolling text preview, frame %1$lld of %2$lld"
+          }
+        }
+      }
+    },
     "点亮 %@": {
       "localizations": {
         "en": {
@@ -1261,6 +2101,16 @@
         }
       }
     },
+    "热点密码": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hotspot password"
+          }
+        }
+      }
+    },
     "热点状态": {
       "localizations": {
         "en": {
@@ -1277,6 +2127,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Direct Hotspot"
+          }
+        }
+      }
+    },
+    "版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version"
+          }
+        }
+      }
+    },
+    "版本信息、项目链接与致谢。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version info, project links and credits."
           }
         }
       }
@@ -1307,6 +2177,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Status: %lld"
+          }
+        }
+      }
+    },
+    "生成中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generating"
+          }
+        }
+      }
+    },
+    "生成帧数过多(%lld > 3072)，请缩短文字": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many frames (%lld > 3072) — shorten the text"
           }
         }
       }
@@ -1361,12 +2251,32 @@
         }
       }
     },
+    "电量": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Battery"
+          }
+        }
+      }
+    },
     "电量百分比": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Battery percentage"
+          }
+        }
+      }
+    },
+    "相位锁定": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phase lock"
           }
         }
       }
@@ -1407,6 +2317,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Offline"
+          }
+        }
+      }
+    },
+    "空闲": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        }
+      }
+    },
+    "管理表情": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage faces"
           }
         }
       }
@@ -1472,6 +2402,46 @@
         }
       }
     },
+    "自动模式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto Mode"
+          }
+        }
+      }
+    },
+    "自定义": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom"
+          }
+        }
+      }
+    },
+    "自由": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free-running"
+          }
+        }
+      }
+    },
+    "致谢": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Credits"
+          }
+        }
+      }
+    },
     "获取信息": {
       "localizations": {
         "en": {
@@ -1512,6 +2482,16 @@
         }
       }
     },
+    "表情库": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Face Library"
+          }
+        }
+      }
+    },
     "解析为预览": {
       "localizations": {
         "en": {
@@ -1532,12 +2512,32 @@
         }
       }
     },
+    "触感反馈": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haptics"
+          }
+        }
+      }
+    },
     "计算电压": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Calculated voltage"
+          }
+        }
+      }
+    },
+    "记住上次的标签页": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remember last tab"
           }
         }
       }
@@ -1552,12 +2552,52 @@
         }
       }
     },
+    "设备未连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Board not connected"
+          }
+        }
+      }
+    },
     "设备概览": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Device overview"
+          }
+        }
+      }
+    },
+    "设置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        }
+      }
+    },
+    "请求速度": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requested speed"
+          }
+        }
+      }
+    },
+    "请输入要滚动显示的文字": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter the text to scroll"
           }
         }
       }
@@ -1582,12 +2622,52 @@
         }
       }
     },
+    "调试工具": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Debug tools"
+          }
+        }
+      }
+    },
+    "超出固件 %lld 字节上限，发送前请缩短文字；不会自动截断。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Over the firmware's %lld-byte limit — shorten the text before sending; it is never truncated silently."
+          }
+        }
+      }
+    },
+    "轻点以应用到面板。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to apply to the board."
+          }
+        }
+      }
+    },
     "输入 CLEAR 以确认": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Type CLEAR to confirm"
+          }
+        }
+      }
+    },
+    "输入要滚动的文字…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter the text to scroll…"
           }
         }
       }
@@ -1602,12 +2682,72 @@
         }
       }
     },
+    "连接中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting"
+          }
+        }
+      }
+    },
+    "连接失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection failed"
+          }
+        }
+      }
+    },
+    "连接状态": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
+          }
+        }
+      }
+    },
     "连接网络": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Connect to Network"
+          }
+        }
+      }
+    },
+    "连接设置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection settings"
+          }
+        }
+      }
+    },
+    "连接面板后即可读取已保存的表情。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to the board to read its saved faces."
+          }
+        }
+      }
+    },
+    "追赶": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Catching up"
           }
         }
       }
@@ -1622,6 +2762,16 @@
         }
       }
     },
+    "速度": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speed"
+          }
+        }
+      }
+    },
     "速度 (fps)": {
       "localizations": {
         "en": {
@@ -1632,12 +2782,42 @@
         }
       }
     },
+    "部件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parts"
+          }
+        }
+      }
+    },
+    "部件库不可用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parts library unavailable"
+          }
+        }
+      }
+    },
     "部件库加载失败": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Failed to load component library"
+          }
+        }
+      }
+    },
+    "配色组": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette"
           }
         }
       }
@@ -1658,6 +2838,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Restart device"
+          }
+        }
+      }
+    },
+    "重启面板": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart board"
+          }
+        }
+      }
+    },
+    "重启面板？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart the board?"
           }
         }
       }
@@ -1722,12 +2922,162 @@
         }
       }
     },
+    "重连中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting"
+          }
+        }
+      }
+    },
+    "重连中（第 %lld 次）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting (attempt %lld)"
+          }
+        }
+      }
+    },
+    "锁定": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locked"
+          }
+        }
+      }
+    },
     "随机": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Random"
+          }
+        }
+      }
+    },
+    "随机组合": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Randomise"
+          }
+        }
+      }
+    },
+    "面板": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Board"
+          }
+        }
+      }
+    },
+    "面板上的文字与本地未发送的草稿不同。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The board's text differs from your unsent draft."
+          }
+        }
+      }
+    },
+    "面板实测": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Board actual"
+          }
+        }
+      }
+    },
+    "面板将断开连接并重新启动。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The board will disconnect and restart."
+          }
+        }
+      }
+    },
+    "面板控制": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Board Control"
+          }
+        }
+      }
+    },
+    "面板控制中心": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Board Control Center"
+          }
+        }
+      }
+    },
+    "面板模式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Board mode"
+          }
+        }
+      }
+    },
+    "面板编辑器，%1$lld/%2$lld 颗 LED 点亮": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Board editor, %1$lld of %2$lld LEDs lit"
+          }
+        }
+      }
+    },
+    "面板预览，%1$lld/%2$lld 颗 LED 点亮": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Board preview, %1$lld of %2$lld LEDs lit"
+          }
+        }
+      }
+    },
+    "面板颜色": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Board colour"
+          }
+        }
+      }
+    },
+    "项目": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Project"
           }
         }
       }
@@ -1798,6 +3148,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Default faces"
+          }
+        }
+      }
+    },
+    "默认表情不可删除": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default faces can't be deleted"
           }
         }
       }

@@ -1,0 +1,172 @@
+import SwiftUI
+import RinaCore
+
+/// Settings tab (design guide §31–§35): a native `Form`, no LED preview.
+///
+/// On iOS 17–25 this screen also hosts the Control Center, because those
+/// releases have no persistent system bottom surface to attach it to and the
+/// guide forbids hand-building one (§2). On iOS 26+ the Control Center lives
+/// in the tab bar accessory and this section is omitted rather than
+/// duplicated (§33).
+struct SettingsView: View {
+    @Environment(BoardConnection.self) private var connection
+    @Environment(BoardControlCenterModel.self) private var controlCenter
+
+    @AppStorage(AppSettingsKey.showBoardPhoto) private var showBoardPhoto = true
+    @AppStorage(AppSettingsKey.hapticsEnabled) private var hapticsEnabled = true
+    @AppStorage(AppSettingsKey.keepScreenAwake) private var keepScreenAwake = false
+    @AppStorage(AppSettingsKey.restoreLastTab) private var restoreLastTab = false
+
+    @State private var confirmReboot = false
+
+    private var isConnected: Bool { connection.connectionState == .connected }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if !ControlCenterPlacement.usesTabBarAccessory {
+                    Section {
+                        NavigationLink {
+                            BoardControlCenterView()
+                        } label: {
+                            Label("面板控制中心", systemImage: "slider.horizontal.below.rectangle")
+                        }
+                    } footer: {
+                        Text("亮度、上一个/下一个、自动模式、颜色与已保存的表情。")
+                    }
+                }
+
+                connectionSection
+                boardSection
+                appSection
+                debugSection
+                aboutSection
+            }
+            .navigationTitle("设置")
+        }
+    }
+
+    // MARK: §32 Connection
+
+    private var connectionSection: some View {
+        Section("连接") {
+            LabeledContent("状态") {
+                Text(stateText).foregroundStyle(.secondary)
+            }
+            NavigationLink {
+                ConnectionView()
+            } label: {
+                Label("连接设置", systemImage: "antenna.radiowaves.left.and.right")
+            }
+        }
+    }
+
+    private var stateText: String {
+        switch connection.connectionState {
+        case .connected: return NSLocalizedString("已连接", comment: "connection state connected")
+        case .connecting: return NSLocalizedString("连接中", comment: "connection state connecting")
+        case .reconnecting: return NSLocalizedString("重连中", comment: "connection state reconnecting")
+        case .disconnected: return NSLocalizedString("未连接", comment: "connection state disconnected")
+        case .failed: return NSLocalizedString("连接失败", comment: "connection state failed")
+        }
+    }
+
+    // MARK: §33 Board
+
+    private var boardSection: some View {
+        Section {
+            LabeledContent("设备") {
+                Text(connection.status?.device ?? "—").foregroundStyle(.secondary)
+            }
+            LabeledContent("协议版本") {
+                Text(connection.status?.version.map(String.init) ?? "—")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            LabeledContent("自动切换间隔") {
+                Text(String(format: "%.1fs", controlCenter.autoIntervalDraft))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Button("重启面板", systemImage: "arrow.clockwise") {
+                confirmReboot = true
+            }
+            .disabled(!isConnected)
+        } header: {
+            Text("面板")
+        } footer: {
+            Text("亮度、颜色与上一个/下一个属于控制中心，这里不再重复。")
+        }
+        .confirmationDialog("重启面板？", isPresented: $confirmReboot, titleVisibility: .visible) {
+            Button("重启", role: .destructive) {
+                Task { _ = try? await connection.command(.reboot) }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("面板将断开连接并重新启动。")
+        }
+    }
+
+    // MARK: §34 App
+
+    private var appSection: some View {
+        Section {
+            Toggle(isOn: $showBoardPhoto) {
+                Label("显示面板照片", systemImage: "photo")
+            }
+            Toggle(isOn: $hapticsEnabled) {
+                Label("触感反馈", systemImage: "hand.tap")
+            }
+            Toggle(isOn: $keepScreenAwake) {
+                Label("控制时保持屏幕常亮", systemImage: "sun.max")
+            }
+            Toggle(isOn: $restoreLastTab) {
+                Label("记住上次的标签页", systemImage: "square.on.square")
+            }
+        } header: {
+            Text("应用")
+        } footer: {
+            Text("外观跟随系统设置。")
+        }
+    }
+
+    // MARK: About
+
+    private var aboutSection: some View {
+        Section {
+            NavigationLink {
+                AboutView()
+            } label: {
+                Label("关于", systemImage: "info.circle")
+            }
+        } footer: {
+            Text("版本信息、项目链接与致谢。")
+        }
+    }
+
+    // MARK: §35 Debug
+
+    private var debugSection: some View {
+        Section {
+            LabeledContent("亮度原始值") {
+                Text("\(controlCenter.draftBrightness)")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            LabeledContent("颜色") {
+                Text(controlCenter.colorHexDraft)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            NavigationLink {
+                DebugView()
+            } label: {
+                Label("调试工具", systemImage: "ladybug")
+            }
+        } header: {
+            Text("调试")
+        } footer: {
+            Text("亮度在界面上以百分比显示；此处为固件使用的 \(RinaLinkConstants.brightnessMin)–\(RinaLinkConstants.brightnessMax) 原始值。")
+        }
+    }
+}
