@@ -1,9 +1,9 @@
 import SwiftUI
 import RinaCore
 
-/// The four primary destinations (design guide §4.1, §66).
+/// The primary destinations (design guide §4.1, §66).
 enum AppTab: String, CaseIterable {
-    case control, text, liveVideo, settings
+    case control, text, lipSync, presetLive, settings
 
     /// Accepts the older `-initialTab` values used by automated simulator
     /// runs, mapping the retired tabs onto their new homes.
@@ -11,7 +11,14 @@ enum AppTab: String, CaseIterable {
         switch raw {
         case "control", "faces": self = .control
         case "text": self = .text
-        case "liveVideo", "video": self = .liveVideo
+        // `liveVideo` was the single placeholder tab both live features grew
+        // out of; it opens the one that needs no material to show something.
+        case "lipSync", "lipsync": self = .lipSync
+        case "presetLive", "liveVideo": self = .presetLive
+        case "video":
+            // 视频 is a page inside the 演出 tab; open the tab on that page.
+            UserDefaults.standard.set(PerformanceTabMode.video.rawValue, forKey: PerformanceTabMode.storageKey)
+            self = .presetLive
         case "settings", "debug", "connect": self = .settings
         default: self = .control
         }
@@ -34,7 +41,7 @@ enum AppTab: String, CaseIterable {
     }
 }
 
-/// Root navigation: a native `TabView` with the four primary destinations,
+/// Root navigation: a native `TabView` with the five primary destinations,
 /// plus the global Control Center.
 ///
 /// The Control Center never replaces the selected tab. On iOS 26 it rides in
@@ -43,12 +50,17 @@ enum AppTab: String, CaseIterable {
 /// lives at the top of Settings instead of being faked with a custom
 /// draggable panel (§2, §4.2).
 struct RootTabView: View {
+    @Environment(AppRouter.self) private var router
+    @Environment(PresetLiveModel.self) private var performance
+    @Environment(VideoPlayerModel.self) private var video
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardStore.self) private var boardStore
     @Environment(BLETransport.self) private var bleTransport
     @Environment(BootLoaderModel.self) private var bootLoader
     @Environment(ControlViewModel.self) private var editor
     @Environment(TextViewModel.self) private var textModel
+    @Environment(LipSyncModel.self) private var lipSyncModel
     @Environment(BoardControlCenterModel.self) private var controlCenter
     @Environment(FaceLibraryModel.self) private var faceLibrary
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -57,7 +69,7 @@ struct RootTabView: View {
     @AppStorage(AppSettingsKey.restoreLastTab) private var restoreLastTab = false
 
     @State private var didAutoReconnect = false
-    @State private var selectedTab = AppTab.initialSelection()
+    private var selectedTab: AppTab { router.selectedTab }
     /// `-openControlCenter YES` presents the Control Center at launch, the
     /// same automated-simulator-run affordance as `-initialTab`.
     @State private var showControlCenter = UserDefaults.standard.bool(forKey: "openControlCenter")
@@ -66,20 +78,32 @@ struct RootTabView: View {
     /// Ties the collapsed accessory to the expanded sheet so the system can
     /// zoom one into the other instead of sliding an unrelated sheet up.
     @Namespace private var controlCenterNamespace
+    /// The loader is the first frame; the tabs mount one frame later so
+    /// nothing is built before the animation is on screen.
+    @State private var contentReady = false
 
     var body: some View {
         ZStack {
-            tabs
+            if contentReady {
+                tabs
                 .tint(Color("AccentColor"))
                 .modifier(ControlCenterPresenter(isPresented: $showControlCenter,
                                                  detent: $controlCenterDetent,
                                                  namespace: controlCenterNamespace))
                 .task {
-                    // Board status fetch begins only after the loader is gone.
-                    await bootLoader.waitUntilDone()
+                    configureOutputHandlers()
                     await autoReconnect()
                 }
-                .onChange(of: selectedTab) { _, tab in
+                .onChange(of: selectedTab) { previous, tab in
+                    // Leaving 口型 releases the microphone. Beyond not leaving
+                    // a recording indicator lit on a tab the user walked away
+                    // from, this is what keeps the two live features from
+                    // fighting over the audio session: 演出 sets the category
+                    // to `.playback`, which would reconfigure the engine out
+                    // from under a live input tap.
+                    if previous == .lipSync, tab != .lipSync {
+                        lipSyncModel.stop(connection: connection)
+                    }
                     guard restoreLastTab else { return }
                     UserDefaults.standard.set(tab.rawValue, forKey: AppSettingsKey.lastSelectedTab)
                 }
@@ -101,33 +125,91 @@ struct RootTabView: View {
                         resyncTask?.cancel()
                         resyncTask = nil
                         textModel.suspendPreviewLoop()
+                        editor.connectionChanged()
+                        lipSyncModel.stop()
+                        performance.suspendBoardOutput()
+                        video.suspendBoardOutput()
                     }
                 }
+                // 演出 and 视频 both play sound on the phone. Taking the board
+                // already pauses the other while connected; this covers the
+                // disconnected case, where no lease changes hands.
+                .onChange(of: performance.isPlaying) { _, playing in
+                    if playing { video.pause() }
+                }
+                .onChange(of: video.isPlaying) { _, playing in
+                    if playing { performance.pause() }
+                }
+            }
 
             if bootLoader.isVisible {
                 BootLoaderOverlay()
             }
         }
+        .onChange(of: faceLibrary.pendingEditRequest) { _, request in
+            guard let request else { return }
+            editor.loadForEditing(request)
+            router.selectedTab = .control
+            faceLibrary.consumePendingEditRequest(id: request.id)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            lipSyncModel.scenePhaseChanged(phase, connection: connection)
+            if phase != .active {
+                performance.pause()
+                Task { await editor.persistDraft(); await textModel.persistDraft() }
+            }
+            // 视频 plays through brief .inactive moments (Notification Center,
+            // the app-switcher peek); in the background the video output
+            // stops delivering frames, so pause there.
+            if phase == .background {
+                video.pause()
+            }
+        }
         .onAppear {
+            configureOutputHandlers()
             bootLoader.start(reduceMotion: reduceMotion)
+        }
+        .task {
+            // Let the overlay's first frame go out before the app is built.
+            // A bare `Task.yield()` can resume inside the same run-loop turn,
+            // before Core Animation commits; a timer hop crosses a real frame.
+            try? await Task.sleep(for: .milliseconds(16))
+            guard !Task.isCancelled else { return }
             controlCenter.loadDefaultsIfNeeded()
             textModel.loadDefaultsIfNeeded()
+            await editor.restoreDraft()
+            await textModel.restoreDraft()
+            contentReady = true
+        }
+        .task {
+            // `-replayBootAfter <seconds>`: the same automated-simulator-run
+            // affordance as `-initialTab`, for recording the loader over a
+            // given tab without tapping the Debug screen's replay button.
+            let delay = UserDefaults.standard.double(forKey: "replayBootAfter")
+            guard delay > 0 else { return }
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            bootLoader.replay()
         }
     }
 
     private var tabs: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: Bindable(router).selectedTab) {
             ControlView()
-                .tabItem { Label("控制", systemImage: "square.grid.3x3.fill") }
+                .tabItem { Label("控制", systemImage: "lightbulb.fill") }
                 .tag(AppTab.control)
 
             ScrollTextView()
-                .tabItem { Label("文字", systemImage: "textformat") }
+                .tabItem { Label("文字", systemImage: "t.square.fill") }
                 .tag(AppTab.text)
 
-            LiveVideoView()
-                .tabItem { Label("实时视频", systemImage: "video.fill") }
-                .tag(AppTab.liveVideo)
+            LipSyncView()
+                .tabItem { Label("口型", systemImage: "waveform") }
+                .tag(AppTab.lipSync)
+
+            PerformanceTabView()
+                .tabItem { Label("演出", systemImage: "music.note") }
+                .tag(AppTab.presetLive)
 
             SettingsView()
                 .tabItem { Label("设置", systemImage: "gearshape.fill") }
@@ -135,24 +217,41 @@ struct RootTabView: View {
         }
     }
 
+    private func configureOutputHandlers() {
+        connection.output.register(.manual) { editor.releaseOutput() }
+        connection.output.register(.text) {
+            if connection.output.source != .text { textModel.releaseOutput() }
+        }
+        connection.output.register(.lipSync) { lipSyncModel.stop() }
+        connection.output.register(.performance) {
+            if connection.connectionState == .connected { performance.pause() }
+            else { performance.suspendBoardOutput() }
+        }
+        connection.output.register(.video) {
+            video.releaseOutput(connected: connection.connectionState == .connected)
+        }
+    }
+
     /// §40: after a (re)connection, re-read the board's authoritative state
     /// and reconcile drafts — never the other way round.
     private func resynchronizeWithBoard() async {
-        _ = try? await connection.getStatus()
-        // `onChange(of: connection.status)` only fires when the value actually
-        // differs, so a reconnect that reports identical status — or a
-        // `getStatus` that fails without mutating it — would otherwise leave
-        // the Control Center showing the previous session's values.
-        controlCenter.sync(from: connection.status)
-        guard !Task.isCancelled else { return }
+        let generation = connection.connectionGeneration
+        let session = connection.output.session
+        guard let freshStatus = try? await connection.getStatus(),
+              generation == connection.connectionGeneration,
+              session == connection.output.session,
+              !Task.isCancelled else { return }
+        controlCenter.sync(from: freshStatus)
 
         if let frame = try? await connection.getFrame() {
             editor.adoptBoardFrameIfUntouched(frame)
         }
         guard !Task.isCancelled else { return }
 
+        guard generation == connection.connectionGeneration, session == connection.output.session else { return }
         await textModel.restoreOnConnect(connection: connection)
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, generation == connection.connectionGeneration,
+              session == connection.output.session else { return }
 
         await faceLibrary.reload(connection: connection)
     }
@@ -198,6 +297,7 @@ struct RootTabView: View {
 /// the Settings tab hosts the Control Center there; leaving the sheet attached
 /// would give those releases a second, undocumented way in.
 private struct ControlCenterPresenter: ViewModifier {
+    @Environment(BoardConnection.self) private var connection
     @Binding var isPresented: Bool
     @Binding var detent: PresentationDetent
     var namespace: Namespace.ID

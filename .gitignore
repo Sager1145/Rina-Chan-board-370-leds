@@ -1,1 +1,15 @@
 .DS_Store
+
+# Preset Live audio — third-party commercial recordings (Love Live! soundtrack
+# and character songs) pulled from the upstream projects by
+# tools/fetch_preset_live_audio.sh for LOCAL USE ONLY. The keyframe timelines
+# in Resources/performance_*.rinalive are upstream's own AGPL/GPL work and ARE
+# tracked; the audio is not ours to redistribute and must never be committed.
+# The Xcode project uses a synchronized group, so a clone without these files
+# still builds — the 演出 tab just shows those performances as "audio missing".
+ios/RinaBoard/Resources/audio_*.m4a
+ios/RinaBoard/Resources/audio_*.mp3
+ios/RinaBoard/Resources/audio_*.ogg
+ios/RinaBoard/Resources/audio_*.wav
+# Scratch space for the converters and the audio fetch script.
+build/

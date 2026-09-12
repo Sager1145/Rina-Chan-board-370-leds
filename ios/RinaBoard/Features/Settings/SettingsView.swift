@@ -18,6 +18,9 @@ struct SettingsView: View {
     @AppStorage(AppSettingsKey.restoreLastTab) private var restoreLastTab = false
 
     @State private var confirmReboot = false
+    #if DEBUG
+    @State private var opensDebug = UserDefaults.standard.string(forKey: "initialTab") == "debug"
+    #endif
 
     private var isConnected: Bool { connection.connectionState == .connected }
 
@@ -43,6 +46,9 @@ struct SettingsView: View {
                 aboutSection
             }
             .navigationTitle("设置")
+            #if DEBUG
+            .navigationDestination(isPresented: $opensDebug) { DebugView() }
+            #endif
         }
     }
 

@@ -1,0 +1,92 @@
+[
+  {
+    "file": "performance_tkmk",
+    "audio": "audio_tkmk",
+    "audioExtension": "m4a",
+    "title": "TOKIMEKI Runners",
+    "artist": "虹ヶ咲学園スクールアイドル同好会",
+    "keyframes": 262,
+    "durationMs": 87100,
+    "source": "738NGX/RinaChanBoard"
+  },
+  {
+    "file": "performance_lumf",
+    "audio": "audio_lumf",
+    "audioExtension": "m4a",
+    "title": "Love U my friends",
+    "artist": "虹ヶ咲学園スクールアイドル同好会",
+    "keyframes": 171,
+    "durationMs": 103100,
+    "source": "738NGX/RinaChanBoard"
+  },
+  {
+    "file": "performance_solo0",
+    "audio": "audio_solo0",
+    "audioExtension": "m4a",
+    "title": "ツナガルコネクト",
+    "artist": "天王寺璃奈",
+    "keyframes": 317,
+    "durationMs": 96800,
+    "source": "738NGX/RinaChanBoard"
+  },
+  {
+    "file": "performance_solo1",
+    "audio": "audio_solo1",
+    "audioExtension": "m4a",
+    "title": "ドキピポ☆エモーション",
+    "artist": "天王寺璃奈",
+    "keyframes": 273,
+    "durationMs": 90100,
+    "source": "738NGX/RinaChanBoard"
+  },
+  {
+    "file": "performance_solo2",
+    "audio": "audio_solo2",
+    "audioExtension": "m4a",
+    "title": "テレテレパシー",
+    "artist": "天王寺璃奈",
+    "keyframes": 278,
+    "durationMs": 112000,
+    "source": "738NGX/RinaChanBoard"
+  },
+  {
+    "file": "performance_solo3",
+    "audio": "audio_solo3",
+    "audioExtension": "m4a",
+    "title": "アナログハート",
+    "artist": "天王寺璃奈",
+    "keyframes": 299,
+    "durationMs": 103900,
+    "source": "738NGX/RinaChanBoard"
+  },
+  {
+    "file": "performance_solo4",
+    "audio": "audio_solo4",
+    "audioExtension": "m4a",
+    "title": "First Love Again",
+    "artist": "天王寺璃奈",
+    "keyframes": 197,
+    "durationMs": 119100,
+    "source": "738NGX/RinaChanBoard"
+  },
+  {
+    "file": "performance_solo5",
+    "audio": "audio_solo5",
+    "audioExtension": "m4a",
+    "title": "私はマグネット",
+    "artist": "天王寺璃奈",
+    "keyframes": 238,
+    "durationMs": 91200,
+    "source": "738NGX/RinaChanBoard"
+  },
+  {
+    "file": "performance_poppin_up",
+    "audio": "audio_poppin_up",
+    "audioExtension": "mp3",
+    "title": "Poppin' Up!",
+    "artist": "中須かすみ",
+    "keyframes": 316,
+    "durationMs": 87300,
+    "source": "flyAkari/RinaChanBoard"
+  }
+]
