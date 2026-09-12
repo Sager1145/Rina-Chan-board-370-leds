@@ -8,9 +8,29 @@
 
 /* Begin PBXBuildFile section */
 		9801DA3906E399AB5EE59ECC /* RinaCore in Frameworks */ = {isa = PBXBuildFile; productRef = C0C4492644B3F0C55A2B40B0 /* RinaCore */; };
+		A1000000000000000000000C /* RinaCore in Frameworks */ = {isa = PBXBuildFile; productRef = C0C4492644B3F0C55A2B40B0 /* RinaCore */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A1000000000000000000000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 27A177601617B0508B4D91C8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 401597CB7D2AE015D9C3C8A5;
+			remoteInfo = RinaBoard;
+		};
+		A2000000000000000000000A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 27A177601617B0508B4D91C8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 401597CB7D2AE015D9C3C8A5;
+			remoteInfo = RinaBoard;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		A10000000000000000000001 /* RinaBoardTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RinaBoardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000001 /* RinaBoardUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RinaBoardUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E892DACA22BF11E6F8F12A59 /* RinaBoard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RinaBoard.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -25,10 +45,27 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		A10000000000000000000002 /* RinaBoardTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = RinaBoardTests; sourceTree = "<group>"; };
+		A20000000000000000000002 /* RinaBoardUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = RinaBoardUITests; sourceTree = "<group>"; };
 		F7B8A989E2363511031183D1 /* RinaBoard */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (F3761507BDF69EBCB3B6540E /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = RinaBoard; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A10000000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000000000000000000000C /* RinaCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A20000000000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D92A9B4B9D957EDE1D2E50A7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -44,6 +81,8 @@
 			isa = PBXGroup;
 			children = (
 				F7B8A989E2363511031183D1 /* RinaBoard */,
+				A10000000000000000000002 /* RinaBoardTests */,
+				A20000000000000000000002 /* RinaBoardUITests */,
 				6F169B5FE928077EDCF2A7BA /* Packages */,
 				5C5D1A6CA4800DBFC8F45475 /* Products */,
 			);
@@ -53,6 +92,8 @@
 			isa = PBXGroup;
 			children = (
 				E892DACA22BF11E6F8F12A59 /* RinaBoard.app */,
+				A10000000000000000000001 /* RinaBoardTests.xctest */,
+				A20000000000000000000001 /* RinaBoardUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -90,6 +131,53 @@
 			productReference = E892DACA22BF11E6F8F12A59 /* RinaBoard.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A10000000000000000000003 /* RinaBoardTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000009 /* Build configuration list for PBXNativeTarget "RinaBoardTests" */;
+			buildPhases = (
+				A10000000000000000000004 /* Sources */,
+				A10000000000000000000005 /* Frameworks */,
+				A10000000000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1000000000000000000000A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000002 /* RinaBoardTests */,
+			);
+			name = RinaBoardTests;
+			packageProductDependencies = (
+				C0C4492644B3F0C55A2B40B0 /* RinaCore */,
+			);
+			productName = RinaBoardTests;
+			productReference = A10000000000000000000001 /* RinaBoardTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		A20000000000000000000003 /* RinaBoardUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A20000000000000000000008 /* Build configuration list for PBXNativeTarget "RinaBoardUITests" */;
+			buildPhases = (
+				A20000000000000000000005 /* Sources */,
+				A20000000000000000000004 /* Frameworks */,
+				A20000000000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A20000000000000000000009 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A20000000000000000000002 /* RinaBoardUITests */,
+			);
+			name = RinaBoardUITests;
+			packageProductDependencies = (
+			);
+			productName = RinaBoardUITests;
+			productReference = A20000000000000000000001 /* RinaBoardUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -103,6 +191,14 @@
 					401597CB7D2AE015D9C3C8A5 = {
 						CreatedOnToolsVersion = 16.0;
 					};
+					A10000000000000000000003 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 401597CB7D2AE015D9C3C8A5;
+					};
+					A20000000000000000000003 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 401597CB7D2AE015D9C3C8A5;
+					};
 				};
 			};
 			buildConfigurationList = 821EF303E84B0A873DEA1DCD /* Build configuration list for PBXProject "RinaBoard" */;
@@ -111,6 +207,8 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				"zh-Hans",
+				"zh-Hant",
+				ja,
 				en,
 				Base,
 			);
@@ -123,11 +221,27 @@
 			projectRoot = "";
 			targets = (
 				401597CB7D2AE015D9C3C8A5 /* RinaBoard */,
+				A10000000000000000000003 /* RinaBoardTests */,
+				A20000000000000000000003 /* RinaBoardUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A10000000000000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A20000000000000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FF4ED78D0F479773C4C46C50 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -138,6 +252,20 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A10000000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A20000000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FD60A109A4B3241F456FEF12 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -146,6 +274,19 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A1000000000000000000000A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 401597CB7D2AE015D9C3C8A5 /* RinaBoard */;
+			targetProxy = A1000000000000000000000B /* PBXContainerItemProxy */;
+		};
+		A20000000000000000000009 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 401597CB7D2AE015D9C3C8A5 /* RinaBoard */;
+			targetProxy = A2000000000000000000000A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		1134A83E8B3F1BB23945A464 /* Debug */ = {
@@ -323,6 +464,72 @@
 			};
 			name = Release;
 		};
+		A10000000000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9JN2TD2UES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rinachan.board.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RinaBoard.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/RinaBoard";
+			};
+			name = Debug;
+		};
+		A10000000000000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9JN2TD2UES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rinachan.board.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RinaBoard.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/RinaBoard";
+			};
+			name = Release;
+		};
+		A20000000000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9JN2TD2UES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rinachan.board.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = RinaBoard;
+			};
+			name = Debug;
+		};
+		A2000000000000000000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 9JN2TD2UES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rinachan.board.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = RinaBoard;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -340,6 +547,24 @@
 			buildConfigurations = (
 				66F3EBB195F0C27DEDBF63FB /* Debug */,
 				8D2670A460D83B853744F5B5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000000009 /* Build configuration list for PBXNativeTarget "RinaBoardTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000007 /* Debug */,
+				A10000000000000000000008 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A20000000000000000000008 /* Build configuration list for PBXNativeTarget "RinaBoardUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A20000000000000000000007 /* Debug */,
+				A2000000000000000000000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
