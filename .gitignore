@@ -13,3 +13,6 @@ ios/RinaBoard/Resources/audio_*.ogg
 ios/RinaBoard/Resources/audio_*.wav
 # Scratch space for the converters and the audio fetch script.
 build/
+# Raw acceptance-run evidence (xcresult bundles, simulator videos, screenshots,
+# ~500 MB). The reports next to it are tracked; the evidence stays local.
+docs/acceptance-*/evidence/
