@@ -30,7 +30,16 @@ public enum BoardEvent: Sendable {
 public final class BoardConnection {
     // MARK: Published state
 
-    public private(set) var connectionState: BoardConnectionState = .disconnected
+    public let output = BoardPlaybackCoordinator()
+    public private(set) var connectionGeneration = UUID()
+    public private(set) var connectionState: BoardConnectionState = .disconnected {
+        didSet {
+            if connectionState != .connected && oldValue == .connected {
+                output.invalidate()
+                connectionGeneration = UUID()
+            }
+        }
+    }
     public private(set) var transportKind: TransportKind?
 
     public private(set) var status: DeviceStatus?
@@ -59,13 +68,40 @@ public final class BoardConnection {
     private var reconnectTask: Task<Void, Never>?
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 5
+    private var needsSubscriptionRestore = false
 
     // Rate limiting (FEATURE_INVENTORY D6): frames >=20ms apart depth 6 drop-oldest,
     // commands >=120ms apart depth 4 drop-oldest.
     private let framePump = RatePump(minInterval: 0.020, depth: 6)
     private let commandPump = RatePump(minInterval: 0.120, depth: 4)
+    private let blobPump = RatePump(minInterval: 0, depth: 4)
+    private let outputPump = RatePump(minInterval: 0, depth: 64)
+
+    public func withOutput<T: Sendable>(
+        _ session: UUID,
+        operation: @escaping @MainActor @Sendable () async throws -> T
+    ) async throws -> T {
+        try output.check(session)
+        let task = Task { @MainActor in
+            try await BoardOutputContext.$session.withValue(session) {
+                try await operation()
+            }
+        }
+        guard let operationID = output.registerOperation(for: session, cancel: task.cancel) else {
+            return try await task.value
+        }
+        defer { output.unregisterOperation(operationID, for: session) }
+        return try await withTaskCancellationHandler {
+            let result = try await task.value
+            try output.check(session)
+            return result
+        } onCancel: {
+            task.cancel()
+        }
+    }
 
     private struct PendingRequest {
+        let id: UUID
         let replyType: UInt8
         /// When false (GET_FACES), a terminal frame resolves the request
         /// immediately regardless of `FLAG_MORE` — for that message `MORE`
@@ -75,6 +111,7 @@ public final class BoardConnection {
         var accumulated = Data()
         let continuation: CheckedContinuation<RinaLinkFrame, Error>
         let timeoutTask: Task<Void, Never>
+        var sendTask: Task<Void, Never>?
     }
 
     public init() {}
@@ -87,6 +124,10 @@ public final class BoardConnection {
     /// `connectionState` afterwards keep working unmodified.
     @discardableResult
     public func connect(using transport: RinaTransport) async -> Bool {
+        output.invalidate()
+        connectionGeneration = UUID()
+        needsSubscriptionRestore = false
+        status = nil; power = nil; wifi = nil; preview = nil
         reconnectTask?.cancel()
         pingTask?.cancel()
         // A5: cancel the old state/incoming tasks *before* disconnecting the
@@ -100,6 +141,7 @@ public final class BoardConnection {
         self.transport = transport
         self.transportKind = transport.kind
         connectionState = .connecting
+        let attemptGeneration = connectionGeneration
         decoder.reset()
 
         stateTask = Task { [weak self] in
@@ -118,6 +160,8 @@ public final class BoardConnection {
 
         do {
             try await transport.connect()
+            guard self.transport === transport,
+                  connectionGeneration == attemptGeneration else { return false }
             reconnectAttempts = 0
             // A5: set the terminal state explicitly instead of waiting for the
             // transport's own state stream to catch up, so callers awaiting
@@ -126,9 +170,14 @@ public final class BoardConnection {
             startPingLoopIfNeeded()
             // Make the default event subscriptions explicit rather than relying
             // on firmware defaults.
-            _ = try? await command(.subscribe(preview: true, status: true, power: true, log: false))
+            let subscribed = await subscribeToDefaultEvents()
+            guard self.transport === transport,
+                  connectionGeneration == attemptGeneration else { return false }
+            needsSubscriptionRestore = !subscribed
             return true
         } catch {
+            guard self.transport === transport,
+                  connectionGeneration == attemptGeneration else { return false }
             connectionState = .failed(String(describing: error))
             return false
         }
@@ -152,11 +201,24 @@ public final class BoardConnection {
         case .connected:
             connectionState = .connected
             reconnectAttempts = 0
+            if needsSubscriptionRestore {
+                needsSubscriptionRestore = false
+                startPingLoopIfNeeded()
+                let activeTransport = transport
+                let generation = connectionGeneration
+                let subscribed = await subscribeToDefaultEvents()
+                if self.transport === activeTransport,
+                   connectionGeneration == generation {
+                    needsSubscriptionRestore = !subscribed
+                }
+            }
         case .disconnected:
+            needsSubscriptionRestore = true
             connectionState = .disconnected
             failAllPending(RinaTransportError.notConnected)
             attemptReconnect()
         case .failed(let message):
+            needsSubscriptionRestore = true
             connectionState = .failed(message)
             lastError = message
             failAllPending(RinaTransportError.underlying(message))
@@ -254,6 +316,16 @@ public final class BoardConnection {
         }
     }
 
+    private func subscribeToDefaultEvents() async -> Bool {
+        do {
+            let payload = try RinaCommand.subscribe(preview: true, status: true, power: true, log: false).encode()
+            let frame = try await send(type: .cmd, payload: payload)
+            return try JSONDecoder().decode(CommandReply.self, from: frame.payload).ok
+        } catch {
+            return false
+        }
+    }
+
     // MARK: Incoming
 
     private func handleIncoming(_ data: Data) async {
@@ -339,6 +411,7 @@ public final class BoardConnection {
     private func failAllPending(_ error: Error) {
         for (_, request) in pending {
             request.timeoutTask.cancel()
+            request.sendTask?.cancel()
             request.continuation.resume(throwing: error)
         }
         pending.removeAll()
@@ -375,41 +448,99 @@ public final class BoardConnection {
     /// again with an updated offset" — the request resolves on the first
     /// frame either way (A1).
     public func send(type: RinaLinkMessageType, payload: Data, timeout: TimeInterval = 5, aggregateMore: Bool = true) async throws -> RinaLinkFrame {
-        guard let transport else { throw RinaTransportError.notConnected }
-        let seq = nextSequenceNumber()
-        let data = RinaLinkEncoder.encode(type: type, seq: seq, payload: payload)
-
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RinaLinkFrame, Error>) in
-            let timeoutTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                guard !Task.isCancelled, let self else { return }
-                if let request = self.pending.removeValue(forKey: seq) {
-                    self.quarantine(seq)
-                    request.continuation.resume(throwing: RinaTransportError.timeout)
-                }
-            }
-            pending[seq] = PendingRequest(replyType: type.replyType, aggregateMore: aggregateMore, continuation: continuation, timeoutTask: timeoutTask)
-            Task {
-                do {
-                    try await transport.send(data)
-                } catch {
-                    if let request = self.pending.removeValue(forKey: seq) {
-                        request.timeoutTask.cancel()
-                        request.continuation.resume(throwing: error)
-                    }
+        if let token = BoardOutputContext.session {
+            let generation = connectionGeneration
+            // Register at the shared wire boundary, including direct setFrame
+            // and blob callers that only supply a task-local output lease.
+            return try await withOutput(token) {
+                try await self.outputPump.run { @MainActor in
+                    try self.output.check(token)
+                    guard generation == self.connectionGeneration else { throw CancellationError() }
+                    let reply = try await self.sendUnqueued(type: type, payload: payload, timeout: timeout, aggregateMore: aggregateMore)
+                    try self.output.check(token)
+                    return reply
                 }
             }
         }
+        return try await sendUnqueued(type: type, payload: payload, timeout: timeout, aggregateMore: aggregateMore)
+    }
+
+    private func sendUnqueued(type: RinaLinkMessageType, payload: Data, timeout: TimeInterval, aggregateMore: Bool) async throws -> RinaLinkFrame {
+        try Task.checkCancellation()
+        guard connectionState == .connected, let transport else { throw RinaTransportError.notConnected }
+        let seq = nextSequenceNumber()
+        let requestID = UUID()
+        let data = RinaLinkEncoder.encode(type: type, seq: seq, payload: payload)
+
+        let reply = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RinaLinkFrame, Error>) in
+                let timeoutTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    guard !Task.isCancelled, let self else { return }
+                    if let request = self.removePending(seq: seq, requestID: requestID) {
+                        self.quarantine(seq)
+                        request.sendTask?.cancel()
+                        request.continuation.resume(throwing: RinaTransportError.timeout)
+                    }
+                }
+                pending[seq] = PendingRequest(id: requestID,
+                                              replyType: type.replyType,
+                                              aggregateMore: aggregateMore,
+                                              continuation: continuation,
+                                              timeoutTask: timeoutTask,
+                                              sendTask: nil)
+                let sendTask = Task {
+                    do {
+                        try await transport.send(data)
+                    } catch {
+                        if let request = self.removePending(seq: seq, requestID: requestID) {
+                            request.timeoutTask.cancel()
+                            request.continuation.resume(throwing: error)
+                        }
+                    }
+                }
+                // This closure is synchronous on MainActor, so cancellation
+                // cannot remove `pending[seq]` between registration and storing
+                // the task handle. A cancelled queued transport write is now
+                // removed before BLE back-pressure clears.
+                pending[seq]?.sendTask = sendTask
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelPending(seq: seq, requestID: requestID)
+            }
+        }
+        try Task.checkCancellation()
+        return reply
+    }
+
+    private func removePending(seq: UInt8, requestID: UUID) -> PendingRequest? {
+        guard pending[seq]?.id == requestID else { return nil }
+        return pending.removeValue(forKey: seq)
+    }
+
+    private func cancelPending(seq: UInt8, requestID: UUID) {
+        guard let request = removePending(seq: seq, requestID: requestID) else { return }
+        request.timeoutTask.cancel()
+        request.sendTask?.cancel()
+        quarantine(seq)
+        request.continuation.resume(throwing: CancellationError())
     }
 
     // MARK: Typed helpers
 
     @discardableResult
     public func command(_ cmd: RinaCommand) async throws -> CommandReply {
-        try await commandPump.run {
+        let token = BoardOutputContext.session
+        return try await commandPump.run { @MainActor in
+            if let token { try self.output.check(token) }
             let payload = try cmd.encode()
-            let frame = try await self.send(type: .cmd, payload: payload)
-            return try JSONDecoder().decode(CommandReply.self, from: frame.payload)
+            let frame = try await BoardOutputContext.$session.withValue(token) {
+                try await self.send(type: .cmd, payload: payload)
+            }
+            let reply = try JSONDecoder().decode(CommandReply.self, from: frame.payload)
+            guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)") }
+            return reply
         }
     }
 
@@ -422,26 +553,36 @@ public final class BoardConnection {
     }
 
     public func getFrame() async throws -> PackedFrame {
+        let generation = connectionGeneration
+        let session = output.session
         let frame = try await send(type: .getFrame, payload: Data())
         guard let packed = PackedFrame(data: frame.payload) else {
             throw RinaTransportError.invalidResponse
         }
+        guard generation == connectionGeneration, session == output.session else { throw CancellationError() }
         currentFrame = packed
         return packed
     }
 
     @discardableResult
-    public func setFrame(_ packed: PackedFrame, playback: Playback, reason: String) async throws -> CommandReply {
-        let reply = try await framePump.run {
+    public func setFrame(_ packed: PackedFrame, playback: Playback, reason: String, outputSession: UUID? = nil) async throws -> CommandReply {
+        let token = outputSession ?? BoardOutputContext.session ?? output.claim(.manual)
+        let reply = try await framePump.run { @MainActor in
+            try self.output.check(token)
             var payload = Data()
             payload.append(playback.rawValue)
             let reasonBytes = Array(reason.utf8.prefix(255))
             payload.append(UInt8(reasonBytes.count))
             payload.append(contentsOf: reasonBytes)
             payload.append(packed.data)
-            let frame = try await self.send(type: .setFrame, payload: payload)
-            return try JSONDecoder().decode(CommandReply.self, from: frame.payload)
+            let frame = try await BoardOutputContext.$session.withValue(token) {
+                try await self.send(type: .setFrame, payload: payload)
+            }
+            let reply = try JSONDecoder().decode(CommandReply.self, from: frame.payload)
+            guard reply.ok else { throw RinaTransportError.underlying("面板拒绝表情") }
+            return reply
         }
+        try output.check(token)
         currentFrame = packed
         return reply
     }
@@ -498,6 +639,46 @@ public final class BoardConnection {
     public enum BlobKind: String { case scroll, faces, scrollBitmap = "scroll_bitmap" }
 
     public func uploadBlob(
+        kind: BlobKind,
+        meta: [String: Any],
+        data: Data,
+        onProgress: ((Double) -> Void)? = nil
+    ) async throws -> Data {
+        let token = BoardOutputContext.session
+        return try await blobPump.run { @MainActor in
+            if let token { try self.output.check(token) }
+            let generation = self.connectionGeneration
+            do {
+                return try await BoardOutputContext.$session.withValue(token) {
+                    try await self.uploadBlobSerial(kind: kind, meta: meta, data: data, onProgress: onProgress)
+                }
+            } catch {
+                // Keep the blob slot until cleanup completes. This task must
+                // survive the cancelled producer and must not inherit its lease.
+                let cleanup = Task { @MainActor in
+                    guard generation == self.connectionGeneration,
+                          self.connectionState == .connected else { return }
+                    do {
+                        _ = try await BoardOutputContext.$session.withValue(nil) {
+                            try await self.send(type: .blobAbort, payload: Data(), timeout: 2)
+                        }
+                    } catch {
+                        guard generation == self.connectionGeneration else { return }
+                        // An unacknowledged abort leaves ownership unknown.
+                        // Close this carrier so firmware releases its owner;
+                        // the normal transport-state handler reconnects it.
+                        self.connectionState = .disconnected
+                        self.failAllPending(RinaTransportError.notConnected)
+                        self.transport?.disconnect()
+                    }
+                }
+                await cleanup.value
+                throw error
+            }
+        }
+    }
+
+    private func uploadBlobSerial(
         kind: BlobKind,
         meta: [String: Any],
         data: Data,
@@ -657,7 +838,7 @@ public final class BoardConnection {
 
     private func sendFaceOp(_ cmd: RinaCommand) async throws -> FaceOpReply {
         let payload = try cmd.encode()
-        let reply: FaceOpReply = try await commandPump.run {
+        let reply: FaceOpReply = try await commandPump.run { @MainActor in
             let frame = try await self.send(type: .cmd, payload: payload)
             return try JSONDecoder().decode(FaceOpReply.self, from: frame.payload)
         }
@@ -687,7 +868,7 @@ public final class BoardConnection {
         // the synchronous-reply fast path below would leak the continuation
         // in `eventContinuations` forever (it's never iterated in that case).
         defer { eventContinuations.removeValue(forKey: subID) }
-        let decoded = try await commandPump.run {
+        let decoded = try await commandPump.run { @MainActor in
             let payload = try RinaCommand.wifiScan.encode()
             let frame = try await self.send(type: .cmd, payload: payload)
             return try JSONDecoder().decode(WifiScanReply.self, from: frame.payload)
@@ -718,7 +899,7 @@ public final class BoardConnection {
     /// next `EV_WIFI` push.
     @discardableResult
     public func refreshWifiStatus() async throws -> WifiStatus {
-        let decoded = try await commandPump.run {
+        let decoded = try await commandPump.run { @MainActor in
             let payload = try RinaCommand.wifiStatus.encode()
             let frame = try await self.send(type: .cmd, payload: payload)
             return try JSONDecoder().decode(WifiStatus.self, from: frame.payload)
@@ -759,7 +940,7 @@ public enum RatePumpError: Error, Sendable {
 /// is evicted and its awaiting caller is thrown `RatePumpError.dropped` — the
 /// newest caller is never the one dropped, and an operation that has already
 /// started running can never be evicted.
-private actor RatePump {
+actor RatePump {
     private let minInterval: TimeInterval
     private let depth: Int
     private var lastStart: Date = .distantPast
@@ -778,8 +959,10 @@ private actor RatePump {
     }
 
     func run<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
+        try Task.checkCancellation()
         try await waitForTurn()
         do {
+            try Task.checkCancellation()
             let result = try await operation()
             finishTurn()
             return result

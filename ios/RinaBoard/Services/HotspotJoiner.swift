@@ -37,15 +37,19 @@ public enum HotspotJoiner {
     private static func waitForAssociation(ssid: String, timeout: TimeInterval = 15) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if let current = await currentHotspotSSID(), current == ssid {
+            try Task.checkCancellation()
+            if let current = await currentSSID(), current == ssid {
                 return
             }
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            try await Task.sleep(for: .milliseconds(500))
         }
         throw RinaTransportError.timeout
     }
 
-    private static func currentHotspotSSID() async -> String? {
+    /// The system returns nil when it cannot disclose the current network.
+    /// Callers must preserve that ambiguity rather than treating it as an
+    /// assertion that the phone has no Wi-Fi connection.
+    public static func currentSSID() async -> String? {
         await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
             NEHotspotNetwork.fetchCurrent { network in
                 continuation.resume(returning: network?.ssid)
