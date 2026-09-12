@@ -20,6 +20,9 @@ struct BoardPreviewRow: View {
     var frame: PackedFrame
     /// Tap handling. `.inert` (the default) is a pure display.
     var interaction: LEDBoardInteraction = .inert
+    /// Pinch-to-zoom. `.fixed` (the default) leaves the board at 1× and lets
+    /// the enclosing list claim touches for a scroll as usual.
+    var zoom: LEDBoardZoom = .fixed
     /// Board-global colour. `nil` follows the Control Center's current draft,
     /// which is what the physical board is set to (§16).
     var color: Color? = nil
@@ -54,13 +57,87 @@ struct BoardPreviewRow: View {
                         color: resolvedColor,
                         brightness: resolvedBrightness,
                         showBoardImage: showBoardPhoto,
+                        // Always asked for; the preview itself draws the grid
+                        // only when no photo is behind the matrix. Without the
+                        // photo there is otherwise nothing to show which part
+                        // of the board an unlit LED sits in — the face would
+                        // float on a blank page.
+                        showsUnlitCells: true,
                         interaction: interaction,
                         accessibilityDescription: accessibilityDescription)
+            // Inside the row sizing, so the frame the magnified board is
+            // clipped and faded against is the board's own box.
+            .boardPreviewZoom(zoom)
             .boardPreviewRow(showBoardImage: showBoardPhoto, maxHeight: maxHeight)
             // Zero insets: the row must not bleed past the cell, or the cell
             // clips the board photo at the left and right edges.
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
+    }
+}
+
+// MARK: - The shared status line
+
+enum BoardPreviewStatusTone {
+    /// Nothing is pending and nothing is live: idle, stopped, disconnected.
+    case neutral
+    /// What the preview shows is not (yet) what the board shows.
+    case pending
+    /// The preview is what the board is showing right now.
+    case live
+
+    var color: Color {
+        switch self {
+        case .neutral: .secondary
+        case .pending: .orange
+        case .live: .green
+        }
+    }
+}
+
+/// The status line that stays under the board preview on the Control, Text,
+/// 口型 and 演出 tabs: whether the preview is actually on the physical board,
+/// and on the trailing edge the one live number that tab is about.
+///
+/// Used as the preview `Section`'s footer, and always present — a tab picks
+/// *which* state to show, never whether to show one, so the board above it
+/// does not shift when the state changes.
+struct BoardPreviewStatus<Detail: View>: View {
+    private let title: Text
+    private let systemImage: String
+    private let tone: BoardPreviewStatusTone
+    private let detail: Detail
+
+    init(_ title: Text, systemImage: String, tone: BoardPreviewStatusTone,
+         @ViewBuilder detail: () -> Detail) {
+        self.title = title
+        self.systemImage = systemImage
+        self.tone = tone
+        self.detail = detail()
+    }
+
+    init(_ title: LocalizedStringKey, systemImage: String, tone: BoardPreviewStatusTone,
+         @ViewBuilder detail: () -> Detail) {
+        self.init(Text(title), systemImage: systemImage, tone: tone, detail: detail)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label { title } icon: { Image(systemName: systemImage) }
+                .foregroundStyle(tone.color)
+            Spacer(minLength: 0)
+            detail
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .font(.caption.monospacedDigit())
+        .accessibilityElement(children: .combine)
+    }
+}
+
+extension BoardPreviewStatus where Detail == EmptyView {
+    init(_ title: LocalizedStringKey, systemImage: String, tone: BoardPreviewStatusTone) {
+        self.init(title, systemImage: systemImage, tone: tone) { EmptyView() }
     }
 }
 
@@ -70,33 +147,59 @@ extension View {
     /// Sizes a whole-board `LEDBoardPreview` that sits in a `List` row so the
     /// board is never clipped.
     ///
-    /// Width comes from the row, height from that measured width. Deriving the
-    /// height any other way (a `maxHeight` cap, or a guess at the container
-    /// width) lets the row be *measured* shorter than the board is *drawn* —
-    /// the aspect-fit preview then lays out taller than its cell and the photo
-    /// is cut off top and bottom. `maxHeight` only binds on very wide layouts
-    /// (iPad); there it adds side margins and can never clip the board.
+    /// Width comes from the row, height from that same width, in one layout
+    /// pass. Both halves matter:
+    ///
+    /// - The height must be derived from the row's *actual* width. A
+    ///   `maxHeight` cap or a guess at the container width lets the row be
+    ///   measured shorter than the board is drawn — the aspect-fit preview
+    ///   then lays out taller than its cell and the photo is cut off top and
+    ///   bottom.
+    /// - It must be derived in the same pass, not measured and applied a pass
+    ///   later. A late height change lands inside whatever transaction is in
+    ///   flight — on a tab switch, the system's — and SwiftUI animates it, so
+    ///   the board visibly inflates for a few frames every time a tab appears
+    ///   (§13: the board is a physical panel; it must never appear to
+    ///   breathe).
+    ///
+    /// `maxHeight` only binds on very wide layouts (iPad); there it adds side
+    /// margins and can never clip the board.
     func boardPreviewRow(showBoardImage: Bool, maxHeight: CGFloat = 420) -> some View {
-        modifier(BoardPreviewRowModifier(
+        BoardPreviewRowLayout(
             aspectRatio: LEDBoardPreview.wholeBoardAspectRatio(showBoardImage: showBoardImage),
-            maxHeight: maxHeight))
+            maxHeight: maxHeight
+        ) {
+            self
+        }
     }
 }
 
-private struct BoardPreviewRowModifier: ViewModifier {
+/// Answers the row's proposal directly instead of measuring itself.
+///
+/// A `List` row proposes a definite width and no height, which is all this
+/// needs: the height *is* the width over the board's aspect ratio. A plain
+/// `.frame(maxHeight:)` cannot stand in for the cap — with no proposed height
+/// it clamps the cell but still lets the preview lay itself out at its own
+/// ideal size, which then overflows the cell.
+private struct BoardPreviewRowLayout: Layout {
     let aspectRatio: CGFloat
     let maxHeight: CGFloat
-    @State private var width: CGFloat = 0
 
-    private var height: CGFloat? {
-        guard width > 0, aspectRatio > 0 else { return nil }
-        return min(width / aspectRatio, maxHeight)
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let width = proposal.width, width.isFinite, width > 0, aspectRatio > 0 else {
+            // No width to work from (a sizing probe, never a real row): let
+            // the preview answer for itself.
+            return subviews.first?.sizeThatFits(proposal) ?? .zero
+        }
+        return CGSize(width: width, height: min(width / aspectRatio, maxHeight))
     }
 
-    func body(content: Content) -> some View {
-        content
-            .frame(maxWidth: .infinity)
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            .frame(height: height)
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let subview = subviews.first else { return }
+        // Centred, so the `maxHeight` cap on a wide layout becomes equal side
+        // margins rather than a crop.
+        subview.place(at: CGPoint(x: bounds.midX, y: bounds.midY),
+                      anchor: .center,
+                      proposal: ProposedViewSize(bounds.size))
     }
 }
