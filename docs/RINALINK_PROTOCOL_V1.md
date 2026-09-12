@@ -22,8 +22,24 @@ independent and always advertising when no BLE central is connected.
 - Service UUID `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`-style custom: **`52494E41-0001-4C49-4E4B-000000000001`** (`"RINA"…"LINK"`).
 - `RX`  (`…0002`): write / write-without-response. Central → board. Carries framed messages, split into ≤ (ATT_MTU−3) byte slices; slices are concatenated in order.
 - `TX`  (`…0003`): notify. Board → central. Same framing + slicing.
-- `INFO`(`…0004`): read. UTF-8 JSON `{ "proto":1, "device":"RinaChanBoard", "fw":"<ver>", "mtu":<n>, "tcpPort":5370 }`. No `wifi` object here — use `CMD wifi_status` (§4) for Wi-Fi state.
-- Advertised local name: `RinaBoard-XXXX` (last 2 MAC bytes). Requests MTU 247+ (NimBLE default 255).
+- `INFO`(`…0004`): read. UTF-8 JSON `{ "proto":1, "device":"RinaChanBoard", "name":"<advertised name>", "fw":"<ver>", "mtu":<n>, "tcpPort":5370 }`. No `wifi` object here — use `CMD wifi_status` (§4) for Wi-Fi state.
+- **Advertised local name.** Default `RinaBoard-AABBCCDDEEFF`, using all six
+  bytes of the factory BT MAC in uppercase hex, giving each ESP32 a stable
+  identity without collisions from a shortened MAC suffix. Overridable at runtime with
+  `CMD set_device_name` (§3.4); max **24 UTF-8 bytes** (`MAX_DEVICE_NAME_BYTES`),
+  persisted in `runtime_settings.json`.
+- **Advertising payload split (load-bearing).** The name is carried in the
+  **scan response**, not the primary advertisement. A legacy advertisement is
+  capped at 31 bytes, and flags (3) + the 128-bit service UUID (2 + 16 = 18)
+  already costs 21; a 14-byte name needs another 16, for 37. NimBLE's
+  `NimBLEAdvertisementData::addData()` rejects the overflowing field and returns
+  false *without* failing `start()`, so the board would advertise the UUID and
+  **no name at all** — every board then shows up unnamed and identical in the
+  app. Keep the UUID in the advertisement (centrals scan by it) and the name in
+  the scan response; iOS merges the two into
+  `CBAdvertisementDataLocalNameKey`. Verified on hardware: with both in the
+  primary payload the firmware logs `nameSet=0`.
+- Requests MTU 247+ (NimBLE default 255).
 - One central at a time. TCP and BLE may be connected simultaneously; the firmware is the single source of truth and pushes events to every connected client.
 
 ### 1.2 TCP framing
@@ -105,12 +121,46 @@ is already in progress is rejected with `0xFF ERR code:409`.
 ### 3.4 `CMD` command set (unchanged from `/api/command`)
 
 `set_color{hex}`, `set_brightness{raw}`, `set_mode{mode}`, `set_auto_interval{ms}`,
-`set_scroll_interval{intervalMs|fps}`, `start_scroll{intervalMs|fps,sourceText?}`,
-`scroll_step{direction}`, `pause_scroll`, `resume_scroll`, `stop_scroll{restoreAuto?,clear?}`,
+`set_scroll_interval{intervalMs|fps}`, `start_scroll{intervalMs|fps,sourceText?,loop?}`,
+`scroll_step{direction}`, `scroll_seek{frameIndex}`, `set_scroll_loop{loop}`,
+`pause_scroll`, `resume_scroll`, `stop_scroll{restoreAuto?,clear?}`,
 `pause`, `resume`, `apply_saved_face{index,reason?,playback?}`, `button{button}`,
 `terminate_other_activities{targetMode?}`, `reset_battery_min`, `reset_battery_max`,
 `battery_overlay{singleShot?}` — plus new device commands:
-`reboot`, `get_info` (fw/build/led backend/heap/psram), `wifi_*` (§4).
+`reboot`, `get_info` (fw/build/led backend/heap/psram/name), `set_device_name{name}`,
+`wifi_*` (§4).
+
+**`scroll_seek{frameIndex}`** — jumps the loaded scroll timeline to an absolute
+frame, clamped to `0…frameCount−1`, and presents it immediately. A playing
+scroll keeps playing from there, holding the new frame for one full interval. A
+paused one stays paused. With no active session it latches paused on that frame,
+the same as `scroll_step`. The presented sample carries `source:"scroll_step"`, so
+clients snap to it instead of phase-correcting. Does nothing when no timeline
+is loaded.
+
+**`set_scroll_loop{loop}`** — enables or disables looping of the current/next
+scroll timeline; default is `true`. It is a RAM-only preference that survives
+uploads and `stop_scroll`/`start_scroll` (not persisted across reboot).
+`start_scroll` accepts an optional `loop` field that sets it in the same call.
+With loop off, the scroll advances normally but holds on its last frame instead
+of wrapping to frame 0: it goes into a paused state (`firmwareScrollPaused:true`,
+status `playback:"scroll_paused"`), with the current `scrollLoop` value reported
+in status. Calling `resume_scroll` or `resume` while sitting on the last frame
+with loop off restarts playback from frame 0.
+
+**`set_device_name{name}`** — sets the BLE advertised local name (§1.1). An
+empty or omitted `name` clears the override and restores the MAC-derived
+default. Limit is **24 UTF-8 bytes**, not characters (≈8 CJK characters); the
+board rejects anything longer, or not valid UTF-8, with `ERR 400`. Takes effect
+immediately — the firmware re-advertises without a reboot — and is persisted to
+`runtime_settings.json`.
+
+Reply: `{ "ok":true, "name":"<effective>", "customName":<bool>, "persisted":<bool> }`.
+`persisted:false` means the name is live over BLE but the flash write failed, so
+it will not survive a reboot — surface that rather than reporting plain success.
+
+`get_info` additionally reports `name` (current advertised name), `defaultName`
+(the MAC-derived fallback) and `customName` (whether an override is set).
 
 ### 3.5 Events (board → client, `seq`=0, unsolicited)
 

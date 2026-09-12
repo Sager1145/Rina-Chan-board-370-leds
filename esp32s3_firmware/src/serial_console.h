@@ -3,9 +3,10 @@
 #include "config.h"
 
 // =============================================================================
-// serial_console -- line-based USB-serial command interface + GPIO button
-// emulator + built-in self-test runner. Non-blocking: serviceSerialConsole()
-// drains only the bytes already buffered each loop and never calls delay().
+// serial_console -- line-based command interface on USB Serial and, when
+// ENABLE_SERIAL_UART0_MIRROR=1, UART0. Each input has an independent line
+// buffer. Non-blocking: serviceSerialConsole() drains only the bytes already
+// buffered each loop and never calls delay().
 //
 // Wiring (the only two touch-points in main.cpp):
 //   setup(): initSerialConsole();

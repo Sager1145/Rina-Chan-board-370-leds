@@ -6,6 +6,13 @@
 #include "serial_log.h"
 #include <string.h>
 
+// Protected by Scroll. A newer owner invalidates unfinished uploads.
+static uint32_t sScrollGeneration = 0;
+
+// Protected by Scroll. Latched by the Core-1 tick when it holds on the last frame with loop
+// off; drained by serviceScrollSession() on Core 0 to publish the cooperative-loop pause state.
+static bool sScrollEndPausePending = false;
+
 void scrollSessionFillPresentationContextLocked(LedPresentationContext& ctx,
                                                 LedPresentationSource source,
                                                 const char* reason, bool rateEligible) {
@@ -34,6 +41,10 @@ void scrollSessionFillPresentationContext(LedPresentationContext& ctx,
     withScrollLock([&]() {
         scrollSessionFillPresentationContextLocked(ctx, source, reason, rateEligible);
     });
+}
+
+uint32_t scrollSessionGeneration() {
+    return withScrollLock([]() { return sScrollGeneration; });
 }
 
 bool isScrollPlayback(const String& playback) {
@@ -80,6 +91,7 @@ static bool firmwareScrollHasRuntimeStateLocked() {
 }
 
 static void resetFirmwareScrollStateLocked(bool clearTimelineMeta = false) {
+    ++sScrollGeneration;
     runtimeState().firmwareScrollActive = false;
     runtimeState().firmwareScrollPaused = false;
     runtimeState().firmwareScrollUserPaused = false;
@@ -100,17 +112,19 @@ static void resetFirmwareScrollStateLocked(bool clearTimelineMeta = false) {
 
 static bool setFirmwareScrollPauseFlag(bool userFlag, bool paused) {
     bool changed = false;
-    bool applyPlaybackOutside = false;
-    const char* playbackOutside = "scroll";
 
     withScrollLock([&]() {
-        if (runtimeState().scrollFrameCount == 0 && !runtimeState().firmwareScrollActive &&
+        if (!runtimeState().firmwareScrollActive &&
             !runtimeState().firmwareScrollPaused) {
             runtimeState().firmwareScrollUserPaused = false;
             runtimeState().firmwareScrollSystemPaused = false;
             runtimeState().firmwareScrollPaused = false;
             return;
         }
+
+        // An expired overlay must not resume a newly uploaded/started session.
+        if (!userFlag && !paused && !runtimeState().firmwareScrollSystemPaused)
+            return;
 
         const bool oldUser = runtimeState().firmwareScrollUserPaused;
         const bool oldSystem = runtimeState().firmwareScrollSystemPaused;
@@ -133,8 +147,7 @@ static bool setFirmwareScrollPauseFlag(bool userFlag, bool paused) {
         if (!eff)
             runtimeState().lastScrollFrameMs = millis();
 
-        applyPlaybackOutside = true;
-        playbackOutside = eff ? "scroll_paused" : "scroll";
+        runtimeState().playback = eff ? "scroll_paused" : "scroll";
 
         changed = oldUser != runtimeState().firmwareScrollUserPaused ||
                   oldSystem != runtimeState().firmwareScrollSystemPaused ||
@@ -143,8 +156,6 @@ static bool setFirmwareScrollPauseFlag(bool userFlag, bool paused) {
                   oldPaused != runtimeState().paused;
     });
 
-    if (applyPlaybackOutside)
-        runtimeState().playback = playbackOutside;
     if (changed)
         touchRuntimeState();
     if (changed) {
@@ -162,6 +173,18 @@ bool scrollSessionSetUserPaused(bool paused) {
 
 bool scrollSessionSetSystemPaused(bool paused) {
     return setFirmwareScrollPauseFlag(false, paused);
+}
+
+void scrollSessionSetLoop(bool loop) {
+    bool changed = false;
+    withScrollLock([&]() {
+        changed = runtimeState().scrollLoop != loop;
+        runtimeState().scrollLoop = loop;
+    });
+    if (changed) {
+        touchRuntimeState();
+        RLOG_INFO("SCROLL", "event=loop on=%d", loop ? 1 : 0);
+    }
 }
 
 bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits) {
@@ -197,6 +220,60 @@ bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits) {
                   static_cast<unsigned>(runtimeState().scrollFrameCount));
     }
     return hasSteppedFrame;
+}
+
+bool scrollSessionSeek(uint16_t frameIndex) {
+    clearQueuedPackedFrames();
+
+    uint8_t soughtFrame[FRAME_BYTES];
+    bool hasSoughtFrame = false;
+    // Index change, context and publication all under Scroll (Scroll -> Frame order), like
+    // start: a playing scroll's tick must not slip in between and be overwritten.
+    withScrollLock([&]() {
+        if (runtimeState().scrollFrameCount > 0 && runtimeScrollFrameBufferReady()) {
+            const uint16_t frameCount = runtimeState().scrollFrameCount;
+            runtimeState().scrollFrameIndex =
+                frameIndex < frameCount ? frameIndex : static_cast<uint16_t>(frameCount - 1U);
+            if (!runtimeState().firmwareScrollActive) {
+                runtimeState().firmwareScrollActive = true;
+                runtimeState().firmwareScrollUserPaused = true;
+                runtimeState().firmwareScrollPaused = true;
+                runtimeState().paused = true;
+                runtimeState().playback = "scroll_step";
+            }
+            // Restart the tick clock so a playing scroll holds the sought frame for a full interval.
+            runtimeState().lastScrollFrameMs = millis();
+            const uint8_t* src = runtimeScrollFrameBits(runtimeState().scrollFrameIndex);
+            if (src) {
+                memcpy(soughtFrame, src, FRAME_BYTES);
+                hasSoughtFrame = true;
+                // ScrollStep source: a discontinuous jump, so clients snap instead of phase-correcting.
+                LedPresentationContext ctx;
+                scrollSessionFillPresentationContextLocked(ctx, LedPresentationSource::ScrollStep,
+                                                           "firmware_text_scroll_seek", false);
+                applyPackedFrameImmediate(soughtFrame, "firmware_text_scroll_seek", &ctx);
+            }
+        }
+    });
+
+    if (hasSoughtFrame) {
+        touchRuntimeState();
+        RLOG_INFO("SCROLL", "event=seek idx=%u/%u",
+                  static_cast<unsigned>(runtimeState().scrollFrameIndex),
+                  static_cast<unsigned>(runtimeState().scrollFrameCount));
+    }
+    return hasSoughtFrame;
+}
+
+bool scrollSessionRewindIfEnded() {
+    bool ended = false;
+    withScrollLock([&]() {
+        ended = !runtimeState().scrollLoop && runtimeState().scrollFrameCount > 0 &&
+                runtimeState().scrollFrameIndex + 1U >= runtimeState().scrollFrameCount;
+    });
+    if (ended)
+        scrollSessionSeek(0);
+    return ended;
 }
 
 ScrollStopResult scrollSessionStop(bool restoreAuto, bool clearDisplay) {
@@ -251,22 +328,21 @@ ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode,
             if (src) {
                 memcpy(firstFrame, src, FRAME_BYTES);
                 hasFirstFrame = true;
+                runtimeState().playback = "scroll";
+                LedPresentationContext ctx;
+                scrollSessionFillPresentationContextLocked(ctx, LedPresentationSource::ScrollStart,
+                                                           "firmware_text_scroll_start", false);
+                applyPackedFrameImmediate(firstFrame, "firmware_text_scroll_start", &ctx);
             }
         }
     });
 
     if (hasFirstFrame) {
-        runtimeState().playback = "scroll";
         result.started = true;
-        // Report the start frame (index 0) for position alignment, but never for fps estimation.
-        LedPresentationContext ctx;
-        scrollSessionFillPresentationContext(ctx, LedPresentationSource::ScrollStart,
-                                             "firmware_text_scroll_start", false);
         RLOG_INFO("SCROLL", "event=start count=%u interval_ms=%u restoreAuto=%d",
                   static_cast<unsigned>(runtimeState().scrollFrameCount),
                   static_cast<unsigned>(runtimeState().scrollIntervalMs),
                   result.engagedRestoreAuto ? 1 : 0);
-        applyPackedFrameImmediate(firstFrame, "firmware_text_scroll_start", &ctx);
     }
     return result;
 }
@@ -303,6 +379,7 @@ ScrollUploadTxn scrollSessionBeginUpload(const ScrollUploadMeta& upload) {
     txn.append = false;
 
     withScrollLock([&]() {
+        txn.generation = ++sScrollGeneration;
         runtimeState().scrollFrameCount = 0;
         runtimeState().scrollFrameIndex = 0;
         clearScrollTimelineMetaLocked();
@@ -342,6 +419,7 @@ ScrollUploadTxn scrollSessionBeginAppend() {
     txn.append = true;
 
     withScrollLock([&]() {
+        txn.generation = sScrollGeneration;
         const ScrollTimelineMeta& meta = runtimeScrollMeta();
         txn.nextChunkIndex = meta.nextChunkIndex;
         txn.framesReceivedBase = meta.framesReceived;
@@ -360,24 +438,18 @@ bool scrollSessionWriteFrames(const ScrollUploadTxn& txn, uint16_t startIndex,
         !runtimeScrollFrameBufferReady())
         return false;
 
-    // One lock acquisition for the whole chunk (previously one per frame). Chunk
-    // indexes are monotonic, so if the first target slot is outside the currently
-    // playable range (>= scrollFrameCount), every later slot is too — the same
-    // rule the old per-frame check applied to each index individually.
-    bool writable = false;
+    bool written = false;
     withScrollLock([&]() {
-        writable = startIndex >= runtimeState().scrollFrameCount ||
-                   (!txn.append && runtimeState().scrollFrameCount == 0);
+        if (txn.generation != sScrollGeneration ||
+            startIndex < runtimeState().scrollFrameCount)
+            return;
+        uint8_t* target = runtimeScrollFrameBits(startIndex);
+        if (!target)
+            return;
+        memcpy(target, packedFrames, static_cast<size_t>(count) * FRAME_BYTES);
+        written = true;
     });
-    if (!writable)
-        return false;
-
-    uint8_t* target = runtimeScrollFrameBits(startIndex);
-    if (!target)
-        return false;
-    // Source frames and the scroll buffer are both contiguous: single memcpy.
-    memcpy(target, packedFrames, static_cast<size_t>(count) * FRAME_BYTES);
-    return true;
+    return written;
 }
 
 ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_t count,
@@ -385,6 +457,9 @@ ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_
     ScrollUploadResult result;
 
     withScrollLock([&]() {
+        if (txn.generation != sScrollGeneration)
+            return;
+        result.valid = true;
         const uint32_t rawCount = static_cast<uint32_t>(txn.baseIndex) + static_cast<uint32_t>(count);
         runtimeState().scrollFrameCount =
             static_cast<uint16_t>(rawCount > MAX_SCROLL_FRAMES ? MAX_SCROLL_FRAMES : rawCount);
@@ -448,6 +523,7 @@ ScrollSessionSnapshot scrollSessionSnapshot() {
         snapshot.firmwareScrollUserPaused = runtimeState().firmwareScrollUserPaused;
         snapshot.firmwareScrollSystemPaused = runtimeState().firmwareScrollSystemPaused;
         snapshot.restoreAutoAfterScroll = runtimeState().restoreAutoAfterScroll;
+        snapshot.scrollLoop = runtimeState().scrollLoop;
         snapshot.scrollFrameCount = runtimeState().scrollFrameCount;
         snapshot.scrollFrameIndex = runtimeState().scrollFrameIndex;
         snapshot.scrollIntervalMs = runtimeState().scrollIntervalMs;
@@ -476,6 +552,15 @@ bool scrollSessionTickCursorLocked(uint32_t now, uint8_t* outFrameBits) {
     if (elapsedMs < intervalMs)
         return false;
 
+    if (!runtimeState().scrollLoop &&
+        runtimeState().scrollFrameIndex + 1U >= runtimeState().scrollFrameCount) {
+        // Loop disabled and already on the last frame: hold there instead of wrapping.
+        runtimeState().firmwareScrollUserPaused = true;
+        runtimeState().firmwareScrollPaused = true;
+        sScrollEndPausePending = true;
+        return false;
+    }
+
     runtimeState().scrollFrameIndex = (runtimeState().scrollFrameIndex + 1) % runtimeState().scrollFrameCount;
 
     if (elapsedMs <= static_cast<uint32_t>(intervalMs) * SCROLL_DRIFT_RESET_INTERVALS)
@@ -488,4 +573,25 @@ bool scrollSessionTickCursorLocked(uint32_t now, uint8_t* outFrameBits) {
         return false;
     memcpy(outFrameBits, src, FRAME_BYTES);
     return true;
+}
+
+void serviceScrollSession() {
+    bool acted = false;
+    withScrollLock([&]() {
+        if (!sScrollEndPausePending)
+            return;
+        sScrollEndPausePending = false;
+        if (runtimeState().firmwareScrollPaused) {
+            runtimeState().paused = true;
+            runtimeState().playback = "scroll_paused";
+            acted = true;
+        }
+    });
+
+    if (acted) {
+        touchRuntimeState();
+        RLOG_INFO("SCROLL", "event=end_pause idx=%u/%u",
+                  static_cast<unsigned>(runtimeState().scrollFrameIndex),
+                  static_cast<unsigned>(runtimeState().scrollFrameCount));
+    }
 }

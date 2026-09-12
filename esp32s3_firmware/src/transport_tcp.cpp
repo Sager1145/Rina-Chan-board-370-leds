@@ -4,6 +4,9 @@
 #include "utils.h"
 #include "serial_log.h"
 #include <WiFi.h>
+#include <lwip/sockets.h>
+#include <errno.h>
+#include "tcp_frame_sender.h"
 
 using rinalink::Carrier;
 using rinalink::ClientId;
@@ -12,7 +15,6 @@ using rinalink::ITransport;
 namespace {
 
 constexpr uint8_t MAX_TCP_SLOTS = 2;
-constexpr uint32_t WRITE_DEADLINE_MS = 100;
 
 struct TcpSlot {
     WiFiClient client;
@@ -43,53 +45,30 @@ class TcpTransport final : public ITransport {
         if (!s || !s->client.connected())
             return false;
 
-        if (isEvent) {
-            // Events must never block loop(): drop outright if the socket send
-            // buffer cannot take the whole frame right now.
-            size_t avail = (size_t)s->client.availableForWrite();
-            if (avail < len) {
+        // NetworkClient inherits Print::availableForWrite(), which returns 0
+        // in the pinned Arduino 3.3.9 core. NetworkClient::write() also retries
+        // select() internally for seconds, outside any deadline around it.
+        // Use the socket's nonblocking send directly so this layer owns pacing.
+        const int socket = s->client.fd();
+        const auto result = rinalink::sendTcpFrame(
+            data, len, isEvent,
+            [&](const uint8_t* bytes, size_t count) -> ptrdiff_t {
+                const int n = ::send(socket, bytes, count, MSG_DONTWAIT);
+                if (n >= 0)
+                    return n;
+                return (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) ? -1 : -2;
+            },
+            [&]() { return socket >= 0 && s->client.fd() == socket && s->client.connected(); },
+            [](uint32_t ms) { delay(ms); },
+            []() { return millis(); });
+        if (!result.complete) {
+            if (!isEvent || result.bytesSent > 0)
+                rinalink::transportUnregisterClient(id);
+            else
                 ++g_droppedEvents;
-                RLOG_DEBUG("TCP", "event=event_dropped avail=%u need=%u total=%u",
-                           (unsigned)avail, (unsigned)len, (unsigned)g_droppedEvents);
-                return false;
-            }
-            size_t written = s->client.write(data, len);
-            return written == len;
+            return false;
         }
-
-        // Reply: write whatever fits, looping (yielding) up to an overall
-        // deadline; a client that cannot drain fast enough gets disconnected
-        // rather than blocking loop() indefinitely.
-        size_t off = 0;
-        uint32_t deadline = millis() + WRITE_DEADLINE_MS;
-        while (off < len) {
-            if (!s->client.connected())
-                return false;
-            size_t availNow = (size_t)s->client.availableForWrite();
-            if (availNow == 0) {
-                if (millisReached(millis(), deadline)) {
-                    RLOG_WARN("TCP", "event=write_timeout slot=%u", (unsigned)id.slot);
-                    rinalink::transportUnregisterClient(id);
-                    return false;
-                }
-                delay(1);
-                continue;
-            }
-            size_t want = len - off;
-            if (want > availNow)
-                want = availNow;
-            size_t written = s->client.write(data + off, want);
-            if (written == 0) {
-                if (millisReached(millis(), deadline)) {
-                    RLOG_WARN("TCP", "event=write_timeout slot=%u", (unsigned)id.slot);
-                    rinalink::transportUnregisterClient(id);
-                    return false;
-                }
-                delay(1);
-                continue;
-            }
-            off += written;
-        }
+        s->lastActivityMs = millis();
         return true;
     }
 

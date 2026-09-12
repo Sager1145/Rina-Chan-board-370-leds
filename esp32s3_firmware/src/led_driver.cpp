@@ -329,7 +329,7 @@ bool begin() {
 void setBrightness(uint8_t brightness) { sBrightness = brightness; }
 
 void setPixel(uint16_t physicalIndex, uint8_t r, uint8_t g, uint8_t b) {
-    if (physicalIndex >= LED_COUNT)
+    if (!sReady || physicalIndex >= LED_COUNT)
         return;
     const uint16_t off = physicalIndex * 3U;
     // WS2812 wire order is GRB. Apply brightness here (Adafruit did it in show()).
@@ -338,7 +338,10 @@ void setPixel(uint16_t physicalIndex, uint8_t r, uint8_t g, uint8_t b) {
     sPixels[off + 2] = scale8(b, sBrightness);
 }
 
-void clear() { memset(sPixels, 0, sizeof(sPixels)); }
+void clear() {
+    if (sReady)
+        memset(sPixels, 0, sizeof(sPixels));
+}
 
 bool refresh() {
     if (!sReady || !sChannel || !sEncoder) {
@@ -347,12 +350,30 @@ bool refresh() {
     }
     rmt_transmit_config_t txc = {};
     txc.loop_count = 0;
+    txc.flags.queue_nonblocking = 1;
     const uint32_t startUs = micros();
     esp_err_t err = rmt_transmit(sChannel, sEncoder, sPixels, sizeof(sPixels), &txc);
     if (err == ESP_OK) {
         // Block until the strip transaction has finished, preserving the
         // synchronous strip.show() semantics the render task relies on.
         err = rmt_tx_wait_all_done(sChannel, 100 /* ms */);
+        if (err != ESP_OK) {
+            // A wait timeout does not cancel TX: the ISR still owns sPixels and
+            // the encoder. Stop and drain that single transaction before the
+            // next render can mutate either. If recovery fails, freeze the
+            // payload and stop submitting instead of filling a blocked queue.
+            sReady = false;
+            esp_err_t recovery = rmt_disable(sChannel);
+            if (recovery == ESP_OK)
+                recovery = rmt_tx_wait_all_done(sChannel, 0);
+            if (recovery == ESP_OK)
+                recovery = rmt_encoder_reset(sEncoder);
+            if (recovery == ESP_OK)
+                recovery = rmt_enable(sChannel);
+            sReady = recovery == ESP_OK;
+            RLOG_WARN("LEDDRV", "event=tx_recovery backend=%s code=0x%x ready=%d",
+                      backendName(), static_cast<unsigned>(recovery), sReady ? 1 : 0);
+        }
     }
     const bool ok = (err == ESP_OK);
     recordRefresh(startUs, ok);

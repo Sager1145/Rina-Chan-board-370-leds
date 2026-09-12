@@ -27,6 +27,7 @@ struct ScrollUploadMeta {
 };
 
 struct ScrollUploadTxn {
+    uint32_t generation = 0;
     bool append = false;
     uint16_t baseIndex = 0;
     uint16_t framesReceivedBase = 0;
@@ -36,6 +37,7 @@ struct ScrollUploadTxn {
 };
 
 struct ScrollUploadResult {
+    bool valid = false;
     uint16_t frameCount = 0;
     bool uploadComplete = false;
     char timelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
@@ -58,6 +60,7 @@ struct ScrollSessionSnapshot {
     bool firmwareScrollUserPaused = false;
     bool firmwareScrollSystemPaused = false;
     bool restoreAutoAfterScroll = false;
+    bool scrollLoop = true;
     uint16_t scrollFrameCount = 0;
     uint16_t scrollFrameIndex = 0;
     uint16_t scrollIntervalMs = DEFAULT_SCROLL_INTERVAL_MS;
@@ -71,13 +74,22 @@ struct ScrollSessionSnapshot {
     }
 };
 
+uint32_t scrollSessionGeneration();
+
 bool isScrollPlayback(const String& playback);
 
 ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode, uint8_t uiFps = 0);
 ScrollStopResult scrollSessionStop(bool restoreAuto, bool clearDisplay);
 bool scrollSessionSetUserPaused(bool paused);
 bool scrollSessionSetSystemPaused(bool paused);
+void scrollSessionSetLoop(bool loop);
+// If the session is stopped-on-its-last-frame with loop disabled, seek back to frame 0.
+// Returns true if it acted. Call before resuming a user-initiated firmware scroll.
+bool scrollSessionRewindIfEnded();
 bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits);
+// Jump to an absolute frame (clamped to the timeline). An active scroll keeps playing from
+// there; an inactive one is latched paused on that frame, like a step. Presents the frame itself.
+bool scrollSessionSeek(uint16_t frameIndex);
 void scrollSessionSetInterval(uint16_t intervalMs, uint8_t uiFps = 0);
 // Store the original source text into the current scroll session meta (RAM). Used when the
 // the app sends the text in the start_scroll command (or in the scroll blob meta).
@@ -98,6 +110,11 @@ bool scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize
 ScrollSessionSnapshot scrollSessionSnapshot();
 
 bool scrollSessionTickCursorLocked(uint32_t now, uint8_t* outFrameBits);
+
+// Core-0 service: promotes a pending end-of-timeline pause (latched by the Core-1 tick when
+// loop is off) into the cooperative-loop runtimeState().paused/playback fields so EV_STATUS
+// reports it. Call once per loop() iteration.
+void serviceScrollSession();
 
 // Fill a presentation context from the current scroll session state (acquires the scroll lock
 // internally). Used by start/step paths so the presented sample carries the right frame identity.

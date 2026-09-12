@@ -12,6 +12,7 @@ static constexpr uint8_t DEFERRED_RESTORE_STARTUP_DEFAULT = 1;
 static constexpr uint8_t DEFERRED_RESTORE_CURRENT_FACE = 2;
 
 static bool shouldForceClearWhenStoppingScroll();
+static void cancelDeferredFaceRestore();
 static void scheduleCurrentSavedFaceRestoreAfterBlank(bool autoMode, const String& reason);
 
 bool isAutoMode() { return runtimeState().mode == "auto"; }
@@ -38,6 +39,8 @@ bool setMode(const char* input, bool persistSettings) {
     bool changed = false;
     if (mode != "auto" && mode != "manual")
         return false;
+    cancelDeferredFaceRestore();
+    clearQueuedPackedFrames();
     if (shouldForceClearWhenStoppingScroll())
         stopFirmwareScroll(false, true, false);
     if (mode == "auto") {
@@ -114,6 +117,8 @@ bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playb
         Serial.println("No saved faces available for button action");
         return false;
     }
+    cancelDeferredFaceRestore();
+    clearQueuedPackedFrames();
     runtimeState().autoFaceIndex = index % runtimeAutoFaceCount();
     if (playback)
         runtimeState().playback = playback;
@@ -253,6 +258,16 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay, bool restoreDefault
         setMode("auto", false);
 }
 
+void takeOverExternalFrame() {
+    cancelDeferredFaceRestore();
+    // Unlike a user-facing scroll stop, replacing the frame has no blank phase.
+    // Reset playback before setMode so a streamed "scroll" label cannot trigger
+    // its stop-and-clear branch. Stop also invalidates unfinished uploads.
+    scrollSessionStop(false, false);
+    clearQueuedPackedFrames();
+    setMode("manual", false);
+}
+
 void startFirmwareScroll(uint16_t intervalMs, uint8_t uiFps) {
     cancelDeferredFaceRestore();
     const ScrollStartResult r = scrollSessionStart(intervalMs, isAutoMode(), uiFps);
@@ -261,7 +276,9 @@ void startFirmwareScroll(uint16_t intervalMs, uint8_t uiFps) {
 }
 
 void serviceAutoPlayback() {
-    if (!isAutoMode() || runtimeState().paused || runtimeAutoFaceCount() == 0)
+    if (!isAutoMode() || runtimeState().paused || runtimeState().firmwareScrollActive ||
+        runtimeState().firmwareScrollPaused || runtimeState().deferredFaceRestoreActive ||
+        runtimeAutoFaceCount() == 0)
         return;
     const uint32_t now = millis();
     if (runtimeState().lastAutoSwitchMs == 0) {

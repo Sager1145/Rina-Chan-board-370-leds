@@ -216,5 +216,10 @@ constexpr char SETTINGS_PATH[] = "/resources/runtime_settings.json";
 #error "ENABLE_SERIAL_UART0_MIRROR requires ARDUINO_USB_CDC_ON_BOOT=1"
 #endif
 
+// Max bytes of the user-settable board name. The BLE scan response carries a
+// 31-byte payload and the complete-local-name field costs 2 bytes of header,
+// so 24 leaves headroom for another field without crowding out the name.
+constexpr size_t MAX_DEVICE_NAME_BYTES = 24;
+
 constexpr char FIRMWARE_NAME[] = "RinaChanBoard-V2";
 constexpr char FIRMWARE_VERSION[] = "rinalink-2.0.0";

@@ -20,45 +20,28 @@ static void scrollRenderTask(void* parameter) {
         bool shouldRender = mainTaskRenderPending;
         bool hasScrollFrame = false;
         LedPresentationContext scrollCtx;
-        bool hasScrollCtx = false;
-        bool scrollActiveLocked = false;
         uint16_t scrollFrameIndexLocked = 0;
         uint16_t scrollFrameCountLocked = 0;
 
+        // Keep ownership through publication. Releasing Scroll before taking Frame
+        // lets a stop/new face win, then be overwritten by this obsolete tick.
+        // This is the global Scroll -> Frame lock order; hardware I/O stays outside.
         withScrollLock([&]() {
             hasScrollFrame = scrollSessionTickCursorLocked(millis(), nextFrame);
-            if (hasScrollFrame) {
-                shouldRender = true;
-                scrollSessionFillPresentationContextLocked(
-                    scrollCtx, LedPresentationSource::ScrollTick,
-                    "firmware_text_scroll_tick", true);
-                hasScrollCtx = true;
-                scrollActiveLocked = runtimeState().firmwareScrollActive;
-                scrollFrameIndexLocked = runtimeState().scrollFrameIndex;
-                scrollFrameCountLocked = runtimeState().scrollFrameCount;
-            }
-        });
-
-        if (hasScrollFrame) {
-            //
+            if (!hasScrollFrame)
+                return;
+            scrollSessionFillPresentationContextLocked(
+                scrollCtx, LedPresentationSource::ScrollTick,
+                "firmware_text_scroll_tick", true);
+            scrollFrameIndexLocked = runtimeState().scrollFrameIndex;
+            scrollFrameCountLocked = runtimeState().scrollFrameCount;
             withFrameLock([&]() {
-                if (!mainTaskRenderPending) {
-                    mainTaskRenderPending = consumeLedRenderRequest();
-                    if (mainTaskRenderPending)
-                        shouldRender = true;
-                }
-                if (scrollActiveLocked) {
-                    memcpy(runtimeFrameBits(), nextFrame, FRAME_BYTES);
-                    ++runtimeState().framesAccepted;
-                    // Hand the renderer this tick's exact frame identity before it latches.
-                    if (hasScrollCtx)
-                        setPendingLedPresentationContext(scrollCtx);
-                } else {
-                    if (!mainTaskRenderPending)
-                        shouldRender = false;
-                }
+                memcpy(runtimeFrameBits(), nextFrame, FRAME_BYTES);
+                ++runtimeState().framesAccepted;
+                setPendingLedPresentationContext(scrollCtx);
             });
-        }
+            shouldRender = true;
+        });
 
         if (hasScrollFrame) {
             // Core-1 tick telemetry: TRACE-only (off by default) and rate-limited

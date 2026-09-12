@@ -12,6 +12,7 @@
 #include "power_monitor.h"
 #include "scroll_session.h"
 #include "wifi_manager.h"
+#include "transport_ble.h"
 #include "utils.h"
 #include "psram_json.h"
 #include "serial_log.h"
@@ -64,6 +65,9 @@ enum class BlobKind : uint8_t { None = 0, Scroll, Faces, ScrollBitmap };
 struct BlobSession {
     BlobKind kind = BlobKind::None;
     uint32_t expectedOffset = 0;
+    uint32_t totalBytes = 0;
+    uint32_t lastActivityMs = 0;
+    uint32_t generation = 0;
 
     // scroll
     ScrollUploadTxn txn;
@@ -115,6 +119,9 @@ struct BlobSession {
         bitmapSourceText = "";
         kind = BlobKind::None;
         expectedOffset = 0;
+        totalBytes = 0;
+        lastActivityMs = 0;
+        generation = 0;
         totalFrames = 0;
         framesReceived = 0;
         append = false;
@@ -133,10 +140,12 @@ struct ClientSlot {
 
     // Registry contract (see transport.h): these flags are set from any task
     // under g_registryMux and consumed/cleared only at the start of
-    // serviceProtocol() on the loop task. No other field here is ever mutated
+    // serviceProtocol() on the loop task. Inbound fields below use mux instead.
+    // No other field here is ever mutated
     // off the loop task once a slot is claimed.
     bool connectPending = false;
     bool disconnectPending = false;
+    // Inbound framing loss is guarded by mux, together with inboundLen.
     bool resyncNeeded = false;
 
     bool subPreview = true;
@@ -209,6 +218,22 @@ static void resetBlob(ClientSlot& c) {
         g_activeScrollBlobSlot == selfSlot)
         g_activeScrollBlobSlot = -1;
     c.blob.reset();
+}
+
+// Loop-task only. A stopped/replaced timeline invalidates outstanding uploads
+// from every carrier, including a bitmap still staged before BeginUpload.
+static void expireBlobSessions() {
+    const uint32_t generation = scrollSessionGeneration();
+    const uint32_t now = millis();
+    for (auto& client : g_clients) {
+        const auto& blob = client.blob;
+        if (blob.kind == BlobKind::None)
+            continue;
+        const bool scroll = blob.kind == BlobKind::Scroll || blob.kind == BlobKind::ScrollBitmap;
+        if ((scroll && blob.generation != generation) ||
+            static_cast<uint32_t>(now - blob.lastActivityMs) >= 30000)
+            resetBlob(client);
+    }
 }
 
 // --- Framing / reply helpers -----------------------------------------------------------
@@ -299,6 +324,7 @@ static void addScroll(JsonObject o) {
     o["firmwareScrollUserPaused"] = s.firmwareScrollUserPaused;
     o["firmwareScrollSystemPaused"] = s.firmwareScrollSystemPaused;
     o["restoreAutoAfterScroll"] = s.restoreAutoAfterScroll;
+    o["scrollLoop"] = s.scrollLoop;
     o["scrollFrameCount"] = s.scrollFrameCount;
     o["scrollFrameIndex"] = s.scrollFrameIndex;
     o["scrollIntervalMs"] = s.scrollIntervalMs;
@@ -515,6 +541,16 @@ static void handleGetInfo(ClientSlot& c, uint8_t seq) {
     DynamicJsonDocument out(512);
     out["ok"] = true;
     out["device"] = "RinaChanBoard";
+    // Board identity: `name` is what the board advertises over BLE and what the
+    // app lists it under; `defaultName` is the MAC-derived fallback so the app
+    // can show what clearing the custom name would restore.
+    char nameBuf[MAX_DEVICE_NAME_BYTES + 1];
+    char defaultNameBuf[MAX_DEVICE_NAME_BYTES + 1];
+    bleTransportDeviceName(nameBuf, sizeof(nameBuf));
+    bleTransportDefaultDeviceName(defaultNameBuf, sizeof(defaultNameBuf));
+    out["name"] = nameBuf;
+    out["defaultName"] = defaultNameBuf;
+    out["customName"] = runtimeState().deviceName.length() > 0;
     out["fw"] = FIRMWARE_VERSION;
     out["build"] = String(__DATE__) + " " + String(__TIME__);
     out["ledBackend"] = leddrv::backendName();
@@ -880,6 +916,9 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
     }
     const char* cmd = d["cmd"] | "";
     JsonVariant p = d["payload"];
+    RLOG_INFO("PROTO", "event=command slot=%u seq=%u name=%s bytes=%u",
+              static_cast<unsigned>(&c - g_clients), static_cast<unsigned>(seq), cmd,
+              static_cast<unsigned>(len));
 
     if (strncmp(cmd, "wifi_", 5) == 0) {
         handleWifiCmd(c, seq, cmd, d, p);
@@ -936,14 +975,43 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
         return;
     }
 
+    if (strcmp(cmd, "set_device_name") == 0) {
+        // Absent/null `name` clears the override and restores the MAC default.
+        const char* requested = cstr(d, p, "name", "");
+        String nameErr;
+        if (!bleTransportSetDeviceName(requested, nameErr)) {
+            ++runtimeState().commandsRejected;
+            touchRuntimeStateSlow();
+            sendErrorReply(c, seq, 400, nameErr);
+            return;
+        }
+        const bool persisted = saveRuntimeSettings();
+        char effective[MAX_DEVICE_NAME_BYTES + 1];
+        bleTransportDeviceName(effective, sizeof(effective));
+        ++runtimeState().commandsAccepted;
+        touchRuntimeState();
+        DynamicJsonDocument out(256);
+        out["ok"] = true;
+        out["name"] = effective;
+        out["customName"] = runtimeState().deviceName.length() > 0;
+        // Report persistence separately: the name is already live over BLE even
+        // if LittleFS was unavailable, but it would not survive a reboot.
+        out["persisted"] = persisted;
+        sendJsonReply(c, msg::CMD, seq, out);
+        return;
+    }
+
     String err;
     bool ok = true;
     if (strcmp(cmd, "set_color") == 0)
         ok = setColor(cstr(d, p, "hex", ""), err);
     else if (strcmp(cmd, "set_brightness") == 0)
         setBrightness(cint(d, p, "raw", cint(d, p, "brightness", DEFAULT_BRIGHTNESS)));
-    else if (strcmp(cmd, "set_mode") == 0)
+    else if (strcmp(cmd, "set_mode") == 0) {
         ok = setMode(cstr(d, p, "mode", DEFAULT_MODE), true);
+        if (ok)
+            stopFirmwareScroll(false, false, false);
+    }
     else if (strcmp(cmd, "set_auto_interval") == 0)
         setAutoInterval((uint32_t)cint(d, p, "ms", DEFAULT_AUTO_INTERVAL_MS), true);
     else if (strcmp(cmd, "set_scroll_interval") == 0) {
@@ -961,7 +1029,11 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
             }
             scrollSessionSetSourceText(st, (uint16_t)sl);
         }
+        if ((!p.isNull() && p["loop"].is<bool>()) || d["loop"].is<bool>())
+            scrollSessionSetLoop(cbool(d, p, "loop", true));
         startFirmwareScroll(interval, uiFps);
+    } else if (strcmp(cmd, "set_scroll_loop") == 0) {
+        scrollSessionSetLoop(cbool(d, p, "loop", true));
     } else if (strcmp(cmd, "scroll_step") == 0) {
         uint8_t f[FRAME_BYTES];
         if (scrollSessionStep(cint(d, p, "direction", 1) < 0 ? -1 : 1, f)) {
@@ -970,23 +1042,28 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
             scrollSessionFillPresentationContext(stepCtx, LedPresentationSource::ScrollStep, "firmware_text_scroll_step", false);
             applyPackedFrameImmediate(f, "firmware_text_scroll_step", &stepCtx);
         }
+    } else if (strcmp(cmd, "scroll_seek") == 0) {
+        scrollSessionSeek(static_cast<uint16_t>(constrain(cint(d, p, "frameIndex", 0), 0, 0xFFFF)));
     } else if (strcmp(cmd, "pause_scroll") == 0)
         scrollSessionSetUserPaused(true);
-    else if (strcmp(cmd, "resume_scroll") == 0)
+    else if (strcmp(cmd, "resume_scroll") == 0) {
+        scrollSessionRewindIfEnded();
         scrollSessionSetUserPaused(false);
-    else if (strcmp(cmd, "stop_scroll") == 0)
+    } else if (strcmp(cmd, "stop_scroll") == 0)
         stopFirmwareScroll(cbool(d, p, "restoreAuto", scrollSessionGetRestoreAuto()), cbool(d, p, "clear", true), true);
     else if (strcmp(cmd, "pause") == 0) {
         runtimeState().paused = true;
         runtimeState().playback = "paused";
         touchRuntimeState();
     } else if (strcmp(cmd, "resume") == 0) {
+        scrollSessionRewindIfEnded();
         scrollSessionSetUserPaused(false);
         runtimeState().paused = false;
         runtimeState().playback = DEFAULT_PLAYBACK;
         touchRuntimeState();
     } else if (strcmp(cmd, "apply_saved_face") == 0) {
-        stopFirmwareScroll(false, false);
+        stopFirmwareScroll(false, false, false);
+        setMode("manual", false);
         scrollSessionSetRestoreAuto(false);
         const int index = cint(d, p, "index", runtimeState().autoFaceIndex);
         ok = applySavedFaceIndex(
@@ -1157,10 +1234,9 @@ static void handleSetFrame(ClientSlot& c, uint8_t seq, const uint8_t* payload, u
         return;
     }
     String playback = playbackForEnum(playbackEnum);
-    if (!isScrollPlayback(playback))
-        stopFirmwareScroll(false);
-    if (reason.startsWith("custom_") || reason.startsWith("parts_") || reason.startsWith("debug_"))
-        setMode("manual", false);
+    // SET_FRAME is an externally driven stream in every playback enum. It
+    // replaces firmware scroll/auto ownership regardless of a caller's reason.
+    takeOverExternalFrame();
     runtimeState().playback = playback;
     if (!applyPackedFrameQueued(frameBits, reason, err)) {
         sendErrorReply(c, seq, 400, err);
@@ -1200,6 +1276,7 @@ static void handleGetFrame(ClientSlot& c, uint8_t seq) {
 constexpr size_t MAX_FACES_BLOB_BYTES = 256UL * 1024UL;
 
 static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16_t len) {
+    expireBlobSessions();
     resetBlob(c);
     int selfSlot = static_cast<int>(&c - g_clients);
     if (len == 0) {
@@ -1370,6 +1447,9 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
         sendErrorReply(c, seq, 400, "unknown blob kind");
         return;
     }
+    c.blob.totalBytes = totalBytes;
+    c.blob.lastActivityMs = millis();
+    c.blob.generation = scrollSessionGeneration();
     DynamicJsonDocument out(128);
     out["ok"] = true;
     out["chunkMax"] = chunkMax;
@@ -1378,6 +1458,7 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
 }
 
 static void handleBlobChunk(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16_t len) {
+    expireBlobSessions();
     if (c.blob.kind == BlobKind::None) {
         sendErrorReply(c, seq, 400, "no active blob session");
         return;
@@ -1392,6 +1473,10 @@ static void handleBlobChunk(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
     uint16_t dataLen = len - 4;
     if (offset != c.blob.expectedOffset) {
         sendErrorReply(c, seq, 400, "unexpected chunk offset", (int32_t)c.blob.expectedOffset);
+        return;
+    }
+    if (static_cast<uint64_t>(offset) + dataLen > c.blob.totalBytes) {
+        sendErrorReply(c, seq, 413, "chunk exceeds declared blob size");
         return;
     }
     if (c.blob.kind == BlobKind::Scroll) {
@@ -1417,6 +1502,7 @@ static void handleBlobChunk(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
         }
         c.blob.framesReceived += n;
         c.blob.expectedOffset += dataLen;
+        c.blob.lastActivityMs = millis();
         DynamicJsonDocument out(128);
         out["ok"] = true;
         out["offset"] = c.blob.expectedOffset;
@@ -1429,6 +1515,7 @@ static void handleBlobChunk(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
         }
         memcpy(c.blob.bitmapBuf + c.blob.expectedOffset, data, dataLen);
         c.blob.expectedOffset += dataLen;
+        c.blob.lastActivityMs = millis();
         DynamicJsonDocument out(64);
         out["ok"] = true;
         out["offset"] = c.blob.expectedOffset;
@@ -1440,6 +1527,7 @@ static void handleBlobChunk(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
         }
         memcpy(c.blob.facesBuf + c.blob.expectedOffset, data, dataLen);
         c.blob.expectedOffset += dataLen;
+        c.blob.lastActivityMs = millis();
         DynamicJsonDocument out(64);
         out["ok"] = true;
         out["offset"] = c.blob.expectedOffset;
@@ -1488,8 +1576,14 @@ static void scrollBitmapBuildFrame(const BlobSession& b, uint32_t offset, uint8_
 }
 
 static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16_t len) {
+    expireBlobSessions();
     if (c.blob.kind == BlobKind::None) {
         sendErrorReply(c, seq, 400, "no active blob session");
+        return;
+    }
+    if (c.blob.expectedOffset != c.blob.totalBytes) {
+        resetBlob(c);
+        sendErrorReply(c, seq, 400, "incomplete blob upload");
         return;
     }
     bool start = false;
@@ -1501,6 +1595,11 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
     if (c.blob.kind == BlobKind::Scroll) {
         ScrollUploadResult res = scrollSessionCommitUpload(c.blob.txn, c.blob.framesReceived,
                                                             c.blob.hasExplicitTiming, c.blob.intervalMs, c.blob.uiFps);
+        if (!res.valid) {
+            resetBlob(c);
+            sendErrorReply(c, seq, 409, "scroll upload was superseded");
+            return;
+        }
         if (start)
             startFirmwareScroll(c.blob.intervalMs, c.blob.uiFps);
         ScrollSessionSnapshot snap = scrollSessionSnapshot();
@@ -1594,6 +1693,11 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
 
         ScrollUploadResult res = scrollSessionCommitUpload(txn, written, c.blob.hasExplicitTiming,
                                                             c.blob.intervalMs, c.blob.uiFps);
+        if (!res.valid) {
+            resetBlob(c);
+            sendErrorReply(c, seq, 409, "scroll upload was superseded");
+            return;
+        }
         if (start)
             startFirmwareScroll(c.blob.intervalMs, c.blob.uiFps);
         ScrollSessionSnapshot snap = scrollSessionSnapshot();
@@ -1832,12 +1936,8 @@ void transportMarkResyncNeeded(ClientId id) {
         return;
     portENTER_CRITICAL(&c.mux);
     c.inboundLen = 0;
-    portEXIT_CRITICAL(&c.mux);
-    // resyncNeeded is part of the connect/disconnect flag group guarded by
-    // g_registryMux (see ClientSlot's contract comment), not c.mux.
-    portENTER_CRITICAL(&g_registryMux);
     c.resyncNeeded = true;
-    portEXIT_CRITICAL(&g_registryMux);
+    portEXIT_CRITICAL(&c.mux);
 }
 
 size_t transportFrame(uint8_t* out, uint8_t type, uint8_t seq, uint8_t flags,
@@ -1857,67 +1957,30 @@ size_t transportFrame(uint8_t* out, uint8_t type, uint8_t seq, uint8_t flags,
 
 // --- Per-client inbound processing ------------------------------------------------------
 // Caps frames dispatched per client per serviceProtocol() pass (item 7) so one
-// chatty client cannot starve the others sharing the loop() budget; any remaining
-// complete frames are left buffered (via the leftover path below) for the next pass.
+// chatty client cannot starve the others sharing the loop() budget. Remaining
+// complete frames retain their buffer space until the next pass.
 constexpr uint8_t MAX_FRAMES_PER_CLIENT_PASS = 8;
 
 static void processClientInbound(ClientSlot& c) {
-    static uint8_t local[INBOUND_BUFFER_BYTES];
+    static uint8_t frame[FRAME_HEADER_BYTES + MAX_PAYLOAD_BYTES];
+    for (uint8_t dispatched = 0; dispatched < MAX_FRAMES_PER_CLIENT_PASS; ++dispatched) {
+        portENTER_CRITICAL(&g_registryMux);
+        const bool active = c.used && !c.disconnectPending;
+        portEXIT_CRITICAL(&g_registryMux);
+        if (!active)
+            return;
 
-    portENTER_CRITICAL(&g_registryMux);
-    bool needsResync = c.resyncNeeded;
-    c.resyncNeeded = false;
-    portEXIT_CRITICAL(&g_registryMux);
-    if (needsResync) {
-        sendErrorReply(c, 0, 413, "inbound overflow");
-    }
-
-    size_t n;
-    portENTER_CRITICAL(&c.mux);
-    n = c.inboundLen;
-    if (n)
-        memcpy(local, c.inbound, n);
-    c.inboundLen = 0;
-    portEXIT_CRITICAL(&c.mux);
-    if (n == 0)
-        return;
-
-    size_t off = 0;
-    uint8_t dispatched = 0;
-    while (n - off >= FRAME_HEADER_BYTES) {
-        if (local[off] != FRAME_MAGIC) {
-            off++;
-            continue; // resync: scan for the next magic byte
-        }
-        uint8_t type = local[off + 1];
-        uint8_t seq = local[off + 2];
-        uint8_t flags = local[off + 3];
-        uint16_t plen = (uint16_t)local[off + 4] | ((uint16_t)local[off + 5] << 8);
-        if (plen > MAX_PAYLOAD_BYTES) {
-            off++; // corrupt length: resync
-            continue;
-        }
-        if (n - off < (size_t)FRAME_HEADER_BYTES + plen)
-            break; // incomplete frame; wait for more bytes
-        if (dispatched >= MAX_FRAMES_PER_CLIENT_PASS)
-            break; // budget exhausted for this pass; leftover logic buffers the rest
-        dispatch(c, type, seq, flags, local + off + FRAME_HEADER_BYTES, plen);
-        off += FRAME_HEADER_BYTES + plen;
-        ++dispatched;
-    }
-
-    // Preserve any incomplete trailing frame for the next service() pass.
-    size_t leftover = n - off;
-    if (leftover > 0) {
         portENTER_CRITICAL(&c.mux);
-        if (leftover + c.inboundLen <= INBOUND_BUFFER_BYTES) {
-            memmove(c.inbound + leftover, c.inbound, c.inboundLen);
-            memcpy(c.inbound, local + off, leftover);
-            c.inboundLen += leftover;
-        } else {
-            RLOG_WARN("PROTO", "event=leftover_overflow slot=%d", (int)(&c - g_clients));
-        }
+        const bool needsResync = c.resyncNeeded;
+        c.resyncNeeded = false;
+        const size_t n = rinalink::popInboundFrame(c.inbound, c.inboundLen, frame);
         portEXIT_CRITICAL(&c.mux);
+        if (needsResync)
+            sendErrorReply(c, 0, 413, "inbound overflow");
+        if (n == 0 || c.disconnectPending)
+            return;
+        dispatch(c, frame[1], frame[2], frame[3], frame + FRAME_HEADER_BYTES,
+                 static_cast<uint16_t>(n - FRAME_HEADER_BYTES));
     }
 }
 
@@ -2056,12 +2119,14 @@ void protocolBegin() {
 // connectPending/disconnectPending flags set by carriers on any task and performs
 // all per-slot (re)initialisation and teardown here, so no protocol-owned state is
 // ever touched off the loop task. Must be the first thing serviceProtocol() does.
-static void resetSlotSessionState(ClientSlot& c) {
+static void resetSlotSessionState(ClientSlot& c, bool clearInbound = true) {
     resetBlob(c);
-    portENTER_CRITICAL(&c.mux);
-    c.inboundLen = 0;
-    portEXIT_CRITICAL(&c.mux);
-    c.resyncNeeded = false;
+    if (clearInbound) {
+        portENTER_CRITICAL(&c.mux);
+        c.inboundLen = 0;
+        c.resyncNeeded = false;
+        portEXIT_CRITICAL(&c.mux);
+    }
     c.subPreview = true;
     c.subStatus = true;
     c.subPower = true;
@@ -2117,13 +2182,16 @@ static void finalizePendingRegistryChanges() {
                 transport->disconnect(ClientId{i});
             RLOG_INFO("PROTO", "event=client_disconnect slot=%u carrier=%d", (unsigned)i, (int)carrier);
         } else if (doConnect) {
-            resetSlotSessionState(c);
+            // The peer can send between onConnect and this loop pass. Those
+            // bytes belong to the new session, not to the prior occupant.
+            resetSlotSessionState(c, false);
         }
     }
 }
 
 void serviceProtocol() {
     finalizePendingRegistryChanges();
+    expireBlobSessions();
     if (g_rebootPending && millisReached(millis(), g_rebootAtMs)) {
         ESP.restart();
     }

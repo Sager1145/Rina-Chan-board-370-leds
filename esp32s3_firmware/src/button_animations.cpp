@@ -444,9 +444,6 @@ void overlayEdgeFlash(uint8_t* out, const AnimationState& state, uint32_t now) {
 }
 
 void pauseScrollForOverlay() {
-    if (sAnim.pausedScroll)
-        return;
-
     bool shouldPause = false;
     withScrollLock([&]() {
         shouldPause = (runtimeState().firmwareScrollActive ||
@@ -455,7 +452,9 @@ void pauseScrollForOverlay() {
                       runtimeState().scrollFrameCount > 0;
     });
     if (shouldPause && scrollSessionSetSystemPaused(true)) {
+        portENTER_CRITICAL(&sAnimMux);
         sAnim.pausedScroll = true;
+        portEXIT_CRITICAL(&sAnimMux);
     }
 }
 
@@ -686,6 +685,14 @@ void serviceButtonAnimations() {
         }
     }
     portEXIT_CRITICAL(&sAnimMux);
+
+    // A new scroll may start while the overlay is already visible.
+    bool active = false;
+    portENTER_CRITICAL(&sAnimMux);
+    active = sAnim.active;
+    portEXIT_CRITICAL(&sAnimMux);
+    if (active && !stop)
+        pauseScrollForOverlay();
 
     if (stop)
         stopOverlay(true);

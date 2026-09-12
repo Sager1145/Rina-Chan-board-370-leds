@@ -116,10 +116,6 @@ static uint16_t logicalToPhysicalLedIndex(uint16_t logicalIndex) {
     return logicalIndex;
 }
 
-static uint8_t packedFrameQueueTail() {
-    return static_cast<uint8_t>((packedFrameQueueHead + packedFrameQueueCount) % PACKED_FRAME_QUEUE_DEPTH);
-}
-
 static bool packedFrameRateReady(uint32_t now) {
     return lastPackedFrameApplyMs == 0 || millisElapsed(now, lastPackedFrameApplyMs, PACKED_FRAME_MIN_INTERVAL_MS);
 }
@@ -154,8 +150,7 @@ bool validatePackedFrame(const uint8_t* packedBits, String& error) {
 static void publishPackedFrameNow(const uint8_t* packedBits, const char* reason,
                                    const LedPresentationContext* ctx = nullptr) {
     withFrameLock([&]() {
-        if (ctx)
-            setPendingLedPresentationContext(*ctx);
+        setPendingLedPresentationContext(ctx ? *ctx : LedPresentationContext{});
         memcpy(runtimeFrameBits(), packedBits, FRAME_BYTES);
         strlcpy(runtimeState().lastReason, reason ? reason : "", sizeof(runtimeState().lastReason));
         ++runtimeState().framesAccepted;
@@ -173,14 +168,12 @@ static void enqueuePackedFrame(const uint8_t* packedBits, const String& reason) 
         publishPackedFrameNow(packedBits, reason.c_str());
         return;
     }
-    uint8_t target = packedFrameQueueTail();
-    if (packedFrameQueueCount >= PACKED_FRAME_QUEUE_DEPTH) {
-        target = packedFrameQueueHead;
-        packedFrameQueueHead = static_cast<uint8_t>((packedFrameQueueHead + 1) % PACKED_FRAME_QUEUE_DEPTH);
-        ++runtimeState().framesDropped;
-    } else {
-        ++packedFrameQueueCount;
-    }
+    // Interactive preview has one pending slot: retain the newest desired
+    // frame instead of replaying obsolete faces after a burst of commands.
+    runtimeState().framesDropped += packedFrameQueueCount;
+    packedFrameQueueHead = 0;
+    packedFrameQueueCount = 1;
+    const uint8_t target = 0;
     memcpy(packedFrameQueue[target].bits, packedBits, FRAME_BYTES);
     copyText(packedFrameQueue[target].reason, sizeof(packedFrameQueue[target].reason), reason.c_str());
     ++runtimeState().framesQueued;
@@ -261,12 +254,13 @@ FrameStateSnapshot readFrameStateSnapshot() {
 //     Core 1 task was never started.
 // Do not add new call sites without revisiting this invariant.
 void renderCurrentFrameToLedStrip() {
-    LedPresentationContext ctx = consumePendingLedPresentationContext();
+    LedPresentationContext ctx;
     uint8_t localFrame[FRAME_BYTES];
     static uint8_t overlayRgb[LED_COUNT * 3];
     uint8_t brightness = DEFAULT_BRIGHTNESS;
     uint8_t colorR = 0, colorG = 0, colorB = 0;
     withFrameLock([&]() {
+        ctx = consumePendingLedPresentationContext();
         memcpy(localFrame, runtimeFrameBits(), FRAME_BYTES);
         brightness = runtimeState().brightness;
         colorR = runtimeState().colorR;
@@ -303,11 +297,14 @@ void renderCurrentFrameToLedStrip() {
     }
     delayMicroseconds(LED_SIGNAL_RESET_US);
     const uint32_t renderStartUs = micros();
-    withHardwareBusLock([]() { leddrv::refresh(); });
+    const bool presented = withHardwareBusLock([]() { return leddrv::refresh(); });
     const uint32_t renderEndUs = micros();
     lastLedShowUs = renderEndUs;
     // The LED has now actually latched this frame: record it as the presented sample.
-    publishLedPresentedSample(ctx, renderStartUs, renderEndUs);
+    if (presented)
+        publishLedPresentedSample(ctx, renderStartUs, renderEndUs);
+    else if (leddrv::ready())
+        requestLedRender();
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
 
@@ -343,6 +340,7 @@ void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason,
     // Hand the renderer the precise identity of this frame (scroll start/step) inside the same
     // frame-lock critical section that installs the bits, so the resulting presented sample
     // always carries the right frame index.
+    clearQueuedPackedFrames();
     publishPackedFrameNow(packedBits, reason.c_str(), ctx);
     const uint16_t lit = countLitLeds(packedBits);
     RLOG_INFO("LED", "event=apply_immediate_packed reason=%s lit=%u bytes=%u brightness=%u", reason.c_str(), lit, static_cast<unsigned>(FRAME_BYTES), runtimeState().brightness);
@@ -350,7 +348,8 @@ void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason,
 
 void applyBlankFrame(const String& reason) {
     uint8_t blank[FRAME_BYTES] = {};
-    enqueuePackedFrame(blank, reason);
+    clearQueuedPackedFrames();
+    publishPackedFrameNow(blank, reason.c_str());
     RLOG_INFO("LED", "event=clear reason=%s lit=0 bytes=%u", reason.c_str(), static_cast<unsigned>(FRAME_BYTES));
 }
 

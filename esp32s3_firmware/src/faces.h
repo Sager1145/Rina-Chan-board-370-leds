@@ -17,6 +17,9 @@ void serviceDeferredFaceRestore();
 
 void stopFirmwareScroll(bool restoreAuto, bool clearDisplay = false, bool restoreDefaultAfterClear = false);
 
+// Transfer display ownership to an external frame without inserting a blank.
+void takeOverExternalFrame();
+
 void startFirmwareScroll(uint16_t intervalMs, uint8_t uiFps = 0);
 
 void serviceAutoPlayback();

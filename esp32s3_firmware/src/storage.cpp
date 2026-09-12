@@ -114,11 +114,12 @@ bool saveRuntimeSettings() {
         Serial.println("Failed to ensure /resources for runtime settings");
         return false;
     }
-    DynamicJsonDocument doc(384);
+    DynamicJsonDocument doc(512);
     doc["format"] = "rina_runtime_settings_v1";
     doc["version"] = 1;
     doc["mode"] = runtimeState().mode;
     doc["autoIntervalMs"] = runtimeState().autoIntervalMs;
+    doc["deviceName"] = runtimeState().deviceName;
     doc["updatedAtMs"] = millis();
     size_t written = 0;
     String error;
@@ -140,7 +141,7 @@ bool loadRuntimeSettings() {
         saveRuntimeSettings();
         return false;
     }
-    DynamicJsonDocument doc(768);
+    DynamicJsonDocument doc(1024);
     DeserializationError err = deserializeJson(doc, fileContent, DeserializationOption::NestingLimit(8));
     if (err) {
         Serial.printf("runtime_settings.json parse failed: %s\n", err.c_str());
@@ -153,7 +154,15 @@ bool loadRuntimeSettings() {
         setMode(DEFAULT_MODE, false);
     if (doc["autoIntervalMs"].is<uint32_t>())
         setAutoInterval(doc["autoIntervalMs"].as<uint32_t>(), false);
-    Serial.printf("Runtime settings loaded: mode=%s autoIntervalMs=%lu\n", runtimeState().mode.c_str(), static_cast<unsigned long>(runtimeState().autoIntervalMs));
+    // Empty/absent means "fall back to the MAC-derived default" — no validation
+    // needed here beyond the length cap the setter already enforced on write.
+    runtimeState().deviceName = doc["deviceName"] | "";
+    if (runtimeState().deviceName.length() > MAX_DEVICE_NAME_BYTES)
+        runtimeState().deviceName = "";
+    Serial.printf("Runtime settings loaded: mode=%s autoIntervalMs=%lu deviceName=%s\n",
+                  runtimeState().mode.c_str(),
+                  static_cast<unsigned long>(runtimeState().autoIntervalMs),
+                  runtimeState().deviceName.length() ? runtimeState().deviceName.c_str() : "<default>");
     return true;
 }
 

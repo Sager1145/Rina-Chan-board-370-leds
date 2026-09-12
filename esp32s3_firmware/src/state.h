@@ -27,6 +27,10 @@ struct RuntimeState {
     uint8_t brightness = DEFAULT_BRIGHTNESS;
     String mode = DEFAULT_MODE;
     String playback = DEFAULT_PLAYBACK;
+    // User-visible board name. Empty means "use the MAC-derived default"
+    // (RinaBoard-AABBCCDDEEFF); see bleTransportDeviceName(). Core-0 cooperative state,
+    // persisted in runtime_settings.json.
+    String deviceName;
     char lastReason[PACKED_FRAME_REASON_CHARS] = "boot";
     bool paused = false;
 
@@ -53,6 +57,7 @@ struct RuntimeState {
     bool firmwareScrollUserPaused = false;
     bool firmwareScrollSystemPaused = false;
     bool restoreAutoAfterScroll = false;
+    bool scrollLoop = true;
     uint16_t scrollFrameCount = 0;
     uint16_t scrollFrameIndex = 0;
     uint16_t scrollIntervalMs = DEFAULT_SCROLL_INTERVAL_MS;

@@ -19,6 +19,26 @@ static bool sLogEnabled = true;
 static RinaLogLevel sLogLevel = RINA_LOG_INFO;
 static RinaLogSink sLogSink = nullptr;
 
+// Both physical sinks get an independent bounded FIFO. Log traffic may use
+// only the non-reserved portion; console replies can consume the reserve so a
+// `status` response remains observable during a TRACE burst.
+static constexpr size_t SERIAL_TX_QUEUE_BYTES = 2048;
+static constexpr size_t SERIAL_TX_CONSOLE_RESERVE = 768;
+static constexpr size_t SERIAL_TX_PUMP_BUDGET = 128;
+
+struct SerialTxQueue {
+    uint8_t bytes[SERIAL_TX_QUEUE_BYTES] = {};
+    size_t head = 0;
+    size_t count = 0;
+    bool pumping = false;
+};
+
+static SerialTxQueue sUsbTx;
+#if ENABLE_SERIAL_UART0_MIRROR
+static SerialTxQueue sUart0Tx;
+#endif
+static portMUX_TYPE sSerialTxMux = portMUX_INITIALIZER_UNLOCKED;
+
 void rinaLogSetSink(RinaLogSink sink) { sLogSink = sink; }
 
 static char levelChar(RinaLogLevel level) {
@@ -35,6 +55,77 @@ static char levelChar(RinaLogLevel level) {
 // Line assembly happens into a stack buffer and is flushed with a single
 // Serial.write so two cores can never interleave a partial line.
 static constexpr size_t LOG_LINE_MAX = 240;
+
+static bool enqueueSerialBytes(SerialTxQueue& queue, const uint8_t* data, size_t len,
+                               size_t reserve) {
+    if (!data || len == 0 || len > SERIAL_TX_QUEUE_BYTES)
+        return false;
+    bool accepted = false;
+    portENTER_CRITICAL(&sSerialTxMux);
+    const size_t freeBytes = SERIAL_TX_QUEUE_BYTES - queue.count;
+    if (freeBytes >= len && freeBytes - len >= reserve) {
+        size_t tail = (queue.head + queue.count) % SERIAL_TX_QUEUE_BYTES;
+        for (size_t i = 0; i < len; ++i) {
+            queue.bytes[tail] = data[i];
+            tail = (tail + 1) % SERIAL_TX_QUEUE_BYTES;
+        }
+        queue.count += len;
+        accepted = true;
+    }
+    portEXIT_CRITICAL(&sSerialTxMux);
+    return accepted;
+}
+
+template <typename Port>
+static void pumpSerialQueue(SerialTxQueue& queue, Port& port) {
+    uint8_t chunk[SERIAL_TX_PUMP_BUDGET];
+    size_t requested = 0;
+
+    portENTER_CRITICAL(&sSerialTxMux);
+    if (!queue.pumping && queue.count > 0) {
+        queue.pumping = true;
+        requested = queue.count < sizeof(chunk) ? queue.count : sizeof(chunk);
+        for (size_t i = 0; i < requested; ++i)
+            chunk[i] = queue.bytes[(queue.head + i) % SERIAL_TX_QUEUE_BYTES];
+    }
+    portEXIT_CRITICAL(&sSerialTxMux);
+    if (requested == 0)
+        return;
+
+    const int available = port.availableForWrite();
+    size_t writable = available > 0 ? static_cast<size_t>(available) : 0;
+    if (writable > requested)
+        writable = requested;
+    const size_t written = writable > 0 ? port.write(chunk, writable) : 0;
+
+    portENTER_CRITICAL(&sSerialTxMux);
+    const size_t consumed = written < requested ? written : requested;
+    queue.head = (queue.head + consumed) % SERIAL_TX_QUEUE_BYTES;
+    queue.count -= consumed;
+    queue.pumping = false;
+    portEXIT_CRITICAL(&sSerialTxMux);
+}
+
+static void enqueueMirrored(const uint8_t* data, size_t len, bool consolePriority) {
+    const size_t reserve = consolePriority ? 0 : SERIAL_TX_CONSOLE_RESERVE;
+#if ENABLE_SERIAL_UART0_MIRROR
+    enqueueSerialBytes(sUart0Tx, data, len, reserve);
+#endif
+#if ARDUINO_USB_CDC_ON_BOOT
+    if (Serial)
+#endif
+        enqueueSerialBytes(sUsbTx, data, len, reserve);
+}
+
+static void pumpMirrored() {
+#if ENABLE_SERIAL_UART0_MIRROR
+    pumpSerialQueue(sUart0Tx, Serial0);
+#endif
+#if ARDUINO_USB_CDC_ON_BOOT
+    if (Serial)
+#endif
+        pumpSerialQueue(sUsbTx, Serial);
+}
 
 void rinaLogInit() {
     rinaSerialInit();
@@ -93,9 +184,21 @@ bool rinaLogShouldEmit(RinaLogLevel level) {
 }
 
 void rinaSerialInit() {
+#if ARDUINO_USB_CDC_ON_BOOT
+    // Diagnostics must never be able to stall the board. The native USB CDC
+    // only drains while a host actually has the port open; when the port is
+    // merely powered (or the host app closed it) its TX ring fills and a
+    // blocking write() parks the calling task forever. A zero timeout turns
+    // that into a dropped line instead of a hang.
+    Serial.setTxTimeoutMs(0);
+#endif
 #if ENABLE_SERIAL_UART0_MIRROR
     static bool started = false;
     if (!started) {
+        // Keep the driver TX ring disabled. pumpSerialQueue() writes no more
+        // than the hardware FIFO reports free, so UART output never waits for
+        // a full 240-byte log line to shift at 115200 baud.
+        Serial0.setTxBufferSize(0);
         Serial0.begin(115200);
         started = true;
     }
@@ -103,12 +206,9 @@ void rinaSerialInit() {
 }
 
 void rinaSerialWrite(const uint8_t* data, size_t len) {
-    if (!data || len == 0)
-        return;
-    Serial.write(data, len);
-#if ENABLE_SERIAL_UART0_MIRROR
-    Serial0.write(data, len);
-#endif
+    if (data && len > 0)
+        enqueueMirrored(data, len, true);
+    pumpMirrored();
 }
 
 void rinaLogEmit(RinaLogLevel level, const char* category, const char* fmt, ...) {
@@ -148,7 +248,10 @@ void rinaLogEmit(RinaLogLevel level, const char* category, const char* fmt, ...)
         buf[sizeof(buf) - 1] = '\n';
         n = sizeof(buf);
     }
-    rinaSerialWrite(reinterpret_cast<const uint8_t*>(buf), static_cast<size_t>(n));
+    // Logs are best-effort. Keep a reserve for command replies, and pump only
+    // bytes that each transport reports writable right now.
+    enqueueMirrored(reinterpret_cast<const uint8_t*>(buf), static_cast<size_t>(n), false);
+    pumpMirrored();
 }
 
 bool rinaLogRateReady(uint32_t& lastMs, uint32_t intervalMs) {

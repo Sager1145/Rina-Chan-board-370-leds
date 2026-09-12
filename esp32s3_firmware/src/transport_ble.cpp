@@ -3,13 +3,17 @@
 #ifndef RINALINK_NO_BLE
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <NimBLEDevice.h>
 #include <esp_mac.h>
 #include <stdio.h>
 #include <string.h>
+#include <string>
 
 #include "config.h"
+#include "ble_frame_sender.h"
 #include "serial_log.h"
+#include "state.h"
 #include "transport.h"
 
 // =============================================================================
@@ -32,14 +36,12 @@ constexpr char INFO_UUID[]    = "52494E41-0004-4C49-4E4B-000000000001";
 
 constexpr uint16_t DEFAULT_ATT_MTU = 23; // Pre-negotiation NimBLE default.
 constexpr uint16_t REQUESTED_MTU   = 255;
-constexpr uint8_t  NOTIFY_MAX_RETRIES = 3;
 
 class BleTransport : public rinalink::ITransport {
 public:
     rinalink::Carrier carrier() const override { return rinalink::Carrier::Ble; }
 
     bool send(rinalink::ClientId id, const uint8_t* data, size_t len, bool isEvent = false) override {
-        (void)isEvent;
         uint16_t connHandle;
         uint16_t mtu;
         rinalink::ClientId activeId;
@@ -57,32 +59,37 @@ public:
 
         const size_t chunk = (mtu > 3) ? static_cast<size_t>(mtu - 3) : 20;
         const size_t sliceCount = (len + chunk - 1) / chunk;
-        size_t offset = 0;
-        size_t sliceIndex = 0;
-        while (offset < len) {
-            const size_t n = min(chunk, len - offset);
-            bool ok = false;
-            for (uint8_t attempt = 0; attempt < NOTIFY_MAX_RETRIES; attempt++) {
-                ok = mTx->notify(data + offset, n, connHandle);
-                if (ok)
-                    break;
-                delay(2);
-            }
-            if (!ok) {
-                RLOG_WARN("BLE", "event=notify_failed offset=%u len=%u", static_cast<unsigned>(offset), static_cast<unsigned>(len));
-                return false;
-            }
-            offset += n;
-            ++sliceIndex;
-            if (sliceCount > 4 && sliceIndex < sliceCount)
-                delay(2); // Pace multi-slice bursts so the controller queue does not overrun.
-            // Re-check connection state between slices; the peer may drop mid-send.
-            portENTER_CRITICAL(&mMux);
-            const bool stillConnected = mConnected && mClientId.slot == id.slot;
-            portEXIT_CRITICAL(&mMux);
-            if (!stillConnected)
-                return false;
+        const auto result = rinalink::sendBleFrame(
+            data, len, chunk, isEvent,
+            [&](const uint8_t* bytes, size_t count) {
+                return mTx->notify(bytes, count, connHandle);
+            },
+            [&]() {
+                portENTER_CRITICAL(&mMux);
+                const bool active = mConnected && mClientId.slot == id.slot &&
+                                    mConnHandle == connHandle;
+                portEXIT_CRITICAL(&mMux);
+                return active;
+            },
+            [](uint32_t ms) { delay(ms); },
+            []() { return millis(); });
+        if (!result.complete) {
+            // Once a header/partial payload has been sent, dropping the rest
+            // would make the next frame part of that payload. Close the stream
+            // on terminal failure even for events; zero-byte events can drop.
+            if (result.bytesSent > 0)
+                rinalink::transportUnregisterClient(id);
+            if (!isEvent)
+                RLOG_DEBUG("BLE", "event=notify_failed offset=%u len=%u",
+                       static_cast<unsigned>(result.bytesSent), static_cast<unsigned>(len));
+            return false;
         }
+        // Event delivery must not itself generate another EV_LOG indefinitely.
+        if (!isEvent)
+            RLOG_DEBUG("BLE", "event=tx_frame handle=%u slot=%u bytes=%u slices=%u mtu=%u kind=%s",
+                   static_cast<unsigned>(connHandle), static_cast<unsigned>(id.slot),
+                   static_cast<unsigned>(len), static_cast<unsigned>(sliceCount),
+                   static_cast<unsigned>(mtu), isEvent ? "event" : "reply");
         return true;
     }
 
@@ -129,10 +136,25 @@ public:
     }
 
     // --- Callback-side hooks (run on the NimBLE host task) ------------------
-    void onPeerConnected(uint16_t connHandle) {
+    void onPeerConnected(NimBLEConnInfo& connInfo) {
+        const uint16_t connHandle = connInfo.getConnHandle();
+        const std::string peerAddress = connInfo.getAddress().toString();
+        bool alreadyConnected;
+        portENTER_CRITICAL(&mMux);
+        alreadyConnected = mConnected;
+        portEXIT_CRITICAL(&mMux);
+        if (alreadyConnected) {
+            RLOG_WARN("BLE", "event=connect_rejected reason=already_connected handle=%u peer=%s",
+                      static_cast<unsigned>(connHandle), peerAddress.c_str());
+            if (mServer != nullptr)
+                mServer->disconnect(connHandle);
+            return;
+        }
+
         rinalink::ClientId newId;
         if (!rinalink::transportRegisterClient(this, rinalink::Carrier::Ble, &newId)) {
-            RLOG_WARN("BLE", "event=connect_rejected reason=no_slot handle=%u", static_cast<unsigned>(connHandle));
+            RLOG_WARN("BLE", "event=connect_rejected reason=no_slot handle=%u peer=%s",
+                      static_cast<unsigned>(connHandle), peerAddress.c_str());
             if (mServer != nullptr)
                 mServer->disconnect(connHandle);
             return;
@@ -144,15 +166,23 @@ public:
         mConnected = true;
         mInfoDirty = true;
         portEXIT_CRITICAL(&mMux);
-        RLOG_INFO("BLE", "event=connect handle=%u slot=%u", static_cast<unsigned>(connHandle), static_cast<unsigned>(newId.slot));
+        RLOG_INFO("BLE",
+                  "event=connect handle=%u slot=%u peer=%s interval_units=%u timeout_ms=%u mtu=%u",
+                  static_cast<unsigned>(connHandle), static_cast<unsigned>(newId.slot),
+                  peerAddress.c_str(), static_cast<unsigned>(connInfo.getConnInterval()),
+                  static_cast<unsigned>(connInfo.getConnTimeout()) * 10U,
+                  static_cast<unsigned>(connInfo.getMTU()));
         // Single central: stop advertising while a peer is connected.
         if (NimBLEDevice::getAdvertising() != nullptr)
             NimBLEDevice::getAdvertising()->stop();
     }
 
-    void onPeerDisconnected(uint16_t connHandle) {
+    void onPeerDisconnected(NimBLEConnInfo& connInfo, int reason) {
+        const uint16_t connHandle = connInfo.getConnHandle();
+        const std::string peerAddress = connInfo.getAddress().toString();
         rinalink::ClientId idToDrop;
         bool wasConnected;
+        bool shouldRestartAdvertising;
         portENTER_CRITICAL(&mMux);
         wasConnected = mConnected && mConnHandle == connHandle;
         idToDrop = mClientId;
@@ -160,33 +190,52 @@ public:
             mConnected = false;
             mMtu = DEFAULT_ATT_MTU;
         }
+        // A rejected second central also produces a disconnect callback. Keep
+        // advertising stopped while the original central is still connected.
+        shouldRestartAdvertising = !mConnected;
         portEXIT_CRITICAL(&mMux);
         if (wasConnected) {
             rinalink::transportUnregisterClient(idToDrop);
-            RLOG_INFO("BLE", "event=disconnect handle=%u slot=%u", static_cast<unsigned>(connHandle), static_cast<unsigned>(idToDrop.slot));
         }
-        portENTER_CRITICAL(&mMux);
-        mAdvertiseRestartPending = true;
-        portEXIT_CRITICAL(&mMux);
+        RLOG_INFO("BLE", "event=disconnect handle=%u slot=%d peer=%s reason=%d registered=%d",
+                  static_cast<unsigned>(connHandle), wasConnected ? static_cast<int>(idToDrop.slot) : -1,
+                  peerAddress.c_str(), reason, wasConnected ? 1 : 0);
+        if (shouldRestartAdvertising) {
+            portENTER_CRITICAL(&mMux);
+            mAdvertiseRestartPending = true;
+            portEXIT_CRITICAL(&mMux);
+        }
     }
 
-    void onMtuNegotiated(uint16_t mtu) {
+    void onMtuNegotiated(uint16_t connHandle, uint16_t mtu) {
         portENTER_CRITICAL(&mMux);
-        mMtu = mtu;
-        mInfoDirty = true;
+        const bool active = mConnected && mConnHandle == connHandle;
+        if (active) {
+            mMtu = mtu;
+            mInfoDirty = true;
+        }
         portEXIT_CRITICAL(&mMux);
-        RLOG_INFO("BLE", "event=mtu value=%u", static_cast<unsigned>(mtu));
+        if (active) {
+            RLOG_INFO("BLE", "event=mtu handle=%u value=%u",
+                      static_cast<unsigned>(connHandle), static_cast<unsigned>(mtu));
+        } else {
+            RLOG_WARN("BLE", "event=mtu_ignored handle=%u value=%u reason=inactive_connection",
+                      static_cast<unsigned>(connHandle), static_cast<unsigned>(mtu));
+        }
     }
 
-    void onRxWritten(const uint8_t* data, size_t len) {
+    void onRxWritten(uint16_t connHandle, const uint8_t* data, size_t len) {
         rinalink::ClientId activeId;
         bool connected;
         portENTER_CRITICAL(&mMux);
         activeId = mClientId;
-        connected = mConnected;
+        connected = mConnected && mConnHandle == connHandle;
         portEXIT_CRITICAL(&mMux);
-        if (!connected)
+        if (!connected) {
+            RLOG_WARN("BLE", "event=rx_ignored handle=%u bytes=%u reason=inactive_connection",
+                      static_cast<unsigned>(connHandle), static_cast<unsigned>(len));
             return;
+        }
         // BLE cannot back-pressure a single write like TCP can: if it would not
         // fit, drop it and force a resync (protocol.cpp sends the ERR(413)).
         size_t free = rinalink::transportInboundFree(activeId);
@@ -195,7 +244,11 @@ public:
             RLOG_WARN("BLE", "event=inbound_overflow len=%u free=%u", static_cast<unsigned>(len), static_cast<unsigned>(free));
             return;
         }
-        rinalink::transportPushInbound(activeId, data, len);
+        const size_t accepted = rinalink::transportPushInbound(activeId, data, len);
+        RLOG_DEBUG("BLE", "event=rx_write handle=%u slot=%u bytes=%u accepted=%u free_before=%u",
+                   static_cast<unsigned>(connHandle), static_cast<unsigned>(activeId.slot),
+                   static_cast<unsigned>(len), static_cast<unsigned>(accepted),
+                   static_cast<unsigned>(free));
     }
 
     // --- Deferred work, called from bleTransportService() on Core-0 loop() --
@@ -217,9 +270,18 @@ public:
             updateInfoCharacteristic();
 
         if (restartAdvertising && NimBLEDevice::getAdvertising() != nullptr) {
-            NimBLEDevice::getAdvertising()->start();
-            RLOG_INFO("BLE", "event=advertise_restart");
+            const bool started = NimBLEDevice::getAdvertising()->start();
+            if (started)
+                RLOG_INFO("BLE", "event=advertise_restart advertising=1");
+            else
+                RLOG_WARN("BLE", "event=advertise_restart_failed");
         }
+    }
+
+    void markInfoDirty() {
+        portENTER_CRITICAL(&mMux);
+        mInfoDirty = true;
+        portEXIT_CRITICAL(&mMux);
     }
 
 private:
@@ -230,12 +292,19 @@ private:
         portENTER_CRITICAL(&mMux);
         mtu = mMtu;
         portEXIT_CRITICAL(&mMux);
-        char json[200];
-        const int n = snprintf(json, sizeof(json),
-                                "{\"proto\":1,\"device\":\"%s\",\"fw\":\"%s\",\"mtu\":%u,\"tcpPort\":%u}",
-                                FIRMWARE_NAME, FIRMWARE_VERSION, mtu, RINALINK_TCP_PORT);
+        char name[MAX_DEVICE_NAME_BYTES + 1];
+        bleTransportDeviceName(name, sizeof(name));
+        char json[256];
+        StaticJsonDocument<256> doc;
+        doc["proto"] = 1;
+        doc["device"] = FIRMWARE_NAME;
+        doc["name"] = name;
+        doc["fw"] = FIRMWARE_VERSION;
+        doc["mtu"] = mtu;
+        doc["tcpPort"] = RINALINK_TCP_PORT;
+        const size_t n = serializeJson(doc, json, sizeof(json));
         if (n > 0)
-            mInfo->setValue(reinterpret_cast<const uint8_t*>(json), static_cast<size_t>(min(n, static_cast<int>(sizeof(json) - 1))));
+            mInfo->setValue(reinterpret_cast<const uint8_t*>(json), n);
     }
 
     mutable portMUX_TYPE mMux = portMUX_INITIALIZER_UNLOCKED;
@@ -257,49 +326,194 @@ class ServerCallbacks : public NimBLEServerCallbacks {
 public:
     void onConnect(NimBLEServer* server, NimBLEConnInfo& connInfo) override {
         (void)server;
-        sTransport.onPeerConnected(connInfo.getConnHandle());
+        sTransport.onPeerConnected(connInfo);
     }
 
     void onDisconnect(NimBLEServer* server, NimBLEConnInfo& connInfo, int reason) override {
         (void)server;
-        (void)reason;
-        sTransport.onPeerDisconnected(connInfo.getConnHandle());
+        sTransport.onPeerDisconnected(connInfo, reason);
     }
 
     void onMTUChange(uint16_t mtu, NimBLEConnInfo& connInfo) override {
-        (void)connInfo;
-        sTransport.onMtuNegotiated(mtu);
+        sTransport.onMtuNegotiated(connInfo.getConnHandle(), mtu);
     }
 };
 
 class RxCallbacks : public NimBLECharacteristicCallbacks {
 public:
     void onWrite(NimBLECharacteristic* characteristic, NimBLEConnInfo& connInfo) override {
-        (void)connInfo;
         // NimBLECharacteristic::getValue() returns NimBLEAttValue in 2.x (was
         // std::string in 1.x); `auto` keeps this compatible with either.
         const auto value = characteristic->getValue();
         if (value.size() > 0)
-            sTransport.onRxWritten(reinterpret_cast<const uint8_t*>(value.data()), value.size());
+            sTransport.onRxWritten(connInfo.getConnHandle(),
+                                   reinterpret_cast<const uint8_t*>(value.data()), value.size());
     }
 };
 
 ServerCallbacks sServerCallbacks;
 RxCallbacks sRxCallbacks;
 
-// Build the advertised local name: "RinaBoard-XXXX" from the last two bytes
-// of the Bluetooth MAC address (uppercase hex), read before NimBLEDevice::init.
-void buildDeviceName(char* out, size_t outLen) {
+// Build the factory-default advertised local name: "RinaBoard-AABBCCDDEEFF"
+// from all six bytes of the public Bluetooth MAC address (uppercase hex).
+// The result is 22 bytes, so it fits as a complete local name in the 31-byte
+// scan response and retains the board's full stable hardware identity.
+void buildDefaultDeviceName(char* out, size_t outLen) {
     uint8_t mac[6] = {0};
-    esp_read_mac(mac, ESP_MAC_BT);
-    snprintf(out, outLen, "RinaBoard-%02X%02X", mac[4], mac[5]);
+    const esp_err_t result = esp_read_mac(mac, ESP_MAC_BT);
+    if (result != ESP_OK)
+        RLOG_ERROR("BLE", "event=mac_read_failed code=%d", static_cast<int>(result));
+    snprintf(out, outLen, "RinaBoard-%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+// Longest prefix of `s` that is <= maxBytes and does not split a UTF-8
+// sequence. Returns the byte length to keep. Names are user-supplied and may be
+// CJK, so a blind memcpy of maxBytes could emit an invalid trailing fragment.
+size_t utf8SafePrefixLen(const char* s, size_t maxBytes) {
+    const size_t len = strlen(s);
+    if (len <= maxBytes)
+        return len;
+    size_t cut = maxBytes;
+    // Walk back off any continuation byte (0b10xxxxxx) to the lead byte.
+    while (cut > 0 && (static_cast<unsigned char>(s[cut]) & 0xC0) == 0x80)
+        --cut;
+    return cut;
+}
+
+// Strict UTF-8 validation. Rejects overlong forms, surrogates and >U+10FFFF so
+// a bad name can never be written into the advertisement or persisted.
+bool isValidUtf8(const char* s) {
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(s);
+    while (*p) {
+        unsigned char c = *p;
+        uint32_t cp;
+        int extra;
+        if (c < 0x80) { cp = c; extra = 0; }
+        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; extra = 1; }
+        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; extra = 2; }
+        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; extra = 3; }
+        else return false;
+        ++p;
+        for (int i = 0; i < extra; i++) {
+            if ((*p & 0xC0) != 0x80)
+                return false;
+            cp = (cp << 6) | (*p & 0x3F);
+            ++p;
+        }
+        if (extra == 1 && cp < 0x80) return false;
+        if (extra == 2 && cp < 0x800) return false;
+        if (extra == 3 && cp < 0x10000) return false;
+        if (cp > 0x10FFFF) return false;
+        if (cp >= 0xD800 && cp <= 0xDFFF) return false;
+        // Control characters would render as garbage in the app's device list.
+        if (cp < 0x20 || cp == 0x7F) return false;
+    }
+    return true;
+}
+
+// Apply the current name to advertising. The 31-byte legacy advertising
+// payload cannot hold BOTH a 128-bit service UUID (2 + 16 = 18 bytes) and a
+// 14-byte name (2 + 14 = 16) alongside the 3-byte flags field: 37 > 31, so
+// NimBLEAdvertisementData::addData() silently rejects the name and the board
+// advertises anonymously. Keep the UUID (the app scans by it) in the primary
+// payload and put the name in the 31-byte scan response, which iOS merges into
+// CBAdvertisementDataLocalNameKey.
+bool applyAdvertisingName(const char* deviceName) {
+    NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
+    if (advertising == nullptr)
+        return false;
+
+    NimBLEAdvertisementData advData;
+    advData.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
+    const bool uuidOk = advData.setCompleteServices(NimBLEUUID(SERVICE_UUID));
+
+    NimBLEAdvertisementData scanData;
+    const bool nameOk = scanData.setName(deviceName);
+
+    const bool advOk = advertising->setAdvertisementData(advData);
+    advertising->enableScanResponse(true);
+    const bool scanOk = advertising->setScanResponseData(scanData);
+
+    RLOG_INFO("BLE",
+              "event=advertise_data name=%s nameBytes=%u uuidSet=%d nameSet=%d advSet=%d scanRspSet=%d",
+              deviceName, static_cast<unsigned>(strlen(deviceName)),
+              uuidOk ? 1 : 0, nameOk ? 1 : 0, advOk ? 1 : 0, scanOk ? 1 : 0);
+
+    if (!nameOk || !scanOk) {
+        // Loud on purpose: this is the failure mode that makes every board show
+        // up unnamed in the app, and it is otherwise completely silent.
+        RLOG_WARN("BLE", "event=advertise_name_rejected name=%s bytes=%u",
+                  deviceName, static_cast<unsigned>(strlen(deviceName)));
+    }
+    return uuidOk && nameOk && advOk && scanOk;
 }
 
 } // namespace
 
+void bleTransportDefaultDeviceName(char* out, size_t outLen) {
+    if (out == nullptr || outLen == 0)
+        return;
+    buildDefaultDeviceName(out, outLen);
+}
+
+void bleTransportDeviceName(char* out, size_t outLen) {
+    if (out == nullptr || outLen == 0)
+        return;
+    const String& custom = runtimeState().deviceName;
+    if (custom.length() > 0) {
+        const size_t keep = utf8SafePrefixLen(custom.c_str(), outLen - 1);
+        memcpy(out, custom.c_str(), keep);
+        out[keep] = '\0';
+        return;
+    }
+    buildDefaultDeviceName(out, outLen);
+}
+
+bool bleTransportSetDeviceName(const char* name, String& error) {
+    String next = (name == nullptr) ? String() : String(name);
+    next.trim();
+    if (next.length() > MAX_DEVICE_NAME_BYTES) {
+        error = String("name too long (max ") + MAX_DEVICE_NAME_BYTES + " bytes)";
+        return false;
+    }
+    if (next.length() > 0 && !isValidUtf8(next.c_str())) {
+        error = "name is not valid UTF-8";
+        return false;
+    }
+
+    runtimeState().deviceName = next;
+    sTransport.markInfoDirty();
+
+    char effective[MAX_DEVICE_NAME_BYTES + 1];
+    bleTransportDeviceName(effective, sizeof(effective));
+
+    NimBLEDevice::setDeviceName(effective);
+
+    NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
+    const bool wasAdvertising = advertising != nullptr && advertising->isAdvertising();
+    if (wasAdvertising)
+        advertising->stop();
+    applyAdvertisingName(effective);
+    // Only resume advertising if we interrupted it. While a central is
+    // connected advertising is deliberately stopped (single-central design);
+    // restarting here would let a second central connect.
+    if (wasAdvertising && !advertising->start())
+        RLOG_WARN("BLE", "event=advertise_restart_failed name=%s", effective);
+
+    RLOG_INFO("BLE", "event=device_name_set name=%s custom=%d readvertised=%d",
+              effective, next.length() ? 1 : 0, wasAdvertising ? 1 : 0);
+    return true;
+}
+
 void bleTransportBegin() {
-    char deviceName[24];
-    buildDeviceName(deviceName, sizeof(deviceName));
+    char deviceName[MAX_DEVICE_NAME_BYTES + 1];
+    bleTransportDeviceName(deviceName, sizeof(deviceName));
+
+    char defaultName[MAX_DEVICE_NAME_BYTES + 1];
+    bleTransportDefaultDeviceName(defaultName, sizeof(defaultName));
+    RLOG_INFO("BLE", "event=name_resolved effective=%s default=%s custom=%d",
+              deviceName, defaultName, runtimeState().deviceName.length() ? 1 : 0);
 
     NimBLEDevice::init(deviceName);
     NimBLEDevice::setMTU(REQUESTED_MTU);
@@ -320,25 +534,28 @@ void bleTransportBegin() {
     sTransport.setCharacteristics(server, tx, info);
 
     // Seed the INFO value before the first connection (mtu unnegotiated yet).
-    char json[200];
-    const int n = snprintf(json, sizeof(json),
-                            "{\"proto\":1,\"device\":\"%s\",\"fw\":\"%s\",\"mtu\":%u,\"tcpPort\":%u}",
-                            FIRMWARE_NAME, FIRMWARE_VERSION, DEFAULT_ATT_MTU, RINALINK_TCP_PORT);
+    char json[256];
+    StaticJsonDocument<256> doc;
+    doc["proto"] = 1;
+    doc["device"] = FIRMWARE_NAME;
+    doc["name"] = deviceName;
+    doc["fw"] = FIRMWARE_VERSION;
+    doc["mtu"] = DEFAULT_ATT_MTU;
+    doc["tcpPort"] = RINALINK_TCP_PORT;
+    const size_t n = serializeJson(doc, json, sizeof(json));
     if (n > 0)
-        info->setValue(reinterpret_cast<const uint8_t*>(json), static_cast<size_t>(min(n, static_cast<int>(sizeof(json) - 1))));
+        info->setValue(reinterpret_cast<const uint8_t*>(json), n);
 
     server->start();
 
+    applyAdvertisingName(deviceName);
     NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
-    NimBLEAdvertisementData advData;
-    advData.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
-    advData.setCompleteServices(NimBLEUUID(SERVICE_UUID));
-    advData.setName(deviceName);
-    advertising->setAdvertisementData(advData);
-    advertising->enableScanResponse(true);
-    advertising->start();
+    const bool started = advertising != nullptr && advertising->start();
+    if (!started)
+        RLOG_WARN("BLE", "event=advertise_start_failed name=%s", deviceName);
 
-    RLOG_INFO("BLE", "event=begin name=%s service=%s", deviceName, SERVICE_UUID);
+    RLOG_INFO("BLE", "event=begin name=%s service=%s advertising=%d",
+              deviceName, SERVICE_UUID, started ? 1 : 0);
 }
 
 void bleTransportService() {
@@ -349,5 +566,21 @@ void bleTransportService() {
 
 void bleTransportBegin() {}
 void bleTransportService() {}
+
+void bleTransportDeviceName(char* out, size_t outLen) {
+    if (out != nullptr && outLen > 0)
+        out[0] = '\0';
+}
+
+void bleTransportDefaultDeviceName(char* out, size_t outLen) {
+    if (out != nullptr && outLen > 0)
+        out[0] = '\0';
+}
+
+bool bleTransportSetDeviceName(const char* name, String& error) {
+    (void)name;
+    error = "BLE disabled in this build";
+    return false;
+}
 
 #endif // RINALINK_NO_BLE

@@ -21,15 +21,9 @@
 #include <Arduino.h>
 #include <stdint.h>
 #include <stddef.h>
+#include "inbound_frame.h"
 
 namespace rinalink {
-
-constexpr uint8_t  FRAME_MAGIC        = 0xA5;
-constexpr size_t   FRAME_HEADER_BYTES = 6;      // magic,type,seq,flags,len(lo),len(hi)
-constexpr uint16_t MAX_PAYLOAD_BYTES  = 4096;
-constexpr uint8_t  FLAG_MORE          = 0x01;
-constexpr uint8_t  MAX_CLIENTS        = 4;      // 2 TCP + 1 BLE + spare
-constexpr size_t   INBOUND_BUFFER_BYTES = FRAME_HEADER_BYTES + MAX_PAYLOAD_BYTES + 64;
 
 enum class Carrier : uint8_t { None = 0, Tcp = 1, Ble = 2 };
 

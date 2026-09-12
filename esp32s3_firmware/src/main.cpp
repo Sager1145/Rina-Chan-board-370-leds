@@ -7,6 +7,7 @@
 #include "storage.h"
 #include "faces.h"
 #include "scroll.h"
+#include "scroll_session.h"
 #include "buttons.h"
 #include "button_animations.h"
 #include "wifi_manager.h"
@@ -111,9 +112,12 @@ void loop() {
     tcpTransportService();
     bleTransportService();
     serviceProtocol();
+    serviceScrollSession();
     serviceRuntimeSlowStatePublish();
     serviceHardwareButtons();
     serviceSerialConsole();
+    // Drain diagnostics even in builds with the interactive console disabled.
+    rinaSerialWrite(nullptr, 0);
     serviceButtonAnimations();
     servicePowerMonitor();
     serviceDeferredFaceRestore();

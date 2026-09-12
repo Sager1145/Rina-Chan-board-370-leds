@@ -19,11 +19,28 @@
 #include "faces.h"
 #include "power_monitor.h"
 #include "serial_log.h"
+#include "transport_ble.h"
 
 namespace {
 constexpr uint16_t SERIAL_CMD_MAX = 192;
-char sLine[SERIAL_CMD_MAX];
-uint16_t sLineLen = 0;
+constexpr uint16_t SERIAL_RX_BUDGET_PER_PORT = 64;
+
+enum class SerialByteResult : uint8_t {
+    None,
+    LineReady,
+    LineTooLong,
+};
+
+struct SerialLineBuffer {
+    char bytes[SERIAL_CMD_MAX];
+    uint16_t length = 0;
+    bool discarding = false;
+};
+
+SerialLineBuffer sUsbLine;
+#if ENABLE_SERIAL_UART0_MIRROR
+SerialLineBuffer sUart0Line;
+#endif
 
 void sout(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 void sout(const char* fmt, ...) {
@@ -37,7 +54,7 @@ void sout(const char* fmt, ...) {
     if (n > static_cast<int>(sizeof(buf)) - 2)
         n = sizeof(buf) - 2;
     buf[n++] = '\n';
-    Serial.write(reinterpret_cast<const uint8_t*>(buf), n);
+    rinaSerialWrite(reinterpret_cast<const uint8_t*>(buf), n);
 }
 
 int tokenize(char* line, char** argv, int maxArgs) {
@@ -78,7 +95,13 @@ bool parsePackedHex(const char* hex, uint8_t* out) {
 
 void printStatus() {
     const FrameStateSnapshot f = readFrameStateSnapshot();
+    char bleName[MAX_DEVICE_NAME_BYTES + 1];
+    char defaultBleName[MAX_DEVICE_NAME_BYTES + 1];
+    bleTransportDeviceName(bleName, sizeof(bleName));
+    bleTransportDefaultDeviceName(defaultBleName, sizeof(defaultBleName));
     sout("=== STATUS BEGIN ===");
+    sout("STATUS bleName=%s bleDefaultName=%s bleCustomName=%d",
+         bleName, defaultBleName, runtimeState().deviceName.length() > 0 ? 1 : 0);
     sout("STATUS mode=%s playback=%s paused=%d brightness=%u color=%s", runtimeState().mode.c_str(), runtimeState().playback.c_str(), runtimeState().paused ? 1 : 0, f.brightness, f.colorHex);
     sout("STATUS faceIndex=%u faceCount=%u intervalMs=%lu", static_cast<unsigned>(runtimeState().autoFaceIndex), static_cast<unsigned>(runtimeAutoFaceCount()), static_cast<unsigned long>(runtimeState().autoIntervalMs));
     sout("STATUS frameEncoding=packed-lsb-first frameBytes=%u lit=%u queued=%u accepted=%lu lastReason=%s", static_cast<unsigned>(FRAME_BYTES), static_cast<unsigned>(f.litLeds), static_cast<unsigned>(queuedPackedFrameCount()), static_cast<unsigned long>(f.framesAccepted), f.lastReason);
@@ -122,6 +145,7 @@ void runLine(char* line) {
     }
     if (strcasecmp(argv[0], "frame") == 0 && argc >= 2) {
         if (strcasecmp(argv[1], "clear") == 0) {
+            takeOverExternalFrame();
             applyBlankFrame("serial_frame_clear");
             sout("OK frame clear");
             return;
@@ -132,6 +156,7 @@ void runLine(char* line) {
                 sout("ERR frame invalid packed hex");
                 return;
             }
+            takeOverExternalFrame();
             String error;
             if (!applyPackedFrameQueued(packed, "serial_frame_hex", error)) {
                 sout("ERR frame %s", error.c_str());
@@ -185,29 +210,61 @@ void runLine(char* line) {
     }
     sout("ERR unknown command; type help");
 }
+
+SerialByteResult acceptSerialByte(SerialLineBuffer& line, char c) {
+    if (c == '\r')
+        return SerialByteResult::None;
+    if (c == '\n') {
+        if (line.discarding) {
+            line.discarding = false;
+            line.length = 0;
+            return SerialByteResult::LineTooLong;
+        }
+        line.bytes[line.length] = '\0';
+        return SerialByteResult::LineReady;
+    }
+    if (line.discarding)
+        return SerialByteResult::None;
+    if (line.length + 1 < SERIAL_CMD_MAX) {
+        line.bytes[line.length++] = c;
+    } else {
+        // Discard the entire physical line. Resetting length alone would allow
+        // its suffix to become a separate command at the following newline.
+        line.length = 0;
+        line.discarding = true;
+    }
+    return SerialByteResult::None;
+}
+
+void serviceSerialInput(Stream& input, SerialLineBuffer& line) {
+    uint16_t remaining = SERIAL_RX_BUDGET_PER_PORT;
+    while (remaining > 0 && input.available() > 0) {
+        --remaining;
+        const char c = static_cast<char>(input.read());
+        const SerialByteResult result = acceptSerialByte(line, c);
+        if (result == SerialByteResult::LineReady) {
+            runLine(line.bytes);
+            line.length = 0;
+        } else if (result == SerialByteResult::LineTooLong) {
+            sout("ERR command too long");
+        }
+    }
+}
 } // namespace
 
 void initSerialConsole() {
-    sLineLen = 0;
+    sUsbLine = SerialLineBuffer{};
+#if ENABLE_SERIAL_UART0_MIRROR
+    sUart0Line = SerialLineBuffer{};
+#endif
     sout("Serial console ready. Type help.");
 }
 
 void serviceSerialConsole() {
-    while (Serial.available() > 0) {
-        const char c = static_cast<char>(Serial.read());
-        if (c == '\r')
-            continue;
-        if (c == '\n') {
-            sLine[sLineLen] = '\0';
-            runLine(sLine);
-            sLineLen = 0;
-            continue;
-        }
-        if (sLineLen + 1 < SERIAL_CMD_MAX)
-            sLine[sLineLen++] = c;
-        else
-            sLineLen = 0;
-    }
+    serviceSerialInput(Serial, sUsbLine);
+#if ENABLE_SERIAL_UART0_MIRROR
+    serviceSerialInput(Serial0, sUart0Line);
+#endif
 }
 
 #else
