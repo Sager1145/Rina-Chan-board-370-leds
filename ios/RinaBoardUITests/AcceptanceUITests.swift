@@ -59,7 +59,7 @@ final class AcceptanceUITests: XCTestCase {
 
     func testFiveTabsRemainReachableOfflineAndAfterBackgroundReturn() {
         launch()
-        for tab in ["文字", "口型", "演出", "设置", "控制"] {
+        for tab in ["文字滚动", "嘴形识别", "演出", "设定", "表情显示"] {
             let item = app.tabBars.buttons[tab]
             XCTAssertTrue(item.waitForExistence(timeout: 3))
             item.tap()
@@ -71,7 +71,7 @@ final class AcceptanceUITests: XCTestCase {
         XCTAssertTrue(reach(clearFrame), "The restored Control commands were not reachable")
         XCUIDevice.shared.press(.home)
         app.activate()
-        let control = app.tabBars.buttons["控制"]
+        let control = app.tabBars.buttons["表情显示"]
         XCTAssertTrue(control.waitForExistence(timeout: 5))
         XCTAssertTrue(control.isSelected)
     }

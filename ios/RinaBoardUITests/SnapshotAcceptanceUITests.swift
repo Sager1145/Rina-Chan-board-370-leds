@@ -72,7 +72,7 @@ final class SnapshotAcceptanceUITests: XCTestCase {
 
     func testFiveTabsAndOfflineSendGate() {
         launch("control")
-        for label in ["文字", "口型", "演出", "设置", "控制"] {
+        for label in ["文字滚动", "嘴形识别", "演出", "设定", "表情显示"] {
             let tab = app.tabBars.buttons[label]
             tab.tap()
             XCTAssertTrue(tab.isSelected)
@@ -82,7 +82,7 @@ final class SnapshotAcceptanceUITests: XCTestCase {
         XCTAssertFalse(send.isEnabled)
         XCUIDevice.shared.press(.home)
         app.activate()
-        XCTAssertTrue(app.tabBars.buttons["控制"].isSelected)
+        XCTAssertTrue(app.tabBars.buttons["表情显示"].isSelected)
     }
 
     func testDebugCancelDestructiveDialogAndReplayBootLocally() {

@@ -41,12 +41,18 @@ public final class BoardConnection {
         }
     }
     public private(set) var transportKind: TransportKind?
+    /// The active board's effective advertised name, read from `get_info`.
+    /// It is deliberately scoped to the current connection generation.
+    public private(set) var deviceName: String?
 
     public private(set) var status: DeviceStatus?
     public private(set) var preview: PreviewSync?
     public private(set) var power: PowerStatus?
     public private(set) var wifi: WifiStatus?
-    public private(set) var currentFrame: PackedFrame = PackedFrame()
+    public private(set) var currentFrame: PackedFrame = PackedFrame() {
+        didSet { hasCurrentFrame = true }
+    }
+    public private(set) var hasCurrentFrame = false
     public private(set) var lastError: String?
     public private(set) var lastLog: RinaLogEvent?
     public private(set) var lastWifiScan: WifiScanReply?
@@ -68,7 +74,11 @@ public final class BoardConnection {
     private var reconnectTask: Task<Void, Never>?
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 5
-    private var needsSubscriptionRestore = false
+    private var transportSessionID = UUID()
+    private var isEstablishing = false
+    private var establishmentError: String?
+    private var reconnectDelay: (Int) -> TimeInterval = { min(30, pow(2, Double($0))) }
+    private var handshakeTimeout: TimeInterval = 5
 
     // Rate limiting (FEATURE_INVENTORY D6): frames >=20ms apart depth 6 drop-oldest,
     // commands >=120ms apart depth 4 drop-oldest.
@@ -116,131 +126,162 @@ public final class BoardConnection {
 
     public init() {}
 
+    init(reconnectDelay: @escaping (Int) -> TimeInterval, handshakeTimeout: TimeInterval = 5) {
+        self.reconnectDelay = reconnectDelay
+        self.handshakeTimeout = handshakeTimeout
+    }
+
     // MARK: Connection lifecycle
 
     /// Swaps in `transport` as the active transport and connects it. Returns
-    /// `true` once `connectionState == .connected`, `false` on failure — kept
+    /// `true` after the handshake and initial snapshot reads, `false` on failure — kept
     /// `@discardableResult` so existing call sites that only poll
     /// `connectionState` afterwards keep working unmodified.
     @discardableResult
     public func connect(using transport: RinaTransport) async -> Bool {
+        disconnect()
         output.invalidate()
         connectionGeneration = UUID()
-        needsSubscriptionRestore = false
-        status = nil; power = nil; wifi = nil; preview = nil
-        reconnectTask?.cancel()
-        pingTask?.cancel()
-        // A5: cancel the old state/incoming tasks *before* disconnecting the
-        // old transport, so a stray state/incoming event emitted synchronously
-        // from `disconnect()` can't race the new transport's setup below.
-        stateTask?.cancel()
-        incomingTask?.cancel()
-        self.transport?.disconnect()
-        failAllPending(RinaTransportError.cancelled)
-
+        clearBoardSnapshot()
+        lastError = nil
+        reconnectAttempts = 0
         self.transport = transport
-        self.transportKind = transport.kind
-        connectionState = .connecting
-        let attemptGeneration = connectionGeneration
-        decoder.reset()
+        transportKind = transport.kind
+        return await establish(transport)
+    }
 
+    /// Each attempt gets fresh streams and a token, including attempts that
+    /// reuse the same BLETransport object. Queued callbacks from older streams
+    /// cannot change the new connection's state or feed its decoder.
+    private func establish(_ transport: RinaTransport) async -> Bool {
+        let session = UUID()
+        transportSessionID = session
+        isEstablishing = true
+        establishmentError = nil
+        connectionState = .connecting
+        decoder.reset()
+        let states = transport.stateStream()
+        let incoming = transport.incomingStream()
         stateTask = Task { [weak self] in
-            guard let self else { return }
-            for await state in transport.stateStream() {
-                await self.handleTransportState(state)
+            for await state in states {
+                guard let self, !Task.isCancelled, self.transportSessionID == session else { return }
+                self.handleTransportState(state)
             }
         }
-
         incomingTask = Task { [weak self] in
-            guard let self else { return }
-            for await data in transport.incomingStream() {
+            for await data in incoming {
+                guard let self, !Task.isCancelled, self.transportSessionID == session else { return }
                 await self.handleIncoming(data)
             }
         }
-
         do {
             try await transport.connect()
-            guard self.transport === transport,
-                  connectionGeneration == attemptGeneration else { return false }
+            try Task.checkCancellation()
+            guard transportSessionID == session else { return false }
+            if let establishmentError { throw RinaTransportError.underlying(establishmentError) }
+            // A carrier connection alone does not prove notifications and the
+            // framed protocol work. Keep the UI connecting until PING replies.
+            _ = try await sendUnqueued(type: .ping, payload: Data(), timeout: handshakeTimeout,
+                                       aggregateMore: true, duringSetup: true)
+            try Task.checkCancellation()
+            guard transportSessionID == session else { return false }
+            _ = await subscribeToDefaultEvents(duringSetup: true)
+            guard transportSessionID == session else { return false }
+            await refreshBoardSnapshot(session: session)
+            try Task.checkCancellation()
+            guard transportSessionID == session else { return false }
+            if let establishmentError { throw RinaTransportError.underlying(establishmentError) }
+            isEstablishing = false
             reconnectAttempts = 0
-            // A5: set the terminal state explicitly instead of waiting for the
-            // transport's own state stream to catch up, so callers awaiting
-            // `connect(using:)` never observe a stale `.connecting` state.
+            lastError = nil
             connectionState = .connected
+            let generation = connectionGeneration
             startPingLoopIfNeeded()
-            // Make the default event subscriptions explicit rather than relying
-            // on firmware defaults.
-            let subscribed = await subscribeToDefaultEvents()
-            guard self.transport === transport,
-                  connectionGeneration == attemptGeneration else { return false }
-            needsSubscriptionRestore = !subscribed
-            return true
+            await refreshDeviceName(for: transport, generation: generation)
+            try Task.checkCancellation()
+            return transportSessionID == session && connectionState == .connected
         } catch {
-            guard self.transport === transport,
-                  connectionGeneration == attemptGeneration else { return false }
-            connectionState = .failed(String(describing: error))
+            guard transportSessionID == session else { return false }
+            if Task.isCancelled || error is CancellationError {
+                disconnect()
+            } else {
+                connectionFailed(error.localizedDescription)
+            }
             return false
         }
     }
 
-    public func disconnect() {
-        reconnectTask?.cancel()
-        pingTask?.cancel()
+    private func stopCarrier() {
+        transportSessionID = UUID()
+        isEstablishing = false
+        clearBoardSnapshot()
         stateTask?.cancel()
         incomingTask?.cancel()
-        transport?.disconnect()
-        transport = nil
-        connectionState = .disconnected
+        pingTask?.cancel()
+        decoder.reset()
         failAllPending(RinaTransportError.notConnected)
+        transport?.disconnect()
     }
 
-    private func handleTransportState(_ state: TransportState) async {
+    public func disconnect() {
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        stopCarrier()
+        transport = nil
+        lastError = nil
+        deviceName = nil
+        connectionState = .disconnected
+    }
+
+    private func handleTransportState(_ state: TransportState) {
         switch state {
-        case .idle, .connecting:
-            connectionState = .connecting
-        case .connected:
-            connectionState = .connected
-            reconnectAttempts = 0
-            if needsSubscriptionRestore {
-                needsSubscriptionRestore = false
-                startPingLoopIfNeeded()
-                let activeTransport = transport
-                let generation = connectionGeneration
-                let subscribed = await subscribeToDefaultEvents()
-                if self.transport === activeTransport,
-                   connectionGeneration == generation {
-                    needsSubscriptionRestore = !subscribed
-                }
-            }
+        case .idle, .connecting, .connected:
+            // establish() owns readiness; transport callbacks only report the
+            // carrier, before the protocol handshake is complete.
+            break
         case .disconnected:
-            needsSubscriptionRestore = true
-            connectionState = .disconnected
-            failAllPending(RinaTransportError.notConnected)
-            attemptReconnect()
+            if isEstablishing {
+                establishmentError = RinaTransportError.notConnected.localizedDescription
+                failAllPending(RinaTransportError.notConnected)
+            } else {
+                connectionFailed(RinaTransportError.notConnected.localizedDescription)
+            }
         case .failed(let message):
-            needsSubscriptionRestore = true
-            connectionState = .failed(message)
-            lastError = message
-            failAllPending(RinaTransportError.underlying(message))
-            attemptReconnect()
+            if isEstablishing {
+                establishmentError = message
+                failAllPending(RinaTransportError.underlying(message))
+            } else {
+                connectionFailed(message)
+            }
         }
+    }
+
+    private func connectionFailed(_ message: String) {
+        stopCarrier()
+        deviceName = nil
+        lastError = message
+        connectionState = .failed(message)
+        attemptReconnect()
     }
 
     private func attemptReconnect() {
         guard let transport else { return }
         guard reconnectAttempts < maxReconnectAttempts else {
-            connectionState = .failed("重连失败，已达到最大尝试次数")
+            connectionState = .failed("重连失败，已达到最大尝试次数：" + (lastError ?? ""))
             return
         }
         reconnectTask?.cancel()
         reconnectAttempts += 1
         let attempt = reconnectAttempts
         connectionState = .reconnecting(attempt: attempt)
-        let delay = min(30.0, pow(2.0, Double(attempt)))
-        reconnectTask = Task {
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            try? await transport.connect()
+        let session = transportSessionID
+        reconnectTask = Task { [weak self] in
+            guard let self else { return }
+            do { try await Task.sleep(for: .seconds(self.reconnectDelay(attempt))) }
+            catch { return }
+            guard !Task.isCancelled, self.transportSessionID == session else { return }
+            self.reconnectTask = nil
+            _ = await self.establish(transport)
         }
     }
 
@@ -264,7 +305,14 @@ public final class BoardConnection {
                 // this loop was started, rather than pinging a stale one.
                 guard self.transport === activeTransport else { return }
                 guard self.connectionState == .connected else { continue }
-                _ = try? await self.send(type: .ping, payload: Data(), timeout: 5)
+                let session = self.transportSessionID
+                do {
+                    _ = try await self.send(type: .ping, payload: Data(), timeout: 5)
+                } catch {
+                    guard !Task.isCancelled, self.transportSessionID == session else { return }
+                    self.connectionFailed(error.localizedDescription)
+                    return
+                }
             }
         }
     }
@@ -316,10 +364,54 @@ public final class BoardConnection {
         }
     }
 
-    private func subscribeToDefaultEvents() async -> Bool {
+    private func clearBoardSnapshot() {
+        status = nil
+        preview = nil
+        power = nil
+        wifi = nil
+        currentFrame = PackedFrame()
+        hasCurrentFrame = false
+        deviceName = nil
+    }
+
+    /// Read a snapshot even when the firmware has no new events to publish.
+    /// Each read is independent so an unsupported preview does not hide status.
+    private func refreshBoardSnapshot(session: UUID) async {
+        for type: RinaLinkMessageType in [.getStatus, .getFrame, .getPreviewSync] {
+            guard !Task.isCancelled, transportSessionID == session else { return }
+            guard let frame = try? await sendUnqueued(type: type, payload: Data(),
+                                                      timeout: handshakeTimeout, aggregateMore: true,
+                                                      duringSetup: true) else { continue }
+            guard !Task.isCancelled, transportSessionID == session else { return }
+            switch type {
+            case .getStatus:
+                if let decoded = try? JSONDecoder().decode(DeviceStatus.self, from: frame.payload) {
+                    applyStatus(decoded)
+                }
+            case .getFrame:
+                if let packed = PackedFrame(data: frame.payload) { currentFrame = packed }
+            case .getPreviewSync:
+                if let decoded = try? JSONDecoder().decode(PreviewSync.self, from: frame.payload) {
+                    preview = decoded
+                    emit(.previewSync(decoded))
+                }
+            default: break
+            }
+        }
+    }
+
+    private func applyStatus(_ decoded: DeviceStatus) {
+        status = decoded
+        if let value = decoded.power { power = value }
+        if let value = decoded.wifi { wifi = value }
+        emit(.status(decoded))
+    }
+
+    private func subscribeToDefaultEvents(duringSetup: Bool = false) async -> Bool {
         do {
             let payload = try RinaCommand.subscribe(preview: true, status: true, power: true, log: false).encode()
-            let frame = try await send(type: .cmd, payload: payload)
+            let frame = try await sendUnqueued(type: .cmd, payload: payload, timeout: handshakeTimeout,
+                                              aggregateMore: true, duringSetup: duringSetup)
             return try JSONDecoder().decode(CommandReply.self, from: frame.payload).ok
         } catch {
             return false
@@ -347,8 +439,7 @@ public final class BoardConnection {
                 return
             case .evStatus:
                 if let decoded = try? JSONDecoder().decode(DeviceStatus.self, from: frame.payload) {
-                    status = decoded
-                    emit(.status(decoded))
+                    applyStatus(decoded)
                 }
                 return
             case .evPower:
@@ -465,9 +556,9 @@ public final class BoardConnection {
         return try await sendUnqueued(type: type, payload: payload, timeout: timeout, aggregateMore: aggregateMore)
     }
 
-    private func sendUnqueued(type: RinaLinkMessageType, payload: Data, timeout: TimeInterval, aggregateMore: Bool) async throws -> RinaLinkFrame {
+    private func sendUnqueued(type: RinaLinkMessageType, payload: Data, timeout: TimeInterval, aggregateMore: Bool, duringSetup: Bool = false) async throws -> RinaLinkFrame {
         try Task.checkCancellation()
-        guard connectionState == .connected, let transport else { throw RinaTransportError.notConnected }
+        guard connectionState == .connected || (duringSetup && isEstablishing), let transport else { throw RinaTransportError.notConnected }
         let seq = nextSequenceNumber()
         let requestID = UUID()
         let data = RinaLinkEncoder.encode(type: type, seq: seq, payload: payload)
@@ -534,21 +625,51 @@ public final class BoardConnection {
         let token = BoardOutputContext.session
         return try await commandPump.run { @MainActor in
             if let token { try self.output.check(token) }
+            let generation = self.connectionGeneration
+            guard let activeTransport = self.transport else {
+                throw RinaTransportError.notConnected
+            }
             let payload = try cmd.encode()
             let frame = try await BoardOutputContext.$session.withValue(token) {
                 try await self.send(type: .cmd, payload: payload)
             }
             let reply = try JSONDecoder().decode(CommandReply.self, from: frame.payload)
             guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)") }
+            self.updateDeviceName(from: reply, for: cmd, transport: activeTransport, generation: generation)
             return reply
         }
     }
 
+    private func refreshDeviceName(for transport: RinaTransport, generation: UUID) async {
+        guard self.transport === transport,
+              connectionGeneration == generation,
+              connectionState == .connected else { return }
+        _ = try? await command(.getInfo)
+    }
+
+    private func updateDeviceName(
+        from reply: CommandReply,
+        for command: RinaCommand,
+        transport: RinaTransport,
+        generation: UUID
+    ) {
+        switch command {
+        case .getInfo, .setDeviceName:
+            guard self.transport === transport,
+                  connectionGeneration == generation else { return }
+            deviceName = reply.name
+        default:
+            return
+        }
+    }
+
     public func getStatus(lite: Bool = false) async throws -> DeviceStatus {
+        let session = transportSessionID
         let payload = try JSONSerialization.data(withJSONObject: lite ? ["lite": true] : [:])
         let frame = try await send(type: .getStatus, payload: payload)
         let decoded = try JSONDecoder().decode(DeviceStatus.self, from: frame.payload)
-        status = decoded
+        guard !Task.isCancelled, session == transportSessionID else { throw CancellationError() }
+        applyStatus(decoded)
         return decoded
     }
 
@@ -585,6 +706,16 @@ public final class BoardConnection {
         try output.check(token)
         currentFrame = packed
         return reply
+    }
+
+    public func getPreviewSync() async throws -> PreviewSync {
+        let session = transportSessionID
+        let frame = try await send(type: .getPreviewSync, payload: Data())
+        let decoded = try JSONDecoder().decode(PreviewSync.self, from: frame.payload)
+        guard !Task.isCancelled, session == transportSessionID else { throw CancellationError() }
+        preview = decoded
+        emit(.previewSync(decoded))
+        return decoded
     }
 
     public func getScrollMeta() async throws -> ScrollMeta {

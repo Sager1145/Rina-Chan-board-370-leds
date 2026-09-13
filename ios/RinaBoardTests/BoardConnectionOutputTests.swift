@@ -5,6 +5,42 @@ import RinaCore
 
 @MainActor
 final class BoardConnectionOutputTests: XCTestCase {
+    func testConfiguredNameFollowsBoardSwitchAndDisconnect() async {
+        let connection = BoardConnection()
+        let first = FakeRinaTransport()
+        first.commandReply = ["ok": true, "name": "璃奈一号"]
+        let firstConnected = await connection.connect(using: first)
+        XCTAssertTrue(firstConnected)
+        XCTAssertEqual(connection.deviceName, "璃奈一号")
+
+        let second = FakeRinaTransport()
+        second.commandReply = ["ok": true, "name": "璃奈二号"]
+        let secondConnected = await connection.connect(using: second)
+        XCTAssertTrue(secondConnected)
+        XCTAssertEqual(connection.deviceName, "璃奈二号")
+
+        connection.disconnect()
+        XCTAssertNil(connection.deviceName)
+    }
+
+    func testRenameUpdatesConfiguredNameAndRejectedRenamePreservesIt() async throws {
+        let connection = BoardConnection()
+        let transport = FakeRinaTransport()
+        transport.commandReply = ["ok": true, "name": "原名称"]
+        _ = await connection.connect(using: transport)
+        transport.commandReply = ["ok": true, "name": "新名称"]
+        _ = try await connection.command(.setDeviceName(name: "新名称"))
+        XCTAssertEqual(connection.deviceName, "新名称")
+
+        transport.commandReply = ["ok": false, "error": "denied", "name": "错误名称"]
+        do {
+            _ = try await connection.command(.setDeviceName(name: "错误名称"))
+            XCTFail("Expected rejected rename")
+        } catch {
+            XCTAssertEqual(connection.deviceName, "新名称")
+        }
+    }
+
     func testSupersededQueuedFrameDoesNotSendAndLateReplyDoesNotChangeCurrentFrame() async throws {
         let transport = FakeRinaTransport()
         let connection = BoardConnection()

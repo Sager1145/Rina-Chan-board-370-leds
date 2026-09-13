@@ -69,11 +69,11 @@ struct RootTabView: View {
     @AppStorage(AppSettingsKey.restoreLastTab) private var restoreLastTab = false
 
     @State private var didAutoReconnect = false
+    @State private var reconnectModel = ConnectionViewModel(startBonjourBrowsing: false)
     private var selectedTab: AppTab { router.selectedTab }
     /// `-openControlCenter YES` presents the Control Center at launch, the
     /// same automated-simulator-run affordance as `-initialTab`.
     @State private var showControlCenter = UserDefaults.standard.bool(forKey: "openControlCenter")
-    @State private var resyncTask: Task<Void, Never>?
     @State private var controlCenterDetent: PresentationDetent = .medium
     /// Ties the collapsed accessory to the expanded sheet so the system can
     /// zoom one into the other instead of sliding an unrelated sheet up.
@@ -90,10 +90,6 @@ struct RootTabView: View {
                 .modifier(ControlCenterPresenter(isPresented: $showControlCenter,
                                                  detent: $controlCenterDetent,
                                                  namespace: controlCenterNamespace))
-                .task {
-                    configureOutputHandlers()
-                    await autoReconnect()
-                }
                 .onChange(of: selectedTab) { previous, tab in
                     // Leaving 口型 releases the microphone. Beyond not leaving
                     // a recording indicator lit on a tab the user walked away
@@ -113,22 +109,16 @@ struct RootTabView: View {
                 .onChange(of: connection.status) { _, status in
                     controlCenter.sync(from: status)
                 }
-                .onChange(of: connection.connectionState) { _, state in
-                    if state == .connected {
-                        // A flapping link can re-enter `.connected` while the
-                        // previous resync is still in flight; without this the
-                        // slower, older round trip could land last and
-                        // overwrite fresher board state.
-                        resyncTask?.cancel()
-                        resyncTask = Task { await resynchronizeWithBoard() }
-                    } else {
-                        resyncTask?.cancel()
-                        resyncTask = nil
-                        textModel.suspendPreviewLoop()
-                        editor.connectionChanged()
-                        lipSyncModel.stop()
-                        performance.suspendBoardOutput()
-                        video.suspendBoardOutput()
+                .task(id: BoardSynchronizationID(generation: connection.connectionGeneration,
+                                                  connected: connection.connectionState == .connected)) {
+                    controlCenter.connectionChanged()
+                    textModel.suspendPreviewLoop()
+                    editor.connectionChanged()
+                    lipSyncModel.stop()
+                    performance.suspendBoardOutput()
+                    video.suspendBoardOutput()
+                    if connection.connectionState == .connected {
+                        await resynchronizeWithBoard()
                     }
                 }
                 // 演出 and 视频 both play sound on the phone. Taking the board
@@ -152,6 +142,7 @@ struct RootTabView: View {
             router.selectedTab = .control
             faceLibrary.consumePendingEditRequest(id: request.id)
         }
+        .errorAlert($reconnectModel.lastErrorMessage)
         .onChange(of: scenePhase) { _, phase in
             lipSyncModel.scenePhaseChanged(phase, connection: connection)
             if phase != .active {
@@ -177,9 +168,16 @@ struct RootTabView: View {
             guard !Task.isCancelled else { return }
             controlCenter.loadDefaultsIfNeeded()
             textModel.loadDefaultsIfNeeded()
+            // The timed loader can finish before disk reads do. Mount the
+            // tabs first so slow draft restoration cannot leave an empty
+            // window after the overlay disappears.
+            contentReady = true
             await editor.restoreDraft()
             await textModel.restoreDraft()
-            contentReady = true
+            guard !Task.isCancelled else { return }
+            // Keep board synchronization behind draft restoration even
+            // though the interface is already available.
+            await autoReconnect()
         }
         .task {
             // `-replayBootAfter <seconds>`: the same automated-simulator-run
@@ -196,15 +194,15 @@ struct RootTabView: View {
     private var tabs: some View {
         TabView(selection: Bindable(router).selectedTab) {
             ControlView()
-                .tabItem { Label("控制", systemImage: "lightbulb.fill") }
+                .tabItem { Label("表情显示", image: "TabRinaFace") }
                 .tag(AppTab.control)
 
             ScrollTextView()
-                .tabItem { Label("文字", systemImage: "t.square.fill") }
+                .tabItem { Label("文字滚动", systemImage: "t.square.fill") }
                 .tag(AppTab.text)
 
             LipSyncView()
-                .tabItem { Label("口型", systemImage: "waveform") }
+                .tabItem { Label("嘴形识别", systemImage: "waveform") }
                 .tag(AppTab.lipSync)
 
             PerformanceTabView()
@@ -212,7 +210,7 @@ struct RootTabView: View {
                 .tag(AppTab.presetLive)
 
             SettingsView()
-                .tabItem { Label("设置", systemImage: "gearshape.fill") }
+                .tabItem { Label("设定", systemImage: "gearshape.fill") }
                 .tag(AppTab.settings)
         }
     }
@@ -237,21 +235,15 @@ struct RootTabView: View {
     private func resynchronizeWithBoard() async {
         let generation = connection.connectionGeneration
         let session = connection.output.session
-        guard let freshStatus = try? await connection.getStatus(),
-              generation == connection.connectionGeneration,
-              session == connection.output.session,
-              !Task.isCancelled else { return }
-        controlCenter.sync(from: freshStatus)
-
-        if let frame = try? await connection.getFrame() {
-            editor.adoptBoardFrameIfUntouched(frame)
+        guard connection.connectionState == .connected, !Task.isCancelled else { return }
+        controlCenter.sync(from: connection.status)
+        if connection.hasCurrentFrame {
+            editor.adoptBoardFrameIfUntouched(connection.currentFrame)
         }
-        guard !Task.isCancelled else { return }
 
         guard generation == connection.connectionGeneration, session == connection.output.session else { return }
         await textModel.restoreOnConnect(connection: connection)
-        guard !Task.isCancelled, generation == connection.connectionGeneration,
-              session == connection.output.session else { return }
+        guard !Task.isCancelled, generation == connection.connectionGeneration else { return }
 
         await faceLibrary.reload(connection: connection)
     }
@@ -266,20 +258,8 @@ struct RootTabView: View {
         guard let last = boardStore.boards.max(by: {
             ($0.lastSeen ?? .distantPast) < ($1.lastSeen ?? .distantPast)
         }) else { return }
-        switch last.preferredTransport {
-        case "bluetooth":
-            guard let uuid = UUID(uuidString: last.id) else { return }
-            bleTransport.peripheralIdentifier = uuid
-            _ = await connection.connect(using: bleTransport)
-        case "wifi", "hotspot", "hotspot-tcp":
-            guard let host = last.lastHost else { return }
-            let kind: TransportKind = last.preferredTransport == "hotspot"
-                ? .hotspot
-                : .wifi(host: host, port: RinaLinkConstants.tcpPort)
-            _ = await connection.connect(using: TCPTransport(host: host, kind: kind))
-        default:
-            break
-        }
+        await reconnectModel.connectSavedBoard(last, ble: bleTransport,
+                                               connection: connection, boardStore: boardStore)
     }
 }
 
@@ -355,4 +335,9 @@ enum ControlCenterPlacement {
         if #available(iOS 26.0, *) { return true }
         return false
     }
+}
+
+private struct BoardSynchronizationID: Hashable {
+    let generation: UUID
+    let connected: Bool
 }

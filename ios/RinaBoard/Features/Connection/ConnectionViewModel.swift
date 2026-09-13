@@ -66,8 +66,8 @@ public final class ConnectionViewModel {
 
     private static let confirmedHotspotSSIDKey = "com.rinachan.board.confirmedHotspotSSID"
 
-    public init() {
-        bonjour.start()
+    public init(startBonjourBrowsing: Bool = true) {
+        if startBonjourBrowsing { bonjour.start() }
         hotspotName = UserDefaults.standard.string(forKey: Self.confirmedHotspotSSIDKey) ?? ""
         let savedPassword = KeychainStore.load(account: hotspotName)
         hotspotPassword = savedPassword ?? ""
@@ -95,21 +95,49 @@ public final class ConnectionViewModel {
     }
 
     public func connectBLE(_ peripheral: DiscoveredPeripheral, ble: BLETransport, connection: BoardConnection, boardStore: BoardStore) async {
+        await connectBLE(peripheral, ble: ble, connection: connection, boardStore: boardStore) {
+            await connection.connect(using: $0)
+        }
+    }
+
+    func connectBLE(
+        _ peripheral: DiscoveredPeripheral,
+        ble: BLETransport,
+        connection: BoardConnection,
+        boardStore: BoardStore,
+        connectTransport: @escaping @MainActor (BLETransport) async -> Bool
+    ) async {
         guard !isConnectingBLE else { return }
         isConnectingBLE = true
         defer { isConnectingBLE = false }
 
+        let boardID = peripheral.id.uuidString
+        let reconnectingSavedBoard = boardStore.boards.contains { $0.id == boardID }
         ble.stopScan()
         lastErrorMessage = nil
         ble.peripheralIdentifier = peripheral.id
-        let connected = await connection.connect(using: ble)
+        let connected = await connectTransport(ble)
+        // A saved row can be forgotten while its BLE connection is pending.
+        // Treat that as intentional cancellation: do not publish an error or
+        // recreate the row after the old operation resumes.
+        if reconnectingSavedBoard,
+           !boardStore.boards.contains(where: { $0.id == boardID }) {
+            return
+        }
         guard connected, ble.connectedPeripheralID == peripheral.id else {
+            if !connected {
+                // BoardConnection owns connect failure reporting. A nil error
+                // means this attempt was superseded or intentionally stopped.
+                lastErrorMessage = connection.lastError
+                return
+            }
             // Prefer the transport's own reason ("蓝牙已关闭…", a connect
-            // timeout) over a generic failure the user cannot act on.
+            // timeout) for the distinct case where another peripheral became
+            // connected while this request was pending.
             lastErrorMessage = ble.lastError ?? connection.lastError ?? NSLocalizedString("连接失败", comment: "board connection failed")
             return
         }
-        boardStore.upsert(KnownBoard(id: peripheral.id.uuidString, name: peripheral.name,
+        boardStore.upsert(KnownBoard(id: boardID, name: connection.deviceName ?? peripheral.name,
                                       preferredTransport: "bluetooth", lastSeen: Date()))
         await refreshBoardName(connection: connection)
     }
@@ -173,13 +201,23 @@ public final class ConnectionViewModel {
             }
             // Keep the saved-board list in step so the name shown before
             // connecting matches what the board now advertises.
-            if let id = ble.connectedPeripheralID?.uuidString,
+            let currentBoardID: String?
+            switch connection.transportKind {
+            case .bluetooth: currentBoardID = ble.connectedPeripheralID?.uuidString
+            case .wifi(let host, _):
+                currentBoardID = boardStore.boards.first(where: { $0.lastHost == host || $0.id == host })?.id
+            case .hotspot: currentBoardID = RinaLinkConstants.apIP
+            case nil: currentBoardID = nil
+            }
+            if let id = currentBoardID,
                var known = boardStore.boards.first(where: { $0.id == id }) {
                 known.name = effective
                 known.lastSeen = Date()
                 boardStore.upsert(known)
             }
-            ble.updateConnectedPeripheralName(effective)
+            if connection.transportKind == .bluetooth {
+                ble.updateConnectedPeripheralName(effective)
+            }
         } catch {
             lastErrorMessage = String(
                 format: NSLocalizedString("重命名失败：%@", comment: "board rename error"),
@@ -211,9 +249,11 @@ public final class ConnectionViewModel {
         // `host` is only used for display/storage below; the transport
         // connects via the resolved `endpoint` directly when available (H4).
         let displayHost = board.host ?? board.name
+        let serviceIdentity = board.serviceIdentity
+        let transportIdentity = serviceIdentity?.storageID ?? displayHost
         let transport: TCPTransport
         if let endpoint = board.endpoint {
-            transport = TCPTransport(endpoint: endpoint, kind: .wifi(host: displayHost, port: port))
+            transport = TCPTransport(endpoint: endpoint, kind: .wifi(host: transportIdentity, port: port))
         } else if let host = board.host {
             transport = TCPTransport(host: host, port: port, kind: .wifi(host: host, port: port))
         } else {
@@ -225,8 +265,10 @@ public final class ConnectionViewModel {
             lastErrorMessage = NSLocalizedString("连接失败", comment: "board connection failed")
             return
         }
-        boardStore.upsert(KnownBoard(id: displayHost, name: board.name, preferredTransport: "wifi",
-                                      lastHost: board.host, lastSeen: Date()))
+        boardStore.upsert(KnownBoard(id: serviceIdentity?.storageID ?? displayHost,
+                                      name: connection.deviceName ?? board.name,
+                                      preferredTransport: "wifi", lastHost: board.host,
+                                      bonjourService: serviceIdentity, lastSeen: Date()))
     }
 
     public func connectManualHost(connection: BoardConnection, boardStore: BoardStore) async {
@@ -242,7 +284,7 @@ public final class ConnectionViewModel {
             lastErrorMessage = NSLocalizedString("连接失败", comment: "board connection failed")
             return
         }
-        boardStore.upsert(KnownBoard(id: host, name: host, preferredTransport: "wifi",
+        boardStore.upsert(KnownBoard(id: host, name: connection.deviceName ?? host, preferredTransport: "wifi",
                                       lastHost: host, lastSeen: Date()))
     }
 
@@ -263,7 +305,7 @@ public final class ConnectionViewModel {
                 directAPStage = .failed(message)
                 return
             }
-            boardStore.upsert(KnownBoard(id: RinaLinkConstants.apIP, name: RinaLinkConstants.apSSID,
+            boardStore.upsert(KnownBoard(id: RinaLinkConstants.apIP, name: connection.deviceName ?? RinaLinkConstants.apSSID,
                                           preferredTransport: "hotspot", lastHost: RinaLinkConstants.apIP, lastSeen: Date()))
             directAPStage = .connected
         } catch {
@@ -275,6 +317,7 @@ public final class ConnectionViewModel {
     /// at the board's reported IP.
     public func switchToWifi(connection: BoardConnection, boardStore: BoardStore) async {
         guard let ip = connection.wifi?.ip, !ip.isEmpty else { return }
+        let ssid = connection.wifi?.ssid
         homeProvisionStage = .connectingToBoard
         let transport = TCPTransport(host: ip)
         await connection.connect(using: transport)
@@ -283,43 +326,110 @@ public final class ConnectionViewModel {
             homeProvisionStage = .failed(message)
             return
         }
-        if let ssid = connection.wifi?.ssid {
-            boardStore.upsert(KnownBoard(id: ip, name: ssid, preferredTransport: "wifi", lastHost: ip, lastSeen: Date()))
+        if let ssid {
+            boardStore.upsert(KnownBoard(id: ip, name: connection.deviceName ?? ssid, preferredTransport: "wifi", lastHost: ip, lastSeen: Date()))
         }
         homeProvisionStage = .connected
     }
 
     // MARK: Saved boards
 
+    public func forgetBoard(_ board: KnownBoard, ble: BLETransport,
+                            connection: BoardConnection, boardStore: BoardStore) {
+        let isCurrent: Bool
+        switch connection.transportKind {
+        case .bluetooth:
+            isCurrent = ble.peripheralIdentifier?.uuidString == board.id
+        case .wifi(let host, _):
+            isCurrent = board.lastHost == host || board.id == host
+        case .hotspot:
+            isCurrent = board.preferredTransport == "hotspot"
+        case nil:
+            isCurrent = false
+        }
+        if isCurrent {
+            connection.disconnect()
+            if board.preferredTransport == "bluetooth" {
+                ble.peripheralIdentifier = nil
+            }
+        }
+        boardStore.remove(id: board.id)
+        lastErrorMessage = nil
+    }
+
     public func connectSavedBoard(_ board: KnownBoard, ble: BLETransport, connection: BoardConnection, boardStore: BoardStore) async {
+        await connectSavedBoard(
+            board,
+            ble: ble,
+            connection: connection,
+            boardStore: boardStore,
+            joinBoardHotspot: { try await HotspotJoiner.join() },
+            connectTransport: { transport in await connection.connect(using: transport) }
+        )
+    }
+
+    /// Injectable seams keep the ordering around the system hotspot prompt
+    /// covered without touching the user's real Wi-Fi configuration in tests.
+    func connectSavedBoard(
+        _ board: KnownBoard,
+        ble: BLETransport,
+        connection: BoardConnection,
+        boardStore: BoardStore,
+        joinBoardHotspot: @escaping @MainActor () async throws -> Void,
+        connectTransport: @escaping @MainActor (RinaTransport) async -> Bool
+    ) async {
         guard connectingSavedBoardID == nil else { return }
         connectingSavedBoardID = board.id
         lastErrorMessage = nil
         defer { connectingSavedBoardID = nil }
 
-        let connected: Bool
-        if board.preferredTransport == "bluetooth", let id = UUID(uuidString: board.id) {
-            ble.peripheralIdentifier = id
-            connected = await connection.connect(using: ble)
-        } else if let host = board.lastHost {
-            let kind: TransportKind = board.preferredTransport == "hotspot"
-                ? .hotspot
-                : .wifi(host: host, port: RinaLinkConstants.tcpPort)
-            connected = await connection.connect(using: TCPTransport(host: host, kind: kind))
-        } else {
+        guard let target = board.connectionTarget else {
             lastErrorMessage = NSLocalizedString("这个已保存设备没有可用的连接地址，请重新扫描", comment: "saved board missing address")
             return
         }
 
-        guard connected else {
-            if board.preferredTransport == "bluetooth" {
-                lastErrorMessage = ble.lastError ?? connection.lastError ?? NSLocalizedString("连接失败，请重试", comment: "board connection retry")
-            } else {
-                lastErrorMessage = connection.lastError ?? NSLocalizedString("连接失败，请重试", comment: "board connection retry")
+        let connected: Bool
+        switch target {
+        case .bluetooth(let id):
+            ble.peripheralIdentifier = id
+            connected = await connection.connect(using: ble)
+        case .bonjour(let service):
+            let endpoint = bonjour.endpoint(for: service)
+            connected = await connectTransport(TCPTransport(
+                endpoint: endpoint,
+                kind: .wifi(host: board.id, port: RinaLinkConstants.tcpPort)
+            ))
+        case .host(let host, let isBoardHotspot):
+            if isBoardHotspot {
+                do {
+                    try await joinBoardHotspot()
+                } catch {
+                    guard boardStore.boards.contains(where: { $0.id == board.id }) else { return }
+                    lastErrorMessage = error.localizedDescription
+                    return
+                }
+                // The user can forget this board while the iOS association
+                // prompt is pending. Do not continue into TCP or recreate it.
+                guard boardStore.boards.contains(where: { $0.id == board.id }) else { return }
             }
+            let kind: TransportKind = isBoardHotspot
+                ? .hotspot
+                : .wifi(host: host, port: RinaLinkConstants.tcpPort)
+            connected = await connectTransport(TCPTransport(host: host, kind: kind))
+        }
+
+        // Forgetting an in-flight connection cancels it intentionally. Do not
+        // show a failure or recreate the deleted record when it resumes.
+        guard boardStore.boards.contains(where: { $0.id == board.id }) else { return }
+        guard connected else {
+            // `false` with no transport error means this attempt was
+            // superseded by a newer connect or an intentional disconnect.
+            // The older launch-time task must stay quiet in that case.
+            lastErrorMessage = connection.lastError
             return
         }
         var refreshed = board
+        refreshed.name = connection.deviceName ?? board.name
         refreshed.lastSeen = Date()
         boardStore.upsert(refreshed)
         await refreshBoardName(connection: connection)
@@ -395,7 +505,7 @@ public final class ConnectionViewModel {
                 ))
                 return
             }
-            boardStore.upsert(KnownBoard(id: ip, name: ssid, preferredTransport: "hotspot-tcp", lastHost: ip, lastSeen: Date()))
+            boardStore.upsert(KnownBoard(id: ip, name: connection.deviceName ?? ssid, preferredTransport: "hotspot-tcp", lastHost: ip, lastSeen: Date()))
             KeychainStore.save(password: password, account: ssid)
             hotspotPasswordIsSaved = true
             UserDefaults.standard.set(ssid, forKey: Self.confirmedHotspotSSIDKey)

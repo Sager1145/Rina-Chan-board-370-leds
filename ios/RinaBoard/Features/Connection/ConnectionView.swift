@@ -29,6 +29,7 @@ struct ConnectionView: View {
     var body: some View {
         Form {
             statusSection
+            savedBoardsSection
             bluetoothSection
             boardNameSection
             homeWifiSection
@@ -36,6 +37,7 @@ struct ConnectionView: View {
             phoneHotspotSection
             boardWifiSection
         }
+        .listSectionSpacing(.compact)
         .navigationTitle("连接")
         .errorAlert($viewModel.lastErrorMessage)
         .sheet(item: $networkForPassword) { network in
@@ -50,6 +52,12 @@ struct ConnectionView: View {
         Section("状态") {
             LabeledContent("传输方式", value: transportLabel)
             LabeledContent("状态", value: stateLabel)
+            if let error = connection.lastError, !isConnected {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("connection.failureReason")
+            }
             if case .bluetooth = connection.transportKind,
                let connectedName = bleTransport.connectedPeripheralName {
                 LabeledContent("已连接璃奈板", value: connectedName)
@@ -90,6 +98,52 @@ struct ConnectionView: View {
         case .connected: return "已连接"
         case .reconnecting(let attempt): return "重连中(\(attempt))"
         case .failed(let message): return "失败: \(message)"
+        }
+    }
+
+    // MARK: Saved boards
+
+    @ViewBuilder
+    private var savedBoardsSection: some View {
+        if !boardStore.boards.isEmpty {
+            Section {
+                ForEach(boardStore.boards) { board in
+                    HStack {
+                        Button {
+                            Task {
+                                await viewModel.connectSavedBoard(board, ble: bleTransport,
+                                                                  connection: connection, boardStore: boardStore)
+                            }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(board.name).foregroundStyle(.primary)
+                                    Text(board.preferredTransport == "bluetooth" ? "蓝牙" : "Wi-Fi")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if viewModel.connectingSavedBoardID == board.id {
+                                    ProgressView()
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .disabled(viewModel.connectingSavedBoardID != nil || viewModel.isConnectingBLE)
+                        .accessibilityLabel("连接 \(board.name)")
+
+                        Button("忘记", role: .destructive) {
+                            viewModel.forgetBoard(board, ble: bleTransport,
+                                                  connection: connection, boardStore: boardStore)
+                        }
+                        .accessibilityLabel("忘记 \(board.name)")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            } header: {
+                Text("已保存的璃奈板")
+            } footer: {
+                Text("忘记后将停止自动连接此设备。可以重新扫描并连接来保存。")
+            }
         }
     }
 
@@ -484,6 +538,7 @@ struct ConnectionView: View {
                     }
                 }
             }
+            .listSectionSpacing(.compact)
             .navigationTitle("连接网络")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

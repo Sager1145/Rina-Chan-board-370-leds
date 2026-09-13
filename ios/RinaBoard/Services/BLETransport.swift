@@ -100,6 +100,8 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
     private var poweredOnTimeoutTask: Task<Void, Never>?
     private var connectContinuation: CheckedContinuation<Void, Error>?
     private var connectTimeoutTask: Task<Void, Never>?
+    private var connectAttemptID = UUID()
+    private let disconnectGate = BLEDisconnectGate()
 
     // MARK: write back-pressure (H3)
 
@@ -254,6 +256,34 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
     }
 
     public func connect() async throws {
+        guard connectContinuation == nil, poweredOnContinuation == nil else {
+            throw RinaTransportError.cancelled
+        }
+        let attempt = UUID()
+        connectAttemptID = attempt
+        do {
+            try await withTaskCancellationHandler {
+                try Task.checkCancellation()
+                try await connectSelectedPeripheral(attempt: attempt)
+                try Task.checkCancellation()
+            } onCancel: {
+                Task { @MainActor [weak self] in
+                    guard let self, self.connectAttemptID == attempt else { return }
+                    self.disconnect()
+                }
+            }
+        } catch {
+            if connectAttemptID == attempt {
+                let peripheral = targetPeripheral
+                clearConnectionTarget()
+                if let peripheral { cancelLink(peripheral) }
+                lastError = error.localizedDescription
+            }
+            throw error
+        }
+    }
+
+    private func connectSelectedPeripheral(attempt: UUID) async throws {
         guard connectContinuation == nil else {
             logger.error("BLE connect rejected because another connection attempt is active")
             throw RinaTransportError.cancelled
@@ -268,7 +298,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
         }
 
         try await waitForPoweredOn()
-        guard peripheralIdentifier == identifier else {
+        guard connectAttemptID == attempt, peripheralIdentifier == identifier else {
             logger.notice("BLE connect selection changed while waiting for Bluetooth power")
             throw RinaTransportError.cancelled
         }
@@ -285,6 +315,12 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
             emitState(.failed(message))
             throw RinaTransportError.notConnected
         }
+        try await disconnectGate.wait(for: peripheral.identifier)
+        try Task.checkCancellation()
+        guard connectAttemptID == attempt else { throw RinaTransportError.cancelled }
+        guard centralManager.state == .poweredOn else {
+            throw RinaTransportError.underlying(bluetoothUnavailableMessage(centralManager.state))
+        }
         targetPeripheral = peripheral
         peripheral.delegate = self
         connectingPeripheralID = peripheral.identifier
@@ -298,7 +334,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
             self.connectTimeoutTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 15_000_000_000)
                 guard let self, !Task.isCancelled else { return }
-                self.centralManager.cancelPeripheralConnection(peripheral)
+                self.cancelLink(peripheral)
                 self.resumeConnect(.failure(RinaTransportError.timeout))
             }
             centralManager.connect(peripheral, options: nil)
@@ -324,7 +360,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
         case .poweredOn:
             return
         case .unauthorized, .unsupported, .poweredOff:
-            throw RinaTransportError.underlying("bluetooth unauthorized, unsupported, or powered off")
+            throw RinaTransportError.underlying(bluetoothUnavailableMessage(centralManager.state))
         default:
             break
         }
@@ -358,9 +394,14 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
             }
             continuation.resume()
         case .failure(let error):
-            connectingPeripheralID = nil
-            lastError = String(describing: error)
-            logger.error("BLE connection failed: \(String(describing: error), privacy: .public)")
+            // Service/characteristic/CCCD failure still leaves a physical BLE
+            // link. Release it so the single-central board advertises again.
+            let peripheral = targetPeripheral
+            clearConnectionTarget()
+            if let peripheral { cancelLink(peripheral) }
+            resumeWriteReady(.failure(error))
+            lastError = error.localizedDescription
+            logger.error("BLE connection failed: \(error.localizedDescription, privacy: .public)")
             continuation.resume(throwing: error)
         }
     }
@@ -407,12 +448,19 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
         continuation.resume(with: result)
     }
 
+    private func cancelLink(_ peripheral: CBPeripheral) {
+        guard peripheral.state != .disconnected else { return }
+        guard disconnectGate.begin(peripheral.identifier) else { return }
+        centralManager.cancelPeripheralConnection(peripheral)
+    }
+
     public func disconnect() {
+        connectAttemptID = UUID()
         let peripheral = targetPeripheral
         let identifier = peripheral?.identifier
         clearConnectionTarget()
         if let peripheral {
-            centralManager.cancelPeripheralConnection(peripheral)
+            cancelLink(peripheral)
         }
         resumeConnect(.failure(RinaTransportError.cancelled))
         resumePoweredOn(.failure(RinaTransportError.cancelled))
@@ -523,6 +571,7 @@ extension BLETransport: CBCentralManagerDelegate {
                     central.cancelPeripheralConnection(peripheral)
                 }
                 clearConnectionTarget()
+                disconnectGate.completeAll()
                 resumeConnect(.failure(RinaTransportError.underlying(message)))
                 logger.error("Bluetooth state became unavailable: \(message, privacy: .public)")
                 emitState(.failed(message))
@@ -569,6 +618,10 @@ extension BLETransport: CBCentralManagerDelegate {
 
     public nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         MainActor.assumeIsolated {
+            if disconnectGate.contains(peripheral.identifier) {
+                central.cancelPeripheralConnection(peripheral)
+                return
+            }
             guard isCurrent(peripheral) else {
                 logger.notice("Ignoring stale didConnect for \(peripheral.identifier.uuidString, privacy: .public)")
                 central.cancelPeripheralConnection(peripheral)
@@ -582,6 +635,7 @@ extension BLETransport: CBCentralManagerDelegate {
 
     public nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         MainActor.assumeIsolated {
+            if disconnectGate.complete(peripheral.identifier) { return }
             guard isCurrent(peripheral) else {
                 logger.notice("Ignoring stale didFailToConnect for \(peripheral.identifier.uuidString, privacy: .public)")
                 return
@@ -594,15 +648,9 @@ extension BLETransport: CBCentralManagerDelegate {
 
     public nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         MainActor.assumeIsolated {
+            if disconnectGate.complete(peripheral.identifier) { return }
             guard isCurrent(peripheral) else {
                 logger.notice("Ignoring stale didDisconnect for \(peripheral.identifier.uuidString, privacy: .public)")
-                return
-            }
-            // A cancel from the previous attempt can be delivered after a new
-            // attempt has selected the same CBPeripheral object. It must not
-            // tear down the new attempt before its own didConnect callback.
-            if connectContinuation != nil, !hasConnectedLink {
-                logger.notice("Ignoring pre-connect disconnect left over from an earlier attempt for \(peripheral.identifier.uuidString, privacy: .public)")
                 return
             }
             let identifier = peripheral.identifier
