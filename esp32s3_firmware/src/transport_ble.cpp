@@ -36,6 +36,8 @@ constexpr char INFO_UUID[]    = "52494E41-0004-4C49-4E4B-000000000001";
 
 constexpr uint16_t DEFAULT_ATT_MTU = 23; // Pre-negotiation NimBLE default.
 constexpr uint16_t REQUESTED_MTU   = 255;
+constexpr uint32_t BLE_INITIALIZATION_TIMEOUT_MS = 15000;
+constexpr uint32_t ADVERTISE_RETRY_MS = 250;
 
 class BleTransport : public rinalink::ITransport {
 public:
@@ -74,10 +76,11 @@ public:
             [](uint32_t ms) { delay(ms); },
             []() { return millis(); });
         if (!result.complete) {
-            // Once a header/partial payload has been sent, dropping the rest
-            // would make the next frame part of that payload. Close the stream
-            // on terminal failure even for events; zero-byte events can drop.
-            if (result.bytesSent > 0)
+            // A reply cannot be silently dropped, even when its first notify
+            // never queued: the requester would wait on a dead logical stream.
+            // Events may drop before their first byte, but a partial event would
+            // make the next frame part of its payload and must close the stream.
+            if (rinalink::bleSendFailureRequiresDisconnect(result, isEvent))
                 rinalink::transportUnregisterClient(id);
             if (!isEvent)
                 RLOG_DEBUG("BLE", "event=notify_failed offset=%u len=%u",
@@ -121,6 +124,7 @@ public:
             // already reclaimed.
             mConnected = false;
             mMtu = DEFAULT_ATT_MTU;
+            mInitializationTimer.start(0);
         }
         portEXIT_CRITICAL(&mMux);
         if (shouldDisconnect && mServer != nullptr)
@@ -164,6 +168,9 @@ public:
         mClientId = newId;
         mMtu = DEFAULT_ATT_MTU;
         mConnected = true;
+        mInitialFrameTracker.reset();
+        mInitializationTimer.start(millis());
+        mAdvertisingRetry.cancel();
         mInfoDirty = true;
         portEXIT_CRITICAL(&mMux);
         RLOG_INFO("BLE",
@@ -189,6 +196,7 @@ public:
         if (wasConnected) {
             mConnected = false;
             mMtu = DEFAULT_ATT_MTU;
+            mInitializationTimer.start(0);
         }
         // A rejected second central also produces a disconnect callback. Keep
         // advertising stopped while the original central is still connected.
@@ -202,7 +210,7 @@ public:
                   peerAddress.c_str(), reason, wasConnected ? 1 : 0);
         if (shouldRestartAdvertising) {
             portENTER_CRITICAL(&mMux);
-            mAdvertiseRestartPending = true;
+            mAdvertisingRetry.request(millis());
             portEXIT_CRITICAL(&mMux);
         }
     }
@@ -229,7 +237,8 @@ public:
         bool connected;
         portENTER_CRITICAL(&mMux);
         activeId = mClientId;
-        connected = mConnected && mConnHandle == connHandle;
+        connected = mConnected && mConnHandle == connHandle &&
+                    mInitializationTimer.acceptsInitialization();
         portEXIT_CRITICAL(&mMux);
         if (!connected) {
             RLOG_WARN("BLE", "event=rx_ignored handle=%u bytes=%u reason=inactive_connection",
@@ -245,20 +254,54 @@ public:
             return;
         }
         const size_t accepted = rinalink::transportPushInbound(activeId, data, len);
+        if (accepted > 0 && mInitialFrameTracker.observe(data, accepted)) {
+            portENTER_CRITICAL(&mMux);
+            if (mConnected && mConnHandle == connHandle)
+                mInitializationTimer.confirm();
+            portEXIT_CRITICAL(&mMux);
+        }
         RLOG_DEBUG("BLE", "event=rx_write handle=%u slot=%u bytes=%u accepted=%u free_before=%u",
                    static_cast<unsigned>(connHandle), static_cast<unsigned>(activeId.slot),
                    static_cast<unsigned>(len), static_cast<unsigned>(accepted),
                    static_cast<unsigned>(free));
     }
 
+    void onTxSubscribed(uint16_t connHandle, uint16_t subValue) {
+        if (subValue == 0)
+            return;
+        portENTER_CRITICAL(&mMux);
+        const bool active = mConnected && mConnHandle == connHandle &&
+                            mInitializationTimer.acceptsInitialization();
+        if (active)
+            mInitializationTimer.confirm();
+        portEXIT_CRITICAL(&mMux);
+        if (active)
+            RLOG_DEBUG("BLE", "event=tx_subscribed handle=%u value=%u",
+                       static_cast<unsigned>(connHandle), static_cast<unsigned>(subValue));
+    }
+
+    void requestAdvertisingRestart(uint32_t delayMs = 0) {
+        portENTER_CRITICAL(&mMux);
+        if (!mConnected)
+            mAdvertisingRetry.request(millis(), delayMs);
+        portEXIT_CRITICAL(&mMux);
+    }
+
     // --- Deferred work, called from bleTransportService() on Core-0 loop() --
     void service() {
         bool restartAdvertising = false;
         bool refreshInfo = false;
+        bool initializationTimedOut = false;
+        rinalink::ClientId timedOutId{0};
+        uint16_t timedOutHandle = 0;
+        const uint32_t now = millis();
         portENTER_CRITICAL(&mMux);
-        if (mAdvertiseRestartPending) {
-            mAdvertiseRestartPending = false;
-            restartAdvertising = true;
+        if (!mConnected) {
+            restartAdvertising = mAdvertisingRetry.takeIfDue(now);
+        } else if (mInitializationTimer.expireIfDue(now, BLE_INITIALIZATION_TIMEOUT_MS)) {
+            initializationTimedOut = true;
+            timedOutId = mClientId;
+            timedOutHandle = mConnHandle;
         }
         if (mInfoDirty) {
             mInfoDirty = false;
@@ -266,15 +309,26 @@ public:
         }
         portEXIT_CRITICAL(&mMux);
 
+        if (initializationTimedOut) {
+            RLOG_WARN("BLE", "event=initialization_timeout handle=%u slot=%u timeout_ms=%u",
+                      static_cast<unsigned>(timedOutHandle),
+                      static_cast<unsigned>(timedOutId.slot),
+                      static_cast<unsigned>(BLE_INITIALIZATION_TIMEOUT_MS));
+            rinalink::transportUnregisterClient(timedOutId);
+        }
+
         if (refreshInfo)
             updateInfoCharacteristic();
 
-        if (restartAdvertising && NimBLEDevice::getAdvertising() != nullptr) {
-            const bool started = NimBLEDevice::getAdvertising()->start();
+        if (restartAdvertising) {
+            NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
+            const bool started = advertising != nullptr && advertising->start();
             if (started)
                 RLOG_INFO("BLE", "event=advertise_restart advertising=1");
-            else
+            else {
                 RLOG_WARN("BLE", "event=advertise_restart_failed");
+                requestAdvertisingRestart(ADVERTISE_RETRY_MS);
+            }
         }
     }
 
@@ -316,7 +370,9 @@ private:
     uint16_t mConnHandle = 0;
     uint16_t mMtu = DEFAULT_ATT_MTU;
     rinalink::ClientId mClientId{0};
-    bool mAdvertiseRestartPending = false;
+    rinalink::BleInitialFrameTracker mInitialFrameTracker;
+    rinalink::BleInitializationTimer mInitializationTimer;
+    rinalink::BleRetryTimer mAdvertisingRetry;
     bool mInfoDirty = false;
 };
 
@@ -351,8 +407,18 @@ public:
     }
 };
 
+class TxCallbacks : public NimBLECharacteristicCallbacks {
+public:
+    void onSubscribe(NimBLECharacteristic* characteristic, NimBLEConnInfo& connInfo,
+                     uint16_t subValue) override {
+        (void)characteristic;
+        sTransport.onTxSubscribed(connInfo.getConnHandle(), subValue);
+    }
+};
+
 ServerCallbacks sServerCallbacks;
 RxCallbacks sRxCallbacks;
+TxCallbacks sTxCallbacks;
 
 // Build the factory-default advertised local name: "RinaBoard-AABBCCDDEEFF"
 // from all six bytes of the public Bluetooth MAC address (uppercase hex).
@@ -498,8 +564,10 @@ bool bleTransportSetDeviceName(const char* name, String& error) {
     // Only resume advertising if we interrupted it. While a central is
     // connected advertising is deliberately stopped (single-central design);
     // restarting here would let a second central connect.
-    if (wasAdvertising && !advertising->start())
+    if (wasAdvertising && !advertising->start()) {
         RLOG_WARN("BLE", "event=advertise_restart_failed name=%s", effective);
+        sTransport.requestAdvertisingRestart(ADVERTISE_RETRY_MS);
+    }
 
     RLOG_INFO("BLE", "event=device_name_set name=%s custom=%d readvertised=%d",
               effective, next.length() ? 1 : 0, wasAdvertising ? 1 : 0);
@@ -529,6 +597,7 @@ void bleTransportBegin() {
     rx->setCallbacks(&sRxCallbacks);
 
     NimBLECharacteristic* tx = service->createCharacteristic(TX_UUID, NIMBLE_PROPERTY::NOTIFY);
+    tx->setCallbacks(&sTxCallbacks);
     NimBLECharacteristic* info = service->createCharacteristic(INFO_UUID, NIMBLE_PROPERTY::READ);
 
     sTransport.setCharacteristics(server, tx, info);
@@ -551,8 +620,10 @@ void bleTransportBegin() {
     applyAdvertisingName(deviceName);
     NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
     const bool started = advertising != nullptr && advertising->start();
-    if (!started)
+    if (!started) {
         RLOG_WARN("BLE", "event=advertise_start_failed name=%s", deviceName);
+        sTransport.requestAdvertisingRestart(ADVERTISE_RETRY_MS);
+    }
 
     RLOG_INFO("BLE", "event=begin name=%s service=%s advertising=%d",
               deviceName, SERVICE_UUID, started ? 1 : 0);

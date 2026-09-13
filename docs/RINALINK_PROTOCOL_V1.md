@@ -41,6 +41,15 @@ independent and always advertising when no BLE central is connected.
   primary payload the firmware logs `nameSet=0`.
 - Requests MTU 247+ (NimBLE default 255).
 - One central at a time. TCP and BLE may be connected simultaneously; the firmware is the single source of truth and pushes events to every connected client.
+- A new BLE link must subscribe to TX notifications or send a complete framed
+  request within 15 seconds. Otherwise the firmware disconnects it and resumes
+  advertising. Initialized BLE links have no idle timeout. Failed advertising
+  starts are retried after 250 ms.
+- Clients should enable TX notifications and verify a `PING` reply before
+  reporting the board ready. On service discovery, notification setup, or
+  handshake failure, cancel the physical BLE connection before retrying.
+  A terminal reply-notification failure also closes the firmware connection,
+  including failures before the first byte was sent.
 
 ### 1.2 TCP framing
 
