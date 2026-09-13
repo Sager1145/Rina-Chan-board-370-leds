@@ -176,6 +176,19 @@ final class FaceDocumentTests: XCTestCase {
         XCTAssertTrue(face.packedFrame![0])
     }
 
+    func testPackedFrameAccessorRejectsOutOfRangeBytes() {
+        var bytes = [Int](repeating: 0, count: PackedFrame.byteCount)
+        bytes[0] = 256
+        let tooLarge = SavedFace(id: "large", name: "Large", type: .custom,
+                                 frameBytes: bytes, order: 0)
+        XCTAssertNil(tooLarge.packedFrame)
+
+        bytes[0] = -1
+        let negative = SavedFace(id: "negative", name: "Negative", type: .custom,
+                                 frameBytes: bytes, order: 0)
+        XCTAssertNil(negative.packedFrame)
+    }
+
     func testEncodeRoundTrip() throws {
         var bytes = [Int](repeating: 0, count: 47)
         bytes[0] = 1

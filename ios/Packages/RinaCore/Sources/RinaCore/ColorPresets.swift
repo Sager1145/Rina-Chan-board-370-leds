@@ -46,9 +46,17 @@ public struct ColorPresets: Codable, Sendable {
         return nil
     }
 
-    /// The parent group that contains a child with `hex`, or nil.
+    /// Selectable colors in WebUI order: the team's own color, then its members
+    /// and subunits. A group without children still offers its own color.
+    public func swatches(of parent: Parent) -> [Child] {
+        [Child(name: parent.name, hex: parent.color)] + children(of: parent)
+    }
+
+    /// Resolve team colors before member colors, matching WebUI synchronization.
     public func parent(containing hex: String) -> Parent? {
-        lookup(hex: hex)?.parent
+        let target = RGBHex.normalize(hex)
+        return parents.first { RGBHex.normalize($0.color) == target }
+            ?? lookup(hex: hex)?.parent
     }
 }
 

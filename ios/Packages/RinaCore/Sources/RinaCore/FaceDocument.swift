@@ -118,8 +118,9 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
 
     /// The `PackedFrame` for `frameBytes`, or nil if malformed.
     public var packedFrame: PackedFrame? {
-        guard frameBytes.count == PackedFrame.byteCount else { return nil }
-        let bytes = frameBytes.map { UInt8(clamping: $0) }
+        guard frameBytes.count == PackedFrame.byteCount,
+              frameBytes.allSatisfy({ (0...255).contains($0) }) else { return nil }
+        let bytes = frameBytes.map { UInt8($0) }
         return PackedFrame(bytes: bytes)
     }
 

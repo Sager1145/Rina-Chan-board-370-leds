@@ -47,6 +47,19 @@ final class ColorPresetsTests: XCTestCase {
         XCTAssertNotNil(presets.lookup(hex: child.hex.uppercased()))
     }
 
+    func testTeamColorsAreSelectableBeforeMembers() throws {
+        let presets = try XCTUnwrap(loadPresets())
+        for parent in presets.parents {
+            let swatches = presets.swatches(of: parent)
+            XCTAssertEqual(swatches.first?.name, parent.name)
+            XCTAssertEqual(swatches.first?.hex, parent.color)
+            XCTAssertEqual(Array(swatches.dropFirst()), presets.children(of: parent))
+            XCTAssertEqual(presets.parent(containing: parent.color.uppercased()), parent)
+            XCTAssertEqual(presets.parent(containing: String(parent.color.dropFirst())), parent)
+        }
+        XCTAssertNil(presets.parent(containing: "#123456"))
+    }
+
     func testRGBHexParseAndFormat() {
         XCTAssertTrue(RGBHex.parseHex("#ec3fc7").map { $0 == (0xec, 0x3f, 0xc7) } ?? false)
         XCTAssertEqual(RGBHex.formatHex(r: 0xec, g: 0x3f, b: 0xc7), "#ec3fc7")
