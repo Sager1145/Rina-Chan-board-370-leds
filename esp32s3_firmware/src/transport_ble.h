@@ -32,3 +32,8 @@ void bleTransportDefaultDeviceName(char* out, size_t outLen);
 // exceeds MAX_DEVICE_NAME_BYTES; `error` then holds a human-readable reason.
 // Caller is responsible for persisting via saveRuntimeSettings().
 bool bleTransportSetDeviceName(const char* name, String& error);
+
+// Physical-button factory reset (B1 held 10 s): clears the custom device name
+// (back to the MAC default), deletes any stored bonds, re-advertises live,
+// and persists via saveRuntimeSettings(); returns the persisted flag.
+bool bleTransportFactoryReset();

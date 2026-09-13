@@ -6,6 +6,8 @@
 #include "button_animations.h"
 #include "scroll_session.h"
 #include "serial_log.h"
+#include "wifi_manager.h"
+#include "transport_ble.h"
 
 // Map an internal runButtonAction() source token to the human/agent-facing
 // label used in BUTTON log lines. The runButtonAction source values themselves
@@ -37,8 +39,10 @@ static ButtonRuntime* buttonByCode(const char* code) {
     return nullptr;
 }
 
+// Only B2 auto-repeats on hold (prev saved face); B1 fires once on release so
+// that a long hold can be reserved for the BLE settings factory reset.
 static bool isFaceRepeatButton(const ButtonRuntime& button) {
-    return strcmp(button.code, "B1") == 0 || strcmp(button.code, "B2") == 0;
+    return strcmp(button.code, "B2") == 0;
 }
 
 static bool isBrightnessRepeatButton(const ButtonRuntime& button) {
@@ -155,6 +159,7 @@ static void handleHardwareButtonPress(ButtonRuntime& button, uint32_t now) {
     button.pressedAtMs = now;
     button.lastRepeatMs = now;
     button.comboConsumed = false;
+    button.longResetFired = false;
     const char* src = "gpio";
     const char* srcLabel = "physical";
     RLOG_INFO("BUTTON", "source=%s id=%s event=press", srcLabel, button.code);
@@ -187,8 +192,12 @@ static void handleHardwareButtonRelease(ButtonRuntime& button) {
     if (strcmp(button.code, "B3") == 0 && !button.comboConsumed) {
         fireHardwareButtonAction("B3", src);
     }
+    if (strcmp(button.code, "B1") == 0 && !button.comboConsumed && !button.longResetFired) {
+        fireHardwareButtonAction("B1", src);
+    }
     handleButtonAnimationGpioRelease(button.code);
     button.comboConsumed = false;
+    button.longResetFired = false;
 }
 
 static void serviceHardwareButtonRepeats(uint32_t now) {
@@ -227,6 +236,34 @@ void initHardwareButtons() {
         buttons[i].pressedAtMs = buttons[i].pressed ? buttons[i].lastRawChangeMs : 0;
         buttons[i].lastRepeatMs = buttons[i].pressedAtMs;
         buttons[i].comboConsumed = false;
+        // A button already held at power-on never saw a press edge: keep it out
+        // of the 10 s settings reset (and B1's release action) until re-pressed.
+        buttons[i].longResetFired = buttons[i].pressed;
+    }
+}
+
+// B1/B6 held for SETTINGS_RESET_HOLD_MS trigger a BLE/Wi-Fi settings factory
+// reset respectively. Checked every service tick so it fires as soon as the
+// hold threshold is crossed, independent of the debounce loop above.
+static void serviceSettingsResetHolds(uint32_t now) {
+    ButtonRuntime* b1 = buttonByCode("B1");
+    if (b1 && b1->pressed && !b1->comboConsumed && !b1->longResetFired &&
+        !isHardwareButtonPressed("B3") &&
+        now - b1->pressedAtMs >= SETTINGS_RESET_HOLD_MS) {
+        b1->longResetFired = true;
+        RLOG_INFO("BUTTON", "source=physical id=B1 event=long_reset target=ble");
+        bleTransportFactoryReset();
+        showSettingsResetOverlay(false);
+    }
+
+    ButtonRuntime* b6 = buttonByCode("B6");
+    if (b6 && b6->pressed && !b6->longResetFired &&
+        !isHardwareButtonPressed("B2") && !isHardwareButtonPressed("B3") &&
+        now - b6->pressedAtMs >= SETTINGS_RESET_HOLD_MS) {
+        b6->longResetFired = true;
+        RLOG_INFO("BUTTON", "source=physical id=B6 event=long_reset target=wifi");
+        wifiManagerFactoryReset();
+        showSettingsResetOverlay(true);
     }
 }
 
@@ -253,6 +290,7 @@ void serviceHardwareButtons() {
         }
     }
     serviceHardwareButtonRepeats(now);
+    serviceSettingsResetHolds(now);
     serviceButtonAnimationButtonInputs(isHardwareButtonPressed("B6"),
                                        isHardwareButtonPressed("B2"),
                                        isHardwareButtonPressed("B3"));

@@ -129,6 +129,8 @@ constexpr uint8_t MAX_SCROLL_FONT_ID_CHARS = 47;
 constexpr uint8_t MAX_SCROLL_GENERATOR_CHARS = 47;
 
 constexpr uint32_t BUTTON_DEBOUNCE_MS = 25;
+// Holding B1 (BLE) or B6 (Wi-Fi) this long triggers a settings factory reset.
+constexpr uint32_t SETTINGS_RESET_HOLD_MS = 10000;
 constexpr uint32_t FACE_REPEAT_DELAY_MS = 650;
 constexpr uint32_t FACE_REPEAT_MS = 350;
 constexpr uint32_t BRIGHTNESS_REPEAT_DELAY_MS = 450;

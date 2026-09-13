@@ -7,6 +7,7 @@ struct ButtonRuntime {
     bool rawPressed = false;
     bool pressed = false;
     bool comboConsumed = false;
+    bool longResetFired = false;
     uint32_t lastRawChangeMs = 0;
     uint32_t pressedAtMs = 0;
     uint32_t lastRepeatMs = 0;

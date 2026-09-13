@@ -39,3 +39,7 @@ void wifiManagerClearHotspotCredentials();
 bool wifiManagerSetMode(const String& mode);
 void wifiManagerConnect();
 bool wifiManagerSetAp(const String& ssid, const String& password);
+
+// Physical-button factory reset (B6 held 10 s): wipes the "rinawifi" NVS
+// namespace, restores AP-only defaults, and re-applies the mode live.
+void wifiManagerFactoryReset();

@@ -1,6 +1,7 @@
 #include "wifi_manager.h"
 #include "config.h"
 #include "utils.h"
+#include "serial_log.h"
 #include <WiFi.h>
 #include <Preferences.h>
 #include <ESPmDNS.h>
@@ -442,6 +443,28 @@ void wifiManagerConnect() {
         return;
     g_lastStaRetryMs = millis() - WIFI_STA_RETRY_MS; // make the next service() tick eligible to retry
     startStaSelection();
+}
+
+void wifiManagerFactoryReset() {
+    const bool cleared = prefs.clear();
+    g_homeSsid = "";
+    g_homePass = "";
+    g_hotspotSsid = "";
+    g_hotspotPass = "";
+    g_apSsid = AP_SSID;
+    g_apPass = AP_PASSWORD;
+    g_mode = "ap";
+    g_homeFailCount = 0;
+    g_hotspotFailCount = 0;
+    g_staSelectionPending = false;
+    // WiFi.begin() also stored the last STA credentials in the IDF's own NVS;
+    // erasing them needs the STA interface up (applyMode() drops it again).
+    if (!(WiFi.getMode() & WIFI_MODE_STA))
+        WiFi.enableSTA(true);
+    WiFi.disconnect(false, true /* eraseap */);
+    applyMode();
+    markChanged();
+    RLOG_INFO("WIFI", "event=factory_reset prefs_cleared=%d", cleared ? 1 : 0);
 }
 
 bool wifiManagerSetAp(const String& ssid, const String& password) {

@@ -25,6 +25,8 @@ constexpr uint32_t BATTERY_LONG_PRESS_MS = 700;
 constexpr uint32_t BATTERY_PHASE_MS = 2000;
 constexpr uint32_t BATTERY_REFRESH_MS = 100;
 constexpr uint32_t BATTERY_ANIM_REFRESH_MS = 50;
+constexpr uint32_t SETTINGS_RESET_FLASH_MS = 1500;
+constexpr uint32_t SETTINGS_RESET_BLINK_MS = 250;
 
 struct Rgb {
     uint8_t r;
@@ -37,6 +39,10 @@ constexpr Rgb BRIGHTNESS_COLOR = {0, 120, 255};
 constexpr Rgb EDGE_COLOR = {0, 120, 255};
 constexpr Rgb WHITE_COLOR = {255, 255, 255};
 constexpr Rgb RED_COLOR = {255, 0, 0};
+// Dim on purpose: this fills all 370 LEDs, and a full-value fill can brown out
+// the battery rail.
+constexpr Rgb SETTINGS_RESET_BLE_COLOR = {0, 24, 96};
+constexpr Rgb SETTINGS_RESET_WIFI_COLOR = {0, 96, 32};
 
 enum class OverlayKind : uint8_t {
     None,
@@ -44,6 +50,7 @@ enum class OverlayKind : uint8_t {
     Interval,
     Brightness,
     Battery,
+    SettingsReset,
 };
 
 enum class EdgeKind : uint8_t {
@@ -68,6 +75,8 @@ struct AnimationState {
     uint32_t edgeStartedMs = 0;
 
     bool pausedScroll = false;
+
+    bool resetWifi = false;
 
     bool b6Pressed = false;
     bool b6LongFired = false;
@@ -414,6 +423,19 @@ void drawBatteryPage(uint8_t* out, const AnimationState& state, uint32_t now) {
     }
 }
 
+void drawSettingsResetPage(uint8_t* out, const AnimationState& state, uint32_t now) {
+    clearOverlay(out);
+    const uint32_t phase = (now - state.startedMs) / SETTINGS_RESET_BLINK_MS;
+    if ((phase % 2U) != 0U)
+        return; // "off" half of the blink
+    const Rgb color = state.resetWifi ? SETTINGS_RESET_WIFI_COLOR : SETTINGS_RESET_BLE_COLOR;
+    for (uint8_t y = 0; y < ROWS; ++y) {
+        for (uint8_t x = 0; x < COLS; ++x) {
+            putPixel(out, x, y, color);
+        }
+    }
+}
+
 void overlayEdgeFlash(uint8_t* out, const AnimationState& state, uint32_t now) {
     if (state.edge == EdgeKind::None)
         return;
@@ -510,6 +532,7 @@ void startOverlay(const AnimationState& next) {
     sAnim.batteryPhaseCount = next.batteryPhaseCount;
     sAnim.batteryNextPhaseMs = next.batteryNextPhaseMs;
     sAnim.batteryDisplayStartedMs = next.batteryDisplayStartedMs;
+    sAnim.resetWifi = next.resetWifi;
     portEXIT_CRITICAL(&sAnimMux);
 
     pauseScrollForOverlay();
@@ -542,6 +565,18 @@ void startBatteryOverlay(bool singleShot) {
 void showBatteryOverlay(bool singleShot) {
     RLOG_INFO("LED", "event=battery_display action=B6 singleShot=%d", singleShot ? 1 : 0);
     startBatteryOverlay(singleShot);
+}
+
+void showSettingsResetOverlay(bool wifi) {
+    const uint32_t now = millis();
+    AnimationState next;
+    next.kind = OverlayKind::SettingsReset;
+    next.startedMs = now;
+    next.expiresMs = now + SETTINGS_RESET_FLASH_MS;
+    next.nextRenderMs = now + 33;
+    next.resetWifi = wifi;
+    startOverlay(next);
+    RLOG_INFO("LED", "event=settings_reset_overlay target=%s", wifi ? "wifi" : "ble");
 }
 
 void startButtonAnimationForGpioAction(const String& buttonCode) {
@@ -599,17 +634,28 @@ void handleButtonAnimationGpioRelease(const char* buttonCode) {
         return;
 
     bool longFired = false;
+    OverlayKind activeKind = OverlayKind::None;
     portENTER_CRITICAL(&sAnimMux);
     longFired = sAnim.b6LongFired;
+    activeKind = sAnim.kind;
     sAnim.b6Pressed = false;
     sAnim.b6LongFired = false;
     sAnim.b6PressedAtMs = 0;
     portEXIT_CRITICAL(&sAnimMux);
 
-    if (longFired)
-        stopOverlay(true);
-    else
+    // A settings-reset overlay (B6 held 10s for the Wi-Fi factory reset) must
+    // be left alone here so it can finish its own blink sequence; it is never
+    // stopped early by a release, nor should a release start the battery
+    // overlay on top of it.
+    if (activeKind == OverlayKind::SettingsReset)
+        return;
+
+    if (longFired) {
+        if (activeKind == OverlayKind::Battery)
+            stopOverlay(true);
+    } else {
         startBatteryOverlay(true);
+    }
 }
 
 void serviceButtonAnimationButtonInputs(bool b6Pressed, bool b2Pressed, bool b3Pressed) {
@@ -678,6 +724,11 @@ void serviceButtonAnimations() {
                 sAnim.nextRenderMs = now + BATTERY_REFRESH_MS;
                 request = true;
             }
+        } else if (sAnim.kind == OverlayKind::SettingsReset) {
+            if (millisReached(now, sAnim.nextRenderMs)) {
+                sAnim.nextRenderMs = now + 33;
+                request = true;
+            }
         } else if (sAnim.edge != EdgeKind::None && now - sAnim.edgeStartedMs <= EDGE_FLASH_MS &&
                    millisReached(now, sAnim.nextRenderMs)) {
             sAnim.nextRenderMs = now + 33;
@@ -730,6 +781,8 @@ bool copyButtonAnimationOverlay(uint8_t* rgbOut, uint16_t ledCount) {
         overlayEdgeFlash(rgbOut, state, now);
     } else if (state.kind == OverlayKind::Battery) {
         drawBatteryPage(rgbOut, state, now);
+    } else if (state.kind == OverlayKind::SettingsReset) {
+        drawSettingsResetPage(rgbOut, state, now);
     } else {
         return false;
     }

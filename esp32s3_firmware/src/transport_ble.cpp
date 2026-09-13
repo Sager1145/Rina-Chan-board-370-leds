@@ -14,6 +14,7 @@
 #include "ble_frame_sender.h"
 #include "serial_log.h"
 #include "state.h"
+#include "storage.h"
 #include "transport.h"
 
 // =============================================================================
@@ -574,6 +575,15 @@ bool bleTransportSetDeviceName(const char* name, String& error) {
     return true;
 }
 
+bool bleTransportFactoryReset() {
+    String err;
+    bleTransportSetDeviceName("", err);
+    NimBLEDevice::deleteAllBonds();
+    const bool persisted = saveRuntimeSettings();
+    RLOG_INFO("BLE", "event=factory_reset persisted=%d", persisted ? 1 : 0);
+    return persisted;
+}
+
 void bleTransportBegin() {
     char deviceName[MAX_DEVICE_NAME_BYTES + 1];
     bleTransportDeviceName(deviceName, sizeof(deviceName));
@@ -635,6 +645,9 @@ void bleTransportService() {
 
 #else // RINALINK_NO_BLE
 
+#include "state.h"
+#include "storage.h"
+
 void bleTransportBegin() {}
 void bleTransportService() {}
 
@@ -652,6 +665,11 @@ bool bleTransportSetDeviceName(const char* name, String& error) {
     (void)name;
     error = "BLE disabled in this build";
     return false;
+}
+
+bool bleTransportFactoryReset() {
+    runtimeState().deviceName = "";
+    return saveRuntimeSettings();
 }
 
 #endif // RINALINK_NO_BLE

@@ -8,6 +8,10 @@ void startButtonAnimationForGpioAction(const String& buttonCode);
 
 void showBatteryOverlay(bool singleShot);
 
+// Blinking full-matrix confirmation overlay for a physical-button settings
+// factory reset (B1 held 10s => BLE, wifi=false; B6 held 10s => Wi-Fi, wifi=true).
+void showSettingsResetOverlay(bool wifi);
+
 void handleButtonAnimationGpioPress(const char* buttonCode);
 
 void handleButtonAnimationGpioRelease(const char* buttonCode);
