@@ -201,9 +201,51 @@ final class LipSyncModel {
         refreshPreviewFrame()
     }
 
-    func resetMapping() {
+    /// Restores every choice on the 口型与造型 page: the per-vowel mouths and
+    /// the eyes/cheeks costume.
+    func resetMappingAndCostume() {
         mapping = library.map { LipSyncMouthMapping.default.sanitized(against: $0) } ?? .default
         persistMapping()
+        baseCall = .defaultCall
+        refreshPreviewFrame()
+    }
+
+    /// Mirrors eye choices onto the other eye, like the Control tab's 同步.
+    /// Enabling it projects the left eye onto the right immediately.
+    private(set) var syncEyes = false
+
+    func setSyncEyes(_ enabled: Bool) {
+        syncEyes = enabled
+        guard enabled, let mirrored = library?.mirroredEyeId(baseCall[.leye]) else { return }
+        baseCall[.reye] = mirrored
+    }
+
+    func setCostumePart(_ id: String, for group: PartGroup) {
+        var call = baseCall
+        call[group] = id
+        if syncEyes, group == .leye || group == .reye,
+           let mirrored = library?.mirroredEyeId(id) {
+            call[group == .leye ? .reye : .leye] = mirrored
+        }
+        baseCall = call
+    }
+
+    /// Random costume plus a random non-empty mouth for silence and each
+    /// vowel; symmetric eyes while `syncEyes` is on.
+    func randomize() {
+        guard let library else { return }
+        var generator = SystemRandomNumberGenerator()
+        baseCall = syncEyes
+            ? library.randomSymmetricCall(using: &generator)
+            : library.randomCall(using: &generator)
+        let mouths = library.ids(for: .mouth).filter { $0 != "0" }
+        if !mouths.isEmpty {
+            mapping.setMouthId(mouths.randomElement(using: &generator)!, for: nil)
+            for vowel in LipSyncVowel.allCases {
+                mapping.setMouthId(mouths.randomElement(using: &generator)!, for: vowel)
+            }
+            persistMapping()
+        }
         refreshPreviewFrame()
     }
 

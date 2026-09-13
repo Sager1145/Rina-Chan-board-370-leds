@@ -112,7 +112,7 @@ final class LipSyncAudioCapture: LipSyncCapturing, @unchecked Sendable {
         let hardwareFormat = input.inputFormat(forBus: 0)
         let format = input.outputFormat(forBus: 0)
         #if DEBUG
-        print("[LipSyncAudio] inputAvailable=\(session.isInputAvailable) route=\(session.currentRoute.inputs.map { $0.portType.rawValue }) hardware=\(hardwareFormat) tap=\(format)")
+        print("[LipSyncAudio] inputAvailable=\(session.isInputAvailable) muted=\(AVAudioApplication.shared.isInputMuted) gain=\(session.inputGain) route=\(session.currentRoute.inputs.map { $0.portType.rawValue }) hardware=\(hardwareFormat) tap=\(format)")
         #endif
         guard session.isInputAvailable,
               hardwareFormat.sampleRate > 0, hardwareFormat.channelCount > 0,

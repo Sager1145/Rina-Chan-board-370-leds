@@ -52,6 +52,35 @@ struct PillToggleStyle: ToggleStyle {
     }
 }
 
+/// Horizontal icon + title label used by every command control (§18), kept flat
+/// so four chips share one row without clipping at larger Dynamic Type sizes.
+struct CommandChip: View {
+    static let minHeight: CGFloat = 22
+
+    private let title: LocalizedStringKey
+    private let systemImage: String
+
+    init(_ title: LocalizedStringKey, systemImage: String) {
+        self.title = title
+        self.systemImage = systemImage
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .symbolRenderingMode(.hierarchical)
+                .imageScale(.small)
+            Text(title)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .font(.footnote)
+        .frame(maxWidth: .infinity, minHeight: Self.minHeight)
+        .contentShape(Capsule())
+        .accessibilityLabel(Text(title))
+    }
+}
+
 /// The repeat symbol, struck through while looping is off. SF Symbols has no
 /// `repeat.slash`, so the slash is drawn over it in the same direction as
 /// `speaker.slash`.

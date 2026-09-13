@@ -27,6 +27,7 @@ struct LipSyncView: View {
                     loadErrorSection(message)
                 }
             }
+            .listSectionSpacing(.compact)
             .errorAlert($model.errorMessage)
             .navigationTitle("口型同步")
             .toolbar(.hidden, for: .navigationBar)
@@ -133,11 +134,6 @@ struct LipSyncView: View {
         } footer: {
             if case .denied = model.permission {
                 Text("麦克风权限已被拒绝，请在系统「设置」中允许 RinaBoard 使用麦克风。")
-            } else if !isConnected {
-                Text(model.isRunning
-                     ? NSLocalizedString("璃奈板已断开，同步仍在本机运行。点「停止同步」可关闭麦克风。",
-                                         comment: "lip sync kept running after the board disconnected")
-                     : NSLocalizedString("需要先连接璃奈板。", comment: "board must be connected first"))
             }
         }
     }
@@ -313,11 +309,7 @@ struct LipSyncView: View {
                                         color: controlCenter.draftColor,
                                         brightness: controlCenter.draftBrightness)
             } label: {
-                LabeledContent("口型与造型") {
-                    Text(String(format: NSLocalizedString("嘴巴 %@", comment: "current silence mouth part id"),
-                                model.mapping.silence))
-                        .foregroundStyle(.secondary)
-                }
+                Text("口型与造型")
             }
         }
     }
@@ -359,6 +351,33 @@ struct LipSyncMouthMappingView: View {
                                                                             comment: "mouth mapping preview"))
             }
 
+            Section {
+                HStack(spacing: 8) {
+                    Button {
+                        model.randomize()
+                    } label: {
+                        CommandChip("随机", systemImage: "dice.fill")
+                    }
+                    .buttonStyle(.pill)
+
+                    Toggle(isOn: Binding(
+                        get: { model.syncEyes },
+                        set: { model.setSyncEyes($0) }
+                    )) {
+                        CommandChip("左右眼同步", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .toggleStyle(.pill)
+
+                    Button {
+                        model.resetMappingAndCostume()
+                    } label: {
+                        CommandChip("恢复默认", systemImage: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.pill)
+                }
+                .pillButtonRow()
+            }
+
             Section(NSLocalizedString("闭嘴（静音）", comment: "silence mouth section")) {
                 selector(for: nil)
             }
@@ -378,13 +397,8 @@ struct LipSyncMouthMappingView: View {
             Section(PartGroup.cheek.displayName) {
                 costumeSelector(group: .cheek)
             }
-
-            Section {
-                Button(NSLocalizedString("恢复默认口型", comment: "reset mouth mapping"), role: .destructive) {
-                    model.resetMapping()
-                }
-            }
         }
+        .listSectionSpacing(.compact)
         .navigationTitle("口型与造型")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -416,7 +430,7 @@ struct LipSyncMouthMappingView: View {
                              selectedId: model.baseCall[group],
                              color: color,
                              brightness: brightness) { id in
-            model.baseCall[group] = id
+            model.setCostumePart(id, for: group)
         }
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 0))
     }

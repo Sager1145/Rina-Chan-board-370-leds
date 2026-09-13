@@ -59,8 +59,8 @@ final class ControlViewModel {
 
     // MARK: Command row (§18)
 
-    /// §18.2: defaults to on.
-    var livePreview = true
+    /// Starts off so a new editor remains local until the user opts in.
+    var livePreview = false
     /// §18.3: mirrors edits between the two eyes through an explicit,
     /// verified topology. Set through `setSyncEyes(_:connection:)` so that
     /// enabling it also aligns the eyes that are already selected.
