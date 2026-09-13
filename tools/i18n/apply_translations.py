@@ -16,8 +16,8 @@ Usage:  python3 tools/i18n/apply_translations.py [--check] [--force]
 """
 import json, os, sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-CATALOG = os.path.join(ROOT, "ios/RinaBoard/Resources/Localizable.xcstrings")
+from xcstrings_io import CATALOG, load_xcstrings, write_xcstrings
+
 DICT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "translations.jsonl")
 # "hans" is only for key-style strings (e.g. "partGroup.leye") whose key is an
 # identifier rather than the Simplified Chinese text: without an explicit
@@ -46,8 +46,7 @@ def main():
     translations = load_dict()
 
     stamp = os.stat(CATALOG).st_mtime_ns
-    with open(CATALOG, encoding="utf-8") as fh:
-        catalog = json.load(fh)
+    catalog = load_xcstrings()
 
     strings = catalog["strings"]
     untranslated, changed = [], 0
@@ -92,11 +91,7 @@ def main():
     if changed:
         if os.stat(CATALOG).st_mtime_ns != stamp:
             sys.exit("Localizable.xcstrings changed on disk while running; re-run.")
-        tmp = CATALOG + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(catalog, fh, ensure_ascii=False, indent=2, sort_keys=True)
-            fh.write("\n")
-        os.replace(tmp, CATALOG)
+        write_xcstrings(catalog)
     print("updated %d field(s)" % changed)
     return 1 if untranslated else 0
 

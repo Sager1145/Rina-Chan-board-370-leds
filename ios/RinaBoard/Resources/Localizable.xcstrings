@@ -1124,6 +1124,28 @@
     "RinaBoard" : {
       "shouldTranslate" : false
     },
+    "Serial Monitor" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Serial Monitor"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Serial Monitor"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Serial Monitor"
+          }
+        }
+      }
+    },
     "SSID" : {
       "localizations" : {
         "en" : {
@@ -1134,6 +1156,9 @@
         }
       },
       "shouldTranslate" : false
+    },
+    "Wi-Fi" : {
+
     },
     "Wi-Fi TCP · %@" : {
       "comment" : "TCP transport and host",
@@ -3030,6 +3055,29 @@
         }
       }
     },
+    "内置演出的时间轴来自 738NGX/RinaChanBoard 与 flyAkari/RinaChanBoard；音频是第三方商业录音，未随本 App 分发，需自行在本地准备。脚本每行格式为 帧号!左眼,右眼,嘴巴,脸颊。" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The built-in performance timelines come from 738NGX/RinaChanBoard and flyAkari/RinaChanBoard. The audio is third-party commercial material, is not distributed with this app, and must be supplied locally. Each script line is frame!leftEye,rightEye,mouth,cheek."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内蔵パフォーマンスのタイムラインは 738NGX/RinaChanBoard と flyAkari/RinaChanBoard によるものです。オーディオは第三者の商業音源で、本アプリには同梱されておらず、各自でご用意ください。スクリプトの各行は フレーム番号!左目,右目,口,頬 の形式です。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "內建演出的時間軸來自 738NGX/RinaChanBoard 與 flyAkari/RinaChanBoard；音訊是第三方商業錄音，未隨本 App 散布，需自行在本機準備。腳本每行格式為 影格號!左眼,右眼,嘴巴,臉頰。"
+          }
+        }
+      }
+    },
     "最低级别" : {
       "localizations" : {
         "en" : {
@@ -3206,6 +3254,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "切換表情"
+          }
+        }
+      }
+    },
+    "列出当前项目固件支持的全部 CMD 指令及常用查询。点选示例后可修改参数，再发送；设备实际支持情况取决于固件版本。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All CMD commands and common queries supported by this project’s firmware. Tap an example, edit its parameters, then send. Device support depends on the firmware version."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このプロジェクトのファームウェアが対応するすべての CMD コマンドと主な照会です。例をタップし、引数を編集してから送信します。対応状況はファームウェアのバージョンによって異なります。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "列出目前專案韌體支援的全部 CMD 指令及常用查詢。點選範例後可修改參數，再傳送；裝置實際支援情況取決於韌體版本。"
           }
         }
       }
@@ -4074,7 +4144,7 @@
       }
     },
     "原始指令已被新的输出操作替代" : {
-      "comment" : "debug raw command superseded",
+      "comment" : "debug command superseded\ndebug raw command superseded",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4592,6 +4662,50 @@
         }
       }
     },
+    "发送指令" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send command"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コマンドを送信"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "傳送指令"
+          }
+        }
+      }
+    },
+    "发送指令后，回复将显示在这里。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replies appear here after you send a command."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コマンドを送信すると、ここに応答が表示されます。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "傳送指令後，回覆將顯示在這裡。"
+          }
+        }
+      }
+    },
     "发送表情" : {
       "comment" : "send face button",
       "extractionState" : "stale",
@@ -4727,28 +4841,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "受保護"
-          }
-        }
-      }
-    },
-    "口型" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lip Sync"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "リップシンク"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "嘴型"
           }
         }
       }
@@ -4962,6 +5054,28 @@
         }
       }
     },
+    "可用指令" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Available commands"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "利用可能なコマンド"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可用指令"
+          }
+        }
+      }
+    },
     "可能是权限、能力或当前网络条件不满足" : {
       "comment" : "ambiguous nil SSID explanation",
       "extractionState" : "stale",
@@ -5010,6 +5124,7 @@
       }
     },
     "同步" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5283,6 +5398,7 @@
     },
     "嘴巴 %@" : {
       "comment" : "current silence mouth part id",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5300,6 +5416,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "嘴巴 %@"
+          }
+        }
+      }
+    },
+    "嘴形识别" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lip Sync"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "口形認識"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "嘴形識別"
           }
         }
       }
@@ -7196,12 +7334,23 @@
       }
     },
     "左右眼同步" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync Left/Right Eye"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左右の目を同期"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左右眼同步"
           }
         }
       }
@@ -7311,7 +7460,6 @@
       }
     },
     "已保存的璃奈板" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8722,6 +8870,15 @@
         }
       }
     },
+    "忘记" : {
+
+    },
+    "忘记 %@" : {
+
+    },
+    "忘记后将停止自动连接此设备。可以重新扫描并连接来保存。" : {
+
+    },
     "忘记家庭 Wi-Fi" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -8815,18 +8972,30 @@
       }
     },
     "恢复默认" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reset to default"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デフォルトに戻す"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢復預設"
+          }
         }
       }
     },
     "恢复默认口型" : {
       "comment" : "reset mouth mapping",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9393,6 +9562,28 @@
         }
       }
     },
+    "指令名或 JSON" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command name or JSON"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コマンド名または JSON"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "指令名稱或 JSON"
+          }
+        }
+      }
+    },
     "按名称或设备编号筛选" : {
       "localizations" : {
         "en" : {
@@ -9506,24 +9697,24 @@
         }
       }
     },
-    "控制" : {
+    "接收固件日志" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Control"
+            "value" : "Receive firmware logs"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "コントロール"
+            "value" : "ファームウェアログを受信"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "控制"
+            "value" : "接收韌體日誌"
           }
         }
       }
@@ -9592,6 +9783,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "搜尋欄位、值或來源"
+          }
+        }
+      }
+    },
+    "搜索指令" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search commands"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コマンドを検索"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜尋指令"
           }
         }
       }
@@ -9722,6 +9935,28 @@
     "播放进度" : {
 
     },
+    "收发记录（最新在前）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Traffic (newest first)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "送受信履歴（新しい順）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收發記錄（最新在前）"
+          }
+        }
+      }
+    },
     "改用 Wi-Fi 控制板子" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -9745,24 +9980,24 @@
         }
       }
     },
-    "文字" : {
+    "文字滚动" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Text"
+            "value" : "Scroll Text"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "テキスト"
+            "value" : "文字スクロール"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "文字"
+            "value" : "文字滾動"
           }
         }
       }
@@ -10380,6 +10615,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "是"
+          }
+        }
+      }
+    },
+    "显示全部可用指令" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show all available commands"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "利用可能なすべてのコマンドを表示"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示全部可用指令"
           }
         }
       }
@@ -12107,7 +12364,6 @@
       }
     },
     "正在发送…" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -12668,6 +12924,7 @@
     },
     "没有采集到足够的声音，请靠近麦克风再试一次" : {
       "comment" : "lip sync calibration captured too little audio",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -13838,6 +14095,7 @@
     },
     "璃奈板已断开，同步仍在本机运行。点「停止同步」可关闭麦克风。" : {
       "comment" : "lip sync kept running after the board disconnected",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -15104,6 +15362,28 @@
         }
       }
     },
+    "终端" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "端末"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "終端機"
+          }
+        }
+      }
+    },
     "绘制和选择部件会更新已连接面板，并结束其他输出模式。" : {
       "comment" : "live preview enabled explanation",
       "extractionState" : "stale",
@@ -16018,6 +16298,28 @@
         }
       }
     },
+    "表情显示" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faces"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情表示"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情顯示"
+          }
+        }
+      }
+    },
     "表情草稿，%lld 颗灯点亮。可使用下方逐灯编辑。" : {
       "comment" : "face draft preview accessibility summary",
       "extractionState" : "stale",
@@ -16361,6 +16663,28 @@
         }
       }
     },
+    "设定" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定"
+          }
+        }
+      }
+    },
     "设置" : {
       "localizations" : {
         "en" : {
@@ -16654,6 +16978,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "要求速度"
+          }
+        }
+      }
+    },
+    "请输入指令名，或包含 cmd 字段的 JSON 对象。" : {
+      "comment" : "monitor invalid input",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a command name or a JSON object containing cmd."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コマンド名、または cmd フィールドを含む JSON オブジェクトを入力してください。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請輸入指令名稱，或包含 cmd 欄位的 JSON 物件。"
           }
         }
       }
@@ -17249,6 +17596,9 @@
         }
       }
     },
+    "连接 %@" : {
+
+    },
     "连接与设备" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -17390,6 +17740,7 @@
     },
     "连接失败，请重试" : {
       "comment" : "board connection retry",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -18026,6 +18377,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "通訊記錄"
+          }
+        }
+      }
+    },
+    "通过当前蓝牙／Wi-Fi 连接发送 RinaLink 指令。带参数的指令请使用 JSON；USB 串口命令不适用于此页面。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send RinaLink commands over the current Bluetooth or Wi-Fi connection. Use JSON for parameters; USB serial commands are not supported here."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の Bluetooth／Wi-Fi 接続で RinaLink コマンドを送信します。引数には JSON を使用してください。USB シリアルコマンドには対応していません。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透過目前的藍牙／Wi-Fi 連線傳送 RinaLink 指令。帶參數的指令請使用 JSON；USB 序列埠指令不適用於此頁面。"
           }
         }
       }
@@ -18879,6 +19252,7 @@
     },
     "需要先连接璃奈板。" : {
       "comment" : "board must be connected first",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -19168,6 +19542,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "面板播放預覽"
+          }
+        }
+      }
+    },
+    "面板模式" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードのモード"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板模式"
           }
         }
       }

@@ -51,3 +51,31 @@ python3 tools/i18n/apply_translations.py
 so it is safe to run while other sessions are editing the project.
 
 Both scripts are idempotent; a clean tree reports `0 missing` / `0 field(s) would change`.
+
+### `sync_catalog.py` and xcodebuild
+
+Without `--objroot`, `sync_catalog.py` asks `xcodebuild -showBuildSettings` (generic iOS
+Simulator destination) where the build's intermediates live. That needs a full Xcode: if
+`xcode-select` points at the Command Line Tools, either prefix the command with
+`DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` or pass the directory
+yourself with `--objroot ~/Library/Developer/Xcode/DerivedData/RinaBoard-*/Build/Intermediates.noindex`.
+
+## Catalog format
+
+Both scripts write the catalog through `xcstrings_io.py`, which reproduces Xcode's own
+formatting byte-for-byte, so a run only changes the entries it actually touched (and
+Xcode opening the file afterwards changes nothing). Don't write the catalog with
+`json.dump(..., sort_keys=True)`: that rewrites all ~26k lines and conflicts with every other
+session editing the catalog. The format:
+
+- `" : "` between key and value, 2-space indent, non-ASCII written literally;
+- top-level `strings` keys stay in Xcode's order (which is *not* code-point order), with
+  new keys appended at the end; all other objects are sorted by key;
+- an empty object is `{`, a blank line, then `}`; no newline at end of file.
+
+After changing the writer, check that a load → dump round trip is still identical to both
+the committed and the working-tree catalog:
+
+```sh
+python3 tools/i18n/xcstrings_io.py --selftest
+```

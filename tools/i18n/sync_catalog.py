@@ -18,23 +18,39 @@ Run a build first, then:
 """
 import glob, json, os, re, subprocess, sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-CATALOG = os.path.join(ROOT, "ios/RinaBoard/Resources/Localizable.xcstrings")
+from xcstrings_io import CATALOG, ROOT, load_xcstrings, write_xcstrings
+
 PROJECT = os.path.join(ROOT, "ios/RinaBoard.xcodeproj")
+OBJROOT_HINT = (
+    "pass the build's intermediates directory with --objroot PATH "
+    "(e.g. ~/Library/Developer/Xcode/DerivedData/RinaBoard-*/Build/Intermediates.noindex), "
+    "or point xcodebuild at a full Xcode with "
+    "DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer"
+)
 
 
 def objroot():
-    out = subprocess.check_output(
-        ["xcodebuild", "-project", PROJECT, "-scheme", "RinaBoard",
-         "-destination", "platform=iOS Simulator,name=iPhone 17 Pro",
-         "-showBuildSettings", "-json"],
-        stderr=subprocess.DEVNULL,
-    )
-    for target in json.loads(out):
+    # A generic destination: OBJROOT does not depend on the device, and a named
+    # simulator is ambiguous when several share the name.
+    cmd = ["xcodebuild", "-project", PROJECT, "-scheme", "RinaBoard",
+           "-destination", "generic/platform=iOS Simulator",
+           "-showBuildSettings", "-json"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        sys.exit("could not run xcodebuild (%s); %s" % (exc, OBJROOT_HINT))
+    if result.returncode != 0:
+        detail = (result.stderr.strip().splitlines() or ["exit %d" % result.returncode])[-1]
+        sys.exit("xcodebuild -showBuildSettings failed: %s\n%s" % (detail, OBJROOT_HINT))
+    try:
+        targets = json.loads(result.stdout)
+    except ValueError:
+        targets = []
+    for target in targets:
         settings = target.get("buildSettings", {})
         if settings.get("OBJROOT"):
             return settings["OBJROOT"]
-    sys.exit("could not determine OBJROOT from xcodebuild")
+    sys.exit("could not determine OBJROOT from xcodebuild; " + OBJROOT_HINT)
 
 
 def keys_in_code(root):
@@ -92,8 +108,7 @@ def main():
     if not found:
         sys.exit("no .stringsdata found — build the app first")
 
-    with open(CATALOG, encoding="utf-8") as fh:
-        catalog = json.load(fh)
+    catalog = load_xcstrings()
     strings = catalog["strings"]
 
     missing = sorted(k for k in found if k not in strings)
@@ -103,16 +118,14 @@ def main():
     if check or not missing:
         return 0
 
+    # Appended in insertion order: the existing keys keep Xcode's order, so the
+    # diff is only the new entries.
     for key in missing:
         entry = {}
         if found[key]:
             entry["comment"] = found[key]
         strings[key] = entry
-    tmp = CATALOG + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(catalog, fh, ensure_ascii=False, indent=2, sort_keys=True)
-        fh.write("\n")
-    os.replace(tmp, CATALOG)
+    write_xcstrings(catalog)
     print("added %d key(s); now add translations and run apply_translations.py" % len(missing))
     return 0
 

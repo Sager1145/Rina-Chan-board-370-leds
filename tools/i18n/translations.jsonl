@@ -861,3 +861,17 @@
 {"k":"镜像","en":"Mirror","hant":"鏡像","ja":"ミラー"}
 {"k":"阈值","en":"Threshold","hant":"閾值","ja":"しきい値"}
 {"k":"静音","en":"Mute","hant":"靜音","ja":"消音"}
+{"k":"恢复默认","en":"Reset to default","hant":"恢復預設","ja":"デフォルトに戻す"}
+{"k": "请输入指令名，或包含 cmd 字段的 JSON 对象。", "en": "Enter a command name or a JSON object containing cmd.", "hant": "請輸入指令名稱，或包含 cmd 欄位的 JSON 物件。", "ja": "コマンド名、または cmd フィールドを含む JSON オブジェクトを入力してください。"}
+{"k": "指令名或 JSON", "en": "Command name or JSON", "hant": "指令名稱或 JSON", "ja": "コマンド名または JSON"}
+{"k": "发送指令", "en": "Send command", "hant": "傳送指令", "ja": "コマンドを送信"}
+{"k": "显示全部可用指令", "en": "Show all available commands", "hant": "顯示全部可用指令", "ja": "利用可能なすべてのコマンドを表示"}
+{"k": "通过当前蓝牙／Wi-Fi 连接发送 RinaLink 指令。带参数的指令请使用 JSON；USB 串口命令不适用于此页面。", "en": "Send RinaLink commands over the current Bluetooth or Wi-Fi connection. Use JSON for parameters; USB serial commands are not supported here.", "hant": "透過目前的藍牙／Wi-Fi 連線傳送 RinaLink 指令。帶參數的指令請使用 JSON；USB 序列埠指令不適用於此頁面。", "ja": "現在の Bluetooth／Wi-Fi 接続で RinaLink コマンドを送信します。引数には JSON を使用してください。USB シリアルコマンドには対応していません。"}
+{"k": "搜索指令", "en": "Search commands", "hant": "搜尋指令", "ja": "コマンドを検索"}
+{"k": "可用指令", "en": "Available commands", "hant": "可用指令", "ja": "利用可能なコマンド"}
+{"k": "列出当前项目固件支持的全部 CMD 指令及常用查询。点选示例后可修改参数，再发送；设备实际支持情况取决于固件版本。", "en": "All CMD commands and common queries supported by this project’s firmware. Tap an example, edit its parameters, then send. Device support depends on the firmware version.", "hant": "列出目前專案韌體支援的全部 CMD 指令及常用查詢。點選範例後可修改參數，再傳送；裝置實際支援情況取決於韌體版本。", "ja": "このプロジェクトのファームウェアが対応するすべての CMD コマンドと主な照会です。例をタップし、引数を編集してから送信します。対応状況はファームウェアのバージョンによって異なります。"}
+{"k": "接收固件日志", "en": "Receive firmware logs", "hant": "接收韌體日誌", "ja": "ファームウェアログを受信"}
+{"k": "发送指令后，回复将显示在这里。", "en": "Replies appear here after you send a command.", "hant": "傳送指令後，回覆將顯示在這裡。", "ja": "コマンドを送信すると、ここに応答が表示されます。"}
+{"k": "收发记录（最新在前）", "en": "Traffic (newest first)", "hant": "收發記錄（最新在前）", "ja": "送受信履歴（新しい順）"}
+{"k": "终端", "en": "Terminal", "hant": "終端機", "ja": "端末"}
+{"k": "Serial Monitor", "en": "Serial Monitor", "hant": "Serial Monitor", "ja": "Serial Monitor"}
