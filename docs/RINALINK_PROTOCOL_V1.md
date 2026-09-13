@@ -79,9 +79,29 @@ large, 500, 507 no memory).
 | 0x01 | `CMD` | `{"cmd":"…", …fields}` — exact same command set as the old `/api/command` (§3.4) | same JSON as the old `reply()` object |
 | 0x02 | `GET_STATUS` | `{}` or `{"lite":true}` | old `/api/status` JSON (full) or the `renderer`+`power` subset when `lite` |
 | 0x03 | `GET_POWER` | — | old `/api/power` JSON |
-| 0x04 | `GET_SCROLL_META` | — | old `/api/scroll/meta` JSON |
-| 0x05 | `GET_PREVIEW_SYNC` | — | old `/api/preview_sync` JSON (also pushed as event 0x90; the pull form exists for BLE clients that disable notifications) |
+| 0x04 | `GET_SCROLL_META` | — | scroll source/timeline metadata plus the current cursor, active/pause flags, and `scrollLoop` |
+| 0x05 | `GET_PREVIEW_SYNC` | — | lightweight actually-presented frame telemetry (also pushed as event 0x90; the pull form exists for reconnect anchoring and BLE clients that disable notifications) |
 | 0x06 | `PING` | — | `{"ok":true,"uptimeMs":n}` |
+
+`GET_SCROLL_META` includes `firmwareScrollUserPaused`,
+`firmwareScrollSystemPaused`, and `scrollLoop` in addition to the historical
+scroll-meta fields. Its `frameIndex` is the current firmware cursor sampled
+atomically with those flags; clients that need the last frame physically latched
+by the LEDs use `GET_PREVIEW_SYNC` after restoring/rasterizing the source text.
+
+`GET_PREVIEW_SYNC` includes `scrollAdvanceSeq`, `presentedAtUs`, and
+`sampledAtUs`. `scrollAdvanceSeq` is a boot-lifetime unsigned 32-bit sequence
+that advances only when an automatic `scroll_tick` context reaches a successful
+LED latch. Compute its delta with modulo-2^32 unsigned subtraction after checking
+the timeline identity; unlike the ring frame index, it still counts multiple
+complete wraps between samples. `presentedAtUs` and `sampledAtUs` are unsigned
+64-bit microseconds from the same ESP monotonic boot clock, so
+`sampledAtUs - presentedAtUs` is the age of the presented position when the
+reply was assembled. `presentedSeq` still counts every valid presentation,
+including starts, seeks, and manual frames, and must not be used as a scroll
+advance count. The active/pause flags and `scrollLoop` are freshly sampled
+control state; presentation identity and timing remain tied to the last
+successful LED latch.
 
 ### 3.2 Frames (binary payloads)
 

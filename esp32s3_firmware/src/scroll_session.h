@@ -52,6 +52,7 @@ struct ScrollMetaOut {
     bool paused = false;
     bool userPaused = false;
     bool systemPaused = false;
+    bool loop = true;
 };
 
 struct ScrollSessionSnapshot {

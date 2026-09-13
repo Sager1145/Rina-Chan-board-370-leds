@@ -76,6 +76,12 @@ struct LedPresentationContext {
 struct LedPresentedSample {
     bool valid = false;
     uint32_t presentedSeq = 0;
+    // Boot-lifetime modulo-2^32 count of automatic scroll-tick contexts that
+    // reached a successful LED latch. Unlike presentedSeq, starts, seeks,
+    // manual frames and clears do not advance it, so clients can recover the
+    // exact number of scroll advances even when the ring index wraps between
+    // samples.
+    uint32_t scrollAdvanceSeq = 0;
     LedPresentationSource source = LedPresentationSource::Unknown;
 
     char timelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
@@ -91,10 +97,10 @@ struct LedPresentedSample {
     bool systemPaused = false;
     bool rateEligible = false;
 
-    // Device monotonic microseconds. micros() wraps (~71 min); the app handles
-    // monotonic deltas using presentedSeq ordering and a bounded time window.
-    uint32_t renderStartUs = 0;
-    uint32_t presentedAtUs = 0;
+    // Device monotonic microseconds since boot. esp_timer_get_time() keeps
+    // these comparable to sampledAtUs without micros()'s ~71-minute wrap.
+    uint64_t renderStartUs = 0;
+    uint64_t presentedAtUs = 0;
     uint32_t renderDurationUs = 0;
 
     char reason[PACKED_FRAME_REASON_CHARS] = {0};

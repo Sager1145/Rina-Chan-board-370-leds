@@ -34,6 +34,7 @@ enum class LedPresentationSource { ScrollTick };
 struct Runtime {
  bool firmwareScrollActive=true, firmwareScrollPaused=false;
  bool firmwareScrollUserPaused=false, firmwareScrollSystemPaused=false, paused=false;
+ bool scrollLoop=true;
  String playback="scroll";
  uint16_t scrollFrameIndex=0, scrollFrameCount=2, scrollIntervalMs=10;
  uint32_t lastScrollFrameMs=1, framesAccepted=0, framesDropped=0, framesQueued=0;
@@ -43,6 +44,7 @@ using ScrollTimelineMeta=Meta;
 struct ScrollUploadTxn { uint32_t generation=0; uint16_t baseIndex=0,framesReceivedBase=0,nextChunkIndex=0; bool append=false; };
 struct ScrollUploadResult { bool valid=false; uint16_t frameCount=0; bool uploadComplete=false; char timelineId[8]={}; };
 uint32_t sScrollGeneration=5, nowMs=21;
+bool sScrollEndPausePending=false;
 uint8_t scrollBits[MAX_SCROLL_FRAMES][FRAME_BYTES]={{1,0},{2,0}}, frame[FRAME_BYTES]={};
 Runtime& runtimeState(){return rs;}
 Meta& runtimeScrollMeta(){return meta;}

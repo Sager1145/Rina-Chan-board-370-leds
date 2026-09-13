@@ -95,3 +95,11 @@ Constants: HW_RATE_WINDOW_MS 8000, MIN_SAMPLES 3, MIN_SPAN_MS 2000, MIN_FRAMES 3
 
 ## 7. Restore on launch (app.js 11569–12009)
 After connect: GET_SCROLL_META. If `uploadComplete && frameCount > 0 && fontId/generatorVersion match exactly && hasSourceText`: re-rasterise sourceText locally; if the local frame count equals `frameCount`, bind the timeline (`scrollTimelineId`), set fps from `uiFps`, set display index to `frameIndex`, and show the text in the input — unless the user already edited the input (then show the "restore conflict" warning instead). If counts differ or generator mismatch → warning only.
+
+### iOS synchronization update (2026-09-12)
+
+The firmware keeps the existing preview event cadence. Each small preview message now includes `scrollAdvanceSeq` (UInt32, wrapping count of actually latched automatic scroll ticks), `sampledAtUs` (64-bit boot clock, same clock as `presentedAtUs`), and the current `scrollLoop`/pause state. No bitmap frames or source text are added to recurring notifications. iOS uses unsigned counter deltas to measure speed even when several complete text loops occur between notifications; older firmware falls back to ring-index deltas. A changed `scrollIntervalMs` seeds the new rate immediately while measured samples converge.
+
+The first sample, a gap longer than 1.5 seconds, or an error exceeding two frames anchors the preview directly to the presented position. Remaining frame time uses `sampledAtUs - presentedAtUs`; small errors still use the phase controller. Duplicate presentations do not add rate or phase samples. Local timing uses a monotonic clock and waits before advancing the first frame.
+
+Reconnect reads source text once with GET_SCROLL_META, rebuilds locally, then reads GET_PREVIEW_SYNC once to avoid anchoring to a cursor that aged during font loading. The board's pause and loop settings are adopted without changing playback. Saved drafts now retain whether they contain unsent edits: sent text restores automatically into the input; a differing unsent draft keeps the existing conflict choice. Returning to the text view refreshes the small preview snapshot without regenerating text.

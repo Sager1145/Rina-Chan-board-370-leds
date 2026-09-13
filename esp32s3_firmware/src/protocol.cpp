@@ -19,6 +19,7 @@
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 #include <math.h>
 #include <string.h>
 #include <freertos/task.h>
@@ -1145,6 +1146,9 @@ static void handleGetScrollMeta(ClientSlot& c, uint8_t seq) {
     d["uploadComplete"] = o.meta.uploadComplete;
     d["firmwareScrollActive"] = o.active;
     d["firmwareScrollPaused"] = o.paused;
+    d["firmwareScrollUserPaused"] = o.userPaused;
+    d["firmwareScrollSystemPaused"] = o.systemPaused;
+    d["scrollLoop"] = o.loop;
 
     // The serialized JSON (sourceText up to 4 KB) can exceed MAX_PAYLOAD_BYTES;
     // emitJson (via sendJsonReply) spans it across multiple FLAG_MORE frames as
@@ -1154,8 +1158,17 @@ static void handleGetScrollMeta(ClientSlot& c, uint8_t seq) {
 }
 
 static void buildPreviewSyncJson(JsonDocument& d) {
-    LedPresentedSample s = readLedPresentedSample();
+    // Presentation identity/timing comes from the last successful LED latch.
+    // Control flags come from a fresh scroll-lock snapshot because pause/loop
+    // commands do not themselves render a frame and would otherwise leave the
+    // reply advertising stale state until the next presentation.
+    ScrollSessionSnapshot live = scrollSessionSnapshot();
     FrameStateSnapshot fs = readFrameStateSnapshot();
+    // Read the latch sample last, immediately before sampledAtUs, so a Core-1
+    // tick concurrent with the slower state snapshots cannot make the reply
+    // one presentation older than necessary.
+    LedPresentedSample s = readLedPresentedSample();
+    const uint64_t sampledAtUs = static_cast<uint64_t>(esp_timer_get_time());
     d["ok"] = true;
     d["v"] = runtimeStateVersion();
     d["mode"] = runtimeState().mode;
@@ -1165,6 +1178,7 @@ static void buildPreviewSyncJson(JsonDocument& d) {
     d["lastReason"] = fs.lastReason;
     d["valid"] = s.valid;
     d["presentedSeq"] = s.presentedSeq;
+    d["scrollAdvanceSeq"] = s.scrollAdvanceSeq;
     d["source"] = ledPresentationSourceName(s.source);
     d["reason"] = s.reason;
     d["scrollTimelineId"] = s.timelineId;
@@ -1173,14 +1187,16 @@ static void buildPreviewSyncJson(JsonDocument& d) {
     d["frameIndex"] = s.presentedFrameIndex;
     d["frameCount"] = s.presentedFrameCount;
     d["presentedAtUs"] = s.presentedAtUs;
+    d["sampledAtUs"] = sampledAtUs;
     d["renderStartUs"] = s.renderStartUs;
     d["renderDurationUs"] = s.renderDurationUs;
     d["scrollIntervalMs"] = s.nominalIntervalMs;
     d["uiFps"] = s.uiFps;
-    d["firmwareScrollActive"] = s.firmwareScrollActive;
-    d["firmwareScrollPaused"] = s.firmwareScrollPaused;
-    d["firmwareScrollUserPaused"] = s.userPaused;
-    d["firmwareScrollSystemPaused"] = s.systemPaused;
+    d["firmwareScrollActive"] = live.firmwareScrollActive;
+    d["firmwareScrollPaused"] = live.firmwareScrollPaused;
+    d["firmwareScrollUserPaused"] = live.firmwareScrollUserPaused;
+    d["firmwareScrollSystemPaused"] = live.firmwareScrollSystemPaused;
+    d["scrollLoop"] = live.scrollLoop;
     d["rateEligible"] = s.rateEligible;
 }
 

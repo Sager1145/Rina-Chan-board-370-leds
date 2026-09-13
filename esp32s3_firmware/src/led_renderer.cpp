@@ -6,6 +6,7 @@
 #include "button_animations.h"
 #include "serial_log.h"
 #include "led_driver.h"
+#include <esp_timer.h>
 
 static uint16_t logicalToPhysicalMap[LED_COUNT] = {};
 static portMUX_TYPE ledRenderRequestMux = portMUX_INITIALIZER_UNLOCKED;
@@ -19,6 +20,7 @@ static portMUX_TYPE ledPresentationMux = portMUX_INITIALIZER_UNLOCKED;
 static LedPresentationContext pendingPresentationContext;
 static LedPresentedSample latestPresentedSample;
 static uint32_t presentedSeq = 0;
+static uint32_t scrollAdvanceSeq = 0;
 
 void setPendingLedPresentationContext(const LedPresentationContext& ctx) {
     portENTER_CRITICAL(&ledPresentationMux);
@@ -39,13 +41,16 @@ static LedPresentationContext consumePendingLedPresentationContext() {
 // without a context (brightness/color refreshes, queue flushes) are intentionally skipped so a
 // stray refresh can never clobber the last good scroll sample the app is tracking.
 static void publishLedPresentedSample(const LedPresentationContext& ctx,
-                                      uint32_t renderStartUs, uint32_t renderEndUs) {
+                                      uint64_t renderStartUs, uint64_t renderEndUs) {
     if (!ctx.valid)
         return;
 
     LedPresentedSample sample;
     sample.valid = true;
     sample.presentedSeq = ++presentedSeq;
+    if (ctx.source == LedPresentationSource::ScrollTick)
+        ++scrollAdvanceSeq;
+    sample.scrollAdvanceSeq = scrollAdvanceSeq;
     sample.source = ctx.source;
     strlcpy(sample.timelineId, ctx.timelineId, sizeof(sample.timelineId));
     sample.presentedFrameIndex = ctx.frameIndex;
@@ -59,7 +64,7 @@ static void publishLedPresentedSample(const LedPresentationContext& ctx,
     sample.rateEligible = ctx.rateEligible;
     sample.renderStartUs = renderStartUs;
     sample.presentedAtUs = renderEndUs;
-    sample.renderDurationUs = renderEndUs - renderStartUs;
+    sample.renderDurationUs = static_cast<uint32_t>(renderEndUs - renderStartUs);
     strlcpy(sample.reason, ctx.reason, sizeof(sample.reason));
 
     portENTER_CRITICAL(&ledPresentationMux);
@@ -296,10 +301,10 @@ void renderCurrentFrameToLedStrip() {
         }
     }
     delayMicroseconds(LED_SIGNAL_RESET_US);
-    const uint32_t renderStartUs = micros();
+    const uint64_t renderStartUs = static_cast<uint64_t>(esp_timer_get_time());
     const bool presented = withHardwareBusLock([]() { return leddrv::refresh(); });
-    const uint32_t renderEndUs = micros();
-    lastLedShowUs = renderEndUs;
+    const uint64_t renderEndUs = static_cast<uint64_t>(esp_timer_get_time());
+    lastLedShowUs = micros();
     // The LED has now actually latched this frame: record it as the presented sample.
     if (presented)
         publishLedPresentedSample(ctx, renderStartUs, renderEndUs);

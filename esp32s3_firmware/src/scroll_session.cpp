@@ -502,6 +502,7 @@ bool scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize
         out.paused = runtimeState().firmwareScrollPaused;
         out.userPaused = runtimeState().firmwareScrollUserPaused;
         out.systemPaused = runtimeState().firmwareScrollSystemPaused;
+        out.loop = runtimeState().scrollLoop;
 
         if (out.meta.hasSourceText && runtimeScrollSourceTextReady()) {
             const size_t bytesToCopy = static_cast<size_t>(out.meta.sourceTextByteLength) + 1U;
