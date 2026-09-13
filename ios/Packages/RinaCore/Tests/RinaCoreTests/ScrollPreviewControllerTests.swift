@@ -96,61 +96,51 @@ final class ScrollPreviewControllerTests: XCTestCase {
 
     // MARK: Phase catch-up / lead
 
-    func testLaggingDisplayIndexTriggersCatchup() {
+    func testReconnectAnchorsImmediatelyAndUsesRemainingFrameTime() {
         var controller = ScrollPreviewController(frameCount: 300, userFps: 10)
         controller.bind(timelineId: "tl-1", frameCount: 300)
-
-        // Prime measuredFps so `base` and `horizonFrames` are sane, then feed
-        // a single sample where the firmware is 6 frames ahead of our display.
-        let sample = PreviewSync(
-            presentedSeq: 10,
-            source: "tick",
-            scrollTimelineId: "tl-1",
-            presentedFrameIndex: 6,
-            presentedFrameCount: 300,
-            presentedAtUs: 1_000_000,
-            firmwareScrollActive: true,
-            firmwareScrollPaused: false,
-            rateEligible: true
-        )
-        // displayIndex starts at 0; feed the sample 4 times so the low-passed
-        // phase error converges close to the raw +6 delta.
-        for _ in 0..<4 {
-            _ = controller.record(sample: sample, nowMs: 0)
-        }
-        // Prime `lastSpeedUpdateMs` at t=0 (no slew yet), then advance wall
-        // time so the multiplier has room to slew toward the target.
-        _ = controller.nextDelayMs(nowMs: 0)
-        let delay = controller.nextDelayMs(nowMs: 1000)
-        XCTAssertEqual(controller.lockState, .catchup)
-        XCTAssertLessThan(delay, controller.previewIntervalMs)
+        _ = controller.record(sample: PreviewSync(
+            presentedSeq: 10, source: "scroll_tick", scrollTimelineId: "tl-1",
+            presentedFrameIndex: 180, presentedFrameCount: 300,
+            presentedAtUs: 1_000_000, scrollIntervalMs: 100,
+            sampledAtUs: 1_075_000), nowMs: 5000)
+        XCTAssertEqual(controller.displayIndex, 180)
+        XCTAssertEqual(controller.nextDelayMs(nowMs: 5000), 25)
     }
 
-    func testLeadingDisplayIndexSlowsDown() {
+    func testDuplicateSampleDoesNotPullPreviewBack() {
         var controller = ScrollPreviewController(frameCount: 300, userFps: 10)
         controller.bind(timelineId: "tl-1", frameCount: 300)
+        let sample = PreviewSync(presentedSeq: 10, source: "scroll_tick",
+            scrollTimelineId: "tl-1", presentedFrameIndex: 180, presentedFrameCount: 300)
+        _ = controller.record(sample: sample, nowMs: 0)
+        controller.tick()
+        _ = controller.record(sample: sample, nowMs: 100)
+        XCTAssertEqual(controller.displayIndex, 181)
+        XCTAssertEqual(controller.phaseError, 0)
+    }
 
-        // Push displayIndex ahead of the firmware by ticking first, then feed
-        // a sample where the firmware is 6 frames behind our display.
-        for _ in 0..<6 { controller.tick() }
-        let sample = PreviewSync(
-            presentedSeq: 10,
-            source: "tick",
-            scrollTimelineId: "tl-1",
-            presentedFrameIndex: 0,
-            presentedFrameCount: 300,
-            presentedAtUs: 1_000_000,
-            firmwareScrollActive: true,
-            firmwareScrollPaused: false,
-            rateEligible: true
-        )
-        for _ in 0..<4 {
-            _ = controller.record(sample: sample, nowMs: 0)
+    func testAdvanceCounterMeasuresMultipleLoopsBetweenSparseSamples() {
+        var controller = ScrollPreviewController(frameCount: 5, userFps: 10)
+        controller.bind(timelineId: "tl-1", frameCount: 5)
+        for i in 0...30 {
+            _ = controller.record(sample: PreviewSync(
+                presentedSeq: i + 1, source: "scroll_tick", scrollTimelineId: "tl-1",
+                presentedFrameIndex: 0, presentedFrameCount: 5,
+                presentedAtUs: Int64(i * 500_000), rateEligible: true,
+                scrollAdvanceSeq: UInt32(i * 20)), nowMs: Double(i * 500))
         }
-        _ = controller.nextDelayMs(nowMs: 0)
-        let delay = controller.nextDelayMs(nowMs: 1000)
-        XCTAssertEqual(controller.lockState, .catchup)
-        XCTAssertGreaterThan(delay, controller.previewIntervalMs)
+        XCTAssertEqual(controller.measuredFps, 40, accuracy: 0.5)
+    }
+
+    func testBoardIntervalChangeRetunesWithoutWaitingForRegression() {
+        var controller = ScrollPreviewController(frameCount: 300, userFps: 10)
+        controller.bind(timelineId: "tl-1", frameCount: 300)
+        _ = controller.record(sample: PreviewSync(presentedSeq: 1,
+            presentedFrameIndex: 0, presentedFrameCount: 300,
+            scrollIntervalMs: 25), nowMs: 0)
+        XCTAssertEqual(controller.previewIntervalMs, 25)
+        XCTAssertEqual(controller.measuredFps, 40)
     }
 
     // MARK: Identity mismatch

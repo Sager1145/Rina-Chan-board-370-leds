@@ -4,10 +4,9 @@
 /// wall-clock reads — all timestamps are supplied by the caller so the
 /// algorithm is unit-testable with synthetic time.
 ///
-/// The controller never skips or holds frames: `tick()` always advances the
-/// local `displayIndex` by exactly one frame on the ring. Alignment with the
-/// firmware's presented frame is achieved purely by modulating the delay
-/// between ticks (`nextDelayMs`), slewed so the perceived speed never jolts.
+/// `tick()` advances one frame locally. Fresh sessions, reconnects and large
+/// position errors anchor directly to the actual presentation; small drift is
+/// corrected by slewing the delay between ticks. Telemetry stays low-frequency.
 public struct ScrollPreviewController {
     // MARK: Constants (SCROLL_RASTERIZER_SPEC §6)
 
@@ -33,9 +32,9 @@ public struct ScrollPreviewController {
     /// overlay) rather than the steady tick of an active scroll: these snap
     /// the display index instead of phase-correcting it, and are excluded
     /// from the rate estimator.
-    private static let steppingSources: Set<String> = ["scroll_step", "manual", "clear", "overlay"]
+    private static let steppingSources: Set<String> = ["scroll_start", "scroll_step", "manual", "manual_frame", "clear", "overlay"]
     private static let discontinuousRateSources: Set<String> = [
-        "scroll_start", "scroll_step", "manual", "clear", "overlay",
+        "scroll_start", "scroll_step", "manual", "manual_frame", "clear", "overlay",
     ]
 
     public enum RecordOutcome: Equatable {
@@ -53,6 +52,7 @@ public struct ScrollPreviewController {
 
     private struct RateSample {
         let seq: Int
+        let advanceSeq: UInt32?
         let tMs: Double
         let frameIndex: Int
         let unwrappedFrame: Int
@@ -67,6 +67,11 @@ public struct ScrollPreviewController {
     public private(set) var lockState: LockState = .free
 
     // MARK: Private state
+
+    private var lastSampleMs: Double?
+    private var lastPresentedSeq: Int?
+    private var nominalIntervalMs: Int?
+    private var nextAlignedTickMs: Double?
 
     private var frameCount: Int
     private var timelineId: String?
@@ -96,6 +101,10 @@ public struct ScrollPreviewController {
 
     /// Resets transient state without forgetting the bound identity.
     public mutating func reset() {
+        lastSampleMs = nil
+        lastPresentedSeq = nil
+        nominalIntervalMs = nil
+        nextAlignedTickMs = nil
         displayIndex = 0
         phaseError = 0
         lockState = .free
@@ -131,6 +140,7 @@ public struct ScrollPreviewController {
     /// Consumes one `preview` sample: identity guard, pause/step snap, phase
     /// filtering, and (when rate-eligible) rate estimation.
     public mutating func record(sample: PreviewSync, nowMs: Double) -> RecordOutcome {
+        guard sample.valid != false else { return .ok }
         guard
             let fc = sample.presentedFrameCount ?? sample.frameCount, fc > 0,
             let frameIndex = sample.presentedFrameIndex ?? sample.frameIndex,
@@ -144,6 +154,19 @@ public struct ScrollPreviewController {
             return .identityMismatch
         }
 
+        // Ignore duplicated/out-of-order presentation packets, but still accept
+        // pause changes carried on the same latched frame.
+        if let previous = lastPresentedSeq, seq < previous { return .ok }
+        let duplicate = lastPresentedSeq == seq
+        let needsAnchor = lastSampleMs == nil || nowMs - (lastSampleMs ?? nowMs) > 1500
+        lastSampleMs = nowMs
+        lastPresentedSeq = seq
+        if let interval = sample.scrollIntervalMs, interval > 0, interval != nominalIntervalMs {
+            nominalIntervalMs = interval
+            measuredFps = 1000 / Double(interval)
+            previewIntervalMs = Double(interval)
+            hwSamples.removeAll()
+        }
         let source = sample.source ?? ""
         let paused = sample.firmwareScrollPaused == true
         let stepping = Self.steppingSources.contains(source)
@@ -153,10 +176,27 @@ public struct ScrollPreviewController {
             displayIndex = normalized
             ignoreRateUntilSeq = max(ignoreRateUntilSeq, seq + 2)
             lockState = .free
-            if stepping { hwSamples.removeAll() }
+            phaseError = 0
+            hwSamples.removeAll()
+            if !paused {
+                let age = max(0, Double((sample.sampledAtUs ?? sample.presentedAtUs ?? 0)
+                    - (sample.presentedAtUs ?? 0)) / 1000)
+                nextAlignedTickMs = nowMs + max(1, previewIntervalMs - age)
+            } else { nextAlignedTickMs = nil }
             return .snapped(normalized)
         }
 
+        if duplicate { return .ok }
+        if needsAnchor || abs(shortestRingDelta(frameIndex, displayIndex, frameCount)) > 2 {
+            displayIndex = ((frameIndex % frameCount) + frameCount) % frameCount
+            phaseError = 0
+            let ageMs: Double
+            if let sampled = sample.sampledAtUs, let presented = sample.presentedAtUs {
+                ageMs = max(0, Double(sampled - presented) / 1000)
+            } else { ageMs = 0 }
+            nextAlignedTickMs = nowMs + max(1, previewIntervalMs - ageMs)
+            if needsAnchor { hwSamples.removeAll() }
+        }
         let err = shortestRingDelta(frameIndex, displayIndex, frameCount)
         phaseError = phaseError * (1 - Self.phaseAlpha) + err * Self.phaseAlpha
 
@@ -166,11 +206,16 @@ public struct ScrollPreviewController {
             let tMs = Double(presentedAtUs) / 1000.0
             if let last = hwSamples.last {
                 if seq > last.seq, tMs > last.tMs {
-                    let delta = forwardFrameDelta(frameIndex, last.frameIndex, frameCount)
-                    hwSamples.append(RateSample(seq: seq, tMs: tMs, frameIndex: frameIndex, unwrappedFrame: last.unwrappedFrame + delta))
+                    let delta: Int
+                    if let advance = sample.scrollAdvanceSeq, let previous = last.advanceSeq {
+                        delta = Int(advance &- previous)
+                    } else {
+                        delta = forwardFrameDelta(frameIndex, last.frameIndex, frameCount)
+                    }
+                    hwSamples.append(RateSample(seq: seq, advanceSeq: sample.scrollAdvanceSeq, tMs: tMs, frameIndex: frameIndex, unwrappedFrame: last.unwrappedFrame + delta))
                 }
             } else {
-                hwSamples.append(RateSample(seq: seq, tMs: tMs, frameIndex: frameIndex, unwrappedFrame: frameIndex))
+                hwSamples.append(RateSample(seq: seq, advanceSeq: sample.scrollAdvanceSeq, tMs: tMs, frameIndex: frameIndex, unwrappedFrame: frameIndex))
             }
             let cutoff = tMs - Self.hwRateWindowMs
             while hwSamples.count > 2, hwSamples[0].tMs < cutoff {
@@ -222,6 +267,10 @@ public struct ScrollPreviewController {
     /// Speed controller: turns the low-passed phase error into a slew-limited
     /// speed multiplier and returns the delay (ms) until the next `tick()`.
     public mutating func nextDelayMs(nowMs: Double) -> Double {
+        if let aligned = nextAlignedTickMs {
+            nextAlignedTickMs = nil
+            return max(1, aligned - nowMs)
+        }
         guard timelineId != nil, frameCount > 0 else {
             lockState = .free
             previewSpeedMultiplier = 1

@@ -17,7 +17,7 @@ final class TextViewModel {
     var text: String = "" { didSet { scheduleDraftSave() } }
     /// Set as soon as the user types, so a board-side restore can't silently
     /// discard an unsent draft (§26).
-    var userEditedText = false
+    var userEditedText = false { didSet { scheduleDraftSave() } }
     var restoreConflict = false
     /// The board's text, held aside while a conflict is unresolved.
     var boardText: String?
@@ -31,7 +31,12 @@ final class TextViewModel {
     private var draftSaveTask: Task<Void, Never>?
     private var uploadTask: Task<Void, Never>?
     private var restoringDraft = false
-    private struct Draft: Codable { var version = 1; var text: String; var fps: Double }
+    private struct Draft: Codable {
+        var version = 1
+        var text: String
+        var fps: Double
+        var userEdited: Bool? = nil
+    }
 
     func restoreDraft() async {
         do {
@@ -39,7 +44,8 @@ final class TextViewModel {
             let draft = try JSONDecoder().decode(Draft.self, from: data)
             guard draft.version == 1 else { return }
             restoringDraft = true
-            text = draft.text; requestedFps = Double(clampFps(draft.fps)); userEditedText = true
+            text = draft.text; requestedFps = Double(clampFps(draft.fps))
+            userEditedText = draft.userEdited ?? true
             didLoadDefaults = true
             restoringDraft = false
         } catch {
@@ -61,7 +67,7 @@ final class TextViewModel {
 
     func persistDraft() async {
         do {
-            let data = try JSONEncoder().encode(Draft(text: text, fps: requestedFps))
+            let data = try JSONEncoder().encode(Draft(text: text, fps: requestedFps, userEdited: userEditedText))
             try await DraftStorage.shared.write(data, name: "text")
             draftStorageError = nil
         } catch {
@@ -94,7 +100,9 @@ final class TextViewModel {
     /// nothing on another timeline, and a removed Slider may never report
     /// the end of its drag.
     var timeline: ScrollTimeline? { didSet { cancelScrub() } }
-    var boundTimelineId: String?
+    var boundTimelineId: String? {
+        didSet { if oldValue != boundTimelineId { cancelScrub() } }
+    }
 
     // MARK: Preview speed-lock
 
@@ -114,7 +122,45 @@ final class TextViewModel {
     /// the previous drag doesn't clear the new drag's thumb when it lands.
     var isScrubbing = false
 
+    private var scrubGeneration = 0
+
+    struct ScrubCommit {
+        let frameIndex: Int
+        let timelineId: String
+        let generation: Int
+    }
+
+    func beginScrub() {
+        guard !isScrubbing, boundTimelineId != nil, frameCount > 1 else { return }
+        scrubGeneration += 1
+        isScrubbing = true
+        if scrubIndex == nil { scrubIndex = displayIndex }
+    }
+
+    /// Slider updates are local only, including updates before its begin callback.
+    func updateScrub(toFrame index: Int) {
+        guard boundTimelineId != nil, frameCount > 1 else { return }
+        scrubIndex = min(frameCount - 1, max(0, index))
+    }
+
+    /// Capture the release synchronously, before the UI launches an async command.
+    /// Repeated end callbacks and cancelled drags produce no command.
+    func endScrub() -> ScrubCommit? {
+        guard isScrubbing else { return nil }
+        isScrubbing = false
+        guard let index = scrubIndex, let identity = boundTimelineId else { return nil }
+        return ScrubCommit(frameIndex: index, timelineId: identity, generation: scrubGeneration)
+    }
+
+    func commitScrub(_ commit: ScrubCommit, connection: BoardConnection) async {
+        guard !isScrubbing, commit.generation == scrubGeneration,
+              commit.timelineId == boundTimelineId,
+              connection.connectionState == .connected else { return }
+        await seek(toFrame: commit.frameIndex, connection: connection)
+    }
+
     func cancelScrub() {
+        scrubGeneration += 1
         isScrubbing = false
         scrubIndex = nil
     }
@@ -125,10 +171,11 @@ final class TextViewModel {
     var boardPaused = false
 
     static let loopPlaybackKey = "textLoopPlayback"
-    /// Loop playback preference. The board keeps it in RAM only, so it is
-    /// pushed before every upload and after a reconnect restore.
+    /// Sent before new uploads; reconnect adopts the board’s current setting.
     var loopPlayback: Bool = UserDefaults.standard.object(forKey: TextViewModel.loopPlaybackKey) as? Bool ?? true {
-        didSet { UserDefaults.standard.set(loopPlayback, forKey: Self.loopPlaybackKey) }
+        didSet {
+            if oldValue != loopPlayback { UserDefaults.standard.set(loopPlayback, forKey: Self.loopPlaybackKey) }
+        }
     }
 
     var previewFrame: PackedFrame {
@@ -327,6 +374,13 @@ final class TextViewModel {
             pll = ScrollPreviewController(frameCount: built.frameCount, userFps: Double(fpsInt))
             pll.bind(timelineId: boundId, frameCount: built.frameCount)
             userEditedText = self.text != text
+            scheduleDraftSave()
+            boardPaused = false
+            activeConnection = connection
+            if let sample = try? await connection.getPreviewSync() {
+                if let token = BoardOutputContext.session { try connection.output.check(token) }
+                observe(preview: sample)
+            }
             uploadProgress = 1.0
             localPhase = nil
             startPreviewLoop()
@@ -403,10 +457,17 @@ final class TextViewModel {
     /// Jumps the board to an absolute frame; a playing scroll keeps playing
     /// from there, a paused one stays paused on it.
     func seek(toFrame index: Int, connection: BoardConnection) async {
-        defer { if !isScrubbing { scrubIndex = nil } }
-        guard frameCount > 0 else { return }
+        guard !isScrubbing, frameCount > 0, let identity = boundTimelineId,
+              connection.connectionState == .connected else { return }
+        let revision = scrubGeneration
+        let connectionGeneration = connection.connectionGeneration
+        defer {
+            if revision == scrubGeneration, !isScrubbing { scrubIndex = nil }
+        }
         let clamped = min(frameCount - 1, max(0, index))
-        if await run(connection, { _ = try await $0.command(.scrollSeek(frameIndex: clamped)) }) {
+        if await run(connection, { _ = try await $0.command(.scrollSeek(frameIndex: clamped)) }),
+           revision == scrubGeneration, identity == boundTimelineId,
+           connectionGeneration == connection.connectionGeneration {
             pll.snap(to: clamped)
         }
     }
@@ -427,7 +488,9 @@ final class TextViewModel {
         let generation = connection.connectionGeneration
         let outputSession = connection.output.session
         guard let meta = try? await connection.getScrollMeta() else { return }
-        guard meta.uploadComplete == true,
+        guard !Task.isCancelled, generation == connection.connectionGeneration,
+              outputSession == connection.output.session, !isUploading,
+              meta.uploadComplete == true,
               let frameCount = meta.frameCount, frameCount > 0,
               let sourceText = meta.sourceText, !sourceText.isEmpty,
               meta.fontId == ScrollRasterizer.fontId,
@@ -445,6 +508,13 @@ final class TextViewModel {
                   generation == connection.connectionGeneration,
                   outputSession == connection.output.session else { return }
 
+            // Font loading/rasterization can take time. Fetch only a small, fresh
+            // presentation sample after that work; never replay the old meta cursor.
+            let freshPreview = try? await connection.getPreviewSync()
+            guard !Task.isCancelled, generation == connection.connectionGeneration,
+                  outputSession == connection.output.session, !isUploading else { return }
+            if let id = freshPreview?.scrollTimelineId, !id.isEmpty,
+               id != meta.scrollTimelineId { return }
             timeline = rebuilt
             boundTimelineId = meta.scrollTimelineId
             // Record ownership of what is already on the board, so another
@@ -455,24 +525,22 @@ final class TextViewModel {
             if let timelineId = meta.scrollTimelineId {
                 pll.bind(timelineId: timelineId, frameCount: rebuilt.frameCount)
             }
-            if let index = meta.frameIndex {
-                _ = pll.record(sample: PreviewSync(
-                    presentedSeq: 0,
-                    source: "manual",
-                    scrollTimelineId: meta.scrollTimelineId,
-                    presentedFrameIndex: index,
-                    presentedFrameCount: rebuilt.frameCount,
-                    firmwareScrollPaused: true
-                ), nowMs: nowMs())
-            }
+            activeConnection = connection
+            boardPaused = freshPreview?.firmwareScrollPaused ?? meta.firmwareScrollPaused ?? false
+            if let loop = meta.scrollLoop { loopPlayback = loop }
+            if let index = meta.frameIndex { pll.snap(to: index) }
+            if let freshPreview { observe(preview: freshPreview) }
             // An unsent local draft is never overwritten; the user chooses.
             if userEditedText, text != sourceText {
                 boardText = sourceText
                 restoreConflict = true
             } else {
                 text = sourceText
+                userEditedText = false
+                boardText = nil
+                restoreConflict = false
             }
-            _ = try? await connection.command(.setScrollLoop(loop: loopPlayback))
+            scheduleDraftSave()
             startPreviewLoop()
         } catch {
             // Re-rasterisation failure: leave as a silent no-op restore.
@@ -481,7 +549,7 @@ final class TextViewModel {
 
     // MARK: Preview phase lock (§28, §29)
 
-    private func nowMs() -> Double { Date().timeIntervalSince1970 * 1000 }
+    private func nowMs() -> Double { ProcessInfo.processInfo.systemUptime * 1000 }
 
     /// Advances the preview by exactly one frame per iteration, sleeping for
     /// the PLL's next delay — which tracks the board's measured speed and
@@ -491,12 +559,13 @@ final class TextViewModel {
         pllTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                let delayMs = self.pll.nextDelayMs(nowMs: self.nowMs())
+                let delayMs = self.boardPaused ? 250 : self.pll.nextDelayMs(nowMs: self.nowMs())
+                do { try await Task.sleep(nanoseconds: UInt64(max(1, delayMs) * 1_000_000)) }
+                catch { return }
                 // With loop off the board holds its last frame until the pause
                 // reaches us by status; wrapping here would flash the start.
                 let heldAtEnd = !self.loopPlayback && self.displayIndex >= self.frameCount - 1
                 if !self.boardPaused && !heldAtEnd { self.pll.tick() }
-                try? await Task.sleep(nanoseconds: UInt64(max(1, delayMs) * 1_000_000))
             }
         }
     }
@@ -508,8 +577,19 @@ final class TextViewModel {
         pllTask = nil
     }
 
+    func refreshPreview(connection: BoardConnection) async {
+        guard boundTimelineId != nil, connection.connectionState == .connected else { return }
+        let generation = connection.connectionGeneration
+        let identity = boundTimelineId
+        guard let sample = try? await connection.getPreviewSync(), !Task.isCancelled,
+              generation == connection.connectionGeneration, identity == boundTimelineId else { return }
+        activeConnection = connection
+        observe(preview: sample)
+        resumePreviewLoopIfNeeded()
+    }
+
     func resumePreviewLoopIfNeeded() {
-        guard boundTimelineId != nil, pllTask == nil else { return }
+        guard activeConnection?.connectionState == .connected, boundTimelineId != nil, pllTask == nil else { return }
         startPreviewLoop()
     }
 
@@ -517,7 +597,12 @@ final class TextViewModel {
     /// rate estimation, pause/step snap).
     func observe(preview: PreviewSync?) {
         guard let preview, boundTimelineId != nil else { return }
-        if pll.record(sample: preview, nowMs: nowMs()) == .identityMismatch {
+        let outcome = pll.record(sample: preview, nowMs: nowMs())
+        if outcome != .identityMismatch {
+            if let paused = preview.firmwareScrollPaused { boardPaused = paused }
+            if let loop = preview.scrollLoop { loopPlayback = loop }
+        }
+        if outcome == .identityMismatch {
             timeline = nil
             boundTimelineId = nil
             pllTask?.cancel()
@@ -531,6 +616,7 @@ final class TextViewModel {
     func observe(status: DeviceStatus?) {
         guard let renderer = status?.renderer else { return }
         boardPaused = renderer.firmwareScrollPaused == true
+        if let loop = renderer.scrollLoop { loopPlayback = loop }
         guard boundTimelineId != nil, !isUploading, localPhase == nil else { return }
         let boardTimelineId = renderer.scrollTimelineId ?? ""
         if renderer.scrollFrameCount == 0 || (!boardTimelineId.isEmpty && boardTimelineId != boundTimelineId) {

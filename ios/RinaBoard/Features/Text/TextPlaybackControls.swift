@@ -3,7 +3,8 @@ import SwiftUI
 /// Scrolling-text transport row (design guide §24). System buttons and SF
 /// Symbols only — no custom icon artwork.
 ///
-/// Four buttons, no separate send row: the third slot is the stop button
+/// Four buttons, no separate send row: play/pause and stop sit on the left,
+/// frame stepping on the right. The second slot is the stop button
 /// while the board is scrolling a bound timeline, and turns into
 /// "send and play" once there is nothing to stop.
 struct TextPlaybackControls: View {
@@ -25,8 +26,6 @@ struct TextPlaybackControls: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            control("backward.frame.fill", label: "上一帧", action: onStepBackward)
-                .disabled(!transportEnabled)
             if isPaused {
                 control("play.fill", label: "继续", action: onPlay)
                     .disabled(!transportEnabled)
@@ -34,7 +33,9 @@ struct TextPlaybackControls: View {
                 control("pause.fill", label: "暂停", action: onPause)
                     .disabled(!transportEnabled)
             }
-            centerControl
+            stopOrSendControl
+            control("backward.frame.fill", label: "上一帧", action: onStepBackward)
+                .disabled(!transportEnabled)
             control("forward.frame.fill", label: "下一帧", action: onStepForward)
                 .disabled(!transportEnabled)
         }
@@ -43,7 +44,7 @@ struct TextPlaybackControls: View {
     }
 
     @ViewBuilder
-    private var centerControl: some View {
+    private var stopOrSendControl: some View {
         if hasTimeline {
             control("stop.fill", label: "停止并清屏", action: onStop)
                 .disabled(!transportEnabled)

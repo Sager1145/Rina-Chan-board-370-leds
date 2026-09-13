@@ -27,6 +27,7 @@ struct ScrollTextView: View {
                 speedSection
                 syncSection
             }
+            .listSectionSpacing(.compact)
             .errorAlert(Bindable(model).errorMessage)
             .toolbar(.hidden, for: .navigationBar)
             .contentMargins(.top, 0, for: .scrollContent)
@@ -36,6 +37,11 @@ struct ScrollTextView: View {
             // Status changes while another tab was showing never reached onChange.
             model.observe(status: connection.status)
         }
+        .task { await model.refreshPreview(connection: connection) }
+        .onDisappear {
+            model.cancelScrub()
+            model.suspendPreviewLoop()
+        }
         .onChange(of: connection.preview) { _, preview in
             model.observe(preview: preview)
         }
@@ -44,7 +50,7 @@ struct ScrollTextView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                model.resumePreviewLoopIfNeeded()
+                Task { await model.refreshPreview(connection: connection) }
             } else {
                 model.suspendPreviewLoop()
             }
@@ -157,16 +163,15 @@ struct ScrollTextView: View {
         return VStack(alignment: .leading, spacing: 4) {
             Slider(
                 value: Binding(
-                    get: { Double(shownIndex) },
-                    set: { model.scrubIndex = Int($0.rounded()) }
+                    get: { Double(model.scrubIndex ?? model.displayIndex) },
+                    set: { model.updateScrub(toFrame: Int($0.rounded())) }
                 ),
                 in: 0...Double(max(1, model.frameCount - 1)),
                 onEditingChanged: { editing in
-                    model.isScrubbing = editing
                     if editing {
-                        if model.scrubIndex == nil { model.scrubIndex = model.displayIndex }
-                    } else if let target = model.scrubIndex {
-                        Task { await model.seek(toFrame: target, connection: connection) }
+                        model.beginScrub()
+                    } else if let commit = model.endScrub() {
+                        Task { await model.commitScrub(commit, connection: connection) }
                     }
                 }
             )
@@ -213,11 +218,6 @@ struct ScrollTextView: View {
 
     // MARK: §25 Text input, §26 restore conflict
 
-    private var editorBorderColor: Color {
-        if model.exceedsByteLimit { return .red }
-        return isEditorFocused ? .accentColor : Color(.separator)
-    }
-
     private var editorSection: some View {
         Section {
             if model.restoreConflict {
@@ -232,8 +232,8 @@ struct ScrollTextView: View {
                 }
             }
 
-            // The editor is the primary input of this tab, so it reads as a
-            // card on the row rather than as plain list text.
+            // The list row is already the card; the editor fills it directly
+            // (an inner bordered card read as a double border).
             TextEditor(text: Binding(
                 get: { model.text },
                 set: { model.editText($0) }
@@ -243,24 +243,15 @@ struct ScrollTextView: View {
             // frame generator rasterizes, so the draft previews its glyphs.
             .font(ArkPixelInputFont.font(size: editorFontSize, displayScale: displayScale))
             .scrollContentBackground(.hidden)
-            .padding(.horizontal, 10)
             .padding(.top, 6)
             // Leaves room for the character counter in the bottom corner.
             .padding(.bottom, 24)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(.tertiarySystemFill))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(editorBorderColor, lineWidth: isEditorFocused ? 2 : 1)
-            )
             .overlay(alignment: .topLeading) {
                 if model.text.isEmpty {
                     Text("输入要滚动的文字…")
                         .font(ArkPixelInputFont.font(size: editorFontSize, displayScale: displayScale))
                         .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 15)
+                        .padding(.horizontal, 5)
                         .padding(.vertical, 14)
                         .allowsHitTesting(false)
                 }
@@ -269,16 +260,17 @@ struct ScrollTextView: View {
                 Text("\(model.visibleCharCount) / \(ScrollText.maxVisibleChars)")
                     .font(.caption)
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .padding(.trailing, 12)
+                    // Over the firmware byte limit the counter carries the
+                    // warning the red border used to.
+                    .foregroundStyle(model.exceedsByteLimit ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                    .padding(.trailing, 4)
                     .padding(.bottom, 8)
                     .allowsHitTesting(false)
                     .accessibilityLabel("字符")
                     .accessibilityValue(Text("\(model.visibleCharCount) / \(ScrollText.maxVisibleChars)"))
             }
             .focused($isEditorFocused)
-            .animation(.easeInOut(duration: 0.15), value: isEditorFocused)
-            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             .accessibilityLabel("滚动文字内容")
         } footer: {
             if model.exceedsByteLimit {

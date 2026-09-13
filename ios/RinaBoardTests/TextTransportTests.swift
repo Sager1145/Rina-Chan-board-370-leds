@@ -54,6 +54,73 @@ final class TextTransportTests: XCTestCase {
         XCTAssertNil(model.scrubIndex)
     }
 
+    func testScrubOnlySendsFinalFrameOnRelease() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        let timeline = try makeTimeline()
+        model.timeline = timeline
+        model.boundTimelineId = timeline.timelineId
+
+        model.beginScrub()
+        for index in [1, 3, 8, 12] { model.updateScrub(toFrame: index) }
+        XCTAssertEqual(model.previewFrame, timeline.frames[12])
+        XCTAssertTrue(transport.scrollCommands.isEmpty)
+        // Even a stray direct seek cannot write while the finger is down.
+        await model.seek(toFrame: 3, connection: connection)
+        XCTAssertTrue(transport.scrollCommands.isEmpty)
+
+        let commit = try XCTUnwrap(model.endScrub())
+        XCTAssertNil(model.endScrub(), "A duplicate release must not queue a second seek")
+        await model.commitScrub(commit, connection: connection)
+        XCTAssertEqual(transport.scrollCommands.map(\.name), ["scroll_seek"])
+        XCTAssertEqual(transport.scrollCommands[0].fields["frameIndex"] as? Int, 12)
+        XCTAssertNil(model.scrubIndex)
+    }
+
+    func testCancelledOrSupersededDragDoesNotCommit() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        let timeline = try makeTimeline()
+        model.timeline = timeline
+        model.boundTimelineId = timeline.timelineId
+
+        model.beginScrub()
+        model.updateScrub(toFrame: 4)
+        let stale = try XCTUnwrap(model.endScrub())
+        model.beginScrub()
+        model.updateScrub(toFrame: 9)
+        await model.commitScrub(stale, connection: connection)
+        XCTAssertTrue(transport.scrollCommands.isEmpty)
+        XCTAssertEqual(model.scrubIndex, 9)
+        model.cancelScrub()
+        XCTAssertNil(model.endScrub())
+        XCTAssertNil(model.scrubIndex)
+        XCTAssertTrue(transport.scrollCommands.isEmpty)
+    }
+
+    func testPreviousSeekReplyCannotClearNextReleasedDrag() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        let timeline = try makeTimeline()
+        model.timeline = timeline
+        model.boundTimelineId = timeline.timelineId
+        model.beginScrub()
+        model.updateScrub(toFrame: 4)
+        let first = try XCTUnwrap(model.endScrub())
+        var second: TextViewModel.ScrubCommit?
+        transport.onScrollSeek = {
+            model.beginScrub()
+            model.updateScrub(toFrame: 9)
+            second = model.endScrub()
+        }
+        await model.commitScrub(first, connection: connection)
+        XCTAssertEqual(model.scrubIndex, 9, "An older ack must preserve the next release target")
+        transport.onScrollSeek = nil
+        await model.commitScrub(try XCTUnwrap(second), connection: connection)
+        XCTAssertEqual(transport.scrollCommands.map { $0.fields["frameIndex"] as? Int }, [4, 9])
+        XCTAssertNil(model.scrubIndex)
+    }
+
     func testLoopToggleSendsPreferenceWithoutTakingOutput() async throws {
         let key = TextViewModel.loopPlaybackKey
         let saved = UserDefaults.standard.object(forKey: key)
@@ -135,6 +202,175 @@ final class TextTransportTests: XCTestCase {
         XCTAssertFalse(model.boardPaused)
     }
 
+    func testActiveReconnectRestoresBoardTextAtFreshPreviewFrame() async throws {
+        let (connection, transport) = try await connectedBoard()
+        // Connection setup reads its own board snapshot. Measure only the
+        // subsequent text restoration's metadata-then-fresh-preview sequence.
+        transport.clearRecordedRequests()
+        let boardText = "Fresh reconnect"
+        let expected = try makeTimeline(text: boardText, fps: 20)
+        let boardTimelineId = "board-active"
+        transport.scrollMeta = ScrollMeta(
+            ok: true,
+            scrollTimelineId: boardTimelineId,
+            hasSourceText: true,
+            sourceText: boardText,
+            sourceTextBytes: boardText.utf8.count,
+            fontId: ScrollRasterizer.fontId,
+            generatorVersion: ScrollRasterizer.generatorVersion,
+            uiFps: 20,
+            scrollIntervalMs: 50,
+            frameCount: expected.frameCount,
+            frameIndex: 1,
+            uploadComplete: true,
+            firmwareScrollActive: true,
+            firmwareScrollPaused: false,
+            scrollLoop: true
+        )
+        let freshIndex = min(5, expected.frameCount - 1)
+        transport.previewSync = PreviewSync(
+            ok: true,
+            playback: "scroll",
+            valid: true,
+            presentedSeq: 41,
+            source: "scroll_tick",
+            scrollTimelineId: boardTimelineId,
+            presentedFrameIndex: freshIndex,
+            presentedFrameCount: expected.frameCount,
+            presentedAtUs: 1_000_000,
+            scrollIntervalMs: 50,
+            uiFps: 20,
+            firmwareScrollActive: true,
+            firmwareScrollPaused: false,
+            rateEligible: true
+        )
+        let model = TextViewModel()
+
+        await model.restoreOnConnect(connection: connection)
+        model.suspendPreviewLoop()
+
+        XCTAssertEqual(model.text, boardText)
+        XCTAssertFalse(model.userEditedText)
+        XCTAssertEqual(model.boundTimelineId, boardTimelineId)
+        XCTAssertEqual(model.frameCount, expected.frameCount)
+        XCTAssertEqual(model.displayIndex, freshIndex,
+                       "The post-build preview cursor must replace the stale metadata cursor")
+        XCTAssertEqual(model.previewFrame, expected.frames[freshIndex])
+        XCTAssertEqual(transport.restoreRequests, [.getScrollMeta, .getPreviewSync])
+        XCTAssertEqual(connection.output.source, .text)
+    }
+
+    func testPausedReconnectDoesNotAdvanceAndRestoresBoardLoopSetting() async throws {
+        let key = TextViewModel.loopPlaybackKey
+        let saved = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+        let (connection, transport) = try await connectedBoard()
+        let boardText = "Paused reconnect"
+        let expected = try makeTimeline(text: boardText, fps: 60)
+        let boardTimelineId = "board-paused"
+        let pausedIndex = min(4, expected.frameCount - 1)
+        transport.scrollMeta = ScrollMeta(
+            ok: true,
+            scrollTimelineId: boardTimelineId,
+            hasSourceText: true,
+            sourceText: boardText,
+            sourceTextBytes: boardText.utf8.count,
+            fontId: ScrollRasterizer.fontId,
+            generatorVersion: ScrollRasterizer.generatorVersion,
+            uiFps: 60,
+            scrollIntervalMs: 17,
+            frameCount: expected.frameCount,
+            frameIndex: 1,
+            uploadComplete: true,
+            firmwareScrollActive: true,
+            firmwareScrollPaused: true,
+            scrollLoop: false
+        )
+        transport.previewSync = PreviewSync(
+            ok: true,
+            playback: "scroll",
+            valid: true,
+            presentedSeq: 82,
+            source: "scroll_tick",
+            scrollTimelineId: boardTimelineId,
+            presentedFrameIndex: pausedIndex,
+            presentedFrameCount: expected.frameCount,
+            scrollIntervalMs: 17,
+            uiFps: 60,
+            firmwareScrollActive: true,
+            firmwareScrollPaused: true
+        )
+        let model = TextViewModel()
+        model.loopPlayback = true
+
+        await model.restoreOnConnect(connection: connection)
+        let restoredIndex = model.displayIndex
+        try await Task.sleep(for: .milliseconds(80))
+        model.suspendPreviewLoop()
+
+        XCTAssertTrue(model.boardPaused)
+        XCTAssertFalse(model.loopPlayback, "Reconnect must adopt the board's current loop mode")
+        XCTAssertEqual(restoredIndex, pausedIndex)
+        XCTAssertEqual(model.displayIndex, pausedIndex,
+                       "A paused board must keep the local preview on its reported frame")
+    }
+
+    func testReconnectPreservesUnsentDraftAndReportsBoardConflict() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let boardText = "Already on board"
+        let expected = try makeTimeline(text: boardText)
+        let boardTimelineId = "board-conflict"
+        transport.scrollMeta = restoreMeta(
+            text: boardText, timelineId: boardTimelineId, timeline: expected
+        )
+        transport.previewSync = restorePreview(
+            timelineId: boardTimelineId, timeline: expected, frameIndex: 2
+        )
+        let model = TextViewModel()
+        let localDraft = "Unsent local edit"
+        model.editText(localDraft)
+        model.requestedFps = 27
+
+        await model.restoreOnConnect(connection: connection)
+        model.suspendPreviewLoop()
+
+        XCTAssertEqual(model.text, localDraft)
+        XCTAssertEqual(model.requestedFps, 27, "The unsent draft's speed must survive the reconnect too")
+        XCTAssertTrue(model.userEditedText)
+        XCTAssertTrue(model.restoreConflict)
+        XCTAssertEqual(model.boardText, boardText)
+        XCTAssertEqual(model.boundTimelineId, boardTimelineId,
+                       "The transport controls still bind to the scroll already running on the board")
+    }
+
+    func testReconnectRestoresAlreadySentDraftWithoutConflict() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let boardText = "Previously sent text"
+        let expected = try makeTimeline(text: boardText, fps: 15)
+        let boardTimelineId = "board-sent-draft"
+        transport.scrollMeta = restoreMeta(
+            text: boardText, timelineId: boardTimelineId, timeline: expected, fps: 15
+        )
+        transport.previewSync = restorePreview(
+            timelineId: boardTimelineId, timeline: expected, frameIndex: 3, fps: 15
+        )
+        let model = TextViewModel()
+        model.text = boardText
+        model.userEditedText = false
+
+        await model.restoreOnConnect(connection: connection)
+        model.suspendPreviewLoop()
+
+        XCTAssertEqual(model.text, boardText)
+        XCTAssertFalse(model.userEditedText)
+        XCTAssertFalse(model.restoreConflict)
+        XCTAssertNil(model.boardText)
+        XCTAssertEqual(model.requestedFps, 15)
+    }
+
     // MARK: Helpers
 
     private func connectedBoard() async throws -> (BoardConnection, RecordingTextTransport) {
@@ -145,13 +381,52 @@ final class TextTransportTests: XCTestCase {
         return (connection, transport)
     }
 
-    private func makeTimeline() throws -> ScrollTimeline {
+    private func makeTimeline(text: String = "Rina", fps: Int = 10) throws -> ScrollTimeline {
         let url = try XCTUnwrap(Bundle.main.url(forResource: "ark12", withExtension: "json"),
                                 "Hosted tests need the app's bundled font")
         let font = try ArkPixelFont.loadBundled(url: url)
-        let timeline = try ScrollRasterizer.makeTimeline(text: "Rina", font: font, fps: 10)
+        let timeline = try ScrollRasterizer.makeTimeline(text: text, font: font, fps: fps)
         XCTAssertGreaterThan(timeline.frameCount, 3)
         return timeline
+    }
+
+    private func restoreMeta(text: String, timelineId: String, timeline: ScrollTimeline,
+                             fps: Int = 10, paused: Bool = false, loop: Bool = true) -> ScrollMeta {
+        ScrollMeta(
+            ok: true,
+            scrollTimelineId: timelineId,
+            hasSourceText: true,
+            sourceText: text,
+            sourceTextBytes: text.utf8.count,
+            fontId: ScrollRasterizer.fontId,
+            generatorVersion: ScrollRasterizer.generatorVersion,
+            uiFps: fps,
+            scrollIntervalMs: ScrollRasterizer.intervalMs(forFps: fps),
+            frameCount: timeline.frameCount,
+            frameIndex: 0,
+            uploadComplete: true,
+            firmwareScrollActive: true,
+            firmwareScrollPaused: paused,
+            scrollLoop: loop
+        )
+    }
+
+    private func restorePreview(timelineId: String, timeline: ScrollTimeline, frameIndex: Int,
+                                fps: Int = 10, paused: Bool = false) -> PreviewSync {
+        PreviewSync(
+            ok: true,
+            playback: "scroll",
+            valid: true,
+            presentedSeq: 1,
+            source: "scroll_tick",
+            scrollTimelineId: timelineId,
+            presentedFrameIndex: frameIndex,
+            presentedFrameCount: timeline.frameCount,
+            scrollIntervalMs: ScrollRasterizer.intervalMs(forFps: fps),
+            uiFps: fps,
+            firmwareScrollActive: true,
+            firmwareScrollPaused: paused
+        )
     }
 }
 
@@ -167,7 +442,17 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
     let kind: TransportKind = .bluetooth
     let preferredChunkBytes = 512
     var rejectCommands = false
+    var onScrollSeek: (() -> Void)?
+    var scrollMeta: ScrollMeta?
+    var previewSync: PreviewSync?
     private(set) var scrollCommands: [Command] = []
+    private(set) var requests: [RinaLinkMessageType] = []
+
+    func clearRecordedRequests() { requests.removeAll() }
+
+    var restoreRequests: [RinaLinkMessageType] {
+        requests.filter { $0 == .getScrollMeta || $0 == .getPreviewSync }
+    }
 
     private let decoder = RinaLinkDecoder()
     private var stateContinuation: AsyncStream<TransportState>.Continuation?
@@ -191,20 +476,27 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
 
     func send(_ data: Data) async throws {
         for request in decoder.feed(data) {
-            var reply = #"{"ok":true}"#
-            if request.type == RinaLinkMessageType.cmd.rawValue,
+            let messageType = RinaLinkMessageType(rawValue: request.type)
+            if let messageType { requests.append(messageType) }
+            var reply = Data(#"{"ok":true}"#.utf8)
+            if messageType == .getScrollMeta, let scrollMeta {
+                reply = try JSONEncoder().encode(scrollMeta)
+            } else if messageType == .getPreviewSync, let previewSync {
+                reply = try JSONEncoder().encode(previewSync)
+            } else if messageType == .cmd,
                let fields = try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any],
                let name = fields["cmd"] as? String {
                 if name.contains("scroll") {
                     scrollCommands.append(Command(name: name, fields: fields))
                 }
-                if rejectCommands { reply = #"{"ok":false,"error":"denied"}"# }
+                if name == "scroll_seek" { onScrollSeek?() }
+                if rejectCommands { reply = Data(#"{"ok":false,"error":"denied"}"#.utf8) }
             }
             incomingContinuation?.yield(RinaLinkEncoder.encode(
                 RinaLinkFrame(type: request.type | 0x80,
                               seq: request.seq,
                               flags: 0,
-                              payload: Data(reply.utf8))
+                              payload: reply)
             ))
         }
     }

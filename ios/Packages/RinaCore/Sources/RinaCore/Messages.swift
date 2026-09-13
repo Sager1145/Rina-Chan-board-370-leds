@@ -459,6 +459,9 @@ public struct PreviewSync: Codable, Equatable, Sendable {
     public var presentedFrameCount: Int?
     public var frameIndex: Int?
     public var frameCount: Int?
+    public var scrollAdvanceSeq: UInt32?
+    public var sampledAtUs: Int64?
+    public var scrollLoop: Bool?
     public var presentedAtUs: Int64?
     public var renderStartUs: Int?
     public var renderDurationUs: Int?
@@ -486,7 +489,11 @@ public struct PreviewSync: Codable, Equatable, Sendable {
                 renderStartUs: Int? = nil, renderDurationUs: Int? = nil, scrollIntervalMs: Int? = nil,
                 uiFps: Int? = nil, firmwareScrollActive: Bool? = nil, firmwareScrollPaused: Bool? = nil,
                 firmwareScrollUserPaused: Bool? = nil, firmwareScrollSystemPaused: Bool? = nil,
-                rateEligible: Bool? = nil) {
+                rateEligible: Bool? = nil, scrollAdvanceSeq: UInt32? = nil,
+                sampledAtUs: Int64? = nil, scrollLoop: Bool? = nil) {
+        self.scrollAdvanceSeq = scrollAdvanceSeq
+        self.sampledAtUs = sampledAtUs
+        self.scrollLoop = scrollLoop
         self.ok = ok
         self.v = v
         self.mode = mode
@@ -516,6 +523,7 @@ public struct PreviewSync: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case scrollAdvanceSeq, sampledAtUs, scrollLoop
         case ok, v, mode, playback, autoFaceIndex, autoFaceCount, lastReason, valid, presentedSeq, source,
              reason, scrollTimelineId, presentedFrameIndex, presentedFrameCount, frameIndex, frameCount,
              presentedAtUs, renderStartUs, renderDurationUs, scrollIntervalMs, uiFps, firmwareScrollActive,
@@ -539,13 +547,15 @@ public struct ScrollMeta: Codable, Equatable, Sendable {
     public var frameIndex: Int?
     public var uploadComplete: Bool?
     public var firmwareScrollActive: Bool?
+    public var scrollLoop: Bool?
     public var firmwareScrollPaused: Bool?
 
     public init(ok: Bool? = nil, scrollTimelineId: String? = nil, hasSourceText: Bool? = nil,
                 sourceText: String? = nil, sourceTextBytes: Int? = nil, fontId: String? = nil,
                 generatorVersion: String? = nil, uiFps: Int? = nil, scrollIntervalMs: Int? = nil,
                 frameCount: Int? = nil, frameIndex: Int? = nil, uploadComplete: Bool? = nil,
-                firmwareScrollActive: Bool? = nil, firmwareScrollPaused: Bool? = nil) {
+                firmwareScrollActive: Bool? = nil, firmwareScrollPaused: Bool? = nil, scrollLoop: Bool? = nil) {
+        self.scrollLoop = scrollLoop
         self.ok = ok
         self.scrollTimelineId = scrollTimelineId
         self.hasSourceText = hasSourceText
