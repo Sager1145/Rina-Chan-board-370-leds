@@ -26,7 +26,7 @@ final class RinaBoardUITests: XCTestCase {
         } else {
             // iOS 17–25 exposes the same control center from Settings rather
             // than through the iOS 26 tab-bar accessory.
-            app.tabBars.buttons["设置"].tap()
+            app.tabBars.buttons["设定"].tap()
             XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
             let controlCenter = app.buttons["面板控制中心"]
             XCTAssertTrue(scrollToElement(controlCenter))
@@ -64,6 +64,32 @@ final class RinaBoardUITests: XCTestCase {
             XCTAssertTrue(app.buttons[expectedContent].waitForExistence(timeout: 2),
                           "Debug workspace \(segment) did not reveal its content")
         }
+    }
+
+    func testSerialMonitorCommandPicker() throws {
+        launch(initialTab: "settings")
+        let debugTools = app.buttons["调试工具"]
+        XCTAssertTrue(scrollToElement(debugTools))
+        debugTools.tap()
+        let workspace = app.segmentedControls["debug.workspace"]
+        XCTAssertTrue(workspace.waitForExistence(timeout: 3))
+        workspace.buttons["终端"].tap()
+        let send = app.buttons["debug.monitor.send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        XCTAssertFalse(send.isEnabled)
+        let commands = app.switches["debug.monitor.commands"]
+        XCTAssertTrue(commands.waitForExistence(timeout: 2))
+        commands.switches.firstMatch.tap()
+        XCTAssertEqual(commands.value as? String, "1")
+        let ping = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "PING")).firstMatch
+        XCTAssertTrue(scrollToElement(ping))
+        ping.tap()
+        let input = app.textFields["debug.monitor.input"]
+        XCTAssertEqual(input.value as? String, "PING")
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Serial Monitor command picker"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func launch(initialTab: String) {

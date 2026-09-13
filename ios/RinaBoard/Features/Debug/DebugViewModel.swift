@@ -271,6 +271,10 @@ final class DebugViewModel {
 
     var selectedPattern: DebugPattern?
 
+    var monitorInput = "get_info"
+    var isMonitorSending = false
+    var monitorEntries: [DebugLogEntry] = []
+
     // C11 raw command
     var rawCommandText: String = "{\"cmd\":\"pause_scroll\"}"
     var rawCommandConfirmed = false
@@ -305,6 +309,7 @@ final class DebugViewModel {
     // MARK: Logging
 
     func log(_ level: DebugLogLevel, _ message: String, source: DebugLogSource = .app) {
+        if source == .firmware { appendMonitor(level, "EV_LOG · \(message)") }
         logs.append(DebugLogEntry(source: source, level: level, message: message))
         if logs.count > 500 { logs.removeFirst(logs.count - 500) }
     }
@@ -410,13 +415,26 @@ final class DebugViewModel {
     }
 
     private static func redactSensitive(_ value: String) -> String {
-        let pattern = #"(?i)(\"?(?:password|passwd|pwd|psk|secret|token|authorization)\"?\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|[^\s,}\]]+)"#
-        guard let expression = try? NSRegularExpression(pattern: pattern) else { return value }
-        let range = NSRange(value.startIndex..<value.endIndex, in: value)
         let hidden = NSLocalizedString("<已隐藏>", comment: "redacted debug value placeholder")
-        return expression.stringByReplacingMatches(in: value,
-                                                   range: range,
-                                                   withTemplate: "$1\(hidden)")
+        let quotedValue = #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#
+
+        // Authorization header values commonly contain a scheme and credential
+        // separated by whitespace. Redact the complete value before applying
+        // the generic single-value rule below.
+        let authorizationPattern = #"(?i)(\"?authorization\"?\s*[:=]\s*)("#
+            + quotedValue
+            + #"|[^\r\n,}\]]+)"#
+        let sensitiveValuePattern = #"(?i)(\"?(?:password|passwd|pwd|psk|secret|token)\"?\s*[:=]\s*)("#
+            + quotedValue
+            + #"|[^\s,}\]]+)"#
+
+        return [authorizationPattern, sensitiveValuePattern].reduce(value) { redacted, pattern in
+            guard let expression = try? NSRegularExpression(pattern: pattern) else { return redacted }
+            let range = NSRange(redacted.startIndex..<redacted.endIndex, in: redacted)
+            return expression.stringByReplacingMatches(in: redacted,
+                                                       range: range,
+                                                       withTemplate: "$1\(hidden)")
+        }
     }
 
     func copyLog() {
@@ -693,6 +711,53 @@ final class DebugViewModel {
     func copyPreviewFrame() {
         UIPasteboard.general.string = debugFrame.hex94
         log(.debug, NSLocalizedString("已复制预览帧 (hex94)", comment: "debug preview frame copied"))
+    }
+
+    // MARK: Serial monitor
+
+    private func appendMonitor(_ level: DebugLogLevel, _ message: String) {
+        monitorEntries.append(DebugLogEntry(level: level, message: Self.redactSensitive(message)))
+        if monitorEntries.count > 500 { monitorEntries.removeFirst(monitorEntries.count - 500) }
+    }
+
+    func copyMonitor() {
+        UIPasteboard.general.string = monitorEntries.map { "[\($0.timeString)] \($0.message)" }.joined(separator: "\n")
+    }
+
+    func sendMonitorCommand(connection: BoardConnection) async {
+        guard !isMonitorSending, connection.connectionState == .connected else { return }
+        let input = monitorInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let request: DebugMonitorRequest
+        do {
+            request = try DebugMonitorRequest.parse(input)
+        } catch {
+            appendMonitor(.error, error.localizedDescription)
+            return
+        }
+        isMonitorSending = true
+        defer { isMonitorSending = false }
+        commandAttempts += 1
+        appendMonitor(.info, "TX → \(input)")
+        do {
+            let reply: RinaLinkFrame
+            if request.type == .cmd {
+                let session = connection.output.begin(.debug)
+                reply = try await connection.withOutput(session) {
+                    try await connection.send(type: request.type, payload: request.payload)
+                }
+            } else {
+                reply = try await connection.send(type: request.type, payload: request.payload)
+            }
+            let object = (try? JSONSerialization.jsonObject(with: reply.payload)) as? [String: Any]
+            let rejected = object?["ok"] as? Bool == false
+            if rejected { commandRejected += 1 }
+            appendMonitor(rejected ? .warn : .info, "RX ← \(DebugJSON.prettyString(from: reply.payload))")
+        } catch is CancellationError {
+            appendMonitor(.warn, NSLocalizedString("原始指令已被新的输出操作替代", comment: "debug command superseded"))
+        } catch {
+            if Self.isDeviceRejection(error) { commandRejected += 1 } else { commandFailures += 1 }
+            appendMonitor(.error, "RX ← \(error.localizedDescription)")
+        }
     }
 
     // MARK: C11 raw command

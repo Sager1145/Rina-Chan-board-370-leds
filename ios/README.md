@@ -19,3 +19,11 @@ transport-agnostic RinaLink protocol codec and models.
 On-device: real Bluetooth/Wi-Fi/hotspot connectivity requires a physical
 iPhone/iPad; the simulator can still exercise the UI and TCP paths against a
 board on the same network.
+
+Debug → 终端 opens the Serial Monitor over the active Bluetooth/Wi-Fi
+connection. Enter a CMD name (for example `get_info`) or a JSON CMD payload
+(for example `{"cmd":"set_brightness","raw":80}`), then send. `PING`,
+`GET_STATUS`, and `GET_POWER` are also available. Enable “显示全部可用指令”
+to search all firmware CMD templates and tap one to fill the input. The
+monitor retains recent requests/replies and can receive firmware logs;
+it does not connect to a USB serial port or accept USB-console syntax.

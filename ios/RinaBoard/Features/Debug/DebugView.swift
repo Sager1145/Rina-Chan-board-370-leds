@@ -22,9 +22,11 @@ struct DebugView: View {
             case 1: logSection
             case 2: testSection
             case 3: rawDataSection
+            case 4: DebugSerialMonitor(vm: vm)
             default: overviewSection
             }
         }
+        .listSectionSpacing(.compact)
         .navigationTitle("调试")
         .navigationBarTitleDisplayMode(.inline)
         .errorAlert($vm.lastLocalError)
@@ -34,6 +36,7 @@ struct DebugView: View {
                 Text("日志").tag(1)
                 Text("测试").tag(2)
                 Text("原始数据").tag(3)
+                Text("终端").tag(4)
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("debug.workspace")
@@ -542,6 +545,7 @@ private struct RawCommandConsoleView: View {
                 }
             }
         }
+        .listSectionSpacing(.compact)
         .navigationTitle("原始命令")
         .navigationBarTitleDisplayMode(.inline)
     }
