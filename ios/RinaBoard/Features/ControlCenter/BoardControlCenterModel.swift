@@ -57,6 +57,9 @@ final class BoardControlCenterModel {
 
     private var didLoadDefaults = false
     private weak var activeConnection: BoardConnection?
+    /// Changes whenever the active board changes, so a late completion from
+    /// the previous board cannot surface an error or alter reconciliation.
+    private var connectionEpoch = UUID()
 
     @ObservationIgnored private let brightnessSender: LatestValueSender<Int>
     @ObservationIgnored private let autoIntervalSender: LatestValueSender<Double>
@@ -69,14 +72,18 @@ final class BoardControlCenterModel {
         let box = WeakBox<BoardControlCenterModel>()
         brightnessSender = LatestValueSender<Int>(minInterval: 0.12) { raw in
             guard let self = box.value, let connection = self.activeConnection else { return }
-            await self.run(connection, reconcile: { $0.brightnessTouchUntil = .distantPast }) {
+            let epoch = self.connectionEpoch
+            await self.run(connection, expectedConnectionEpoch: epoch,
+                           reconcile: { $0.brightnessTouchUntil = .distantPast }) {
                 _ = try await $0.command(.setBrightness(raw: raw))
             }
         }
         autoIntervalSender = LatestValueSender<Double>(minInterval: 0.12) { seconds in
             guard let self = box.value, let connection = self.activeConnection else { return }
             let ms = Int((seconds * 1000).rounded())
-            await self.run(connection, reconcile: { $0.autoIntervalTouchUntil = .distantPast }) {
+            let epoch = self.connectionEpoch
+            await self.run(connection, expectedConnectionEpoch: epoch,
+                           reconcile: { $0.autoIntervalTouchUntil = .distantPast }) {
                 _ = try await $0.command(.setAutoInterval(ms: ms))
             }
         }
@@ -86,7 +93,9 @@ final class BoardControlCenterModel {
         // colour up to enqueue order. Coalesced like the sliders above.
         colorSender = LatestValueSender<String>(minInterval: 0.12) { hex in
             guard let self = box.value, let connection = self.activeConnection else { return }
-            await self.run(connection, reconcile: { $0.colorTouchUntil = .distantPast }) {
+            let epoch = self.connectionEpoch
+            await self.run(connection, expectedConnectionEpoch: epoch,
+                           reconcile: { $0.colorTouchUntil = .distantPast }) {
                 _ = try await $0.command(.setColor(hex: hex))
             }
         }
@@ -100,6 +109,30 @@ final class BoardControlCenterModel {
         didLoadDefaults = true
         colorPresets = try? RinaResources.colorPresets(bundle: .main)
         hexFieldText = colorHexDraft
+    }
+
+    /// Invalidates transient control state when the active board changes.
+    ///
+    /// Drafts normally ignore firmware echoes for two seconds after a user
+    /// action. Those echoes belong to one board only: retaining the windows,
+    /// overrides, or queued sends across a reconnect can make the next
+    /// board's reported mode and preview settings look stale. The caller
+    /// should follow this with `sync(from:)` when the new board's status is
+    /// available.
+    func connectionChanged() {
+        connectionEpoch = UUID()
+        brightnessTouchUntil = .distantPast
+        autoIntervalTouchUntil = .distantPast
+        colorTouchUntil = .distantPast
+        modeOverride = nil
+        modeOverrideUntil = .distantPast
+        faceIndexOverride = nil
+        faceIndexOverrideUntil = .distantPast
+        activeConnection = nil
+        brightnessSender.cancel()
+        autoIntervalSender.cancel()
+        colorSender.cancel()
+        errorMessage = nil
     }
 
     // MARK: Sync from firmware (echo suppression)
@@ -166,11 +199,13 @@ final class BoardControlCenterModel {
     // MARK: Mode / face
 
     func toggleAutoMode(connection: BoardConnection) async {
+        let epoch = connectionEpoch
         let current = effectiveMode(status: connection.status)
         modeOverride = current == "auto" ? "manual" : "auto"
         modeOverrideUntil = Date().addingTimeInterval(2)
         let token = connection.output.begin(modeOverride == "auto" ? .automatic : .manual)
-        await run(connection, reconcile: { $0.modeOverrideUntil = .distantPast }) { conn in
+        await run(connection, expectedConnectionEpoch: epoch,
+                  reconcile: { $0.modeOverrideUntil = .distantPast }) { conn in
             try await conn.withOutput(token) { _ = try await conn.command(.button(button: "B3")) }
         }
     }
@@ -180,17 +215,20 @@ final class BoardControlCenterModel {
     /// firmware's job on the next explicit stop) so face stepping doesn't
     /// fight the scroll renderer.
     func step(face direction: Int, connection: BoardConnection) async {
+        let epoch = connectionEpoch
         let token = connection.output.begin(.manual)
         let button = direction > 0 ? "B1" : "B2"
         if connection.status?.renderer?.firmwareScrollActive == true {
-            await run(connection) { conn in try await conn.withOutput(token) { _ = try await conn.command(.stopScroll(restoreAuto: false, clear: false)) } }
+            await run(connection, expectedConnectionEpoch: epoch) { conn in try await conn.withOutput(token) { _ = try await conn.command(.stopScroll(restoreAuto: false, clear: false)) } }
         }
+        guard epoch == connectionEpoch else { return }
         if let count = connection.status?.renderer?.autoFaceCount, count > 0 {
             let current = effectiveFaceIndex(status: connection.status) ?? 0
             faceIndexOverride = ((current + direction) % count + count) % count
             faceIndexOverrideUntil = Date().addingTimeInterval(2)
         }
-        await run(connection, reconcile: { $0.faceIndexOverrideUntil = .distantPast }) { conn in
+        await run(connection, expectedConnectionEpoch: epoch,
+                  reconcile: { $0.faceIndexOverrideUntil = .distantPast }) { conn in
             try await conn.withOutput(token) { _ = try await conn.command(.button(button: button)) }
         }
     }
@@ -247,6 +285,7 @@ final class BoardControlCenterModel {
     /// a value the board rejected (§38).
     private func run(
         _ connection: BoardConnection,
+        expectedConnectionEpoch: UUID? = nil,
         reconcile: ((BoardControlCenterModel) -> Void)? = nil,
         _ body: @escaping (BoardConnection) async throws -> Void
     ) async {
@@ -257,6 +296,7 @@ final class BoardControlCenterModel {
         } catch RatePumpError.dropped {
             // Evicted by a later command with the same key; latest value wins.
         } catch {
+            guard expectedConnectionEpoch == nil || expectedConnectionEpoch == connectionEpoch else { return }
             errorMessage = error.localizedDescription
             reconcile?(self)
         }

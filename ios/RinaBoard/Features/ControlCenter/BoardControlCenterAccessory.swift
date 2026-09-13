@@ -72,16 +72,16 @@ struct BoardControlCenterAccessory: View {
             // the system's disabled treatment on their own.
             .grayscale(isConnected ? 0 : 1)
         }
-        // Mirrors the trailing inset: the battery ring on the leading end is
-        // concentric with the capsule's leading curve, as the swatch is with
-        // the trailing one.
-        .padding(.leading, max(0, barHeight / 2 - Self.ringDiameter / 2))
-        // The colour swatch's ring has to be concentric with the capsule's
-        // trailing end, so its centre sits exactly one bar-radius in from the
-        // edge. The bar's radius is half its own height, measured below rather
-        // than hard-coded, since the height moves with Dynamic Type and with
-        // the `.inline` placement.
-        .padding(.trailing, max(0, barHeight / 2 - Self.slot / 2))
+        // Mirrors the trailing inset: the summary's badge is centred in a
+        // slot-sized cell of its own, so it sits on the capsule's leading curve
+        // exactly as the swatch does on the trailing one.
+        .padding(.leading, max(0, barHeight / 2 - Self.slot / 2) + Self.edgeInset)
+        // The colour swatch's ring centres one bar-radius in from the edge, plus
+        // `edgeInset` so the ring clears the capsule's glass border. The bar's
+        // radius is half its own height, measured below rather than hard-coded,
+        // since the height moves with Dynamic Type and with the `.inline`
+        // placement.
+        .padding(.trailing, max(0, barHeight / 2 - Self.slot / 2) + Self.edgeInset)
         .background {
             GeometryReader { proxy in
                 Color.clear.preference(key: BarHeightKey.self, value: proxy.size.height)
@@ -100,6 +100,10 @@ struct BoardControlCenterAccessory: View {
 
     /// The visible ring every control wears, and the battery ring's diameter.
     private static let ringDiameter: CGFloat = 32
+
+    /// Extra inset past the concentric position at both ends, so the outermost
+    /// rings don't crowd the capsule's border.
+    private static let edgeInset: CGFloat = 4
 
     // MARK: Summary (the only region that expands the sheet)
 
@@ -124,18 +128,23 @@ struct BoardControlCenterAccessory: View {
                 }
                 Spacer(minLength: 0)
             }
+            // The zoom source's clip shape below clips this region at rest too.
+            // Giving the region a full slot's height and the badge half a
+            // slot's worth of inset makes that clip concentric with the badge
+            // ring, instead of a squeezed curve shaving the ring's leading edge.
+            .padding(.leading, (Self.slot - Self.ringDiameter) / 2)
             // A floor, so a narrower `.inline` placement can never squeeze
             // the only way into the sheet down to nothing.
-            .frame(minWidth: AppLayout.minimumTapTarget, maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: AppLayout.minimumTapTarget, maxWidth: .infinity, minHeight: Self.slot, alignment: .leading)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
         // The zoom starts from (and collapses back into) this region only —
         // not the whole pill, whose trailing controls stay put.
         .matchedTransitionSource(id: transitionSourceID, in: transitionNamespace) { source in
-            // Only rounded rectangles are accepted here; this radius reads as
-            // the accessory pill's own curve at the summary's height.
-            source.clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            // Only rounded rectangles are accepted here; at the summary's
+            // slot height this radius reads as the accessory pill's own curve.
+            source.clipShape(RoundedRectangle(cornerRadius: Self.slot / 2, style: .continuous))
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
@@ -251,8 +260,8 @@ struct BoardControlCenterAccessory: View {
 
     /// The board colour as a solid dot inside the row's ring. Tapping it opens
     /// a menu of the preset groups (配色组), each a submenu of its colours; a
-    /// group with no children offers its own colour directly, as the expanded
-    /// sheet's picker does. Free-form colours stay in the expanded sheet.
+    /// submenu starts with the team's own colour, followed by its members and
+    /// subunits. Free-form colours stay in the expanded sheet.
     private var colorControl: some View {
         Menu {
             if let presets = model.colorPresets {
@@ -262,6 +271,8 @@ struct BoardControlCenterAccessory: View {
                         colorMenuItem(name: parent.name, hex: parent.color)
                     } else {
                         Menu {
+                            colorMenuItem(name: parent.name, hex: parent.color)
+                            Divider()
                             ForEach(children, id: \.hex) { child in
                                 colorMenuItem(name: child.name, hex: child.hex)
                             }
@@ -351,7 +362,7 @@ struct BoardControlCenterAccessory: View {
         case .connecting: return NSLocalizedString("连接中", comment: "connection state connecting")
         case .reconnecting: return NSLocalizedString("重连中", comment: "connection state reconnecting")
         case .disconnected: return NSLocalizedString("未连接", comment: "connection state disconnected")
-        case .failed: return NSLocalizedString("连接失败", comment: "connection state failed")
+        case .failed(let message): return NSLocalizedString("连接失败", comment: "connection state failed") + "：" + message
         }
     }
 
