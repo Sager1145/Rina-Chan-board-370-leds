@@ -54,6 +54,10 @@ enum BootTimeline {
     /// *finishing* at `revealStart` so the hole still travels for the spec's
     /// 850 ms. Deliberate departure; see the spec's deviations section.
     static let revealFeatherIn: TimeInterval = 0.120
+    /// The blur starts spreading (the feather's first movement) this long
+    /// after the avatar turns from its 18 % shrink to growing, so the zoom
+    /// leads and the unblur follows. Deliberate departure; see the spec.
+    static let revealDelay: TimeInterval = 0.100
     static let extra: TimeInterval = 0.180
 
     static let waterfallStagger: TimeInterval = 0.115
@@ -72,7 +76,11 @@ enum BootTimeline {
     /// 520 ms, awaits only `HOLD_MS`, and adds `is-final-release` at t0+260.
     /// The spec table's "t0+520 … t0+780" is wrong by one contraction.
     static let releaseStart = hold                         // 0.260
-    static let revealStart = releaseStart + imgShrink      // 0.638
+    /// The avatar stops shrinking and starts growing towards 2.35.
+    static let imageGrowStart = releaseStart + imgShrink   // 0.638
+    /// The hole starts opening; the feather widens over the
+    /// `revealFeatherIn` before it, beginning `revealDelay` after the grow.
+    static let revealStart = imageGrowStart + revealDelay + revealFeatherIn  // 0.858
     /// P5: opacity → 0 at P4start + max(2100, 378+850) + 180 …
     static let overlayFadeStart = releaseStart + release + extra  // 2.540
     /// … then removed a further 180 ms later (legacy app.js:6271-6274).

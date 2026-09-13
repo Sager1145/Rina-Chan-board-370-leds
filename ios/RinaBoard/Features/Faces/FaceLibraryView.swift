@@ -44,6 +44,7 @@ struct FaceLibraryView: View {
                 Task { await model.reorderFaces(reordered, connection: connection) }
             }
         }
+        .listSectionSpacing(.compact)
         .navigationTitle("表情库")
         .navigationBarTitleDisplayMode(.inline)
         .environment(\.editMode, .constant(isEditing ? .active : .inactive))

@@ -104,7 +104,7 @@ final class VideoPlayerModel {
     /// Longest edge of the image the quantizer samples from. The grid is
     /// 22×18 with 5 samples per cell axis, so anything past ~110 px adds cost
     /// without changing the result.
-    private static let samplingEdge: CGFloat = 160
+    nonisolated private static let samplingEdge: CGFloat = 160
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let store: PresetLiveFileStore

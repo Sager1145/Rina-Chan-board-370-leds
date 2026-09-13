@@ -56,6 +56,7 @@ struct AboutView: View {
                 Text("本项目基于上述开源项目的创意与实现，向原作者致谢。各组件版权归原作者所有，并遵循其各自的开源许可证。")
             }
         }
+        .listSectionSpacing(.compact)
         .navigationTitle("关于")
         .navigationBarTitleDisplayMode(.inline)
     }

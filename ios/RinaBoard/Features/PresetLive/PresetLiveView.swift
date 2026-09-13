@@ -36,7 +36,6 @@ struct PresetLiveView: View {
             playbackSection
         case .content:
             songSection
-                .listSectionSpacing(.compact)
         }
     }
 
@@ -184,8 +183,6 @@ struct PresetLiveView: View {
                 .foregroundStyle(.secondary)
             }
         }
-        // Sits directly above the 演出 | 视频 switch; see PerformanceModeSection.
-        .listSectionSpacing(.compact)
     }
 
     private static func formatMs(_ ms: Int) -> String {

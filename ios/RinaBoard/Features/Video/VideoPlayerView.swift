@@ -34,7 +34,6 @@ struct VideoPlayerView: View {
             playbackSection
         case .content:
             sourcePreviewSection
-                .listSectionSpacing(.compact)
             videoSection
             conversionSection
         }
@@ -218,8 +217,6 @@ struct VideoPlayerView: View {
                 }
             }
         }
-        // Sits directly above the 演出 | 视频 switch; see PerformanceModeSection.
-        .listSectionSpacing(.compact)
     }
 
     private static func formatMs(_ ms: Int) -> String {

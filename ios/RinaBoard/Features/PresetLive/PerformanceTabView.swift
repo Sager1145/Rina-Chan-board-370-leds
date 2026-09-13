@@ -37,6 +37,7 @@ struct PerformanceTabView: View {
                 case .video: VideoPlayerView(part: .content)
                 }
             }
+            .listSectionSpacing(.compact)
             .toolbar(.hidden, for: .navigationBar)
             .contentMargins(.top, 0, for: .scrollContent)
             .errorAlert(Bindable(presetLive).errorMessage)
@@ -83,8 +84,5 @@ struct PerformanceModeSection: View {
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
         }
-        // Spacing between two sections follows both of them, so the progress
-        // section above the switch is compact too.
-        .listSectionSpacing(.compact)
     }
 }

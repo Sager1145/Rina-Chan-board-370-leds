@@ -45,6 +45,7 @@ struct SettingsView: View {
                 debugSection
                 aboutSection
             }
+            .listSectionSpacing(.compact)
             .navigationTitle("设置")
             #if DEBUG
             .navigationDestination(isPresented: $opensDebug) { DebugView() }

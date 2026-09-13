@@ -650,7 +650,9 @@ final class PresetLiveModel {
     private func prepareAudio(_ url: URL) throws -> AVAudioPlayer {
         let loaded = try AVAudioPlayer(contentsOf: url)
         loaded.volume = isMuted ? 0 : 1
-        loaded.prepareToPlay()
+        // prepareToPlay() activates the shared audio session. Importing or
+        // restoring a file must not acquire audio hardware on the main thread;
+        // play() prepares it after startPlayback activates our session.
         return loaded
     }
 
