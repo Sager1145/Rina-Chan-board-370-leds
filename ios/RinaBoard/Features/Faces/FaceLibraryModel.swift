@@ -47,8 +47,17 @@ private struct LocalDeletion {
 final class FaceLibraryModel {
     /// Kept under its original name for existing Control and Control Center
     /// call sites. This document is always the current board's library.
-    var faceDocument = FaceDocument()
-    private(set) var localDocument = FaceDocument()
+    var faceDocument = FaceDocument() {
+        didSet { cachedBoardSortedFaces = faceDocument.sortedFaces }
+    }
+    private(set) var localDocument = FaceDocument() {
+        didSet { cachedLocalSortedFaces = localDocument.sortedFaces }
+    }
+    /// `faceDocument.sortedFaces` / `localDocument.sortedFaces`, recomputed
+    /// once per document mutation (via the `didSet`s above) instead of on
+    /// every `faces(in:)`/`defaultFaces`/`userFaces` access.
+    private var cachedBoardSortedFaces: [SavedFace] = []
+    private var cachedLocalSortedFaces: [SavedFace] = []
     /// Stable identity of the physical board that supplied `faceDocument`.
     /// Unlike `boardGeneration`, this survives a reconnect to the same board.
     private(set) var boardID: String?
@@ -84,7 +93,7 @@ final class FaceLibraryModel {
     var canUndoLocalDelete: Bool { localDeletion != nil }
 
     func faces(in location: FaceLibraryLocation) -> [SavedFace] {
-        document(in: location).sortedFaces
+        location == .local ? cachedLocalSortedFaces : cachedBoardSortedFaces
     }
 
     func defaultFaces(in location: FaceLibraryLocation) -> [SavedFace] {
@@ -248,7 +257,7 @@ final class FaceLibraryModel {
                     errorMessage = NSLocalizedString("面板已更换，请重新选择表情", comment: "saved face belongs to another board")
                     return
                 }
-                guard let index = faceDocument.sortedFaces.firstIndex(where: { $0.id == face.id }) else { return }
+                guard let index = cachedBoardSortedFaces.firstIndex(where: { $0.id == face.id }) else { return }
                 let session = connection.output.begin(.manual)
                 _ = try await connection.withOutput(session) {
                     try await connection.applySavedFace(index: index)
