@@ -276,12 +276,14 @@ struct VideoPlayerView: View {
                 Text("拉伸").tag(VideoFrameQuantizer.Fit.stretch)
             }
             .pickerStyle(.menu)
+            .tint(.secondary)
 
             Picker(NSLocalizedString("转换方式", comment: "video quantize mode picker"), selection: setting(\.mode)) {
                 Text("阈值").tag(VideoFrameQuantizer.Mode.threshold)
                 Text("抖动").tag(VideoFrameQuantizer.Mode.dither)
             }
             .pickerStyle(.menu)
+            .tint(.secondary)
 
             Toggle("自动阈值", isOn: setting(\.autoThreshold))
 
@@ -310,6 +312,7 @@ struct VideoPlayerView: View {
                 }
             }
             .pickerStyle(.menu)
+            .tint(.secondary)
         }
     }
 

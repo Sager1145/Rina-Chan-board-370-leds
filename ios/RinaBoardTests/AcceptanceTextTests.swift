@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import RinaCore
 @testable import RinaBoard
 
 /// Offline preflight/state tests only. The frozen model schedules a weak-self
@@ -23,6 +24,21 @@ final class AcceptanceTextTests: XCTestCase {
         XCTAssertEqual(model?.exceedsByteLimit, false)
         model = nil
         XCTAssertNil(released, "No model may survive to write a shared draft")
+    }
+
+    func testClearedEditorRestoresSampleTextOnBlur() {
+        var model: TextViewModel? = TextViewModel()
+        weak var released = model
+        let sample = RinaResources.scrollTextDefaults(bundle: .main).defaultText
+        model?.editText("abc")
+        model?.restoreDefaultTextIfEmpty()
+        XCTAssertEqual(model?.text, "abc")
+        model?.editText(" \n")
+        model?.restoreDefaultTextIfEmpty()
+        XCTAssertEqual(model?.text, sample)
+        XCTAssertEqual(model?.userEditedText, false)
+        model = nil
+        XCTAssertNil(released)
     }
 
     func testEditingEnforcesVisibleLimitWithoutSplittingEarlierContent() {

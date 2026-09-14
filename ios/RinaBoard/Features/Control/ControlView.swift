@@ -36,9 +36,12 @@ struct ControlView: View {
     var body: some View {
         NavigationStack {
             List {
-                previewSection
-                commandSection
-                partsSection
+                Group {
+                    previewSection
+                    commandSection
+                    partsSection
+                }
+                .rinaTranslucentRows()
             }
             .listSectionSpacing(.compact)
             .rinaScrollBackground()

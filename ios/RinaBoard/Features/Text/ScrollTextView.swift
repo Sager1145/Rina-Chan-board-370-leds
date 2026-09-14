@@ -21,11 +21,14 @@ struct ScrollTextView: View {
     var body: some View {
         NavigationStack {
             List {
-                previewSection
-                playbackSection
-                editorSection
-                speedSection
-                syncSection
+                Group {
+                    previewSection
+                    playbackSection
+                    editorSection
+                    speedSection
+                    syncSection
+                }
+                .rinaTranslucentRows()
             }
             .listSectionSpacing(.compact)
             .rinaScrollBackground()
@@ -270,6 +273,9 @@ struct ScrollTextView: View {
                     .accessibilityValue(Text("\(model.visibleCharCount) / \(ScrollText.maxVisibleChars)"))
             }
             .focused($isEditorFocused)
+            .onChange(of: isEditorFocused) { _, focused in
+                if !focused { model.restoreDefaultTextIfEmpty() }
+            }
             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             .accessibilityLabel("滚动文字内容")
         } footer: {

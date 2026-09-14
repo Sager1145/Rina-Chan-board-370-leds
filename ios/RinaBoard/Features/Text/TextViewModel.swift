@@ -309,6 +309,14 @@ final class TextViewModel {
         text = ScrollText.truncate(newValue)
     }
 
+    /// Called when the editor loses focus: a cleared field goes back to the
+    /// sample text instead of leaving nothing to send.
+    func restoreDefaultTextIfEmpty() {
+        guard text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        text = RinaResources.scrollTextDefaults(bundle: .main).defaultText
+        userEditedText = false
+    }
+
     // MARK: Conflict resolution (§26)
 
     func keepDraft() {

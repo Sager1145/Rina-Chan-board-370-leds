@@ -2,8 +2,8 @@ import SwiftUI
 
 /// The one pill button used across the app, drawn to match the command chips
 /// on the Control tab (what `.bordered` + `.capsule` + `.small` rendered
-/// there): footnote label, tinted text on the tint at low opacity, grey
-/// when disabled.
+/// there): footnote label, white text on the tint at low opacity, grey
+/// when off or disabled.
 ///
 /// A custom style rather than the system one, because the system style grows
 /// on press and follows its label's height — a play icon swapping for a
@@ -25,11 +25,18 @@ struct PillButtonStyle: ButtonStyle {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .frame(minHeight: minHeight, maxHeight: .infinity)
-            .foregroundStyle(isEnabled ? AnyShapeStyle(.tint) : AnyShapeStyle(Color(.tertiaryLabel)))
+            .foregroundStyle(labelStyle)
             .background(Capsule().fill(fill))
             .contentShape(Capsule())
             .opacity(configuration.isPressed ? 0.6 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+
+    /// White label on a lit pill, grey on an off toggle, fainter grey when
+    /// disabled; only the translucent fill carries the tint.
+    private var labelStyle: AnyShapeStyle {
+        if !isEnabled { return AnyShapeStyle(Color(.tertiaryLabel)) }
+        return isNeutral ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)
     }
 
     private var fill: AnyShapeStyle {

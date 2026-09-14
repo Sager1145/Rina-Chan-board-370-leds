@@ -1,5 +1,6 @@
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -495,10 +496,17 @@ private enum BootAssets {
     /// The PNGs are 420 px, decoded once and mapped to the 106 pt circle at
     /// their full resolution (≈4×), so the 2.35× release still has headroom
     /// on a 3× panel.
+    ///
+    /// Decoded through ImageIO rather than `UIImage.preparingForDisplay()`:
+    /// the build's `copypng` adds an `iDOT` chunk to these palette PNGs and
+    /// UIKit's decompressor logs "Error -17102 decompressing image" on them
+    /// before falling back, once per icon at every launch.
     private static func icon(_ name: String) -> UIImage? {
-        guard let path = Bundle.main.path(forResource: name, ofType: "png"),
-              let image = UIImage(contentsOfFile: path)?.preparingForDisplay(),
-              let cgImage = image.cgImage else { return nil }
+        guard let url = Bundle.main.url(forResource: name, withExtension: "png"),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(
+                  source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+              ) else { return nil }
         let scale = CGFloat(cgImage.width) / BootTimeline.avatarDiameter
         return UIImage(cgImage: cgImage, scale: scale, orientation: .up)
     }

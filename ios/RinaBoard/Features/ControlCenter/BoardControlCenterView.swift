@@ -34,10 +34,13 @@ struct BoardControlCenterView: View {
 
     var body: some View {
         List {
-            statusSection
-            brightnessSection
-            modeSection
-            colorSection
+            Group {
+                statusSection
+                brightnessSection
+                modeSection
+                colorSection
+            }
+            .rinaTranslucentRows(onDismiss == nil)
         }
         .listSectionSpacing(.compact)
         // Pushed from Settings before iOS 26; with `onDismiss` it is the

@@ -16,7 +16,7 @@ final class SnapshotAcceptanceUITests: XCTestCase {
     }
 
     private func launch(_ tab: String) {
-        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-initialTab", tab]
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-initialTab", tab, "-disableStarAnimation", "YES"]
         app.launch()
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 15))
         XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 10))
@@ -30,6 +30,26 @@ final class SnapshotAcceptanceUITests: XCTestCase {
             start.press(forDuration: 0.05, thenDragTo: end)
         }
         XCTAssertTrue(element.isHittable)
+    }
+
+    /// No accessibility hook exposes the boot loader overlay's state, so we
+    /// wait for the tab bar to become hittable and give the outro a further
+    /// margin to finish before capturing the reference frame.
+    func testRinaBackgroundStarReferenceFrame() {
+        launch("control")
+        let tabBar = app.tabBars.firstMatch
+        var isHittable = false
+        for _ in 0..<20 {
+            if tabBar.isHittable { isHittable = true; break }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        XCTAssertTrue(isHittable, "Tab bar should become hittable once the boot loader clears")
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 5))
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "RinaBackgroundStarReferenceFrame"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     func testOfflineSaveRemainsAvailable() {

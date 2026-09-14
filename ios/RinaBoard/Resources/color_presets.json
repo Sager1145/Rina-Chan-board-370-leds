@@ -290,31 +290,31 @@
    "color": "#e4007f",
    "desc": "μ's 子颜色组",
    "id": 1,
-   "name": "μ's-洋红色"
+   "name": "μ's"
   },
   {
    "color": "#00a1e8",
    "desc": "Aqours / Saint Snow / 子团体颜色组",
    "id": 2,
-   "name": "Aqours-水蓝色"
+   "name": "Aqours"
   },
   {
    "color": "#f8b656",
    "desc": "虹咲 / 子团体颜色组",
    "id": 3,
-   "name": "虹咲学园-金色"
+   "name": "虹咲学园"
   },
   {
    "color": "#a5469b",
    "desc": "Liella! / 子团体颜色组",
    "id": 4,
-   "name": "Liella!-紫色"
+   "name": "Liella!"
   },
   {
    "color": "#fb8a9b",
    "desc": "蓮ノ空 子颜色组",
    "id": 5,
-   "name": "蓮ノ空-粉色"
+   "name": "蓮ノ空"
   }
  ]
 }

@@ -19,13 +19,16 @@ struct LipSyncView: View {
 
         NavigationStack {
             List {
-                previewSection
-                transportSection
-                recognitionSection(model: $model)
-                calibrationSection
-                if let message = model.loadError {
-                    loadErrorSection(message)
+                Group {
+                    previewSection
+                    transportSection
+                    recognitionSection(model: $model)
+                    calibrationSection
+                    if let message = model.loadError {
+                        loadErrorSection(message)
+                    }
                 }
+                .rinaTranslucentRows()
             }
             .listSectionSpacing(.compact)
             .rinaScrollBackground()
@@ -342,60 +345,63 @@ struct LipSyncMouthMappingView: View {
         @Bindable var model = model
 
         List {
-            Section {
-                BoardPreviewRow(frame: model.previewFrame,
-                                color: color,
-                                brightness: brightness,
-                                accessibilityDescription: NSLocalizedString("口型预览",
-                                                                            comment: "mouth mapping preview"))
-            }
-
-            Section {
-                HStack(spacing: 8) {
-                    Button {
-                        model.randomize()
-                    } label: {
-                        CommandChip("随机", systemImage: "dice.fill")
-                    }
-                    .buttonStyle(.pill)
-
-                    Toggle(isOn: Binding(
-                        get: { model.syncEyes },
-                        set: { model.setSyncEyes($0) }
-                    )) {
-                        CommandChip("左右眼同步", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .toggleStyle(.pill)
-
-                    Button {
-                        model.resetMappingAndCostume()
-                    } label: {
-                        CommandChip("恢复默认", systemImage: "arrow.counterclockwise")
-                    }
-                    .buttonStyle(.pill)
+            Group {
+                Section {
+                    BoardPreviewRow(frame: model.previewFrame,
+                                    color: color,
+                                    brightness: brightness,
+                                    accessibilityDescription: NSLocalizedString("口型预览",
+                                                                                comment: "mouth mapping preview"))
                 }
-                .pillButtonRow()
-            }
 
-            Section(NSLocalizedString("闭嘴（静音）", comment: "silence mouth section")) {
-                selector(for: nil)
-            }
+                Section {
+                    HStack(spacing: 8) {
+                        Button {
+                            model.randomize()
+                        } label: {
+                            CommandChip("随机", systemImage: "dice.fill")
+                        }
+                        .buttonStyle(.pill)
 
-            ForEach(LipSyncVowel.allCases, id: \.self) { vowel in
-                Section(vowelTitle(vowel)) {
-                    selector(for: vowel)
+                        Toggle(isOn: Binding(
+                            get: { model.syncEyes },
+                            set: { model.setSyncEyes($0) }
+                        )) {
+                            CommandChip("左右眼同步", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        .toggleStyle(.pill)
+
+                        Button {
+                            model.resetMappingAndCostume()
+                        } label: {
+                            CommandChip("恢复默认", systemImage: "arrow.counterclockwise")
+                        }
+                        .buttonStyle(.pill)
+                    }
+                    .pillButtonRow()
+                }
+
+                Section(NSLocalizedString("闭嘴（静音）", comment: "silence mouth section")) {
+                    selector(for: nil)
+                }
+
+                ForEach(LipSyncVowel.allCases, id: \.self) { vowel in
+                    Section(vowelTitle(vowel)) {
+                        selector(for: vowel)
+                    }
+                }
+
+                Section(PartGroup.leye.displayName) {
+                    costumeSelector(group: .leye)
+                }
+                Section(PartGroup.reye.displayName) {
+                    costumeSelector(group: .reye)
+                }
+                Section(PartGroup.cheek.displayName) {
+                    costumeSelector(group: .cheek)
                 }
             }
-
-            Section(PartGroup.leye.displayName) {
-                costumeSelector(group: .leye)
-            }
-            Section(PartGroup.reye.displayName) {
-                costumeSelector(group: .reye)
-            }
-            Section(PartGroup.cheek.displayName) {
-                costumeSelector(group: .cheek)
-            }
+            .rinaTranslucentRows()
         }
         .listSectionSpacing(.compact)
         .rinaScrollBackground()

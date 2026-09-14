@@ -27,21 +27,24 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if !ControlCenterPlacement.usesTabBarAccessory {
-                    Section {
-                        NavigationLink {
-                            BoardControlCenterView()
-                        } label: {
-                            Label("面板控制中心", systemImage: "slider.horizontal.below.rectangle")
+                Group {
+                    if !ControlCenterPlacement.usesTabBarAccessory {
+                        Section {
+                            NavigationLink {
+                                BoardControlCenterView()
+                            } label: {
+                                Label("面板控制中心", systemImage: "slider.horizontal.below.rectangle")
+                            }
                         }
                     }
-                }
 
-                connectionSection
-                boardSection
-                appSection
-                debugSection
-                aboutSection
+                    connectionSection
+                    boardSection
+                    appSection
+                    debugSection
+                    aboutSection
+                }
+                .rinaTranslucentRows()
             }
             .listSectionSpacing(.compact)
             .rinaScrollBackground()

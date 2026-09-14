@@ -27,15 +27,18 @@ struct PerformanceTabView: View {
     var body: some View {
         NavigationStack {
             List {
-                switch mode {
-                case .performance: PresetLiveView(part: .transport)
-                case .video: VideoPlayerView(part: .transport)
+                Group {
+                    switch mode {
+                    case .performance: PresetLiveView(part: .transport)
+                    case .video: VideoPlayerView(part: .transport)
+                    }
+                    PerformanceModeSection()
+                    switch mode {
+                    case .performance: PresetLiveView(part: .content)
+                    case .video: VideoPlayerView(part: .content)
+                    }
                 }
-                PerformanceModeSection()
-                switch mode {
-                case .performance: PresetLiveView(part: .content)
-                case .video: VideoPlayerView(part: .content)
-                }
+                .rinaTranslucentRows()
             }
             .listSectionSpacing(.compact)
             .rinaScrollBackground()

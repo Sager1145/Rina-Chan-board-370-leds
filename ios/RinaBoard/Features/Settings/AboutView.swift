@@ -19,38 +19,41 @@ struct AboutView: View {
 
     var body: some View {
         Form {
-            Section {
-                LabeledContent("应用") {
-                    Text("RinaBoard").foregroundStyle(.secondary)
+            Group {
+                Section {
+                    LabeledContent("应用") {
+                        Text("RinaBoard").foregroundStyle(.secondary)
+                    }
+                    LabeledContent("版本") {
+                        Text(version)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                LabeledContent("版本") {
-                    Text(version)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-            }
 
-            Section {
-                Link(destination: Self.repositoryURL) {
-                    Label("GitHub 项目主页", systemImage: "chevron.left.forwardslash.chevron.right")
+                Section {
+                    Link(destination: Self.repositoryURL) {
+                        Label("GitHub 项目主页", systemImage: "chevron.left.forwardslash.chevron.right")
+                    }
+                    Link(destination: Self.makerWorldURL) {
+                        Label("MakerWorld 模型文件", systemImage: "cube")
+                    }
+                } header: {
+                    Text("项目")
                 }
-                Link(destination: Self.makerWorldURL) {
-                    Label("MakerWorld 模型文件", systemImage: "cube")
-                }
-            } header: {
-                Text("项目")
-            }
 
-            Section {
-                Link(destination: Self.flyAkariURL) {
-                    Label("flyAkari / RinaChanBoard", systemImage: "heart")
+                Section {
+                    Link(destination: Self.flyAkariURL) {
+                        Label("flyAkari / RinaChanBoard", systemImage: "heart")
+                    }
+                    Link(destination: Self.n738NGXURL) {
+                        Label("738NGX / RinaChanBoard", systemImage: "heart")
+                    }
+                } header: {
+                    Text("致谢")
                 }
-                Link(destination: Self.n738NGXURL) {
-                    Label("738NGX / RinaChanBoard", systemImage: "heart")
-                }
-            } header: {
-                Text("致谢")
             }
+            .rinaTranslucentRows()
         }
         .listSectionSpacing(.compact)
         .rinaScrollBackground()

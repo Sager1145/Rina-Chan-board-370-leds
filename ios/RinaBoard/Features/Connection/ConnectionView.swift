@@ -29,15 +29,18 @@ struct ConnectionView: View {
 
     var body: some View {
         Form {
-            sessionsSection
-            statusSection
-            savedBoardsSection
-            bluetoothSection
-            boardNameSection
-            homeWifiSection
-            hotspotSection
-            phoneHotspotSection
-            boardWifiSection
+            Group {
+                sessionsSection
+                statusSection
+                savedBoardsSection
+                bluetoothSection
+                boardNameSection
+                homeWifiSection
+                hotspotSection
+                phoneHotspotSection
+                boardWifiSection
+            }
+            .rinaTranslucentRows()
         }
         .listSectionSpacing(.compact)
         .rinaScrollBackground()

@@ -18,13 +18,16 @@ struct DebugView: View {
 
     var body: some View {
         List {
-            switch workspace {
-            case 1: logSection
-            case 2: testSection
-            case 3: rawDataSection
-            case 4: DebugSerialMonitor(vm: vm)
-            default: overviewSection
+            Group {
+                switch workspace {
+                case 1: logSection
+                case 2: testSection
+                case 3: rawDataSection
+                case 4: DebugSerialMonitor(vm: vm)
+                default: overviewSection
+                }
             }
+            .rinaTranslucentRows()
         }
         .listSectionSpacing(.compact)
         .rinaScrollBackground()
@@ -521,30 +524,33 @@ private struct RawCommandConsoleView: View {
 
     var body: some View {
         Form {
-            Section("JSON 指令") {
-                TextEditor(text: $vm.rawCommandText)
-                    .frame(minHeight: 140)
-                    .font(.system(.caption, design: .monospaced))
-                    .onChange(of: vm.rawCommandText) { _, _ in vm.validateRawCommand() }
-                Label(vm.rawCommandValid ? "JSON 对象有效" : "JSON 对象无效",
-                      systemImage: vm.rawCommandValid ? "checkmark.circle" : "xmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(vm.rawCommandValid ? .green : .red)
-                Toggle("我确认发送原始指令", isOn: $vm.rawCommandConfirmed)
-                Button("发送原始指令") {
-                    Task { await vm.sendRawCommand(connection: connection) }
+            Group {
+                Section("JSON 指令") {
+                    TextEditor(text: $vm.rawCommandText)
+                        .frame(minHeight: 140)
+                        .font(.system(.caption, design: .monospaced))
+                        .onChange(of: vm.rawCommandText) { _, _ in vm.validateRawCommand() }
+                    Label(vm.rawCommandValid ? "JSON 对象有效" : "JSON 对象无效",
+                          systemImage: vm.rawCommandValid ? "checkmark.circle" : "xmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(vm.rawCommandValid ? .green : .red)
+                    Toggle("我确认发送原始指令", isOn: $vm.rawCommandConfirmed)
+                    Button("发送原始指令") {
+                        Task { await vm.sendRawCommand(connection: connection) }
+                    }
+                    .buttonStyle(.pill)
+                    .disabled(!vm.rawCommandValid || !vm.rawCommandConfirmed || connection.connectionState != .connected)
                 }
-                .buttonStyle(.pill)
-                .disabled(!vm.rawCommandValid || !vm.rawCommandConfirmed || connection.connectionState != .connected)
-            }
 
-            if !vm.rawCommandResult.isEmpty {
-                Section("原始回复") {
-                    Text(vm.rawCommandResult)
-                        .font(.caption2.monospaced())
-                        .textSelection(.enabled)
+                if !vm.rawCommandResult.isEmpty {
+                    Section("原始回复") {
+                        Text(vm.rawCommandResult)
+                            .font(.caption2.monospaced())
+                            .textSelection(.enabled)
+                    }
                 }
             }
+            .rinaTranslucentRows()
         }
         .listSectionSpacing(.compact)
         .rinaScrollBackground()
