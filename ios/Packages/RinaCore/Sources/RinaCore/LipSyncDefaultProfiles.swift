@@ -65,17 +65,23 @@ extension LipSyncProfile {
     }
 }
 
-private extension LipSyncConfig {
+extension LipSyncConfig {
+    /// Whether the fields that actually feed vowel synthesis and the MFCC
+    /// chain match `other`'s. `minVolumeDb` and `historyLength` are excluded
+    /// because neither affects synthesis or the MFCC chain.
+    func matchesSynthesisFields(of other: LipSyncConfig) -> Bool {
+        targetSampleRate == other.targetSampleRate
+            && fftSize == other.fftSize
+            && melChannels == other.melChannels
+            && mfccCount == other.mfccCount
+            && melLowHz == other.melLowHz
+            && melHighHz == other.melHighHz
+            && preEmphasis == other.preEmphasis
+    }
+
     /// Whether the fields that actually feed vowel synthesis and the MFCC
     /// chain match `LipSyncConfig.default`'s.
-    var matchesDefaultSynthesisFields: Bool {
-        let reference = LipSyncConfig.default
-        return targetSampleRate == reference.targetSampleRate
-            && fftSize == reference.fftSize
-            && melChannels == reference.melChannels
-            && mfccCount == reference.mfccCount
-            && melLowHz == reference.melLowHz
-            && melHighHz == reference.melHighHz
-            && preEmphasis == reference.preEmphasis
+    fileprivate var matchesDefaultSynthesisFields: Bool {
+        matchesSynthesisFields(of: .default)
     }
 }
