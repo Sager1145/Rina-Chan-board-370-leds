@@ -427,6 +427,8 @@ final class LipSyncModel {
     }
 
     private func tick(connection: BoardConnection) {
+        let state = RinaPerf.signposter.beginInterval("LipSyncTick")
+        defer { RinaPerf.signposter.endInterval("LipSyncTick", state) }
         // Interruptions and route reconfiguration can stop AVAudioEngine
         // without an explicit stop. Do not keep classifying its last buffer.
         guard capture.isRunning else {

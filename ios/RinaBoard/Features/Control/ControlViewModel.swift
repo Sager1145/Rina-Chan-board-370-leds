@@ -521,7 +521,9 @@ final class ControlViewModel {
         let owner = draftBoardID
         let token = connection.output.claim(.manual)
         sendTask?.cancel()
+        let signpostState = RinaPerf.signposter.beginInterval("ControlLiveSend")
         sendTask = Task { [weak self] in
+            defer { RinaPerf.signposter.endInterval("ControlLiveSend", signpostState) }
             do {
                 _ = try await connection.setFrame(frame, playback: .idle, reason: "custom_live_send", outputSession: token)
                 guard self?.draftBoardID == owner else { return }

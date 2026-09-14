@@ -692,6 +692,8 @@ final class FakeRinaTransport: @MainActor RinaTransport {
     let preferredChunkBytes = 512
     var automaticallyReplies = true
     var commandReply: [String: Any] = ["ok": true]
+    /// Simulates a BLE round-trip delay before an automatic reply is sent.
+    var replyDelay: Duration?
     private let connectImmediately: Bool
     private var connectContinuation: CheckedContinuation<Void, Never>?
     private var connectStarted = false
@@ -749,7 +751,14 @@ final class FakeRinaTransport: @MainActor RinaTransport {
             for request in self.decoder.feed(data) {
                 self.sent.append(request)
                 if self.automaticallyReplies {
-                    self.reply(request, payload: self.defaultPayload(for: request))
+                    if let delay = self.replyDelay {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: delay)
+                            self.reply(request, payload: self.defaultPayload(for: request))
+                        }
+                    } else {
+                        self.reply(request, payload: self.defaultPayload(for: request))
+                    }
                 } else {
                     self.heldRequests.append(request)
                 }

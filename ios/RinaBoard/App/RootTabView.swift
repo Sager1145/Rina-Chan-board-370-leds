@@ -189,6 +189,7 @@ struct RootTabView: View {
             // tabs first so slow draft restoration cannot leave an empty
             // window after the overlay disappears.
             contentReady = true
+            RinaPerf.signposter.emitEvent("ContentReady")
             await editor.restoreDraft()
             await textModel.restoreDraft()
             guard !Task.isCancelled else { return }
