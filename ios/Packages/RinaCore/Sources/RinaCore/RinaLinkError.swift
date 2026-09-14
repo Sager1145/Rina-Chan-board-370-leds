@@ -27,6 +27,7 @@ public enum RinaTransportError: Error, Sendable {
     case timeout
     case cancelled
     case invalidResponse
+    case sequenceSpaceExhausted
     case underlying(String)
 }
 
@@ -39,6 +40,7 @@ extension RinaTransportError: LocalizedError {
         case .timeout: return NSLocalizedString("面板响应超时", comment: "transport error timeout")
         case .cancelled: return NSLocalizedString("操作已取消", comment: "transport error cancelled")
         case .invalidResponse: return NSLocalizedString("面板回复无法解析", comment: "transport error invalid response")
+        case .sequenceSpaceExhausted: return NSLocalizedString("等待中的面板请求过多，请稍后重试", comment: "all protocol sequence identifiers are in use")
         case .underlying(let message): return message
         }
     }

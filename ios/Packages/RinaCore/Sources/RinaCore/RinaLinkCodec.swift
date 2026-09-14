@@ -23,14 +23,15 @@ public struct RinaLinkFrame: Equatable, Sendable {
 }
 
 public enum RinaLinkEncoder {
+    public enum EncodingError: Error, Equatable, Sendable {
+        case payloadTooLarge(actual: Int, maximum: Int)
+    }
+
     /// Encodes one frame (header + payload). Payloads over 4096 bytes must be
     /// split by the caller into multiple `BLOB_CHUNK` messages; this function
     /// does not itself slice.
-    public static func encode(_ frame: RinaLinkFrame) -> Data {
-        precondition(
-            frame.payload.count <= RinaLinkFrameConstants.maxPayloadBytes,
-            "RinaLinkEncoder.encode: payload (\(frame.payload.count) bytes) exceeds maxPayloadBytes (\(RinaLinkFrameConstants.maxPayloadBytes)); caller must slice into BLOB_CHUNK messages first"
-        )
+    public static func encode(_ frame: RinaLinkFrame) throws -> Data {
+        try validatePayloadSize(frame.payload.count)
         var out = Data(capacity: RinaLinkFrameConstants.headerBytes + frame.payload.count)
         let length = UInt16(frame.payload.count)
         out.append(RinaLinkFrameConstants.magic)
@@ -43,8 +44,26 @@ public enum RinaLinkEncoder {
         return out
     }
 
-    public static func encode(type: RinaLinkMessageType, seq: UInt8, flags: UInt8 = 0, payload: Data) -> Data {
-        encode(RinaLinkFrame(type: type, seq: seq, flags: flags, payload: payload))
+    public static func validatePayloadSize(_ count: Int) throws {
+        guard count <= RinaLinkFrameConstants.maxPayloadBytes else {
+            throw EncodingError.payloadTooLarge(
+                actual: count,
+                maximum: RinaLinkFrameConstants.maxPayloadBytes
+            )
+        }
+    }
+
+    public static func encode(type: RinaLinkMessageType, seq: UInt8, flags: UInt8 = 0, payload: Data) throws -> Data {
+        try encode(RinaLinkFrame(type: type, seq: seq, flags: flags, payload: payload))
+    }
+}
+
+extension RinaLinkEncoder.EncodingError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .payloadTooLarge(let actual, let maximum):
+            return "RinaLink payload is \(actual) bytes; the maximum is \(maximum) bytes"
+        }
     }
 }
 

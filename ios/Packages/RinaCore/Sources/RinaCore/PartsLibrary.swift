@@ -232,6 +232,50 @@ public struct PartsLibrary: Codable, Sendable {
         return frame
     }
 
+    /// Matches a composed frame back to its four callable part IDs.
+    ///
+    /// Each group is compared only within the area occupied by any of that
+    /// group's variants. This permits the other three groups to remain in the
+    /// frame while finding a candidate. The selected candidates are then
+    /// composed and compared with `frame` in full, so pixels outside a part
+    /// area, malformed combinations, and ambiguous partial matches are
+    /// rejected. When variants have identical frames, the default-face ID is
+    /// preferred for that group, followed by the library's callable ID order.
+    public func matchingCall(for frame: PackedFrame) -> PartsCall? {
+        let groups = [PartGroup.leye, .reye, .mouth, .cheek]
+
+        func isEqual(_ lhs: PackedFrame, _ rhs: PackedFrame, within mask: PackedFrame) -> Bool {
+            zip(zip(lhs.bytes, rhs.bytes), mask.bytes).allSatisfy { pair, maskByte in
+                (pair.0 & maskByte) == (pair.1 & maskByte)
+            }
+        }
+
+        func preferredIDs(for group: PartGroup) -> [String] {
+            let defaultID = PartsCall.defaultCall[group]
+            let callable = ids(for: group)
+            guard callable.contains(defaultID) else { return callable }
+            return [defaultID] + callable.filter { $0 != defaultID }
+        }
+
+        var matched = PartsCall(leye: "0", reye: "0", mouth: "0", cheek: "400")
+        for group in groups {
+            let callable = preferredIDs(for: group)
+            var mask = PackedFrame()
+            for id in callable {
+                mask.formUnion(self.frame(for: resolvedPart(group: group, id: id)))
+            }
+
+            guard let id = callable.first(where: {
+                isEqual(frame, self.frame(for: resolvedPart(group: group, id: $0)), within: mask)
+            }) else {
+                return nil
+            }
+            matched[group] = id
+        }
+
+        return compose(call: matched) == frame ? matched : nil
+    }
+
     /// Picks a random call mirroring `randomParts()` (`app.js` ~L9783).
     /// Non-symmetric mode: eyes and mouth never pick "0" (empty); cheek may
     /// pick any listed id, including the empty placeholder "400".

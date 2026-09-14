@@ -2,10 +2,10 @@ import XCTest
 @testable import RinaCore
 
 final class RinaLinkCodecTests: XCTestCase {
-    func testEncodeDecodeRoundTrip() {
+    func testEncodeDecodeRoundTrip() throws {
         let payload = "{\"ok\":true}".data(using: .utf8)!
         let frame = RinaLinkFrame(type: .getStatus, seq: 7, payload: payload)
-        let data = RinaLinkEncoder.encode(frame)
+        let data = try RinaLinkEncoder.encode(frame)
 
         let decoder = RinaLinkDecoder()
         let frames = decoder.feed(data)
@@ -15,10 +15,10 @@ final class RinaLinkCodecTests: XCTestCase {
         XCTAssertEqual(frames[0].payload, payload)
     }
 
-    func testSplitAcrossFeeds() {
+    func testSplitAcrossFeeds() throws {
         let payload = Data(repeating: 0xAB, count: 100)
         let frame = RinaLinkFrame(type: .getFrame, seq: 1, payload: payload)
-        let data = RinaLinkEncoder.encode(frame)
+        let data = try RinaLinkEncoder.encode(frame)
 
         let decoder = RinaLinkDecoder()
         var frames: [RinaLinkFrame] = []
@@ -30,9 +30,9 @@ final class RinaLinkCodecTests: XCTestCase {
         XCTAssertEqual(frames[0].payload, payload)
     }
 
-    func testMultipleFramesInOneFeed() {
-        let f1 = RinaLinkEncoder.encode(RinaLinkFrame(type: .ping, seq: 1, payload: Data()))
-        let f2 = RinaLinkEncoder.encode(RinaLinkFrame(type: .ping, seq: 2, payload: Data()))
+    func testMultipleFramesInOneFeed() throws {
+        let f1 = try RinaLinkEncoder.encode(RinaLinkFrame(type: .ping, seq: 1, payload: Data()))
+        let f2 = try RinaLinkEncoder.encode(RinaLinkFrame(type: .ping, seq: 2, payload: Data()))
         var combined = f1
         combined.append(f2)
 
@@ -43,9 +43,9 @@ final class RinaLinkCodecTests: XCTestCase {
         XCTAssertEqual(frames[1].seq, 2)
     }
 
-    func testResyncOnGarbagePrefix() {
+    func testResyncOnGarbagePrefix() throws {
         var garbage = Data([0x00, 0x11, 0x22, 0xFF])
-        let real = RinaLinkEncoder.encode(RinaLinkFrame(type: .ping, seq: 3, payload: Data([1, 2, 3])))
+        let real = try RinaLinkEncoder.encode(RinaLinkFrame(type: .ping, seq: 3, payload: Data([1, 2, 3])))
         garbage.append(real)
 
         let decoder = RinaLinkDecoder()
@@ -55,9 +55,9 @@ final class RinaLinkCodecTests: XCTestCase {
         XCTAssertEqual(frames[0].payload, Data([1, 2, 3]))
     }
 
-    func testMoreFlagRoundTrip() {
+    func testMoreFlagRoundTrip() throws {
         let frame = RinaLinkFrame(type: .getFaces, seq: 9, flags: RinaLinkFrameConstants.flagMore, payload: Data([1]))
-        let data = RinaLinkEncoder.encode(frame)
+        let data = try RinaLinkEncoder.encode(frame)
         let decoded = RinaLinkDecoder().feed(data)
         XCTAssertEqual(decoded.first?.isMore, true)
     }
@@ -66,11 +66,24 @@ final class RinaLinkCodecTests: XCTestCase {
         let json = """
         {"ok":false,"error":"bad request","code":400}
         """.data(using: .utf8)!
-        let frame = RinaLinkEncoder.encode(RinaLinkFrame(type: .error, seq: 1, payload: json))
+        let frame = try RinaLinkEncoder.encode(RinaLinkFrame(type: .error, seq: 1, payload: json))
         let decoded = RinaLinkDecoder().feed(frame)
         XCTAssertEqual(decoded.first?.isError, true)
         let err = try JSONDecoder().decode(RinaLinkError.self, from: decoded[0].payload)
         XCTAssertEqual(err.code, 400)
         XCTAssertEqual(err.error, "bad request")
+    }
+
+    func testOversizePayloadThrowsInsteadOfTrapping() {
+        let payload = Data(repeating: 0, count: RinaLinkFrameConstants.maxPayloadBytes + 1)
+
+        XCTAssertThrowsError(try RinaLinkEncoder.encode(
+            RinaLinkFrame(type: .ping, seq: 1, payload: payload)
+        )) { error in
+            XCTAssertEqual(
+                error as? RinaLinkEncoder.EncodingError,
+                .payloadTooLarge(actual: payload.count, maximum: RinaLinkFrameConstants.maxPayloadBytes)
+            )
+        }
     }
 }

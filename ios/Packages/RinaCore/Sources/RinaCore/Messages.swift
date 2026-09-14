@@ -114,6 +114,10 @@ public struct RendererStatus: Codable, Equatable, Sendable {
     public var brightnessMin: Int?
     public var brightnessMax: Int?
     public var mode: String?
+    /// Stable board output owner; absent on older firmware.
+    public var outputMode: String?
+    public var outputStreamID: String?
+    public var outputPositionMs: Int?
     public var playback: String?
     public var paused: Bool?
     public var autoIntervalMs: Int?
@@ -162,12 +166,16 @@ public struct RendererStatus: Codable, Equatable, Sendable {
                 firmwareScrollSystemPaused: Bool? = nil, restoreAutoAfterScroll: Bool? = nil,
                 scrollFrameCount: Int? = nil, scrollFrameIndex: Int? = nil, scrollIntervalMs: Int? = nil,
                 uiFps: Int? = nil, scrollFps: Int? = nil, scrollTimelineId: String? = nil,
-                scrollUploadComplete: Bool? = nil, scrollHasSourceText: Bool? = nil, scrollLoop: Bool? = nil) {
+                scrollUploadComplete: Bool? = nil, scrollHasSourceText: Bool? = nil, scrollLoop: Bool? = nil, outputMode: String? = nil,
+                outputStreamID: String? = nil, outputPositionMs: Int? = nil) {
         self.color = color
         self.brightness = brightness
         self.brightnessMin = brightnessMin
         self.brightnessMax = brightnessMax
         self.mode = mode
+        self.outputMode = outputMode
+        self.outputStreamID = outputStreamID
+        self.outputPositionMs = outputPositionMs
         self.playback = playback
         self.paused = paused
         self.autoIntervalMs = autoIntervalMs
@@ -210,6 +218,9 @@ public struct RendererStatus: Codable, Equatable, Sendable {
         brightnessMin = FlexibleNumber.int(from: c, key: .init("brightnessMin"))
         brightnessMax = FlexibleNumber.int(from: c, key: .init("brightnessMax"))
         mode = try? c.decodeIfPresent(String.self, forKey: .init("mode"))
+        outputMode = try? c.decodeIfPresent(String.self, forKey: .init("outputMode"))
+        outputStreamID = try? c.decodeIfPresent(String.self, forKey: .init("outputStreamID"))
+        outputPositionMs = FlexibleNumber.int(from: c, key: .init("outputPositionMs"))
         playback = try? c.decodeIfPresent(String.self, forKey: .init("playback"))
         paused = try? c.decodeIfPresent(Bool.self, forKey: .init("paused"))
         autoIntervalMs = FlexibleNumber.int(from: c, key: .init("autoIntervalMs"))
@@ -246,7 +257,7 @@ public struct RendererStatus: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case color, brightness, brightnessMin, brightnessMax, mode, playback, paused, autoIntervalMs,
+        case color, brightness, brightnessMin, brightnessMax, mode, outputMode, outputStreamID, outputPositionMs, playback, paused, autoIntervalMs,
              autoFaceCount, autoFaceIndex, frameEncoding, frameBytes, frameBits, frameQueueDepth,
              frameQueueCount, lit, lastReason, ledBackend, ledDma, ledRefreshUs, ledRefreshMaxUs,
              ledRefreshFail, autoFaceId, autoFaceName, firmwareScrollActive, firmwareScrollPaused,
@@ -262,6 +273,9 @@ public struct RendererStatus: Codable, Equatable, Sendable {
         try c.encodeIfPresent(brightnessMin, forKey: .brightnessMin)
         try c.encodeIfPresent(brightnessMax, forKey: .brightnessMax)
         try c.encodeIfPresent(mode, forKey: .mode)
+        try c.encodeIfPresent(outputMode, forKey: .outputMode)
+        try c.encodeIfPresent(outputStreamID, forKey: .outputStreamID)
+        try c.encodeIfPresent(outputPositionMs, forKey: .outputPositionMs)
         try c.encodeIfPresent(playback, forKey: .playback)
         try c.encodeIfPresent(paused, forKey: .paused)
         try c.encodeIfPresent(autoIntervalMs, forKey: .autoIntervalMs)
@@ -361,6 +375,10 @@ public struct WifiStatus: Codable, Equatable, Sendable {
     public var apSsid: String?
     public var apIp: String?
     public var hostname: String?
+    /// Board identity (RINALINK_PROTOCOL_V1 §"Board identity"): the 12-hex-char
+    /// suffix also embedded in `apSsid`/`hostname`, reported separately so
+    /// callers don't need to parse it back out of those strings.
+    public var boardId: String?
     public var tcpPort: Int?
     public var clients: Int?
     // iPhone Personal Hotspot profile (RINALINK_PROTOCOL_V1 §8): the board
@@ -373,9 +391,9 @@ public struct WifiStatus: Codable, Equatable, Sendable {
 
     public init(ok: Bool? = nil, mode: String? = nil, staConnected: Bool? = nil, ssid: String? = nil,
                 ip: String? = nil, rssi: Int? = nil, apActive: Bool? = nil, apSsid: String? = nil,
-                apIp: String? = nil, hostname: String? = nil, tcpPort: Int? = nil, clients: Int? = nil,
-                homeSsid: String? = nil, hotspotSsid: String? = nil, activeProfile: String? = nil,
-                scanPending: Bool? = nil) {
+                apIp: String? = nil, hostname: String? = nil, boardId: String? = nil, tcpPort: Int? = nil,
+                clients: Int? = nil, homeSsid: String? = nil, hotspotSsid: String? = nil,
+                activeProfile: String? = nil, scanPending: Bool? = nil) {
         self.ok = ok
         self.mode = mode
         self.staConnected = staConnected
@@ -386,12 +404,72 @@ public struct WifiStatus: Codable, Equatable, Sendable {
         self.apSsid = apSsid
         self.apIp = apIp
         self.hostname = hostname
+        self.boardId = boardId
         self.tcpPort = tcpPort
         self.clients = clients
         self.homeSsid = homeSsid
         self.hotspotSsid = hotspotSsid
         self.activeProfile = activeProfile
         self.scanPending = scanPending
+    }
+}
+
+/// Reconciles a saved board's expected hotspot SSID against what the board
+/// itself reports over the just-established link (RINALINK_PROTOCOL_V1
+/// "Board identity"): every board's SoftAP shares one IP, so a TCP link that
+/// answers is not by itself proof it's the *expected* board.
+public enum BoardIdentity {
+    /// Extracts the `<12 hex>` board id from a SoftAP SSID of the form
+    /// `RinaChanBoard-<12 hex>`. Returns `nil` for anything else, including
+    /// the retired shared default `RinaChanBoard-V2`.
+    public static func boardID(fromAPSSID ssid: String) -> String? {
+        guard ssid.hasPrefix(RinaLinkConstants.apSSIDPrefix) else { return nil }
+        let suffix = String(ssid.dropFirst(RinaLinkConstants.apSSIDPrefix.count))
+        guard suffix.count == 12,
+              suffix.allSatisfy({ ("0"..."9").contains($0) || ("A"..."F").contains($0) || ("a"..."f").contains($0) })
+        else { return nil }
+        return suffix.uppercased()
+    }
+
+    /// `nil` means "unknown" — either side lacks data, or `expectedHotspotSSID`
+    /// is the legacy shared SSID that can't distinguish between boards — and
+    /// callers should treat that as "allow" (old-firmware compatibility),
+    /// unless the reported side turns out to carry a unique identity of its
+    /// own, in which case it's provably a different board.
+    ///
+    /// Comparison precedence: if the board reports a `boardId` and the
+    /// expected SSID embeds an id, compare ids (case-insensitive) — the
+    /// board's own `apSsid` may have been renamed since, so it's ignored
+    /// here. Otherwise, if the expected SSID is a unique (non-legacy) SSID
+    /// and the reported `apSsid` embeds an id, compare ids. Otherwise, if
+    /// the expected SSID is unique and `apSsid` is present, compare the
+    /// strings directly.
+    public static func matches(expectedHotspotSSID: String?, reported: WifiStatus?) -> Bool? {
+        guard let expectedHotspotSSID else { return nil }
+        guard let reported else { return nil }
+        let expectedIsLegacy = expectedHotspotSSID == RinaLinkConstants.apSSID
+        let expectedID = expectedIsLegacy ? nil : boardID(fromAPSSID: expectedHotspotSSID)
+
+        if expectedIsLegacy {
+            // The phone joined the legacy shared SoftAP; a board that reports
+            // a unique identity is provably not "the" board the phone joined
+            // (unique-identity boards never present the legacy SSID/no-id
+            // combination the phone expects), so treat that as a mismatch.
+            let reportedID = reported.boardId ?? reported.apSsid.flatMap(boardID(fromAPSSID:))
+            return reportedID != nil ? false : nil
+        }
+
+        guard let expectedID else { return nil }
+        if let reportedID = reported.boardId {
+            return reportedID.uppercased() == expectedID
+        }
+        if let apSsid = reported.apSsid {
+            if let reportedID = boardID(fromAPSSID: apSsid) {
+                return reportedID == expectedID
+            }
+            return apSsid == expectedHotspotSSID
+        }
+        return nil
     }
 }
 
@@ -446,6 +524,10 @@ public struct PreviewSync: Codable, Equatable, Sendable {
     public var ok: Bool?
     public var v: Int?
     public var mode: String?
+    /// Stable board output owner; absent on older firmware.
+    public var outputMode: String?
+    public var outputStreamID: String?
+    public var outputPositionMs: Int?
     public var playback: String?
     public var autoFaceIndex: Int?
     public var autoFaceCount: Int?
@@ -490,13 +572,17 @@ public struct PreviewSync: Codable, Equatable, Sendable {
                 uiFps: Int? = nil, firmwareScrollActive: Bool? = nil, firmwareScrollPaused: Bool? = nil,
                 firmwareScrollUserPaused: Bool? = nil, firmwareScrollSystemPaused: Bool? = nil,
                 rateEligible: Bool? = nil, scrollAdvanceSeq: UInt32? = nil,
-                sampledAtUs: Int64? = nil, scrollLoop: Bool? = nil) {
+                sampledAtUs: Int64? = nil, scrollLoop: Bool? = nil, outputMode: String? = nil,
+                outputStreamID: String? = nil, outputPositionMs: Int? = nil) {
         self.scrollAdvanceSeq = scrollAdvanceSeq
         self.sampledAtUs = sampledAtUs
         self.scrollLoop = scrollLoop
         self.ok = ok
         self.v = v
         self.mode = mode
+        self.outputMode = outputMode
+        self.outputStreamID = outputStreamID
+        self.outputPositionMs = outputPositionMs
         self.playback = playback
         self.autoFaceIndex = autoFaceIndex
         self.autoFaceCount = autoFaceCount
@@ -524,7 +610,7 @@ public struct PreviewSync: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case scrollAdvanceSeq, sampledAtUs, scrollLoop
-        case ok, v, mode, playback, autoFaceIndex, autoFaceCount, lastReason, valid, presentedSeq, source,
+        case ok, v, mode, outputMode, outputStreamID, outputPositionMs, playback, autoFaceIndex, autoFaceCount, lastReason, valid, presentedSeq, source,
              reason, scrollTimelineId, presentedFrameIndex, presentedFrameCount, frameIndex, frameCount,
              presentedAtUs, renderStartUs, renderDurationUs, scrollIntervalMs, uiFps, firmwareScrollActive,
              firmwareScrollPaused, firmwareScrollUserPaused, firmwareScrollSystemPaused, rateEligible
@@ -615,6 +701,8 @@ public struct CommandReply: Codable, Equatable, Sendable {
     public var defaultName: String?
     public var customName: Bool?
     public var persisted: Bool?
+    /// RinaLink protocol version returned by `get_info`.
+    public var proto: Int?
 
     public init(ok: Bool, error: String? = nil, code: Int? = nil, v: Int? = nil, cmd: String? = nil,
                 color: String? = nil, brightness: Int? = nil, mode: String? = nil, playback: String? = nil,
@@ -627,7 +715,7 @@ public struct CommandReply: Codable, Equatable, Sendable {
                 scrollIntervalMs: Int? = nil, uiFps: Int? = nil, scrollFps: Int? = nil,
                 scrollTimelineId: String? = nil, scrollUploadComplete: Bool? = nil,
                 scrollHasSourceText: Bool? = nil, name: String? = nil, defaultName: String? = nil,
-                customName: Bool? = nil, persisted: Bool? = nil) {
+                customName: Bool? = nil, persisted: Bool? = nil, proto: Int? = nil) {
         self.ok = ok
         self.error = error
         self.code = code
@@ -664,6 +752,7 @@ public struct CommandReply: Codable, Equatable, Sendable {
         self.defaultName = defaultName
         self.customName = customName
         self.persisted = persisted
+        self.proto = proto
     }
 }
 

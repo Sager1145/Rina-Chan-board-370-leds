@@ -115,6 +115,45 @@ final class PartsLibraryTests: XCTestCase {
         XCTAssertEqual(composed.litCount, 0)
     }
 
+    func testMatchingCallReturnsDefaultCall() throws {
+        guard let library = try loadLibrary() else {
+            throw XCTSkip("expression_parts.json not found")
+        }
+        XCTAssertEqual(library.matchingCall(for: library.compose(call: .defaultCall)), .defaultCall)
+    }
+
+    func testMatchingCallReturnsAlternateCall() throws {
+        guard let library = try loadLibrary() else {
+            throw XCTSkip("expression_parts.json not found")
+        }
+        let expected = PartsCall(leye: "102", reye: "202", mouth: "305", cheek: "401")
+        XCTAssertEqual(library.matchingCall(for: library.compose(call: expected)), expected)
+    }
+
+    func testMatchingCallReturnsEmptyCall() throws {
+        guard let library = try loadLibrary() else {
+            throw XCTSkip("expression_parts.json not found")
+        }
+        let expected = PartsCall(leye: "0", reye: "0", mouth: "0", cheek: "400")
+        XCTAssertEqual(library.matchingCall(for: library.compose(call: expected)), expected)
+    }
+
+    func testMatchingCallRejectsUnmatchableFrame() throws {
+        guard let library = try loadLibrary() else {
+            throw XCTSkip("expression_parts.json not found")
+        }
+        var unmatched = PackedFrame()
+        let everyPart = library.parts.values.reduce(into: PackedFrame()) { frame, part in
+            frame.formUnion(library.frame(for: part))
+        }
+        guard let unusedLED = (0..<PackedFrame.ledCount).first(where: { !everyPart[$0] }) else {
+            XCTFail("Expected at least one LED outside every part variant")
+            return
+        }
+        unmatched.set(unusedLED)
+        XCTAssertNil(library.matchingCall(for: unmatched))
+    }
+
     func testMirroredEyeIdRoundTrips() throws {
         guard let library = try loadLibrary() else {
             throw XCTSkip("expression_parts.json not found")

@@ -13,10 +13,16 @@ public enum RinaLinkConstants {
     public static let tcpPort: UInt16 = 5370
     public static let bonjourType = "_rinalink._tcp"
     public static let bonjourDomain = "local."
-    public static let deviceHostname = "rinaboard.local"
 
     // SoftAP ("hotspot" / direct)
+    /// The legacy shared SSID advertised by pre-identity firmware (every
+    /// board broadcast the same name). Current firmware advertises a
+    /// per-board SSID starting with `apSSIDPrefix` instead.
     public static let apSSID = "RinaChanBoard-V2"
+    /// Prefix shared by every board's unique SoftAP SSID
+    /// (`RinaChanBoard-<12 uppercase hex>`), used to join whichever board's
+    /// hotspot is in range without knowing its exact name in advance.
+    public static let apSSIDPrefix = "RinaChanBoard-"
     public static let apPassword = "rinachan"
     public static let apIP = "192.168.1.14"
 
