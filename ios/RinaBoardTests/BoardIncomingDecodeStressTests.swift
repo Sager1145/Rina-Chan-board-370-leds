@@ -15,15 +15,20 @@ import RinaCore
 /// lines with p50/p95/max per scenario, gated behind `RINA_PERF_GATE=1` so it
 /// never runs (or affects) ordinary CI/local test runs. Skipped otherwise.
 ///
-/// Caveat (see PR-15 report): the per-chunk timer wraps
-/// `transport push -> await Task.yield()`, not the (private, unexported)
-/// `handleIncoming` body directly, so each figure also includes one
-/// actor-hop's scheduling latency on top of the actual decode+dispatch CPU
-/// time measured by the `BoardIncomingDecode`/`BoardIncomingDispatch`
-/// signposts added in this PR. Treat these as upper bounds; the signposts are
-/// the ground truth for Instruments-based captures.
+/// Primary numbers come from `BoardConnection.incomingDecodeProbe`, a
+/// test-only hook that times exactly the regions the `BoardIncomingDecode`/
+/// `BoardIncomingDispatch` signposts cover (installed on `ContinuousClock`
+/// inside `handleIncoming` itself). A secondary "end-to-end" column keeps the
+/// coarser `transport push -> await Task.yield()` timing used before this
+/// hook existed — it also includes one actor-hop's scheduling latency, so it
+/// is expected to run a bit higher than the probe numbers.
 @MainActor
 final class BoardIncomingDecodeStressTests: XCTestCase {
+
+    override func tearDown() {
+        BoardConnection.incomingDecodeProbe = nil
+        super.tearDown()
+    }
 
     private func requireGate() throws {
         guard ProcessInfo.processInfo.environment["RINA_PERF_GATE"] == "1" else {
@@ -39,7 +44,7 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
             defer { connection.unsubscribe(subID) }
             let count = 400
             let ratePerSecond = 250.0 // typical firmware trace-level flood
-            var samples: [PR15Sample] = []
+            var endToEnd: [PR15Sample] = []
             let clock = ContinuousClock()
             let start = clock.now
             for i in 0..<count {
@@ -56,13 +61,13 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
                 transport.pushIncoming(frame)
                 await self.waitForCount(events, atLeast: before + 1)
                 let t1 = clock.now
-                samples.append(PR15Sample(offset: start.duration(to: t0), elapsed: t0.duration(to: t1)))
+                endToEnd.append(PR15Sample(offset: start.duration(to: t0), elapsed: t0.duration(to: t1)))
                 if i < count - 1 {
                     try? await Task.sleep(until: start.advanced(by: .seconds(Double(i + 1) / ratePerSecond)), clock: clock)
                 }
             }
             XCTAssertEqual(events.count, count, "every flooded log event must have been routed")
-            return samples
+            return endToEnd
         }
     }
 
@@ -81,7 +86,7 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
             let reply = WifiScanReply(ok: true, scanning: false, networks: networks)
             let frame = try Self.encodeEvent(type: .evWifiScan, payload: reply)
             XCTAssertLessThanOrEqual(frame.count, RinaLinkFrameConstants.headerBytes + RinaLinkFrameConstants.maxPayloadBytes)
-            var samples: [PR15Sample] = []
+            var endToEnd: [PR15Sample] = []
             let clock = ContinuousClock()
             let start = clock.now
             for _ in 0..<20 {
@@ -90,10 +95,10 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
                 transport.pushIncoming(frame)
                 await self.waitForCount(events, atLeast: before + 1)
                 let t1 = clock.now
-                samples.append(PR15Sample(offset: start.duration(to: t0), elapsed: t0.duration(to: t1)))
+                endToEnd.append(PR15Sample(offset: start.duration(to: t0), elapsed: t0.duration(to: t1)))
             }
             XCTAssertEqual(events.count, 20)
-            return samples
+            return endToEnd
         }
     }
 
@@ -127,7 +132,7 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
             // BLE-MTU-sized single-event pushes used by the other scenarios.
             let wireChunks = Self.groupByApproxSize(replyFrames, approxBytes: 8192)
 
-            var samples: [PR15Sample] = []
+            var endToEnd: [PR15Sample] = []
             let clock = ContinuousClock()
             let start = clock.now
             for chunk in wireChunks {
@@ -135,12 +140,12 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
                 transport.pushIncoming(chunk)
                 for _ in 0..<8 { await Task.yield() }
                 let t1 = clock.now
-                samples.append(PR15Sample(offset: start.duration(to: t0), elapsed: t0.duration(to: t1)))
+                endToEnd.append(PR15Sample(offset: start.duration(to: t0), elapsed: t0.duration(to: t1)))
             }
             let result = await sendTask.value
             XCTAssertNotNil(result, "the aggregated blob reply must resolve the pending request")
             XCTAssertEqual(result?.payload.count, totalBytes)
-            return samples
+            return endToEnd
         }
     }
 
@@ -152,7 +157,7 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
             defer { connection.unsubscribe(subID) }
             let count = 270 // ~3s at 90Hz
             let ratePerSecond = 90.0
-            var samples: [PR15Sample] = []
+            var endToEnd: [PR15Sample] = []
             let clock = ContinuousClock()
             let start = clock.now
             for i in 0..<count {
@@ -174,13 +179,13 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
                 transport.pushIncoming(frame)
                 await self.waitForCount(events, atLeast: before + 1)
                 let t1 = clock.now
-                samples.append(PR15Sample(offset: start.duration(to: t0), elapsed: t0.duration(to: t1)))
+                endToEnd.append(PR15Sample(offset: start.duration(to: t0), elapsed: t0.duration(to: t1)))
                 if i < count - 1 {
                     try? await Task.sleep(until: start.advanced(by: .seconds(Double(i + 1) / ratePerSecond)), clock: clock)
                 }
             }
             XCTAssertEqual(events.count, count)
-            return samples
+            return endToEnd
         }
     }
 
@@ -193,25 +198,43 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
         try requireGate()
         let connection = BoardConnection()
         let transport = PR15FakeTransport()
+
+        // Primary timing: installed on the real `handleIncoming` regions via
+        // the PR-15 probe hook, so these numbers are the actual main-thread
+        // decode+dispatch CPU cost, not a scheduling-latency-inflated proxy.
+        let probeBox = PR15ProbeBox()
+        BoardConnection.incomingDecodeProbe = { [weak probeBox] decode, dispatch, bytes in
+            probeBox?.record(decode: decode, dispatch: dispatch, bytes: bytes)
+        }
+        defer { BoardConnection.incomingDecodeProbe = nil }
+
         let connected = await connection.connect(using: transport)
         XCTAssertTrue(connected, "\(name): fake transport must complete the handshake")
         defer { connection.disconnect() }
+        // The connect handshake itself produces a few probe samples (status/
+        // preview/get_info replies); only count scenario-driven chunks below.
+        probeBox.reset()
 
-        let samples = try await body(connection, transport)
-        XCTAssertGreaterThan(samples.count, 0, "\(name): scenario produced no samples")
+        let endToEnd = try await body(connection, transport)
+        XCTAssertGreaterThan(endToEnd.count, 0, "\(name): scenario produced no end-to-end samples")
 
-        let chunkMs = samples.map { $0.elapsed.milliseconds }
-        let windows = PR15Sample.bucketByDisplayFrame(samples)
-        let windowMs = windows.map { $0.milliseconds }
+        let decodeSamples = probeBox.samples
+        XCTAssertGreaterThan(decodeSamples.count, 0, "\(name): probe recorded no chunks")
+
+        let decodeMs = decodeSamples.map { $0.decode.milliseconds }
+        let dispatchMs = decodeSamples.map { $0.dispatch.milliseconds }
+        let windowMs = PR15ProbeBox.Sample.bucketByDisplayFrame(decodeSamples).map { $0.milliseconds }
+        let endToEndMs = endToEnd.map { $0.elapsed.milliseconds }
 
         let build = PR15BuildConfig.current
         let load = PR15LoadAverage.oneMinute()
         print("""
         [BoardIncomingDecodeStress] scenario=\(name) build=\(build) load1m=\(String(format: "%.1f", load)) \
-        chunks=\(samples.count) perChunkMs(p50=\(fmt(percentile(chunkMs, 0.50))), \
-        p95=\(fmt(percentile(chunkMs, 0.95))), max=\(fmt(chunkMs.max() ?? 0))) \
-        windows=\(windows.count) perWindowMs(p50=\(fmt(percentile(windowMs, 0.50))), \
-        p95=\(fmt(percentile(windowMs, 0.95))), max=\(fmt(windowMs.max() ?? 0)))
+        chunks=\(decodeSamples.count) \
+        decodeMs(p50=\(fmt(percentile(decodeMs, 0.50))), p95=\(fmt(percentile(decodeMs, 0.95))), max=\(fmt(decodeMs.max() ?? 0))) \
+        dispatchMs(p50=\(fmt(percentile(dispatchMs, 0.50))), p95=\(fmt(percentile(dispatchMs, 0.95))), max=\(fmt(dispatchMs.max() ?? 0))) \
+        windows=\(windowMs.count) perWindowMs(p50=\(fmt(percentile(windowMs, 0.50))), p95=\(fmt(percentile(windowMs, 0.95))), max=\(fmt(windowMs.max() ?? 0))) \
+        endToEndMs(p50=\(fmt(percentile(endToEndMs, 0.50))), p95=\(fmt(percentile(endToEndMs, 0.95))), max=\(fmt(endToEndMs.max() ?? 0)))
         """)
     }
 
@@ -271,24 +294,61 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
 
 // MARK: - Support types (PR15-prefixed to avoid colliding with other test files)
 
-/// One measured wire-chunk push: `offset` is wall time since the scenario
-/// started (used to bucket into 16.7 ms display-frame windows), `elapsed` is
-/// the wall-clock cost of that push (see the class-doc caveat on precision).
+/// One end-to-end (secondary) sample: `offset` is wall time since the
+/// scenario started, `elapsed` is `transport push -> await Task.yield()`,
+/// which still includes one actor-hop's scheduling latency on top of the
+/// real decode+dispatch cost — see `PR15ProbeBox` for the primary numbers.
 private struct PR15Sample {
     let offset: Duration
     let elapsed: Duration
+}
 
-    /// Sums `elapsed` for all samples whose `offset` falls in the same
-    /// 16.7 ms ("one 60Hz display frame") window, approximating how much
-    /// main-thread decode work would land inside a single render frame.
-    static func bucketByDisplayFrame(_ samples: [PR15Sample]) -> [Duration] {
-        let frameSeconds = 1.0 / 60.0
-        var sums: [Int: Double] = [:]
-        for sample in samples {
-            let windowIndex = Int(sample.offset.secondsDouble / frameSeconds)
-            sums[windowIndex, default: 0] += sample.elapsed.secondsDouble
+/// Collects samples from `BoardConnection.incomingDecodeProbe`, timed by the
+/// probe callback itself over exactly the `BoardIncomingDecode`/
+/// `BoardIncomingDispatch` signpost regions inside `handleIncoming`.
+@MainActor
+private final class PR15ProbeBox {
+    struct Sample {
+        /// Wall time since this box was created (or last `reset()`), taken
+        /// inside the probe callback — used to bucket into 16.7 ms windows.
+        let offset: Duration
+        /// `handleIncoming`'s whole per-chunk region: `decoder.feed` + the
+        /// route loop (matches the `BoardIncomingDecode` signpost).
+        let decode: Duration
+        /// Just the route loop (matches the `BoardIncomingDispatch` signpost).
+        let dispatch: Duration
+        let bytes: Int
+
+        /// Sums `decode` for all samples whose `offset` falls in the same
+        /// 16.7 ms ("one 60Hz display frame") window, approximating how much
+        /// main-thread decode work would land inside a single render frame.
+        static func bucketByDisplayFrame(_ samples: [Sample]) -> [Duration] {
+            let frameSeconds = 1.0 / 60.0
+            var sums: [Int: Double] = [:]
+            for sample in samples {
+                let windowIndex = Int(sample.offset.secondsDouble / frameSeconds)
+                sums[windowIndex, default: 0] += sample.decode.secondsDouble
+            }
+            return sums.values.map { Duration.seconds($0) }
         }
-        return sums.values.map { Duration.seconds($0) }
+    }
+
+    private let clock = ContinuousClock()
+    private var start: ContinuousClock.Instant
+    private(set) var samples: [Sample] = []
+
+    init() { start = clock.now }
+
+    /// Drops samples accumulated so far and restarts the window-offset clock,
+    /// so the connect handshake's own traffic doesn't pollute a scenario's
+    /// chunk count / window buckets.
+    func reset() {
+        samples.removeAll()
+        start = clock.now
+    }
+
+    func record(decode: Duration, dispatch: Duration, bytes: Int) {
+        samples.append(Sample(offset: start.duration(to: clock.now), decode: decode, dispatch: dispatch, bytes: bytes))
     }
 }
 

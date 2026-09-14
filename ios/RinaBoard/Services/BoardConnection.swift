@@ -96,6 +96,16 @@ public final class BoardConnection {
     private var eventContinuations: [UUID: AsyncStream<BoardEvent>.Continuation] = [:]
     private var transport: RinaTransport?
     private let decoder = RinaLinkDecoder()
+    /// Test-only hook (PR-15 measurement): when non-nil, `handleIncoming`
+    /// calls it once per incoming chunk with `(overall, dispatchOnly, bytes)`,
+    /// timed over exactly the same regions as the `BoardIncomingDecode`/
+    /// `BoardIncomingDispatch` signposts below — `overall` covers
+    /// `decoder.feed` + the route loop, `dispatchOnly` covers just the route
+    /// loop. `nil` in production; costs one nil check per chunk when unset,
+    /// no clock reads. Statics on an `@MainActor` type are themselves
+    /// `@MainActor`-isolated, so this needs no extra synchronization.
+    static var incomingDecodeProbe: ((Duration, Duration, Int) -> Void)?
+    private static let incomingDecodeClock = ContinuousClock()
     private var nextSeq: UInt8 = 1
     private var pending: [UInt8: PendingRequest] = [:]
     /// Retain only matching metadata until the old reply finishes or the carrier resets.
@@ -606,17 +616,26 @@ public final class BoardConnection {
     // MARK: Incoming
 
     private func handleIncoming(_ data: Data) async {
+        let probe = Self.incomingDecodeProbe
+        var overallStart: ContinuousClock.Instant?
+        var dispatchStart: ContinuousClock.Instant?
+        if probe != nil { overallStart = Self.incomingDecodeClock.now }
         let decodeState = RinaPerf.signposter.beginInterval("BoardIncomingDecode")
         defer { RinaPerf.signposter.endInterval("BoardIncomingDecode", decodeState) }
         let frames = decoder.feed(data)
         // `route` is the separable dispatch portion (per-frame JSON decode +
         // fan-out to published state/event consumers), measured on its own
         // signpost nested inside the overall per-chunk interval above.
+        if probe != nil { dispatchStart = Self.incomingDecodeClock.now }
         let dispatchState = RinaPerf.signposter.beginInterval("BoardIncomingDispatch")
         for frame in frames {
             route(frame)
         }
         RinaPerf.signposter.endInterval("BoardIncomingDispatch", dispatchState)
+        if let probe, let overallStart, let dispatchStart {
+            let now = Self.incomingDecodeClock.now
+            probe(overallStart.duration(to: now), dispatchStart.duration(to: now), data.count)
+        }
     }
 
     private func route(_ frame: RinaLinkFrame) {
