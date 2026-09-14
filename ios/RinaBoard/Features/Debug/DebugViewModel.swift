@@ -249,17 +249,48 @@ final class DebugViewModel {
     var packedLabError: String?
 
     // C10 comms log
+    /// Ground truth ring buffer (capacity 500). Not `@Observable`-tracked:
+    /// lines are appended to it immediately and in full on every `log()`
+    /// call (from whichever thread/actor calls in — always hopped to
+    /// `@MainActor` since this whole model is `@MainActor`), but the
+    /// published `logs` snapshot below is only refreshed on a coalesced
+    /// schedule so a burst of firmware log lines doesn't force a SwiftUI
+    /// diff per line.
+    @ObservationIgnored private var logRing = RingBuffer<DebugLogEntry>(capacity: 500)
+    /// Published snapshot of `logRing`, refreshed by `flushPendingLogs()`.
+    /// `visibleLogs` (and everything else that renders the log) reads this,
+    /// not `logRing` directly.
     private(set) var logs: [DebugLogEntry] = []
-    var logFilter: DebugLogFilter = .normal
-    var logSource: DebugLogSource?
-    var logSearch = ""
+    @ObservationIgnored private var hasScheduledLogFlush = false
+    var logFilter: DebugLogFilter = .normal {
+        didSet { visibleLogsDirty = true }
+    }
+    var logSource: DebugLogSource? {
+        didSet { visibleLogsDirty = true }
+    }
+    var logSearch = "" {
+        didSet { visibleLogsDirty = true }
+    }
     var isLogDisplayPaused = false {
         didSet {
             guard isLogDisplayPaused != oldValue else { return }
-            pausedLogs = isLogDisplayPaused ? logs : nil
+            if isLogDisplayPaused {
+                // Flush so the paused snapshot reflects everything logged up
+                // to this instant, matching the old synchronous behavior.
+                flushPendingLogs()
+                pausedLogs = logs
+            } else {
+                // Flush so resuming immediately shows lines that arrived
+                // while paused, instead of waiting for the next scheduled
+                // flush.
+                flushPendingLogs()
+                pausedLogs = nil
+            }
         }
     }
-    private var pausedLogs: [DebugLogEntry]?
+    private var pausedLogs: [DebugLogEntry]? {
+        didSet { visibleLogsDirty = true }
+    }
     enum FirmwareLogState: Equatable {
         case off
         case subscribing
@@ -273,7 +304,14 @@ final class DebugViewModel {
 
     var monitorInput = "get_info"
     var isMonitorSending = false
-    var monitorEntries: [DebugLogEntry] = []
+    private var monitorRing = RingBuffer<DebugLogEntry>(capacity: 500)
+    var monitorEntries: [DebugLogEntry] {
+        get { monitorRing.elements }
+        set {
+            monitorRing.removeAll()
+            for entry in newValue.suffix(monitorRing.capacity) { monitorRing.append(entry) }
+        }
+    }
 
     // C11 raw command
     var rawCommandText: String = "{\"cmd\":\"pause_scroll\"}"
@@ -284,14 +322,25 @@ final class DebugViewModel {
     // C12 danger zone
     var clearFacesConfirmText = ""
 
+    @ObservationIgnored private var visibleLogsDirty = true
+    @ObservationIgnored private var cachedVisibleLogs: [DebugLogEntry] = []
+
+    /// Filters + sorts (newest first, capped to 120) on `logs`/`pausedLogs`.
+    /// Cached and only recomputed when those inputs, or the filter/source/
+    /// search criteria, actually change (see the `didSet`s on `logFilter`,
+    /// `logSource`, `logSearch`, `pausedLogs`, and `flushPendingLogs()`).
     var visibleLogs: [DebugLogEntry] {
-        let source = pausedLogs ?? logs
-        let query = logSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        return Array(source.filter { entry in
-            entry.level >= logFilter.minLevel
-                && (logSource == nil || entry.source == logSource)
-                && (query.isEmpty || entry.message.localizedCaseInsensitiveContains(query))
-        }.suffix(120).reversed())
+        if visibleLogsDirty {
+            let source = pausedLogs ?? logs
+            let query = logSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+            cachedVisibleLogs = Array(source.filter { entry in
+                entry.level >= logFilter.minLevel
+                    && (logSource == nil || entry.source == logSource)
+                    && (query.isEmpty || entry.message.localizedCaseInsensitiveContains(query))
+            }.suffix(120).reversed())
+            visibleLogsDirty = false
+        }
+        return cachedVisibleLogs
     }
 
     var filteredRawRows: [DebugRawField] {
@@ -308,15 +357,44 @@ final class DebugViewModel {
 
     // MARK: Logging
 
+    /// Called from wherever a log line originates (this whole view model is
+    /// `@MainActor`, so `log` itself always runs on the main actor even
+    /// though callers may be resuming from an arbitrary background
+    /// continuation, e.g. the firmware `EV_LOG` stream in
+    /// `setFirmwareLogSubscribed`). Appends to the ring buffer immediately
+    /// (O(1), not `@Observable`-tracked) and schedules a coalesced flush of
+    /// the published `logs` snapshot instead of publishing every single line.
     func log(_ level: DebugLogLevel, _ message: String, source: DebugLogSource = .app) {
         if source == .firmware { appendMonitor(level, "EV_LOG · \(message)") }
-        logs.append(DebugLogEntry(source: source, level: level, message: message))
-        if logs.count > 500 { logs.removeFirst(logs.count - 500) }
+        logRing.append(DebugLogEntry(source: source, level: level, message: message))
+        scheduleLogFlush()
+    }
+
+    private func scheduleLogFlush() {
+        guard !hasScheduledLogFlush else { return }
+        hasScheduledLogFlush = true
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 75_000_000)
+            self?.flushPendingLogs()
+        }
+    }
+
+    /// Copies the ring buffer's current contents into the published `logs`
+    /// snapshot. Runs on its own coalesced schedule (see `scheduleLogFlush`),
+    /// but is also called synchronously wherever an exact, up-to-the-instant
+    /// view of the log is required (export, pause/resume) — and is exposed
+    /// so tests can force deterministic, synchronous flushing.
+    func flushPendingLogs() {
+        hasScheduledLogFlush = false
+        logs = logRing.elements
+        visibleLogsDirty = true
     }
 
     func clearLog() {
+        logRing.removeAll()
         logs.removeAll()
         pausedLogs?.removeAll()
+        visibleLogsDirty = true
     }
 
     /// C10 firmware log toggle: on subscribes via `log_subscribe{on:true}` and
@@ -408,8 +486,11 @@ final class DebugViewModel {
         }
     }
 
+    /// Export/copy text. Flushes first so this always reflects every line
+    /// logged so far, regardless of the coalesced publish schedule.
     var logShareText: String {
-        logs.map {
+        flushPendingLogs()
+        return logs.map {
             Self.redactSensitive("[\($0.timeString)] [\($0.source.label)] \($0.level.label): \($0.message)")
         }.joined(separator: "\n")
     }
@@ -716,8 +797,7 @@ final class DebugViewModel {
     // MARK: Serial monitor
 
     private func appendMonitor(_ level: DebugLogLevel, _ message: String) {
-        monitorEntries.append(DebugLogEntry(level: level, message: Self.redactSensitive(message)))
-        if monitorEntries.count > 500 { monitorEntries.removeFirst(monitorEntries.count - 500) }
+        monitorRing.append(DebugLogEntry(level: level, message: Self.redactSensitive(message)))
     }
 
     func copyMonitor() {
