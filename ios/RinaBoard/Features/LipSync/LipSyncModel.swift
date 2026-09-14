@@ -18,9 +18,10 @@ private struct LipSyncSubmission: Sendable {
 /// and the per-vowel calibration.
 ///
 /// Ports the feature of the same name from `738NGX/RinaChanBoard`. The DSP
-/// itself lives in `RinaCore.LipSyncAnalyzer`; this model owns the parts the
-/// DSP must not know about — audio capture, the refresh clock, the board, and
-/// what the user has tuned.
+/// itself lives in `RinaCore.LipSyncAnalyzer`, run off the main actor by
+/// `LipSyncProcessor`; this model owns the parts the DSP must not know
+/// about — audio capture, the refresh clock, the board, and what the user
+/// has tuned.
 ///
 /// Two rules are carried over from upstream deliberately:
 ///
@@ -30,7 +31,7 @@ private struct LipSyncSubmission: Sendable {
 ///    board would be redrawing an identical mouth.
 /// 2. **Options lock while running.** Upstream takes a mutex over its options
 ///    page during lip sync. Here `canEditOptions` is false while running, so
-///    the analyzer's configuration can never change underneath a live loop.
+///    the DSP's configuration can never change underneath a live loop.
 @Observable
 @MainActor
 final class LipSyncModel {
@@ -71,7 +72,7 @@ final class LipSyncModel {
     private(set) var calibrationProgress: Double = 0
 
     var isCalibrating: Bool { calibratingVowel != nil }
-    /// Upstream's options mutex: nothing that reshapes the analyzer may move
+    /// Upstream's options mutex: nothing that reshapes the DSP may move
     /// while audio is being classified against it.
     var canEditOptions: Bool { !isRunning && !isCalibrating && !isStarting }
 
@@ -81,7 +82,7 @@ final class LipSyncModel {
     var sensitivityDb: Float {
         didSet {
             guard sensitivityDb != oldValue else { return }
-            analyzer.config.minVolumeDb = sensitivityDb
+            config.minVolumeDb = sensitivityDb
             defaults.set(Double(sensitivityDb), forKey: Key.sensitivity)
         }
     }
@@ -98,8 +99,7 @@ final class LipSyncModel {
     var smoothing: Int {
         didSet {
             guard smoothing != oldValue else { return }
-            analyzer.config.historyLength = smoothing
-            analyzer.reset()
+            config.historyLength = smoothing
             defaults.set(smoothing, forKey: Key.smoothing)
         }
     }
@@ -110,8 +110,7 @@ final class LipSyncModel {
     var preset: LipSyncVoicePreset {
         didSet {
             guard preset != oldValue else { return }
-            analyzer.profile = .synthesized(preset: preset, config: analyzer.config)
-            analyzer.reset()
+            profile = .defaultProfile(preset: preset, config: config)
             defaults.set(preset.rawValue, forKey: Key.preset)
             persistProfile()
         }
@@ -121,7 +120,7 @@ final class LipSyncModel {
     private(set) var mapping: LipSyncMouthMapping
 
     /// The eyes and cheeks worn while lip syncing. The mouth is the only part
-    /// the analyzer drives; everything else is a costume the user picks.
+    /// the DSP drives; everything else is a costume the user picks.
     var baseCall: PartsCall = .defaultCall {
         didSet {
             guard baseCall != oldValue else { return }
@@ -132,11 +131,12 @@ final class LipSyncModel {
         }
     }
 
-    var profile: LipSyncProfile { analyzer.profile }
+    private(set) var profile: LipSyncProfile
 
     // MARK: Collaborators
 
-    private var analyzer: LipSyncAnalyzer
+    @ObservationIgnored private var config: LipSyncConfig
+    @ObservationIgnored private let processor = LipSyncProcessor()
     private let capture: any LipSyncCapturing
     private let permissionRequest: @MainActor () async -> LipSyncAudioCapture.Permission
     let library: PartsLibrary?
@@ -158,6 +158,7 @@ final class LipSyncModel {
     private var isRequestingPermission = false
     private var calibrationTask: Task<Void, Never>?
     private var calibrationGeneration = UUID()
+    @ObservationIgnored private var lastDiagnosticsPublish: ContinuousClock.Instant?
     /// The vowel whose mouth was last pushed, so a tick that classifies the
     /// same vowel again sends nothing. `.some(nil)` means "silence was sent".
     private var lastSentVowel: LipSyncVowel??
@@ -200,13 +201,12 @@ final class LipSyncModel {
         self.preset = storedPreset ?? .standard
 
         // A stored profile is only usable if it matches the current config's
-        // vector length; otherwise fall back to a freshly synthesized one.
+        // vector length; otherwise fall back to the precomputed default one.
         let storedProfile = (defaults.data(forKey: Key.profile))
             .flatMap { try? JSONDecoder().decode(LipSyncProfile.self, from: $0) }
             .flatMap { $0.isComplete(mfccCount: config.mfccCount) ? $0 : nil }
-        self.analyzer = LipSyncAnalyzer(config: config,
-                                        profile: storedProfile ?? .synthesized(preset: storedPreset ?? .standard,
-                                                                               config: config))
+        self.profile = storedProfile ?? .defaultProfile(preset: storedPreset ?? .standard, config: config)
+        self.config = config
 
         let storedMapping = (defaults.data(forKey: Key.mapping))
             .flatMap { try? JSONDecoder().decode(LipSyncMouthMapping.self, from: $0) }
@@ -361,20 +361,23 @@ final class LipSyncModel {
             stop(connection: connection)
             return
         }
-        analyzer.reset()
         lastSentVowel = nil
         isRunning = true
         awaitingAudioSince = Date()
         errorMessage = nil
+        lastDiagnosticsPublish = nil
 
-        // Started from the main actor, so the loop body is already main-actor
-        // isolated: `tick` reads the ring under its own lock and everything
-        // else it touches is this model's own state.
+        let config = self.config, profile = self.profile
         loopTask = Task { [weak self] in
+            await self?.processor.reset(config: config, profile: profile)
             while !Task.isCancelled {
-                guard let self, self.isRunning else { return }
-                self.tick(connection: connection)
-                try? await Task.sleep(for: .seconds(self.tickInterval()))
+                guard let self, self.isRunning, self.startGeneration == attempt else { return }
+                let began = ContinuousClock.now
+                await self.tick(connection: connection, attempt: attempt)
+                // Floor the pause so an analysis slower than the interval
+                // (plain-Swift DSP in a Debug build) cannot pin a core.
+                let remaining = Duration.seconds(self.tickInterval()) - (ContinuousClock.now - began)
+                try? await Task.sleep(for: max(remaining, .milliseconds(5)))
             }
         }
     }
@@ -403,7 +406,7 @@ final class LipSyncModel {
         loopTask = nil
         capture.stop()
         isRunning = false
-        analyzer.reset()
+        lastDiagnosticsPublish = nil
 
         vowel = nil
         rawVowel = nil
@@ -426,7 +429,7 @@ final class LipSyncModel {
         1.0 / max(1, min(60, refreshRateHz))
     }
 
-    private func tick(connection: BoardConnection) {
+    private func tick(connection: BoardConnection, attempt: UUID) async {
         let state = RinaPerf.signposter.beginInterval("LipSyncTick")
         defer { RinaPerf.signposter.endInterval("LipSyncTick", state) }
         // Interruptions and route reconfiguration can stop AVAudioEngine
@@ -446,10 +449,16 @@ final class LipSyncModel {
         }
         awaitingAudioSince = nil
 
-        let result = analyzer.analyze(window.samples, sampleRate: window.sampleRate)
-        volumeDb = result.volumeDb
-        rawVowel = result.rawVowel
-        distances = result.distances
+        let result = await processor.analyze(window.samples, sampleRate: window.sampleRate)
+        guard !Task.isCancelled, isRunning, startGeneration == attempt else { return }
+
+        let now = ContinuousClock.now
+        if lastDiagnosticsPublish == nil || now - lastDiagnosticsPublish! >= .seconds(1.0 / 15.0) {
+            volumeDb = result.volumeDb
+            rawVowel = result.rawVowel
+            distances = result.distances
+            lastDiagnosticsPublish = now
+        }
 
         // Gate on what the *board* was last told, not on what this app is
         // displaying. Comparing against `vowel` conflated the two: after a
@@ -462,12 +471,12 @@ final class LipSyncModel {
     }
 
     /// The most recent analysis window: enough input samples that, once
-    /// resampled to the analyzer's rate, a full FFT window survives — plus a
+    /// resampled to the DSP's rate, a full FFT window survives — plus a
     /// margin the resampler's zero-padded edges can eat.
     private func currentWindow() -> (samples: [Float], sampleRate: Double) {
         let rate = capture.currentSampleRate
-        let ratio = max(1, rate / analyzer.config.targetSampleRate)
-        let count = Int(Double(analyzer.config.fftSize) * ratio) + 512
+        let ratio = max(1, rate / config.targetSampleRate)
+        let count = Int(Double(config.fftSize) * ratio) + 512
         return capture.latestWindow(count: count)
     }
 
@@ -573,15 +582,17 @@ final class LipSyncModel {
                 let window = self.currentWindow()
                 receivedSamples = receivedSamples || !window.samples.isEmpty
                 receivedSignal = receivedSignal || window.samples.contains { $0 != 0 }
-                self.volumeDb = LipSyncSignal.rmsDb(window.samples)
-                loudestDb = max(loudestDb, self.volumeDb)
-                if self.volumeDb >= self.sensitivityDb {
-                    let vector = self.analyzer.measure(window.samples, sampleRate: window.sampleRate)
-                    if !vector.isEmpty { vectors.append(vector) }
-                }
+                let config = self.config
+                let measurement = await self.processor.calibrationStep(window.samples, sampleRate: window.sampleRate, config: config)
+                guard !Task.isCancelled, self.calibrationGeneration == attempt else { return }
+                self.volumeDb = measurement.volumeDb
+                loudestDb = max(loudestDb, measurement.volumeDb)
+                if let vector = measurement.vector, !vector.isEmpty { vectors.append(vector) }
                 self.calibrationProgress = Double(step + 1) / Double(steps)
                 try? await Task.sleep(for: .milliseconds(50))
             }
+            // A cancel during the final sleep must not still report or commit.
+            guard !Task.isCancelled, self.calibrationGeneration == attempt else { return }
 
             guard vectors.count >= max(3, steps / 4) else {
                 if !receivedSamples {
@@ -605,8 +616,7 @@ final class LipSyncModel {
             }
             mean = mean.map { $0 / Float(vectors.count) }
 
-            self.analyzer.profile.calibrate(vowel, with: mean)
-            self.analyzer.reset()
+            self.profile.calibrate(vowel, with: mean)
             self.persistProfile()
         }
     }
@@ -622,15 +632,14 @@ final class LipSyncModel {
 
     func resetCalibration() {
         guard canEditOptions else { return }
-        analyzer.profile = .synthesized(preset: preset, config: analyzer.config)
-        analyzer.reset()
+        profile = .defaultProfile(preset: preset, config: config)
         persistProfile()
     }
 
     // MARK: Persistence
 
     private func persistProfile() {
-        guard let data = try? JSONEncoder().encode(analyzer.profile) else { return }
+        guard let data = try? JSONEncoder().encode(profile) else { return }
         defaults.set(data, forKey: Key.profile)
     }
 

@@ -224,7 +224,7 @@ public struct LipSyncAnalyzer: Sendable {
 
     public init(config: LipSyncConfig = .default, profile: LipSyncProfile? = nil) {
         self.config = config
-        self.profile = profile ?? .synthesized(preset: .standard, config: config)
+        self.profile = profile ?? .defaultProfile(preset: .standard, config: config)
     }
 
     /// Forgets the debounce history, e.g. when the engine is restarted.

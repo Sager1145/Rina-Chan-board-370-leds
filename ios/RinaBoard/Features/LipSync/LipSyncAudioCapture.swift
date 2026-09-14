@@ -17,9 +17,9 @@ protocol LipSyncCapturing: AnyObject {
 /// The tap fires on a real-time audio thread whose only job is to copy floats
 /// into a fixed-capacity ring allocated once when this capture object is
 /// created — no allocation, no reallocation, no memmove on the hot path, no
-/// actor hops. The MFCC work
-/// happens on the main actor at the model's refresh rate, reading whatever the
-/// most recent window happens to be. Dropping audio between two analysis
+/// actor hops. The MFCC work runs in `LipSyncProcessor`, off the main actor,
+/// at the model's refresh rate, reading whatever the most recent window
+/// happens to be. Dropping audio between two analysis
 /// windows is correct here: lip sync wants *the current mouth shape*, not a
 /// gapless recording, so a late window is worth more than a queued old one.
 ///
