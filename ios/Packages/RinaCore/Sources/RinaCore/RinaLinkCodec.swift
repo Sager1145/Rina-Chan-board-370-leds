@@ -70,47 +70,98 @@ extension RinaLinkEncoder.EncodingError: LocalizedError {
 /// Streaming decoder: feed arbitrary chunks of bytes (as they arrive from BLE
 /// notifications or a TCP receive loop) and get back zero or more complete
 /// frames. Resyncs on bad magic bytes by scanning forward for the next 0xA5.
+/// Internally keeps a read cursor into `storage` instead of repeatedly
+/// removing consumed bytes, and only compacts the buffer periodically.
 public final class RinaLinkDecoder {
-    private var buffer = Data()
+    private var storage = Data()
+    private var readOffset = 0
+
+    /// Incremented each time `feed` performs a partial compaction
+    /// (`removeSubrange`, as opposed to a full drain). Test-only hook.
+    var compactionCountForTesting = 0
 
     public init() {}
 
     /// Feeds newly received bytes, returning any frames that became complete.
     public func feed(_ data: Data) -> [RinaLinkFrame] {
-        buffer.append(data)
+        storage.append(data)
         var frames: [RinaLinkFrame] = []
 
         while true {
-            // Resync: drop bytes until buffer starts with magic.
-            while let first = buffer.first, first != RinaLinkFrameConstants.magic {
-                buffer.removeFirst()
+            let count = storage.count
+            guard readOffset < count else {
+                readOffset = count
+                break
             }
-            guard buffer.count >= RinaLinkFrameConstants.headerBytes else { break }
 
-            let bytes = [UInt8](buffer.prefix(RinaLinkFrameConstants.headerBytes))
-            let type = bytes[1]
-            let seq = bytes[2]
-            let flags = bytes[3]
-            let length = Int(bytes[4]) | (Int(bytes[5]) << 8)
+            let foundIndex = Self.indexOfMagic(in: storage, from: readOffset, count: count)
+
+            guard let magicIndex = foundIndex else {
+                readOffset = count
+                break
+            }
+            readOffset = magicIndex
+
+            guard count - readOffset >= RinaLinkFrameConstants.headerBytes else { break }
+
+            var type: UInt8 = 0
+            var seq: UInt8 = 0
+            var flags: UInt8 = 0
+            var length = 0
+            storage.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                let base = raw.bindMemory(to: UInt8.self).baseAddress!
+                let header = base + readOffset
+                type = header[1]
+                seq = header[2]
+                flags = header[3]
+                length = Int(header[4]) | (Int(header[5]) << 8)
+            }
 
             guard length <= RinaLinkFrameConstants.maxPayloadBytes else {
                 // Corrupt length field; drop the magic byte and resync from the next one.
-                buffer.removeFirst()
+                readOffset += 1
                 continue
             }
 
             let total = RinaLinkFrameConstants.headerBytes + length
-            guard buffer.count >= total else { break }
+            guard count - readOffset >= total else { break }
 
-            let payload = buffer.subdata(in: (buffer.startIndex + RinaLinkFrameConstants.headerBytes)..<(buffer.startIndex + total))
+            let base = storage.startIndex
+            let payload = storage.subdata(
+                in: (base + readOffset + RinaLinkFrameConstants.headerBytes)..<(base + readOffset + total)
+            )
             frames.append(RinaLinkFrame(type: type, seq: seq, flags: flags, payload: payload))
-            buffer.removeSubrange(buffer.startIndex..<(buffer.startIndex + total))
+            readOffset += total
+        }
+
+        if readOffset == storage.count {
+            storage.removeAll(keepingCapacity: true)
+            readOffset = 0
+        } else if readOffset >= 16_384 && readOffset * 2 >= storage.count {
+            storage.removeSubrange(storage.startIndex..<(storage.startIndex + readOffset))
+            readOffset = 0
+            compactionCountForTesting += 1
         }
 
         return frames
     }
 
     public func reset() {
-        buffer.removeAll()
+        storage.removeAll()
+        readOffset = 0
+    }
+
+    /// Returns the offset (relative to `data`'s start) of the next magic byte
+    /// at or after `start`, or `nil` if none is present in `data[start..<count]`.
+    private static func indexOfMagic(in data: Data, from start: Int, count: Int) -> Int? {
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Int? in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return nil }
+            let searchLength = count - start
+            guard let match = memchr(base + start, Int32(RinaLinkFrameConstants.magic), searchLength) else {
+                return nil
+            }
+            let matchOffset = UnsafeRawPointer(match) - UnsafeRawPointer(base)
+            return matchOffset
+        }
     }
 }
