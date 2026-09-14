@@ -7,9 +7,10 @@ import RinaCore
 /// `RinaLinkDecoder.feed` / `route` hot path (PR-15). Drives a real
 /// `BoardConnection` through a loopback `RinaTransport` fake with realistic
 /// RinaLink wire bytes (built with the real `RinaLinkEncoder`/`Codable`
-/// types from `RinaCore`, the same as production) and reports how much
-/// main-thread wall-clock time each incoming "wire chunk" costs, both
-/// per-chunk and bucketed into 16.7 ms ("one display frame") windows.
+/// types from `RinaCore`, the same as production), paced like a real BLE
+/// notification stream or TCP socket read, and reports how much main-thread
+/// wall-clock time each incoming wire chunk costs, both per-chunk and
+/// bucketed into 16.7 ms ("one display frame") windows.
 ///
 /// This never asserts on timing — it only prints `[BoardIncomingDecodeStress]`
 /// lines with p50/p95/max per scenario, gated behind `RINA_PERF_GATE=1` so it
@@ -17,11 +18,22 @@ import RinaCore
 ///
 /// Primary numbers come from `BoardConnection.incomingDecodeProbe`, a
 /// test-only hook that times exactly the regions the `BoardIncomingDecode`/
-/// `BoardIncomingDispatch` signposts cover (installed on `ContinuousClock`
-/// inside `handleIncoming` itself). A secondary "end-to-end" column keeps the
-/// coarser `transport push -> await Task.yield()` timing used before this
-/// hook existed — it also includes one actor-hop's scheduling latency, so it
-/// is expected to run a bit higher than the probe numbers.
+/// `BoardIncomingDispatch` signposts cover (via `ContinuousClock`, read
+/// *after* both signposts end, inside `handleIncoming` itself). A secondary
+/// "end-to-end" column keeps the coarser `transport push -> await
+/// Task.yield()` timing — it also includes one actor-hop's scheduling
+/// latency, so it runs a bit higher than the probe numbers.
+///
+/// IMPORTANT — these numbers are a floor, not a ceiling. `BoardConnection`
+/// is `@Observable`; `route()`'s writes to `lastLog`/`preview`/`power`/
+/// `status` are what actually trigger SwiftUI re-renders in the app, and
+/// that observation/diffing work happens *outside* the probe's measured
+/// region (this harness has no view observers at all — `subscribe(_:)` only
+/// appends to a plain counter). A real screen with bound views will do
+/// strictly more main-thread work per chunk than what's reported here. Also
+/// only trust **Release** figures for the "p95 > 4 ms/frame" decision rule —
+/// Debug inflates plain-Swift/JSON cost by a large, non-representative
+/// factor.
 @MainActor
 final class BoardIncomingDecodeStressTests: XCTestCase {
 
@@ -36,18 +48,21 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
         }
     }
 
-    // MARK: a. Firmware trace-level log flood
+    // MARK: a. Firmware trace-level log flood (BLE)
 
     func testLogFloodMainThreadCost() async throws {
-        try await runScenario(named: "log_flood_trace") { connection, transport in
+        try await runScenario(named: "log_flood_trace", transportKind: .bluetooth, transportLabel: "ble") { connection, transport in
             let (events, subID) = self.subscribe(connection)
             defer { connection.unsubscribe(subID) }
             let count = 400
             let ratePerSecond = 250.0 // typical firmware trace-level flood
             var endToEnd: [PR15Sample] = []
+            var timeouts = 0
             let clock = ContinuousClock()
             let start = clock.now
             for i in 0..<count {
+                // Each log line is well under one BLE MTU notification, so it
+                // arrives as a single, unsplit push.
                 let frame = try Self.encodeEvent(
                     type: .evLog,
                     payload: RinaLogEvent(
@@ -59,7 +74,8 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
                 let before = events.count
                 let t0 = clock.now
                 transport.pushIncoming(frame)
-                await self.waitForCount(events, atLeast: before + 1)
+                let observed = await self.waitForCount(events, atLeast: before + 1)
+                if !observed { timeouts += 1 }
                 let t1 = clock.now
                 endToEnd.append(PR15Sample(offset: start.duration(to: t0), elapsed: t0.duration(to: t1)))
                 if i < count - 1 {
@@ -67,97 +83,96 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
                 }
             }
             XCTAssertEqual(events.count, count, "every flooded log event must have been routed")
-            return endToEnd
+            return PR15EndToEndResult(samples: endToEnd, waitTimeouts: timeouts)
         }
     }
 
-    // MARK: b. Large Wi-Fi scan result
+    // MARK: b. Large Wi-Fi scan result — TCP and BLE delivery
 
-    func testLargeWifiScanMainThreadCost() async throws {
-        try await runScenario(named: "wifi_scan_large") { connection, transport in
+    func testLargeWifiScanTCPMainThreadCost() async throws {
+        try await runScenario(named: "wifi_scan_large", transportKind: .wifi(host: "10.0.0.9", port: RinaLinkConstants.tcpPort), transportLabel: "tcp") { connection, transport in
             let (events, subID) = self.subscribe(connection)
             defer { connection.unsubscribe(subID) }
-            // 62 networks keeps the JSON payload under the 4096-byte single-frame
-            // limit (RinaLinkFrameConstants.maxPayloadBytes); firmware would split
-            // a larger scan across multiple EV_WIFI_SCAN pages, out of scope here.
-            let networks = (0..<62).map {
-                WifiNetwork(ssid: "Network_\($0)_ABCDE", rssi: -40 - ($0 % 55), secure: $0 % 3 != 0)
-            }
-            let reply = WifiScanReply(ok: true, scanning: false, networks: networks)
-            let frame = try Self.encodeEvent(type: .evWifiScan, payload: reply)
-            XCTAssertLessThanOrEqual(frame.count, RinaLinkFrameConstants.headerBytes + RinaLinkFrameConstants.maxPayloadBytes)
+            let frame = try Self.makeWifiScanFrame(networkCount: 62)
             var endToEnd: [PR15Sample] = []
+            var timeouts = 0
             let clock = ContinuousClock()
             let start = clock.now
             for _ in 0..<20 {
                 let before = events.count
                 let t0 = clock.now
-                transport.pushIncoming(frame)
-                await self.waitForCount(events, atLeast: before + 1)
+                // TCP socket reads at a plausible ~150 KB/s throughput.
+                await transport.deliverIncoming(frame, chunkSize: 1400,
+                                                interChunkDelay: PR15FakeTransport.tcpChunkDelay(chunkSize: 1400))
+                let observed = await self.waitForCount(events, atLeast: before + 1)
+                if !observed { timeouts += 1 }
                 let t1 = clock.now
                 endToEnd.append(PR15Sample(offset: start.duration(to: t0), elapsed: t0.duration(to: t1)))
             }
             XCTAssertEqual(events.count, 20)
-            return endToEnd
+            return PR15EndToEndResult(samples: endToEnd, waitTimeouts: timeouts)
         }
     }
 
-    // MARK: c. Large BLOB transfer (chunked, MORE-aggregated reply)
-
-    func testLargeBlobTransferMainThreadCost() async throws {
-        try await runScenario(named: "blob_transfer_300kb") { connection, transport in
-            let totalBytes = 300 * 1024
-            let frameMax = 4090
-            let sendTask = Task { () -> RinaLinkFrame? in
-                try? await connection.send(type: .getFaces, payload: Data(), timeout: 30, aggregateMore: true)
-            }
-            // Wait for the request to reach the fake transport so we reply with
-            // the same seq the real request path assigned.
-            try await self.waitUntil { transport.lastRequest?.type == RinaLinkMessageType.getFaces.rawValue }
-            let seq = try XCTUnwrap(transport.lastRequest?.seq)
-
-            var remaining = totalBytes
-            var replyFrames: [Data] = []
-            let payloadByte = Data(repeating: 0x5A, count: frameMax)
-            while remaining > 0 {
-                let thisSize = min(frameMax, remaining)
-                remaining -= thisSize
-                let isLast = remaining == 0
-                let flags: UInt8 = isLast ? 0 : RinaLinkFrameConstants.flagMore
-                let frame = RinaLinkFrame(type: RinaLinkMessageType.getFaces.replyType, seq: seq,
-                                          flags: flags, payload: payloadByte.prefix(thisSize))
-                replyFrames.append(try RinaLinkEncoder.encode(frame))
-            }
-            // TCP-sized reads: several ~4KB frames coalesced per recv, unlike the
-            // BLE-MTU-sized single-event pushes used by the other scenarios.
-            let wireChunks = Self.groupByApproxSize(replyFrames, approxBytes: 8192)
-
+    func testLargeWifiScanBLEMainThreadCost() async throws {
+        try await runScenario(named: "wifi_scan_large", transportKind: .bluetooth, transportLabel: "ble") { connection, transport in
+            let (events, subID) = self.subscribe(connection)
+            defer { connection.unsubscribe(subID) }
+            let frame = try Self.makeWifiScanFrame(networkCount: 62)
             var endToEnd: [PR15Sample] = []
+            var timeouts = 0
             let clock = ContinuousClock()
             let start = clock.now
-            for chunk in wireChunks {
+            for _ in 0..<20 {
+                let before = events.count
                 let t0 = clock.now
-                transport.pushIncoming(chunk)
-                for _ in 0..<8 { await Task.yield() }
+                // BLE MTU-sized notifications (~200 bytes) at a ~7.5ms
+                // connection-interval cadence — this frame needs ~20+
+                // notifications, exercising the decoder's partial-buffering
+                // (frames split across pushes) path.
+                await transport.deliverIncoming(frame, chunkSize: 200, interChunkDelay: .seconds(0.0075))
+                let observed = await self.waitForCount(events, atLeast: before + 1)
+                if !observed { timeouts += 1 }
                 let t1 = clock.now
                 endToEnd.append(PR15Sample(offset: start.duration(to: t0), elapsed: t0.duration(to: t1)))
             }
-            let result = await sendTask.value
-            XCTAssertNotNil(result, "the aggregated blob reply must resolve the pending request")
-            XCTAssertEqual(result?.payload.count, totalBytes)
-            return endToEnd
+            XCTAssertEqual(events.count, 20)
+            return PR15EndToEndResult(samples: endToEnd, waitTimeouts: timeouts)
         }
     }
 
-    // MARK: d. High-frequency events (>=60 Hz)
+    // MARK: c. Large BLOB transfer — real GET_FACES round trips (TCP)
+
+    func testLargeFacesDocumentMainThreadCost() async throws {
+        try await runScenario(named: "faces_document_250kb", transportKind: .wifi(host: "10.0.0.9", port: RinaLinkConstants.tcpPort), transportLabel: "tcp") { connection, transport in
+            // Production GET_FACES (`BoardConnection.getFaces()`) caps the
+            // document at `maxFacesDocumentBytes` (256 KiB) and always uses
+            // `aggregateMore: false` — each round trip is its own one-frame
+            // reply, not accumulated MORE-chunks on one seq. Reproduce that
+            // real flow exactly instead of hand-rolling an aggregate reply
+            // that would exceed `maxAggregatedReplyBytes` (256 KiB) and fall
+            // into the quarantine path.
+            let totalBytes = 250 * 1024
+            transport.configureFacesFile(totalBytes: totalBytes)
+            let result = try await connection.getFaces()
+            XCTAssertEqual(result.count, totalBytes, "the reassembled document must match the synthetic file")
+            // No test-side push loop here: every reply frame is generated and
+            // TCP-paced by the transport itself in response to each request,
+            // so there's no meaningful "push -> yield" end-to-end column.
+            return PR15EndToEndResult(samples: [], waitTimeouts: 0)
+        }
+    }
+
+    // MARK: d. High-frequency events (>=60 Hz, BLE)
 
     func testHighFrequencyEventsMainThreadCost() async throws {
-        try await runScenario(named: "high_frequency_events_90hz") { connection, transport in
+        try await runScenario(named: "high_frequency_events_90hz", transportKind: .bluetooth, transportLabel: "ble") { connection, transport in
             let (events, subID) = self.subscribe(connection)
             defer { connection.unsubscribe(subID) }
             let count = 270 // ~3s at 90Hz
             let ratePerSecond = 90.0
             var endToEnd: [PR15Sample] = []
+            var timeouts = 0
             let clock = ContinuousClock()
             let start = clock.now
             for i in 0..<count {
@@ -177,7 +192,8 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
                 let before = events.count
                 let t0 = clock.now
                 transport.pushIncoming(frame)
-                await self.waitForCount(events, atLeast: before + 1)
+                let observed = await self.waitForCount(events, atLeast: before + 1)
+                if !observed { timeouts += 1 }
                 let t1 = clock.now
                 endToEnd.append(PR15Sample(offset: start.duration(to: t0), elapsed: t0.duration(to: t1)))
                 if i < count - 1 {
@@ -185,7 +201,7 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
                 }
             }
             XCTAssertEqual(events.count, count)
-            return endToEnd
+            return PR15EndToEndResult(samples: endToEnd, waitTimeouts: timeouts)
         }
     }
 
@@ -193,11 +209,13 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
 
     private func runScenario(
         named name: String,
-        _ body: (BoardConnection, PR15FakeTransport) async throws -> [PR15Sample]
+        transportKind: TransportKind,
+        transportLabel: String,
+        _ body: (BoardConnection, PR15FakeTransport) async throws -> PR15EndToEndResult
     ) async throws {
         try requireGate()
         let connection = BoardConnection()
-        let transport = PR15FakeTransport()
+        let transport = PR15FakeTransport(kind: transportKind)
 
         // Primary timing: installed on the real `handleIncoming` regions via
         // the PR-15 probe hook, so these numbers are the actual main-thread
@@ -215,26 +233,30 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
         // preview/get_info replies); only count scenario-driven chunks below.
         probeBox.reset()
 
-        let endToEnd = try await body(connection, transport)
-        XCTAssertGreaterThan(endToEnd.count, 0, "\(name): scenario produced no end-to-end samples")
+        let endToEndResult = try await body(connection, transport)
 
         let decodeSamples = probeBox.samples
         XCTAssertGreaterThan(decodeSamples.count, 0, "\(name): probe recorded no chunks")
 
-        let decodeMs = decodeSamples.map { $0.decode.milliseconds }
+        let totalMs = decodeSamples.map { $0.decode.milliseconds }
         let dispatchMs = decodeSamples.map { $0.dispatch.milliseconds }
+        let feedMs = decodeSamples.map { ($0.decode - $0.dispatch).milliseconds }
         let windowMs = PR15ProbeBox.Sample.bucketByDisplayFrame(decodeSamples).map { $0.milliseconds }
-        let endToEndMs = endToEnd.map { $0.elapsed.milliseconds }
+        let endToEndMs = endToEndResult.samples.map { $0.elapsed.milliseconds }
 
         let build = PR15BuildConfig.current
         let load = PR15LoadAverage.oneMinute()
+        let endToEndColumn = endToEndMs.isEmpty
+            ? "endToEndMs(n/a)"
+            : "endToEndMs(p50=\(fmt(percentile(endToEndMs, 0.50))), p95=\(fmt(percentile(endToEndMs, 0.95))), max=\(fmt(endToEndMs.max() ?? 0)))"
         print("""
-        [BoardIncomingDecodeStress] scenario=\(name) build=\(build) load1m=\(String(format: "%.1f", load)) \
-        chunks=\(decodeSamples.count) \
-        decodeMs(p50=\(fmt(percentile(decodeMs, 0.50))), p95=\(fmt(percentile(decodeMs, 0.95))), max=\(fmt(decodeMs.max() ?? 0))) \
+        [BoardIncomingDecodeStress] scenario=\(name) transport=\(transportLabel) build=\(build) load1m=\(String(format: "%.1f", load)) \
+        chunks=\(decodeSamples.count) waitTimeouts=\(endToEndResult.waitTimeouts) \
+        feedMs(p50=\(fmt(percentile(feedMs, 0.50))), p95=\(fmt(percentile(feedMs, 0.95))), max=\(fmt(feedMs.max() ?? 0))) \
         dispatchMs(p50=\(fmt(percentile(dispatchMs, 0.50))), p95=\(fmt(percentile(dispatchMs, 0.95))), max=\(fmt(dispatchMs.max() ?? 0))) \
-        windows=\(windowMs.count) perWindowMs(p50=\(fmt(percentile(windowMs, 0.50))), p95=\(fmt(percentile(windowMs, 0.95))), max=\(fmt(windowMs.max() ?? 0))) \
-        endToEndMs(p50=\(fmt(percentile(endToEndMs, 0.50))), p95=\(fmt(percentile(endToEndMs, 0.95))), max=\(fmt(endToEndMs.max() ?? 0)))
+        totalMs(p50=\(fmt(percentile(totalMs, 0.50))), p95=\(fmt(percentile(totalMs, 0.95))), max=\(fmt(totalMs.max() ?? 0))) \
+        windows=\(windowMs.count) perWindowMs(p50=\(fmt(percentile(windowMs, 0.50))), \(windowP95Segment(windowMs)), max=\(fmt(windowMs.max() ?? 0))) \
+        \(endToEndColumn)
         """)
     }
 
@@ -247,23 +269,29 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
         return (box, id)
     }
 
-    private func waitForCount(_ box: PR15EventBox, atLeast target: Int) async {
-        var attempts = 0
-        while box.count < target, attempts < 500 {
+    /// Waits until `box.count >= target` or `deadline` elapses (wall clock,
+    /// not an attempt count), returning whether the target was actually
+    /// reached — callers count `false` results as `waitTimeouts` in the
+    /// printed report line instead of silently under-waiting.
+    private func waitForCount(_ box: PR15EventBox, atLeast target: Int, deadline: Duration = .milliseconds(250)) async -> Bool {
+        let clock = ContinuousClock()
+        let start = clock.now
+        while box.count < target {
+            if start.duration(to: clock.now) >= deadline { return false }
             await Task.yield()
-            attempts += 1
         }
-    }
-
-    private func waitUntil(_ condition: @escaping () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(3)
-        while !condition(), Date() < deadline {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        XCTAssertTrue(condition())
+        return true
     }
 
     private func fmt(_ ms: Double) -> String { String(format: "%.3f", ms) }
+
+    /// The window p95 is unreliable with few samples (small-n percentiles
+    /// collapse toward the max); flag that instead of implying precision.
+    private func windowP95Segment(_ values: [Double]) -> String {
+        let n = values.count
+        let value = fmt(percentile(values, 0.95))
+        return n < 20 ? "p95(n=\(n))≈max=\(value)" : "p95(n=\(n))=\(value)"
+    }
 
     private func percentile(_ values: [Double], _ p: Double) -> Double {
         guard !values.isEmpty else { return 0 }
@@ -277,18 +305,18 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
         return try RinaLinkEncoder.encode(RinaLinkFrame(type: type, seq: 0, flags: 0, payload: json))
     }
 
-    private static func groupByApproxSize(_ frames: [Data], approxBytes: Int) -> [Data] {
-        var chunks: [Data] = []
-        var current = Data()
-        for frame in frames {
-            current.append(frame)
-            if current.count >= approxBytes {
-                chunks.append(current)
-                current = Data()
-            }
+    private static func makeWifiScanFrame(networkCount: Int) throws -> Data {
+        // Keeps the JSON payload under the 4096-byte single-frame limit
+        // (RinaLinkFrameConstants.maxPayloadBytes) at 62 networks; firmware
+        // would split a larger scan across multiple EV_WIFI_SCAN pages,
+        // out of scope here.
+        let networks = (0..<networkCount).map {
+            WifiNetwork(ssid: "Network_\($0)_ABCDE", rssi: -40 - ($0 % 55), secure: $0 % 3 != 0)
         }
-        if !current.isEmpty { chunks.append(current) }
-        return chunks
+        let reply = WifiScanReply(ok: true, scanning: false, networks: networks)
+        let frame = try encodeEvent(type: .evWifiScan, payload: reply)
+        precondition(frame.count <= RinaLinkFrameConstants.headerBytes + RinaLinkFrameConstants.maxPayloadBytes)
+        return frame
     }
 }
 
@@ -301,6 +329,14 @@ final class BoardIncomingDecodeStressTests: XCTestCase {
 private struct PR15Sample {
     let offset: Duration
     let elapsed: Duration
+}
+
+/// A scenario body's return value: its own (possibly empty — see the
+/// GET_FACES scenario) end-to-end samples, plus how many `waitForCount`
+/// calls gave up at the deadline instead of observing the expected event.
+private struct PR15EndToEndResult {
+    let samples: [PR15Sample]
+    let waitTimeouts: Int
 }
 
 /// Collects samples from `BoardConnection.incomingDecodeProbe`, timed by the
@@ -389,24 +425,25 @@ private enum PR15LoadAverage {
 }
 
 /// A `RinaTransport` fake dedicated to this measurement suite: it answers the
-/// real `BoardConnection.connect()` handshake automatically, and otherwise
-/// lets the test push already RinaLinkEncoder-encoded wire bytes directly to
-/// the incoming stream via `pushIncoming`, simulating exactly the bytes a
-/// real BLE/TCP transport would deliver for a receive event.
+/// real `BoardConnection.connect()` handshake automatically, paces bytes onto
+/// the incoming stream like a real BLE notification/TCP-read cadence via
+/// `deliverIncoming`/`pushIncoming`, and (for the GET_FACES scenario)
+/// auto-replies to each round trip against a synthetic in-memory "document".
 @MainActor
 private final class PR15FakeTransport: RinaTransport {
     let kind: TransportKind
     let preferredChunkBytes = 2048
-    /// The most recent request frame the connection sent, so a scenario that
-    /// drives its own reply (the blob transfer) can match the seq the real
-    /// request path assigned instead of guessing it.
+    /// The most recent request frame the connection sent (diagnostic only).
     private(set) var lastRequest: RinaLinkFrame?
 
     private let decoder = RinaLinkDecoder()
     private var stateContinuation: AsyncStream<TransportState>.Continuation?
     private var incomingContinuation: AsyncStream<Data>.Continuation?
+    private var facesTotalBytes: Data?
+    private let facesGen: UInt32 = 7
+    private static let facesChunkMaxPayload = 4092 // 4096 frame max - 4-byte gen header
 
-    init(kind: TransportKind = .wifi(host: "10.0.0.9", port: RinaLinkConstants.tcpPort)) {
+    init(kind: TransportKind) {
         self.kind = kind
     }
 
@@ -424,20 +461,78 @@ private final class PR15FakeTransport: RinaTransport {
     func send(_ data: Data) async throws {
         for request in decoder.feed(data) {
             lastRequest = request
-            // The blob scenario drives its own GET_FACES reply frames via
-            // `pushIncoming`; every other request gets an immediate synthetic
-            // reply so the handshake (and any in-scenario `send()`) completes.
-            guard request.type != RinaLinkMessageType.getFaces.rawValue else { continue }
+            if request.type == RinaLinkMessageType.getFaces.rawValue {
+                await replyToFacesRequest(request)
+                continue
+            }
             let payload = Self.replyPayload(for: request)
-            incomingContinuation?.yield(try! RinaLinkEncoder.encode(
-                RinaLinkFrame(type: request.type | 0x80, seq: request.seq, flags: 0, payload: payload)))
+            guard let encoded = try? RinaLinkEncoder.encode(
+                RinaLinkFrame(type: request.type | 0x80, seq: request.seq, flags: 0, payload: payload)
+            ) else { continue }
+            incomingContinuation?.yield(encoded)
         }
     }
 
     /// Pushes bytes to the incoming stream exactly as a live transport would
-    /// hand a receive-buffer chunk to `BoardConnection`.
+    /// hand a receive-buffer chunk to `BoardConnection` — unsplit, for
+    /// payloads already well under one MTU/socket-read.
     func pushIncoming(_ data: Data) {
         incomingContinuation?.yield(data)
+    }
+
+    /// Delivers `data` split into `chunkSize`-byte pieces (frame boundaries
+    /// are *not* respected — a real BLE/TCP delivery doesn't know about them
+    /// either), waiting `interChunkDelay` between pieces so the decoder's
+    /// partial-buffering path and the probe's window bucketing both see a
+    /// realistic wire cadence instead of "as fast as the test loop runs".
+    func deliverIncoming(_ data: Data, chunkSize: Int, interChunkDelay: Duration) async {
+        var idx = data.startIndex
+        while idx < data.endIndex {
+            let end = data.index(idx, offsetBy: chunkSize, limitedBy: data.endIndex) ?? data.endIndex
+            incomingContinuation?.yield(data.subdata(in: idx..<end))
+            idx = end
+            if (idx < data.endIndex) && (interChunkDelay > .zero) {
+                try? await Task.sleep(for: interChunkDelay)
+            }
+        }
+    }
+
+    /// Delay for one `chunkSize`-byte TCP socket read at a plausible
+    /// throughput (default ~150 KB/s, within the brief's 100-200 KB/s range).
+    static func tcpChunkDelay(chunkSize: Int, throughputBytesPerSecond: Double = 150_000) -> Duration {
+        .seconds(Double(chunkSize) / throughputBytesPerSecond)
+    }
+
+    /// Sets the synthetic "saved faces" document `GET_FACES` round trips will
+    /// serve from, for the large-document measurement scenario.
+    func configureFacesFile(totalBytes: Int) {
+        facesTotalBytes = Data((0..<totalBytes).map { UInt8(truncatingIfNeeded: $0) })
+    }
+
+    /// One `GET_FACES` round trip: `[gen: UInt32 LE][file bytes from
+    /// offset]`, `FLAG_MORE` while more remain — the same shape
+    /// `BoardConnection.getFaces()` (`aggregateMore: false`) expects, so this
+    /// exercises the exact production request/reply flow instead of a
+    /// synthetic MORE-aggregated single request. The reply frame itself is
+    /// then TCP-paced like any other large reply here.
+    private func replyToFacesRequest(_ request: RinaLinkFrame) async {
+        guard let total = facesTotalBytes else { return }
+        var offset = 0
+        if let object = try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any],
+           let requestedOffset = object["offset"] as? Int {
+            offset = requestedOffset
+        }
+        let end = min(offset + Self.facesChunkMaxPayload, total.count)
+        var payload = Data()
+        var genLE = facesGen.littleEndian
+        withUnsafeBytes(of: &genLE) { payload.append(contentsOf: $0) }
+        if offset < end { payload.append(total.subdata(in: offset..<end)) }
+        let isMore = end < total.count
+        guard let encoded = try? RinaLinkEncoder.encode(RinaLinkFrame(
+            type: RinaLinkMessageType.getFaces.replyType, seq: request.seq,
+            flags: isMore ? RinaLinkFrameConstants.flagMore : 0, payload: payload
+        )) else { return }
+        await deliverIncoming(encoded, chunkSize: 1400, interChunkDelay: Self.tcpChunkDelay(chunkSize: 1400))
     }
 
     private static func replyPayload(for request: RinaLinkFrame) -> Data {

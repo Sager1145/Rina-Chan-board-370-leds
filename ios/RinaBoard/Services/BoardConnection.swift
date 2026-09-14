@@ -621,7 +621,6 @@ public final class BoardConnection {
         var dispatchStart: ContinuousClock.Instant?
         if probe != nil { overallStart = Self.incomingDecodeClock.now }
         let decodeState = RinaPerf.signposter.beginInterval("BoardIncomingDecode")
-        defer { RinaPerf.signposter.endInterval("BoardIncomingDecode", decodeState) }
         let frames = decoder.feed(data)
         // `route` is the separable dispatch portion (per-frame JSON decode +
         // fan-out to published state/event consumers), measured on its own
@@ -632,6 +631,10 @@ public final class BoardConnection {
             route(frame)
         }
         RinaPerf.signposter.endInterval("BoardIncomingDispatch", dispatchState)
+        RinaPerf.signposter.endInterval("BoardIncomingDecode", decodeState)
+        // The probe callback runs after both signposts have already ended, so
+        // a slow probe implementation (e.g. appending to a test array) never
+        // inflates the measured Instruments intervals.
         if let probe, let overallStart, let dispatchStart {
             let now = Self.incomingDecodeClock.now
             probe(overallStart.duration(to: now), dispatchStart.duration(to: now), data.count)
