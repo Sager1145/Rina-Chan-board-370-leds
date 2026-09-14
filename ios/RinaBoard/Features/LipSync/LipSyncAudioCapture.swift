@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import RinaCore
 
 protocol LipSyncCapturing: AnyObject {
     @MainActor func start() async throws
@@ -14,7 +15,9 @@ protocol LipSyncCapturing: AnyObject {
 /// clock.
 ///
 /// The tap fires on a real-time audio thread whose only job is to copy floats
-/// — no FFT, no allocation beyond the ring, no actor hops. The MFCC work
+/// into a fixed-capacity ring allocated once when this capture object is
+/// created — no allocation, no reallocation, no memmove on the hot path, no
+/// actor hops. The MFCC work
 /// happens on the main actor at the model's refresh rate, reading whatever the
 /// most recent window happens to be. Dropping audio between two analysis
 /// windows is correct here: lip sync wants *the current mouth shape*, not a
@@ -44,7 +47,7 @@ final class LipSyncAudioCapture: LipSyncCapturing, @unchecked Sendable {
 
     private let engine = AVAudioEngine()
     private let lock = NSLock()
-    private var ring: [Float] = []
+    private var ring = LipSyncSampleRing(capacity: LipSyncAudioCapture.ringCapacity)
     private var captureSampleRate: Double = 48_000
     private var hasInstalledTap = false
     private var receivedFrames = 0
@@ -122,7 +125,7 @@ final class LipSyncAudioCapture: LipSyncCapturing, @unchecked Sendable {
         }
 
         lock.lock()
-        ring.removeAll(keepingCapacity: true)
+        ring.removeAll()
         receivedFrames = 0
         lastDiagnosticTime = .distantPast
         captureSampleRate = format.sampleRate
@@ -156,7 +159,7 @@ final class LipSyncAudioCapture: LipSyncCapturing, @unchecked Sendable {
         engine.stop()
         hasInstalledTap = false
         lock.lock()
-        ring.removeAll(keepingCapacity: true)
+        ring.removeAll()
         running = false
         lock.unlock()
         let session = AVAudioSession.sharedInstance()
@@ -174,35 +177,18 @@ final class LipSyncAudioCapture: LipSyncCapturing, @unchecked Sendable {
 
     // MARK: Ring buffer
 
-    /// Called on the audio thread. Mixes to mono and appends, evicting the
-    /// oldest samples once the ring is full.
+    /// Called on the audio thread. Mixes to mono and writes straight into the
+    /// fixed-capacity ring, which evicts the oldest samples once full. No
+    /// allocation happens here.
     private func append(_ buffer: AVAudioPCMBuffer) {
         guard let channels = buffer.floatChannelData else { return }
         let frames = Int(buffer.frameLength)
         guard frames > 0 else { return }
         let channelCount = Int(buffer.format.channelCount)
 
-        var mono = [Float](repeating: 0, count: frames)
-        if channelCount == 1 {
-            mono.withUnsafeMutableBufferPointer { destination in
-                destination.baseAddress?.update(from: channels[0], count: frames)
-            }
-        } else {
-            for frame in 0..<frames {
-                var sum: Float = 0
-                for channel in 0..<channelCount {
-                    sum += channels[channel][frame]
-                }
-                mono[frame] = sum / Float(channelCount)
-            }
-        }
-
         lock.lock()
         receivedFrames += frames
-        ring.append(contentsOf: mono)
-        if ring.count > Self.ringCapacity {
-            ring.removeFirst(ring.count - Self.ringCapacity)
-        }
+        ring.writeMixed(channels, channelCount: channelCount, frames: frames)
         lock.unlock()
     }
 
@@ -219,7 +205,7 @@ final class LipSyncAudioCapture: LipSyncCapturing, @unchecked Sendable {
     /// the analyzer front-pads, so an early window is harmless.
     func latestWindow(count: Int) -> (samples: [Float], sampleRate: Double) {
         lock.lock()
-        let samples = ring.count > count ? Array(ring.suffix(count)) : ring
+        let samples = ring.latest(count)
         let rate = captureSampleRate
         let totalFrames = receivedFrames
         let now = Date()
