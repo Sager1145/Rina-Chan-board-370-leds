@@ -196,6 +196,9 @@ final class ControlViewModel {
 
     func boardModeSynchronized(generation: UUID) {
         modeSynchronizedGeneration = generation
+        // Wake a running refresh loop immediately: this is the moment
+        // `boardIsInControlMode` can flip true without any status event.
+        displayRefreshTrigger?.yield()
     }
 
     /// An unsaved drawing never follows the user to another board: when a
@@ -670,6 +673,104 @@ final class ControlViewModel {
         guard modeSynchronizedGeneration == connection.connectionGeneration,
               let status = connection.status else { return false }
         return BoardResumeMode.resolve(status: status, preview: connection.preview) == .control
+    }
+
+    // MARK: Event-driven refresh (perf PR-12)
+    //
+    // Firmware broadcasts EV_STATUS with a bumped `v`/`version` to every
+    // connected client (including the sender) whenever the board's display
+    // changes in Control mode, so a status-version change is treated as "the
+    // frame is stale, fetch it" instead of polling on a fixed clock. A 1 Hz
+    // reconciliation tick is kept as a fallback for anything that changes the
+    // board without a version bump reaching us, and older firmware that never
+    // reports a version keeps the previous 200 ms poll verbatim.
+
+    /// Injectable timings so tests can shrink the reconciliation interval
+    /// instead of waiting on real wall-clock seconds. Production code never
+    /// overrides this.
+    struct RefreshTiming {
+        var reconciliationInterval: Duration = .seconds(1)
+        var legacyPollInterval: Duration = .milliseconds(200)
+    }
+
+    var refreshTiming = RefreshTiming()
+    /// Set while `runDisplayRefreshLoop(connection:)` is running, so an
+    /// out-of-band mode flip (`boardModeSynchronized`) can wake it immediately
+    /// instead of waiting for the next version bump or reconciliation tick.
+    private var displayRefreshTrigger: AsyncStream<Void>.Continuation?
+
+    private static func statusVersion(_ connection: BoardConnection) -> Int? {
+        connection.status?.v ?? connection.status?.version
+    }
+
+    /// Drives `refreshBoardDisplay(connection:)` for as long as the caller
+    /// keeps awaiting it (§lifetime unchanged: `ControlView` only awaits this
+    /// while connected and the scene is active, and cancels it otherwise).
+    ///
+    /// Replaces the fixed 200 ms poll with an event-driven refresh: a status
+    /// version change or a control-mode transition triggers an immediate
+    /// fetch, backed by a 1 Hz reconciliation fallback and one fetch right on
+    /// entry. Never runs two `getFrame` fetches concurrently — a trigger that
+    /// arrives while one is in flight is coalesced into exactly one more
+    /// fetch afterward. Falls back to the legacy 200 ms poll for the whole
+    /// call when the board never reports a status version (older firmware).
+    func runDisplayRefreshLoop(connection: BoardConnection) async {
+        guard Self.statusVersion(connection) != nil else {
+            await legacyPollDisplayRefreshLoop(connection: connection)
+            return
+        }
+
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        displayRefreshTrigger = continuation
+        defer {
+            displayRefreshTrigger = nil
+            continuation.finish()
+        }
+        continuation.yield() // immediate refresh on entry (page appear / connect / active / mode sync)
+
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return }
+                var lastVersion = Self.statusVersion(connection)
+                var wasInControlMode = self.boardIsInControlMode(connection)
+                for await event in connection.events() {
+                    if Task.isCancelled { return }
+                    guard case .status = event else { continue }
+                    let currentVersion = Self.statusVersion(connection)
+                    let isInControlMode = self.boardIsInControlMode(connection)
+                    if currentVersion != lastVersion || (isInControlMode && !wasInControlMode) {
+                        continuation.yield()
+                    }
+                    lastVersion = currentVersion
+                    wasInControlMode = isInControlMode
+                }
+            }
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return }
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: self.refreshTiming.reconciliationInterval) }
+                    catch { return }
+                    continuation.yield()
+                }
+            }
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return }
+                for await _ in stream {
+                    if Task.isCancelled { return }
+                    await self.refreshBoardDisplay(connection: connection)
+                }
+            }
+        }
+    }
+
+    /// The pre-PR-12 behavior, kept verbatim for boards whose status never
+    /// carries a version (so there is nothing to key an event off of).
+    private func legacyPollDisplayRefreshLoop(connection: BoardConnection) async {
+        while !Task.isCancelled {
+            await refreshBoardDisplay(connection: connection)
+            do { try await Task.sleep(for: refreshTiming.legacyPollInterval) }
+            catch { return }
+        }
     }
 
     /// Populate only a never-edited editor from the board. A restored or sent

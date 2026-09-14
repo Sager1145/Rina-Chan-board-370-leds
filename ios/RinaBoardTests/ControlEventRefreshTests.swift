@@ -1,0 +1,272 @@
+import Foundation
+import XCTest
+import RinaCore
+@testable import RinaBoard
+
+/// Event-driven Control refresh loop (perf PR-12b): replaces the fixed
+/// 200 ms poll with a status-version trigger, a 1 Hz reconciliation
+/// fallback, and coalesced fetches. `ControlDisplayRefreshTransport` lets a
+/// test push unsolicited EV_STATUS frames the way firmware would on a
+/// runtime-state-version bump, and counts GET_FRAME requests.
+@MainActor
+final class ControlEventRefreshTests: XCTestCase {
+    func testVersionBumpTriggersExactlyOneGetFrameAndAdoptsFrame() async throws {
+        let (model, connection, transport) = try await connectedFixture()
+        model.refreshTiming.reconciliationInterval = .seconds(1000) // isolate the event path
+
+        let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
+        await waitUntil { transport.getFrameCount >= 1 }
+        XCTAssertEqual(transport.getFrameCount, 1, "Entry must fetch exactly once")
+
+        var bumped = PackedFrame()
+        bumped.set(42)
+        transport.displayFrame = bumped
+        transport.pushStatus(version: 2)
+
+        await waitUntil { transport.getFrameCount >= 2 }
+        XCTAssertEqual(transport.getFrameCount, 2, "A version bump must fetch exactly once")
+        await waitUntil { model.draftFrame == bumped }
+        XCTAssertEqual(model.draftFrame, bumped)
+
+        task.cancel()
+        await task.value
+    }
+
+    func testUnchangedVersionEventsProduceNoExtraFetch() async throws {
+        let (model, connection, transport) = try await connectedFixture()
+        model.refreshTiming.reconciliationInterval = .seconds(1000)
+
+        let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
+        await waitUntil { transport.getFrameCount >= 1 }
+        XCTAssertEqual(transport.getFrameCount, 1)
+
+        // Same version as already applied at setup: must not be treated as a
+        // trigger.
+        transport.pushStatus(version: 1)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(transport.getFrameCount, 1, "An unchanged version must not cause another fetch")
+
+        task.cancel()
+        await task.value
+    }
+
+    func testIdleReconciliationRunsAtTheConfiguredRateNotFaster() async throws {
+        let (model, connection, transport) = try await connectedFixture()
+        model.refreshTiming.reconciliationInterval = .milliseconds(30)
+
+        let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
+        // ~100 ms idle with no events: the entry fetch plus ~3 ticks, never
+        // anything close to a 200 ms-poll's ~15.
+        try await Task.sleep(for: .milliseconds(105))
+        XCTAssertGreaterThanOrEqual(transport.getFrameCount, 2)
+        XCTAssertLessThanOrEqual(transport.getFrameCount, 6,
+                                 "Reconciliation must follow its own interval, not a tight poll")
+
+        task.cancel()
+        await task.value
+    }
+
+    func testBurstOfVersionBumpsCoalescesToAtMostTwoFetches() async throws {
+        let (model, connection, transport) = try await connectedFixture()
+        model.refreshTiming.reconciliationInterval = .seconds(1000)
+        transport.getFrameDelay = .milliseconds(80) // keep the first fetch "in flight"
+
+        let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
+        await waitUntil { transport.getFrameStarted >= 1 }
+
+        for version in 2...6 {
+            transport.pushStatus(version: version)
+        }
+
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertLessThanOrEqual(transport.getFrameCount, 2,
+                                 "A burst of version bumps must coalesce into at most one extra fetch")
+        XCTAssertGreaterThanOrEqual(transport.getFrameCount, 2,
+                                    "The coalesced trailing bump must still be served once")
+
+        task.cancel()
+        await task.value
+    }
+
+    func testHasUnsentChangesBlocksEveryFetch() async throws {
+        let (model, connection, transport) = try await connectedFixture()
+        model.refreshTiming.reconciliationInterval = .milliseconds(20)
+        model.toggle(led: 5, connection: connection)
+        XCTAssertTrue(model.hasUnsentChanges)
+
+        let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
+        transport.pushStatus(version: 2)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(transport.getFrameCount, 0, "An unsent draft must never be overwritten by a fetch")
+
+        task.cancel()
+        await task.value
+    }
+
+    func testNonControlModeBlocksEveryFetch() async throws {
+        let model = ControlViewModel()
+        let connection = BoardConnection()
+        let transport = ControlEventRefreshTransport()
+        transport.initialVersion = 1
+        transport.initialControlMode = false // mode never synchronized
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        model.refreshTiming.reconciliationInterval = .milliseconds(20)
+        // Deliberately do not call model.boardModeSynchronized.
+
+        let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
+        transport.pushStatus(version: 2)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(transport.getFrameCount, 0, "Without a synchronized Control mode, nothing must be fetched")
+
+        task.cancel()
+        await task.value
+        connection.disconnect()
+    }
+
+    func testNilStatusVersionFallsBackToLegacyPolling() async throws {
+        let model = ControlViewModel()
+        let connection = BoardConnection()
+        let transport = ControlEventRefreshTransport()
+        transport.initialVersion = nil
+        transport.initialControlMode = true
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        model.boardModeSynchronized(generation: connection.connectionGeneration)
+        model.refreshTiming.legacyPollInterval = .milliseconds(15)
+
+        let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertGreaterThanOrEqual(transport.getFrameCount, 3,
+                                    "Older firmware with no status version must keep polling")
+
+        task.cancel()
+        await task.value
+        connection.disconnect()
+    }
+
+    func testLoopStopsFetchingOnceCancelled() async throws {
+        let (model, connection, transport) = try await connectedFixture()
+        model.refreshTiming.reconciliationInterval = .milliseconds(15)
+
+        let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
+        await waitUntil { transport.getFrameCount >= 1 }
+        task.cancel()
+        await task.value
+
+        let countAtCancellation = transport.getFrameCount
+        try await Task.sleep(for: .milliseconds(80))
+        transport.pushStatus(version: 99)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(transport.getFrameCount, countAtCancellation,
+                       "A cancelled loop must never fetch again")
+        connection.disconnect()
+    }
+
+    // MARK: Fixture
+
+    private func connectedFixture(
+        version: Int? = 1, controlMode: Bool = true
+    ) async throws -> (ControlViewModel, BoardConnection, ControlEventRefreshTransport) {
+        let model = ControlViewModel()
+        let connection = BoardConnection()
+        let transport = ControlEventRefreshTransport()
+        transport.initialVersion = version
+        transport.initialControlMode = controlMode
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        model.boardModeSynchronized(generation: connection.connectionGeneration)
+        return (model, connection, transport)
+    }
+
+    private func waitUntil(timeoutMs: Int = 1000, _ condition: @MainActor () -> Bool) async {
+        let deadline = DispatchTime.now() + .milliseconds(timeoutMs)
+        while !condition(), DispatchTime.now() < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+    }
+}
+
+/// Minimal transport that answers GET_STATUS/GET_FRAME, tracks how many
+/// GET_FRAME requests were served, and can push unsolicited EV_STATUS events
+/// (§established facts: firmware broadcasts EV_STATUS with a bumped
+/// `v` to every connected client whenever the board's Control-mode display
+/// changes).
+@MainActor
+private final class ControlEventRefreshTransport: @MainActor RinaTransport {
+    let kind: TransportKind = .bluetooth
+    let preferredChunkBytes = 512
+
+    var displayFrame = PackedFrame()
+    var initialVersion: Int? = 1
+    var initialControlMode = true
+    /// Artificial delay before a GET_FRAME reply is sent, so a test can
+    /// observe a fetch "in flight" while pushing a burst of events.
+    var getFrameDelay: Duration?
+    private(set) var getFrameCount = 0
+    /// Incremented the moment a GET_FRAME request is received, before any
+    /// artificial delay — lets a test know the first fetch has started
+    /// without waiting for it to finish.
+    private(set) var getFrameStarted = 0
+
+    private let decoder = RinaLinkDecoder()
+    private var stateContinuation: AsyncStream<TransportState>.Continuation?
+    private var incomingContinuation: AsyncStream<Data>.Continuation?
+
+    func stateStream() -> AsyncStream<TransportState> {
+        AsyncStream { stateContinuation = $0 }
+    }
+
+    func incomingStream() -> AsyncStream<Data> {
+        AsyncStream { incomingContinuation = $0 }
+    }
+
+    func connect() async throws {
+        stateContinuation?.yield(.connected)
+    }
+
+    func disconnect() {
+        stateContinuation?.yield(.disconnected)
+    }
+
+    func send(_ data: Data) async throws {
+        for request in decoder.feed(data) {
+            switch request.type {
+            case RinaLinkMessageType.getFrame.rawValue:
+                getFrameStarted += 1
+                if let delay = getFrameDelay { try? await Task.sleep(for: delay) }
+                getFrameCount += 1
+                reply(to: request, payload: Data(displayFrame.bytes))
+            case RinaLinkMessageType.getStatus.rawValue:
+                reply(to: request, payload: statusJSON(version: initialVersion, controlMode: initialControlMode))
+            default:
+                reply(to: request, payload: Data(#"{"ok":true}"#.utf8))
+            }
+        }
+    }
+
+    /// Pushes an unsolicited EV_STATUS frame the way firmware broadcasts one
+    /// on a runtime-state-version bump.
+    func pushStatus(version: Int?, controlMode: Bool = true) {
+        incomingContinuation?.yield(
+            (try? RinaLinkEncoder.encode(
+                RinaLinkFrame(type: RinaLinkMessageType.evStatus.rawValue, seq: 0, flags: 0,
+                              payload: statusJSON(version: version, controlMode: controlMode))
+            )) ?? Data()
+        )
+    }
+
+    private func reply(to request: RinaLinkFrame, payload: Data) {
+        guard let encoded = try? RinaLinkEncoder.encode(
+            RinaLinkFrame(type: request.type | 0x80, seq: request.seq, flags: 0, payload: payload)
+        ) else { return }
+        incomingContinuation?.yield(encoded)
+    }
+
+    private func statusJSON(version: Int?, controlMode: Bool) -> Data {
+        var object: [String: Any] = ["ok": true]
+        if let version { object["v"] = version }
+        if controlMode { object["renderer"] = ["outputMode": "control"] }
+        return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
+    }
+}
