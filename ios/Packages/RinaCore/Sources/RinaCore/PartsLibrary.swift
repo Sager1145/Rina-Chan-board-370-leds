@@ -158,7 +158,7 @@ public struct PartsLibrary: Codable, Sendable {
             case litCount = "lit_count"
         }
 
-        public init(
+        init(
             id: Int, name: String, type: String, size: [Int], rowHex: [String], preview: [String],
             placement: [Placement], frame: String, stripIndices: [Int], litCount: Int, bbox: [Int]?
         ) {

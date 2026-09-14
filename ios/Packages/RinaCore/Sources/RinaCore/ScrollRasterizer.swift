@@ -150,7 +150,7 @@ public enum ScrollRasterizer {
     /// is out of scope for this change, so instead we hoist the row's valid
     /// range (already done) and the row's cumulative LED-index base out of the
     /// per-column loop, computing the same index MatrixGeometry.ledIndex would
-    /// return without calling it. See `ScrollRasterizerGeometryEquivalenceTests`
+    /// return without calling it. See `ScrollRasterizerPR10Tests`
     /// for the equality check against the original per-LED lookup.
     public static func frame(
         from bitmap: ScrollBitmap, offset: Int, geometry: MatrixGeometry.Type = MatrixGeometry.self
