@@ -1,0 +1,4 @@
+case_id,layer,load,offered,board_applied,board_interval_ms_min,board_interval_ms_p50,board_interval_ms_max,under_33ms,final_ui_lit,final_board_lit,queued_after,anomalies,status,evidence
+HW-FLOOD-DRAG,real iPhone+board BLE,20 rapid drags on Faces grid with live preview (Device Hub),unknown (per-cell edits),19,5,209,660,8,142,142,0,none,PASS (converged; 8 board intervals <33 ms noted),logs/device/serial_realhw2.log bytes from logs/device/flood1_range.txt
+HW-FLOOD-INVERT,real iPhone+board BLE,40 rapid 反轉 taps with live preview (Device Hub),40,40,120,178,211,0,142,142,0,none,PASS (all 40 applied in order; alternating 228/142; final 142),logs/device/serial_realhw2.log bytes from logs/device/flood2_range.txt
+HW-RESTORE-DRAFT,real iPhone+board BLE,70 undo taps (Device Hub) to restore user's draft after floods,70,n/a,,,,,33,33,0,none,PASS (undo stack exhausted at original face; 已同步 shown),Device Hub screenshots in session transcript

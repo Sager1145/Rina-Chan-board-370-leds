@@ -1,0 +1,427 @@
+Building for debugging...
+[Computing dependencies]
+[Pre-planning 1 / 95]
+[Planning deferred tasks]
+[28 / 52]
+[29 / 53] RinaCore
+[38 / 98]
+[41 / 98]
+[44 / 98]
+[46 / 98]
+[48 / 98]
+[51 / 98]
+[53 / 98]
+[55 / 98]
+[57 / 98]
+[60 / 98]
+[62 / 98]
+[63 / 98]
+[73 / 98] RinaCore
+[75 / 98] RinaCore
+[82 / 98] RinaCore
+[88 / 99] RinaCoreTests-product
+[100 / 143]
+[106 / 143]
+[109 / 143]
+[112 / 143]
+[114 / 143]
+[116 / 143]
+[117 / 143]
+[118 / 143]
+[120 / 143]
+[121 / 143]
+[132 / 143] RinaCoreTests-product
+[133 / 143] RinaCoreTests-product
+[139 / 143] RinaCoreTests-product
+Build complete! (18.28秒)
+Test Suite 'All tests' started at 2026-09-12 23:52:33.383.
+Test Suite 'RinaCoreTests.xctest' started at 2026-09-12 23:52:33.384.
+Test Suite 'BoardOutputStatusTests' started at 2026-09-12 23:52:33.384.
+Test Case '-[RinaCoreTests.BoardOutputStatusTests testOlderFirmwareDoesNotRequireStreamMetadata]' started.
+Test Case '-[RinaCoreTests.BoardOutputStatusTests testOlderFirmwareDoesNotRequireStreamMetadata]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.BoardOutputStatusTests testStreamMetadataDecodesFromBothBoardSnapshots]' started.
+Test Case '-[RinaCoreTests.BoardOutputStatusTests testStreamMetadataDecodesFromBothBoardSnapshots]' passed (0.000 seconds).
+Test Suite 'BoardOutputStatusTests' passed at 2026-09-12 23:52:33.385.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'BundledPerformanceTests' started at 2026-09-12 23:52:33.385.
+Test Case '-[RinaCoreTests.BundledPerformanceTests testCatalogMatchesTheScriptsOnDisk]' started.
+Test Case '-[RinaCoreTests.BundledPerformanceTests testCatalogMatchesTheScriptsOnDisk]' passed (0.019 seconds).
+Test Case '-[RinaCoreTests.BundledPerformanceTests testEveryBundledScriptParses]' started.
+Test Case '-[RinaCoreTests.BundledPerformanceTests testEveryBundledScriptParses]' passed (0.255 seconds).
+Test Case '-[RinaCoreTests.BundledPerformanceTests testLookupMatchesUpstreamExactFramePolling]' started.
+Test Case '-[RinaCoreTests.BundledPerformanceTests testLookupMatchesUpstreamExactFramePolling]' passed (0.071 seconds).
+Test Suite 'BundledPerformanceTests' passed at 2026-09-12 23:52:33.730.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.345 (0.345) seconds
+Test Suite 'ColorPresetsTests' started at 2026-09-12 23:52:33.730.
+Test Case '-[RinaCoreTests.ColorPresetsTests testDefaultFacesDocument]' started.
+Test Case '-[RinaCoreTests.ColorPresetsTests testDefaultFacesDocument]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ColorPresetsTests testEstimatedWatts]' started.
+Test Case '-[RinaCoreTests.ColorPresetsTests testEstimatedWatts]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ColorPresetsTests testLookupByHex]' started.
+Test Case '-[RinaCoreTests.ColorPresetsTests testLookupByHex]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.ColorPresetsTests testParentAndChildCounts]' started.
+Test Case '-[RinaCoreTests.ColorPresetsTests testParentAndChildCounts]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ColorPresetsTests testRGBHexParseAndFormat]' started.
+Test Case '-[RinaCoreTests.ColorPresetsTests testRGBHexParseAndFormat]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ColorPresetsTests testTeamColorsAreSelectableBeforeMembers]' started.
+Test Case '-[RinaCoreTests.ColorPresetsTests testTeamColorsAreSelectableBeforeMembers]' passed (0.000 seconds).
+Test Suite 'ColorPresetsTests' passed at 2026-09-12 23:52:33.733.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'DeviceNameValidatorTests' started at 2026-09-12 23:52:33.733.
+Test Case '-[RinaCoreTests.DeviceNameValidatorTests test24ByteAsciiNameIsValid]' started.
+Test Case '-[RinaCoreTests.DeviceNameValidatorTests test24ByteAsciiNameIsValid]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.DeviceNameValidatorTests test25ByteAsciiNameIsTooLong]' started.
+Test Case '-[RinaCoreTests.DeviceNameValidatorTests test25ByteAsciiNameIsTooLong]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.DeviceNameValidatorTests testEightCharacterCJKNameIsValid]' started.
+Test Case '-[RinaCoreTests.DeviceNameValidatorTests testEightCharacterCJKNameIsValid]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.DeviceNameValidatorTests testNineCharacterCJKNameIsTooLong]' started.
+Test Case '-[RinaCoreTests.DeviceNameValidatorTests testNineCharacterCJKNameIsTooLong]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.DeviceNameValidatorTests testWhitespaceOnlyNameIsEmpty]' started.
+Test Case '-[RinaCoreTests.DeviceNameValidatorTests testWhitespaceOnlyNameIsEmpty]' passed (0.000 seconds).
+Test Suite 'DeviceNameValidatorTests' passed at 2026-09-12 23:52:33.733.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'FaceDocumentTests' started at 2026-09-12 23:52:33.733.
+Test Case '-[RinaCoreTests.FaceDocumentTests testDecodeAndSortByOrder]' started.
+Test Case '-[RinaCoreTests.FaceDocumentTests testDecodeAndSortByOrder]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.FaceDocumentTests testEncodeRoundTrip]' started.
+Test Case '-[RinaCoreTests.FaceDocumentTests testEncodeRoundTrip]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.FaceDocumentTests testPackedFrameAccessor]' started.
+Test Case '-[RinaCoreTests.FaceDocumentTests testPackedFrameAccessor]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.FaceDocumentTests testPackedFrameAccessorRejectsOutOfRangeBytes]' started.
+Test Case '-[RinaCoreTests.FaceDocumentTests testPackedFrameAccessorRejectsOutOfRangeBytes]' passed (0.000 seconds).
+Test Suite 'FaceDocumentTests' passed at 2026-09-12 23:52:33.734.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'LipSyncTests' started at 2026-09-12 23:52:33.734.
+Test Case '-[RinaCoreTests.LipSyncTests testAudioBelowTheSensitivityThresholdCountsAsSilence]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testAudioBelowTheSensitivityThresholdCountsAsSilence]' passed (0.024 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testCalibrationOverwritesAndMarksAVowel]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testCalibrationOverwritesAndMarksAVowel]' passed (0.022 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testDctOfConstantPutsEnergyInCoefficientZero]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testDctOfConstantPutsEnergyInCoefficientZero]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testDefaultMouthMappingUsesDistinctRealParts]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testDefaultMouthMappingUsesDistinctRealParts]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testFftOfDcIsAllEnergyInBinZero]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testFftOfDcIsAllEnergyInBinZero]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testHammingWindowEndpointsAndSymmetry]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testHammingWindowEndpointsAndSymmetry]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testHistorySmoothingRejectsASingleOutlier]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testHistorySmoothingRejectsASingleOutlier]' passed (0.047 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testLowPassKernelHasUnityDcGain]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testLowPassKernelHasUnityDcGain]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testMagnitudeSpectrumPeaksAtTheSineBin]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testMagnitudeSpectrumPeaksAtTheSineBin]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testMeasureDoesNotDisturbTheHistory]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testMeasureDoesNotDisturbTheHistory]' passed (0.053 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testMelFilterBankShapeAndOrdering]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testMelFilterBankShapeAndOrdering]' passed (0.003 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testMelScaleRoundTrips]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testMelScaleRoundTrips]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testMouthMappingRoundTripsThroughJSON]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testMouthMappingRoundTripsThroughJSON]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testPreEmphasisRemovesDc]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testPreEmphasisRemovesDc]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testProfileRoundTripsThroughJSON]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testProfileRoundTripsThroughJSON]' passed (0.023 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testResampleHalvesTheSampleCount]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testResampleHalvesTheSampleCount]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testResampleIsIdentityAtTheSameRate]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testResampleIsIdentityAtTheSameRate]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testResamplePreservesAnInBandTone]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testResamplePreservesAnInBandTone]' passed (0.014 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testResetCalibrationReturnsToTheSynthesizedPreset]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testResetCalibrationReturnsToTheSynthesizedPreset]' passed (0.067 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testResetClearsTheHistory]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testResetClearsTheHistory]' passed (0.046 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testRmsDbDropsSixDbPerHalving]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testRmsDbDropsSixDbPerHalving]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testRmsDbFloorsSilence]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testRmsDbFloorsSilence]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testRmsDbOfFullScaleSquareWaveIsZero]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testRmsDbOfFullScaleSquareWaveIsZero]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testSanitizingReplacesUnknownMouthIds]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testSanitizingReplacesUnknownMouthIds]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testSilenceIsGatedBeforeClassification]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testSilenceIsGatedBeforeClassification]' passed (0.023 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testSynthesizedProfileIsCompleteForEveryPreset]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testSynthesizedProfileIsCompleteForEveryPreset]' passed (0.091 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testSynthesizedVowelIsClassifiedAsItself]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testSynthesizedVowelIsClassifiedAsItself]' passed (1.322 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testSynthesizedVowelsAreMutuallyDistinguishable]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testSynthesizedVowelsAreMutuallyDistinguishable]' passed (0.022 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testVowelsSurviveAPitchThatTheProfileWasNotBuiltAt]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testVowelsSurviveAPitchThatTheProfileWasNotBuiltAt]' passed (0.090 seconds).
+Test Case '-[RinaCoreTests.LipSyncTests testWindowedTrimsToTheMostRecentSamplesAndFrontPads]' started.
+Test Case '-[RinaCoreTests.LipSyncTests testWindowedTrimsToTheMostRecentSamplesAndFrontPads]' passed (0.000 seconds).
+Test Suite 'LipSyncTests' passed at 2026-09-12 23:52:35.590.
+	 Executed 30 tests, with 0 failures (0 unexpected) in 1.854 (1.856) seconds
+Test Suite 'LivePerformanceScriptTests' started at 2026-09-12 23:52:35.590.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testBadFpsThrows]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testBadFpsThrows]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testBadKeyframeThrows]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testBadKeyframeThrows]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testComposedFramesMatchesKeyframeCountAndFirstEntry]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testComposedFramesMatchesKeyframeCountAndFirstEntry]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testDefaultFpsIsTen]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testDefaultFpsIsTen]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testEmptyKeyframesRejectedByMake]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testEmptyKeyframesRejectedByMake]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testEmptyScriptThrows]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testEmptyScriptThrows]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testFpsAndTitleDirectives]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testFpsAndTitleDirectives]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testFrameAtBoundComputesDurationWithoutTrapping]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testFrameAtBoundComputesDurationWithoutTrapping]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testFrameTooLargeThrows]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testFrameTooLargeThrows]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testIndexAtMsBoundaries]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testIndexAtMsBoundaries]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testNonMonotonicFrameThrows]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testNonMonotonicFrameThrows]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testParsesFlyAkariSmallIndexForm]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testParsesFlyAkariSmallIndexForm]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testParsesMixedFile]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testParsesMixedFile]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testParsesOwnIdForm]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testParsesOwnIdForm]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testTrailingCommaAndWhitespaceTolerance]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testTrailingCommaAndWhitespaceTolerance]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testUnknownPartThrows]' started.
+Test Case '-[RinaCoreTests.LivePerformanceScriptTests testUnknownPartThrows]' passed (0.001 seconds).
+Test Suite 'LivePerformanceScriptTests' passed at 2026-09-12 23:52:35.612.
+	 Executed 16 tests, with 0 failures (0 unexpected) in 0.021 (0.022) seconds
+Test Suite 'MatrixGeometryTests' started at 2026-09-12 23:52:35.612.
+Test Case '-[RinaCoreTests.MatrixGeometryTests testFirstLedIsRow0LeftEdge]' started.
+Test Case '-[RinaCoreTests.MatrixGeometryTests testFirstLedIsRow0LeftEdge]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.MatrixGeometryTests testLastLedIsLastRowRightEdge]' started.
+Test Case '-[RinaCoreTests.MatrixGeometryTests testLastLedIsLastRowRightEdge]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.MatrixGeometryTests testLastRowRange]' started.
+Test Case '-[RinaCoreTests.MatrixGeometryTests testLastRowRange]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.MatrixGeometryTests testOutOfRangeReturnsNil]' started.
+Test Case '-[RinaCoreTests.MatrixGeometryTests testOutOfRangeReturnsNil]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.MatrixGeometryTests testRoundTripAllLeds]' started.
+Test Case '-[RinaCoreTests.MatrixGeometryTests testRoundTripAllLeds]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.MatrixGeometryTests testRow0Range]' started.
+Test Case '-[RinaCoreTests.MatrixGeometryTests testRow0Range]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.MatrixGeometryTests testRow4FullWidthRange]' started.
+Test Case '-[RinaCoreTests.MatrixGeometryTests testRow4FullWidthRange]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.MatrixGeometryTests testRowLengthsSumTo370]' started.
+Test Case '-[RinaCoreTests.MatrixGeometryTests testRowLengthsSumTo370]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.MatrixGeometryTests testSecondRowStartsAfterFirst]' started.
+Test Case '-[RinaCoreTests.MatrixGeometryTests testSecondRowStartsAfterFirst]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.MatrixGeometryTests testSerpentineEvenRowUnchanged]' started.
+Test Case '-[RinaCoreTests.MatrixGeometryTests testSerpentineEvenRowUnchanged]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.MatrixGeometryTests testSerpentineOddRowMirrored]' started.
+Test Case '-[RinaCoreTests.MatrixGeometryTests testSerpentineOddRowMirrored]' passed (0.000 seconds).
+Test Suite 'MatrixGeometryTests' passed at 2026-09-12 23:52:35.615.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'PackedFrameTests' started at 2026-09-12 23:52:35.615.
+Test Case '-[RinaCoreTests.PackedFrameTests testBase64RoundTrip]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testBase64RoundTrip]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testBitsArrayInit]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testBitsArrayInit]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testEmptyFrameValid]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testEmptyFrameValid]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testFillThenClear]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testFillThenClear]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testHex94RoundTrip]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testHex94RoundTrip]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testInvalidTailBitsRejected]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testInvalidTailBitsRejected]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testInvert]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testInvert]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testParseBase64]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testParseBase64]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testParseEmptyThrows]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testParseEmptyThrows]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testParseGarbageThrowsInvalidFormat]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testParseGarbageThrowsInvalidFormat]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testParseHex94]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testParseHex94]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testParseIntArray]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testParseIntArray]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testParseOutOfRangeIntThrows]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testParseOutOfRangeIntThrows]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testParseWrongIntCountThrows]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testParseWrongIntCountThrows]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testSetClearToggle]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testSetClearToggle]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testUnion]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testUnion]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PackedFrameTests testWrongLengthRejected]' started.
+Test Case '-[RinaCoreTests.PackedFrameTests testWrongLengthRejected]' passed (0.000 seconds).
+Test Suite 'PackedFrameTests' passed at 2026-09-12 23:52:35.617.
+	 Executed 17 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'PartsLibraryTests' started at 2026-09-12 23:52:35.617.
+Test Case '-[RinaCoreTests.PartsLibraryTests testComposeAllEmptyIsBlank]' started.
+Test Case '-[RinaCoreTests.PartsLibraryTests testComposeAllEmptyIsBlank]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.PartsLibraryTests testComposeDefaultCall]' started.
+Test Case '-[RinaCoreTests.PartsLibraryTests testComposeDefaultCall]' passed (0.020 seconds).
+Test Case '-[RinaCoreTests.PartsLibraryTests testHexFrameMatchesStripIndicesFrameForAllParts]' started.
+Test Case '-[RinaCoreTests.PartsLibraryTests testHexFrameMatchesStripIndicesFrameForAllParts]' passed (0.003 seconds).
+Test Case '-[RinaCoreTests.PartsLibraryTests testIdLists]' started.
+Test Case '-[RinaCoreTests.PartsLibraryTests testIdLists]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.PartsLibraryTests testMatchingCallRejectsUnmatchableFrame]' started.
+Test Case '-[RinaCoreTests.PartsLibraryTests testMatchingCallRejectsUnmatchableFrame]' passed (0.005 seconds).
+Test Case '-[RinaCoreTests.PartsLibraryTests testMatchingCallReturnsAlternateCall]' started.
+Test Case '-[RinaCoreTests.PartsLibraryTests testMatchingCallReturnsAlternateCall]' passed (0.003 seconds).
+Test Case '-[RinaCoreTests.PartsLibraryTests testMatchingCallReturnsDefaultCall]' started.
+Test Case '-[RinaCoreTests.PartsLibraryTests testMatchingCallReturnsDefaultCall]' passed (0.003 seconds).
+Test Case '-[RinaCoreTests.PartsLibraryTests testMatchingCallReturnsEmptyCall]' started.
+Test Case '-[RinaCoreTests.PartsLibraryTests testMatchingCallReturnsEmptyCall]' passed (0.004 seconds).
+Test Case '-[RinaCoreTests.PartsLibraryTests testMirroredEyeIdRoundTrips]' started.
+Test Case '-[RinaCoreTests.PartsLibraryTests testMirroredEyeIdRoundTrips]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.PartsLibraryTests testPartCount]' started.
+Test Case '-[RinaCoreTests.PartsLibraryTests testPartCount]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.PartsLibraryTests testRandomCallNeverPicksEmptyEyesOrMouth]' started.
+Test Case '-[RinaCoreTests.PartsLibraryTests testRandomCallNeverPicksEmptyEyesOrMouth]' passed (0.002 seconds).
+Test Suite 'PartsLibraryTests' passed at 2026-09-12 23:52:35.664.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.046 (0.046) seconds
+Test Suite 'PowerStatusDecodingTests' started at 2026-09-12 23:52:35.664.
+Test Case '-[RinaCoreTests.PowerStatusDecodingTests testBareObject]' started.
+Test Case '-[RinaCoreTests.PowerStatusDecodingTests testBareObject]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PowerStatusDecodingTests testNestedInStatus]' started.
+Test Case '-[RinaCoreTests.PowerStatusDecodingTests testNestedInStatus]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.PowerStatusDecodingTests testWrappedEventPayload]' started.
+Test Case '-[RinaCoreTests.PowerStatusDecodingTests testWrappedEventPayload]' passed (0.000 seconds).
+Test Suite 'PowerStatusDecodingTests' passed at 2026-09-12 23:52:35.664.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'RinaCommandTests' started at 2026-09-12 23:52:35.664.
+Test Case '-[RinaCoreTests.RinaCommandTests testApplySavedFaceIncludesOptionalFields]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testApplySavedFaceIncludesOptionalFields]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testFaceDeleteEncodesId]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testFaceDeleteEncodesId]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testFaceRenameEncodesIdAndName]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testFaceRenameEncodesIdAndName]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testFaceReorderEncodesIdsInOrder]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testFaceReorderEncodesIdsInOrder]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testFacesClearUserOnlyHasCmdField]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testFacesClearUserOnlyHasCmdField]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testFaceUpsertEncodesFaceUnderFaceKey]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testFaceUpsertEncodesFaceUnderFaceKey]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testFaceUpsertWithoutIdOmitsIdField]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testFaceUpsertWithoutIdOmitsIdField]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testNoArgCommandOnlyHasCmdField]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testNoArgCommandOnlyHasCmdField]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testScrollSeekEncodesFrameIndex]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testScrollSeekEncodesFrameIndex]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testSetColorEncodesCmdAndHex]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testSetColorEncodesCmdAndHex]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testSetDeviceNameEncodesCmdAndName]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testSetDeviceNameEncodesCmdAndName]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testSetDeviceNameWithEmptyStringEncodesEmptyName]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testSetDeviceNameWithEmptyStringEncodesEmptyName]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testSetScrollLoopEncodesBool]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testSetScrollLoopEncodesBool]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testWifiClearHotspotCredentialsOnlyHasCmdField]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testWifiClearHotspotCredentialsOnlyHasCmdField]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaCommandTests testWifiSetHotspotCredentialsEncodesSsidAndPassword]' started.
+Test Case '-[RinaCoreTests.RinaCommandTests testWifiSetHotspotCredentialsEncodesSsidAndPassword]' passed (0.000 seconds).
+Test Suite 'RinaCommandTests' passed at 2026-09-12 23:52:35.667.
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'RinaLinkCodecTests' started at 2026-09-12 23:52:35.667.
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testEncodeDecodeRoundTrip]' started.
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testEncodeDecodeRoundTrip]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testErrorFrameDecodesToRinaLinkError]' started.
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testErrorFrameDecodesToRinaLinkError]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testMoreFlagRoundTrip]' started.
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testMoreFlagRoundTrip]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testMultipleFramesInOneFeed]' started.
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testMultipleFramesInOneFeed]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testOversizePayloadThrowsInsteadOfTrapping]' started.
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testOversizePayloadThrowsInsteadOfTrapping]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testResyncOnGarbagePrefix]' started.
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testResyncOnGarbagePrefix]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testSplitAcrossFeeds]' started.
+Test Case '-[RinaCoreTests.RinaLinkCodecTests testSplitAcrossFeeds]' passed (0.000 seconds).
+Test Suite 'RinaLinkCodecTests' passed at 2026-09-12 23:52:35.668.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ScrollPreviewControllerTests' started at 2026-09-12 23:52:35.668.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testAdvanceCounterMeasuresMultipleLoopsBetweenSparseSamples]' started.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testAdvanceCounterMeasuresMultipleLoopsBetweenSparseSamples]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testBoardIntervalChangeRetunesWithoutWaitingForRegression]' started.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testBoardIntervalChangeRetunesWithoutWaitingForRegression]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testDuplicateSampleDoesNotPullPreviewBack]' started.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testDuplicateSampleDoesNotPullPreviewBack]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testIdentityMismatchOnFrameCountChange]' started.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testIdentityMismatchOnFrameCountChange]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testIdentityMismatchOnTimelineChange]' started.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testIdentityMismatchOnTimelineChange]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testLocksOntoSteadyTenFpsSamples]' started.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testLocksOntoSteadyTenFpsSamples]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testPausedSampleSnapsDisplayIndex]' started.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testPausedSampleSnapsDisplayIndex]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testReconnectAnchorsImmediatelyAndUsesRemainingFrameTime]' started.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testReconnectAnchorsImmediatelyAndUsesRemainingFrameTime]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testSeekWhilePlayingKeepsMeasuredSpeed]' started.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testSeekWhilePlayingKeepsMeasuredSpeed]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testShortestRingDelta]' started.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testShortestRingDelta]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testSnapJumpsDisplayIndexOnRing]' started.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testSnapJumpsDisplayIndexOnRing]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testSteppingSourceSnapsDisplayIndex]' started.
+Test Case '-[RinaCoreTests.ScrollPreviewControllerTests testSteppingSourceSnapsDisplayIndex]' passed (0.000 seconds).
+Test Suite 'ScrollPreviewControllerTests' passed at 2026-09-12 23:52:35.669.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'ScrollRasterizerTests' started at 2026-09-12 23:52:35.669.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testBitmapPackedBytesRoundTripsOnePixel]' started.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testBitmapPackedBytesRoundTripsOnePixel]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testBitmapWidthAndFrameCountForSingleCharacter]' started.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testBitmapWidthAndFrameCountForSingleCharacter]' passed (0.069 seconds).
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testDefaultTextTimelineWithinFrameBounds]' started.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testDefaultTextTimelineWithinFrameBounds]' passed (0.182 seconds).
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testEmojiPresentationNormalisation]' started.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testEmojiPresentationNormalisation]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testFramesAreValidAndFirstFrameAfterRotationIsLit]' started.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testFramesAreValidAndFirstFrameAfterRotationIsLit]' passed (0.079 seconds).
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testGlyphADecodesExpectedBitmap]' started.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testGlyphADecodesExpectedBitmap]' passed (0.067 seconds).
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testMissingGlyphFallsBackToWhiteSquare]' started.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testMissingGlyphFallsBackToWhiteSquare]' passed (0.067 seconds).
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testSpaceGlyphAdvance]' started.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testSpaceGlyphAdvance]' passed (0.068 seconds).
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testTimelineRotationMatchesFirstLitFrameIndex]' started.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testTimelineRotationMatchesFirstLitFrameIndex]' passed (0.093 seconds).
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testTruncateIgnoresFormatControls]' started.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testTruncateIgnoresFormatControls]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testVerticalOffsetPlacesInkInExpectedMatrixRows]' started.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testVerticalOffsetPlacesInkInExpectedMatrixRows]' passed (0.067 seconds).
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testVeryLongTextThrowsTooManyFrames]' started.
+Test Case '-[RinaCoreTests.ScrollRasterizerTests testVeryLongTextThrowsTooManyFrames]' passed (0.079 seconds).
+Test Suite 'ScrollRasterizerTests' passed at 2026-09-12 23:52:36.443.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.772 (0.773) seconds
+Test Suite 'VideoFrameQuantizerTests' started at 2026-09-12 23:52:36.443.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testAutoThresholdOnUniformFramesFallsBackToMidpoint]' started.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testAutoThresholdOnUniformFramesFallsBackToMidpoint]' passed (0.006 seconds).
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testAutoThresholdSeparatesAFrameThatManualThresholdWouldNot]' started.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testAutoThresholdSeparatesAFrameThatManualThresholdWouldNot]' passed (0.004 seconds).
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testDitherIsDeterministicForTheSameInput]' started.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testDitherIsDeterministicForTheSameInput]' passed (0.003 seconds).
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testDitherOnMidGreyLightsRoughlyHalf]' started.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testDitherOnMidGreyLightsRoughlyHalf]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testFillAndStretchCoverEveryCell]' started.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testFillAndStretchCoverEveryCell]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testFillCropsTheSidesOfAWideImage]' started.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testFillCropsTheSidesOfAWideImage]' passed (0.003 seconds).
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testFitLeavesLetterboxBarsOffEvenWhenInverted]' started.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testFitLeavesLetterboxBarsOffEvenWhenInverted]' passed (0.001 seconds).
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testInvertFlipsEveryCoveredLed]' started.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testInvertFlipsEveryCoveredLed]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testMirrorSwapsLeftAndRight]' started.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testMirrorSwapsLeftAndRight]' passed (0.003 seconds).
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testRejectsMismatchedPixelCount]' started.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testRejectsMismatchedPixelCount]' passed (0.000 seconds).
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testTopOfTheImageLandsOnTheTopOfTheBoard]' started.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testTopOfTheImageLandsOnTheTopOfTheBoard]' passed (0.002 seconds).
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testWhiteLightsEveryLedAndBlackNone]' started.
+Test Case '-[RinaCoreTests.VideoFrameQuantizerTests testWhiteLightsEveryLedAndBlackNone]' passed (0.003 seconds).
+Test Suite 'VideoFrameQuantizerTests' passed at 2026-09-12 23:52:36.475.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.031 (0.032) seconds
+Test Suite 'RinaCoreTests.xctest' passed at 2026-09-12 23:52:36.475.
+	 Executed 166 tests, with 0 failures (0 unexpected) in 3.081 (3.090) seconds
+Test Suite 'All tests' passed at 2026-09-12 23:52:36.475.
+	 Executed 166 tests, with 0 failures (0 unexpected) in 3.081 (3.091) seconds
+[ScrollRasterizerTests] default-text rasterisation took 114.43400382995605 ms, frameCount=325
+◇ Test run started.
+↳ Testing Library Version: 2077
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

@@ -1,0 +1,911 @@
+board_ms,event,detail
+2830927,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2830931,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2832247,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2832252,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2832877,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2832881,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2833237,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2833242,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2833537,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2833541,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2833837,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2833842,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2834137,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2834142,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2834827,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2834831,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2835037,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2835042,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2836147,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2836152,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2836267,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2836271,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2836507,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2836511,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2836927,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2836931,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2837617,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2837621,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2837797,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2837802,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2838007,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2838012,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2838217,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2838222,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2838397,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2838401,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2838547,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2838551,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2838727,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2838731,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2839027,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2839032,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2839417,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2839421,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2839537,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2839541,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2839747,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2839751,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2840137,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2840142,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2840737,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2840741,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2841217,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2841222,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2841697,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2841701,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2841817,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2841821,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2842117,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2842122,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2842237,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2842241,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2842537,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2842541,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2843017,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2843021,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2843407,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2843412,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2843917,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2843921,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2844547,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2844551,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2844817,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2844822,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2845717,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2845722,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2845927,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2845931,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2846857,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2846861,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2846917,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2846922,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2847037,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2847041,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2847247,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2847251,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2847427,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2847431,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2847817,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2847821,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2847907,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2847912,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2848027,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2848033,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2848117,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2848121,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2848207,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2848211,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2848447,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2848451,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2848627,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2848632,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2849407,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2849411,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2849947,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2849952,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2850217,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2850222,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2850847,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2850852,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2851237,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2851242,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2851357,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2851361,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2851927,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2851931,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2852227,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2852231,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2852407,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2852412,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2852647,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2852652,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2853037,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2853042,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2854207,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2854212,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2854717,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2854721,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2855047,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2855051,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2855137,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2855142,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2855317,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2855322,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2855527,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2855532,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2855617,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2855622,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2855917,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2855922,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2856127,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2856132,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2856517,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2856521,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2856637,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2856642,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2856907,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2856912,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2857237,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2857242,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2857957,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2857961,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2858227,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2858231,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2858317,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2858322,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2858527,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2858532,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2858737,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2858742,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2859127,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2859131,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2859217,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2859222,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2859337,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2859344,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2859517,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2859522,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2859817,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2859822,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2860117,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2860122,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2860327,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2860331,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2860627,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2860633,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2860807,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2860812,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2861047,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2861052,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2861137,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2861141,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2861347,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2861351,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2861499,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2861503,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2861617,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2861621,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2861947,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2861951,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2862037,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2862042,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2862307,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2862311,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2862427,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2862431,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2862937,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2862941,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2863447,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2863451,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2863837,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2863842,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2864017,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2864021,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2864197,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2864202,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2864707,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2864712,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2864947,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2864952,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2865037,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2865042,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2865127,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2865132,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2865337,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2865341,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2865427,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2865434,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2865517,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2865522,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2865697,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2865702,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2865907,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2865912,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2866238,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2866243,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2866447,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2866452,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2866538,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2866544,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2866718,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2866722,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2867047,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2867051,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2867137,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2867142,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2867197,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2867201,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2867647,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2867651,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2867917,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2867923,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2868517,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2868521,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2868997,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2869002,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2869237,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2869242,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2869567,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2869571,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2869717,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2869722,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2869807,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2869812,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2869927,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2869932,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2870107,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2870111,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2870437,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2870441,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2870827,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2870832,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2870918,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2870923,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2871187,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2871191,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2871517,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2871521,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2871937,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2871942,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2872327,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2872332,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2872537,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2872541,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2872717,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2872722,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2873017,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2873022,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2873497,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2873502,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2873647,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2873651,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2873947,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2873952,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2874547,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2874552,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2874637,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2874644,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2874937,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2874942,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2875027,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2875032,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2875417,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2875422,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2876047,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2876052,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2876227,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2876231,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2876407,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2876411,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2876527,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2876531,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2876738,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2876743,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2876797,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2876801,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2876947,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2876951,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2877157,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2877162,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2878117,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2878121,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2878207,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2878212,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2878717,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2878722,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2879737,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2879742,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2879947,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2879951,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2881537,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2881541,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2881628,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2881635,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2881748,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2881755,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2881837,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2881841,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2882047,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2882052,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2883847,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2883851,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2884027,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2884032,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2884507,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2884511,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2892127,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2892131,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2892997,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2893002,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2899477,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2899481,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2899957,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2899962,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2900077,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2900082,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2900317,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2900322,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2900857,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2900862,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2902237,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2902242,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2903467,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2903472,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2903557,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2903561,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2903857,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2903861,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2904007,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2904011,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2904157,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2904162,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2904367,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2904371,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2904577,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2904582,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2904667,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2904672,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2904997,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2905001,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2905987,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2905991,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2906857,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2906861,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2907157,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2907161,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2907367,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2907372,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2907457,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2907464,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2907667,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2907672,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2907787,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2907792,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2908147,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2908152,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2908477,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2908482,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2908807,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2908811,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2908957,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2908962,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2909167,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2909171,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2909257,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2909262,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2909527,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2909532,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2909677,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2909681,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2909767,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2909771,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2909947,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2909951,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2910157,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2910162,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2910278,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2910283,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2910607,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2910612,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2910967,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2910971,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2911267,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2911272,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2911477,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2911481,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2911867,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2911872,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2912017,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2912021,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2912287,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2912292,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2912557,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2912561,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2912767,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2912772,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2912858,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2912864,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2912977,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2912985,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2913307,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2913312,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2913547,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2913547,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4100
+2913553,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2913557,tx_frame,handle=1 slot=0 bytes=365 slices=2 mtu=255 kind=reply
+2913757,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2913761,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2913937,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2913941,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2914747,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2914752,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2914867,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2914871,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2915047,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2915051,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2915257,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2915262,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2915377,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2915382,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2915587,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2915592,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2915977,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2915982,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2916277,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2916282,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2916757,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2916761,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2916967,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2916972,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2917267,rx_write,handle=1 slot=0 bytes=66 accepted=66 free_before=4166
+2917272,tx_frame,handle=1 slot=0 bytes=366 slices=2 mtu=255 kind=reply
+2917477,tx_subscribed,handle=1 value=0
+2917477,disconnect,handle=1 slot=0 peer=71:6c:45:65:d9:f7 reason=531 registered=1
+2917478,advertise_restart,advertising=1
+2934547,connect,handle=1 slot=0 peer=79:cf:ec:65:ff:ac interval_units=24 timeout_ms=720 mtu=23
+2934877,mtu,handle=1 value=255
+2935477,tx_subscribed,handle=1 value=1
+2935597,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2935599,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+2935657,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+2935659,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+2935717,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2935727,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+2935897,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2935898,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+2935957,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2935962,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+2936107,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2936107,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+2936111,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+2936114,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+2936167,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+2936167,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4148
+2936195,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+2936200,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+2936287,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+2936314,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+2936407,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+2936430,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+2958457,tx_subscribed,handle=1 value=0
+2958457,disconnect,handle=1 slot=0 peer=79:cf:ec:65:ff:ac reason=531 registered=1
+2958459,advertise_restart,advertising=1
+2962384,connect,handle=1 slot=0 peer=6b:bd:87:a0:32:70 interval_units=24 timeout_ms=720 mtu=23
+2962713,mtu,handle=1 value=255
+2963313,tx_subscribed,handle=1 value=1
+2963433,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2963437,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+2963493,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+2963496,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+2963553,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2963563,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+2963733,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2963737,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+2963793,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2963800,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+2963913,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2963914,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+2963917,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+2963920,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+2963973,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+2963974,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4148
+2964001,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+2964006,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+2964093,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+2964121,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+2964243,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+2964265,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+2966853,tx_subscribed,handle=1 value=0
+2966854,disconnect,handle=1 slot=0 peer=6b:bd:87:a0:32:70 reason=531 registered=1
+2966855,advertise_restart,advertising=1
+2970184,connect,handle=1 slot=0 peer=6b:bd:87:a0:32:70 interval_units=24 timeout_ms=720 mtu=23
+2970513,mtu,handle=1 value=255
+2971147,tx_subscribed,handle=1 value=1
+2971237,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2971239,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+2971297,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+2971302,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+2971387,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2971397,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+2971537,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2971539,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+2971597,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2971602,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+2971747,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2971747,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+2971752,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+2971755,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+2971807,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+2971807,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4148
+2971834,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+2971841,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+2971927,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+2971954,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+2972077,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+2972099,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+2975257,tx_subscribed,handle=1 value=0
+2975257,disconnect,handle=1 slot=0 peer=6b:bd:87:a0:32:70 reason=531 registered=1
+2975258,advertise_restart,advertising=1
+2979217,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+2979547,mtu,handle=1 value=255
+2980237,tx_subscribed,handle=1 value=1
+2980357,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2980359,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+2980417,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+2980420,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+2980477,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2980487,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+2980657,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2980660,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+2980717,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2980722,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+2980837,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2980837,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+2980842,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+2980845,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+2980897,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+2980898,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4148
+2980924,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+2980931,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+2981047,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+2981074,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+2981167,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+2981190,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+2983657,tx_subscribed,handle=1 value=0
+2983657,disconnect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 reason=531 registered=1
+2983658,advertise_restart,advertising=1
+2987587,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+2987917,mtu,handle=1 value=255
+2988487,tx_subscribed,handle=1 value=1
+2988637,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2988639,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+2988697,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+2988702,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+2988787,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2988797,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+2988967,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2988969,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+2989057,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2989062,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+2989177,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2989177,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+2989182,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+2989185,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+2989237,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+2989237,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4148
+2989264,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+2989271,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+2989387,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+2989416,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+2989537,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+2989559,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+2991997,tx_subscribed,handle=1 value=0
+2991997,disconnect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 reason=531 registered=1
+2991998,advertise_restart,advertising=1
+2995327,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+2995657,mtu,handle=1 value=255
+2996287,tx_subscribed,handle=1 value=1
+2996377,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2996379,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+2996437,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+2996439,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+2996497,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2996507,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+2996677,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2996679,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+2996737,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2996742,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+2996857,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+2996857,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+2996862,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+2996865,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+2996919,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+2996946,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+2996947,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4166
+2996951,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+2997037,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+2997065,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+2997187,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+2997209,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+3026797,tx_subscribed,handle=1 value=0
+3026798,disconnect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 reason=531 registered=1
+3026799,advertise_restart,advertising=1
+3028388,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+3028718,mtu,handle=1 value=255
+3029287,tx_subscribed,handle=1 value=1
+3029407,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3029410,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+3029438,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+3029440,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+3029497,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3029507,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+3029677,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3029681,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+3029737,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3029744,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+3029887,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3029888,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+3029891,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+3029894,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3029977,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+3029978,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4148
+3030005,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3030012,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3030097,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3030125,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3030247,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3030270,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+3032827,tx_subscribed,handle=1 value=0
+3032828,disconnect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 reason=531 registered=1
+3032829,advertise_restart,advertising=1
+3034328,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+3034688,mtu,handle=1 value=255
+3035287,tx_subscribed,handle=1 value=1
+3035377,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3035380,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+3035468,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+3035470,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+3035527,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3035537,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+3035708,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3035710,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+3035767,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3035772,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+3035887,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3035888,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+3035892,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+3035895,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3036007,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+3036035,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3036037,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4166
+3036043,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3036127,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3036155,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3036307,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3036330,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+3038887,tx_subscribed,handle=1 value=0
+3038888,disconnect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 reason=531 registered=1
+3038890,advertise_restart,advertising=1
+3040388,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+3040717,mtu,handle=1 value=255
+3041287,tx_subscribed,handle=1 value=1
+3041407,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3041410,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+3041468,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+3041470,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+3041527,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3041537,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+3041707,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3041710,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+3041767,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3041772,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+3041917,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3041918,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+3041923,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+3041926,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3041977,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+3041978,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4148
+3042005,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3042010,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3042097,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3042125,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3042217,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3042240,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+3044977,tx_subscribed,handle=1 value=0
+3044978,disconnect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 reason=531 registered=1
+3044980,advertise_restart,advertising=1
+3046508,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+3046837,mtu,handle=1 value=255
+3047407,tx_subscribed,handle=1 value=1
+3047557,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3047560,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+3047618,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+3047620,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+3047677,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3047687,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+3047857,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3047860,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+3047917,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3047922,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+3048037,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3048038,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+3048041,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+3048044,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3048097,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+3048098,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4148
+3048125,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3048130,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3048217,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3048245,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3048367,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3048390,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+3051007,tx_subscribed,handle=1 value=0
+3051008,disconnect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 reason=531 registered=1
+3051010,advertise_restart,advertising=1
+3052478,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+3052807,mtu,handle=1 value=255
+3053437,tx_subscribed,handle=1 value=1
+3053587,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3053589,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+3053648,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+3053650,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+3053707,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3053717,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+3053857,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3053860,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+3053917,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3053922,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+3054067,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3054068,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+3054071,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+3054074,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3054127,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+3054128,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4148
+3054155,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3054160,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3054247,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3054275,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3054367,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3054390,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+3057218,tx_subscribed,handle=1 value=0
+3057218,disconnect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 reason=531 registered=1
+3057219,advertise_restart,advertising=1
+3058718,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+3059048,mtu,handle=1 value=255
+3059677,tx_subscribed,handle=1 value=1
+3059767,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3059769,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+3059828,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+3059830,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+3059887,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3059897,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+3060067,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3060070,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+3060127,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3060132,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+3060247,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3060248,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+3060251,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+3060254,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3060307,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+3060308,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4148
+3060335,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3060340,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3060428,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3060456,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3060577,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3060600,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+3063248,tx_subscribed,handle=1 value=0
+3063248,disconnect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 reason=531 registered=1
+3063249,advertise_restart,advertising=1
+3064838,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+3065168,mtu,handle=1 value=255
+3065707,tx_subscribed,handle=1 value=1
+3065827,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3065829,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+3065918,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+3065920,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+3065977,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3065987,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+3066187,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3066190,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+3066247,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3066252,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+3066457,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3066458,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+3066461,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+3066464,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3066518,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+3066518,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4148
+3066545,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3066550,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3066639,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3066666,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3066758,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3066781,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+3069308,tx_subscribed,handle=1 value=0
+3069308,disconnect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 reason=531 registered=1
+3069309,advertise_restart,advertising=1
+3070838,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+3071168,mtu,handle=1 value=255
+3071708,tx_subscribed,handle=1 value=1
+3071887,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3071890,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+3071948,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+3071950,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+3072038,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3072047,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+3072218,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3072220,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+3072278,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3072282,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+3072427,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3072428,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+3072431,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+3072434,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3072488,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+3072488,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4148
+3072515,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3072550,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3072638,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3072665,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3072758,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3072780,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+3075368,tx_subscribed,handle=1 value=0
+3075368,disconnect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 reason=531 registered=1
+3075369,advertise_restart,advertising=1
+3076868,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+3077198,mtu,handle=1 value=255
+3077768,tx_subscribed,handle=1 value=1
+3077888,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3077890,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+3077948,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+3077950,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+3078008,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3078017,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+3078188,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3078190,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+3078278,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3078282,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+3078398,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3078398,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+3078401,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+3078404,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3078458,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+3078485,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3078489,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4166
+3078494,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3078578,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3078605,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3078758,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3078781,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply
+3081428,tx_subscribed,handle=1 value=0
+3081429,disconnect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 reason=531 registered=1
+3081429,advertise_restart,advertising=1
+3082898,connect,handle=1 slot=0 peer=7d:42:43:0c:e8:93 interval_units=24 timeout_ms=720 mtu=23
+3083258,mtu,handle=1 value=255
+3083888,tx_subscribed,handle=1 value=1
+3084008,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3084009,tx_frame,handle=1 slot=0 bytes=36 slices=1 mtu=255 kind=reply
+3084098,rx_write,handle=1 slot=0 bytes=79 accepted=79 free_before=4166
+3084100,tx_frame,handle=1 slot=0 bytes=17 slices=1 mtu=255 kind=reply
+3084158,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3084167,tx_frame,handle=1 slot=0 bytes=1630 slices=7 mtu=255 kind=reply
+3084398,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3084400,tx_frame,handle=1 slot=0 bytes=53 slices=1 mtu=255 kind=reply
+3084458,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3084462,tx_frame,handle=1 slot=0 bytes=588 slices=3 mtu=255 kind=reply
+3084608,rx_write,handle=1 slot=0 bytes=6 accepted=6 free_before=4166
+3084608,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4160
+3084611,tx_frame,handle=1 slot=0 bytes=345 slices=2 mtu=255 kind=reply
+3084614,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3084668,rx_write,handle=1 slot=0 bytes=18 accepted=18 free_before=4166
+3084695,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3084728,rx_write,handle=1 slot=0 bytes=24 accepted=24 free_before=4166
+3084734,tx_frame,handle=1 slot=0 bytes=308 slices=2 mtu=255 kind=reply
+3084818,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3084845,tx_frame,handle=1 slot=0 bytes=2022 slices=9 mtu=255 kind=reply
+3084968,rx_write,handle=1 slot=0 bytes=29 accepted=29 free_before=4166
+3084990,tx_frame,handle=1 slot=0 bytes=956 slices=4 mtu=255 kind=reply

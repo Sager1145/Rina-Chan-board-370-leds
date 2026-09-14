@@ -1,0 +1,23 @@
+Running ble_frame_sender_test.cpp
+BLE transport helpers: 14 scenarios passed (subscription gate, elapsed send deadline, initialization guard, advertising retry)
+Running stream_transport_test.cpp
+Stream transport: 1000 mixed frames, fragmented maximum frame, resync and 9 TCP fault scenarios passed
+Running blob_ownership_test.py
+Blob ownership: BLE + two TCP slots, raw/bitmap takeover, idle timeout/wrap and faces isolation passed
+Running output_mode_test.py
+PASS: output mode/session parsing, status+preview exposure, takeover, and color/brightness stability
+Running playback_ownership_test.py
+PASS: tick takeover, inactive/paused ticks, stale upload write/commit, current append, overlay/user pause ownership, latest preview (100 frames)
+PASS: external frame handoff cancels auto/deferred/queue/upload ownership without blank (100 frames)
+Running presentation_telemetry_test.py
+PASS: presented sequence, scroll-only advance sequence, 64-bit monotonic timestamps
+Running rmt_recovery_test.py
+RMT recovery fault injection: success, timeout recovery, four recovery failures, rejected submit passed
+Running serial_network_scheduling_test.py
+PASS: serial budgets/overflow, takeover ordering, response reserve/non-blocking TX pump
+Running stress_findings_test.py
+saved-face capacity: 128 dense valid faces passed
+SUMMARY F4 pass=14 fail=0
+SUMMARY F5F7 pass=67 fail=0
+PASS: deferred mode persistence, full-write commit, serialization, and latest-only queue contract
+protocol_selftest: PASS

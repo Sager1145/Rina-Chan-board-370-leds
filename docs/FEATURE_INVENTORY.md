@@ -76,7 +76,7 @@ call; the RinaLink equivalent is in `RINALINK_PROTOCOL_V1.md`.
 |---|---|
 | E1 | Bluetooth scan / connect to the board (CoreBluetooth); all features work over BLE. |
 | E2 | Wi-Fi provisioning over BLE: scan networks, enter password, choose mode (off / hotspot / home Wi-Fi / Wi-Fi with hotspot fallback). |
-| E3 | Home-Wi-Fi connection over TCP: Bonjour discovery of `rinaboard.local`, manual IP fallback. |
+| E3 | Home-Wi-Fi connection over TCP: Bonjour discovery of `rinaboard-<id>.local`, manual IP fallback. |
 | E4 | Hotspot ("direct") connection: join the board's SoftAP via `NEHotspotConfiguration`, TCP to `192.168.4.1`. |
 | E5 | Transport switcher with live status, auto-fallback BLE ⇄ Wi-Fi, per-board memory of the preferred transport. |
 

@@ -1,0 +1,170 @@
+case_id,layer,load,seed,status,metrics,evidence
+F1-CONST,fw-parser,1,-,PASS,magic=0xA5 hdr=6 maxPayload=4096 inbound=4166 perPass=8,logs/firmware/f1_parser.log
+F1-SPLIT-EVERY-OFFSET,fw-parser,1,-,PASS,offsets=107 failures=0,logs/firmware/f1_parser.log
+F1-SPLIT-BYTE-BY-BYTE,fw-parser,1,-,PASS,bytes=106,logs/firmware/f1_parser.log
+F1-GLUE-BUDGET,fw-parser,1,-,PASS,perPass=8/8/4/0,logs/firmware/f1_parser.log
+F1-BADMAGIC-1000B-THEN-PING,fw-parser,1,-,PASS,replyType=134,logs/firmware/f1_parser.log
+F1-MAGIC-LEN65535-HEADER-THEN-PING,fw-parser,1,-,PASS,replyType=134,logs/firmware/f1_parser.log
+F1-LEN-0,fw-parser,1,-,PASS,reply=255 code=400 nextPing=134,logs/firmware/f1_parser.log
+F1-LEN-4095,fw-parser,1,-,PASS,reply=255 code=400 nextPing=134,logs/firmware/f1_parser.log
+F1-LEN-4096,fw-parser,1,-,PASS,reply=255 code=400 nextPing=134,logs/firmware/f1_parser.log
+F1-LEN-4097-RESYNC,fw-parser,1,-,PASS,nextPingReply=134,logs/firmware/f1_parser.log
+F1-LEN-4097-EXPLICIT-REJECT,fw-parser,1,-,FAIL,oversizeReplyType=0 (0=silently skipped; no ERR; no disconnect),logs/firmware/f1_parser.log
+F1-LEN-65535-RESYNC,fw-parser,1,-,PASS,nextPingReply=134,logs/firmware/f1_parser.log
+F1-LEN-65535-EXPLICIT-REJECT,fw-parser,1,-,FAIL,oversizeReplyType=0 (0=silently skipped; no ERR; no disconnect),logs/firmware/f1_parser.log
+F1-TRUNC-THEN-VALID,fw-parser,1,-,FAIL,validPingAnswered=0 swallowedIntoTruncated=1 afterFill:seq30=1 seq31=0,logs/firmware/f1_parser.log
+F1-OVERSIZE-PHANTOM-DISPATCH,fw-parser,1,-,FAIL,phantomReplyType=144 displayMarkerDec=90(injected=90) (payload bytes of a rejected frame re-parsed as SET_FRAME),logs/firmware/f1_parser.log
+F1-UNKNOWN-TYPE,fw-parser,1,-,PASS,code=400,logs/firmware/f1_parser.log
+F1-SETFRAME-PAYLOAD-46,fw-parser,1,-,PASS,replyType=255 expectAccept=0 code=400,logs/firmware/f1_parser.log
+F1-SETFRAME-PAYLOAD-47,fw-parser,1,-,PASS,replyType=255 expectAccept=0 code=400,logs/firmware/f1_parser.log
+F1-SETFRAME-PAYLOAD-48,fw-parser,1,-,PASS,replyType=255 expectAccept=0 code=400,logs/firmware/f1_parser.log
+F1-SETFRAME-PAYLOAD-49-VALID,fw-parser,1,-,PASS,replyType=144 expectAccept=1,logs/firmware/f1_parser.log
+F1-SETFRAME-PAYLOAD-50-TRAILING,fw-parser,1,-,PASS,replyType=144 expectAccept=1,logs/firmware/f1_parser.log
+F1-SETFRAME-FRAME46,fw-parser,1,-,PASS,replyType=255 expectAccept=0 code=400,logs/firmware/f1_parser.log
+F1-SETFRAME-FRAME48,fw-parser,1,-,PASS,replyType=144 expectAccept=1,logs/firmware/f1_parser.log
+F1-SETFRAME-TAILBITS,fw-parser,1,-,PASS,replyType=255 expectAccept=0 code=400,logs/firmware/f1_parser.log
+F1-SETFRAME-REASONLEN-OVERRUN,fw-parser,1,-,PASS,replyType=255 expectAccept=0 code=400,logs/firmware/f1_parser.log
+F1-BLE-OVERFLOW-RESYNC,fw-parser,1,-,PASS,err413=1 nextPing=134,logs/firmware/f1_parser.log
+F1-FUZZ-POP,fw-parser,1000000,0x0000000000c0ffee,PASS,iters=1000000 frames=98828 mismatches=0 capOrStallViolations=0 secs=2.168287,logs/firmware/f1_parser.log
+F1-FUZZ-DISPATCH,fw-parser,1000000,0x0000000000c0aebf,PASS,iters=1000000 passes=700192 replyGroups=353483 maxGroupsPerPass=8 budgetViolations=0 capViolations=0 lockRecursion=0 lockOrder=0 secs=2.892314,logs/firmware/f1_parser.log
+F2-BLE-NOT-WRITABLE-REPLY,fw-ble-tcp-sender,1,-,PASS,bytes=0 blockedMs=250 disconnect=1,logs/firmware/f2_senders.log
+F2-BLE-NOT-WRITABLE-EVENT,fw-ble-tcp-sender,1,-,PASS,bytes=0 blockedMs=0 droppedCleanly=1,logs/firmware/f2_senders.log
+F2-BLE-ZERO-LENGTH-FRAME,fw-ble-tcp-sender,1,-,PASS,attempts=0,logs/firmware/f2_senders.log
+F2-BLE-CHUNK0,fw-ble-tcp-sender,1,-,PASS,chunk=0 rejected,logs/firmware/f2_senders.log
+F2-BLE-PARTIAL-THEN-DISCONNECT-REPLY,fw-ble-tcp-sender,1,-,PASS,bytesSent=40 teardown=1,logs/firmware/f2_senders.log
+F2-BLE-PARTIAL-THEN-DISCONNECT-EVENT,fw-ble-tcp-sender,1,-,PASS,bytesSent=40 teardown=1,logs/firmware/f2_senders.log
+F2-BLE-DEADLINE-STALL-249MS,fw-ble-tcp-sender,249,-,PASS,complete=1 blockedMs=253 (tolerates exactly 250 ms of 1 ms stalls),logs/firmware/f2_senders.log
+F2-BLE-DEADLINE-STALL-250MS,fw-ble-tcp-sender,250,-,PASS,complete=1 blockedMs=254 (tolerates exactly 250 ms of 1 ms stalls),logs/firmware/f2_senders.log
+F2-BLE-DEADLINE-STALL-251MS,fw-ble-tcp-sender,251,-,PASS,complete=0 blockedMs=250 (tolerates exactly 250 ms of 1 ms stalls),logs/firmware/f2_senders.log
+F2-BLE-DEADLINE-COARSE-PAUSE-249,fw-ble-tcp-sender,249,-,PASS,complete=1 blockedMs=502 bound=deadline+onePause,logs/firmware/f2_senders.log
+F2-BLE-DEADLINE-COARSE-PAUSE-250,fw-ble-tcp-sender,250,-,PASS,complete=0 blockedMs=250 bound=deadline+onePause,logs/firmware/f2_senders.log
+F2-BLE-DEADLINE-COARSE-PAUSE-251,fw-ble-tcp-sender,251,-,PASS,complete=0 blockedMs=251 bound=deadline+onePause,logs/firmware/f2_senders.log
+F2-BLE-WORSTCASE-BLOCK-ATT20,fw-ble-tcp-sender,4102B,-,PASS,slices=206 complete=0 bytes=2500 blockedMs=375,logs/firmware/f2_senders.log
+F2-BLE-WORSTCASE-BLOCK-ATT182,fw-ble-tcp-sender,4102B,-,PASS,slices=23 complete=1 bytes=4102 blockedMs=69,logs/firmware/f2_senders.log
+F2-BLE-WORSTCASE-BLOCK-ATT244,fw-ble-tcp-sender,4102B,-,PASS,slices=17 complete=1 bytes=4102 blockedMs=51,logs/firmware/f2_senders.log
+F2-BLE-WORSTCASE-BLOCK-ATT509,fw-ble-tcp-sender,4102B,-,PASS,slices=9 complete=1 bytes=4102 blockedMs=27,logs/firmware/f2_senders.log
+F2-BLE-STREAM-INTEGRITY-ATT20,fw-ble-tcp-sender,3000 frames,0x186515476,PASS,sessions=256 complete=2713 droppedEvents=32 teardowns=255 violations=0 maxBlockMs=452,logs/firmware/f2_senders.log
+F2-BLE-STREAM-INTEGRITY-ATT182,fw-ble-tcp-sender,3000 frames,0x186515638,PASS,sessions=39 complete=2942 droppedEvents=20 teardowns=38 violations=0 maxBlockMs=270,logs/firmware/f2_senders.log
+F2-BLE-STREAM-INTEGRITY-ATT244,fw-ble-tcp-sender,3000 frames,0x186515700,PASS,sessions=24 complete=2962 droppedEvents=15 teardowns=23 violations=0 maxBlockMs=267,logs/firmware/f2_senders.log
+F2-BLE-STREAM-INTEGRITY-ATT509,fw-ble-tcp-sender,3000 frames,0x186515965,PASS,sessions=15 complete=2979 droppedEvents=7 teardowns=14 violations=0 maxBlockMs=257,logs/firmware/f2_senders.log
+F2-TCP-SHORT-WRITE-1B,fw-ble-tcp-sender,4102B,-,PASS,bytes=250 blockedMs=250 teardown,logs/firmware/f2_senders.log
+F2-TCP-SHORT-WRITE-1000B,fw-ble-tcp-sender,4102B,-,PASS,blockedMs=4,logs/firmware/f2_senders.log
+F2-TCP-ZERO-WRITE-REPLY,fw-ble-tcp-sender,4102B,-,PASS,bytes=0 blockedMs=250,logs/firmware/f2_senders.log
+F2-TCP-ZERO-WRITE-EVENT,fw-ble-tcp-sender,4102B,-,PASS,bytes=0 blockedMs=0,logs/firmware/f2_senders.log
+F2-TCP-EVENT-PARTIAL-THEN-ZERO,fw-ble-tcp-sender,4102B,-,PASS,event kept writing after first byte; blockedMs=4,logs/firmware/f2_senders.log
+F2-TCP-BROKEN,fw-ble-tcp-sender,1,-,PASS,immediate,logs/firmware/f2_senders.log
+F2-TCP-PARTIAL-THEN-DISCONNECT,fw-ble-tcp-sender,1,-,PASS,bytes=1000 teardown,logs/firmware/f2_senders.log
+F2-TCP-DEADLINE-249MS,fw-ble-tcp-sender,249,-,PASS,complete=1 blockedMs=249,logs/firmware/f2_senders.log
+F2-TCP-DEADLINE-250MS,fw-ble-tcp-sender,250,-,PASS,complete=0 blockedMs=250,logs/firmware/f2_senders.log
+F2-TCP-DEADLINE-251MS,fw-ble-tcp-sender,251,-,PASS,complete=0 blockedMs=250,logs/firmware/f2_senders.log
+F2-TCP-STREAM-INTEGRITY,fw-ble-tcp-sender,3000 frames,0x7c9,PASS,teardowns=7 droppedEvents=113 violations=0,logs/firmware/f2_senders.log
+F3-CONST,fw-frame-queue,1,-,PASS,PACKED_FRAME_QUEUE_DEPTH=3 (array) PACKED_FRAME_MIN_INTERVAL_MS=33,logs/firmware/f3_queue.log
+F3-RATE-10HZ-LOOP2MS,fw-frame-queue,10Hz/10s,0x000000000000f30a,PASS,offered=100 okReplies=100 presented=100 dropped=0 queuedCtr=0 dequeuedCtr=0 maxPending=0 minGapMs=98 maxLatencyMs=0 presentedHz=10.000000 finalMarkerShown=1 stale=0 conserved=1,logs/firmware/f3_queue.log
+F3-RATE-10HZ-LOOP5MS,fw-frame-queue,10Hz/10s,0x000000000000f30a,PASS,offered=100 okReplies=100 presented=100 dropped=0 queuedCtr=0 dequeuedCtr=0 maxPending=0 minGapMs=95 maxLatencyMs=0 presentedHz=10.000000 finalMarkerShown=1 stale=0 conserved=1,logs/firmware/f3_queue.log
+F3-RATE-25HZ-LOOP2MS,fw-frame-queue,25Hz/10s,0x000000000000f319,PASS,offered=249 okReplies=249 presented=249 dropped=0 queuedCtr=0 dequeuedCtr=0 maxPending=0 minGapMs=38 maxLatencyMs=0 presentedHz=24.900000 finalMarkerShown=1 stale=0 conserved=1,logs/firmware/f3_queue.log
+F3-RATE-25HZ-LOOP5MS,fw-frame-queue,25Hz/10s,0x000000000000f319,PASS,offered=249 okReplies=249 presented=249 dropped=0 queuedCtr=0 dequeuedCtr=0 maxPending=0 minGapMs=35 maxLatencyMs=0 presentedHz=24.900000 finalMarkerShown=1 stale=0 conserved=1,logs/firmware/f3_queue.log
+F3-RATE-50HZ-LOOP2MS,fw-frame-queue,50Hz/10s,0x000000000000f332,PASS,offered=498 okReplies=498 presented=294 dropped=204 queuedCtr=497 dequeuedCtr=293 maxPending=1 minGapMs=34 maxLatencyMs=22 presentedHz=29.400000 finalMarkerShown=1 stale=0 conserved=1,logs/firmware/f3_queue.log
+F3-RATE-50HZ-LOOP5MS,fw-frame-queue,50Hz/10s,0x000000000000f332,PASS,offered=498 okReplies=498 presented=286 dropped=212 queuedCtr=497 dequeuedCtr=285 maxPending=1 minGapMs=35 maxLatencyMs=35 presentedHz=28.600000 finalMarkerShown=1 stale=0 conserved=1,logs/firmware/f3_queue.log
+F3-RATE-75HZ-LOOP2MS,fw-frame-queue,75Hz/10s,0x000000000000f34b,PASS,offered=747 okReplies=747 presented=294 dropped=453 queuedCtr=746 dequeuedCtr=293 maxPending=1 minGapMs=34 maxLatencyMs=14 presentedHz=29.400000 finalMarkerShown=1 stale=0 conserved=1,logs/firmware/f3_queue.log
+F3-RATE-75HZ-LOOP5MS,fw-frame-queue,75Hz/10s,0x000000000000f34b,PASS,offered=746 okReplies=746 presented=285 dropped=461 queuedCtr=745 dequeuedCtr=284 maxPending=1 minGapMs=35 maxLatencyMs=15 presentedHz=28.500000 finalMarkerShown=1 stale=0 conserved=1,logs/firmware/f3_queue.log
+F3-RATE-100HZ-LOOP2MS,fw-frame-queue,100Hz/10s,0x000000000000f364,PASS,offered=995 okReplies=995 presented=294 dropped=701 queuedCtr=994 dequeuedCtr=293 maxPending=1 minGapMs=34 maxLatencyMs=22 presentedHz=29.400000 finalMarkerShown=1 stale=0 conserved=1,logs/firmware/f3_queue.log
+F3-RATE-100HZ-LOOP5MS,fw-frame-queue,100Hz/10s,0x000000000000f364,PASS,offered=995 okReplies=995 presented=286 dropped=709 queuedCtr=994 dequeuedCtr=285 maxPending=1 minGapMs=35 maxLatencyMs=35 presentedHz=28.600000 finalMarkerShown=1 stale=0 conserved=1,logs/firmware/f3_queue.log
+F3-BURST-8-PER-PASS,fw-frame-queue,8 frames/pass x10Hz,0xf3b,PASS,offered=80 presented=20 dropped=60 finalShown=1 maxPending=1 order=0 minGapMs=34,logs/firmware/f3_queue.log
+F3-STATUS-QUEUEDEPTH-SEMANTICS,fw-frame-queue,1,-,PASS,SET_FRAME reply queueDepth=3 queueCount=1 (advertised depth 3; effective pending depth 1 latest-only),logs/firmware/f3_queue.log
+F4-BASELINE-CONVERGE,fw-events,1,-,PASS,statusV=1 boardV=1,logs/firmware/f4_events.log
+F4-STATUS-SINGLE-DROP-CONVERGE,fw-events,1,-,FAIL,clientLastV=1 boardV=2 waitedMs=5000 dropped=1 lastStatusVersion advanced on failed send,logs/firmware/f4_events.log
+F4-STATUS-QUERY-RECOVERS,fw-events,1,-,PASS,GET_STATUS v=2,logs/firmware/f4_events.log
+F4-STATUS-INTERMEDIATE-DROP-ALLOWED,fw-events,1,-,PASS,clientLastV=4 boardV=4,logs/firmware/f4_events.log
+F4-PREVIEW-SINGLE-DROP-CONVERGE,fw-events,1,-,FAIL,clientLastPresentedSeq=0 boardPresentedSeq=1 waitedMs=5000,logs/firmware/f4_events.log
+F4-PREVIEW-QUERY-RECOVERS,fw-events,1,-,PASS,GET_PREVIEW_SYNC presentedSeq=1,logs/firmware/f4_events.log
+F4-BLE-CCCD-LATE-STATUS,fw-events,1,-,FAIL,EV_STATUS received=0 EV_PREVIEW_SYNC received=0 EV_POWER received=4 over 5000 ms idle,logs/firmware/f4_events.log
+F4-BLE-CCCD-LATE-PREVIEW,fw-events,1,-,FAIL,EV_PREVIEW_SYNC received=0,logs/firmware/f4_events.log
+F4-WIFI-EVENT-SINGLE-DROP,fw-events,1,-,FAIL,EV_WIFI received=0 (one-shot; not retried),logs/firmware/f4_events.log
+F4-WIFI-STATUS-QUERY-RECOVERS,fw-events,1,-,PASS,replyType=129,logs/firmware/f4_events.log
+F4-WIFI-SCAN-EVENT-SINGLE-DROP,fw-events,1,-,FAIL,EV_WIFI_SCAN received=0 requester cleared,logs/firmware/f4_events.log
+F4-WIFI-SCAN-RESULT-QUERY-RECOVERS,fw-events,1,-,PASS,replyType=129,logs/firmware/f4_events.log
+F4-POWER-FLIP-DROP-CONVERGE,fw-events,1,-,PASS,convergedAfterMs=1000,logs/firmware/f4_events.log
+F4-DROP-STORM-NONCONVERGENCE,fw-events,200 trials,0xf4f4,FAIL,trials=200 stuckStatus=65 stuckPreview=92 dropP=0.5 per burst change,logs/firmware/f4_events.log
+F5-CONST,fw-blob,1,-,PASS,MAX_FACES_BLOB_BYTES=262144 MAX_AUTO_FACES=128 MAX_SCROLL_FRAMES=3072 MAX_SCROLL_TEXT_BYTES=4096 reclaim=30000ms,logs/firmware/f5_f7_blob.log
+F5-RAW-HAPPY-HASH,fw-blob,1,-,PASS,type=162 frames=300 liveHash=18638edc68d7ea5d sentHash=18638edc68d7ea5d,logs/firmware/f5_f7_blob.log
+F5-DUP-CHUNK,fw-blob,1,-,PASS,dup=type=255 code=400 err=unexpected chunk offset expectedOffset=3995,logs/firmware/f5_f7_blob.log
+F5-OUT-OF-ORDER-CHUNK,fw-blob,1,-,PASS,early=type=255 code=400 err=unexpected chunk offset end=type=162 hashMatch=1,logs/firmware/f5_f7_blob.log
+F5-LEN-MISMATCH,fw-blob,1,-,PASS,bad=type=255 code=400 err=scroll chunk must be a multiple of 47 bytes endShort=type=255 code=400 err=incomplete blob upload chunkAfterEnd=type=255 code=400 err=no active blob session,logs/firmware/f5_f7_blob.log
+F5-OVER-LIMIT,fw-blob,1,-,PASS,frames3073=type=255 code=413 err=too many scroll frames implied3073=type=255 code=413 err=too many scroll frames chunkPastTotal=type=255 code=413 err=chunk exceeds declared blob size faces262145=type=255 code=413 err=faces document too large faces262144=type=160,logs/firmware/f5_f7_blob.log
+F5-RAW-ABORT-ATOMICITY,fw-blob,1,-,FAIL,before: frames=100 active=1 afterBEGIN frames=0 afterABORT frames=0 status.firmwareScrollActive=1 status.scrollFrameCount=0 timelineId='',logs/firmware/f5_f7_blob.log
+F5-RAW-MISSING-CHUNK-ATOMICITY,fw-blob,1,-,FAIL,end=type=255 code=400 err=incomplete blob upload framesAfter=0,logs/firmware/f5_f7_blob.log
+F5-RAW-DISCONNECT-RELEASES-SLOT,fw-blob,1,-,PASS,otherClientBegin=type=160,logs/firmware/f5_f7_blob.log
+F5-RAW-DISCONNECT-ATOMICITY,fw-blob,1,-,FAIL,framesAfterDisconnect=0,logs/firmware/f5_f7_blob.log
+F5-BITMAP-ABORT-ATOMICITY,fw-blob,1,-,PASS,framesAfter=100,logs/firmware/f5_f7_blob.log
+F5-BITMAP-HAPPY-REFERENCE-HASH,fw-blob,1,-,PASS,type=162 frames=379 rotation=9 refRotation=9 liveHash=1fb526f8f1d656cf refHash=1fb526f8f1d656cf,logs/firmware/f5_f7_blob.log
+F5-APPEND-HASH,fw-blob,1,-,PASS,type=162,logs/firmware/f5_f7_blob.log
+F5-INACTIVITY-faces,fw-blob,1,-,PASS,at29999=type=161 refreshedAt29999=type=161 at30000=type=255 code=400 err=no active blob session (>= 30000 ms reclaims),logs/firmware/f5_f7_blob.log
+F5-INACTIVITY-scroll_bitmap,fw-blob,1,-,PASS,at29999=type=161 refreshedAt29999=type=161 at30000=type=255 code=400 err=no active blob session (>= 30000 ms reclaims),logs/firmware/f5_f7_blob.log
+F5-INACTIVITY-scroll,fw-blob,1,-,PASS,at29999=type=161 refreshedAt29999=type=161 at30000=type=255 code=400 err=no active blob session (>= 30000 ms reclaims),logs/firmware/f5_f7_blob.log
+F5-GENERATION-SETFRAME-INVALIDATES,fw-blob,1,-,PASS,chunkAfterOtherSetFrame=type=255 code=400 err=no active blob session end=type=255 code=400 err=no active blob session,logs/firmware/f5_f7_blob.log
+F5-GENERATION-START-VS-STOP,fw-blob,1,-,PASS,chunkAfterStartScroll=type=161 chunkAfterStopScroll=type=255 code=400 err=no active blob session startReply=129 stopReply=129,logs/firmware/f5_f7_blob.log
+F5-TWO-CLIENTS-EXCLUSIVE,fw-blob,1,-,PASS,B.beginScroll=type=255 code=409 err=scroll upload already in progress B.beginBitmap=type=255 code=409 err=scroll upload already in progress B.abort=type=163 B.end=type=255 code=400 err=no active blob session B.beginFaces=type=160 A.end=type=162,logs/firmware/f5_f7_blob.log
+F5-FACES-HAPPY,fw-blob,1,-,PASS,type=162 diskCanonicalEq=1 loaded=10,logs/firmware/f5_f7_blob.log
+F5-GET-FACES-DOWNLOAD-HASH,fw-blob,1,-,PASS,parts=5 bytes=2239 fileBytes=2239 firstDiff=2239 more=0 hashEq=1,logs/firmware/f5_f7_blob.log
+F5-GET-FACES-GEN-MISMATCH-409,fw-blob,1,-,PASS,type=255 code=409 err=saved_faces.json changed mid-transfer,logs/firmware/f5_f7_blob.log
+F7-FACES-INVALID-TRUNCATED-JSON-KEEPS-PREVIOUS,fw-blob,1,-,PASS,type=255 code=400 err=invalid JSON: IncompleteInput fileUnchanged=1,logs/firmware/f5_f7_blob.log
+F7-FACES-INVALID-BAD-CATEGORY-KEEPS-PREVIOUS,fw-blob,1,-,PASS,type=255 code=400 err=document.category must be unified_saved_faces fileUnchanged=1,logs/firmware/f5_f7_blob.log
+F7-FACES-INVALID-NO-DEFAULT-KEEPS-PREVIOUS,fw-blob,1,-,PASS,type=255 code=400 err=saved_faces.json must keep at least one type:"default" face fileUnchanged=1,logs/firmware/f5_f7_blob.log
+F7-FACES-INVALID-ORDER-0-KEEPS-PREVIOUS,fw-blob,1,-,PASS,type=255 code=400 err=face order must be 1-based and >= 1 fileUnchanged=1,logs/firmware/f5_f7_blob.log
+F7-FACES-INVALID-FRAME-46-KEEPS-PREVIOUS,fw-blob,1,-,PASS,type=255 code=400 err=invalid face packed frame: face.frameBytes must contain 47 bytes fileUnchanged=1,logs/firmware/f5_f7_blob.log
+F7-FACES-INVALID-TAIL-BITS-KEEPS-PREVIOUS,fw-blob,1,-,PASS,type=255 code=400 err=invalid face packed frame: packed frame has non-zero unused bits fileUnchanged=1,logs/firmware/f5_f7_blob.log
+F7-FACES-INVALID-FACES-129-KEEPS-PREVIOUS,fw-blob,1,-,PASS,type=255 code=400 err=invalid JSON: NoMemory fileUnchanged=1,logs/firmware/f5_f7_blob.log
+F7-SCROLL-FRAMES-0,fw-blob,1,-,PASS,type=162 frames=0,logs/firmware/f5_f7_blob.log
+F7-SCROLL-FRAMES-1,fw-blob,1,-,PASS,type=162 frames=1,logs/firmware/f5_f7_blob.log
+F7-SCROLL-FRAMES-3071,fw-blob,1,-,PASS,type=162 frames=3071,logs/firmware/f5_f7_blob.log
+F7-SCROLL-FRAMES-3072,fw-blob,1,-,PASS,type=162 frames=3072,logs/firmware/f5_f7_blob.log
+F7-SCROLL-FRAMES-3073,fw-blob,1,-,PASS,type=255 code=413 err=too many scroll frames,logs/firmware/f5_f7_blob.log
+F7-SCROLL-0-FRAMES-START-REPLY,fw-blob,1,-,FAIL,type=162 reply.started=1 actualActive=0,logs/firmware/f5_f7_blob.log
+F7-BITMAP-WIDTH-22,fw-blob,1,-,PASS,type=162 frames=2,logs/firmware/f5_f7_blob.log
+F7-BITMAP-WIDTH-23,fw-blob,1,-,PASS,type=162 frames=2,logs/firmware/f5_f7_blob.log
+F7-BITMAP-WIDTH-3093,fw-blob,1,-,PASS,type=162 frames=3072,logs/firmware/f5_f7_blob.log
+F7-BITMAP-WIDTH-3094,fw-blob,1,-,PASS,type=255 code=400 err=scroll_bitmap width out of range (doc §7.1: width range 22..3093; >3072 frames -> 413),logs/firmware/f5_f7_blob.log
+F7-TEXT-CODELIMIT-ASCII-4095,fw-blob,1,-,PASS,replyType=129 metaBytes=4095 roundTripEq=1,logs/firmware/f5_f7_blob.log
+F7-TEXT-CODELIMIT-ASCII-4096,fw-blob,1,-,PASS,replyType=129 metaBytes=4096 roundTripEq=1,logs/firmware/f5_f7_blob.log
+F7-TEXT-CODELIMIT-ASCII-4097,fw-blob,1,-,PASS,replyType=255 metaBytes=0 roundTripEq=0,logs/firmware/f5_f7_blob.log
+F7-TEXT-WIRE-4096-ASCII,fw-blob,1,-,FAIL,framePayload=4146 replyType=0 (0=no reply; oversize frame silently skipped) maxTextBytesThatFit=4046,logs/firmware/f5_f7_blob.log
+F7-TEXT-CODELIMIT-CJK-4095,fw-blob,1,-,PASS,replyType=129 metaBytes=4095 roundTripEq=1,logs/firmware/f5_f7_blob.log
+F7-TEXT-CODELIMIT-CJK-4096,fw-blob,1,-,PASS,replyType=129 metaBytes=4096 roundTripEq=1,logs/firmware/f5_f7_blob.log
+F7-TEXT-CODELIMIT-CJK-4097,fw-blob,1,-,PASS,replyType=255 metaBytes=0 roundTripEq=0,logs/firmware/f5_f7_blob.log
+F7-TEXT-WIRE-4096-CJK,fw-blob,1,-,FAIL,framePayload=4146 replyType=0 (0=no reply; oversize frame silently skipped) maxTextBytesThatFit=4046,logs/firmware/f5_f7_blob.log
+F7-TEXT-CODELIMIT-EMOJI-4095,fw-blob,1,-,PASS,replyType=129 metaBytes=4095 roundTripEq=1,logs/firmware/f5_f7_blob.log
+F7-TEXT-CODELIMIT-EMOJI-4096,fw-blob,1,-,PASS,replyType=129 metaBytes=4096 roundTripEq=1,logs/firmware/f5_f7_blob.log
+F7-TEXT-CODELIMIT-EMOJI-4097,fw-blob,1,-,PASS,replyType=255 metaBytes=0 roundTripEq=0,logs/firmware/f5_f7_blob.log
+F7-TEXT-WIRE-4096-EMOJI,fw-blob,1,-,FAIL,framePayload=4146 replyType=0 (0=no reply; oversize frame silently skipped) maxTextBytesThatFit=4046,logs/firmware/f5_f7_blob.log
+F7-TEXT-CODELIMIT-COMBINING-4095,fw-blob,1,-,PASS,replyType=129 metaBytes=4095 roundTripEq=1,logs/firmware/f5_f7_blob.log
+F7-TEXT-CODELIMIT-COMBINING-4096,fw-blob,1,-,PASS,replyType=129 metaBytes=4096 roundTripEq=1,logs/firmware/f5_f7_blob.log
+F7-TEXT-CODELIMIT-COMBINING-4097,fw-blob,1,-,PASS,replyType=255 metaBytes=0 roundTripEq=0,logs/firmware/f5_f7_blob.log
+F7-TEXT-WIRE-4096-COMBINING,fw-blob,1,-,FAIL,framePayload=4146 replyType=0 (0=no reply; oversize frame silently skipped) maxTextBytesThatFit=4046,logs/firmware/f5_f7_blob.log
+F7-FACES-BLOB-127,fw-blob,1,-,FAIL,type=255 code=400 err=invalid JSON: NoMemory loaded=3,logs/firmware/f5_f7_blob.log
+F7-FACES-BLOB-128,fw-blob,1,-,FAIL,type=255 code=400 err=invalid JSON: NoMemory loaded=3,logs/firmware/f5_f7_blob.log
+F7-FACES-BLOB-129,fw-blob,1,-,PASS,type=255 code=400 err=invalid JSON: NoMemory loaded=3,logs/firmware/f5_f7_blob.log
+F7-FACE-UPSERT-127-128-129,fw-blob,1,-,FAIL,at127=type=255 code=500 err=face_upsert: saved_faces.json parse failed: NoMemory count=0 at128=type=255 code=500 err=face_upsert: saved_faces.json parse failed: NoMemory fileUnchanged=1,logs/firmware/f5_f7_blob.log
+F7-CMD-BAD-FIELDS-KEEP-FILE,fw-blob,1,-,PASS,frameHex93=type=255 code=400 err=face.frameHex must be 94 hex chars truncatedJson=type=255 code=400 err=invalid JSON: IncompleteInput,logs/firmware/f5_f7_blob.log
+F7-FACES-BLOB-262144-BYTES,fw-blob,1,-,PASS,docBytes=262144 type=162,logs/firmware/f5_f7_blob.log
+F7-FACES-BLOB-262145-BYTES,fw-blob,1,-,PASS,type=255 code=413 err=faces document too large,logs/firmware/f5_f7_blob.log
+F7-UPSERT-GROWTH-VS-BLOB-LIMIT,fw-blob,1,-,FAIL,faces=128 fileBytes=291489 reuploadBegin=type=255 code=413 err=faces document too large (face_upsert has no name limit; face_rename caps 64),logs/firmware/f5_f7_blob.log
+F7-FS-PARTIAL-WRITE-FACES-BLOB,fw-blob,1,-,FAIL,reply=type=162 replyBytes=1778 fileBytesOnDisk=200 fileParses=0 previousPreserved=0 facesLoadedAfter=0 partialWrites=1,logs/firmware/f5_f7_blob.log
+F7-FS-PARTIAL-WRITE-FACE-RENAME,fw-blob,1,-,FAIL,reply=type=129 fileBytesOnDisk=150 previousPreserved=0 facesLoadedAfter=0,logs/firmware/f5_f7_blob.log
+F7-FS-RENAME-OR-OPEN-FAIL-KEEPS-FILE,fw-blob,1,-,PASS,rename=type=255 code=500 err=failed to write/commit file: /resources/saved_faces.json open=type=255 code=500 err=failed to write/commit file: /resources/saved_faces.json,logs/firmware/f5_f7_blob.log
+F5-LOCK-DISCIPLINE,fw-blob,1,-,PASS,recursion=0 orderViolations=0,logs/firmware/f5_f7_blob.log
+F6-CONST,fw-scroll-timing,-,-,PASS,MIN_SCROLL_INTERVAL_MS=17 SCROLL_DRIFT_RESET_INTERVALS=4,logs/firmware/f6_scroll_timing.log
+F6-STEADY-17MS-RENDER11MS,fw-scroll-timing,10s,-,PASS,advances=588 speedRatio=0.999 lostFrames=1 maxBurstPerInterval=2,logs/firmware/f6_scroll_timing.log
+F6-STEADY-17MS-RENDER16MS,fw-scroll-timing,10s,-,FAIL,advances=531 speedRatio=0.903 lostFrames=57 maxBurstPerInterval=1,logs/firmware/f6_scroll_timing.log
+F6-STEADY-17MS-RENDER20MS,fw-scroll-timing,10s,-,FAIL,advances=438 speedRatio=0.744 lostFrames=151 maxBurstPerInterval=1,logs/firmware/f6_scroll_timing.log
+F6-STALL-0MS-INTERVAL17,fw-scroll-timing,0ms@17,-,PASS,advances=294 speedRatio=0.998 timelineOffsetFrames=1 (17 ms) maxBurstPerInterval=2 postStallSpeed=0.000 driftThresholdMs=68,logs/firmware/f6_scroll_timing.log
+F6-STALL-50MS-INTERVAL17,fw-scroll-timing,50ms@17,-,PASS,advances=294 speedRatio=0.997 timelineOffsetFrames=1 (17 ms) maxBurstPerInterval=2 postStallSpeed=1.003 driftThresholdMs=68,logs/firmware/f6_scroll_timing.log
+F6-STALL-100MS-INTERVAL17,fw-scroll-timing,100ms@17,-,PASS,advances=288 speedRatio=0.978 timelineOffsetFrames=6 (102 ms) maxBurstPerInterval=2 postStallSpeed=1.003 driftThresholdMs=68,logs/firmware/f6_scroll_timing.log
+F6-STALL-500MS-INTERVAL17,fw-scroll-timing,500ms@17,-,PASS,advances=264 speedRatio=0.898 timelineOffsetFrames=30 (510 ms) maxBurstPerInterval=2 postStallSpeed=1.003 driftThresholdMs=68,logs/firmware/f6_scroll_timing.log
+F6-STALL-0MS-INTERVAL100,fw-scroll-timing,0ms@100,-,PASS,advances=49 speedRatio=0.980 timelineOffsetFrames=1 (100 ms) maxBurstPerInterval=2 postStallSpeed=0.000 driftThresholdMs=400,logs/firmware/f6_scroll_timing.log
+F6-STALL-50MS-INTERVAL100,fw-scroll-timing,50ms@100,-,PASS,advances=49 speedRatio=0.980 timelineOffsetFrames=1 (100 ms) maxBurstPerInterval=2 postStallSpeed=1.000 driftThresholdMs=400,logs/firmware/f6_scroll_timing.log
+F6-STALL-100MS-INTERVAL100,fw-scroll-timing,100ms@100,-,PASS,advances=49 speedRatio=0.980 timelineOffsetFrames=1 (100 ms) maxBurstPerInterval=3 postStallSpeed=1.000 driftThresholdMs=400,logs/firmware/f6_scroll_timing.log
+F6-STALL-500MS-INTERVAL100,fw-scroll-timing,500ms@100,-,PASS,advances=44 speedRatio=0.880 timelineOffsetFrames=6 (600 ms) maxBurstPerInterval=2 postStallSpeed=1.000 driftThresholdMs=400,logs/firmware/f6_scroll_timing.log
+F6-REPEATED-50MS-EVERY-250MS-INTERVAL17,fw-scroll-timing,36 stalls,-,FAIL,advances=550 speedRatio=0.935 lostFrames=38 maxBurstPerInterval=2,logs/firmware/f6_scroll_timing.log
+F6-REPEATED-80MS-EVERY-250MS-INTERVAL17,fw-scroll-timing,36 stalls,-,FAIL,advances=419 speedRatio=0.712 lostFrames=170 maxBurstPerInterval=2,logs/firmware/f6_scroll_timing.log
+F7-CAPACITY-SHIPPED-SAVED-FACES,fw-json-capacity-model,1,-,PASS,faces=11 fileBytes=4652 slots=681 deviceNeed=11794 jsonCapacityFor=32768 hostNeed=22690,logs/firmware/json_capacity.log
+F7-CAPACITY-128-FACES-DEVICE,fw-json-capacity-model,1,-,FAIL,firstFaceCountExceedingLoad/BLOB=32 firstExceedingMutate=59 at128: fileBytes=51750 deviceNeed=129892 capacity=107596,logs/firmware/json_capacity.log

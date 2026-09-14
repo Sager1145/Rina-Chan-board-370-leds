@@ -1,0 +1,57 @@
+1e81ff08ad3405298116ad8c9ddf09bbaa1e4bd6
+ M docs/RINALINK_PROTOCOL_V1.md
+ M esp32s3_firmware/src/ble_frame_sender.h
+ M esp32s3_firmware/src/transport_ble.cpp
+ M esp32s3_firmware/test/host/ble_frame_sender_test.cpp
+ M ios/Packages/RinaCore/Sources/RinaCore/PartsLibrary.swift
+ M ios/Packages/RinaCore/Tests/RinaCoreTests/PartsLibraryTests.swift
+ M ios/README.md
+ M ios/RinaBoard/App/RinaBoardApp.swift
+ M ios/RinaBoard/App/RootTabView.swift
+ M ios/RinaBoard/Features/Connection/ConnectionView.swift
+ M ios/RinaBoard/Features/Connection/ConnectionViewModel.swift
+ M ios/RinaBoard/Features/Control/ControlView.swift
+ M ios/RinaBoard/Features/Control/ControlViewModel.swift
+ M ios/RinaBoard/Features/Control/FacePartSelectorView.swift
+ M ios/RinaBoard/Features/ControlCenter/BoardControlCenterAccessory.swift
+ M ios/RinaBoard/Features/Faces/FaceLibraryModel.swift
+ M ios/RinaBoard/Features/LipSync/LipSyncView.swift
+ M ios/RinaBoard/Features/Settings/AboutView.swift
+ M ios/RinaBoard/Features/Settings/SettingsView.swift
+ M ios/RinaBoard/Resources/Localizable.xcstrings
+ M ios/RinaBoard/Services/BLETransport.swift
+ M ios/RinaBoard/Services/BoardConnection.swift
+ M ios/RinaBoardTests/AcceptanceControlTests.swift
+ M ios/RinaBoardTests/AcceptanceDefaultsTests.swift
+ M ios/RinaBoardTests/ConnectionLifecycleTests.swift
+ M ios/RinaBoardTests/SavedConnectionRecoveryTests.swift
+?? docs/stress-20260912-211559/
+?? ios/RinaBoard/Services/BoardSessionStore.swift
+?? ios/RinaBoardTests/BoardSessionStoreTests.swift
+ docs/RINALINK_PROTOCOL_V1.md                       |  14 ++-
+ esp32s3_firmware/src/ble_frame_sender.h            |  21 ++++
+ esp32s3_firmware/src/transport_ble.cpp             |  50 +++++++--
+ .../test/host/ble_frame_sender_test.cpp            |  22 +++-
+ .../RinaCore/Sources/RinaCore/PartsLibrary.swift   |  44 ++++++++
+ .../Tests/RinaCoreTests/PartsLibraryTests.swift    |  39 +++++++
+ ios/README.md                                      |  16 +++
+ ios/RinaBoard/App/RinaBoardApp.swift               |  13 ++-
+ ios/RinaBoard/App/RootTabView.swift                |  37 +++++--
+ .../Features/Connection/ConnectionView.swift       | 116 +++++++++++++++------
+ .../Features/Connection/ConnectionViewModel.swift  |  34 +++++-
+ ios/RinaBoard/Features/Control/ControlView.swift   |  17 +--
+ .../Features/Control/ControlViewModel.swift        |  49 ++++++---
+ .../Features/Control/FacePartSelectorView.swift    |  20 ++--
+ .../BoardControlCenterAccessory.swift              |  21 +++-
+ .../Features/Faces/FaceLibraryModel.swift          |   2 +
+ ios/RinaBoard/Features/LipSync/LipSyncView.swift   |   2 -
+ ios/RinaBoard/Features/Settings/AboutView.swift    |   4 -
+ ios/RinaBoard/Features/Settings/SettingsView.swift |   8 --
+ ios/RinaBoard/Resources/Localizable.xcstrings      |  21 ++--
+ ios/RinaBoard/Services/BLETransport.swift          |  47 +++++++--
+ ios/RinaBoard/Services/BoardConnection.swift       |  46 ++++++--
+ ios/RinaBoardTests/AcceptanceControlTests.swift    |  52 ++++++++-
+ ios/RinaBoardTests/AcceptanceDefaultsTests.swift   |   6 +-
+ ios/RinaBoardTests/ConnectionLifecycleTests.swift  |  40 ++++++-
+ .../SavedConnectionRecoveryTests.swift             |  27 +++++
+ 26 files changed, 619 insertions(+), 149 deletions(-)

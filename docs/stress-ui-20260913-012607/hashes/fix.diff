@@ -1,0 +1,526 @@
+diff --git a/ios/RinaBoard/App/RootTabView.swift b/ios/RinaBoard/App/RootTabView.swift
+index 96b471c..ea8f6a7 100644
+--- a/ios/RinaBoard/App/RootTabView.swift
++++ b/ios/RinaBoard/App/RootTabView.swift
+@@ -50,13 +50,13 @@ enum AppTab: String, CaseIterable {
+ /// lives at the top of Settings instead of being faked with a custom
+ /// draggable panel (§2, §4.2).
+ struct RootTabView: View {
++    @Environment(BoardSessionStore.self) private var sessions
+     @Environment(AppRouter.self) private var router
+     @Environment(PresetLiveModel.self) private var performance
+     @Environment(VideoPlayerModel.self) private var video
+     @Environment(\.scenePhase) private var scenePhase
+     @Environment(BoardConnection.self) private var connection
+     @Environment(BoardStore.self) private var boardStore
+-    @Environment(BLETransport.self) private var bleTransport
+     @Environment(BootLoaderModel.self) private var bootLoader
+     @Environment(ControlViewModel.self) private var editor
+     @Environment(TextViewModel.self) private var textModel
+@@ -81,6 +81,9 @@ struct RootTabView: View {
+     /// The loader is the first frame; the tabs mount one frame later so
+     /// nothing is built before the animation is on screen.
+     @State private var contentReady = false
++    @State private var draftsRestored = false
++    @State private var wasBackgrounded = false
++    @State private var resumeGeneration = 0
+ 
+     var body: some View {
+         ZStack {
+@@ -110,14 +113,22 @@ struct RootTabView: View {
+                     controlCenter.sync(from: status)
+                 }
+                 .task(id: BoardSynchronizationID(generation: connection.connectionGeneration,
+-                                                  connected: connection.connectionState == .connected)) {
++                                                  connected: connection.connectionState == .connected,
++                                                  draftsRestored: draftsRestored,
++                                                  resumeGeneration: resumeGeneration)) {
++                    configureOutputHandlers()
++                    faceLibrary.synchronizeBoardGeneration(connection.connectionGeneration)
+                     controlCenter.connectionChanged()
+                     textModel.suspendPreviewLoop()
+                     editor.connectionChanged()
++                    if draftsRestored, connection.connectionState == .connected,
++                       let boardID = currentBoardLinkID {
++                        editor.boardDidChange(to: boardID)
++                    }
+                     lipSyncModel.stop()
+                     performance.suspendBoardOutput()
+                     video.suspendBoardOutput()
+-                    if connection.connectionState == .connected {
++                    if draftsRestored, connection.connectionState == .connected {
+                         await resynchronizeWithBoard()
+                     }
+                 }
+@@ -144,6 +155,11 @@ struct RootTabView: View {
+         }
+         .errorAlert($reconnectModel.lastErrorMessage)
+         .onChange(of: scenePhase) { _, phase in
++            if phase == .background { wasBackgrounded = true }
++            if phase == .active, wasBackgrounded {
++                wasBackgrounded = false
++                resumeGeneration += 1
++            }
+             lipSyncModel.scenePhaseChanged(phase, connection: connection)
+             if phase != .active {
+                 performance.pause()
+@@ -161,6 +177,8 @@ struct RootTabView: View {
+             bootLoader.start(reduceMotion: reduceMotion)
+         }
+         .task {
++            let initialSession = sessions.active
++            let initialBoardID = initialSession.boardID
+             // Let the overlay's first frame go out before the app is built.
+             // A bare `Task.yield()` can resume inside the same run-loop turn,
+             // before Core Animation commits; a timer hop crosses a real frame.
+@@ -175,9 +193,10 @@ struct RootTabView: View {
+             await editor.restoreDraft()
+             await textModel.restoreDraft()
+             guard !Task.isCancelled else { return }
++            draftsRestored = true
+             // Keep board synchronization behind draft restoration even
+             // though the interface is already available.
+-            await autoReconnect()
++            await autoReconnect(ifSelectionRemains: initialSession, boardID: initialBoardID)
+         }
+         .task {
+             // `-replayBootAfter <seconds>`: the same automated-simulator-run
+@@ -215,17 +234,43 @@ struct RootTabView: View {
+         }
+     }
+ 
++    /// Which board the current link reaches, for tying editor drafts to a
++    /// board. Transport-level: the same board over another transport counts
++    /// as a different board. Nil until the link has identified itself.
++    private var currentBoardLinkID: String? {
++        switch connection.transportKind {
++        case .bluetooth:
++            return sessions.active.bleTransport.connectedPeripheralID.map { "ble:\($0.uuidString)" }
++        case .wifi(let host, _):
++            return "wifi:\(host)"
++        case .hotspot:
++            // Every board's SoftAP shares one address; its name tells them apart.
++            return connection.deviceName.map { "hotspot:\($0)" }
++        case nil:
++            return nil
++        }
++    }
++
+     private func configureOutputHandlers() {
+-        connection.output.register(.manual) { editor.releaseOutput() }
++        connection.output.register(.manual) {
++            guard sessions.active.connection === connection else { return }
++            editor.releaseOutput()
++        }
+         connection.output.register(.text) {
++            guard sessions.active.connection === connection else { return }
+             if connection.output.source != .text { textModel.releaseOutput() }
+         }
+-        connection.output.register(.lipSync) { lipSyncModel.stop() }
++        connection.output.register(.lipSync) {
++            guard sessions.active.connection === connection else { return }
++            lipSyncModel.stop()
++        }
+         connection.output.register(.performance) {
++            guard sessions.active.connection === connection else { return }
+             if connection.connectionState == .connected { performance.pause() }
+             else { performance.suspendBoardOutput() }
+         }
+         connection.output.register(.video) {
++            guard sessions.active.connection === connection else { return }
+             video.releaseOutput(connected: connection.connectionState == .connected)
+         }
+     }
+@@ -235,31 +280,128 @@ struct RootTabView: View {
+     private func resynchronizeWithBoard() async {
+         let generation = connection.connectionGeneration
+         let session = connection.output.session
++        let initialTab = router.selectedTab
+         guard connection.connectionState == .connected, !Task.isCancelled else { return }
+-        controlCenter.sync(from: connection.status)
++        // Foreground recovery also needs fresh reads: the board can change
++        // modes while this app is suspended without dropping the transport.
++        guard let status = try? await connection.getStatus() else { return }
++        let preview = try? await connection.getPreviewSync()
++        _ = try? await connection.getFrame()
++        guard !Task.isCancelled, generation == connection.connectionGeneration,
++              sessions.active.connection === connection,
++              session == connection.output.session,
++              initialTab == router.selectedTab,
++              scenePhase == .active else { return }
++        controlCenter.sync(from: status)
+         if connection.hasCurrentFrame {
+             editor.adoptBoardFrameIfUntouched(connection.currentFrame)
+         }
+ 
+-        guard generation == connection.connectionGeneration, session == connection.output.session else { return }
+-        await textModel.restoreOnConnect(connection: connection)
+-        guard !Task.isCancelled, generation == connection.connectionGeneration else { return }
++        if let mode = BoardResumeMode.resolve(status: status, preview: preview) {
++            let stream = BoardResumeMode.streamState(status: status, preview: preview)
++            let streamID = stream.id.flatMap { $0.isEmpty ? nil : $0 }
++            if mode != .performance { performance.pause() }
++            if mode != .video { video.pause() }
++            showControlCenter = false
++            router.showBoardMode(mode)
++            if mode != .text, BoardResumeMode.isPlaybackPaused(status: status, preview: preview) {
++                performance.pause()
++                video.pause()
++                await faceLibrary.reload(connection: connection)
++                return
++            }
++            switch mode {
++            case .control:
++                break
++            case .text:
++                await textModel.restoreOnConnect(connection: connection)
++            case .lipSync:
++                guard let streamID else {
++                    lipSyncModel.errorMessage = "面板未提供原同步记录，无法自动恢复嘴形同步。"
++                    break
++                }
++                await lipSyncModel.start(connection: connection, resumingStreamID: streamID) {
++                    guard router.selectedTab == .lipSync else { return false }
++                    return await boardStillMatches(mode, streamID: streamID,
++                                                   generation: generation, session: session)
++                }
++            case .performance:
++                guard let streamID else {
++                    performance.pause()
++                    performance.errorMessage = "面板未提供原播放记录，无法自动恢复演出。"
++                    break
++                }
++                await performance.restorePlaybackFromBoard(connection: connection,
++                                                           streamID: streamID, positionMs: stream.positionMs) {
++                    guard router.selectedTab == .presetLive
++                        && UserDefaults.standard.string(forKey: PerformanceTabMode.storageKey)
++                            == PerformanceTabMode.performance.rawValue else { return false }
++                    return await boardStillMatches(mode, streamID: streamID,
++                                                   generation: generation, session: session)
++                }
++            case .video:
++                guard let streamID else {
++                    video.pause()
++                    video.errorMessage = "面板未提供原播放记录，无法自动恢复视频。"
++                    break
++                }
++                await video.restorePlaybackFromBoard(connection: connection,
++                                                     streamID: streamID, positionMs: stream.positionMs) {
++                    guard router.selectedTab == .presetLive
++                        && UserDefaults.standard.string(forKey: PerformanceTabMode.storageKey)
++                            == PerformanceTabMode.video.rawValue else { return false }
++                    return await boardStillMatches(mode, streamID: streamID,
++                                                   generation: generation, session: session)
++                }
++            }
++        }
++        guard !Task.isCancelled, generation == connection.connectionGeneration,
++              sessions.active.connection === connection else { return }
+ 
+         await faceLibrary.reload(connection: connection)
+     }
+ 
++    /// Media loading and microphone permission can suspend long enough for
++    /// another client or a GPIO button to take over. Recheck before sending.
++    private func boardStillMatches(_ mode: BoardResumeMode, streamID: String?,
++                                   generation: UUID, session: UUID?) async -> Bool {
++        guard !Task.isCancelled, scenePhase == .active,
++              sessions.active.connection === connection,
++              generation == connection.connectionGeneration,
++              session == connection.output.session else { return false }
++        guard let status = try? await connection.getStatus() else { return false }
++        let preview = try? await connection.getPreviewSync()
++        guard !Task.isCancelled, scenePhase == .active,
++              sessions.active.connection === connection,
++              generation == connection.connectionGeneration,
++              session == connection.output.session,
++              BoardResumeMode.resolve(status: status, preview: preview) == mode,
++              !BoardResumeMode.isPlaybackPaused(status: status, preview: preview) else { return false }
++        let currentID = BoardResumeMode.streamState(status: status, preview: preview).id
++            .flatMap { $0.isEmpty ? nil : $0 }
++        return currentID == streamID
++    }
++
+     /// On launch, try to reconnect to the most recently used board via its
+     /// remembered preferred transport. Runs at most once per app launch; BLE
+     /// readiness is handled inside `BLETransport.connect()`.
+-    private func autoReconnect() async {
++    private func autoReconnect(
++        ifSelectionRemains initialSession: BoardSession,
++        boardID initialBoardID: String?
++    ) async {
+         guard !didAutoReconnect else { return }
+         didAutoReconnect = true
+-        guard connection.connectionState == .disconnected else { return }
+         guard let last = boardStore.boards.max(by: {
+             ($0.lastSeen ?? .distantPast) < ($1.lastSeen ?? .distantPast)
+         }) else { return }
+-        await reconnectModel.connectSavedBoard(last, ble: bleTransport,
+-                                               connection: connection, boardStore: boardStore)
++        guard let target = sessions.sessionForAutomaticReconnect(
++            id: last.id,
++            name: last.name,
++            ifCurrent: initialSession,
++            withBoardID: initialBoardID
++        ) else { return }
++        await reconnectModel.connectSavedBoard(last, ble: target.bleTransport,
++                                               connection: target.connection, boardStore: boardStore)
+     }
+ }
+ 
+@@ -340,4 +482,6 @@ enum ControlCenterPlacement {
+ private struct BoardSynchronizationID: Hashable {
+     let generation: UUID
+     let connected: Bool
++    let draftsRestored: Bool
++    let resumeGeneration: Int
+ }
+diff --git a/ios/RinaBoard/Features/Control/ControlViewModel.swift b/ios/RinaBoard/Features/Control/ControlViewModel.swift
+index fa08e00..b499d69 100644
+--- a/ios/RinaBoard/Features/Control/ControlViewModel.swift
++++ b/ios/RinaBoard/Features/Control/ControlViewModel.swift
+@@ -59,8 +59,8 @@ final class ControlViewModel {
+ 
+     // MARK: Command row (§18)
+ 
+-    /// Starts off so a new editor remains local until the user opts in.
+-    var livePreview = false
++    /// Starts on so edits reach a connected board immediately.
++    var livePreview = true
+     /// §18.3: mirrors edits between the two eyes through an explicit,
+     /// verified topology. Set through `setSyncEyes(_:connection:)` so that
+     /// enabling it also aligns the eyes that are already selected.
+@@ -79,9 +79,15 @@ final class ControlViewModel {
+     var editingBoardGeneration: UUID?
+     var draftStorageError: String?
+     private var restoringDraft = false
++    /// Prevents a board preview received during launch from being persisted
++    /// over the on-disk draft before `restoreDraft()` has read it.
++    private var draftRestoreCompleted = false
+     private var draftSaveTask: Task<Void, Never>?
+     private var sentGeneration: UUID?
+     private var sendTask: Task<Void, Never>?
++    /// The board this draft was drawn for, as `RootTabView` identifies the
++    /// current link. Nil until the editor first sees a connected board.
++    private(set) var draftBoardID: String?
+ 
+     private struct Draft: Codable {
+         var version = 1
+@@ -90,18 +96,25 @@ final class ControlViewModel {
+         var fromParts: Bool
+         var call: PartsCall
+         var localFaceID: String?
++        var boardID: String?
+     }
+ 
+     func restoreDraft() async {
++        guard !draftRestoreCompleted else { return }
++        restoringDraft = true
++        defer {
++            restoringDraft = false
++            draftRestoreCompleted = true
++            if userHasEdited { scheduleDraftSave() }
++        }
+         do {
+-            guard let data = try await DraftStorage.shared.read("face"), !userHasEdited else { return }
++            guard let data = try await draftStorage.read("face"), !userHasEdited else { return }
+             let draft = try JSONDecoder().decode(Draft.self, from: data)
+             guard draft.version == 1, let frame = PackedFrame(hex94: draft.frame) else { return }
+-            restoringDraft = true
+-            defer { restoringDraft = false }
+             draftFrame = frame; saveName = draft.name; fromParts = draft.fromParts
+             selectedCall = draft.call; userHasEdited = true
+             editingLocation = .local; editingFaceId = draft.localFaceID
++            draftBoardID = draft.boardID
+             lastSentFrame = PackedFrame()
+             resetUndoHistory()
+         } catch {
+@@ -113,7 +126,7 @@ final class ControlViewModel {
+     }
+ 
+     private func scheduleDraftSave() {
+-        guard !restoringDraft else { return }
++        guard !restoringDraft, draftRestoreCompleted || userHasEdited else { return }
+         draftSaveTask?.cancel()
+         draftSaveTask = Task { [weak self] in
+             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+@@ -122,11 +135,13 @@ final class ControlViewModel {
+     }
+ 
+     func persistDraft() async {
++        guard draftRestoreCompleted || userHasEdited else { return }
+         let draft = Draft(frame: draftFrame.hex94, name: saveName, fromParts: fromParts,
+-                          call: selectedCall, localFaceID: editingLocation == .local ? editingFaceId : nil)
++                          call: selectedCall, localFaceID: editingLocation == .local ? editingFaceId : nil,
++                          boardID: draftBoardID)
+         do {
+             let data = try JSONEncoder().encode(draft)
+-            try await DraftStorage.shared.write(data, name: "face")
++            try await draftStorage.write(data, name: "face")
+             draftStorageError = nil
+         } catch {
+             draftStorageError = String(
+@@ -138,6 +153,54 @@ final class ControlViewModel {
+ 
+     func releaseOutput() { sendTask?.cancel(); sendTask = nil }
+     func connectionChanged() { sentGeneration = nil; releaseOutput() }
++
++    /// An unsaved drawing never follows the user to another board: when a
++    /// different board becomes current, the editor starts over as if never
++    /// touched, so that board's display can populate it (user decision,
++    /// 2026-09-13). Reconnecting to the same board keeps the draft, and a
++    /// draft drawn before any board was seen belongs to the first one.
++    func boardDidChange(to boardID: String) {
++        guard draftBoardID != boardID else { return }
++        guard draftBoardID != nil else {
++            draftBoardID = boardID
++            if userHasEdited { scheduleDraftSave() }
++            return
++        }
++        discardDraft(newBoardID: boardID)
++    }
++
++    private func discardDraft(newBoardID: String) {
++        releaseOutput()
++        let fresh = library?.compose(call: .defaultCall) ?? PackedFrame()
++        draftBoardID = newBoardID
++        selectedCall = .defaultCall
++        fromParts = library != nil
++        draftFrame = fresh
++        lastSentFrame = fresh
++        saveName = "parts_face"
++        userHasEdited = false
++        editingFaceId = nil
++        editingLocation = .local
++        editingBoardGeneration = nil
++        sentGeneration = nil
++        errorMessage = nil
++        resetUndoHistory()
++        // The assignments above scheduled a save of the blank editor; a
++        // relaunch must find no draft at all, not an "edited" empty one.
++        draftSaveTask?.cancel()
++        draftSaveTask = nil
++        let storage = draftStorage
++        Task {
++            do {
++                try await storage.remove("face")
++            } catch {
++                draftStorageError = String(
++                    format: NSLocalizedString("草稿尚未保存到本机：%@", comment: "face draft persistence failed"),
++                    error.localizedDescription
++                )
++            }
++        }
++    }
+     func wasSent(in connection: BoardConnection) -> Bool {
+         sentGeneration == connection.connectionGeneration && !hasUnsentChanges
+     }
+@@ -161,10 +224,12 @@ final class ControlViewModel {
+     /// Nil when the shipped part data doesn't match the derived eye mapping,
+     /// in which case LED-level eye sync is unavailable.
+     let eyeTopology: EyeTopology?
++    private let draftStorage: DraftStorage
+ 
+     var canSyncEyes: Bool { eyeTopology != nil }
+ 
+-    init(bundle: Bundle = .main) {
++    init(bundle: Bundle = .main, draftStorage: DraftStorage = .shared) {
++        self.draftStorage = draftStorage
+         do {
+             let library = try RinaResources.partsLibrary(bundle: bundle)
+             self.library = library
+@@ -389,9 +454,12 @@ final class ControlViewModel {
+         isSending = true
+         defer { isSending = false }
+         let frame = draftFrame
++        let owner = draftBoardID
+         let token = connection.output.begin(.manual)
+         do {
+             _ = try await connection.setFrame(frame, playback: .idle, reason: "custom_face_send", outputSession: token)
++            // A board switch during the send discarded this draft.
++            guard draftBoardID == owner else { return }
+             lastSentFrame = frame
+             sentGeneration = connection.connectionGeneration
+             errorMessage = nil
+@@ -405,11 +473,13 @@ final class ControlViewModel {
+     private func pushLiveIfNeeded(connection: BoardConnection) {
+         guard livePreview, connection.connectionState == .connected else { return }
+         let frame = draftFrame
++        let owner = draftBoardID
+         let token = connection.output.claim(.manual)
+         sendTask?.cancel()
+         sendTask = Task { [weak self] in
+             do {
+                 _ = try await connection.setFrame(frame, playback: .idle, reason: "custom_live_send", outputSession: token)
++                guard self?.draftBoardID == owner else { return }
+                 self?.lastSentFrame = frame
+                 self?.sentGeneration = connection.connectionGeneration
+                 self?.errorMessage = nil
+@@ -476,17 +546,43 @@ final class ControlViewModel {
+         if let id { editingFaceId = id }
+     }
+ 
+-    // MARK: Reconnect (§40)
++    // MARK: Board display synchronization
++
++    /// Read serially so slow links never accumulate preview requests. A local
++    /// edit or output handoff during the read makes that response obsolete.
++    func refreshBoardDisplay(connection: BoardConnection) async {
++        guard connection.connectionState == .connected, !hasUnsentChanges, !isSending else { return }
++        let before = snapshot
++        do {
++            let frame = try await connection.getFrame()
++            guard !Task.isCancelled, snapshot == before, !hasUnsentChanges, !isSending else { return }
++            adoptBoardFrameIfUntouched(frame)
++        } catch {
++            // A missed preview sample is retried by the next polling tick.
++        }
++    }
+ 
+-    /// Populates the editor from the board's current frame after a
+-    /// (re)connection (§49). A draft the user has actually worked on is
+-    /// authoritative and is never overwritten (§40) — only the untouched
+-    /// initial composition gives way.
++    /// Populate only a never-edited editor from the board. A restored or sent
++    /// draft remains user-owned even when it has no unsent changes: the board
++    /// may be showing text, automatic faces, or another producer's frame.
+     func adoptBoardFrameIfUntouched(_ frame: PackedFrame) {
+         guard !userHasEdited, !hasUnsentChanges else { return }
+-        draftFrame = frame
+-        lastSentFrame = frame
+-        fromParts = false
+-        resetUndoHistory()
++        let changed = draftFrame != frame
++        if changed {
++            draftFrame = frame
++            lastSentFrame = frame
++            editingFaceId = nil
++            editingBoardGeneration = nil
++            sentGeneration = nil
++            resetUndoHistory()
++        }
++        if !fromParts || library?.compose(call: selectedCall) != frame {
++            if let call = library?.matchingCall(for: frame) {
++                selectedCall = call
++                fromParts = true
++            } else {
++                fromParts = false
++            }
++        }
+     }
+ }
+diff --git a/ios/RinaBoard/Services/DraftStorage.swift b/ios/RinaBoard/Services/DraftStorage.swift
+index 3c3e511..cd159ff 100644
+--- a/ios/RinaBoard/Services/DraftStorage.swift
++++ b/ios/RinaBoard/Services/DraftStorage.swift
+@@ -18,4 +18,10 @@ actor DraftStorage {
+         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+         try data.write(to: directory.appendingPathComponent(name).appendingPathExtension("json"), options: .atomic)
+     }
++
++    func remove(_ name: String) throws {
++        let url = directory.appendingPathComponent(name).appendingPathExtension("json")
++        guard FileManager.default.fileExists(atPath: url.path) else { return }
++        try FileManager.default.removeItem(at: url)
++    }
+ }

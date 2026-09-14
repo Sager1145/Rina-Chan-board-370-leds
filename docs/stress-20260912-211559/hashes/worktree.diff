@@ -1,0 +1,1664 @@
+diff --git a/docs/RINALINK_PROTOCOL_V1.md b/docs/RINALINK_PROTOCOL_V1.md
+index fc756ed..6cdf01a 100644
+--- a/docs/RINALINK_PROTOCOL_V1.md
++++ b/docs/RINALINK_PROTOCOL_V1.md
+@@ -41,15 +41,23 @@ independent and always advertising when no BLE central is connected.
+   primary payload the firmware logs `nameSet=0`.
+ - Requests MTU 247+ (NimBLE default 255).
+ - One central at a time. TCP and BLE may be connected simultaneously; the firmware is the single source of truth and pushes events to every connected client.
+-- A new BLE link must subscribe to TX notifications or send a complete framed
+-  request within 15 seconds. Otherwise the firmware disconnects it and resumes
++- A new BLE link must send a complete framed request within 15 seconds;
++  enabling TX notifications alone does not complete initialization. Otherwise
++  the firmware disconnects it and resumes
+   advertising. Initialized BLE links have no idle timeout. Failed advertising
+-  starts are retried after 250 ms.
++  starts are retried after 250 ms. Disabling TX notifications after enabling
++  them releases the link so the board can advertise again.
+ - Clients should enable TX notifications and verify a `PING` reply before
+   reporting the board ready. On service discovery, notification setup, or
+   handshake failure, cancel the physical BLE connection before retrying.
+   A terminal reply-notification failure also closes the firmware connection,
+   including failures before the first byte was sent.
++- The firmware sends no events over BLE until the client has enabled TX
++  notifications, and events it skips in that window are not sent again later.
++  Replies are always sent. Read state explicitly after subscribing
++  (`GET_STATUS` / `GET_FRAME` / `GET_PREVIEW_SYNC`) rather than waiting for a
++  first event. Pushing events during service discovery starved the central's
++  GATT procedures and broke reconnects after an app force-quit.
+ 
+ ### 1.2 TCP framing
+ 
+diff --git a/esp32s3_firmware/src/ble_frame_sender.h b/esp32s3_firmware/src/ble_frame_sender.h
+index f668e27..77c6c90 100644
+--- a/esp32s3_firmware/src/ble_frame_sender.h
++++ b/esp32s3_firmware/src/ble_frame_sender.h
+@@ -13,6 +13,27 @@ struct BleFrameSendResult {
+     size_t bytesSent;
+ };
+ 
++inline bool bleTxNotifyEnabled(uint16_t subscriptionValue) {
++    // NimBLE encodes notify as bit 0 and indicate as bit 1. RinaLink TX is
++    // notify-only, so an indicate-only value cannot make the stream usable.
++    return (subscriptionValue & 0x01U) != 0;
++}
++
++inline bool bleFrameCanSend(bool subscribed, bool isEvent) {
++    // Replies are allowed through so a request can fail closed if the peer
++    // races its CCCD update. Unsolicited events must wait for the CCCD or they
++    // can consume the controller queue while the central discovers services.
++    return !isEvent || subscribed;
++}
++
++inline bool bleSubscriptionChangeRequiresDisconnect(bool wasSubscribed,
++                                                     uint16_t subscriptionValue) {
++    // Once TX notifications are disabled the framed request/reply stream is no
++    // longer usable. Release the single-central link instead of keeping
++    // advertising stopped behind a session that cannot receive replies.
++    return wasSubscribed && !bleTxNotifyEnabled(subscriptionValue);
++}
++
+ inline bool bleSendFailureRequiresDisconnect(const BleFrameSendResult& result,
+                                              bool isEvent) {
+     return !result.complete && (!isEvent || result.bytesSent > 0);
+diff --git a/esp32s3_firmware/src/transport_ble.cpp b/esp32s3_firmware/src/transport_ble.cpp
+index bf5d3a3..6739aab 100644
+--- a/esp32s3_firmware/src/transport_ble.cpp
++++ b/esp32s3_firmware/src/transport_ble.cpp
+@@ -49,16 +49,26 @@ public:
+         uint16_t mtu;
+         rinalink::ClientId activeId;
+         bool connected;
++        bool subscribed;
+         {
+             portENTER_CRITICAL(&mMux);
+             connHandle = mConnHandle;
+             mtu = mMtu;
+             activeId = mClientId;
+             connected = mConnected;
++            subscribed = mTxSubscribed;
+             portEXIT_CRITICAL(&mMux);
+         }
+         if (!connected || activeId.slot != id.slot || mTx == nullptr)
+             return false;
++        // Events start flowing the moment a slot is registered, but a central
++        // that has not enabled TX notifications is still discovering services
++        // (at ATT MTU 23 one status event is ~75 notifies). Pushing them then
++        // starves the central's discovery until its connect times out, and a
++        // notify that fails mid-event closes the link. Drop events before the
++        // first byte until the CCCD is written; replies are never gated.
++        if (!rinalink::bleFrameCanSend(subscribed, isEvent))
++            return false;
+ 
+         const size_t chunk = (mtu > 3) ? static_cast<size_t>(mtu - 3) : 20;
+         const size_t sliceCount = (len + chunk - 1) / chunk;
+@@ -70,7 +80,8 @@ public:
+             [&]() {
+                 portENTER_CRITICAL(&mMux);
+                 const bool active = mConnected && mClientId.slot == id.slot &&
+-                                    mConnHandle == connHandle;
++                                    mConnHandle == connHandle &&
++                                    rinalink::bleFrameCanSend(mTxSubscribed, isEvent);
+                 portEXIT_CRITICAL(&mMux);
+                 return active;
+             },
+@@ -124,6 +135,7 @@ public:
+             // transportUnregisterClient() again for a slot the registry has
+             // already reclaimed.
+             mConnected = false;
++            mTxSubscribed = false;
+             mMtu = DEFAULT_ATT_MTU;
+             mInitializationTimer.start(0);
+         }
+@@ -169,6 +181,7 @@ public:
+         mClientId = newId;
+         mMtu = DEFAULT_ATT_MTU;
+         mConnected = true;
++        mTxSubscribed = false;
+         mInitialFrameTracker.reset();
+         mInitializationTimer.start(millis());
+         mAdvertisingRetry.cancel();
+@@ -196,6 +209,7 @@ public:
+         idToDrop = mClientId;
+         if (wasConnected) {
+             mConnected = false;
++            mTxSubscribed = false;
+             mMtu = DEFAULT_ATT_MTU;
+             mInitializationTimer.start(0);
+         }
+@@ -268,17 +282,31 @@ public:
+     }
+ 
+     void onTxSubscribed(uint16_t connHandle, uint16_t subValue) {
+-        if (subValue == 0)
+-            return;
++        rinalink::ClientId idToDrop{0};
++        bool disconnectRequired = false;
+         portENTER_CRITICAL(&mMux);
+-        const bool active = mConnected && mConnHandle == connHandle &&
+-                            mInitializationTimer.acceptsInitialization();
+-        if (active)
+-            mInitializationTimer.confirm();
++        const bool current = mConnected && mConnHandle == connHandle;
++        if (current) {
++            disconnectRequired = rinalink::bleSubscriptionChangeRequiresDisconnect(
++                mTxSubscribed, subValue);
++            mTxSubscribed = rinalink::bleTxNotifyEnabled(subValue);
++            idToDrop = mClientId;
++        }
+         portEXIT_CRITICAL(&mMux);
+-        if (active)
+-            RLOG_DEBUG("BLE", "event=tx_subscribed handle=%u value=%u",
+-                       static_cast<unsigned>(connHandle), static_cast<unsigned>(subValue));
++        if (!current)
++            return;
++        RLOG_DEBUG("BLE", "event=tx_subscription handle=%u value=%u notify=%d",
++                   static_cast<unsigned>(connHandle), static_cast<unsigned>(subValue),
++                   rinalink::bleTxNotifyEnabled(subValue) ? 1 : 0);
++        // CCCD enablement only proves that notifications can flow. The
++        // initialization watchdog remains armed until the first complete
++        // RinaLink request (normally PING) arrives on RX.
++        if (disconnectRequired) {
++            RLOG_INFO("BLE", "event=tx_unsubscribed handle=%u slot=%u",
++                      static_cast<unsigned>(connHandle),
++                      static_cast<unsigned>(idToDrop.slot));
++            rinalink::transportUnregisterClient(idToDrop);
++        }
+     }
+ 
+     void requestAdvertisingRestart(uint32_t delayMs = 0) {
+@@ -368,6 +396,8 @@ private:
+     NimBLECharacteristic* mInfo = nullptr;
+ 
+     bool mConnected = false;
++    // CCCD state of TX for the current link; gates events in send().
++    bool mTxSubscribed = false;
+     uint16_t mConnHandle = 0;
+     uint16_t mMtu = DEFAULT_ATT_MTU;
+     rinalink::ClientId mClientId{0};
+diff --git a/esp32s3_firmware/test/host/ble_frame_sender_test.cpp b/esp32s3_firmware/test/host/ble_frame_sender_test.cpp
+index 598b3c3..7f9f207 100644
+--- a/esp32s3_firmware/test/host/ble_frame_sender_test.cpp
++++ b/esp32s3_firmware/test/host/ble_frame_sender_test.cpp
+@@ -36,6 +36,26 @@ struct Link {
+ int main() {
+     std::vector<uint8_t> frame(67);
+     for (size_t i = 0; i < frame.size(); ++i) frame[i] = static_cast<uint8_t>(i);
++    {
++        // A newly connected central is still doing GATT discovery. Event fan-
++        // out must stay silent until it enables TX notifications, while a
++        // request/reply race remains fail-closed in the normal send path.
++        assert(!rinalink::bleFrameCanSend(false, true));
++        assert(rinalink::bleFrameCanSend(false, false));
++        assert(rinalink::bleFrameCanSend(true, true));
++        assert(rinalink::bleTxNotifyEnabled(1));
++        assert(!rinalink::bleTxNotifyEnabled(0));
++        assert(!rinalink::bleTxNotifyEnabled(2)); // indicate-only is not TX notify
++        assert(!rinalink::bleSubscriptionChangeRequiresDisconnect(false, 0));
++        assert(rinalink::bleSubscriptionChangeRequiresDisconnect(true, 0));
++        assert(!rinalink::bleSubscriptionChangeRequiresDisconnect(true, 1));
++
++        rinalink::BleInitializationTimer timer;
++        timer.start(200);
++        assert(rinalink::bleTxNotifyEnabled(1));
++        assert(!timer.initialized()); // CCCD alone is not an application handshake
++        assert(timer.expireIfDue(215, 15));
++    }
+     {
+         Link link;
+         link.failures = 20; // 40ms congestion: longer than the previous retry window.
+@@ -129,5 +149,5 @@ int main() {
+         assert(!retry.takeIfDue(1249));
+         assert(retry.takeIfDue(1250));
+     }
+-    std::puts("BLE transport helpers: 12 scenarios passed (send failure, initialization guard, advertising retry)");
++    std::puts("BLE transport helpers: 13 scenarios passed (subscription gate, send failure, initialization guard, advertising retry)");
+ }
+diff --git a/ios/Packages/RinaCore/Sources/RinaCore/PartsLibrary.swift b/ios/Packages/RinaCore/Sources/RinaCore/PartsLibrary.swift
+index fb6426e..9164474 100644
+--- a/ios/Packages/RinaCore/Sources/RinaCore/PartsLibrary.swift
++++ b/ios/Packages/RinaCore/Sources/RinaCore/PartsLibrary.swift
+@@ -232,6 +232,50 @@ public struct PartsLibrary: Codable, Sendable {
+         return frame
+     }
+ 
++    /// Matches a composed frame back to its four callable part IDs.
++    ///
++    /// Each group is compared only within the area occupied by any of that
++    /// group's variants. This permits the other three groups to remain in the
++    /// frame while finding a candidate. The selected candidates are then
++    /// composed and compared with `frame` in full, so pixels outside a part
++    /// area, malformed combinations, and ambiguous partial matches are
++    /// rejected. When variants have identical frames, the default-face ID is
++    /// preferred for that group, followed by the library's callable ID order.
++    public func matchingCall(for frame: PackedFrame) -> PartsCall? {
++        let groups = [PartGroup.leye, .reye, .mouth, .cheek]
++
++        func isEqual(_ lhs: PackedFrame, _ rhs: PackedFrame, within mask: PackedFrame) -> Bool {
++            zip(zip(lhs.bytes, rhs.bytes), mask.bytes).allSatisfy { pair, maskByte in
++                (pair.0 & maskByte) == (pair.1 & maskByte)
++            }
++        }
++
++        func preferredIDs(for group: PartGroup) -> [String] {
++            let defaultID = PartsCall.defaultCall[group]
++            let callable = ids(for: group)
++            guard callable.contains(defaultID) else { return callable }
++            return [defaultID] + callable.filter { $0 != defaultID }
++        }
++
++        var matched = PartsCall(leye: "0", reye: "0", mouth: "0", cheek: "400")
++        for group in groups {
++            let callable = preferredIDs(for: group)
++            var mask = PackedFrame()
++            for id in callable {
++                mask.formUnion(self.frame(for: resolvedPart(group: group, id: id)))
++            }
++
++            guard let id = callable.first(where: {
++                isEqual(frame, self.frame(for: resolvedPart(group: group, id: $0)), within: mask)
++            }) else {
++                return nil
++            }
++            matched[group] = id
++        }
++
++        return compose(call: matched) == frame ? matched : nil
++    }
++
+     /// Picks a random call mirroring `randomParts()` (`app.js` ~L9783).
+     /// Non-symmetric mode: eyes and mouth never pick "0" (empty); cheek may
+     /// pick any listed id, including the empty placeholder "400".
+diff --git a/ios/Packages/RinaCore/Tests/RinaCoreTests/PartsLibraryTests.swift b/ios/Packages/RinaCore/Tests/RinaCoreTests/PartsLibraryTests.swift
+index e897334..cfff7ca 100644
+--- a/ios/Packages/RinaCore/Tests/RinaCoreTests/PartsLibraryTests.swift
++++ b/ios/Packages/RinaCore/Tests/RinaCoreTests/PartsLibraryTests.swift
+@@ -115,6 +115,45 @@ final class PartsLibraryTests: XCTestCase {
+         XCTAssertEqual(composed.litCount, 0)
+     }
+ 
++    func testMatchingCallReturnsDefaultCall() throws {
++        guard let library = try loadLibrary() else {
++            throw XCTSkip("expression_parts.json not found")
++        }
++        XCTAssertEqual(library.matchingCall(for: library.compose(call: .defaultCall)), .defaultCall)
++    }
++
++    func testMatchingCallReturnsAlternateCall() throws {
++        guard let library = try loadLibrary() else {
++            throw XCTSkip("expression_parts.json not found")
++        }
++        let expected = PartsCall(leye: "102", reye: "202", mouth: "305", cheek: "401")
++        XCTAssertEqual(library.matchingCall(for: library.compose(call: expected)), expected)
++    }
++
++    func testMatchingCallReturnsEmptyCall() throws {
++        guard let library = try loadLibrary() else {
++            throw XCTSkip("expression_parts.json not found")
++        }
++        let expected = PartsCall(leye: "0", reye: "0", mouth: "0", cheek: "400")
++        XCTAssertEqual(library.matchingCall(for: library.compose(call: expected)), expected)
++    }
++
++    func testMatchingCallRejectsUnmatchableFrame() throws {
++        guard let library = try loadLibrary() else {
++            throw XCTSkip("expression_parts.json not found")
++        }
++        var unmatched = PackedFrame()
++        let everyPart = library.parts.values.reduce(into: PackedFrame()) { frame, part in
++            frame.formUnion(library.frame(for: part))
++        }
++        guard let unusedLED = (0..<PackedFrame.ledCount).first(where: { !everyPart[$0] }) else {
++            XCTFail("Expected at least one LED outside every part variant")
++            return
++        }
++        unmatched.set(unusedLED)
++        XCTAssertNil(library.matchingCall(for: unmatched))
++    }
++
+     func testMirroredEyeIdRoundTrips() throws {
+         guard let library = try loadLibrary() else {
+             throw XCTSkip("expression_parts.json not found")
+diff --git a/ios/README.md b/ios/README.md
+index 347109a..89ccc24 100644
+--- a/ios/README.md
++++ b/ios/README.md
+@@ -27,3 +27,19 @@ connection. Enter a CMD name (for example `get_info`) or a JSON CMD payload
+ to search all firmware CMD templates and tap one to fill the input. The
+ monitor retains recent requests/replies and can receive firmware logs;
+ it does not connect to a USB serial port or accept USB-console syntax.
++
++Multiple boards can remain connected at once over Bluetooth or the same Wi-Fi
++network. In Settings → Connection, connect each board, then choose the control
++target in the session list. Commands go to the selected board; selecting another
++board stops the previous phone-driven output without closing its connection.
++Disconnect and Forget apply only to that board. Direct board hotspots require
++the phone to join that hotspot and cannot provide several simultaneous Wi-Fi
++networks. On launch, the most recently used saved board reconnects automatically;
++additional boards can be connected from the saved list.
++
++After force-quitting, reopen the app to resume automatic connection recovery.
++BLE recovery first retrieves the saved peripheral, then scans for its exact
++UUID if the system cache no longer contains it. It never substitutes another
++board with the same advertised name. Connection readiness includes the protocol
++handshake and initial reads, so the saved device is recorded when setup succeeds,
++including success after an automatic retry.
+diff --git a/ios/RinaBoard/App/RinaBoardApp.swift b/ios/RinaBoard/App/RinaBoardApp.swift
+index 90d85cd..76faa34 100644
+--- a/ios/RinaBoard/App/RinaBoardApp.swift
++++ b/ios/RinaBoard/App/RinaBoardApp.swift
+@@ -3,13 +3,11 @@ import RinaCore
+ 
+ @main
+ struct RinaBoardApp: App {
+-    // One shared board connection/session for the whole app (§36): tabs never
+-    // establish their own. The editor, text and Control Center models are
+-    // app-scoped too, so an unsent draft survives switching tabs (§40).
++    // Each board retains its own connection; tabs control the selected session.
++    // Draft models remain app-scoped so switching tabs preserves unsent work.
+     @State private var router = AppRouter()
+-    @State private var connection = BoardConnection()
++    @State private var sessions = BoardSessionStore()
+     @State private var boardStore = BoardStore()
+-    @State private var bleTransport = BLETransport()
+     @State private var bootLoader = BootLoaderModel()
+     @State private var controlCenter = BoardControlCenterModel()
+     @State private var faceLibrary = FaceLibraryModel()
+@@ -29,10 +27,11 @@ struct RinaBoardApp: App {
+     var body: some Scene {
+         WindowGroup {
+             RootTabView()
+-                .environment(connection)
++                .environment(sessions)
++                .environment(sessions.active.connection)
+                 .environment(router)
+                 .environment(boardStore)
+-                .environment(bleTransport)
++                .environment(sessions.active.bleTransport)
+                 .environment(bootLoader)
+                 .environment(controlCenter)
+                 .environment(faceLibrary)
+diff --git a/ios/RinaBoard/App/RootTabView.swift b/ios/RinaBoard/App/RootTabView.swift
+index 96b471c..49de81e 100644
+--- a/ios/RinaBoard/App/RootTabView.swift
++++ b/ios/RinaBoard/App/RootTabView.swift
+@@ -50,13 +50,13 @@ enum AppTab: String, CaseIterable {
+ /// lives at the top of Settings instead of being faked with a custom
+ /// draggable panel (§2, §4.2).
+ struct RootTabView: View {
++    @Environment(BoardSessionStore.self) private var sessions
+     @Environment(AppRouter.self) private var router
+     @Environment(PresetLiveModel.self) private var performance
+     @Environment(VideoPlayerModel.self) private var video
+     @Environment(\.scenePhase) private var scenePhase
+     @Environment(BoardConnection.self) private var connection
+     @Environment(BoardStore.self) private var boardStore
+-    @Environment(BLETransport.self) private var bleTransport
+     @Environment(BootLoaderModel.self) private var bootLoader
+     @Environment(ControlViewModel.self) private var editor
+     @Environment(TextViewModel.self) private var textModel
+@@ -111,6 +111,8 @@ struct RootTabView: View {
+                 }
+                 .task(id: BoardSynchronizationID(generation: connection.connectionGeneration,
+                                                   connected: connection.connectionState == .connected)) {
++                    configureOutputHandlers()
++                    faceLibrary.synchronizeBoardGeneration(connection.connectionGeneration)
+                     controlCenter.connectionChanged()
+                     textModel.suspendPreviewLoop()
+                     editor.connectionChanged()
+@@ -161,6 +163,8 @@ struct RootTabView: View {
+             bootLoader.start(reduceMotion: reduceMotion)
+         }
+         .task {
++            let initialSession = sessions.active
++            let initialBoardID = initialSession.boardID
+             // Let the overlay's first frame go out before the app is built.
+             // A bare `Task.yield()` can resume inside the same run-loop turn,
+             // before Core Animation commits; a timer hop crosses a real frame.
+@@ -177,7 +181,7 @@ struct RootTabView: View {
+             guard !Task.isCancelled else { return }
+             // Keep board synchronization behind draft restoration even
+             // though the interface is already available.
+-            await autoReconnect()
++            await autoReconnect(ifSelectionRemains: initialSession, boardID: initialBoardID)
+         }
+         .task {
+             // `-replayBootAfter <seconds>`: the same automated-simulator-run
+@@ -216,16 +220,25 @@ struct RootTabView: View {
+     }
+ 
+     private func configureOutputHandlers() {
+-        connection.output.register(.manual) { editor.releaseOutput() }
++        connection.output.register(.manual) {
++            guard sessions.active.connection === connection else { return }
++            editor.releaseOutput()
++        }
+         connection.output.register(.text) {
++            guard sessions.active.connection === connection else { return }
+             if connection.output.source != .text { textModel.releaseOutput() }
+         }
+-        connection.output.register(.lipSync) { lipSyncModel.stop() }
++        connection.output.register(.lipSync) {
++            guard sessions.active.connection === connection else { return }
++            lipSyncModel.stop()
++        }
+         connection.output.register(.performance) {
++            guard sessions.active.connection === connection else { return }
+             if connection.connectionState == .connected { performance.pause() }
+             else { performance.suspendBoardOutput() }
+         }
+         connection.output.register(.video) {
++            guard sessions.active.connection === connection else { return }
+             video.releaseOutput(connected: connection.connectionState == .connected)
+         }
+     }
+@@ -251,15 +264,23 @@ struct RootTabView: View {
+     /// On launch, try to reconnect to the most recently used board via its
+     /// remembered preferred transport. Runs at most once per app launch; BLE
+     /// readiness is handled inside `BLETransport.connect()`.
+-    private func autoReconnect() async {
++    private func autoReconnect(
++        ifSelectionRemains initialSession: BoardSession,
++        boardID initialBoardID: String?
++    ) async {
+         guard !didAutoReconnect else { return }
+         didAutoReconnect = true
+-        guard connection.connectionState == .disconnected else { return }
+         guard let last = boardStore.boards.max(by: {
+             ($0.lastSeen ?? .distantPast) < ($1.lastSeen ?? .distantPast)
+         }) else { return }
+-        await reconnectModel.connectSavedBoard(last, ble: bleTransport,
+-                                               connection: connection, boardStore: boardStore)
++        guard let target = sessions.sessionForAutomaticReconnect(
++            id: last.id,
++            name: last.name,
++            ifCurrent: initialSession,
++            withBoardID: initialBoardID
++        ) else { return }
++        await reconnectModel.connectSavedBoard(last, ble: target.bleTransport,
++                                               connection: target.connection, boardStore: boardStore)
+     }
+ }
+ 
+diff --git a/ios/RinaBoard/Features/Connection/ConnectionView.swift b/ios/RinaBoard/Features/Connection/ConnectionView.swift
+index fb76fc1..e2d365b 100644
+--- a/ios/RinaBoard/Features/Connection/ConnectionView.swift
++++ b/ios/RinaBoard/Features/Connection/ConnectionView.swift
+@@ -5,6 +5,7 @@ import RinaCore
+ /// home Wi-Fi (Bonjour + manual host), hotspot join, and on-board Wi-Fi
+ /// provisioning (`wifi_*` over the active transport).
+ struct ConnectionView: View {
++    @Environment(BoardSessionStore.self) private var sessions
+     @Environment(BoardConnection.self) private var connection
+     @Environment(BoardStore.self) private var boardStore
+     @Environment(BLETransport.self) private var bleTransport
+@@ -19,8 +20,8 @@ struct ConnectionView: View {
+     private var isConnected: Bool { connection.connectionState == .connected }
+     private var filteredPeripherals: [DiscoveredPeripheral] {
+         let query = bluetoothFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+-        guard !query.isEmpty else { return bleTransport.discoveredPeripherals }
+-        return bleTransport.discoveredPeripherals.filter {
++        guard !query.isEmpty else { return sessions.scanner.discoveredPeripherals }
++        return sessions.scanner.discoveredPeripherals.filter {
+             $0.name.localizedCaseInsensitiveContains(query)
+                 || $0.id.uuidString.localizedCaseInsensitiveContains(query)
+         }
+@@ -28,6 +29,7 @@ struct ConnectionView: View {
+ 
+     var body: some View {
+         Form {
++            sessionsSection
+             statusSection
+             savedBoardsSection
+             bluetoothSection
+@@ -39,12 +41,50 @@ struct ConnectionView: View {
+         }
+         .listSectionSpacing(.compact)
+         .navigationTitle("连接")
++        .task(id: isConnected ? connection.connectionGeneration : nil) {
++            viewModel.resetBoardDetails()
++            if isConnected { await viewModel.refreshBoardName(connection: connection) }
++        }
+         .errorAlert($viewModel.lastErrorMessage)
+         .sheet(item: $networkForPassword) { network in
+             passwordSheet(for: network)
+         }
+     }
+ 
++    private func selectSession(id: String, name: String) -> BoardSession {
++        let target = sessions.session(for: id, name: name)
++        sessions.select(target)
++        return target
++    }
++
++    private var sessionsSection: some View {
++        Section {
++            ForEach(sessions.sessions) { session in
++                if session.boardID != nil {
++                    HStack {
++                        Button {
++                            sessions.select(session)
++                        } label: {
++                            HStack {
++                                Image(systemName: sessions.active.id == session.id ? "checkmark.circle.fill" : "circle")
++                                Text(session.connection.deviceName ?? session.name)
++                                Spacer()
++                                Text(session.connection.connectionState == .connected ? "在线" : "未连接")
++                                    .foregroundStyle(.secondary)
++                            }
++                        }
++                        Button("断开", role: .destructive) { session.connection.disconnect() }
++                    }
++                    .buttonStyle(.borderless)
++                }
++            }
++        } header: {
++            Text("控制对象 · \(sessions.sessions.filter { $0.connection.connectionState == .connected }.count) 块在线")
++        } footer: {
++            Text("可连接多块璃奈板，点选要控制的板，其他板保持连接。多板 Wi-Fi 连接需处于同一网络；热点直连仅适用于当前加入的热点。")
++        }
++    }
++
+     // MARK: Status
+ 
+     @ViewBuilder
+@@ -111,8 +151,10 @@ struct ConnectionView: View {
+                     HStack {
+                         Button {
+                             Task {
+-                                await viewModel.connectSavedBoard(board, ble: bleTransport,
+-                                                                  connection: connection, boardStore: boardStore)
++                                let target = selectSession(id: board.id, name: board.name)
++                                guard target.connection.connectionState != .connected else { return }
++                                await viewModel.connectSavedBoard(board, ble: target.bleTransport,
++                                                                  connection: target.connection, boardStore: boardStore)
+                             }
+                         } label: {
+                             HStack {
+@@ -132,8 +174,8 @@ struct ConnectionView: View {
+                         .accessibilityLabel("连接 \(board.name)")
+ 
+                         Button("忘记", role: .destructive) {
+-                            viewModel.forgetBoard(board, ble: bleTransport,
+-                                                  connection: connection, boardStore: boardStore)
++                            sessions.remove(id: board.id)
++                            boardStore.remove(id: board.id)
+                         }
+                         .accessibilityLabel("忘记 \(board.name)")
+                     }
+@@ -141,8 +183,6 @@ struct ConnectionView: View {
+                 }
+             } header: {
+                 Text("已保存的璃奈板")
+-            } footer: {
+-                Text("忘记后将停止自动连接此设备。可以重新扫描并连接来保存。")
+             }
+         }
+     }
+@@ -156,28 +196,28 @@ struct ConnectionView: View {
+             // and stops, and a switch implies a persistent setting that
+             // survives leaving the tab — it does not (connecting stops it).
+             Button {
+-                viewModel.toggleBLEScan(ble: bleTransport)
++                viewModel.toggleBLEScan(ble: sessions.scanner)
+             } label: {
+                 HStack(spacing: 10) {
+-                    Image(systemName: bleTransport.isScanning
++                    Image(systemName: sessions.scanner.isScanning
+                           ? "stop.circle.fill"
+                           : "antenna.radiowaves.left.and.right")
+-                    Text(bleTransport.isScanning ? "停止扫描" : "扫描附近的璃奈板")
++                    Text(sessions.scanner.isScanning ? "停止扫描" : "扫描附近的璃奈板")
+                     Spacer()
+-                    if bleTransport.isScanning { ProgressView() }
++                    if sessions.scanner.isScanning { ProgressView() }
+                 }
+                 .contentShape(Rectangle())
+             }
+-            .accessibilityLabel(bleTransport.isScanning ? "停止扫描" : "扫描附近的璃奈板")
++            .accessibilityLabel(sessions.scanner.isScanning ? "停止扫描" : "扫描附近的璃奈板")
+             .disabled(viewModel.isConnectingBLE)
+ 
+-            if bleTransport.isScanning && bleTransport.discoveredPeripherals.isEmpty {
++            if sessions.scanner.isScanning && sessions.scanner.discoveredPeripherals.isEmpty {
+                 // The button already shows a spinner; a second one here would
+                 // read as two independent activities.
+                 Text("正在搜索…").foregroundStyle(.secondary)
+             }
+ 
+-            if !bleTransport.isScanning && bleTransport.scanDidTimeOut {
++            if !sessions.scanner.isScanning && sessions.scanner.scanDidTimeOut {
+                 // Without this the spinner just vanishes and the user cannot
+                 // tell a finished scan from a crashed one.
+                 Text("扫描已在 \(Int(BLETransport.scanTimeoutSeconds)) 秒后自动停止，点按上方按钮可重新扫描。")
+@@ -189,7 +229,7 @@ struct ConnectionView: View {
+                 .autocorrectionDisabled()
+                 .accessibilityIdentifier("bluetooth.deviceFilter")
+ 
+-            if !bleTransport.discoveredPeripherals.isEmpty && filteredPeripherals.isEmpty {
++            if !sessions.scanner.discoveredPeripherals.isEmpty && filteredPeripherals.isEmpty {
+                 Text("没有匹配的璃奈板，请修改筛选内容。")
+                     .foregroundStyle(.secondary)
+             }
+@@ -199,22 +239,23 @@ struct ConnectionView: View {
+             }
+         } header: {
+             Text("蓝牙")
+-        } footer: {
+-            // The scan filters on the RinaLink service UUID, so unrelated BLE
+-            // devices never appear — worth saying, because an empty list during
+-            // a scan otherwise reads as a broken scan.
+-            Text("只显示附近可连接的璃奈板，按信号强弱排序。输入名称或设备编号可查找指定板子，点击设备即可连接。")
+         }
+     }
+ 
+     @ViewBuilder
+     private func peripheralRow(_ peripheral: DiscoveredPeripheral) -> some View {
+-        let isConnecting = bleTransport.connectingPeripheralID == peripheral.id
+-        let isThisConnected = bleTransport.connectedPeripheralID == peripheral.id && isConnected
++        let target = sessions.existingSession(for: peripheral.id.uuidString)
++        let isConnecting = target?.bleTransport.connectingPeripheralID == peripheral.id
++        let isThisConnected = target?.connection.connectionState == .connected
+         let isKnown = boardStore.boards.contains { $0.id == peripheral.id.uuidString }
+ 
+         Button {
+-            Task { await viewModel.connectBLE(peripheral, ble: bleTransport, connection: connection, boardStore: boardStore) }
++            Task {
++                let target = selectSession(id: peripheral.id.uuidString, name: peripheral.name)
++                guard target.connection.connectionState != .connected else { return }
++                sessions.scanner.stopScan()
++                await viewModel.connectBLE(peripheral, ble: target.bleTransport, connection: target.connection, boardStore: boardStore)
++            }
+         } label: {
+             HStack(spacing: 12) {
+                 signalBars(rssi: peripheral.rssi)
+@@ -257,7 +298,7 @@ struct ConnectionView: View {
+             }
+             .contentShape(Rectangle())
+         }
+-        .disabled(viewModel.isConnectingBLE || isThisConnected)
++        .disabled(viewModel.isConnectingBLE)
+     }
+ 
+     /// Four bars mapped from RSSI. Thresholds are the usual BLE rules of thumb:
+@@ -319,8 +360,6 @@ struct ConnectionView: View {
+             }
+         } header: {
+             Text("璃奈板名称")
+-        } footer: {
+-            Text("重命名后立即生效，无需重启。名称上限 \(RinaLinkConstants.maxDeviceNameBytes) 字节（中文约 8 个字）；留空可恢复出厂名称。多块板子各自独立命名，扫描时即可区分。")
+         }
+     }
+ 
+@@ -331,7 +370,12 @@ struct ConnectionView: View {
+         Section("家庭 Wi-Fi") {
+             ForEach(viewModel.bonjour.boards) { board in
+                 Button {
+-                    Task { await viewModel.connectBonjour(board, connection: connection, boardStore: boardStore) }
++                    Task {
++                        guard board.isResolved else { return }
++                        let target = selectSession(id: board.serviceIdentity?.storageID ?? board.host ?? board.name, name: board.name)
++                        guard target.connection.connectionState != .connected else { return }
++                        await viewModel.connectBonjour(board, connection: target.connection, boardStore: boardStore)
++                    }
+                 } label: {
+                     HStack {
+                         Text(board.name)
+@@ -345,7 +389,12 @@ struct ConnectionView: View {
+                     .textInputAutocapitalization(.never)
+                     .autocorrectionDisabled()
+                 Button("连接") {
+-                    Task { await viewModel.connectManualHost(connection: connection, boardStore: boardStore) }
++                    Task {
++                        let host = viewModel.manualHost.trimmingCharacters(in: .whitespacesAndNewlines)
++                        let target = selectSession(id: host, name: host)
++                        guard target.connection.connectionState != .connected else { return }
++                        await viewModel.connectManualHost(connection: target.connection, boardStore: boardStore)
++                    }
+                 }
+                 .disabled(viewModel.manualHost.trimmingCharacters(in: .whitespaces).isEmpty)
+             }
+@@ -358,7 +407,10 @@ struct ConnectionView: View {
+     private var hotspotSection: some View {
+         Section("热点直连") {
+             Button {
+-                Task { await viewModel.connectHotspot(connection: connection, boardStore: boardStore) }
++                Task {
++                    let target = selectSession(id: RinaLinkConstants.apIP, name: RinaLinkConstants.apSSID)
++                    await viewModel.connectHotspot(connection: target.connection, boardStore: boardStore)
++                }
+             } label: {
+                 if isJoiningHotspot {
+                     ProgressView()
+@@ -381,10 +433,6 @@ struct ConnectionView: View {
+     @ViewBuilder
+     private var phoneHotspotSection: some View {
+         Section("iPhone 热点") {
+-            Text("1. 打开 设置 › 个人热点 并开启「允许其他人加入」\n2. 在下方填写热点名称与密码\n3. 点击发送")
+-                .font(.footnote)
+-                .foregroundStyle(.secondary)
+-
+             TextField("热点名称", text: $viewModel.hotspotName)
+                 .textInputAutocapitalization(.never)
+                 .autocorrectionDisabled()
+diff --git a/ios/RinaBoard/Features/Connection/ConnectionViewModel.swift b/ios/RinaBoard/Features/Connection/ConnectionViewModel.swift
+index a3a0f0c..b912470 100644
+--- a/ios/RinaBoard/Features/Connection/ConnectionViewModel.swift
++++ b/ios/RinaBoard/Features/Connection/ConnectionViewModel.swift
+@@ -95,8 +95,22 @@ public final class ConnectionViewModel {
+     }
+ 
+     public func connectBLE(_ peripheral: DiscoveredPeripheral, ble: BLETransport, connection: BoardConnection, boardStore: BoardStore) async {
+-        await connectBLE(peripheral, ble: ble, connection: connection, boardStore: boardStore) {
+-            await connection.connect(using: $0)
++        let boardID = peripheral.id.uuidString
++        let reconnectingSavedBoard = boardStore.boards.contains { $0.id == boardID }
++        await connectBLE(peripheral, ble: ble, connection: connection, boardStore: boardStore) { transport in
++            await connection.connect(using: transport) { [weak connection, weak boardStore] in
++                guard let connection, let boardStore else { return }
++                if reconnectingSavedBoard,
++                   !boardStore.boards.contains(where: { $0.id == boardID }) {
++                    return
++                }
++                boardStore.upsert(KnownBoard(
++                    id: boardID,
++                    name: connection.deviceName ?? peripheral.name,
++                    preferredTransport: "bluetooth",
++                    lastSeen: Date()
++                ))
++            }
+         }
+     }
+ 
+@@ -146,8 +160,16 @@ public final class ConnectionViewModel {
+ 
+     /// Seeds the rename field from the connected board. Silent on failure: an
+     /// older firmware simply has no name to report and the field stays empty.
++    public func resetBoardDetails() {
++        boardNameInput = ""
++        boardDefaultName = nil
++        boardHasCustomName = false
++        boardNameStatus = nil
++        wifiNetworks = []
++    }
++
+     public func refreshBoardName(connection: BoardConnection) async {
+-        guard let reply = try? await connection.command(.getInfo) else { return }
++        guard let reply = try? await connection.command(.getInfo), !Task.isCancelled else { return }
+         boardDefaultName = reply.defaultName
+         boardHasCustomName = reply.customName ?? false
+         if let name = reply.name, !name.isEmpty {
+@@ -392,7 +414,7 @@ public final class ConnectionViewModel {
+         switch target {
+         case .bluetooth(let id):
+             ble.peripheralIdentifier = id
+-            connected = await connection.connect(using: ble)
++            connected = await connectTransport(ble)
+         case .bonjour(let service):
+             let endpoint = bonjour.endpoint(for: service)
+             connected = await connectTransport(TCPTransport(
+@@ -425,6 +447,10 @@ public final class ConnectionViewModel {
+             // `false` with no transport error means this attempt was
+             // superseded by a newer connect or an intentional disconnect.
+             // The older launch-time task must stay quiet in that case.
++            // Likewise while BoardConnection is still retrying on its own:
++            // the status UI already shows 重连中, and an alert would report
++            // a failure the next attempt may fix.
++            if case .reconnecting = connection.connectionState { return }
+             lastErrorMessage = connection.lastError
+             return
+         }
+diff --git a/ios/RinaBoard/Features/Control/ControlView.swift b/ios/RinaBoard/Features/Control/ControlView.swift
+index f31df89..ecd1e7d 100644
+--- a/ios/RinaBoard/Features/Control/ControlView.swift
++++ b/ios/RinaBoard/Features/Control/ControlView.swift
+@@ -6,6 +6,7 @@ import RinaCore
+ /// brightness, colour, prev/next and auto mode are deliberately absent — they
+ /// belong to the Control Center (§63).
+ struct ControlView: View {
++    @Environment(\.scenePhase) private var scenePhase
+     @Environment(BoardConnection.self) private var connection
+     @Environment(ControlViewModel.self) private var model
+     @Environment(BoardControlCenterModel.self) private var controlCenter
+@@ -60,14 +61,20 @@ struct ControlView: View {
+                         }
+                     }
+                 }
+-            } message: {
+-                Text("保存到面板的表情库，可在控制中心中管理。")
+             }
+             .sensoryFeedback(.impact(weight: .light), trigger: toggleCount) { _, _ in hapticsEnabled }
+             .sheet(isPresented: $isShowingSavedFaces) { savedFacesSheet }
+         }
+         .errorAlert(Bindable(model).errorMessage)
+         .onAppear { bootLoader.beginWaterfall(count: 3) }
++        .task(id: isConnected && scenePhase == .active ? connection.connectionGeneration : nil) {
++            guard isConnected, scenePhase == .active else { return }
++            while !Task.isCancelled {
++                await model.refreshBoardDisplay(connection: connection)
++                do { try await Task.sleep(for: .milliseconds(200)) }
++                catch { return }
++            }
++        }
+     }
+ 
+     // MARK: §16 Interactive preview
+@@ -115,7 +122,7 @@ struct ControlView: View {
+         } else if !isConnected {
+             BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) { litCount }
+         } else if let source = connection.output.source, source != .manual {
+-            // Another feature owns the board, so the draft is not what it shows.
++            // Identify the feature whose current frame the preview follows.
+             BoardPreviewStatus(Text(String(format: NSLocalizedString("面板正在播放：%@",
+                                                                      comment: "board output owned by another feature"),
+                                            source.title)),
+@@ -219,8 +226,6 @@ struct ControlView: View {
+         } footer: {
+             if !model.canSyncEyes {
+                 Text("当前部件数据与左右眼映射不一致，已停用逐灯同步。")
+-            } else if !model.livePreview {
+-                Text("实时预览已关闭，修改仅保存在本地，点击「发送」才会写入。")
+             }
+         }
+     }
+@@ -292,7 +297,7 @@ struct ControlView: View {
+                     FacePartSelectorView(
+                         group: group,
+                         library: library,
+-                        selectedId: model.selectedCall[group],
++                        selectedId: model.fromParts ? model.selectedCall[group] : nil,
+                         color: boardColor,
+                         brightness: boardBrightness
+                     ) { id in
+diff --git a/ios/RinaBoard/Features/Control/ControlViewModel.swift b/ios/RinaBoard/Features/Control/ControlViewModel.swift
+index fa08e00..1124984 100644
+--- a/ios/RinaBoard/Features/Control/ControlViewModel.swift
++++ b/ios/RinaBoard/Features/Control/ControlViewModel.swift
+@@ -59,8 +59,8 @@ final class ControlViewModel {
+ 
+     // MARK: Command row (§18)
+ 
+-    /// Starts off so a new editor remains local until the user opts in.
+-    var livePreview = false
++    /// Starts on so edits reach a connected board immediately.
++    var livePreview = true
+     /// §18.3: mirrors edits between the two eyes through an explicit,
+     /// verified topology. Set through `setSyncEyes(_:connection:)` so that
+     /// enabling it also aligns the eyes that are already selected.
+@@ -476,17 +476,42 @@ final class ControlViewModel {
+         if let id { editingFaceId = id }
+     }
+ 
+-    // MARK: Reconnect (§40)
++    // MARK: Board display synchronization
+ 
+-    /// Populates the editor from the board's current frame after a
+-    /// (re)connection (§49). A draft the user has actually worked on is
+-    /// authoritative and is never overwritten (§40) — only the untouched
+-    /// initial composition gives way.
++    /// Read serially so slow links never accumulate preview requests. A local
++    /// edit or output handoff during the read makes that response obsolete.
++    func refreshBoardDisplay(connection: BoardConnection) async {
++        guard connection.connectionState == .connected, !hasUnsentChanges, !isSending else { return }
++        let before = snapshot
++        do {
++            let frame = try await connection.getFrame()
++            guard !Task.isCancelled, snapshot == before, !hasUnsentChanges, !isSending else { return }
++            adoptBoardFrameIfUntouched(frame)
++        } catch {
++            // A missed preview sample is retried by the next polling tick.
++        }
++    }
++
++    /// Follow the board whenever there is no pending local edit. Previously
++    /// sent edits must not permanently prevent external face changes syncing.
+     func adoptBoardFrameIfUntouched(_ frame: PackedFrame) {
+-        guard !userHasEdited, !hasUnsentChanges else { return }
+-        draftFrame = frame
+-        lastSentFrame = frame
+-        fromParts = false
+-        resetUndoHistory()
++        guard !hasUnsentChanges else { return }
++        let changed = draftFrame != frame
++        if changed {
++            draftFrame = frame
++            lastSentFrame = frame
++            editingFaceId = nil
++            editingBoardGeneration = nil
++            sentGeneration = nil
++            resetUndoHistory()
++        }
++        if !fromParts || library?.compose(call: selectedCall) != frame {
++            if let call = library?.matchingCall(for: frame) {
++                selectedCall = call
++                fromParts = true
++            } else {
++                fromParts = false
++            }
++        }
+     }
+ }
+diff --git a/ios/RinaBoard/Features/Control/FacePartSelectorView.swift b/ios/RinaBoard/Features/Control/FacePartSelectorView.swift
+index 1a57b1c..e5b75ad 100644
+--- a/ios/RinaBoard/Features/Control/FacePartSelectorView.swift
++++ b/ios/RinaBoard/Features/Control/FacePartSelectorView.swift
+@@ -10,7 +10,7 @@ import RinaCore
+ struct FacePartSelectorView: View {
+     let group: PartGroup
+     let library: PartsLibrary
+-    let selectedId: String
++    let selectedId: String?
+     let color: Color
+     let brightness: Int
+     let onSelect: (String) -> Void
+@@ -29,15 +29,21 @@ struct FacePartSelectorView: View {
+     }
+ 
+     var body: some View {
+-        ScrollView(.horizontal, showsIndicators: false) {
+-            HStack(spacing: 10) {
+-                ForEach(Array(library.ids(for: group).enumerated()), id: \.element) { index, id in
+-                    option(id: id, number: index)
++        ScrollViewReader { proxy in
++            ScrollView(.horizontal, showsIndicators: false) {
++                HStack(spacing: 10) {
++                    ForEach(Array(library.ids(for: group).enumerated()), id: \.element) { index, id in
++                        option(id: id, number: index)
++                            .id(id)
++                    }
+                 }
++                .padding(.vertical, 6)
++            }
++            .scrollClipDisabled()
++            .onChange(of: selectedId, initial: true) { _, id in
++                if let id { proxy.scrollTo(id, anchor: .center) }
+             }
+-            .padding(.vertical, 6)
+         }
+-        .scrollClipDisabled()
+     }
+ 
+     private func option(id: String, number: Int) -> some View {
+diff --git a/ios/RinaBoard/Features/ControlCenter/BoardControlCenterAccessory.swift b/ios/RinaBoard/Features/ControlCenter/BoardControlCenterAccessory.swift
+index 4438fcb..58d3d87 100644
+--- a/ios/RinaBoard/Features/ControlCenter/BoardControlCenterAccessory.swift
++++ b/ios/RinaBoard/Features/ControlCenter/BoardControlCenterAccessory.swift
+@@ -112,7 +112,7 @@ struct BoardControlCenterAccessory: View {
+             HStack(spacing: 8) {
+                 statusBadge
+                 VStack(alignment: .leading, spacing: 1) {
+-                    Text("面板控制")
++                    Text(connection.deviceName ?? "面板控制")
+                         .font(.subheadline.weight(.medium))
+                         .lineLimit(1)
+                     // Dropped where there is no room for a second line: the
+@@ -166,7 +166,7 @@ struct BoardControlCenterAccessory: View {
+                 .background(controlRing())
+                 .contentShape(.rect)
+         }
+-        .buttonStyle(.plain)
++        .buttonStyle(AccessoryControlStyle())
+         .foregroundStyle(.primary)
+         .accessibilityLabel(label)
+     }
+@@ -196,7 +196,7 @@ struct BoardControlCenterAccessory: View {
+                 .contentShape(.rect)
+         }
+         .toggleStyle(.button)
+-        .buttonStyle(.plain)
++        .buttonStyle(AccessoryControlStyle())
+         .animation(.snappy(duration: 0.18), value: isAuto)
+         .accessibilityLabel("自动模式")
+         .accessibilityValue(Text(isAuto ? "自动" : "手动"))
+@@ -295,7 +295,7 @@ struct BoardControlCenterAccessory: View {
+                 .background(controlRing())
+                 .contentShape(.rect)
+         }
+-        .buttonStyle(.plain)
++        .buttonStyle(AccessoryControlStyle())
+         // The accessory sits at the bottom of the screen, so the menu opens
+         // upwards; keep the presets in their JSON order rather than reversed.
+         .menuOrder(.fixed)
+@@ -446,6 +446,19 @@ private struct BatteryRing: View {
+     }
+ }
+ 
++/// Press feedback for the accessory's inline controls: the pressed control
++/// itself shrinks and dims, so the response stays on the button that was
++/// touched instead of reading as the whole bar reacting.
++@available(iOS 26.0, *)
++private struct AccessoryControlStyle: ButtonStyle {
++    func makeBody(configuration: Configuration) -> some View {
++        configuration.label
++            .scaleEffect(configuration.isPressed ? 0.82 : 1)
++            .opacity(configuration.isPressed ? 0.6 : 1)
++            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
++    }
++}
++
+ /// Carries the accessory's measured height up to the view that needs the
+ /// capsule's corner radius.
+ @available(iOS 26.0, *)
+diff --git a/ios/RinaBoard/Features/Faces/FaceLibraryModel.swift b/ios/RinaBoard/Features/Faces/FaceLibraryModel.swift
+index c894d5e..5b24669 100644
+--- a/ios/RinaBoard/Features/Faces/FaceLibraryModel.swift
++++ b/ios/RinaBoard/Features/Faces/FaceLibraryModel.swift
+@@ -139,6 +139,8 @@ final class FaceLibraryModel {
+     /// next board merely because the ids happen to match.
+     func synchronizeBoardGeneration(_ generation: UUID) {
+         guard boardGeneration != generation else { return }
++        boardLoadRevision &+= 1
++        isLoading = false
+         faceDocument = FaceDocument()
+         boardGeneration = nil
+     }
+diff --git a/ios/RinaBoard/Features/LipSync/LipSyncView.swift b/ios/RinaBoard/Features/LipSync/LipSyncView.swift
+index a8c6434..5e1cdff 100644
+--- a/ios/RinaBoard/Features/LipSync/LipSyncView.swift
++++ b/ios/RinaBoard/Features/LipSync/LipSyncView.swift
+@@ -294,8 +294,6 @@ struct LipSyncView: View {
+             .disabled(!model.canEditOptions || model.profile.calibrated.isEmpty)
+         } header: {
+             Text("校准")
+-        } footer: {
+-            Text("默认声音模型是按共振峰合成出来的，不需要录音就能用。点「校准」后持续发同一个元音约 1.5 秒，即可用你自己的声音替换该元音的参考。")
+         }
+     }
+ 
+diff --git a/ios/RinaBoard/Features/Settings/AboutView.swift b/ios/RinaBoard/Features/Settings/AboutView.swift
+index 40c0a66..467a3b3 100644
+--- a/ios/RinaBoard/Features/Settings/AboutView.swift
++++ b/ios/RinaBoard/Features/Settings/AboutView.swift
+@@ -39,8 +39,6 @@ struct AboutView: View {
+                 }
+             } header: {
+                 Text("项目")
+-            } footer: {
+-                Text("固件、iOS App 与 3D 打印模型的下载地址。")
+             }
+ 
+             Section {
+@@ -52,8 +50,6 @@ struct AboutView: View {
+                 }
+             } header: {
+                 Text("致谢")
+-            } footer: {
+-                Text("本项目基于上述开源项目的创意与实现，向原作者致谢。各组件版权归原作者所有，并遵循其各自的开源许可证。")
+             }
+         }
+         .listSectionSpacing(.compact)
+diff --git a/ios/RinaBoard/Features/Settings/SettingsView.swift b/ios/RinaBoard/Features/Settings/SettingsView.swift
+index 49ee294..d1151a4 100644
+--- a/ios/RinaBoard/Features/Settings/SettingsView.swift
++++ b/ios/RinaBoard/Features/Settings/SettingsView.swift
+@@ -34,8 +34,6 @@ struct SettingsView: View {
+                         } label: {
+                             Label("面板控制中心", systemImage: "slider.horizontal.below.rectangle")
+                         }
+-                    } footer: {
+-                        Text("亮度、上一个/下一个、自动模式、颜色与已保存的表情。")
+                     }
+                 }
+ 
+@@ -101,8 +99,6 @@ struct SettingsView: View {
+             .disabled(!isConnected)
+         } header: {
+             Text("面板")
+-        } footer: {
+-            Text("亮度、颜色与上一个/下一个属于控制中心，这里不再重复。")
+         }
+         .confirmationDialog("重启面板？", isPresented: $confirmReboot, titleVisibility: .visible) {
+             Button("重启", role: .destructive) {
+@@ -132,8 +128,6 @@ struct SettingsView: View {
+             }
+         } header: {
+             Text("应用")
+-        } footer: {
+-            Text("外观跟随系统设置。")
+         }
+     }
+ 
+@@ -146,8 +140,6 @@ struct SettingsView: View {
+             } label: {
+                 Label("关于", systemImage: "info.circle")
+             }
+-        } footer: {
+-            Text("版本信息、项目链接与致谢。")
+         }
+     }
+ 
+diff --git a/ios/RinaBoard/Resources/Localizable.xcstrings b/ios/RinaBoard/Resources/Localizable.xcstrings
+index da26a2e..63d9faf 100644
+--- a/ios/RinaBoard/Resources/Localizable.xcstrings
++++ b/ios/RinaBoard/Resources/Localizable.xcstrings
+@@ -378,6 +378,7 @@
+       "shouldTranslate" : false
+     },
+     "1. 打开 设置 › 个人热点 并开启「允许其他人加入」\n2. 在下方填写热点名称与密码\n3. 点击发送" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -1619,6 +1620,7 @@
+       }
+     },
+     "亮度、上一个/下一个、自动模式、颜色与已保存的表情。" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -1641,6 +1643,7 @@
+       }
+     },
+     "亮度、颜色与上一个/下一个属于控制中心，这里不再重复。" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -2267,6 +2270,7 @@
+ 
+     },
+     "保存到面板的表情库，可在控制中心中管理。" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -5002,9 +5006,6 @@
+           }
+         }
+       }
+-    },
+-    "只显示附近可连接的璃奈板，按信号强弱排序。输入名称或设备编号可查找指定板子，点击设备即可连接。" : {
+-
+     },
+     "可以从另一个表情库复制表情。" : {
+       "comment" : "empty face library help",
+@@ -5523,6 +5524,7 @@
+       }
+     },
+     "固件、iOS App 与 3D 打印模型的下载地址。" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -6116,6 +6118,7 @@
+       }
+     },
+     "外观跟随系统设置。" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -6514,9 +6517,6 @@
+           }
+         }
+       }
+-    },
+-    "实时预览已关闭，修改仅保存在本地，点击「发送」才会写入。" : {
+-
+     },
+     "实时预览已关闭，修改仅保存在本地，点击「发送到面板」才会写入。" : {
+       "extractionState" : "stale",
+@@ -8875,9 +8875,6 @@
+     },
+     "忘记 %@" : {
+ 
+-    },
+-    "忘记后将停止自动连接此设备。可以重新扫描并连接来保存。" : {
+-
+     },
+     "忘记家庭 Wi-Fi" : {
+       "extractionState" : "stale",
+@@ -11600,6 +11597,7 @@
+       }
+     },
+     "本项目基于上述开源项目的创意与实现，向原作者致谢。各组件版权归原作者所有，并遵循其各自的开源许可证。" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -13912,6 +13910,7 @@
+       }
+     },
+     "版本信息、项目链接与致谢。" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -18692,9 +18691,6 @@
+           }
+         }
+       }
+-    },
+-    "重命名后立即生效，无需重启。名称上限 %lld 字节（中文约 8 个字）；留空可恢复出厂名称。多块板子各自独立命名，扫描时即可区分。" : {
+-
+     },
+     "重命名失败" : {
+       "comment" : "board rename failed",
+@@ -20086,6 +20082,7 @@
+       }
+     },
+     "默认声音模型是按共振峰合成出来的，不需要录音就能用。点「校准」后持续发同一个元音约 1.5 秒，即可用你自己的声音替换该元音的参考。" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+diff --git a/ios/RinaBoard/Services/BLETransport.swift b/ios/RinaBoard/Services/BLETransport.swift
+index 25f1e51..ee1f4d4 100644
+--- a/ios/RinaBoard/Services/BLETransport.swift
++++ b/ios/RinaBoard/Services/BLETransport.swift
+@@ -101,6 +101,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked
+     private var connectContinuation: CheckedContinuation<Void, Error>?
+     private var connectTimeoutTask: Task<Void, Never>?
+     private var connectAttemptID = UUID()
++    private var isConnectInProgress = false
+     private let disconnectGate = BLEDisconnectGate()
+ 
+     // MARK: write back-pressure (H3)
+@@ -256,9 +257,11 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked
+     }
+ 
+     public func connect() async throws {
+-        guard connectContinuation == nil, poweredOnContinuation == nil else {
++        guard !isConnectInProgress else {
+             throw RinaTransportError.cancelled
+         }
++        isConnectInProgress = true
++        defer { isConnectInProgress = false }
+         let attempt = UUID()
+         connectAttemptID = attempt
+         do {
+@@ -305,16 +308,10 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked
+         // Never retain the previous target while resolving a new row. If Core
+         // Bluetooth cannot retrieve the requested identifier, connecting must
+         // fail rather than silently reconnecting to the last board.
+-        let discovered = discoveredPeripheralObjects[identifier]
+         clearConnectionTarget()
+-        guard let peripheral = discovered
+-                ?? centralManager.retrievePeripherals(withIdentifiers: [identifier]).first else {
+-            let message = "找不到所选璃奈板（\(String(identifier.uuidString.suffix(4))))，请重新扫描"
+-            lastError = message
+-            logger.error("BLE peripheral retrieval failed for \(identifier.uuidString, privacy: .public)")
+-            emitState(.failed(message))
+-            throw RinaTransportError.notConnected
+-        }
++        connectingPeripheralID = identifier
++        emitState(.connecting)
++        let peripheral = try await resolvePeripheral(identifier, attempt: attempt)
+         try await disconnectGate.wait(for: peripheral.identifier)
+         try Task.checkCancellation()
+         guard connectAttemptID == attempt else { throw RinaTransportError.cancelled }
+@@ -341,6 +338,36 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked
+         }
+     }
+ 
++    /// A new app process has no discovery objects, and CoreBluetooth may no
++    /// longer have the saved peripheral cached. Retry by discovering that
++    /// exact UUID; never pick a similarly named board or the first result.
++    private func resolvePeripheral(_ identifier: UUID, attempt: UUID) async throws -> CBPeripheral {
++        if let peripheral = discoveredPeripheralObjects[identifier]
++            ?? centralManager.retrievePeripherals(withIdentifiers: [identifier]).first
++            ?? centralManager.retrieveConnectedPeripherals(withServices: [serviceCBUUID])
++                .first(where: { $0.identifier == identifier }) {
++            return peripheral
++        }
++
++        logger.info("Saved BLE peripheral is not cached; scanning for \(identifier.uuidString, privacy: .public)")
++        let ownsScan = !isScanning
++        if ownsScan { startScan() }
++        defer { if ownsScan { stopScan() } }
++        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
++        while ContinuousClock.now < deadline {
++            try Task.checkCancellation()
++            guard connectAttemptID == attempt, peripheralIdentifier == identifier else {
++                throw RinaTransportError.cancelled
++            }
++            guard centralManager.state == .poweredOn else {
++                throw RinaTransportError.underlying(bluetoothUnavailableMessage(centralManager.state))
++            }
++            if let peripheral = discoveredPeripheralObjects[identifier] { return peripheral }
++            try await Task.sleep(for: .milliseconds(100))
++        }
++        throw RinaTransportError.underlying("未找到已保存的璃奈板，请确认板子已开机并在附近")
++    }
++
+     /// A3: never overwrite a still-pending `poweredOnContinuation` — resume
+     /// the stale one with `.cancelled` first so it can't be leaked/silently
+     /// dropped (e.g. two overlapping `connect()` calls).
+diff --git a/ios/RinaBoard/Services/BoardConnection.swift b/ios/RinaBoard/Services/BoardConnection.swift
+index 1ba15d6..d150836 100644
+--- a/ios/RinaBoard/Services/BoardConnection.swift
++++ b/ios/RinaBoard/Services/BoardConnection.swift
+@@ -72,6 +72,7 @@ public final class BoardConnection {
+     private var stateTask: Task<Void, Never>?
+     private var pingTask: Task<Void, Never>?
+     private var reconnectTask: Task<Void, Never>?
++    private var connectionReadyHandler: (@MainActor () -> Void)?
+     private var reconnectAttempts = 0
+     private let maxReconnectAttempts = 5
+     private var transportSessionID = UUID()
+@@ -134,11 +135,16 @@ public final class BoardConnection {
+     // MARK: Connection lifecycle
+ 
+     /// Swaps in `transport` as the active transport and connects it. Returns
+-    /// `true` after the handshake and initial snapshot reads, `false` on failure — kept
+-    /// `@discardableResult` so existing call sites that only poll
+-    /// `connectionState` afterwards keep working unmodified.
++    /// `true` after the handshake and initial snapshot reads, `false` on failure.
++    /// `onReady` runs once after setup succeeds, including when an internal
++    /// retry is the successful attempt, and before `.connected` is published.
++    /// Kept `@discardableResult` so call sites that only poll `connectionState`
++    /// afterwards keep working unmodified.
+     @discardableResult
+-    public func connect(using transport: RinaTransport) async -> Bool {
++    public func connect(
++        using transport: RinaTransport,
++        onReady: (@MainActor () -> Void)? = nil
++    ) async -> Bool {
+         disconnect()
+         output.invalidate()
+         connectionGeneration = UUID()
+@@ -147,6 +153,7 @@ public final class BoardConnection {
+         reconnectAttempts = 0
+         self.transport = transport
+         transportKind = transport.kind
++        connectionReadyHandler = onReady
+         return await establish(transport)
+     }
+ 
+@@ -188,18 +195,20 @@ public final class BoardConnection {
+             _ = await subscribeToDefaultEvents(duringSetup: true)
+             guard transportSessionID == session else { return false }
+             await refreshBoardSnapshot(session: session)
++            await refreshDeviceNameDuringSetup(for: transport, generation: connectionGeneration,
++                                               session: session)
+             try Task.checkCancellation()
+             guard transportSessionID == session else { return false }
+             if let establishmentError { throw RinaTransportError.underlying(establishmentError) }
+             isEstablishing = false
+             reconnectAttempts = 0
+             lastError = nil
++            let readyHandler = connectionReadyHandler
++            connectionReadyHandler = nil
++            readyHandler?()
+             connectionState = .connected
+-            let generation = connectionGeneration
+             startPingLoopIfNeeded()
+-            await refreshDeviceName(for: transport, generation: generation)
+-            try Task.checkCancellation()
+-            return transportSessionID == session && connectionState == .connected
++            return true
+         } catch {
+             guard transportSessionID == session else { return false }
+             if Task.isCancelled || error is CancellationError {
+@@ -228,6 +237,7 @@ public final class BoardConnection {
+         reconnectTask = nil
+         stopCarrier()
+         transport = nil
++        connectionReadyHandler = nil
+         lastError = nil
+         deviceName = nil
+         connectionState = .disconnected
+@@ -267,6 +277,7 @@ public final class BoardConnection {
+     private func attemptReconnect() {
+         guard let transport else { return }
+         guard reconnectAttempts < maxReconnectAttempts else {
++            connectionReadyHandler = nil
+             connectionState = .failed("重连失败，已达到最大尝试次数：" + (lastError ?? ""))
+             return
+         }
+@@ -640,11 +651,24 @@ public final class BoardConnection {
+         }
+     }
+ 
+-    private func refreshDeviceName(for transport: RinaTransport, generation: UUID) async {
++    private func refreshDeviceNameDuringSetup(
++        for transport: RinaTransport,
++        generation: UUID,
++        session: UUID
++    ) async {
+         guard self.transport === transport,
+               connectionGeneration == generation,
+-              connectionState == .connected else { return }
+-        _ = try? await command(.getInfo)
++              transportSessionID == session,
++              isEstablishing else { return }
++        guard let payload = try? RinaCommand.getInfo.encode(),
++              let frame = try? await sendUnqueued(type: .cmd, payload: payload, timeout: 5,
++                                                  aggregateMore: true, duringSetup: true),
++              let reply = try? JSONDecoder().decode(CommandReply.self, from: frame.payload),
++              reply.ok,
++              self.transport === transport,
++              connectionGeneration == generation,
++              transportSessionID == session else { return }
++        updateDeviceName(from: reply, for: .getInfo, transport: transport, generation: generation)
+     }
+ 
+     private func updateDeviceName(
+diff --git a/ios/RinaBoardTests/AcceptanceControlTests.swift b/ios/RinaBoardTests/AcceptanceControlTests.swift
+index cab2495..edf9017 100644
+--- a/ios/RinaBoardTests/AcceptanceControlTests.swift
++++ b/ios/RinaBoardTests/AcceptanceControlTests.swift
+@@ -256,6 +256,54 @@ final class AcceptanceControlTests: XCTestCase {
+         connection.disconnect()
+     }
+ 
++    func testBoardFrameSelectsMatchingPartsAndClearsSelectionForCustomPixels() throws {
++        let (model, library) = try loadedModel()
++        var call = PartsCall.defaultCall
++        call.mouth = try differentPartID(in: .mouth, from: call.mouth, library: library)
++        let frame = library.compose(call: call)
++        model.adoptBoardFrameIfUntouched(frame)
++        XCTAssertEqual(model.draftFrame, frame)
++        XCTAssertTrue(model.fromParts)
++        XCTAssertEqual(library.compose(call: model.selectedCall), frame)
++        XCTAssertEqual(model.selectedCall.mouth, call.mouth)
++        XCTAssertFalse(model.hasUnsentChanges)
++
++        var custom = frame
++        custom.toggle(369)
++        model.adoptBoardFrameIfUntouched(custom)
++        XCTAssertEqual(model.draftFrame, custom)
++        XCTAssertFalse(model.fromParts)
++        XCTAssertFalse(model.canUndo)
++    }
++
++    func testRefreshFollowsExternalChangesAfterSendingAnEdit() async throws {
++        let model = ControlViewModel()
++        let connection = BoardConnection()
++        let transport = AcceptanceControlTransport()
++        let connected = await connection.connect(using: transport)
++        XCTAssertTrue(connected)
++        model.livePreview = false
++        model.toggle(led: 10, connection: connection)
++        await model.send(connection: connection)
++        XCTAssertFalse(model.hasUnsentChanges)
++
++        var external = PackedFrame()
++        external.set(369)
++        transport.displayFrame = external
++        await model.refreshBoardDisplay(connection: connection)
++        XCTAssertEqual(model.draftFrame, external,
++                       "A previous edit must not permanently disable board following")
++        XCTAssertFalse(model.fromParts)
++        XCTAssertFalse(model.hasUnsentChanges)
++
++        model.toggle(led: 12, connection: connection)
++        let draft = model.draftFrame
++        transport.displayFrame = PackedFrame()
++        await model.refreshBoardDisplay(connection: connection)
++        XCTAssertEqual(model.draftFrame, draft, "An unsent local edit must survive preview reads")
++        connection.disconnect()
++    }
++
+     private func loadedModel(file: StaticString = #filePath,
+                              line: UInt = #line) throws -> (ControlViewModel, PartsLibrary) {
+         let model = ControlViewModel()
+@@ -290,6 +338,7 @@ private final class AcceptanceControlTransport: @MainActor RinaTransport {
+     let kind: TransportKind = .bluetooth
+     let preferredChunkBytes = 512
+ 
++    var displayFrame = PackedFrame()
+     private let decoder = RinaLinkDecoder()
+     private var stateContinuation: AsyncStream<TransportState>.Continuation?
+     private var incomingContinuation: AsyncStream<Data>.Continuation?
+@@ -316,7 +365,8 @@ private final class AcceptanceControlTransport: @MainActor RinaTransport {
+                 RinaLinkFrame(type: request.type | 0x80,
+                               seq: request.seq,
+                               flags: 0,
+-                              payload: Data(#"{"ok":true}"#.utf8))
++                              payload: request.type == RinaLinkMessageType.getFrame.rawValue
++                                ? Data(displayFrame.bytes) : Data(#"{"ok":true}"#.utf8))
+             ))
+         }
+     }
+diff --git a/ios/RinaBoardTests/AcceptanceDefaultsTests.swift b/ios/RinaBoardTests/AcceptanceDefaultsTests.swift
+index e6ac0b0..2a3c2a6 100644
+--- a/ios/RinaBoardTests/AcceptanceDefaultsTests.swift
++++ b/ios/RinaBoardTests/AcceptanceDefaultsTests.swift
+@@ -3,8 +3,8 @@ import XCTest
+ 
+ @MainActor
+ final class AcceptanceDefaultsTests: XCTestCase {
+-    func testRealtimeOutputIsOffForANewEditor() {
+-        XCTAssertFalse(ControlViewModel().livePreview,
+-                       "A new editor must stay local until the user explicitly enables realtime output")
++    func testRealtimeOutputIsOnForANewEditor() {
++        XCTAssertTrue(ControlViewModel().livePreview,
++                      "A new editor streams edits to a connected board by default")
+     }
+ }
+diff --git a/ios/RinaBoardTests/ConnectionLifecycleTests.swift b/ios/RinaBoardTests/ConnectionLifecycleTests.swift
+index 004100e..46ad9e3 100644
+--- a/ios/RinaBoardTests/ConnectionLifecycleTests.swift
++++ b/ios/RinaBoardTests/ConnectionLifecycleTests.swift
+@@ -8,10 +8,13 @@ final class ConnectionLifecycleTests: XCTestCase {
+     func testThrowWithoutStateEventRetriesAndEventuallyConnects() async throws {
+         let wire = LifecycleTransport(failures: 2)
+         let board = BoardConnection(reconnectDelay: { _ in 0.01 })
+-        let first = await board.connect(using: wire)
++        var readyCount = 0
++        let first = await board.connect(using: wire) { readyCount += 1 }
+         XCTAssertFalse(first)
++        XCTAssertEqual(readyCount, 0)
+         XCTAssertEqual(board.lastError, "GATT discovery failed")
+         try await waitUntil { board.connectionState == .connected }
++        XCTAssertEqual(readyCount, 1)
+         XCTAssertEqual(wire.attempts, 3)
+         XCTAssertNil(board.lastError)
+         XCTAssertEqual(wire.pings, 1)
+@@ -32,6 +35,25 @@ final class ConnectionLifecycleTests: XCTestCase {
+         board.disconnect()
+     }
+ 
++    func testDeviceNameReadFinishesBeforeConnectedIsPublished() async throws {
++        let wire = LifecycleTransport()
++        wire.holdGetInfo = true
++        let board = BoardConnection()
++        var readyCount = 0
++
++        let task = Task { await board.connect(using: wire) { readyCount += 1 } }
++        try await waitUntil { wire.heldGetInfo != nil }
++
++        XCTAssertEqual(board.connectionState, .connecting)
++        XCTAssertEqual(readyCount, 0)
++        wire.releaseGetInfo()
++        let connected = await task.value
++        XCTAssertTrue(connected)
++        XCTAssertEqual(board.connectionState, .connected)
++        XCTAssertEqual(readyCount, 1)
++        board.disconnect()
++    }
++
+     func testRetryLimitAlsoAppliesToThrownErrors() async throws {
+         let wire = LifecycleTransport(failures: 100)
+         let board = BoardConnection(reconnectDelay: { _ in 0.001 })
+@@ -74,7 +96,8 @@ final class ConnectionLifecycleTests: XCTestCase {
+         let wire = LifecycleTransport()
+         wire.replyToPing = false
+         let board = BoardConnection(reconnectDelay: { _ in 0.01 })
+-        let task = Task { await board.connect(using: wire) }
++        var readyCount = 0
++        let task = Task { await board.connect(using: wire) { readyCount += 1 } }
+         try await waitUntil { wire.pings == 1 }
+         task.cancel()
+         let connected = await task.value
+@@ -82,6 +105,7 @@ final class ConnectionLifecycleTests: XCTestCase {
+         try await Task.sleep(for: .milliseconds(30))
+         XCTAssertEqual(wire.attempts, 1)
+         XCTAssertEqual(board.connectionState, .disconnected)
++        XCTAssertEqual(readyCount, 0)
+     }
+ 
+     func testReconnectResetsPartialFrameAndIgnoresSameTransportOldStream() async throws {
+@@ -205,6 +229,8 @@ private final class LifecycleTransport: RinaTransport {
+     var displayFrame = PackedFrame()
+     var holdStatus = false
+     var heldStatus: Data?
++    var holdGetInfo = false
++    var heldGetInfo: Data?
+     private let decoder = RinaLinkDecoder()
+     private var states: AsyncStream<TransportState>.Continuation?
+     private var incoming: AsyncStream<Data>.Continuation?
+@@ -218,6 +244,11 @@ private final class LifecycleTransport: RinaTransport {
+         let saved = states
+         return { saved?.yield($0) }
+     }
++    func releaseGetInfo() {
++        guard let reply = heldGetInfo else { return }
++        heldGetInfo = nil
++        receive(reply)
++    }
+     func connect() async throws {
+         attempts += 1
+         if attempts <= failures { throw RinaTransportError.underlying("GATT discovery failed") }
+@@ -253,6 +284,11 @@ private final class LifecycleTransport: RinaTransport {
+             let encoded = RinaLinkEncoder.encode(response)
+             if holdStatus, frame.type == RinaLinkMessageType.getStatus.rawValue {
+                 heldStatus = encoded
++            } else if holdGetInfo,
++                      frame.type == RinaLinkMessageType.cmd.rawValue,
++                      let object = try? JSONSerialization.jsonObject(with: frame.payload) as? [String: Any],
++                      object["cmd"] as? String == RinaCommand.getInfo.name {
++                heldGetInfo = encoded
+             } else {
+                 incoming?.yield(encoded)
+             }
+diff --git a/ios/RinaBoardTests/SavedConnectionRecoveryTests.swift b/ios/RinaBoardTests/SavedConnectionRecoveryTests.swift
+index 3bb549a..900aeaa 100644
+--- a/ios/RinaBoardTests/SavedConnectionRecoveryTests.swift
++++ b/ios/RinaBoardTests/SavedConnectionRecoveryTests.swift
+@@ -179,6 +179,33 @@ final class SavedConnectionRecoveryTests: XCTestCase {
+         XCTAssertNil(model.lastErrorMessage)
+     }
+ 
++    func testSavedBLEReconnectUsesInjectedConnectionOperation() async throws {
++        let store = makeStore()
++        defer { clear(store.defaultsSuiteName) }
++        let identifier = UUID()
++        let board = KnownBoard(id: identifier.uuidString, name: "璃奈板",
++                               preferredTransport: "bluetooth")
++        store.value.upsert(board)
++        let model = ConnectionViewModel(startBonjourBrowsing: false)
++        let ble = BLETransport()
++        var receivedTransport: RinaTransport?
++
++        await model.connectSavedBoard(
++            board,
++            ble: ble,
++            connection: BoardConnection(),
++            boardStore: store.value,
++            joinBoardHotspot: {},
++            connectTransport: { transport in
++                receivedTransport = transport
++                return false
++            }
++        )
++
++        XCTAssertTrue(receivedTransport === ble)
++        XCTAssertEqual(ble.peripheralIdentifier, identifier)
++    }
++
+     func testForgettingSavedBLEWhileConnectIsInflightDoesNotRestoreItOrShowError() async {
+         let store = makeStore()
+         defer { clear(store.defaultsSuiteName) }

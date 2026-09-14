@@ -1,0 +1,9 @@
+ProductName:		macOS
+ProductVersion:		27.0
+BuildVersion:		26A428
+Xcode 27.0
+Build version 27A5237l
+swift-driver version: 1.168.6 Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)
+Target: arm64-apple-macosx27.0.0
+PlatformIO Core, version 6.2.0
+Apple clang version 21.0.0 (clang-2100.3.34.2)

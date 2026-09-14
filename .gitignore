@@ -16,3 +16,6 @@ build/
 # Raw acceptance-run evidence (xcresult bundles, simulator videos, screenshots,
 # ~500 MB). The reports next to it are tracked; the evidence stays local.
 docs/acceptance-*/evidence/
+# Raw stress-run logs (serial captures, xcodebuild output, ~20 MB). Reports,
+# case CSVs, metrics and tools next to them are tracked.
+docs/stress-*/logs/

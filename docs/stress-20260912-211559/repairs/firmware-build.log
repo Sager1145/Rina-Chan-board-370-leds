@@ -1,0 +1,40 @@
+Processing esp32s3-rmt-dma (platform: https://github.com/pioarduino/platform-espressif32/releases/download/55.03.39/platform-espressif32.zip; board: esp32-s3-devkitc-1; framework: arduino)
+--------------------------------------------------------------------------------
+Verbose mode can be enabled via `-v, --verbose` option
+CONFIGURATION: https://docs.platformio.org/page/boards/espressif32/esp32-s3-devkitc-1.html
+PLATFORM: Espressif 32 (55.3.39) > Espressif ESP32-S3-DevKitC-1-N8 (8 MB QD, No PSRAM)
+HARDWARE: ESP32S3 240MHz, 320KB RAM, 8MB Flash
+DEBUG: Current (esp-builtin) On-board (esp-builtin) External (cmsis-dap, esp-bridge, esp-prog, esp-prog-2, iot-bus-jtag, jlink, minimodule, olimex-arm-usb-ocd, olimex-arm-usb-ocd-h, olimex-arm-usb-tiny-h, olimex-jtag-tiny, tumpa)
+PACKAGES: 
+ - contrib-piohome @ 3.4.4 
+ - framework-arduinoespressif32 @ 3.3.9 
+ - framework-arduinoespressif32-libs @ 5.5.4+sha.735507283d 
+ - tool-esptoolpy @ 5.3.0 
+ - tool-xtensa-esp-elf-gdb @ 17.1.0+20260402 
+ - toolchain-xtensa-esp-elf @ 14.2.0+20260121
+LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf
+LDF Modes: Finder ~ chain, Compatibility ~ soft
+Found 46 compatible libraries
+Scanning dependencies...
+Dependency Graph
+|-- ArduinoJson @ 6.21.6
+|-- Adafruit NeoPixel @ 1.15.5
+|-- NimBLE-Arduino @ 2.5.1
+|-- LittleFS @ 3.3.9
+|-- WiFi @ 3.3.9
+|-- DNSServer @ 3.3.9
+|-- WebServer @ 3.3.9
+|-- ESPmDNS @ 3.3.9
+|-- Preferences @ 3.3.9
+Building in release mode
+Retrieving maximum program size .pio/build/esp32s3-rmt-dma/firmware.elf
+Checking size .pio/build/esp32s3-rmt-dma/firmware.elf
+Advanced Memory Usage is available via "PlatformIO Home > Project Inspect"
+RAM:   [===       ]  30.6% (used 100188 bytes from 327680 bytes)
+Flash: [==        ]  16.9% (used 1418255 bytes from 8388608 bytes)
+========================= [SUCCESS] Took 4.84 seconds =========================
+
+Environment      Status    Duration
+---------------  --------  ------------
+esp32s3-rmt-dma  SUCCESS   00:00:04.835
+========================= 1 succeeded in 00:00:04.835 =========================

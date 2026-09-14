@@ -5,7 +5,7 @@
 # 模型文件
 https://makerworld.com/zh/models/2569348-rina-chan-board-rina-board-rina-chan-board#profileId-2832058
 
-RinaChanBoard 是一个完全本地运行的 LED 表情显示系统。烧录固件与 LittleFS 后，用户通过 RinaBoard iOS App 连接设备：蓝牙（BLE，用于首次 Wi‑Fi 配网及全部功能）、家庭 Wi‑Fi（TCP `5370` 端口，Bonjour 域名 `rinaboard.local`），或设备自建热点 `RinaChanBoard-V2`（TCP `192.168.1.14:5370`）。项目不依赖路由器、云服务或外部服务器；所有表情、运行设置和电池校准数据都保存在设备本地 LittleFS 中。协议细节见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md)。
+RinaChanBoard 是一个完全本地运行的 LED 表情显示系统。烧录固件与 LittleFS 后，用户通过 RinaBoard iOS App 连接设备：蓝牙（BLE，用于首次 Wi‑Fi 配网及全部功能）、家庭 Wi‑Fi（TCP `5370` 端口，Bonjour 域名 `rinaboard-<ID>.local`），或设备自建热点 `RinaChanBoard-<ID>`（TCP `192.168.1.14:5370`）。`<ID>` 是该板蓝牙 MAC 地址的 12 位大写十六进制字符（与 BLE 名称后缀相同，串口 `status` 命令会输出 `STATUS boardId=`），详见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md) 的 “Board identity” 一节。项目不依赖路由器、云服务或外部服务器；所有表情、运行设置和电池校准数据都保存在设备本地 LittleFS 中。协议细节见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md)。
 
 ---
 
@@ -32,7 +32,7 @@ RinaChanBoard 是一个完全本地运行的 LED 表情显示系统。烧录固�
 
 ### 1.1 核心功能
 
-- 通过 RinaBoard iOS App 控制：蓝牙 BLE、家庭 Wi‑Fi（TCP `5370`，Bonjour `rinaboard.local`），或设备自建热点 `RinaChanBoard-V2`（默认 SSID）三种连接方式，详见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md)。
+- 通过 RinaBoard iOS App 控制：蓝牙 BLE、家庭 Wi‑Fi（TCP `5370`，Bonjour `rinaboard-<ID>.local`），或设备自建热点 `RinaChanBoard-<ID>`（默认 SSID，`<ID>` 为每块板唯一的蓝牙 MAC 十六进制后缀）三种连接方式，详见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md)。
 - 370 颗 WS2812B / NeoPixel LED 控制。
 - 逻辑 M370 帧格式，支持 370 bit LED 状态导入、导出和 API 控制。
 - 主颜色、亮度、手动/自动模式、自动轮播间隔控制。
@@ -193,7 +193,7 @@ pio run -t uploadfs
 
 | 字段 | 默认值 |
 |---|---|
-| Wi‑Fi SSID | `RinaChanBoard-V2` |
+| Wi‑Fi SSID | `RinaChanBoard-<ID>`（`<ID>` 为本板蓝牙 MAC 的 12 位大写十六进制，见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md) “Board identity”） |
 | Wi‑Fi 密码 | `rinachan` |
 | 本地域名 | `http://rina.io/` |
 | IP 地址 | `http://192.168.1.14/` |
@@ -208,7 +208,7 @@ http://rina.io/?v=latest
 
 ## 5. WebUI 使用说明
 
-固件不再内置完整 WebUI，原先的基础控制、自定义表情、表情部件、文字滚动和调试页面已全部迁移到 RinaBoard iOS App 中实现（LED 点阵编辑、部件组合、Ark Pixel 文字滚动光栅化、日志/调试工具等均在 App 侧完成，固件只负责接收 RinaLink 消息并渲染/持久化）。固件仅保留一个约 10 KB 的 Wi‑Fi 设置页（内嵌在 flash 中，无需 LittleFS 资源），用于没有安装 App 的手机或电脑给板子配网：先连接热点 `RinaChanBoard-V2`（密码 `rinachan`），再用浏览器打开 `http://rina.io`（热点模式下的验证码域名）或 `http://192.168.1.14`。页面上可以查看当前工作模式、家庭 Wi‑Fi 连接状态和热点信息，扫描并选择附近的 Wi‑Fi、填写密码后一键连接，以及修改热点名称和密码；页面本身不提供表情、颜色、动画或文字滚动等功能。除配网外的所有其它控制，都必须通过 RinaBoard iOS App 经蓝牙或 Wi‑Fi 连接固件后完成，具体消息格式和命令列表见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md)。
+固件不再内置完整 WebUI，原先的基础控制、自定义表情、表情部件、文字滚动和调试页面已全部迁移到 RinaBoard iOS App 中实现（LED 点阵编辑、部件组合、Ark Pixel 文字滚动光栅化、日志/调试工具等均在 App 侧完成，固件只负责接收 RinaLink 消息并渲染/持久化）。固件仅保留一个约 10 KB 的 Wi‑Fi 设置页（内嵌在 flash 中，无需 LittleFS 资源），用于没有安装 App 的手机或电脑给板子配网：先连接热点 `RinaChanBoard-<ID>`（密码 `rinachan`，`<ID>` 为本板唯一标识），再用浏览器打开 `http://rina.io`（热点模式下的验证码域名）或 `http://192.168.1.14`。页面上可以查看当前工作模式、家庭 Wi‑Fi 连接状态和热点信息，扫描并选择附近的 Wi‑Fi、填写密码后一键连接，以及修改热点名称和密码；页面本身不提供表情、颜色、动画或文字滚动等功能。除配网外的所有其它控制，都必须通过 RinaBoard iOS App 经蓝牙或 Wi‑Fi 连接固件后完成，具体消息格式和命令列表见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md)。
 
 ---
 
@@ -348,9 +348,17 @@ face 类型：
 {
   "v_min": 6.2,
   "v_max": 8.4,
+  "max_learned": false,
+  "cutoff_learned": false,
   "updatedAt": 0
 }
 ```
+
+`v_max`（可测到的最高电压，含 ADC 打满时的读数）在读数持续高于当前值 ≥60 秒后，
+取该时间窗内的最小读数自动学习，避免噪声/瞬时尖峰误判；`v_min`（放电截止电压）只在
+真正掉电/欠压复位（`esp_reset_reason` 为 `ESP_RST_POWERON`/`ESP_RST_BROWNOUT`）时，
+采纳掉电前写入 NVS（命名空间 `rina_batt`）的放电低点，软重启不会提前采纳。手动命令
+`reset_battery_min`/`reset_battery_max` 仍可覆盖以上自动学习结果。
 
 实际字段以固件版本输出为准。
 
@@ -370,7 +378,7 @@ partitions.csv
 
 | 常量 | 默认值 |
 |---|---|
-| `AP_SSID` | `RinaChanBoard-V2` |
+| `AP_SSID_PREFIX` | `RinaChanBoard-`（每块板的默认 SSID 是 `AP_SSID_PREFIX` 加上本板唯一标识 `<ID>`，见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md) “Board identity”；不再有单一共享的 `AP_SSID` 常量） |
 | `AP_PASSWORD` | `rinachan` |
 | `AP_DOMAIN` | `rina.io` |
 | `AP_IP_ADDR` | `192.168.1.14` |
@@ -576,7 +584,7 @@ curl -X POST http://rina.io/api/frame \
 建议每次烧录后按顺序检查：
 
 - [ ] 串口输出正常，无反复重启。
-- [ ] 能看到 Wi‑Fi 热点 `RinaChanBoard-V2`。
+- [ ] 能看到 Wi‑Fi 热点 `RinaChanBoard-<ID>`（`<ID>` 为本板唯一标识）。
 - [ ] 浏览器可打开 `http://rina.io/`。
 - [ ] `/api/status` 返回 JSON。
 - [ ] `/api/power` 返回电池/充电状态。

@@ -1,0 +1,1131 @@
+Command line invocation:
+    /Applications/Xcode-beta.app/Contents/Developer/usr/bin/xcodebuild -project ios/RinaBoard.xcodeproj -scheme RinaBoard -destination "platform=iOS Simulator,id=BC3105AC-C4C1-480B-B8C2-439039DF6C8A" -derivedDataPath /private/tmp/rina-stress-repair-build -resultBundlePath /private/tmp/rina-stress-repair-unit5.xcresult "-only-testing:RinaBoardTests" CODE_SIGNING_ALLOWED=NO test
+
+Build settings from command line:
+    CODE_SIGNING_ALLOWED = NO
+
+Resolve Package Graph
+
+
+Resolved source packages:
+  RinaCore: /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/Packages/RinaCore @ local
+
+Writing result bundle at path:
+	/private/tmp/rina-stress-repair-unit5.xcresult
+
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (5 targets)
+    Target 'RinaBoardUITests' in project 'RinaBoard'
+        ➜ Explicit dependency on target 'RinaBoard' in project 'RinaBoard'
+    Target 'RinaBoardTests' in project 'RinaBoard'
+        ➜ Explicit dependency on target 'RinaBoard' in project 'RinaBoard'
+        ➜ Explicit dependency on target 'RinaCore-product' in project 'RinaCore'
+    Target 'RinaBoard' in project 'RinaBoard'
+        ➜ Explicit dependency on target 'RinaCore-product' in project 'RinaCore'
+    Target 'RinaCore-product' in project 'RinaCore'
+        ➜ Explicit dependency on target 'RinaCore' in project 'RinaCore'
+    Target 'RinaCore' in project 'RinaCore' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ClangStatCache /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk /tmp/rina-stress-repair-build/SDKStatCaches.noindex/iphonesimulator27.0-24A5408c-3243818bda632a4370e1cc7a9fd181c5.sdkstatcache
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard.xcodeproj
+    /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk -o /tmp/rina-stress-repair-build/SDKStatCaches.noindex/iphonesimulator27.0-24A5408c-3243818bda632a4370e1cc7a9fd181c5.sdkstatcache
+
+SwiftDriver RinaBoard normal arm64 com.apple.xcode.tools.swift.compiler (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftDriver -- /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name RinaBoard -Onone @/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /tmp/rina-stress-repair-build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /tmp/rina-stress-repair-build/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -F /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks -F /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -emit-localized-strings -emit-localized-strings-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64 -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /tmp/rina-stress-repair-build/SDKStatCaches.noindex/iphonesimulator27.0-24A5408c-3243818bda632a4370e1cc7a9fd181c5.sdkstatcache -output-file-map /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard-OutputFileMap.json -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /tmp/rina-stress-repair-build/ModuleCache.noindex -sdk-module-cache-path /tmp/rina-stress-repair-build/SDKExplicitPrecompiledModules -emit-dependencies -emit-module -emit-module-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard.swiftmodule -serialize-diagnostics -dependency-scan-serialize-diagnostics-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard-dependency-scan.dia -validate-clang-modules-once -clang-build-session-file /tmp/rina-stress-repair-build/ModuleCache.noindex/Session.modulevalidation -Xcc -fmodules-prune-interval\=86400 -Xcc -fmodules-prune-after\=345600 -emit-const-values -const-gather-protocols-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard_const_extract_protocols.json -Xcc -iquote -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-generated-files.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-own-target-headers.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard-bc1766e959a69249dba33a7fface1d4d-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-project-headers.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/include -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/DerivedSources-normal/arm64 -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/DerivedSources/arm64 -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard-Swift.h -working-directory /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios -experimental-emit-module-separately -disable-cmo
+
+SwiftDriver RinaBoardTests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftDriver -- /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name RinaBoardTests -Onone @/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.SwiftFileList -DDEBUG -plugin-path /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /tmp/rina-stress-repair-build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /tmp/rina-stress-repair-build/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -Isystem /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks -F /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -F /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk/Developer/Library/Frameworks -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /tmp/rina-stress-repair-build/SDKStatCaches.noindex/iphonesimulator27.0-24A5408c-3243818bda632a4370e1cc7a9fd181c5.sdkstatcache -output-file-map /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests-OutputFileMap.json -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /tmp/rina-stress-repair-build/ModuleCache.noindex -sdk-module-cache-path /tmp/rina-stress-repair-build/SDKExplicitPrecompiledModules -emit-dependencies -emit-module -emit-module-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.swiftmodule -serialize-diagnostics -dependency-scan-serialize-diagnostics-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests-dependency-scan.dia -validate-clang-modules-once -clang-build-session-file /tmp/rina-stress-repair-build/ModuleCache.noindex/Session.modulevalidation -Xcc -fmodules-prune-interval\=86400 -Xcc -fmodules-prune-after\=345600 -emit-const-values -const-gather-protocols-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests_const_extract_protocols.json -Xcc -iquote -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests-generated-files.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests-own-target-headers.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard-bc1766e959a69249dba33a7fface1d4d-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests-project-headers.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/include -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/DerivedSources-normal/arm64 -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/DerivedSources/arm64 -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests-Swift.h -working-directory /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios -experimental-emit-module-separately -disable-cmo
+
+SwiftCompile normal arm64 Compiling\ AcceptanceLibraryTests.swift,\ AcceptancePerformanceTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceLibraryTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptancePerformanceTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceLibraryTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile AcceptanceLibraryTests.swift
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptancePerformanceTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile AcceptancePerformanceTests.swift
+
+SwiftCompile normal arm64 Compiling\ AcceptanceControlTests.swift,\ AcceptanceDefaultsTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceControlTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceDefaultsTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceControlTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile AcceptanceControlTests.swift
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceDefaultsTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile AcceptanceDefaultsTests.swift
+
+SwiftCompile normal arm64 Compiling\ AcceptanceRecoveryTests.swift,\ AcceptanceTextTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceRecoveryTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceTextTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceTextTests.swift:15:18: warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+ 13 |     func testEditingMultilingualDraftPreservesEmojiAndLineBreaks() {
+ 14 |         var model: TextViewModel? = TextViewModel()
+ 15 |         weak var released = model
+    |                  `- warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+ 16 |         let marker = UUID().uuidString
+ 17 |         let input = "a1-中文-日本語-👩🏽‍💻\n" + marker
+
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceTextTests.swift:30:18: warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+ 28 |     func testEditingEnforcesVisibleLimitWithoutSplittingEarlierContent() {
+ 29 |         var model: TextViewModel? = TextViewModel()
+ 30 |         weak var released = model
+    |                  `- warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+ 31 |         let marker = UUID().uuidString
+ 32 |         model?.editText(marker + String(repeating: "文", count: 1001))
+
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceTextTests.swift:42:18: warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+ 40 |     func testEditingRetainsOverByteLimitDraftAndExposesExactBoundary() {
+ 41 |         var model: TextViewModel? = TextViewModel()
+ 42 |         weak var released = model
+    |                  `- warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+ 43 |         // 273 composed emoji x 15 UTF-8 bytes + one ASCII = 4096 bytes,
+ 44 |         // only 547 visible codepoints, below the editor's visible limit.
+
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceTextTests.swift:64:22: warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+ 62 |             let owner = connection.output.begin(.manual)
+ 63 |             var model: TextViewModel? = TextViewModel()
+ 64 |             weak var released = model
+    |                      `- warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+ 65 |             model?.editText(input)
+ 66 |             let oldBinding = "acceptance-old-\(UUID().uuidString)"
+
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceTextTests.swift:88:18: warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+ 86 |         let connection = BoardConnection()
+ 87 |         var model: TextViewModel? = TextViewModel()
+ 88 |         weak var released = model
+    |                  `- warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+ 89 |         let draft = "验收重试-\(UUID().uuidString)"
+ 90 |         model?.editText(draft)
+
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceTextTests.swift:109:18: warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+107 |     func testConflictChoicesKeepDraftOrExplicitlyAdoptBoardText() {
+108 |         var model: TextViewModel? = TextViewModel()
+109 |         weak var released = model
+    |                  `- warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+110 |         let draft = "本机-\(UUID().uuidString)"
+111 |         let board = "面板-\(UUID().uuidString)"
+
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceTextTests.swift:134:18: warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+132 |     func testReleaseOutputClearsPlaybackBindingAndPhaseButKeepsUnsentDraft() {
+133 |         var model: TextViewModel? = TextViewModel()
+134 |         weak var released = model
+    |                  `- warning: weak variable 'released' was never mutated; consider changing to 'let' constant [#VariableNeverMutated::WeakMutability]
+135 |         let draft = "保留草稿-\(UUID().uuidString)"
+136 |         model?.editText(draft)
+
+[#VariableNeverMutated]: <https://docs.swift.org/compiler/documentation/diagnostics/variable-never-mutated>
+[#WeakMutability]: <https://docs.swift.org/compiler/documentation/diagnostics/weak-mutability>
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceRecoveryTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile AcceptanceRecoveryTests.swift
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/AcceptanceTextTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile AcceptanceTextTests.swift
+
+SwiftCompile normal arm64 Compiling\ BoardConnectionOutputTests.swift,\ BoardControlCenterModelTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/BoardConnectionOutputTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/BoardControlCenterModelTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/BoardConnectionOutputTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile BoardConnectionOutputTests.swift
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/BoardControlCenterModelTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile BoardControlCenterModelTests.swift
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ RinaBoardTests (in target 'RinaBoardTests' from project 'RinaBoard')
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/BoardSessionStoreTests.swift:125:39: warning: conformance of 'SessionTransport' to protocol 'RinaTransport' crosses into main actor-isolated code and can cause data races; this is an error in the Swift 6 language mode [#ConformanceIsolation]
+123 | 
+124 | @MainActor
+125 | private final class SessionTransport: RinaTransport {
+    |                                       |- warning: conformance of 'SessionTransport' to protocol 'RinaTransport' crosses into main actor-isolated code and can cause data races; this is an error in the Swift 6 language mode [#ConformanceIsolation]
+    |                                       |- note: isolate this conformance to the main actor with '@MainActor'
+    |                                       `- note: turn data races into runtime errors with '@preconcurrency'
+126 |     let kind: TransportKind
+127 |     let preferredChunkBytes = 512
+    :
+136 |     }
+137 | 
+138 |     func stateStream() -> AsyncStream<TransportState> {
+    |          |- note: main actor-isolated instance method 'stateStream()' cannot satisfy nonisolated requirement
+    |          `- note: mark instance method 'stateStream()' 'nonisolated'
+139 |         AsyncStream { stateContinuation = $0 }
+140 |     }
+141 | 
+142 |     func incomingStream() -> AsyncStream<Data> {
+    |          |- note: main actor-isolated instance method 'incomingStream()' cannot satisfy nonisolated requirement
+    |          `- note: mark instance method 'incomingStream()' 'nonisolated'
+143 |         AsyncStream { incomingContinuation = $0 }
+144 |     }
+    :
+148 |     }
+149 | 
+150 |     func disconnect() {
+    |          |- note: main actor-isolated instance method 'disconnect()' cannot satisfy nonisolated requirement
+    |          `- note: mark instance method 'disconnect()' 'nonisolated'
+151 |         disconnectCount += 1
+152 |         stateContinuation?.yield(.disconnected)
+
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/ConnectionLifecycleTests.swift:219:41: warning: conformance of 'LifecycleTransport' to protocol 'RinaTransport' crosses into main actor-isolated code and can cause data races; this is an error in the Swift 6 language mode [#ConformanceIsolation]
+217 | 
+218 | @MainActor
+219 | private final class LifecycleTransport: RinaTransport {
+    |                                         |- warning: conformance of 'LifecycleTransport' to protocol 'RinaTransport' crosses into main actor-isolated code and can cause data races; this is an error in the Swift 6 language mode [#ConformanceIsolation]
+    |                                         |- note: isolate this conformance to the main actor with '@MainActor'
+    |                                         `- note: turn data races into runtime errors with '@preconcurrency'
+220 |     let kind: TransportKind = .bluetooth
+221 |     let preferredChunkBytes = 512
+    :
+237 | 
+238 |     init(failures: Int = 0) { self.failures = failures }
+239 |     func stateStream() -> AsyncStream<TransportState> { AsyncStream { states = $0 } }
+    |          |- note: main actor-isolated instance method 'stateStream()' cannot satisfy nonisolated requirement
+    |          `- note: mark instance method 'stateStream()' 'nonisolated'
+240 |     func incomingStream() -> AsyncStream<Data> { AsyncStream { incoming = $0 } }
+    |          |- note: main actor-isolated instance method 'incomingStream()' cannot satisfy nonisolated requirement
+    |          `- note: mark instance method 'incomingStream()' 'nonisolated'
+241 |     func emit(_ state: TransportState) { states?.yield(state) }
+242 |     func receive(_ data: Data) { incoming?.yield(data) }
+    :
+255 |         emit(.connected)
+256 |     }
+257 |     func disconnect() { disconnects += 1; emit(.disconnected) }
+    |          |- note: main actor-isolated instance method 'disconnect()' cannot satisfy nonisolated requirement
+    |          `- note: mark instance method 'disconnect()' 'nonisolated'
+258 |     func send(_ data: Data) async throws {
+259 |         for frame in decoder.feed(data) {
+
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/ExplicitModeCommandTests.swift:37:43: warning: conformance of 'ModeCommandTransport' to protocol 'RinaTransport' crosses into main actor-isolated code and can cause data races; this is an error in the Swift 6 language mode [#ConformanceIsolation]
+35 | 
+36 | @MainActor
+37 | private final class ModeCommandTransport: RinaTransport {
+   |                                           |- warning: conformance of 'ModeCommandTransport' to protocol 'RinaTransport' crosses into main actor-isolated code and can cause data races; this is an error in the Swift 6 language mode [#ConformanceIsolation]
+   |                                           |- note: isolate this conformance to the main actor with '@MainActor'
+   |                                           `- note: turn data races into runtime errors with '@preconcurrency'
+38 |     let kind: TransportKind = .bluetooth
+39 |     let preferredChunkBytes = 512
+   :
+42 |     private var incoming: AsyncStream<Data>.Continuation?
+43 |     private var states: AsyncStream<TransportState>.Continuation?
+44 |     func stateStream() -> AsyncStream<TransportState> { AsyncStream { states = $0 } }
+   |          |- note: main actor-isolated instance method 'stateStream()' cannot satisfy nonisolated requirement
+   |          `- note: mark instance method 'stateStream()' 'nonisolated'
+45 |     func incomingStream() -> AsyncStream<Data> { AsyncStream { incoming = $0 } }
+   |          |- note: main actor-isolated instance method 'incomingStream()' cannot satisfy nonisolated requirement
+   |          `- note: mark instance method 'incomingStream()' 'nonisolated'
+46 |     func connect() async throws { states?.yield(.connected) }
+47 |     func disconnect() { states?.yield(.disconnected) }
+   |          |- note: main actor-isolated instance method 'disconnect()' cannot satisfy nonisolated requirement
+   |          `- note: mark instance method 'disconnect()' 'nonisolated'
+48 |     func send(_ data: Data) async throws {
+49 |         for request in decoder.feed(data) {
+
+[#ConformanceIsolation]: <https://docs.swift.org/compiler/documentation/diagnostics/conformance-isolation>
+
+SwiftCompile normal arm64 (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    
+
+SwiftCompile normal arm64 Compiling\ SavedConnectionRecoveryTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/SavedConnectionRecoveryTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/SavedConnectionRecoveryTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile SavedConnectionRecoveryTests.swift
+
+SwiftCompile normal arm64 Compiling\ TextTransportTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/TextTransportTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/TextTransportTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile TextTransportTests.swift
+
+SwiftCompile normal arm64 Compiling\ VideoPlaybackRecoveryTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/VideoPlaybackRecoveryTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/VideoPlaybackRecoveryTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile VideoPlaybackRecoveryTests.swift
+
+SwiftCompile normal arm64 Compiling\ BoardSessionStoreTests.swift,\ ConnectionLifecycleTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/BoardSessionStoreTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/ConnectionLifecycleTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/BoardSessionStoreTests.swift:125:39: warning: conformance of 'SessionTransport' to protocol 'RinaTransport' crosses into main actor-isolated code and can cause data races; this is an error in the Swift 6 language mode [#ConformanceIsolation]
+123 | 
+124 | @MainActor
+125 | private final class SessionTransport: RinaTransport {
+    |                                       |- warning: conformance of 'SessionTransport' to protocol 'RinaTransport' crosses into main actor-isolated code and can cause data races; this is an error in the Swift 6 language mode [#ConformanceIsolation]
+    |                                       |- note: isolate this conformance to the main actor with '@MainActor'
+    |                                       `- note: turn data races into runtime errors with '@preconcurrency'
+126 |     let kind: TransportKind
+127 |     let preferredChunkBytes = 512
+    :
+136 |     }
+137 | 
+138 |     func stateStream() -> AsyncStream<TransportState> {
+    |          |- note: main actor-isolated instance method 'stateStream()' cannot satisfy nonisolated requirement
+    |          `- note: mark instance method 'stateStream()' 'nonisolated'
+139 |         AsyncStream { stateContinuation = $0 }
+140 |     }
+141 | 
+142 |     func incomingStream() -> AsyncStream<Data> {
+    |          |- note: main actor-isolated instance method 'incomingStream()' cannot satisfy nonisolated requirement
+    |          `- note: mark instance method 'incomingStream()' 'nonisolated'
+143 |         AsyncStream { incomingContinuation = $0 }
+144 |     }
+    :
+148 |     }
+149 | 
+150 |     func disconnect() {
+    |          |- note: main actor-isolated instance method 'disconnect()' cannot satisfy nonisolated requirement
+    |          `- note: mark instance method 'disconnect()' 'nonisolated'
+151 |         disconnectCount += 1
+152 |         stateContinuation?.yield(.disconnected)
+
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/ConnectionLifecycleTests.swift:219:41: warning: conformance of 'LifecycleTransport' to protocol 'RinaTransport' crosses into main actor-isolated code and can cause data races; this is an error in the Swift 6 language mode [#ConformanceIsolation]
+217 | 
+218 | @MainActor
+219 | private final class LifecycleTransport: RinaTransport {
+    |                                         |- warning: conformance of 'LifecycleTransport' to protocol 'RinaTransport' crosses into main actor-isolated code and can cause data races; this is an error in the Swift 6 language mode [#ConformanceIsolation]
+    |                                         |- note: isolate this conformance to the main actor with '@MainActor'
+    |                                         `- note: turn data races into runtime errors with '@preconcurrency'
+220 |     let kind: TransportKind = .bluetooth
+221 |     let preferredChunkBytes = 512
+    :
+237 | 
+238 |     init(failures: Int = 0) { self.failures = failures }
+239 |     func stateStream() -> AsyncStream<TransportState> { AsyncStream { states = $0 } }
+    |          |- note: main actor-isolated instance method 'stateStream()' cannot satisfy nonisolated requirement
+    |          `- note: mark instance method 'stateStream()' 'nonisolated'
+240 |     func incomingStream() -> AsyncStream<Data> { AsyncStream { incoming = $0 } }
+    |          |- note: main actor-isolated instance method 'incomingStream()' cannot satisfy nonisolated requirement
+    |          `- note: mark instance method 'incomingStream()' 'nonisolated'
+241 |     func emit(_ state: TransportState) { states?.yield(state) }
+242 |     func receive(_ data: Data) { incoming?.yield(data) }
+    :
+255 |         emit(.connected)
+256 |     }
+257 |     func disconnect() { disconnects += 1; emit(.disconnected) }
+    |          |- note: main actor-isolated instance method 'disconnect()' cannot satisfy nonisolated requirement
+    |          `- note: mark instance method 'disconnect()' 'nonisolated'
+258 |     func send(_ data: Data) async throws {
+259 |         for frame in decoder.feed(data) {
+
+[#ConformanceIsolation]: <https://docs.swift.org/compiler/documentation/diagnostics/conformance-isolation>
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/BoardSessionStoreTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile BoardSessionStoreTests.swift
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/ConnectionLifecycleTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile ConnectionLifecycleTests.swift
+
+SwiftCompile normal arm64 Compiling\ FaceLibraryLocalTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/FaceLibraryLocalTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/FaceLibraryLocalTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile FaceLibraryLocalTests.swift
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ RinaBoard (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftCompile normal arm64 (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for RinaBoardTests (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftDriver\ Compilation\ Requirements RinaBoardTests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name RinaBoardTests -Onone @/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.SwiftFileList -DDEBUG -plugin-path /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /tmp/rina-stress-repair-build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /tmp/rina-stress-repair-build/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -Isystem /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks -F /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -F /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk/Developer/Library/Frameworks -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /tmp/rina-stress-repair-build/SDKStatCaches.noindex/iphonesimulator27.0-24A5408c-3243818bda632a4370e1cc7a9fd181c5.sdkstatcache -output-file-map /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests-OutputFileMap.json -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /tmp/rina-stress-repair-build/ModuleCache.noindex -sdk-module-cache-path /tmp/rina-stress-repair-build/SDKExplicitPrecompiledModules -emit-dependencies -emit-module -emit-module-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.swiftmodule -serialize-diagnostics -dependency-scan-serialize-diagnostics-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests-dependency-scan.dia -validate-clang-modules-once -clang-build-session-file /tmp/rina-stress-repair-build/ModuleCache.noindex/Session.modulevalidation -Xcc -fmodules-prune-interval\=86400 -Xcc -fmodules-prune-after\=345600 -emit-const-values -const-gather-protocols-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests_const_extract_protocols.json -Xcc -iquote -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests-generated-files.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests-own-target-headers.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard-bc1766e959a69249dba33a7fface1d4d-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests-project-headers.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/include -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/DerivedSources-normal/arm64 -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/DerivedSources/arm64 -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests-Swift.h -working-directory /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios -experimental-emit-module-separately -disable-cmo
+
+SwiftDriverJobDiscovery normal arm64 Compiling FaceLibraryLocalTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 Compiling\ LipSyncLifecycleTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/LipSyncLifecycleTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/LipSyncLifecycleTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile LipSyncLifecycleTests.swift
+
+Copy /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardTests.swiftmodule/arm64-apple-ios-simulator.swiftmodule /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.swiftmodule (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.swiftmodule /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardTests.swiftmodule/arm64-apple-ios-simulator.swiftmodule
+
+SwiftDriverJobDiscovery normal arm64 Compiling AcceptanceRecoveryTests.swift, AcceptanceTextTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+Copy /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardTests.swiftmodule/arm64-apple-ios-simulator.abi.json /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.abi.json (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.abi.json /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardTests.swiftmodule/arm64-apple-ios-simulator.abi.json
+
+Copy /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardTests.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.swiftsourceinfo (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.swiftsourceinfo /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardTests.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo
+
+SwiftCompile normal arm64 Compiling\ PerformanceTabView.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/Features/PresetLive/PerformanceTabView.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/Features/PresetLive/PerformanceTabView.swift (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile PerformanceTabView.swift
+
+SwiftDriverJobDiscovery normal arm64 Compiling SavedConnectionRecoveryTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 Compiling\ ConnectionView.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/Features/Connection/ConnectionView.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/Features/Connection/ConnectionView.swift (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile ConnectionView.swift
+
+SwiftDriverJobDiscovery normal arm64 Compiling AcceptanceControlTests.swift, AcceptanceDefaultsTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 Compiling\ RootTabView.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/App/RootTabView.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/App/RootTabView.swift (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile RootTabView.swift
+
+SwiftCompile normal arm64 Compiling\ PresetLiveModel.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/Features/PresetLive/PresetLiveModel.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/Features/PresetLive/PresetLiveModel.swift (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile PresetLiveModel.swift
+
+SwiftDriverJobDiscovery normal arm64 Compiling VideoPlaybackRecoveryTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 Compiling\ PresetLiveView.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/Features/PresetLive/PresetLiveView.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/Features/PresetLive/PresetLiveView.swift (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile PresetLiveView.swift
+
+SwiftDriverJobDiscovery normal arm64 Compiling TextTransportTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 Compiling\ RinaBoardApp.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/App/RinaBoardApp.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/App/RinaBoardApp.swift (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile RinaBoardApp.swift
+
+SwiftDriverJobDiscovery normal arm64 Compiling LipSyncLifecycleTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 Compiling\ BootLoaderOverlay.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/Features/Boot/BootLoaderOverlay.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoard/Features/Boot/BootLoaderOverlay.swift (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile BootLoaderOverlay.swift
+
+SwiftDriverJobDiscovery normal arm64 Compiling BoardSessionStoreTests.swift, ConnectionLifecycleTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftDriverJobDiscovery normal arm64 Compiling AcceptanceLibraryTests.swift, AcceptancePerformanceTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftDriverJobDiscovery normal arm64 Compiling PerformanceTabView.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftCompile normal arm64 Compiling\ DebugSerialMonitorTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/DebugSerialMonitorTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/DebugSerialMonitorTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile DebugSerialMonitorTests.swift
+
+SwiftCompile normal arm64 Compiling\ ExplicitModeCommandTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/ExplicitModeCommandTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+/Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/ExplicitModeCommandTests.swift:37:43: warning: conformance of 'ModeCommandTransport' to protocol 'RinaTransport' crosses into main actor-isolated code and can cause data races; this is an error in the Swift 6 language mode [#ConformanceIsolation]
+35 | 
+36 | @MainActor
+37 | private final class ModeCommandTransport: RinaTransport {
+   |                                           |- warning: conformance of 'ModeCommandTransport' to protocol 'RinaTransport' crosses into main actor-isolated code and can cause data races; this is an error in the Swift 6 language mode [#ConformanceIsolation]
+   |                                           |- note: isolate this conformance to the main actor with '@MainActor'
+   |                                           `- note: turn data races into runtime errors with '@preconcurrency'
+38 |     let kind: TransportKind = .bluetooth
+39 |     let preferredChunkBytes = 512
+   :
+42 |     private var incoming: AsyncStream<Data>.Continuation?
+43 |     private var states: AsyncStream<TransportState>.Continuation?
+44 |     func stateStream() -> AsyncStream<TransportState> { AsyncStream { states = $0 } }
+   |          |- note: main actor-isolated instance method 'stateStream()' cannot satisfy nonisolated requirement
+   |          `- note: mark instance method 'stateStream()' 'nonisolated'
+45 |     func incomingStream() -> AsyncStream<Data> { AsyncStream { incoming = $0 } }
+   |          |- note: main actor-isolated instance method 'incomingStream()' cannot satisfy nonisolated requirement
+   |          `- note: mark instance method 'incomingStream()' 'nonisolated'
+46 |     func connect() async throws { states?.yield(.connected) }
+47 |     func disconnect() { states?.yield(.disconnected) }
+   |          |- note: main actor-isolated instance method 'disconnect()' cannot satisfy nonisolated requirement
+   |          `- note: mark instance method 'disconnect()' 'nonisolated'
+48 |     func send(_ data: Data) async throws {
+49 |         for request in decoder.feed(data) {
+
+[#ConformanceIsolation]: <https://docs.swift.org/compiler/documentation/diagnostics/conformance-isolation>
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/ExplicitModeCommandTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile ExplicitModeCommandTests.swift
+
+SwiftCompile normal arm64 Compiling\ BLETransportSignalTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/BLETransportSignalTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/BLETransportSignalTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile BLETransportSignalTests.swift
+
+SwiftDriverJobDiscovery normal arm64 Compiling ExplicitModeCommandTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 Compiling\ DraftStorageTests.swift /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/DraftStorageTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftCompile normal arm64 /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios/RinaBoardTests/DraftStorageTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-SwiftPerFileCompile DraftStorageTests.swift
+
+SwiftDriverJobDiscovery normal arm64 Compiling DebugSerialMonitorTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftDriverJobDiscovery normal arm64 Compiling BoardConnectionOutputTests.swift, BoardControlCenterModelTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftDriverJobDiscovery normal arm64 Compiling BLETransportSignalTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftDriverJobDiscovery normal arm64 Compiling DraftStorageTests.swift (in target 'RinaBoardTests' from project 'RinaBoard')
+
+SwiftDriver\ Compilation RinaBoardTests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-Swift-Compilation -- /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name RinaBoardTests -Onone @/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.SwiftFileList -DDEBUG -plugin-path /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /tmp/rina-stress-repair-build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /tmp/rina-stress-repair-build/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -Isystem /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks -F /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -F /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk/Developer/Library/Frameworks -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /tmp/rina-stress-repair-build/SDKStatCaches.noindex/iphonesimulator27.0-24A5408c-3243818bda632a4370e1cc7a9fd181c5.sdkstatcache -output-file-map /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests-OutputFileMap.json -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /tmp/rina-stress-repair-build/ModuleCache.noindex -sdk-module-cache-path /tmp/rina-stress-repair-build/SDKExplicitPrecompiledModules -emit-dependencies -emit-module -emit-module-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.swiftmodule -serialize-diagnostics -dependency-scan-serialize-diagnostics-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests-dependency-scan.dia -validate-clang-modules-once -clang-build-session-file /tmp/rina-stress-repair-build/ModuleCache.noindex/Session.modulevalidation -Xcc -fmodules-prune-interval\=86400 -Xcc -fmodules-prune-after\=345600 -emit-const-values -const-gather-protocols-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests_const_extract_protocols.json -Xcc -iquote -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests-generated-files.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests-own-target-headers.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard-bc1766e959a69249dba33a7fface1d4d-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests-project-headers.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/include -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/DerivedSources-normal/arm64 -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/DerivedSources/arm64 -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests-Swift.h -working-directory /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios -experimental-emit-module-separately -disable-cmo
+
+SwiftDriverJobDiscovery normal arm64 Compiling PresetLiveModel.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftDriverJobDiscovery normal arm64 Compiling PresetLiveView.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftDriverJobDiscovery normal arm64 Compiling BootLoaderOverlay.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftDriverJobDiscovery normal arm64 Compiling ConnectionView.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftDriverJobDiscovery normal arm64 Compiling RinaBoardApp.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftDriverJobDiscovery normal arm64 Compiling RootTabView.swift (in target 'RinaBoard' from project 'RinaBoard')
+
+SwiftDriver\ Compilation RinaBoard normal arm64 com.apple.xcode.tools.swift.compiler (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-Swift-Compilation -- /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name RinaBoard -Onone @/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /tmp/rina-stress-repair-build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /tmp/rina-stress-repair-build/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -F /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks -F /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -emit-localized-strings -emit-localized-strings-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64 -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /tmp/rina-stress-repair-build/SDKStatCaches.noindex/iphonesimulator27.0-24A5408c-3243818bda632a4370e1cc7a9fd181c5.sdkstatcache -output-file-map /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard-OutputFileMap.json -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /tmp/rina-stress-repair-build/ModuleCache.noindex -sdk-module-cache-path /tmp/rina-stress-repair-build/SDKExplicitPrecompiledModules -emit-dependencies -emit-module -emit-module-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard.swiftmodule -serialize-diagnostics -dependency-scan-serialize-diagnostics-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard-dependency-scan.dia -validate-clang-modules-once -clang-build-session-file /tmp/rina-stress-repair-build/ModuleCache.noindex/Session.modulevalidation -Xcc -fmodules-prune-interval\=86400 -Xcc -fmodules-prune-after\=345600 -emit-const-values -const-gather-protocols-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard_const_extract_protocols.json -Xcc -iquote -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-generated-files.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-own-target-headers.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard-bc1766e959a69249dba33a7fface1d4d-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-project-headers.hmap -Xcc -I/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/include -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/DerivedSources-normal/arm64 -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/DerivedSources/arm64 -Xcc -I/tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard-Swift.h -working-directory /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios -experimental-emit-module-separately -disable-cmo
+
+Ld /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/RinaBoard.debug.dylib normal (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -dynamiclib -isysroot /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk -O0 -Xlinker -no_warn_duplicate_libraries -L/tmp/rina-stress-repair-build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -F/tmp/rina-stress-repair-build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks -F/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -filelist /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard.LinkFileList -install_name @rpath/RinaBoard.debug.dylib -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @loader_path -Xlinker -rpath -Xlinker /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -dead_strip -Xlinker -object_path_lto -Xlinker /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard.swiftmodule -Xlinker -alias -Xlinker _main -Xlinker ___debug_main_executable_dylib_entry_point /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks/RinaCore.framework/RinaCore -o /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/RinaBoard.debug.dylib
+
+ConstructStubExecutorLinkFileList /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-ExecutorLinkFileList-normal-arm64.txt (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    construct-stub-executor-link-file-list /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/RinaBoard.debug.dylib /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor_no_swift_entry_point.a /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor.a --output /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-ExecutorLinkFileList-normal-arm64.txt
+note: Using stub executor library with Swift entry point. (in target 'RinaBoard' from project 'RinaBoard')
+
+Ld /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/RinaBoard normal (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -isysroot /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk -O0 -Xlinker -no_warn_duplicate_libraries -L/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -F/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks -F/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @loader_path -Xlinker -rpath -Xlinker /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks -Xlinker -rpath -Xlinker @executable_path/Frameworks -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -e ___debug_blank_executor_main -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_dylib -Xlinker /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-DebugDylibPath-normal-arm64.txt -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_instlnm -Xlinker /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-DebugDylibInstallName-normal-arm64.txt -Xlinker -filelist -Xlinker /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard-ExecutorLinkFileList-normal-arm64.txt /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/RinaBoard.debug.dylib -o /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/RinaBoard
+
+CopySwiftLibs /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/RinaBoard.debug.dylib --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/Frameworks --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/SystemExtensions --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/Extensions --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks/RinaCore.framework --platform iphonesimulator --toolchain /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+ExtractAppIntentsMetadata (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name RinaBoard --sdk-root /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk --xcode-version 27A5237l --platform-family iOS --deployment-target 17.0 --bundle-identifier com.rinachan.board --output /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app --target-triple arm64-apple-ios17.0-simulator --binary-file /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/RinaBoard --dependency-file /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard_dependency_info.dat --stringsdata-file /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard.SwiftFileList --metadata-file-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard.DependencyMetadataFileList --static-metadata-file-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/RinaBoard.DependencyStaticMetadataFileList --swift-const-vals-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoard.build/Objects-normal/arm64/RinaBoard.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --no-app-shortcuts-localization
+2026-09-12 23:57:56.152 appintentsmetadataprocessor[15963:7558002] Starting appintentsmetadataprocessor export
+2026-09-12 23:57:56.153 appintentsmetadataprocessor[15963:7558002] warning: Metadata extraction skipped, no AppIntents.framework dependency found
+
+Ld /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/RinaBoardTests normal (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -bundle -isysroot /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk -O0 -Xlinker -no_warn_duplicate_libraries -L/tmp/rina-stress-repair-build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -L/Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F/tmp/rina-stress-repair-build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks -F/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -iframework /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -iframework /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk/Developer/Library/Frameworks -filelist /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @loader_path -Xlinker -rpath -Xlinker /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks -Xlinker -rpath -Xlinker @loader_path/Frameworks -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -dead_strip -bundle_loader /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/RinaBoard -Xlinker -object_path_lto -Xlinker /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.swiftmodule -Xlinker -needed_framework -Xlinker XCTest -framework XCTest -Xlinker -needed-lXCTestSwiftSupport -lXCTestSwiftSupport /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks/RinaCore.framework/RinaCore /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/RinaBoard.debug.dylib -o /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/RinaBoardTests
+
+Copy /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/Frameworks/RinaCore.framework /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks/RinaCore.framework (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -remove-static-executable /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks/RinaCore.framework /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/Frameworks
+
+CopySwiftLibs /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/RinaBoardTests --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/Frameworks --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/PlugIns --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/SystemExtensions --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/Extensions --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/PackageFrameworks/RinaCore.framework --platform iphonesimulator --toolchain /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/Frameworks --strip-bitcode --scan-executable /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+ExtractAppIntentsMetadata (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name RinaBoardTests --sdk-root /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk --xcode-version 27A5237l --platform-family iOS --deployment-target 17.0 --bundle-identifier com.rinachan.board.tests --output /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest --target-triple arm64-apple-ios17.0-simulator --binary-file /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/RinaBoardTests --dependency-file /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests_dependency_info.dat --stringsdata-file /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.SwiftFileList --metadata-file-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests.DependencyMetadataFileList --static-metadata-file-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests.DependencyStaticMetadataFileList --swift-const-vals-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/Objects-normal/arm64/RinaBoardTests.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --no-app-shortcuts-localization
+2026-09-12 23:57:56.472 appintentsmetadataprocessor[15969:7558031] Starting appintentsmetadataprocessor export
+2026-09-12 23:57:56.474 appintentsmetadataprocessor[15969:7558031] warning: Metadata extraction skipped, no AppIntents.framework dependency found
+
+AppIntentsSSUTraining (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/Info.plist --temp-dir-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/ssu --bundle-id com.rinachan.board.tests --product-path /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest --extracted-metadata-path /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/Metadata.appintents --metadata-file-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardTests.build/RinaBoardTests.DependencyMetadataFileList --source-file /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest/Info.plist --archive-ssu-assets
+2026-09-12 23:57:56.501 appintentsnltrainingprocessor[15970:7558032] Parsing options for appintentsnltrainingprocessor
+2026-09-12 23:57:56.502 appintentsnltrainingprocessor[15970:7558032] Starting AppIntents SSU YAML Generation
+2026-09-12 23:57:56.502 appintentsnltrainingprocessor[15970:7558032] No AppShortcuts found - Skipping.
+
+RegisterExecutionPolicyException /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-RegisterExecutionPolicyException /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest
+
+Touch /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest (in target 'RinaBoardTests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /usr/bin/touch -c /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app/PlugIns/RinaBoardTests.xctest
+
+RegisterExecutionPolicyException /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-RegisterExecutionPolicyException /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app
+
+Validate /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-validationUtility /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app -shallow-bundle -infoplist-subpath Info.plist
+
+Touch /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app (in target 'RinaBoard' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /usr/bin/touch -c /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoard.app
+
+ProcessInfoPlistFile /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/Info.plist /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/empty-RinaBoardUITests.plist (in target 'RinaBoardUITests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-infoPlistUtility /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/empty-RinaBoardUITests.plist -producttype com.apple.product-type.bundle.ui-testing -expandbuildsettings -format binary -platform iphonesimulator -additionalcontentfile /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/ProductTypeInfoPlistAdditions.plist -o /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/Info.plist
+
+Ld /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/RinaBoardUITests normal (in target 'RinaBoardUITests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -bundle -isysroot /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk -O0 -Xlinker -no_warn_duplicate_libraries -L/tmp/rina-stress-repair-build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -L/Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F/tmp/rina-stress-repair-build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F/tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator -iframework /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -iframework /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk/Developer/Library/Frameworks -filelist /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/Objects-normal/arm64/RinaBoardUITests.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @loader_path/Frameworks -Xlinker -dead_strip -Xlinker -object_path_lto -Xlinker /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/Objects-normal/arm64/RinaBoardUITests_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/Objects-normal/arm64/RinaBoardUITests_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/Objects-normal/arm64/RinaBoardUITests.swiftmodule -Xlinker -needed_framework -Xlinker XCTest -framework XCTest -Xlinker -needed-lXCTestSwiftSupport -lXCTestSwiftSupport -o /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/RinaBoardUITests
+
+ExtractAppIntentsMetadata (in target 'RinaBoardUITests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name RinaBoardUITests --sdk-root /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk --xcode-version 27A5237l --platform-family iOS --deployment-target 17.0 --bundle-identifier com.rinachan.board.uitests --output /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest --target-triple arm64-apple-ios17.0-simulator --binary-file /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/RinaBoardUITests --dependency-file /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/Objects-normal/arm64/RinaBoardUITests_dependency_info.dat --stringsdata-file /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/Objects-normal/arm64/RinaBoardUITests.SwiftFileList --metadata-file-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/RinaBoardUITests.DependencyMetadataFileList --static-metadata-file-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/RinaBoardUITests.DependencyStaticMetadataFileList --swift-const-vals-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/Objects-normal/arm64/RinaBoardUITests.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --no-app-shortcuts-localization
+2026-09-12 23:57:56.728 appintentsmetadataprocessor[15975:7558064] Starting appintentsmetadataprocessor export
+2026-09-12 23:57:56.729 appintentsmetadataprocessor[15975:7558064] warning: Metadata extraction skipped, no AppIntents.framework dependency found
+
+CopySwiftLibs /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest (in target 'RinaBoardUITests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/RinaBoardUITests --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/Frameworks --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/PlugIns --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/SystemExtensions --scan-folder /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/Extensions --platform iphonesimulator --toolchain /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/Frameworks --strip-bitcode --scan-executable /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+AppIntentsSSUTraining (in target 'RinaBoardUITests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/Info.plist --temp-dir-path /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/ssu --bundle-id com.rinachan.board.uitests --product-path /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest --extracted-metadata-path /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/Metadata.appintents --metadata-file-list /tmp/rina-stress-repair-build/Build/Intermediates.noindex/RinaBoard.build/Debug-iphonesimulator/RinaBoardUITests.build/RinaBoardUITests.DependencyMetadataFileList --source-file /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/Info.plist --archive-ssu-assets
+2026-09-12 23:57:56.751 appintentsnltrainingprocessor[15976:7558065] Parsing options for appintentsnltrainingprocessor
+2026-09-12 23:57:56.751 appintentsnltrainingprocessor[15976:7558065] Starting AppIntents SSU YAML Generation
+2026-09-12 23:57:56.751 appintentsnltrainingprocessor[15976:7558065] No AppShortcuts found - Skipping.
+
+MkDir /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app (in target 'RinaBoardUITests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /bin/mkdir -p /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app
+
+CopyPlistFile /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/Info.plist /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/Info.plist (in target 'RinaBoardUITests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-copyPlist --validate --convert xml1 --macro-expansion WRAPPEDPRODUCTNAME RinaBoardUITests-Runner --macro-expansion WRAPPEDPRODUCTBUNDLEIDENTIFIER com.rinachan.board.uitests.xctrunner --macro-expansion TESTPRODUCTNAME RinaBoardUITests --macro-expansion TESTPRODUCTBUNDLEIDENTIFIER com.rinachan.board.uitests --copy-value UIDeviceFamily /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest/Info.plist --outdir /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app -- /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/Info.plist
+
+CopyAndPreserveArchs /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/RinaBoardUITests-Runner (in target 'RinaBoardUITests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /Applications/Xcode-beta.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/lipo /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/XCTRunner -output /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/RinaBoardUITests-Runner -extract arm64
+
+Copy /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PkgInfo /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/PkgInfo (in target 'RinaBoardUITests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /Applications/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/PkgInfo /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app
+
+RegisterExecutionPolicyException /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest (in target 'RinaBoardUITests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    builtin-RegisterExecutionPolicyException /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest
+
+Touch /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest (in target 'RinaBoardUITests' from project 'RinaBoard')
+    cd /Users/sager/Documents/GitHub/Rina-Chan-board-370-leds/ios
+    /usr/bin/touch -c /tmp/rina-stress-repair-build/Build/Products/Debug-iphonesimulator/RinaBoardUITests-Runner.app/PlugIns/RinaBoardUITests.xctest
+
+PruneExplicitPrecompiledModules /tmp/rina-stress-repair-build/Build/Intermediates.noindex/ExplicitPrecompiledModules
+
+PruneExplicitPrecompiledModules /tmp/rina-stress-repair-build/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules
+
+PruneExplicitPrecompiledModules /tmp/rina-stress-repair-build/SDKExplicitPrecompiledModules
+
+2026-09-12 23:58:36.686455-0400 RinaBoard[16359:7562457] [Decompressor] Error -17102 decompressing image -- possibly corrupt
+2026-09-12 23:58:36.690624-0400 RinaBoard[16359:7562457] [Decompressor] Error -17102 decompressing image -- possibly corrupt
+2026-09-12 23:58:36.725335-0400 RinaBoard[16359:7562475] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:36.727275-0400 RinaBoard[16359:7562471] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:36.737225-0400 RinaBoard[16359:7562458] fopen failed for data file: errno = 2 (No such file or directory)
+2026-09-12 23:58:36.969044-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x107a48300> can only accept this command while in the powered on state
+2026-09-12 23:58:36.969626-0400 RinaBoard[16359:7562172] [Bluetooth] Bluetooth state became unavailable: 此设备不支持蓝牙
+2026-09-12 23:58:36.969844-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x107a48400> can only accept this command while in the powered on state
+2026-09-12 23:58:36.969880-0400 RinaBoard[16359:7562172] [Bluetooth] Bluetooth state became unavailable: 此设备不支持蓝牙
+2026-09-12 23:58:37.531302-0400 RinaBoard[16359:7562472] fopen failed for data file: errno = 2 (No such file or directory)
+IOSurfaceClientSetSurfaceNotify failed e00002c7
+Test Suite 'All tests' started at 2026-09-12 23:58:38.621.
+Test Suite 'RinaBoardTests.xctest' started at 2026-09-12 23:58:38.623.
+Test Suite 'AcceptanceControlTests' started at 2026-09-12 23:58:38.623.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testBoardFrameSelectsMatchingPartsAndClearsSelectionForCustomPixels]' started.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testBoardFrameSelectsMatchingPartsAndClearsSelectionForCustomPixels]' passed (0.013 seconds).
+Test Case '-[RinaBoardTests.AcceptanceControlTests testBoardPreviewBeforeRestoreCannotOverwriteStoredDraft]' started.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testBoardPreviewBeforeRestoreCannotOverwriteStoredDraft]' passed (0.516 seconds).
+Test Case '-[RinaBoardTests.AcceptanceControlTests testEyePartSelectionStaysMirroredWhileSyncIsEnabled]' started.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testEyePartSelectionStaysMirroredWhileSyncIsEnabled]' passed (0.007 seconds).
+Test Case '-[RinaBoardTests.AcceptanceControlTests testLoadingSavedPartsFaceStartsAFreshUndoHistoryAndNewFaceClearsIdentity]' started.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testLoadingSavedPartsFaceStartsAFreshUndoHistoryAndNewFaceClearsIdentity]' passed (0.005 seconds).
+Test Case '-[RinaBoardTests.AcceptanceControlTests testPaintWritesExplicitBrushValueAndRepeatedStrokeIsNoOp]' started.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testPaintWritesExplicitBrushValueAndRepeatedStrokeIsNoOp]' passed (0.005 seconds).
+Test Case '-[RinaBoardTests.AcceptanceControlTests testRefreshPreservesDraftAfterSendingAnEdit]' started.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testRefreshPreservesDraftAfterSendingAnEdit]' passed (0.017 seconds).
+Test Case '-[RinaBoardTests.AcceptanceControlTests testSelectingEveryPartGroupRecomposesTheDisplayedFrame]' started.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testSelectingEveryPartGroupRecomposesTheDisplayedFrame]' passed (0.006 seconds).
+Test Case '-[RinaBoardTests.AcceptanceControlTests testSentStateIsBoundToTheConnectionGeneration]' started.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testSentStateIsBoundToTheConnectionGeneration]' passed (0.009 seconds).
+Test Case '-[RinaBoardTests.AcceptanceControlTests testSyncedEyePaintMirrorsTheBrushValueInBothDirections]' started.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testSyncedEyePaintMirrorsTheBrushValueInBothDirections]' passed (0.006 seconds).
+Test Case '-[RinaBoardTests.AcceptanceControlTests testUndoingAPartChoiceReturnsToThePreviousChoiceWithoutItsDrawing]' started.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testUndoingAPartChoiceReturnsToThePreviousChoiceWithoutItsDrawing]' passed (0.006 seconds).
+Test Case '-[RinaBoardTests.AcceptanceControlTests testUndoStepsBackThroughStrokesTapsInvertAndClear]' started.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testUndoStepsBackThroughStrokesTapsInvertAndClear]' passed (0.006 seconds).
+Test Case '-[RinaBoardTests.AcceptanceControlTests testUntouchedEditorAdoptsBoardFrameButEditedDraftRejectsLaterBoardFrame]' started.
+Test Case '-[RinaBoardTests.AcceptanceControlTests testUntouchedEditorAdoptsBoardFrameButEditedDraftRejectsLaterBoardFrame]' passed (0.009 seconds).
+Test Suite 'AcceptanceControlTests' passed at 2026-09-12 23:58:39.237.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.608 (0.614) seconds
+Test Suite 'AcceptanceDefaultsTests' started at 2026-09-12 23:58:39.237.
+Test Case '-[RinaBoardTests.AcceptanceDefaultsTests testRealtimeOutputIsOnForANewEditor]' started.
+Test Case '-[RinaBoardTests.AcceptanceDefaultsTests testRealtimeOutputIsOnForANewEditor]' passed (0.006 seconds).
+Test Suite 'AcceptanceDefaultsTests' passed at 2026-09-12 23:58:39.244.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.006 (0.007) seconds
+Test Suite 'AcceptanceLibraryTests' started at 2026-09-12 23:58:39.245.
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testBatchCopyReportsInvalidItemAndPersistsOnlySuccessfulCopies]' started.
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testBatchCopyReportsInvalidItemAndPersistsOnlySuccessfulCopies]' passed (0.013 seconds).
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testDuplicateNamesRemainIndependentWhenOneIsEditedAndReloaded]' started.
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testDuplicateNamesRemainIndependentWhenOneIsEditedAndReloaded]' passed (0.008 seconds).
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testFailedImportLeavesExistingLibraryIntactAfterRestart]' started.
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testFailedImportLeavesExistingLibraryIntactAfterRestart]' passed (0.015 seconds).
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testFailedReorderPreservesPublishedAndPersistedOrder]' started.
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testFailedReorderPreservesPublishedAndPersistedOrder]' passed (0.007 seconds).
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testFailedUndoRetainsRetryAndSuccessfulRetrySurvivesRestart]' started.
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testFailedUndoRetainsRetryAndSuccessfulRetrySurvivesRestart]' passed (0.006 seconds).
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testInvalidFrameInImportRejectsWholeDocumentWithoutChangingDisk]' started.
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testInvalidFrameInImportRejectsWholeDocumentWithoutChangingDisk]' passed (0.006 seconds).
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testOutOfRangeImportedByteIsRejectedInsteadOfChangingTheFrame]' started.
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testOutOfRangeImportedByteIsRejectedInsteadOfChangingTheFrame]' passed (0.005 seconds).
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testProtectedFaceCannotBeRenamedOrDeletedButCanBeCopied]' started.
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testProtectedFaceCannotBeRenamedOrDeletedButCanBeCopied]' passed (0.005 seconds).
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testSavedFaceSurvivesNewStoreAndModelInstances]' started.
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testSavedFaceSurvivesNewStoreAndModelInstances]' passed (0.006 seconds).
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testSelectedExportImportsIntoAnotherLibraryAndSurvivesRestart]' started.
+Test Case '-[RinaBoardTests.AcceptanceLibraryTests testSelectedExportImportsIntoAnotherLibraryAndSurvivesRestart]' passed (0.011 seconds).
+Test Suite 'AcceptanceLibraryTests' passed at 2026-09-12 23:58:39.332.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.083 (0.087) seconds
+Test Suite 'AcceptancePerformanceTests' started at 2026-09-12 23:58:39.332.
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testBoardRestoreAbortsWhenTakeoverCheckChangesDuringRestore]' started.
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testBoardRestoreAbortsWhenTakeoverCheckChangesDuringRestore]' passed (0.038 seconds).
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testBoardRestoreRejectsMatchingStreamWhenMaterialIdentityChanged]' started.
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testBoardRestoreRejectsMatchingStreamWhenMaterialIdentityChanged]' passed (0.016 seconds).
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testBoardRestoreUsesMatchingStreamMaterialAndBoardPosition]' started.
+2026-09-12 23:58:39.917962-0400 RinaBoard[16359:7562473] [plugin] AddInstanceForFactory: No factory registered for id <CFUUID 0x122652800> F8BB1C28-BAE8-11D6-9C31-00039315CD46
+2026-09-12 23:58:40.068196-0400 RinaBoard[16359:7562172] [AQ]        LoudnessManager.mm:1755  ReadPListFile: unable to open stream for LoudnessManager plist
+2026-09-12 23:58:40.068280-0400 RinaBoard[16359:7562172] [AQ]        LoudnessManager.mm:1261  GetHardwarePlatformKey: cannot get acoustic ID
+2026-09-12 23:58:40.068345-0400 RinaBoard[16359:7562172] [AQ]        LoudnessManager.mm:1215  IsHardwareSupported: no plist loaded, returning false
+2026-09-12 23:58:40.068439-0400 RinaBoard[16359:7562172] [AQ]        LoudnessManager.mm:1215  IsHardwareSupported: no plist loaded, returning false
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testBoardRestoreUsesMatchingStreamMaterialAndBoardPosition]' passed (0.705 seconds).
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testBoardRestoreWithoutOriginalStreamDoesNotPlayImportedMaterial]' started.
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testBoardRestoreWithoutOriginalStreamDoesNotPlayImportedMaterial]' passed (0.025 seconds).
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testCustomScriptAndAudioRestoreIntoANewModelInstance]' started.
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testCustomScriptAndAudioRestoreIntoANewModelInstance]' passed (0.018 seconds).
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testImportedAudioRemainsAssociatedWithItsOwnBuiltInPerformance]' started.
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testImportedAudioRemainsAssociatedWithItsOwnBuiltInPerformance]' passed (0.018 seconds).
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testInvalidAudioImportKeepsThePreviouslyCommittedCustomAudio]' started.
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testInvalidAudioImportKeepsThePreviouslyCommittedCustomAudio]' passed (0.025 seconds).
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testInvalidBuiltInAudioReplacementKeepsTheOldPerSongAssociation]' started.
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testInvalidBuiltInAudioReplacementKeepsTheOldPerSongAssociation]' passed (0.013 seconds).
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testInvalidScriptImportKeepsThePreviouslyCommittedCustomScript]' started.
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testInvalidScriptImportKeepsThePreviouslyCommittedCustomScript]' passed (0.051 seconds).
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testPassiveMaterialRestoreDoesNotStartOrCreateAPlaybackStream]' started.
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testPassiveMaterialRestoreDoesNotStartOrCreateAPlaybackStream]' passed (0.015 seconds).
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testPlayingPerformanceResumesBoardOutputAfterReconnect]' started.
+2026-09-12 23:58:40.292487-0400 RinaBoard[16359:7562172] [AQ]        LoudnessManager.mm:1215  IsHardwareSupported: no plist loaded, returning false
+2026-09-12 23:58:40.292626-0400 RinaBoard[16359:7562172] [AQ]        LoudnessManager.mm:1215  IsHardwareSupported: no plist loaded, returning false
+Test Case '-[RinaBoardTests.AcceptancePerformanceTests testPlayingPerformanceResumesBoardOutputAfterReconnect]' passed (0.056 seconds).
+Test Suite 'AcceptancePerformanceTests' passed at 2026-09-12 23:58:40.316.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.978 (0.983) seconds
+Test Suite 'AcceptanceRecoveryTests' started at 2026-09-12 23:58:40.316.
+Test Case '-[RinaBoardTests.AcceptanceRecoveryTests testLogExportDoesNotLeakPasswordSuffixAfterEscapedJSONQuote]' started.
+Test Case '-[RinaBoardTests.AcceptanceRecoveryTests testLogExportDoesNotLeakPasswordSuffixAfterEscapedJSONQuote]' passed (0.004 seconds).
+Test Case '-[RinaBoardTests.AcceptanceRecoveryTests testLogExportRedactsEntireBearerAuthorizationValue]' started.
+Test Case '-[RinaBoardTests.AcceptanceRecoveryTests testLogExportRedactsEntireBearerAuthorizationValue]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.AcceptanceRecoveryTests testLogExportRedactsJSONPasswordAndKeepsDiagnosticContext]' started.
+Test Case '-[RinaBoardTests.AcceptanceRecoveryTests testLogExportRedactsJSONPasswordAndKeepsDiagnosticContext]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.AcceptanceRecoveryTests testRawDiagnosticsKeepUnknownNestedFieldsAndNullValues]' started.
+Test Case '-[RinaBoardTests.AcceptanceRecoveryTests testRawDiagnosticsKeepUnknownNestedFieldsAndNullValues]' passed (0.012 seconds).
+Test Suite 'AcceptanceRecoveryTests' passed at 2026-09-12 23:58:40.338.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.019 (0.022) seconds
+Test Suite 'AcceptanceTextTests' started at 2026-09-12 23:58:40.338.
+Test Case '-[RinaBoardTests.AcceptanceTextTests testConflictChoicesKeepDraftOrExplicitlyAdoptBoardText]' started.
+Test Case '-[RinaBoardTests.AcceptanceTextTests testConflictChoicesKeepDraftOrExplicitlyAdoptBoardText]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.AcceptanceTextTests testDisconnectedSendKeepsDraftAndDoesNotLeaveRetryLocked]' started.
+Test Case '-[RinaBoardTests.AcceptanceTextTests testDisconnectedSendKeepsDraftAndDoesNotLeaveRetryLocked]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.AcceptanceTextTests testEditingEnforcesVisibleLimitWithoutSplittingEarlierContent]' started.
+Test Case '-[RinaBoardTests.AcceptanceTextTests testEditingEnforcesVisibleLimitWithoutSplittingEarlierContent]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.AcceptanceTextTests testEditingMultilingualDraftPreservesEmojiAndLineBreaks]' started.
+Test Case '-[RinaBoardTests.AcceptanceTextTests testEditingMultilingualDraftPreservesEmojiAndLineBreaks]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.AcceptanceTextTests testEditingRetainsOverByteLimitDraftAndExposesExactBoundary]' started.
+Test Case '-[RinaBoardTests.AcceptanceTextTests testEditingRetainsOverByteLimitDraftAndExposesExactBoundary]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.AcceptanceTextTests testInvalidSendDoesNotReplaceExistingBindingOrOutputOwner]' started.
+Test Case '-[RinaBoardTests.AcceptanceTextTests testInvalidSendDoesNotReplaceExistingBindingOrOutputOwner]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.AcceptanceTextTests testReleaseOutputClearsPlaybackBindingAndPhaseButKeepsUnsentDraft]' started.
+Test Case '-[RinaBoardTests.AcceptanceTextTests testReleaseOutputClearsPlaybackBindingAndPhaseButKeepsUnsentDraft]' passed (0.001 seconds).
+Test Suite 'AcceptanceTextTests' passed at 2026-09-12 23:58:40.353.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.011 (0.014) seconds
+Test Suite 'BLEDisconnectGateTests' started at 2026-09-12 23:58:40.353.
+Test Case '-[RinaBoardTests.BLEDisconnectGateTests testCancelledWaitDoesNotCancelAnotherPeripheralOrForgetOldLink]' started.
+Test Case '-[RinaBoardTests.BLEDisconnectGateTests testCancelledWaitDoesNotCancelAnotherPeripheralOrForgetOldLink]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.BLEDisconnectGateTests testSamePeripheralWaitsForTerminalCancellationCallback]' started.
+Test Case '-[RinaBoardTests.BLEDisconnectGateTests testSamePeripheralWaitsForTerminalCancellationCallback]' passed (0.013 seconds).
+Test Case '-[RinaBoardTests.BLEDisconnectGateTests testTimeoutDoesNotLetNewAttemptReuseUnfinishedPeripheral]' started.
+Test Case '-[RinaBoardTests.BLEDisconnectGateTests testTimeoutDoesNotLetNewAttemptReuseUnfinishedPeripheral]' passed (0.014 seconds).
+Test Suite 'BLEDisconnectGateTests' passed at 2026-09-12 23:58:40.383.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.029 (0.031) seconds
+Test Suite 'BLETransportSignalTests' started at 2026-09-12 23:58:40.384.
+Test Case '-[RinaBoardTests.BLETransportSignalTests testNormalizesConnectedRSSIAndRejectsUnavailableSentinel]' started.
+Test Case '-[RinaBoardTests.BLETransportSignalTests testNormalizesConnectedRSSIAndRejectsUnavailableSentinel]' passed (0.001 seconds).
+Test Suite 'BLETransportSignalTests' passed at 2026-09-12 23:58:40.386.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'BoardConnectionOutputTests' started at 2026-09-12 23:58:40.386.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testCancelledBlobAbortsBeforeNextUploadBeginsOnEveryTransport]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testCancelledBlobAbortsBeforeNextUploadBeginsOnEveryTransport]' passed (0.039 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testCancelledChunkReleasesEveryBlobKind]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testCancelledChunkReleasesEveryBlobKind]' passed (0.024 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testCancellingInflightFrameUnblocksNewSessionAndQuarantinesLateReply]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testCancellingInflightFrameUnblocksNewSessionAndQuarantinesLateReply]' passed (0.026 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testCommandRejectsFirmwareReplyWithOkFalse]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testCommandRejectsFirmwareReplyWithOkFalse]' passed (0.011 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testConfiguredNameFollowsBoardSwitchAndDisconnect]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testConfiguredNameFollowsBoardSwitchAndDisconnect]' passed (0.004 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testDirectFramesCancelAcrossEveryModeAndTransport]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testDirectFramesCancelAcrossEveryModeAndTransport]' passed (0.324 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testGetFacesRejectsDocumentBeyondFirmwareUploadLimit]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testGetFacesRejectsDocumentBeyondFirmwareUploadLimit]' passed (0.141 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testGetFacesRejectsEmptyMorePage]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testGetFacesRejectsEmptyMorePage]' passed (0.005 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testLateCompletionFromSupersededConnectCannotOverwriteNewConnection]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testLateCompletionFromSupersededConnectCannotOverwriteNewConnection]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testLiteStatusEventPreservesFullSnapshotFields]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testLiteStatusEventPreservesFullSnapshotFields]' passed (0.007 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testMoreAggregationIsRejectedAtBound]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testMoreAggregationIsRejectedAtBound]' passed (0.008 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testOversizeBlobMetadataThrowsWithoutWritingOrDroppingMetadata]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testOversizeBlobMetadataThrowsWithoutWritingOrDroppingMetadata]' passed (0.004 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testOversizeCommandThrowsWithoutWritingOrCrashing]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testOversizeCommandThrowsWithoutWritingOrCrashing]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testPausedEventSubscriberKeepsOnlyNewestBoundedEvents]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testPausedEventSubscriberKeepsOnlyNewestBoundedEvents]' passed (0.022 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testProtocolVersionComesFromGetInfoAndClearsOnDisconnect]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testProtocolVersionComesFromGetInfoAndClearsOnDisconnect]' passed (0.003 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testRenameUpdatesConfiguredNameAndRejectedRenamePreservesIt]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testRenameUpdatesConfiguredNameAndRejectedRenamePreservesIt]' passed (0.124 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testScrollUploadRejectsMoreThanFirmwareMaximumBeforeWriting]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testScrollUploadRejectsMoreThanFirmwareMaximumBeforeWriting]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testSequenceExhaustionFailsWithoutReplacingAnInflightRequest]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testSequenceExhaustionFailsWithoutReplacingAnInflightRequest]' passed (0.020 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testSupersededOutputCancelsTransportSendQueuedBehindBackPressure]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testSupersededOutputCancelsTransportSendQueuedBehindBackPressure]' passed (0.028 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testSupersededQueuedFrameDoesNotSendAndLateReplyDoesNotChangeCurrentFrame]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testSupersededQueuedFrameDoesNotSendAndLateReplyDoesNotChangeCurrentFrame]' passed (0.006 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testTCPSendCompletionHandlesCancellationBeforeAndAfterRegistration]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testTCPSendCompletionHandlesCancellationBeforeAndAfterRegistration]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testTCPSubmittedWriteKeepsPermitWhileCancelledQueuedWritesAreDiscarded]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testTCPSubmittedWriteKeepsPermitWhileCancelledQueuedWritesAreDiscarded]' passed (0.007 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testTCPTimeoutCleanupFinishesBeforeConcurrentContinuationRegistrationResumes]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testTCPTimeoutCleanupFinishesBeforeConcurrentContinuationRegistrationResumes]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testTCPWriteDeadlineClosesBeforeReleasingPermit]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testTCPWriteDeadlineClosesBeforeReleasingPermit]' passed (0.054 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testTimedOutSequenceIsNotReusedAfterWrapOnSameCarrier]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testTimedOutSequenceIsNotReusedAfterWrapOnSameCarrier]' passed (2.158 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testTransportSendErrorResetsCarrierBeforeNextRequest]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testTransportSendErrorResetsCarrierBeforeNextRequest]' passed (0.010 seconds).
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testUnsubscribeFinishesEventStream]' started.
+Test Case '-[RinaBoardTests.BoardConnectionOutputTests testUnsubscribeFinishesEventStream]' passed (0.001 seconds).
+Test Suite 'BoardConnectionOutputTests' passed at 2026-09-12 23:58:43.432.
+	 Executed 27 tests, with 0 failures (0 unexpected) in 3.034 (3.046) seconds
+Test Suite 'BoardControlCenterModelTests' started at 2026-09-12 23:58:43.432.
+Test Case '-[RinaBoardTests.BoardControlCenterModelTests testConnectionChangedLetsReplacementBoardStatusReplaceOptimisticDrafts]' started.
+Test Case '-[RinaBoardTests.BoardControlCenterModelTests testConnectionChangedLetsReplacementBoardStatusReplaceOptimisticDrafts]' passed (0.002 seconds).
+Test Suite 'BoardControlCenterModelTests' passed at 2026-09-12 23:58:43.434.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'BoardPlaybackCoordinatorTests' started at 2026-09-12 23:58:43.435.
+Test Case '-[RinaBoardTests.BoardPlaybackCoordinatorTests testBeginInvalidatesOldTokenBeforeStoppingPreviousSource]' started.
+Test Case '-[RinaBoardTests.BoardPlaybackCoordinatorTests testBeginInvalidatesOldTokenBeforeStoppingPreviousSource]' passed (0.000 seconds).
+Test Case '-[RinaBoardTests.BoardPlaybackCoordinatorTests testClaimReusesCurrentSessionAndOnlyStopsWhenSourceChanges]' started.
+Test Case '-[RinaBoardTests.BoardPlaybackCoordinatorTests testClaimReusesCurrentSessionAndOnlyStopsWhenSourceChanges]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.BoardPlaybackCoordinatorTests testInvalidateClearsSessionBeforeRunningStopHandler]' started.
+Test Case '-[RinaBoardTests.BoardPlaybackCoordinatorTests testInvalidateClearsSessionBeforeRunningStopHandler]' passed (0.001 seconds).
+Test Suite 'BoardPlaybackCoordinatorTests' passed at 2026-09-12 23:58:43.437.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'BoardResumeModeTests' started at 2026-09-12 23:58:43.437.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testActiveFirmwareScrollResumesTextEvenWhenPaused]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testActiveFirmwareScrollResumesTextEvenWhenPaused]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testAnotherClientPausePreventsAutomaticPlaybackWithoutLosingThePage]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testAnotherClientPausePreventsAutomaticPlaybackWithoutLosingThePage]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testAutoModeResumesControlDespiteAStaleLiveReason]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testAutoModeResumesControlDespiteAStaleLiveReason]' passed (0.000 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testExplicitOutputModesTakePrecedenceOverLegacyState]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testExplicitOutputModesTakePrecedenceOverLegacyState]' passed (0.000 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testLegacyFirmwareRetainsAnUpdatedAppsOriginalStream]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testLegacyFirmwareRetainsAnUpdatedAppsOriginalStream]' passed (0.000 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testNewerPreviewCanReportAnActiveScrollBeforeStatusCatchesUp]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testNewerPreviewCanReportAnActiveScrollBeforeStatusCatchesUp]' passed (0.000 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testNewerStatusPreventsStalePreviewFromReopeningText]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testNewerStatusPreventsStalePreviewFromReopeningText]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testNonIdleAndUnknownManualStateResumeControl]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testNonIdleAndUnknownManualStateResumeControl]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testOutputModeSurvivesAButtonOverwritingLastReason]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testOutputModeSurvivesAButtonOverwritingLastReason]' passed (0.000 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testResolvesEachExternalLiveFrameReason]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testResolvesEachExternalLiveFrameReason]' passed (0.000 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testReturnsNilWithoutFirmwareState]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testReturnsNilWithoutFirmwareState]' passed (0.000 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testRouterSelectsTheVideoAndPerformancePages]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testRouterSelectsTheVideoAndPerformancePages]' passed (0.005 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testStreamStateUsesTheSameNewestSnapshotAsResumeMode]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testStreamStateUsesTheSameNewestSnapshotAsResumeMode]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.BoardResumeModeTests testUnknownFirmwareModeReturnsNil]' started.
+Test Case '-[RinaBoardTests.BoardResumeModeTests testUnknownFirmwareModeReturnsNil]' passed (0.001 seconds).
+Test Suite 'BoardResumeModeTests' passed at 2026-09-12 23:58:43.457.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 0.013 (0.020) seconds
+Test Suite 'BoardSessionStoreTests' started at 2026-09-12 23:58:43.457.
+Test Case '-[RinaBoardTests.BoardSessionStoreTests testAutomaticReconnectDoesNotReplaceManualSelectionDuringLaunchRestore]' started.
+2026-09-12 23:58:43.458533-0400 RinaBoard[16359:7562478] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:43.458832-0400 RinaBoard[16359:7562478] [CoreBluetooth] XPC connection invalid
+Test Case '-[RinaBoardTests.BoardSessionStoreTests testAutomaticReconnectDoesNotReplaceManualSelectionDuringLaunchRestore]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.BoardSessionStoreTests testAutomaticReconnectReusesInitialSessionWhenSelectionIsUnchanged]' started.
+2026-09-12 23:58:43.460614-0400 RinaBoard[16359:7562478] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:43.461168-0400 RinaBoard[16359:7562478] [CoreBluetooth] XPC connection invalid
+Test Case '-[RinaBoardTests.BoardSessionStoreTests testAutomaticReconnectReusesInitialSessionWhenSelectionIsUnchanged]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.BoardSessionStoreTests testSessionLookupRetainsTransportAliasesAndSelectDoesNotDisconnect]' started.
+2026-09-12 23:58:43.462811-0400 RinaBoard[16359:7562478] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:43.463212-0400 RinaBoard[16359:7562472] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:43.463335-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x107a49e00> can only accept this command while in the powered on state
+2026-09-12 23:58:43.463447-0400 RinaBoard[16359:7562172] [Bluetooth] Bluetooth state became unavailable: 此设备不支持蓝牙
+2026-09-12 23:58:43.463687-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x107a48d00> can only accept this command while in the powered on state
+2026-09-12 23:58:43.463732-0400 RinaBoard[16359:7562172] [Bluetooth] Bluetooth state became unavailable: 此设备不支持蓝牙
+2026-09-12 23:58:43.464504-0400 RinaBoard[16359:7562478] [CoreBluetooth] XPC connection invalid
+Test Case '-[RinaBoardTests.BoardSessionStoreTests testSessionLookupRetainsTransportAliasesAndSelectDoesNotDisconnect]' passed (0.003 seconds).
+Test Case '-[RinaBoardTests.BoardSessionStoreTests testSessionsConnectAndRouteCommandsIndependently]' started.
+2026-09-12 23:58:43.465557-0400 RinaBoard[16359:7562475] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:43.465756-0400 RinaBoard[16359:7562475] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:43.466016-0400 RinaBoard[16359:7562475] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:43.466059-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x124522300> can only accept this command while in the powered on state
+2026-09-12 23:58:43.466214-0400 RinaBoard[16359:7562172] [Bluetooth] Bluetooth state became unavailable: 此设备不支持蓝牙
+2026-09-12 23:58:43.466279-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x124522e00> can only accept this command while in the powered on state
+2026-09-12 23:58:43.466318-0400 RinaBoard[16359:7562172] [Bluetooth] Bluetooth state became unavailable: 此设备不支持蓝牙
+2026-09-12 23:58:43.466662-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x124521f00> can only accept this command while in the powered on state
+2026-09-12 23:58:43.466711-0400 RinaBoard[16359:7562172] [Bluetooth] Bluetooth state became unavailable: 此设备不支持蓝牙
+Test Case '-[RinaBoardTests.BoardSessionStoreTests testSessionsConnectAndRouteCommandsIndependently]' passed (0.132 seconds).
+Test Case '-[RinaBoardTests.BoardSessionStoreTests testTransportFailureDoesNotDisconnectAnotherSession]' started.
+2026-09-12 23:58:43.598823-0400 RinaBoard[16359:7562478] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:43.599399-0400 RinaBoard[16359:7562478] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:43.600055-0400 RinaBoard[16359:7562478] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:43.600145-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x124522300> can only accept this command while in the powered on state
+2026-09-12 23:58:43.600283-0400 RinaBoard[16359:7562172] [Bluetooth] Bluetooth state became unavailable: 此设备不支持蓝牙
+2026-09-12 23:58:43.600416-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x124521f00> can only accept this command while in the powered on state
+2026-09-12 23:58:43.600477-0400 RinaBoard[16359:7562172] [Bluetooth] Bluetooth state became unavailable: 此设备不支持蓝牙
+2026-09-12 23:58:43.600666-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x124522e00> can only accept this command while in the powered on state
+2026-09-12 23:58:43.600808-0400 RinaBoard[16359:7562172] [Bluetooth] Bluetooth state became unavailable: 此设备不支持蓝牙
+Test Case '-[RinaBoardTests.BoardSessionStoreTests testTransportFailureDoesNotDisconnectAnotherSession]' passed (0.006 seconds).
+Test Suite 'BoardSessionStoreTests' passed at 2026-09-12 23:58:43.603.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.144 (0.146) seconds
+Test Suite 'ConnectionLifecycleTests' started at 2026-09-12 23:58:43.604.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testCancelledHandshakeStopsWithoutSchedulingRetry]' started.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testCancelledHandshakeStopsWithoutSchedulingRetry]' passed (0.041 seconds).
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testConnectAndSwitchReadSnapshotWithoutUnsolicitedEvents]' started.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testConnectAndSwitchReadSnapshotWithoutUnsolicitedEvents]' passed (0.011 seconds).
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testDeviceNameReadFinishesBeforeConnectedIsPublished]' started.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testDeviceNameReadFinishesBeforeConnectedIsPublished]' passed (0.008 seconds).
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testDisconnectCancelsScheduledRetry]' started.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testDisconnectCancelsScheduledRetry]' passed (0.065 seconds).
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testDisconnectDuringSetupSnapshotCannotPublishConnected]' started.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testDisconnectDuringSetupSnapshotCannotPublishConnected]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testFailedHandshakeClosesCarrierAndNeverPublishesConnected]' started.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testFailedHandshakeClosesCarrierAndNeverPublishesConnected]' passed (0.023 seconds).
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testOldCallbacksCannotDisconnectReplacement]' started.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testOldCallbacksCannotDisconnectReplacement]' passed (0.033 seconds).
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testReconnectRefreshesSnapshotAndPreviewQueriesPublish]' started.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testReconnectRefreshesSnapshotAndPreviewQueriesPublish]' passed (0.019 seconds).
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testReconnectResetsPartialFrameAndIgnoresSameTransportOldStream]' started.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testReconnectResetsPartialFrameAndIgnoresSameTransportOldStream]' passed (0.052 seconds).
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testRetryLimitAlsoAppliesToThrownErrors]' started.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testRetryLimitAlsoAppliesToThrownErrors]' passed (0.012 seconds).
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testSwitchDuringSnapshotKeepsReplacementState]' started.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testSwitchDuringSnapshotKeepsReplacementState]' passed (0.008 seconds).
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testThrowWithoutStateEventRetriesAndEventuallyConnects]' started.
+Test Case '-[RinaBoardTests.ConnectionLifecycleTests testThrowWithoutStateEventRetriesAndEventuallyConnects]' passed (0.029 seconds).
+Test Suite 'ConnectionLifecycleTests' passed at 2026-09-12 23:58:43.913.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.305 (0.309) seconds
+Test Suite 'DebugSerialMonitorTests' started at 2026-09-12 23:58:43.913.
+Test Case '-[RinaBoardTests.DebugSerialMonitorTests testDisconnectedDoesNotSendAndFirmwareLogAppearsInMonitor]' started.
+Test Case '-[RinaBoardTests.DebugSerialMonitorTests testDisconnectedDoesNotSendAndFirmwareLogAppearsInMonitor]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.DebugSerialMonitorTests testEveryCatalogExampleHasMatchingCommand]' started.
+Test Case '-[RinaBoardTests.DebugSerialMonitorTests testEveryCatalogExampleHasMatchingCommand]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.DebugSerialMonitorTests testParsesNamesJSONAndQueryMessageTypes]' started.
+Test Case '-[RinaBoardTests.DebugSerialMonitorTests testParsesNamesJSONAndQueryMessageTypes]' passed (0.003 seconds).
+Test Case '-[RinaBoardTests.DebugSerialMonitorTests testRejectedReplyAndInvalidInput]' started.
+Test Case '-[RinaBoardTests.DebugSerialMonitorTests testRejectedReplyAndInvalidInput]' passed (0.005 seconds).
+Test Case '-[RinaBoardTests.DebugSerialMonitorTests testSendShowsReplyAndRedactsSecrets]' started.
+Test Case '-[RinaBoardTests.DebugSerialMonitorTests testSendShowsReplyAndRedactsSecrets]' passed (0.003 seconds).
+Test Suite 'DebugSerialMonitorTests' passed at 2026-09-12 23:58:43.930.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.014 (0.017) seconds
+Test Suite 'DraftStorageTests' started at 2026-09-12 23:58:43.930.
+Test Case '-[RinaBoardTests.DraftStorageTests testMissingDraftReturnsNilAndAtomicWriteCanBeReplaced]' started.
+Test Case '-[RinaBoardTests.DraftStorageTests testMissingDraftReturnsNilAndAtomicWriteCanBeReplaced]' passed (0.003 seconds).
+Test Suite 'DraftStorageTests' passed at 2026-09-12 23:58:43.933.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'ExplicitModeCommandTests' started at 2026-09-12 23:58:43.933.
+Test Case '-[RinaBoardTests.ExplicitModeCommandTests testModeTapsSendDesiredStateEvenWhenPriorCommandWasNotApplied]' started.
+Test Case '-[RinaBoardTests.ExplicitModeCommandTests testModeTapsSendDesiredStateEvenWhenPriorCommandWasNotApplied]' passed (0.130 seconds).
+Test Case '-[RinaBoardTests.ExplicitModeCommandTests testProtocolVersionComesFromInfoAndIsClearedOnDisconnect]' started.
+Test Case '-[RinaBoardTests.ExplicitModeCommandTests testProtocolVersionComesFromInfoAndIsClearedOnDisconnect]' passed (0.002 seconds).
+Test Suite 'ExplicitModeCommandTests' passed at 2026-09-12 23:58:44.065.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.131 (0.132) seconds
+Test Suite 'FaceLibraryLocalTests' started at 2026-09-12 23:58:44.065.
+Test Case '-[RinaBoardTests.FaceLibraryLocalTests testLocalCreateRenameDeleteAndUndoPersistThroughStore]' started.
+Test Case '-[RinaBoardTests.FaceLibraryLocalTests testLocalCreateRenameDeleteAndUndoPersistThroughStore]' passed (0.018 seconds).
+Test Case '-[RinaBoardTests.FaceLibraryLocalTests testLocalReorderValidatesCompleteSetAndFailedPersistenceKeepsPublishedOrder]' started.
+Test Case '-[RinaBoardTests.FaceLibraryLocalTests testLocalReorderValidatesCompleteSetAndFailedPersistenceKeepsPublishedOrder]' passed (0.004 seconds).
+Test Suite 'FaceLibraryLocalTests' passed at 2026-09-12 23:58:44.088.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.022 (0.023) seconds
+Test Suite 'LipSyncLifecycleTests' started at 2026-09-12 23:58:44.088.
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testBackgroundWhilePermissionPendingCancelsStart]' started.
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testBackgroundWhilePermissionPendingCancelsStart]' passed (0.036 seconds).
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testBoardTakeoverDuringResumeDoesNotStartTheMicrophone]' started.
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testBoardTakeoverDuringResumeDoesNotStartTheMicrophone]' passed (0.033 seconds).
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testCalibrationDistinguishesMissingBuffersFromSilentPCM]' started.
+[LipSyncAudio] calibration samples=false signal=false loudestDb=-80.0 threshold=-42.0 vectors=0/4
+[LipSyncAudio] calibration samples=true signal=false loudestDb=-80.0 threshold=-42.0 vectors=0/4
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testCalibrationDistinguishesMissingBuffersFromSilentPCM]' passed (0.977 seconds).
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testCalibrationReportsMeasuredLevelForQuietNonzeroAudio]' started.
+[LipSyncAudio] calibration samples=true signal=true loudestDb=-80.0 threshold=-42.0 vectors=0/4
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testCalibrationReportsMeasuredLevelForQuietNonzeroAudio]' passed (0.504 seconds).
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testCancelledCalibrationCannotStopReplacementCapture]' started.
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testCancelledCalibrationCannotStopReplacementCapture]' passed (0.138 seconds).
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testDeniedCalibrationDoesNotOpenMicrophone]' started.
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testDeniedCalibrationDoesNotOpenMicrophone]' passed (0.048 seconds).
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testFailedCaptureReleasesOutputLease]' started.
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testFailedCaptureReleasesOutputLease]' passed (0.037 seconds).
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testFirstCalibrationRequestsPermissionAndSurvivesAlert]' started.
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testFirstCalibrationRequestsPermissionAndSurvivesAlert]' passed (0.042 seconds).
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testForeignLipSyncStreamDoesNotStartTheMicrophone]' started.
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testForeignLipSyncStreamDoesNotStartTheMicrophone]' passed (0.023 seconds).
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testPermissionAlertDoesNotCancelStartAndSamplesReachRecognition]' started.
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testPermissionAlertDoesNotCancelStartAndSamplesReachRecognition]' passed (0.047 seconds).
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testReopenedModelResumesTheSameLipSyncStream]' started.
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testReopenedModelResumesTheSameLipSyncStream]' passed (0.059 seconds).
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testStoppedAudioEngineStopsRecognitionAndCanRestart]' started.
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testStoppedAudioEngineStopsRecognitionAndCanRestart]' passed (0.039 seconds).
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testStopWhileCaptureActivationIsPendingDoesNotRestartRecognition]' started.
+Test Case '-[RinaBoardTests.LipSyncLifecycleTests testStopWhileCaptureActivationIsPendingDoesNotRestartRecognition]' passed (0.032 seconds).
+Test Suite 'LipSyncLifecycleTests' passed at 2026-09-12 23:58:46.106.
+	 Executed 13 tests, with 0 failures (0 unexpected) in 2.013 (2.018) seconds
+Test Suite 'SavedConnectionRecoveryTests' started at 2026-09-12 23:58:46.106.
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testBonjourBoardWithNoHostPersistsServiceIdentityAndMigratesLegacyRecord]' started.
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testBonjourBoardWithNoHostPersistsServiceIdentityAndMigratesLegacyRecord]' passed (0.007 seconds).
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testBonjourIdentityWinsOverPreviouslyResolvedDHCPHost]' started.
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testBonjourIdentityWinsOverPreviouslyResolvedDHCPHost]' passed (0.000 seconds).
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testForgettingHotspotWhileJoinIsInflightPreventsTCPAndResave]' started.
+2026-09-12 23:58:46.117907-0400 RinaBoard[16359:7562473] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:46.118223-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x124522300> can only accept this command while in the powered on state
+2026-09-12 23:58:46.118266-0400 RinaBoard[16359:7562172] [Bluetooth] Bluetooth state became unavailable: 此设备不支持蓝牙
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testForgettingHotspotWhileJoinIsInflightPreventsTCPAndResave]' passed (0.015 seconds).
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testForgettingSavedBLEWhileConnectIsInflightDoesNotRestoreItOrShowError]' started.
+2026-09-12 23:58:46.131019-0400 RinaBoard[16359:7562457] [CoreBluetooth] XPC connection invalid
+2026-09-12 23:58:46.131114-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x124522300> can only accept this command while in the powered on state
+2026-09-12 23:58:46.131291-0400 RinaBoard[16359:7562172] [CoreBluetooth] API MISUSE: <CBCentralManager: 0x124522300> can only accept this command while in the powered on state
+2026-09-12 23:58:46.131355-0400 RinaBoard[16359:7562172] [Bluetooth] Bluetooth state became unavailable: 此设备不支持蓝牙
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testForgettingSavedBLEWhileConnectIsInflightDoesNotRestoreItOrShowError]' passed (0.006 seconds).
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testLegacyBonjourBoardWithoutHostReconstructsDefaultServiceIdentity]' started.
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testLegacyBonjourBoardWithoutHostReconstructsDefaultServiceIdentity]' passed (0.000 seconds).
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testLegacySavedBoardWithoutBonjourIdentityStillLoadsByHost]' started.
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testLegacySavedBoardWithoutBonjourIdentityStillLoadsByHost]' passed (0.003 seconds).
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testSavedBLEReconnectUsesInjectedConnectionOperation]' started.
+2026-09-12 23:58:46.141410-0400 RinaBoard[16359:7562457] [CoreBluetooth] XPC connection invalid
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testSavedBLEReconnectUsesInjectedConnectionOperation]' passed (0.003 seconds).
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testSavedBoardHotspotJoinsBeforeOpeningTCP]' started.
+2026-09-12 23:58:46.145819-0400 RinaBoard[16359:7562474] [CoreBluetooth] XPC connection invalid
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testSavedBoardHotspotJoinsBeforeOpeningTCP]' passed (0.004 seconds).
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testSavedBoardWithoutAddressPublishesVisibleError]' started.
+2026-09-12 23:58:46.149407-0400 RinaBoard[16359:7562474] [CoreBluetooth] XPC connection invalid
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testSavedBoardWithoutAddressPublishesVisibleError]' passed (0.003 seconds).
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testSavedBonjourIdentityRecreatesServiceEndpoint]' started.
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testSavedBonjourIdentityRecreatesServiceEndpoint]' passed (0.001 seconds).
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testSupersededSavedReconnectWithoutTransportErrorStaysQuiet]' started.
+2026-09-12 23:58:46.154572-0400 RinaBoard[16359:7562459] [CoreBluetooth] XPC connection invalid
+Test Case '-[RinaBoardTests.SavedConnectionRecoveryTests testSupersededSavedReconnectWithoutTransportErrorStaysQuiet]' passed (0.004 seconds).
+Test Suite 'SavedConnectionRecoveryTests' passed at 2026-09-12 23:58:46.155.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.047 (0.049) seconds
+Test Suite 'TextTransportTests' started at 2026-09-12 23:58:46.156.
+Test Case '-[RinaBoardTests.TextTransportTests testActiveReconnectRestoresBoardTextAtFreshPreviewFrame]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testActiveReconnectRestoresBoardTextAtFreshPreviewFrame]' passed (0.368 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testCancelledOrSupersededDragDoesNotCommit]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testCancelledOrSupersededDragDoesNotCommit]' passed (0.094 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testLoopToggleSendsPreferenceWithoutTakingOutput]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testLoopToggleSendsPreferenceWithoutTakingOutput]' passed (0.131 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testPausedReconnectDoesNotAdvanceAndRestoresBoardLoopSetting]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testPausedReconnectDoesNotAdvanceAndRestoresBoardLoopSetting]' passed (0.407 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testPreviousSeekReplyCannotClearNextReleasedDrag]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testPreviousSeekReplyCannotClearNextReleasedDrag]' passed (0.227 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testReconnectPreservesUnsentDraftAndReportsBoardConflict]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testReconnectPreservesUnsentDraftAndReportsBoardConflict]' passed (0.359 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testReconnectRestoresAlreadySentDraftWithoutConflict]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testReconnectRestoresAlreadySentDraftWithoutConflict]' passed (0.377 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testRejectedCommandShowsReadableReason]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testRejectedCommandShowsReadableReason]' passed (0.002 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testScrubOnlySendsFinalFrameOnRelease]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testScrubOnlySendsFinalFrameOnRelease]' passed (0.142 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testSeekClampsToTimelineAndClearsScrub]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testSeekClampsToTimelineAndClearsScrub]' passed (0.125 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testSpeedChangeRetunesWithoutTakingOutput]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testSpeedChangeRetunesWithoutTakingOutput]' passed (0.023 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testStatusReportsPauseThatPreviewSamplesNeverCarry]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testStatusReportsPauseThatPreviewSamplesNeverCarry]' passed (0.120 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testStatusWithoutScrollUnbindsControls]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testStatusWithoutScrollUnbindsControls]' passed (0.122 seconds).
+Test Case '-[RinaBoardTests.TextTransportTests testTransportButtonsReachBoardEvenWhenAnotherTabOwnsOutput]' started.
+Test Case '-[RinaBoardTests.TextTransportTests testTransportButtonsReachBoardEvenWhenAnotherTabOwnsOutput]' passed (0.938 seconds).
+Test Suite 'TextTransportTests' passed at 2026-09-12 23:58:49.594.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 3.434 (3.439) seconds
+Test Suite 'VideoPlaybackRecoveryTests' started at 2026-09-12 23:58:49.595.
+Test Case '-[RinaBoardTests.VideoPlaybackRecoveryTests testMatchingSavedVideoResumesBoardPositionWithOriginalStreamID]' started.
+2026-09-12 23:58:49.619708-0400 RinaBoard[16359:7562172] [] (Fig) signalled err=0 at <>:85
+2026-09-12 23:58:54.319962-0400 RinaBoard[16359:7563814] [] (Fig) signalled err=-12900 at <>:1242
+2026-09-12 23:58:54.319980-0400 RinaBoard[16359:7563810] [] (Fig) signalled err=-12900 at <>:1242
+2026-09-12 23:58:54.553353-0400 RinaBoard[16359:7563808] [] (Fig) signalled err=-12900 at <>:1242
+2026-09-12 23:58:54.553371-0400 RinaBoard[16359:7563851] [] (Fig) signalled err=-12900 at <>:1242
+2026-09-12 23:58:54.553807-0400 RinaBoard[16359:7563808] [] <<<< VRP >>>> signalled err=-12852 at <>:2336
+2026-09-12 23:58:54.553857-0400 RinaBoard[16359:7563851] [] <<<< VRP >>>> signalled err=-12852 at <>:2336
+Test Case '-[RinaBoardTests.VideoPlaybackRecoveryTests testMatchingSavedVideoResumesBoardPositionWithOriginalStreamID]' passed (5.022 seconds).
+Test Case '-[RinaBoardTests.VideoPlaybackRecoveryTests testMissingOrForeignStreamLeavesBoardOutputUntouched]' started.
+2026-09-12 23:58:54.619319-0400 RinaBoard[16359:7563884] [] (Fig) signalled err=-12900 at <>:1242
+2026-09-12 23:58:54.619377-0400 RinaBoard[16359:7563883] [] (Fig) signalled err=-12900 at <>:1242
+2026-09-12 23:58:54.619856-0400 RinaBoard[16359:7563883] [] <<<< VRP >>>> signalled err=-12852 at <>:2336
+2026-09-12 23:58:54.622040-0400 RinaBoard[16359:7563874] [] (Fig) signalled err=-12785 at <>:1469
+2026-09-12 23:58:54.622852-0400 RinaBoard[16359:7563874] [] (Fig) signalled err=-12785 at <>:1469
+2026-09-12 23:58:54.622982-0400 RinaBoard[16359:7563875] [] (Fig) signalled err=-12785 at <>:1469
+2026-09-12 23:58:56.535322-0400 RinaBoard[16359:7564139] [] (Fig) signalled err=-12900 at <>:1242
+Test Case '-[RinaBoardTests.VideoPlaybackRecoveryTests testMissingOrForeignStreamLeavesBoardOutputUntouched]' passed (1.919 seconds).
+Test Suite 'VideoPlaybackRecoveryTests' passed at 2026-09-12 23:58:56.537.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 6.941 (6.942) seconds
+Test Suite 'RinaBoardTests.xctest' passed at 2026-09-12 23:58:56.538.
+	 Executed 161 tests, with 0 failures (0 unexpected) in 17.842 (17.915) seconds
+2026-09-12 23:58:56.537790-0400 RinaBoard[16359:7563808] [] (Fig) signalled err=-12900 at <>:1242
+Test Suite 'All tests' passed at 2026-09-12 23:58:56.538.
+	 Executed 161 tests, with 0 failures (0 unexpected) in 17.842 (17.917) seconds
+2026-09-12 23:58:56.538681-0400 RinaBoard[16359:7563808] [] <<<< VRP >>>> signalled err=-12852 at <>:2336
+2026-09-12 23:58:56.539247-0400 RinaBoard[16359:7562468] [player] <<<< Async >>>> signalled err=-12785 at <>:3471
+2026-09-12 23:58:56.539685-0400 RinaBoard[16359:7562468] [player] <<<< Async >>>> signalled err=-12785 at <>:3471
+2026-09-12 23:58:56.540030-0400 RinaBoard[16359:7562468] [player] <<<< Async >>>> signalled err=-12785 at <>:4745
+2026-09-12 23:58:56.540515-0400 RinaBoard[16359:7562468] [player] <<<< Async >>>> signalled err=-12785 at <>:3471
+2026-09-12 23:58:56.541789-0400 RinaBoard[16359:7563883] [] (Fig) signalled err=-12900 at <>:1242
+2026-09-12 23:58:56.542067-0400 RinaBoard[16359:7563883] [] <<<< VRP >>>> signalled err=-12852 at <>:2336
+2026-09-12 23:58:56.543497-0400 RinaBoard[16359:7563874] [] (Fig) signalled err=-12785 at <>:1469
+2026-09-12 23:58:56.544224-0400 RinaBoard[16359:7563874] [] (Fig) signalled err=-12785 at <>:1469
+2026-09-12 23:58:56.545316-0400 RinaBoard[16359:7563874] [] (Fig) signalled err=-12785 at <>:1469
+2026-09-12 23:58:56.545416-0400 RinaBoard[16359:7563875] [] (Fig) signalled err=-12785 at <>:1469
+2026-09-12 23:58:57.075 xcodebuild[15894:7557524] [MT] IDETestOperationsObserverDebug: 60.304 elapsed -- Testing started completed.
+2026-09-12 23:58:57.075 xcodebuild[15894:7557524] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-09-12 23:58:57.075 xcodebuild[15894:7557524] [MT] IDETestOperationsObserverDebug: 60.304 sec, +60.304 sec -- end
+
+Test session results, code coverage, and logs:
+	/tmp/rina-stress-repair-unit5.xcresult
+
+** TEST SUCCEEDED **
+
+Testing started

@@ -10,19 +10,29 @@ message through one `protocol.cpp` command handler.
 | Transport | Carrier | Discovery | Notes |
 |---|---|---|---|
 | **BLE** | GATT service, 2 characteristics | BLE scan, service UUID filter | Always on. Used for first-time Wi-Fi provisioning, and can carry *all* features (slower for big uploads). |
-| **Wi-Fi STA** | TCP :5370 on the user's LAN | mDNS/Bonjour `_rinalink._tcp.local`, host `rinaboard.local`; manual IP fallback | Board joins the router with credentials provisioned over BLE. |
-| **Wi-Fi hotspot ("direct")** | TCP :5370 on board SoftAP `RinaChanBoard-V2`, board IP `192.168.1.14` | Fixed IP; iOS joins via `NEHotspotConfiguration` | No router needed. iOS does not expose Wi-Fi Direct/P2P to apps, so the board's SoftAP *is* the direct link. |
+| **Wi-Fi STA** | TCP :5370 on the user's LAN | mDNS/Bonjour `_rinalink._tcp.local`, host `rinaboard-<id>.local`, Bonjour instance `RinaBoard-<ID>`; manual IP fallback | Board joins the router with credentials provisioned over BLE. |
+| **Wi-Fi hotspot ("direct")** | TCP :5370 on board SoftAP `RinaChanBoard-<ID>`, board IP `192.168.1.14` | Fixed IP; iOS joins via `NEHotspotConfiguration` | No router needed. iOS does not expose Wi-Fi Direct/P2P to apps, so the board's SoftAP *is* the direct link. |
 
 Wi-Fi run mode is persisted in NVS: `off | ap | sta | sta_or_ap` (default `ap` until
 credentials exist, then `sta_or_ap`: try STA for 15 s, fall back to AP). BLE is
 independent and always advertising when no BLE central is connected.
+
+**Board identity.** `<ID>` is 12 uppercase hex characters of the board's
+Bluetooth MAC address (e.g. `80B54EF48E09`), computed once at boot and used
+identically everywhere a board must be uniquely identified: the default BLE
+name (`RinaBoard-<ID>`), `INFO.boardId` and `wifi_status.boardId` (§1.1, §4),
+the SoftAP SSID (`RinaChanBoard-<ID>`), the mDNS hostname (lowercased,
+`rinaboard-<id>.local`), and the Bonjour instance name (`RinaBoard-<ID>`).
+This guarantees two boards can never be confused by the app. A previously
+stored SoftAP SSID equal to the retired shared default `RinaChanBoard-V2`
+migrates automatically to the board's unique default on the next boot.
 
 ### 1.1 BLE GATT layout
 
 - Service UUID `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`-style custom: **`52494E41-0001-4C49-4E4B-000000000001`** (`"RINA"…"LINK"`).
 - `RX`  (`…0002`): write / write-without-response. Central → board. Carries framed messages, split into ≤ (ATT_MTU−3) byte slices; slices are concatenated in order.
 - `TX`  (`…0003`): notify. Board → central. Same framing + slicing.
-- `INFO`(`…0004`): read. UTF-8 JSON `{ "proto":1, "device":"RinaChanBoard", "name":"<advertised name>", "fw":"<ver>", "mtu":<n>, "tcpPort":5370 }`. No `wifi` object here — use `CMD wifi_status` (§4) for Wi-Fi state.
+- `INFO`(`…0004`): read. UTF-8 JSON `{ "proto":1, "device":"RinaChanBoard", "name":"<advertised name>", "fw":"<ver>", "mtu":<n>, "tcpPort":5370, "boardId":"<12 hex>" }`. No `wifi` object here — use `CMD wifi_status` (§4) for Wi-Fi state.
 - **Advertised local name.** Default `RinaBoard-AABBCCDDEEFF`, using all six
   bytes of the factory BT MAC in uppercase hex, giving each ESP32 a stable
   identity without collisions from a shortened MAC suffix. Overridable at runtime with
@@ -41,15 +51,24 @@ independent and always advertising when no BLE central is connected.
   primary payload the firmware logs `nameSet=0`.
 - Requests MTU 247+ (NimBLE default 255).
 - One central at a time. TCP and BLE may be connected simultaneously; the firmware is the single source of truth and pushes events to every connected client.
-- A new BLE link must subscribe to TX notifications or send a complete framed
-  request within 15 seconds. Otherwise the firmware disconnects it and resumes
+- A new BLE link must send a complete framed request within 15 seconds;
+  enabling TX notifications alone does not complete initialization. Otherwise
+  the firmware disconnects it and resumes
   advertising. Initialized BLE links have no idle timeout. Failed advertising
-  starts are retried after 250 ms.
+  starts are retried after 250 ms. Disabling TX notifications after enabling
+  them releases the link so the board can advertise again.
 - Clients should enable TX notifications and verify a `PING` reply before
   reporting the board ready. On service discovery, notification setup, or
   handshake failure, cancel the physical BLE connection before retrying.
   A terminal reply-notification failure also closes the firmware connection,
   including failures before the first byte was sent.
+- The firmware sends no events over BLE until the client has enabled TX
+  notifications. Status, preview, power, and Wi-Fi state remain pending after a
+  failed send and retry; intermediate states may be coalesced. Logs are transient.
+  Replies are always sent. Read state explicitly after subscribing
+  (`GET_STATUS` / `GET_FRAME` / `GET_PREVIEW_SYNC`) rather than waiting for a
+  first event. Pushing events during service discovery starved the central's
+  GATT procedures and broke reconnects after an app force-quit.
 
 ### 1.2 TCP framing
 
@@ -68,7 +87,9 @@ offset  size  field
 6       n     payload
 ```
 
-Maximum payload 4096 B. Larger bodies (saved-faces JSON, scroll frame sets) go through
+Maximum payload 4096 B, measured after JSON/UTF-8 encoding, including every field,
+quote, separator, and escape. Clients must reject an oversized encoded request
+before writing any bytes. Larger bodies (saved-faces JSON, scroll frame sets) go through
 the **blob** messages (§3.3), which are chunked by design and acked per chunk so BLE
 flow control is implicit. Replies always carry the request's `type | 0x80` and `seq`.
 A single reply whose serialized JSON exceeds 4096 B (e.g. `GET_SCROLL_META` with a
@@ -78,6 +99,24 @@ concatenate payloads across MORE-flagged frames before parsing.
 Errors reply with type `0xFF` and JSON `{"ok":false,"error":"...","code":<int>}`
 (codes mirror the old HTTP statuses: 400 bad request, 404, 409 conflict, 413 too
 large, 500, 507 no memory).
+
+Both transports carry a byte stream: a successful send must deliver the complete
+frame, or close the carrier on a partial write. After a valid header, payload bytes
+may contain `0xA5`, so a truncated payload followed immediately by another frame
+cannot be distinguished from a single fragmented frame. Do not scan that payload
+for apparent new packets; recover at a timeout or a new carrier connection.
+The firmware attempts to reply ERR 413 with the request's own sequence to a
+header declaring a payload larger than 4096 B and closes that carrier; clients
+may observe the close without the reply. A BLE write that does not fit the
+inbound buffer also closes the carrier.
+
+Sequence 0 is reserved for events. The 255 request sequence IDs must not be shared
+by outstanding requests; clients must report busy when none is available. Replies
+must match both the expected type and the sequence. In particular, `SET_FRAME` and
+`GET_FRAME` replies share type values with events, so type alone is insufficient.
+RinaLink v1 carries no session nonce: a delayed same-type reply is indistinguishable
+after its sequence is reused. Carrier teardown and rejection of callbacks from old
+connections are part of recovery, not a substitute for a wire-level session ID.
 
 ## 3. Message types
 
@@ -112,6 +151,27 @@ advance count. The active/pause flags and `scrollLoop` are freshly sampled
 control state; presentation identity and timing remain tied to the last
 successful LED latch.
 
+`GET_STATUS.version` is a runtime state-change counter, not the protocol version.
+Use `CMD get_info`'s `proto` (or BLE INFO's `proto`) for the protocol version.
+Lite status replies and `EV_STATUS` omit full-snapshot fields; clients merge them
+into the current connection's snapshot rather than clearing omitted fields.
+
+The `GET_STATUS.renderer` object and `GET_PREVIEW_SYNC` also expose the current
+`outputMode` (`control`, `text`, `lipSync`, `performance`, or `video`),
+`outputStreamID`, and `outputPositionMs`. Unlike `lastReason`, this ownership
+metadata survives brightness/colour changes and link loss. Native face/mode
+takeovers and firmware scrolling replace it, so a reconnecting app must read
+the board before restoring local playback. The fields are optional for clients
+supporting older firmware and reset when the board restarts.
+
+Phone-driven streams attach `<reason>:<UUID>:<positionMs>` to `SET_FRAME`:
+`lipsync`, `live_preset`, and `video` are the supported reason prefixes. The
+position is the media offset of that frame (zero for microphone input), not a
+clock that advances while the phone is disconnected. The phone retains the
+same UUID when restoring that stream and only resumes matching local material.
+The board does not store audio or video files. Legacy unqualified frame reasons
+remain supported, but cannot identify the original media across clients.
+
 ### 3.2 Frames (binary payloads)
 
 | type | name | request payload | reply |
@@ -142,15 +202,28 @@ no longer matches (the file changed mid-transfer), the board replies `0xFF ERR`
 with `code:409` instead of a data frame, so a multi-chunk download never silently
 splices together two different documents.
 
-Limits unchanged: ≤ 3072 scroll frames, `sourceText` ≤ 4096 B, ≤ 128 faces.
+Limits: ≤ 3072 scroll frames, stored `sourceText` ≤ 4096 UTF-8 bytes,
+≤ 128 faces, and saved-face JSON ≤ 256 KiB. The complete `CMD` or `BLOB_BEGIN`
+metadata must also fit the 4096-byte payload limit. Thus a text string at the
+storage limit cannot necessarily be sent: for example, the
+`{"cmd":"start_scroll","sourceText":"…","intervalMs":100}` wrapper leaves
+4041 bytes for unescaped text, and additional fields or JSON escapes reduce that
+space. `face_reorder` likewise must fit as a complete JSON request, even for a
+library within the face-count limit.
 `chunkMax` is 4032 B (= 85 frames·47 B + slack) on TCP, `min(2048, 8·(MTU−3))` on BLE.
 A second `BLOB_BEGIN{"kind":"scroll"}` from another client while one scroll upload
 is already in progress is rejected with `0xFF ERR code:409`.
+Raw scroll uploads stage their bytes separately from the active timeline; the
+new timeline is committed at END. Abort or disconnection before END leaves the
+previous timeline intact, as with bitmap uploads.
 
 ### 3.4 `CMD` command set (unchanged from `/api/command`)
 
 `set_color{hex}`, `set_brightness{raw}`, `set_mode{mode}`, `set_auto_interval{ms}`,
-`set_scroll_interval{intervalMs|fps}`, `start_scroll{intervalMs|fps,sourceText?,loop?}`,
+`set_scroll_interval{intervalMs|fps}`, `start_scroll{intervalMs|fps,sourceText?,loop?}`
+(here and in scroll `BLOB_BEGIN` meta, an explicit `intervalMs` wins; `fps` alone
+sets the interval to `round(1000/fps)`, and only a request with neither keeps the
+current interval — clients should send both),
 `scroll_step{direction}`, `scroll_seek{frameIndex}`, `set_scroll_loop{loop}`,
 `pause_scroll`, `resume_scroll`, `stop_scroll{restoreAuto?,clear?}`,
 `pause`, `resume`, `apply_saved_face{index,reason?,playback?}`, `button{button}`,
@@ -204,18 +277,23 @@ it will not survive a reboot — surface that rather than reporting plain succes
 
 Clients enable/disable event classes with `CMD subscribe{preview:bool,status:bool,power:bool,log:bool}`; defaults: preview+status+power on, log off.
 
+`/api/power` / `EV_POWER` also report the auto-learned battery calibration:
+`battCalibMaxV`, `battCalibCutoffV` (span the LUT is normalized to), `battCalibMaxLearned`,
+`battCalibCutoffLearned` (whether each was learned vs. still default), and
+`batteryAdcSaturated` (true when the last battery ADC reading is at/near the ADC ceiling).
+
 ## 4. Wi-Fi provisioning & management (`CMD wifi_*`, normally over BLE)
 
 | cmd | payload | reply |
 |---|---|---|
-| `wifi_status` | — | `{"ok":true,"mode":"off|ap|sta|sta_or_ap","staConnected":bool,"ssid":"…","ip":"…","rssi":n,"apActive":bool,"apSsid":"RinaChanBoard-V2","apIp":"192.168.1.14","hostname":"rinaboard","tcpPort":5370,"clients":n}` |
+| `wifi_status` | — | `{"ok":true,"mode":"off|ap|sta|sta_or_ap","staConnected":bool,"ssid":"…","ip":"…","rssi":n,"apActive":bool,"apSsid":"RinaChanBoard-80B54EF48E09","apIp":"192.168.1.14","hostname":"rinaboard-80b54ef48e09","boardId":"80B54EF48E09","tcpPort":5370,"clients":n}` |
 | `wifi_scan` | — | async: `{"ok":true,"scanning":true}` immediately (or `500` if a scan could not be started); the result (≤ 20 networks, sorted by RSSI) arrives as `EV_WIFI_SCAN` (§3.5) when the scan completes. If a scan is already in progress, replies `{"ok":true,"scanning":true}` and the caller becomes the new requester for the in-flight scan's `EV_WIFI_SCAN`. |
 | `wifi_scan_result` | — | `{"ok":true,"scanning":bool,"networks":[…]}` — the last completed scan's results (or empty if none yet), without starting a new scan |
 | `wifi_set_credentials` | `{"ssid":"…","password":"…"}` | `{"ok":true}` — stored in NVS namespace `rinawifi` |
 | `wifi_clear_credentials` | — | `{"ok":true}` |
 | `wifi_set_mode` | `{"mode":"off|ap|sta|sta_or_ap"}` | `{"ok":true}` — persisted; applied immediately |
 | `wifi_connect` | — | `{"ok":true}`; result arrives as `EV_WIFI` |
-| `wifi_set_ap` | `{"ssid":"…","password":"…"|""}` | `{"ok":true}` — SoftAP name/password (default `RinaChanBoard-V2` / `rinachan`; open when empty) |
+| `wifi_set_ap` | `{"ssid":"…","password":"…"|""}` | `{"ok":true}` — SoftAP name/password (default `RinaChanBoard-<ID>` / `rinachan`; open when empty; sending the retired shared SSID `RinaChanBoard-V2` resets to the board's unique default) |
 
 Flow in the app: BLE connect → `wifi_scan` → `wifi_set_credentials` →
 `wifi_set_mode sta_or_ap` → wait `EV_WIFI staConnected` → app switches to TCP via
@@ -254,6 +332,9 @@ Scroll frames are 1-px horizontal shifts of one 18-row bitmap, so the client sen
 - `BLOB_BEGIN` meta: `{"kind":"scroll_bitmap","width":W (22…3093),"rows":18,"totalBytes":18*stride,
   "intervalMs"|"fps", "timelineId","fontId","generatorVersion","sourceText"?}`.
   `stride = ceil(W/8)`. Reply `{ok, chunkMax, offset:0}`.
+  Width outside 22…3093 is rejected at BEGIN with 400 (including 3094).
+  The separate computed-frame-count guard returns 413 when more than 3072
+  frames would be produced; it does not override width validation.
 - `BLOB_CHUNK`: raw bitmap bytes, row-major, row `y` occupies bytes `[y*stride, (y+1)*stride)`,
   pixel `x` of row `y` = bit `(x & 7)` (LSB-first) of byte `y*stride + (x >> 3)`.
 - `BLOB_END {"start":bool}`: firmware computes `frameCount = max(1, W-22) + 1` (→ 413 if
@@ -268,10 +349,13 @@ Scroll frames are 1-px horizontal shifts of one 18-row bitmap, so the client sen
 
 ### 7.2 Incremental saved-face commands (replace whole-document re-uploads)
 All operate on `saved_faces.json` on the board (read → modify → validate → atomic write →
-hot reload → faces `gen`++), and reply `{ok, v, gen, count}`; errors 400/404/409/500.
+hot reload → faces `gen`++), and reply `{ok, v, gen, count}`; errors 400/404/409/413/500.
+Names in rename/upsert requests must be 1–64 UTF-8 bytes.
+Edits that would exceed the 256 KiB serialized document limit fail before replacing
+the current file. A partial write never replaces the previous valid file.
 | cmd | payload | rule |
 |---|---|---|
-| `face_rename` | `{id, name}` | name ≤ 64 chars |
+| `face_rename` | `{id, name}` | name ≤ 64 UTF-8 bytes |
 | `face_reorder` | `{ids:[…]}` | must list every face exactly once; assigns `order` 1…n |
 | `face_delete` | `{id}` | 400 for `type:"default"` or when it would remove the last default |
 | `face_upsert` | `{face:{id?, name, type:"custom"|"parts", frameHex (94 hex) or frameBytes[47], call?}}` | new id → appended with `order = max+1`, `savedAt` set; existing id → frame/name/call/type replaced, `updatedAt` set; defaults cannot be overwritten |
