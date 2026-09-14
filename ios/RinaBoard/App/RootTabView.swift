@@ -194,7 +194,7 @@ struct RootTabView: View {
             // construction time (recorded during `RinaBoardApp.init()` and
             // this view's `reconnectModel` init) plus process-start →
             // `ContentReady`, for reading numbers without attaching
-            // Instruments. Debug-only; see `RinaPerf.LaunchTiming`.
+            // Instruments. Debug-only; see `LaunchTiming`.
             #if DEBUG || RINA_PERF_LOG
             LaunchTiming.logSummary(eventName: "ContentReady")
             #endif

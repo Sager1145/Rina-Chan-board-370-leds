@@ -17,7 +17,7 @@ enum RinaPerf {
         let value = block()
         let elapsed = ContinuousClock.now - start
         signposter.endInterval(name, state)
-        LaunchTiming.record(name: "\(name)", milliseconds: elapsed.milliseconds)
+        LaunchTiming.record(name: "\(name)", milliseconds: LaunchTiming.ms(elapsed))
         return value
         #else
         defer { signposter.endInterval(name, state) }
@@ -27,13 +27,6 @@ enum RinaPerf {
 }
 
 #if DEBUG || RINA_PERF_LOG
-extension Duration {
-    var milliseconds: Double {
-        let (seconds, attoseconds) = components
-        return Double(seconds) * 1000 + Double(attoseconds) / 1_000_000_000_000_000
-    }
-}
-
 /// Temporary launch-timing collector for PR-14 measurement: records each
 /// model construction's wall-clock duration so a single summary line can be
 /// logged once `ContentReady` fires, without needing an Instruments trace.
@@ -41,7 +34,14 @@ extension Duration {
 enum LaunchTiming {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "RinaBoard", category: "LaunchTiming")
     private static var entries: [(name: String, ms: Double)] = []
+    private static var didLogSummary = false
     private static let lock = NSLock()
+
+    /// Converts a `Duration` to milliseconds for the recorded entries above.
+    static func ms(_ duration: Duration) -> Double {
+        let (seconds, attoseconds) = duration.components
+        return Double(seconds) * 1000 + Double(attoseconds) / 1_000_000_000_000_000
+    }
 
     /// Wall-clock time the process started, read once from the kernel
     /// (`sysctl KERN_PROC` `p_starttime`), used as the zero point for the
@@ -58,19 +58,21 @@ enum LaunchTiming {
 
     static func record(name: String, milliseconds: Double) {
         lock.lock()
+        defer { lock.unlock() }
+        guard !didLogSummary else { return }
         entries.append((name, milliseconds))
-        lock.unlock()
     }
 
     /// Logs one summary line with every recorded model's duration, the
     /// video+presetLive+lipSync subtotal (the candidates for lazy init per
-    /// PR-14's decision rule), and process-start → `eventName`. Clears the
-    /// buffer afterward so a later call (e.g. boot-loader replay) starts
-    /// fresh instead of double-counting launch-time entries.
+    /// PR-14's decision rule), and process-start → `eventName`. Marks the
+    /// summary as logged so later `record` calls (e.g. boot-loader replay)
+    /// are dropped instead of growing the buffer for a summary that already
+    /// fired.
     static func logSummary(eventName: String) {
         lock.lock()
         let snapshot = entries
-        entries.removeAll()
+        didLogSummary = true
         lock.unlock()
         guard !snapshot.isEmpty else { return }
         let perModel = snapshot

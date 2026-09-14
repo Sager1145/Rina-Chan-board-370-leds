@@ -67,16 +67,17 @@ public final class ConnectionViewModel {
     private static let confirmedHotspotSSIDKey = "com.rinachan.board.confirmedHotspotSSID"
 
     public init(startBonjourBrowsing: Bool = true) {
-        // Signposts for PR-14 measurement: this init runs synchronously on
-        // the main actor at launch (`RootTabView`'s `reconnectModel`), so
-        // `bonjour.start()` and the Keychain read below are candidates for
-        // moving off the launch path if they turn out to be slow.
+        // Signposts for PR-14 measurement: `RootTabView`'s `reconnectModel`
+        // constructs this with `startBonjourBrowsing: false`, so only the
+        // Keychain read below runs synchronously on the main actor at
+        // launch; `bonjour.start()` runs later, from `ConnectionView` and
+        // `BoardControlCenterView`, when browsing is actually needed.
         if startBonjourBrowsing {
             let state = RinaPerf.signposter.beginInterval("ConnectionInit.bonjourStart")
             #if DEBUG || RINA_PERF_LOG
             let bonjourStart = ContinuousClock.now
             bonjour.start()
-            LaunchTiming.record(name: "ConnectionInit.bonjourStart", milliseconds: (ContinuousClock.now - bonjourStart).milliseconds)
+            LaunchTiming.record(name: "ConnectionInit.bonjourStart", milliseconds: LaunchTiming.ms(ContinuousClock.now - bonjourStart))
             #else
             bonjour.start()
             #endif
@@ -87,7 +88,7 @@ public final class ConnectionViewModel {
         #if DEBUG || RINA_PERF_LOG
         let keychainStart = ContinuousClock.now
         let savedPassword = KeychainStore.load(account: hotspotName)
-        LaunchTiming.record(name: "ConnectionInit.keychainLoad", milliseconds: (ContinuousClock.now - keychainStart).milliseconds)
+        LaunchTiming.record(name: "ConnectionInit.keychainLoad", milliseconds: LaunchTiming.ms(ContinuousClock.now - keychainStart))
         #else
         let savedPassword = KeychainStore.load(account: hotspotName)
         #endif
