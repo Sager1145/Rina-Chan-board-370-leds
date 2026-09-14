@@ -698,6 +698,10 @@ final class TextViewModel {
             while !Task.isCancelled {
                 guard let self else { return }
                 let delayMs = self.boardPaused ? 250 : self.pll.nextDelayMs(nowMs: self.nowMs())
+                // `nextDelayMs` can move `lockState` on its own (before any
+                // tick); sync right away so a cancellation during the sleep
+                // below can never leave the UI on a stale lock state.
+                self.syncPlayhead()
                 do { try await Task.sleep(nanoseconds: UInt64(max(1, delayMs) * 1_000_000)) }
                 catch { return }
                 // With loop off the board holds its last frame until the pause
