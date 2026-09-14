@@ -4,13 +4,13 @@ import XCTest
 
 @MainActor
 final class AcceptancePerformanceTests: XCTestCase {
-    func testInvalidScriptImportKeepsThePreviouslyCommittedCustomScript() throws {
+    func testInvalidScriptImportKeepsThePreviouslyCommittedCustomScript() async throws {
         let context = try makeContext()
         defer { context.cleanUp() }
         let model = context.makeModel()
         let validURL = try context.writeImport(named: "working.rinalive", data: validScriptData)
 
-        model.importScript(from: validURL)
+        await model.importScript(from: validURL)
         let previousReference = try XCTUnwrap(context.defaults.string(forKey: "presetLiveScriptFile"))
         let previousScript = try XCTUnwrap(model.script)
         let previousFrames = model.composedFrames.map(\.hex94)
@@ -20,7 +20,7 @@ final class AcceptancePerformanceTests: XCTestCase {
             named: "broken.rinalive",
             data: Data("0!unknown,201,301,400\n".utf8)
         )
-        model.importScript(from: invalidURL)
+        await model.importScript(from: invalidURL)
 
         XCTAssertEqual(model.script, previousScript)
         XCTAssertEqual(model.scriptName, "working.rinalive")
@@ -33,13 +33,13 @@ final class AcceptancePerformanceTests: XCTestCase {
         XCTAssertNotNil(model.errorMessage)
     }
 
-    func testInvalidAudioImportKeepsThePreviouslyCommittedCustomAudio() throws {
+    func testInvalidAudioImportKeepsThePreviouslyCommittedCustomAudio() async throws {
         let context = try makeContext()
         defer { context.cleanUp() }
         let model = context.makeModel()
         let validURL = try context.writeImport(named: "working.wav", data: syntheticWAV())
 
-        model.importCustomAudio(from: validURL)
+        await model.importCustomAudio(from: validURL)
         let previousReference = try XCTUnwrap(context.defaults.string(forKey: "presetLiveAudioFile"))
         let previousDuration = model.durationMs
         let previousStoredFiles = try context.storedFileNames()
@@ -48,7 +48,7 @@ final class AcceptancePerformanceTests: XCTestCase {
             named: "broken.wav",
             data: Data("not an audio file".utf8)
         )
-        model.importCustomAudio(from: invalidURL)
+        await model.importCustomAudio(from: invalidURL)
 
         XCTAssertEqual(model.audioTitle, "working.wav")
         XCTAssertTrue(model.hasAudio)
@@ -61,7 +61,7 @@ final class AcceptancePerformanceTests: XCTestCase {
         XCTAssertNotNil(model.errorMessage)
     }
 
-    func testImportedAudioRemainsAssociatedWithItsOwnBuiltInPerformance() throws {
+    func testImportedAudioRemainsAssociatedWithItsOwnBuiltInPerformance() async throws {
         let context = try makeContext()
         defer { context.cleanUp() }
         let model = context.makeModel()
@@ -69,7 +69,7 @@ final class AcceptancePerformanceTests: XCTestCase {
         let songB = try XCTUnwrap(model.builtInPerformances.first { $0.id == "song-b" })
 
         XCTAssertTrue(model.selectBuiltIn(songA))
-        model.importAudio(
+        await model.importAudio(
             from: try context.writeImport(named: "song-a.wav", data: syntheticWAV(sample: 400)),
             forBuiltIn: songA.id
         )
@@ -77,7 +77,7 @@ final class AcceptancePerformanceTests: XCTestCase {
         XCTAssertFalse(model.hasAudioAvailable(for: songB))
 
         XCTAssertTrue(model.selectBuiltIn(songB))
-        model.importAudio(
+        await model.importAudio(
             from: try context.writeImport(named: "song-b.wav", data: syntheticWAV(sample: -400)),
             forBuiltIn: songB.id
         )
@@ -100,14 +100,14 @@ final class AcceptancePerformanceTests: XCTestCase {
         XCTAssertTrue(model.hasAudio)
     }
 
-    func testInvalidBuiltInAudioReplacementKeepsTheOldPerSongAssociation() throws {
+    func testInvalidBuiltInAudioReplacementKeepsTheOldPerSongAssociation() async throws {
         let context = try makeContext()
         defer { context.cleanUp() }
         let model = context.makeModel()
         let song = try XCTUnwrap(model.builtInPerformances.first { $0.id == "song-a" })
         XCTAssertTrue(model.selectBuiltIn(song))
         let validURL = try context.writeImport(named: "original.wav", data: syntheticWAV())
-        model.importAudio(from: validURL, forBuiltIn: song.id)
+        await model.importAudio(from: validURL, forBuiltIn: song.id)
         let previousReference = try XCTUnwrap(
             context.defaults.string(forKey: "performanceAudio.song-a")
         )
@@ -117,7 +117,7 @@ final class AcceptancePerformanceTests: XCTestCase {
             named: "replacement.wav",
             data: Data("truncated RIFF".utf8)
         )
-        model.importAudio(from: invalidURL, forBuiltIn: song.id)
+        await model.importAudio(from: invalidURL, forBuiltIn: song.id)
 
         XCTAssertEqual(context.defaults.string(forKey: "performanceAudio.song-a"), previousReference)
         XCTAssertTrue(FileManager.default.fileExists(
@@ -130,16 +130,16 @@ final class AcceptancePerformanceTests: XCTestCase {
         XCTAssertNotNil(model.errorMessage)
     }
 
-    func testCustomScriptAndAudioRestoreIntoANewModelInstance() throws {
+    func testCustomScriptAndAudioRestoreIntoANewModelInstance() async throws {
         let context = try makeContext()
         defer { context.cleanUp() }
         let firstModel = context.makeModel()
 
-        firstModel.importScript(from: try context.writeImport(
+        await firstModel.importScript(from: try context.writeImport(
             named: "restorable.rinalive",
             data: validScriptData
         ))
-        firstModel.importCustomAudio(from: try context.writeImport(
+        await firstModel.importCustomAudio(from: try context.writeImport(
             named: "restorable.wav",
             data: syntheticWAV()
         ))
@@ -159,15 +159,15 @@ final class AcceptancePerformanceTests: XCTestCase {
         XCTAssertNil(restoredModel.errorMessage)
     }
 
-    func testPassiveMaterialRestoreDoesNotStartOrCreateAPlaybackStream() throws {
+    func testPassiveMaterialRestoreDoesNotStartOrCreateAPlaybackStream() async throws {
         let context = try makeContext()
         defer { context.cleanUp() }
         let model = context.makeModel()
-        model.importScript(from: try context.writeImport(
+        await model.importScript(from: try context.writeImport(
             named: "passive.rinalive",
             data: validScriptData
         ))
-        model.importCustomAudio(from: try context.writeImport(
+        await model.importCustomAudio(from: try context.writeImport(
             named: "passive.wav",
             data: syntheticWAV()
         ))
@@ -184,11 +184,11 @@ final class AcceptancePerformanceTests: XCTestCase {
         let context = try makeContext()
         defer { context.cleanUp() }
         let model = context.makeModel()
-        model.importScript(from: try context.writeImport(
+        await model.importScript(from: try context.writeImport(
             named: "unrelated.rinalive",
             data: validScriptData
         ))
-        model.importCustomAudio(from: try context.writeImport(
+        await model.importCustomAudio(from: try context.writeImport(
             named: "unrelated.wav",
             data: syntheticWAV()
         ))
@@ -215,11 +215,11 @@ final class AcceptancePerformanceTests: XCTestCase {
         let context = try makeContext()
         defer { context.cleanUp() }
         let model = context.makeModel()
-        model.importScript(from: try context.writeImport(
+        await model.importScript(from: try context.writeImport(
             named: "original.rinalive",
             data: validScriptData
         ))
-        model.importCustomAudio(from: try context.writeImport(
+        await model.importCustomAudio(from: try context.writeImport(
             named: "original.wav",
             data: syntheticWAV(sampleCount: 80_000)
         ))
@@ -252,11 +252,11 @@ final class AcceptancePerformanceTests: XCTestCase {
         let context = try makeContext()
         defer { context.cleanUp() }
         let model = context.makeModel()
-        model.importScript(from: try context.writeImport(
+        await model.importScript(from: try context.writeImport(
             named: "reconnect.rinalive",
             data: validScriptData
         ))
-        model.importCustomAudio(from: try context.writeImport(
+        await model.importCustomAudio(from: try context.writeImport(
             named: "reconnect.wav",
             data: syntheticWAV(sampleCount: 80_000)
         ))
@@ -290,11 +290,11 @@ final class AcceptancePerformanceTests: XCTestCase {
         let context = try makeContext()
         defer { context.cleanUp() }
         let model = context.makeModel()
-        model.importScript(from: try context.writeImport(
+        await model.importScript(from: try context.writeImport(
             named: "takeover.rinalive",
             data: validScriptData
         ))
-        model.importCustomAudio(from: try context.writeImport(
+        await model.importCustomAudio(from: try context.writeImport(
             named: "takeover.wav",
             data: syntheticWAV(sampleCount: 80_000)
         ))
@@ -327,11 +327,11 @@ final class AcceptancePerformanceTests: XCTestCase {
         let context = try makeContext()
         defer { context.cleanUp() }
         let model = context.makeModel()
-        model.importScript(from: try context.writeImport(
+        await model.importScript(from: try context.writeImport(
             named: "replacement.rinalive",
             data: validScriptData
         ))
-        model.importCustomAudio(from: try context.writeImport(
+        await model.importCustomAudio(from: try context.writeImport(
             named: "replacement.wav",
             data: syntheticWAV()
         ))
@@ -349,6 +349,64 @@ final class AcceptancePerformanceTests: XCTestCase {
         XCTAssertFalse(model.isPlaying)
         XCTAssertNil(connection.output.source)
         XCTAssertNotNil(model.errorMessage)
+    }
+
+    // MARK: PR-8 import concurrency
+
+    /// Two custom-audio imports started back to back, the second before the
+    /// first is awaited. `PresetLiveModel` bumps a generation counter
+    /// synchronously at the start of each import call, before the detached
+    /// staging work is ever reached, so the ordering below is guaranteed by
+    /// call order rather than by which staging task happens to finish first:
+    /// only the import whose generation is still current at commit time is
+    /// allowed to land.
+    func testBackToBackCustomAudioImportsCommitOnlyTheSecond() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        let firstURL = try context.writeImport(named: "first.wav", data: syntheticWAV(sample: 100))
+        let secondURL = try context.writeImport(named: "second.wav", data: syntheticWAV(sample: -100))
+
+        let firstTask = Task { await model.importCustomAudio(from: firstURL) }
+        let secondTask = Task { await model.importCustomAudio(from: secondURL) }
+        await firstTask.value
+        await secondTask.value
+
+        XCTAssertEqual(model.audioTitle, "second.wav")
+        XCTAssertTrue(model.hasAudio)
+        let storedName = try XCTUnwrap(context.defaults.string(forKey: "presetLiveAudioFile"))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: context.store.storedURL(named: storedName).path
+        ))
+        XCTAssertEqual(try context.storedFileNames().count, 1)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    /// A built-in audio import whose selection changes to another built-in
+    /// before staging finishes. Changing the selection right after starting
+    /// the import `Task`, before awaiting it, is deterministic: the detached
+    /// staging (security scope, validation, file copy, second validation)
+    /// cannot reach its main-actor commit point before this synchronous test
+    /// body yields control of the main actor back to the run loop, so the
+    /// selection change below always lands first.
+    func testBuiltInAudioImportDiscardedWhenSelectionChangesDuringStaging() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        let songA = try XCTUnwrap(model.builtInPerformances.first { $0.id == "song-a" })
+        let songB = try XCTUnwrap(model.builtInPerformances.first { $0.id == "song-b" })
+        XCTAssertTrue(model.selectBuiltIn(songA))
+        let storedFilesBefore = try context.storedFileNames()
+        let url = try context.writeImport(named: "song-a.wav", data: syntheticWAV())
+
+        let task = Task { await model.importAudio(from: url, forBuiltIn: songA.id) }
+        XCTAssertTrue(model.selectBuiltIn(songB))
+        await task.value
+
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(model.selectedBuiltIn, songB.id)
+        XCTAssertNil(context.defaults.string(forKey: "performanceAudio.song-a"))
+        XCTAssertEqual(try context.storedFileNames(), storedFilesBefore)
     }
 
     private var validScriptData: Data {
