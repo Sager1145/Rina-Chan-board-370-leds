@@ -13,14 +13,6 @@ struct RinaPalette {
     let ambientLavender: Color
     let ambientLavenderOpacity: Double
 
-    let starCore: Color
-    let starPink: Color
-    let starLavender: Color
-    let starGlow: Color
-
-    /// Light mode quiets the particles because the ground is already bright.
-    let starIntensity: Double
-
     /// Appearance follows the system; there is no in-app light/dark switch.
     static func resolve(for colorScheme: ColorScheme) -> RinaPalette {
         colorScheme == .dark ? .dark : .light
@@ -33,12 +25,7 @@ struct RinaPalette {
         ambientPink: hex("#FFCFE9"),
         ambientPinkOpacity: 0.38,
         ambientLavender: hex("#DDD8FF"),
-        ambientLavenderOpacity: 0.34,
-        starCore: hex("#FFFFFF"),
-        starPink: .rinaPink,
-        starLavender: hex("#9885FF"),
-        starGlow: .rinaPink,
-        starIntensity: 0.72
+        ambientLavenderOpacity: 0.34
     )
 
     static let dark = RinaPalette(
@@ -48,12 +35,7 @@ struct RinaPalette {
         ambientPink: hex("#6B235B"),
         ambientPinkOpacity: 0.25,
         ambientLavender: hex("#342E6A"),
-        ambientLavenderOpacity: 0.28,
-        starCore: hex("#FFF7FC"),
-        starPink: hex("#FF79D8"),
-        starLavender: hex("#C3B4FF"),
-        starGlow: hex("#FF62D0"),
-        starIntensity: 1.0
+        ambientLavenderOpacity: 0.28
     )
 
     private static func hex(_ value: String) -> Color {

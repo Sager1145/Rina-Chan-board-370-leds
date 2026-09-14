@@ -12,8 +12,9 @@ struct RinaAppBackdrop: View {
     /// Optional so previews without the app environment still render.
     @Environment(BootLoaderModel.self) private var bootLoader: BootLoaderModel?
 
-    /// `-disableStarAnimation YES` holds the stars at their time-zero layout
-    /// so automated screenshots are pixel-stable.
+    /// `-disableStarAnimation YES` freezes the stars at a fixed point in
+    /// their cycle (`RinaStarfieldSourceSpec.snapshotTime`), generated from a
+    /// fixed seed, so automated screenshots are pixel-stable.
     private static let isFrozen = UserDefaults.standard.bool(forKey: "disableStarAnimation")
 
     var body: some View {
@@ -28,8 +29,7 @@ struct RinaAppBackdrop: View {
                            center: .bottomLeading, startRadius: 0, endRadius: 580)
             // Held still while the boot loader plays: it is tuned to keep the
             // main thread quiet during launch.
-            RinaStarfield(palette: palette,
-                          isPaused: bootLoader?.isVisible ?? false,
+            RinaStarfield(isPaused: bootLoader?.isVisible ?? false,
                           isFrozen: Self.isFrozen)
         }
         .ignoresSafeArea()
@@ -57,6 +57,21 @@ extension View {
         } else {
             scrollContentBackground(.hidden)
                 .background { RinaAppBackdrop() }
+        }
+    }
+
+    /// See-through cards, so the backdrop's stars show under the rows like
+    /// they do under the pill buttons. Apply to a `List`'s content: set on
+    /// the `List` itself the row background never reaches its rows. A row
+    /// with its own `listRowBackground` (a pill row, the board preview) keeps
+    /// it. Pass the same flag as `rinaScrollBackground(_:)`, so a sheet keeps
+    /// its system cells.
+    @ViewBuilder
+    func rinaTranslucentRows(_ isEnabled: Bool = true) -> some View {
+        if isEnabled {
+            listRowBackground(Color(.secondarySystemGroupedBackground).opacity(0.75))
+        } else {
+            self
         }
     }
 }

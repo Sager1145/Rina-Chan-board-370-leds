@@ -1,93 +1,41 @@
 import SwiftUI
+import UIKit
 
-// MARK: - Configuration
+// MARK: - Layout (random, generated once per launch)
 
-struct RinaStarfieldConfiguration: Equatable {
-    var particleCount: Int
-    var minimumSize: Double
-    var maximumSize: Double
-    /// Seconds for one bottom-to-top pass; foreground stars use the shorter end.
-    var minimumDuration: TimeInterval
-    var maximumDuration: TimeInterval
-    var maximumHorizontalSway: Double
-    var maximumLinearDrift: Double
-    /// Points below and above the screen where a star is born and wraps.
-    var verticalMargin: Double
-    var frameInterval: TimeInterval
-    var seed: UInt64
+/// Generates the 16-element star layout once per app launch (the equivalent
+/// of the source page's single page-load `for` loop), shared by every
+/// backdrop on screen, and never regenerated on resize.
+@MainActor
+final class RinaStarLayout {
+    static let shared = RinaStarLayout()
 
-    static let appBackground = RinaStarfieldConfiguration(
-        particleCount: 28,
-        minimumSize: 4.5,
-        maximumSize: 18,
-        minimumDuration: 8.5,
-        maximumDuration: 17.5,
-        maximumHorizontalSway: 30,
-        maximumLinearDrift: 24,
-        verticalMargin: 36,
-        // The stars move slowly; 30 fps looks smooth and halves the redraws.
-        frameInterval: 1.0 / 30.0,
-        seed: 0x5249_4E41_5354_4152 // "RINASTAR"
-    )
-}
+    private var randomElements: [RinaStarSourceElement]?
+    private var seededElements: [RinaStarSourceElement]?
 
-// MARK: - Particle model
-
-struct RinaStarParticle: Equatable {
-    /// Horizontal position, 0...1 of the width.
-    let x: Double
-    let size: Double
-    let duration: TimeInterval
-    /// Where in its pass the star is at time 0 — the equivalent of a negative
-    /// CSS `animation-delay`, so the screen is already populated on appear.
-    let initialPhase: Double
-    let horizontalSway: Double
-    let linearDrift: Double
-    let wavePhase: Double
-    let rotation: Double
-    let rotationTravel: Double
-    let twinkleSpeed: Double
-    let maximumOpacity: Double
-    let tone: Tone
-
-    enum Tone: CaseIterable { case white, pink, lavender }
-}
-
-/// Particles come from a fixed seed, so every body re-evaluation yields the
-/// same stars and only the time-derived progress moves them. Random values in
-/// view state would make stars jump whenever SwiftUI rebuilds the view.
-enum RinaStarfieldModel {
-    static func makeParticles(configuration: RinaStarfieldConfiguration) -> [RinaStarParticle] {
-        guard configuration.particleCount > 0 else { return [] }
-        return (0..<configuration.particleCount).map { index in
-            var generator = SplitMix64(state: configuration.seed &+ UInt64(index) &* 0x9E37_79B9_7F4A_7C15)
-            // Depth correlates size, speed and brightness for a mild parallax.
-            let depth = pow(generator.unitInterval(), 1.35)
-            let reach = lerp(0.45, 1.0, depth)
-            return RinaStarParticle(
-                x: lerp(0.035, 0.965, generator.unitInterval()),
-                size: lerp(configuration.minimumSize, configuration.maximumSize, depth),
-                duration: lerp(configuration.maximumDuration, configuration.minimumDuration, depth),
-                initialPhase: generator.unitInterval(),
-                horizontalSway: generator.signedUnit() * configuration.maximumHorizontalSway * reach,
-                linearDrift: generator.signedUnit() * configuration.maximumLinearDrift * reach,
-                wavePhase: generator.unitInterval() * .pi * 2,
-                // Subtle on purpose: the motion must read as rising, not confetti.
-                rotation: generator.signedUnit() * 0.32,
-                rotationTravel: generator.signedUnit() * 0.46,
-                twinkleSpeed: lerp(0.55, 1.35, generator.unitInterval()),
-                maximumOpacity: lerp(0.32, 0.88, depth),
-                tone: RinaStarParticle.Tone.allCases[Int(generator.next() % 3)]
-            )
+    /// - Parameter viewportWidth: `winw` in the source JS — the first
+    ///   backdrop's width. Ignored once a layout has already been generated.
+    /// - Parameter seeded: screenshot mode (`-disableStarAnimation YES`)
+    ///   uses a fixed seed instead of true randomness.
+    func elements(viewportWidth: CGFloat, seeded: Bool) -> [RinaStarSourceElement] {
+        guard viewportWidth > 0 else { return [] }
+        let winw = Int(viewportWidth.rounded())
+        if seeded {
+            if let seededElements { return seededElements }
+            var generator = RinaSplitMix64(state: RinaStarfieldSourceSpec.snapshotSeed)
+            let elements = RinaStarfieldSourceSpec.makeElements(using: &generator, viewportWidth: winw)
+            seededElements = elements
+            return elements
         }
-    }
-
-    private static func lerp(_ a: Double, _ b: Double, _ t: Double) -> Double {
-        a + (b - a) * t
+        if let randomElements { return randomElements }
+        var generator = SystemRandomNumberGenerator()
+        let elements = RinaStarfieldSourceSpec.makeElements(using: &generator, viewportWidth: winw)
+        randomElements = elements
+        return elements
     }
 }
 
-// MARK: - View
+// MARK: - Clock
 
 /// The star animation's time base, shared by every backdrop on screen.
 ///
@@ -118,31 +66,32 @@ final class RinaStarClock {
     }
 }
 
-/// Stars drifting up from below the screen, drawn by one `Canvas` per frame
-/// rather than one animated view per star.
+// MARK: - View
+
+/// An exact port of the background stars on
+/// https://lovelive-as.bushimo.jp/member/rina/, drawn by one `Canvas` per
+/// frame rather than one animated view per star.
 struct RinaStarfield: View {
-    let palette: RinaPalette
     /// Holds the stars where they are (e.g. while the boot loader animates).
     var isPaused = false
-    /// Draws the time-zero layout without ever animating — for pixel-stable
-    /// screenshots (`-disableStarAnimation YES`).
+    /// Draws the fixed-seed, fixed-time layout instead of the live one — for
+    /// pixel-stable screenshots (`-disableStarAnimation YES`).
     var isFrozen = false
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
-    private static let configuration = RinaStarfieldConfiguration.appBackground
-    private static let particles = RinaStarfieldModel.makeParticles(configuration: configuration)
 
     var body: some View {
-        // Reduce Motion keeps the stars but holds them still.
-        let isStatic = isFrozen || reduceMotion
-        let isRunning = !isStatic && !isPaused && scenePhase == .active
-        TimelineView(.animation(minimumInterval: Self.configuration.frameInterval, paused: !isRunning)) { timeline in
-            let time = isStatic ? 0 : RinaStarClock.shared.time(at: timeline.date)
-            Canvas(rendersAsynchronously: true) { context, size in
-                draw(in: &context, size: size, time: time)
+        let isRunning = !isFrozen && !reduceMotion && !isPaused && scenePhase == .active
+        GeometryReader { proxy in
+            let elements = RinaStarLayout.shared.elements(viewportWidth: proxy.size.width, seeded: isFrozen)
+            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !isRunning)) { timeline in
+                let time: TimeInterval = isFrozen
+                    ? RinaStarfieldSourceSpec.snapshotTime
+                    : (reduceMotion ? 0 : RinaStarClock.shared.time(at: timeline.date))
+                Canvas(rendersAsynchronously: true) { context, size in
+                    Self.draw(elements: elements, in: &context, size: size, time: time)
+                }
             }
         }
         .onChange(of: isRunning, initial: true) { _, running in
@@ -153,106 +102,112 @@ struct RinaStarfield: View {
     }
 }
 
-// MARK: - Drawing
+// MARK: - Placement
+
+/// One star's frame at a given time.
+struct RinaStarPlacement: Equatable {
+    let rect: CGRect
+    let opacity: Double
+    let rotation: Angle
+}
 
 extension RinaStarfield {
-    /// Unit-radius four-point sparkle.
-    private static let sparklePath: Path = {
-        let inner: CGFloat = 0.18
-        var path = Path()
-        path.move(to: CGPoint(x: 0, y: -1))
-        path.addLine(to: CGPoint(x: inner, y: -inner))
-        path.addLine(to: CGPoint(x: 1, y: 0))
-        path.addLine(to: CGPoint(x: inner, y: inner))
-        path.addLine(to: CGPoint(x: 0, y: 1))
-        path.addLine(to: CGPoint(x: -inner, y: inner))
-        path.addLine(to: CGPoint(x: -1, y: 0))
-        path.addLine(to: CGPoint(x: -inner, y: -inner))
-        path.closeSubpath()
-        return path
-    }()
-
-    private static let glowRadius: CGFloat = 1.55
-    private static let glowPath = Path(ellipseIn: CGRect(x: -glowRadius, y: -glowRadius,
-                                                         width: glowRadius * 2, height: glowRadius * 2))
-    private static let corePath = Path(ellipseIn: CGRect(x: -0.15, y: -0.15, width: 0.3, height: 0.3))
-
-    /// Position and opacity of one star at `time`; nil when it is invisible.
-    static func placement(of particle: RinaStarParticle, in size: CGSize, time: TimeInterval,
-                          margin: Double) -> (center: CGPoint, progress: Double, opacity: Double)? {
-        let progress = wrap(time / particle.duration + particle.initialPhase)
+    /// Position, size, opacity and rotation of one element at `time`; `nil`
+    /// when it has no CSS rule (`icon == 0`, appearance `nil`).
+    ///
+    /// - Parameter childIndex: 1-based `nth-child` position (DOM order + 1).
+    nonisolated static func placement(of element: RinaStarSourceElement, childIndex: Int, in size: CGSize, time: TimeInterval) -> RinaStarPlacement? {
+        guard let appearance = element.appearance else { return nil }
+        let width = Double(size.width)
         let height = Double(size.height)
-        // progress 0 is just below the bottom edge, 1 just above the top.
-        let y = height + margin - progress * (height + margin * 2)
-        let x = particle.x * Double(size.width)
-            + sin(progress * .pi * 2 + particle.wavePhase) * particle.horizontalSway
-            + (progress - 0.5) * particle.linearDrift
-        let fade = smoothstep(0, 0.11, progress) * (1 - smoothstep(0.8, 1, progress))
-        let twinkle = 0.82 + 0.18 * sin(time * particle.twinkleSpeed + particle.wavePhase)
-        let opacity = min(1, particle.maximumOpacity * fade * twinkle)
-        guard opacity > 0.005 else { return nil }
-        return (CGPoint(x: x, y: y), progress, opacity)
-    }
+        let style = RinaStarAppearanceStyle.appearanceStyle(for: appearance, viewportWidth: width)
+        let motion = RinaStarMotionStyle.motionStyle(for: element.movement)
 
-    private func draw(in context: inout GraphicsContext, size: CGSize, time: TimeInterval) {
-        guard size.width > 0, size.height > 0 else { return }
-        let intensity = palette.starIntensity * (reduceTransparency ? 0.62 : 1)
+        let x = width * Double(element.leftPercent) / 100
+        let tau = time - motion.delay
 
-        for particle in Self.particles {
-            guard let placement = Self.placement(of: particle, in: size, time: time,
-                                                 margin: Self.configuration.verticalMargin) else { continue }
-            let (fill, glow): (Color, Color) = switch particle.tone {
-            case .white: (palette.starCore, palette.starGlow)
-            case .pink: (palette.starPink, palette.starGlow)
-            case .lavender: (palette.starLavender, palette.starLavender)
-            }
-            let scale = 0.84 + sin(placement.progress * .pi) * 0.16
-            let radius = CGFloat(particle.size * scale * 0.5)
-
-            // A copied context instead of `drawLayer`: no offscreen layer per
-            // star, and a radial gradient stands in for a blur halo.
-            var star = context
-            star.opacity = placement.opacity * intensity
-            star.translateBy(x: placement.center.x, y: placement.center.y)
-            star.rotate(by: .radians(particle.rotation + particle.rotationTravel * placement.progress))
-            star.scaleBy(x: radius, y: radius)
-            star.fill(Self.glowPath, with: .radialGradient(
-                Gradient(colors: [glow.opacity(0.30), glow.opacity(0.12), .clear]),
-                center: .zero, startRadius: 0.05, endRadius: Self.glowRadius))
-            star.fill(Self.sparklePath, with: .color(fill))
-            star.fill(Self.corePath, with: .color(palette.starCore.opacity(0.92)))
+        let top: Double
+        let opacity: Double
+        if tau < 0 {
+            // The animation-delay has not elapsed yet: the base style's
+            // `top: 105%` shows, with no opacity declared (so it is 1).
+            top = RinaStarRiseKeyframes.baseTopFraction * height
+            opacity = 1
+        } else {
+            let progress = frac(tau / motion.duration)
+            let keyframes = RinaStarRiseKeyframes.riseKeyframes(forChildIndex: childIndex)
+            let ease = RinaStarRiseKeyframes.timingFunction.solve
+            let start = keyframes.startTopFraction * height
+            top = start + (keyframes.endTop - start) * ease(progress)
+            opacity = RinaStarRiseKeyframes.opacity(atProgress: progress)
         }
+
+        // The span's `rotate` animation has no delay and keeps running from
+        // t=0 regardless of the parent's animation-delay.
+        let spinDuration = RinaStarRiseKeyframes.spinDuration(forChildIndex: childIndex)
+        let rotation = Angle(degrees: -360 * frac(time / spinDuration))
+
+        let rect = CGRect(x: x, y: top, width: style.width, height: style.height)
+        return RinaStarPlacement(rect: rect, opacity: opacity, rotation: rotation)
     }
 
-    private static func wrap(_ value: Double) -> Double {
+    nonisolated private static func frac(_ value: Double) -> Double {
         let remainder = value.truncatingRemainder(dividingBy: 1)
-        return remainder >= 0 ? remainder : remainder + 1
+        return remainder < 0 ? remainder + 1 : remainder
     }
 
-    private static func smoothstep(_ edge0: Double, _ edge1: Double, _ value: Double) -> Double {
-        let t = min(max((value - edge0) / (edge1 - edge0), 0), 1)
-        return t * t * (3 - 2 * t)
+    /// The shared visibility predicate for both the draw pass's culling and
+    /// tests: invisible (opacity 0) elements are skipped, and elements whose
+    /// rotated bounding box cannot possibly reach the canvas are skipped too.
+    /// The rect is inflated by the rotated half-diagonal first so a spinning
+    /// corner is never clipped away by a same-size intersects test.
+    nonisolated static func isDrawn(_ placement: RinaStarPlacement, in bounds: CGRect) -> Bool {
+        guard placement.opacity > 0 else { return false }
+        let inflated = placement.rect.insetBy(dx: -placement.rect.width * 0.21, dy: -placement.rect.height * 0.21)
+        return inflated.intersects(bounds)
     }
 }
 
-// MARK: - PRNG
+// MARK: - Drawing
 
-private struct SplitMix64 {
-    var state: UInt64
-
-    mutating func next() -> UInt64 {
-        state &+= 0x9E37_79B9_7F4A_7C15
-        var value = state
-        value = (value ^ (value >> 30)) &* 0xBF58_476D_1CE4_E5B9
-        value = (value ^ (value >> 27)) &* 0x94D0_49BB_1331_11EB
-        return value ^ (value >> 31)
+extension RinaStarfield {
+    /// The five source images, loaded at most once for the type's lifetime;
+    /// indexed by `RinaStarAppearance.rawValue - 1`. `nil` entries (a clone
+    /// checkout without the asset bundle) draw nothing for that star.
+    /// `nonisolated`: an immutable `Sendable` constant, read by the
+    /// asynchronous Canvas renderer off the main actor.
+    nonisolated private static let cachedStarImages: [UIImage?] = RinaStarAppearance.allCases.map {
+        UIImage(named: "RinaBackgroundStar\($0.rawValue)")
     }
 
-    mutating func unitInterval() -> Double {
-        Double(next() >> 11) * (1.0 / 9_007_199_254_740_992.0)
-    }
+    nonisolated private static func draw(elements: [RinaStarSourceElement], in context: inout GraphicsContext, size: CGSize, time: TimeInterval) {
+        guard size.width > 0, size.height > 0 else { return }
+        let bounds = CGRect(origin: .zero, size: size)
+        context.clip(to: Path(bounds))
 
-    mutating func signedUnit() -> Double {
-        unitInterval() * 2 - 1
+        // Resolved at most once per draw pass; a fixed 5-slot array avoids a
+        // per-frame dictionary allocation.
+        let resolvedImages: [GraphicsContext.ResolvedImage?] = cachedStarImages.map { uiImage in
+            uiImage.map { context.resolve(Image(uiImage: $0)) }
+        }
+
+        for (index, element) in elements.enumerated() {
+            guard let appearance = element.appearance else { continue }
+            guard let placement = placement(of: element, childIndex: index + 1, in: size, time: time) else { continue }
+            guard isDrawn(placement, in: bounds) else { continue }
+            guard let image = resolvedImages[appearance.rawValue - 1] else { continue }
+
+            var star = context
+            star.opacity = placement.opacity
+            star.translateBy(x: placement.rect.midX, y: placement.rect.midY)
+            star.rotate(by: placement.rotation)
+
+            // `background-size: contain` within the element's width/height box.
+            let naturalSize = image.size
+            let scale = min(placement.rect.width / naturalSize.width, placement.rect.height / naturalSize.height)
+            let drawSize = CGSize(width: naturalSize.width * scale, height: naturalSize.height * scale)
+            let drawRect = CGRect(x: -drawSize.width / 2, y: -drawSize.height / 2, width: drawSize.width, height: drawSize.height)
+            star.draw(image, in: drawRect)
+        }
     }
 }
