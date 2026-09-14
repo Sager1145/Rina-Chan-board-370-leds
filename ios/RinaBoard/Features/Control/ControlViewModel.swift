@@ -9,9 +9,13 @@ import RinaCore
 ///
 /// The draft frame is local user state and is kept distinct from what the
 /// board has confirmed (§37): with Live Preview off, edits stay local until
-/// Send; with it on, each edit is pushed through `BoardConnection.setFrame`,
-/// which already coalesces frames (≥20 ms apart, depth 6, drop-oldest), so a
-/// fast series of taps can never flood the link (§39).
+/// Send; with it on, each edit is submitted to a `LatestValueSender`, which
+/// coalesces them so that only the newest draft is sent once the previous
+/// send finishes — `BoardConnection.setFrame` still spaces frames ≥ 20 ms
+/// apart (depth 6, drop-oldest) on top of that. In-flight frames are never
+/// cancelled by a newer edit, so a fast series of taps can never flood the
+/// link, and a superseded edit never allocates or quarantines a sequence
+/// number (§39).
 @Observable
 @MainActor
 final class ControlViewModel {
@@ -99,10 +103,21 @@ final class ControlViewModel {
     private var draftRestoreCompleted = false
     private var draftSaveTask: Task<Void, Never>?
     private var sentGeneration: UUID?
-    private var sendTask: Task<Void, Never>?
+    @ObservationIgnored private var liveSender: LatestValueSender<LiveFrameSubmission>?
     /// The board this draft was drawn for, as `RootTabView` identifies the
     /// current link. Nil until the editor first sees a connected board.
     private(set) var draftBoardID: String?
+
+    /// One live edit as handed to `liveSender`: everything `sendLive` needs to
+    /// validate and send it, captured at edit time so a later edit or board
+    /// switch can never retroactively change what an in-flight send does.
+    private struct LiveFrameSubmission: Sendable {
+        let frame: PackedFrame
+        let owner: String?
+        let token: UUID
+        let generation: UUID
+        let connection: BoardConnection
+    }
 
     private struct Draft: Codable {
         var version = 1
@@ -166,7 +181,7 @@ final class ControlViewModel {
         }
     }
 
-    func releaseOutput() { sendTask?.cancel(); sendTask = nil }
+    func releaseOutput() { liveSender?.cancel() }
     func connectionChanged(generation: UUID? = nil) {
         currentBoardGeneration = generation
         sentGeneration = nil
@@ -288,6 +303,9 @@ final class ControlViewModel {
                                     error.localizedDescription)
         }
         lastSentFrame = draftFrame
+        liveSender = LatestValueSender(minInterval: 0) { [weak self] submission in
+            await self?.sendLive(submission)
+        }
     }
 
     private var snapshot: EditorSnapshot {
@@ -520,23 +538,38 @@ final class ControlViewModel {
         let frame = draftFrame
         let owner = draftBoardID
         let token = connection.output.claim(.manual)
-        sendTask?.cancel()
-        sendTask = Task { [weak self] in
-            do {
-                _ = try await connection.setFrame(frame, playback: .idle, reason: "custom_live_send", outputSession: token)
-                guard self?.draftBoardID == owner else { return }
-                self?.lastSentFrame = frame
-                self?.sentGeneration = connection.connectionGeneration
-                self?.errorMessage = nil
-            } catch is CancellationError {
-            } catch RatePumpError.dropped {
-                // Superseded by a newer frame; the latest edit always wins.
-            } catch {
-                self?.errorMessage = String(
-                    format: NSLocalizedString("实时同步失败：%@", comment: "live face sync failed"),
-                    error.localizedDescription
-                )
-            }
+        liveSender?.submit(LiveFrameSubmission(frame: frame, owner: owner, token: token,
+                                               generation: connection.connectionGeneration,
+                                               connection: connection))
+    }
+
+    /// Drains one coalesced live edit. Re-validates everything at send time —
+    /// the connection, its generation, the output token and the draft's
+    /// owner — because an in-flight send is never cancelled by a newer edit
+    /// and time may have passed since `pushLiveIfNeeded` captured this value.
+    private func sendLive(_ s: LiveFrameSubmission) async {
+        let connection = s.connection
+        guard connection.connectionState == .connected,
+              connection.connectionGeneration == s.generation,
+              connection.output.isCurrent(s.token),
+              draftBoardID == s.owner else { return }
+        let signpostState = RinaPerf.signposter.beginInterval("ControlLiveSend")
+        defer { RinaPerf.signposter.endInterval("ControlLiveSend", signpostState) }
+        do {
+            _ = try await connection.setFrame(s.frame, playback: .idle, reason: "custom_live_send", outputSession: s.token)
+            guard draftBoardID == s.owner, connection.connectionGeneration == s.generation else { return }
+            lastSentFrame = s.frame
+            sentGeneration = connection.connectionGeneration
+            errorMessage = nil
+        } catch is CancellationError {
+        } catch RatePumpError.dropped {
+            // Evicted from the frame pump by other traffic; `hasUnsentChanges`
+            // stays true, and the next edit or Send resends the draft.
+        } catch {
+            errorMessage = String(
+                format: NSLocalizedString("实时同步失败：%@", comment: "live face sync failed"),
+                error.localizedDescription
+            )
         }
     }
 

@@ -104,6 +104,10 @@ public final class BoardConnection {
         let aggregateMore: Bool
     }
     private var quarantinedSeqs: [UInt8: QuarantinedRequest] = [:]
+    /// Test/diagnostic view of how many retired sequence numbers are still quarantined.
+    var quarantinedSequenceCount: Int { quarantinedSeqs.count }
+    /// Cumulative number of times a seq was quarantined (tests/diagnostics).
+    private(set) var quarantineEventCount = 0
     private static let quarantineReconnectThreshold = 128
     private var incomingTask: Task<Void, Never>?
     private var stateTask: Task<Void, Never>?
@@ -725,6 +729,7 @@ public final class BoardConnection {
     }
 
     private func quarantine(_ seq: UInt8, request: PendingRequest, recover: Bool = true) {
+        quarantineEventCount += 1
         quarantinedSeqs[seq] = QuarantinedRequest(replyType: request.replyType,
                                                 aggregateMore: request.aggregateMore)
         guard recover, quarantinedSeqs.count >= Self.quarantineReconnectThreshold else { return }

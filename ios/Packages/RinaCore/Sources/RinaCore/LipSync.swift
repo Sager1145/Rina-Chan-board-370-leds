@@ -224,7 +224,7 @@ public struct LipSyncAnalyzer: Sendable {
 
     public init(config: LipSyncConfig = .default, profile: LipSyncProfile? = nil) {
         self.config = config
-        self.profile = profile ?? .synthesized(preset: .standard, config: config)
+        self.profile = profile ?? .defaultProfile(preset: .standard, config: config)
     }
 
     /// Forgets the debounce history, e.g. when the engine is restarted.
@@ -250,19 +250,37 @@ public struct LipSyncAnalyzer: Sendable {
             return LipSyncResult(volumeDb: volumeDb, mfcc: [], rawVowel: nil, vowel: smoothed(), distances: [:])
         }
 
-        var distances: [LipSyncVowel: Float] = [:]
-        var best: LipSyncVowel?
-        var bestDistance = Float.greatestFiniteMagnitude
-        for vowel in LipSyncVowel.allCases {
-            guard let reference = profile.reference(for: vowel), reference.count == vector.count else { continue }
-            let distance = LipSyncSignal.euclideanDistance(vector, reference)
-            distances[vowel] = distance
-            if distance < bestDistance {
-                bestDistance = distance
-                best = vowel
-            }
+        let (best, distances) = classify(vector)
+        push(best)
+        return LipSyncResult(volumeDb: volumeDb,
+                             mfcc: vector,
+                             rawVowel: best,
+                             vowel: smoothed(),
+                             distances: distances)
+    }
+
+    /// Same as `analyze(_:sampleRate:)`, but the MFCC vector comes from a
+    /// cached `LipSyncDSPEngine` instead of rebuilding every table on every
+    /// call. Bit-identical to the reference path. `engine` is rebuilt in
+    /// place if it was not built for `config`.
+    public mutating func analyze(_ samples: [Float], sampleRate: Double, engine: inout LipSyncDSPEngine) -> LipSyncResult {
+        if !engine.isBuilt(for: config) {
+            engine = LipSyncDSPEngine(config: config)
         }
 
+        let volumeDb = LipSyncSignal.rmsDb(samples)
+        guard volumeDb >= config.minVolumeDb else {
+            push(nil)
+            return LipSyncResult(volumeDb: volumeDb, mfcc: [], rawVowel: nil, vowel: smoothed(), distances: [:])
+        }
+
+        let vector = engine.normalizedMFCC(samples, sampleRate: sampleRate)
+        guard !vector.isEmpty else {
+            push(nil)
+            return LipSyncResult(volumeDb: volumeDb, mfcc: [], rawVowel: nil, vowel: smoothed(), distances: [:])
+        }
+
+        let (best, distances) = classify(vector)
         push(best)
         return LipSyncResult(volumeDb: volumeDb,
                              mfcc: vector,
@@ -276,6 +294,33 @@ public struct LipSyncAnalyzer: Sendable {
     public func measure(_ samples: [Float], sampleRate: Double) -> [Float] {
         let resampled = LipSyncSignal.resample(samples, from: sampleRate, to: config.targetSampleRate)
         return LipSyncSignal.l2Normalized(LipSyncSignal.mfcc(ofResampled: resampled, config: config))
+    }
+
+    /// Same as `measure(_:sampleRate:)`, but via a cached `LipSyncDSPEngine`.
+    /// `engine` is rebuilt in place if it was not built for `config`.
+    public func measure(_ samples: [Float], sampleRate: Double, engine: inout LipSyncDSPEngine) -> [Float] {
+        if !engine.isBuilt(for: config) {
+            engine = LipSyncDSPEngine(config: config)
+        }
+        return engine.normalizedMFCC(samples, sampleRate: sampleRate)
+    }
+
+    /// Nearest vowel to `vector` in `profile`, plus every vowel's distance —
+    /// the shared classification step of both `analyze` overloads.
+    private func classify(_ vector: [Float]) -> (best: LipSyncVowel?, distances: [LipSyncVowel: Float]) {
+        var distances: [LipSyncVowel: Float] = [:]
+        var best: LipSyncVowel?
+        var bestDistance = Float.greatestFiniteMagnitude
+        for vowel in LipSyncVowel.allCases {
+            guard let reference = profile.reference(for: vowel), reference.count == vector.count else { continue }
+            let distance = LipSyncSignal.euclideanDistance(vector, reference)
+            distances[vowel] = distance
+            if distance < bestDistance {
+                bestDistance = distance
+                best = vowel
+            }
+        }
+        return (best, distances)
     }
 
     private mutating func push(_ vowel: LipSyncVowel?) {
