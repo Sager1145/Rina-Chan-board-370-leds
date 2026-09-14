@@ -67,9 +67,31 @@ public final class ConnectionViewModel {
     private static let confirmedHotspotSSIDKey = "com.rinachan.board.confirmedHotspotSSID"
 
     public init(startBonjourBrowsing: Bool = true) {
-        if startBonjourBrowsing { bonjour.start() }
+        // Signposts for PR-14 measurement: this init runs synchronously on
+        // the main actor at launch (`RootTabView`'s `reconnectModel`), so
+        // `bonjour.start()` and the Keychain read below are candidates for
+        // moving off the launch path if they turn out to be slow.
+        if startBonjourBrowsing {
+            let state = RinaPerf.signposter.beginInterval("ConnectionInit.bonjourStart")
+            #if DEBUG || RINA_PERF_LOG
+            let bonjourStart = ContinuousClock.now
+            bonjour.start()
+            LaunchTiming.record(name: "ConnectionInit.bonjourStart", milliseconds: (ContinuousClock.now - bonjourStart).milliseconds)
+            #else
+            bonjour.start()
+            #endif
+            RinaPerf.signposter.endInterval("ConnectionInit.bonjourStart", state)
+        }
         hotspotName = UserDefaults.standard.string(forKey: Self.confirmedHotspotSSIDKey) ?? ""
+        let keychainState = RinaPerf.signposter.beginInterval("ConnectionInit.keychainLoad")
+        #if DEBUG || RINA_PERF_LOG
+        let keychainStart = ContinuousClock.now
         let savedPassword = KeychainStore.load(account: hotspotName)
+        LaunchTiming.record(name: "ConnectionInit.keychainLoad", milliseconds: (ContinuousClock.now - keychainStart).milliseconds)
+        #else
+        let savedPassword = KeychainStore.load(account: hotspotName)
+        #endif
+        RinaPerf.signposter.endInterval("ConnectionInit.keychainLoad", keychainState)
         hotspotPassword = savedPassword ?? ""
         hotspotPasswordIsSaved = savedPassword != nil
     }

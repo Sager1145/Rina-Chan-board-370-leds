@@ -5,17 +5,22 @@ import RinaCore
 struct RinaBoardApp: App {
     // Each board retains its own connection; tabs control the selected session.
     // Draft models remain app-scoped so switching tabs preserves unsent work.
-    @State private var router = AppRouter()
-    @State private var sessions = BoardSessionStore()
-    @State private var boardStore = BoardStore()
-    @State private var bootLoader = BootLoaderModel()
-    @State private var controlCenter = BoardControlCenterModel()
-    @State private var faceLibrary = FaceLibraryModel()
-    @State private var editor = ControlViewModel()
-    @State private var textModel = TextViewModel()
-    @State private var lipSyncModel = LipSyncModel()
-    @State private var presetLiveModel = PresetLiveModel()
-    @State private var videoModel = VideoPlayerModel()
+    // Each construction is wrapped in a signpost interval (PR-14 measurement)
+    // so Instruments can attribute launch time per model; `RinaPerf.measure`
+    // returns its block's result unchanged, so this does not affect
+    // construction order or semantics. `@State` initial-value expressions run
+    // once, during this struct's synthesized init.
+    @State private var router = RinaPerf.measure("ModelInit.router") { AppRouter() }
+    @State private var sessions = RinaPerf.measure("ModelInit.sessions") { BoardSessionStore() }
+    @State private var boardStore = RinaPerf.measure("ModelInit.boardStore") { BoardStore() }
+    @State private var bootLoader = RinaPerf.measure("ModelInit.bootLoader") { BootLoaderModel() }
+    @State private var controlCenter = RinaPerf.measure("ModelInit.controlCenter") { BoardControlCenterModel() }
+    @State private var faceLibrary = RinaPerf.measure("ModelInit.faceLibrary") { FaceLibraryModel() }
+    @State private var editor = RinaPerf.measure("ModelInit.editor") { ControlViewModel() }
+    @State private var textModel = RinaPerf.measure("ModelInit.text") { TextViewModel() }
+    @State private var lipSyncModel = RinaPerf.measure("ModelInit.lipSync") { LipSyncModel() }
+    @State private var presetLiveModel = RinaPerf.measure("ModelInit.presetLive") { PresetLiveModel() }
+    @State private var videoModel = RinaPerf.measure("ModelInit.video") { VideoPlayerModel() }
 
     init() {
         AppSettingsKey.registerDefaults()
