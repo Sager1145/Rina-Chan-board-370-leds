@@ -655,7 +655,40 @@ final class ControlViewModel {
     ///
     /// This preview only mirrors a board in Control mode. Text, lip-sync,
     /// performance and video frames belong to their own tabs' previews.
+    ///
+    /// Single-flight across every caller (the event-driven loop, the legacy
+    /// poll and `BoardSyncCoordinator`'s direct call all funnel through
+    /// here): if a fetch is already in flight, this call marks a pending
+    /// refetch and waits for that in-flight fetch instead of starting a
+    /// second `getFrame()`. The in-flight caller notices the pending mark
+    /// once it finishes and runs exactly one more fetch on everyone's
+    /// behalf.
     func refreshBoardDisplay(connection: BoardConnection) async {
+        if let inFlight = boardDisplayFetchInFlight {
+            boardDisplayFetchPending = true
+            await inFlight.value
+            return
+        }
+        await runBoardDisplayFetchesWhilePending(connection: connection)
+    }
+
+    private var boardDisplayFetchInFlight: Task<Void, Never>?
+    private var boardDisplayFetchPending = false
+
+    private func runBoardDisplayFetchesWhilePending(connection: BoardConnection) async {
+        repeat {
+            boardDisplayFetchPending = false
+            let task = Task { [weak self] in
+                guard let self else { return }
+                await self.performBoardDisplayFetch(connection: connection)
+            }
+            boardDisplayFetchInFlight = task
+            await task.value
+            boardDisplayFetchInFlight = nil
+        } while boardDisplayFetchPending
+    }
+
+    private func performBoardDisplayFetch(connection: BoardConnection) async {
         guard connection.connectionState == .connected, !hasUnsentChanges, !isSending,
               boardIsInControlMode(connection) else { return }
         let before = snapshot
@@ -694,10 +727,13 @@ final class ControlViewModel {
     }
 
     var refreshTiming = RefreshTiming()
-    /// Set while `runDisplayRefreshLoop(connection:)` is running, so an
-    /// out-of-band mode flip (`boardModeSynchronized`) can wake it immediately
-    /// instead of waiting for the next version bump or reconciliation tick.
+    /// Set while the event-driven loop below is running, so an out-of-band
+    /// mode flip (`boardModeSynchronized`) can wake it immediately instead of
+    /// waiting for the next version bump or reconciliation tick. Guarded by
+    /// `displayRefreshRunToken` so a loop that is cancelled and unwinding
+    /// (e.g. `.task(id:)` restarting) can never clear a newer loop's trigger.
     private var displayRefreshTrigger: AsyncStream<Void>.Continuation?
+    private var displayRefreshRunToken: UUID?
 
     private static func statusVersion(_ connection: BoardConnection) -> Int? {
         connection.status?.v ?? connection.status?.version
@@ -707,23 +743,50 @@ final class ControlViewModel {
     /// keeps awaiting it (§lifetime unchanged: `ControlView` only awaits this
     /// while connected and the scene is active, and cancels it otherwise).
     ///
+    /// A board whose status has no version yet (the setup GET_STATUS read
+    /// timed out, or genuinely old firmware) polls every `legacyPollInterval`
+    /// until either a version appears — at which point this switches to the
+    /// event-driven loop below without ever running both at once — or the
+    /// caller cancels.
+    func runDisplayRefreshLoop(connection: BoardConnection) async {
+        if Self.statusVersion(connection) == nil {
+            guard await legacyPollUntilVersionAppears(connection: connection) else { return }
+        }
+        await runEventDrivenDisplayRefreshLoop(connection: connection)
+    }
+
+    /// Polls at `legacyPollInterval` while the board's status carries no
+    /// version. Returns `true` the moment a version appears (so the caller
+    /// can switch to the event-driven loop), or `false` if cancelled first.
+    private func legacyPollUntilVersionAppears(connection: BoardConnection) async -> Bool {
+        while !Task.isCancelled {
+            if Self.statusVersion(connection) != nil { return true }
+            await refreshBoardDisplay(connection: connection)
+            do { try await Task.sleep(for: refreshTiming.legacyPollInterval) }
+            catch { return false }
+        }
+        return false
+    }
+
     /// Replaces the fixed 200 ms poll with an event-driven refresh: a status
     /// version change or a control-mode transition triggers an immediate
     /// fetch, backed by a 1 Hz reconciliation fallback and one fetch right on
-    /// entry. Never runs two `getFrame` fetches concurrently — a trigger that
-    /// arrives while one is in flight is coalesced into exactly one more
-    /// fetch afterward. Falls back to the legacy 200 ms poll for the whole
-    /// call when the board never reports a status version (older firmware).
-    func runDisplayRefreshLoop(connection: BoardConnection) async {
-        guard Self.statusVersion(connection) != nil else {
-            await legacyPollDisplayRefreshLoop(connection: connection)
-            return
-        }
-
+    /// entry. `refreshBoardDisplay(connection:)` is itself single-flight
+    /// across every caller, so a trigger that arrives while a fetch (from
+    /// this loop or from any other caller, e.g. `BoardSyncCoordinator`) is
+    /// already in flight is coalesced into exactly one more fetch afterward.
+    private func runEventDrivenDisplayRefreshLoop(connection: BoardConnection) async {
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let token = UUID()
+        displayRefreshRunToken = token
         displayRefreshTrigger = continuation
         defer {
-            displayRefreshTrigger = nil
+            // Only retract this run's own trigger: a `.task(id:)` restart can
+            // start a newer run before this one finishes unwinding.
+            if displayRefreshRunToken == token {
+                displayRefreshRunToken = nil
+                displayRefreshTrigger = nil
+            }
             continuation.finish()
         }
         continuation.yield() // immediate refresh on entry (page appear / connect / active / mode sync)
@@ -760,16 +823,6 @@ final class ControlViewModel {
                     await self.refreshBoardDisplay(connection: connection)
                 }
             }
-        }
-    }
-
-    /// The pre-PR-12 behavior, kept verbatim for boards whose status never
-    /// carries a version (so there is nothing to key an event off of).
-    private func legacyPollDisplayRefreshLoop(connection: BoardConnection) async {
-        while !Task.isCancelled {
-            await refreshBoardDisplay(connection: connection)
-            do { try await Task.sleep(for: refreshTiming.legacyPollInterval) }
-            catch { return }
         }
     }
 
