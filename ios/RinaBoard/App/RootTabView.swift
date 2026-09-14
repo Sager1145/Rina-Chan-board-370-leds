@@ -50,13 +50,13 @@ enum AppTab: String, CaseIterable {
 /// lives at the top of Settings instead of being faked with a custom
 /// draggable panel (§2, §4.2).
 struct RootTabView: View {
+    @Environment(BoardSessionStore.self) private var sessions
     @Environment(AppRouter.self) private var router
     @Environment(PresetLiveModel.self) private var performance
     @Environment(VideoPlayerModel.self) private var video
     @Environment(\.scenePhase) private var scenePhase
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardStore.self) private var boardStore
-    @Environment(BLETransport.self) private var bleTransport
     @Environment(BootLoaderModel.self) private var bootLoader
     @Environment(ControlViewModel.self) private var editor
     @Environment(TextViewModel.self) private var textModel
@@ -81,6 +81,10 @@ struct RootTabView: View {
     /// The loader is the first frame; the tabs mount one frame later so
     /// nothing is built before the animation is on screen.
     @State private var contentReady = false
+    @State private var draftsRestored = false
+    @State private var wasBackgrounded = false
+    @State private var resumeGeneration = 0
+    @State private var syncCoordinator = BoardSyncCoordinator()
 
     var body: some View {
         ZStack {
@@ -110,16 +114,22 @@ struct RootTabView: View {
                     controlCenter.sync(from: status)
                 }
                 .task(id: BoardSynchronizationID(generation: connection.connectionGeneration,
-                                                  connected: connection.connectionState == .connected)) {
-                    controlCenter.connectionChanged()
-                    textModel.suspendPreviewLoop()
-                    editor.connectionChanged()
-                    lipSyncModel.stop()
-                    performance.suspendBoardOutput()
-                    video.suspendBoardOutput()
-                    if connection.connectionState == .connected {
-                        await resynchronizeWithBoard()
-                    }
+                                                  connected: connection.connectionState == .connected,
+                                                  draftsRestored: draftsRestored,
+                                                  resumeGeneration: resumeGeneration)) {
+                    await syncCoordinator.synchronize(
+                        connection: connection,
+                        deps: BoardSyncCoordinator.Dependencies(
+                            sessions: sessions, router: router, boardStore: boardStore,
+                            editor: editor, textModel: textModel, lipSyncModel: lipSyncModel,
+                            controlCenter: controlCenter, faceLibrary: faceLibrary,
+                            performance: performance, video: video
+                        ),
+                        draftsRestored: draftsRestored,
+                        scenePhase: scenePhase,
+                        showControlCenter: $showControlCenter,
+                        configureOutputHandlers: configureOutputHandlers
+                    )
                 }
                 // 演出 and 视频 both play sound on the phone. Taking the board
                 // already pauses the other while connected; this covers the
@@ -144,6 +154,11 @@ struct RootTabView: View {
         }
         .errorAlert($reconnectModel.lastErrorMessage)
         .onChange(of: scenePhase) { _, phase in
+            if phase == .background { wasBackgrounded = true }
+            if phase == .active, wasBackgrounded {
+                wasBackgrounded = false
+                resumeGeneration += 1
+            }
             lipSyncModel.scenePhaseChanged(phase, connection: connection)
             if phase != .active {
                 performance.pause()
@@ -161,6 +176,8 @@ struct RootTabView: View {
             bootLoader.start(reduceMotion: reduceMotion)
         }
         .task {
+            let initialSession = sessions.active
+            let initialBoardID = initialSession.boardID
             // Let the overlay's first frame go out before the app is built.
             // A bare `Task.yield()` can resume inside the same run-loop turn,
             // before Core Animation commits; a timer hop crosses a real frame.
@@ -175,9 +192,10 @@ struct RootTabView: View {
             await editor.restoreDraft()
             await textModel.restoreDraft()
             guard !Task.isCancelled else { return }
+            draftsRestored = true
             // Keep board synchronization behind draft restoration even
             // though the interface is already available.
-            await autoReconnect()
+            await autoReconnect(ifSelectionRemains: initialSession, boardID: initialBoardID)
         }
         .task {
             // `-replayBootAfter <seconds>`: the same automated-simulator-run
@@ -210,56 +228,63 @@ struct RootTabView: View {
                 .tag(AppTab.presetLive)
 
             SettingsView()
-                .tabItem { Label("设定", systemImage: "gearshape.fill") }
+                .tabItem { Label("设定", image: "TabRinaSettings") }
                 .tag(AppTab.settings)
         }
     }
 
     private func configureOutputHandlers() {
-        connection.output.register(.manual) { editor.releaseOutput() }
+        connection.output.register(.manual) {
+            guard sessions.active.connection === connection else { return }
+            editor.releaseOutput()
+        }
         connection.output.register(.text) {
+            guard sessions.active.connection === connection else { return }
             if connection.output.source != .text { textModel.releaseOutput() }
         }
-        connection.output.register(.lipSync) { lipSyncModel.stop() }
+        connection.output.register(.lipSync) {
+            guard sessions.active.connection === connection else { return }
+            lipSyncModel.stop()
+        }
         connection.output.register(.performance) {
+            guard sessions.active.connection === connection else { return }
             if connection.connectionState == .connected { performance.pause() }
             else { performance.suspendBoardOutput() }
         }
         connection.output.register(.video) {
+            guard sessions.active.connection === connection else { return }
             video.releaseOutput(connected: connection.connectionState == .connected)
         }
-    }
-
-    /// §40: after a (re)connection, re-read the board's authoritative state
-    /// and reconcile drafts — never the other way round.
-    private func resynchronizeWithBoard() async {
-        let generation = connection.connectionGeneration
-        let session = connection.output.session
-        guard connection.connectionState == .connected, !Task.isCancelled else { return }
-        controlCenter.sync(from: connection.status)
-        if connection.hasCurrentFrame {
-            editor.adoptBoardFrameIfUntouched(connection.currentFrame)
-        }
-
-        guard generation == connection.connectionGeneration, session == connection.output.session else { return }
-        await textModel.restoreOnConnect(connection: connection)
-        guard !Task.isCancelled, generation == connection.connectionGeneration else { return }
-
-        await faceLibrary.reload(connection: connection)
     }
 
     /// On launch, try to reconnect to the most recently used board via its
     /// remembered preferred transport. Runs at most once per app launch; BLE
     /// readiness is handled inside `BLETransport.connect()`.
-    private func autoReconnect() async {
+    private func autoReconnect(
+        ifSelectionRemains initialSession: BoardSession,
+        boardID initialBoardID: String?
+    ) async {
         guard !didAutoReconnect else { return }
         didAutoReconnect = true
-        guard connection.connectionState == .disconnected else { return }
         guard let last = boardStore.boards.max(by: {
             ($0.lastSeen ?? .distantPast) < ($1.lastSeen ?? .distantPast)
         }) else { return }
-        await reconnectModel.connectSavedBoard(last, ble: bleTransport,
-                                               connection: connection, boardStore: boardStore)
+        guard let target = sessions.sessionForAutomaticReconnect(
+            id: last.id,
+            name: last.name,
+            ifCurrent: initialSession,
+            withBoardID: initialBoardID
+        ) else { return }
+        await reconnectModel.connectSavedBoard(
+            last, ble: target.bleTransport,
+            connection: target.connection, boardStore: boardStore,
+            disconnectOtherHotspotSessions: {
+                for session in sessions.sessions
+                where session.connection !== target.connection && session.connection.transportKind == .hotspot {
+                    session.connection.disconnect()
+                }
+            }
+        )
     }
 }
 
@@ -340,4 +365,6 @@ enum ControlCenterPlacement {
 private struct BoardSynchronizationID: Hashable {
     let generation: UUID
     let connected: Bool
+    let draftsRestored: Bool
+    let resumeGeneration: Int
 }

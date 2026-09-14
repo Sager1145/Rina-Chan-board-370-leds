@@ -256,6 +256,86 @@ final class AcceptanceControlTests: XCTestCase {
         connection.disconnect()
     }
 
+    func testBoardFrameSelectsMatchingPartsAndClearsSelectionForCustomPixels() throws {
+        let (model, library) = try loadedModel()
+        var call = PartsCall.defaultCall
+        call.mouth = try differentPartID(in: .mouth, from: call.mouth, library: library)
+        let frame = library.compose(call: call)
+        model.adoptBoardFrameIfUntouched(frame)
+        XCTAssertEqual(model.draftFrame, frame)
+        XCTAssertTrue(model.fromParts)
+        XCTAssertEqual(library.compose(call: model.selectedCall), frame)
+        XCTAssertEqual(model.selectedCall.mouth, call.mouth)
+        XCTAssertFalse(model.hasUnsentChanges)
+
+        var custom = frame
+        custom.toggle(369)
+        model.adoptBoardFrameIfUntouched(custom)
+        XCTAssertEqual(model.draftFrame, custom)
+        XCTAssertFalse(model.fromParts)
+        XCTAssertFalse(model.canUndo)
+    }
+
+    func testRefreshPreservesDraftAfterSendingAnEdit() async throws {
+        let model = ControlViewModel()
+        let connection = BoardConnection()
+        let transport = AcceptanceControlTransport()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        model.livePreview = false
+        model.toggle(led: 10, connection: connection)
+        await model.send(connection: connection)
+        XCTAssertFalse(model.hasUnsentChanges)
+
+        var external = PackedFrame()
+        external.set(369)
+        transport.displayFrame = external
+        await model.refreshBoardDisplay(connection: connection)
+        XCTAssertNotEqual(model.draftFrame, external)
+        XCTAssertTrue(model.draftFrame[10],
+                      "A synced draft must survive unrelated board output after reconnect")
+        XCTAssertFalse(model.hasUnsentChanges)
+
+        model.toggle(led: 12, connection: connection)
+        let draft = model.draftFrame
+        transport.displayFrame = PackedFrame()
+        await model.refreshBoardDisplay(connection: connection)
+        XCTAssertEqual(model.draftFrame, draft, "An unsent local edit must survive preview reads")
+        connection.disconnect()
+    }
+
+    func testBoardPreviewBeforeRestoreCannotOverwriteStoredDraft() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RinaBoard-DraftRestore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storage = DraftStorage(directory: directory)
+        let offline = BoardConnection()
+        let writer = ControlViewModel(draftStorage: storage)
+        writer.toggle(led: 17, connection: offline)
+        writer.toggle(led: 93, connection: offline)
+        let storedDraft = writer.draftFrame
+        await writer.persistDraft()
+
+        let restoring = ControlViewModel(draftStorage: storage)
+        var boardPreview = PackedFrame()
+        boardPreview.set(369)
+        restoring.adoptBoardFrameIfUntouched(boardPreview)
+        try await Task.sleep(for: .milliseconds(350))
+
+        let storedData = try await storage.read("face")
+        let dataBeforeRestore = try XCTUnwrap(storedData)
+        let object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: dataBeforeRestore) as? [String: Any]
+        )
+        let storedHex = try XCTUnwrap(object["frame"] as? String)
+        XCTAssertEqual(PackedFrame(hex94: storedHex), storedDraft,
+                       "A launch-time board preview must not win the draft-save debounce race")
+
+        await restoring.restoreDraft()
+        XCTAssertEqual(restoring.draftFrame, storedDraft)
+        XCTAssertNotEqual(restoring.draftFrame, boardPreview)
+    }
+
     private func loadedModel(file: StaticString = #filePath,
                              line: UInt = #line) throws -> (ControlViewModel, PartsLibrary) {
         let model = ControlViewModel()
@@ -290,6 +370,7 @@ private final class AcceptanceControlTransport: @MainActor RinaTransport {
     let kind: TransportKind = .bluetooth
     let preferredChunkBytes = 512
 
+    var displayFrame = PackedFrame()
     private let decoder = RinaLinkDecoder()
     private var stateContinuation: AsyncStream<TransportState>.Continuation?
     private var incomingContinuation: AsyncStream<Data>.Continuation?
@@ -312,11 +393,12 @@ private final class AcceptanceControlTransport: @MainActor RinaTransport {
 
     func send(_ data: Data) async throws {
         for request in decoder.feed(data) {
-            incomingContinuation?.yield(RinaLinkEncoder.encode(
+            incomingContinuation?.yield(try! RinaLinkEncoder.encode(
                 RinaLinkFrame(type: request.type | 0x80,
                               seq: request.seq,
                               flags: 0,
-                              payload: Data(#"{"ok":true}"#.utf8))
+                              payload: request.type == RinaLinkMessageType.getFrame.rawValue
+                                ? Data(displayFrame.bytes) : Data(#"{"ok":true}"#.utf8))
             ))
         }
     }

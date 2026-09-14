@@ -59,6 +59,9 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
     public private(set) var connectingPeripheralID: UUID?
     public private(set) var connectedPeripheralID: UUID?
     public private(set) var connectedPeripheralName: String?
+    /// Signal strength sampled from the active BLE link. Advertisements stop
+    /// after connection, so discovery RSSI cannot keep this value current.
+    public private(set) var connectedRSSI: Int?
     public private(set) var infoJSON: Data?
     public private(set) var bleInfo: BLEInfo?
     /// Surfaced instead of silently no-oping when e.g. Bluetooth is off.
@@ -101,7 +104,25 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
     private var connectContinuation: CheckedContinuation<Void, Error>?
     private var connectTimeoutTask: Task<Void, Never>?
     private var connectAttemptID = UUID()
+    /// The attempt currently holding `connect()`'s single-flight slot, or nil
+    /// when no `connect()` call is in progress. An attempt token (rather than
+    /// a bare `Bool`) lets a superseded attempt's own unwind (`defer` in
+    /// `connect()`) tell whether it still owns the slot before clearing it,
+    /// so it can never clobber a newer attempt that has already claimed it.
+    private var inProgressAttempt: UUID?
+    private var isConnectInProgress: Bool { inProgressAttempt != nil }
     private let disconnectGate = BLEDisconnectGate()
+    /// Retains the `CBPeripheral` for a cancel that is still pending a
+    /// terminal CoreBluetooth callback. Without this, callers clear
+    /// `targetPeripheral` right after starting the cancel and CoreBluetooth
+    /// may never deliver `didDisconnect`/`didFailToConnect` for a peripheral
+    /// object nobody holds anymore, leaving the disconnect gate entry stuck.
+    private var cancellingPeripherals: [UUID: CBPeripheral] = [:]
+    /// Extra time given to a stuck cancel before giving up and reusing the
+    /// peripheral anyway.
+    private static let forceCancelGraceSeconds: TimeInterval = 2
+    /// See `GateRecoveryBookkeeping`.
+    private var gateRecovery = GateRecoveryBookkeeping()
 
     // MARK: write back-pressure (H3)
 
@@ -124,6 +145,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
     /// would certainly have been seen (it advertises every ~100-1000 ms).
     public static let scanTimeoutSeconds: TimeInterval = 30
     private var scanTimeoutTask: Task<Void, Never>?
+    private var rssiPollTask: Task<Void, Never>?
     /// True when the last scan ended on `scanTimeoutSeconds` rather than
     /// because the user stopped it or a connect took over, so the UI can say
     /// why the spinner went away.
@@ -256,10 +278,16 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
     }
 
     public func connect() async throws {
-        guard connectContinuation == nil, poweredOnContinuation == nil else {
+        guard inProgressAttempt == nil else {
             throw RinaTransportError.cancelled
         }
         let attempt = UUID()
+        inProgressAttempt = attempt
+        // Only clear the slot if it is still this attempt's: `disconnect()`
+        // (e.g. a board switch racing this same unwind) may have already
+        // handed the slot to a newer attempt, and this `defer` must not steal
+        // it back out from under that newer attempt.
+        defer { if inProgressAttempt == attempt { inProgressAttempt = nil } }
         connectAttemptID = attempt
         do {
             try await withTaskCancellationHandler {
@@ -305,19 +333,67 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
         // Never retain the previous target while resolving a new row. If Core
         // Bluetooth cannot retrieve the requested identifier, connecting must
         // fail rather than silently reconnecting to the last board.
-        let discovered = discoveredPeripheralObjects[identifier]
         clearConnectionTarget()
-        guard let peripheral = discovered
-                ?? centralManager.retrievePeripherals(withIdentifiers: [identifier]).first else {
-            let message = "找不到所选璃奈板（\(String(identifier.uuidString.suffix(4))))，请重新扫描"
-            lastError = message
-            logger.error("BLE peripheral retrieval failed for \(identifier.uuidString, privacy: .public)")
-            emitState(.failed(message))
-            throw RinaTransportError.notConnected
-        }
-        try await disconnectGate.wait(for: peripheral.identifier)
+        connectingPeripheralID = identifier
+        emitState(.connecting)
+        let peripheral = try await resolvePeripheral(identifier, attempt: attempt)
+        let waitResult = try await disconnectGate.wait(for: peripheral.identifier)
         try Task.checkCancellation()
-        guard connectAttemptID == attempt else { throw RinaTransportError.cancelled }
+        // Explicit even though the attempt-ID guard right below would also
+        // catch this in practice (disconnect() rotates connectAttemptID
+        // before waking): a superseded wait must never be treated as license
+        // to continue this attempt.
+        if waitResult == .superseded { throw RinaTransportError.cancelled }
+        // Bluetooth becoming unavailable is included here (not just attempt/
+        // identifier staleness) so a wait that only resolved because
+        // `handleBluetoothUnavailable` tore everything down cannot go on to
+        // arm the ignore-marker or reuse the peripheral below.
+        guard connectAttemptID == attempt, peripheralIdentifier == identifier, centralManager.state == .poweredOn else {
+            throw RinaTransportError.cancelled
+        }
+        if waitResult == .timedOut {
+            switch Self.gateTimeoutAction(state: peripheral.state) {
+            case .forceCompleteNow:
+                // Already disconnected, so there is no cancel left in flight
+                // to race with reusing this peripheral.
+                disconnectGate.forceComplete(peripheral.identifier)
+                gateRecovery.onGraceWaitResult(.timedOut, id: peripheral.identifier)
+                cancellingPeripherals.removeValue(forKey: peripheral.identifier)
+                logger.notice("BLE force-cleared already-disconnected gate entry for \(peripheral.identifier.uuidString, privacy: .public)")
+            case .recancelThenForce:
+                // The previous cancel never got a terminal callback (the old
+                // peripheral object was likely deallocated before CoreBluetooth
+                // could deliver one). Retain this object, try the cancel once
+                // more, then give up on waiting and reuse the peripheral rather
+                // than getting stuck retrying forever.
+                cancellingPeripherals[peripheral.identifier] = peripheral
+                centralManager.cancelPeripheralConnection(peripheral)
+                let graceResult: GateWaitResult
+                do {
+                    graceResult = try await disconnectGate.wait(for: peripheral.identifier, timeout: Self.forceCancelGraceSeconds)
+                } catch is CancellationError {
+                    // The re-cancel is still genuinely in flight; do not
+                    // force-complete or drop the retained peripheral out from
+                    // under it.
+                    throw CancellationError()
+                }
+                try Task.checkCancellation()
+                if graceResult == .superseded { throw RinaTransportError.cancelled }
+                guard connectAttemptID == attempt, peripheralIdentifier == identifier, centralManager.state == .poweredOn else {
+                    throw RinaTransportError.cancelled
+                }
+                // Only a genuine timeout arms the ignore-marker/force-completes
+                // the gate: `.drained` here means the retained re-cancel got
+                // its own terminal callback (which already did this cleanup),
+                // so treating it as a stuck entry would swallow a real
+                // `didFailToConnect` for the new attempt.
+                if gateRecovery.onGraceWaitResult(graceResult, id: peripheral.identifier) {
+                    disconnectGate.forceComplete(peripheral.identifier)
+                    logger.notice("BLE force-cleared stuck disconnect gate entry for \(peripheral.identifier.uuidString, privacy: .public)")
+                }
+                cancellingPeripherals.removeValue(forKey: peripheral.identifier)
+            }
+        }
         guard centralManager.state == .poweredOn else {
             throw RinaTransportError.underlying(bluetoothUnavailableMessage(centralManager.state))
         }
@@ -339,6 +415,36 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
             }
             centralManager.connect(peripheral, options: nil)
         }
+    }
+
+    /// A new app process has no discovery objects, and CoreBluetooth may no
+    /// longer have the saved peripheral cached. Retry by discovering that
+    /// exact UUID; never pick a similarly named board or the first result.
+    private func resolvePeripheral(_ identifier: UUID, attempt: UUID) async throws -> CBPeripheral {
+        if let peripheral = discoveredPeripheralObjects[identifier]
+            ?? centralManager.retrievePeripherals(withIdentifiers: [identifier]).first
+            ?? centralManager.retrieveConnectedPeripherals(withServices: [serviceCBUUID])
+                .first(where: { $0.identifier == identifier }) {
+            return peripheral
+        }
+
+        logger.info("Saved BLE peripheral is not cached; scanning for \(identifier.uuidString, privacy: .public)")
+        let ownsScan = !isScanning
+        if ownsScan { startScan() }
+        defer { if ownsScan { stopScan() } }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while ContinuousClock.now < deadline {
+            try Task.checkCancellation()
+            guard connectAttemptID == attempt, peripheralIdentifier == identifier else {
+                throw RinaTransportError.cancelled
+            }
+            guard centralManager.state == .poweredOn else {
+                throw RinaTransportError.underlying(bluetoothUnavailableMessage(centralManager.state))
+            }
+            if let peripheral = discoveredPeripheralObjects[identifier] { return peripheral }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        throw RinaTransportError.underlying("未找到已保存的璃奈板，请确认板子已开机并在附近")
     }
 
     /// A3: never overwrite a still-pending `poweredOnContinuation` — resume
@@ -387,6 +493,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
             connectingPeripheralID = nil
             connectedPeripheralID = targetPeripheral?.identifier
             connectedPeripheralName = bleInfo?.name ?? targetPeripheral.map { displayName(for: $0.identifier) }
+            if let targetPeripheral { startRSSIPolling(targetPeripheral) }
             lastError = nil
             emitState(.connected)
             if let id = connectedPeripheralID {
@@ -398,7 +505,10 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
             // link. Release it so the single-central board advertises again.
             let peripheral = targetPeripheral
             clearConnectionTarget()
-            if let peripheral { cancelLink(peripheral) }
+            if let peripheral {
+                gateRecovery.onAbandon(id: peripheral.identifier)
+                cancelLink(peripheral)
+            }
             resumeWriteReady(.failure(error))
             lastError = error.localizedDescription
             logger.error("BLE connection failed: \(error.localizedDescription, privacy: .public)")
@@ -413,12 +523,15 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
     }
 
     private func clearConnectionTarget() {
+        rssiPollTask?.cancel()
+        rssiPollTask = nil
         targetPeripheral?.delegate = nil
         targetPeripheral = nil
         hasConnectedLink = false
         connectingPeripheralID = nil
         connectedPeripheralID = nil
         connectedPeripheralName = nil
+        connectedRSSI = nil
         rxCharacteristic = nil
         txCharacteristic = nil
         infoCharacteristic = nil
@@ -428,6 +541,34 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
 
     private func isCurrent(_ peripheral: CBPeripheral) -> Bool {
         peripheral === targetPeripheral
+    }
+
+    private func startRSSIPolling(_ peripheral: CBPeripheral) {
+        rssiPollTask?.cancel()
+        connectedRSSI = nil
+        peripheral.readRSSI()
+        rssiPollTask = Task { [weak self, weak peripheral] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(2)) }
+                catch { return }
+                guard let self, let peripheral, !Task.isCancelled,
+                      self.isCurrent(peripheral), peripheral.state == .connected else { return }
+                peripheral.readRSSI()
+            }
+        }
+    }
+
+    /// CoreBluetooth uses 127 when an RSSI sample is unavailable.
+    static func normalizedRSSI(_ value: NSNumber) -> Int? {
+        let rssi = value.intValue
+        return rssi == 127 ? nil : rssi
+    }
+
+    /// Pure decision for what to do after `BLEDisconnectGate.wait` reports
+    /// `.timedOut`, split out of `connectSelectedPeripheral` so it is testable
+    /// without a real `CBCentralManager`/`CBPeripheral`.
+    static func gateTimeoutAction(state: CBPeripheralState) -> GateTimeoutAction {
+        state == .disconnected ? .forceCompleteNow : .recancelThenForce
     }
 
     /// Keeps the connected label and saved discovery row current after a
@@ -451,15 +592,65 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked 
     private func cancelLink(_ peripheral: CBPeripheral) {
         guard peripheral.state != .disconnected else { return }
         guard disconnectGate.begin(peripheral.identifier) else { return }
+        // A fresh cancel is starting; any stale ignore-marker from a previous
+        // force-complete of this identifier no longer applies.
+        gateRecovery.onCancelBegin(id: peripheral.identifier)
+        cancellingPeripherals[peripheral.identifier] = peripheral
+        logger.notice("BLE cancel pending for \(peripheral.identifier.uuidString, privacy: .public)")
         centralManager.cancelPeripheralConnection(peripheral)
+    }
+
+    /// Shared teardown for `.unauthorized`/`.unsupported`/`.poweredOff`/
+    /// `.resetting`, and for `.unknown` when it interrupts an in-flight
+    /// connect: resume every pending waiter so nothing hangs forever while
+    /// the radio is unavailable.
+    private func handleBluetoothUnavailable(_ state: CBManagerState) {
+        let message = bluetoothUnavailableMessage(state)
+        resumePoweredOn(.failure(RinaTransportError.underlying(message)))
+        lastError = message
+        stopScan()
+        if let peripheral = targetPeripheral {
+            centralManager.cancelPeripheralConnection(peripheral)
+        }
+        clearConnectionTarget()
+        disconnectGate.completeAll()
+        cancellingPeripherals.removeAll()
+        gateRecovery.onReset()
+        resumeConnect(.failure(RinaTransportError.underlying(message)))
+        logger.error("Bluetooth state became unavailable: \(message, privacy: .public)")
+        emitState(.failed(message))
     }
 
     public func disconnect() {
         connectAttemptID = UUID()
+        // Free the single-flight slot immediately so a `connect()` called
+        // right after this (e.g. `BoardConnection` switching boards in the
+        // same main-actor turn) can start its new attempt without waiting for
+        // the superseded attempt's own suspended call stack to unwind. That
+        // unwind's `defer` in `connect()` is keyed on its own attempt token,
+        // so it cannot clobber the new attempt's claim on this slot.
+        inProgressAttempt = nil
         let peripheral = targetPeripheral
         let identifier = peripheral?.identifier
+        // Wake a connect attempt that might be parked inside
+        // `disconnectGate.wait`, for whichever peripheral it is actually
+        // waiting on — which is not necessarily `peripheralIdentifier`: when
+        // switching boards, that public property may already have been
+        // updated to the *new* board before this `disconnect()` runs, and the
+        // wait is also not necessarily for `targetPeripheral` either (that is
+        // only assigned after the gate wait/timeout dance completes).
+        // `connect()` is single-flight, so waking every parked waiter is
+        // always correct. Without this, `disconnect()` rotates
+        // `connectAttemptID` but the superseded attempt only re-checks it
+        // once the gate's own timeout elapses (up to 5 s, or a further 2 s
+        // grace period), keeping `isConnectInProgress` true and rejecting a
+        // new `connect()` for that whole window. The pending gate entry
+        // itself is left untouched: the underlying cancel may still be
+        // genuinely in flight.
+        disconnectGate.wakeAllWaiters()
         clearConnectionTarget()
         if let peripheral {
+            gateRecovery.onAbandon(id: peripheral.identifier)
             cancelLink(peripheral)
         }
         resumeConnect(.failure(RinaTransportError.cancelled))
@@ -560,22 +751,24 @@ extension BLETransport: CBCentralManagerDelegate {
             switch central.state {
             case .poweredOn:
                 resumePoweredOn(.success(()))
-            case .unauthorized, .unsupported, .poweredOff:
+            case .unauthorized, .unsupported, .poweredOff, .resetting:
                 // A3: resume any waiter instead of leaving `connect()` hung
-                // forever when Bluetooth is off/unauthorized/unsupported.
-                let message = bluetoothUnavailableMessage(central.state)
-                resumePoweredOn(.failure(RinaTransportError.underlying(message)))
-                lastError = message
-                stopScan()
-                if let peripheral = targetPeripheral {
-                    central.cancelPeripheralConnection(peripheral)
-                }
-                clearConnectionTarget()
-                disconnectGate.completeAll()
-                resumeConnect(.failure(RinaTransportError.underlying(message)))
-                logger.error("Bluetooth state became unavailable: \(message, privacy: .public)")
-                emitState(.failed(message))
-            default:
+                // forever when Bluetooth is off/unauthorized/unsupported, and
+                // treat `.resetting` the same way: the radio is about to be
+                // torn down and rebuilt, so any pending gate entry will never
+                // get a terminal callback either.
+                handleBluetoothUnavailable(central.state)
+            case .unknown:
+                // `.unknown` is a transient startup value that can also appear
+                // briefly during a radio reset; only treat it as a failure
+                // when it interrupts an in-flight connect (same handling as
+                // `.resetting`). When idle, do nothing at all — no
+                // `emitState(.failed(...))` either, since that would
+                // spuriously fail state before the app has done anything with
+                // Bluetooth yet.
+                guard isConnectInProgress else { return }
+                handleBluetoothUnavailable(central.state)
+            @unknown default:
                 emitState(.failed("bluetooth unavailable"))
             }
         }
@@ -627,6 +820,10 @@ extension BLETransport: CBCentralManagerDelegate {
                 central.cancelPeripheralConnection(peripheral)
                 return
             }
+            // The new link is confirmed live: a terminal callback from here
+            // on can only belong to it, not to a previously force-cleared
+            // cancel.
+            gateRecovery.onDidConnect(id: peripheral.identifier)
             hasConnectedLink = true
             logger.info("BLE link connected; discovering RinaLink service on \(peripheral.identifier.uuidString, privacy: .public)")
             peripheral.discoverServices([serviceCBUUID])
@@ -635,7 +832,15 @@ extension BLETransport: CBCentralManagerDelegate {
 
     public nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         MainActor.assumeIsolated {
-            if disconnectGate.complete(peripheral.identifier) { return }
+            if disconnectGate.complete(peripheral.identifier) {
+                cancellingPeripherals.removeValue(forKey: peripheral.identifier)
+                logger.notice("BLE cancel confirmed via didFailToConnect for \(peripheral.identifier.uuidString, privacy: .public)")
+                return
+            }
+            if gateRecovery.onTerminal(id: peripheral.identifier) {
+                logger.notice("Ignoring late didFailToConnect for previously force-cleared cancel \(peripheral.identifier.uuidString, privacy: .public)")
+                return
+            }
             guard isCurrent(peripheral) else {
                 logger.notice("Ignoring stale didFailToConnect for \(peripheral.identifier.uuidString, privacy: .public)")
                 return
@@ -648,7 +853,15 @@ extension BLETransport: CBCentralManagerDelegate {
 
     public nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         MainActor.assumeIsolated {
-            if disconnectGate.complete(peripheral.identifier) { return }
+            if disconnectGate.complete(peripheral.identifier) {
+                cancellingPeripherals.removeValue(forKey: peripheral.identifier)
+                logger.notice("BLE cancel confirmed via didDisconnect for \(peripheral.identifier.uuidString, privacy: .public)")
+                return
+            }
+            if gateRecovery.onTerminal(id: peripheral.identifier) {
+                logger.notice("Ignoring late didDisconnect for previously force-cleared cancel \(peripheral.identifier.uuidString, privacy: .public)")
+                return
+            }
             guard isCurrent(peripheral) else {
                 logger.notice("Ignoring stale didDisconnect for \(peripheral.identifier.uuidString, privacy: .public)")
                 return
@@ -669,6 +882,23 @@ extension BLETransport: CBCentralManagerDelegate {
 }
 
 extension BLETransport: CBPeripheralDelegate {
+    public nonisolated func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: Error?) {
+        MainActor.assumeIsolated {
+            guard isCurrent(peripheral), connectedPeripheralID == peripheral.identifier else { return }
+            if let error {
+                logger.debug("BLE RSSI read failed: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+            guard let rssi = Self.normalizedRSSI(RSSI) else { return }
+            connectedRSSI = rssi
+            if let discovered = discoveredPeripherals.first(where: { $0.id == peripheral.identifier }) {
+                discovered.rssi = rssi
+                discovered.lastSeen = Date()
+                sortDiscovered()
+            }
+        }
+    }
+
     public nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         MainActor.assumeIsolated {
             guard isCurrent(peripheral) else {

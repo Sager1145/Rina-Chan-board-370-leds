@@ -27,6 +27,7 @@ struct DebugView: View {
             }
         }
         .listSectionSpacing(.compact)
+        .rinaScrollBackground()
         .navigationTitle("调试")
         .navigationBarTitleDisplayMode(.inline)
         .errorAlert($vm.lastLocalError)
@@ -546,6 +547,7 @@ private struct RawCommandConsoleView: View {
             }
         }
         .listSectionSpacing(.compact)
+        .rinaScrollBackground()
         .navigationTitle("原始命令")
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -24,13 +24,36 @@ final class TextViewModel {
 
     // MARK: Speed (§27)
 
-    /// The speed asked for, in the board protocol's own unit (fps).
+    /// The speed asked for, in the board protocol's own unit (fps). Remembered
+    /// with the draft; while a scroll is bound it follows the board's actual
+    /// tick interval, so the slider never shows a speed the board isn't running.
     var requestedFps: Double = 10 { didSet { scheduleDraftSave() } }
+
+    /// The latest retune for the board. Reports that disagree are ignored until
+    /// the board has accepted it and then echoed it, so echoes of older values
+    /// still in flight can't make the slider jump back mid-drag.
+    private struct PendingFps {
+        var fps: Int
+        /// Before delivery, a cap in case the send never completes; after it,
+        /// a short grace for reports the board emitted before taking it.
+        var until: Date
+        var delivered = false
+    }
+    private var pendingFps: PendingFps?
+    /// Bumped by each speed change, so a draft read that finishes later can't
+    /// overwrite a slider move made while it was reading.
+    private var speedEdits = 0
+    /// The bound scroll's speed as the board last reported (or was uploaded
+    /// with) — where the slider returns when a retune never lands.
+    private var lastBoardFps: Int?
 
     var draftStorageError: String?
     private var draftSaveTask: Task<Void, Never>?
     private var uploadTask: Task<Void, Never>?
     private var restoringDraft = false
+    /// False until `restoreDraft()` has run: launch defaults saved before the
+    /// read would overwrite the stored draft and its remembered speed.
+    private var draftRestoreFinished = false
     private struct Draft: Codable {
         var version = 1
         var text: String
@@ -39,12 +62,20 @@ final class TextViewModel {
     }
 
     func restoreDraft() async {
+        let speedEditsBefore = speedEdits
+        defer {
+            let editedWhileReading = !draftRestoreFinished
+                && (userEditedText || speedEdits != speedEditsBefore)
+            draftRestoreFinished = true
+            if editedWhileReading { scheduleDraftSave() }
+        }
         do {
             guard let data = try await DraftStorage.shared.read("text"), !userEditedText else { return }
             let draft = try JSONDecoder().decode(Draft.self, from: data)
             guard draft.version == 1 else { return }
             restoringDraft = true
-            text = draft.text; requestedFps = Double(clampFps(draft.fps))
+            text = draft.text
+            if speedEdits == speedEditsBefore { requestedFps = Double(clampFps(draft.fps)) }
             userEditedText = draft.userEdited ?? true
             didLoadDefaults = true
             restoringDraft = false
@@ -57,7 +88,7 @@ final class TextViewModel {
     }
 
     private func scheduleDraftSave() {
-        guard !restoringDraft else { return }
+        guard !restoringDraft, draftRestoreFinished else { return }
         draftSaveTask?.cancel()
         draftSaveTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
@@ -66,6 +97,7 @@ final class TextViewModel {
     }
 
     func persistDraft() async {
+        guard draftRestoreFinished else { return }
         do {
             let data = try JSONEncoder().encode(Draft(text: text, fps: requestedFps, userEdited: userEditedText))
             try await DraftStorage.shared.write(data, name: "text")
@@ -81,9 +113,19 @@ final class TextViewModel {
     func releaseOutput() {
         uploadTask?.cancel()
         uploadTask = nil
-        suspendPreviewLoop()
-        boundTimelineId = nil
+        clearPlaybackState()
+        uploadProgress = 0
+        isUploading = false
+        isGeneratingFont = false
+        isStepping = false
         localPhase = nil
+    }
+
+    /// A connection generation or selected-board change invalidates every
+    /// board-relative value. Keep the editable draft and its requested speed,
+    /// but never carry a timeline cursor over to a different board session.
+    func connectionChanged() {
+        releaseOutput()
     }
 
     // MARK: Transport
@@ -109,8 +151,11 @@ final class TextViewModel {
     private var pll = ScrollPreviewController(frameCount: 1, userFps: 10)
     var displayIndex: Int { pll.displayIndex }
     /// Actual speed measured from board telemetry — never just an echo of
-    /// `requestedFps` (§27).
-    var measuredFps: Double { pll.measuredFps }
+    /// `requestedFps` (§27). Nil while nothing is playing on the board.
+    var measuredFps: Double? {
+        guard boundTimelineId != nil, !boardPaused else { return nil }
+        return pll.measuredFps
+    }
     var lockState: ScrollPreviewController.LockState { pll.lockState }
 
     var frameCount: Int { timeline?.frameCount ?? 0 }
@@ -208,7 +253,19 @@ final class TextViewModel {
             let intervalMs = ScrollRasterizer.intervalMs(forFps: fpsInt)
             // Only retunes a scroll already on the board; taking the output
             // over here would pause another tab's playback.
-            await self.sendWithoutClaim(.setScrollInterval(intervalMs: intervalMs, fps: fpsInt), connection: connection)
+            let accepted = await self.sendWithoutClaim(.setScrollInterval(intervalMs: intervalMs, fps: fpsInt),
+                                                       connection: connection)
+            // The board never changed, so no status will come to correct the
+            // slider: fall back to what it last reported, unless a newer
+            // value is already on its way.
+            guard self.pendingFps?.fps == fpsInt else { return }
+            if accepted {
+                self.pendingFps?.delivered = true
+                self.pendingFps?.until = Date().addingTimeInterval(0.75)
+            } else {
+                self.pendingFps = nil
+                self.adoptBoardFps(self.lastBoardFps)
+            }
         }
         box.value = self
     }
@@ -322,6 +379,8 @@ final class TextViewModel {
             uploadProgress = 0.04
 
             let fpsInt = clampFps(requestedFps)
+            pendingFps = nil
+            lastBoardFps = nil
             let built = try await Task.detached(priority: .userInitiated) { [loadedFont] in
                 try ScrollRasterizer.makeTimeline(text: text, font: loadedFont, fps: fpsInt)
             }.value
@@ -377,6 +436,12 @@ final class TextViewModel {
             scheduleDraftSave()
             boardPaused = false
             activeConnection = connection
+            lastBoardFps = fpsInt
+            // A slider move during the upload had nothing bound to retune, or
+            // its retune was overridden by the upload's own timing: apply it now.
+            if clampFps(requestedFps) != fpsInt {
+                setRequestedFps(requestedFps, connection: connection)
+            }
             if let sample = try? await connection.getPreviewSync() {
                 if let token = BoardOutputContext.session { try connection.output.check(token) }
                 observe(preview: sample)
@@ -475,11 +540,45 @@ final class TextViewModel {
     func setRequestedFps(_ fps: Double, connection: BoardConnection) {
         let clamped = min(Double(RinaLinkConstants.scrollFpsMax),
                           max(Double(RinaLinkConstants.scrollFpsMin), fps))
+        speedEdits += 1
         requestedFps = clamped
         // Live retune only while a session with the same timeline is running.
         guard boundTimelineId != nil else { return }
         activeConnection = connection
+        pendingFps = PendingFps(fps: clampFps(clamped), until: Date().addingTimeInterval(5))
         fpsSender.submit(clamped)
+    }
+
+    /// The fps the board is actually ticking at. `scrollIntervalMs` drives the
+    /// firmware; `uiFps` is only a label that older uploads left disagreeing
+    /// with it, so the label wins only when it maps to that same interval
+    /// (it tells 58/59/60 fps apart, which all tick at 17 ms).
+    static func boardFps(intervalMs: Int?, uiFps: Int?) -> Int? {
+        let label = uiFps.flatMap { $0 > 0 ? $0 : nil }
+        guard let intervalMs, intervalMs > 0 else { return label }
+        if let label, ScrollRasterizer.intervalMs(forFps: label) == intervalMs { return label }
+        return Int((1000.0 / Double(intervalMs)).rounded())
+    }
+
+    /// Makes the speed control show what the bound board scroll really runs at.
+    private func adoptBoardFps(_ fps: Int?) {
+        guard let fps else { return }
+        let boardFps = clampFps(Double(fps))
+        lastBoardFps = boardFps
+        if let pending = pendingFps {
+            if pending.fps == boardFps {
+                // A match before delivery may be a stale report that happens to
+                // agree while older values are still queued ahead of it.
+                if pending.delivered { pendingFps = nil }
+            } else if Date() < pending.until {
+                return
+            } else {
+                pendingFps = nil
+            }
+        }
+        if clampFps(requestedFps) != boardFps || requestedFps != requestedFps.rounded() {
+            requestedFps = Double(boardFps)
+        }
     }
 
     // MARK: Restore from the board (§26)
@@ -491,6 +590,7 @@ final class TextViewModel {
         guard !Task.isCancelled, generation == connection.connectionGeneration,
               outputSession == connection.output.session, !isUploading,
               meta.uploadComplete == true,
+              meta.firmwareScrollActive == true,
               let frameCount = meta.frameCount, frameCount > 0,
               let sourceText = meta.sourceText, !sourceText.isEmpty,
               meta.fontId == ScrollRasterizer.fontId,
@@ -499,7 +599,8 @@ final class TextViewModel {
 
         do {
             let loadedFont = try await loadFontIfNeeded()
-            let fpsInt = clampFps(meta.uiFps.map(Double.init) ?? requestedFps)
+            let fpsInt = clampFps(Self.boardFps(intervalMs: meta.scrollIntervalMs, uiFps: meta.uiFps)
+                .map(Double.init) ?? requestedFps)
             let rebuilt = try await Task.detached(priority: .userInitiated) { [loadedFont] in
                 try ScrollRasterizer.makeTimeline(text: sourceText, font: loadedFont, fps: fpsInt)
             }.value
@@ -515,12 +616,22 @@ final class TextViewModel {
                   outputSession == connection.output.session, !isUploading else { return }
             if let id = freshPreview?.scrollTimelineId, !id.isEmpty,
                id != meta.scrollTimelineId { return }
+            // A retry (fix for "text page stays cleared while the board
+            // scrolls") can land after another tab already claimed output —
+            // e.g. a status push that was already stale by the time the font
+            // finished loading. Never steal it from a live Video/Performance
+            // session.
+            guard connection.output.source == nil || connection.output.source == .text else { return }
             timeline = rebuilt
             boundTimelineId = meta.scrollTimelineId
             // Record ownership of what is already on the board, so another
             // tab starting output releases these controls via the stop handler.
             _ = connection.output.claim(.text)
-            if !userEditedText { requestedFps = Double(fpsInt) }
+            // The speed is board state, not part of the draft: the controls
+            // now retune this running scroll, so they must show its rate.
+            pendingFps = nil
+            lastBoardFps = fpsInt
+            requestedFps = Double(fpsInt)
             pll = ScrollPreviewController(frameCount: rebuilt.frameCount, userFps: Double(fpsInt))
             if let timelineId = meta.scrollTimelineId {
                 pll.bind(timelineId: timelineId, frameCount: rebuilt.frameCount)
@@ -601,36 +712,85 @@ final class TextViewModel {
         if outcome != .identityMismatch {
             if let paused = preview.firmwareScrollPaused { boardPaused = paused }
             if let loop = preview.scrollLoop { loopPlayback = loop }
+            // Status only arrives when board state changes, so one skipped
+            // report would leave the slider wrong; tick samples keep repeating
+            // the live interval. A paused sample's interval can be stale.
+            if preview.rateEligible == true, !isUploading, localPhase == nil {
+                adoptBoardFps(Self.boardFps(intervalMs: preview.scrollIntervalMs, uiFps: preview.uiFps))
+            }
         }
         if outcome == .identityMismatch {
-            timeline = nil
-            boundTimelineId = nil
-            pllTask?.cancel()
-            pllTask = nil
-            pll.reset()
+            clearPlaybackState()
         }
     }
 
+    /// The last automatic `restoreOnConnect` retry (§26) scheduled from a
+    /// status push, keyed by connection generation so a resync-only status
+    /// push after a foreground return cannot retry more than once every 5s.
+    private var lastRestoreRetry: (generation: UUID, at: Date)?
+
     /// Pause state and, while paused, the exact frame — the only way a
     /// pause (user, or end of a non-looping scroll) reaches the app.
-    func observe(status: DeviceStatus?) {
-        guard let renderer = status?.renderer else { return }
+    ///
+    /// `connection` is optional only so existing call sites/tests that never
+    /// exercise the retry below don't need updating; real callers always pass
+    /// it. When the firmware reports an active scroll but nothing is bound
+    /// here (a failed `getStatus`/`restoreOnConnect` during resync left the
+    /// Text page empty), retries `restoreOnConnect` — at most once every 5s
+    /// per connection generation — instead of waiting for the next connection
+    /// change to notice.
+    func observe(status: DeviceStatus?, connection: BoardConnection? = nil) {
+        guard let status else {
+            releaseOutput()
+            return
+        }
+        guard let renderer = status.renderer else { return }
         boardPaused = renderer.firmwareScrollPaused == true
         if let loop = renderer.scrollLoop { loopPlayback = loop }
+        if let connection, boundTimelineId == nil, frameCount == 0, !isUploading,
+           renderer.firmwareScrollActive == true {
+            scheduleRestoreRetryIfNeeded(connection: connection)
+        }
         guard boundTimelineId != nil, !isUploading, localPhase == nil else { return }
         let boardTimelineId = renderer.scrollTimelineId ?? ""
         if renderer.scrollFrameCount == 0 || (!boardTimelineId.isEmpty && boardTimelineId != boundTimelineId) {
             // Stopped or replaced elsewhere (hardware button, another
-            // client): unbind so the controls grey out rather than send
-            // commands the board silently accepts and ignores.
-            boundTimelineId = nil
-            suspendPreviewLoop()
-            pll.reset()
-            boardPaused = false
+            // client): discard the old cursor and frame count so the progress
+            // display becomes empty and its controls cannot send stale commands.
+            clearPlaybackState()
             return
         }
+        // A retune from another client, the WebUI or a previous app session.
+        adoptBoardFps(Self.boardFps(intervalMs: renderer.scrollIntervalMs,
+                                    uiFps: renderer.uiFps ?? renderer.scrollFps))
         guard boardPaused, let index = renderer.scrollFrameIndex, renderer.scrollFrameCount == frameCount else { return }
         pll.snap(to: index)
+    }
+
+    private func scheduleRestoreRetryIfNeeded(connection: BoardConnection) {
+        let generation = connection.connectionGeneration
+        let now = Date()
+        if let last = lastRestoreRetry, last.generation == generation, now.timeIntervalSince(last.at) < 5 {
+            return
+        }
+        lastRestoreRetry = (generation, now)
+        Task { [weak self] in
+            guard let self, connection.connectionGeneration == generation else { return }
+            await self.restoreOnConnect(connection: connection)
+        }
+    }
+
+    /// Clears state that only describes a particular board-side scroll
+    /// session. Draft text, conflict state and send preferences are local and
+    /// deliberately survive so the user can resend after reconnecting.
+    private func clearPlaybackState() {
+        suspendPreviewLoop()
+        timeline = nil
+        boundTimelineId = nil
+        pll.reset()
+        activeConnection = nil
+        boardPaused = false
+        pendingFps = nil
     }
 
     // MARK: Labels
@@ -670,14 +830,18 @@ final class TextViewModel {
 
     /// For settings (speed, loop) that must never take the output from
     /// another tab.
-    private func sendWithoutClaim(_ command: RinaCommand, connection: BoardConnection) async {
+    /// Returns whether the board accepted the command.
+    @discardableResult
+    private func sendWithoutClaim(_ command: RinaCommand, connection: BoardConnection) async -> Bool {
         do {
             _ = try await connection.command(command)
+            return true
         } catch is CancellationError {
         } catch RatePumpError.dropped {
         } catch {
             errorMessage = error.localizedDescription
         }
+        return false
     }
 
     /// Returns whether the command reached the board and was accepted.

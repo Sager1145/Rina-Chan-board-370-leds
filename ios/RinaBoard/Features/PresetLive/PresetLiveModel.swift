@@ -65,6 +65,13 @@ struct PresetLiveFileStore: Sendable {
     }
 }
 
+private struct PresetLiveSubmission: Sendable {
+    let frame: PackedFrame
+    let positionMs: Int
+    let streamID: String
+    let token: UUID
+}
+
 /// Plays an audio track locally and drives a board face from the audio
 /// player's measured position. Script/audio changes are staged and validated
 /// before replacing the active pair.
@@ -119,6 +126,11 @@ final class PresetLiveModel {
     private static let customModeKey = "performanceCustomMode"
     private static let scriptTitleKey = "presetLiveScriptTitle"
     private static let audioTitleKey = "presetLiveAudioTitle"
+    private static let playbackMaterialKey = "presetLivePlaybackMaterial"
+    private static let playbackPositionKey = "presetLivePlaybackPositionMs"
+    private static let playbackStreamKey = "presetLivePlaybackStreamID"
+    private static let customPlaybackPrefix = "custom|"
+    private static let builtInPlaybackPrefix = "builtIn|"
 
     private let bundle: Bundle
     private let defaults: UserDefaults
@@ -126,7 +138,8 @@ final class PresetLiveModel {
     private var library: PartsLibrary?
     private var player: AVAudioPlayer?
     private var outputSession: UUID?
-    private var frameTask: Task<Void, Never>?
+    /// In-flight frames are never cancelled; a newer one just supersedes it.
+    @ObservationIgnored private var sender: LatestValueSender<PresetLiveSubmission>?
     private var clockTask: Task<Void, Never>?
     private var didRestore = false
     private var didLoadDemo = false
@@ -136,6 +149,9 @@ final class PresetLiveModel {
     private var isAcquiringOutput = false
     private var interruptionObserver: NSObjectProtocol?
     private weak var lastConnection: BoardConnection?
+    private var lastPersistedPositionMs: Int?
+    private var lastSubmittedPositionMs: Int?
+    private var playbackStreamID: String?
 
     init(bundle: Bundle = .main,
          defaults: UserDefaults = .standard,
@@ -149,6 +165,9 @@ final class PresetLiveModel {
         if let data = try? RinaResources.data(named: "preset_live_catalog", ext: "json", in: bundle),
            let decoded = try? JSONDecoder().decode([BuiltInPerformance].self, from: data) {
             self.builtInPerformances = decoded
+        }
+        sender = LatestValueSender(minInterval: 0.01) { [weak self] submission in
+            await self?.send(submission)
         }
     }
 
@@ -171,6 +190,64 @@ final class PresetLiveModel {
            selectBuiltIn(first, persistSelection: true) {
             return
         }
+    }
+
+    /// Reclaims board output for an in-memory performance, or reconstructs
+    /// the last performance that actually reached Play and resumes it from
+    /// its most recent local-audio checkpoint. Ordinary view restoration
+    /// remains passive and never calls this method.
+    func restorePlaybackFromBoard(
+        connection: BoardConnection,
+        streamID boardStreamID: String? = nil,
+        positionMs boardPositionMs: Int? = nil,
+        shouldResume: @escaping @MainActor () async -> Bool = { true }
+    ) async {
+        didRestore = true
+        let generation = connection.connectionGeneration
+        let previousOutputSession = connection.output.session
+        guard connection.connectionState == .connected, await shouldResume() else { return }
+
+        guard let savedStreamID = defaults.string(forKey: Self.playbackStreamKey),
+              savedStreamID.count == 36,
+              UUID(uuidString: savedStreamID) != nil,
+              boardStreamID == nil || boardStreamID == savedStreamID else {
+            if isPlaying { pause() }
+            reportMissingOriginalStream()
+            return
+        }
+
+        if isPlaying {
+            guard activePlaybackMaterial == defaults.string(forKey: Self.playbackMaterialKey),
+                  playbackStreamID == savedStreamID else {
+                pause()
+                reportMissingOriginalStream()
+                return
+            }
+            guard !Task.isCancelled,
+                  generation == connection.connectionGeneration,
+                  previousOutputSession == connection.output.session,
+                  await shouldResume() else { return }
+            resumeBoardOutput(connection: connection)
+            return
+        }
+
+        let checkpoint = defaults.integer(forKey: Self.playbackPositionKey)
+        guard restoreCheckpointMaterial(), canPlay else {
+            reportMissingOriginalStream()
+            return
+        }
+        guard !Task.isCancelled,
+              generation == connection.connectionGeneration,
+              previousOutputSession == connection.output.session,
+              await shouldResume() else { return }
+
+        playbackStreamID = savedStreamID
+        seek(toMs: boardPositionMs ?? checkpoint)
+        await startPlayback(connection: connection,
+                            expectedGeneration: generation,
+                            expectedOutputSession: previousOutputSession,
+                            validateRestore: true,
+                            shouldResume: shouldResume)
     }
 
     func loadDemoScriptIfNeeded() {
@@ -352,9 +429,10 @@ final class PresetLiveModel {
     // MARK: Board output and local playback
 
     func suspendBoardOutput() {
+        savePlaybackPosition(force: true)
         outputSession = nil
-        frameTask?.cancel()
-        frameTask = nil
+        lastSubmittedPositionMs = nil
+        sender?.cancel()
     }
 
     /// Explicitly starts a fresh board-output lease while local audio keeps
@@ -371,20 +449,48 @@ final class PresetLiveModel {
         synchronizeFrame(atMs: currentPosition, connection: connection, force: true)
     }
 
-    func play(connection: BoardConnection) {
+    @discardableResult
+    func play(connection: BoardConnection) -> Task<Void, Never> {
         playbackStartTask?.cancel()
         player?.pause()
         deactivateSessionIfNeeded()
-        playbackStartTask = Task { [weak self] in
-            await self?.startPlayback(connection: connection)
+        let task = Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.startPlayback(connection: connection)
         }
+        playbackStartTask = task
+        return task
     }
 
-    private func startPlayback(connection: BoardConnection) async {
+    private func startPlayback(
+        connection: BoardConnection,
+        expectedGeneration: UUID? = nil,
+        expectedOutputSession: UUID? = nil,
+        validateRestore: Bool = false,
+        shouldResume: @MainActor () async -> Bool = { true }
+    ) async {
         guard !Task.isCancelled else { return }
         guard canPlay, let player else {
             errorMessage = NSLocalizedString("请先选择有效的脚本和音频", comment: "performance needs script and audio")
             return
+        }
+        lastConnection = connection
+        guard await activateSessionIfNeeded() else {
+            if !Task.isCancelled { suspendBoardOutput() }
+            return
+        }
+        guard !Task.isCancelled else {
+            deactivateSessionIfNeeded()
+            return
+        }
+        if validateRestore {
+            guard expectedGeneration == connection.connectionGeneration,
+                  expectedOutputSession == connection.output.session,
+                  connection.connectionState == .connected,
+                  await shouldResume() else {
+                deactivateSessionIfNeeded()
+                return
+            }
         }
         if connection.connectionState == .connected {
             isAcquiringOutput = true
@@ -394,12 +500,6 @@ final class PresetLiveModel {
             outputSession = nil
         }
         pausedByUser = false
-        lastConnection = connection
-        guard await activateSessionIfNeeded() else {
-            if !Task.isCancelled { suspendBoardOutput() }
-            return
-        }
-        guard !Task.isCancelled else { return }
         guard player.play() else {
             deactivateSessionIfNeeded()
             suspendBoardOutput()
@@ -409,8 +509,10 @@ final class PresetLiveModel {
         }
         registerInterruptionObserverIfNeeded()
         isPlaying = true
+        preparePlaybackStreamForCurrentMaterial(restoring: validateRestore)
         currentKeyframeIndex = nil
         positionMs = Int(player.currentTime * 1000)
+        savePlaybackPosition(force: true)
         // The first visible/sent face is selected from the same audio position
         // as playback starts instead of waiting for the first clock interval.
         synchronizeFrame(atMs: positionMs, connection: connection, force: true)
@@ -422,6 +524,7 @@ final class PresetLiveModel {
         guard !isAcquiringOutput else { return }
         playbackStartTask?.cancel()
         playbackStartTask = nil
+        savePlaybackPosition(force: true)
         suspendBoardOutput()
         pausedByUser = true
         player?.pause()
@@ -440,6 +543,7 @@ final class PresetLiveModel {
         player?.currentTime = 0
         isPlaying = false
         positionMs = 0
+        savePlaybackPosition(force: true)
         currentKeyframeIndex = nil
         previewFrame = composedFrames.first ?? PackedFrame()
         clockTask?.cancel()
@@ -453,6 +557,7 @@ final class PresetLiveModel {
         let clamped = max(0, min(durationMs, ms))
         player.currentTime = TimeInterval(clamped) / 1000
         positionMs = clamped
+        savePlaybackPosition(force: true)
         currentKeyframeIndex = nil
         if let connection = lastConnection {
             synchronizeFrame(atMs: clamped, connection: connection, force: true)
@@ -544,10 +649,12 @@ final class PresetLiveModel {
     private func tick(connection: BoardConnection) {
         guard let player else { return }
         positionMs = Int(player.currentTime * 1000)
+        savePlaybackPosition(force: false)
         if !player.isPlaying, isPlaying {
             if loops {
                 player.currentTime = 0
                 positionMs = 0
+                savePlaybackPosition(force: true)
                 currentKeyframeIndex = nil
                 if player.play() {
                     synchronizeFrame(atMs: 0, connection: connection, force: true)
@@ -561,8 +668,14 @@ final class PresetLiveModel {
     }
 
     private func synchronizeFrame(atMs ms: Int, connection: BoardConnection, force: Bool) {
-        guard let frame = synchronizePreview(atMs: ms, force: force) else { return }
-        push(frame, connection: connection)
+        if let frame = synchronizePreview(atMs: ms, force: force) {
+            push(frame, positionMs: ms, connection: connection)
+        } else if outputSession != nil,
+                  lastSubmittedPositionMs.map({ abs(ms - $0) >= 1_000 }) ?? true {
+            // A held keyframe still carries a playback heartbeat so reconnect
+            // recovery does not jump back by the length of a static passage.
+            push(previewFrame, positionMs: ms, connection: connection)
+        }
     }
 
     @discardableResult
@@ -576,27 +689,39 @@ final class PresetLiveModel {
         return frame
     }
 
-    private func push(_ frame: PackedFrame, connection: BoardConnection) {
+    private func push(_ frame: PackedFrame, positionMs: Int, connection: BoardConnection) {
         guard connection.connectionState == .connected, let token = outputSession,
-              connection.output.isCurrent(token) else { return }
-        frameTask?.cancel()
-        frameTask = Task { [weak self] in
-            do {
-                _ = try await connection.setFrame(frame, playback: .idle,
-                                                  reason: "live_preset",
-                                                  outputSession: token)
-            } catch is CancellationError {
-            } catch RatePumpError.dropped {
-            } catch {
-                guard let self, self.outputSession == token,
-                      connection.output.isCurrent(token) else { return }
-                self.errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),
-                                           error.localizedDescription)
+              connection.output.isCurrent(token), let playbackStreamID else { return }
+        lastSubmittedPositionMs = positionMs
+        lastConnection = connection
+        sender?.submit(PresetLiveSubmission(frame: frame, positionMs: positionMs,
+                                            streamID: playbackStreamID, token: token))
+    }
+
+    private func send(_ submission: PresetLiveSubmission) async {
+        guard let connection = lastConnection, connection.connectionState == .connected,
+              outputSession == submission.token, connection.output.isCurrent(submission.token) else { return }
+        do {
+            let reasonPosition = min(max(0, submission.positionMs), 99_999_999_999_999)
+            _ = try await connection.setFrame(submission.frame, playback: .idle,
+                                              reason: "live_preset:\(submission.streamID):\(reasonPosition)",
+                                              outputSession: submission.token)
+        } catch is CancellationError {
+        } catch RatePumpError.dropped {
+            if outputSession == submission.token {
+                lastSubmittedPositionMs = nil
             }
+        } catch {
+            guard outputSession == submission.token,
+                  connection.output.isCurrent(submission.token) else { return }
+            lastSubmittedPositionMs = nil
+            errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),
+                                  error.localizedDescription)
         }
     }
 
     private func finishPlayback() {
+        savePlaybackPosition(force: true)
         isPlaying = false
         pausedByUser = true
         suspendBoardOutput()
@@ -637,6 +762,71 @@ final class PresetLiveModel {
             }
         }
         return result
+    }
+
+    private func restoreCheckpointMaterial() -> Bool {
+        guard let material = defaults.string(forKey: Self.playbackMaterialKey) else { return false }
+        if material.hasPrefix(Self.customPlaybackPrefix) {
+            guard storedCustomPlaybackMaterial == material else { return false }
+            guard activePlaybackMaterial != material else { return canPlay }
+            enterCustom(persistSelection: false)
+            return canPlay && activePlaybackMaterial == material
+        }
+        guard material.hasPrefix(Self.builtInPlaybackPrefix) else { return false }
+        let remainder = material.dropFirst(Self.builtInPlaybackPrefix.count)
+        guard let separator = remainder.firstIndex(of: "|") else { return false }
+        let id = String(remainder[..<separator])
+        guard activePlaybackMaterial != material,
+              let performance = builtInPerformances.first(where: { $0.id == id }) else {
+            return activePlaybackMaterial == material && canPlay
+        }
+        return selectBuiltIn(performance, persistSelection: false)
+            && canPlay && activePlaybackMaterial == material
+    }
+
+    private var activePlaybackMaterial: String? {
+        if let selectedBuiltIn {
+            let audioIdentity = defaults.string(forKey: audioKey(for: selectedBuiltIn)) ?? "bundle"
+            return Self.builtInPlaybackPrefix + selectedBuiltIn + "|" + audioIdentity
+        }
+        if isCustomMode { return storedCustomPlaybackMaterial }
+        return nil
+    }
+
+    private var storedCustomPlaybackMaterial: String? {
+        guard let script = defaults.string(forKey: Self.scriptFileKey),
+              let audio = defaults.string(forKey: Self.audioFileKey) else { return nil }
+        return Self.customPlaybackPrefix + script + "|" + audio
+    }
+
+    private func preparePlaybackStreamForCurrentMaterial(restoring: Bool) {
+        guard canPlay, let material = activePlaybackMaterial else { return }
+        if !restoring {
+            let savedMaterial = defaults.string(forKey: Self.playbackMaterialKey)
+            if savedMaterial != material || defaults.string(forKey: Self.playbackStreamKey) == nil {
+                playbackStreamID = UUID().uuidString
+            } else if playbackStreamID == nil {
+                playbackStreamID = defaults.string(forKey: Self.playbackStreamKey)
+            }
+        }
+        guard let playbackStreamID else { return }
+        defaults.set(material, forKey: Self.playbackMaterialKey)
+        defaults.set(playbackStreamID, forKey: Self.playbackStreamKey)
+    }
+
+    private func reportMissingOriginalStream() {
+        errorMessage = NSLocalizedString("无法找到此演出的原始播放流", comment: "performance recovery stream missing")
+    }
+
+    /// UserDefaults writes are throttled to roughly twice per second while
+    /// playing, with exact checkpoints at transport and lifecycle boundaries.
+    private func savePlaybackPosition(force: Bool) {
+        guard player != nil else { return }
+        let checkpoint = max(0, min(durationMs, positionMs))
+        if !force, let lastPersistedPositionMs,
+           abs(checkpoint - lastPersistedPositionMs) < 500 { return }
+        defaults.set(checkpoint, forKey: Self.playbackPositionKey)
+        lastPersistedPositionMs = checkpoint
     }
 
     private func parseScript(_ data: Data, library: PartsLibrary,

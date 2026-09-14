@@ -18,6 +18,7 @@ struct BoardControlCenterView: View {
     @Environment(FaceLibraryModel.self) private var faceLibrary
     @Environment(BoardStore.self) private var boardStore
     @Environment(BLETransport.self) private var bleTransport
+    @Environment(BoardSessionStore.self) private var sessions
     @State private var boardSwitcher: ConnectionViewModel?
 
     /// Non-nil when presented as a sheet, so it can offer a Done button.
@@ -39,6 +40,9 @@ struct BoardControlCenterView: View {
             colorSection
         }
         .listSectionSpacing(.compact)
+        // Pushed from Settings before iOS 26; with `onDismiss` it is the
+        // tab-bar accessory's sheet, which keeps its presentation background.
+        .rinaScrollBackground(onDismiss == nil)
         .errorAlert(errorMessage)
         .navigationTitle("面板控制")
         .navigationBarTitleDisplayMode(.inline)
@@ -54,6 +58,11 @@ struct BoardControlCenterView: View {
             if faceLibrary.faceDocument.faces.isEmpty {
                 await faceLibrary.reload(connection: connection)
             }
+        }
+        .task {
+            // See ConnectionView: refresh the cache whenever this surface
+            // (re)appears rather than trusting a possibly stale join.
+            await HotspotJoiner.revalidateLastJoinedSSID()
         }
     }
 
@@ -134,6 +143,7 @@ struct BoardControlCenterView: View {
             ?? boardStore.boards.first(where: { $0.id == currentBoardID })?.name
             ?? bleTransport.connectedPeripheralName
             ?? connection.wifi?.hostname
+            ?? (sessions.active.boardID != nil ? sessions.active.name : nil)
             ?? "Rina-Chan Board"
     }
 
@@ -142,26 +152,31 @@ struct BoardControlCenterView: View {
         case .bluetooth: return bleTransport.connectedPeripheralID?.uuidString
         case .wifi(let host, _):
             return boardStore.boards.first(where: { $0.lastHost == host || $0.id == host })?.id
-        case .hotspot: return RinaLinkConstants.apIP
+        case .hotspot:
+            // No apIP fallback: an unresolved/stale SSID must not silently
+            // resolve to some other board's legacy shared-IP record. Prefer
+            // this session's own expected SSID over the process-global
+            // `lastJoinedSSID`, which a second board's session could have
+            // overwritten since this one connected.
+            let ssid = connection.expectedHotspotSSID ?? HotspotJoiner.lastJoinedSSID
+            return ssid.map(KnownBoard.hotspotStorageID)
         case nil: return nil
         }
     }
 
+    /// Only a switch this menu started locks it. The selected board being
+    /// out of range and retrying must not trap the user there: every other
+    /// board keeps its own connection and stays one pick away.
     private var isSwitchingBoard: Bool {
-        if boardSwitcher?.connectingSavedBoardID != nil { return true }
-        switch connection.connectionState {
-        case .connecting, .reconnecting: return true
-        default: return false
-        }
+        boardSwitcher?.connectingSavedBoardID != nil
     }
 
     private func switchBoard(to board: KnownBoard) {
-        guard !isSwitchingBoard, !isConnected || board.id != currentBoardID else { return }
+        guard !isSwitchingBoard else { return }
         let switcher = boardSwitcher ?? ConnectionViewModel()
         boardSwitcher = switcher
         Task {
-            await switcher.connectSavedBoard(board, ble: bleTransport,
-                                             connection: connection, boardStore: boardStore)
+            await switcher.connectSavedBoard(board, sessions: sessions, boardStore: boardStore)
         }
     }
 

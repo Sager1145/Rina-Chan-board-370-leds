@@ -19,6 +19,7 @@ struct FaceEditRequest: Identifiable, Equatable {
     let face: SavedFace
     let location: FaceLibraryLocation
     let asCopy: Bool
+    let boardID: String?
     let boardGeneration: UUID?
 }
 
@@ -28,6 +29,11 @@ struct FaceBatchResult: Equatable {
 
     var succeededCount: Int { succeededIDs.count }
     var failedCount: Int { failures.count }
+}
+
+struct BoardFaceSaveSource: Equatable {
+    let boardID: String?
+    let generation: UUID?
 }
 
 private struct LocalDeletion {
@@ -43,6 +49,9 @@ final class FaceLibraryModel {
     /// call sites. This document is always the current board's library.
     var faceDocument = FaceDocument()
     private(set) var localDocument = FaceDocument()
+    /// Stable identity of the physical board that supplied `faceDocument`.
+    /// Unlike `boardGeneration`, this survives a reconnect to the same board.
+    private(set) var boardID: String?
     private(set) var boardGeneration: UUID?
 
     var isLoading = false
@@ -134,11 +143,13 @@ final class FaceLibraryModel {
         }
     }
 
-    /// Clears board-owned ids as soon as the connection session changes. A
-    /// face id from one physical board must never become an edit target on the
-    /// next board merely because the ids happen to match.
+    /// Invalidates session-owned board data. `boardID` deliberately survives:
+    /// it identifies the physical source of an editor save target across a
+    /// reconnect, while `boardGeneration` gates replies from the retired link.
     func synchronizeBoardGeneration(_ generation: UUID) {
         guard boardGeneration != generation else { return }
+        boardLoadRevision &+= 1
+        isLoading = false
         faceDocument = FaceDocument()
         boardGeneration = nil
     }
@@ -152,9 +163,12 @@ final class FaceLibraryModel {
             return false
         }
         let generation = connection.connectionGeneration
+        let currentBoardID = connection.boardKey
         boardLoadRevision &+= 1
         let revision = boardLoadRevision
-        if boardGeneration != generation { faceDocument = FaceDocument() }
+        if boardGeneration != generation || boardID != currentBoardID {
+            faceDocument = FaceDocument()
+        }
         isLoading = true
         defer {
             if revision == boardLoadRevision { isLoading = false }
@@ -164,6 +178,7 @@ final class FaceLibraryModel {
             guard generation == connection.connectionGeneration,
                   revision == boardLoadRevision else { return false }
             faceDocument = try FaceDocument(jsonData: data)
+            boardID = currentBoardID
             boardGeneration = generation
             return true
         } catch is CancellationError {
@@ -192,6 +207,7 @@ final class FaceLibraryModel {
             face: face,
             location: location,
             asCopy: asCopy || isProtected(face),
+            boardID: location == .board ? boardID : nil,
             boardGeneration: location == .board ? connectionGeneration : nil
         )
     }
@@ -250,39 +266,49 @@ final class FaceLibraryModel {
     // MARK: Save / update
 
     @discardableResult
-    func save(_ payload: FaceUpsertPayload, connection: BoardConnection) async -> SaveOutcome {
+    func save(_ payload: FaceUpsertPayload, source: BoardFaceSaveSource? = nil,
+              connection: BoardConnection) async -> SaveOutcome {
         errorMessage = nil
         guard connection.connectionState == .connected else {
             errorMessage = NSLocalizedString("未连接，无法保存到面板", comment: "cannot save face to disconnected board")
             return .failed
         }
-        var safePayload = payload
-        if safePayload.id != nil, boardGeneration != connection.connectionGeneration {
-            safePayload.id = nil
+        if payload.id != nil {
+            let targetMatches = source.map {
+                Self.sameBoard(sourceBoardID: $0.boardID,
+                               sourceGeneration: $0.generation,
+                               currentBoardID: connection.boardKey,
+                               currentGeneration: connection.connectionGeneration)
+            } ?? boardDocumentBelongs(to: connection)
+            guard targetMatches else {
+                errorMessage = NSLocalizedString("面板已更换，请重新选择表情", comment: "saved face belongs to another board")
+                return .failed
+            }
         }
         isSaving = true
         defer { isSaving = false }
         do {
-            _ = try await connection.faceUpsert(safePayload)
-            let savedFrame = PackedFrame(hex94: safePayload.frameHex)
-            if let id = safePayload.id, connection.lastFaceOpGenMatchedExpectation,
+            _ = try await connection.faceUpsert(payload)
+            let savedFrame = PackedFrame(hex94: payload.frameHex)
+            if let id = payload.id, connection.lastFaceOpGenMatchedExpectation,
                let frame = savedFrame,
                let index = faceDocument.faces.firstIndex(where: { $0.id == id }) {
-                faceDocument.faces[index].name = safePayload.name
-                faceDocument.faces[index].type = SavedFace.Kind(rawValue: safePayload.type) ?? .custom
+                faceDocument.faces[index].name = payload.name
+                faceDocument.faces[index].type = SavedFace.Kind(rawValue: payload.type) ?? .custom
                 faceDocument.faces[index].frameBytes = frame.bytes.map(Int.init)
                 faceDocument.faces[index].updatedAt = timestamp()
-                faceDocument.faces[index].call = safePayload.call
+                faceDocument.faces[index].call = payload.call
+                boardID = connection.boardKey
                 boardGeneration = connection.connectionGeneration
                 return .saved(id: id)
             }
             await reload(connection: connection)
-            if safePayload.id == nil, let frame = savedFrame {
+            if payload.id == nil, let frame = savedFrame {
                 let bytes = frame.bytes.map(Int.init)
-                let matched = faceDocument.faces.last { $0.name == safePayload.name && $0.frameBytes == bytes }
+                let matched = faceDocument.faces.last { $0.name == payload.name && $0.frameBytes == bytes }
                 return .saved(id: matched?.id)
             }
-            return .saved(id: safePayload.id)
+            return .saved(id: payload.id)
         } catch {
             await handleFaceOpError(error, connection: connection)
             return .failed
@@ -344,6 +370,23 @@ final class FaceLibraryModel {
                 ? SavedFace.CallIds(leye: call.leye, reye: call.reye, mouth: call.mouth, cheek: call.cheek)
                 : nil
         )
+    }
+
+    func boardUpsertPayload(editingFaceId: String?, canOverwrite: Bool,
+                            name: String, frame: PackedFrame,
+                            fromParts: Bool, call: PartsCall) -> FaceUpsertPayload {
+        let clean = cleanName(name)
+        let overwriteID = canOverwrite ? editingFaceId : nil
+        let payload = FaceUpsertPayload(
+            id: overwriteID,
+            name: overwriteID == nil && editingFaceId != nil ? "\(clean)_copy" : clean,
+            type: (fromParts ? SavedFace.Kind.parts : .custom).rawValue,
+            frameHex: frame.hex94,
+            call: fromParts
+                ? SavedFace.CallIds(leye: call.leye, reye: call.reye, mouth: call.mouth, cheek: call.cheek)
+                : nil
+        )
+        return payload
     }
 
     // MARK: Rename / duplicate / copy
@@ -645,6 +688,24 @@ final class FaceLibraryModel {
     }
 
     // MARK: Helpers
+
+    /// A physical identity takes precedence over a link session. When either
+    /// side lacks that identity, only the exact session is safe: an unknown
+    /// board after reconnect must not inherit an old face id.
+    nonisolated static func sameBoard(sourceBoardID: String?, sourceGeneration: UUID?,
+                                      currentBoardID: String?, currentGeneration: UUID) -> Bool {
+        if sourceBoardID != nil || currentBoardID != nil {
+            return sourceBoardID != nil && sourceBoardID == currentBoardID
+        }
+        return sourceGeneration != nil && sourceGeneration == currentGeneration
+    }
+
+    private func boardDocumentBelongs(to connection: BoardConnection) -> Bool {
+        Self.sameBoard(sourceBoardID: boardID,
+                       sourceGeneration: boardGeneration,
+                       currentBoardID: connection.boardKey,
+                       currentGeneration: connection.connectionGeneration)
+    }
 
     private func document(in location: FaceLibraryLocation) -> FaceDocument {
         location == .local ? localDocument : faceDocument

@@ -112,7 +112,7 @@ struct BoardControlCenterAccessory: View {
             HStack(spacing: 8) {
                 statusBadge
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("面板控制")
+                    Text(connection.deviceName ?? "面板控制")
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
                     // Dropped where there is no room for a second line: the
@@ -166,7 +166,7 @@ struct BoardControlCenterAccessory: View {
                 .background(controlRing())
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AccessoryControlStyle())
         .foregroundStyle(.primary)
         .accessibilityLabel(label)
     }
@@ -196,7 +196,7 @@ struct BoardControlCenterAccessory: View {
                 .contentShape(.rect)
         }
         .toggleStyle(.button)
-        .buttonStyle(.plain)
+        .buttonStyle(AccessoryControlStyle())
         .animation(.snappy(duration: 0.18), value: isAuto)
         .accessibilityLabel("自动模式")
         .accessibilityValue(Text(isAuto ? "自动" : "手动"))
@@ -295,7 +295,7 @@ struct BoardControlCenterAccessory: View {
                 .background(controlRing())
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AccessoryControlStyle())
         // The accessory sits at the bottom of the screen, so the menu opens
         // upwards; keep the presets in their JSON order rather than reversed.
         .menuOrder(.fixed)
@@ -443,6 +443,19 @@ private struct BatteryRing: View {
         // the frame's edge, like the neighbouring `strokeBorder` rings.
         .padding(Self.lineWidth / 2)
         .animation(.snappy, value: reading)
+    }
+}
+
+/// Press feedback for the accessory's inline controls: the pressed control
+/// itself shrinks and dims, so the response stays on the button that was
+/// touched instead of reading as the whole bar reacting.
+@available(iOS 26.0, *)
+private struct AccessoryControlStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.82 : 1)
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
     }
 }
 

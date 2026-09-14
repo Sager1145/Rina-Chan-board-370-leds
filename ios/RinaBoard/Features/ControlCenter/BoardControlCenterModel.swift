@@ -201,12 +201,13 @@ final class BoardControlCenterModel {
     func toggleAutoMode(connection: BoardConnection) async {
         let epoch = connectionEpoch
         let current = effectiveMode(status: connection.status)
-        modeOverride = current == "auto" ? "manual" : "auto"
+        let targetMode = current == "auto" ? "manual" : "auto"
+        modeOverride = targetMode
         modeOverrideUntil = Date().addingTimeInterval(2)
         let token = connection.output.begin(modeOverride == "auto" ? .automatic : .manual)
         await run(connection, expectedConnectionEpoch: epoch,
                   reconcile: { $0.modeOverrideUntil = .distantPast }) { conn in
-            try await conn.withOutput(token) { _ = try await conn.command(.button(button: "B3")) }
+            try await conn.withOutput(token) { _ = try await conn.command(.setMode(mode: targetMode)) }
         }
     }
 

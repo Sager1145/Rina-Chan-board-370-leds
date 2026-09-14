@@ -8,10 +8,13 @@ final class ConnectionLifecycleTests: XCTestCase {
     func testThrowWithoutStateEventRetriesAndEventuallyConnects() async throws {
         let wire = LifecycleTransport(failures: 2)
         let board = BoardConnection(reconnectDelay: { _ in 0.01 })
-        let first = await board.connect(using: wire)
+        var readyCount = 0
+        let first = await board.connect(using: wire) { readyCount += 1 }
         XCTAssertFalse(first)
+        XCTAssertEqual(readyCount, 0)
         XCTAssertEqual(board.lastError, "GATT discovery failed")
         try await waitUntil { board.connectionState == .connected }
+        XCTAssertEqual(readyCount, 1)
         XCTAssertEqual(wire.attempts, 3)
         XCTAssertNil(board.lastError)
         XCTAssertEqual(wire.pings, 1)
@@ -29,6 +32,25 @@ final class ConnectionLifecycleTests: XCTestCase {
         XCTAssertFalse(result)
         XCTAssertGreaterThan(wire.disconnects, 0)
         XCTAssertNotNil(board.lastError)
+        board.disconnect()
+    }
+
+    func testDeviceNameReadFinishesBeforeConnectedIsPublished() async throws {
+        let wire = LifecycleTransport()
+        wire.holdGetInfo = true
+        let board = BoardConnection()
+        var readyCount = 0
+
+        let task = Task { await board.connect(using: wire) { readyCount += 1 } }
+        try await waitUntil { wire.heldGetInfo != nil }
+
+        XCTAssertEqual(board.connectionState, .connecting)
+        XCTAssertEqual(readyCount, 0)
+        wire.releaseGetInfo()
+        let connected = await task.value
+        XCTAssertTrue(connected)
+        XCTAssertEqual(board.connectionState, .connected)
+        XCTAssertEqual(readyCount, 1)
         board.disconnect()
     }
 
@@ -74,7 +96,8 @@ final class ConnectionLifecycleTests: XCTestCase {
         let wire = LifecycleTransport()
         wire.replyToPing = false
         let board = BoardConnection(reconnectDelay: { _ in 0.01 })
-        let task = Task { await board.connect(using: wire) }
+        var readyCount = 0
+        let task = Task { await board.connect(using: wire) { readyCount += 1 } }
         try await waitUntil { wire.pings == 1 }
         task.cancel()
         let connected = await task.value
@@ -82,6 +105,7 @@ final class ConnectionLifecycleTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(30))
         XCTAssertEqual(wire.attempts, 1)
         XCTAssertEqual(board.connectionState, .disconnected)
+        XCTAssertEqual(readyCount, 0)
     }
 
     func testReconnectResetsPartialFrameAndIgnoresSameTransportOldStream() async throws {
@@ -182,6 +206,111 @@ final class ConnectionLifecycleTests: XCTestCase {
         board.disconnect()
     }
 
+    // MARK: Hotspot identity (BoardIdentity)
+
+    func testHotspotIdentityMismatchDisconnectsAndStopsReconnecting() async throws {
+        let wire = LifecycleTransport(kind: .hotspot)
+        wire.wifiApSsid = "RinaChanBoard-000000000000"
+        let board = BoardConnection(reconnectDelay: { _ in 0.01 })
+        board.expectedHotspotSSID = "RinaChanBoard-80B54EF48E09"
+        let connected = await board.connect(using: wire)
+        XCTAssertFalse(connected)
+        XCTAssertTrue(wire.disconnects > 0)
+        let expectedMessage = "已连接到另一块璃奈板（RinaChanBoard-000000000000），而不是 RinaChanBoard-80B54EF48E09"
+        XCTAssertEqual(board.lastError, expectedMessage)
+        XCTAssertEqual(board.connectionState, .failed(expectedMessage))
+        // No further reconnect attempt: this transport is retired, not retried.
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(wire.attempts, 1)
+        XCTAssertEqual(board.connectionState, .failed(expectedMessage))
+        board.disconnect()
+    }
+
+    /// A saved board that was connected as A drops its link and reconnects
+    /// onto a hotspot now reporting B (the phone's Wi-Fi silently roamed):
+    /// the reconnect attempt itself must fail closed with the mismatch
+    /// message, not keep retrying against a board we know isn't the one we
+    /// expect, and `onReady` must not fire again for the failed attempt.
+    func testReconnectHotspotIdentityMismatchFailsWithoutFurtherRetries() async throws {
+        let wire = LifecycleTransport(kind: .hotspot)
+        wire.wifiApSsid = "RinaChanBoard-80B54EF48E09"
+        let board = BoardConnection(reconnectDelay: { _ in 0.01 })
+        board.expectedHotspotSSID = "RinaChanBoard-80B54EF48E09"
+        var readyCount = 0
+        let connected = await board.connect(using: wire) { readyCount += 1 }
+        XCTAssertTrue(connected)
+        XCTAssertEqual(readyCount, 1)
+
+        wire.wifiApSsid = "RinaChanBoard-000000000000"
+        wire.emit(.disconnected)
+        try await waitUntil {
+            if case .failed = board.connectionState { return true }
+            return false
+        }
+        let expectedMessage = "已连接到另一块璃奈板（RinaChanBoard-000000000000），而不是 RinaChanBoard-80B54EF48E09"
+        XCTAssertEqual(board.connectionState, .failed(expectedMessage))
+        XCTAssertEqual(readyCount, 1)
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(board.connectionState, .failed(expectedMessage))
+        board.disconnect()
+    }
+
+    /// A `.hotspot` link whose expected SSID embeds a unique board id but
+    /// whose GET_STATUS read comes back with no `wifi` snapshot at all (as
+    /// opposed to one with no identity fields, which is old-firmware and
+    /// must be allowed) is a failed setup read, not a confirmed mismatch —
+    /// it should retry via the normal reconnect loop instead of "allowing".
+    func testHotspotUniqueExpectedButStatusReadFailsRetriesInsteadOfAllowing() async throws {
+        let wire = LifecycleTransport(kind: .hotspot)
+        wire.omitWifiFromStatus = true
+        let board = BoardConnection(reconnectDelay: { _ in 0.01 })
+        board.expectedHotspotSSID = "RinaChanBoard-80B54EF48E09"
+        let connected = await board.connect(using: wire)
+        XCTAssertFalse(connected)
+        XCTAssertNotEqual(board.connectionState, .connected)
+        try await waitUntil { wire.attempts >= 2 }
+        board.disconnect()
+    }
+
+    /// A saved board's reconnect path must not carry over a stale hotspot
+    /// identity expectation onto a non-hotspot transport.
+    func testNonHotspotConnectClearsExpectedHotspotSSID() async throws {
+        let hotspotWire = LifecycleTransport(kind: .hotspot)
+        hotspotWire.wifiApSsid = "RinaChanBoard-80B54EF48E09"
+        let board = BoardConnection(reconnectDelay: { _ in 0.01 })
+        board.expectedHotspotSSID = "RinaChanBoard-80B54EF48E09"
+        _ = await board.connect(using: hotspotWire)
+        XCTAssertEqual(board.expectedHotspotSSID, "RinaChanBoard-80B54EF48E09")
+
+        let wifiWire = LifecycleTransport(kind: .wifi(host: "192.168.1.14", port: 5000))
+        _ = await board.connect(using: wifiWire)
+        XCTAssertNil(board.expectedHotspotSSID)
+        board.disconnect()
+    }
+
+    func testHotspotIdentityMatchStaysConnected() async throws {
+        let wire = LifecycleTransport(kind: .hotspot)
+        wire.wifiApSsid = "RinaChanBoard-80B54EF48E09"
+        let board = BoardConnection(reconnectDelay: { _ in 0.01 })
+        board.expectedHotspotSSID = "RinaChanBoard-80B54EF48E09"
+        let connected = await board.connect(using: wire)
+        XCTAssertTrue(connected)
+        XCTAssertEqual(board.connectionState, .connected)
+        board.disconnect()
+    }
+
+    func testHotspotIdentityUnknownStaysConnected() async throws {
+        let wire = LifecycleTransport(kind: .hotspot)
+        // wifiApSsid unset: the board's reply carries no identity, e.g. older
+        // firmware — unknown must be treated as "allow".
+        let board = BoardConnection(reconnectDelay: { _ in 0.01 })
+        board.expectedHotspotSSID = "RinaChanBoard-80B54EF48E09"
+        let connected = await board.connect(using: wire)
+        XCTAssertTrue(connected)
+        XCTAssertEqual(board.connectionState, .connected)
+        board.disconnect()
+    }
+
     private func waitUntil(_ condition: () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(3)
         while !condition() && Date() < deadline {
@@ -193,7 +322,7 @@ final class ConnectionLifecycleTests: XCTestCase {
 
 @MainActor
 private final class LifecycleTransport: RinaTransport {
-    let kind: TransportKind = .bluetooth
+    let kind: TransportKind
     let preferredChunkBytes = 512
     var failures: Int
     var attempts = 0
@@ -205,11 +334,24 @@ private final class LifecycleTransport: RinaTransport {
     var displayFrame = PackedFrame()
     var holdStatus = false
     var heldStatus: Data?
+    var holdGetInfo = false
+    var heldGetInfo: Data?
+    /// Reported in `getStatus`'s `wifi.apSsid`, for hotspot-identity tests.
+    var wifiApSsid: String?
+    /// Reported in `getStatus`'s `wifi.boardId`, for hotspot-identity tests.
+    var wifiBoardId: String?
+    /// Drops the `wifi` object from `getStatus` entirely (as opposed to it
+    /// carrying no identity fields), simulating a GET_STATUS read that failed
+    /// to produce a Wi-Fi snapshot at all.
+    var omitWifiFromStatus = false
     private let decoder = RinaLinkDecoder()
     private var states: AsyncStream<TransportState>.Continuation?
     private var incoming: AsyncStream<Data>.Continuation?
 
-    init(failures: Int = 0) { self.failures = failures }
+    init(failures: Int = 0, kind: TransportKind = .bluetooth) {
+        self.failures = failures
+        self.kind = kind
+    }
     func stateStream() -> AsyncStream<TransportState> { AsyncStream { states = $0 } }
     func incomingStream() -> AsyncStream<Data> { AsyncStream { incoming = $0 } }
     func emit(_ state: TransportState) { states?.yield(state) }
@@ -217,6 +359,11 @@ private final class LifecycleTransport: RinaTransport {
     func savedStateEmitter() -> (TransportState) -> Void {
         let saved = states
         return { saved?.yield($0) }
+    }
+    func releaseGetInfo() {
+        guard let reply = heldGetInfo else { return }
+        heldGetInfo = nil
+        receive(reply)
     }
     func connect() async throws {
         attempts += 1
@@ -237,10 +384,14 @@ private final class LifecycleTransport: RinaTransport {
             let payload: Data
             switch RinaLinkMessageType(rawValue: frame.type) {
             case .getStatus:
-                payload = try JSONSerialization.data(withJSONObject: [
-                    "ok": true, "renderer": ["mode": mode],
-                    "power": [:], "wifi": ["ip": "192.168.1.20"]
-                ])
+                var object: [String: Any] = ["ok": true, "renderer": ["mode": mode], "power": [:]]
+                if !omitWifiFromStatus {
+                    var wifi: [String: Any] = ["ip": "192.168.1.20"]
+                    if let wifiApSsid { wifi["apSsid"] = wifiApSsid }
+                    if let wifiBoardId { wifi["boardId"] = wifiBoardId }
+                    object["wifi"] = wifi
+                }
+                payload = try JSONSerialization.data(withJSONObject: object)
             case .getPreviewSync:
                 payload = try JSONSerialization.data(withJSONObject: ["ok": true, "mode": mode])
             case .getFrame:
@@ -250,9 +401,14 @@ private final class LifecycleTransport: RinaTransport {
             }
             let response = RinaLinkFrame(type: frame.type | 0x80, seq: frame.seq,
                                          flags: 0, payload: payload)
-            let encoded = RinaLinkEncoder.encode(response)
+            let encoded = try! RinaLinkEncoder.encode(response)
             if holdStatus, frame.type == RinaLinkMessageType.getStatus.rawValue {
                 heldStatus = encoded
+            } else if holdGetInfo,
+                      frame.type == RinaLinkMessageType.cmd.rawValue,
+                      let object = try? JSONSerialization.jsonObject(with: frame.payload) as? [String: Any],
+                      object["cmd"] as? String == RinaCommand.getInfo.name {
+                heldGetInfo = encoded
             } else {
                 incoming?.yield(encoded)
             }

@@ -44,6 +44,32 @@ public final class BoardConnection {
     /// The active board's effective advertised name, read from `get_info`.
     /// It is deliberately scoped to the current connection generation.
     public private(set) var deviceName: String?
+    /// The board's MAC-derived id (`wifi.boardId`, or the suffix of
+    /// `get_info.defaultName`), fixed when the handshake completes. Unlike a
+    /// name or an address it is the same over every transport and unique per
+    /// board. Nil for firmware that reports neither.
+    public private(set) var boardIdentity: String?
+    private var setupDefaultName: String?
+    /// Remembers, per transport fallback key (the `ble:<uuid>` / `wifi:<host>`
+    /// key `boardKey` would fall back to without an identity), the last
+    /// `board:<id>`-worthy identity this connection object obtained on that
+    /// same fallback key. A same-board reconnect whose handshake reads
+    /// (`wifi.boardId` / `get_info.defaultName`) both time out reuses it
+    /// instead of falling back to the transport-derived key, which would look
+    /// like a different board to `ControlViewModel.boardDidChange(to:)` and
+    /// discard the in-progress face draft. Never consulted across a different
+    /// fallback key (a genuinely different board over the same transport kind).
+    private var rememberedIdentityByFallbackKey: [String: String] = [:]
+    /// Set true this `establish()` attempt when `GET_STATUS` itself failed to
+    /// reply (or didn't decode) — as opposed to replying without a `wifi`/
+    /// `boardId` field, which is a legitimate "this board has no id" answer
+    /// and must never trigger reuse (fix for board-identity-flip §a).
+    private var setupStatusReadFailed = false
+    /// Same as `setupStatusReadFailed`, for the `get_info` round trip that
+    /// reads `defaultName`.
+    private var setupGetInfoReadFailed = false
+    /// RinaLink protocol version reported by `CMD get_info` for this connection.
+    public private(set) var protocolVersion: Int?
 
     public private(set) var status: DeviceStatus?
     public private(set) var preview: PreviewSync?
@@ -56,6 +82,14 @@ public final class BoardConnection {
     public private(set) var lastError: String?
     public private(set) var lastLog: RinaLogEvent?
     public private(set) var lastWifiScan: WifiScanReply?
+    /// The SoftAP SSID this session expects to be talking to over a `.hotspot`
+    /// transport, set by the connect path (`ConnectionViewModel.connectHotspot`
+    /// / `connectSavedBoard`). Every board's SoftAP shares one IP, so after
+    /// each hotspot connect/reconnect this is checked against the board's own
+    /// reported identity (`BoardIdentity.matches`) — a mismatch means the
+    /// phone's Wi-Fi silently moved to a *different* board's hotspot. `nil`
+    /// (unset, or cleared on a non-hotspot connect) skips the check.
+    public var expectedHotspotSSID: String?
 
     // MARK: Private
 
@@ -64,14 +98,18 @@ public final class BoardConnection {
     private let decoder = RinaLinkDecoder()
     private var nextSeq: UInt8 = 1
     private var pending: [UInt8: PendingRequest] = [:]
-    /// Seqs that just timed out, kept out of circulation for 2s so a reply
-    /// that finally arrives after the timeout can't be delivered to a
-    /// different (reused) request that happens to land on the same seq.
-    private var quarantinedSeqs: Set<UInt8> = []
+    /// Retain only matching metadata until the old reply finishes or the carrier resets.
+    private struct QuarantinedRequest {
+        let replyType: UInt8
+        let aggregateMore: Bool
+    }
+    private var quarantinedSeqs: [UInt8: QuarantinedRequest] = [:]
+    private static let quarantineReconnectThreshold = 128
     private var incomingTask: Task<Void, Never>?
     private var stateTask: Task<Void, Never>?
     private var pingTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
+    private var connectionReadyHandler: (@MainActor () -> Void)?
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 5
     private var transportSessionID = UUID()
@@ -79,6 +117,9 @@ public final class BoardConnection {
     private var establishmentError: String?
     private var reconnectDelay: (Int) -> TimeInterval = { min(30, pow(2, Double($0))) }
     private var handshakeTimeout: TimeInterval = 5
+    private static let eventBufferLimit = 256
+    private static let maxAggregatedReplyBytes = 256 * 1024
+    private static let maxFacesDocumentBytes = 256 * 1024
 
     // Rate limiting (FEATURE_INVENTORY D6): frames >=20ms apart depth 6 drop-oldest,
     // commands >=120ms apart depth 4 drop-oldest.
@@ -110,7 +151,7 @@ public final class BoardConnection {
         }
     }
 
-    private struct PendingRequest {
+    private final class PendingRequest {
         let id: UUID
         let replyType: UInt8
         /// When false (GET_FACES), a terminal frame resolves the request
@@ -122,6 +163,22 @@ public final class BoardConnection {
         let continuation: CheckedContinuation<RinaLinkFrame, Error>
         let timeoutTask: Task<Void, Never>
         var sendTask: Task<Void, Never>?
+
+        init(
+            id: UUID,
+            replyType: UInt8,
+            aggregateMore: Bool,
+            continuation: CheckedContinuation<RinaLinkFrame, Error>,
+            timeoutTask: Task<Void, Never>,
+            sendTask: Task<Void, Never>?
+        ) {
+            self.id = id
+            self.replyType = replyType
+            self.aggregateMore = aggregateMore
+            self.continuation = continuation
+            self.timeoutTask = timeoutTask
+            self.sendTask = sendTask
+        }
     }
 
     public init() {}
@@ -134,12 +191,20 @@ public final class BoardConnection {
     // MARK: Connection lifecycle
 
     /// Swaps in `transport` as the active transport and connects it. Returns
-    /// `true` after the handshake and initial snapshot reads, `false` on failure — kept
-    /// `@discardableResult` so existing call sites that only poll
-    /// `connectionState` afterwards keep working unmodified.
+    /// `true` after the handshake and initial snapshot reads, `false` on failure.
+    /// `onReady` runs once after setup succeeds, including when an internal
+    /// retry is the successful attempt, and before `.connected` is published.
+    /// Kept `@discardableResult` so call sites that only poll `connectionState`
+    /// afterwards keep working unmodified.
     @discardableResult
-    public func connect(using transport: RinaTransport) async -> Bool {
+    public func connect(
+        using transport: RinaTransport,
+        onReady: (@MainActor () -> Void)? = nil
+    ) async -> Bool {
         disconnect()
+        // An explicit connection starts a new carrier epoch. Callbacks from the
+        // old incoming stream are session-gated, so its retired IDs can go.
+        quarantinedSeqs.removeAll()
         output.invalidate()
         connectionGeneration = UUID()
         clearBoardSnapshot()
@@ -147,6 +212,12 @@ public final class BoardConnection {
         reconnectAttempts = 0
         self.transport = transport
         transportKind = transport.kind
+        if transport.kind != .hotspot {
+            // A saved-board reconnect over a different transport (or a
+            // manual host/BLE connect) is not a hotspot identity claim.
+            expectedHotspotSSID = nil
+        }
+        connectionReadyHandler = onReady
         return await establish(transport)
     }
 
@@ -156,8 +227,14 @@ public final class BoardConnection {
     private func establish(_ transport: RinaTransport) async -> Bool {
         let session = UUID()
         transportSessionID = session
+        // A fresh carrier has a fresh board-side parser/reply queue. Sequence
+        // IDs poisoned by uncertain requests on the old carrier can be reused;
+        // nextSeq itself intentionally keeps advancing to avoid immediate reuse.
+        quarantinedSeqs.removeAll()
         isEstablishing = true
         establishmentError = nil
+        setupStatusReadFailed = false
+        setupGetInfoReadFailed = false
         connectionState = .connecting
         decoder.reset()
         let states = transport.stateStream()
@@ -188,18 +265,65 @@ public final class BoardConnection {
             _ = await subscribeToDefaultEvents(duringSetup: true)
             guard transportSessionID == session else { return false }
             await refreshBoardSnapshot(session: session)
+            await refreshDeviceNameDuringSetup(for: transport, generation: connectionGeneration,
+                                               session: session)
             try Task.checkCancellation()
             guard transportSessionID == session else { return false }
             if let establishmentError { throw RinaTransportError.underlying(establishmentError) }
+            if transport.kind == .hotspot, let expected = expectedHotspotSSID,
+               BoardIdentity.boardID(fromAPSSID: expected) != nil, wifi == nil {
+                // A unique expected identity but no `wifi` snapshot at all means
+                // GET_STATUS itself failed/timed out here — unlike old firmware
+                // that legitimately reports no identity, this is a setup
+                // failure we can't clear by "allowing" and should retry, not a
+                // confirmed different-board mismatch.
+                throw RinaTransportError.underlying(
+                    NSLocalizedString("无法读取璃奈板的 Wi-Fi 状态", comment: "hotspot setup failed to read wifi status")
+                )
+            }
+            let fallbackKey = Self.boardKey(identity: nil, transportKind: transport.kind,
+                                            peripheralID: (transport as? BLETransport)?.connectedPeripheralID)
+            // Only a `ble:` fallback key is safe to remember/reuse across a
+            // connect: a peripheral UUID is per physical device. A `wifi:`
+            // (or hotspot) key can be the same literal address/SSID for two
+            // different boards in sequence (SoftAP's shared IP, DHCP reuse,
+            // the same host a person retyped for a different board), so
+            // reusing a remembered identity there would attach one board's
+            // saved-face/draft identity to a different board that happens to
+            // share the address.
+            let reuseEligibleKey = fallbackKey?.hasPrefix("ble:") == true ? fallbackKey : nil
+            if let freshIdentity = Self.normalizedBoardIdentity(wifiBoardID: wifi?.boardId,
+                                                                defaultName: setupDefaultName) {
+                boardIdentity = freshIdentity
+                if let reuseEligibleKey { rememberedIdentityByFallbackKey[reuseEligibleKey] = freshIdentity }
+            } else if setupStatusReadFailed, setupGetInfoReadFailed {
+                // Reuse only when both identity reads actually failed to come
+                // back (timeout/decode failure) — never when the board
+                // positively answered without an id, which is a legitimate
+                // "this board has no id" reply.
+                boardIdentity = reuseEligibleKey.flatMap { rememberedIdentityByFallbackKey[$0] }
+            } else {
+                boardIdentity = nil
+            }
+            if let mismatch = hotspotIdentityMismatchMessage(transport) {
+                stopCarrier()
+                self.transport = nil
+                connectionReadyHandler = nil
+                reconnectTask?.cancel()
+                reconnectTask = nil
+                lastError = mismatch
+                connectionState = .failed(mismatch)
+                return false
+            }
             isEstablishing = false
             reconnectAttempts = 0
             lastError = nil
+            let readyHandler = connectionReadyHandler
+            connectionReadyHandler = nil
+            readyHandler?()
             connectionState = .connected
-            let generation = connectionGeneration
             startPingLoopIfNeeded()
-            await refreshDeviceName(for: transport, generation: generation)
-            try Task.checkCancellation()
-            return transportSessionID == session && connectionState == .connected
+            return true
         } catch {
             guard transportSessionID == session else { return false }
             if Task.isCancelled || error is CancellationError {
@@ -209,6 +333,21 @@ public final class BoardConnection {
             }
             return false
         }
+    }
+
+    /// Non-nil (a ready-to-show zh-Hans message) exactly when this is a
+    /// `.hotspot` connect/reconnect with a known `expectedHotspotSSID` and the
+    /// board's freshly-refreshed `wifi` snapshot positively disagrees with it.
+    /// `nil` from `BoardIdentity.matches` (unknown — old firmware, or no
+    /// expectation set) always allows the connection through.
+    private func hotspotIdentityMismatchMessage(_ transport: RinaTransport) -> String? {
+        guard transport.kind == .hotspot, let expected = expectedHotspotSSID else { return nil }
+        guard BoardIdentity.matches(expectedHotspotSSID: expected, reported: wifi) == false else { return nil }
+        let reportedName = wifi?.apSsid ?? NSLocalizedString("另一块璃奈板", comment: "unknown board identity in hotspot mismatch message")
+        return String(
+            format: NSLocalizedString("已连接到另一块璃奈板（%@），而不是 %@", comment: "hotspot session connected to the wrong board"),
+            reportedName, expected
+        )
     }
 
     private func stopCarrier() {
@@ -228,6 +367,7 @@ public final class BoardConnection {
         reconnectTask = nil
         stopCarrier()
         transport = nil
+        connectionReadyHandler = nil
         lastError = nil
         deviceName = nil
         connectionState = .disconnected
@@ -267,6 +407,7 @@ public final class BoardConnection {
     private func attemptReconnect() {
         guard let transport else { return }
         guard reconnectAttempts < maxReconnectAttempts else {
+            connectionReadyHandler = nil
             connectionState = .failed("重连失败，已达到最大尝试次数：" + (lastError ?? ""))
             return
         }
@@ -338,7 +479,7 @@ public final class BoardConnection {
 
     /// Explicitly tears down a subscription created by `subscribeToEvents()`.
     public func unsubscribe(_ id: UUID) {
-        eventContinuations.removeValue(forKey: id)
+        eventContinuations.removeValue(forKey: id)?.finish()
     }
 
     /// Like `events()`, but also returns the subscription id so a caller that
@@ -347,15 +488,17 @@ public final class BoardConnection {
     /// leaking the continuation in `eventContinuations` forever.
     private func subscribeEvents() -> (id: UUID, stream: AsyncStream<BoardEvent>) {
         let id = UUID()
-        let stream = AsyncStream<BoardEvent> { continuation in
-            eventContinuations[id] = continuation
-            continuation.onTermination = { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.eventContinuations.removeValue(forKey: id)
-                }
+        let pair = AsyncStream.makeStream(
+            of: BoardEvent.self,
+            bufferingPolicy: .bufferingNewest(Self.eventBufferLimit)
+        )
+        eventContinuations[id] = pair.continuation
+        pair.continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.eventContinuations.removeValue(forKey: id)
             }
         }
-        return (id, stream)
+        return (id, pair.stream)
     }
 
     private func emit(_ event: BoardEvent) {
@@ -372,6 +515,9 @@ public final class BoardConnection {
         currentFrame = PackedFrame()
         hasCurrentFrame = false
         deviceName = nil
+        protocolVersion = nil
+        boardIdentity = nil
+        setupDefaultName = nil
     }
 
     /// Read a snapshot even when the firmware has no new events to publish.
@@ -381,12 +527,17 @@ public final class BoardConnection {
             guard !Task.isCancelled, transportSessionID == session else { return }
             guard let frame = try? await sendUnqueued(type: type, payload: Data(),
                                                       timeout: handshakeTimeout, aggregateMore: true,
-                                                      duringSetup: true) else { continue }
+                                                      duringSetup: true) else {
+                if type == .getStatus { setupStatusReadFailed = true }
+                continue
+            }
             guard !Task.isCancelled, transportSessionID == session else { return }
             switch type {
             case .getStatus:
                 if let decoded = try? JSONDecoder().decode(DeviceStatus.self, from: frame.payload) {
                     applyStatus(decoded)
+                } else {
+                    setupStatusReadFailed = true
                 }
             case .getFrame:
                 if let packed = PackedFrame(data: frame.payload) { currentFrame = packed }
@@ -401,10 +552,40 @@ public final class BoardConnection {
     }
 
     private func applyStatus(_ decoded: DeviceStatus) {
-        status = decoded
-        if let value = decoded.power { power = value }
-        if let value = decoded.wifi { wifi = value }
-        emit(.status(decoded))
+        let merged = DeviceStatus(
+            ok: decoded.ok ?? status?.ok,
+            v: decoded.v ?? status?.v,
+            version: decoded.version ?? status?.version,
+            device: decoded.device ?? status?.device,
+            uptimeMs: decoded.uptimeMs ?? status?.uptimeMs,
+            wifi: decoded.wifi ?? status?.wifi,
+            power: decoded.power ?? status?.power,
+            renderer: decoded.renderer ?? status?.renderer,
+            matrix: decoded.matrix ?? status?.matrix,
+            stats: decoded.stats ?? status?.stats
+        )
+        status = merged
+        if let value = merged.power { power = value }
+        if let value = merged.wifi { wifi = value }
+        emit(.status(merged))
+        checkHotspotIdentityWhileConnected()
+    }
+
+    /// Re-runs the `.hotspot` identity check (see `hotspotIdentityMismatchMessage`)
+    /// against a freshly received `wifi` snapshot while already `.connected` —
+    /// e.g. the phone's Wi-Fi silently roamed to a different board's SoftAP
+    /// mid-session. A positive mismatch tears the carrier down without
+    /// scheduling a reconnect, same as a mismatch caught during `establish()`.
+    private func checkHotspotIdentityWhileConnected() {
+        guard connectionState == .connected, let transport,
+              let mismatch = hotspotIdentityMismatchMessage(transport) else { return }
+        stopCarrier()
+        self.transport = nil
+        connectionReadyHandler = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        lastError = mismatch
+        connectionState = .failed(mismatch)
     }
 
     private func subscribeToDefaultEvents(duringSetup: Bool = false) async -> Bool {
@@ -452,6 +633,7 @@ public final class BoardConnection {
                 if let decoded = try? JSONDecoder().decode(WifiStatus.self, from: frame.payload) {
                     wifi = decoded
                     emit(.wifi(decoded))
+                    checkHotspotIdentityWhileConnected()
                 }
                 return
             case .evLog:
@@ -474,16 +656,30 @@ public final class BoardConnection {
         // A1/quarantine: a reply for a seq we already gave up on (timed out)
         // must not be delivered to a different, newer request that happens to
         // have been assigned the same (reused) seq.
-        guard !quarantinedSeqs.contains(frame.seq) else { return }
+        if let retired = quarantinedSeqs[frame.seq] {
+            if frame.type == retired.replyType || frame.isError {
+                if !retired.aggregateMore || !frame.isMore {
+                    quarantinedSeqs.removeValue(forKey: frame.seq)
+                }
+            }
+            return
+        }
 
         // Reply matching by seq, aggregating MORE-flagged chunks only for
         // requests that opted into aggregation (`aggregateMore == true`).
-        guard var request = pending[frame.seq], frame.type == request.replyType || frame.isError else {
+        guard let request = pending[frame.seq], frame.type == request.replyType || frame.isError else {
+            return
+        }
+        guard frame.payload.count <= Self.maxAggregatedReplyBytes - request.accumulated.count else {
+            pending.removeValue(forKey: frame.seq)
+            quarantine(frame.seq, request: request)
+            request.timeoutTask.cancel()
+            request.sendTask?.cancel()
+            request.continuation.resume(throwing: RinaTransportError.invalidResponse)
             return
         }
         request.accumulated.append(frame.payload)
         if request.aggregateMore, frame.isMore {
-            pending[frame.seq] = request
             return
         }
         pending.removeValue(forKey: frame.seq)
@@ -500,7 +696,8 @@ public final class BoardConnection {
     }
 
     private func failAllPending(_ error: Error) {
-        for (_, request) in pending {
+        for (seq, request) in pending {
+            quarantine(seq, request: request, recover: false)
             request.timeoutTask.cancel()
             request.sendTask?.cancel()
             request.continuation.resume(throwing: error)
@@ -510,25 +707,35 @@ public final class BoardConnection {
 
     // MARK: Low-level request/response
 
-    private func nextSequenceNumber() -> UInt8 {
+    private func nextSequenceNumber() throws -> UInt8 {
         // Skip seq values still awaiting a reply, or still quarantined from a
         // recent timeout, so a wraparound can't collide with an in-flight (or
         // still-possibly-replying) request.
         var candidate = nextSeq
         var attempts = 0
-        while pending[candidate] != nil || quarantinedSeqs.contains(candidate), attempts < 255 {
+        while pending[candidate] != nil || quarantinedSeqs[candidate] != nil, attempts < 255 {
             candidate = candidate == 255 ? 1 : candidate + 1
             attempts += 1
+        }
+        guard pending[candidate] == nil, quarantinedSeqs[candidate] == nil else {
+            throw RinaTransportError.sequenceSpaceExhausted
         }
         nextSeq = candidate == 255 ? 1 : candidate + 1
         return candidate
     }
 
-    private func quarantine(_ seq: UInt8) {
-        quarantinedSeqs.insert(seq)
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            self?.quarantinedSeqs.remove(seq)
+    private func quarantine(_ seq: UInt8, request: PendingRequest, recover: Bool = true) {
+        quarantinedSeqs[seq] = QuarantinedRequest(replyType: request.replyType,
+                                                aggregateMore: request.aggregateMore)
+        guard recover, quarantinedSeqs.count >= Self.quarantineReconnectThreshold else { return }
+        let session = transportSessionID
+        // Leave the current continuation cleanup before resetting the carrier.
+        // The session check coalesces concurrent cancellations into one reconnect.
+        Task { @MainActor [weak self] in
+            guard let self, self.transportSessionID == session,
+                  self.connectionState == .connected,
+                  self.quarantinedSeqs.count >= Self.quarantineReconnectThreshold else { return }
+            self.connectionFailed(RinaTransportError.sequenceSpaceExhausted.localizedDescription)
         }
     }
 
@@ -559,9 +766,10 @@ public final class BoardConnection {
     private func sendUnqueued(type: RinaLinkMessageType, payload: Data, timeout: TimeInterval, aggregateMore: Bool, duringSetup: Bool = false) async throws -> RinaLinkFrame {
         try Task.checkCancellation()
         guard connectionState == .connected || (duringSetup && isEstablishing), let transport else { throw RinaTransportError.notConnected }
-        let seq = nextSequenceNumber()
+        let seq = try nextSequenceNumber()
         let requestID = UUID()
-        let data = RinaLinkEncoder.encode(type: type, seq: seq, payload: payload)
+        let data = try RinaLinkEncoder.encode(type: type, seq: seq, payload: payload)
+        let sendSession = transportSessionID
 
         let reply = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RinaLinkFrame, Error>) in
@@ -569,7 +777,7 @@ public final class BoardConnection {
                     try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                     guard !Task.isCancelled, let self else { return }
                     if let request = self.removePending(seq: seq, requestID: requestID) {
-                        self.quarantine(seq)
+                        self.quarantine(seq, request: request)
                         request.sendTask?.cancel()
                         request.continuation.resume(throwing: RinaTransportError.timeout)
                     }
@@ -585,9 +793,17 @@ public final class BoardConnection {
                         try await transport.send(data)
                     } catch {
                         if let request = self.removePending(seq: seq, requestID: requestID) {
+                            self.quarantine(seq, request: request)
                             request.timeoutTask.cancel()
                             request.continuation.resume(throwing: error)
                         }
+                        guard !(error is CancellationError), self.transportSessionID == sendSession,
+                              self.connectionState == .connected || self.isEstablishing else { return }
+                        // The transport API cannot report whether an error was
+                        // raised before or after a partial write. Reset the
+                        // carrier so a truncated frame cannot poison the next
+                        // request on the board's streaming decoder.
+                        self.connectionFailed(error.localizedDescription)
                     }
                 }
                 // This closure is synchronous on MainActor, so cancellation
@@ -614,7 +830,7 @@ public final class BoardConnection {
         guard let request = removePending(seq: seq, requestID: requestID) else { return }
         request.timeoutTask.cancel()
         request.sendTask?.cancel()
-        quarantine(seq)
+        quarantine(seq, request: request)
         request.continuation.resume(throwing: CancellationError())
     }
 
@@ -640,11 +856,30 @@ public final class BoardConnection {
         }
     }
 
-    private func refreshDeviceName(for transport: RinaTransport, generation: UUID) async {
+    private func refreshDeviceNameDuringSetup(
+        for transport: RinaTransport,
+        generation: UUID,
+        session: UUID
+    ) async {
         guard self.transport === transport,
               connectionGeneration == generation,
-              connectionState == .connected else { return }
-        _ = try? await command(.getInfo)
+              transportSessionID == session,
+              isEstablishing else { return }
+        guard let payload = try? RinaCommand.getInfo.encode(),
+              let frame = try? await sendUnqueued(type: .cmd, payload: payload, timeout: 5,
+                                                  aggregateMore: true, duringSetup: true),
+              let reply = try? JSONDecoder().decode(CommandReply.self, from: frame.payload) else {
+            // The round trip itself never came back (or didn't decode) — as
+            // opposed to a board that answered without a `defaultName`, which
+            // is a legitimate "no id" reply and must not set this.
+            setupGetInfoReadFailed = true
+            return
+        }
+        guard reply.ok,
+              self.transport === transport,
+              connectionGeneration == generation,
+              transportSessionID == session else { return }
+        updateDeviceName(from: reply, for: .getInfo, transport: transport, generation: generation)
     }
 
     private func updateDeviceName(
@@ -658,9 +893,42 @@ public final class BoardConnection {
             guard self.transport === transport,
                   connectionGeneration == generation else { return }
             deviceName = reply.name
+            if case .getInfo = command {
+                protocolVersion = reply.proto
+                if isEstablishing { setupDefaultName = reply.defaultName }
+            }
         default:
             return
         }
+    }
+
+    /// Which physical board this link reaches, for tying local drafts to a
+    /// board. Prefers the board's own id; without one, falls back to the link
+    /// itself, where the same board over another transport looks different.
+    public var boardKey: String? {
+        Self.boardKey(identity: boardIdentity, transportKind: transportKind,
+                      peripheralID: (transport as? BLETransport)?.connectedPeripheralID)
+    }
+
+    nonisolated static func boardKey(identity: String?, transportKind: TransportKind?,
+                                     peripheralID: UUID?) -> String? {
+        if let identity { return "board:\(identity)" }
+        switch transportKind {
+        case .bluetooth: return peripheralID.map { "ble:\($0.uuidString)" }
+        case .wifi(let host, _): return "wifi:\(host)"
+        // Every board's SoftAP shares one address; nothing else tells them apart.
+        case .hotspot, nil: return nil
+        }
+    }
+
+    /// `wifi.boardId` is the bare id; `defaultName` is "RinaBoard-<id>".
+    nonisolated static func normalizedBoardIdentity(wifiBoardID: String?, defaultName: String?) -> String? {
+        if let id = wifiBoardID?.trimmingCharacters(in: .whitespaces), !id.isEmpty {
+            return id.uppercased()
+        }
+        guard let name = defaultName, let dash = name.lastIndex(of: "-") else { return nil }
+        let id = name[name.index(after: dash)...].trimmingCharacters(in: .whitespaces)
+        return id.isEmpty ? nil : id.uppercased()
     }
 
     public func getStatus(lite: Bool = false) async throws -> DeviceStatus {
@@ -750,7 +1018,15 @@ public final class BoardConnection {
                     | (UInt32(genBytes[2]) << 16)
                     | (UInt32(genBytes[3]) << 24)
                 if gen == nil { gen = frameGen }
-                result.append(frame.payload.suffix(from: frame.payload.index(frame.payload.startIndex, offsetBy: 4)))
+                guard frameGen == gen else { throw RinaTransportError.invalidResponse }
+                let page = frame.payload.suffix(from: frame.payload.index(frame.payload.startIndex, offsetBy: 4))
+                guard page.count <= Self.maxFacesDocumentBytes - result.count else {
+                    throw RinaTransportError.invalidResponse
+                }
+                guard !frame.isMore || !page.isEmpty else {
+                    throw RinaTransportError.invalidResponse
+                }
+                result.append(page)
                 offset = result.count
                 if !frame.isMore { break }
             } catch let error as RinaLinkError {
@@ -775,13 +1051,21 @@ public final class BoardConnection {
         data: Data,
         onProgress: ((Double) -> Void)? = nil
     ) async throws -> Data {
+        var beginMeta = meta
+        beginMeta["kind"] = kind.rawValue
+        beginMeta["totalBytes"] = data.count
+        let beginPayload = try JSONSerialization.data(withJSONObject: beginMeta)
+        // Fail local validation before entering the transfer/abort cleanup path:
+        // no board-side blob owner exists until BLOB_BEGIN reaches the wire.
+        try RinaLinkEncoder.validatePayloadSize(beginPayload.count)
         let token = BoardOutputContext.session
         return try await blobPump.run { @MainActor in
             if let token { try self.output.check(token) }
             let generation = self.connectionGeneration
             do {
                 return try await BoardOutputContext.$session.withValue(token) {
-                    try await self.uploadBlobSerial(kind: kind, meta: meta, data: data, onProgress: onProgress)
+                    try await self.uploadBlobSerial(kind: kind, beginPayload: beginPayload,
+                                                    data: data, onProgress: onProgress)
                 }
             } catch {
                 // Keep the blob slot until cleanup completes. This task must
@@ -798,9 +1082,7 @@ public final class BoardConnection {
                         // An unacknowledged abort leaves ownership unknown.
                         // Close this carrier so firmware releases its owner;
                         // the normal transport-state handler reconnects it.
-                        self.connectionState = .disconnected
-                        self.failAllPending(RinaTransportError.notConnected)
-                        self.transport?.disconnect()
+                        self.connectionFailed(error.localizedDescription)
                     }
                 }
                 await cleanup.value
@@ -811,14 +1093,10 @@ public final class BoardConnection {
 
     private func uploadBlobSerial(
         kind: BlobKind,
-        meta: [String: Any],
+        beginPayload: Data,
         data: Data,
         onProgress: ((Double) -> Void)? = nil
     ) async throws -> Data {
-        var beginMeta = meta
-        beginMeta["kind"] = kind.rawValue
-        beginMeta["totalBytes"] = data.count
-        let beginPayload = try JSONSerialization.data(withJSONObject: beginMeta)
         let beginFrame = try await send(type: .blobBegin, payload: beginPayload)
         let begin = try JSONDecoder().decode(BlobBeginReply.self, from: beginFrame.payload)
 
@@ -878,10 +1156,17 @@ public final class BoardConnection {
         sourceText: String,
         onProgress: ((Double) -> Void)? = nil
     ) async throws -> ScrollUploadReply {
+        guard !frames.isEmpty, frames.count <= RinaLinkConstants.maxScrollFrames else {
+            throw RinaTransportError.invalidResponse
+        }
         var data = Data()
         for frame in frames { data.append(frame.data) }
+        let fpsInt = max(RinaLinkConstants.scrollFpsMin, min(RinaLinkConstants.scrollFpsMax, Int(fps.rounded())))
+        // Firmware keeps its previous interval when a begin carries only `fps`,
+        // so the tick rate would silently disagree with the reported fps.
         let meta: [String: Any] = [
-            "fps": fps,
+            "fps": fpsInt,
+            "intervalMs": ScrollRasterizer.intervalMs(forFps: fpsInt),
             "totalFrames": frames.count,
             "timelineId": timelineId,
             "fontId": fontId,
@@ -905,11 +1190,17 @@ public final class BoardConnection {
         sourceText: String,
         onProgress: ((Double) -> Void)? = nil
     ) async throws -> ScrollUploadReply {
+        guard timeline.frameCount > 0,
+              timeline.frameCount <= RinaLinkConstants.maxScrollFrames else {
+            throw RinaTransportError.invalidResponse
+        }
         let bytes = timeline.bitmap.packedBytes()
         var meta: [String: Any] = [
             "width": timeline.bitmapWidth,
             "rows": MatrixGeometry.rows,
             "fps": fps,
+            // See `startScrollUpload`: without it the board ticks at its old interval.
+            "intervalMs": ScrollRasterizer.intervalMs(forFps: fps),
             "timelineId": timeline.timelineId,
             "fontId": ScrollRasterizer.fontId,
             "generatorVersion": ScrollRasterizer.generatorVersion,

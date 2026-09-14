@@ -34,8 +34,6 @@ struct SettingsView: View {
                         } label: {
                             Label("面板控制中心", systemImage: "slider.horizontal.below.rectangle")
                         }
-                    } footer: {
-                        Text("亮度、上一个/下一个、自动模式、颜色与已保存的表情。")
                     }
                 }
 
@@ -46,6 +44,7 @@ struct SettingsView: View {
                 aboutSection
             }
             .listSectionSpacing(.compact)
+            .rinaScrollBackground()
             .navigationTitle("设置")
             #if DEBUG
             .navigationDestination(isPresented: $opensDebug) { DebugView() }
@@ -86,7 +85,7 @@ struct SettingsView: View {
                 Text(connection.status?.device ?? "—").foregroundStyle(.secondary)
             }
             LabeledContent("协议版本") {
-                Text(connection.status?.version.map(String.init) ?? "—")
+                Text(connection.protocolVersion.map(String.init) ?? "—")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
@@ -101,8 +100,6 @@ struct SettingsView: View {
             .disabled(!isConnected)
         } header: {
             Text("面板")
-        } footer: {
-            Text("亮度、颜色与上一个/下一个属于控制中心，这里不再重复。")
         }
         .confirmationDialog("重启面板？", isPresented: $confirmReboot, titleVisibility: .visible) {
             Button("重启", role: .destructive) {
@@ -132,8 +129,6 @@ struct SettingsView: View {
             }
         } header: {
             Text("应用")
-        } footer: {
-            Text("外观跟随系统设置。")
         }
     }
 
@@ -146,8 +141,6 @@ struct SettingsView: View {
             } label: {
                 Label("关于", systemImage: "info.circle")
             }
-        } footer: {
-            Text("版本信息、项目链接与致谢。")
         }
     }
 

@@ -59,8 +59,8 @@ final class ControlViewModel {
 
     // MARK: Command row (§18)
 
-    /// Starts off so a new editor remains local until the user opts in.
-    var livePreview = false
+    /// Starts on so edits reach a connected board immediately.
+    var livePreview = true
     /// §18.3: mirrors edits between the two eyes through an explicit,
     /// verified topology. Set through `setSyncEyes(_:connection:)` so that
     /// enabling it also aligns the eyes that are already selected.
@@ -76,12 +76,33 @@ final class ControlViewModel {
 
     var editingFaceId: String?
     var editingLocation: FaceLibraryLocation = .local
+    /// Physical board that owns `editingFaceId`. This remains stable across a
+    /// reconnect even though `editingBoardGeneration` changes.
+    private(set) var editingBoardID: String?
     var editingBoardGeneration: UUID?
+    private var editingFaceCanOverwrite = false
+    /// True when「保存」has a real choice to offer: overwrite the face being
+    /// edited, or save the draft as a new one.
+    var canOverwriteEditingFace: Bool { editingFaceId != nil && editingFaceCanOverwrite }
+    /// Latest link session observed by RootTabView. It is only an identity
+    /// fallback for firmware/transports that cannot identify the board.
+    private var currentBoardGeneration: UUID?
+    var boardFaceSaveSource: BoardFaceSaveSource? {
+        guard editingFaceId != nil else { return nil }
+        return BoardFaceSaveSource(boardID: editingBoardID,
+                                   generation: editingBoardGeneration)
+    }
     var draftStorageError: String?
     private var restoringDraft = false
+    /// Prevents a board preview received during launch from being persisted
+    /// over the on-disk draft before `restoreDraft()` has read it.
+    private var draftRestoreCompleted = false
     private var draftSaveTask: Task<Void, Never>?
     private var sentGeneration: UUID?
     private var sendTask: Task<Void, Never>?
+    /// The board this draft was drawn for, as `RootTabView` identifies the
+    /// current link. Nil until the editor first sees a connected board.
+    private(set) var draftBoardID: String?
 
     private struct Draft: Codable {
         var version = 1
@@ -90,18 +111,25 @@ final class ControlViewModel {
         var fromParts: Bool
         var call: PartsCall
         var localFaceID: String?
+        var boardID: String?
     }
 
     func restoreDraft() async {
+        guard !draftRestoreCompleted else { return }
+        restoringDraft = true
+        defer {
+            restoringDraft = false
+            draftRestoreCompleted = true
+            if userHasEdited { scheduleDraftSave() }
+        }
         do {
-            guard let data = try await DraftStorage.shared.read("face"), !userHasEdited else { return }
+            guard let data = try await draftStorage.read("face"), !userHasEdited else { return }
             let draft = try JSONDecoder().decode(Draft.self, from: data)
             guard draft.version == 1, let frame = PackedFrame(hex94: draft.frame) else { return }
-            restoringDraft = true
-            defer { restoringDraft = false }
             draftFrame = frame; saveName = draft.name; fromParts = draft.fromParts
             selectedCall = draft.call; userHasEdited = true
             editingLocation = .local; editingFaceId = draft.localFaceID
+            draftBoardID = draft.boardID
             lastSentFrame = PackedFrame()
             resetUndoHistory()
         } catch {
@@ -113,7 +141,7 @@ final class ControlViewModel {
     }
 
     private func scheduleDraftSave() {
-        guard !restoringDraft else { return }
+        guard !restoringDraft, draftRestoreCompleted || userHasEdited else { return }
         draftSaveTask?.cancel()
         draftSaveTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
@@ -122,11 +150,13 @@ final class ControlViewModel {
     }
 
     func persistDraft() async {
+        guard draftRestoreCompleted || userHasEdited else { return }
         let draft = Draft(frame: draftFrame.hex94, name: saveName, fromParts: fromParts,
-                          call: selectedCall, localFaceID: editingLocation == .local ? editingFaceId : nil)
+                          call: selectedCall, localFaceID: editingLocation == .local ? editingFaceId : nil,
+                          boardID: draftBoardID)
         do {
             let data = try JSONEncoder().encode(draft)
-            try await DraftStorage.shared.write(data, name: "face")
+            try await draftStorage.write(data, name: "face")
             draftStorageError = nil
         } catch {
             draftStorageError = String(
@@ -137,7 +167,80 @@ final class ControlViewModel {
     }
 
     func releaseOutput() { sendTask?.cancel(); sendTask = nil }
-    func connectionChanged() { sentGeneration = nil; releaseOutput() }
+    func connectionChanged(generation: UUID? = nil) {
+        currentBoardGeneration = generation
+        sentGeneration = nil
+        modeSynchronizedGeneration = nil
+        releaseOutput()
+    }
+
+    /// The link on which RootTabView has resolved the board to Control mode
+    /// and switched to this tab. Until then the preview does not follow the
+    /// board: the mode is synchronized first, the preview after it.
+    private var modeSynchronizedGeneration: UUID?
+
+    func boardModeSynchronized(generation: UUID) {
+        modeSynchronizedGeneration = generation
+    }
+
+    /// An unsaved drawing never follows the user to another board: when a
+    /// different board becomes current, the editor starts over as if never
+    /// touched, so that board's display can populate it (user decision,
+    /// 2026-09-13). Reconnecting to the same board keeps the draft, and a
+    /// draft drawn before any board was seen belongs to the first one.
+    func boardDidChange(to boardID: String) {
+        guard draftBoardID != boardID else { return }
+        guard draftBoardID != nil else {
+            draftBoardID = boardID
+            if userHasEdited { scheduleDraftSave() }
+            return
+        }
+        discardDraft(newBoardID: boardID)
+    }
+
+    private func discardDraft(newBoardID: String) {
+        releaseOutput()
+        let fresh = library?.compose(call: .defaultCall) ?? PackedFrame()
+        draftBoardID = newBoardID
+        selectedCall = .defaultCall
+        fromParts = library != nil
+        draftFrame = fresh
+        lastSentFrame = fresh
+        saveName = "parts_face"
+        userHasEdited = false
+        editingFaceId = nil
+        editingLocation = .local
+        editingBoardID = nil
+        editingBoardGeneration = nil
+        editingFaceCanOverwrite = false
+        sentGeneration = nil
+        errorMessage = nil
+        resetUndoHistory()
+        // The assignments above scheduled a save of the blank editor; a
+        // relaunch must find no draft at all, not an "edited" empty one.
+        draftSaveTask?.cancel()
+        draftSaveTask = nil
+        let storage = draftStorage
+        Task { [weak self] in
+            do {
+                try await storage.remove("face")
+            } catch {
+                // Never leave the old board's drawing on disk: overwrite it
+                // with the blank editor instead.
+                await self?.persistDraft()
+            }
+        }
+    }
+
+    /// Checked right before anything is sent, so an edit in the moment
+    /// between a board switch and `RootTabView`'s synchronization cannot
+    /// carry the old board's drawing to the new one.
+    private func draftBelongs(to connection: BoardConnection) -> Bool {
+        guard let key = connection.boardKey else { return true }
+        let owner = draftBoardID
+        boardDidChange(to: key)
+        return owner == nil || owner == key
+    }
     func wasSent(in connection: BoardConnection) -> Bool {
         sentGeneration == connection.connectionGeneration && !hasUnsentChanges
     }
@@ -145,8 +248,11 @@ final class ControlViewModel {
     func loadForEditing(_ request: FaceEditRequest) {
         loadForEditing(request.face)
         editingLocation = request.location
+        editingBoardID = request.boardID
         editingBoardGeneration = request.boardGeneration
-        if request.asCopy { editingFaceId = nil }
+        if request.location != .board || request.asCopy {
+            editingFaceCanOverwrite = false
+        }
         scheduleDraftSave()
     }
     var saveName = "parts_face" { didSet { scheduleDraftSave() } }
@@ -161,10 +267,12 @@ final class ControlViewModel {
     /// Nil when the shipped part data doesn't match the derived eye mapping,
     /// in which case LED-level eye sync is unavailable.
     let eyeTopology: EyeTopology?
+    private let draftStorage: DraftStorage
 
     var canSyncEyes: Bool { eyeTopology != nil }
 
-    init(bundle: Bundle = .main) {
+    init(bundle: Bundle = .main, draftStorage: DraftStorage = .shared) {
+        self.draftStorage = draftStorage
         do {
             let library = try RinaResources.partsLibrary(bundle: bundle)
             self.library = library
@@ -386,12 +494,16 @@ final class ControlViewModel {
             errorMessage = NSLocalizedString("设备未连接", comment: "not connected")
             return
         }
+        guard draftBelongs(to: connection) else { return }
         isSending = true
         defer { isSending = false }
         let frame = draftFrame
+        let owner = draftBoardID
         let token = connection.output.begin(.manual)
         do {
             _ = try await connection.setFrame(frame, playback: .idle, reason: "custom_face_send", outputSession: token)
+            // A board switch during the send discarded this draft.
+            guard draftBoardID == owner else { return }
             lastSentFrame = frame
             sentGeneration = connection.connectionGeneration
             errorMessage = nil
@@ -403,13 +515,16 @@ final class ControlViewModel {
     }
 
     private func pushLiveIfNeeded(connection: BoardConnection) {
-        guard livePreview, connection.connectionState == .connected else { return }
+        guard livePreview, connection.connectionState == .connected,
+              draftBelongs(to: connection) else { return }
         let frame = draftFrame
+        let owner = draftBoardID
         let token = connection.output.claim(.manual)
         sendTask?.cancel()
         sendTask = Task { [weak self] in
             do {
                 _ = try await connection.setFrame(frame, playback: .idle, reason: "custom_live_send", outputSession: token)
+                guard self?.draftBoardID == owner else { return }
                 self?.lastSentFrame = frame
                 self?.sentGeneration = connection.connectionGeneration
                 self?.errorMessage = nil
@@ -428,11 +543,17 @@ final class ControlViewModel {
     // MARK: Saves hand-off (§11)
 
     func upsertPayload(using library: FaceLibraryModel) -> FaceUpsertPayload {
-        library.upsertPayload(editingFaceId: editingFaceId,
-                              name: saveName,
-                              frame: draftFrame,
-                              fromParts: fromParts,
-                              call: selectedCall)
+        // A newly-created face belongs to the board that is current now. An
+        // existing face keeps its original source so `save` can reject a
+        // different board instead of overwriting a coincidentally equal id.
+        if editingFaceId == nil {
+            editingBoardID = draftBoardID
+            editingBoardGeneration = currentBoardGeneration
+        }
+        return library.boardUpsertPayload(editingFaceId: editingFaceId,
+                                          canOverwrite: editingFaceCanOverwrite,
+                                          name: saveName, frame: draftFrame,
+                                          fromParts: fromParts, call: selectedCall)
     }
 
     /// Pulls a saved face into the editor (Control Center → Control tab).
@@ -445,6 +566,12 @@ final class ControlViewModel {
         sentGeneration = nil
         userHasEdited = true
         editingFaceId = face.id
+        editingLocation = .board
+        editingBoardID = draftBoardID
+        editingBoardGeneration = currentBoardGeneration
+        editingFaceCanOverwrite = face.type != .default
+            && face.locked != true
+            && face.editable != false
         saveName = face.name
         if face.type == .parts, let call = face.call {
             selectedCall = PartsCall(
@@ -462,6 +589,9 @@ final class ControlViewModel {
 
     func startNewFace() {
         editingFaceId = nil
+        editingBoardID = nil
+        editingBoardGeneration = nil
+        editingFaceCanOverwrite = false
         saveName = "parts_face"
     }
 
@@ -472,21 +602,66 @@ final class ControlViewModel {
     /// board's library is a different operation from transmitting the frame to
     /// the board's display, so a save must never clear the "unsent" badge on a
     /// frame that was never sent (§37).
-    func didSave(as id: String?) {
-        if let id { editingFaceId = id }
+    func didSave(as id: String?, on destination: BoardFaceSaveSource) {
+        if let id {
+            editingFaceId = id
+            editingLocation = .board
+            editingBoardID = destination.boardID
+            editingBoardGeneration = destination.generation
+            editingFaceCanOverwrite = true
+        }
     }
 
-    // MARK: Reconnect (§40)
+    // MARK: Board display synchronization
 
-    /// Populates the editor from the board's current frame after a
-    /// (re)connection (§49). A draft the user has actually worked on is
-    /// authoritative and is never overwritten (§40) — only the untouched
-    /// initial composition gives way.
+    /// Read serially so slow links never accumulate preview requests. A local
+    /// edit or output handoff during the read makes that response obsolete.
+    ///
+    /// This preview only mirrors a board in Control mode. Text, lip-sync,
+    /// performance and video frames belong to their own tabs' previews.
+    func refreshBoardDisplay(connection: BoardConnection) async {
+        guard connection.connectionState == .connected, !hasUnsentChanges, !isSending,
+              boardIsInControlMode(connection) else { return }
+        let before = snapshot
+        do {
+            let frame = try await connection.getFrame()
+            guard !Task.isCancelled, snapshot == before, !hasUnsentChanges, !isSending,
+                  boardIsInControlMode(connection) else { return }
+            adoptBoardFrameIfUntouched(frame)
+        } catch {
+            // A missed preview sample is retried by the next polling tick.
+        }
+    }
+
+    private func boardIsInControlMode(_ connection: BoardConnection) -> Bool {
+        guard modeSynchronizedGeneration == connection.connectionGeneration,
+              let status = connection.status else { return false }
+        return BoardResumeMode.resolve(status: status, preview: connection.preview) == .control
+    }
+
+    /// Populate only a never-edited editor from the board. A restored or sent
+    /// draft remains user-owned even when it has no unsent changes: the board
+    /// may be showing text, automatic faces, or another producer's frame.
     func adoptBoardFrameIfUntouched(_ frame: PackedFrame) {
         guard !userHasEdited, !hasUnsentChanges else { return }
-        draftFrame = frame
-        lastSentFrame = frame
-        fromParts = false
-        resetUndoHistory()
+        let changed = draftFrame != frame
+        if changed {
+            draftFrame = frame
+            lastSentFrame = frame
+            editingFaceId = nil
+            editingBoardID = nil
+            editingBoardGeneration = nil
+            editingFaceCanOverwrite = false
+            sentGeneration = nil
+            resetUndoHistory()
+        }
+        if !fromParts || library?.compose(call: selectedCall) != frame {
+            if let call = library?.matchingCall(for: frame) {
+                selectedCall = call
+                fromParts = true
+            } else {
+                fromParts = false
+            }
+        }
     }
 }

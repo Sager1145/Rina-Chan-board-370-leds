@@ -28,6 +28,7 @@ struct ScrollTextView: View {
                 syncSection
             }
             .listSectionSpacing(.compact)
+            .rinaScrollBackground()
             .errorAlert(Bindable(model).errorMessage)
             .toolbar(.hidden, for: .navigationBar)
             .contentMargins(.top, 0, for: .scrollContent)
@@ -35,7 +36,7 @@ struct ScrollTextView: View {
         .onAppear {
             model.loadDefaultsIfNeeded()
             // Status changes while another tab was showing never reached onChange.
-            model.observe(status: connection.status)
+            model.observe(status: connection.status, connection: connection)
         }
         .task { await model.refreshPreview(connection: connection) }
         .onDisappear {
@@ -46,7 +47,7 @@ struct ScrollTextView: View {
             model.observe(preview: preview)
         }
         .onChange(of: connection.status) { _, status in
-            model.observe(status: status)
+            model.observe(status: status, connection: connection)
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -117,8 +118,8 @@ struct ScrollTextView: View {
     @ViewBuilder
     private var playbackSection: some View {
         Section {
-            // Four transport buttons only (§24): with nothing bound on the
-            // board the stop slot becomes "send and play".
+            // Transport pills plus the loop toggle (§24): with nothing bound
+            // on the board the stop slot becomes "send and play".
             TextPlaybackControls(
                 isConnected: isConnected,
                 hasTimeline: model.boundTimelineId != nil,
@@ -126,6 +127,14 @@ struct ScrollTextView: View {
                 isUploading: model.isUploading,
                 isGeneratingFont: model.isGeneratingFont,
                 canSend: !model.exceedsByteLimit,
+                loopPlayback: Binding(
+                    get: { model.loopPlayback },
+                    set: { loop in
+                        model.loopPlayback = loop
+                        Task { await model.setLoopPlayback(loop, connection: connection) }
+                    }
+                ),
+                loopDisabled: loopUnsupported,
                 onSend: { Task { await model.send(connection: connection) } },
                 onPlay: { Task { await model.resume(connection: connection) } },
                 onPause: { Task { await model.pause(connection: connection) } },
@@ -139,15 +148,6 @@ struct ScrollTextView: View {
             // Always present, like the Preset Live tab; greyed out until a
             // timeline is on the board.
             progressBar
-
-            Toggle("循环播放", isOn: Binding(
-                get: { model.loopPlayback },
-                set: { loop in
-                    model.loopPlayback = loop
-                    Task { await model.setLoopPlayback(loop, connection: connection) }
-                }
-            ))
-            .disabled(loopUnsupported)
 
             if model.isUploading {
                 ProgressView(value: model.uploadProgress)
@@ -305,7 +305,7 @@ struct ScrollTextView: View {
 
             // Measured from board telemetry, never an echo of the request.
             LabeledContent("面板实测") {
-                Text(String(format: "%.1f fps", model.measuredFps))
+                Text(model.measuredFps.map { String(format: "%.1f fps", $0) } ?? "—")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }

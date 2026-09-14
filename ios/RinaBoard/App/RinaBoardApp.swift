@@ -3,13 +3,11 @@ import RinaCore
 
 @main
 struct RinaBoardApp: App {
-    // One shared board connection/session for the whole app (§36): tabs never
-    // establish their own. The editor, text and Control Center models are
-    // app-scoped too, so an unsent draft survives switching tabs (§40).
+    // Each board retains its own connection; tabs control the selected session.
+    // Draft models remain app-scoped so switching tabs preserves unsent work.
     @State private var router = AppRouter()
-    @State private var connection = BoardConnection()
+    @State private var sessions = BoardSessionStore()
     @State private var boardStore = BoardStore()
-    @State private var bleTransport = BLETransport()
     @State private var bootLoader = BootLoaderModel()
     @State private var controlCenter = BoardControlCenterModel()
     @State private var faceLibrary = FaceLibraryModel()
@@ -29,10 +27,12 @@ struct RinaBoardApp: App {
     var body: some Scene {
         WindowGroup {
             RootTabView()
-                .environment(connection)
+                .background { KeyboardDismissal().allowsHitTesting(false) }
+                .environment(sessions)
+                .environment(sessions.active.connection)
                 .environment(router)
                 .environment(boardStore)
-                .environment(bleTransport)
+                .environment(sessions.active.bleTransport)
                 .environment(bootLoader)
                 .environment(controlCenter)
                 .environment(faceLibrary)

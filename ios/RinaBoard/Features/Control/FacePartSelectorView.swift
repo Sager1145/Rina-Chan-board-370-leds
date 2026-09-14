@@ -10,7 +10,7 @@ import RinaCore
 struct FacePartSelectorView: View {
     let group: PartGroup
     let library: PartsLibrary
-    let selectedId: String
+    let selectedId: String?
     let color: Color
     let brightness: Int
     let onSelect: (String) -> Void
@@ -29,15 +29,25 @@ struct FacePartSelectorView: View {
     }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(Array(library.ids(for: group).enumerated()), id: \.element) { index, id in
-                    option(id: id, number: index)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(Array(library.ids(for: group).enumerated()), id: \.element) { index, id in
+                        option(id: id, number: index)
+                            .id(id)
+                    }
                 }
+                .padding(.vertical, 6)
+                // Callers inset the row 16pt on the leading side only; mirror
+                // it at the end so the last option's selection border isn't
+                // cut off by the row's trailing edge.
+                .padding(.trailing, 16)
             }
-            .padding(.vertical, 6)
+            .scrollClipDisabled()
+            .onChange(of: selectedId, initial: true) { _, id in
+                if let id { proxy.scrollTo(id, anchor: .center) }
+            }
         }
-        .scrollClipDisabled()
     }
 
     private func option(id: String, number: Int) -> some View {

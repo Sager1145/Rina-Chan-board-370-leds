@@ -18,17 +18,46 @@ final class BLEDisconnectGateTests: XCTestCase {
         XCTAssertFalse(gate.complete(peripheral))
     }
 
-    func testTimeoutDoesNotLetNewAttemptReuseUnfinishedPeripheral() async throws {
+    func testTimeoutReturnsTimedOutAndKeepsEntryPending() async throws {
         let gate = BLEDisconnectGate()
         let peripheral = UUID()
         _ = gate.begin(peripheral)
-        do {
-            try await gate.wait(for: peripheral, timeout: 0.01)
-            XCTFail("Expected cancellation drain timeout")
-        } catch {}
+        let result = try await gate.wait(for: peripheral, timeout: 0.01)
+        XCTAssertEqual(result, .timedOut)
         XCTAssertTrue(gate.contains(peripheral))
+    }
+
+    func testForceCompleteClearsEntryAndRejectsLateComplete() async throws {
+        let gate = BLEDisconnectGate()
+        let peripheral = UUID()
+        _ = gate.begin(peripheral)
+        gate.forceComplete(peripheral)
+        XCTAssertFalse(gate.contains(peripheral))
+        XCTAssertFalse(gate.complete(peripheral))
+    }
+
+    func testNewAttemptSucceedsImmediatelyAfterForceComplete() async throws {
+        let gate = BLEDisconnectGate()
+        let peripheral = UUID()
+        _ = gate.begin(peripheral)
+        gate.forceComplete(peripheral)
+        // The stale entry is gone, so a fresh cancel/complete cycle for the
+        // same UUID behaves as if nothing had been pending before.
+        XCTAssertTrue(gate.begin(peripheral))
         gate.complete(peripheral)
-        try await gate.wait(for: peripheral)
+        let result = try await gate.wait(for: peripheral)
+        XCTAssertEqual(result, .drained)
+    }
+
+    func testForceCompleteResumesParkedWaiters() async throws {
+        let gate = BLEDisconnectGate()
+        let peripheral = UUID()
+        _ = gate.begin(peripheral)
+        let next = Task { try await gate.wait(for: peripheral) }
+        try await Task.sleep(for: .milliseconds(10))
+        gate.forceComplete(peripheral)
+        let result = try await next.value
+        XCTAssertEqual(result, .drained)
     }
 
     func testCancelledWaitDoesNotCancelAnotherPeripheralOrForgetOldLink() async throws {

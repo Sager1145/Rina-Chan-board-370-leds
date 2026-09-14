@@ -39,8 +39,6 @@ struct AboutView: View {
                 }
             } header: {
                 Text("项目")
-            } footer: {
-                Text("固件、iOS App 与 3D 打印模型的下载地址。")
             }
 
             Section {
@@ -52,11 +50,10 @@ struct AboutView: View {
                 }
             } header: {
                 Text("致谢")
-            } footer: {
-                Text("本项目基于上述开源项目的创意与实现，向原作者致谢。各组件版权归原作者所有，并遵循其各自的开源许可证。")
             }
         }
         .listSectionSpacing(.compact)
+        .rinaScrollBackground()
         .navigationTitle("关于")
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -28,6 +28,7 @@ struct LipSyncView: View {
                 }
             }
             .listSectionSpacing(.compact)
+            .rinaScrollBackground()
             .errorAlert($model.errorMessage)
             .navigationTitle("口型同步")
             .toolbar(.hidden, for: .navigationBar)
@@ -294,8 +295,6 @@ struct LipSyncView: View {
             .disabled(!model.canEditOptions || model.profile.calibrated.isEmpty)
         } header: {
             Text("校准")
-        } footer: {
-            Text("默认声音模型是按共振峰合成出来的，不需要录音就能用。点「校准」后持续发同一个元音约 1.5 秒，即可用你自己的声音替换该元音的参考。")
         }
     }
 
@@ -399,6 +398,7 @@ struct LipSyncMouthMappingView: View {
             }
         }
         .listSectionSpacing(.compact)
+        .rinaScrollBackground()
         .navigationTitle("口型与造型")
         .navigationBarTitleDisplayMode(.inline)
     }

@@ -2,6 +2,18 @@ import Foundation
 import RinaCore
 import SwiftUI
 
+private struct LipSyncSubmission: Sendable {
+    let frame: PackedFrame
+    let vowel: LipSyncVowel?
+    let reason: String
+    let token: UUID
+    /// True for the close-mouth frame sent from `stop()`. That frame is
+    /// submitted after `outputSession` has already been cleared to nil, so it
+    /// must not be dropped by the usual `outputSession == token` recheck in
+    /// `send` — it still must match a live, current session token.
+    let closing: Bool
+}
+
 /// 口型同步 tab state: the live microphone → vowel → mouth loop, its options,
 /// and the per-vowel calibration.
 ///
@@ -31,6 +43,9 @@ final class LipSyncModel {
         static let preset = "lipSyncVoicePreset"
         static let profile = "lipSyncProfile"
         static let mapping = "lipSyncMouthMapping"
+        static let streamID = "lipSyncStreamID"
+        static let baseCall = "lipSyncBaseCall"
+        static let syncEyes = "lipSyncEyes"
     }
 
     // MARK: Live state
@@ -67,7 +82,7 @@ final class LipSyncModel {
         didSet {
             guard sensitivityDb != oldValue else { return }
             analyzer.config.minVolumeDb = sensitivityDb
-            UserDefaults.standard.set(Double(sensitivityDb), forKey: Key.sensitivity)
+            defaults.set(Double(sensitivityDb), forKey: Key.sensitivity)
         }
     }
 
@@ -75,7 +90,7 @@ final class LipSyncModel {
     var refreshRateHz: Double {
         didSet {
             guard refreshRateHz != oldValue else { return }
-            UserDefaults.standard.set(refreshRateHz, forKey: Key.refreshRate)
+            defaults.set(refreshRateHz, forKey: Key.refreshRate)
         }
     }
 
@@ -85,7 +100,7 @@ final class LipSyncModel {
             guard smoothing != oldValue else { return }
             analyzer.config.historyLength = smoothing
             analyzer.reset()
-            UserDefaults.standard.set(smoothing, forKey: Key.smoothing)
+            defaults.set(smoothing, forKey: Key.smoothing)
         }
     }
 
@@ -97,7 +112,7 @@ final class LipSyncModel {
             guard preset != oldValue else { return }
             analyzer.profile = .synthesized(preset: preset, config: analyzer.config)
             analyzer.reset()
-            UserDefaults.standard.set(preset.rawValue, forKey: Key.preset)
+            defaults.set(preset.rawValue, forKey: Key.preset)
             persistProfile()
         }
     }
@@ -110,6 +125,9 @@ final class LipSyncModel {
     var baseCall: PartsCall = .defaultCall {
         didSet {
             guard baseCall != oldValue else { return }
+            if let data = try? JSONEncoder().encode(baseCall) {
+                defaults.set(data, forKey: Key.baseCall)
+            }
             refreshPreviewFrame()
         }
     }
@@ -126,8 +144,12 @@ final class LipSyncModel {
 
     private var loopTask: Task<Void, Never>?
     private var awaitingAudioSince: Date?
-    private var frameTask: Task<Void, Never>?
+    /// In-flight frames are never cancelled; a newer one just supersedes it.
+    @ObservationIgnored private var sender: LatestValueSender<LipSyncSubmission>?
+    @ObservationIgnored private weak var lastConnection: BoardConnection?
     private var outputSession: UUID?
+    private var streamID: String?
+    private let defaults: UserDefaults
     private var isAcquiringOutput = false
     private var startGeneration = UUID()
     /// Set across `start`'s permission `await` so a double tap cannot install
@@ -143,13 +165,15 @@ final class LipSyncModel {
     // MARK: Init
 
     init(bundle: Bundle = .main,
+         defaults: UserDefaults = .standard,
          capture: any LipSyncCapturing = LipSyncAudioCapture(),
          permissionRequest: @escaping @MainActor () async -> LipSyncAudioCapture.Permission = {
              await LipSyncAudioCapture.requestPermission()
          }) {
         self.capture = capture
         self.permissionRequest = permissionRequest
-        let defaults = UserDefaults.standard
+        self.defaults = defaults
+        self.streamID = defaults.string(forKey: Key.streamID)
         var library: PartsLibrary?
         var loadError: String?
         do {
@@ -188,8 +212,14 @@ final class LipSyncModel {
             .flatMap { try? JSONDecoder().decode(LipSyncMouthMapping.self, from: $0) }
         let resolved = storedMapping ?? .default
         self.mapping = library.map { resolved.sanitized(against: $0) } ?? resolved
+        self.baseCall = defaults.data(forKey: Key.baseCall)
+            .flatMap { try? JSONDecoder().decode(PartsCall.self, from: $0) } ?? .defaultCall
+        self.syncEyes = defaults.bool(forKey: Key.syncEyes)
 
         refreshPreviewFrame()
+        sender = LatestValueSender(minInterval: 0.01) { [weak self] submission in
+            await self?.send(submission)
+        }
     }
 
     // MARK: Mouth mapping
@@ -216,6 +246,7 @@ final class LipSyncModel {
 
     func setSyncEyes(_ enabled: Bool) {
         syncEyes = enabled
+        defaults.set(enabled, forKey: Key.syncEyes)
         guard enabled, let mirrored = library?.mirroredEyeId(baseCall[.leye]) else { return }
         baseCall[.reye] = mirrored
     }
@@ -285,8 +316,13 @@ final class LipSyncModel {
         }
     }
 
-    func start(connection: BoardConnection) async {
+    func start(connection: BoardConnection, resumingStreamID: String? = nil,
+               shouldStart: @MainActor () async -> Bool = { true }) async {
         guard !isRunning, !isCalibrating, !isStarting else { return }
+        if let resumingStreamID, resumingStreamID != streamID {
+            errorMessage = "无法恢复原来的嘴形同步：本机没有对应的同步记录。"
+            return
+        }
         // `requestPermission` suspends, and the button is still live across
         // that suspension, so a second tap would otherwise pass the
         // `!isRunning` guard too and install a second loop over the first —
@@ -301,6 +337,10 @@ final class LipSyncModel {
         await requestPermission()
         guard case .granted = permission, startGeneration == attempt, !Task.isCancelled,
               connection.connectionState == .connected else { return }
+        guard await shouldStart(), startGeneration == attempt, !Task.isCancelled,
+              connection.connectionState == .connected else { return }
+        if resumingStreamID == nil { streamID = UUID().uuidString }
+        defaults.set(streamID, forKey: Key.streamID)
         isAcquiringOutput = true
         outputSession = connection.output.begin(.lipSync)
         isAcquiringOutput = false
@@ -350,7 +390,7 @@ final class LipSyncModel {
         guard !isAcquiringOutput else { return }
         startGeneration = UUID()
         cancelCalibration()
-        frameTask?.cancel(); frameTask = nil
+        sender?.cancel()
         guard isRunning else {
             let token = outputSession
             outputSession = nil
@@ -377,7 +417,7 @@ final class LipSyncModel {
         // treats this as a change even if silence was the last thing sent.
         lastSentVowel = nil
         if let connection {
-            push(previewFrame, vowel: nil, connection: connection)
+            push(previewFrame, vowel: nil, connection: connection, closing: true)
         }
         outputSession = nil
     }
@@ -429,27 +469,36 @@ final class LipSyncModel {
         return capture.latestWindow(count: count)
     }
 
-    private func push(_ frame: PackedFrame, vowel: LipSyncVowel?, connection: BoardConnection) {
+    private func push(_ frame: PackedFrame, vowel: LipSyncVowel?, connection: BoardConnection,
+                       closing: Bool = false) {
         guard connection.connectionState == .connected, let token = outputSession,
-              connection.output.isCurrent(token) else { return }
+              connection.output.isCurrent(token), let streamID else { return }
+        let reason = "lipsync:\(streamID):0"
         lastSentVowel = .some(vowel)
-        frameTask?.cancel()
-        frameTask = Task { [weak self] in
-            do {
-                _ = try await connection.setFrame(frame, playback: .idle, reason: "lipsync", outputSession: token)
-            } catch is CancellationError {
-            } catch RatePumpError.dropped {
-                // Superseded by a newer mouth; the latest syllable always
-                // wins. Forget what was sent so the next tick re-sends this
-                // mouth if the vowel has not moved on — otherwise a dropped
-                // frame strands the board on the previous mouth until the
-                // speaker happens to change vowel again.
-                self?.forgetLastSentVowel(ifStill: vowel)
-            } catch {
-                self?.forgetLastSentVowel(ifStill: vowel)
-                self?.errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),
-                                            error.localizedDescription)
-            }
+        lastConnection = connection
+        sender?.submit(LipSyncSubmission(frame: frame, vowel: vowel, reason: reason, token: token,
+                                          closing: closing))
+    }
+
+    private func send(_ submission: LipSyncSubmission) async {
+        guard let connection = lastConnection, connection.connectionState == .connected,
+              connection.output.isCurrent(submission.token),
+              submission.closing || outputSession == submission.token else { return }
+        do {
+            _ = try await connection.setFrame(submission.frame, playback: .idle,
+                                              reason: submission.reason, outputSession: submission.token)
+        } catch is CancellationError {
+        } catch RatePumpError.dropped {
+            // Superseded by a newer mouth; the latest syllable always
+            // wins. Forget what was sent so the next tick re-sends this
+            // mouth if the vowel has not moved on — otherwise a dropped
+            // frame strands the board on the previous mouth until the
+            // speaker happens to change vowel again.
+            forgetLastSentVowel(ifStill: submission.vowel)
+        } catch {
+            forgetLastSentVowel(ifStill: submission.vowel)
+            errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),
+                                  error.localizedDescription)
         }
     }
 
@@ -580,11 +629,11 @@ final class LipSyncModel {
 
     private func persistProfile() {
         guard let data = try? JSONEncoder().encode(analyzer.profile) else { return }
-        UserDefaults.standard.set(data, forKey: Key.profile)
+        defaults.set(data, forKey: Key.profile)
     }
 
     private func persistMapping() {
         guard let data = try? JSONEncoder().encode(mapping) else { return }
-        UserDefaults.standard.set(data, forKey: Key.mapping)
+        defaults.set(data, forKey: Key.mapping)
     }
 }

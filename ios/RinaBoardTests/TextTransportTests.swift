@@ -175,18 +175,287 @@ final class TextTransportTests: XCTestCase {
         XCTAssertTrue(connection.output.isCurrent(owner), "A speed tweak must not pause another tab's playback")
     }
 
-    func testStatusWithoutScrollUnbindsControls() throws {
+    func testUploadCarriesIntervalMatchingRequestedFps() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        model.text = "Speed check"
+        model.requestedFps = 30
+
+        await model.send(connection: connection)
+        model.suspendPreviewLoop()
+
+        // The recorder's bare `ok` fails the bitmap check, so both upload paths run.
+        let begins = transport.blobBegins.filter { ($0["kind"] as? String)?.hasPrefix("scroll") == true }
+        XCTAssertEqual(begins.map { $0["kind"] as? String }, ["scroll_bitmap", "scroll"])
+        for begin in begins {
+            XCTAssertEqual(begin["fps"] as? Int, 30)
+            XCTAssertEqual(begin["intervalMs"] as? Int, 33,
+                           "Without intervalMs the board keeps ticking at its previous interval")
+        }
+    }
+
+    func testBoardFpsFollowsTickIntervalOverStaleLabel() {
+        XCTAssertEqual(TextViewModel.boardFps(intervalMs: 100, uiFps: 30), 10,
+                       "An fps-only upload used to leave the label ahead of the real interval")
+        XCTAssertEqual(TextViewModel.boardFps(intervalMs: 33, uiFps: 30), 30)
+        XCTAssertEqual(TextViewModel.boardFps(intervalMs: 17, uiFps: 60), 60)
+        XCTAssertEqual(TextViewModel.boardFps(intervalMs: 17, uiFps: 59), 59)
+        XCTAssertEqual(TextViewModel.boardFps(intervalMs: 50, uiFps: nil), 20)
+        XCTAssertEqual(TextViewModel.boardFps(intervalMs: nil, uiFps: 25), 25)
+        XCTAssertNil(TextViewModel.boardFps(intervalMs: 0, uiFps: 0))
+    }
+
+    func testQuickDragBackDoesNotFlickerThroughIntermediateEcho() async throws {
+        let (connection, _) = try await connectedBoard()
         let model = TextViewModel()
         let timeline = try makeTimeline()
         model.timeline = timeline
         model.boundTimelineId = timeline.timelineId
+        func status(intervalMs: Int, fps: Int) -> DeviceStatus {
+            DeviceStatus(renderer: RendererStatus(
+                firmwareScrollActive: true, firmwareScrollPaused: false,
+                scrollFrameCount: timeline.frameCount, scrollIntervalMs: intervalMs, uiFps: fps,
+                scrollTimelineId: timeline.timelineId))
+        }
+        model.observe(status: status(intervalMs: 50, fps: 20))
+
+        // 20 → 25 → 20 before anything reaches the board (no await in between).
+        model.setRequestedFps(25, connection: connection)
+        model.setRequestedFps(20, connection: connection)
+        model.observe(status: status(intervalMs: 50, fps: 20))
+        XCTAssertEqual(model.requestedFps, 20)
+        model.observe(status: status(intervalMs: 40, fps: 25))
+        XCTAssertEqual(model.requestedFps, 20,
+                       "A stale matching report must not let the 25 echo jump the slider")
+    }
+
+    func testStatusSyncsSpeedToBoardWithoutUndoingInFlightRetune() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        let timeline = try makeTimeline()
+        model.timeline = timeline
+        model.boundTimelineId = timeline.timelineId
+        func status(intervalMs: Int, fps: Int) -> DeviceStatus {
+            DeviceStatus(renderer: RendererStatus(
+                firmwareScrollActive: true, firmwareScrollPaused: false,
+                scrollFrameCount: timeline.frameCount, scrollIntervalMs: intervalMs, uiFps: fps,
+                scrollTimelineId: timeline.timelineId))
+        }
+
+        model.observe(status: status(intervalMs: 50, fps: 20))
+        XCTAssertEqual(model.requestedFps, 20, "The slider must show the rate the board is running")
+
+        model.setRequestedFps(30, connection: connection)
+        model.observe(status: status(intervalMs: 50, fps: 20))
+        XCTAssertEqual(model.requestedFps, 30, "A status from before the retune must not snap the slider back")
+
+        // Only an echo after the board accepted the retune ends the guard.
+        let deadline = Date().addingTimeInterval(2)
+        while transport.scrollCommands.last?.name != "set_scroll_interval", Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        model.observe(status: status(intervalMs: 33, fps: 30))
+        model.observe(status: status(intervalMs: 100, fps: 10))
+        XCTAssertEqual(model.requestedFps, 10, "Once confirmed, a later retune from elsewhere is adopted")
+    }
+
+    func testSliderMovedDuringUploadIsAppliedOnceBound() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        model.text = "Speed check"
+        model.requestedFps = 30
+        // Nothing is bound yet, so the move itself sends nothing.
+        transport.onBlobBegin = { model.setRequestedFps(45, connection: connection) }
+
+        await model.send(connection: connection)
+        let deadline = Date().addingTimeInterval(2)
+        while transport.scrollCommands.last?.name != "set_scroll_interval", Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        model.suspendPreviewLoop()
+
+        XCTAssertEqual(transport.scrollCommands.last?.name, "set_scroll_interval")
+        XCTAssertEqual(transport.scrollCommands.last?.fields["fps"] as? Int, 45)
+        XCTAssertEqual(transport.scrollCommands.last?.fields["intervalMs"] as? Int, 22)
+        XCTAssertEqual(model.requestedFps, 45)
+    }
+
+    func testRejectedRetuneFallsBackToBoardSpeed() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        let timeline = try makeTimeline()
+        model.timeline = timeline
+        model.boundTimelineId = timeline.timelineId
+        model.observe(status: DeviceStatus(renderer: RendererStatus(
+            firmwareScrollActive: true, firmwareScrollPaused: false,
+            scrollFrameCount: timeline.frameCount, scrollIntervalMs: 50, uiFps: 20,
+            scrollTimelineId: timeline.timelineId)))
+        transport.rejectCommands = true
+
+        model.setRequestedFps(30, connection: connection)
+        // A rejected command leaves the board unchanged, so no new status comes;
+        // the slider has to return to the speed the board last reported.
+        let deadline = Date().addingTimeInterval(2)
+        while model.requestedFps != 20, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertEqual(transport.scrollCommands.last?.name, "set_scroll_interval")
+        XCTAssertEqual(model.requestedFps, 20, "A retune the board never took must not stay on the slider")
+    }
+
+    func testTickSamplesKeepSpeedInSyncButPausedSamplesDoNot() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        let timeline = try makeTimeline()
+        transport.scrollMeta = restoreMeta(
+            text: timeline.text, timelineId: timeline.timelineId, timeline: timeline
+        )
+        transport.previewSync = restorePreview(
+            timelineId: timeline.timelineId, timeline: timeline, frameIndex: 1
+        )
+        // Binds the preview lock to this timeline, as a real reconnect does.
+        await model.restoreOnConnect(connection: connection)
+        model.suspendPreviewLoop()
+        XCTAssertEqual(model.requestedFps, 10)
+        func sample(seq: Int, intervalMs: Int, fps: Int, playing: Bool) -> PreviewSync {
+            PreviewSync(ok: true, playback: playing ? "scroll" : "scroll_paused", valid: true,
+                        presentedSeq: seq, source: "scroll_tick", scrollTimelineId: timeline.timelineId,
+                        presentedFrameIndex: seq % timeline.frameCount, presentedFrameCount: timeline.frameCount,
+                        presentedAtUs: Int64(seq) * 50_000, scrollIntervalMs: intervalMs, uiFps: fps,
+                        firmwareScrollActive: true, firmwareScrollPaused: !playing, rateEligible: playing)
+        }
+
+        model.observe(preview: sample(seq: 5, intervalMs: 50, fps: 20, playing: true))
+        XCTAssertNotNil(model.boundTimelineId)
+        XCTAssertEqual(model.requestedFps, 20)
+
+        model.observe(preview: sample(seq: 6, intervalMs: 100, fps: 10, playing: false))
+        XCTAssertEqual(model.requestedFps, 20, "A paused sample's interval may predate the latest retune")
+    }
+
+    func testMeasuredSpeedIsHiddenUnlessBoardIsPlaying() throws {
+        let model = TextViewModel()
+        XCTAssertNil(model.measuredFps, "Nothing bound: no measurement to show")
+
+        let timeline = try makeTimeline()
+        model.timeline = timeline
+        model.boundTimelineId = timeline.timelineId
+        XCTAssertNotNil(model.measuredFps)
+
         model.boardPaused = true
+        XCTAssertNil(model.measuredFps)
+    }
+
+    func testStatusWithoutScrollUnbindsControls() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        let timeline = try makeTimeline()
+        transport.scrollMeta = restoreMeta(
+            text: timeline.text, timelineId: timeline.timelineId, timeline: timeline
+        )
+        transport.previewSync = restorePreview(
+            timelineId: timeline.timelineId, timeline: timeline, frameIndex: 3
+        )
+        await model.restoreOnConnect(connection: connection)
+        model.suspendPreviewLoop()
+        XCTAssertEqual(model.frameCount, timeline.frameCount)
+        XCTAssertEqual(model.displayIndex, 3)
 
         model.observe(status: DeviceStatus(renderer: RendererStatus(
             firmwareScrollActive: false, firmwareScrollPaused: false, scrollFrameCount: 0)))
 
         XCTAssertNil(model.boundTimelineId, "Stopped elsewhere: buttons and bar must grey out")
+        XCTAssertEqual(model.frameCount, 0, "An idle board must not leave the previous timeline in the progress bar")
+        XCTAssertEqual(model.displayIndex, 0)
+        XCTAssertEqual(model.previewFrame, PackedFrame())
         XCTAssertFalse(model.boardPaused)
+    }
+
+    /// Fix for "text page stays cleared while the board scrolls": a
+    /// `getScrollMeta` failure (or anything else that makes `restoreOnConnect`
+    /// bail) during resync must not strand the Text page empty until the next
+    /// connection change — a later status push reporting the firmware scroll
+    /// as active must retry the restore.
+    func testFailedFirstRestoreIsRetriedOnLaterStatusPush() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        let timeline = try makeTimeline()
+
+        // No `scrollMeta` configured yet: `getScrollMeta` replies `{"ok":true}`
+        // with everything else nil, so `restoreOnConnect`'s `uploadComplete`
+        // guard fails silently and nothing gets bound.
+        await model.restoreOnConnect(connection: connection)
+        XCTAssertNil(model.boundTimelineId)
+        XCTAssertEqual(model.frameCount, 0)
+
+        // The board is actually mid-scroll; only now does the board reply
+        // with the metadata a retry needs to succeed.
+        transport.scrollMeta = restoreMeta(
+            text: timeline.text, timelineId: timeline.timelineId, timeline: timeline
+        )
+        transport.previewSync = restorePreview(
+            timelineId: timeline.timelineId, timeline: timeline, frameIndex: 0
+        )
+        model.observe(status: DeviceStatus(renderer: RendererStatus(
+            firmwareScrollActive: true, firmwareScrollPaused: false,
+            scrollFrameCount: timeline.frameCount)), connection: connection)
+
+        let deadline = Date().addingTimeInterval(2)
+        while model.boundTimelineId == nil, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        model.suspendPreviewLoop()
+
+        XCTAssertEqual(model.boundTimelineId, timeline.timelineId,
+                       "a later status push must retry the restore instead of waiting for a connection change")
+        XCTAssertEqual(model.frameCount, timeline.frameCount)
+    }
+
+    func testConnectionChangeClearsBoardProgressButKeepsDraftForResend() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        let timeline = try makeTimeline()
+        let draft = "Keep this unsent draft"
+        model.editText(draft)
+        transport.scrollMeta = restoreMeta(
+            text: timeline.text, timelineId: timeline.timelineId, timeline: timeline
+        )
+        transport.previewSync = restorePreview(
+            timelineId: timeline.timelineId, timeline: timeline, frameIndex: 3
+        )
+        await model.restoreOnConnect(connection: connection)
+        model.suspendPreviewLoop()
+        XCTAssertEqual(model.frameCount, timeline.frameCount)
+        XCTAssertEqual(model.displayIndex, 3)
+
+        // Restoring an active scroll adopts its real speed. A subsequent
+        // draft preference must survive invalidating that board session.
+        model.requestedFps = 27
+        model.connectionChanged()
+
+        XCTAssertNil(model.boundTimelineId)
+        XCTAssertEqual(model.frameCount, 0)
+        XCTAssertEqual(model.displayIndex, 0)
+        XCTAssertEqual(model.previewFrame, PackedFrame())
+        XCTAssertEqual(model.text, draft)
+        XCTAssertTrue(model.userEditedText)
+        XCTAssertEqual(model.requestedFps, 27)
+    }
+
+    func testMissingStatusClearsProgressSnapshot() throws {
+        let model = TextViewModel()
+        let timeline = try makeTimeline()
+        model.timeline = timeline
+        model.boundTimelineId = timeline.timelineId
+        XCTAssertEqual(model.frameCount, timeline.frameCount)
+
+        model.observe(status: nil)
+
+        XCTAssertNil(model.boundTimelineId)
+        XCTAssertEqual(model.frameCount, 0, "Disconnect clears status before a new board snapshot exists")
+        XCTAssertEqual(model.displayIndex, 0)
     }
 
     func testRejectedCommandShowsReadableReason() async throws {
@@ -210,6 +479,21 @@ final class TextTransportTests: XCTestCase {
         let boardText = "Fresh reconnect"
         let expected = try makeTimeline(text: boardText, fps: 20)
         let boardTimelineId = "board-active"
+        let freshIndex = min(5, expected.frameCount - 1)
+        let model = TextViewModel()
+        let staleTimeline = try makeTimeline(text: "Old board text", fps: 10)
+        transport.scrollMeta = restoreMeta(
+            text: staleTimeline.text, timelineId: staleTimeline.timelineId, timeline: staleTimeline
+        )
+        transport.previewSync = restorePreview(
+            timelineId: staleTimeline.timelineId, timeline: staleTimeline, frameIndex: 3
+        )
+        await model.restoreOnConnect(connection: connection)
+        model.suspendPreviewLoop()
+        XCTAssertEqual(model.frameCount, staleTimeline.frameCount)
+        XCTAssertEqual(model.displayIndex, 3)
+        model.connectionChanged()
+        transport.clearRecordedRequests()
         transport.scrollMeta = ScrollMeta(
             ok: true,
             scrollTimelineId: boardTimelineId,
@@ -227,7 +511,6 @@ final class TextTransportTests: XCTestCase {
             firmwareScrollPaused: false,
             scrollLoop: true
         )
-        let freshIndex = min(5, expected.frameCount - 1)
         transport.previewSync = PreviewSync(
             ok: true,
             playback: "scroll",
@@ -244,7 +527,6 @@ final class TextTransportTests: XCTestCase {
             firmwareScrollPaused: false,
             rateEligible: true
         )
-        let model = TextViewModel()
 
         await model.restoreOnConnect(connection: connection)
         model.suspendPreviewLoop()
@@ -338,7 +620,8 @@ final class TextTransportTests: XCTestCase {
         model.suspendPreviewLoop()
 
         XCTAssertEqual(model.text, localDraft)
-        XCTAssertEqual(model.requestedFps, 27, "The unsent draft's speed must survive the reconnect too")
+        XCTAssertEqual(model.requestedFps, 10,
+                       "The bound controls retune the board's running scroll, so they show its speed")
         XCTAssertTrue(model.userEditedText)
         XCTAssertTrue(model.restoreConflict)
         XCTAssertEqual(model.boardText, boardText)
@@ -443,10 +726,12 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
     let preferredChunkBytes = 512
     var rejectCommands = false
     var onScrollSeek: (() -> Void)?
+    var onBlobBegin: (() -> Void)?
     var scrollMeta: ScrollMeta?
     var previewSync: PreviewSync?
     private(set) var scrollCommands: [Command] = []
     private(set) var requests: [RinaLinkMessageType] = []
+    private(set) var blobBegins: [[String: Any]] = []
 
     func clearRecordedRequests() { requests.removeAll() }
 
@@ -478,6 +763,11 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
         for request in decoder.feed(data) {
             let messageType = RinaLinkMessageType(rawValue: request.type)
             if let messageType { requests.append(messageType) }
+            if messageType == .blobBegin,
+               let fields = try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any] {
+                blobBegins.append(fields)
+                onBlobBegin?()
+            }
             var reply = Data(#"{"ok":true}"#.utf8)
             if messageType == .getScrollMeta, let scrollMeta {
                 reply = try JSONEncoder().encode(scrollMeta)
@@ -492,7 +782,7 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
                 if name == "scroll_seek" { onScrollSeek?() }
                 if rejectCommands { reply = Data(#"{"ok":false,"error":"denied"}"#.utf8) }
             }
-            incomingContinuation?.yield(RinaLinkEncoder.encode(
+            incomingContinuation?.yield(try! RinaLinkEncoder.encode(
                 RinaLinkFrame(type: request.type | 0x80,
                               seq: request.seq,
                               flags: 0,

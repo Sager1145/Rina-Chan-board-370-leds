@@ -3,10 +3,10 @@ import SwiftUI
 /// Scrolling-text transport row (design guide §24). System buttons and SF
 /// Symbols only — no custom icon artwork.
 ///
-/// Four buttons, no separate send row: play/pause and stop sit on the left,
-/// frame stepping on the right. The second slot is the stop button
-/// while the board is scrolling a bound timeline, and turns into
-/// "send and play" once there is nothing to stop.
+/// Five pills, no separate send row: play/pause and stop sit on the left,
+/// frame stepping in the middle and the loop toggle on the right. The second
+/// slot is the stop button while the board is scrolling a bound timeline, and
+/// turns into "send and play" once there is nothing to stop.
 struct TextPlaybackControls: View {
     var isConnected: Bool
     var hasTimeline: Bool
@@ -14,6 +14,8 @@ struct TextPlaybackControls: View {
     var isUploading: Bool
     var isGeneratingFont: Bool
     var canSend: Bool
+    @Binding var loopPlayback: Bool
+    var loopDisabled: Bool
     var onSend: () -> Void
     var onPlay: () -> Void
     var onPause: () -> Void
@@ -38,6 +40,13 @@ struct TextPlaybackControls: View {
                 .disabled(!transportEnabled)
             control("forward.frame.fill", label: "下一帧", action: onStepForward)
                 .disabled(!transportEnabled)
+            Toggle(isOn: $loopPlayback) {
+                RepeatSymbol(isOn: loopPlayback)
+                    .frame(maxWidth: .infinity)
+            }
+            .toggleStyle(.pill)
+            .accessibilityLabel(LocalizedStringKey("循环播放"))
+            .disabled(loopDisabled)
         }
         .buttonStyle(.pill)
         .pillButtonRow()

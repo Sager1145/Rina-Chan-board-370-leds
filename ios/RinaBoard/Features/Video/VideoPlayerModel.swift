@@ -17,6 +17,12 @@ enum VideoFileStore {
     }()
 }
 
+private struct VideoSubmission: Sendable {
+    let frame: PackedFrame
+    let positionMs: Int
+    let streamID: String
+}
+
 /// A video handed over by the Photos picker, already copied into app storage.
 /// The picker's own file is deleted as soon as the closure returns, so the
 /// copy has to happen inside it.
@@ -100,6 +106,9 @@ final class VideoPlayerModel {
     private static let frameRateKey = "videoFrameRate"
     private static let loopsKey = "videoLoops"
     private static let mutedKey = "videoMuted"
+    private static let playbackFileKey = "videoPlaybackFile"
+    private static let playbackPositionKey = "videoPlaybackPositionMs"
+    private static let playbackStreamKey = "videoPlaybackStreamID"
 
     /// Longest edge of the image the quantizer samples from. The grid is
     /// 22×18 with 5 samples per cell axis, so anything past ~110 px adds cost
@@ -118,14 +127,18 @@ final class VideoPlayerModel {
     @ObservationIgnored private var endObserver: NSObjectProtocol?
     @ObservationIgnored private var frameLoop: Task<Void, Never>?
     @ObservationIgnored private var stillTask: Task<Void, Never>?
-    @ObservationIgnored private var sender: LatestValueSender<PackedFrame>?
+    @ObservationIgnored private var sender: LatestValueSender<VideoSubmission>?
     @ObservationIgnored private var lastLuma: VideoFrameQuantizer.LumaImage?
     @ObservationIgnored private var lastSubmitted: PackedFrame?
+    @ObservationIgnored private var lastSubmittedPositionMs: Int?
     @ObservationIgnored private weak var lastConnection: BoardConnection?
     @ObservationIgnored private var loadGeneration = 0
     @ObservationIgnored private var didRestore = false
     @ObservationIgnored private var sessionActive = false
     @ObservationIgnored private var playbackStartTask: Task<Void, Never>?
+    @ObservationIgnored private var restoreTask: Task<Void, Never>?
+    @ObservationIgnored private var lastPersistedPositionMs: Int?
+    @ObservationIgnored private var playbackStreamID: String?
     /// True while this model is itself taking a new lease. `begin` runs the
     /// stop handler of the previous holder, which can be this model; that
     /// call must not pause the playback the lease is being taken for.
@@ -147,8 +160,8 @@ final class VideoPlayerModel {
         frameRate = Self.frameRates.contains(storedRate) ? storedRate : 15
         loops = defaults.object(forKey: Self.loopsKey) as? Bool ?? true
         isMuted = defaults.bool(forKey: Self.mutedKey)
-        sender = LatestValueSender(minInterval: 0.01) { [weak self] frame in
-            await self?.send(frame)
+        sender = LatestValueSender(minInterval: 0.01) { [weak self] submission in
+            await self?.send(submission)
         }
     }
 
@@ -157,14 +170,103 @@ final class VideoPlayerModel {
     func restoreLastVideoIfNeeded() {
         guard !didRestore else { return }
         didRestore = true
-        guard player == nil, let name = defaults.string(forKey: Self.fileKey) else { return }
+        guard player == nil else { return }
+        restoreTask = makeRestoreTask()
+    }
+
+    /// Waits for the persisted video to become usable before seeking and
+    /// starting it. This explicit board-recovery path is the only restore
+    /// operation that auto-plays; normal page restoration remains passive.
+    func restorePlaybackFromBoard(
+        connection: BoardConnection,
+        streamID boardStreamID: String? = nil,
+        positionMs boardPositionMs: Int? = nil,
+        shouldResume: @escaping @MainActor () async -> Bool = { true }
+    ) async {
+        didRestore = true
+        let generation = connection.connectionGeneration
+        let previousOutputSession = connection.output.session
+        guard connection.connectionState == .connected,
+              await shouldResume() else { return }
+        guard let playbackFile = defaults.string(forKey: Self.playbackFileKey) else {
+            if isPlaying { pause() }
+            reportMissingOriginalStream()
+            return
+        }
+
+        guard let savedStreamID = defaults.string(forKey: Self.playbackStreamKey),
+              savedStreamID.count == 36,
+              UUID(uuidString: savedStreamID) != nil,
+              boardStreamID == nil || boardStreamID == savedStreamID else {
+            if isPlaying { pause() }
+            reportMissingOriginalStream()
+            return
+        }
+
+        if isPlaying {
+            guard storedURL?.lastPathComponent == playbackFile,
+                  playbackStreamID == savedStreamID else {
+                pause()
+                reportMissingOriginalStream()
+                return
+            }
+            guard !Task.isCancelled,
+                  generation == connection.connectionGeneration,
+                  previousOutputSession == connection.output.session,
+                  await shouldResume() else { return }
+            resumeBoardOutput(connection: connection)
+            return
+        }
+
+        if player == nil {
+            let task = restoreTask ?? makeRestoreTask(named: playbackFile)
+            restoreTask = task
+            await task?.value
+            restoreTask = nil
+        }
+
+        guard !Task.isCancelled,
+              generation == connection.connectionGeneration,
+              previousOutputSession == connection.output.session,
+              defaults.string(forKey: Self.playbackFileKey) == playbackFile,
+              storedURL?.lastPathComponent == playbackFile,
+              player != nil,
+              await shouldResume() else {
+            if !Task.isCancelled,
+               generation == connection.connectionGeneration,
+               previousOutputSession == connection.output.session {
+                reportMissingOriginalStream()
+            }
+            return
+        }
+
+        let checkpoint = defaults.integer(forKey: Self.playbackPositionKey)
+        playbackStreamID = savedStreamID
+        await seekForRestore(toMs: boardPositionMs ?? checkpoint)
+        guard !Task.isCancelled,
+              generation == connection.connectionGeneration,
+              previousOutputSession == connection.output.session,
+              storedURL?.lastPathComponent == playbackFile,
+              await shouldResume() else { return }
+        await startPlayback(connection: connection,
+                            expectedGeneration: generation,
+                            expectedOutputSession: previousOutputSession,
+                            validateRestore: true,
+                            shouldResume: shouldResume)
+    }
+
+    private func makeRestoreTask(named requestedName: String? = nil) -> Task<Void, Never>? {
+        guard let name = requestedName ?? defaults.string(forKey: Self.fileKey) else { return nil }
         let url = store.storedURL(named: name)
         guard FileManager.default.fileExists(atPath: url.path) else {
             forgetStoredVideo()
-            return
+            return nil
         }
-        let title = defaults.string(forKey: Self.titleKey) ?? url.deletingPathExtension().lastPathComponent
-        Task { await load(url, title: title, isNewImport: false) }
+        let restoredTitle = defaults.string(forKey: Self.titleKey)
+            ?? url.deletingPathExtension().lastPathComponent
+        return Task { [weak self] in
+            await self?.load(url, title: restoredTitle, isNewImport: false)
+        }
     }
 
     func importFile(from url: URL) async {
@@ -221,7 +323,8 @@ final class VideoPlayerModel {
                 if isNewImport { store.remove(url) }
                 return
             }
-            install(asset: asset, composition: composition, duration: duration, url: url, title: title)
+            install(asset: asset, composition: composition, duration: duration,
+                    url: url, title: title)
         } catch {
             guard generation == loadGeneration else { return }
             // Either way the copy is unusable; a restored one would otherwise
@@ -285,6 +388,9 @@ final class VideoPlayerModel {
     private func forgetStoredVideo() {
         defaults.removeObject(forKey: Self.fileKey)
         defaults.removeObject(forKey: Self.titleKey)
+        defaults.removeObject(forKey: Self.playbackFileKey)
+        defaults.removeObject(forKey: Self.playbackPositionKey)
+        defaults.removeObject(forKey: Self.playbackStreamKey)
     }
 
     private func teardownPlayer() {
@@ -313,7 +419,13 @@ final class VideoPlayerModel {
         }
     }
 
-    private func startPlayback(connection: BoardConnection) async {
+    private func startPlayback(
+        connection: BoardConnection,
+        expectedGeneration: UUID? = nil,
+        expectedOutputSession: UUID? = nil,
+        validateRestore: Bool = false,
+        shouldResume: @MainActor () async -> Bool = { true }
+    ) async {
         guard !Task.isCancelled else { return }
         guard let player else {
             errorMessage = NSLocalizedString("请先导入视频", comment: "play pressed with no video")
@@ -323,7 +435,19 @@ final class VideoPlayerModel {
         // Audio first: taking the board stops whichever feature holds it, and
         // that must not happen for a start that is about to fail.
         if !isMuted, !(await activateSessionIfNeeded()) { return }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else {
+            deactivateSessionIfNeeded()
+            return
+        }
+        if validateRestore {
+            guard expectedGeneration == connection.connectionGeneration,
+                  expectedOutputSession == connection.output.session,
+                  connection.connectionState == .connected,
+                  await shouldResume() else {
+                deactivateSessionIfNeeded()
+                return
+            }
+        }
         if connection.connectionState == .connected {
             acquireOutput(connection: connection)
         } else {
@@ -336,6 +460,8 @@ final class VideoPlayerModel {
         stillTask?.cancel()
         player.play()
         isPlaying = true
+        preparePlaybackStream(restoring: validateRestore)
+        savePlaybackPosition(force: true)
         errorMessage = nil
         // Put the face that is already on screen on the board right away
         // instead of waiting for the video to decode its next frame.
@@ -346,6 +472,7 @@ final class VideoPlayerModel {
     func pause() {
         playbackStartTask?.cancel()
         playbackStartTask = nil
+        savePlaybackPosition(force: true)
         suspendBoardOutput()
         player?.pause()
         deactivateSessionIfNeeded()
@@ -360,6 +487,7 @@ final class VideoPlayerModel {
         pause()
         player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
         positionMs = 0
+        savePlaybackPosition(force: true)
         deactivateSessionIfNeeded()
         renderStill(atMs: 0)
     }
@@ -368,10 +496,29 @@ final class VideoPlayerModel {
         guard let player else { return }
         let clamped = max(0, min(durationMs, ms))
         positionMs = clamped
+        savePlaybackPosition(force: true)
         player.seek(to: CMTime(value: CMTimeValue(clamped), timescale: 1000),
                     toleranceBefore: .zero, toleranceAfter: .zero)
         // While playing, the video output delivers the new position on its own.
         if !isPlaying { renderStill(atMs: clamped) }
+    }
+
+    private func seekForRestore(toMs ms: Int) async {
+        guard let player else { return }
+        let clamped = max(0, min(durationMs, ms))
+        stillTask?.cancel()
+        stillTask = nil
+        lastLuma = nil
+        previewFrame = PackedFrame()
+        positionMs = clamped
+        savePlaybackPosition(force: true)
+        await withCheckedContinuation { continuation in
+            player.seek(to: CMTime(value: CMTimeValue(clamped), timescale: 1000),
+                        toleranceBefore: .zero,
+                        toleranceAfter: .zero) { _ in
+                continuation.resume()
+            }
+        }
     }
 
     private func playbackReachedEnd() {
@@ -381,6 +528,7 @@ final class VideoPlayerModel {
             player.play()
         } else {
             positionMs = durationMs
+            savePlaybackPosition(force: true)
             isPlaying = false
             suspendBoardOutput()
             frameLoop?.cancel()
@@ -400,8 +548,10 @@ final class VideoPlayerModel {
     }
 
     func suspendBoardOutput() {
+        savePlaybackPosition(force: true)
         outputSession = nil
         lastSubmitted = nil
+        lastSubmittedPositionMs = nil
         sender?.cancel()
     }
 
@@ -419,19 +569,29 @@ final class VideoPlayerModel {
         defer { isAcquiringOutput = false }
         outputSession = connection.output.begin(.video)
         lastSubmitted = nil
+        lastSubmittedPositionMs = nil
     }
 
-    private func send(_ frame: PackedFrame) async {
+    private func send(_ submission: VideoSubmission) async {
         guard let connection = lastConnection, connection.connectionState == .connected,
               let token = outputSession, connection.output.isCurrent(token) else { return }
         do {
-            _ = try await connection.setFrame(frame, playback: .idle, reason: "video", outputSession: token)
+            _ = try await connection.setFrame(
+                submission.frame,
+                playback: .idle,
+                reason: "video:\(submission.streamID):\(max(0, submission.positionMs))",
+                outputSession: token
+            )
         } catch is CancellationError {
         } catch RatePumpError.dropped {
-            if outputSession == token { lastSubmitted = nil }
+            if outputSession == token {
+                lastSubmitted = nil
+                lastSubmittedPositionMs = nil
+            }
         } catch {
             guard outputSession == token, connection.output.isCurrent(token) else { return }
             lastSubmitted = nil
+            lastSubmittedPositionMs = nil
             errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),
                                   error.localizedDescription)
         }
@@ -455,6 +615,7 @@ final class VideoPlayerModel {
         let seconds = player.currentTime().seconds
         if seconds.isFinite {
             positionMs = max(0, min(durationMs, Int((seconds * 1000).rounded())))
+            savePlaybackPosition(force: false)
         }
         // The system stops AVPlayer on its own for a call, Siri or unplugged
         // headphones. Follow it, or the page keeps claiming playback while
@@ -491,14 +652,50 @@ final class VideoPlayerModel {
         if let lastLuma { render(lastLuma) }
     }
 
+    /// UserDefaults writes are throttled to roughly twice per second while
+    /// playing, with exact checkpoints at transport and lifecycle boundaries.
+    private func savePlaybackPosition(force: Bool) {
+        guard player != nil else { return }
+        let checkpoint = max(0, min(durationMs, positionMs))
+        if !force, let lastPersistedPositionMs,
+           abs(checkpoint - lastPersistedPositionMs) < 500 { return }
+        defaults.set(checkpoint, forKey: Self.playbackPositionKey)
+        lastPersistedPositionMs = checkpoint
+    }
+
     private func render(_ luma: VideoFrameQuantizer.LumaImage) {
         let frame = VideoFrameQuantizer.frame(from: luma, settings: settings)
         previewFrame = frame
-        // Identical consecutive faces are common (static shots, letterboxes);
-        // they cost a round trip each and change nothing on the board.
-        guard outputSession != nil, frame != lastSubmitted else { return }
+        guard outputSession != nil, let playbackStreamID else { return }
+        // Refresh static frames twice per second so the board's reported
+        // stream position remains useful without sending every decoded frame.
+        let positionDelta = lastSubmittedPositionMs.map { abs(positionMs - $0) } ?? Int.max
+        guard frame != lastSubmitted || positionDelta >= 1_000 else { return }
         lastSubmitted = frame
-        sender?.submit(frame)
+        lastSubmittedPositionMs = positionMs
+        sender?.submit(VideoSubmission(frame: frame,
+                                       positionMs: positionMs,
+                                       streamID: playbackStreamID))
+    }
+
+    private func preparePlaybackStream(restoring: Bool) {
+        guard let storedURL else { return }
+        let file = storedURL.lastPathComponent
+        if !restoring {
+            let savedFile = defaults.string(forKey: Self.playbackFileKey)
+            if savedFile != file || defaults.string(forKey: Self.playbackStreamKey) == nil {
+                playbackStreamID = UUID().uuidString
+            } else if playbackStreamID == nil {
+                playbackStreamID = defaults.string(forKey: Self.playbackStreamKey)
+            }
+        }
+        guard let playbackStreamID else { return }
+        defaults.set(file, forKey: Self.playbackFileKey)
+        defaults.set(playbackStreamID, forKey: Self.playbackStreamKey)
+    }
+
+    private func reportMissingOriginalStream() {
+        errorMessage = NSLocalizedString("无法找到此视频的原始播放流", comment: "video recovery stream missing")
     }
 
     private func saveSettings() {

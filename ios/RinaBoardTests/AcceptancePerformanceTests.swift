@@ -159,6 +159,198 @@ final class AcceptancePerformanceTests: XCTestCase {
         XCTAssertNil(restoredModel.errorMessage)
     }
 
+    func testPassiveMaterialRestoreDoesNotStartOrCreateAPlaybackStream() throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        model.importScript(from: try context.writeImport(
+            named: "passive.rinalive",
+            data: validScriptData
+        ))
+        model.importCustomAudio(from: try context.writeImport(
+            named: "passive.wav",
+            data: syntheticWAV()
+        ))
+
+        let restored = context.makeModel()
+        restored.restoreLastImportIfNeeded()
+
+        XCTAssertTrue(restored.canPlay)
+        XCTAssertFalse(restored.isPlaying)
+        XCTAssertNil(context.defaults.string(forKey: "presetLivePlaybackStreamID"))
+    }
+
+    func testBoardRestoreWithoutOriginalStreamDoesNotPlayImportedMaterial() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        model.importScript(from: try context.writeImport(
+            named: "unrelated.rinalive",
+            data: validScriptData
+        ))
+        model.importCustomAudio(from: try context.writeImport(
+            named: "unrelated.wav",
+            data: syntheticWAV()
+        ))
+        let scriptFile = try XCTUnwrap(context.defaults.string(forKey: "presetLiveScriptFile"))
+        let audioFile = try XCTUnwrap(context.defaults.string(forKey: "presetLiveAudioFile"))
+        context.defaults.set("custom|\(scriptFile)|\(audioFile)", forKey: "presetLivePlaybackMaterial")
+        context.defaults.set(UUID().uuidString, forKey: "presetLivePlaybackStreamID")
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: FakeRinaTransport())
+        XCTAssertTrue(connected)
+        defer { connection.disconnect() }
+
+        await model.restorePlaybackFromBoard(
+            connection: connection,
+            streamID: UUID().uuidString
+        )
+
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertNil(connection.output.source)
+        XCTAssertNotNil(model.errorMessage)
+    }
+
+    func testBoardRestoreUsesMatchingStreamMaterialAndBoardPosition() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        model.importScript(from: try context.writeImport(
+            named: "original.rinalive",
+            data: validScriptData
+        ))
+        model.importCustomAudio(from: try context.writeImport(
+            named: "original.wav",
+            data: syntheticWAV(sampleCount: 80_000)
+        ))
+        let scriptFile = try XCTUnwrap(context.defaults.string(forKey: "presetLiveScriptFile"))
+        let audioFile = try XCTUnwrap(context.defaults.string(forKey: "presetLiveAudioFile"))
+        let streamID = UUID().uuidString
+        context.defaults.set("custom|\(scriptFile)|\(audioFile)", forKey: "presetLivePlaybackMaterial")
+        context.defaults.set(streamID, forKey: "presetLivePlaybackStreamID")
+        context.defaults.set(250, forKey: "presetLivePlaybackPositionMs")
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: FakeRinaTransport())
+        XCTAssertTrue(connected)
+        defer { model.stop(); connection.disconnect() }
+
+        await model.restorePlaybackFromBoard(
+            connection: connection,
+            streamID: streamID,
+            positionMs: 1_250
+        )
+
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertEqual(connection.output.source, .performance)
+        XCTAssertGreaterThanOrEqual(model.positionMs, 1_250)
+        XCTAssertEqual(context.defaults.string(forKey: "presetLivePlaybackStreamID"), streamID)
+        XCTAssertEqual(context.defaults.string(forKey: "presetLivePlaybackMaterial"),
+                       "custom|\(scriptFile)|\(audioFile)")
+    }
+
+    func testPlayingPerformanceResumesBoardOutputAfterReconnect() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        model.importScript(from: try context.writeImport(
+            named: "reconnect.rinalive",
+            data: validScriptData
+        ))
+        model.importCustomAudio(from: try context.writeImport(
+            named: "reconnect.wav",
+            data: syntheticWAV(sampleCount: 80_000)
+        ))
+        let connection = BoardConnection()
+        let initiallyConnected = await connection.connect(using: FakeRinaTransport())
+        XCTAssertTrue(initiallyConnected)
+        defer { model.stop(); connection.disconnect() }
+
+        await model.play(connection: connection).value
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertEqual(connection.output.source, .performance)
+        let streamID = try XCTUnwrap(
+            context.defaults.string(forKey: "presetLivePlaybackStreamID")
+        )
+
+        model.suspendBoardOutput()
+        connection.disconnect()
+        XCTAssertTrue(model.isPlaying, "A carrier loss must not stop local audio")
+        XCTAssertTrue(model.needsBoardResume)
+        let reconnected = await connection.connect(using: FakeRinaTransport())
+        XCTAssertTrue(reconnected)
+
+        await model.restorePlaybackFromBoard(connection: connection, streamID: streamID)
+
+        XCTAssertTrue(model.isPlaying)
+        XCTAssertFalse(model.needsBoardResume)
+        XCTAssertEqual(connection.output.source, .performance)
+    }
+
+    func testBoardRestoreAbortsWhenTakeoverCheckChangesDuringRestore() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        model.importScript(from: try context.writeImport(
+            named: "takeover.rinalive",
+            data: validScriptData
+        ))
+        model.importCustomAudio(from: try context.writeImport(
+            named: "takeover.wav",
+            data: syntheticWAV(sampleCount: 80_000)
+        ))
+        let scriptFile = try XCTUnwrap(context.defaults.string(forKey: "presetLiveScriptFile"))
+        let audioFile = try XCTUnwrap(context.defaults.string(forKey: "presetLiveAudioFile"))
+        let streamID = UUID().uuidString
+        context.defaults.set("custom|\(scriptFile)|\(audioFile)", forKey: "presetLivePlaybackMaterial")
+        context.defaults.set(streamID, forKey: "presetLivePlaybackStreamID")
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: FakeRinaTransport())
+        XCTAssertTrue(connected)
+        defer { model.stop(); connection.disconnect() }
+        var checks = 0
+
+        await model.restorePlaybackFromBoard(
+            connection: connection,
+            streamID: streamID,
+            shouldResume: {
+                checks += 1
+                return checks < 2
+            }
+        )
+
+        XCTAssertEqual(checks, 2)
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertNil(connection.output.source)
+    }
+
+    func testBoardRestoreRejectsMatchingStreamWhenMaterialIdentityChanged() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        model.importScript(from: try context.writeImport(
+            named: "replacement.rinalive",
+            data: validScriptData
+        ))
+        model.importCustomAudio(from: try context.writeImport(
+            named: "replacement.wav",
+            data: syntheticWAV()
+        ))
+        let streamID = UUID().uuidString
+        context.defaults.set("custom|missing-script|missing-audio",
+                             forKey: "presetLivePlaybackMaterial")
+        context.defaults.set(streamID, forKey: "presetLivePlaybackStreamID")
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: FakeRinaTransport())
+        XCTAssertTrue(connected)
+        defer { connection.disconnect() }
+
+        await model.restorePlaybackFromBoard(connection: connection, streamID: streamID)
+
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertNil(connection.output.source)
+        XCTAssertNotNil(model.errorMessage)
+    }
+
     private var validScriptData: Data {
         Data("#fps 10\n#title Acceptance\n0!101,201,301,400\n10!101,201,301,400\n".utf8)
     }
@@ -238,9 +430,8 @@ final class AcceptancePerformanceTests: XCTestCase {
         """#.utf8)
     }
 
-    private func syntheticWAV(sample: Int16 = 0) -> Data {
+    private func syntheticWAV(sample: Int16 = 0, sampleCount: Int = 800) -> Data {
         let sampleRate: UInt32 = 8_000
-        let sampleCount = 800
         let bytesPerSample: UInt16 = 2
         let audioByteCount = UInt32(sampleCount) * UInt32(bytesPerSample)
         var data = Data()

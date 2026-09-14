@@ -13,6 +13,7 @@ final class LatestValueSender<T: Sendable> {
     private let send: (T) async -> Void
     private var pending: T?
     private var loopTask: Task<Void, Never>?
+    private var generation = 0
 
     init(minInterval: TimeInterval, send: @escaping (T) async -> Void) {
         self.minInterval = minInterval
@@ -24,21 +25,25 @@ final class LatestValueSender<T: Sendable> {
     func submit(_ value: T) {
         pending = value
         guard loopTask == nil else { return }
+        let loopGeneration = generation
         loopTask = Task { [weak self] in
             guard let self else { return }
-            while !Task.isCancelled {
+            while !Task.isCancelled && self.generation == loopGeneration {
                 guard let next = self.pending else { break }
                 self.pending = nil
                 await self.send(next)
-                guard !Task.isCancelled else { break }
+                guard !Task.isCancelled && self.generation == loopGeneration else { break }
                 try? await Task.sleep(nanoseconds: UInt64(self.minInterval * 1_000_000_000))
             }
-            self.loopTask = nil
+            if self.generation == loopGeneration {
+                self.loopTask = nil
+            }
         }
     }
 
     /// Cancels the drain loop and drops any not-yet-sent value.
     func cancel() {
+        generation += 1
         loopTask?.cancel()
         loopTask = nil
         pending = nil

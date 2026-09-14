@@ -4,6 +4,58 @@ import RinaCore
 
 @MainActor
 final class LipSyncLifecycleTests: XCTestCase {
+    func testReopenedModelResumesTheSameLipSyncStream() async throws {
+        let suite = "LipSyncResume-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let connection = BoardConnection()
+        _ = await connection.connect(using: FakeRinaTransport())
+        defer { connection.disconnect() }
+        let original = LipSyncModel(defaults: defaults, capture: TestMicrophone(), permissionRequest: { .granted })
+        original.setSyncEyes(true)
+        original.setCostumePart("0", for: .cheek)
+        original.sensitivityDb = -45
+        await original.start(connection: connection)
+        let streamID = try XCTUnwrap(defaults.string(forKey: "lipSyncStreamID"))
+        original.stop()
+
+        let capture = TestMicrophone()
+        let reopened = LipSyncModel(defaults: defaults, capture: capture, permissionRequest: { .granted })
+        XCTAssertEqual(reopened.baseCall, original.baseCall)
+        XCTAssertTrue(reopened.syncEyes)
+        XCTAssertEqual(reopened.sensitivityDb, -45)
+        defer { reopened.stop() }
+        await reopened.start(connection: connection, resumingStreamID: streamID)
+        XCTAssertTrue(reopened.isRunning)
+        XCTAssertEqual(capture.startCount, 1)
+        XCTAssertEqual(defaults.string(forKey: "lipSyncStreamID"), streamID)
+    }
+
+    func testForeignLipSyncStreamDoesNotStartTheMicrophone() async {
+        let connection = BoardConnection()
+        _ = await connection.connect(using: FakeRinaTransport())
+        defer { connection.disconnect() }
+        let capture = TestMicrophone()
+        let model = LipSyncModel(capture: capture, permissionRequest: { .granted })
+        await model.start(connection: connection, resumingStreamID: UUID().uuidString)
+        XCTAssertFalse(model.isRunning)
+        XCTAssertEqual(capture.startCount, 0)
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertNil(connection.output.source)
+    }
+
+    func testBoardTakeoverDuringResumeDoesNotStartTheMicrophone() async {
+        let connection = BoardConnection()
+        _ = await connection.connect(using: FakeRinaTransport())
+        defer { connection.disconnect() }
+        let capture = TestMicrophone()
+        let model = LipSyncModel(capture: capture, permissionRequest: { .granted })
+        await model.start(connection: connection, shouldStart: { false })
+        XCTAssertFalse(model.isRunning)
+        XCTAssertEqual(capture.startCount, 0)
+        XCTAssertNil(connection.output.source)
+    }
+
     func testCalibrationDistinguishesMissingBuffersFromSilentPCM() async throws {
         for (samples, expected) in [([Float](), "麦克风未传入音频数据"),
                                      ([Float](repeating: 0, count: 4096), "麦克风传入的音频全部为静音")] {

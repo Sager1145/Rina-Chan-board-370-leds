@@ -378,6 +378,7 @@
       "shouldTranslate" : false
     },
     "1. 打开 设置 › 个人热点 并开启「允许其他人加入」\n2. 在下方填写热点名称与密码\n3. 点击发送" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1619,6 +1620,7 @@
       }
     },
     "亮度、上一个/下一个、自动模式、颜色与已保存的表情。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1641,6 +1643,7 @@
       }
     },
     "亮度、颜色与上一个/下一个属于控制中心，这里不再重复。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2267,6 +2270,7 @@
 
     },
     "保存到面板的表情库，可在控制中心中管理。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4936,6 +4940,9 @@
         }
       }
     },
+    "另一块璃奈板" : {
+      "comment" : "unknown board identity in hotspot mismatch message"
+    },
     "另存为新表情" : {
       "localizations" : {
         "en" : {
@@ -5002,9 +5009,6 @@
           }
         }
       }
-    },
-    "只显示附近可连接的璃奈板，按信号强弱排序。输入名称或设备编号可查找指定板子，点击设备即可连接。" : {
-
     },
     "可以从另一个表情库复制表情。" : {
       "comment" : "empty face library help",
@@ -5122,6 +5126,9 @@
           }
         }
       }
+    },
+    "可连接多块璃奈板，点选要控制的板，其他板保持连接。多板 Wi-Fi 连接需处于同一网络；热点直连仅适用于当前加入的热点。" : {
+
     },
     "同步" : {
       "extractionState" : "stale",
@@ -5523,6 +5530,7 @@
       }
     },
     "固件、iOS App 与 3D 打印模型的下载地址。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6116,6 +6124,7 @@
       }
     },
     "外观跟随系统设置。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6514,9 +6523,6 @@
           }
         }
       }
-    },
-    "实时预览已关闭，修改仅保存在本地，点击「发送」才会写入。" : {
-
     },
     "实时预览已关闭，修改仅保存在本地，点击「发送到面板」才会写入。" : {
       "extractionState" : "stale",
@@ -8128,6 +8134,20 @@
         }
       }
     },
+    "已连接到 %@，如需切换请先断开或选择已保存的璃奈板" : {
+      "comment" : "hotspot already connected, switch via disconnect or saved board"
+    },
+    "已连接到另一块璃奈板（%@），而不是 %@" : {
+      "comment" : "hotspot session connected to the wrong board",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "已连接到另一块璃奈板（%1$@），而不是 %2$@"
+          }
+        }
+      }
+    },
     "已连接璃奈板" : {
 
     },
@@ -8874,9 +8894,6 @@
 
     },
     "忘记 %@" : {
-
-    },
-    "忘记后将停止自动连接此设备。可以重新扫描并连接来保存。" : {
 
     },
     "忘记家庭 Wi-Fi" : {
@@ -9719,6 +9736,9 @@
         }
       }
     },
+    "控制对象 · %lld 块在线" : {
+
+    },
     "控制时保持屏幕常亮" : {
       "localizations" : {
         "en" : {
@@ -10316,6 +10336,12 @@
         }
       }
     },
+    "无法找到此演出的原始播放流" : {
+      "comment" : "performance recovery stream missing"
+    },
+    "无法找到此视频的原始播放流" : {
+      "comment" : "video recovery stream missing"
+    },
     "无法确认定位权限状态" : {
       "comment" : "unknown location authorization state",
       "localizations" : {
@@ -10408,6 +10434,9 @@
           }
         }
       }
+    },
+    "无法读取璃奈板的 Wi-Fi 状态" : {
+      "comment" : "hotspot setup failed to read wifi status"
     },
     "无法读取表情库" : {
       "extractionState" : "stale",
@@ -11600,6 +11629,7 @@
       }
     },
     "本项目基于上述开源项目的创意与实现，向原作者致谢。各组件版权归原作者所有，并遵循其各自的开源许可证。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -13912,6 +13942,7 @@
       }
     },
     "版本信息、项目链接与致谢。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -16208,6 +16239,9 @@
         }
       }
     },
+    "蓝牙信号强度" : {
+
+    },
     "表情" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -16387,6 +16421,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "表情預覽：%@"
+          }
+        }
+      }
+    },
+    "覆盖原表情" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overwrite face"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元の表情を上書き"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "覆蓋原表情"
           }
         }
       }
@@ -18693,9 +18749,6 @@
         }
       }
     },
-    "重命名后立即生效，无需重启。名称上限 %lld 字节（中文约 8 个字）；留空可恢复出厂名称。多块板子各自独立命名，扫描时即可区分。" : {
-
-    },
     "重命名失败" : {
       "comment" : "board rename failed",
       "localizations" : {
@@ -20086,6 +20139,7 @@
       }
     },
     "默认声音模型是按共振峰合成出来的，不需要录音就能用。点「校准」后持续发同一个元音约 1.5 秒，即可用你自己的声音替换该元音的参考。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

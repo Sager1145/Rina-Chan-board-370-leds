@@ -6,6 +6,7 @@ import RinaCore
 /// brightness, colour, prev/next and auto mode are deliberately absent — they
 /// belong to the Control Center (§63).
 struct ControlView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(BoardConnection.self) private var connection
     @Environment(ControlViewModel.self) private var model
     @Environment(BoardControlCenterModel.self) private var controlCenter
@@ -22,6 +23,10 @@ struct ControlView: View {
     @State private var isTouchingBoard = false
     @State private var isNamingSave = false
     @State private var saveNameDraft = ""
+    @State private var isChoosingSaveTarget = false
+    /// Set by the save-target dialog; applied only when the name alert is
+    /// confirmed, so cancelling leaves the editor's save target untouched.
+    @State private var savesAsNew = false
     @State private var isShowingSavedFaces = false
 
     private var isConnected: Bool { connection.connectionState == .connected }
@@ -36,6 +41,7 @@ struct ControlView: View {
                 partsSection
             }
             .listSectionSpacing(.compact)
+            .rinaScrollBackground()
             .scrollDisabled(isTouchingBoard)
             // Every finger up ends the drag stroke, so the next one is its
             // own undo step.
@@ -51,23 +57,37 @@ struct ControlView: View {
                 Button("取消", role: .cancel) {}
                 Button("保存") {
                     Task {
+                        if savesAsNew { model.startNewFace() }
                         model.saveName = saveNameDraft
                         let payload = model.upsertPayload(using: faceLibrary)
+                        let source = model.boardFaceSaveSource
+                        let destination = BoardFaceSaveSource(
+                            boardID: connection.boardKey,
+                            generation: connection.connectionGeneration
+                        )
                         // Only record the save when the board actually took it;
                         // `.failed` leaves the editor's state untouched.
-                        if case .saved(let id) = await faceLibrary.save(payload, connection: connection) {
-                            model.didSave(as: id)
+                        if case .saved(let id) = await faceLibrary.save(
+                            payload, source: source, connection: connection
+                        ) {
+                            model.didSave(as: id, on: destination)
                         }
                     }
                 }
-            } message: {
-                Text("保存到面板的表情库，可在控制中心中管理。")
             }
             .sensoryFeedback(.impact(weight: .light), trigger: toggleCount) { _, _ in hapticsEnabled }
             .sheet(isPresented: $isShowingSavedFaces) { savedFacesSheet }
         }
         .errorAlert(Bindable(model).errorMessage)
         .onAppear { bootLoader.beginWaterfall(count: 3) }
+        .task(id: isConnected && scenePhase == .active ? connection.connectionGeneration : nil) {
+            guard isConnected, scenePhase == .active else { return }
+            while !Task.isCancelled {
+                await model.refreshBoardDisplay(connection: connection)
+                do { try await Task.sleep(for: .milliseconds(200)) }
+                catch { return }
+            }
+        }
     }
 
     // MARK: §16 Interactive preview
@@ -115,7 +135,7 @@ struct ControlView: View {
         } else if !isConnected {
             BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) { litCount }
         } else if let source = connection.output.source, source != .manual {
-            // Another feature owns the board, so the draft is not what it shows.
+            // Identify the feature whose current frame the preview follows.
             BoardPreviewStatus(Text(String(format: NSLocalizedString("面板正在播放：%@",
                                                                      comment: "board output owned by another feature"),
                                            source.title)),
@@ -167,24 +187,32 @@ struct ControlView: View {
 
                 Button {
                     saveNameDraft = model.saveName
-                    isNamingSave = true
+                    // Overwrite vs. save-as is decided here, after the tap,
+                    // and only when the edited face can be overwritten.
+                    if model.canOverwriteEditingFace {
+                        isChoosingSaveTarget = true
+                    } else {
+                        savesAsNew = false
+                        isNamingSave = true
+                    }
                 } label: {
                     CommandChip("保存", systemImage: "square.and.arrow.down.fill")
                 }
                 .disabled(!isConnected)
+                .confirmationDialog("保存表情", isPresented: $isChoosingSaveTarget) {
+                    Button("覆盖原表情") {
+                        savesAsNew = false
+                        isNamingSave = true
+                    }
+                    Button("另存为新表情") {
+                        savesAsNew = true
+                        isNamingSave = true
+                    }
+                    Button("取消", role: .cancel) {}
+                }
             }
             .buttonStyle(.pill)
             .pillButtonRow()
-
-            if model.editingFaceId != nil {
-                Button {
-                    model.startNewFace()
-                } label: {
-                    CommandChip("另存为新表情", systemImage: "doc.on.doc.fill")
-                }
-                .buttonStyle(.pill)
-                .pillButtonRow()
-            }
         }
     }
 
@@ -219,8 +247,6 @@ struct ControlView: View {
         } footer: {
             if !model.canSyncEyes {
                 Text("当前部件数据与左右眼映射不一致，已停用逐灯同步。")
-            } else if !model.livePreview {
-                Text("实时预览已关闭，修改仅保存在本地，点击「发送」才会写入。")
             }
         }
     }
@@ -292,7 +318,7 @@ struct ControlView: View {
                     FacePartSelectorView(
                         group: group,
                         library: library,
-                        selectedId: model.selectedCall[group],
+                        selectedId: model.fromParts ? model.selectedCall[group] : nil,
                         color: boardColor,
                         brightness: boardBrightness
                     ) { id in

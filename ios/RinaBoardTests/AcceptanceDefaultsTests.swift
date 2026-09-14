@@ -3,8 +3,8 @@ import XCTest
 
 @MainActor
 final class AcceptanceDefaultsTests: XCTestCase {
-    func testRealtimeOutputIsOffForANewEditor() {
-        XCTAssertFalse(ControlViewModel().livePreview,
-                       "A new editor must stay local until the user explicitly enables realtime output")
+    func testRealtimeOutputIsOnForANewEditor() {
+        XCTAssertTrue(ControlViewModel().livePreview,
+                      "A new editor streams edits to a connected board by default")
     }
 }

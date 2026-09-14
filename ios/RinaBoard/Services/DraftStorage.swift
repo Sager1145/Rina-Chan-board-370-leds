@@ -18,4 +18,10 @@ actor DraftStorage {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try data.write(to: directory.appendingPathComponent(name).appendingPathExtension("json"), options: .atomic)
     }
+
+    func remove(_ name: String) throws {
+        let url = directory.appendingPathComponent(name).appendingPathExtension("json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try FileManager.default.removeItem(at: url)
+    }
 }

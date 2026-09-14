@@ -5,6 +5,290 @@ import RinaCore
 
 @MainActor
 final class BoardConnectionOutputTests: XCTestCase {
+    func testOversizeCommandThrowsWithoutWritingOrCrashing() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        transport.resetRecordedFrames()
+        let ids = (0..<RinaLinkConstants.maxFaces).map { _ in "local_" + UUID().uuidString.lowercased() }
+
+        do {
+            _ = try await connection.faceReorder(ids: ids)
+            XCTFail("Expected oversize command to fail")
+        } catch let error as RinaLinkEncoder.EncodingError {
+            guard case .payloadTooLarge(let actual, let maximum) = error else {
+                return XCTFail("Unexpected encoding error: \(error)")
+            }
+            XCTAssertGreaterThan(actual, maximum)
+        }
+        XCTAssertEqual(transport.sentCount(type: .cmd), 0)
+    }
+
+    func testOversizeBlobMetadataThrowsWithoutWritingOrDroppingMetadata() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        transport.resetRecordedFrames()
+
+        do {
+            _ = try await connection.uploadBlob(
+                kind: .scrollBitmap,
+                meta: ["sourceText": String(repeating: "\\", count: 4096)],
+                data: Data([0])
+            )
+            XCTFail("Expected oversize metadata to fail")
+        } catch is RinaLinkEncoder.EncodingError {
+        }
+        XCTAssertEqual(transport.sentCount(type: .blobBegin), 0)
+    }
+
+    func testScrollUploadRejectsMoreThanFirmwareMaximumBeforeWriting() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        transport.resetRecordedFrames()
+
+        do {
+            _ = try await connection.startScrollUpload(
+                frames: Array(repeating: PackedFrame(), count: RinaLinkConstants.maxScrollFrames + 1),
+                fps: 10,
+                timelineId: "too-many",
+                fontId: "test",
+                generatorVersion: "test",
+                sourceText: "x"
+            )
+            XCTFail("Expected frame-count rejection")
+        } catch RinaTransportError.invalidResponse {
+        }
+        XCTAssertEqual(transport.sentCount(type: .blobBegin), 0)
+    }
+
+    func testSequenceExhaustionFailsWithoutReplacingAnInflightRequest() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        transport.resetRecordedFrames()
+        transport.automaticallyReplies = false
+
+        var requests: [Task<RinaLinkFrame, Error>] = []
+        for index in 0..<255 {
+            requests.append(Task { @MainActor in
+                try await connection.send(type: .ping, payload: Data("\(index)".utf8), timeout: 30)
+            })
+        }
+        try await transport.waitForSent(type: .ping, count: 255)
+
+        do {
+            _ = try await connection.send(type: .ping, payload: Data("overflow".utf8), timeout: 1)
+            XCTFail("Expected sequence-space exhaustion")
+        } catch RinaTransportError.sequenceSpaceExhausted {
+        }
+        XCTAssertEqual(transport.sentCount(type: .ping), 255)
+
+        connection.disconnect()
+        for request in requests {
+            do { _ = try await request.value } catch { }
+        }
+    }
+
+    func testTimedOutSequenceIsNotReusedAfterWrapOnSameCarrier() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        transport.resetRecordedFrames()
+        transport.automaticallyReplies = false
+
+        let timedOut = Task { @MainActor in
+            try await connection.send(type: .ping, payload: Data("old".utf8), timeout: 0.01)
+        }
+        try await transport.waitForSent(type: .ping, count: 1)
+        let retiredSeq = try XCTUnwrap(transport.lastSent(type: .ping)?.seq)
+        do { _ = try await timedOut.value } catch RinaTransportError.timeout { }
+        transport.resetHeldRequests()
+
+        try await Task.sleep(for: .milliseconds(2_100))
+        transport.automaticallyReplies = true
+        for index in 0..<254 {
+            _ = try await connection.send(type: .ping, payload: Data("new-\(index)".utf8), timeout: 1)
+        }
+        transport.automaticallyReplies = false
+        let fresh = Task { @MainActor in
+            try await connection.send(type: .ping, payload: Data("fresh".utf8), timeout: 1)
+        }
+        try await transport.waitForSent(type: .ping, count: 256)
+        let freshSeq = try XCTUnwrap(transport.lastSent(type: .ping)?.seq)
+        transport.emitReply(type: .ping, seq: retiredSeq, payload: Data("stale".utf8))
+        await Task.yield()
+        transport.replyToNext(type: .ping, payload: Data("fresh".utf8))
+        let freshReply = try await fresh.value
+
+        XCTAssertNotEqual(freshSeq, retiredSeq)
+        XCTAssertEqual(freshReply.payload, Data("fresh".utf8))
+    }
+
+    func testMoreAggregationIsRejectedAtBound() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        transport.resetRecordedFrames()
+        transport.automaticallyReplies = false
+
+        let request = Task { @MainActor in
+            try await connection.send(type: .getStatus, payload: Data(), timeout: 10)
+        }
+        try await transport.waitForSent(type: .getStatus, count: 1)
+        for _ in 0..<65 {
+            transport.replyAgainToFirst(type: .getStatus,
+                                        payload: Data(repeating: 0x41, count: 4096),
+                                        flags: RinaLinkFrameConstants.flagMore)
+            await Task.yield()
+        }
+        do {
+            _ = try await request.value
+            XCTFail("Expected bounded aggregation to reject the response")
+        } catch RinaTransportError.invalidResponse {
+        }
+    }
+
+    func testGetFacesRejectsEmptyMorePage() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        transport.resetRecordedFrames()
+        transport.automaticallyReplies = false
+
+        let request = Task { @MainActor in try await connection.getFaces() }
+        try await transport.waitForSent(type: .getFaces, count: 1)
+        transport.replyToNext(type: .getFaces, payload: Data([1, 0, 0, 0]),
+                              flags: RinaLinkFrameConstants.flagMore)
+        do {
+            _ = try await request.value
+            XCTFail("Expected stalled paging to fail")
+        } catch RinaTransportError.invalidResponse {
+        }
+    }
+
+    func testGetFacesRejectsDocumentBeyondFirmwareUploadLimit() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        transport.resetRecordedFrames()
+        transport.automaticallyReplies = false
+
+        let request = Task { @MainActor in try await connection.getFaces() }
+        for pageIndex in 0..<65 {
+            try await transport.waitForSent(type: .getFaces, count: pageIndex + 1)
+            var payload = Data([1, 0, 0, 0])
+            payload.append(Data(repeating: 0x41, count: 4092))
+            transport.replyToNext(type: .getFaces, payload: payload,
+                                  flags: RinaLinkFrameConstants.flagMore)
+        }
+        do {
+            _ = try await request.value
+            XCTFail("Expected oversized faces document to fail")
+        } catch RinaTransportError.invalidResponse {
+        }
+    }
+
+    func testUnsubscribeFinishesEventStream() async throws {
+        let connection = BoardConnection()
+        let subscription = connection.subscribeToEvents()
+        let finished = Task { @MainActor in
+            for await _ in subscription.stream { }
+            return true
+        }
+
+        connection.unsubscribe(subscription.id)
+        let didFinish = await finished.value
+        XCTAssertTrue(didFinish)
+    }
+
+    func testPausedEventSubscriberKeepsOnlyNewestBoundedEvents() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        let subscription = connection.subscribeToEvents()
+
+        for index in 0..<300 {
+            transport.emitEvent(type: .evStatus, json: ["v": index])
+        }
+        let deadline = Date().addingTimeInterval(2)
+        while connection.status?.v != 299, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        connection.unsubscribe(subscription.id)
+
+        var versions: [Int] = []
+        for await event in subscription.stream {
+            if case .status(let status) = event, let version = status.v { versions.append(version) }
+        }
+        XCTAssertEqual(versions.count, 256)
+        XCTAssertEqual(versions.first, 44)
+        XCTAssertEqual(versions.last, 299)
+    }
+
+    func testLiteStatusEventPreservesFullSnapshotFields() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        transport.emitEvent(
+            type: .evStatus,
+            json: ["ok": true, "v": 10, "device": "rina", "uptimeMs": 42,
+                   "wifi": ["staConnected": true]]
+        )
+        await Task.yield()
+        transport.emitEvent(type: .evStatus, json: ["ok": true, "v": 11])
+        await Task.yield()
+
+        XCTAssertEqual(connection.status?.v, 11)
+        XCTAssertEqual(connection.status?.device, "rina")
+        XCTAssertEqual(connection.status?.uptimeMs, 42)
+        XCTAssertEqual(connection.status?.wifi?.staConnected, true)
+    }
+
+    func testProtocolVersionComesFromGetInfoAndClearsOnDisconnect() async {
+        let transport = FakeRinaTransport()
+        transport.commandReply = ["ok": true, "name": "rina", "proto": 1]
+        let connection = BoardConnection()
+
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        XCTAssertEqual(connection.protocolVersion, 1)
+        connection.disconnect()
+        XCTAssertNil(connection.protocolVersion)
+    }
+
+    func testTransportSendErrorResetsCarrierBeforeNextRequest() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection(reconnectDelay: { _ in 0.001 })
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        transport.failNextSend = true
+
+        do {
+            _ = try await connection.send(type: .ping, payload: Data("partial".utf8))
+            XCTFail("Expected send failure")
+        } catch { }
+
+        let deadline = Date().addingTimeInterval(2)
+        while connection.connectionState != .connected, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        XCTAssertEqual(connection.connectionState, .connected)
+        XCTAssertGreaterThanOrEqual(transport.disconnectCount, 1)
+        _ = try await connection.send(type: .ping, payload: Data("after-reset".utf8))
+    }
+
     func testConfiguredNameFollowsBoardSwitchAndDisconnect() async {
         let connection = BoardConnection()
         let first = FakeRinaTransport()
@@ -421,6 +705,8 @@ final class FakeRinaTransport: @MainActor RinaTransport {
     private var transportSendCalls = 0
     private var shouldHoldNextTransportSend = false
     private var heldTransportSendContinuation: CheckedContinuation<Void, Never>?
+    var failNextSend = false
+    private(set) var disconnectCount = 0
 
     init(kind: TransportKind = .bluetooth, connectImmediately: Bool = true) {
         self.kind = kind
@@ -444,11 +730,16 @@ final class FakeRinaTransport: @MainActor RinaTransport {
     }
 
     func disconnect() {
+        disconnectCount += 1
         stateContinuation?.yield(.disconnected)
     }
 
     func send(_ data: Data) async throws {
         transportSendCalls += 1
+        if failNextSend {
+            failNextSend = false
+            throw RinaTransportError.underlying("short write")
+        }
         try await sendPump.run { @MainActor in
             if self.shouldHoldNextTransportSend {
                 self.shouldHoldNextTransportSend = false
@@ -501,6 +792,36 @@ final class FakeRinaTransport: @MainActor RinaTransport {
         sent.count { $0.type == type.rawValue }
     }
 
+    func sentFrames(type: RinaLinkMessageType) -> [RinaLinkFrame] {
+        sent.filter { $0.type == type.rawValue }
+    }
+
+    func resetRecordedFrames() {
+        sent.removeAll()
+        heldRequests.removeAll()
+    }
+
+    func resetHeldRequests() {
+        heldRequests.removeAll()
+    }
+
+    func lastSent(type: RinaLinkMessageType) -> RinaLinkFrame? {
+        sent.last { $0.type == type.rawValue }
+    }
+
+    func emitEvent(type: RinaLinkMessageType, json: [String: Any]) {
+        let payload = (try? JSONSerialization.data(withJSONObject: json)) ?? Data()
+        incomingContinuation?.yield(try! RinaLinkEncoder.encode(
+            RinaLinkFrame(type: type, seq: 0, payload: payload)
+        ))
+    }
+
+    func emitReply(type: RinaLinkMessageType, seq: UInt8, payload: Data) {
+        incomingContinuation?.yield(try! RinaLinkEncoder.encode(
+            RinaLinkFrame(type: type.replyType, seq: seq, flags: 0, payload: payload)
+        ))
+    }
+
     func waitForSent(type: RinaLinkMessageType, count: Int) async throws {
         let deadline = Date().addingTimeInterval(2)
         while Date() < deadline {
@@ -533,6 +854,21 @@ final class FakeRinaTransport: @MainActor RinaTransport {
         reply(request, payload: payload)
     }
 
+    func replyToNext(type: RinaLinkMessageType, payload: Data, flags: UInt8 = 0) {
+        guard let index = heldRequests.firstIndex(where: { $0.type == type.rawValue }) else {
+            XCTFail("No held \(type) request")
+            return
+        }
+        reply(heldRequests.remove(at: index), payload: payload, flags: flags)
+    }
+
+    func replyAgainToFirst(type: RinaLinkMessageType, payload: Data, flags: UInt8 = 0) {
+        guard let request = heldRequests.first(where: { $0.type == type.rawValue }) else {
+            return
+        }
+        reply(request, payload: payload, flags: flags)
+    }
+
     private func defaultPayload(for request: RinaLinkFrame) -> Data {
         if request.type == RinaLinkMessageType.cmd.rawValue {
             return (try? JSONSerialization.data(withJSONObject: commandReply)) ?? Data()
@@ -543,11 +879,11 @@ final class FakeRinaTransport: @MainActor RinaTransport {
         return Data(#"{"ok":true}"#.utf8)
     }
 
-    private func reply(_ request: RinaLinkFrame, payload: Data) {
-        incomingContinuation?.yield(RinaLinkEncoder.encode(
+    private func reply(_ request: RinaLinkFrame, payload: Data, flags: UInt8 = 0) {
+        incomingContinuation?.yield(try! RinaLinkEncoder.encode(
             RinaLinkFrame(type: request.type | 0x80,
                           seq: request.seq,
-                          flags: 0,
+                          flags: flags,
                           payload: payload)
         ))
     }

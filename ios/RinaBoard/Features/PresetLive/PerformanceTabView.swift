@@ -38,6 +38,7 @@ struct PerformanceTabView: View {
                 }
             }
             .listSectionSpacing(.compact)
+            .rinaScrollBackground()
             .toolbar(.hidden, for: .navigationBar)
             .contentMargins(.top, 0, for: .scrollContent)
             .errorAlert(Bindable(presetLive).errorMessage)

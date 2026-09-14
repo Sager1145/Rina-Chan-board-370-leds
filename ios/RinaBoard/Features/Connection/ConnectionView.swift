@@ -5,6 +5,7 @@ import RinaCore
 /// home Wi-Fi (Bonjour + manual host), hotspot join, and on-board Wi-Fi
 /// provisioning (`wifi_*` over the active transport).
 struct ConnectionView: View {
+    @Environment(BoardSessionStore.self) private var sessions
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardStore.self) private var boardStore
     @Environment(BLETransport.self) private var bleTransport
@@ -19,8 +20,8 @@ struct ConnectionView: View {
     private var isConnected: Bool { connection.connectionState == .connected }
     private var filteredPeripherals: [DiscoveredPeripheral] {
         let query = bluetoothFilter.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return bleTransport.discoveredPeripherals }
-        return bleTransport.discoveredPeripherals.filter {
+        guard !query.isEmpty else { return sessions.scanner.discoveredPeripherals }
+        return sessions.scanner.discoveredPeripherals.filter {
             $0.name.localizedCaseInsensitiveContains(query)
                 || $0.id.uuidString.localizedCaseInsensitiveContains(query)
         }
@@ -28,6 +29,7 @@ struct ConnectionView: View {
 
     var body: some View {
         Form {
+            sessionsSection
             statusSection
             savedBoardsSection
             bluetoothSection
@@ -38,10 +40,55 @@ struct ConnectionView: View {
             boardWifiSection
         }
         .listSectionSpacing(.compact)
+        .rinaScrollBackground()
         .navigationTitle("连接")
+        .task(id: isConnected ? connection.connectionGeneration : nil) {
+            viewModel.resetBoardDetails()
+            if isConnected { await viewModel.refreshBoardName(connection: connection) }
+        }
+        .task {
+            // The phone can wander onto a different remembered board hotspot
+            // (or off it entirely) while this tab isn't visible; refresh the
+            // cache whenever it (re)appears rather than trusting a stale join.
+            await HotspotJoiner.revalidateLastJoinedSSID()
+        }
         .errorAlert($viewModel.lastErrorMessage)
         .sheet(item: $networkForPassword) { network in
             passwordSheet(for: network)
+        }
+    }
+
+    private func selectSession(id: String, name: String) -> BoardSession {
+        let target = sessions.session(for: id, name: name)
+        sessions.select(target)
+        return target
+    }
+
+    private var sessionsSection: some View {
+        Section {
+            ForEach(sessions.sessions) { session in
+                if session.boardID != nil {
+                    HStack {
+                        Button {
+                            sessions.select(session)
+                        } label: {
+                            HStack {
+                                Image(systemName: sessions.active.id == session.id ? "checkmark.circle.fill" : "circle")
+                                Text(session.connection.deviceName ?? session.name)
+                                Spacer()
+                                Text(session.connection.connectionState == .connected ? "在线" : "未连接")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Button("断开", role: .destructive) { session.connection.disconnect() }
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+        } header: {
+            Text("控制对象 · \(sessions.sessions.filter { $0.connection.connectionState == .connected }.count) 块在线")
+        } footer: {
+            Text("可连接多块璃奈板，点选要控制的板，其他板保持连接。多板 Wi-Fi 连接需处于同一网络；热点直连仅适用于当前加入的热点。")
         }
     }
 
@@ -61,6 +108,10 @@ struct ConnectionView: View {
             if case .bluetooth = connection.transportKind,
                let connectedName = bleTransport.connectedPeripheralName {
                 LabeledContent("已连接璃奈板", value: connectedName)
+            }
+            if case .bluetooth = connection.transportKind,
+               let rssi = bleTransport.connectedRSSI {
+                LabeledContent("蓝牙信号强度", value: "\(rssi) dBm")
             }
             if let info = connection.status {
                 if let fw = info.renderer?.ledRefreshUs { LabeledContent("刷新耗时", value: "\(fw) µs") }
@@ -111,8 +162,9 @@ struct ConnectionView: View {
                     HStack {
                         Button {
                             Task {
-                                await viewModel.connectSavedBoard(board, ble: bleTransport,
-                                                                  connection: connection, boardStore: boardStore)
+                                await viewModel.connectSavedBoard(
+                                    board, sessions: sessions, boardStore: boardStore
+                                )
                             }
                         } label: {
                             HStack {
@@ -132,8 +184,8 @@ struct ConnectionView: View {
                         .accessibilityLabel("连接 \(board.name)")
 
                         Button("忘记", role: .destructive) {
-                            viewModel.forgetBoard(board, ble: bleTransport,
-                                                  connection: connection, boardStore: boardStore)
+                            sessions.remove(id: board.id)
+                            boardStore.remove(id: board.id)
                         }
                         .accessibilityLabel("忘记 \(board.name)")
                     }
@@ -141,8 +193,6 @@ struct ConnectionView: View {
                 }
             } header: {
                 Text("已保存的璃奈板")
-            } footer: {
-                Text("忘记后将停止自动连接此设备。可以重新扫描并连接来保存。")
             }
         }
     }
@@ -156,28 +206,28 @@ struct ConnectionView: View {
             // and stops, and a switch implies a persistent setting that
             // survives leaving the tab — it does not (connecting stops it).
             Button {
-                viewModel.toggleBLEScan(ble: bleTransport)
+                viewModel.toggleBLEScan(ble: sessions.scanner)
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: bleTransport.isScanning
+                    Image(systemName: sessions.scanner.isScanning
                           ? "stop.circle.fill"
                           : "antenna.radiowaves.left.and.right")
-                    Text(bleTransport.isScanning ? "停止扫描" : "扫描附近的璃奈板")
+                    Text(sessions.scanner.isScanning ? "停止扫描" : "扫描附近的璃奈板")
                     Spacer()
-                    if bleTransport.isScanning { ProgressView() }
+                    if sessions.scanner.isScanning { ProgressView() }
                 }
                 .contentShape(Rectangle())
             }
-            .accessibilityLabel(bleTransport.isScanning ? "停止扫描" : "扫描附近的璃奈板")
+            .accessibilityLabel(sessions.scanner.isScanning ? "停止扫描" : "扫描附近的璃奈板")
             .disabled(viewModel.isConnectingBLE)
 
-            if bleTransport.isScanning && bleTransport.discoveredPeripherals.isEmpty {
+            if sessions.scanner.isScanning && sessions.scanner.discoveredPeripherals.isEmpty {
                 // The button already shows a spinner; a second one here would
                 // read as two independent activities.
                 Text("正在搜索…").foregroundStyle(.secondary)
             }
 
-            if !bleTransport.isScanning && bleTransport.scanDidTimeOut {
+            if !sessions.scanner.isScanning && sessions.scanner.scanDidTimeOut {
                 // Without this the spinner just vanishes and the user cannot
                 // tell a finished scan from a crashed one.
                 Text("扫描已在 \(Int(BLETransport.scanTimeoutSeconds)) 秒后自动停止，点按上方按钮可重新扫描。")
@@ -189,7 +239,7 @@ struct ConnectionView: View {
                 .autocorrectionDisabled()
                 .accessibilityIdentifier("bluetooth.deviceFilter")
 
-            if !bleTransport.discoveredPeripherals.isEmpty && filteredPeripherals.isEmpty {
+            if !sessions.scanner.discoveredPeripherals.isEmpty && filteredPeripherals.isEmpty {
                 Text("没有匹配的璃奈板，请修改筛选内容。")
                     .foregroundStyle(.secondary)
             }
@@ -199,22 +249,23 @@ struct ConnectionView: View {
             }
         } header: {
             Text("蓝牙")
-        } footer: {
-            // The scan filters on the RinaLink service UUID, so unrelated BLE
-            // devices never appear — worth saying, because an empty list during
-            // a scan otherwise reads as a broken scan.
-            Text("只显示附近可连接的璃奈板，按信号强弱排序。输入名称或设备编号可查找指定板子，点击设备即可连接。")
         }
     }
 
     @ViewBuilder
     private func peripheralRow(_ peripheral: DiscoveredPeripheral) -> some View {
-        let isConnecting = bleTransport.connectingPeripheralID == peripheral.id
-        let isThisConnected = bleTransport.connectedPeripheralID == peripheral.id && isConnected
+        let target = sessions.existingSession(for: peripheral.id.uuidString)
+        let isConnecting = target?.bleTransport.connectingPeripheralID == peripheral.id
+        let isThisConnected = target?.connection.connectionState == .connected
         let isKnown = boardStore.boards.contains { $0.id == peripheral.id.uuidString }
 
         Button {
-            Task { await viewModel.connectBLE(peripheral, ble: bleTransport, connection: connection, boardStore: boardStore) }
+            Task {
+                let target = selectSession(id: peripheral.id.uuidString, name: peripheral.name)
+                guard target.connection.connectionState != .connected else { return }
+                sessions.scanner.stopScan()
+                await viewModel.connectBLE(peripheral, ble: target.bleTransport, connection: target.connection, boardStore: boardStore)
+            }
         } label: {
             HStack(spacing: 12) {
                 signalBars(rssi: peripheral.rssi)
@@ -257,7 +308,7 @@ struct ConnectionView: View {
             }
             .contentShape(Rectangle())
         }
-        .disabled(viewModel.isConnectingBLE || isThisConnected)
+        .disabled(viewModel.isConnectingBLE)
     }
 
     /// Four bars mapped from RSSI. Thresholds are the usual BLE rules of thumb:
@@ -319,8 +370,6 @@ struct ConnectionView: View {
             }
         } header: {
             Text("璃奈板名称")
-        } footer: {
-            Text("重命名后立即生效，无需重启。名称上限 \(RinaLinkConstants.maxDeviceNameBytes) 字节（中文约 8 个字）；留空可恢复出厂名称。多块板子各自独立命名，扫描时即可区分。")
         }
     }
 
@@ -331,7 +380,12 @@ struct ConnectionView: View {
         Section("家庭 Wi-Fi") {
             ForEach(viewModel.bonjour.boards) { board in
                 Button {
-                    Task { await viewModel.connectBonjour(board, connection: connection, boardStore: boardStore) }
+                    Task {
+                        guard board.isResolved else { return }
+                        let target = selectSession(id: board.serviceIdentity?.storageID ?? board.host ?? board.name, name: board.name)
+                        guard target.connection.connectionState != .connected else { return }
+                        await viewModel.connectBonjour(board, connection: target.connection, boardStore: boardStore)
+                    }
                 } label: {
                     HStack {
                         Text(board.name)
@@ -345,7 +399,12 @@ struct ConnectionView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 Button("连接") {
-                    Task { await viewModel.connectManualHost(connection: connection, boardStore: boardStore) }
+                    Task {
+                        let host = viewModel.manualHost.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let target = selectSession(id: host, name: host)
+                        guard target.connection.connectionState != .connected else { return }
+                        await viewModel.connectManualHost(connection: target.connection, boardStore: boardStore)
+                    }
                 }
                 .disabled(viewModel.manualHost.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -358,7 +417,7 @@ struct ConnectionView: View {
     private var hotspotSection: some View {
         Section("热点直连") {
             Button {
-                Task { await viewModel.connectHotspot(connection: connection, boardStore: boardStore) }
+                Task { await viewModel.connectHotspot(sessions: sessions, boardStore: boardStore) }
             } label: {
                 if isJoiningHotspot {
                     ProgressView()
@@ -381,10 +440,6 @@ struct ConnectionView: View {
     @ViewBuilder
     private var phoneHotspotSection: some View {
         Section("iPhone 热点") {
-            Text("1. 打开 设置 › 个人热点 并开启「允许其他人加入」\n2. 在下方填写热点名称与密码\n3. 点击发送")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
             TextField("热点名称", text: $viewModel.hotspotName)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -511,7 +566,7 @@ struct ConnectionView: View {
                     .autocorrectionDisabled()
                 SecureField("密码 (留空为开放网络)", text: $apPassword)
                 Button("保存") {
-                    Task { await viewModel.setAp(ssid: apSSID, password: apPassword, connection: connection) }
+                    Task { await viewModel.setAp(ssid: apSSID, password: apPassword, connection: connection, boardStore: boardStore) }
                 }
                 .disabled(apSSID.isEmpty)
             }

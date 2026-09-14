@@ -23,7 +23,7 @@ final class SavedConnectionRecoveryTests: XCTestCase {
 
         let board = try XCTUnwrap(store.boards.first)
         XCTAssertNil(board.bonjourService)
-        XCTAssertEqual(board.connectionTarget, .host("192.168.1.42", isBoardHotspot: false))
+        XCTAssertEqual(board.connectionTarget, .host("192.168.1.42"))
     }
 
     func testBonjourIdentityWinsOverPreviouslyResolvedDHCPHost() {
@@ -77,6 +77,112 @@ final class SavedConnectionRecoveryTests: XCTestCase {
         XCTAssertNil(interface)
     }
 
+    func testLegacyHotspotBoardWithoutSSIDDecodesAndTargetsBoardHotspotWithNilSSID() throws {
+        let suiteName = "SavedConnectionRecoveryTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let legacy = [[
+            "id": RinaLinkConstants.apIP,
+            "name": "璃奈板",
+            "preferredTransport": "hotspot",
+            "lastHost": RinaLinkConstants.apIP
+        ]]
+        defaults.set(try JSONSerialization.data(withJSONObject: legacy),
+                     forKey: "com.rinachan.board.knownBoards")
+
+        let store = BoardStore(defaults: defaults)
+
+        let board = try XCTUnwrap(store.boards.first)
+        XCTAssertNil(board.hotspotSSID)
+        XCTAssertEqual(board.connectionTarget, .boardHotspot(host: RinaLinkConstants.apIP, ssid: nil))
+    }
+
+    func testHotspotBoardsWithDistinctSSIDsStaySeparateAndReplaceLegacyRecord() {
+        let store = makeStore()
+        defer { clear(store.defaultsSuiteName) }
+        let legacy = KnownBoard(id: RinaLinkConstants.apIP, name: "璃奈板",
+                                 preferredTransport: "hotspot", lastHost: RinaLinkConstants.apIP)
+        store.value.upsert(legacy)
+
+        let ssidA = "RinaChanBoard-AAAAAAAAAAAA"
+        let boardA = KnownBoard(id: KnownBoard.hotspotStorageID(ssid: ssidA), name: "璃奈板 A",
+                                 preferredTransport: "hotspot", lastHost: RinaLinkConstants.apIP,
+                                 hotspotSSID: ssidA)
+        store.value.upsert(boardA)
+
+        // The legacy record (no SSID) is replaced, not left as a duplicate.
+        XCTAssertEqual(store.value.boards.count, 1)
+        XCTAssertEqual(store.value.boards[0].id, KnownBoard.hotspotStorageID(ssid: ssidA))
+
+        let ssidB = "RinaChanBoard-BBBBBBBBBBBB"
+        let boardB = KnownBoard(id: KnownBoard.hotspotStorageID(ssid: ssidB), name: "璃奈板 B",
+                                 preferredTransport: "hotspot", lastHost: RinaLinkConstants.apIP,
+                                 hotspotSSID: ssidB)
+        store.value.upsert(boardB)
+
+        // Two distinct SSIDs are two distinct boards.
+        XCTAssertEqual(store.value.boards.count, 2)
+        XCTAssertTrue(store.value.boards.contains { $0.id == KnownBoard.hotspotStorageID(ssid: ssidA) })
+        XCTAssertTrue(store.value.boards.contains { $0.id == KnownBoard.hotspotStorageID(ssid: ssidB) })
+    }
+
+    func testConnectSavedBoardPassesSavedHotspotSSIDToJoinBoardHotspot() async {
+        let store = makeStore()
+        defer { clear(store.defaultsSuiteName) }
+        let ssid = "RinaChanBoard-AAAAAAAAAAAA"
+        let board = KnownBoard(id: KnownBoard.hotspotStorageID(ssid: ssid), name: "璃奈板",
+                               preferredTransport: "hotspot", lastHost: RinaLinkConstants.apIP,
+                               hotspotSSID: ssid)
+        store.value.upsert(board)
+        let model = ConnectionViewModel(startBonjourBrowsing: false)
+        let connection = BoardConnection()
+        let ble = BLETransport()
+        var joinedSSID: String??
+
+        await model.connectSavedBoard(
+            board,
+            ble: ble,
+            connection: connection,
+            boardStore: store.value,
+            joinBoardHotspot: { ssid in joinedSSID = ssid; return ssid ?? "" },
+            connectTransport: { _ in false }
+        )
+
+        XCTAssertEqual(joinedSSID, ssid)
+    }
+
+    /// The hotspot identity check (`BoardIdentity`, RINALINK_PROTOCOL_V1
+    /// "Board identity") reads `connection.expectedHotspotSSID` once the TCP
+    /// link is up; it must already reflect the SSID this join just landed
+    /// the phone on, not a value set only after `connectTransport` returns.
+    func testConnectSavedBoardHotspotSetsExpectedHotspotSSIDBeforeConnectTransport() async {
+        let store = makeStore()
+        defer { clear(store.defaultsSuiteName) }
+        let ssid = "RinaChanBoard-AAAAAAAAAAAA"
+        let board = KnownBoard(id: KnownBoard.hotspotStorageID(ssid: ssid), name: "璃奈板",
+                               preferredTransport: "hotspot", lastHost: RinaLinkConstants.apIP,
+                               hotspotSSID: ssid)
+        store.value.upsert(board)
+        let model = ConnectionViewModel(startBonjourBrowsing: false)
+        let connection = BoardConnection()
+        let ble = BLETransport()
+        var expectedAtConnectTime: String?
+
+        await model.connectSavedBoard(
+            board,
+            ble: ble,
+            connection: connection,
+            boardStore: store.value,
+            joinBoardHotspot: { _ in ssid },
+            connectTransport: { _ in
+                expectedAtConnectTime = connection.expectedHotspotSSID
+                return false
+            }
+        )
+
+        XCTAssertEqual(expectedAtConnectTime, ssid)
+    }
+
     func testSavedBoardHotspotJoinsBeforeOpeningTCP() async {
         let store = makeStore()
         defer { clear(store.defaultsSuiteName) }
@@ -93,7 +199,7 @@ final class SavedConnectionRecoveryTests: XCTestCase {
             ble: ble,
             connection: connection,
             boardStore: store.value,
-            joinBoardHotspot: { events.append("join") },
+            joinBoardHotspot: { _ in events.append("join"); return RinaLinkConstants.apSSID },
             connectTransport: { transport in
                 events.append("connect")
                 XCTAssertEqual(transport.kind, .hotspot)
@@ -103,6 +209,61 @@ final class SavedConnectionRecoveryTests: XCTestCase {
 
         XCTAssertEqual(events, ["join", "connect"])
         XCTAssertNil(model.lastErrorMessage)
+    }
+
+    func testLegacyHotspotBoardMigratesToSSIDKeyedRecordAfterSuccessfulJoin() async {
+        let store = makeStore()
+        defer { clear(store.defaultsSuiteName) }
+        let board = KnownBoard(id: RinaLinkConstants.apIP, name: "璃奈板",
+                               preferredTransport: "hotspot", lastHost: RinaLinkConstants.apIP)
+        store.value.upsert(board)
+        let model = ConnectionViewModel(startBonjourBrowsing: false)
+        let connection = BoardConnection()
+        let ble = BLETransport()
+        let ssid = "RinaChanBoard-CCCCCCCCCCCC"
+
+        await model.connectSavedBoard(
+            board,
+            ble: ble,
+            connection: connection,
+            boardStore: store.value,
+            joinBoardHotspot: { _ in ssid },
+            connectTransport: { _ in true }
+        )
+
+        XCTAssertEqual(store.value.boards.count, 1)
+        let migrated = store.value.boards[0]
+        XCTAssertEqual(migrated.id, KnownBoard.hotspotStorageID(ssid: ssid))
+        XCTAssertEqual(migrated.hotspotSSID, ssid)
+    }
+
+    func testConnectingSavedHotspotBoardDisconnectsOtherHotspotSessionsBeforeJoining() async {
+        let store = makeStore()
+        defer { clear(store.defaultsSuiteName) }
+        let ssid = "RinaChanBoard-BBBBBBBBBBBB"
+        let board = KnownBoard(id: KnownBoard.hotspotStorageID(ssid: ssid), name: "璃奈板 B",
+                               preferredTransport: "hotspot", lastHost: RinaLinkConstants.apIP,
+                               hotspotSSID: ssid)
+        store.value.upsert(board)
+        let model = ConnectionViewModel(startBonjourBrowsing: false)
+        let connection = BoardConnection()
+        let ble = BLETransport()
+        var events: [String] = []
+
+        // Simulates board A's session still being on its own hotspot when
+        // the user connects saved board B: the caller-supplied closure must
+        // run, and must run before the join moves the phone's Wi-Fi.
+        await model.connectSavedBoard(
+            board,
+            ble: ble,
+            connection: connection,
+            boardStore: store.value,
+            joinBoardHotspot: { _ in events.append("join"); return ssid },
+            connectTransport: { _ in events.append("connect"); return false },
+            disconnectOtherHotspotSessions: { events.append("disconnectOtherSessionA") }
+        )
+
+        XCTAssertEqual(events, ["disconnectOtherSessionA", "join", "connect"])
     }
 
     func testForgettingHotspotWhileJoinIsInflightPreventsTCPAndResave() async throws {
@@ -123,7 +284,7 @@ final class SavedConnectionRecoveryTests: XCTestCase {
                 ble: ble,
                 connection: connection,
                 boardStore: store.value,
-                joinBoardHotspot: {
+                joinBoardHotspot: { _ in
                     await withCheckedContinuation { joinContinuation = $0 }
                     throw SavedConnectionTestError.associationFailed
                 },
@@ -172,11 +333,38 @@ final class SavedConnectionRecoveryTests: XCTestCase {
             ble: BLETransport(),
             connection: BoardConnection(),
             boardStore: store.value,
-            joinBoardHotspot: {},
+            joinBoardHotspot: { _ in "" },
             connectTransport: { _ in false }
         )
 
         XCTAssertNil(model.lastErrorMessage)
+    }
+
+    func testSavedBLEReconnectUsesInjectedConnectionOperation() async throws {
+        let store = makeStore()
+        defer { clear(store.defaultsSuiteName) }
+        let identifier = UUID()
+        let board = KnownBoard(id: identifier.uuidString, name: "璃奈板",
+                               preferredTransport: "bluetooth")
+        store.value.upsert(board)
+        let model = ConnectionViewModel(startBonjourBrowsing: false)
+        let ble = BLETransport()
+        var receivedTransport: RinaTransport?
+
+        await model.connectSavedBoard(
+            board,
+            ble: ble,
+            connection: BoardConnection(),
+            boardStore: store.value,
+            joinBoardHotspot: { _ in "" },
+            connectTransport: { transport in
+                receivedTransport = transport
+                return false
+            }
+        )
+
+        XCTAssertTrue(receivedTransport === ble)
+        XCTAssertEqual(ble.peripheralIdentifier, identifier)
     }
 
     func testForgettingSavedBLEWhileConnectIsInflightDoesNotRestoreItOrShowError() async {

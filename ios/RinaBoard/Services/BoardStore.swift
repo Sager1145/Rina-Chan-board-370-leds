@@ -28,24 +28,46 @@ public struct KnownBoard: Codable, Equatable, Identifiable, Sendable {
     /// Present for boards saved from Bonjour discovery. Optional so records
     /// written by older app versions continue to decode and reconnect by host.
     public var bonjourService: BonjourServiceIdentity?
+    /// The board's own SoftAP SSID (`RinaChanBoard-<12 uppercase hex>`),
+    /// present for boards saved from the "热点直连" flow. Optional so records
+    /// written before boards had unique SSIDs still decode; those legacy
+    /// records reconnect by joining any board's hotspot by prefix.
+    public var hotspotSSID: String?
     public var lastSeen: Date?
 
     public init(id: String, name: String, preferredTransport: String = "bluetooth",
                 lastHost: String? = nil, bonjourService: BonjourServiceIdentity? = nil,
-                lastSeen: Date? = nil) {
+                hotspotSSID: String? = nil, lastSeen: Date? = nil) {
         self.id = id
         self.name = name
         self.preferredTransport = preferredTransport
         self.lastHost = lastHost
         self.bonjourService = bonjourService
+        self.hotspotSSID = hotspotSSID
         self.lastSeen = lastSeen
+    }
+
+    /// Stable storage id for a board saved via its SoftAP SSID, so two
+    /// distinct boards joined over "热点直连" persist as two records instead
+    /// of collapsing onto the shared SoftAP IP.
+    public static func hotspotStorageID(ssid: String) -> String {
+        "hotspot:\(ssid)"
     }
 }
 
 public enum SavedBoardConnectionTarget: Equatable, Sendable {
     case bluetooth(UUID)
     case bonjour(BonjourServiceIdentity)
-    case host(String, isBoardHotspot: Bool)
+    /// A plain TCP host: a home-network board (Bonjour with no live
+    /// service, or a manually-entered IP/hostname) or one already switched
+    /// onto the phone's Personal Hotspot (`hotspot-tcp`). Never a board
+    /// SoftAP — that always goes through `.boardHotspot`, which owns the
+    /// join-before-connect step every host on the shared SoftAP IP needs.
+    case host(String)
+    /// A board reached over its own SoftAP. `ssid` is the board's specific
+    /// SSID when known; nil for legacy records saved before boards had
+    /// unique SSIDs, which join by prefix instead.
+    case boardHotspot(host: String, ssid: String?)
 }
 
 public extension KnownBoard {
@@ -61,7 +83,7 @@ public extension KnownBoard {
                 return .bonjour(bonjourService)
             }
             if let lastHost, !lastHost.isEmpty {
-                return .host(lastHost, isBoardHotspot: false)
+                return .host(lastHost)
             }
             // Older versions saved an endpoint-only Bonjour result with the
             // service instance name in `id` and no host. Upgrade that shape
@@ -70,10 +92,10 @@ public extension KnownBoard {
             return .bonjour(BonjourServiceIdentity(name: id))
         case "hotspot":
             guard let lastHost, !lastHost.isEmpty else { return nil }
-            return .host(lastHost, isBoardHotspot: true)
+            return .boardHotspot(host: lastHost, ssid: hotspotSSID)
         case "hotspot-tcp":
             guard let lastHost, !lastHost.isEmpty else { return nil }
-            return .host(lastHost, isBoardHotspot: false)
+            return .host(lastHost)
         default:
             return nil
         }
@@ -111,14 +133,29 @@ public final class BoardStore {
     public func upsert(_ board: KnownBoard) {
         if let index = boards.firstIndex(where: { existing in
             if existing.id == board.id { return true }
-            guard let service = board.bonjourService else { return false }
-            if existing.bonjourService == service { return true }
-            // Adopt the stable service identity when replacing a record made
-            // by an older version, which stored either the service name or
-            // the address resolved during that discovery pass as its id.
-            guard existing.bonjourService == nil else { return false }
-            return existing.id == service.name
-                || (board.lastHost != nil && existing.lastHost == board.lastHost)
+            if let service = board.bonjourService {
+                if existing.bonjourService == service { return true }
+                // Adopt the stable service identity when replacing a record
+                // made by an older version, which stored either the service
+                // name or the address resolved during that discovery pass as
+                // its id.
+                if existing.bonjourService == nil,
+                   existing.id == service.name
+                    || (board.lastHost != nil && existing.lastHost == board.lastHost) {
+                    return true
+                }
+            }
+            // A newly-learned board SSID replaces a legacy hotspot record
+            // (saved before boards had unique SSIDs, keyed by the shared
+            // SoftAP IP with no SSID of its own) rather than sitting beside
+            // it as a duplicate. Two records with *different* known SSIDs
+            // must stay separate — they are different boards.
+            if board.preferredTransport == "hotspot", board.hotspotSSID != nil,
+               existing.preferredTransport == "hotspot", existing.hotspotSSID == nil,
+               existing.id == RinaLinkConstants.apIP {
+                return true
+            }
+            return false
         }) {
             boards[index] = board
         } else {
