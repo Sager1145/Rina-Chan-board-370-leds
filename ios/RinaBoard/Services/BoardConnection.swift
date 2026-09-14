@@ -606,10 +606,17 @@ public final class BoardConnection {
     // MARK: Incoming
 
     private func handleIncoming(_ data: Data) async {
+        let decodeState = RinaPerf.signposter.beginInterval("BoardIncomingDecode")
+        defer { RinaPerf.signposter.endInterval("BoardIncomingDecode", decodeState) }
         let frames = decoder.feed(data)
+        // `route` is the separable dispatch portion (per-frame JSON decode +
+        // fan-out to published state/event consumers), measured on its own
+        // signpost nested inside the overall per-chunk interval above.
+        let dispatchState = RinaPerf.signposter.beginInterval("BoardIncomingDispatch")
         for frame in frames {
             route(frame)
         }
+        RinaPerf.signposter.endInterval("BoardIncomingDispatch", dispatchState)
     }
 
     private func route(_ frame: RinaLinkFrame) {
