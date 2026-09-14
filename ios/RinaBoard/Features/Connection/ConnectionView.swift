@@ -43,7 +43,7 @@ struct ConnectionView: View {
             .rinaTranslucentRows()
         }
         .listSectionSpacing(.compact)
-        .rinaScrollBackground()
+        .rinaScrollBackground(debugTag: "ConnectionView")
         .navigationTitle("连接")
         .task(id: isConnected ? connection.connectionGeneration : nil) {
             viewModel.resetBoardDetails()

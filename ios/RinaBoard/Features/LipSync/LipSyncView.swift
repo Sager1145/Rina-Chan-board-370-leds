@@ -31,7 +31,7 @@ struct LipSyncView: View {
                 .rinaTranslucentRows()
             }
             .listSectionSpacing(.compact)
-            .rinaScrollBackground()
+            .rinaScrollBackground(debugTag: "LipSyncView")
             .errorAlert($model.errorMessage)
             .navigationTitle("口型同步")
             .toolbar(.hidden, for: .navigationBar)
@@ -404,7 +404,7 @@ struct LipSyncMouthMappingView: View {
             .rinaTranslucentRows()
         }
         .listSectionSpacing(.compact)
-        .rinaScrollBackground()
+        .rinaScrollBackground(debugTag: "LipSyncCostumeView")
         .navigationTitle("口型与造型")
         .navigationBarTitleDisplayMode(.inline)
     }

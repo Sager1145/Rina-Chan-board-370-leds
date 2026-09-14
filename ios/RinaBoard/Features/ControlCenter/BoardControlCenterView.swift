@@ -45,7 +45,7 @@ struct BoardControlCenterView: View {
         .listSectionSpacing(.compact)
         // Pushed from Settings before iOS 26; with `onDismiss` it is the
         // tab-bar accessory's sheet, which keeps its presentation background.
-        .rinaScrollBackground(onDismiss == nil)
+        .rinaScrollBackground(onDismiss == nil, debugTag: "BoardControlCenterView")
         .errorAlert(errorMessage)
         .navigationTitle("面板控制")
         .navigationBarTitleDisplayMode(.inline)

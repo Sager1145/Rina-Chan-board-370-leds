@@ -12,6 +12,10 @@ struct RinaAppBackdrop: View {
     /// Optional so previews without the app environment still render.
     @Environment(BootLoaderModel.self) private var bootLoader: BootLoaderModel?
 
+    /// Identifies the hosting page for the DEBUG-only starfield frame probe
+    /// (PR-12 measurement only); forwarded to `RinaStarfield`.
+    var debugTag: String = "unknown"
+
     /// `-disableStarAnimation YES` freezes the stars at a fixed point in
     /// their cycle (`RinaStarfieldSourceSpec.snapshotTime`), generated from a
     /// fixed seed, so automated screenshots are pixel-stable.
@@ -30,7 +34,8 @@ struct RinaAppBackdrop: View {
             // Held still while the boot loader plays: it is tuned to keep the
             // main thread quiet during launch.
             RinaStarfield(isPaused: bootLoader?.isVisible ?? false,
-                          isFrozen: Self.isFrozen)
+                          isFrozen: Self.isFrozen,
+                          debugTag: debugTag)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
@@ -45,18 +50,22 @@ extension View {
     /// `false` where the same view is shown in a sheet, which keeps its
     /// system presentation background (the navigation container background
     /// would otherwise replace it).
+    ///
+    /// - Parameter debugTag: identifies the hosting page for the DEBUG-only
+    ///   starfield frame probe (PR-12 measurement only); has no effect on a
+    ///   Release build. Optional so existing call sites need not change.
     @ViewBuilder
-    func rinaScrollBackground(_ isEnabled: Bool = true) -> some View {
+    func rinaScrollBackground(_ isEnabled: Bool = true, debugTag: String = "unknown") -> some View {
         if !isEnabled {
             self
         } else if #available(iOS 18.0, *) {
             // A plain `.background` is covered by the navigation container's
             // own opaque ground whenever the navigation bar is visible.
             scrollContentBackground(.hidden)
-                .containerBackground(for: .navigation) { RinaAppBackdrop() }
+                .containerBackground(for: .navigation) { RinaAppBackdrop(debugTag: debugTag) }
         } else {
             scrollContentBackground(.hidden)
-                .background { RinaAppBackdrop() }
+                .background { RinaAppBackdrop(debugTag: debugTag) }
         }
     }
 

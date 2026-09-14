@@ -31,7 +31,7 @@ struct ScrollTextView: View {
                 .rinaTranslucentRows()
             }
             .listSectionSpacing(.compact)
-            .rinaScrollBackground()
+            .rinaScrollBackground(debugTag: "ScrollTextView")
             .errorAlert(Bindable(model).errorMessage)
             .toolbar(.hidden, for: .navigationBar)
             .contentMargins(.top, 0, for: .scrollContent)

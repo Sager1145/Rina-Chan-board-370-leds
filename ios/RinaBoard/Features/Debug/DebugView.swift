@@ -30,7 +30,7 @@ struct DebugView: View {
             .rinaTranslucentRows()
         }
         .listSectionSpacing(.compact)
-        .rinaScrollBackground()
+        .rinaScrollBackground(debugTag: "DebugView")
         .navigationTitle("调试")
         .navigationBarTitleDisplayMode(.inline)
         .errorAlert($vm.lastLocalError)
@@ -553,7 +553,7 @@ private struct RawCommandConsoleView: View {
             .rinaTranslucentRows()
         }
         .listSectionSpacing(.compact)
-        .rinaScrollBackground()
+        .rinaScrollBackground(debugTag: "DebugRawCommandView")
         .navigationTitle("原始命令")
         .navigationBarTitleDisplayMode(.inline)
     }

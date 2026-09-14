@@ -44,7 +44,7 @@ struct ControlView: View {
                 .rinaTranslucentRows()
             }
             .listSectionSpacing(.compact)
-            .rinaScrollBackground()
+            .rinaScrollBackground(debugTag: "ControlView")
             .scrollDisabled(isTouchingBoard)
             // Every finger up ends the drag stroke, so the next one is its
             // own undo step.
