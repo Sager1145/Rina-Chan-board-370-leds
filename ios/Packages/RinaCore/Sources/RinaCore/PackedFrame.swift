@@ -62,7 +62,10 @@ public struct PackedFrame: Equatable, Hashable, Sendable {
     }
 
     public mutating func fill() {
-        for i in 0..<Self.ledCount { self[i] = true }
+        for i in 0..<Self.byteCount {
+            bytes[i] = 0xFF
+        }
+        maskTail()
     }
 
     public mutating func clearAll() {
@@ -76,12 +79,17 @@ public struct PackedFrame: Equatable, Hashable, Sendable {
         }
     }
 
+    // All mutating paths (init(bytes:)/init(hex94:)/init(base64:)/init(data:) via
+    // `validate()`, init(bits:) by construction, invert()/fill() via `maskTail()`,
+    // and the bounds-checked subscript setter) keep the top 6 bits of the last
+    // byte at zero, so a plain byte-wise popcount is safe without re-masking.
     public var litCount: Int {
-        var count = 0
-        for i in 0..<Self.ledCount where self[i] {
-            count += 1
-        }
-        return count
+        bytes.reduce(0) { $0 + $1.nonzeroBitCount }
+    }
+
+    /// `true` iff no LED is lit. Relies on the same tail-zero invariant as `litCount`.
+    public var isEmpty: Bool {
+        bytes.allSatisfy { $0 == 0 }
     }
 
     /// 47 bytes, top 6 bits of the last byte must be zero.

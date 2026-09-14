@@ -144,11 +144,67 @@ public struct PartsLibrary: Codable, Sendable {
         public let litCount: Int
         public let bbox: [Int]?
 
+        /// `PackedFrame(hex94: frame)`, decoded once (at JSON-decode time, or in
+        /// the memberwise initializer) rather than on every `PartsLibrary.frame(for:)`
+        /// call. Parts are immutable after construction, so this is safe to cache
+        /// for the value's whole lifetime. Falls back to a blank frame for
+        /// malformed hex, matching `frame(for:)`'s previous fallback.
+        public let packedFrame: PackedFrame
+
         enum CodingKeys: String, CodingKey {
             case id, name, type, size, preview, placement, frame, bbox
             case rowHex = "row_hex"
             case stripIndices = "strip_indices"
             case litCount = "lit_count"
+        }
+
+        public init(
+            id: Int, name: String, type: String, size: [Int], rowHex: [String], preview: [String],
+            placement: [Placement], frame: String, stripIndices: [Int], litCount: Int, bbox: [Int]?
+        ) {
+            self.id = id
+            self.name = name
+            self.type = type
+            self.size = size
+            self.rowHex = rowHex
+            self.preview = preview
+            self.placement = placement
+            self.frame = frame
+            self.stripIndices = stripIndices
+            self.litCount = litCount
+            self.bbox = bbox
+            self.packedFrame = PackedFrame(hex94: frame) ?? PackedFrame()
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(Int.self, forKey: .id)
+            name = try container.decode(String.self, forKey: .name)
+            type = try container.decode(String.self, forKey: .type)
+            size = try container.decode([Int].self, forKey: .size)
+            rowHex = try container.decode([String].self, forKey: .rowHex)
+            preview = try container.decode([String].self, forKey: .preview)
+            placement = try container.decode([Placement].self, forKey: .placement)
+            frame = try container.decode(String.self, forKey: .frame)
+            stripIndices = try container.decode([Int].self, forKey: .stripIndices)
+            litCount = try container.decode(Int.self, forKey: .litCount)
+            bbox = try container.decodeIfPresent([Int].self, forKey: .bbox)
+            packedFrame = PackedFrame(hex94: frame) ?? PackedFrame()
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(id, forKey: .id)
+            try container.encode(name, forKey: .name)
+            try container.encode(type, forKey: .type)
+            try container.encode(size, forKey: .size)
+            try container.encode(rowHex, forKey: .rowHex)
+            try container.encode(preview, forKey: .preview)
+            try container.encode(placement, forKey: .placement)
+            try container.encode(frame, forKey: .frame)
+            try container.encode(stripIndices, forKey: .stripIndices)
+            try container.encode(litCount, forKey: .litCount)
+            try container.encodeIfPresent(bbox, forKey: .bbox)
         }
     }
 
@@ -197,9 +253,10 @@ public struct PartsLibrary: Codable, Sendable {
     }
 
     /// The `PackedFrame` for `part.frame` (94 hex chars), or a blank frame if
-    /// the hex is malformed.
+    /// the hex is malformed. `Part.packedFrame` is decoded once (at load time,
+    /// or in `Part`'s memberwise initializer) rather than on every call here.
     public func frame(for part: Part) -> PackedFrame {
-        PackedFrame(hex94: part.frame) ?? PackedFrame()
+        part.packedFrame
     }
 
     /// Rebuilds `part`'s frame from its *physical* `strip_indices` by mapping
