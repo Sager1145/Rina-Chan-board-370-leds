@@ -5,10 +5,14 @@
 #include "storage.h"
 #include "utils.h"
 #include "serial_log.h"
+#include "battery_calibration.h"
 
 #include <algorithm>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
+#include <Preferences.h>
+#include <esp_system.h>
+#include <nvs.h>
 #include <math.h>
 
 PowerStatus powerStatus;
@@ -58,17 +62,31 @@ struct NonBlockingAdcAcq {
 static NonBlockingAdcAcq sBatteryAcq;
 static NonBlockingAdcAcq sChargeAcq;
 
-static float sanitizedCalibMax(float value) {
-    if (!isfinite(value))
-        return BATTERY_FULL_V;
-    return max(value, BATTERY_FULL_V);
-}
+// Auto-calibration state (highest measurable pack voltage + discharge cutoff).
+// See battery_calibration.h for the pure logic; this file wires it into
+// PowerStatus, battery_calib.json and the "rina_batt" NVS namespace (the
+// discharge low-point is written to NVS, not LittleFS, so it survives a
+// brown-out/power-loss reset that can happen before a delayed LittleFS save).
+static BatteryCalibState sCalib;
+constexpr char BATTERY_CALIB_NVS_NAMESPACE[] = "rina_batt";
+constexpr char BATTERY_CALIB_NVS_PENDING_LOW_KEY[] = "pend_low";
+constexpr float BATTERY_CALIB_RESET_MARGIN_V = 0.50f;
+// Discharge low-point tracking is not fed until the EMA has settled this long
+// since it was last restarted (boot / recovering from disconnect or low-voltage):
+// the first sample after a restart is the raw, momentarily-unloaded reading.
+constexpr uint32_t BATTERY_CALIB_DISCHARGE_STABLE_MS = 30000;
+// A flapping charge-present flag must not repeatedly erase+rewrite the NVS
+// pending-low key: RAM clears immediately, but the NVS key is only erased once
+// charging has held continuously this long (or vbat itself recovered).
+constexpr uint32_t BATTERY_CALIB_CHARGE_ERASE_HOLD_MS = 30000;
 
-static float sanitizedCalibMin(float value) {
-    if (!isfinite(value))
-        return BATTERY_EMPTY_V;
-    return min(value, BATTERY_EMPTY_V);
-}
+static uint32_t sBatteryEmaRestartMs = 0;
+static bool sBatteryEmaRestartKnown = false;
+static bool sChargingForCalibPrev = false;
+static uint32_t sChargingForCalibSinceMs = 0;
+// Mirrors what is actually persisted at BATTERY_CALIB_NVS_PENDING_LOW_KEY, so we
+// only touch NVS when the on-flash value would actually change.
+static float sLastPersistedLowV = NAN;
 
 static float jsonFloatOr(JsonVariantConst value, float fallback) {
     if (value.isNull())
@@ -77,17 +95,58 @@ static float jsonFloatOr(JsonVariantConst value, float fallback) {
     return isfinite(parsed) ? parsed : fallback;
 }
 
-static void ensureBatteryCalibrationDefaults(uint32_t now) {
-    powerStatus.batteryCalibMaxV = sanitizedCalibMax(powerStatus.batteryCalibMaxV);
-    powerStatus.batteryCalibMinV = sanitizedCalibMin(powerStatus.batteryCalibMinV);
-    if (powerStatus.batteryCalibMaxV - powerStatus.batteryCalibMinV < BATTERY_CALIB_MIN_SPAN_V) {
-        powerStatus.batteryCalibMaxV = BATTERY_FULL_V;
-        powerStatus.batteryCalibMinV = BATTERY_EMPTY_V;
-    }
-    if (powerStatus.lastCalibMaxMs == 0)
-        powerStatus.lastCalibMaxMs = now;
-    if (powerStatus.lastCalibMinMs == 0)
-        powerStatus.lastCalibMinMs = now;
+// Publishes the calibration state into the consumer-visible PowerStatus copy
+// (batteryCalibMaxV/MinV keep their historical names; MinV now holds the
+// cutoff voltage).
+static void publishBatteryCalibToStatus() {
+    portENTER_CRITICAL(&sPowerStatusMux);
+    powerStatus.batteryCalibMaxV = sCalib.maxV;
+    powerStatus.batteryCalibMinV = sCalib.cutoffV;
+    powerStatus.batteryCalibMaxLearned = sCalib.maxLearned;
+    powerStatus.batteryCalibCutoffLearned = sCalib.cutoffLearned;
+    portEXIT_CRITICAL(&sPowerStatusMux);
+}
+
+// Reads the pending-low value via the IDF NVS API directly rather than
+// Preferences: a fresh board has neither the "rina_batt" namespace nor the
+// key yet, and Preferences::begin()/getFloat() both log an [E] line for that
+// normal "not present yet" condition. Preferences::putFloat() stores the
+// value as a raw sizeof(float) blob, so nvs_get_blob() with the same size
+// reads back the identical on-flash format.
+static float loadBatteryPendingLowFromNvs() {
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(BATTERY_CALIB_NVS_NAMESPACE, NVS_READONLY, &handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND)
+        return NAN; // namespace never created yet: no pending value, quietly.
+    if (err != ESP_OK)
+        return NAN;
+    float v = NAN;
+    size_t len = sizeof(v);
+    err = nvs_get_blob(handle, BATTERY_CALIB_NVS_PENDING_LOW_KEY, &v, &len);
+    nvs_close(handle);
+    if (err != ESP_OK || len != sizeof(v))
+        return NAN;
+    return v;
+}
+
+static void saveBatteryPendingLowToNvs(float v) {
+    Preferences prefs;
+    if (!prefs.begin(BATTERY_CALIB_NVS_NAMESPACE, false))
+        return;
+    prefs.putFloat(BATTERY_CALIB_NVS_PENDING_LOW_KEY, v);
+    prefs.end();
+}
+
+static void clearBatteryPendingLowFromNvs() {
+    Preferences prefs;
+    if (!prefs.begin(BATTERY_CALIB_NVS_NAMESPACE, false))
+        return;
+    // Preferences::remove() logs an [E] line if the key isn't present (e.g.
+    // it was already cleared, or never written this boot); isKey() itself
+    // never logs, so guard the call.
+    if (prefs.isKey(BATTERY_CALIB_NVS_PENDING_LOW_KEY))
+        prefs.remove(BATTERY_CALIB_NVS_PENDING_LOW_KEY);
+    prefs.end();
 }
 
 static void markBatteryCalibrationDirty(uint32_t now) {
@@ -97,21 +156,8 @@ static void markBatteryCalibrationDirty(uint32_t now) {
     powerStatus.batteryCalibDirty = true;
 }
 
-// Maps a measured pack voltage from the calibrated [min,max] span onto the nominal
-// [BATTERY_EMPTY_V, BATTERY_FULL_V] span before the LUT lookup, so reset_battery_min /
-// reset_battery_max actually shift the reported percentage. With default calibration
-// (min == BATTERY_EMPTY_V, max == BATTERY_FULL_V) this is the identity.
-static float applyBatteryCalibration(float vbat) {
-    const float minV = powerStatus.batteryCalibMinV;
-    const float maxV = powerStatus.batteryCalibMaxV;
-    if (!isfinite(vbat) || !(maxV - minV >= BATTERY_CALIB_MIN_SPAN_V))
-        return vbat;
-    const float t = (vbat - minV) / (maxV - minV);
-    return BATTERY_EMPTY_V + t * (BATTERY_FULL_V - BATTERY_EMPTY_V);
-}
-
 static uint8_t batteryPercentFromVoltage(float vbatRaw) {
-    const float vbat = applyBatteryCalibration(vbatRaw);
+    const float vbat = batteryCalibNormalizedVoltage(sCalib, vbatRaw);
     if (!isfinite(vbat))
         return 0;
     const uint8_t n = BATTERY_PERCENT_LUT_SIZE;
@@ -133,8 +179,7 @@ static uint8_t batteryPercentFromVoltage(float vbatRaw) {
 }
 
 static bool loadBatteryCalibration(uint32_t now) {
-    powerStatus.batteryCalibMaxV = BATTERY_FULL_V;
-    powerStatus.batteryCalibMinV = BATTERY_EMPTY_V;
+    sCalib = batteryCalibDefaults();
     powerStatus.lastCalibMaxMs = now;
     powerStatus.lastCalibMinMs = now;
 
@@ -145,6 +190,7 @@ static bool loadBatteryCalibration(uint32_t now) {
         });
     }
     if (!runtimeFsMounted() || !calibExists) {
+        publishBatteryCalibToStatus();
         return false;
     }
 
@@ -152,8 +198,10 @@ static bool loadBatteryCalibration(uint32_t now) {
     withStorageLock([&]() {
         file = LittleFS.open(BATTERY_CALIB_PATH, "r");
     });
-    if (!file)
+    if (!file) {
+        publishBatteryCalibToStatus();
         return false;
+    }
 
     DynamicJsonDocument doc(512);
     DeserializationError err;
@@ -163,12 +211,36 @@ static bool loadBatteryCalibration(uint32_t now) {
     });
     if (err) {
         Serial.printf("battery_calib.json parse failed: %s\n", err.c_str());
+        publishBatteryCalibToStatus();
         return false;
     }
 
-    powerStatus.batteryCalibMaxV = sanitizedCalibMax(jsonFloatOr(doc["v_max"], BATTERY_FULL_V));
-    powerStatus.batteryCalibMinV = sanitizedCalibMin(jsonFloatOr(doc["v_min"], BATTERY_EMPTY_V));
-    ensureBatteryCalibrationDefaults(now);
+    const int version = doc["version"] | 1;
+    const float vMaxDefault = batteryCalibDefaults().maxV; // 8.40 (LUT top)
+    const float vMax = jsonFloatOr(doc["v_max"], vMaxDefault);
+    const float vMin = jsonFloatOr(doc["v_min"], BATTERY_EMPTY_V);
+    sCalib.cutoffV = vMin;
+    if (version >= 2) {
+        sCalib.maxV = vMax;
+        sCalib.maxLearned = doc["max_learned"] | false;
+        sCalib.cutoffLearned = doc["cutoff_learned"] | false;
+    } else {
+        // v1 files could only widen via the old sanitize (max >= 8.0, min <= 6.2).
+        // The old default was 8.0 (not the LUT top of 8.40), so a v1 file at/below
+        // 8.0 must load as the current default (8.40), not as a stale 8.0 ceiling
+        // that would read 100% far too early. A value actually widened past 8.0
+        // is treated as learned.
+        if (vMax <= BATTERY_FULL_V + 0.001f) {
+            sCalib.maxV = vMaxDefault;
+            sCalib.maxLearned = false;
+        } else {
+            sCalib.maxV = vMax;
+            sCalib.maxLearned = true;
+        }
+        sCalib.cutoffLearned = vMin < BATTERY_EMPTY_V;
+    }
+    batteryCalibSanitize(sCalib);
+    publishBatteryCalibToStatus();
     Serial.printf("Battery calibration loaded: v_min=%.3f v_max=%.3f\n",
                   powerStatus.batteryCalibMinV,
                   powerStatus.batteryCalibMaxV);
@@ -188,11 +260,13 @@ static bool saveBatteryCalibration(uint32_t now) {
     }
 
     DynamicJsonDocument doc(512);
-    doc["format"] = "rina_battery_calibration_v1";
-    doc["version"] = 1;
-    doc["v_max"] = powerStatus.batteryCalibMaxV;
-    doc["v_min"] = powerStatus.batteryCalibMinV;
-    doc["v_max_nominal"] = BATTERY_FULL_V;
+    doc["format"] = "rina_battery_calibration_v2";
+    doc["version"] = 2;
+    doc["v_max"] = sCalib.maxV;
+    doc["v_min"] = sCalib.cutoffV;
+    doc["max_learned"] = sCalib.maxLearned;
+    doc["cutoff_learned"] = sCalib.cutoffLearned;
+    doc["v_max_nominal"] = batteryCalibDefaults().maxV; // 8.40, the LUT top
     doc["v_min_nominal"] = BATTERY_EMPTY_V;
     doc["last_max_ms"] = powerStatus.lastCalibMaxMs;
     doc["last_min_ms"] = powerStatus.lastCalibMinMs;
@@ -209,9 +283,12 @@ static bool saveBatteryCalibration(uint32_t now) {
     return true;
 }
 
-// Note: automatic running min/max calibration is intentionally disabled. The manual
-// reset commands (resetBatteryVoltageMinimum/Maximum) are the only paths that change
-// batteryCalibMinV/MaxV; they sanitize via ensureBatteryCalibrationDefaults themselves.
+// Automatic learning is guarded rather than a naive running min/max: LED-load sag and
+// ADC noise can transiently push a reading past the true ceiling or floor, so the max
+// is only adopted after it is held continuously for 60 s (batteryCalibObserveMax), and
+// the cutoff is only adopted from a discharge low-point captured right before an actual
+// power-loss/brown-out reset (batteryCalibAdoptPendingOnBoot), never from a soft reboot
+// or a momentary dip mid-discharge.
 
 static void serviceBatteryCalibrationSave(uint32_t now) {
     if (!powerStatus.batteryCalibDirty)
@@ -242,31 +319,41 @@ static void markPowerCalibrationChanged(uint32_t now) {
 
 void resetBatteryVoltageMaximum() {
     const uint32_t now = millis();
-    ensureBatteryCalibrationDefaults(now);
-    const float minV = sanitizedCalibMin(powerStatus.batteryCalibMinV);
     const float currentV = powerStatus.vbat;
-    if (batteryHasPoweredVoltage() && currentV > minV + BATTERY_CALIB_MIN_SPAN_V) {
-        powerStatus.batteryCalibMaxV = currentV;
+    sCalib.candidateActive = false;
+    if (batteryHasPoweredVoltage() && currentV > sCalib.cutoffV + BATTERY_CALIB_RESET_MARGIN_V) {
+        sCalib.maxV = currentV;
+        sCalib.maxLearned = true;
     } else {
-        powerStatus.batteryCalibMaxV = BATTERY_FULL_V;
+        const BatteryCalibState def = batteryCalibDefaults();
+        sCalib.maxV = def.maxV;
+        sCalib.maxLearned = false;
     }
+    batteryCalibSanitize(sCalib);
+    publishBatteryCalibToStatus();
     powerStatus.lastCalibMaxMs = now;
-    ensureBatteryCalibrationDefaults(now);
     markPowerCalibrationChanged(now);
 }
 
 void resetBatteryVoltageMinimum() {
     const uint32_t now = millis();
-    ensureBatteryCalibrationDefaults(now);
-    const float maxV = sanitizedCalibMax(powerStatus.batteryCalibMaxV);
     const float currentV = powerStatus.vbat;
-    if (batteryCanRecordMinimumVoltage() && currentV < maxV - BATTERY_CALIB_MIN_SPAN_V) {
-        powerStatus.batteryCalibMinV = currentV;
+    if (batteryCanRecordMinimumVoltage() && currentV < sCalib.maxV - BATTERY_CALIB_RESET_MARGIN_V) {
+        sCalib.cutoffV = currentV;
+        sCalib.cutoffLearned = true;
     } else {
-        powerStatus.batteryCalibMinV = BATTERY_EMPTY_V;
+        const BatteryCalibState def = batteryCalibDefaults();
+        sCalib.cutoffV = def.cutoffV;
+        sCalib.cutoffLearned = false;
     }
+    sCalib.pendingLowV = NAN;
+    if (isfinite(sLastPersistedLowV)) {
+        clearBatteryPendingLowFromNvs();
+        sLastPersistedLowV = NAN;
+    }
+    batteryCalibSanitize(sCalib);
+    publishBatteryCalibToStatus();
     powerStatus.lastCalibMinMs = now;
-    ensureBatteryCalibrationDefaults(now);
     markPowerCalibrationChanged(now);
 }
 
@@ -414,6 +501,67 @@ static void sampleBattery(uint32_t now, uint16_t adcMv) {
             nextPercent = rawPct;
         }
     }
+
+    // Auto-calibration: nextVbat/nextPercent are not yet committed to powerStatus,
+    // but we are already past the disconnect/low-voltage early-return paths above,
+    // so this sample is "powered" by the same definition batteryHasPoweredVoltage()
+    // uses for the value about to be published.
+    const bool poweredValidForCalib = isfinite(nextVbat) && nextVbat >= BATTERY_UNPOWERED_LOW_V;
+    const bool chargingForCalib = powerStatus.chargeValid && powerStatus.charging;
+
+    // The EMA was just restarted (same condition used to compute nextVbat above):
+    // don't let the discharge tracker see the raw, momentarily-unloaded first
+    // sample as a genuine low-point.
+    const bool emaRestarted = wasDisconnected || wasLowVoltageUnpowered ||
+                              !powerStatus.batteryValid || !isfinite(powerStatus.vbat);
+    if (emaRestarted || !sBatteryEmaRestartKnown) {
+        sBatteryEmaRestartMs = now;
+        sBatteryEmaRestartKnown = true;
+    }
+    const bool emaStableForDischarge =
+        millisElapsed(now, sBatteryEmaRestartMs, BATTERY_CALIB_DISCHARGE_STABLE_MS);
+
+    if (chargingForCalib && !sChargingForCalibPrev)
+        sChargingForCalibSinceMs = now;
+    sChargingForCalibPrev = chargingForCalib;
+    const bool chargingContinuous30s =
+        chargingForCalib && millisElapsed(now, sChargingForCalibSinceMs, BATTERY_CALIB_CHARGE_ERASE_HOLD_MS);
+
+    // Don't learn max off the charger's CV plateau, except on a board whose ADC
+    // reading is clipped — the clipped ceiling is the only value we can ever see.
+    const bool allowMaxLearning = !chargingForCalib || adcMv >= BATTERY_ADC_CLIP_MV;
+    if (!allowMaxLearning) {
+        // Charging (not clipped): cancel any in-progress candidate so a 60 s
+        // hold window can't silently span samples we're not feeding it.
+        sCalib.candidateActive = false;
+    } else if (batteryCalibObserveMax(sCalib, nextVbat, poweredValidForCalib, now)) {
+        publishBatteryCalibToStatus();
+        markBatteryCalibrationDirty(now);
+        RLOG_INFO("ADC", "event=calib_max v=%.3f", sCalib.maxV);
+    }
+
+    if (emaStableForDischarge &&
+        batteryCalibObserveDischarge(sCalib, nextVbat, poweredValidForCalib, chargingForCalib) &&
+        batteryCalibShouldPersistLow(sCalib, sLastPersistedLowV)) {
+        saveBatteryPendingLowToNvs(sCalib.pendingLowV);
+        sLastPersistedLowV = sCalib.pendingLowV;
+        RLOG_INFO("ADC", "event=calib_pending_low v=%.3f", sCalib.pendingLowV);
+    }
+
+    // Erase gating runs on EVERY sample, independent of ObserveDischarge's return
+    // this sample and independent of the EMA-stability gate above: charging can
+    // clear the RAM pendingLowV on a single sample (e.g. the first sample after
+    // charging starts), after which ObserveDischarge(charging=true) keeps
+    // returning false because pendingLowV is already NAN. If the erase were only
+    // evaluated behind that return value it would never run, leaving a stale
+    // discharge low-point on NVS that a later power-switch-off would wrongly
+    // adopt as the cutoff.
+    if (batteryCalibShouldErasePersisted(sCalib, sLastPersistedLowV, chargingContinuous30s, nextVbat)) {
+        clearBatteryPendingLowFromNvs();
+        sLastPersistedLowV = NAN;
+        RLOG_INFO("ADC", "event=calib_pending_erase");
+    }
+
     portENTER_CRITICAL(&sPowerStatusMux);
     powerStatus.batteryDisconnected = false;
     powerStatus.batteryLowVoltageUnpowered = false;
@@ -462,10 +610,34 @@ static void sampleCharge(uint32_t now, uint16_t adcMv) {
 void initPowerMonitor() {
     const uint32_t now = millis();
     loadBatteryCalibration(now);
-    ensureBatteryCalibrationDefaults(now);
+
+    sCalib.pendingLowV = loadBatteryPendingLowFromNvs();
+    const float pendingBeforeAdopt = sCalib.pendingLowV;
+    sLastPersistedLowV = pendingBeforeAdopt; // mirrors whatever is currently on NVS, if anything
+    const esp_reset_reason_t resetReason = esp_reset_reason();
+    const bool powerLossReset = (resetReason == ESP_RST_POWERON || resetReason == ESP_RST_BROWNOUT);
+    const bool cutoffChanged = batteryCalibAdoptPendingOnBoot(sCalib, powerLossReset);
+    batteryCalibSanitize(sCalib);
+    publishBatteryCalibToStatus();
+    // Only open NVS read-write to remove the key when a pending value actually existed.
+    if (powerLossReset && isfinite(pendingBeforeAdopt)) {
+        clearBatteryPendingLowFromNvs();
+        sLastPersistedLowV = NAN;
+    }
+    if (cutoffChanged) {
+        RLOG_INFO("ADC", "event=calib_cutoff v=%.3f", sCalib.cutoffV);
+        saveBatteryCalibration(now);
+    }
+    RLOG_INFO("ADC", "event=calib_boot reset=%d pending=%.3f cutoff=%.3f max=%.3f",
+              static_cast<int>(resetReason), pendingBeforeAdopt, sCalib.cutoffV, sCalib.maxV);
+
     analogReadResolution(12);
-    analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
-    analogSetPinAttenuation(CHARGE_ADC_PIN, ADC_11db);
+    // arduino-esp32 v3: analogSetPinAttenuation() on a pin that has not been read yet
+    // only logs "Pin is not configured as analog channel" and does nothing. The global
+    // setter works before first use: it becomes the attenuation the first
+    // analogReadMilliVolts() uses for the channel AND the per-unit calibration curve.
+    // Both pins are on ADC1 and share 11 dB (the core default, so readings are unchanged).
+    analogSetAttenuation(ADC_11db);
     servicePowerMonitor(true);
 }
 

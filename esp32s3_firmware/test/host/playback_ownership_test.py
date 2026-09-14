@@ -154,14 +154,16 @@ bool deferred=true, active=true, autoMode=true;
 unsigned generation=0, queued=3, blanks=0;
 std::string playback="scroll";
 void cancelDeferredFaceRestore(){deferred=false;}
-void scrollSessionStop(bool restoreAuto,bool clearDisplay){
+void scrollSessionStop(bool restoreAuto,bool clearDisplay,bool takeOutputControl){
  assert(!restoreAuto);
+ assert(!takeOutputControl);
  if(clearDisplay) ++blanks;
  ++generation; active=false; playback="frame";
 }
 void clearQueuedPackedFrames(){queued=0;}
-bool setMode(const char* mode,bool persist){
+bool setMode(const char* mode,bool persist,bool takeOutputControl){
  assert(!persist && !active && playback!="scroll");
+ assert(!takeOutputControl);
  assert(strcmp(mode,"manual")==0); autoMode=false; return true;
 }
 '''+function('faces.cpp','void takeOverExternalFrame(')+r'''

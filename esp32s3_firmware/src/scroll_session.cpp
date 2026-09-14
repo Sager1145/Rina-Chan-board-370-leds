@@ -212,6 +212,7 @@ bool scrollSessionStep(int8_t direction, uint8_t* outFrameBits) {
     });
 
     if (hasSteppedFrame) {
+        setRuntimeOutputMode("text");
         runtimeState().playback = "scroll_step";
         touchRuntimeState();
         RLOG_INFO("SCROLL", "event=step dir=%d idx=%u/%u",
@@ -257,6 +258,7 @@ bool scrollSessionSeek(uint16_t frameIndex) {
     });
 
     if (hasSoughtFrame) {
+        setRuntimeOutputMode("text");
         touchRuntimeState();
         RLOG_INFO("SCROLL", "event=seek idx=%u/%u",
                   static_cast<unsigned>(runtimeState().scrollFrameIndex),
@@ -276,10 +278,13 @@ bool scrollSessionRewindIfEnded() {
     return ended;
 }
 
-ScrollStopResult scrollSessionStop(bool restoreAuto, bool clearDisplay) {
+ScrollStopResult scrollSessionStop(bool restoreAuto, bool clearDisplay,
+                                   bool takeOutputControl) {
     ScrollStopResult r;
     r.restoreAuto = restoreAuto;
     r.cleared = clearDisplay;
+    if (takeOutputControl)
+        setRuntimeOutputMode("control");
 
     bool changed = false;
     withScrollLock([&]() {
@@ -338,6 +343,7 @@ ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode,
     });
 
     if (hasFirstFrame) {
+        setRuntimeOutputMode("text");
         result.started = true;
         RLOG_INFO("SCROLL", "event=start count=%u interval_ms=%u restoreAuto=%d",
                   static_cast<unsigned>(runtimeState().scrollFrameCount),

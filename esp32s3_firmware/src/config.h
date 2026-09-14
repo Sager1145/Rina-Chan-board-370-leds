@@ -1,7 +1,17 @@
 #pragma once
 #include <Arduino.h>
 
-constexpr char AP_SSID[] = "RinaChanBoard-V2";
+// Board identity (src/board_identity.h): every board's SoftAP SSID, mDNS
+// hostname and Bonjour instance name are derived from its unique BT MAC, not
+// a shared constant. AP_SSID_PREFIX is that default SSID's prefix.
+// LEGACY_AP_SSID is the single shared SSID used before per-board identity
+// existed; a stored "apssid" preference equal to it is treated as unset so
+// existing boards migrate to their unique default on the next boot.
+constexpr char AP_SSID_PREFIX[] = "RinaChanBoard-";
+constexpr char LEGACY_AP_SSID[] = "RinaChanBoard-V2";
+// Shared prefix for the BLE local name and Bonjour instance name (both
+// "RinaBoard-<ID>"), kept as one constant so they cannot drift apart.
+constexpr char BOARD_NAME_PREFIX[] = "RinaBoard-";
 constexpr char AP_PASSWORD[] = "rinachan";
 
 // Wi-Fi setup page (docs/RINALINK_PROTOCOL_V1.md §7.3): captive-portal domain
@@ -13,7 +23,8 @@ constexpr uint16_t WEB_SETUP_DNS_PORT = 53;
 // RinaLink v1 (see docs/RINALINK_PROTOCOL_V1.md): one TCP port, carried over
 // Wi-Fi STA or the board's own SoftAP; BLE carries the same framed protocol.
 constexpr uint16_t RINALINK_TCP_PORT = 5370;
-constexpr char RINALINK_HOSTNAME[] = "rinaboard";
+// mDNS hostname/Bonjour instance are per-board (src/board_identity.h:
+// boardHostname() / boardServiceInstanceName()), not a shared constant.
 constexpr uint32_t WIFI_STA_CONNECT_TIMEOUT_MS = 15000;
 constexpr uint32_t WIFI_STA_RETRY_MS = 60000;
 // v1.2 (docs/RINALINK_PROTOCOL_V1.md §8): a station profile ("home"/"hotspot")
@@ -63,6 +74,9 @@ constexpr float POWER_WEB_VCHARGE_EPS_V = 0.05f;
 constexpr uint16_t BATTERY_DISCONNECT_ADC_DROP_MV = 1000;
 constexpr uint16_t BATTERY_DISCONNECT_ADC_LOW_MV = 900;
 constexpr uint16_t BATTERY_RECONNECT_ADC_MV = 1500;
+// Reading at/near the 12-bit ADC ceiling (used both to report batteryAdcSaturated and
+// to keep learning the clipped-board ceiling even while charging, see power_monitor.cpp).
+constexpr uint16_t BATTERY_ADC_CLIP_MV = 3100;
 constexpr char BATTERY_CALIB_PATH[] = "/resources/battery_calib.json";
 
 struct BatteryLutPoint {
@@ -108,7 +122,9 @@ constexpr uint8_t MAX_BRIGHTNESS = 200;
 constexpr int8_t BRIGHTNESS_BUTTON_STEP = 8;
 
 constexpr uint16_t PACKED_FRAME_MIN_INTERVAL_MS = 33;
-constexpr uint8_t PACKED_FRAME_QUEUE_DEPTH = 3;
+// Interactive frame delivery is latest-only: one queued frame supersedes the
+// previous pending frame during a burst.
+constexpr uint8_t PACKED_FRAME_QUEUE_DEPTH = 1;
 constexpr uint8_t PACKED_FRAME_REASON_CHARS = 64;
 
 constexpr uint32_t DEFAULT_AUTO_INTERVAL_MS = 3000;
@@ -116,6 +132,8 @@ constexpr uint32_t MIN_AUTO_INTERVAL_MS = 500;
 constexpr uint32_t MAX_AUTO_INTERVAL_MS = 10000;
 constexpr uint32_t AUTO_INTERVAL_BUTTON_STEP_MS = 500;
 constexpr uint16_t MAX_AUTO_FACES = 128;
+constexpr uint8_t MAX_FACE_NAME_BYTES = 64;
+constexpr size_t MAX_FACES_DOCUMENT_BYTES = 256UL * 1024UL;
 
 constexpr uint16_t MAX_SCROLL_FRAMES = 3072;
 constexpr uint16_t MIN_SCROLL_INTERVAL_MS = 17; // 60 fps nominal scroll playback.

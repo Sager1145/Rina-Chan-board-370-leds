@@ -12,6 +12,8 @@ struct PowerStatus {
     bool batteryLowVoltageUnpowered = false;
     float batteryCalibMaxV = NAN;
     float batteryCalibMinV = NAN;
+    bool batteryCalibMaxLearned = false;
+    bool batteryCalibCutoffLearned = false;
     bool batteryCalibDirty = false;
     uint16_t batteryAdcMv = 0;
     uint16_t chargeAdcMv = 0;

@@ -10,6 +10,7 @@
 #include <string.h>
 #include <string>
 
+#include "board_identity.h"
 #include "config.h"
 #include "ble_frame_sender.h"
 #include "serial_log.h"
@@ -39,6 +40,8 @@ constexpr uint16_t DEFAULT_ATT_MTU = 23; // Pre-negotiation NimBLE default.
 constexpr uint16_t REQUESTED_MTU   = 255;
 constexpr uint32_t BLE_INITIALIZATION_TIMEOUT_MS = 15000;
 constexpr uint32_t ADVERTISE_RETRY_MS = 250;
+constexpr uint32_t BLE_TERMINATE_RETRY_MS = 250;
+constexpr uint8_t BLE_TERMINATE_MAX_ATTEMPTS = 20;
 
 class BleTransport : public rinalink::ITransport {
 public:
@@ -49,15 +52,25 @@ public:
         uint16_t mtu;
         rinalink::ClientId activeId;
         bool connected;
+        bool subscribed;
         {
             portENTER_CRITICAL(&mMux);
             connHandle = mConnHandle;
             mtu = mMtu;
             activeId = mClientId;
             connected = mConnected;
+            subscribed = mTxSubscribed;
             portEXIT_CRITICAL(&mMux);
         }
         if (!connected || activeId.slot != id.slot || mTx == nullptr)
+            return false;
+        // Events start flowing the moment a slot is registered, but a central
+        // that has not enabled TX notifications is still discovering services
+        // (at ATT MTU 23 one status event is ~75 notifies). Pushing them then
+        // starves the central's discovery until its connect times out, and a
+        // notify that fails mid-event closes the link. Drop events before the
+        // first byte until the CCCD is written; replies are never gated.
+        if (!rinalink::bleFrameCanSend(subscribed, isEvent))
             return false;
 
         const size_t chunk = (mtu > 3) ? static_cast<size_t>(mtu - 3) : 20;
@@ -70,7 +83,8 @@ public:
             [&]() {
                 portENTER_CRITICAL(&mMux);
                 const bool active = mConnected && mClientId.slot == id.slot &&
-                                    mConnHandle == connHandle;
+                                    mConnHandle == connHandle &&
+                                    rinalink::bleFrameCanSend(mTxSubscribed, isEvent);
                 portEXIT_CRITICAL(&mMux);
                 return active;
             },
@@ -124,12 +138,21 @@ public:
             // transportUnregisterClient() again for a slot the registry has
             // already reclaimed.
             mConnected = false;
+            mTxSubscribed = false;
             mMtu = DEFAULT_ATT_MTU;
             mInitializationTimer.start(0);
         }
         portEXIT_CRITICAL(&mMux);
-        if (shouldDisconnect && mServer != nullptr)
-            mServer->disconnect(connHandle);
+        if (shouldDisconnect && mServer != nullptr && !mServer->disconnect(connHandle)) {
+            RLOG_WARN("BLE", "event=terminate_failed handle=%u attempt=1",
+                      static_cast<unsigned>(connHandle));
+            portENTER_CRITICAL(&mMux);
+            mTerminatePending = true;
+            mTerminateHandle = connHandle;
+            mTerminateAttempts = 1;
+            mTerminateLastAttemptMs = millis();
+            portEXIT_CRITICAL(&mMux);
+        }
     }
 
     // --- Setup helpers (called only from bleTransportBegin(), before any BLE
@@ -151,8 +174,9 @@ public:
         if (alreadyConnected) {
             RLOG_WARN("BLE", "event=connect_rejected reason=already_connected handle=%u peer=%s",
                       static_cast<unsigned>(connHandle), peerAddress.c_str());
-            if (mServer != nullptr)
-                mServer->disconnect(connHandle);
+            if (mServer != nullptr && !mServer->disconnect(connHandle))
+                RLOG_WARN("BLE", "event=terminate_failed handle=%u reason=reject",
+                          static_cast<unsigned>(connHandle));
             return;
         }
 
@@ -160,8 +184,9 @@ public:
         if (!rinalink::transportRegisterClient(this, rinalink::Carrier::Ble, &newId)) {
             RLOG_WARN("BLE", "event=connect_rejected reason=no_slot handle=%u peer=%s",
                       static_cast<unsigned>(connHandle), peerAddress.c_str());
-            if (mServer != nullptr)
-                mServer->disconnect(connHandle);
+            if (mServer != nullptr && !mServer->disconnect(connHandle))
+                RLOG_WARN("BLE", "event=terminate_failed handle=%u reason=reject",
+                          static_cast<unsigned>(connHandle));
             return;
         }
         portENTER_CRITICAL(&mMux);
@@ -169,9 +194,13 @@ public:
         mClientId = newId;
         mMtu = DEFAULT_ATT_MTU;
         mConnected = true;
+        mTxSubscribed = false;
         mInitialFrameTracker.reset();
         mInitializationTimer.start(millis());
         mAdvertisingRetry.cancel();
+        // Never terminate a reused handle that now belongs to this new link.
+        if (mTerminatePending && mTerminateHandle == connHandle)
+            mTerminatePending = false;
         mInfoDirty = true;
         portEXIT_CRITICAL(&mMux);
         RLOG_INFO("BLE",
@@ -196,9 +225,12 @@ public:
         idToDrop = mClientId;
         if (wasConnected) {
             mConnected = false;
+            mTxSubscribed = false;
             mMtu = DEFAULT_ATT_MTU;
             mInitializationTimer.start(0);
         }
+        if (mTerminatePending && mTerminateHandle == connHandle)
+            mTerminatePending = false;
         // A rejected second central also produces a disconnect callback. Keep
         // advertising stopped while the original central is still connected.
         shouldRestartAdvertising = !mConnected;
@@ -246,12 +278,16 @@ public:
                       static_cast<unsigned>(connHandle), static_cast<unsigned>(len));
             return;
         }
-        // BLE cannot back-pressure a single write like TCP can: if it would not
-        // fit, drop it and force a resync (protocol.cpp sends the ERR(413)).
+        // BLE cannot back-pressure a single write like TCP can. Once any bytes
+        // are dropped there is no trustworthy frame boundary or request seq,
+        // so close this logical stream instead of replying with event seq 0 or
+        // scanning a later fragment for an apparent frame.
         size_t free = rinalink::transportInboundFree(activeId);
         if (len > free) {
-            rinalink::transportMarkResyncNeeded(activeId);
-            RLOG_WARN("BLE", "event=inbound_overflow len=%u free=%u", static_cast<unsigned>(len), static_cast<unsigned>(free));
+            rinalink::transportUnregisterClient(activeId);
+            RLOG_WARN("BLE", "event=inbound_overflow_disconnect slot=%u len=%u free=%u",
+                      static_cast<unsigned>(activeId.slot),
+                      static_cast<unsigned>(len), static_cast<unsigned>(free));
             return;
         }
         const size_t accepted = rinalink::transportPushInbound(activeId, data, len);
@@ -268,17 +304,31 @@ public:
     }
 
     void onTxSubscribed(uint16_t connHandle, uint16_t subValue) {
-        if (subValue == 0)
-            return;
+        rinalink::ClientId idToDrop{0};
+        bool disconnectRequired = false;
         portENTER_CRITICAL(&mMux);
-        const bool active = mConnected && mConnHandle == connHandle &&
-                            mInitializationTimer.acceptsInitialization();
-        if (active)
-            mInitializationTimer.confirm();
+        const bool current = mConnected && mConnHandle == connHandle;
+        if (current) {
+            disconnectRequired = rinalink::bleSubscriptionChangeRequiresDisconnect(
+                mTxSubscribed, subValue);
+            mTxSubscribed = rinalink::bleTxNotifyEnabled(subValue);
+            idToDrop = mClientId;
+        }
         portEXIT_CRITICAL(&mMux);
-        if (active)
-            RLOG_DEBUG("BLE", "event=tx_subscribed handle=%u value=%u",
-                       static_cast<unsigned>(connHandle), static_cast<unsigned>(subValue));
+        if (!current)
+            return;
+        RLOG_DEBUG("BLE", "event=tx_subscription handle=%u value=%u notify=%d",
+                   static_cast<unsigned>(connHandle), static_cast<unsigned>(subValue),
+                   rinalink::bleTxNotifyEnabled(subValue) ? 1 : 0);
+        // CCCD enablement only proves that notifications can flow. The
+        // initialization watchdog remains armed until the first complete
+        // RinaLink request (normally PING) arrives on RX.
+        if (disconnectRequired) {
+            RLOG_INFO("BLE", "event=tx_unsubscribed handle=%u slot=%u",
+                      static_cast<unsigned>(connHandle),
+                      static_cast<unsigned>(idToDrop.slot));
+            rinalink::transportUnregisterClient(idToDrop);
+        }
     }
 
     void requestAdvertisingRestart(uint32_t delayMs = 0) {
@@ -308,7 +358,43 @@ public:
             mInfoDirty = false;
             refreshInfo = true;
         }
+        bool retryTerminate = false;
+        uint16_t retryHandle = 0;
+        uint8_t retryAttempts = 0;
+        if (mTerminatePending && (now - mTerminateLastAttemptMs) >= BLE_TERMINATE_RETRY_MS) {
+            retryTerminate = true;
+            retryHandle = mTerminateHandle;
+            retryAttempts = mTerminateAttempts;
+        }
         portEXIT_CRITICAL(&mMux);
+
+        if (retryTerminate) {
+            const bool ok = mServer != nullptr && mServer->disconnect(retryHandle);
+            portENTER_CRITICAL(&mMux);
+            if (mTerminatePending && mTerminateHandle == retryHandle) {
+                if (ok) {
+                    mTerminatePending = false;
+                } else if (static_cast<uint32_t>(retryAttempts) + 1 >= BLE_TERMINATE_MAX_ATTEMPTS) {
+                    mTerminatePending = false;
+                } else {
+                    mTerminateAttempts = static_cast<uint8_t>(retryAttempts + 1);
+                    mTerminateLastAttemptMs = now;
+                }
+            }
+            portEXIT_CRITICAL(&mMux);
+            if (ok) {
+                RLOG_INFO("BLE", "event=terminate_retry_ok handle=%u attempt=%u",
+                          static_cast<unsigned>(retryHandle), static_cast<unsigned>(retryAttempts + 1));
+            } else if (static_cast<uint32_t>(retryAttempts) + 1 >= BLE_TERMINATE_MAX_ATTEMPTS) {
+                RLOG_ERROR("BLE", "event=terminate_gave_up handle=%u attempts=%u",
+                           static_cast<unsigned>(retryHandle), static_cast<unsigned>(retryAttempts + 1));
+                // The stuck link is unmapped; stay reachable for a new central.
+                requestAdvertisingRestart(ADVERTISE_RETRY_MS);
+            } else {
+                RLOG_WARN("BLE", "event=terminate_failed handle=%u attempt=%u",
+                          static_cast<unsigned>(retryHandle), static_cast<unsigned>(retryAttempts + 1));
+            }
+        }
 
         if (initializationTimedOut) {
             RLOG_WARN("BLE", "event=initialization_timeout handle=%u slot=%u timeout_ms=%u",
@@ -357,9 +443,13 @@ private:
         doc["fw"] = FIRMWARE_VERSION;
         doc["mtu"] = mtu;
         doc["tcpPort"] = RINALINK_TCP_PORT;
+        doc["boardId"] = boardId();
         const size_t n = serializeJson(doc, json, sizeof(json));
-        if (n > 0)
+        if (n >= sizeof(json) - 1) {
+            RLOG_WARN("BLE", "event=info_characteristic_truncated bytes=%u", static_cast<unsigned>(n));
+        } else if (n > 0) {
             mInfo->setValue(reinterpret_cast<const uint8_t*>(json), n);
+        }
     }
 
     mutable portMUX_TYPE mMux = portMUX_INITIALIZER_UNLOCKED;
@@ -368,6 +458,8 @@ private:
     NimBLECharacteristic* mInfo = nullptr;
 
     bool mConnected = false;
+    // CCCD state of TX for the current link; gates events in send().
+    bool mTxSubscribed = false;
     uint16_t mConnHandle = 0;
     uint16_t mMtu = DEFAULT_ATT_MTU;
     rinalink::ClientId mClientId{0};
@@ -375,6 +467,10 @@ private:
     rinalink::BleInitializationTimer mInitializationTimer;
     rinalink::BleRetryTimer mAdvertisingRetry;
     bool mInfoDirty = false;
+    bool mTerminatePending = false;
+    uint16_t mTerminateHandle = 0;
+    uint8_t mTerminateAttempts = 0;
+    uint32_t mTerminateLastAttemptMs = 0;
 };
 
 BleTransport sTransport;
@@ -426,12 +522,7 @@ TxCallbacks sTxCallbacks;
 // The result is 22 bytes, so it fits as a complete local name in the 31-byte
 // scan response and retains the board's full stable hardware identity.
 void buildDefaultDeviceName(char* out, size_t outLen) {
-    uint8_t mac[6] = {0};
-    const esp_err_t result = esp_read_mac(mac, ESP_MAC_BT);
-    if (result != ESP_OK)
-        RLOG_ERROR("BLE", "event=mac_read_failed code=%d", static_cast<int>(result));
-    snprintf(out, outLen, "RinaBoard-%02X%02X%02X%02X%02X%02X",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    snprintf(out, outLen, "%s%s", BOARD_NAME_PREFIX, boardId());
 }
 
 // Longest prefix of `s` that is <= maxBytes and does not split a UTF-8
@@ -621,9 +712,13 @@ void bleTransportBegin() {
     doc["fw"] = FIRMWARE_VERSION;
     doc["mtu"] = DEFAULT_ATT_MTU;
     doc["tcpPort"] = RINALINK_TCP_PORT;
+    doc["boardId"] = boardId();
     const size_t n = serializeJson(doc, json, sizeof(json));
-    if (n > 0)
+    if (n >= sizeof(json) - 1) {
+        RLOG_WARN("BLE", "event=info_characteristic_truncated bytes=%u", static_cast<unsigned>(n));
+    } else if (n > 0) {
         info->setValue(reinterpret_cast<const uint8_t*>(json), n);
+    }
 
     server->start();
 

@@ -27,6 +27,11 @@ struct RuntimeState {
     uint8_t brightness = DEFAULT_BRIGHTNESS;
     String mode = DEFAULT_MODE;
     String playback = DEFAULT_PLAYBACK;
+    // Stable owner of the pixels currently driven by the board. Unlike lastReason,
+    // this is not changed by color/brightness refreshes or temporary overlays.
+    String outputMode = "control";
+    char outputStreamID[37] = {0};
+    uint32_t outputPositionMs = 0;
     // User-visible board name. Empty means "use the MAC-derived default"
     // (RinaBoard-AABBCCDDEEFF); see bleTransportDeviceName(). Core-0 cooperative state,
     // persisted in runtime_settings.json.
@@ -68,6 +73,12 @@ struct RuntimeState {
     bool deferredFaceRestoreAutoMode = false;
     uint32_t deferredFaceRestoreDueMs = 0;
     String deferredFaceRestoreReason;
+};
+
+struct OutputFrameDescriptor {
+    char mode[12] = "control";
+    char streamID[37] = {0};
+    uint32_t positionMs = 0;
 };
 
 struct FrameStateSnapshot {
@@ -157,3 +168,11 @@ uint32_t runtimeStateVersion();
 void touchRuntimeState();
 void touchRuntimeStateSlow();
 void serviceRuntimeSlowStatePublish();
+
+// SET_FRAME reasons may be either a legacy exact mode name or
+// <mode>:<canonical UUID>:<uint32 positionMs>. Malformed stream metadata does
+// not prevent recognizing the mode, but is never exposed as a resumable stream.
+void parseOutputFrameReason(const char* reason, OutputFrameDescriptor& out);
+void setRuntimeOutputMode(const char* mode, const char* streamID = nullptr,
+                          uint32_t positionMs = 0);
+void setRuntimeOutputFromFrameReason(const char* reason);

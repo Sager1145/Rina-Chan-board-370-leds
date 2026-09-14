@@ -72,12 +72,18 @@ struct BlobSession {
 
     // scroll
     ScrollUploadTxn txn;
+    uint8_t* scrollBuf = nullptr;
+    size_t scrollCap = 0;
     uint16_t totalFrames = 0;
     uint16_t framesReceived = 0;
     bool append = false;
     bool hasExplicitTiming = false;
     uint16_t intervalMs = DEFAULT_SCROLL_INTERVAL_MS;
     uint8_t uiFps = 0;
+    String scrollTimelineId;
+    String scrollFontId;
+    String scrollGeneratorVersion;
+    String scrollSourceText;
 
     // faces
     uint8_t* facesBuf = nullptr;
@@ -101,6 +107,15 @@ struct BlobSession {
     String bitmapSourceText;
 
     void reset() {
+        if (scrollBuf) {
+            heap_caps_free(scrollBuf);
+            scrollBuf = nullptr;
+        }
+        scrollCap = 0;
+        scrollTimelineId = "";
+        scrollFontId = "";
+        scrollGeneratorVersion = "";
+        scrollSourceText = "";
         if (facesBuf) {
             heap_caps_free(facesBuf);
             facesBuf = nullptr;
@@ -148,6 +163,7 @@ struct ClientSlot {
     bool disconnectPending = false;
     // Inbound framing loss is guarded by mux, together with inboundLen.
     bool resyncNeeded = false;
+    size_t oversizedBytesRemaining = 0;
 
     bool subPreview = true;
     bool subStatus = true;
@@ -165,6 +181,7 @@ struct ClientSlot {
     uint32_t lastPowerSentMs = 0;
     bool haveChargingSent = false;
     bool lastChargingSent = false;
+    bool wifiEventPending = false;
 
     BlobSession blob;
 };
@@ -182,6 +199,7 @@ static int g_activeScrollBlobSlot = -1;
 
 // Pending wifi_scan requester (item 4): only one scan can be in flight.
 static int g_wifiScanRequesterSlot = -1;
+static bool g_wifiScanEventPending = false;
 
 // EV_LOG ring (item 9): filled from any task via the serial_log sink, drained on
 // the loop task by serviceProtocolEvents().
@@ -244,10 +262,10 @@ static void expireBlobSessions() {
 // only a failed reply/request-response send (isEvent=false) unregisters the
 // client; the actual teardown happens at the top of the next serviceProtocol()
 // pass (item 1/8).
-static void sendFrame(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags,
-                       const uint8_t* payload, uint16_t len, bool isEvent = false) {
+static bool sendFrame(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags,
+                      const uint8_t* payload, uint16_t len, bool isEvent = false) {
     if (c.disconnectPending || !c.transport)
-        return;
+        return false;
     static uint8_t buf[FRAME_HEADER_BYTES + MAX_PAYLOAD_BYTES];
     size_t total = transportFrame(buf, type, seq, flags, payload, len);
     uint8_t slot = static_cast<uint8_t>(&c - g_clients);
@@ -256,6 +274,7 @@ static void sendFrame(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags,
         RLOG_DEBUG("PROTO", "event=send_failed slot=%u type=%u", (unsigned)slot, (unsigned)type);
         rinalink::transportUnregisterClient(ClientId{slot});
     }
+    return ok;
 }
 
 // Single JSON emitter for every reply/event path. Serializes into one shared
@@ -264,16 +283,15 @@ static void sendFrame(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags,
 // splits it into multiple frames with FLAG_MORE set on all but the last (same
 // type/seq). The iOS client already aggregates MORE frames. Consolidates the
 // former sendJsonReply / sendEvent / sendErrorReply / sendJsonReplyChunked.
-static void emitJson(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags, JsonDocument& doc,
-                      bool isEvent = false) {
+static bool emitJson(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags, JsonDocument& doc,
+                     bool isEvent = false) {
     constexpr size_t kScratchCap = static_cast<size_t>(MAX_SCROLL_TEXT_BYTES) + 2048U;
     static char scratch[kScratchCap];
     size_t n = serializeJson(doc, scratch, kScratchCap);
     if (n >= kScratchCap)
         n = kScratchCap - 1;
     if (n == 0) {
-        sendFrame(c, type, seq, flags, nullptr, 0, isEvent);
-        return;
+        return sendFrame(c, type, seq, flags, nullptr, 0, isEvent);
     }
     size_t off = 0;
     while (off < n) {
@@ -282,17 +300,21 @@ static void emitJson(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags, Js
             chunk = MAX_PAYLOAD_BYTES;
         bool more = (off + chunk) < n;
         uint8_t outFlags = static_cast<uint8_t>(flags | (more ? FLAG_MORE : 0));
-        sendFrame(c, type, seq, outFlags, reinterpret_cast<const uint8_t*>(scratch + off), (uint16_t)chunk, isEvent);
+        if (!sendFrame(c, type, seq, outFlags,
+                       reinterpret_cast<const uint8_t*>(scratch + off),
+                       (uint16_t)chunk, isEvent))
+            return false;
         off += chunk;
     }
+    return true;
 }
 
-static void sendJsonReply(ClientSlot& c, uint8_t reqType, uint8_t seq, JsonDocument& doc) {
-    emitJson(c, static_cast<uint8_t>(reqType | 0x80), seq, 0, doc, false);
+static bool sendJsonReply(ClientSlot& c, uint8_t reqType, uint8_t seq, JsonDocument& doc) {
+    return emitJson(c, static_cast<uint8_t>(reqType | 0x80), seq, 0, doc, false);
 }
 
-static void sendEvent(ClientSlot& c, uint8_t evType, JsonDocument& doc) {
-    emitJson(c, evType, 0, 0, doc, true);
+static bool sendEvent(ClientSlot& c, uint8_t evType, JsonDocument& doc) {
+    return emitJson(c, evType, 0, 0, doc, true);
 }
 
 static void sendErrorReply(ClientSlot& c, uint8_t seq, int code, const String& msg, int32_t expectedOffset = -1) {
@@ -354,6 +376,11 @@ static void addPower(JsonObject p) {
     p["batteryPowered"] = s.batteryValid && !(s.batteryDisconnected || s.batteryLowVoltageUnpowered);
     p["batteryDisconnected"] = s.batteryDisconnected;
     p["batteryLowVoltageUnpowered"] = s.batteryLowVoltageUnpowered;
+    p["battCalibMaxV"] = s.batteryCalibMaxV;
+    p["battCalibCutoffV"] = s.batteryCalibMinV;
+    p["battCalibMaxLearned"] = s.batteryCalibMaxLearned;
+    p["battCalibCutoffLearned"] = s.batteryCalibCutoffLearned;
+    p["batteryAdcSaturated"] = s.batteryAdcMv >= BATTERY_ADC_CLIP_MV;
 }
 
 static void buildStatusJson(JsonDocument& d, bool lite) {
@@ -373,6 +400,9 @@ static void buildStatusJson(JsonDocument& d, bool lite) {
     r["brightnessMin"] = MIN_BRIGHTNESS;
     r["brightnessMax"] = MAX_BRIGHTNESS;
     r["mode"] = runtimeState().mode;
+    r["outputMode"] = runtimeState().outputMode;
+    r["outputStreamID"] = runtimeState().outputStreamID;
+    r["outputPositionMs"] = runtimeState().outputPositionMs;
     r["playback"] = runtimeState().playback;
     r["paused"] = runtimeState().paused;
     r["autoIntervalMs"] = runtimeState().autoIntervalMs;
@@ -438,6 +468,20 @@ static uint8_t cUiFps(JsonDocument& d, JsonVariant p, uint16_t intervalMs) {
     if (intervalMs > 0)
         return (uint8_t)constrain((int)lroundf(1000.0f / (float)intervalMs), 1, 60);
     return 0;
+}
+// Explicit intervalMs wins; an fps-only request derives the interval from it. Falling back to
+// the current interval there left the board ticking at the old speed while reporting the new fps.
+static uint16_t cScrollInterval(JsonDocument& d, JsonVariant p) {
+    const int interval = cint(d, p, "intervalMs", 0);
+    if (interval > 0)
+        return (uint16_t)constrain(interval, (int)MIN_SCROLL_INTERVAL_MS, (int)MAX_SCROLL_INTERVAL_MS);
+    int f = cint(d, p, "fps", 0);
+    if (f <= 0)
+        f = cint(d, p, "uiFps", 0);
+    if (f > 0)
+        return (uint16_t)constrain((int)lroundf(1000.0f / (float)f), (int)MIN_SCROLL_INTERVAL_MS,
+                                   (int)MAX_SCROLL_INTERVAL_MS);
+    return runtimeState().scrollIntervalMs;
 }
 static void reply(JsonDocument& d, const char* cmd) {
     FrameStateSnapshot fs = readFrameStateSnapshot();
@@ -580,7 +624,7 @@ static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName,
         sendErrorReply(c, seq, 500, String(cmdName) + ": saved_faces.json not found or unreadable");
         return;
     }
-    PsramJsonDocument doc(jsonCapacityFor(fileSize) + 8192);
+    PsramJsonDocument doc(savedFacesJsonCapacityFor(fileSize) + 8192);
     // Deserialize in copy mode (const char*) so doc's string storage is independent
     // of contentBuf: zero-copy mode (non-const char*) would leave doc's strings
     // pointing into contentBuf, which is freed below (item A2: use-after-free).
@@ -601,6 +645,10 @@ static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName,
     String err;
     if (!validateSavedFaces(doc.as<JsonVariant>(), err)) {
         sendErrorReply(c, seq, 400, err);
+        return;
+    }
+    if (measureJson(doc) > MAX_FACES_DOCUMENT_BYTES) {
+        sendErrorReply(c, seq, 413, "saved_faces.json exceeds firmware size limit");
         return;
     }
     size_t written = writeSavedFaces(doc.as<JsonVariant>(), err);
@@ -687,7 +735,7 @@ static void handleFaceRename(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
         sendErrorReply(c, seq, 400, "id is required");
         return;
     }
-    if (name.length() < 1 || name.length() > 64) {
+    if (name.length() < 1 || name.length() > MAX_FACE_NAME_BYTES) {
         sendErrorReply(c, seq, 400, "name must be 1..64 chars");
         return;
     }
@@ -812,8 +860,9 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
         return;
     }
     const char* name = faceIn["name"] | "";
-    if (!name[0]) {
-        sendErrorReply(c, seq, 400, "face.name is required");
+    const size_t nameBytes = strlen(name);
+    if (nameBytes < 1 || nameBytes > MAX_FACE_NAME_BYTES) {
+        sendErrorReply(c, seq, 400, "face.name must be 1..64 bytes");
         return;
     }
     uint8_t frame[FRAME_BYTES];
@@ -1016,10 +1065,10 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
     else if (strcmp(cmd, "set_auto_interval") == 0)
         setAutoInterval((uint32_t)cint(d, p, "ms", DEFAULT_AUTO_INTERVAL_MS), true);
     else if (strcmp(cmd, "set_scroll_interval") == 0) {
-        uint16_t interval = (uint16_t)cint(d, p, "intervalMs", runtimeState().scrollIntervalMs);
+        uint16_t interval = cScrollInterval(d, p);
         scrollSessionSetInterval(interval, cUiFps(d, p, interval));
     } else if (strcmp(cmd, "start_scroll") == 0) {
-        uint16_t interval = (uint16_t)cint(d, p, "intervalMs", runtimeState().scrollIntervalMs);
+        uint16_t interval = cScrollInterval(d, p);
         uint8_t uiFps = cUiFps(d, p, interval);
         const char* st = cstr(d, p, "sourceText", nullptr);
         if (st && st[0]) {
@@ -1172,6 +1221,9 @@ static void buildPreviewSyncJson(JsonDocument& d) {
     d["ok"] = true;
     d["v"] = runtimeStateVersion();
     d["mode"] = runtimeState().mode;
+    d["outputMode"] = runtimeState().outputMode;
+    d["outputStreamID"] = runtimeState().outputStreamID;
+    d["outputPositionMs"] = runtimeState().outputPositionMs;
     d["playback"] = runtimeState().playback;
     d["autoFaceIndex"] = runtimeState().autoFaceIndex;
     d["autoFaceCount"] = runtimeAutoFaceCount();
@@ -1258,6 +1310,7 @@ static void handleSetFrame(ClientSlot& c, uint8_t seq, const uint8_t* payload, u
         sendErrorReply(c, seq, 400, err);
         return;
     }
+    setRuntimeOutputFromFrameReason(reason.c_str());
     DynamicJsonDocument d(1024);
     FrameStateSnapshot fs = readFrameStateSnapshot();
     d["ok"] = true;
@@ -1289,7 +1342,7 @@ static void handleGetFrame(ClientSlot& c, uint8_t seq) {
 }
 
 // --- Blob handlers (§3.3) --------------------------------------------------------------
-constexpr size_t MAX_FACES_BLOB_BYTES = 256UL * 1024UL;
+constexpr size_t MAX_FACES_BLOB_BYTES = MAX_FACES_DOCUMENT_BYTES;
 
 static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16_t len) {
     expireBlobSessions();
@@ -1325,8 +1378,8 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
             return;
         }
         bool append = d["append"] | false;
-        uint16_t interval = (uint16_t)(d["intervalMs"] | (int)runtimeState().scrollIntervalMs);
         JsonVariant noPayload;
+        uint16_t interval = cScrollInterval(d, noPayload);
         uint8_t uiFps = cUiFps(d, noPayload, interval);
         uint32_t implied = totalBytes / FRAME_BYTES;
         uint32_t totalFrames = d["totalFrames"] | (append ? runtimeState().scrollFrameCount + implied : implied);
@@ -1348,27 +1401,29 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
             sendErrorReply(c, seq, 413, "sourceText too large");
             return;
         }
+        uint8_t* scrollBuf = static_cast<uint8_t*>(heap_caps_malloc(
+            totalBytes ? totalBytes : 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (!scrollBuf)
+            scrollBuf = static_cast<uint8_t*>(malloc(totalBytes ? totalBytes : 1));
+        if (!scrollBuf) {
+            resetBlob(c);
+            sendErrorReply(c, seq, 507, "insufficient memory for scroll upload");
+            return;
+        }
         c.blob.kind = BlobKind::Scroll;
         c.blob.append = append;
-        c.blob.hasExplicitTiming = d["intervalMs"].is<int>() || d["fps"].is<int>();
+        c.blob.hasExplicitTiming = d["intervalMs"].is<int>() || d["fps"].is<int>() || d["uiFps"].is<int>();
         c.blob.intervalMs = interval;
         c.blob.uiFps = uiFps;
         c.blob.totalFrames = (uint16_t)totalFrames;
         c.blob.framesReceived = 0;
         c.blob.expectedOffset = 0;
-        if (append) {
-            c.blob.txn = scrollSessionBeginAppend();
-        } else {
-            ScrollUploadMeta meta;
-            meta.timelineId = tid;
-            meta.fontId = fid;
-            meta.generatorVersion = gen;
-            meta.sourceText = (txt && txt[0]) ? txt : nullptr;
-            meta.sourceTextBytes = txt ? (uint16_t)strlen(txt) : 0;
-            meta.totalFrames = (uint16_t)totalFrames;
-            meta.uiFps = uiFps;
-            c.blob.txn = scrollSessionBeginUpload(meta);
-        }
+        c.blob.scrollBuf = scrollBuf;
+        c.blob.scrollCap = totalBytes;
+        c.blob.scrollTimelineId = tid;
+        c.blob.scrollFontId = fid;
+        c.blob.scrollGeneratorVersion = gen;
+        c.blob.scrollSourceText = txt ? txt : "";
         g_activeScrollBlobSlot = selfSlot;
     } else if (strcmp(kind, "scroll_bitmap") == 0) {
         // Item 10 (shared with kind:"scroll"): only one client may hold an
@@ -1422,8 +1477,8 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
             sendErrorReply(c, seq, 507, "insufficient memory for scroll_bitmap upload");
             return;
         }
-        uint16_t interval = (uint16_t)(d["intervalMs"] | (int)runtimeState().scrollIntervalMs);
         JsonVariant noPayload;
+        uint16_t interval = cScrollInterval(d, noPayload);
         uint8_t uiFps = cUiFps(d, noPayload, interval);
         c.blob.kind = BlobKind::ScrollBitmap;
         c.blob.bitmapBuf = bmBuf;
@@ -1435,13 +1490,13 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
         c.blob.bitmapFontId = d["fontId"] | "";
         c.blob.bitmapGeneratorVersion = d["generatorVersion"] | "";
         c.blob.bitmapSourceText = txt ? txt : "";
-        c.blob.hasExplicitTiming = d["intervalMs"].is<int>() || d["fps"].is<int>();
+        c.blob.hasExplicitTiming = d["intervalMs"].is<int>() || d["fps"].is<int>() || d["uiFps"].is<int>();
         c.blob.intervalMs = interval;
         c.blob.uiFps = uiFps;
         c.blob.expectedOffset = 0;
         g_activeScrollBlobSlot = selfSlot;
     } else if (strcmp(kind, "faces") == 0) {
-        if (totalBytes > MAX_FACES_BLOB_BYTES) {
+        if (totalBytes > MAX_FACES_DOCUMENT_BYTES) {
             resetBlob(c);
             sendErrorReply(c, seq, 413, "faces document too large");
             return;
@@ -1512,10 +1567,11 @@ static void handleBlobChunk(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
                 return;
             }
         }
-        if (!scrollSessionWriteFrames(c.blob.txn, c.blob.txn.baseIndex + c.blob.framesReceived, data, n)) {
-            sendErrorReply(c, seq, 500, "failed to write scroll frames");
+        if (c.blob.expectedOffset + dataLen > c.blob.scrollCap) {
+            sendErrorReply(c, seq, 413, "scroll upload too large");
             return;
         }
+        memcpy(c.blob.scrollBuf + c.blob.expectedOffset, data, dataLen);
         c.blob.framesReceived += n;
         c.blob.expectedOffset += dataLen;
         c.blob.lastActivityMs = millis();
@@ -1609,6 +1665,29 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
             start = d["start"] | false;
     }
     if (c.blob.kind == BlobKind::Scroll) {
+        // BEGIN and CHUNK only fill a PSRAM staging buffer. Replace the live
+        // timeline now that the complete upload has been validated.
+        if (c.blob.append) {
+            c.blob.txn = scrollSessionBeginAppend();
+        } else {
+            ScrollUploadMeta meta;
+            meta.timelineId = c.blob.scrollTimelineId.c_str();
+            meta.fontId = c.blob.scrollFontId.c_str();
+            meta.generatorVersion = c.blob.scrollGeneratorVersion.c_str();
+            meta.sourceText = c.blob.scrollSourceText.length()
+                                  ? c.blob.scrollSourceText.c_str() : nullptr;
+            meta.sourceTextBytes = (uint16_t)c.blob.scrollSourceText.length();
+            meta.totalFrames = c.blob.totalFrames;
+            meta.uiFps = c.blob.uiFps;
+            c.blob.txn = scrollSessionBeginUpload(meta);
+        }
+        if (c.blob.framesReceived > 0 &&
+            !scrollSessionWriteFrames(c.blob.txn, c.blob.txn.baseIndex,
+                                      c.blob.scrollBuf, c.blob.framesReceived)) {
+            resetBlob(c);
+            sendErrorReply(c, seq, 500, "failed to write scroll frames");
+            return;
+        }
         ScrollUploadResult res = scrollSessionCommitUpload(c.blob.txn, c.blob.framesReceived,
                                                             c.blob.hasExplicitTiming, c.blob.intervalMs, c.blob.uiFps);
         if (!res.valid) {
@@ -1616,7 +1695,7 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
             sendErrorReply(c, seq, 409, "scroll upload was superseded");
             return;
         }
-        if (start)
+        const bool started = start &&
             startFirmwareScroll(c.blob.intervalMs, c.blob.uiFps);
         ScrollSessionSnapshot snap = scrollSessionSnapshot();
         DynamicJsonDocument out(768);
@@ -1624,7 +1703,7 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
         out["frames"] = res.frameCount;
         out["chunkFrames"] = c.blob.framesReceived;
         out["append"] = c.blob.append;
-        out["started"] = start;
+        out["started"] = started;
         out["timelineId"] = res.timelineId;
         out["uploadComplete"] = res.uploadComplete;
         out["frameBytes"] = FRAME_BYTES;
@@ -1714,7 +1793,7 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
             sendErrorReply(c, seq, 409, "scroll upload was superseded");
             return;
         }
-        if (start)
+        const bool started = start &&
             startFirmwareScroll(c.blob.intervalMs, c.blob.uiFps);
         ScrollSessionSnapshot snap = scrollSessionSnapshot();
         DynamicJsonDocument out(768);
@@ -1722,7 +1801,7 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
         out["frames"] = res.frameCount;
         out["chunkFrames"] = written;
         out["append"] = false;
-        out["started"] = start;
+        out["started"] = started;
         out["timelineId"] = res.timelineId;
         out["uploadComplete"] = res.uploadComplete;
         out["frameBytes"] = FRAME_BYTES;
@@ -1734,7 +1813,7 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
         resetBlob(c);
         sendJsonReply(c, msg::BLOB_END, seq, out);
     } else {
-        PsramJsonDocument d(jsonCapacityFor(c.blob.expectedOffset));
+        PsramJsonDocument d(savedFacesJsonCapacityFor(c.blob.expectedOffset));
         DeserializationError e = deserializeJson(d, c.blob.facesBuf, c.blob.expectedOffset, DeserializationOption::NestingLimit(32));
         if (e) {
             resetBlob(c);
@@ -1952,6 +2031,7 @@ void transportMarkResyncNeeded(ClientId id) {
         return;
     portENTER_CRITICAL(&c.mux);
     c.inboundLen = 0;
+    c.oversizedBytesRemaining = 0;
     c.resyncNeeded = true;
     portEXIT_CRITICAL(&c.mux);
 }
@@ -1989,14 +2069,23 @@ static void processClientInbound(ClientSlot& c) {
         portENTER_CRITICAL(&c.mux);
         const bool needsResync = c.resyncNeeded;
         c.resyncNeeded = false;
-        const size_t n = rinalink::popInboundFrame(c.inbound, c.inboundLen, frame);
+        const rinalink::InboundFrameResult popped = rinalink::popInboundFrame(
+            c.inbound, c.inboundLen, frame, c.oversizedBytesRemaining);
         portEXIT_CRITICAL(&c.mux);
         if (needsResync)
             sendErrorReply(c, 0, 413, "inbound overflow");
-        if (n == 0 || c.disconnectPending)
+        if (popped.oversized) {
+            sendErrorReply(c, popped.rejectedSeq, 413, "frame payload too large");
+            uint8_t slot = static_cast<uint8_t>(&c - g_clients);
+            RLOG_WARN("PROTO", "event=oversized_frame_disconnect slot=%u seq=%u",
+                      (unsigned)slot, (unsigned)popped.rejectedSeq);
+            rinalink::transportUnregisterClient(ClientId{slot});
+            return;
+        }
+        if (popped.frameBytes == 0 || c.disconnectPending)
             return;
         dispatch(c, frame[1], frame[2], frame[3], frame + FRAME_HEADER_BYTES,
-                 static_cast<uint16_t>(n - FRAME_HEADER_BYTES));
+                 static_cast<uint16_t>(popped.frameBytes - FRAME_HEADER_BYTES));
     }
 }
 
@@ -2005,6 +2094,14 @@ static void serviceProtocolEvents() {
     uint32_t now = millis();
     bool wifiChanged = wifiManagerStateChanged();
     bool wifiScanReady = wifiManagerScanResultReady();
+    if (wifiChanged) {
+        for (auto& client : g_clients) {
+            if (client.used && !client.disconnectPending)
+                client.wifiEventPending = true;
+        }
+    }
+    if (wifiScanReady)
+        g_wifiScanEventPending = true;
 
     // Drain the EV_LOG ring (item 9): copy out under the lock, then fan out to
     // subscribed clients without holding it.
@@ -2033,7 +2130,7 @@ static void serviceProtocolEvents() {
         }
     }
 
-    if (wifiScanReady) {
+    if (g_wifiScanEventPending) {
         DynamicJsonDocument out(2560);
         out["ok"] = true;
         JsonArray arr = out.createNestedArray("networks");
@@ -2041,16 +2138,23 @@ static void serviceProtocolEvents() {
         int slot = g_wifiScanRequesterSlot;
         bool sentToRequester = false;
         if (slot >= 0 && slot < MAX_CLIENTS && g_clients[slot].used && !g_clients[slot].disconnectPending) {
-            sendEvent(g_clients[slot], msg::EV_WIFI_SCAN, out);
-            sentToRequester = true;
+            sentToRequester = sendEvent(g_clients[slot], msg::EV_WIFI_SCAN, out);
         }
         if (!sentToRequester) {
+            bool anyRecipient = false;
+            bool allSent = true;
             for (uint8_t i = 0; i < MAX_CLIENTS; i++) {
-                if (g_clients[i].used && !g_clients[i].disconnectPending)
-                    sendEvent(g_clients[i], msg::EV_WIFI_SCAN, out);
+                if (g_clients[i].used && !g_clients[i].disconnectPending) {
+                    anyRecipient = true;
+                    allSent = sendEvent(g_clients[i], msg::EV_WIFI_SCAN, out) && allSent;
+                }
             }
+            sentToRequester = anyRecipient && allSent;
         }
-        g_wifiScanRequesterSlot = -1;
+        if (sentToRequester) {
+            g_wifiScanRequesterSlot = -1;
+            g_wifiScanEventPending = false;
+        }
     }
 
     for (uint8_t i = 0; i < MAX_CLIENTS; i++) {
@@ -2065,10 +2169,11 @@ static void serviceProtocolEvents() {
                 millisElapsed(now, c.lastPreviewSentMs, minGapMs)) {
                 DynamicJsonDocument d(1280);
                 buildPreviewSyncJson(d);
-                sendEvent(c, msg::EV_PREVIEW_SYNC, d);
-                c.lastPreviewSeq = s.presentedSeq;
-                c.havePreviewSeq = true;
-                c.lastPreviewSentMs = now;
+                if (sendEvent(c, msg::EV_PREVIEW_SYNC, d)) {
+                    c.lastPreviewSeq = s.presentedSeq;
+                    c.havePreviewSeq = true;
+                    c.lastPreviewSentMs = now;
+                }
             }
         }
 
@@ -2077,10 +2182,11 @@ static void serviceProtocolEvents() {
             if ((!c.haveStatusVersion || v != c.lastStatusVersion) && millisElapsed(now, c.lastStatusSentMs, 200)) {
                 PsramJsonDocument d(1536);
                 buildStatusJson(d, true);
-                sendEvent(c, msg::EV_STATUS, d);
-                c.lastStatusVersion = v;
-                c.haveStatusVersion = true;
-                c.lastStatusSentMs = now;
+                if (sendEvent(c, msg::EV_STATUS, d)) {
+                    c.lastStatusVersion = v;
+                    c.haveStatusVersion = true;
+                    c.lastStatusSentMs = now;
+                }
             }
         }
 
@@ -2091,22 +2197,26 @@ static void serviceProtocolEvents() {
                 DynamicJsonDocument d(1024);
                 d["ok"] = true;
                 addPower(d.createNestedObject("power"));
-                sendEvent(c, msg::EV_POWER, d);
-                c.lastPowerSentMs = now;
-                c.lastChargingSent = ps.charging;
-                c.haveChargingSent = true;
+                if (sendEvent(c, msg::EV_POWER, d)) {
+                    c.lastPowerSentMs = now;
+                    c.lastChargingSent = ps.charging;
+                    c.haveChargingSent = true;
+                }
             }
         }
 
-        if (wifiChanged) {
+        if (c.wifiEventPending) {
             DynamicJsonDocument d(768);
             wifiManagerGetStatusJson(d.to<JsonObject>());
-            sendEvent(c, msg::EV_WIFI, d);
+            if (sendEvent(c, msg::EV_WIFI, d))
+                c.wifiEventPending = false;
         }
     }
 }
 
 void protocolBegin() {
+    g_wifiScanRequesterSlot = -1;
+    g_wifiScanEventPending = false;
     for (auto& c : g_clients)
         c = ClientSlot{};
     // Item 14: pre-allocate every slot's inbound buffer eagerly here (loop task,
@@ -2141,6 +2251,7 @@ static void resetSlotSessionState(ClientSlot& c, bool clearInbound = true) {
         portENTER_CRITICAL(&c.mux);
         c.inboundLen = 0;
         c.resyncNeeded = false;
+        c.oversizedBytesRemaining = 0;
         portEXIT_CRITICAL(&c.mux);
     }
     c.subPreview = true;
@@ -2156,6 +2267,7 @@ static void resetSlotSessionState(ClientSlot& c, bool clearInbound = true) {
     c.lastPowerSentMs = 0;
     c.haveChargingSent = false;
     c.lastChargingSent = false;
+    c.wifiEventPending = false;
     int selfSlot = static_cast<int>(&c - g_clients);
     if (g_wifiScanRequesterSlot == selfSlot)
         g_wifiScanRequesterSlot = -1;

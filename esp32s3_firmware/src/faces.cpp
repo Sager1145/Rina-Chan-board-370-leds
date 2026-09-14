@@ -32,13 +32,15 @@ static String normalizedMode(const char* input) {
     return mode;
 }
 
-bool setMode(const char* input, bool persistSettings) {
+bool setMode(const char* input, bool persistSettings, bool takeOutputControl) {
     const String mode = normalizedMode(input);
     const String oldMode = runtimeState().mode;
     const bool settingsChanged = runtimeState().mode != mode;
     bool changed = false;
     if (mode != "auto" && mode != "manual")
         return false;
+    if (takeOutputControl)
+        setRuntimeOutputMode("control");
     cancelDeferredFaceRestore();
     clearQueuedPackedFrames();
     if (shouldForceClearWhenStoppingScroll())
@@ -78,7 +80,7 @@ bool setMode(const char* input, bool persistSettings) {
     if (changed)
         touchRuntimeState();
     if (persistSettings && settingsChanged)
-        saveRuntimeSettings();
+        scheduleRuntimeSettingsSave();
     if (settingsChanged)
         RLOG_INFO("MODE", "event=change from=%s to=%s persist=%d", oldMode.c_str(), mode.c_str(), persistSettings ? 1 : 0);
     return true;
@@ -127,6 +129,7 @@ bool applySavedFaceIndex(uint16_t index, const String& reason, const char* playb
         Serial.printf("saved face apply failed: %s\n", error.c_str());
         return false;
     }
+    setRuntimeOutputMode("control");
     LOGV("Applied saved face %u/%u via %s: %s\n", runtimeState().autoFaceIndex + 1, runtimeAutoFaceCount(), reason.c_str(), runtimeAutoFaces()[runtimeState().autoFaceIndex].id.c_str());
     RLOG_INFO("FACE", "event=apply idx=%u/%u id=%s reason=%s", static_cast<unsigned>(runtimeState().autoFaceIndex + 1), static_cast<unsigned>(runtimeAutoFaceCount()), runtimeAutoFaces()[runtimeState().autoFaceIndex].id.c_str(), reason.c_str());
     return true;
@@ -263,16 +266,17 @@ void takeOverExternalFrame() {
     // Unlike a user-facing scroll stop, replacing the frame has no blank phase.
     // Reset playback before setMode so a streamed "scroll" label cannot trigger
     // its stop-and-clear branch. Stop also invalidates unfinished uploads.
-    scrollSessionStop(false, false);
+    scrollSessionStop(false, false, false);
     clearQueuedPackedFrames();
-    setMode("manual", false);
+    setMode("manual", false, false);
 }
 
-void startFirmwareScroll(uint16_t intervalMs, uint8_t uiFps) {
+bool startFirmwareScroll(uint16_t intervalMs, uint8_t uiFps) {
     cancelDeferredFaceRestore();
     const ScrollStartResult r = scrollSessionStart(intervalMs, isAutoMode(), uiFps);
     if (r.engagedRestoreAuto)
         runtimeState().mode = "manual";
+    return r.started;
 }
 
 void serviceAutoPlayback() {

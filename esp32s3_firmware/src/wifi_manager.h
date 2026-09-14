@@ -40,6 +40,10 @@ bool wifiManagerSetMode(const String& mode);
 void wifiManagerConnect();
 bool wifiManagerSetAp(const String& ssid, const String& password);
 
+// Current SoftAP SSID (board-unique default unless overridden). Used by
+// serial_console.cpp's STATUS line.
+String wifiManagerApSsid();
+
 // Physical-button factory reset (B6 held 10 s): wipes the "rinawifi" NVS
 // namespace, restores AP-only defaults, and re-applies the mode live.
 void wifiManagerFactoryReset();

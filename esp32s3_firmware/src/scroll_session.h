@@ -80,7 +80,8 @@ uint32_t scrollSessionGeneration();
 bool isScrollPlayback(const String& playback);
 
 ScrollStartResult scrollSessionStart(uint16_t intervalMs, bool callerIsAutoMode, uint8_t uiFps = 0);
-ScrollStopResult scrollSessionStop(bool restoreAuto, bool clearDisplay);
+ScrollStopResult scrollSessionStop(bool restoreAuto, bool clearDisplay,
+                                   bool takeOutputControl = true);
 bool scrollSessionSetUserPaused(bool paused);
 bool scrollSessionSetSystemPaused(bool paused);
 void scrollSessionSetLoop(bool loop);

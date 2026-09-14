@@ -45,6 +45,7 @@ int main() {
     }
     uint8_t inbound[INBOUND_BUFFER_BYTES] = {}, frame[FRAME_HEADER_BYTES + MAX_PAYLOAD_BYTES];
     size_t length = 0, input = 0, output = 0;
+    size_t oversizedRemaining = 0;
     for (size_t pass = 0; output < expected.size(); ++pass) {
         assert(pass < 10000);
         auto append = [&] {
@@ -54,9 +55,10 @@ int main() {
         };
         append();
         for (int budget = 0; budget < 8; ++budget) {
-            const size_t n = popInboundFrame(inbound, length, frame);
-            if (!n) break;
-            assert(Bytes(frame, frame + n) == expected.at(output++));
+            const auto popped = popInboundFrame(inbound, length, frame, oversizedRemaining);
+            assert(!popped.oversized);
+            if (!popped.frameBytes) break;
+            assert(Bytes(frame, frame + popped.frameBytes) == expected.at(output++));
             append(); // mimics RX while the main task dispatches the prior frame
         }
     }
@@ -64,15 +66,44 @@ int main() {
     auto maxFrame = packet(0x21, 7, MAX_PAYLOAD_BYTES);
     std::copy(maxFrame.begin(), maxFrame.end() - 1, inbound);
     length = maxFrame.size() - 1;
-    assert(popInboundFrame(inbound, length, frame) == 0 && length == maxFrame.size() - 1);
+    assert(popInboundFrame(inbound, length, frame, oversizedRemaining).frameBytes == 0 &&
+           length == maxFrame.size() - 1);
     inbound[length++] = maxFrame.back();
-    assert(popInboundFrame(inbound, length, frame) == maxFrame.size() && length == 0);
-    const Bytes garbage{0, 1, FRAME_MAGIC, 0x10, 0, 0, 0xff, 0xff};
+    assert(popInboundFrame(inbound, length, frame, oversizedRemaining).frameBytes == maxFrame.size() &&
+           length == 0);
+
+    // Rejected payload is discarded as an opaque byte count, including a
+    // frame-shaped run inside it. A following frame remains parseable.
     auto good = packet(6, 1, 0);
+    auto hidden = packet(0x10, 99, 47);
+    Bytes oversized{FRAME_MAGIC, 0x21, 44, 0, 0x68, 0x10}; // 4200 bytes
+    Bytes body(4200, 0);
+    std::copy(hidden.begin(), hidden.end(), body.begin() + 100);
+    oversized.insert(oversized.end(), body.begin(), body.end());
+    oversized.insert(oversized.end(), good.begin(), good.end());
+    size_t oversizedInput = 0;
+    bool rejected = false;
+    while (oversizedInput < oversized.size() || length > 0) {
+        const size_t n = std::min(oversized.size() - oversizedInput,
+                                  INBOUND_BUFFER_BYTES - length);
+        std::copy_n(oversized.data() + oversizedInput, n, inbound + length);
+        oversizedInput += n;
+        length += n;
+        const auto popped = popInboundFrame(inbound, length, frame, oversizedRemaining);
+        rejected = rejected || (popped.oversized && popped.rejectedSeq == 44);
+        if (popped.frameBytes) {
+            assert(Bytes(frame, frame + popped.frameBytes) == good);
+            break;
+        }
+    }
+    assert(rejected && oversizedRemaining == 0);
+
+    const Bytes garbage{0, 1, 2, 3};
     std::copy(garbage.begin(), garbage.end(), inbound);
     std::copy(good.begin(), good.end(), inbound + garbage.size());
     length = garbage.size() + good.size();
-    assert(popInboundFrame(inbound, length, frame) == good.size() && length == 0);
+    assert(popInboundFrame(inbound, length, frame, oversizedRemaining).frameBytes == good.size() &&
+           length == 0);
     auto data = packet(0x90, 1, 100);
     { Socket s; s.failures=40; assert(s.send(data).complete && s.received == data); }
     { Socket s; s.failures=10000; assert(!s.send(data).complete && s.now == 250); }

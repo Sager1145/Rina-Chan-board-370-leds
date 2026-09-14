@@ -1,6 +1,7 @@
 #include "state.h"
 #include "utils.h"
 #include <esp_heap_caps.h>
+#include <string.h>
 
 static constexpr size_t SCROLL_FRAME_BUFFER_BYTES =
     static_cast<size_t>(MAX_SCROLL_FRAMES) * static_cast<size_t>(FRAME_BYTES);
@@ -163,4 +164,107 @@ void serviceRuntimeSlowStatePublish() {
     state.slowUiDirty = false;
     state.lastSlowUiPublishMs = now;
     touchRuntimeState();
+}
+
+static bool outputReasonBase(const char* reason, size_t length, const char*& mode) {
+    if (length == 7 && strncmp(reason, "lipsync", length) == 0) {
+        mode = "lipSync";
+        return true;
+    }
+    if (length == 11 && strncmp(reason, "live_preset", length) == 0) {
+        mode = "performance";
+        return true;
+    }
+    if (length == 5 && strncmp(reason, "video", length) == 0) {
+        mode = "video";
+        return true;
+    }
+    return false;
+}
+
+static bool canonicalOutputUuid(const char* value, size_t length) {
+    if (!value || length != 36)
+        return false;
+    for (size_t i = 0; i < length; ++i) {
+        const bool hyphen = i == 8 || i == 13 || i == 18 || i == 23;
+        const char c = value[i];
+        if (hyphen) {
+            if (c != '-')
+                return false;
+        } else if (!((c >= '0' && c <= '9') ||
+                     (c >= 'a' && c <= 'f') ||
+                     (c >= 'A' && c <= 'F'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool outputPosition(const char* value, uint32_t& positionMs) {
+    if (!value || !value[0])
+        return false;
+    uint32_t parsed = 0;
+    for (const char* p = value; *p; ++p) {
+        if (*p < '0' || *p > '9')
+            return false;
+        const uint32_t digit = static_cast<uint32_t>(*p - '0');
+        if (parsed > (UINT32_MAX - digit) / 10U)
+            return false;
+        parsed = parsed * 10U + digit;
+    }
+    positionMs = parsed;
+    return true;
+}
+
+void parseOutputFrameReason(const char* reason, OutputFrameDescriptor& out) {
+    out = OutputFrameDescriptor{};
+    if (!reason || !reason[0])
+        return;
+
+    const char* firstColon = strchr(reason, ':');
+    const size_t baseLength = firstColon ? static_cast<size_t>(firstColon - reason) : strlen(reason);
+    const char* mode = nullptr;
+    if (!outputReasonBase(reason, baseLength, mode))
+        return;
+    strlcpy(out.mode, mode, sizeof(out.mode));
+
+    // Legacy exact reasons carry a mode but intentionally have no stream identity.
+    if (!firstColon)
+        return;
+    const char* stream = firstColon + 1;
+    const char* secondColon = strchr(stream, ':');
+    if (!secondColon)
+        return;
+    const size_t streamLength = static_cast<size_t>(secondColon - stream);
+    uint32_t positionMs = 0;
+    if (!canonicalOutputUuid(stream, streamLength) ||
+        !outputPosition(secondColon + 1, positionMs))
+        return;
+
+    memcpy(out.streamID, stream, streamLength);
+    out.streamID[streamLength] = '\0';
+    out.positionMs = positionMs;
+}
+
+void setRuntimeOutputMode(const char* mode, const char* streamID, uint32_t positionMs) {
+    if (!mode || !mode[0])
+        mode = "control";
+    if (!streamID)
+        streamID = "";
+    RuntimeState& state = runtimeState();
+    const bool changed = state.outputMode != mode ||
+                         strcmp(state.outputStreamID, streamID) != 0 ||
+                         state.outputPositionMs != positionMs;
+    if (!changed)
+        return;
+    state.outputMode = mode;
+    strlcpy(state.outputStreamID, streamID, sizeof(state.outputStreamID));
+    state.outputPositionMs = positionMs;
+    touchRuntimeState();
+}
+
+void setRuntimeOutputFromFrameReason(const char* reason) {
+    OutputFrameDescriptor descriptor;
+    parseOutputFrameReason(reason, descriptor);
+    setRuntimeOutputMode(descriptor.mode, descriptor.streamID, descriptor.positionMs);
 }

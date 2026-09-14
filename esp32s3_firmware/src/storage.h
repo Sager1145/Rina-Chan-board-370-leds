@@ -12,6 +12,11 @@ bool loadRuntimeSettings();
 
 bool saveRuntimeSettings();
 
+// Coalesce rapid mode changes into one flash write. Call the service once per
+// loop; explicit settings writes still use saveRuntimeSettings() immediately.
+void scheduleRuntimeSettingsSave();
+void serviceRuntimeSettingsSave();
+
 bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written, String& error);
 
 bool loadSavedFaces(bool applyStartupFace);

@@ -3,7 +3,7 @@
 
 bool isAutoMode();
 
-bool setMode(const char* input, bool persistSettings = true);
+bool setMode(const char* input, bool persistSettings = true, bool takeOutputControl = true);
 
 void setAutoInterval(uint32_t ms, bool persistSettings = true);
 
@@ -20,6 +20,6 @@ void stopFirmwareScroll(bool restoreAuto, bool clearDisplay = false, bool restor
 // Transfer display ownership to an external frame without inserting a blank.
 void takeOverExternalFrame();
 
-void startFirmwareScroll(uint16_t intervalMs, uint8_t uiFps = 0);
+bool startFirmwareScroll(uint16_t intervalMs, uint8_t uiFps = 0);
 
 void serviceAutoPlayback();

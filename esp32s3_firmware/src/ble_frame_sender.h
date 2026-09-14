@@ -13,6 +13,27 @@ struct BleFrameSendResult {
     size_t bytesSent;
 };
 
+inline bool bleTxNotifyEnabled(uint16_t subscriptionValue) {
+    // NimBLE encodes notify as bit 0 and indicate as bit 1. RinaLink TX is
+    // notify-only, so an indicate-only value cannot make the stream usable.
+    return (subscriptionValue & 0x01U) != 0;
+}
+
+inline bool bleFrameCanSend(bool subscribed, bool isEvent) {
+    // Replies are allowed through so a request can fail closed if the peer
+    // races its CCCD update. Unsolicited events must wait for the CCCD or they
+    // can consume the controller queue while the central discovers services.
+    return !isEvent || subscribed;
+}
+
+inline bool bleSubscriptionChangeRequiresDisconnect(bool wasSubscribed,
+                                                     uint16_t subscriptionValue) {
+    // Once TX notifications are disabled the framed request/reply stream is no
+    // longer usable. Release the single-central link instead of keeping
+    // advertising stopped behind a session that cannot receive replies.
+    return wasSubscribed && !bleTxNotifyEnabled(subscriptionValue);
+}
+
 inline bool bleSendFailureRequiresDisconnect(const BleFrameSendResult& result,
                                              bool isEvent) {
     return !result.complete && (!isEvent || result.bytesSent > 0);
@@ -68,8 +89,8 @@ public:
                 continue;
             }
 
-            // Match popInboundFrame() resynchronization: discard the invalid
-            // magic, but retain a later magic and the bytes already following it.
+            // This tracker only decides whether initialization completed; the
+            // protocol parser separately rejects and discards oversized frames.
             size_t nextMagic = 1;
             while (nextMagic < FRAME_HEADER_BYTES && mHeader[nextMagic] != FRAME_MAGIC)
                 ++nextMagic;
@@ -146,7 +167,7 @@ private:
 
 // A failed notify means that slice was not queued. Retry that same slice,
 // yielding to the BLE host/controller. Six milliseconds is shorter than a
-// connection interval; allow a bounded 250 ms of congestion per frame.
+// connection interval; allow a bounded 250 ms total elapsed time per frame.
 // An event may only be dropped before its first byte enters the stream.
 template <typename Notify, typename Connected, typename Pause, typename Clock>
 BleFrameSendResult sendBleFrame(const uint8_t* data, size_t len, size_t chunk,
@@ -155,25 +176,24 @@ BleFrameSendResult sendBleFrame(const uint8_t* data, size_t len, size_t chunk,
     if (chunk == 0)
         return {false, 0};
     size_t offset = 0;
-    uint32_t stalledMs = 0;
+    const uint32_t startedAtMs = clock();
     while (offset < len) {
         const size_t n = chunk < len - offset ? chunk : len - offset;
         for (;;) {
-            if (!connected())
+            if (!connected() ||
+                static_cast<uint32_t>(clock() - startedAtMs) >= 250)
                 return {false, offset};
             if (notify(data + offset, n))
                 break;
-            if ((isEvent && offset == 0) || stalledMs >= 250)
+            if (isEvent && offset == 0)
                 return {false, offset};
-            const uint32_t before = clock();
             pause(2);
-            const uint32_t elapsed = static_cast<uint32_t>(clock() - before);
-            stalledMs += elapsed > 0 ? elapsed : 1;
         }
         offset += n;
         // Pace across short frames too, not only frames longer than four MTUs.
         // A burst of short replies otherwise fills the very same mbuf pool.
-        pause(1);
+        if (offset < len)
+            pause(1);
     }
     return {true, offset};
 }

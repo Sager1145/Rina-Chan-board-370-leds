@@ -20,6 +20,8 @@
 #include "power_monitor.h"
 #include "serial_log.h"
 #include "transport_ble.h"
+#include "board_identity.h"
+#include "wifi_manager.h"
 
 namespace {
 constexpr uint16_t SERIAL_CMD_MAX = 192;
@@ -102,6 +104,8 @@ void printStatus() {
     sout("=== STATUS BEGIN ===");
     sout("STATUS bleName=%s bleDefaultName=%s bleCustomName=%d",
          bleName, defaultBleName, runtimeState().deviceName.length() > 0 ? 1 : 0);
+    sout("STATUS boardId=%s apSsid=%s hostname=%s",
+         boardId(), wifiManagerApSsid().c_str(), boardHostname().c_str());
     sout("STATUS mode=%s playback=%s paused=%d brightness=%u color=%s", runtimeState().mode.c_str(), runtimeState().playback.c_str(), runtimeState().paused ? 1 : 0, f.brightness, f.colorHex);
     sout("STATUS faceIndex=%u faceCount=%u intervalMs=%lu", static_cast<unsigned>(runtimeState().autoFaceIndex), static_cast<unsigned>(runtimeAutoFaceCount()), static_cast<unsigned long>(runtimeState().autoIntervalMs));
     sout("STATUS frameEncoding=packed-lsb-first frameBytes=%u lit=%u queued=%u accepted=%lu lastReason=%s", static_cast<unsigned>(FRAME_BYTES), static_cast<unsigned>(f.litLeds), static_cast<unsigned>(queuedPackedFrameCount()), static_cast<unsigned long>(f.framesAccepted), f.lastReason);

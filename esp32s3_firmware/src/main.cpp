@@ -114,6 +114,7 @@ void loop() {
     serviceProtocol();
     serviceScrollSession();
     serviceRuntimeSlowStatePublish();
+    serviceRuntimeSettingsSave();
     serviceHardwareButtons();
     serviceSerialConsole();
     // Drain diagnostics even in builds with the interactive console disabled.

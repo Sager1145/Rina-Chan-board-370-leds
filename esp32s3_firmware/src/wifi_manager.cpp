@@ -1,4 +1,5 @@
 #include "wifi_manager.h"
+#include "board_identity.h"
 #include "config.h"
 #include "utils.h"
 #include "serial_log.h"
@@ -18,7 +19,10 @@ String g_homeSsid;
 String g_homePass;
 String g_hotspotSsid;
 String g_hotspotPass;
-String g_apSsid = AP_SSID;
+// "" here, not boardDefaultApSsid(): the board's BT MAC (esp_read_mac) is not
+// guaranteed ready at static-init time. Resolved to the real default in
+// wifiManagerBegin()/wifiManagerFactoryReset() instead.
+String g_apSsid = "";
 String g_apPass = AP_PASSWORD;
 
 String g_activeProfile = "none";     // none | home | hotspot — currently joined/joining profile
@@ -54,6 +58,13 @@ uint8_t g_scanResultCount = 0;
 
 void markChanged() { g_stateChanged = true; }
 
+// Preferences::getString(key, default) logs an [E] line when the key (or the
+// whole namespace) doesn't exist yet, which is the normal state on a fresh
+// board. isKey() probes without logging, so guard every possibly-absent read.
+String readStringOrDefault(Preferences& p, const char* key, const String& def) {
+    return p.isKey(key) ? p.getString(key, def) : def;
+}
+
 void refreshMdns() {
     bool staConnected = WiFi.status() == WL_CONNECTED;
     if (!staConnected && !g_apActive)
@@ -65,7 +76,8 @@ void refreshMdns() {
     if (g_mdnsStarted)
         MDNS.end();
     g_mdnsStarted = false;
-    if (MDNS.begin(RINALINK_HOSTNAME)) {
+    if (MDNS.begin(boardHostname().c_str())) {
+        MDNS.setInstanceName(boardServiceInstanceName().c_str());
         MDNS.addService("rinalink", "tcp", RINALINK_TCP_PORT);
         g_mdnsStarted = true;
         g_mdnsIp = ip;
@@ -175,6 +187,8 @@ void applyMode() {
     g_staSelectionPending = false;
     g_apActive = false;
     setActiveProfile("none");
+    // DHCP hostname must be set before the interface (re)starts below.
+    WiFi.setHostname(boardHostname().c_str());
     if (g_mode == "off") {
         WiFi.softAPdisconnect(true);
         WiFi.disconnect(true);
@@ -208,13 +222,22 @@ void applyMode() {
 
 void wifiManagerBegin() {
     prefs.begin("rinawifi", false);
-    g_homeSsid = prefs.getString("ssid", "");
-    g_homePass = prefs.getString("pass", "");
-    g_hotspotSsid = prefs.getString("hssid", "");
-    g_hotspotPass = prefs.getString("hpass", "");
-    g_apSsid = prefs.getString("apssid", AP_SSID);
-    g_apPass = prefs.getString("appass", AP_PASSWORD);
-    String storedMode = prefs.getString("mode", "");
+    g_homeSsid = readStringOrDefault(prefs, "ssid", "");
+    g_homePass = readStringOrDefault(prefs, "pass", "");
+    g_hotspotSsid = readStringOrDefault(prefs, "hssid", "");
+    g_hotspotPass = readStringOrDefault(prefs, "hpass", "");
+    String storedApSsid = readStringOrDefault(prefs, "apssid", "");
+    if (storedApSsid.isEmpty() || storedApSsid == LEGACY_AP_SSID) {
+        // Pre-identity firmware shared one SSID across every board; migrate to
+        // this board's unique default and drop the stale stored value.
+        if (storedApSsid == LEGACY_AP_SSID && prefs.isKey("apssid"))
+            prefs.remove("apssid");
+        g_apSsid = boardDefaultApSsid();
+    } else {
+        g_apSsid = storedApSsid;
+    }
+    g_apPass = readStringOrDefault(prefs, "appass", AP_PASSWORD);
+    String storedMode = readStringOrDefault(prefs, "mode", "");
     if (storedMode.length()) {
         g_mode = storedMode;
     } else {
@@ -333,7 +356,8 @@ void wifiManagerGetStatusJson(JsonObject out) {
     out["apActive"] = g_apActive;
     out["apSsid"] = g_apSsid;
     out["apIp"] = apIP().toString();
-    out["hostname"] = RINALINK_HOSTNAME;
+    out["hostname"] = boardHostname();
+    out["boardId"] = boardId();
     out["tcpPort"] = RINALINK_TCP_PORT;
     out["clients"] = g_apActive ? WiFi.softAPgetStationNum() : 0;
     out["homeSsid"] = g_homeSsid;
@@ -451,7 +475,7 @@ void wifiManagerFactoryReset() {
     g_homePass = "";
     g_hotspotSsid = "";
     g_hotspotPass = "";
-    g_apSsid = AP_SSID;
+    g_apSsid = boardDefaultApSsid();
     g_apPass = AP_PASSWORD;
     g_mode = "ap";
     g_homeFailCount = 0;
@@ -470,12 +494,21 @@ void wifiManagerFactoryReset() {
 bool wifiManagerSetAp(const String& ssid, const String& password) {
     if (ssid.isEmpty())
         return false;
-    g_apSsid = ssid;
+    if (ssid == LEGACY_AP_SSID) {
+        // Sending the retired shared SSID means "reset to my unique default".
+        g_apSsid = boardDefaultApSsid();
+        if (prefs.isKey("apssid"))
+            prefs.remove("apssid");
+    } else {
+        g_apSsid = ssid;
+        prefs.putString("apssid", g_apSsid);
+    }
     g_apPass = password;
-    prefs.putString("apssid", g_apSsid);
     prefs.putString("appass", g_apPass);
     if (g_mode == "ap" || g_mode == "sta_or_ap")
         startSoftAp();
     markChanged();
     return true;
 }
+
+String wifiManagerApSsid() { return g_apSsid; }

@@ -352,6 +352,7 @@ void applyPackedFrameImmediate(const uint8_t* packedBits, const String& reason,
 }
 
 void applyBlankFrame(const String& reason) {
+    setRuntimeOutputMode("control");
     uint8_t blank[FRAME_BYTES] = {};
     clearQueuedPackedFrames();
     publishPackedFrameNow(blank, reason.c_str());
@@ -422,6 +423,7 @@ void setBrightness(int raw) {
 
 // Diagnostic pattern shown at boot when LittleFS fails to mount.
 void showFilesystemErrorPattern() {
+    setRuntimeOutputMode("control");
     withFrameLock([]() {
         runtimeState().colorHex = "#ff0000";
         runtimeState().colorR = 0xff;

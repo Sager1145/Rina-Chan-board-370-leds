@@ -51,15 +51,16 @@ void transportUnregisterClient(ClientId id);
 // Append raw bytes to the client's inbound buffer (any task). Returns the number of
 // bytes actually accepted (may be less than len if the buffer is full); callers that
 // can back-pressure (TCP) should leave any unaccepted bytes in the socket and retry
-// next pass. Carriers that cannot back-pressure (BLE) should check
-// transportInboundFree() first and call transportMarkResyncNeeded() instead of a
-// partial push when the incoming write would not fit.
+// next pass. Carriers that cannot back-pressure (BLE) must disconnect the affected
+// client if a whole incoming write will not fit; after dropping bytes, neither the
+// request sequence nor the next frame boundary is trustworthy.
 size_t transportPushInbound(ClientId id, const uint8_t* data, size_t len);
 // Bytes currently free in the client's inbound buffer (any task).
 size_t transportInboundFree(ClientId id);
 // Mark a client's inbound stream as needing a resync: drops any buffered bytes and
+// clears any outstanding oversized-payload discard count, then
 // causes an ERR(413) frame to be sent to the client on the next serviceProtocol()
-// pass. Used by carriers (BLE) that cannot back-pressure a single write.
+// pass. Only use this when the caller knows the next byte begins a new frame.
 void transportMarkResyncNeeded(ClientId id);
 
 // Build a framed message into out (capacity >= FRAME_HEADER_BYTES + payloadLen).

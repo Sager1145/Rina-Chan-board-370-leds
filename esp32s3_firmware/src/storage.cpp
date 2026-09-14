@@ -56,11 +56,35 @@ bool writeStringToFileLocked(const char* path, const String& content) {
         const size_t written = file.print(content);
         file.flush();
         file.close();
-        renamed = (written > 0) && LittleFS.rename(tempPath, path);
+        // File::print() may succeed only partially (for example when LittleFS
+        // runs out of space). Never replace the last good file unless every
+        // serialized byte reached the temporary file.
+        renamed = (written == content.length()) && LittleFS.rename(tempPath, path);
         if (!renamed)
             LittleFS.remove(tempPath);
     });
     return renamed;
+}
+
+namespace {
+constexpr uint32_t RUNTIME_SETTINGS_SAVE_DEBOUNCE_MS = 1000;
+bool g_runtimeSettingsSavePending = false;
+uint32_t g_runtimeSettingsSaveDueMs = 0;
+}
+
+void scheduleRuntimeSettingsSave() {
+    g_runtimeSettingsSavePending = true;
+    g_runtimeSettingsSaveDueMs = millis() + RUNTIME_SETTINGS_SAVE_DEBOUNCE_MS;
+}
+
+void serviceRuntimeSettingsSave() {
+    if (!g_runtimeSettingsSavePending ||
+        !millisReached(millis(), g_runtimeSettingsSaveDueMs))
+        return;
+    // Clear before writing so a failed filesystem does not cause a tight loop.
+    // The setting remains live; a later user change schedules another attempt.
+    g_runtimeSettingsSavePending = false;
+    saveRuntimeSettings();
 }
 
 bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize) {
@@ -94,8 +118,9 @@ bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written
         return false;
     }
     String serialized;
-    serializeJson(document, serialized);
-    if (serialized.length() == 0 && !document.isNull()) {
+    const size_t expected = measureJson(document);
+    const size_t serializedBytes = serializeJson(document, serialized);
+    if (serializedBytes != expected || serialized.length() != expected) {
         error = "failed to serialize JSON document";
         return false;
     }
@@ -128,6 +153,7 @@ bool saveRuntimeSettings() {
         return false;
     }
     ++runtimeState().settingsWrites;
+    g_runtimeSettingsSavePending = false;
     touchRuntimeState();
     return true;
 }
@@ -268,6 +294,10 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
         error = "failed to ensure /resources for saved_faces.json";
         return 0;
     }
+    if (measureJson(document) > MAX_FACES_DOCUMENT_BYTES) {
+        error = "saved_faces.json exceeds firmware size limit";
+        return 0;
+    }
     size_t written = 0;
     if (!writeJsonFileAtomic(SAVED_FACES_PATH, document, written, error))
         return 0;
@@ -297,7 +327,7 @@ bool loadSavedFaces(bool applyStartupFace) {
         return false;
     }
 
-    PsramJsonDocument doc(jsonCapacityFor(savedFacesSize));
+    PsramJsonDocument doc(savedFacesJsonCapacityFor(savedFacesSize));
     // Deserialize from a const pointer so ArduinoJson COPIES strings into the
     // document; a non-const char* selects zero-copy mode and the free() below
     // would leave every string in `doc` dangling.

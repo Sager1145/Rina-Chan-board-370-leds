@@ -1,4 +1,6 @@
 #include "utils.h"
+#include "config.h"
+#include <ArduinoJson.h>
 
 int hexNibble(char c) {
     if (c >= '0' && c <= '9')
@@ -21,6 +23,21 @@ bool millisElapsed(uint32_t now, uint32_t sinceMs, uint32_t intervalMs) {
 size_t jsonCapacityFor(size_t sourceBytes) {
     const size_t estimated = sourceBytes * 2 + 4096;
     return estimated < 32768 ? 32768 : estimated;
+}
+
+size_t savedFacesJsonCapacityFor(size_t sourceBytes) {
+    // Capacity follows the supported schema instead of compressed input bytes:
+    // a frame full of one-digit values is small on wire but still consumes 47
+    // VariantSlots. JSON_*_SIZE uses the target's real slot size, so this also
+    // stays correct in 64-bit host tests.
+    constexpr size_t rootMembers = 8;
+    constexpr size_t faceMembers = 14;
+    const size_t schemaSlots = JSON_OBJECT_SIZE(rootMembers) +
+        JSON_ARRAY_SIZE(MAX_AUTO_FACES) +
+        static_cast<size_t>(MAX_AUTO_FACES) *
+            (JSON_OBJECT_SIZE(faceMembers) + JSON_ARRAY_SIZE(FRAME_BYTES));
+    // In copy mode all unique strings together cannot exceed sourceBytes.
+    return schemaSlots + sourceBytes + 8192;
 }
 
 bool parseColorHex(const String& input, uint8_t& r, uint8_t& g, uint8_t& b) {

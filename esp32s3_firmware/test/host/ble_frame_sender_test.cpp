@@ -13,12 +13,14 @@ struct Link {
     int calls = 0;
     size_t failAfter = 0;
     size_t disconnectAfter = SIZE_MAX;
+    uint32_t notifyCostMs = 0;
     std::vector<uint8_t> received;
 
     rinalink::BleFrameSendResult send(const std::vector<uint8_t>& data, bool event = false) {
         return rinalink::sendBleFrame(data.data(), data.size(), 20, event,
             [&](const uint8_t* bytes, size_t n) {
                 ++calls;
+                now += notifyCostMs;
                 if (received.size() >= failAfter && failures > 0) {
                     --failures;
                     return false;
@@ -36,6 +38,26 @@ struct Link {
 int main() {
     std::vector<uint8_t> frame(67);
     for (size_t i = 0; i < frame.size(); ++i) frame[i] = static_cast<uint8_t>(i);
+    {
+        // A newly connected central is still doing GATT discovery. Event fan-
+        // out must stay silent until it enables TX notifications, while a
+        // request/reply race remains fail-closed in the normal send path.
+        assert(!rinalink::bleFrameCanSend(false, true));
+        assert(rinalink::bleFrameCanSend(false, false));
+        assert(rinalink::bleFrameCanSend(true, true));
+        assert(rinalink::bleTxNotifyEnabled(1));
+        assert(!rinalink::bleTxNotifyEnabled(0));
+        assert(!rinalink::bleTxNotifyEnabled(2)); // indicate-only is not TX notify
+        assert(!rinalink::bleSubscriptionChangeRequiresDisconnect(false, 0));
+        assert(rinalink::bleSubscriptionChangeRequiresDisconnect(true, 0));
+        assert(!rinalink::bleSubscriptionChangeRequiresDisconnect(true, 1));
+
+        rinalink::BleInitializationTimer timer;
+        timer.start(200);
+        assert(rinalink::bleTxNotifyEnabled(1));
+        assert(!timer.initialized()); // CCCD alone is not an application handshake
+        assert(timer.expireIfDue(215, 15));
+    }
     {
         Link link;
         link.failures = 20; // 40ms congestion: longer than the previous retry window.
@@ -85,6 +107,14 @@ int main() {
         assert(result.complete && link.received == frame && link.stalled == 40);
     }
     {
+        // Successful notifications and inter-slice pacing count toward the
+        // same frame deadline; continuous progress cannot hold loop() forever.
+        Link link;
+        link.notifyCostMs = 90;
+        auto result = link.send(frame);
+        assert(!result.complete && result.bytesSent == 60 && link.now >= 250);
+    }
+    {
         Link link;
         for (int i = 0; i < 1000; ++i) {
             link.received.clear();
@@ -129,5 +159,5 @@ int main() {
         assert(!retry.takeIfDue(1249));
         assert(retry.takeIfDue(1250));
     }
-    std::puts("BLE transport helpers: 12 scenarios passed (send failure, initialization guard, advertising retry)");
+    std::puts("BLE transport helpers: 14 scenarios passed (subscription gate, elapsed send deadline, initialization guard, advertising retry)");
 }

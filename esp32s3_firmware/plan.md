@@ -599,15 +599,29 @@ defaults (`loadRuntimeSettings`).
 ### 6.4 `battery_calib.json`
 
 ```json
-{ "format": "rina_battery_calibration_v1", "version": 1,
-  "v_max": 8.0, "v_min": 6.2, "v_max_nominal": 8.0, "v_min_nominal": 6.2,
+{ "format": "rina_battery_calibration_v2", "version": 2,
+  "v_max": 8.4, "v_min": 6.2, "max_learned": false, "cutoff_learned": false,
+  "v_max_nominal": 8.0, "v_min_nominal": 6.2,
   "last_max_ms": 0, "last_min_ms": 0, "updated_at_ms": 0 }
 ```
 
 Saved `BATTERY_CALIB_SAVE_DELAY_MS` (15 s) after a dirty mark (or immediately via
-`markPowerCalibrationChanged` on manual reset). Sanitized: max ≥ 8.0 V, min ≤ 6.2 V,
-span ≥ `BATTERY_CALIB_MIN_SPAN_V` (0.10 V). **Automatic running min/max calibration is
-intentionally disabled** — only `reset_battery_min`/`reset_battery_max` change these.
+`markPowerCalibrationChanged` on manual reset, or right after boot adopts a cutoff).
+`v_max`/`v_min` (cutoff) are clamped to `[7.00, 9.50]`/`[5.00, 7.20]`; if their span
+drops below 0.50 V both reset to the LUT edges (8.40/6.20) and `*_learned` clears.
+v1 files (`v_max`/`v_min` without `*_learned`) load as learned only if their value
+was already widened past the old 8.0/6.2 defaults.
+
+**Guarded automatic learning** (see `src/battery_calibration.{h,cpp}`): the highest
+measurable pack voltage (`v_max`, including an ADC-clipped ceiling) is learned from
+the *minimum* reading held continuously ≥ 60 s above the current max — this rejects
+transient spikes/noise while still capturing a genuinely higher (or clipped) ceiling.
+The discharge cutoff (`v_min`) is only ever adopted from a low-point voltage captured
+while discharging near the LUT floor and persisted to the `rina_batt`/`pend_low` NVS
+key just before a real power-loss/brown-out reset (`esp_reset_reason()` ==
+`ESP_RST_POWERON`/`ESP_RST_BROWNOUT`); a soft reboot mid-discharge keeps the pending
+value for the next power-loss boot instead of adopting it early. `reset_battery_min`/
+`reset_battery_max` remain manual overrides on top of this.
 
 ### 6.5 HTTP API
 
