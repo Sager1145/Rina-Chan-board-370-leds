@@ -506,6 +506,198 @@ final class AcceptancePerformanceTests: XCTestCase {
         XCTAssertEqual(try context.storedFileNames(), storedFilesBefore)
     }
 
+    // MARK: PR-13 cold-restore audio-load coverage
+    //
+    // Each test below builds material with one `PresetLiveModel` and then
+    // restores it into a brand-new instance, so the `AVAudioPlayer` really is
+    // created during restore (the recovery tests above reuse the same model,
+    // whose material is already active and short-circuits the reload).
+
+    /// A fresh model restoring a custom script/audio pair from a board
+    /// checkpoint must reload the stored audio (not just the script), land at
+    /// the board's reported position, and leave the stream/material
+    /// bookkeeping untouched.
+    func testFreshModelColdRestoresCustomAudioFromBoardCheckpoint() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let firstModel = context.makeModel()
+        await firstModel.importScript(from: try context.writeImport(
+            named: "cold-custom.rinalive",
+            data: validScriptData
+        ))
+        await firstModel.importCustomAudio(from: try context.writeImport(
+            named: "cold-custom.wav",
+            data: syntheticWAV(sampleCount: 80_000)
+        ))
+        let scriptFile = try XCTUnwrap(context.defaults.string(forKey: "presetLiveScriptFile"))
+        let audioFile = try XCTUnwrap(context.defaults.string(forKey: "presetLiveAudioFile"))
+        let streamID = UUID().uuidString
+        let material = "custom|\(scriptFile)|\(audioFile)"
+        context.defaults.set(material, forKey: "presetLivePlaybackMaterial")
+        context.defaults.set(streamID, forKey: "presetLivePlaybackStreamID")
+        context.defaults.set(250, forKey: "presetLivePlaybackPositionMs")
+
+        let freshModel = context.makeModel()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: FakeRinaTransport())
+        XCTAssertTrue(connected)
+        defer { freshModel.stop(); connection.disconnect() }
+
+        await freshModel.restorePlaybackFromBoard(
+            connection: connection,
+            streamID: streamID,
+            positionMs: 1_250
+        )
+
+        XCTAssertTrue(freshModel.isPlaying)
+        XCTAssertEqual(connection.output.source, .performance)
+        XCTAssertGreaterThanOrEqual(freshModel.positionMs, 1_250)
+        XCTAssertEqual(freshModel.durationMs, 10_000)
+        XCTAssertEqual(context.defaults.string(forKey: "presetLivePlaybackStreamID"), streamID)
+        XCTAssertEqual(context.defaults.string(forKey: "presetLivePlaybackMaterial"), material)
+    }
+
+    /// A fresh model restoring a built-in performance's own imported audio
+    /// from a board checkpoint must select that performance, load its stored
+    /// audio, and leave the passively-remembered built-in selection alone.
+    func testFreshModelColdRestoresBuiltInAudioFromBoardCheckpoint() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let firstModel = context.makeModel()
+        let songA = try XCTUnwrap(firstModel.builtInPerformances.first { $0.id == "song-a" })
+        XCTAssertTrue(firstModel.selectBuiltIn(songA))
+        await firstModel.importAudio(
+            from: try context.writeImport(named: "cold-builtin.wav", data: syntheticWAV(sampleCount: 80_000)),
+            forBuiltIn: songA.id
+        )
+        let storedName = try XCTUnwrap(context.defaults.string(forKey: "performanceAudio.song-a"))
+        let streamID = UUID().uuidString
+        let material = "builtIn|song-a|\(storedName)"
+        context.defaults.set(material, forKey: "presetLivePlaybackMaterial")
+        context.defaults.set(streamID, forKey: "presetLivePlaybackStreamID")
+        context.defaults.set(500, forKey: "presetLivePlaybackPositionMs")
+
+        let freshModel = context.makeModel()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: FakeRinaTransport())
+        XCTAssertTrue(connected)
+        defer { freshModel.stop(); connection.disconnect() }
+
+        await freshModel.restorePlaybackFromBoard(connection: connection, streamID: streamID)
+
+        XCTAssertEqual(freshModel.selectedBuiltIn, "song-a")
+        XCTAssertTrue(freshModel.isPlaying)
+        XCTAssertEqual(context.defaults.string(forKey: "presetLiveBuiltIn"), "song-a")
+    }
+
+    /// A fresh model that already has a player loaded for one built-in song
+    /// (via passive restore) must still read the board checkpoint saved for a
+    /// *different* song's material before switching to it, rather than
+    /// carrying over the already-loaded player's own (unset) position.
+    func testFreshModelReadsCheckpointBeforeMaterialRestoreSwitchesSong() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let setupA = context.makeModel()
+        let songA = try XCTUnwrap(setupA.builtInPerformances.first { $0.id == "song-a" })
+        XCTAssertTrue(setupA.selectBuiltIn(songA))
+        await setupA.importAudio(
+            from: try context.writeImport(named: "order-a.wav", data: syntheticWAV(sampleCount: 80_000)),
+            forBuiltIn: songA.id
+        )
+        let songAStoredName = try XCTUnwrap(context.defaults.string(forKey: "performanceAudio.song-a"))
+
+        let setupB = context.makeModel()
+        let songB = try XCTUnwrap(setupB.builtInPerformances.first { $0.id == "song-b" })
+        XCTAssertTrue(setupB.selectBuiltIn(songB))
+        await setupB.importAudio(
+            from: try context.writeImport(named: "order-b.wav", data: syntheticWAV(sampleCount: 80_000)),
+            forBuiltIn: songB.id
+        )
+        // `selectBuiltIn(songB)` persisted last, so passive restore below
+        // lands on song B — the "other song" whose player is already loaded
+        // when the song-A checkpoint restore runs.
+        XCTAssertEqual(context.defaults.string(forKey: "presetLiveBuiltIn"), "song-b")
+
+        let freshModel = context.makeModel()
+        freshModel.restoreLastImportIfNeeded()
+        XCTAssertEqual(freshModel.selectedBuiltIn, "song-b")
+        XCTAssertTrue(freshModel.hasAudio)
+
+        let material = "builtIn|song-a|\(songAStoredName)"
+        context.defaults.set(material, forKey: "presetLivePlaybackMaterial")
+        context.defaults.set(UUID().uuidString, forKey: "presetLivePlaybackStreamID")
+        context.defaults.set(3_000, forKey: "presetLivePlaybackPositionMs")
+
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: FakeRinaTransport())
+        XCTAssertTrue(connected)
+        defer { freshModel.stop(); connection.disconnect() }
+
+        await freshModel.restorePlaybackFromBoard(connection: connection)
+
+        XCTAssertEqual(freshModel.selectedBuiltIn, "song-a")
+        XCTAssertGreaterThanOrEqual(freshModel.positionMs, 3_000)
+    }
+
+    /// A stored file that was truncated/corrupted on disk after being
+    /// recorded as the active material must fail the reload cleanly on cold
+    /// restore instead of silently reporting stale playable state.
+    func testFreshModelReportsCorruptStoredAudioOnColdRestore() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+
+        // Custom material: the stored audio copy is corrupted after import.
+        let customSetup = context.makeModel()
+        await customSetup.importScript(from: try context.writeImport(
+            named: "corrupt-custom.rinalive",
+            data: validScriptData
+        ))
+        await customSetup.importCustomAudio(from: try context.writeImport(
+            named: "corrupt-custom.wav",
+            data: syntheticWAV()
+        ))
+        let scriptFile = try XCTUnwrap(context.defaults.string(forKey: "presetLiveScriptFile"))
+        let audioFile = try XCTUnwrap(context.defaults.string(forKey: "presetLiveAudioFile"))
+        try Data("not an audio file".utf8).write(
+            to: context.store.storedURL(named: audioFile),
+            options: .atomic
+        )
+        let streamID = UUID().uuidString
+        context.defaults.set("custom|\(scriptFile)|\(audioFile)", forKey: "presetLivePlaybackMaterial")
+        context.defaults.set(streamID, forKey: "presetLivePlaybackStreamID")
+
+        let freshCustomModel = context.makeModel()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: FakeRinaTransport())
+        XCTAssertTrue(connected)
+        defer { freshCustomModel.stop(); connection.disconnect() }
+
+        await freshCustomModel.restorePlaybackFromBoard(connection: connection, streamID: streamID)
+
+        XCTAssertFalse(freshCustomModel.isPlaying)
+        XCTAssertNotNil(freshCustomModel.errorMessage)
+        XCTAssertNil(connection.output.source)
+
+        // Built-in material: same corruption, surfaced directly through
+        // `selectBuiltIn`.
+        let builtInSetup = context.makeModel()
+        let songA = try XCTUnwrap(builtInSetup.builtInPerformances.first { $0.id == "song-a" })
+        XCTAssertTrue(builtInSetup.selectBuiltIn(songA))
+        await builtInSetup.importAudio(
+            from: try context.writeImport(named: "corrupt-builtin.wav", data: syntheticWAV()),
+            forBuiltIn: songA.id
+        )
+        let storedName = try XCTUnwrap(context.defaults.string(forKey: "performanceAudio.song-a"))
+        try Data("not an audio file".utf8).write(
+            to: context.store.storedURL(named: storedName),
+            options: .atomic
+        )
+
+        let freshBuiltInModel = context.makeModel()
+        XCTAssertFalse(freshBuiltInModel.selectBuiltIn(songA))
+        XCTAssertNotNil(freshBuiltInModel.errorMessage)
+    }
+
     private var validScriptData: Data {
         Data("#fps 10\n#title Acceptance\n0!101,201,301,400\n10!101,201,301,400\n".utf8)
     }

@@ -312,8 +312,13 @@ final class PresetLiveModel {
         }
         do {
             let data = try RinaResources.data(named: performance.file, ext: "rinalive", in: bundle)
-            let parsed = try parseScript(data, library: library,
+            let parsed: LivePerformanceScript
+            do {
+                let scriptParseState = RinaPerf.signposter.beginInterval("PresetLiveScriptParse")
+                defer { RinaPerf.signposter.endInterval("PresetLiveScriptParse", scriptParseState) }
+                parsed = try parseScript(data, library: library,
                                          encodingError: NSLocalizedString("演出脚本编码无效", comment: "built-in script encoding invalid"))
+            }
             let frames = parsed.composedFrames(using: library)
             let storedName = defaults.string(forKey: audioKey(for: performance.id))
             let storedURL = storedName.map(fileStore.storedURL(named:))
@@ -341,8 +346,8 @@ final class PresetLiveModel {
         enterCustom(persistSelection: true)
     }
 
-    private func enterCustom(persistSelection: Bool) {
-        let prepared = restoreCustomMaterial()
+    private func enterCustom(persistSelection: Bool, loadAudio: Bool = true) {
+        let prepared = restoreCustomMaterial(loadAudio: loadAudio)
         commit(script: prepared.script,
                frames: prepared.frames,
                scriptName: prepared.scriptName,
@@ -479,7 +484,10 @@ final class PresetLiveModel {
                 return
             }
             let previousName = defaults.string(forKey: Self.audioFileKey)
-            if !isCustomMode { enterCustom(persistSelection: false) }
+            // The staged player below replaces whatever `enterCustom` would
+            // load for the previous custom audio file; loading it here would
+            // just be thrown away by the commit two lines down.
+            if !isCustomMode { enterCustom(persistSelection: false, loadAudio: false) }
             staged.player.volume = isMuted ? 0 : 1
             commit(script: script, frames: composedFrames, scriptName: scriptName,
                    player: staged.player, audioTitle: url.lastPathComponent,
@@ -862,20 +870,24 @@ final class PresetLiveModel {
         var audioTitle: String?
     }
 
-    private func restoreCustomMaterial() -> RestoredCustomMaterial {
+    private func restoreCustomMaterial(loadAudio: Bool = true) -> RestoredCustomMaterial {
         var result = RestoredCustomMaterial()
         if let library,
            let name = defaults.string(forKey: Self.scriptFileKey) {
             let url = fileStore.storedURL(named: name)
-            if let data = try? Data(contentsOf: url),
-               let parsed = try? parseScript(data, library: library,
-                                             encodingError: NSLocalizedString("脚本编码无效，需为 UTF-8 文本", comment: "script encoding invalid")) {
-                result.script = parsed
-                result.frames = parsed.composedFrames(using: library)
-                result.scriptName = defaults.string(forKey: Self.scriptTitleKey) ?? userFacingStoredName(name)
+            if let data = try? Data(contentsOf: url) {
+                let scriptParseState = RinaPerf.signposter.beginInterval("PresetLiveScriptParse")
+                let parsed = try? parseScript(data, library: library,
+                                              encodingError: NSLocalizedString("脚本编码无效，需为 UTF-8 文本", comment: "script encoding invalid"))
+                RinaPerf.signposter.endInterval("PresetLiveScriptParse", scriptParseState)
+                if let parsed {
+                    result.script = parsed
+                    result.frames = parsed.composedFrames(using: library)
+                    result.scriptName = defaults.string(forKey: Self.scriptTitleKey) ?? userFacingStoredName(name)
+                }
             }
         }
-        if let name = defaults.string(forKey: Self.audioFileKey) {
+        if loadAudio, let name = defaults.string(forKey: Self.audioFileKey) {
             let url = fileStore.storedURL(named: name)
             if let restored = try? prepareAudio(url) {
                 result.player = restored
@@ -964,7 +976,12 @@ final class PresetLiveModel {
     }
 
     private func prepareAudio(_ url: URL) throws -> AVAudioPlayer {
-        let loaded = try AVAudioPlayer(contentsOf: url)
+        let loaded: AVAudioPlayer
+        do {
+            let audioInitState = RinaPerf.signposter.beginInterval("PresetLiveAudioInit")
+            defer { RinaPerf.signposter.endInterval("PresetLiveAudioInit", audioInitState) }
+            loaded = try AVAudioPlayer(contentsOf: url)
+        }
         loaded.volume = isMuted ? 0 : 1
         // prepareToPlay() activates the shared audio session. Importing or
         // restoring a file must not acquire audio hardware on the main thread;
@@ -975,6 +992,8 @@ final class PresetLiveModel {
     private func commit(script: LivePerformanceScript?, frames: [PackedFrame], scriptName: String?,
                         player: AVAudioPlayer?, audioTitle: String?,
                         selectedBuiltIn: BuiltInPerformance.ID?, customMode: Bool) {
+        let commitState = RinaPerf.signposter.beginInterval("PresetLiveCommit")
+        defer { RinaPerf.signposter.endInterval("PresetLiveCommit", commitState) }
         stop()
         self.script = script
         self.scriptName = scriptName
