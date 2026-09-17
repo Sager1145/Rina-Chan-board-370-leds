@@ -2,6 +2,7 @@ import AVFoundation
 import CoreVideo
 import Darwin
 import XCTest
+import RinaCore
 @testable import RinaBoard
 
 /// Coverage for perf PR-11 item 1: `positionMs` republishes at ~100 ms
@@ -110,9 +111,37 @@ final class VideoProgressPublishingTests: XCTestCase {
 
         model.pause()
 
-        XCTAssertEqual(model.positionMs, 0, "the observable position stays coarse")
+        // pause() is a transport transition: it must publish the exact
+        // position immediately, not leave the observable sitting on
+        // whatever the last coarse bucket happened to be.
+        XCTAssertEqual(model.positionMs, 83, "pause must publish the exact position immediately")
         XCTAssertEqual(context.defaults.integer(forKey: "videoPlaybackPositionMs"), 83,
                        "the persisted checkpoint must be the exact position, not the coarse one")
+    }
+
+    /// A pause reachable shortly after a start — e.g. `tick()`'s stall
+    /// detector — can land inside the very first (sub-100ms) bucket, where
+    /// the coarse `positionMs` has never moved off 0. That must not read as
+    /// "nothing to resume": the published position and `hasPlaybackProgress`
+    /// must reflect the exact paused position right away.
+    func testPauseInsideFirstBucketPublishesExactPositionAndShowsProgress() async throws {
+        let context = try VideoProgressPublishingTests.makeContext()
+        defer { context.cleanUp() }
+        let videoURL = try await VideoProgressPublishingTests.makeVideo(
+            at: context.root.appendingPathComponent("pause-first-bucket.mp4"))
+        let model = context.makeModel()
+        await model.importFile(from: videoURL)
+
+        model.applyExactPosition(60)
+        XCTAssertEqual(model.positionMs, 0)
+        XCTAssertFalse(model.hasPlaybackProgress)
+
+        model.pause()
+
+        XCTAssertEqual(model.positionMs, 60)
+        XCTAssertTrue(model.hasPlaybackProgress,
+                      "a paused position inside the first bucket must still show as resumable progress")
+        XCTAssertEqual(context.defaults.integer(forKey: "videoPlaybackPositionMs"), 60)
     }
 
     func testCheckpointAtDisconnectUsesExactPosition() async throws {
@@ -128,10 +157,44 @@ final class VideoProgressPublishingTests: XCTestCase {
 
         // Mirrors what `BoardSyncCoordinator`/`releaseOutput` calls on a
         // board disconnect: local playback state is untouched, only the
-        // board lease and its checkpoint are dropped.
+        // board lease and its checkpoint are dropped. `suspendBoardOutput`
+        // is a second transport-transition site (alongside `pause()`) and
+        // must publish immediately too.
         model.releaseOutput(connected: false)
 
+        XCTAssertEqual(model.positionMs, 37)
         XCTAssertEqual(context.defaults.integer(forKey: "videoPlaybackPositionMs"), 37)
+    }
+
+    /// The one place a coarse value could otherwise escape the app: the
+    /// board-reported stream position sent with every frame. A regression
+    /// that reverted `publish()` to read the throttled `positionMs` instead
+    /// of `precisePositionMs` would round this down to 0.
+    func testBoardSendReasonUsesExactPosition() async throws {
+        let context = try VideoProgressPublishingTests.makeContext()
+        defer { context.cleanUp() }
+        let videoURL = try await VideoProgressPublishingTests.makeVideo(
+            at: context.root.appendingPathComponent("reason.mp4"))
+        let model = context.makeModel()
+        await model.importFile(from: videoURL)
+
+        let connection = BoardConnection()
+        let transport = FakeRinaTransport()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        defer { connection.disconnect() }
+
+        // Reaches the same "actively sending" state `startPlayback()` does,
+        // without racing a real `AVPlayer`'s frame-decode timing.
+        model.beginBoardOutputForTesting(connection: connection)
+        model.applyExactPosition(83)
+        XCTAssertEqual(model.positionMs, 0, "still inside the first bucket")
+        model.publishFrameForTesting(PackedFrame())
+
+        try await transport.waitForSent(type: .setFrame, count: 1)
+        let frame = try XCTUnwrap(transport.lastSent(type: .setFrame))
+        let reason = try VideoProgressPublishingTests.reasonString(from: frame)
+        XCTAssertTrue(reason.hasSuffix(":83"), "reason was \(reason)")
     }
 
     func testCheckpointAtStopIsExactlyZero() async throws {
@@ -170,16 +233,36 @@ final class VideoProgressPublishingTests: XCTestCase {
         defer { connection.disconnect() }
         model.play(connection: connection)
 
+        // Wait for the async `startPlayback()` to actually flip `isPlaying`
+        // before polling for completion, so restarting it below is a bounded
+        // recovery from a one-off simulator quirk, not a first-iteration
+        // formality that fires on every run.
+        let startDeadline = Date().addingTimeInterval(2)
+        while !model.isPlaying, Date() < startDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(model.isPlaying, "playback did not start")
+
         let deadline = Date().addingTimeInterval(10)
+        var restartsRemaining = 3
         while model.positionMs < durationMs, Date() < deadline {
             try await Task.sleep(for: .milliseconds(50))
-            // `AVPlayer.play()` can take a tick or two to actually ramp its
-            // rate up in a simulator with no real display/audio pipeline;
-            // `tick()`'s stall detector (pre-existing, unrelated to this PR)
-            // can catch that as "the system stopped it" and pause. Nudge
-            // playback again rather than treat a slow start as a real stall
-            // or a real end.
             if !model.isPlaying, model.positionMs < durationMs {
+                // A simulator with no real display/audio pipeline can take a
+                // tick or two for `AVPlayer.play()`'s rate to actually ramp
+                // up, and `tick()`'s stall detector (pre-existing, unrelated
+                // to this PR — it reads `precisePositionMs`, which holds
+                // exactly what `positionMs` used to hold here) can catch
+                // that narrow window as "the system stopped it" and pause.
+                // Restart a bounded number of times to absorb that one-off
+                // quirk; a real regression that keeps re-pausing playback
+                // fails loudly here instead of silently spinning to the
+                // deadline.
+                guard restartsRemaining > 0 else {
+                    XCTFail("playback kept pausing before reaching the end (position \(model.positionMs)/\(durationMs))")
+                    return
+                }
+                restartsRemaining -= 1
                 model.play(connection: connection)
             }
         }
@@ -190,6 +273,20 @@ final class VideoProgressPublishingTests: XCTestCase {
     }
 
     // MARK: Fixtures
+
+    /// Decodes the `reason` string `BoardConnection.setFrame` packs into a
+    /// `setFrame` payload as `[playback byte][reason length][reason bytes][frame bytes]`.
+    private static func reasonString(from frame: RinaLinkFrame) throws -> String {
+        let payload = [UInt8](frame.payload)
+        guard payload.count >= 2 else {
+            throw XCTSkip("setFrame payload too short to contain a reason")
+        }
+        let length = Int(payload[1])
+        guard payload.count >= 2 + length else {
+            throw XCTSkip("setFrame payload too short for its declared reason length")
+        }
+        return String(decoding: payload[2..<(2 + length)], as: UTF8.self)
+    }
 
     private static func makeBareModel() -> VideoPlayerModel {
         let identifier = UUID().uuidString

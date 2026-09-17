@@ -523,6 +523,11 @@ final class VideoPlayerModel {
     func pause() {
         playbackStartTask?.cancel()
         playbackStartTask = nil
+        // A transport transition: publish the exact position immediately,
+        // even if it is still inside the current coarse bucket (or the very
+        // first one), so the counter/slider and `hasPlaybackProgress` never
+        // lag behind what was actually checkpointed.
+        positionMs = precisePositionMs
         savePlaybackPosition(force: true)
         suspendBoardOutput()
         player?.pause()
@@ -606,6 +611,10 @@ final class VideoPlayerModel {
     }
 
     func suspendBoardOutput() {
+        // Also reachable directly on disconnect (`releaseOutput(connected:
+        // false)`), bypassing `pause()`, so it needs its own immediate
+        // publish for the same reason.
+        positionMs = precisePositionMs
         savePlaybackPosition(force: true)
         outputSession = nil
         lastSubmitted = nil
@@ -684,6 +693,26 @@ final class VideoPlayerModel {
         precisePositionMs = now
         if abs(now - positionMs) >= Self.positionPublishStepMs { positionMs = now }
     }
+
+    #if DEBUG
+    /// Test-only: puts the model into the same "actively sending to a
+    /// connected board" state `startPlayback()` reaches, without starting
+    /// real `AVPlayer` playback or the frame loop. Lets board-send tests
+    /// assert on the exact reason string deterministically instead of
+    /// racing real frame-decode timing. Compiled out of release builds.
+    func beginBoardOutputForTesting(connection: BoardConnection) {
+        lastConnection = connection
+        acquireOutput(connection: connection)
+        preparePlaybackStream(restoring: false)
+    }
+
+    /// Test-only: publishes a frame through the same path a real decoded
+    /// frame takes, so its exact reason string can be asserted directly.
+    /// Compiled out of release builds.
+    func publishFrameForTesting(_ frame: PackedFrame) {
+        publish(frame)
+    }
+    #endif
 
     private func tick() {
         guard let player, let videoOutput else { return }
