@@ -61,6 +61,13 @@ final class BootLoaderModel {
         self.reduceMotion = reduceMotion
         phase = .breathing(since: Date())
 
+        // Warms the Text tab's editor font off the critical path: its first
+        // body evaluation would otherwise pay for an 843 KB woff2 read plus
+        // font-descriptor creation (perf PR-9).
+        Task.detached(priority: .utility) {
+            ArkPixelInputFont.prewarm()
+        }
+
         if finishQueued {
             finishQueued = false
             requestFinish()

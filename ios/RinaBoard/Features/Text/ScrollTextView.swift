@@ -1,12 +1,40 @@
 import SwiftUI
 import RinaCore
 
+#if DEBUG
+/// Debug-only body-evaluation counters (perf PR-9), used by
+/// `TextPreviewInvalidationTests` to prove that the Text tab's per-tick
+/// preview updates invalidate only the small subviews that read them, not
+/// the parent page. Compiled out of Release.
+enum PR9BodyProbe {
+    private static var counts: [String: Int] = [:]
+
+    @discardableResult
+    static func hit(_ name: String) -> Int {
+        let next = (counts[name] ?? 0) + 1
+        counts[name] = next
+        return next
+    }
+
+    static func count(_ name: String) -> Int { counts[name] ?? 0 }
+
+    static func reset() { counts.removeAll() }
+}
+#endif
+
 /// Text tab (design guide §22–§29): scrolling-text authoring and playback.
 ///
 /// The preview at the top is the app's reconstruction of the board's current
 /// scroll animation and is **not** interactive (§22.1). It follows the board's
 /// *measured* speed and corrects phase, rather than free-running at the
 /// requested fps, so the phone and the physical board stay together (§28/§29).
+///
+/// Per-tick state (the running preview index, measured fps, PLL lock state —
+/// up to 120 Hz while playing) lives on `TextViewModel.playhead`, a separate
+/// small `@Observable`, and is read only inside `TextPreviewBoard`,
+/// `TextPreviewStatusFooter`, `TextPlaybackProgressBar` and
+/// `TextMeasuredFpsRow`/`TextSyncDiagnosticsRows` below (perf PR-9), so this
+/// parent body is not re-evaluated on every tick.
 struct ScrollTextView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(TextViewModel.self) private var model
@@ -19,6 +47,9 @@ struct ScrollTextView: View {
     private var isConnected: Bool { connection.connectionState == .connected }
 
     var body: some View {
+        #if DEBUG
+        let _ = PR9BodyProbe.hit("ScrollTextView")
+        #endif
         NavigationStack {
             List {
                 Group {
@@ -67,51 +98,10 @@ struct ScrollTextView: View {
         Section {
             // `.inert` by default: the scroll preview mirrors the board's
             // own animation and is not editable (§22.1).
-            BoardPreviewRow(
-                frame: model.previewFrame,
-                accessibilityDescription: previewAccessibilityDescription
-            )
+            TextPreviewBoard(model: model)
         } footer: {
-            previewStatus
+            TextPreviewStatusFooter(model: model, connection: connection)
         }
-    }
-
-    @ViewBuilder
-    private var previewStatus: some View {
-        // The playback position once frames exist; before that, how much of
-        // the board's text budget the draft uses.
-        let frameCounter = model.frameCount > 0
-            ? Text("帧 \(model.displayIndex + 1) / \(model.frameCount)")
-            : Text("\(model.byteCount) / \(ScrollText.maxTextBytes)")
-                .foregroundStyle(model.exceedsByteLimit ? .red : .secondary)
-        if model.restoreConflict {
-            BoardPreviewStatus("草稿与面板不同", systemImage: "exclamationmark.circle", tone: .pending) {
-                frameCounter
-            }
-        } else if !isConnected {
-            BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) {
-                frameCounter
-            }
-        } else {
-            let phase = model.phaseKey(connection: connection)
-            let (systemImage, tone): (String, BoardPreviewStatusTone) = switch phase {
-            case "ACTIVE": ("play.circle", .live)
-            case "PAUSED": ("pause.circle", .neutral)
-            case "IDLE": ("stop.circle", .neutral)
-            default: ("arrow.triangle.2.circlepath.circle", .pending)
-            }
-            BoardPreviewStatus(Text(TextViewModel.phaseLabel(phase)), systemImage: systemImage, tone: tone) {
-                frameCounter
-            }
-        }
-    }
-
-    private var previewAccessibilityDescription: String {
-        model.frameCount > 0
-            ? String(format: NSLocalizedString("滚动文字预览，第 %1$lld 帧，共 %2$lld 帧",
-                                               comment: "scroll preview accessibility summary"),
-                     model.displayIndex + 1, model.frameCount)
-            : NSLocalizedString("滚动文字预览，暂无内容", comment: "empty scroll preview")
     }
 
     // MARK: §24 Playback
@@ -150,59 +140,11 @@ struct ScrollTextView: View {
         Section {
             // Always present, like the Preset Live tab; greyed out until a
             // timeline is on the board.
-            progressBar
+            TextPlaybackProgressBar(model: model, connection: connection, isConnected: isConnected)
 
             if model.isUploading {
                 ProgressView(value: model.uploadProgress)
             }
-        }
-    }
-
-    /// Draggable position on the bound timeline, like the Preset Live tab's.
-    /// The preview follows the thumb while dragging; the board seeks once, on
-    /// release, so a drag never floods the command pump.
-    private var progressBar: some View {
-        let shownIndex = model.scrubIndex ?? model.displayIndex
-        return VStack(alignment: .leading, spacing: 4) {
-            Slider(
-                value: Binding(
-                    get: { Double(model.scrubIndex ?? model.displayIndex) },
-                    set: { model.updateScrub(toFrame: Int($0.rounded())) }
-                ),
-                in: 0...Double(max(1, model.frameCount - 1)),
-                onEditingChanged: { editing in
-                    if editing {
-                        model.beginScrub()
-                    } else if let commit = model.endScrub() {
-                        Task { await model.commitScrub(commit, connection: connection) }
-                    }
-                }
-            )
-            .disabled(!isConnected || model.boundTimelineId == nil || model.frameCount < 2)
-            // A disabled Slider may never report the end of its drag.
-            .onChange(of: isConnected) { _, connected in
-                if !connected { model.cancelScrub() }
-            }
-            .accessibilityLabel("播放进度")
-            // VoiceOver adjusts through the value setter without an editing
-            // phase, which would leave the scrub stuck; seek directly instead.
-            .accessibilityAdjustableAction { direction in
-                guard model.frameCount > 1 else { return }
-                let step = max(1, model.frameCount / 20)
-                let target = model.displayIndex + (direction == .increment ? step : -step)
-                Task { await model.seek(toFrame: target, connection: connection) }
-            }
-            .accessibilityValue(model.frameCount > 0
-                                ? Text("帧 \(shownIndex + 1) / \(model.frameCount)")
-                                : Text("无内容"))
-
-            HStack {
-                Text(formatFrameTime(shownIndex))
-                Spacer()
-                Text(formatFrameTime(model.frameCount))
-            }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
         }
     }
 
@@ -211,12 +153,6 @@ struct ScrollTextView: View {
     private var loopUnsupported: Bool {
         guard let renderer = connection.status?.renderer else { return false }
         return renderer.scrollFrameCount != nil && renderer.scrollLoop == nil
-    }
-
-    /// Frames as `mm:ss` at the requested speed.
-    private func formatFrameTime(_ frames: Int) -> String {
-        let totalSeconds = Int(Double(max(0, frames)) / max(1, model.requestedFps))
-        return String(format: "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
     }
 
     // MARK: §25 Text input, §26 restore conflict
@@ -310,11 +246,7 @@ struct ScrollTextView: View {
             }
 
             // Measured from board telemetry, never an echo of the request.
-            LabeledContent("面板实测") {
-                Text(model.measuredFps.map { String(format: "%.1f fps", $0) } ?? "—")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
+            TextMeasuredFpsRow(model: model)
         }
     }
 
@@ -322,6 +254,175 @@ struct ScrollTextView: View {
 
     private var syncSection: some View {
         Section("同步状态") {
+            TextSyncDiagnosticsRows(model: model, connection: connection)
+        }
+    }
+}
+
+// MARK: - Per-tick preview subviews (perf PR-9)
+//
+// Each of these reads `model.displayIndex` / `model.previewFrame` /
+// `model.measuredFps` / `model.lockState` — all backed by
+// `TextViewModel.playhead` — so only *this* view's body re-evaluates on a
+// preview tick or a board sample, not `ScrollTextView`'s.
+
+/// The board preview itself: redrawn on every preview tick.
+private struct TextPreviewBoard: View {
+    var model: TextViewModel
+
+    var body: some View {
+        #if DEBUG
+        let _ = PR9BodyProbe.hit("TextPreviewBoard")
+        #endif
+        BoardPreviewRow(
+            frame: model.previewFrame,
+            accessibilityDescription: previewAccessibilityDescription
+        )
+    }
+
+    private var previewAccessibilityDescription: String {
+        model.frameCount > 0
+            ? String(format: NSLocalizedString("滚动文字预览，第 %1$lld 帧，共 %2$lld 帧",
+                                               comment: "scroll preview accessibility summary"),
+                     model.displayIndex + 1, model.frameCount)
+            : NSLocalizedString("滚动文字预览，暂无内容", comment: "empty scroll preview")
+    }
+}
+
+/// The frame counter under the preview: also moves every tick while a
+/// timeline is bound.
+private struct TextPreviewStatusFooter: View {
+    var model: TextViewModel
+    var connection: BoardConnection
+
+    private var isConnected: Bool { connection.connectionState == .connected }
+
+    var body: some View {
+        #if DEBUG
+        let _ = PR9BodyProbe.hit("TextPreviewStatusFooter")
+        #endif
+        // The playback position once frames exist; before that, how much of
+        // the board's text budget the draft uses.
+        let frameCounter = model.frameCount > 0
+            ? Text("帧 \(model.displayIndex + 1) / \(model.frameCount)")
+            : Text("\(model.byteCount) / \(ScrollText.maxTextBytes)")
+                .foregroundStyle(model.exceedsByteLimit ? .red : .secondary)
+        if model.restoreConflict {
+            BoardPreviewStatus("草稿与面板不同", systemImage: "exclamationmark.circle", tone: .pending) {
+                frameCounter
+            }
+        } else if !isConnected {
+            BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) {
+                frameCounter
+            }
+        } else {
+            let phase = model.phaseKey(connection: connection)
+            let (systemImage, tone): (String, BoardPreviewStatusTone) = switch phase {
+            case "ACTIVE": ("play.circle", .live)
+            case "PAUSED": ("pause.circle", .neutral)
+            case "IDLE": ("stop.circle", .neutral)
+            default: ("arrow.triangle.2.circlepath.circle", .pending)
+            }
+            BoardPreviewStatus(Text(TextViewModel.phaseLabel(phase)), systemImage: systemImage, tone: tone) {
+                frameCounter
+            }
+        }
+    }
+}
+
+/// Draggable position on the bound timeline, like the Preset Live tab's. The
+/// preview follows the thumb while dragging; the board seeks once, on
+/// release, so a drag never floods the command pump. Its shown position
+/// follows the playhead while nothing is being dragged, so it moves every
+/// tick.
+private struct TextPlaybackProgressBar: View {
+    var model: TextViewModel
+    var connection: BoardConnection
+    var isConnected: Bool
+
+    var body: some View {
+        #if DEBUG
+        let _ = PR9BodyProbe.hit("TextPlaybackProgressBar")
+        #endif
+        let shownIndex = model.scrubIndex ?? model.displayIndex
+        return VStack(alignment: .leading, spacing: 4) {
+            Slider(
+                value: Binding(
+                    get: { Double(model.scrubIndex ?? model.displayIndex) },
+                    set: { model.updateScrub(toFrame: Int($0.rounded())) }
+                ),
+                in: 0...Double(max(1, model.frameCount - 1)),
+                onEditingChanged: { editing in
+                    if editing {
+                        model.beginScrub()
+                    } else if let commit = model.endScrub() {
+                        Task { await model.commitScrub(commit, connection: connection) }
+                    }
+                }
+            )
+            .disabled(!isConnected || model.boundTimelineId == nil || model.frameCount < 2)
+            // A disabled Slider may never report the end of its drag.
+            .onChange(of: isConnected) { _, connected in
+                if !connected { model.cancelScrub() }
+            }
+            .accessibilityLabel("播放进度")
+            // VoiceOver adjusts through the value setter without an editing
+            // phase, which would leave the scrub stuck; seek directly instead.
+            .accessibilityAdjustableAction { direction in
+                guard model.frameCount > 1 else { return }
+                let step = max(1, model.frameCount / 20)
+                let target = model.displayIndex + (direction == .increment ? step : -step)
+                Task { await model.seek(toFrame: target, connection: connection) }
+            }
+            .accessibilityValue(model.frameCount > 0
+                                ? Text("帧 \(shownIndex + 1) / \(model.frameCount)")
+                                : Text("无内容"))
+
+            HStack {
+                Text(formatFrameTime(shownIndex))
+                Spacer()
+                Text(formatFrameTime(model.frameCount))
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Frames as `mm:ss` at the requested speed.
+    private func formatFrameTime(_ frames: Int) -> String {
+        let totalSeconds = Int(Double(max(0, frames)) / max(1, model.requestedFps))
+        return String(format: "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
+    }
+}
+
+/// The "面板实测" row: driven by board telemetry (and pll churn), not by the
+/// requested-speed slider next to it.
+private struct TextMeasuredFpsRow: View {
+    var model: TextViewModel
+
+    var body: some View {
+        #if DEBUG
+        let _ = PR9BodyProbe.hit("TextMeasuredFpsRow")
+        #endif
+        LabeledContent("面板实测") {
+            Text(model.measuredFps.map { String(format: "%.1f fps", $0) } ?? "—")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// The sync-status section's rows: phase, PLL lock state and the last upload
+/// summary. `lockState` moves with pll churn same as the preview index.
+private struct TextSyncDiagnosticsRows: View {
+    var model: TextViewModel
+    var connection: BoardConnection
+
+    var body: some View {
+        #if DEBUG
+        let _ = PR9BodyProbe.hit("TextSyncDiagnosticsRows")
+        #endif
+        Group {
             LabeledContent("状态") {
                 Text(TextViewModel.phaseLabel(model.phaseKey(connection: connection)))
                     .foregroundStyle(.secondary)

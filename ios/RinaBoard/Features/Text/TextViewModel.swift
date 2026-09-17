@@ -148,15 +148,30 @@ final class TextViewModel {
 
     // MARK: Preview speed-lock
 
-    private var pll = ScrollPreviewController(frameCount: 1, userFps: 10)
-    var displayIndex: Int { pll.displayIndex }
+    /// Ignored by `@Observable`: every field a view could read from this is
+    /// mutated on each `tick()` (up to 120 Hz), which would otherwise
+    /// re-evaluate the body of anything reading any pll-derived property on
+    /// every tick (perf PR-9). Views observe `playhead` instead; `pll` stays
+    /// the single source of truth and keeps its existing semantics exactly.
+    @ObservationIgnored private var pll = ScrollPreviewController(frameCount: 1, userFps: 10)
+    /// Small `@Observable` mirror of the pll fields a view reads, kept in
+    /// sync by `syncPlayhead()` after every pll mutation (perf PR-9).
+    @ObservationIgnored let playhead = TextPreviewPlayhead()
+    var displayIndex: Int { playhead.displayIndex }
     /// Actual speed measured from board telemetry — never just an echo of
     /// `requestedFps` (§27). Nil while nothing is playing on the board.
     var measuredFps: Double? {
         guard boundTimelineId != nil, !boardPaused else { return nil }
-        return pll.measuredFps
+        return playhead.measuredFps
     }
-    var lockState: ScrollPreviewController.LockState { pll.lockState }
+    var lockState: ScrollPreviewController.LockState { playhead.lockState }
+
+    /// Copies the pll fields views read into `playhead`. Must be called after
+    /// every mutation of `pll` (perf PR-9) — `pll` itself is
+    /// `@ObservationIgnored`, so nothing else notices those mutations.
+    private func syncPlayhead() {
+        playhead.update(displayIndex: pll.displayIndex, measuredFps: pll.measuredFps, lockState: pll.lockState)
+    }
 
     var frameCount: Int { timeline?.frameCount ?? 0 }
 
@@ -440,6 +455,7 @@ final class TextViewModel {
             boundTimelineId = boundId
             pll = ScrollPreviewController(frameCount: built.frameCount, userFps: Double(fpsInt))
             pll.bind(timelineId: boundId, frameCount: built.frameCount)
+            syncPlayhead()
             userEditedText = self.text != text
             scheduleDraftSave()
             boardPaused = false
@@ -508,6 +524,7 @@ final class TextViewModel {
         if await run(connection, { _ = try await $0.command(.stopScroll(restoreAuto: restoreAuto, clear: true)) }) {
             pllTask?.cancel(); pllTask = nil
             timeline = nil; boundTimelineId = nil; pll.reset()
+            syncPlayhead()
             boardPaused = false
         }
     }
@@ -542,6 +559,7 @@ final class TextViewModel {
            revision == scrubGeneration, identity == boundTimelineId,
            connectionGeneration == connection.connectionGeneration {
             pll.snap(to: clamped)
+            syncPlayhead()
         }
     }
 
@@ -648,6 +666,7 @@ final class TextViewModel {
             boardPaused = freshPreview?.firmwareScrollPaused ?? meta.firmwareScrollPaused ?? false
             if let loop = meta.scrollLoop { loopPlayback = loop }
             if let index = meta.frameIndex { pll.snap(to: index) }
+            syncPlayhead()
             if let freshPreview { observe(preview: freshPreview) }
             // An unsent local draft is never overwritten; the user chooses.
             if userEditedText, text != sourceText {
@@ -679,12 +698,22 @@ final class TextViewModel {
             while !Task.isCancelled {
                 guard let self else { return }
                 let delayMs = self.boardPaused ? 250 : self.pll.nextDelayMs(nowMs: self.nowMs())
+                // `nextDelayMs` can move `lockState` on its own (before any
+                // tick); sync right away so a cancellation during the sleep
+                // below can never leave the UI on a stale lock state.
+                self.syncPlayhead()
                 do { try await Task.sleep(nanoseconds: UInt64(max(1, delayMs) * 1_000_000)) }
                 catch { return }
                 // With loop off the board holds its last frame until the pause
                 // reaches us by status; wrapping here would flash the start.
                 let heldAtEnd = !self.loopPlayback && self.displayIndex >= self.frameCount - 1
-                if !self.boardPaused && !heldAtEnd { self.pll.tick() }
+                if !self.boardPaused && !heldAtEnd {
+                    self.pll.tick()
+                    RinaPerf.signposter.emitEvent("TextPreviewTick")
+                }
+                // Sync again after a real tick moves `displayIndex` (the sync
+                // above only covers `nextDelayMs`'s own effect on `lockState`).
+                self.syncPlayhead()
             }
         }
     }
@@ -717,6 +746,7 @@ final class TextViewModel {
     func observe(preview: PreviewSync?) {
         guard let preview, boundTimelineId != nil else { return }
         let outcome = pll.record(sample: preview, nowMs: nowMs())
+        syncPlayhead()
         if outcome != .identityMismatch {
             if let paused = preview.firmwareScrollPaused { boardPaused = paused }
             if let loop = preview.scrollLoop { loopPlayback = loop }
@@ -773,6 +803,7 @@ final class TextViewModel {
                                     uiFps: renderer.uiFps ?? renderer.scrollFps))
         guard boardPaused, let index = renderer.scrollFrameIndex, renderer.scrollFrameCount == frameCount else { return }
         pll.snap(to: index)
+        syncPlayhead()
     }
 
     private func scheduleRestoreRetryIfNeeded(connection: BoardConnection) {
@@ -796,6 +827,7 @@ final class TextViewModel {
         timeline = nil
         boundTimelineId = nil
         pll.reset()
+        syncPlayhead()
         activeConnection = nil
         boardPaused = false
         pendingFps = nil

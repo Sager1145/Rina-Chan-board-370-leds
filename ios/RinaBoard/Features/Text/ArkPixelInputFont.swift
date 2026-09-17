@@ -26,4 +26,13 @@ enum ArkPixelInputFont {
         let snapped = max(gridSize, (size / step).rounded() * step)
         return Font(CTFontCreateWithFontDescriptor(descriptor, snapped, nil))
     }
+
+    /// Forces `descriptor`'s one-time load (the 843 KB woff2 read plus
+    /// `CTFontManagerCreateFontDescriptorsFromData`) off the Text tab's first
+    /// body evaluation (perf PR-9). `static let` initialization is
+    /// thread-safe, so this can run from a background task started at boot;
+    /// the result is unchanged either way.
+    nonisolated static func prewarm() {
+        _ = descriptor
+    }
 }
