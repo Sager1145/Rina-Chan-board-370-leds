@@ -1277,12 +1277,18 @@ public final class BoardConnection {
             let frame = try await self.send(type: .cmd, payload: payload)
             return try JSONDecoder().decode(FaceOpReply.self, from: frame.payload)
         }
+        // The reply's generation is the only evidence that nobody else mutated
+        // `saved_faces.json` between our read and this write. Without it — no
+        // `gen` field at all, or none observed for this carrier — there is no
+        // basis for that claim, so callers must reload rather than apply an
+        // optimistic in-place mutation. Firmware that does not report `gen`
+        // therefore always takes the reload path, by design: a silently stale
+        // library is worse than a redundant fetch.
         if let gen = reply.gen {
-            // With no generation observed for this carrier there is no basis to
-            // claim that nobody else mutated `saved_faces.json`, so callers must
-            // take the reload path rather than apply an optimistic mutation.
             lastFaceOpGenMatchedExpectation = facesGen.map { gen == $0 + 1 } ?? false
             facesGen = gen
+        } else {
+            lastFaceOpGenMatchedExpectation = false
         }
         return reply
     }

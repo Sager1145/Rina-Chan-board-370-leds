@@ -77,6 +77,29 @@ final class FaceGenerationTrackingTests: XCTestCase {
                        "without an observed generation there is no basis to claim we are in sync")
     }
 
+    /// Firmware that reports no `gen` at all cannot support this check, so the
+    /// reply must not be taken as "still in sync" — the caller reloads instead.
+    /// The previous behavior left the flag at whatever the last op had set,
+    /// which silently reused a stale verdict.
+    func testReplyWithoutAGenerationNeverCountsAsInSync() async throws {
+        let (connection, transport) = await connectedBoard()
+        try await readFaces(connection, transport, gen: 5)
+        try await renameReplying(gen: 6, connection, transport)
+        XCTAssertTrue(connection.lastFaceOpGenMatchedExpectation)
+
+        // Same connection, next reply carries no `gen`.
+        transport.resetRecordedFrames()
+        transport.automaticallyReplies = false
+        let task = Task { try await connection.faceRename(id: "u1", name: "again") }
+        try await transport.waitForSent(type: .cmd, count: 1)
+        transport.replyToNext(type: .cmd, json: ["ok": true])
+        _ = try await task.value
+        transport.automaticallyReplies = true
+
+        XCTAssertFalse(connection.lastFaceOpGenMatchedExpectation,
+                       "a reply without a generation must not inherit the previous verdict")
+    }
+
     /// A generation only means something inside the carrier that reported it.
     func testGenerationIsForgottenWhenTheCarrierStops() async throws {
         let (connection, transport) = await connectedBoard()

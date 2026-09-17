@@ -227,6 +227,11 @@ final class FaceLibrarySortCacheTests: XCTestCase {
         transport.replyToNext(type: .getFaces, payload: genBytes + (try document.encoded()))
         let reloaded = await reloadTask.value
         XCTAssertTrue(reloaded, "board reload setup must succeed")
+        // Mutations after a read at `gen` reply with gen+1, as the firmware does.
+        // Without a `gen` the connection cannot confirm we are still in sync and
+        // every op would fall back to a reload, so the in-place paths this suite
+        // exercises would never run.
+        transport.nextCommandGen = Int(gen) + 1
         transport.automaticallyReplies = true
     }
 }

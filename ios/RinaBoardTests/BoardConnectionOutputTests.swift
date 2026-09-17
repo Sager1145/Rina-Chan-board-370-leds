@@ -692,6 +692,11 @@ final class FakeRinaTransport: @MainActor RinaTransport {
     let preferredChunkBytes = 512
     var automaticallyReplies = true
     var commandReply: [String: Any] = ["ok": true]
+    /// When set, each CMD reply carries this `gen` and then increments it,
+    /// mirroring the firmware's saved-faces generation (RINALINK §7.2). Face-op
+    /// tests need it: a reply without `gen` gives the connection no way to tell
+    /// that nobody else changed the document, so it forces the reload path.
+    var nextCommandGen: Int?
     /// Simulates a BLE round-trip delay before an automatic reply is sent.
     var replyDelay: Duration?
     private let connectImmediately: Bool
@@ -880,7 +885,12 @@ final class FakeRinaTransport: @MainActor RinaTransport {
 
     private func defaultPayload(for request: RinaLinkFrame) -> Data {
         if request.type == RinaLinkMessageType.cmd.rawValue {
-            return (try? JSONSerialization.data(withJSONObject: commandReply)) ?? Data()
+            var payload = commandReply
+            if let gen = nextCommandGen {
+                payload["gen"] = gen
+                nextCommandGen = gen + 1
+            }
+            return (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
         }
         if request.type == RinaLinkMessageType.setFrame.rawValue {
             return Data(#"{"ok":true}"#.utf8)
