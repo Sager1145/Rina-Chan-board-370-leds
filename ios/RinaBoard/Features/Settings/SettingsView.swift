@@ -18,6 +18,7 @@ struct SettingsView: View {
     @AppStorage(AppSettingsKey.restoreLastTab) private var restoreLastTab = false
 
     @State private var confirmReboot = false
+    @State private var rebootError: String?
     #if DEBUG
     @State private var opensDebug = UserDefaults.standard.string(forKey: "initialTab") == "debug"
     #endif
@@ -106,12 +107,26 @@ struct SettingsView: View {
         }
         .confirmationDialog("重启面板？", isPresented: $confirmReboot, titleVisibility: .visible) {
             Button("重启", role: .destructive) {
-                Task { _ = try? await connection.command(.reboot) }
+                Task {
+                    do {
+                        _ = try await connection.command(.reboot)
+                    } catch {
+                        // The firmware acknowledges `reboot` and only reboots
+                        // 200 ms later, so a failure here means the command
+                        // never arrived rather than "it rebooted, link gone".
+                        rebootError = String(
+                            format: NSLocalizedString("重启命令未送达：%@",
+                                                      comment: "reboot command failed to reach the board"),
+                            error.localizedDescription
+                        )
+                    }
+                }
             }
             Button("取消", role: .cancel) {}
         } message: {
             Text("面板将断开连接并重新启动。")
         }
+        .errorAlert($rebootError)
     }
 
     // MARK: §34 App
