@@ -654,6 +654,52 @@ final class TextTransportTests: XCTestCase {
         XCTAssertEqual(model.requestedFps, 15)
     }
 
+    // MARK: Upload ownership (audit A26)
+    //
+    // Honest scope: both tests below were checked against the pre-fix code and
+    // PASS there too, so neither pins A26. They characterize the properties the
+    // revision ownership is supposed to guarantee, which is worth having where
+    // there was no coverage at all, but the defect itself needs an interleaving
+    // this harness cannot create: a superseded upload still in flight while a
+    // newer one runs, so the loser's `defer`/`catch` lands on the winner's
+    // state. `RecordingTextTransport` replies immediately and has no hold hook,
+    // and `Task.yield()` is too coarse — the old code set `isUploading` before
+    // its first real `await`, so the second send was rejected anyway.
+
+    /// Admission is synchronous, so one send produces one upload.
+    func testSecondSendIsRejectedWhileTheFirstUploadIsStarting() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        model.text = "Race"
+
+        let first = Task { await model.send(connection: connection) }
+        await Task.yield()
+        await model.send(connection: connection)
+        await first.value
+
+        // One upload produces two begins against this recorder: `scroll_bitmap`
+        // fails its timeline check on the bare `ok` reply and falls back to the
+        // per-frame `scroll` path. The bitmap begins are the upload attempts.
+        let attempts = transport.blobBegins.filter { ($0["kind"] as? String) == "scroll_bitmap" }
+        XCTAssertEqual(attempts.count, 1,
+                       "a second send must not start a second upload")
+        XCTAssertFalse(model.isUploading, "the finished upload must leave the flag clear")
+        XCTAssertNil(model.errorMessage, "a rejected second send must not report an error")
+    }
+
+    /// A superseded upload's unwinding leaves no stuck busy flag or phase.
+    func testUploadSupersededMidFlightLeavesNoStuckStateOrSpuriousError() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        model.text = "Superseded"
+        transport.onBlobBegin = { model.releaseOutput() }
+
+        await model.send(connection: connection)
+
+        XCTAssertFalse(model.isUploading, "a superseded upload must not leave the model busy")
+        XCTAssertNil(model.localPhase, "the phase must not be left mid-upload")
+    }
+
     // MARK: Helpers
 
     private func connectedBoard() async throws -> (BoardConnection, RecordingTextTransport) {
