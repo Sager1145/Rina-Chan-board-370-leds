@@ -12,6 +12,14 @@ struct RinaAppBackdrop: View {
     /// Optional so previews without the app environment still render.
     @Environment(BootLoaderModel.self) private var bootLoader: BootLoaderModel?
 
+    /// Tracks whether this instance's page is actually on screen: a page
+    /// covered by a `NavigationStack` push stays mounted (its `onAppear` has
+    /// already fired and does not fire again on the pop back to it), but
+    /// should not keep drawing star frames while hidden underneath. Starts
+    /// `false` so a freshly pushed page does not draw a frame before its own
+    /// `onAppear` runs.
+    @State private var isPageVisible = false
+
     /// `-disableStarAnimation YES` freezes the stars at a fixed point in
     /// their cycle (`RinaStarfieldSourceSpec.snapshotTime`), generated from a
     /// fixed seed, so automated screenshots are pixel-stable.
@@ -30,11 +38,14 @@ struct RinaAppBackdrop: View {
             // Held still while the boot loader plays: it is tuned to keep the
             // main thread quiet during launch.
             RinaStarfield(isPaused: bootLoader?.isVisible ?? false,
-                          isFrozen: Self.isFrozen)
+                          isFrozen: Self.isFrozen,
+                          isPageVisible: isPageVisible)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        .onAppear { isPageVisible = true }
+        .onDisappear { isPageVisible = false }
     }
 }
 

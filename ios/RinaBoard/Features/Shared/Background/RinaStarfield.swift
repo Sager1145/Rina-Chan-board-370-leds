@@ -77,6 +77,14 @@ struct RinaStarfield: View {
     /// Draws the fixed-seed, fixed-time layout instead of the live one — for
     /// pixel-stable screenshots (`-disableStarAnimation YES`).
     var isFrozen = false
+    /// Whether the hosting page is actually on screen (not covered by a
+    /// `NavigationStack` push). Only stops this instance's own frames — it
+    /// does not feed into `RinaStarClock`, which stays governed by the
+    /// existing `isRunning` conditions below (scenePhase, Reduce Motion,
+    /// screenshot freeze) shared by every mounted instance alike. `true` by
+    /// default so previews and other callers that do not track visibility
+    /// keep drawing.
+    var isPageVisible = true
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -85,10 +93,15 @@ struct RinaStarfield: View {
         let isRunning = !isFrozen && !reduceMotion && !isPaused && scenePhase == .active
         GeometryReader { proxy in
             let elements = RinaStarLayout.shared.elements(viewportWidth: proxy.size.width, seeded: isFrozen)
-            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !isRunning)) { timeline in
+            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !(isRunning && isPageVisible))) { timeline in
                 let time: TimeInterval = isFrozen
                     ? RinaStarfieldSourceSpec.snapshotTime
                     : (reduceMotion ? 0 : RinaStarClock.shared.time(at: timeline.date))
+                // Energy investigation (PR-12): lets a signpost trace show
+                // whether this instance's timeline content closure keeps
+                // firing while its page is not visible (background tab,
+                // covered NavigationStack push).
+                let _ = RinaPerf.signposter.emitEvent("StarfieldFrame")
                 Canvas(rendersAsynchronously: true) { context, size in
                     Self.draw(elements: elements, in: &context, size: size, time: time)
                 }
