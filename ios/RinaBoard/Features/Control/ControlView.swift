@@ -30,6 +30,14 @@ struct ControlView: View {
     @State private var isShowingSavedFaces = false
 
     private var isConnected: Bool { connection.connectionState == .connected }
+    /// Names the save alert's destination (DEF-05) so a title alone tells the
+    /// user where the face is going, reusing `FaceLibraryLocation`'s own
+    /// wording instead of inventing new terms for the same two places.
+    private var saveDestinationTitle: String {
+        let location: FaceLibraryLocation = isConnected ? .board : .local
+        return String(format: NSLocalizedString("保存到%@", comment: "save alert title naming its destination"),
+                      location.title)
+    }
     private var boardColor: Color { controlCenter.draftColor }
     private var boardBrightness: Int { controlCenter.draftBrightness }
 
@@ -55,25 +63,40 @@ struct ControlView: View {
             // No navigation bar, so the list's default top margin only pushes
             // the board away from the status bar.
             .contentMargins(.top, 0, for: .scrollContent)
-            .alert("保存表情", isPresented: $isNamingSave) {
+            .alert(saveDestinationTitle, isPresented: $isNamingSave) {
                 TextField("名称", text: $saveNameDraft)
                 Button("取消", role: .cancel) {}
                 Button("保存") {
                     Task {
                         if savesAsNew { model.startNewFace() }
                         model.saveName = saveNameDraft
-                        let payload = model.upsertPayload(using: faceLibrary)
-                        let source = model.boardFaceSaveSource
-                        let destination = BoardFaceSaveSource(
-                            boardID: connection.boardKey,
-                            generation: connection.connectionGeneration
-                        )
-                        // Only record the save when the board actually took it;
-                        // `.failed` leaves the editor's state untouched.
-                        if case .saved(let id) = await faceLibrary.save(
-                            payload, source: source, connection: connection
-                        ) {
-                            model.didSave(as: id, on: destination)
+                        if isConnected {
+                            let payload = model.upsertPayload(using: faceLibrary)
+                            let source = model.boardFaceSaveSource
+                            let destination = BoardFaceSaveSource(
+                                boardID: connection.boardKey,
+                                generation: connection.connectionGeneration
+                            )
+                            // Only record the save when the board actually took it;
+                            // `.failed` leaves the editor's state untouched.
+                            if case .saved(let id) = await faceLibrary.save(
+                                payload, source: source, connection: connection
+                            ) {
+                                model.didSave(as: id, on: destination)
+                            }
+                        } else {
+                            // No board to hand the face to (DEF-05): save the
+                            // draft into the local library instead of gating
+                            // saving on a connection the user may not have.
+                            let payload = faceLibrary.upsertPayload(
+                                editingFaceId: model.editingLocation == .local ? model.editingFaceId : nil,
+                                location: .local,
+                                name: model.saveName,
+                                frame: model.draftFrame,
+                                fromParts: model.fromParts,
+                                call: model.selectedCall
+                            )
+                            _ = await faceLibrary.saveLocal(payload)
                         }
                     }
                 }
@@ -197,7 +220,6 @@ struct ControlView: View {
                 } label: {
                     CommandChip("保存", systemImage: "square.and.arrow.down.fill")
                 }
-                .disabled(!isConnected)
                 .confirmationDialog("保存表情", isPresented: $isChoosingSaveTarget) {
                     Button("覆盖原表情") {
                         savesAsNew = false
