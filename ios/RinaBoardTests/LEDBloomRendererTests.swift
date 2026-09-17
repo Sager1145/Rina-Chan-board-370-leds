@@ -25,14 +25,27 @@ private struct PR7BloomSplitMix64: RandomNumberGenerator {
 private struct RoundedSegment: Hashable {
     let fromX, fromY, toX, toY: Int
 
-    init(from: CGPoint, to: CGPoint, layout: LEDBoardLayout) {
-        func corner(_ v: CGFloat, origin: CGFloat) -> Int {
-            Int(((v - origin) / layout.cell).rounded())
+    init(from: CGPoint, to: CGPoint, layout: LEDBoardLayout,
+         file: StaticString = #filePath, line: UInt = #line) {
+        // Rounding to the nearest grid corner tolerates float round-trip error
+        // from `Path.applying`, but on its own it also tolerates up to half a
+        // cell (5.65 pt here) of genuine error — a small scale mistake or a
+        // tx/ty mix-up could round to the "right" corner anyway. So also
+        // assert each coordinate really sits on the corner it rounded to.
+        func corner(_ v: CGFloat, origin: CGFloat, axis: String) -> Int {
+            let k = ((v - origin) / layout.cell).rounded()
+            let expected = origin + k * layout.cell
+            XCTAssertTrue(
+                abs(v - expected) < 1e-3 * layout.cell,
+                "\(axis) coordinate \(v) is not on grid corner \(Int(k)) (expected \(expected), off by \(abs(v - expected)))",
+                file: file, line: line
+            )
+            return Int(k)
         }
-        fromX = corner(from.x, origin: layout.origin.x)
-        fromY = corner(from.y, origin: layout.origin.y)
-        toX = corner(to.x, origin: layout.origin.x)
-        toY = corner(to.y, origin: layout.origin.y)
+        fromX = corner(from.x, origin: layout.origin.x, axis: "fromX")
+        fromY = corner(from.y, origin: layout.origin.y, axis: "fromY")
+        toX = corner(to.x, origin: layout.origin.x, axis: "toX")
+        toY = corner(to.y, origin: layout.origin.y, axis: "toY")
     }
 }
 

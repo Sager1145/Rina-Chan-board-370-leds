@@ -122,6 +122,19 @@ public enum LEDContourBuilder {
             outA[corner] >= 0 || outB[corner] >= 0
         }
 
+        // A single ascending scan over corners is only correct because a
+        // corner that starts a walk here has exactly one unused outgoing
+        // edge at that moment: at any corner, the (up to) four surrounding
+        // cells form a cycle, so lit/unlit transitions around it produce at
+        // most two outgoing edges, and in-degree equals out-degree. The
+        // lowest-keyed corner that still has edges left cannot be a pinch
+        // vertex (one with two outgoing edges remaining), because its west
+        // or north neighbour would then still hold an unused outgoing edge
+        // too, and that neighbour has a lower key — contradicting that this
+        // is the lowest-keyed corner with edges left. So every walk we start
+        // below drains exactly one edge from its start corner before
+        // continuing, and the scan never revisits a corner it already
+        // fully drained.
         for startKey in 0..<cornerCount where remaining > 0 && hasOutgoing(startKey) {
             contourStarts.append(corners.count)
             var current = startKey
@@ -132,6 +145,7 @@ public enum LEDContourBuilder {
                 if current == startKey { break }
             }
         }
+        assert(remaining == 0)
 
         return LEDContours(corners: corners, contourStarts: contourStarts)
     }

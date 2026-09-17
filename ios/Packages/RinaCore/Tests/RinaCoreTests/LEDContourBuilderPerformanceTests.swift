@@ -78,14 +78,24 @@ final class LEDContourBuilderPerformanceTests: XCTestCase {
         var key: Int { y * (MatrixGeometry.cols + 1) + x }
     }
 
+    /// LED index → grid cell, precomputed once outside the timed region —
+    /// matching how `LEDContourBuilder` reads its own precomputed `ledCells`
+    /// table rather than calling `MatrixGeometry.xy(ofLed:)` per lit LED.
+    /// Without this, the reference does strictly more work than production
+    /// code ever did, biasing the ratio in the builder's favour.
+    private static let ledCells: [(x: Int, y: Int)?] = {
+        (0..<MatrixGeometry.ledCount).map { MatrixGeometry.xy(ofLed: $0) }
+    }()
+
     private func referenceContours(for frame: PackedFrame) -> (corners: [Int], starts: [Int]) {
         let cols = MatrixGeometry.cols
         let rows = MatrixGeometry.rows
+        let ledCells = Self.ledCells
 
         var lit = [Bool](repeating: false, count: cols * rows)
         var anyLit = false
         for led in 0..<MatrixGeometry.ledCount where frame[led] {
-            guard let (x, y) = MatrixGeometry.xy(ofLed: led) else { continue }
+            guard let (x, y) = ledCells[led] else { continue }
             lit[y * cols + x] = true
             anyLit = true
         }
