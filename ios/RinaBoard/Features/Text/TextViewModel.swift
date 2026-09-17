@@ -711,8 +711,8 @@ final class TextViewModel {
                     self.pll.tick()
                     RinaPerf.signposter.emitEvent("TextPreviewTick")
                 }
-                // `nextDelayMs` above can also move `lockState`, so sync once
-                // per iteration regardless of whether this one ticked.
+                // Sync again after a real tick moves `displayIndex` (the sync
+                // above only covers `nextDelayMs`'s own effect on `lockState`).
                 self.syncPlayhead()
             }
         }

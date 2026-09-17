@@ -23,22 +23,44 @@ final class TextPreviewInvalidationTests: XCTestCase {
     private static let expectedTicks = 25
 
     private var connection: BoardConnection?
+    private var model: TextViewModel?
+    private var window: UIWindow?
+    /// The test host's own key window, taken over by `makeKeyAndVisible()`
+    /// below; restored in `tearDown` so this test cannot leave another
+    /// agent's simulator session (or a later test) without a key window.
+    private var previousKeyWindow: UIWindow?
 
     override func tearDown() {
+        model?.suspendPreviewLoop()
+        model = nil
+        window?.isHidden = true
+        window?.rootViewController = nil
+        window = nil
+        previousKeyWindow?.makeKeyAndVisible()
+        previousKeyWindow = nil
         connection?.disconnect()
         connection = nil
         super.tearDown()
     }
 
     func testPreviewTicksDoNotReevaluateParentBody() async throws {
+        // A backgrounded host (another agent's simulator work stealing focus)
+        // suspends the preview loop via `scenePhase`, which would fail this
+        // test for a reason unrelated to what it's checking.
+        try XCTSkipUnless(UIApplication.shared.applicationState == .active,
+                          "requires the host app to be foregrounded for real render passes")
+
         let (connection, model) = try await boundPlayingModel()
         self.connection = connection
+        self.model = model
 
         let scene = try XCTUnwrap(
             UIApplication.shared.connectedScenes.first as? UIWindowScene,
             "hosted tests need a real scene to get render passes"
         )
+        previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
+        self.window = window
         let hosting = UIHostingController(
             rootView: ScrollTextView()
                 .environment(connection)
@@ -65,18 +87,25 @@ final class TextPreviewInvalidationTests: XCTestCase {
 
         print("[TextPreviewInvalidation] observedTicks=\(observedTicks) parentDelta=\(parentDelta) previewDelta=\(previewDelta)")
 
-        model.suspendPreviewLoop()
-        window.isHidden = true
-        window.rootViewController = nil
-
         // The playhead must have genuinely advanced, not merely stayed put.
+        // `frameCount` is guarded well above `expectedTicks` below, so this
+        // can never be a same-index wrap back onto the baseline.
         XCTAssertNotEqual(model.displayIndex, displayIndexBaseline)
         let ticksThreshold = Int(Double(Self.expectedTicks) * 0.3)
         XCTAssertGreaterThanOrEqual(observedTicks, ticksThreshold,
                                     "expected at least 30% of ~\(Self.expectedTicks) ticks in the wait window")
-        XCTAssertGreaterThanOrEqual(previewDelta, ticksThreshold,
-                                    "the preview subview should re-render for most observed ticks")
-        XCTAssertLessThanOrEqual(parentDelta, 3,
+        // Derived from what actually happened, not the static target, so a
+        // regression that drops most (but not all) preview re-renders still
+        // fails this instead of only being checked against a fixed floor.
+        XCTAssertGreaterThanOrEqual(previewDelta, observedTicks - 2,
+                                    "the preview subview must re-render for essentially every observed tick")
+        // Window-proportional, not a fixed constant: under machine load the
+        // window can stretch well past 1 s, during which a couple of
+        // legitimate one-off invalidations (mount's `.task`, `onAppear`)
+        // are expected and must not fail this test — but the bound must
+        // still stay far below the tick count so a per-tick regression trips it.
+        let parentBound = max(3, observedTicks / 8)
+        XCTAssertLessThanOrEqual(parentDelta, parentBound,
                                  "the Text tab's parent body must not re-evaluate on every preview tick")
     }
 
@@ -98,7 +127,11 @@ final class TextPreviewInvalidationTests: XCTestCase {
         await model.send(connection: connection)
 
         XCTAssertNotNil(model.boundTimelineId, "send must bind a timeline for the preview loop to tick")
-        XCTAssertGreaterThan(model.frameCount, 10)
+        // Well above `expectedTicks` so the loop cannot wrap the ring back
+        // onto the baseline index within the wait window — a shorter
+        // fixture later could otherwise make `testPreviewTicksDoNotReevaluateParentBody`'s
+        // "actually advanced" check pass by accident.
+        XCTAssertGreaterThan(model.frameCount, Self.expectedTicks * 2)
         return (connection, model)
     }
 
