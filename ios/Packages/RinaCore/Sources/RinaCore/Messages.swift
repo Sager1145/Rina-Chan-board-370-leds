@@ -16,7 +16,11 @@ import Foundation
 enum FlexibleNumber {
     static func int(from container: KeyedDecodingContainer<Messages_CodingKeyAny>, key: Messages_CodingKeyAny) -> Int? {
         if let i = try? container.decodeIfPresent(Int.self, forKey: key) { return i }
-        if let d = try? container.decodeIfPresent(Double.self, forKey: key) { return Int(d) }
+        if let d = try? container.decodeIfPresent(Double.self, forKey: key) {
+            // Truncate toward zero as before, but reject non-finite/out-of-range
+            // values instead of trapping: these fields come straight off the wire.
+            return Int(exactly: d.rounded(.towardZero))
+        }
         return nil
     }
     static func double(from container: KeyedDecodingContainer<Messages_CodingKeyAny>, key: Messages_CodingKeyAny) -> Double? {

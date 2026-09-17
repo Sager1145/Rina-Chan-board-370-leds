@@ -143,7 +143,7 @@ public struct ScrollPreviewController {
         guard sample.valid != false else { return .ok }
         guard
             let fc = sample.presentedFrameCount ?? sample.frameCount, fc > 0,
-            let frameIndex = sample.presentedFrameIndex ?? sample.frameIndex,
+            let rawFrameIndex = sample.presentedFrameIndex ?? sample.frameIndex,
             let seq = sample.presentedSeq
         else { return .ok }
 
@@ -153,6 +153,13 @@ public struct ScrollPreviewController {
         if fc != frameCount {
             return .identityMismatch
         }
+
+        // Normalize the reported index onto the ring before any arithmetic. A
+        // malformed or hostile `presentedFrameIndex` near `Int.min`/`Int.max`
+        // would otherwise trap in the signed subtractions inside
+        // `shortestRingDelta`/`forwardFrameDelta`. Ring deltas are invariant
+        // modulo `frameCount`, so this does not change well-formed behavior.
+        let frameIndex = ((rawFrameIndex % frameCount) + frameCount) % frameCount
 
         // Ignore duplicated/out-of-order presentation packets, but still accept
         // pause changes carried on the same latched frame.
@@ -172,27 +179,26 @@ public struct ScrollPreviewController {
         let stepping = Self.steppingSources.contains(source)
 
         if paused || stepping {
-            let normalized = ((frameIndex % frameCount) + frameCount) % frameCount
-            displayIndex = normalized
-            ignoreRateUntilSeq = max(ignoreRateUntilSeq, seq + 2)
+            displayIndex = frameIndex
+            ignoreRateUntilSeq = max(ignoreRateUntilSeq, seq < Int.max - 2 ? seq + 2 : Int.max)
             lockState = .free
             phaseError = 0
             hwSamples.removeAll()
             if !paused {
-                let age = max(0, Double((sample.sampledAtUs ?? sample.presentedAtUs ?? 0)
-                    - (sample.presentedAtUs ?? 0)) / 1000)
+                let age = max(0, (Double(sample.sampledAtUs ?? sample.presentedAtUs ?? 0)
+                    - Double(sample.presentedAtUs ?? 0)) / 1000)
                 nextAlignedTickMs = nowMs + max(1, previewIntervalMs - age)
             } else { nextAlignedTickMs = nil }
-            return .snapped(normalized)
+            return .snapped(frameIndex)
         }
 
         if duplicate { return .ok }
         if needsAnchor || abs(shortestRingDelta(frameIndex, displayIndex, frameCount)) > 2 {
-            displayIndex = ((frameIndex % frameCount) + frameCount) % frameCount
+            displayIndex = frameIndex
             phaseError = 0
             let ageMs: Double
             if let sampled = sample.sampledAtUs, let presented = sample.presentedAtUs {
-                ageMs = max(0, Double(sampled - presented) / 1000)
+                ageMs = max(0, (Double(sampled) - Double(presented)) / 1000)
             } else { ageMs = 0 }
             nextAlignedTickMs = nowMs + max(1, previewIntervalMs - ageMs)
             if needsAnchor { hwSamples.removeAll() }
