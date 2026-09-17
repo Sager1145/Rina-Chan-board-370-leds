@@ -522,6 +522,9 @@ public final class BoardConnection {
         protocolVersion = nil
         boardIdentity = nil
         setupDefaultName = nil
+        // A generation only means anything within the carrier that reported it:
+        // another client may have mutated the document while we were away.
+        facesGen = nil
     }
 
     /// Read a snapshot even when the firmware has no new events to publish.
@@ -1045,6 +1048,11 @@ public final class BoardConnection {
                 throw error
             }
         }
+        // Record the generation this document was read at, so the next face op
+        // has something real to compare its reply against. Without this the
+        // expectation stayed `nil` after every reload and the first mutation
+        // was declared in sync unconditionally.
+        if let gen { facesGen = Int(gen) }
         return result
     }
 
@@ -1270,8 +1278,10 @@ public final class BoardConnection {
             return try JSONDecoder().decode(FaceOpReply.self, from: frame.payload)
         }
         if let gen = reply.gen {
-            let expected = facesGen.map { $0 + 1 }
-            lastFaceOpGenMatchedExpectation = (expected == nil) || (gen == expected)
+            // With no generation observed for this carrier there is no basis to
+            // claim that nobody else mutated `saved_faces.json`, so callers must
+            // take the reload path rather than apply an optimistic mutation.
+            lastFaceOpGenMatchedExpectation = facesGen.map { gen == $0 + 1 } ?? false
             facesGen = gen
         }
         return reply

@@ -226,7 +226,15 @@ struct PresetLiveView: View {
         Binding(
             get: { model.selectedBuiltIn ?? Self.customSelection },
             set: { choice in
-                guard let choice, choice != Self.customSelection else { return }
+                guard let choice else { return }
+                // Picking the sentinel means "leave this song, go back to my own
+                // material". It used to be discarded here, and since nothing else
+                // calls `enterCustom()`, custom mode became unreachable for the
+                // rest of the install once any built-in had been selected.
+                guard choice != Self.customSelection else {
+                    model.enterCustom()
+                    return
+                }
                 guard let performance = model.builtInPerformances.first(where: { $0.id == choice }) else { return }
                 model.selectBuiltIn(performance)
             }
