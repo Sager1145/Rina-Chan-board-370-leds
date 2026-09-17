@@ -667,41 +667,79 @@ final class ControlViewModel {
     /// the fetch exactly once more (for whichever connection was most
     /// recently requested — important across a board switch) if a request
     /// arrived while it was busy.
+    ///
+    /// If the owner's own task is cancelled while a request is still
+    /// pending, that request is not dropped: one parked waiter — whose own
+    /// task is still live — inherits ownership and finishes it, so a board
+    /// switch's new entry refresh is never swallowed just because the old
+    /// owner was torn down first.
     func refreshBoardDisplay(connection: BoardConnection) async {
         guard !boardDisplayFetchOwnerActive else {
             boardDisplayFetchPendingConnection = connection
-            await waitForBoardDisplayFetchOwner()
+            if let promoted = await waitForBoardDisplayFetchOwner() {
+                await runBoardDisplayFetchOwnerLoop(connection: promoted)
+            }
             return
         }
+        await runBoardDisplayFetchOwnerLoop(connection: connection)
+    }
+
+    @ObservationIgnored private var boardDisplayFetchOwnerActive = false
+    @ObservationIgnored private var boardDisplayFetchPendingConnection: BoardConnection?
+    private struct BoardDisplayFetchWaiter {
+        let id: UUID
+        /// Non-nil when this waiter is being handed ownership (with the
+        /// connection to serve); nil when its request was otherwise served
+        /// or it can just stop waiting.
+        let continuation: CheckedContinuation<BoardConnection?, Never>
+    }
+    @ObservationIgnored private var boardDisplayFetchWaiters: [BoardDisplayFetchWaiter] = []
+
+    private func runBoardDisplayFetchOwnerLoop(connection: BoardConnection) async {
         boardDisplayFetchOwnerActive = true
-        defer {
-            boardDisplayFetchOwnerActive = false
-            resumeAllBoardDisplayFetchWaiters()
-        }
         var currentConnection = connection
         while true {
             boardDisplayFetchPendingConnection = nil
             await performBoardDisplayFetch(connection: currentConnection)
-            guard !Task.isCancelled, let pending = boardDisplayFetchPendingConnection else { return }
+            if Task.isCancelled {
+                handOffBoardDisplayFetchOwnership()
+                return
+            }
+            guard let pending = boardDisplayFetchPendingConnection else {
+                boardDisplayFetchOwnerActive = false
+                resumeAllBoardDisplayFetchWaiters()
+                return
+            }
             currentConnection = pending
         }
     }
 
-    private var boardDisplayFetchOwnerActive = false
-    private var boardDisplayFetchPendingConnection: BoardConnection?
-    private struct BoardDisplayFetchWaiter {
-        let id: UUID
-        let continuation: CheckedContinuation<Void, Never>
+    /// Only reached once this owner's own task is cancelled. A parked
+    /// waiter's task is still live, so — if a request is still pending — one
+    /// waiter inherits ownership and finishes it there; everyone else is
+    /// simply released, and a pending request with nobody left to serve it
+    /// (its waiter cancelled too) is dropped rather than retained forever.
+    private func handOffBoardDisplayFetchOwnership() {
+        boardDisplayFetchOwnerActive = false
+        guard let pending = boardDisplayFetchPendingConnection, !boardDisplayFetchWaiters.isEmpty else {
+            boardDisplayFetchPendingConnection = nil
+            resumeAllBoardDisplayFetchWaiters()
+            return
+        }
+        boardDisplayFetchPendingConnection = nil
+        let successor = boardDisplayFetchWaiters.removeFirst()
+        resumeAllBoardDisplayFetchWaiters()
+        successor.continuation.resume(returning: pending)
     }
-    private var boardDisplayFetchWaiters: [BoardDisplayFetchWaiter] = []
 
-    /// Parks until the current owner's fetch (and any rerun it picks up)
-    /// finishes. Cancelling the waiting task resumes and removes only this
-    /// waiter — the owner's own fetch is untouched.
-    private func waitForBoardDisplayFetchOwner() async {
+    /// Parks until either released (the owner served or dropped this
+    /// request) or handed ownership (returns the connection to serve).
+    /// Cancelling the waiting task resumes and removes only this waiter —
+    /// the owner's own fetch, or another waiter, is untouched.
+    private func waitForBoardDisplayFetchOwner() async -> BoardConnection? {
         let id = UUID()
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<BoardConnection?, Never>) in
                 boardDisplayFetchWaiters.append(BoardDisplayFetchWaiter(id: id, continuation: continuation))
             }
         } onCancel: {
@@ -715,13 +753,13 @@ final class ControlViewModel {
     private func resumeAndRemoveBoardDisplayFetchWaiter(id: UUID) {
         guard let index = boardDisplayFetchWaiters.firstIndex(where: { $0.id == id }) else { return }
         let waiter = boardDisplayFetchWaiters.remove(at: index)
-        waiter.continuation.resume()
+        waiter.continuation.resume(returning: nil)
     }
 
     private func resumeAllBoardDisplayFetchWaiters() {
         let waiters = boardDisplayFetchWaiters
         boardDisplayFetchWaiters.removeAll()
-        for waiter in waiters { waiter.continuation.resume() }
+        for waiter in waiters { waiter.continuation.resume(returning: nil) }
     }
 
     private func performBoardDisplayFetch(connection: BoardConnection) async {

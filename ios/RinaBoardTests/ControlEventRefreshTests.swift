@@ -317,7 +317,9 @@ final class ControlEventRefreshTests: XCTestCase {
 
     func testCancelledOwnerDoesNotAdoptFrameAfterCancellation() async throws {
         let (model, connection, transport) = try await connectedFixture()
-        transport.getFrameDelay = .milliseconds(150)
+        // A large in-flight delay against a 100 ms bound gives far more
+        // discrimination than a 150 ms delay would on a heavily loaded Mac.
+        transport.getFrameDelay = .milliseconds(600)
         var differing = PackedFrame()
         differing.set(7)
         transport.displayFrame = differing
@@ -337,14 +339,14 @@ final class ControlEventRefreshTests: XCTestCase {
                           "Cancelling the caller must cancel the in-flight fetch, not wait for it")
 
         // Give the (now-ignored) reply time to land; it must never adopt.
-        try await Task.sleep(for: .milliseconds(250))
+        try await Task.sleep(for: .milliseconds(700))
         XCTAssertEqual(model.draftFrame, before,
                        "A cancelled fetch must never adopt a frame that lands after teardown")
     }
 
     func testCancelledWaiterReturnsPromptlyWithoutCancellingTheFetch() async throws {
         let (model, connection, transport) = try await connectedFixture()
-        transport.getFrameDelay = .milliseconds(150)
+        transport.getFrameDelay = .milliseconds(600)
         var bumped = PackedFrame()
         bumped.set(11)
         transport.displayFrame = bumped
@@ -364,6 +366,38 @@ final class ControlEventRefreshTests: XCTestCase {
         await ownerTask.value
         XCTAssertEqual(model.draftFrame, bumped,
                        "Cancelling a waiter must never cancel the fetch it was waiting on")
+    }
+
+    func testCancelledOwnerHandsOffToAParkedWaiterInsteadOfDroppingItsRequest() async throws {
+        let (model, connection, transport) = try await connectedFixture()
+        transport.getFrameDelay = .milliseconds(300)
+        var bumped = PackedFrame()
+        bumped.set(23)
+
+        // Owner fetch #1 starts; it will be cancelled mid-flight.
+        let ownerTask = Task { await model.refreshBoardDisplay(connection: connection) }
+        await waitUntil { transport.getFrameStarted >= 1 }
+
+        // A waiter parks behind it, requesting a refresh of its own.
+        let waiterTask = Task { await model.refreshBoardDisplay(connection: connection) }
+        try await Task.sleep(for: .milliseconds(20)) // let it actually park
+
+        // The frame the waiter is trying to observe only lands once the
+        // owner is cancelled — mirroring a board switch tearing down the
+        // old owner's `.task(id:)` right as the new tab's request parks.
+        transport.displayFrame = bumped
+        ownerTask.cancel()
+        await ownerTask.value
+
+        // The waiter's own task is still live: it must inherit ownership and
+        // actually run a fetch, not just be released having served nothing
+        // (which would leave the preview stale until the 1 Hz fallback).
+        await waiterTask.value
+        await waitUntil { model.draftFrame == bumped }
+        XCTAssertEqual(model.draftFrame, bumped,
+                       "A parked waiter's request must be served, not dropped, when the owner is cancelled")
+        XCTAssertGreaterThanOrEqual(transport.getFrameStarted, 2,
+                                    "The handed-off request must actually run its own fetch")
     }
 
     // MARK: Fixture
