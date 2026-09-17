@@ -320,6 +320,37 @@ final class ControlEventRefreshTests: XCTestCase {
                        "A cancelled fetch must never adopt a frame that lands after teardown")
     }
 
+    /// The property the single-flight removal (perf PR-12) now relies on: a
+    /// `BoardSyncCoordinator`-style direct call overlapping the loop's own
+    /// in-flight fetch is harmless. Neither caller coordinates with the
+    /// other, so both requests are genuinely concurrent; the draft must
+    /// still converge on the board's current frame rather than getting
+    /// corrupted or stuck on a stale value.
+    func testDirectCallOverlappingALoopFetchIsHarmlessAndConvergesOnTheNewerFrame() async throws {
+        let (model, connection, transport) = try await connectedFixture()
+        model.refreshTiming.reconciliationInterval = .seconds(1000) // isolate from the 1 Hz tick
+        transport.getFrameDelay = .milliseconds(150)
+
+        let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
+        await waitUntil { transport.getFrameStarted >= 1 } // the loop's entry fetch is in flight
+
+        // A direct, uncoordinated call — exactly what `BoardSyncCoordinator`
+        // does — fires while that fetch is still in flight, against a newer
+        // frame than the one the loop's fetch was issued against.
+        var newer = PackedFrame()
+        newer.set(23)
+        transport.displayFrame = newer
+        await model.refreshBoardDisplay(connection: connection)
+
+        await waitUntil { model.draftFrame == newer }
+        XCTAssertEqual(model.draftFrame, newer,
+                       "An uncoordinated direct call overlapping the loop's fetch must still converge " +
+                       "on the board's current frame")
+
+        task.cancel()
+        await task.value
+    }
+
     // MARK: Fixture
 
     private func connectedFixture(

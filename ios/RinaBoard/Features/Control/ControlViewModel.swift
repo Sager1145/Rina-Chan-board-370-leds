@@ -650,8 +650,8 @@ final class ControlViewModel {
 
     // MARK: Board display synchronization
 
-    /// Read serially so slow links never accumulate preview requests. A local
-    /// edit or output handoff during the read makes that response obsolete.
+    /// A local edit or output handoff during the read makes that response
+    /// obsolete — see the guards below and `adoptBoardFrameIfUntouched`.
     ///
     /// This preview only mirrors a board in Control mode. Text, lip-sync,
     /// performance and video frames belong to their own tabs' previews.
@@ -662,22 +662,19 @@ final class ControlViewModel {
     /// and the post-fetch guard below still runs: a reply that lands after
     /// teardown is ignored rather than clobbering the draft.
     ///
-    /// Deliberately *not* single-flighted across callers (the event-driven
+    /// Deliberately *not* single-flighted across callers: the event-driven
     /// loop, the legacy poll, and `BoardSyncCoordinator`'s direct call each
-    /// call this independently). The loop already serialises its own
-    /// fetches — one `AsyncStream` consumer that awaits each fetch before
-    /// pulling the next trigger, coalescing a burst via
-    /// `.bufferingNewest(1)` (see `runEventDrivenDisplayRefreshLoop`) — so it
-    /// never races itself. A loop fetch racing `BoardSyncCoordinator`'s
-    /// direct call is the same harmless overlap the pre-PR-12 200 ms poll
-    /// always allowed: the guards below and `adoptBoardFrameIfUntouched`'s
-    /// own untouched-check make a redundant or stale `getFrame()` a no-op,
-    /// not a correctness risk. An earlier revision added cross-caller
-    /// single-flight with an ownership hand-off for cancellation; two
-    /// independent reviews found real dropped-request and
-    /// duplicate-fetch defects in that machinery before it shipped, for a
-    /// guarantee ("zero concurrent GET_FRAMEs system-wide") no caller
-    /// actually depends on — so it was removed rather than patched again.
+    /// call this independently, with no coordination between them. The loop
+    /// serialises its own fetches (one `AsyncStream` consumer that awaits
+    /// each fetch before pulling the next trigger, coalescing a burst via
+    /// `.bufferingNewest(1)` — see `runEventDrivenDisplayRefreshLoop`) and
+    /// the legacy poll runs in that same task before the loop ever starts
+    /// (see `runDisplayRefreshLoop`), so neither can race itself or the
+    /// other. A loop fetch racing `BoardSyncCoordinator`'s direct call is the
+    /// same harmless overlap the pre-PR-12 200 ms poll always allowed: a
+    /// redundant or stale `getFrame()` lands as a no-op rather than a
+    /// correctness risk (see the stale-adopt window note on
+    /// `runEventDrivenDisplayRefreshLoop`).
     func refreshBoardDisplay(connection: BoardConnection) async {
         guard connection.connectionState == .connected, !hasUnsentChanges, !isSending,
               boardIsInControlMode(connection) else { return }
@@ -716,14 +713,21 @@ final class ControlViewModel {
         var legacyPollInterval: Duration = .milliseconds(200)
     }
 
-    var refreshTiming = RefreshTiming()
+    // `refreshTiming` is an internal mutable seam whose only consumer is the
+    // test suite; it is not mutated in production, so it is not writable (or
+    // visible to `@testable` mutation) outside DEBUG builds.
+    #if DEBUG
+    @ObservationIgnored var refreshTiming = RefreshTiming()
+    #else
+    @ObservationIgnored private let refreshTiming = RefreshTiming()
+    #endif
     /// Set while the event-driven loop below is running, so an out-of-band
     /// mode flip (`boardModeSynchronized`) can wake it immediately instead of
     /// waiting for the next version bump or reconciliation tick. Guarded by
     /// `displayRefreshRunToken` so a loop that is cancelled and unwinding
     /// (e.g. `.task(id:)` restarting) can never clear a newer loop's trigger.
-    private var displayRefreshTrigger: AsyncStream<Void>.Continuation?
-    private var displayRefreshRunToken: UUID?
+    @ObservationIgnored private var displayRefreshTrigger: AsyncStream<Void>.Continuation?
+    @ObservationIgnored private var displayRefreshRunToken: UUID?
 
     private static func statusVersion(_ connection: BoardConnection) -> Int? {
         connection.status?.v ?? connection.status?.version
@@ -768,6 +772,20 @@ final class ControlViewModel {
     /// afterward. It does not coordinate with other callers of
     /// `refreshBoardDisplay` (e.g. `BoardSyncCoordinator`'s direct call); see
     /// that function's doc comment for why.
+    ///
+    /// That lack of coordination widens (but does not introduce) a stale-adopt
+    /// window: draft mirrors `F0`; this loop issues a fetch that will read
+    /// `F1`; the board flips back to `F0`; `BoardSyncCoordinator`'s fetch
+    /// reads that `F0` and lands first as a same-frame no-op, so `snapshot ==
+    /// before` still holds when this loop's fetch lands with the now-stale
+    /// `F1`, and it gets adopted. Pre-PR-12, the 200 ms poll made the same
+    /// race self-heal within ≤200 ms; the 1 Hz reconciliation tick now heals
+    /// it within ≤1 s instead — still comfortably inside INV-4's 3 s
+    /// convergence budget (`docs/STRESS_TEST_DUAL_BOARD_PLAN_ZH.md`). It can
+    /// never touch undo history or `editingFaceId`, because every path that
+    /// would (a real edit, a save, loading a face) sets `userHasEdited` first,
+    /// and `adoptBoardFrameIfUntouched` refuses once that's set. This is
+    /// accepted, expected behavior — not a bug to rediscover.
     private func runEventDrivenDisplayRefreshLoop(connection: BoardConnection) async {
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let token = UUID()
