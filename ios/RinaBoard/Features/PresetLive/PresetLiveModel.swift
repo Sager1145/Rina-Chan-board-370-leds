@@ -163,7 +163,9 @@ final class PresetLiveModel {
     /// finishes (success or failure) but before any generation/selection
     /// check or commit runs. Lets tests hold an import at a deterministic
     /// point and control exactly when it is allowed to proceed.
+    #if DEBUG
     @ObservationIgnored var importCommitHookForTesting: ((URL) async -> Void)?
+    #endif
     private var clockTask: Task<Void, Never>?
     private var didRestore = false
     private var didLoadDemo = false
@@ -378,7 +380,9 @@ final class PresetLiveModel {
         let result = await Task.detached(priority: .userInitiated) {
             Result { try PresetLiveModel.stageAudio(from: url, store: store) }
         }.value
+        #if DEBUG
         if let hook = importCommitHookForTesting { await hook(url) }
+        #endif
         guard generation == audioImportGeneration else {
             if case .success(let staged) = result { fileStore.remove(staged.copy) }
             return
@@ -422,7 +426,9 @@ final class PresetLiveModel {
         let result = await Task.detached(priority: .userInitiated) {
             Result { try PresetLiveModel.stageScript(from: url, library: library, store: store, encodingError: encodingError) }
         }.value
+        #if DEBUG
         if let hook = importCommitHookForTesting { await hook(url) }
+        #endif
         guard generation == scriptImportGeneration else {
             if case .success(let staged) = result { fileStore.remove(staged.copy) }
             return
@@ -462,7 +468,9 @@ final class PresetLiveModel {
         let result = await Task.detached(priority: .userInitiated) {
             Result { try PresetLiveModel.stageAudio(from: url, store: store) }
         }.value
+        #if DEBUG
         if let hook = importCommitHookForTesting { await hook(url) }
+        #endif
         guard generation == audioImportGeneration else {
             if case .success(let staged) = result { fileStore.remove(staged.copy) }
             return

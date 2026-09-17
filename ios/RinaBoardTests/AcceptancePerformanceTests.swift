@@ -506,6 +506,65 @@ final class AcceptancePerformanceTests: XCTestCase {
         XCTAssertEqual(try context.storedFileNames(), storedFilesBefore)
     }
 
+    /// A script import is held mid-staging while the selection switches to a
+    /// built-in performance. The staged copy must be discarded, the
+    /// selection-changed error shown, and the app must stay in built-in mode
+    /// rather than being dragged back into custom mode.
+    func testScriptImportDiscardedWhenSelectionSwitchesToBuiltInDuringStaging() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        let song = try XCTUnwrap(model.builtInPerformances.first { $0.id == "song-a" })
+        let url = try context.writeImport(named: "custom.rinalive", data: validScriptData)
+        let storedFilesBefore = try context.storedFileNames()
+        let previousScriptFile = context.defaults.string(forKey: "presetLiveScriptFile")
+
+        let gate = PR8ImportGate()
+        await gate.gate("custom.rinalive")
+        model.importCommitHookForTesting = { url in await gate.hold(url.lastPathComponent) }
+
+        let task = Task { await model.importScript(from: url) }
+        await gate.waitUntilReached("custom.rinalive")
+        XCTAssertTrue(model.selectBuiltIn(song))
+        await gate.release("custom.rinalive")
+        await task.value
+
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertFalse(model.isCustomMode)
+        XCTAssertEqual(model.selectedBuiltIn, song.id)
+        XCTAssertEqual(context.defaults.string(forKey: "presetLiveScriptFile"), previousScriptFile)
+        XCTAssertEqual(try context.storedFileNames(), storedFilesBefore)
+    }
+
+    /// A broken script file is held mid-staging (after its validation has
+    /// already failed) while a valid replacement commits, then the broken
+    /// import is released. Its failure must not overwrite the valid
+    /// replacement's success: no error message, and the valid script's
+    /// material stays committed.
+    func testBrokenScriptHeldWhileValidScriptCommits() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        let brokenURL = try context.writeImport(
+            named: "broken.rinalive",
+            data: Data("0!unknown,201,301,400\n".utf8)
+        )
+        let validURL = try context.writeImport(named: "valid.rinalive", data: validScriptData)
+
+        let gate = PR8ImportGate()
+        await gate.gate("broken.rinalive")
+        model.importCommitHookForTesting = { url in await gate.hold(url.lastPathComponent) }
+
+        let brokenTask = Task { await model.importScript(from: brokenURL) }
+        await gate.waitUntilReached("broken.rinalive")
+        await model.importScript(from: validURL)
+        await gate.release("broken.rinalive")
+        await brokenTask.value
+
+        XCTAssertNil(model.errorMessage)
+        XCTAssertEqual(model.scriptName, "valid.rinalive")
+    }
+
     private var validScriptData: Data {
         Data("#fps 10\n#title Acceptance\n0!101,201,301,400\n10!101,201,301,400\n".utf8)
     }
@@ -613,13 +672,14 @@ final class AcceptancePerformanceTests: XCTestCase {
 /// suspend; any other key passes straight through, so a single hook
 /// closure can gate one import while letting a sibling import run to
 /// completion. No sleeps: `waitUntilReached` and `release` are backed by
-/// `CheckedContinuation`, resumed exactly once per key.
+/// `CheckedContinuation`, kept as a per-key list so more than one waiter on
+/// the same key is resumed rather than leaked.
 private actor PR8ImportGate {
     private var gatedKeys: Set<String> = []
     private var reached: Set<String> = []
     private var released: Set<String> = []
-    private var reachedContinuations: [String: CheckedContinuation<Void, Never>] = [:]
-    private var releaseContinuations: [String: CheckedContinuation<Void, Never>] = [:]
+    private var reachedContinuations: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var releaseContinuations: [String: [CheckedContinuation<Void, Never>]] = [:]
 
     func gate(_ key: String) {
         gatedKeys.insert(key)
@@ -630,12 +690,11 @@ private actor PR8ImportGate {
     func hold(_ key: String) async {
         guard gatedKeys.contains(key) else { return }
         reached.insert(key)
-        if let continuation = reachedContinuations.removeValue(forKey: key) {
-            continuation.resume()
-        }
+        let waiters = reachedContinuations.removeValue(forKey: key) ?? []
+        for continuation in waiters { continuation.resume() }
         if released.contains(key) { return }
         await withCheckedContinuation { continuation in
-            releaseContinuations[key] = continuation
+            releaseContinuations[key, default: []].append(continuation)
         }
     }
 
@@ -643,16 +702,16 @@ private actor PR8ImportGate {
     func waitUntilReached(_ key: String) async {
         if reached.contains(key) { return }
         await withCheckedContinuation { continuation in
-            reachedContinuations[key] = continuation
+            reachedContinuations[key, default: []].append(continuation)
         }
     }
 
-    /// Lets a held `hold(_:)` call return.
+    /// Lets a held `hold(_:)` call return. Resumes every `hold(_:)` call
+    /// currently waiting on this key.
     func release(_ key: String) {
         released.insert(key)
-        if let continuation = releaseContinuations.removeValue(forKey: key) {
-            continuation.resume()
-        }
+        let waiters = releaseContinuations.removeValue(forKey: key) ?? []
+        for continuation in waiters { continuation.resume() }
     }
 }
 
