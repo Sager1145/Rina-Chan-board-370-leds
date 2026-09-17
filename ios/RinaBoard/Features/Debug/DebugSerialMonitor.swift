@@ -113,17 +113,20 @@ struct DebugSerialMonitor: View {
                 Text(message).font(.caption).foregroundStyle(.orange)
             }
             HStack {
-                Button("清空") { vm.monitorEntries.removeAll() }
+                Button("清空") { vm.clearMonitor() }
                 Spacer()
                 Button("复制脱敏日志") { vm.copyMonitor() }
-                    .disabled(vm.monitorEntries.isEmpty)
+                    .disabled(vm.isMonitorEntriesEmpty)
             }
             .buttonStyle(.pill)
-            if vm.monitorEntries.isEmpty {
+            if vm.isMonitorEntriesEmpty {
                 Text("发送指令后，回复将显示在这里。")
                     .foregroundStyle(.secondary)
             }
-            ForEach(vm.monitorEntries.reversed()) { entry in
+            // Materialize the ring buffer once per body pass instead of
+            // reading `vm.monitorEntries` (O(n)) multiple times.
+            let monitorEntries = vm.monitorEntries
+            ForEach(monitorEntries.reversed()) { entry in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(entry.timeString).font(.caption2).foregroundStyle(.secondary)
                     Text(entry.message)

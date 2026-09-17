@@ -249,17 +249,48 @@ final class DebugViewModel {
     var packedLabError: String?
 
     // C10 comms log
+    /// Ground truth ring buffer (capacity 500). Not `@Observable`-tracked:
+    /// lines are appended to it immediately and in full on every `log()`
+    /// call (from whichever thread/actor calls in — always hopped to
+    /// `@MainActor` since this whole model is `@MainActor`), but the
+    /// published `logs` snapshot below is only refreshed on a coalesced
+    /// schedule so a burst of firmware log lines doesn't force a SwiftUI
+    /// diff per line.
+    @ObservationIgnored private var logRing = RingBuffer<DebugLogEntry>(capacity: 500)
+    /// Published snapshot of `logRing`, refreshed by `flushPendingLogs()`.
+    /// `visibleLogs` (and everything else that renders the log) reads this,
+    /// not `logRing` directly.
     private(set) var logs: [DebugLogEntry] = []
-    var logFilter: DebugLogFilter = .normal
-    var logSource: DebugLogSource?
-    var logSearch = ""
+    @ObservationIgnored private var hasScheduledLogFlush = false
+    var logFilter: DebugLogFilter = .normal {
+        didSet { recomputeVisibleLogs() }
+    }
+    var logSource: DebugLogSource? {
+        didSet { recomputeVisibleLogs() }
+    }
+    var logSearch = "" {
+        didSet { recomputeVisibleLogs() }
+    }
     var isLogDisplayPaused = false {
         didSet {
             guard isLogDisplayPaused != oldValue else { return }
-            pausedLogs = isLogDisplayPaused ? logs : nil
+            if isLogDisplayPaused {
+                // Flush so the paused snapshot reflects everything logged up
+                // to this instant, matching the old synchronous behavior.
+                flushPendingLogs()
+                pausedLogs = logs
+            } else {
+                // Flush so resuming immediately shows lines that arrived
+                // while paused, instead of waiting for the next scheduled
+                // flush.
+                flushPendingLogs()
+                pausedLogs = nil
+            }
         }
     }
-    private var pausedLogs: [DebugLogEntry]?
+    private var pausedLogs: [DebugLogEntry]? {
+        didSet { recomputeVisibleLogs() }
+    }
     enum FirmwareLogState: Equatable {
         case off
         case subscribing
@@ -273,7 +304,19 @@ final class DebugViewModel {
 
     var monitorInput = "get_info"
     var isMonitorSending = false
-    var monitorEntries: [DebugLogEntry] = []
+    private var monitorRing = RingBuffer<DebugLogEntry>(capacity: 500)
+    /// O(1): checks the ring buffer directly instead of materializing
+    /// `monitorEntries` (which is O(n)) just to test emptiness.
+    var isMonitorEntriesEmpty: Bool { monitorRing.isEmpty }
+    /// Materializes the ring buffer's contents. O(n) — call once per view
+    /// body pass and reuse the result rather than reading this repeatedly.
+    var monitorEntries: [DebugLogEntry] {
+        monitorRing.elements
+    }
+
+    func clearMonitor() {
+        monitorRing.removeAll()
+    }
 
     // C11 raw command
     var rawCommandText: String = "{\"cmd\":\"pause_scroll\"}"
@@ -284,10 +327,21 @@ final class DebugViewModel {
     // C12 danger zone
     var clearFacesConfirmText = ""
 
-    var visibleLogs: [DebugLogEntry] {
+    /// Filters + sorts (newest first, capped to 120) on `logs`/`pausedLogs`.
+    /// A `@Observable`-tracked stored property, eagerly recomputed by
+    /// `recomputeVisibleLogs()` whenever an input actually changes (see the
+    /// `didSet`s on `logFilter`/`logSource`/`logSearch`/`pausedLogs`, and
+    /// `flushPendingLogs()`/`clearLog()` for `logs`). It must be a *stored*
+    /// property recomputed on write, not a lazily-recomputed getter: a getter
+    /// that only reads its dependencies on a "dirty" branch registers no
+    /// Observation dependency on a clean read, so a body pass that hits the
+    /// clean path wouldn't be re-invoked by a later flush.
+    private(set) var visibleLogs: [DebugLogEntry] = []
+
+    private func recomputeVisibleLogs() {
         let source = pausedLogs ?? logs
         let query = logSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        return Array(source.filter { entry in
+        visibleLogs = Array(source.filter { entry in
             entry.level >= logFilter.minLevel
                 && (logSource == nil || entry.source == logSource)
                 && (query.isEmpty || entry.message.localizedCaseInsensitiveContains(query))
@@ -308,15 +362,65 @@ final class DebugViewModel {
 
     // MARK: Logging
 
+    /// Called from wherever a log line originates (this whole view model is
+    /// `@MainActor`, so `log` itself always runs on the main actor even
+    /// though callers may be resuming from an arbitrary background
+    /// continuation, e.g. the firmware `EV_LOG` stream in
+    /// `setFirmwareLogSubscribed`). Appends to the ring buffer immediately
+    /// (O(1), not `@Observable`-tracked) and schedules a coalesced flush of
+    /// the published `logs` snapshot instead of publishing every single line.
     func log(_ level: DebugLogLevel, _ message: String, source: DebugLogSource = .app) {
         if source == .firmware { appendMonitor(level, "EV_LOG · \(message)") }
-        logs.append(DebugLogEntry(source: source, level: level, message: message))
-        if logs.count > 500 { logs.removeFirst(logs.count - 500) }
+        logRing.append(DebugLogEntry(source: source, level: level, message: message))
+        scheduleLogFlush()
+    }
+
+    @ObservationIgnored private var pendingFlushTask: Task<Void, Never>?
+
+    private func scheduleLogFlush() {
+        guard !hasScheduledLogFlush else { return }
+        hasScheduledLogFlush = true
+        pendingFlushTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 75_000_000)
+            // `Task.sleep` throws `CancellationError`, which `try?` swallows
+            // above — without this explicit check, cancelling the task (see
+            // `flushPendingLogs()`) would make it fall straight through to
+            // `flushPendingLogs()` immediately instead of not running at all,
+            // which is worse than not cancelling: a burst plus a rapid pause
+            // toggle could cascade (task A is cancelled, flushes anyway,
+            // which cancels task B, which wakes and flushes too).
+            guard !Task.isCancelled else { return }
+            self?.flushPendingLogs()
+        }
+    }
+
+    /// Copies the ring buffer's current contents into the published `logs`
+    /// snapshot. Runs on its own coalesced schedule (see `scheduleLogFlush`),
+    /// but is also called synchronously wherever an exact, up-to-the-instant
+    /// view of the log is required (export, pause/resume) — and is exposed
+    /// so tests can force deterministic, synchronous flushing. Cancels any
+    /// still-sleeping scheduled flush so a synchronous flush doesn't leave an
+    /// orphan wake-up behind (the "one-shot" scheduling really is one-shot).
+    func flushPendingLogs() {
+        hasScheduledLogFlush = false
+        pendingFlushTask?.cancel()
+        pendingFlushTask = nil
+        logs = logRing.elements
+        // While paused, `visibleLogs` is driven by the frozen `pausedLogs`
+        // snapshot (see its `didSet`), not by `logs` — so recomputing here
+        // would provably return the same result while still invalidating
+        // every SwiftUI observer of `visibleLogs` on each coalesced flush
+        // (~13/s), and re-running the search filter over up to 500 entries
+        // on the main actor for a list nobody can see change.
+        guard pausedLogs == nil else { return }
+        recomputeVisibleLogs()
     }
 
     func clearLog() {
+        logRing.removeAll()
         logs.removeAll()
         pausedLogs?.removeAll()
+        recomputeVisibleLogs()
     }
 
     /// C10 firmware log toggle: on subscribes via `log_subscribe{on:true}` and
@@ -408,28 +512,39 @@ final class DebugViewModel {
         }
     }
 
+    /// Export/copy text. Reads `logRing` (the ground truth) directly instead
+    /// of `logs`, so it always reflects every line logged so far regardless
+    /// of the coalesced publish schedule — without mutating any
+    /// `@Observable`-tracked state from a getter. `ShareLink(item:)` and
+    /// similar SwiftUI call sites evaluate this eagerly on every body pass,
+    /// so this must stay a pure read.
     var logShareText: String {
-        logs.map {
+        logRing.elements.map {
             Self.redactSensitive("[\($0.timeString)] [\($0.source.label)] \($0.level.label): \($0.message)")
         }.joined(separator: "\n")
     }
 
+    // Compiled once, not per call: `redactSensitive` runs over every line of
+    // `logShareText`/`copyRawSnapshots` (up to 500 lines), and recompiling
+    // two `NSRegularExpression`s per line made this the single largest
+    // per-body-pass cost on the Debug log page — the exact page this PR
+    // exists to speed up.
+    private static let quotedValuePattern = #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#
+    // Authorization header values commonly contain a scheme and credential
+    // separated by whitespace. Redact the complete value before applying
+    // the generic single-value rule below.
+    private static let authorizationExpression = try? NSRegularExpression(
+        pattern: #"(?i)(\"?authorization\"?\s*[:=]\s*)("# + quotedValuePattern + #"|[^\r\n,}\]]+)"#
+    )
+    private static let sensitiveValueExpression = try? NSRegularExpression(
+        pattern: #"(?i)(\"?(?:password|passwd|pwd|psk|secret|token)\"?\s*[:=]\s*)("# + quotedValuePattern + #"|[^\s,}\]]+)"#
+    )
+
     private static func redactSensitive(_ value: String) -> String {
         let hidden = NSLocalizedString("<已隐藏>", comment: "redacted debug value placeholder")
-        let quotedValue = #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#
 
-        // Authorization header values commonly contain a scheme and credential
-        // separated by whitespace. Redact the complete value before applying
-        // the generic single-value rule below.
-        let authorizationPattern = #"(?i)(\"?authorization\"?\s*[:=]\s*)("#
-            + quotedValue
-            + #"|[^\r\n,}\]]+)"#
-        let sensitiveValuePattern = #"(?i)(\"?(?:password|passwd|pwd|psk|secret|token)\"?\s*[:=]\s*)("#
-            + quotedValue
-            + #"|[^\s,}\]]+)"#
-
-        return [authorizationPattern, sensitiveValuePattern].reduce(value) { redacted, pattern in
-            guard let expression = try? NSRegularExpression(pattern: pattern) else { return redacted }
+        return [authorizationExpression, sensitiveValueExpression].reduce(value) { redacted, expression in
+            guard let expression else { return redacted }
             let range = NSRange(redacted.startIndex..<redacted.endIndex, in: redacted)
             return expression.stringByReplacingMatches(in: redacted,
                                                        range: range,
@@ -716,8 +831,7 @@ final class DebugViewModel {
     // MARK: Serial monitor
 
     private func appendMonitor(_ level: DebugLogLevel, _ message: String) {
-        monitorEntries.append(DebugLogEntry(level: level, message: Self.redactSensitive(message)))
-        if monitorEntries.count > 500 { monitorEntries.removeFirst(monitorEntries.count - 500) }
+        monitorRing.append(DebugLogEntry(level: level, message: Self.redactSensitive(message)))
     }
 
     func copyMonitor() {

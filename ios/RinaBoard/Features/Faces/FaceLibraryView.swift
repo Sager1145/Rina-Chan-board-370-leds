@@ -21,7 +21,10 @@ struct FaceLibraryView: View {
     @State private var exportDocument: JSONFileDocument?
 
     var body: some View {
-        let faces = model.faceDocument.sortedFaces
+        // Reads the cached sort (`FaceLibraryModel.faces(in:)`) instead of
+        // `model.faceDocument.sortedFaces`, which would re-sort on every body
+        // pass — this is the actual hot list the cache exists to speed up.
+        let faces = model.faces(in: .board)
         List {
             if faces.isEmpty && !model.isLoading {
                 Text("暂无").font(.footnote).foregroundStyle(.secondary)
