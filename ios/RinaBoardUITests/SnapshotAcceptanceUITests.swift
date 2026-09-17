@@ -22,14 +22,18 @@ final class SnapshotAcceptanceUITests: XCTestCase {
         XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 10))
     }
 
-    private func reach(_ element: XCUIElement) {
+    // `file`/`line` default to the call site so a failure here is attributed
+    // to the caller, not always to this line — previously every `reach()`
+    // failure was reported at this function's own `XCTAssertTrue`, regardless
+    // of which test called it.
+    private func reach(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
         for _ in 0..<12 {
             if element.exists && element.isHittable && element.frame.midY < app.frame.maxY - 150 && element.frame.midY > 90 { return }
             let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.67))
             let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.37))
             start.press(forDuration: 0.05, thenDragTo: end)
         }
-        XCTAssertTrue(element.isHittable)
+        XCTAssertTrue(element.isHittable, file: file, line: line)
     }
 
     /// No accessibility hook exposes the boot loader overlay's state, so we
@@ -61,14 +65,74 @@ final class SnapshotAcceptanceUITests: XCTestCase {
 
     func testLocalLibraryLocationRemainsAvailableOffline() {
         launch("control")
-        app.buttons["面板控制"].tap()
-        XCTAssertTrue(app.navigationBars["面板控制"].waitForExistence(timeout: 5))
-        let manage = app.buttons["管理表情"]
-        reach(manage)
-        manage.tap()
-        XCTAssertTrue(app.navigationBars["表情库"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "本机")).firstMatch.exists,
-                      "Library must provide its local location even without a connected board")
+        // "管理表情" was removed from BoardControlCenterView in 6658c34
+        // (2026-09-12); the face library is now reached from the Control
+        // tab's own「保存列表」chip instead of the control center.
+        XCTAssertTrue(FaceLibraryUITestPath.openFaceLibrary(in: app),
+                      "The face library was not reachable from the Control tab")
+        // The location picker is a segmented control (`FaceLibraryLocation`
+        // titles as its segments), so its labels surface as buttons under
+        // `segmentedControls`, not as bare `staticTexts`.
+        let localSegment = app.segmentedControls.buttons["本机"]
+        XCTAssertTrue(localSegment.waitForExistence(timeout: 3),
+                      "The local ('本机') library location must be offered when no board is connected")
+        XCTAssertTrue(localSegment.isSelected,
+                      "Offline, the picker must default to the local library, not the (empty) board one")
+        // `FaceLibraryView` puts the thumbnail, name and caption inside a
+        // `Button`'s label, so SwiftUI collapses that subtree into a single
+        // element carrying the button trait — "预设" is a fragment of the
+        // button's accessibility label, never a standalone `staticText`.
+        let presetRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "预设")).firstMatch
+        XCTAssertTrue(presetRow.waitForExistence(timeout: 3),
+                      "Bundled preset faces must be available offline")
+        XCTAssertFalse(app.staticTexts["暂无"].exists,
+                       "Library must provide its own local content even without a connected board")
+    }
+
+    /// Covers the picker itself (DEF-07's wider two-library UI): switching
+    /// to 当前面板 while offline must actually change the list, not just the
+    /// segmented control's selection state — the (unloaded, disconnected)
+    /// board document is empty, so "暂无" must appear and the preset row
+    /// must disappear.
+    func testFaceLibraryPickerSwitchesBetweenLocalAndBoardLists() {
+        launch("control")
+        XCTAssertTrue(FaceLibraryUITestPath.openFaceLibrary(in: app),
+                      "The face library was not reachable from the Control tab")
+        let presetRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "预设")).firstMatch
+        XCTAssertTrue(presetRow.waitForExistence(timeout: 3),
+                      "Local presets should be showing by default while offline")
+
+        let boardSegment = app.segmentedControls.buttons["当前面板"]
+        XCTAssertTrue(boardSegment.exists, "The board location must also be offered by the picker")
+        boardSegment.tap()
+        XCTAssertTrue(boardSegment.isSelected)
+        XCTAssertTrue(app.staticTexts["暂无"].waitForExistence(timeout: 3),
+                      "A disconnected board's library has never been loaded and must show as empty")
+        XCTAssertFalse(presetRow.exists,
+                       "Switching to the board location must stop showing the local presets")
+
+        let localSegment = app.segmentedControls.buttons["本机"]
+        localSegment.tap()
+        XCTAssertTrue(localSegment.isSelected)
+        XCTAssertTrue(presetRow.waitForExistence(timeout: 3),
+                      "Switching back to 本机 must restore the local presets")
+    }
+
+    /// Cross-library copy (`FaceLibraryModel.copy(_:from:to:)`) exists and is
+    /// unit-tested; this only checks the row action is actually wired up.
+    /// A full round-trip (copy from 本机 to 当前面板 and confirm it landed)
+    /// needs a connected board, which this offline UI suite cannot provide —
+    /// not exercised here.
+    func testFaceLibraryContextMenuOffersCopyToTheOtherLocation() {
+        launch("control")
+        XCTAssertTrue(FaceLibraryUITestPath.openFaceLibrary(in: app),
+                      "The face library was not reachable from the Control tab")
+        let presetRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "预设")).firstMatch
+        XCTAssertTrue(presetRow.waitForExistence(timeout: 3))
+        presetRow.press(forDuration: 0.6)
+        let copyAction = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "复制到")).firstMatch
+        XCTAssertTrue(copyAction.waitForExistence(timeout: 3),
+                      "A row's context menu must offer copying it to the other library")
     }
 
     func testTextDraftRestoresAfterBackgroundAndRelaunch() {
@@ -97,9 +161,19 @@ final class SnapshotAcceptanceUITests: XCTestCase {
             tab.tap()
             XCTAssertTrue(tab.isSelected)
         }
-        let send = app.buttons["发送到面板"]
+        // The standalone "发送到面板" button was deliberately removed from the
+        // tab-bar accessory in 9d9cdb1 (2026-09-12, BoardControlCenterAccessory.swift):
+        // sending the editor's draft now lives on the Control tab itself. The
+        // loop above already leaves the Control tab ("表情显示") selected, so
+        // the offline send gate is checked on its own "发送" chip
+        // (ControlView.swift), which stays disabled without a connected
+        // board. `CommandChip` combines its icon and title into one
+        // accessibility label, which SwiftUI then doubles (e.g. "发送、发送"),
+        // hence `CONTAINS` rather than an exact label match.
+        let send = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "发送")).firstMatch
+        reach(send)
         XCTAssertTrue(send.exists)
-        XCTAssertFalse(send.isEnabled)
+        XCTAssertFalse(send.isEnabled, "Sending must stay gated while offline")
         XCUIDevice.shared.press(.home)
         app.activate()
         XCTAssertTrue(app.tabBars.buttons["表情显示"].isSelected)
@@ -125,8 +199,18 @@ final class SnapshotAcceptanceUITests: XCTestCase {
         reach(appTools); appTools.tap()
         let replay = app.buttons["重新播放启动动画"]
         reach(replay); replay.tap()
-        XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 12))
+        // The boot replay is not a UIKit alert — it is `BootLoaderOverlay`,
+        // a full-screen ZStack overlay (RootTabView.swift) marked
+        // `.accessibilityAddTraits(.isModal)` (BootLoaderOverlay.swift),
+        // which older toolchains surfaced as an alert but this one does not.
+        // Wait on the overlay's own label instead, which flips from "页面
+        // 加载中" to "页面加载完成" when its outro starts
+        // (BootLoaderOverlay.swift).
+        let bootOverlay = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@ OR label == %@", "页面加载中", "页面加载完成"))
+            .firstMatch
+        XCTAssertTrue(bootOverlay.waitForExistence(timeout: 3))
+        XCTAssertTrue(bootOverlay.waitForNonExistence(timeout: 12))
         XCTAssertTrue(app.navigationBars["调试"].exists)
     }
 }
