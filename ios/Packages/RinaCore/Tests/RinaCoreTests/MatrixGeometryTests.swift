@@ -69,4 +69,91 @@ final class MatrixGeometryTests: XCTestCase {
         let logical = MatrixGeometry.ledIndex(x: 2, y: 0)! // row 0 is even -> unchanged
         XCTAssertEqual(MatrixGeometry.logicalToPhysicalIndex(logical), logical)
     }
+
+    // MARK: - PR-6 O(1) table exhaustive equality vs. the old scanning implementation
+
+    func testLedIndexMatchesReferenceScanExhaustively() {
+        for y in -2...(MatrixGeometry.rows + 1) {
+            for x in -2...(MatrixGeometry.cols + 1) {
+                XCTAssertEqual(MatrixGeometry.ledIndex(x: x, y: y),
+                               MatrixGeometryScanReferencePR6.ledIndex(x: x, y: y),
+                               "x=\(x) y=\(y)")
+            }
+        }
+    }
+
+    func testXyMatchesReferenceScanExhaustively() {
+        for led in -2...(MatrixGeometry.ledCount + 1) {
+            let actual = MatrixGeometry.xy(ofLed: led)
+            let expected = MatrixGeometryScanReferencePR6.xy(ofLed: led)
+            XCTAssertEqual(actual?.x, expected?.x, "led=\(led)")
+            XCTAssertEqual(actual?.y, expected?.y, "led=\(led)")
+        }
+    }
+
+    func testLogicalToPhysicalMatchesReferenceScanExhaustively() {
+        for led in -2...(MatrixGeometry.ledCount + 1) {
+            XCTAssertEqual(MatrixGeometry.logicalToPhysicalIndex(led),
+                           MatrixGeometryScanReferencePR6.logicalToPhysicalIndex(led),
+                           "led=\(led)")
+        }
+    }
+
+    func testPhysicalToLogicalMatchesReferenceScanExhaustively() {
+        for led in -2...(MatrixGeometry.ledCount + 1) {
+            XCTAssertEqual(MatrixGeometry.physicalToLogicalIndex(led),
+                           MatrixGeometryScanReferencePR6.physicalToLogicalIndex(led),
+                           "led=\(led)")
+        }
+    }
+
+    func testLedCellIndexMatchesXY() {
+        for led in 0..<MatrixGeometry.ledCount {
+            let xy = MatrixGeometry.xy(ofLed: led)!
+            XCTAssertEqual(MatrixGeometry.ledCellIndex[led], xy.y * MatrixGeometry.cols + xy.x, "led=\(led)")
+        }
+    }
+}
+
+/// Verbatim copies of the pre-PR-6 `MatrixGeometry` scanning implementations,
+/// kept only as a differential-testing reference for the O(1) table rewrite.
+private enum MatrixGeometryScanReferencePR6 {
+    static func ledIndex(x: Int, y: Int) -> Int? {
+        guard let range = MatrixGeometry.validXRange(row: y), range.contains(x) else { return nil }
+        var index = 0
+        for row in 0..<y {
+            index += MatrixGeometry.rowLengths[row]
+        }
+        index += (x - range.lowerBound)
+        return index
+    }
+
+    static func xy(ofLed led: Int) -> (x: Int, y: Int)? {
+        guard led >= 0 && led < MatrixGeometry.ledCount else { return nil }
+        var remaining = led
+        for row in 0..<MatrixGeometry.rows {
+            let length = MatrixGeometry.rowLengths[row]
+            if remaining < length {
+                let range = MatrixGeometry.validXRange(row: row)!
+                return (range.lowerBound + remaining, row)
+            }
+            remaining -= length
+        }
+        return nil
+    }
+
+    static func logicalToPhysicalIndex(_ index: Int) -> Int {
+        guard let (x, y) = xy(ofLed: index), MatrixGeometry.serpentine else { return index }
+        guard MatrixGeometry.serpentineOddRowsReversed, (y & 1) != 0 else { return index }
+        let range = MatrixGeometry.validXRange(row: y)!
+        let mirroredX = range.lowerBound + range.upperBound - x
+        return ledIndex(x: mirroredX, y: y) ?? index
+    }
+
+    static func physicalToLogicalIndex(_ index: Int) -> Int {
+        for logical in 0..<MatrixGeometry.ledCount where logicalToPhysicalIndex(logical) == index {
+            return logical
+        }
+        return index
+    }
 }

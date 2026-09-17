@@ -16,8 +16,6 @@ struct PresetLiveView: View {
 
     @State private var isImportingAudio = false
     @State private var isImportingScript = false
-    @State private var isSeeking = false
-    @State private var seekPositionMs: Double = 0
 
     /// Whether the model has something running (or paused mid-way) that a
     /// stop/pause tap must still be able to reach. Disconnection must never
@@ -26,7 +24,7 @@ struct PresetLiveView: View {
     /// the board simply not receiving frames — but it must always be
     /// stoppable, or an audio session an app dropped off Wi-Fi leaves the
     /// speaker playing with dead transport buttons.
-    private var isTransportActive: Bool { model.isPlaying || model.positionMs > 0 }
+    private var isTransportActive: Bool { model.isPlaying || model.hasPlaybackProgress }
     private var isConnected: Bool { connection.connectionState == .connected }
 
     var body: some View {
@@ -54,29 +52,25 @@ struct PresetLiveView: View {
 
     @ViewBuilder
     private var previewStatus: some View {
-        let keyframeCounter = model.script.map { script in
-            Text(verbatim: "\(Self.formatMs(model.positionMs)) / \(Self.formatMs(model.durationMs)) · ")
-                + Text("关键帧 \(model.currentKeyframeIndex.map { $0 + 1 } ?? 0) / \(script.keyframes.count)")
-        }
         if model.isPlaying && isConnected && !model.needsBoardResume {
             BoardPreviewStatus("正在输出到面板", systemImage: "dot.radiowaves.left.and.right", tone: .live) {
-                keyframeCounter
+                PresetLiveKeyframeCounterView()
             }
         } else if model.isPlaying {
             BoardPreviewStatus("仅本地预览", systemImage: "iphone", tone: .pending) {
-                keyframeCounter
+                PresetLiveKeyframeCounterView()
             }
-        } else if model.positionMs > 0 {
+        } else if model.hasPlaybackProgress {
             BoardPreviewStatus("已暂停", systemImage: "pause.circle", tone: .neutral) {
-                keyframeCounter
+                PresetLiveKeyframeCounterView()
             }
         } else if !isConnected {
             BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) {
-                keyframeCounter
+                PresetLiveKeyframeCounterView()
             }
         } else {
             BoardPreviewStatus("未播放", systemImage: "stop.circle", tone: .neutral) {
-                keyframeCounter
+                PresetLiveKeyframeCounterView()
             }
         }
     }
@@ -156,36 +150,11 @@ struct PresetLiveView: View {
         }
 
         Section {
-            VStack(alignment: .leading, spacing: 4) {
-                Slider(
-                    value: Binding(
-                        get: { isSeeking ? seekPositionMs : Double(model.positionMs) },
-                        set: { seekPositionMs = $0 }
-                    ),
-                    in: 0...Double(max(1, model.durationMs)),
-                    onEditingChanged: { editing in
-                        isSeeking = editing
-                        if !editing {
-                            model.seek(toMs: Int(seekPositionMs))
-                        } else {
-                            seekPositionMs = Double(model.positionMs)
-                        }
-                    }
-                )
-                .disabled(!model.canPlay)
-
-                HStack {
-                    Text(Self.formatMs(isSeeking ? Int(seekPositionMs) : model.positionMs))
-                    Spacer()
-                    Text(Self.formatMs(model.durationMs))
-                }
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-            }
+            PresetLiveTransportSliderView()
         }
     }
 
-    private static func formatMs(_ ms: Int) -> String {
+    fileprivate static func formatMs(_ ms: Int) -> String {
         let totalSeconds = max(0, ms) / 1000
         return String(format: "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
     }
@@ -224,7 +193,7 @@ struct PresetLiveView: View {
                 // modifiers on a multi-section view land on every row.
                 .fileImporter(isPresented: $isImportingAudio, allowedContentTypes: [.audio]) { result in
                     if case .success(let url) = result {
-                        model.importAudio(from: url)
+                        Task { await model.importAudio(from: url) }
                     }
                 }
                 LabeledContent(NSLocalizedString("脚本", comment: "script file row")) {
@@ -234,7 +203,7 @@ struct PresetLiveView: View {
                 }
                 .fileImporter(isPresented: $isImportingScript, allowedContentTypes: [.plainText, .data]) { result in
                     if case .success(let url) = result {
-                        model.importScript(from: url)
+                        Task { await model.importScript(from: url) }
                     }
                 }
             } else if let performance = selectedPerformance, !performance.hasAudio {
@@ -288,6 +257,63 @@ struct PresetLiveView: View {
                 Spacer()
             }
             .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - Isolated position readers
+//
+// `positionMs` republishes at ~10 Hz (see `PresetLiveModel.tick`), well down
+// from the ~33 Hz clock tick, but it is still the fastest-changing value this
+// tab observes. Confining its reads to these two small subviews keeps the
+// rest of `PresetLiveView`'s body — the transport buttons, the song picker —
+// from re-evaluating on every position update.
+
+/// The "mm:ss / mm:ss · 关键帧 n / m" line shown as the preview status detail.
+private struct PresetLiveKeyframeCounterView: View {
+    @Environment(PresetLiveModel.self) private var model
+
+    var body: some View {
+        if let script = model.script {
+            Text(verbatim: "\(PresetLiveView.formatMs(model.positionMs)) / \(PresetLiveView.formatMs(model.durationMs)) · ")
+                + Text("关键帧 \(model.currentKeyframeIndex.map { $0 + 1 } ?? 0) / \(script.keyframes.count)")
+        }
+    }
+}
+
+/// The scrub slider and its mm:ss labels.
+private struct PresetLiveTransportSliderView: View {
+    @Environment(PresetLiveModel.self) private var model
+
+    @State private var isSeeking = false
+    @State private var seekPositionMs: Double = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Slider(
+                value: Binding(
+                    get: { isSeeking ? seekPositionMs : Double(model.positionMs) },
+                    set: { seekPositionMs = $0 }
+                ),
+                in: 0...Double(max(1, model.durationMs)),
+                onEditingChanged: { editing in
+                    isSeeking = editing
+                    if !editing {
+                        model.seek(toMs: Int(seekPositionMs))
+                    } else {
+                        seekPositionMs = Double(model.positionMs)
+                    }
+                }
+            )
+            .disabled(!model.canPlay)
+
+            HStack {
+                Text(PresetLiveView.formatMs(isSeeking ? Int(seekPositionMs) : model.positionMs))
+                Spacer()
+                Text(PresetLiveView.formatMs(model.durationMs))
+            }
+            .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)
         }
     }

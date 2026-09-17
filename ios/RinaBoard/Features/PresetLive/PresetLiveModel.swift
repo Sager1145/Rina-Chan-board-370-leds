@@ -88,7 +88,13 @@ final class PresetLiveModel {
     private(set) var isCustomMode = false
 
     private(set) var isPlaying = false
-    private(set) var positionMs = 0
+    private(set) var hasPlaybackProgress = false
+    private(set) var positionMs = 0 {
+        didSet {
+            let progress = positionMs > 0
+            if progress != hasPlaybackProgress { hasPlaybackProgress = progress }
+        }
+    }
     private(set) var durationMs = 0
     private(set) var previewFrame = PackedFrame()
     private(set) var currentKeyframeIndex: Int?
@@ -131,6 +137,11 @@ final class PresetLiveModel {
     private static let playbackStreamKey = "presetLivePlaybackStreamID"
     private static let customPlaybackPrefix = "custom|"
     private static let builtInPlaybackPrefix = "builtIn|"
+    /// Coarser than the ~33 Hz clock tick: `positionMs` only republishes when
+    /// the audio position has moved at least this far, so the observed
+    /// property (and everything that reads it in the view body) settles at
+    /// roughly 10 Hz instead of every tick.
+    static let positionPublishStepMs = 100
 
     private let bundle: Bundle
     private let defaults: UserDefaults
@@ -140,6 +151,21 @@ final class PresetLiveModel {
     private var outputSession: UUID?
     /// In-flight frames are never cancelled; a newer one just supersedes it.
     @ObservationIgnored private var sender: LatestValueSender<PresetLiveSubmission>?
+    /// Bumped by every audio import call (built-in or custom); a staged
+    /// result whose generation has been superseded by a newer audio import
+    /// is discarded instead of committed. Kept separate from
+    /// `scriptImportGeneration` so an audio import and a script import never
+    /// cancel each other.
+    @ObservationIgnored private var audioImportGeneration = 0
+    /// Bumped by every script import call; see `audioImportGeneration`.
+    @ObservationIgnored private var scriptImportGeneration = 0
+    /// Test-only hook invoked with the picked source URL once staging
+    /// finishes (success or failure) but before any generation/selection
+    /// check or commit runs. Lets tests hold an import at a deterministic
+    /// point and control exactly when it is allowed to proceed.
+    #if DEBUG
+    @ObservationIgnored var importCommitHookForTesting: ((URL) async -> Void)?
+    #endif
     private var clockTask: Task<Void, Never>?
     private var didRestore = false
     private var didLoadDemo = false
@@ -334,101 +360,196 @@ final class PresetLiveModel {
 
     /// Source-compatible entry point. Built-in selection means "audio for
     /// this song"; custom selection means the custom audio half.
-    func importAudio(from url: URL) {
+    func importAudio(from url: URL) async {
         if let selectedBuiltIn {
-            importAudio(from: url, forBuiltIn: selectedBuiltIn)
+            await importAudio(from: url, forBuiltIn: selectedBuiltIn)
         } else {
-            importCustomAudio(from: url)
+            await importCustomAudio(from: url)
         }
     }
 
-    func importAudio(from url: URL, forBuiltIn id: BuiltInPerformance.ID) {
-        withImportedURL(url, failureFormat: NSLocalizedString("导入音频失败：%@", comment: "audio import failed")) {
+    func importAudio(from url: URL, forBuiltIn id: BuiltInPerformance.ID) async {
+        let failureFormat = NSLocalizedString("导入音频失败：%@", comment: "audio import failed")
+        guard selectedBuiltIn == id else {
+            errorMessage = String(format: failureFormat, importErrorDescription(PresetLiveImportError.selectionChanged))
+            return
+        }
+        audioImportGeneration += 1
+        let generation = audioImportGeneration
+        let store = fileStore
+        let result = await Task.detached(priority: .userInitiated) {
+            Result { try PresetLiveModel.stageAudio(from: url, store: store) }
+        }.value
+        #if DEBUG
+        if let hook = importCommitHookForTesting { await hook(url) }
+        #endif
+        guard generation == audioImportGeneration else {
+            if case .success(let staged) = result { fileStore.remove(staged.copy) }
+            return
+        }
+        switch result {
+        case .success(let staged):
             guard selectedBuiltIn == id else {
-                throw PresetLiveImportError.selectionChanged
+                fileStore.remove(staged.copy)
+                errorMessage = String(format: failureFormat, importErrorDescription(PresetLiveImportError.selectionChanged))
+                return
             }
             let storageKey = audioKey(for: id)
             let previousName = defaults.string(forKey: storageKey)
-            let stagedPlayer = try prepareAudio(url)
-            let copy = try fileStore.copyIntoStorage(url)
-            // Validate the stored copy too; a provider can expose a readable
-            // coordinated URL whose copied bytes are incomplete or changed.
-            let storedPlayer: AVAudioPlayer
-            do {
-                storedPlayer = try prepareAudio(copy)
-                guard selectedBuiltIn == id else { throw PresetLiveImportError.selectionChanged }
-            } catch {
-                fileStore.remove(copy)
-                throw error
-            }
             stop()
-            player = storedPlayer
+            staged.player.volume = isMuted ? 0 : 1
+            player = staged.player
             audioTitle = builtInPerformances.first(where: { $0.id == id })?.title ?? url.lastPathComponent
-            durationMs = Int(storedPlayer.duration * 1000)
+            durationMs = Int(staged.player.duration * 1000)
             positionMs = 0
             currentKeyframeIndex = nil
             previewFrame = composedFrames.first ?? PackedFrame()
-            defaults.set(copy.lastPathComponent, forKey: storageKey)
-            removeReplacedStoredFile(named: previousName, keeping: copy)
-            _ = stagedPlayer // Validation deliberately occurs before copying.
+            defaults.set(staged.copy.lastPathComponent, forKey: storageKey)
+            removeReplacedStoredFile(named: previousName, keeping: staged.copy)
             errorMessage = nil
+        case .failure(let error):
+            errorMessage = String(format: failureFormat, importErrorDescription(error))
         }
     }
 
-    func importScript(from url: URL) {
-        withImportedURL(url, failureFormat: NSLocalizedString("导入脚本失败：%@", comment: "script import failed")) {
-            guard let library else { throw PresetLiveImportError.partsUnavailable }
-            let data = try Data(contentsOf: url)
-            let parsed = try parseScript(data, library: library,
-                                         encodingError: NSLocalizedString("脚本编码无效，需为 UTF-8 文本", comment: "script encoding invalid"))
-            let frames = parsed.composedFrames(using: library)
+    func importScript(from url: URL) async {
+        let failureFormat = NSLocalizedString("导入脚本失败：%@", comment: "script import failed")
+        guard let library else {
+            errorMessage = String(format: failureFormat, importErrorDescription(PresetLiveImportError.partsUnavailable))
+            return
+        }
+        scriptImportGeneration += 1
+        let generation = scriptImportGeneration
+        let capturedSelectedBuiltIn = selectedBuiltIn
+        let store = fileStore
+        let encodingError = NSLocalizedString("脚本编码无效，需为 UTF-8 文本", comment: "script encoding invalid")
+        let result = await Task.detached(priority: .userInitiated) {
+            Result { try PresetLiveModel.stageScript(from: url, library: library, store: store, encodingError: encodingError) }
+        }.value
+        #if DEBUG
+        if let hook = importCommitHookForTesting { await hook(url) }
+        #endif
+        guard generation == scriptImportGeneration else {
+            if case .success(let staged) = result { fileStore.remove(staged.copy) }
+            return
+        }
+        switch result {
+        case .success(let staged):
+            // Only a move to a built-in song invalidates this import. Custom
+            // mode turning on is what a custom import is asking for anyway,
+            // and a script import switching it on must not discard an audio
+            // import staging alongside it (or the reverse).
+            guard selectedBuiltIn == capturedSelectedBuiltIn else {
+                fileStore.remove(staged.copy)
+                errorMessage = String(format: failureFormat, importErrorDescription(PresetLiveImportError.selectionChanged))
+                return
+            }
             let previousName = defaults.string(forKey: Self.scriptFileKey)
-            let copy = try fileStore.copyIntoStorage(url)
             if !isCustomMode { enterCustom(persistSelection: false) }
-            commit(script: parsed, frames: frames, scriptName: url.lastPathComponent,
+            commit(script: staged.script, frames: staged.frames, scriptName: url.lastPathComponent,
                    player: player, audioTitle: audioTitle,
                    selectedBuiltIn: nil, customMode: true)
-            defaults.set(copy.lastPathComponent, forKey: Self.scriptFileKey)
-            removeReplacedStoredFile(named: previousName, keeping: copy)
+            defaults.set(staged.copy.lastPathComponent, forKey: Self.scriptFileKey)
+            removeReplacedStoredFile(named: previousName, keeping: staged.copy)
             defaults.set(url.lastPathComponent, forKey: Self.scriptTitleKey)
             defaults.set(true, forKey: Self.customModeKey)
             errorMessage = nil
+        case .failure(let error):
+            errorMessage = String(format: failureFormat, importErrorDescription(error))
         }
     }
 
-    func importCustomAudio(from url: URL) {
-        withImportedURL(url, failureFormat: NSLocalizedString("导入音频失败：%@", comment: "audio import failed")) {
-            _ = try prepareAudio(url)
+    func importCustomAudio(from url: URL) async {
+        let failureFormat = NSLocalizedString("导入音频失败：%@", comment: "audio import failed")
+        audioImportGeneration += 1
+        let generation = audioImportGeneration
+        let capturedSelectedBuiltIn = selectedBuiltIn
+        let store = fileStore
+        let result = await Task.detached(priority: .userInitiated) {
+            Result { try PresetLiveModel.stageAudio(from: url, store: store) }
+        }.value
+        #if DEBUG
+        if let hook = importCommitHookForTesting { await hook(url) }
+        #endif
+        guard generation == audioImportGeneration else {
+            if case .success(let staged) = result { fileStore.remove(staged.copy) }
+            return
+        }
+        switch result {
+        case .success(let staged):
+            // Only a move to a built-in song invalidates this import. Custom
+            // mode turning on is what a custom import is asking for anyway,
+            // and a script import switching it on must not discard an audio
+            // import staging alongside it (or the reverse).
+            guard selectedBuiltIn == capturedSelectedBuiltIn else {
+                fileStore.remove(staged.copy)
+                errorMessage = String(format: failureFormat, importErrorDescription(PresetLiveImportError.selectionChanged))
+                return
+            }
             let previousName = defaults.string(forKey: Self.audioFileKey)
-            let copy = try fileStore.copyIntoStorage(url)
-            let storedPlayer: AVAudioPlayer
-            do { storedPlayer = try prepareAudio(copy) }
-            catch { fileStore.remove(copy); throw error }
             if !isCustomMode { enterCustom(persistSelection: false) }
+            staged.player.volume = isMuted ? 0 : 1
             commit(script: script, frames: composedFrames, scriptName: scriptName,
-                   player: storedPlayer, audioTitle: url.lastPathComponent,
+                   player: staged.player, audioTitle: url.lastPathComponent,
                    selectedBuiltIn: nil, customMode: true)
-            defaults.set(copy.lastPathComponent, forKey: Self.audioFileKey)
-            removeReplacedStoredFile(named: previousName, keeping: copy)
+            defaults.set(staged.copy.lastPathComponent, forKey: Self.audioFileKey)
+            removeReplacedStoredFile(named: previousName, keeping: staged.copy)
             defaults.set(url.lastPathComponent, forKey: Self.audioTitleKey)
             defaults.set(true, forKey: Self.customModeKey)
             errorMessage = nil
+        case .failure(let error):
+            errorMessage = String(format: failureFormat, importErrorDescription(error))
         }
     }
 
-    private func withImportedURL(_ url: URL, failureFormat: String, operation: () throws -> Void) {
+    /// Result of validating and copying an imported audio file off the main
+    /// actor. The player is created in the worker and not touched there again
+    /// before being handed to the main actor.
+    private struct StagedAudio: @unchecked Sendable {
+        let copy: URL
+        let player: AVAudioPlayer
+    }
+
+    private struct StagedScript: Sendable {
+        let copy: URL
+        let script: LivePerformanceScript
+        let frames: [PackedFrame]
+    }
+
+    /// Security scope, validation, copy and second validation all happen off
+    /// the main actor; only the resulting player and copy URL cross back.
+    nonisolated private static func stageAudio(from url: URL, store: PresetLiveFileStore) throws -> StagedAudio {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        _ = try AVAudioPlayer(contentsOf: url)
+        let copy = try store.copyIntoStorage(url)
+        // Validate the stored copy too; a provider can expose a readable
+        // coordinated URL whose copied bytes are incomplete or changed.
         do {
-            try operation()
+            let player = try AVAudioPlayer(contentsOf: copy)
+            return StagedAudio(copy: copy, player: player)
         } catch {
-            errorMessage = String(format: failureFormat, importErrorDescription(error))
+            store.remove(copy)
+            throw error
         }
+    }
+
+    nonisolated private static func stageScript(from url: URL, library: PartsLibrary,
+                                                store: PresetLiveFileStore,
+                                                encodingError: String) throws -> StagedScript {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        let data = try Data(contentsOf: url)
+        let parsed = try parseScript(data, library: library, encodingError: encodingError)
+        let frames = parsed.composedFrames(using: library)
+        let copy = try store.copyIntoStorage(url)
+        return StagedScript(copy: copy, script: parsed, frames: frames)
     }
 
     // MARK: Board output and local playback
 
     func suspendBoardOutput() {
+        if isPlaying, let player { positionMs = Int(player.currentTime * 1000) }
         savePlaybackPosition(force: true)
         outputSession = nil
         lastSubmittedPositionMs = nil
@@ -524,6 +645,7 @@ final class PresetLiveModel {
         guard !isAcquiringOutput else { return }
         playbackStartTask?.cancel()
         playbackStartTask = nil
+        if isPlaying, let player { positionMs = Int(player.currentTime * 1000) }
         savePlaybackPosition(force: true)
         suspendBoardOutput()
         pausedByUser = true
@@ -615,6 +737,7 @@ final class PresetLiveModel {
         switch type {
         case .began:
             guard isPlaying else { return }
+            if let player { positionMs = Int(player.currentTime * 1000) }
             player?.pause()
             isPlaying = false
             clockTask?.cancel()
@@ -648,23 +771,29 @@ final class PresetLiveModel {
 
     private func tick(connection: BoardConnection) {
         guard let player else { return }
-        positionMs = Int(player.currentTime * 1000)
-        savePlaybackPosition(force: false)
+        let now = Int(player.currentTime * 1000)
+        if abs(now - positionMs) >= Self.positionPublishStepMs {
+            positionMs = now
+        }
+        savePlaybackPosition(force: false, atMs: now)
         if !player.isPlaying, isPlaying {
             if loops {
                 player.currentTime = 0
                 positionMs = 0
-                savePlaybackPosition(force: true)
+                savePlaybackPosition(force: true, atMs: 0)
                 currentKeyframeIndex = nil
                 if player.play() {
                     synchronizeFrame(atMs: 0, connection: connection, force: true)
                     return
                 }
+                finishPlayback()
+                return
             }
+            positionMs = now
             finishPlayback()
             return
         }
-        synchronizeFrame(atMs: positionMs, connection: connection, force: false)
+        synchronizeFrame(atMs: now, connection: connection, force: false)
     }
 
     private func synchronizeFrame(atMs ms: Int, connection: BoardConnection, force: Bool) {
@@ -820,9 +949,9 @@ final class PresetLiveModel {
 
     /// UserDefaults writes are throttled to roughly twice per second while
     /// playing, with exact checkpoints at transport and lifecycle boundaries.
-    private func savePlaybackPosition(force: Bool) {
+    private func savePlaybackPosition(force: Bool, atMs: Int? = nil) {
         guard player != nil else { return }
-        let checkpoint = max(0, min(durationMs, positionMs))
+        let checkpoint = max(0, min(durationMs, atMs ?? positionMs))
         if !force, let lastPersistedPositionMs,
            abs(checkpoint - lastPersistedPositionMs) < 500 { return }
         defaults.set(checkpoint, forKey: Self.playbackPositionKey)
@@ -831,6 +960,11 @@ final class PresetLiveModel {
 
     private func parseScript(_ data: Data, library: PartsLibrary,
                              encodingError: String) throws -> LivePerformanceScript {
+        try Self.parseScript(data, library: library, encodingError: encodingError)
+    }
+
+    nonisolated private static func parseScript(_ data: Data, library: PartsLibrary,
+                                                encodingError: String) throws -> LivePerformanceScript {
         guard let text = String(data: data, encoding: .utf8) else {
             throw PresetLiveImportError.message(encodingError)
         }

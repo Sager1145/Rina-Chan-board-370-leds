@@ -23,6 +23,29 @@ private struct VideoSubmission: Sendable {
     let streamID: String
 }
 
+/// One playback frame handed to `LatestFrameProcessor`. `@unchecked Sendable`
+/// is safe here: `buffer` is a retained, read-only copy handed back by
+/// `AVPlayerItemVideoOutput.copyPixelBuffer`, and this job (and the buffer
+/// inside it) is only ever touched by the single worker task processing it —
+/// never concurrently by the main actor.
+private struct VideoFrameJob: @unchecked Sendable {
+    let buffer: CVPixelBuffer
+    let settings: VideoFrameQuantizer.Settings
+}
+
+private struct VideoFrameResult: Sendable {
+    let luma: VideoFrameQuantizer.LumaImage
+    let frame: PackedFrame
+    let settings: VideoFrameQuantizer.Settings
+}
+
+/// `CGImage` is not `Sendable`; this box hands one off to a detached task
+/// that only reads it once, immediately, so the crossing is safe.
+private struct CGImageBox: @unchecked Sendable {
+    let image: CGImage
+    init(_ image: CGImage) { self.image = image }
+}
+
 /// A video handed over by the Photos picker, already copied into app storage.
 /// The picker's own file is deleted as soon as the closure returns, so the
 /// copy has to happen inside it.
@@ -128,6 +151,7 @@ final class VideoPlayerModel {
     @ObservationIgnored private var frameLoop: Task<Void, Never>?
     @ObservationIgnored private var stillTask: Task<Void, Never>?
     @ObservationIgnored private var sender: LatestValueSender<VideoSubmission>?
+    @ObservationIgnored private var frameProcessor: LatestFrameProcessor<VideoFrameJob, VideoFrameResult>?
     @ObservationIgnored private var lastLuma: VideoFrameQuantizer.LumaImage?
     @ObservationIgnored private var lastSubmitted: PackedFrame?
     @ObservationIgnored private var lastSubmittedPositionMs: Int?
@@ -163,6 +187,10 @@ final class VideoPlayerModel {
         sender = LatestValueSender(minInterval: 0.01) { [weak self] submission in
             await self?.send(submission)
         }
+        frameProcessor = LatestFrameProcessor(
+            transform: Self.processFrame,
+            deliver: { [weak self] result in self?.applyProcessedFrame(result) }
+        )
     }
 
     // MARK: Import
@@ -398,6 +426,7 @@ final class VideoPlayerModel {
         frameLoop = nil
         stillTask?.cancel()
         stillTask = nil
+        frameProcessor?.invalidate()
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = nil
         player?.pause()
@@ -479,6 +508,7 @@ final class VideoPlayerModel {
         isPlaying = false
         frameLoop?.cancel()
         frameLoop = nil
+        frameProcessor?.invalidate()
     }
 
     func stop() {
@@ -508,6 +538,7 @@ final class VideoPlayerModel {
         let clamped = max(0, min(durationMs, ms))
         stillTask?.cancel()
         stillTask = nil
+        frameProcessor?.invalidate()
         lastLuma = nil
         previewFrame = PackedFrame()
         positionMs = clamped
@@ -533,6 +564,7 @@ final class VideoPlayerModel {
             suspendBoardOutput()
             frameLoop?.cancel()
             frameLoop = nil
+            frameProcessor?.invalidate()
             deactivateSessionIfNeeded()
         }
     }
@@ -627,10 +659,30 @@ final class VideoPlayerModel {
         }
         let itemTime = videoOutput.itemTime(forHostTime: CACurrentMediaTime())
         guard videoOutput.hasNewPixelBuffer(forItemTime: itemTime),
-              let buffer = videoOutput.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: nil),
-              let luma = Self.luma(from: buffer) else { return }
-        lastLuma = luma
-        render(luma)
+              let buffer = videoOutput.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: nil) else { return }
+        frameProcessor?.submit(VideoFrameJob(buffer: buffer, settings: settings))
+    }
+
+    /// Off-main-actor transform run by `frameProcessor`: decode luma, then
+    /// quantize to a board frame.
+    nonisolated private static func processFrame(_ job: VideoFrameJob) -> VideoFrameResult? {
+        let state = RinaPerf.signposter.beginInterval("VideoFrameProcess")
+        defer { RinaPerf.signposter.endInterval("VideoFrameProcess", state) }
+        guard let luma = luma(from: job.buffer) else { return nil }
+        let frame = VideoFrameQuantizer.frame(from: luma, settings: job.settings)
+        return VideoFrameResult(luma: luma, frame: frame, settings: job.settings)
+    }
+
+    /// Applies a result from `frameProcessor`. If settings changed mid-flight
+    /// (rare, user-rate), the frame was quantized with stale settings, so
+    /// re-render from the decoded luma instead of publishing it directly.
+    private func applyProcessedFrame(_ result: VideoFrameResult) {
+        lastLuma = result.luma
+        if result.settings == settings {
+            publish(result.frame)
+        } else {
+            render(result.luma)
+        }
     }
 
     /// Paused frames come from an image generator: the video output only
@@ -639,12 +691,23 @@ final class VideoPlayerModel {
         guard let generator = imageGenerator else { return }
         stillTask?.cancel()
         let time = CMTime(value: CMTimeValue(ms), timescale: 1000)
+        let settingsSnapshot = settings
         stillTask = Task { [weak self] in
-            guard let image = try? await generator.image(at: time).image,
-                  let luma = Self.luma(from: image) else { return }
-            guard !Task.isCancelled, let self, self.imageGenerator === generator, !self.isPlaying else { return }
-            self.lastLuma = luma
-            self.render(luma)
+            guard let cgImage = try? await generator.image(at: time).image else { return }
+            let box = CGImageBox(cgImage)
+            let result = await Task.detached(priority: .userInitiated) { () -> VideoFrameResult? in
+                guard let luma = Self.luma(from: box.image) else { return nil }
+                let frame = VideoFrameQuantizer.frame(from: luma, settings: settingsSnapshot)
+                return VideoFrameResult(luma: luma, frame: frame, settings: settingsSnapshot)
+            }.value
+            guard !Task.isCancelled, let self, self.imageGenerator === generator, !self.isPlaying,
+                  let result else { return }
+            self.lastLuma = result.luma
+            if result.settings == self.settings {
+                self.publish(result.frame)
+            } else {
+                self.render(result.luma)
+            }
         }
     }
 
@@ -664,7 +727,10 @@ final class VideoPlayerModel {
     }
 
     private func render(_ luma: VideoFrameQuantizer.LumaImage) {
-        let frame = VideoFrameQuantizer.frame(from: luma, settings: settings)
+        publish(VideoFrameQuantizer.frame(from: luma, settings: settings))
+    }
+
+    private func publish(_ frame: PackedFrame) {
         previewFrame = frame
         guard outputSession != nil, let playbackStreamID else { return }
         // Refresh static frames twice per second so the board's reported
