@@ -196,6 +196,9 @@ final class ControlViewModel {
 
     func boardModeSynchronized(generation: UUID) {
         modeSynchronizedGeneration = generation
+        // Wake a running refresh loop immediately: this is the moment
+        // `boardIsInControlMode` can flip true without any status event.
+        displayRefreshTrigger?.yield()
     }
 
     /// An unsaved drawing never follows the user to another board: when a
@@ -647,11 +650,31 @@ final class ControlViewModel {
 
     // MARK: Board display synchronization
 
-    /// Read serially so slow links never accumulate preview requests. A local
-    /// edit or output handoff during the read makes that response obsolete.
+    /// A local edit or output handoff during the read makes that response
+    /// obsolete — see the guards below and `adoptBoardFrameIfUntouched`.
     ///
     /// This preview only mirrors a board in Control mode. Text, lip-sync,
     /// performance and video frames belong to their own tabs' previews.
+    ///
+    /// Runs inline in the caller's own task — never wrapped in a detached
+    /// `Task {}` — so cancelling that caller (e.g. `.task(id:)` tearing down
+    /// when the app backgrounds) cancels the wire request the normal way,
+    /// and the post-fetch guard below still runs: a reply that lands after
+    /// teardown is ignored rather than clobbering the draft.
+    ///
+    /// Deliberately *not* single-flighted across callers: the event-driven
+    /// loop, the legacy poll, and `BoardSyncCoordinator`'s direct call each
+    /// call this independently, with no coordination between them. The loop
+    /// serialises its own fetches (one `AsyncStream` consumer that awaits
+    /// each fetch before pulling the next trigger, coalescing a burst via
+    /// `.bufferingNewest(1)` — see `runEventDrivenDisplayRefreshLoop`) and
+    /// the legacy poll runs in that same task before the loop ever starts
+    /// (see `runDisplayRefreshLoop`), so neither can race itself or the
+    /// other. A loop fetch racing `BoardSyncCoordinator`'s direct call is the
+    /// same harmless overlap the pre-PR-12 200 ms poll always allowed: a
+    /// redundant or stale `getFrame()` lands as a no-op rather than a
+    /// correctness risk (see the stale-adopt window note on
+    /// `runEventDrivenDisplayRefreshLoop`).
     func refreshBoardDisplay(connection: BoardConnection) async {
         guard connection.connectionState == .connected, !hasUnsentChanges, !isSending,
               boardIsInControlMode(connection) else { return }
@@ -670,6 +693,148 @@ final class ControlViewModel {
         guard modeSynchronizedGeneration == connection.connectionGeneration,
               let status = connection.status else { return false }
         return BoardResumeMode.resolve(status: status, preview: connection.preview) == .control
+    }
+
+    // MARK: Event-driven refresh (perf PR-12)
+    //
+    // Firmware broadcasts EV_STATUS with a bumped `v`/`version` to every
+    // connected client (including the sender) whenever the board's display
+    // changes in Control mode, so a status-version change is treated as "the
+    // frame is stale, fetch it" instead of polling on a fixed clock. A 1 Hz
+    // reconciliation tick is kept as a fallback for anything that changes the
+    // board without a version bump reaching us, and older firmware that never
+    // reports a version keeps the previous 200 ms poll verbatim.
+
+    /// Injectable timings so tests can shrink the reconciliation interval
+    /// instead of waiting on real wall-clock seconds. Production code never
+    /// overrides this.
+    struct RefreshTiming {
+        var reconciliationInterval: Duration = .seconds(1)
+        var legacyPollInterval: Duration = .milliseconds(200)
+    }
+
+    // `refreshTiming` is an internal mutable seam whose only consumer is the
+    // test suite; it is not mutated in production, so it is not writable (or
+    // visible to `@testable` mutation) outside DEBUG builds.
+    #if DEBUG
+    @ObservationIgnored var refreshTiming = RefreshTiming()
+    #else
+    @ObservationIgnored private let refreshTiming = RefreshTiming()
+    #endif
+    /// Set while the event-driven loop below is running, so an out-of-band
+    /// mode flip (`boardModeSynchronized`) can wake it immediately instead of
+    /// waiting for the next version bump or reconciliation tick. Guarded by
+    /// `displayRefreshRunToken` so a loop that is cancelled and unwinding
+    /// (e.g. `.task(id:)` restarting) can never clear a newer loop's trigger.
+    @ObservationIgnored private var displayRefreshTrigger: AsyncStream<Void>.Continuation?
+    @ObservationIgnored private var displayRefreshRunToken: UUID?
+
+    private static func statusVersion(_ connection: BoardConnection) -> Int? {
+        connection.status?.v ?? connection.status?.version
+    }
+
+    /// Drives `refreshBoardDisplay(connection:)` for as long as the caller
+    /// keeps awaiting it (§lifetime unchanged: `ControlView` only awaits this
+    /// while connected and the scene is active, and cancels it otherwise).
+    ///
+    /// A board whose status has no version yet (the setup GET_STATUS read
+    /// timed out, or genuinely old firmware) polls every `legacyPollInterval`
+    /// until either a version appears — at which point this switches to the
+    /// event-driven loop below without ever running both at once — or the
+    /// caller cancels.
+    func runDisplayRefreshLoop(connection: BoardConnection) async {
+        if Self.statusVersion(connection) == nil {
+            guard await legacyPollUntilVersionAppears(connection: connection) else { return }
+        }
+        await runEventDrivenDisplayRefreshLoop(connection: connection)
+    }
+
+    /// Polls at `legacyPollInterval` while the board's status carries no
+    /// version. Returns `true` the moment a version appears (so the caller
+    /// can switch to the event-driven loop), or `false` if cancelled first.
+    private func legacyPollUntilVersionAppears(connection: BoardConnection) async -> Bool {
+        while !Task.isCancelled {
+            if Self.statusVersion(connection) != nil { return true }
+            await refreshBoardDisplay(connection: connection)
+            do { try await Task.sleep(for: refreshTiming.legacyPollInterval) }
+            catch { return false }
+        }
+        return false
+    }
+
+    /// Replaces the fixed 200 ms poll with an event-driven refresh: a status
+    /// version change or a control-mode transition triggers an immediate
+    /// fetch, backed by a 1 Hz reconciliation fallback and one fetch right on
+    /// entry. This loop serialises itself — the consumer below awaits each
+    /// `refreshBoardDisplay` before pulling the next trigger — and the
+    /// trigger channel's `.bufferingNewest(1)` policy coalesces a burst that
+    /// arrives while a fetch is in flight into exactly one more fetch
+    /// afterward. It does not coordinate with other callers of
+    /// `refreshBoardDisplay` (e.g. `BoardSyncCoordinator`'s direct call); see
+    /// that function's doc comment for why.
+    ///
+    /// That lack of coordination widens (but does not introduce) a stale-adopt
+    /// window: draft mirrors `F0`; this loop issues a fetch that will read
+    /// `F1`; the board flips back to `F0`; `BoardSyncCoordinator`'s fetch
+    /// reads that `F0` and lands first as a same-frame no-op, so `snapshot ==
+    /// before` still holds when this loop's fetch lands with the now-stale
+    /// `F1`, and it gets adopted. Pre-PR-12, the 200 ms poll made the same
+    /// race self-heal within ≤200 ms; the 1 Hz reconciliation tick now heals
+    /// it within ≤1 s instead — still comfortably inside INV-4's 3 s
+    /// convergence budget (`docs/STRESS_TEST_DUAL_BOARD_PLAN_ZH.md`). It can
+    /// never touch undo history or `editingFaceId`, because every path that
+    /// would (a real edit, a save, loading a face) sets `userHasEdited` first,
+    /// and `adoptBoardFrameIfUntouched` refuses once that's set. This is
+    /// accepted, expected behavior — not a bug to rediscover.
+    private func runEventDrivenDisplayRefreshLoop(connection: BoardConnection) async {
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let token = UUID()
+        displayRefreshRunToken = token
+        displayRefreshTrigger = continuation
+        defer {
+            // Only retract this run's own trigger: a `.task(id:)` restart can
+            // start a newer run before this one finishes unwinding.
+            if displayRefreshRunToken == token {
+                displayRefreshRunToken = nil
+                displayRefreshTrigger = nil
+            }
+            continuation.finish()
+        }
+        continuation.yield() // immediate refresh on entry (page appear / connect / active / mode sync)
+
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return }
+                var lastVersion = Self.statusVersion(connection)
+                var wasInControlMode = self.boardIsInControlMode(connection)
+                for await event in connection.events() {
+                    if Task.isCancelled { return }
+                    guard case .status = event else { continue }
+                    let currentVersion = Self.statusVersion(connection)
+                    let isInControlMode = self.boardIsInControlMode(connection)
+                    if currentVersion != lastVersion || (isInControlMode && !wasInControlMode) {
+                        continuation.yield()
+                    }
+                    lastVersion = currentVersion
+                    wasInControlMode = isInControlMode
+                }
+            }
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return }
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: self.refreshTiming.reconciliationInterval) }
+                    catch { return }
+                    continuation.yield()
+                }
+            }
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return }
+                for await _ in stream {
+                    if Task.isCancelled { return }
+                    await self.refreshBoardDisplay(connection: connection)
+                }
+            }
+        }
     }
 
     /// Populate only a never-edited editor from the board. A restored or sent

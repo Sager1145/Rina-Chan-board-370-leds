@@ -85,11 +85,7 @@ struct ControlView: View {
         .onAppear { bootLoader.beginWaterfall(count: 3) }
         .task(id: isConnected && scenePhase == .active ? connection.connectionGeneration : nil) {
             guard isConnected, scenePhase == .active else { return }
-            while !Task.isCancelled {
-                await model.refreshBoardDisplay(connection: connection)
-                do { try await Task.sleep(for: .milliseconds(200)) }
-                catch { return }
-            }
+            await model.runDisplayRefreshLoop(connection: connection)
         }
     }
 
