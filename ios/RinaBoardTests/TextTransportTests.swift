@@ -654,17 +654,99 @@ final class TextTransportTests: XCTestCase {
         XCTAssertEqual(model.requestedFps, 15)
     }
 
-    // MARK: Upload ownership (audit A26)
+    // MARK: Cross-session ownership, with a held request (audit A25, A26)
+
+    /// A speed change queued for one board must never be delivered to another.
+    ///
+    /// `set_scroll_interval` for board A is parked in flight, so a second slider
+    /// move only becomes `pending` in the coalescing sender. The board then
+    /// switches and board B binds its own timeline. When A's send finally
+    /// returns, the drain loop wakes and drains that pending value — and used to
+    /// resolve its destination from `activeConnection` at that moment, which by
+    /// then is B.
+    func testQueuedSpeedChangeIsNotDeliveredToAnotherBoard() async throws {
+        let (boardA, transportA) = try await connectedBoard()
+        let (boardB, transportB) = try await connectedBoard()
+        let model = TextViewModel()
+        model.text = "Speed"
+        model.requestedFps = 10
+        await model.send(connection: boardA)
+        model.suspendPreviewLoop()
+
+        // Park A's retune so the next move can only queue behind it.
+        transportA.shouldHold = { type, name in type == .cmd && name == "set_scroll_interval" }
+        model.setRequestedFps(45, connection: boardA)
+        try await transportA.waitForHeld()
+        model.setRequestedFps(50, connection: boardA)
+
+        // The board switch, then B binds a timeline of its own.
+        model.connectionChanged()
+        await model.send(connection: boardB)
+        model.suspendPreviewLoop()
+
+        // A's send completes; the drain loop resumes with 50 still pending.
+        transportA.releaseHeld()
+        try await Task.sleep(for: .milliseconds(400))
+
+        let leaked = transportB.scrollCommands.filter { $0.name == "set_scroll_interval" }
+        XCTAssertTrue(leaked.isEmpty,
+                      "board B received a speed change made for board A: \(leaked.map(\.fields))")
+    }
+
+    /// A superseded upload must not write over the upload that replaced it.
+    ///
+    /// The first upload is parked at its blob begin, then `releaseOutput()` (what
+    /// `connectionChanged` / `observe(status: nil)` call) clears the busy flag and
+    /// only cooperatively cancels it. A second upload runs to completion, and
+    /// only then is the first released: its `catch` used to write `errorMessage`
+    /// and its `defer` used to clear the *second* upload's `isUploading`.
+    func testSupersededUploadDoesNotWriteOverTheUploadThatReplacedIt() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        model.text = "Cross talk"
+
+        // Park the blob begin of both uploads, so each can be unwound on its own.
+        var parked = 0
+        transport.shouldHold = { type, _ in
+            guard type == .blobBegin, parked < 2 else { return false }
+            parked += 1
+            return true
+        }
+
+        let first = Task { await model.send(connection: connection) }
+        try await transport.waitForHeld(count: 1)
+
+        // Supersede it, exactly as `connectionChanged` / `observe(status: nil)` do.
+        model.releaseOutput()
+        let second = Task { await model.send(connection: connection) }
+        try await transport.waitForHeld(count: 2)
+        XCTAssertTrue(model.isUploading, "the replacement upload owns the busy flag")
+
+        // Unwind only the superseded upload, while the replacement is still in
+        // flight. Its `defer` used to clear the replacement's busy flag and its
+        // `catch` used to report the failure as the replacement's.
+        transport.releaseHeld(count: 1)
+        await first.value
+
+        XCTAssertTrue(model.isUploading,
+                      "a superseded upload must not clear the busy flag of the upload that replaced it")
+        XCTAssertNil(model.errorMessage,
+                     "nor report its own failure as the replacement's")
+
+        transport.releaseHeld()
+        await second.value
+        model.suspendPreviewLoop()
+        XCTAssertFalse(model.isUploading, "the replacement finished, so the flag is clear now")
+    }
+
+    // MARK: Upload ownership, happy paths
     //
-    // Honest scope: both tests below were checked against the pre-fix code and
-    // PASS there too, so neither pins A26. They characterize the properties the
-    // revision ownership is supposed to guarantee, which is worth having where
-    // there was no coverage at all, but the defect itself needs an interleaving
-    // this harness cannot create: a superseded upload still in flight while a
-    // newer one runs, so the loser's `defer`/`catch` lands on the winner's
-    // state. `RecordingTextTransport` replies immediately and has no hold hook,
-    // and `Task.yield()` is too coarse — the old code set `isUploading` before
-    // its first real `await`, so the second send was rejected anyway.
+    // Scope: both tests below pass against the pre-fix code too, so neither
+    // pins A26 — they only characterize the properties revision ownership is
+    // meant to guarantee. The tests that actually fail without the fixes are
+    // the two above, which use the transport's hold hook; `Task.yield()` is too
+    // coarse for this, because the pre-fix code set `isUploading` before its
+    // first real `await` and the second send was rejected anyway.
 
     /// Admission is synchronous, so one send produces one upload.
     func testSecondSendIsRejectedWhileTheFirstUploadIsStarting() async throws {
@@ -779,6 +861,51 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
     private(set) var requests: [RinaLinkMessageType] = []
     private(set) var blobBegins: [[String: Any]] = []
 
+    // MARK: Holding a request in flight
+    //
+    // Several defects only appear while one operation is still in flight and a
+    // newer one runs (a queued speed change draining after a board switch, a
+    // superseded upload unwinding onto the next upload's state). This parks a
+    // selected request instead of replying to it, so a test can create that
+    // interleaving deterministically instead of racing `Task.yield()`.
+    // Parking happens inside `send`, which leaves the caller's write awaiting;
+    // other operations keep running, because this transport is main-actor
+    // isolated rather than exclusive.
+
+    /// Return true to park the request. `name` is the `cmd` for a CMD frame.
+    var shouldHold: ((RinaLinkMessageType?, _ name: String?) -> Bool)?
+    private var heldContinuations: [CheckedContinuation<Void, Never>] = []
+
+    /// How many requests are parked right now.
+    var heldCount: Int { heldContinuations.count }
+
+    /// Lets parked requests reply and continue, oldest first. `count` nil
+    /// releases all of them; releasing a subset is what lets a test unwind one
+    /// operation while another is still deliberately in flight.
+    func releaseHeld(count: Int? = nil) {
+        let releasing = min(count ?? heldContinuations.count, heldContinuations.count)
+        let parked = Array(heldContinuations.prefix(releasing))
+        heldContinuations.removeFirst(releasing)
+        for continuation in parked { continuation.resume() }
+    }
+
+    /// Waits until at least `count` requests are parked.
+    func waitForHeld(count: Int = 1, timeout: Duration = .seconds(2)) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while heldContinuations.count < count {
+            guard ContinuousClock.now < deadline else {
+                throw HoldTimeout(parked: heldContinuations.count, wanted: count)
+            }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
+    struct HoldTimeout: Error, CustomStringConvertible {
+        let parked: Int
+        let wanted: Int
+        var description: String { "timed out with \(parked) parked request(s), wanted \(wanted)" }
+    }
+
     func clearRecordedRequests() { requests.removeAll() }
 
     var restoreRequests: [RinaLinkMessageType] {
@@ -827,6 +954,12 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
                 }
                 if name == "scroll_seek" { onScrollSeek?() }
                 if rejectCommands { reply = Data(#"{"ok":false,"error":"denied"}"#.utf8) }
+            }
+            if let shouldHold {
+                let name = (try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any])?["cmd"] as? String
+                if shouldHold(messageType, name) {
+                    await withCheckedContinuation { heldContinuations.append($0) }
+                }
             }
             incomingContinuation?.yield(try! RinaLinkEncoder.encode(
                 RinaLinkFrame(type: request.type | 0x80,
