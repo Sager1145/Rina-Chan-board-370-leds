@@ -208,6 +208,20 @@ struct RootTabView: View {
             guard !Task.isCancelled else { return }
             bootLoader.replay()
         }
+        #if DEBUG
+        .task {
+            // PR-11 item 3 measurement harness only: `-perfProbeScenario
+            // textHighFps` (paired with `-initialTab text` so the row is
+            // actually mounted) seeds a draft and starts the Text tab's local
+            // preview loop, so the bloom/frame-drop probes have something
+            // genuinely redrawing without a human typing and tapping Send.
+            // Absent the argument this task returns immediately and touches
+            // nothing.
+            guard UserDefaults.standard.string(forKey: "perfProbeScenario") == "textHighFps" else { return }
+            while !contentReady { try? await Task.sleep(for: .milliseconds(16)); if Task.isCancelled { return } }
+            await textModel.debugBootstrapPreviewLoop()
+        }
+        #endif
     }
 
     private var tabs: some View {
