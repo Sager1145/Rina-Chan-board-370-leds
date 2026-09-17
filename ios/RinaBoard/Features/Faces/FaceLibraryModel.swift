@@ -655,6 +655,13 @@ final class FaceLibraryModel {
         return try? selected.encoded()
     }
 
+    /// The file picker could not read the chosen file at all; previously this
+    /// returned silently and looked like nothing had happened.
+    func reportImportUnreadable() {
+        errorMessage = NSLocalizedString("导入失败：无法读取所选文件",
+                                         comment: "face document import unreadable file")
+    }
+
     func importDocument(from data: Data, connection: BoardConnection) async {
         await importDocument(from: data, to: .board, connection: connection)
     }
@@ -662,8 +669,24 @@ final class FaceLibraryModel {
     func importDocument(from data: Data, to location: FaceLibraryLocation,
                         connection: BoardConnection) async {
         errorMessage = nil
-        guard var decoded = try? FaceDocument(jsonData: data),
-              !decoded.faces.isEmpty,
+        // The lenient decoder drops entries it cannot parse. That is right when
+        // reading data we already own, but an import is uploaded as a whole
+        // document replacement, so a partial parse would silently discard the
+        // user's faces. Refuse instead, and say how many entries were bad.
+        guard let parsed = try? FaceDocument.decodedForImport(jsonData: data) else {
+            errorMessage = NSLocalizedString("导入失败：文件格式无效", comment: "face document import invalid")
+            return
+        }
+        if parsed.skippedFaceCount > 0 {
+            errorMessage = String(
+                format: NSLocalizedString("导入失败：文件中有 %d 个表情无法解析，未做任何改动",
+                                          comment: "face document import skipped entries"),
+                parsed.skippedFaceCount
+            )
+            return
+        }
+        var decoded = parsed.document
+        guard !decoded.faces.isEmpty,
               decoded.faces.allSatisfy({ $0.packedFrame != nil }) else {
             errorMessage = NSLocalizedString("导入失败：文件格式无效", comment: "face document import invalid")
             return
