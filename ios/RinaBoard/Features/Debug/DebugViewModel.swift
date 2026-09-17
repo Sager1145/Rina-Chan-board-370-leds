@@ -382,6 +382,14 @@ final class DebugViewModel {
         hasScheduledLogFlush = true
         pendingFlushTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 75_000_000)
+            // `Task.sleep` throws `CancellationError`, which `try?` swallows
+            // above — without this explicit check, cancelling the task (see
+            // `flushPendingLogs()`) would make it fall straight through to
+            // `flushPendingLogs()` immediately instead of not running at all,
+            // which is worse than not cancelling: a burst plus a rapid pause
+            // toggle could cascade (task A is cancelled, flushes anyway,
+            // which cancels task B, which wakes and flushes too).
+            guard !Task.isCancelled else { return }
             self?.flushPendingLogs()
         }
     }
@@ -398,6 +406,13 @@ final class DebugViewModel {
         pendingFlushTask?.cancel()
         pendingFlushTask = nil
         logs = logRing.elements
+        // While paused, `visibleLogs` is driven by the frozen `pausedLogs`
+        // snapshot (see its `didSet`), not by `logs` — so recomputing here
+        // would provably return the same result while still invalidating
+        // every SwiftUI observer of `visibleLogs` on each coalesced flush
+        // (~13/s), and re-running the search filter over up to 500 entries
+        // on the main actor for a list nobody can see change.
+        guard pausedLogs == nil else { return }
         recomputeVisibleLogs()
     }
 
@@ -509,22 +524,27 @@ final class DebugViewModel {
         }.joined(separator: "\n")
     }
 
+    // Compiled once, not per call: `redactSensitive` runs over every line of
+    // `logShareText`/`copyRawSnapshots` (up to 500 lines), and recompiling
+    // two `NSRegularExpression`s per line made this the single largest
+    // per-body-pass cost on the Debug log page — the exact page this PR
+    // exists to speed up.
+    private static let quotedValuePattern = #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#
+    // Authorization header values commonly contain a scheme and credential
+    // separated by whitespace. Redact the complete value before applying
+    // the generic single-value rule below.
+    private static let authorizationExpression = try? NSRegularExpression(
+        pattern: #"(?i)(\"?authorization\"?\s*[:=]\s*)("# + quotedValuePattern + #"|[^\r\n,}\]]+)"#
+    )
+    private static let sensitiveValueExpression = try? NSRegularExpression(
+        pattern: #"(?i)(\"?(?:password|passwd|pwd|psk|secret|token)\"?\s*[:=]\s*)("# + quotedValuePattern + #"|[^\s,}\]]+)"#
+    )
+
     private static func redactSensitive(_ value: String) -> String {
         let hidden = NSLocalizedString("<已隐藏>", comment: "redacted debug value placeholder")
-        let quotedValue = #"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'"#
 
-        // Authorization header values commonly contain a scheme and credential
-        // separated by whitespace. Redact the complete value before applying
-        // the generic single-value rule below.
-        let authorizationPattern = #"(?i)(\"?authorization\"?\s*[:=]\s*)("#
-            + quotedValue
-            + #"|[^\r\n,}\]]+)"#
-        let sensitiveValuePattern = #"(?i)(\"?(?:password|passwd|pwd|psk|secret|token)\"?\s*[:=]\s*)("#
-            + quotedValue
-            + #"|[^\s,}\]]+)"#
-
-        return [authorizationPattern, sensitiveValuePattern].reduce(value) { redacted, pattern in
-            guard let expression = try? NSRegularExpression(pattern: pattern) else { return redacted }
+        return [authorizationExpression, sensitiveValueExpression].reduce(value) { redacted, expression in
+            guard let expression else { return redacted }
             let range = NSRange(redacted.startIndex..<redacted.endIndex, in: redacted)
             return expression.stringByReplacingMatches(in: redacted,
                                                        range: range,
