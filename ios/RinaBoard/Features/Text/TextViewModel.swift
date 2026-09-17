@@ -255,6 +255,10 @@ final class TextViewModel {
     private var scrollLockoutUntil: Date = .distantPast
     private var didLoadDefaults = false
     private weak var activeConnection: BoardConnection?
+    /// The board and timeline a queued speed change was submitted *for*.
+    /// Written only by `setRequestedFps`, so a later `restoreOnConnect` on a
+    /// different board cannot silently retarget a value already in the queue.
+    private var fpsDestination: (connection: BoardConnection, timelineId: String)?
 
     @ObservationIgnored private let fpsSender: LatestValueSender<Double>
 
@@ -262,8 +266,14 @@ final class TextViewModel {
         let box = WeakBox<TextViewModel>()
         fpsSender = LatestValueSender<Double>(minInterval: 0.12) { fps in
             guard let self = box.value,
-                  let connection = self.activeConnection,
-                  self.boundTimelineId != nil else { return }
+                  let destination = self.fpsDestination,
+                  // Still the same board, still the same timeline. The drain
+                  // loop can resume after a stalled command on another board,
+                  // by which time `activeConnection` may already point at a
+                  // board this value was never meant for.
+                  destination.connection === self.activeConnection,
+                  self.boundTimelineId == destination.timelineId else { return }
+            let connection = destination.connection
             let fpsInt = Int(fps.rounded())
             let intervalMs = ScrollRasterizer.intervalMs(forFps: fpsInt)
             // Only retunes a scroll already on the board; taking the output
@@ -569,8 +579,9 @@ final class TextViewModel {
         speedEdits += 1
         requestedFps = clamped
         // Live retune only while a session with the same timeline is running.
-        guard boundTimelineId != nil else { return }
+        guard let timelineId = boundTimelineId else { return }
         activeConnection = connection
+        fpsDestination = (connection, timelineId)
         pendingFps = PendingFps(fps: clampFps(clamped), until: Date().addingTimeInterval(5))
         fpsSender.submit(clamped)
     }
@@ -831,6 +842,10 @@ final class TextViewModel {
         activeConnection = nil
         boardPaused = false
         pendingFps = nil
+        // Drop any speed change still waiting to drain: its destination is
+        // gone, and the drain loop must not outlive this playback session.
+        fpsDestination = nil
+        fpsSender.cancel()
     }
 
     // MARK: Labels
