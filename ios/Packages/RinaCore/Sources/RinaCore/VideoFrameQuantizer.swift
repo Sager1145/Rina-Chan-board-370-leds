@@ -72,11 +72,33 @@ public enum VideoFrameQuantizer {
     /// and out while staying cheap at any source resolution.
     static let samplesPerAxis = 5
 
-    /// Mean luminance (0…1) of every grid cell, row-major over
-    /// `MatrixGeometry.cols × rows`, or `nil` for cells the picture does not
-    /// cover (only possible with `.fit`). Mirroring is applied here so every
-    /// later step sees the final orientation.
-    public static func cellLuminance(of image: LumaImage, fit: Fit, mirror: Bool) -> [Float?] {
+    /// Sentinel stored in place of `nil` in the internal `[Float]` cell table
+    /// (valid means are 0...1, so -1 is unambiguous).
+    private static let uncoveredCell: Float = -1
+
+    /// Source-pixel lookup table for one grid axis: `table[g * n + s]` is the
+    /// source pixel index for grid cell `g`, sub-sample `s`, or -1 when that
+    /// sample falls outside the source image.
+    private static func sampleTable(gridCount: Int, sourceExtent: Int, origin: Double, scale: Double) -> [Int] {
+        let n = samplesPerAxis
+        var table = [Int](repeating: -1, count: gridCount * n)
+        for g in 0..<gridCount {
+            for s in 0..<n {
+                let cellCoordinate = Double(g) + (Double(s) + 0.5) / Double(n)
+                let sample = Int(((cellCoordinate - origin) * scale).rounded(.down))
+                guard sample >= 0, sample < sourceExtent else { continue }
+                table[g * n + s] = sample
+            }
+        }
+        return table
+    }
+
+    /// Mean luminance (0...1, `uncoveredCell` where the picture does not
+    /// cover the cell) of every grid cell, row-major over
+    /// `MatrixGeometry.cols × rows`. Mirroring is applied by choosing which
+    /// column of the x sample table to read, so every later step sees the
+    /// final orientation.
+    private static func cellMeans(of image: LumaImage, fit: Fit, mirror: Bool) -> [Float] {
         let cols = MatrixGeometry.cols
         let rows = MatrixGeometry.rows
         let width = Double(image.width)
@@ -102,32 +124,49 @@ public enum VideoFrameQuantizer {
         let originX = (Double(cols) - width / scaleX) / 2
         let originY = (Double(rows) - height / scaleY) / 2
 
-        var result = [Float?](repeating: nil, count: cols * rows)
         let n = samplesPerAxis
-        for gy in 0..<rows {
-            for gx in 0..<cols {
-                let sourceColumn = mirror ? cols - 1 - gx : gx
-                var sum = 0
-                var count = 0
-                for sy in 0..<n {
-                    let cellY = Double(gy) + (Double(sy) + 0.5) / Double(n)
-                    let py = Int(((cellY - originY) * scaleY).rounded(.down))
-                    guard py >= 0, py < image.height else { continue }
-                    let rowStart = py * image.width
-                    for sx in 0..<n {
-                        let cellX = Double(sourceColumn) + (Double(sx) + 0.5) / Double(n)
-                        let px = Int(((cellX - originX) * scaleX).rounded(.down))
-                        guard px >= 0, px < image.width else { continue }
-                        sum += Int(image.pixels[rowStart + px])
-                        count += 1
+        let pxTable = sampleTable(gridCount: cols, sourceExtent: image.width, origin: originX, scale: scaleX)
+        let pyTable = sampleTable(gridCount: rows, sourceExtent: image.height, origin: originY, scale: scaleY)
+
+        var result = [Float](repeating: uncoveredCell, count: cols * rows)
+        image.pixels.withUnsafeBufferPointer { pixels in
+            for gy in 0..<rows {
+                let yBase = gy * n
+                for gx in 0..<cols {
+                    let sourceColumn = mirror ? cols - 1 - gx : gx
+                    let xBase = sourceColumn * n
+                    var sum = 0
+                    var count = 0
+                    for sy in 0..<n {
+                        let py = pyTable[yBase + sy]
+                        guard py >= 0 else { continue }
+                        let rowStart = py * image.width
+                        for sx in 0..<n {
+                            let px = pxTable[xBase + sx]
+                            guard px >= 0 else { continue }
+                            sum += Int(pixels[rowStart + px])
+                            count += 1
+                        }
                     }
-                }
-                if count > 0 {
-                    result[gy * cols + gx] = Float(sum) / Float(count * 255)
+                    if count > 0 {
+                        result[gy * cols + gx] = Float(sum) / Float(count * 255)
+                    }
                 }
             }
         }
         return result
+    }
+
+    /// Mean luminance (0…1) of every grid cell, row-major over
+    /// `MatrixGeometry.cols × rows`, or `nil` for cells the picture does not
+    /// cover (only possible with `.fit`). Mirroring is applied here so every
+    /// later step sees the final orientation.
+    ///
+    /// Every non-`nil` element is expected to be in 0…1; `nil` marks an
+    /// uncovered cell. Values outside that range are unspecified (internally,
+    /// -1 is reserved as the uncovered-cell sentinel — see `frame(fromCells:settings:)`).
+    public static func cellLuminance(of image: LumaImage, fit: Fit, mirror: Bool) -> [Float?] {
+        cellMeans(of: image, fit: fit, mirror: mirror).map { $0 == uncoveredCell ? nil : $0 }
     }
 
     /// Below this luminance range across the board, auto threshold falls back
@@ -142,13 +181,26 @@ public enum VideoFrameQuantizer {
     ].map { (Float($0) + 0.5) / 16 }
 
     public static func frame(from image: LumaImage, settings: Settings) -> PackedFrame {
-        frame(fromCells: cellLuminance(of: image, fit: settings.fit, mirror: settings.mirror),
-              settings: settings)
+        quantize(cells: cellMeans(of: image, fit: settings.fit, mirror: settings.mirror), settings: settings)
     }
 
     /// Quantizes pre-sampled cells (see `cellLuminance`). Cells outside the
     /// picture stay off even when inverted, so letterbox bars never light up.
+    ///
+    /// Every non-`nil` element of `cells` is expected to be in 0…1; `nil`
+    /// marks an uncovered cell. Values outside that range are unspecified
+    /// (internally, -1 is reserved as the uncovered-cell sentinel).
     public static func frame(fromCells cells: [Float?], settings: Settings) -> PackedFrame {
+        let cols = MatrixGeometry.cols
+        guard cells.count == cols * MatrixGeometry.rows else { return PackedFrame() }
+        let means = cells.map { $0 ?? uncoveredCell }
+        return quantize(cells: means, settings: settings)
+    }
+
+    /// Quantizes the internal `[Float]` cell table (see `cellMeans`) into a
+    /// `PackedFrame`, iterating LEDs in logical order so Float accumulation
+    /// order (for the auto threshold) matches the original implementation.
+    private static func quantize(cells: [Float], settings: Settings) -> PackedFrame {
         let cols = MatrixGeometry.cols
         var frame = PackedFrame()
         guard cells.count == cols * MatrixGeometry.rows else { return frame }
@@ -160,7 +212,8 @@ public enum VideoFrameQuantizer {
             var low: Float = 1
             var high: Float = 0
             for led in 0..<MatrixGeometry.ledCount {
-                guard let (x, y) = MatrixGeometry.xy(ofLed: led), let value = cells[y * cols + x] else { continue }
+                let value = cells[MatrixGeometry.ledCellIndex[led]]
+                guard value != uncoveredCell else { continue }
                 sum += value
                 count += 1
                 low = min(low, value)
@@ -175,7 +228,9 @@ public enum VideoFrameQuantizer {
         }
 
         for led in 0..<MatrixGeometry.ledCount {
-            guard let (x, y) = MatrixGeometry.xy(ofLed: led), let value = cells[y * cols + x] else { continue }
+            let cell = MatrixGeometry.ledCellIndex[led]
+            let value = cells[cell]
+            guard value != uncoveredCell else { continue }
             var lit: Bool
             switch settings.mode {
             case .threshold:
@@ -183,6 +238,8 @@ public enum VideoFrameQuantizer {
             case .dither:
                 // Shift the picture so the chosen threshold sits at the
                 // dither pattern's midpoint, then compare against the pattern.
+                let x = cell % cols
+                let y = cell / cols
                 lit = value + (0.5 - threshold) > bayer4[(y % 4) * 4 + x % 4]
             }
             if settings.invert { lit.toggle() }
