@@ -352,25 +352,64 @@ final class AcceptancePerformanceTests: XCTestCase {
     }
 
     // MARK: PR-8 import concurrency
+    //
+    // Each test below drives `PresetLiveModel.importCommitHookForTesting`
+    // through a `PR8ImportGate`, so an import is held at a deterministic
+    // point (after staging completes, before any generation/selection check
+    // or commit) rather than relying on timing.
 
-    /// Two custom-audio imports started back to back, the second before the
-    /// first is awaited. `PresetLiveModel` bumps a generation counter
-    /// synchronously at the start of each import call, before the detached
-    /// staging work is ever reached, so the ordering below is guaranteed by
-    /// call order rather than by which staging task happens to finish first:
-    /// only the import whose generation is still current at commit time is
-    /// allowed to land.
-    func testBackToBackCustomAudioImportsCommitOnlyTheSecond() async throws {
+    /// A built-in audio import held mid-staging while the selection switches
+    /// to another built-in. The staged copy must be discarded, the
+    /// selection-changed error shown, and the (already-absent) player and
+    /// defaults for song A left untouched.
+    func testBuiltInAudioImportDiscardedWhenSelectionChangesDuringStaging() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        let songA = try XCTUnwrap(model.builtInPerformances.first { $0.id == "song-a" })
+        let songB = try XCTUnwrap(model.builtInPerformances.first { $0.id == "song-b" })
+        XCTAssertTrue(model.selectBuiltIn(songA))
+        let storedFilesBefore = try context.storedFileNames()
+        let url = try context.writeImport(named: "song-a.wav", data: syntheticWAV())
+
+        let gate = PR8ImportGate()
+        await gate.gate("song-a.wav")
+        model.importCommitHookForTesting = { url in await gate.hold(url.lastPathComponent) }
+
+        let task = Task { await model.importAudio(from: url, forBuiltIn: songA.id) }
+        await gate.waitUntilReached("song-a.wav")
+        XCTAssertTrue(model.selectBuiltIn(songB))
+        await gate.release("song-a.wav")
+        await task.value
+
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(model.selectedBuiltIn, songB.id)
+        XCTAssertFalse(model.hasAudio)
+        XCTAssertNil(context.defaults.string(forKey: "performanceAudio.song-a"))
+        XCTAssertEqual(try context.storedFileNames(), storedFilesBefore)
+    }
+
+    /// Two custom-audio imports: the first is held mid-staging, the second
+    /// runs to completion and commits, then the first is released. The first
+    /// import's own generation has been superseded by the time it reaches
+    /// its commit check, so it must be dropped silently — no error message,
+    /// and only the second file's copy remains on disk.
+    func testCustomAudioImportHeldWhileSupersededDropsSilently() async throws {
         let context = try makeContext()
         defer { context.cleanUp() }
         let model = context.makeModel()
         let firstURL = try context.writeImport(named: "first.wav", data: syntheticWAV(sample: 100))
         let secondURL = try context.writeImport(named: "second.wav", data: syntheticWAV(sample: -100))
 
+        let gate = PR8ImportGate()
+        await gate.gate("first.wav")
+        model.importCommitHookForTesting = { url in await gate.hold(url.lastPathComponent) }
+
         let firstTask = Task { await model.importCustomAudio(from: firstURL) }
-        let secondTask = Task { await model.importCustomAudio(from: secondURL) }
+        await gate.waitUntilReached("first.wav")
+        await model.importCustomAudio(from: secondURL)
+        await gate.release("first.wav")
         await firstTask.value
-        await secondTask.value
 
         XCTAssertEqual(model.audioTitle, "second.wav")
         XCTAssertTrue(model.hasAudio)
@@ -382,30 +421,88 @@ final class AcceptancePerformanceTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
-    /// A built-in audio import whose selection changes to another built-in
-    /// before staging finishes. Changing the selection right after starting
-    /// the import `Task`, before awaiting it, is deterministic: the detached
-    /// staging (security scope, validation, file copy, second validation)
-    /// cannot reach its main-actor commit point before this synchronous test
-    /// body yields control of the main actor back to the run loop, so the
-    /// selection change below always lands first.
-    func testBuiltInAudioImportDiscardedWhenSelectionChangesDuringStaging() async throws {
+    /// A broken custom-audio file is held mid-staging (after its validation
+    /// has already failed) while a valid replacement commits, then the
+    /// broken import is released. Its failure must not overwrite the valid
+    /// replacement's success: no error message, and the valid file's
+    /// material stays committed.
+    func testBrokenCustomAudioHeldWhileValidReplacementCommits() async throws {
         let context = try makeContext()
         defer { context.cleanUp() }
         let model = context.makeModel()
-        let songA = try XCTUnwrap(model.builtInPerformances.first { $0.id == "song-a" })
-        let songB = try XCTUnwrap(model.builtInPerformances.first { $0.id == "song-b" })
-        XCTAssertTrue(model.selectBuiltIn(songA))
-        let storedFilesBefore = try context.storedFileNames()
-        let url = try context.writeImport(named: "song-a.wav", data: syntheticWAV())
+        let brokenURL = try context.writeImport(named: "broken.wav", data: Data("not an audio file".utf8))
+        let validURL = try context.writeImport(named: "valid.wav", data: syntheticWAV())
 
-        let task = Task { await model.importAudio(from: url, forBuiltIn: songA.id) }
-        XCTAssertTrue(model.selectBuiltIn(songB))
+        let gate = PR8ImportGate()
+        await gate.gate("broken.wav")
+        model.importCommitHookForTesting = { url in await gate.hold(url.lastPathComponent) }
+
+        let brokenTask = Task { await model.importCustomAudio(from: brokenURL) }
+        await gate.waitUntilReached("broken.wav")
+        await model.importCustomAudio(from: validURL)
+        await gate.release("broken.wav")
+        await brokenTask.value
+
+        XCTAssertNil(model.errorMessage)
+        XCTAssertEqual(model.audioTitle, "valid.wav")
+        XCTAssertTrue(model.hasAudio)
+    }
+
+    /// A custom-audio import is held mid-staging while a script import runs
+    /// to completion and commits. Audio and script imports track separate
+    /// generation counters, so the script import must not cause the audio
+    /// import to be discarded as superseded: releasing the audio import
+    /// afterwards must still commit it alongside the script.
+    func testCustomAudioHeldWhileScriptImportCommitsIndependently() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        let audioURL = try context.writeImport(named: "audio.wav", data: syntheticWAV())
+        let scriptURL = try context.writeImport(named: "script.rinalive", data: validScriptData)
+
+        let gate = PR8ImportGate()
+        await gate.gate("audio.wav")
+        model.importCommitHookForTesting = { url in await gate.hold(url.lastPathComponent) }
+
+        let audioTask = Task { await model.importCustomAudio(from: audioURL) }
+        await gate.waitUntilReached("audio.wav")
+        await model.importScript(from: scriptURL)
+        await gate.release("audio.wav")
+        await audioTask.value
+
+        XCTAssertTrue(model.hasAudio)
+        XCTAssertEqual(model.audioTitle, "audio.wav")
+        XCTAssertEqual(model.scriptName, "script.rinalive")
+        XCTAssertTrue(model.canPlay)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    /// A custom-audio import is held mid-staging while the selection
+    /// switches to a built-in performance. The staged copy must be
+    /// discarded, the selection-changed error shown, and the app must stay
+    /// in built-in mode rather than being dragged back into custom mode.
+    func testCustomAudioImportDiscardedWhenSelectionSwitchesToBuiltInDuringStaging() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+        let song = try XCTUnwrap(model.builtInPerformances.first { $0.id == "song-a" })
+        let url = try context.writeImport(named: "custom.wav", data: syntheticWAV())
+        let storedFilesBefore = try context.storedFileNames()
+
+        let gate = PR8ImportGate()
+        await gate.gate("custom.wav")
+        model.importCommitHookForTesting = { url in await gate.hold(url.lastPathComponent) }
+
+        let task = Task { await model.importCustomAudio(from: url) }
+        await gate.waitUntilReached("custom.wav")
+        XCTAssertTrue(model.selectBuiltIn(song))
+        await gate.release("custom.wav")
         await task.value
 
         XCTAssertNotNil(model.errorMessage)
-        XCTAssertEqual(model.selectedBuiltIn, songB.id)
-        XCTAssertNil(context.defaults.string(forKey: "performanceAudio.song-a"))
+        XCTAssertFalse(model.isCustomMode)
+        XCTAssertEqual(model.selectedBuiltIn, song.id)
+        XCTAssertFalse(context.defaults.bool(forKey: "performanceCustomMode"))
         XCTAssertEqual(try context.storedFileNames(), storedFilesBefore)
     }
 
@@ -507,6 +604,55 @@ final class AcceptancePerformanceTests: XCTestCase {
         data.appendLittleEndian(audioByteCount)
         for _ in 0..<sampleCount { data.appendLittleEndian(UInt16(bitPattern: sample)) }
         return data
+    }
+}
+
+/// Deterministically gates a `PresetLiveModel` import at the point its
+/// `importCommitHookForTesting` hook runs, keyed by the picked file's
+/// `lastPathComponent`. Only keys registered with `gate(_:)` actually
+/// suspend; any other key passes straight through, so a single hook
+/// closure can gate one import while letting a sibling import run to
+/// completion. No sleeps: `waitUntilReached` and `release` are backed by
+/// `CheckedContinuation`, resumed exactly once per key.
+private actor PR8ImportGate {
+    private var gatedKeys: Set<String> = []
+    private var reached: Set<String> = []
+    private var released: Set<String> = []
+    private var reachedContinuations: [String: CheckedContinuation<Void, Never>] = [:]
+    private var releaseContinuations: [String: CheckedContinuation<Void, Never>] = [:]
+
+    func gate(_ key: String) {
+        gatedKeys.insert(key)
+    }
+
+    /// Called from the model's import hook. Returns immediately for a
+    /// non-gated key; otherwise suspends until `release(_:)` is called.
+    func hold(_ key: String) async {
+        guard gatedKeys.contains(key) else { return }
+        reached.insert(key)
+        if let continuation = reachedContinuations.removeValue(forKey: key) {
+            continuation.resume()
+        }
+        if released.contains(key) { return }
+        await withCheckedContinuation { continuation in
+            releaseContinuations[key] = continuation
+        }
+    }
+
+    /// Suspends until a gated import's `hold(_:)` call has been reached.
+    func waitUntilReached(_ key: String) async {
+        if reached.contains(key) { return }
+        await withCheckedContinuation { continuation in
+            reachedContinuations[key] = continuation
+        }
+    }
+
+    /// Lets a held `hold(_:)` call return.
+    func release(_ key: String) {
+        released.insert(key)
+        if let continuation = releaseContinuations.removeValue(forKey: key) {
+            continuation.resume()
+        }
     }
 }
 

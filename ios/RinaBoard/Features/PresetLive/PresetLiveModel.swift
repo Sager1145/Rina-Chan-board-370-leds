@@ -151,9 +151,19 @@ final class PresetLiveModel {
     private var outputSession: UUID?
     /// In-flight frames are never cancelled; a newer one just supersedes it.
     @ObservationIgnored private var sender: LatestValueSender<PresetLiveSubmission>?
-    /// Bumped by every import call; a staged result whose generation has been
-    /// superseded by a newer import is discarded instead of committed.
-    @ObservationIgnored private var importGeneration = 0
+    /// Bumped by every audio import call (built-in or custom); a staged
+    /// result whose generation has been superseded by a newer audio import
+    /// is discarded instead of committed. Kept separate from
+    /// `scriptImportGeneration` so an audio import and a script import never
+    /// cancel each other.
+    @ObservationIgnored private var audioImportGeneration = 0
+    /// Bumped by every script import call; see `audioImportGeneration`.
+    @ObservationIgnored private var scriptImportGeneration = 0
+    /// Test-only hook invoked with the picked source URL once staging
+    /// finishes (success or failure) but before any generation/selection
+    /// check or commit runs. Lets tests hold an import at a deterministic
+    /// point and control exactly when it is allowed to proceed.
+    @ObservationIgnored var importCommitHookForTesting: ((URL) async -> Void)?
     private var clockTask: Task<Void, Never>?
     private var didRestore = false
     private var didLoadDemo = false
@@ -362,17 +372,19 @@ final class PresetLiveModel {
             errorMessage = String(format: failureFormat, importErrorDescription(PresetLiveImportError.selectionChanged))
             return
         }
-        importGeneration += 1
-        let generation = importGeneration
+        audioImportGeneration += 1
+        let generation = audioImportGeneration
         let store = fileStore
-        do {
-            let staged = try await Task.detached(priority: .userInitiated) {
-                try Self.stageAudio(from: url, store: store)
-            }.value
-            guard generation == importGeneration else {
-                fileStore.remove(staged.copy)
-                return
-            }
+        let result = await Task.detached(priority: .userInitiated) {
+            Result { try PresetLiveModel.stageAudio(from: url, store: store) }
+        }.value
+        if let hook = importCommitHookForTesting { await hook(url) }
+        guard generation == audioImportGeneration else {
+            if case .success(let staged) = result { fileStore.remove(staged.copy) }
+            return
+        }
+        switch result {
+        case .success(let staged):
             guard selectedBuiltIn == id else {
                 fileStore.remove(staged.copy)
                 errorMessage = String(format: failureFormat, importErrorDescription(PresetLiveImportError.selectionChanged))
@@ -391,7 +403,7 @@ final class PresetLiveModel {
             defaults.set(staged.copy.lastPathComponent, forKey: storageKey)
             removeReplacedStoredFile(named: previousName, keeping: staged.copy)
             errorMessage = nil
-        } catch {
+        case .failure(let error):
             errorMessage = String(format: failureFormat, importErrorDescription(error))
         }
     }
@@ -402,16 +414,28 @@ final class PresetLiveModel {
             errorMessage = String(format: failureFormat, importErrorDescription(PresetLiveImportError.partsUnavailable))
             return
         }
-        importGeneration += 1
-        let generation = importGeneration
+        scriptImportGeneration += 1
+        let generation = scriptImportGeneration
+        let capturedSelectedBuiltIn = selectedBuiltIn
         let store = fileStore
         let encodingError = NSLocalizedString("脚本编码无效，需为 UTF-8 文本", comment: "script encoding invalid")
-        do {
-            let staged = try await Task.detached(priority: .userInitiated) {
-                try Self.stageScript(from: url, library: library, store: store, encodingError: encodingError)
-            }.value
-            guard generation == importGeneration else {
+        let result = await Task.detached(priority: .userInitiated) {
+            Result { try PresetLiveModel.stageScript(from: url, library: library, store: store, encodingError: encodingError) }
+        }.value
+        if let hook = importCommitHookForTesting { await hook(url) }
+        guard generation == scriptImportGeneration else {
+            if case .success(let staged) = result { fileStore.remove(staged.copy) }
+            return
+        }
+        switch result {
+        case .success(let staged):
+            // Only a move to a built-in song invalidates this import. Custom
+            // mode turning on is what a custom import is asking for anyway,
+            // and a script import switching it on must not discard an audio
+            // import staging alongside it (or the reverse).
+            guard selectedBuiltIn == capturedSelectedBuiltIn else {
                 fileStore.remove(staged.copy)
+                errorMessage = String(format: failureFormat, importErrorDescription(PresetLiveImportError.selectionChanged))
                 return
             }
             let previousName = defaults.string(forKey: Self.scriptFileKey)
@@ -424,22 +448,34 @@ final class PresetLiveModel {
             defaults.set(url.lastPathComponent, forKey: Self.scriptTitleKey)
             defaults.set(true, forKey: Self.customModeKey)
             errorMessage = nil
-        } catch {
+        case .failure(let error):
             errorMessage = String(format: failureFormat, importErrorDescription(error))
         }
     }
 
     func importCustomAudio(from url: URL) async {
         let failureFormat = NSLocalizedString("导入音频失败：%@", comment: "audio import failed")
-        importGeneration += 1
-        let generation = importGeneration
+        audioImportGeneration += 1
+        let generation = audioImportGeneration
+        let capturedSelectedBuiltIn = selectedBuiltIn
         let store = fileStore
-        do {
-            let staged = try await Task.detached(priority: .userInitiated) {
-                try Self.stageAudio(from: url, store: store)
-            }.value
-            guard generation == importGeneration else {
+        let result = await Task.detached(priority: .userInitiated) {
+            Result { try PresetLiveModel.stageAudio(from: url, store: store) }
+        }.value
+        if let hook = importCommitHookForTesting { await hook(url) }
+        guard generation == audioImportGeneration else {
+            if case .success(let staged) = result { fileStore.remove(staged.copy) }
+            return
+        }
+        switch result {
+        case .success(let staged):
+            // Only a move to a built-in song invalidates this import. Custom
+            // mode turning on is what a custom import is asking for anyway,
+            // and a script import switching it on must not discard an audio
+            // import staging alongside it (or the reverse).
+            guard selectedBuiltIn == capturedSelectedBuiltIn else {
                 fileStore.remove(staged.copy)
+                errorMessage = String(format: failureFormat, importErrorDescription(PresetLiveImportError.selectionChanged))
                 return
             }
             let previousName = defaults.string(forKey: Self.audioFileKey)
@@ -453,7 +489,7 @@ final class PresetLiveModel {
             defaults.set(url.lastPathComponent, forKey: Self.audioTitleKey)
             defaults.set(true, forKey: Self.customModeKey)
             errorMessage = nil
-        } catch {
+        case .failure(let error):
             errorMessage = String(format: failureFormat, importErrorDescription(error))
         }
     }
@@ -742,6 +778,8 @@ final class PresetLiveModel {
                     synchronizeFrame(atMs: 0, connection: connection, force: true)
                     return
                 }
+                finishPlayback()
+                return
             }
             positionMs = now
             finishPlayback()
