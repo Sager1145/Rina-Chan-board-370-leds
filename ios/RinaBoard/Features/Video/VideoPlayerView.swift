@@ -19,12 +19,10 @@ struct VideoPlayerView: View {
     @State private var isImportingFile = false
     @State private var isPickingPhoto = false
     @State private var photoSelection: PhotosPickerItem?
-    @State private var isSeeking = false
-    @State private var seekPositionMs: Double = 0
 
     /// Stop stays reachable whenever something is playing or parked mid-way,
     /// connected or not — it is what silences the audio.
-    private var isTransportActive: Bool { model.isPlaying || model.positionMs > 0 }
+    private var isTransportActive: Bool { model.isPlaying || model.hasPlaybackProgress }
     private var isConnected: Bool { connection.connectionState == .connected }
 
     var body: some View {
@@ -90,28 +88,25 @@ struct VideoPlayerView: View {
 
     @ViewBuilder
     private var previewStatus: some View {
-        let counter = model.hasVideo
-            ? Text(verbatim: "\(Self.formatMs(model.positionMs)) / \(Self.formatMs(model.durationMs)) · \(model.frameRate) fps")
-            : nil
         if model.isPlaying && isConnected && !model.needsBoardResume {
             BoardPreviewStatus("正在输出到面板", systemImage: "dot.radiowaves.left.and.right", tone: .live) {
-                counter
+                VideoPositionCounterView()
             }
         } else if model.isPlaying {
             BoardPreviewStatus("仅本地预览", systemImage: "iphone", tone: .pending) {
-                counter
+                VideoPositionCounterView()
             }
-        } else if model.positionMs > 0 {
+        } else if model.hasPlaybackProgress {
             BoardPreviewStatus("已暂停", systemImage: "pause.circle", tone: .neutral) {
-                counter
+                VideoPositionCounterView()
             }
         } else if !isConnected {
             BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) {
-                counter
+                VideoPositionCounterView()
             }
         } else {
             BoardPreviewStatus("未播放", systemImage: "stop.circle", tone: .neutral) {
-                counter
+                VideoPositionCounterView()
             }
         }
     }
@@ -182,32 +177,7 @@ struct VideoPlayerView: View {
         }
 
         Section {
-            VStack(alignment: .leading, spacing: 4) {
-                Slider(
-                    value: Binding(
-                        get: { isSeeking ? seekPositionMs : Double(model.positionMs) },
-                        set: { seekPositionMs = $0 }
-                    ),
-                    in: 0...Double(max(1, model.durationMs)),
-                    onEditingChanged: { editing in
-                        isSeeking = editing
-                        if !editing {
-                            model.seek(toMs: Int(seekPositionMs))
-                        } else {
-                            seekPositionMs = Double(model.positionMs)
-                        }
-                    }
-                )
-                .disabled(!model.hasVideo)
-
-                HStack {
-                    Text(Self.formatMs(isSeeking ? Int(seekPositionMs) : model.positionMs))
-                    Spacer()
-                    Text(Self.formatMs(model.durationMs))
-                }
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-            }
+            VideoTransportSliderView()
 
             if model.needsBoardResume && isConnected {
                 Button {
@@ -219,7 +189,7 @@ struct VideoPlayerView: View {
         }
     }
 
-    private static func formatMs(_ ms: Int) -> String {
+    fileprivate static func formatMs(_ ms: Int) -> String {
         let totalSeconds = max(0, ms) / 1000
         return String(format: "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
     }
@@ -321,6 +291,62 @@ struct VideoPlayerView: View {
             get: { model.settings[keyPath: keyPath] },
             set: { model.settings[keyPath: keyPath] = $0 }
         )
+    }
+}
+
+// MARK: - Isolated position readers
+//
+// `positionMs` republishes at ~10 Hz (see `VideoPlayerModel.tick`), well down
+// from the ~10-30 Hz frame-loop tick, but it is still the fastest-changing
+// value this tab observes. Confining its reads to these two small subviews
+// keeps the rest of `VideoPlayerView`'s body — the transport buttons, the
+// source/conversion pickers — from re-evaluating on every position update.
+
+/// The "mm:ss / mm:ss · n fps" line shown as the preview status detail.
+private struct VideoPositionCounterView: View {
+    @Environment(VideoPlayerModel.self) private var model
+
+    var body: some View {
+        if model.hasVideo {
+            Text(verbatim: "\(VideoPlayerView.formatMs(model.positionMs)) / \(VideoPlayerView.formatMs(model.durationMs)) · \(model.frameRate) fps")
+        }
+    }
+}
+
+/// The scrub slider and its mm:ss labels.
+private struct VideoTransportSliderView: View {
+    @Environment(VideoPlayerModel.self) private var model
+
+    @State private var isSeeking = false
+    @State private var seekPositionMs: Double = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Slider(
+                value: Binding(
+                    get: { isSeeking ? seekPositionMs : Double(model.positionMs) },
+                    set: { seekPositionMs = $0 }
+                ),
+                in: 0...Double(max(1, model.durationMs)),
+                onEditingChanged: { editing in
+                    isSeeking = editing
+                    if !editing {
+                        model.seek(toMs: Int(seekPositionMs))
+                    } else {
+                        seekPositionMs = Double(model.positionMs)
+                    }
+                }
+            )
+            .disabled(!model.hasVideo)
+
+            HStack {
+                Text(VideoPlayerView.formatMs(isSeeking ? Int(seekPositionMs) : model.positionMs))
+                Spacer()
+                Text(VideoPlayerView.formatMs(model.durationMs))
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
     }
 }
 

@@ -85,7 +85,21 @@ final class VideoPlayerModel {
     private(set) var title: String?
     private(set) var isLoading = false
     private(set) var isPlaying = false
-    private(set) var positionMs = 0
+    /// Coarser than the ~10-30 Hz frame-loop tick: republishes only when the
+    /// video position has moved at least `positionPublishStepMs`, so the
+    /// observed property (and everything that reads it in the view body)
+    /// settles at roughly 10 Hz instead of every tick. The exact position is
+    /// kept separately in `precisePositionMs` for checkpoints and board sends.
+    private(set) var positionMs = 0 {
+        didSet {
+            let progress = positionMs > 0
+            if progress != hasPlaybackProgress { hasPlaybackProgress = progress }
+        }
+    }
+    /// Derived from `positionMs`: whether there is a paused-or-stopped
+    /// position worth resuming. Lets views avoid reading the raw position
+    /// just to decide whether to show a transport.
+    private(set) var hasPlaybackProgress = false
     private(set) var durationMs = 0
     private(set) var previewFrame = PackedFrame()
     var errorMessage: String?
@@ -132,6 +146,7 @@ final class VideoPlayerModel {
     private static let playbackFileKey = "videoPlaybackFile"
     private static let playbackPositionKey = "videoPlaybackPositionMs"
     private static let playbackStreamKey = "videoPlaybackStreamID"
+    static let positionPublishStepMs = 100
 
     /// Longest edge of the image the quantizer samples from. The grid is
     /// 22×18 with 5 samples per cell axis, so anything past ~110 px adds cost
@@ -155,6 +170,11 @@ final class VideoPlayerModel {
     @ObservationIgnored private var lastLuma: VideoFrameQuantizer.LumaImage?
     @ObservationIgnored private var lastSubmitted: PackedFrame?
     @ObservationIgnored private var lastSubmittedPositionMs: Int?
+    /// Exact playback position, updated every tick and at every transport
+    /// transition. `positionMs` (observable) only republishes at coarse
+    /// intervals; checkpoints, seeks and board sends must stay exact, so
+    /// they read this instead.
+    @ObservationIgnored private var precisePositionMs = 0
     @ObservationIgnored private weak var lastConnection: BoardConnection?
     @ObservationIgnored private var loadGeneration = 0
     @ObservationIgnored private var didRestore = false
@@ -405,6 +425,7 @@ final class VideoPlayerModel {
         self.title = title
         durationMs = duration.isNumeric ? max(0, Int((duration.seconds * 1000).rounded())) : 0
         positionMs = 0
+        precisePositionMs = 0
         lastLuma = nil
         previewFrame = PackedFrame()
         errorMessage = nil
@@ -482,9 +503,10 @@ final class VideoPlayerModel {
         } else {
             outputSession = nil
         }
-        if durationMs > 0, positionMs >= durationMs - 50 {
+        if durationMs > 0, precisePositionMs >= durationMs - 50 {
             player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero, completionHandler: { _ in })
             positionMs = 0
+            precisePositionMs = 0
         }
         stillTask?.cancel()
         player.play()
@@ -517,6 +539,7 @@ final class VideoPlayerModel {
         pause()
         player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
         positionMs = 0
+        precisePositionMs = 0
         savePlaybackPosition(force: true)
         deactivateSessionIfNeeded()
         renderStill(atMs: 0)
@@ -526,6 +549,7 @@ final class VideoPlayerModel {
         guard let player else { return }
         let clamped = max(0, min(durationMs, ms))
         positionMs = clamped
+        precisePositionMs = clamped
         savePlaybackPosition(force: true)
         player.seek(to: CMTime(value: CMTimeValue(clamped), timescale: 1000),
                     toleranceBefore: .zero, toleranceAfter: .zero)
@@ -542,6 +566,7 @@ final class VideoPlayerModel {
         lastLuma = nil
         previewFrame = PackedFrame()
         positionMs = clamped
+        precisePositionMs = clamped
         savePlaybackPosition(force: true)
         await withCheckedContinuation { continuation in
             player.seek(to: CMTime(value: CMTimeValue(clamped), timescale: 1000),
@@ -559,6 +584,7 @@ final class VideoPlayerModel {
             player.play()
         } else {
             positionMs = durationMs
+            precisePositionMs = durationMs
             savePlaybackPosition(force: true)
             isPlaying = false
             suspendBoardOutput()
@@ -642,18 +668,36 @@ final class VideoPlayerModel {
         }
     }
 
+    /// Applies a freshly observed exact playback position: `precisePositionMs`
+    /// always takes it, while the coarser observable `positionMs` only
+    /// republishes once it has drifted by `positionPublishStepMs` from the
+    /// last published value. Called from the per-tick clock, so per-tick
+    /// drift is what gets throttled here. Transport transitions (seek, stop,
+    /// end of playback, a fresh import, restarting after the end) assign
+    /// `positionMs` directly instead of going through this method, so they
+    /// always publish immediately regardless of the current bucket.
+    ///
+    /// Kept internal (not `private`) so tests can drive the publish
+    /// granularity deterministically without depending on real `AVPlayer`
+    /// timing.
+    func applyExactPosition(_ now: Int) {
+        precisePositionMs = now
+        if abs(now - positionMs) >= Self.positionPublishStepMs { positionMs = now }
+    }
+
     private func tick() {
         guard let player, let videoOutput else { return }
         let seconds = player.currentTime().seconds
         if seconds.isFinite {
-            positionMs = max(0, min(durationMs, Int((seconds * 1000).rounded())))
+            let now = max(0, min(durationMs, Int((seconds * 1000).rounded())))
+            applyExactPosition(now)
             savePlaybackPosition(force: false)
         }
         // The system stops AVPlayer on its own for a call, Siri or unplugged
         // headphones. Follow it, or the page keeps claiming playback while
         // the board freezes on one face. Reaching the end also stops the
         // player; that case belongs to `playbackReachedEnd`.
-        if player.rate == 0, positionMs < durationMs - 250 {
+        if player.rate == 0, precisePositionMs < durationMs - 250 {
             pause()
             return
         }
@@ -719,7 +763,7 @@ final class VideoPlayerModel {
     /// playing, with exact checkpoints at transport and lifecycle boundaries.
     private func savePlaybackPosition(force: Bool) {
         guard player != nil else { return }
-        let checkpoint = max(0, min(durationMs, positionMs))
+        let checkpoint = max(0, min(durationMs, precisePositionMs))
         if !force, let lastPersistedPositionMs,
            abs(checkpoint - lastPersistedPositionMs) < 500 { return }
         defaults.set(checkpoint, forKey: Self.playbackPositionKey)
@@ -735,12 +779,12 @@ final class VideoPlayerModel {
         guard outputSession != nil, let playbackStreamID else { return }
         // Refresh static frames twice per second so the board's reported
         // stream position remains useful without sending every decoded frame.
-        let positionDelta = lastSubmittedPositionMs.map { abs(positionMs - $0) } ?? Int.max
+        let positionDelta = lastSubmittedPositionMs.map { abs(precisePositionMs - $0) } ?? Int.max
         guard frame != lastSubmitted || positionDelta >= 1_000 else { return }
         lastSubmitted = frame
-        lastSubmittedPositionMs = positionMs
+        lastSubmittedPositionMs = precisePositionMs
         sender?.submit(VideoSubmission(frame: frame,
-                                       positionMs: positionMs,
+                                       positionMs: precisePositionMs,
                                        streamID: playbackStreamID))
     }
 
