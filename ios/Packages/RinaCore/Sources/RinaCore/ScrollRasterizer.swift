@@ -143,16 +143,27 @@ public enum ScrollRasterizer {
     }
 
     /// `extractFrameFromTextImage(source, offset)` (app.js ~12255).
+    ///
+    /// Per-LED, this used to call `geometry.ledIndex(x:y:)`, which internally
+    /// re-derives `validXRange(row:)` and re-sums `rowLengths[0..<y]` on every
+    /// call (O(rows) work per LED, O(rows^2) per frame). `MatrixGeometry` itself
+    /// is out of scope for this change, so instead we hoist the row's valid
+    /// range (already done) and the row's cumulative LED-index base out of the
+    /// per-column loop, computing the same index MatrixGeometry.ledIndex would
+    /// return without calling it. See `ScrollRasterizerPR10Tests`
+    /// for the equality check against the original per-LED lookup.
     public static func frame(
         from bitmap: ScrollBitmap, offset: Int, geometry: MatrixGeometry.Type = MatrixGeometry.self
     ) -> PackedFrame {
         var frame = PackedFrame()
         let start = max(0, offset)
+        var rowBase = 0
         for y in 0..<geometry.rows {
+            defer { rowBase += geometry.rowLengths[y] }
             guard let range = geometry.validXRange(row: y) else { continue }
             let srcRow = bitmap.rows[y]
             for x in range {
-                guard let idx = geometry.ledIndex(x: x, y: y) else { continue }
+                let idx = rowBase + (x - range.lowerBound)
                 let srcX = start + x
                 frame[idx] = srcX < bitmap.width && srcRow[srcX]
             }
@@ -176,7 +187,7 @@ public enum ScrollRasterizer {
 
     /// `rotateScrollTimelineToFirstLitFrame(frames)` (app.js ~4319).
     static func rotatedToFirstLitFrame(_ frames: [PackedFrame]) -> [PackedFrame] {
-        guard let index = frames.firstIndex(where: { $0.litCount > 0 }), index > 0 else {
+        guard let index = frames.firstIndex(where: { !$0.isEmpty }), index > 0 else {
             return frames
         }
         return Array(frames[index...] + frames[..<index])
@@ -234,7 +245,7 @@ public enum ScrollRasterizer {
         for offset in 0...maxOffset {
             frames.append(frame(from: bitmap, offset: offset, geometry: geometry))
         }
-        let rotation = frames.firstIndex(where: { $0.litCount > 0 }) ?? 0
+        let rotation = frames.firstIndex(where: { !$0.isEmpty }) ?? 0
         frames = rotatedToFirstLitFrame(frames)
 
         return ScrollTimeline(
