@@ -20,40 +20,73 @@ struct FaceLibraryView: View {
     @State private var isImporting = false
     @State private var exportDocument: JSONFileDocument?
 
+    /// With no board connected there is nothing to read from — DEF-07 fell
+    /// back to an empty board document forever. The device-local library
+    /// (`FaceLibraryModel.localDocument`) exists precisely for this case, so
+    /// pick it whenever the board isn't actually reachable.
+    private var location: FaceLibraryLocation {
+        connection.connectionState == .connected ? .board : .local
+    }
+
+    /// Loading flag for whichever library is on screen — `model.isLoading`
+    /// only tracks the board fetch, so the local branch needs its own flag
+    /// to avoid a spurious "暂无" flash while `loadLocalIfNeeded()` is
+    /// still running.
+    private var isLoadingCurrent: Bool {
+        location == .local ? (model.isLocalLoading || !model.isLocalLoaded) : model.isLoading
+    }
+
     var body: some View {
         // Reads the cached sort (`FaceLibraryModel.faces(in:)`) instead of
         // `model.faceDocument.sortedFaces`, which would re-sort on every body
         // pass — this is the actual hot list the cache exists to speed up.
-        let faces = model.faces(in: .board)
+        let faces = model.faces(in: location)
         List {
-            if faces.isEmpty && !model.isLoading {
-                Text("暂无").font(.footnote).foregroundStyle(.secondary)
-            }
-            ForEach(faces) { face in
-                row(for: face)
-                    .deleteDisabled(!model.canDelete(face))
-            }
-            .onDelete { offsets in
-                let doomed = offsets.map { faces[$0] }.filter(model.canDelete)
-                Task {
-                    for face in doomed {
-                        await model.delete(face, connection: connection)
+            Section {
+                if faces.isEmpty && !isLoadingCurrent {
+                    Text("暂无").font(.footnote).foregroundStyle(.secondary)
+                }
+                ForEach(faces) { face in
+                    row(for: face)
+                        .deleteDisabled(!model.canDelete(face))
+                }
+                .onDelete { offsets in
+                    let doomed = offsets.map { faces[$0] }.filter(model.canDelete)
+                    Task {
+                        for face in doomed {
+                            await model.delete(face, from: location, connection: connection)
+                        }
                     }
                 }
-            }
-            .onMove { source, destination in
-                var reordered = faces
-                reordered.move(fromOffsets: source, toOffset: destination)
-                Task { await model.reorderFaces(reordered, connection: connection) }
+                .onMove { source, destination in
+                    var reordered = faces
+                    reordered.move(fromOffsets: source, toOffset: destination)
+                    Task {
+                        switch location {
+                        case .board:
+                            await model.reorderFaces(reordered, connection: connection)
+                        case .local:
+                            let userOrder = reordered.filter { $0.type != .default }
+                            await model.reorderUserFaces(userOrder, in: .local, connection: connection)
+                        }
+                    }
+                }
+            } header: {
+                Text(location.title)
             }
         }
         .listSectionSpacing(.compact)
         .navigationTitle("表情库")
         .navigationBarTitleDisplayMode(.inline)
         .environment(\.editMode, .constant(isEditing ? .active : .inactive))
+        .task(id: location) {
+            if location == .local {
+                await model.loadLocalIfNeeded()
+            }
+        }
         .refreshable { await model.reload(connection: connection) }
         .overlay {
-            if model.isLoading && model.faceDocument.faces.isEmpty {
+            if isLoadingCurrent && faces.isEmpty {
                 ProgressView()
             }
         }
@@ -65,7 +98,7 @@ struct FaceLibraryView: View {
             }
             ToolbarItemGroup(placement: .secondaryAction) {
                 Button("导出全部", systemImage: "square.and.arrow.up") {
-                    exportDocument = JSONFileDocument(data: model.exportData() ?? Data())
+                    exportDocument = JSONFileDocument(data: model.exportData(faces: faces, from: location) ?? Data())
                     isExporting = true
                 }
                 Button("导入表情列表", systemImage: "square.and.arrow.down") { isImporting = true }
@@ -78,7 +111,7 @@ struct FaceLibraryView: View {
             TextField("名称", text: Bindable(model).renameText)
             Button("取消", role: .cancel) {}
             Button("确定") {
-                Task { await model.rename(face, to: model.renameText, connection: connection) }
+                Task { await model.rename(face, to: model.renameText, in: location, connection: connection) }
             }
         }
         .fileExporter(isPresented: $isExporting,
@@ -90,7 +123,7 @@ struct FaceLibraryView: View {
             let accessed = url.startAccessingSecurityScopedResource()
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
             guard let data = try? Data(contentsOf: url) else { return }
-            Task { await model.importDocument(from: data, connection: connection) }
+            Task { await model.importDocument(from: data, to: location, connection: connection) }
         }
     }
 
@@ -102,7 +135,7 @@ struct FaceLibraryView: View {
     @ViewBuilder
     private func row(for face: SavedFace) -> some View {
         Button {
-            guard !isEditing else { return }
+            guard !isEditing, location == .board else { return }
             Task { await model.apply(face, connection: connection) }
         } label: {
             HStack(spacing: 12) {
@@ -128,6 +161,7 @@ struct FaceLibraryView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(location != .board)
         .contextMenu {
             Button("编辑", systemImage: "pencil") {
                 editor.loadForEditing(face)
@@ -139,14 +173,14 @@ struct FaceLibraryView: View {
             }
             if model.canDelete(face) {
                 Button("删除", systemImage: "trash", role: .destructive) {
-                    Task { await model.delete(face, connection: connection) }
+                    Task { await model.delete(face, from: location, connection: connection) }
                 }
             }
         }
         .swipeActions(edge: .trailing) {
             if model.canDelete(face) {
                 Button("删除", role: .destructive) {
-                    Task { await model.delete(face, connection: connection) }
+                    Task { await model.delete(face, from: location, connection: connection) }
                 }
             }
             Button("重命名") {

@@ -23,17 +23,20 @@ final class RinaBoardUITests: XCTestCase {
 
         // "管理表情" was removed from BoardControlCenterView in 6658c34
         // (2026-09-12); the face library is now reached from the Control
-        // tab's own「保存列表」chip instead of the control center. Its rows
-        // no longer sit under "默认表情"/"我的表情" section headers either —
-        // FaceLibraryView.swift (same commit) flattened the list to one
-        // section with a per-row "预设" caption for each bundled default
-        // face. A fresh install never seeds a non-default ("我的表情") face
-        // (every entry in default_faces.json has type "default"), so that
-        // caption cannot be asserted without first saving one — checking for
-        // "预设" is what genuinely exercises this navigation path.
+        // tab's own「保存列表」chip instead of the control center. This test
+        // is about navigation reachability, not library content — the
+        // navigation bar's presence is the actual assertion; the row match
+        // below only confirms the sheet actually finished loading.
+        //
+        // Rows put their thumbnail, name and caption inside a `Button`'s
+        // label, so SwiftUI collapses that subtree into a single element
+        // carrying the button trait: "预设" is a fragment of the button's
+        // accessibility label, never a standalone `staticText`.
         XCTAssertTrue(FaceLibraryUITestPath.openFaceLibrary(in: app, timeout: 4),
                       "The face library was not reachable from the Control tab")
-        XCTAssertTrue(app.staticTexts["预设"].firstMatch.waitForExistence(timeout: 2))
+        XCTAssertTrue(app.navigationBars["表情库"].exists)
+        let presetRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "预设")).firstMatch
+        XCTAssertTrue(presetRow.waitForExistence(timeout: 2))
     }
 
     func testDebugWorkspacesAreReachable() throws {

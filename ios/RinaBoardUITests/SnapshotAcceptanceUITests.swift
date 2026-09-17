@@ -64,19 +64,16 @@ final class SnapshotAcceptanceUITests: XCTestCase {
         // "管理表情" was removed from BoardControlCenterView in 6658c34
         // (2026-09-12); the face library is now reached from the Control
         // tab's own「保存列表」chip instead of the control center.
-        //
-        // The original assertion looked for the "本机" (device-local)
-        // location label. That string is still declared
-        // (FaceLibraryLocation.local.title in FaceLibraryModel.swift) but no
-        // current view ever renders it — verified by grepping every call
-        // site, none of which puts it in a Text/Label. So a library that
-        // genuinely works offline is instead demonstrated by its actual
-        // offline behaviour: the bundled preset faces populate the list
-        // without a board, i.e. the "暂无" empty-state placeholder never
-        // appears and at least one row is captioned "预设".
         XCTAssertTrue(FaceLibraryUITestPath.openFaceLibrary(in: app),
                       "The face library was not reachable from the Control tab")
-        XCTAssertTrue(app.staticTexts["预设"].firstMatch.waitForExistence(timeout: 3),
+        XCTAssertTrue(app.staticTexts["本机"].firstMatch.waitForExistence(timeout: 3),
+                      "The local ('本机') library location must be shown when no board is connected")
+        // `FaceLibraryView` puts the thumbnail, name and caption inside a
+        // `Button`'s label, so SwiftUI collapses that subtree into a single
+        // element carrying the button trait — "预设" is a fragment of the
+        // button's accessibility label, never a standalone `staticText`.
+        let presetRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "预设")).firstMatch
+        XCTAssertTrue(presetRow.waitForExistence(timeout: 3),
                       "Bundled preset faces must be available offline")
         XCTAssertFalse(app.staticTexts["暂无"].exists,
                        "Library must provide its own local content even without a connected board")
