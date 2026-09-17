@@ -14,94 +14,57 @@ import RinaCore
 ///
 /// The whole board is blurred in two layer passes regardless of how many LEDs
 /// are lit, never one blur per LED (§14.4 step 9, §44).
+///
+/// The contour geometry itself (occupancy → directed boundary edges → closed
+/// chains) lives in `RinaCore.LEDContourBuilder`, which uses fixed-size
+/// arrays instead of per-frame dictionaries. This renderer turns that into a
+/// unit-space `Path` (§14.4), caches it per frame (`BloomContourCache`, since
+/// a redraw at up to 120 Hz would otherwise rebuild an identical contour
+/// every time), and only then applies the view's layout transform.
 enum LEDBloomRenderer {
 
-    /// A corner of the grid, addressed in cell-corner coordinates
-    /// (`0...cols` × `0...rows`), packed into one Int for cheap hashing.
-    private struct Corner: Hashable {
-        let x: Int
-        let y: Int
+    /// Builds the unit-space (grid-corner coordinates) path for `frame`'s
+    /// contours, straight from `LEDContourBuilder`. One `moveTo` + `addLine`
+    /// chain per contour, closed — clockwise outer contours and
+    /// counter-clockwise hole contours so a single non-zero fill leaves holes
+    /// empty (§14.2).
+    static func unitPath(for frame: PackedFrame) -> Path {
+        let contours = LEDContourBuilder.contours(for: frame)
+        guard !contours.isEmpty else { return Path() }
 
-        var key: Int { y * (LEDBoardGeometry.cols + 1) + x }
-    }
-
-    /// Builds the closed perimeter contours of every connected lit region.
-    ///
-    /// Algorithm (§14.4): collect the occupancy mask, emit each lit cell's
-    /// boundary sides as directed edges (shared edges between two lit cells
-    /// are never emitted, so they cancel by construction), then chain the
-    /// edges head-to-tail into closed contours. Emitting each cell's sides
-    /// clockwise in screen space makes outer contours wind clockwise and hole
-    /// contours wind counter-clockwise, so a single non-zero fill of the
-    /// resulting path leaves holes empty.
-    static func contourPath(frame: PackedFrame, layout: LEDBoardLayout) -> Path {
-        let cols = LEDBoardGeometry.cols
-        let rows = LEDBoardGeometry.rows
-
-        // Occupancy mask over the real topology: a position is active only if
-        // an LED physically exists there *and* it is lit.
-        var lit = [Bool](repeating: false, count: cols * rows)
-        var anyLit = false
-        for cell in LEDBoardGeometry.cells where frame[cell.id] {
-            lit[cell.gridY * cols + cell.gridX] = true
-            anyLit = true
-        }
-        guard anyLit else { return Path() }
-
-        func isLit(_ x: Int, _ y: Int) -> Bool {
-            guard x >= 0, x < cols, y >= 0, y < rows else { return false }
-            return lit[y * cols + x]
-        }
-
-        // Directed boundary edges, keyed by their start corner. A vertex can
-        // have more than one outgoing edge where two regions touch only
-        // diagonally; any consistent choice still yields closed contours.
-        var outgoing: [Int: [Corner]] = [:]
-        var edgeCount = 0
-        func addEdge(_ from: Corner, _ to: Corner) {
-            outgoing[from.key, default: []].append(to)
-            edgeCount += 1
-        }
-
-        for y in 0..<rows {
-            for x in 0..<cols where isLit(x, y) {
-                // A side is on the boundary when the neighbour across it is
-                // inactive or absent (§14.4 step 4). 4-directional adjacency:
-                // diagonally touching LEDs stay separate regions (§14.3).
-                if !isLit(x, y - 1) { addEdge(Corner(x: x, y: y), Corner(x: x + 1, y: y)) }
-                if !isLit(x + 1, y) { addEdge(Corner(x: x + 1, y: y), Corner(x: x + 1, y: y + 1)) }
-                if !isLit(x, y + 1) { addEdge(Corner(x: x + 1, y: y + 1), Corner(x: x, y: y + 1)) }
-                if !isLit(x - 1, y) { addEdge(Corner(x: x, y: y + 1), Corner(x: x, y: y)) }
-            }
-        }
-        guard edgeCount > 0 else { return Path() }
-
-        func point(_ corner: Corner) -> CGPoint {
-            CGPoint(x: layout.origin.x + CGFloat(corner.x) * layout.cell,
-                    y: layout.origin.y + CGFloat(corner.y) * layout.cell)
+        let cornerColumns = LEDContours.cornerColumns
+        func point(_ corner: UInt16) -> CGPoint {
+            let key = Int(corner)
+            return CGPoint(x: key % cornerColumns, y: key / cornerColumns)
         }
 
         var path = Path()
-        var remaining = edgeCount
-        // Walk contours by repeatedly consuming an unused outgoing edge and
-        // following the chain until it returns to the starting corner.
-        while remaining > 0 {
-            guard let startKey = outgoing.first(where: { !$0.value.isEmpty })?.key else { break }
-            let startX = startKey % (cols + 1)
-            let startY = startKey / (cols + 1)
-            var current = Corner(x: startX, y: startY)
-            path.move(to: point(current))
-
-            while let next = outgoing[current.key]?.popLast() {
-                remaining -= 1
-                if outgoing[current.key]?.isEmpty == true { outgoing[current.key] = nil }
-                path.addLine(to: point(next))
-                current = next
-                if current.key == startKey { break }
+        let starts = contours.contourStarts
+        for i in 0..<starts.count {
+            let start = starts[i]
+            let end = (i + 1 < starts.count) ? starts[i + 1] : contours.corners.count
+            guard end > start else { continue }
+            path.move(to: point(contours.corners[start]))
+            for j in (start + 1)..<end {
+                path.addLine(to: point(contours.corners[j]))
             }
             path.closeSubpath()
         }
         return path
+    }
+
+    /// Shared unit-space contour cache. Several previews (Control, Text,
+    /// Video, PresetLive, LipSync, Debug) can be on screen at once, so this
+    /// is keyed process-wide rather than per view.
+    private static let contourCache = BloomContourCache()
+
+    /// Builds the closed perimeter contours of every connected lit region, in
+    /// `layout`'s view coordinates, via the shared unit-space cache.
+    static func contourPath(frame: PackedFrame, layout: LEDBoardLayout) -> Path {
+        let unit = contourCache.path(for: frame, build: { unitPath(for: frame) })
+        guard !unit.isEmpty else { return Path() }
+        return unit.applying(CGAffineTransform(a: layout.cell, b: 0, c: 0, d: layout.cell,
+                                               tx: layout.origin.x, ty: layout.origin.y))
     }
 
     /// Draws the bloom underneath the LED cores.
@@ -131,5 +94,58 @@ enum LEDBloomRenderer {
                          with: .color(color.opacity(0.50 * intensity)),
                          lineWidth: layout.cell * 0.34)
         }
+    }
+}
+
+/// A small LRU cache of unit-space bloom contour paths, keyed by
+/// `PackedFrame`. Several previews (Control, Text at up to 120 Hz, Video,
+/// PresetLive, LipSync, Debug) can be on screen at once and frequently redraw
+/// the same frame, so a capacity of 1 would thrash; 8 comfortably covers
+/// every preview that could be visible together.
+///
+/// `@unchecked Sendable`: all mutable state is protected by `lock`, and
+/// `Path`/`PackedFrame` values are copied in and out under the lock.
+final class BloomContourCache: @unchecked Sendable {
+    private let capacity = 8
+    private let lock = NSLock()
+    private var paths: [PackedFrame: Path] = [:]
+    /// Most-recently-used last; used to pick an eviction victim.
+    private var order: [PackedFrame] = []
+
+    /// Returns the cached path for `frame`, computing and storing it via
+    /// `build()` on a miss.
+    func path(for frame: PackedFrame, build: () -> Path) -> Path {
+        lock.lock()
+        if let cached = paths[frame] {
+            touch(frame)
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        let built = build()
+
+        lock.lock()
+        defer { lock.unlock() }
+        // Another caller may have raced us to the same frame; last write wins,
+        // which is fine since both computed the same path.
+        paths[frame] = built
+        touch(frame)
+        if order.count > capacity {
+            let victim = order.removeFirst()
+            if victim != frame {
+                paths.removeValue(forKey: victim)
+            }
+        }
+        return built
+    }
+
+    /// Moves `frame` to the most-recently-used end of `order`, adding it if
+    /// new. Must be called with `lock` held.
+    private func touch(_ frame: PackedFrame) {
+        if let index = order.firstIndex(of: frame) {
+            order.remove(at: index)
+        }
+        order.append(frame)
     }
 }
