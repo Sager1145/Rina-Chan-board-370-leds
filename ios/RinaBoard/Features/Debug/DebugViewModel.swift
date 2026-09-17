@@ -263,13 +263,13 @@ final class DebugViewModel {
     private(set) var logs: [DebugLogEntry] = []
     @ObservationIgnored private var hasScheduledLogFlush = false
     var logFilter: DebugLogFilter = .normal {
-        didSet { visibleLogsDirty = true }
+        didSet { recomputeVisibleLogs() }
     }
     var logSource: DebugLogSource? {
-        didSet { visibleLogsDirty = true }
+        didSet { recomputeVisibleLogs() }
     }
     var logSearch = "" {
-        didSet { visibleLogsDirty = true }
+        didSet { recomputeVisibleLogs() }
     }
     var isLogDisplayPaused = false {
         didSet {
@@ -289,7 +289,7 @@ final class DebugViewModel {
         }
     }
     private var pausedLogs: [DebugLogEntry]? {
-        didSet { visibleLogsDirty = true }
+        didSet { recomputeVisibleLogs() }
     }
     enum FirmwareLogState: Equatable {
         case off
@@ -305,12 +305,17 @@ final class DebugViewModel {
     var monitorInput = "get_info"
     var isMonitorSending = false
     private var monitorRing = RingBuffer<DebugLogEntry>(capacity: 500)
+    /// O(1): checks the ring buffer directly instead of materializing
+    /// `monitorEntries` (which is O(n)) just to test emptiness.
+    var isMonitorEntriesEmpty: Bool { monitorRing.isEmpty }
+    /// Materializes the ring buffer's contents. O(n) — call once per view
+    /// body pass and reuse the result rather than reading this repeatedly.
     var monitorEntries: [DebugLogEntry] {
-        get { monitorRing.elements }
-        set {
-            monitorRing.removeAll()
-            for entry in newValue.suffix(monitorRing.capacity) { monitorRing.append(entry) }
-        }
+        monitorRing.elements
+    }
+
+    func clearMonitor() {
+        monitorRing.removeAll()
     }
 
     // C11 raw command
@@ -322,25 +327,25 @@ final class DebugViewModel {
     // C12 danger zone
     var clearFacesConfirmText = ""
 
-    @ObservationIgnored private var visibleLogsDirty = true
-    @ObservationIgnored private var cachedVisibleLogs: [DebugLogEntry] = []
-
     /// Filters + sorts (newest first, capped to 120) on `logs`/`pausedLogs`.
-    /// Cached and only recomputed when those inputs, or the filter/source/
-    /// search criteria, actually change (see the `didSet`s on `logFilter`,
-    /// `logSource`, `logSearch`, `pausedLogs`, and `flushPendingLogs()`).
-    var visibleLogs: [DebugLogEntry] {
-        if visibleLogsDirty {
-            let source = pausedLogs ?? logs
-            let query = logSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-            cachedVisibleLogs = Array(source.filter { entry in
-                entry.level >= logFilter.minLevel
-                    && (logSource == nil || entry.source == logSource)
-                    && (query.isEmpty || entry.message.localizedCaseInsensitiveContains(query))
-            }.suffix(120).reversed())
-            visibleLogsDirty = false
-        }
-        return cachedVisibleLogs
+    /// A `@Observable`-tracked stored property, eagerly recomputed by
+    /// `recomputeVisibleLogs()` whenever an input actually changes (see the
+    /// `didSet`s on `logFilter`/`logSource`/`logSearch`/`pausedLogs`, and
+    /// `flushPendingLogs()`/`clearLog()` for `logs`). It must be a *stored*
+    /// property recomputed on write, not a lazily-recomputed getter: a getter
+    /// that only reads its dependencies on a "dirty" branch registers no
+    /// Observation dependency on a clean read, so a body pass that hits the
+    /// clean path wouldn't be re-invoked by a later flush.
+    private(set) var visibleLogs: [DebugLogEntry] = []
+
+    private func recomputeVisibleLogs() {
+        let source = pausedLogs ?? logs
+        let query = logSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        visibleLogs = Array(source.filter { entry in
+            entry.level >= logFilter.minLevel
+                && (logSource == nil || entry.source == logSource)
+                && (query.isEmpty || entry.message.localizedCaseInsensitiveContains(query))
+        }.suffix(120).reversed())
     }
 
     var filteredRawRows: [DebugRawField] {
@@ -370,10 +375,12 @@ final class DebugViewModel {
         scheduleLogFlush()
     }
 
+    @ObservationIgnored private var pendingFlushTask: Task<Void, Never>?
+
     private func scheduleLogFlush() {
         guard !hasScheduledLogFlush else { return }
         hasScheduledLogFlush = true
-        Task { [weak self] in
+        pendingFlushTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 75_000_000)
             self?.flushPendingLogs()
         }
@@ -383,18 +390,22 @@ final class DebugViewModel {
     /// snapshot. Runs on its own coalesced schedule (see `scheduleLogFlush`),
     /// but is also called synchronously wherever an exact, up-to-the-instant
     /// view of the log is required (export, pause/resume) — and is exposed
-    /// so tests can force deterministic, synchronous flushing.
+    /// so tests can force deterministic, synchronous flushing. Cancels any
+    /// still-sleeping scheduled flush so a synchronous flush doesn't leave an
+    /// orphan wake-up behind (the "one-shot" scheduling really is one-shot).
     func flushPendingLogs() {
         hasScheduledLogFlush = false
+        pendingFlushTask?.cancel()
+        pendingFlushTask = nil
         logs = logRing.elements
-        visibleLogsDirty = true
+        recomputeVisibleLogs()
     }
 
     func clearLog() {
         logRing.removeAll()
         logs.removeAll()
         pausedLogs?.removeAll()
-        visibleLogsDirty = true
+        recomputeVisibleLogs()
     }
 
     /// C10 firmware log toggle: on subscribes via `log_subscribe{on:true}` and
@@ -486,11 +497,14 @@ final class DebugViewModel {
         }
     }
 
-    /// Export/copy text. Flushes first so this always reflects every line
-    /// logged so far, regardless of the coalesced publish schedule.
+    /// Export/copy text. Reads `logRing` (the ground truth) directly instead
+    /// of `logs`, so it always reflects every line logged so far regardless
+    /// of the coalesced publish schedule — without mutating any
+    /// `@Observable`-tracked state from a getter. `ShareLink(item:)` and
+    /// similar SwiftUI call sites evaluate this eagerly on every body pass,
+    /// so this must stay a pure read.
     var logShareText: String {
-        flushPendingLogs()
-        return logs.map {
+        logRing.elements.map {
             Self.redactSensitive("[\($0.timeString)] [\($0.source.label)] \($0.level.label): \($0.message)")
         }.joined(separator: "\n")
     }

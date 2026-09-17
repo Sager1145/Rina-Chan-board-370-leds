@@ -1,3 +1,4 @@
+import Observation
 import XCTest
 @testable import RinaBoard
 
@@ -52,6 +53,72 @@ final class DebugLogBufferingTests: XCTestCase {
         vm.logSearch = ""
         vm.clearLog()
         XCTAssertTrue(vm.visibleLogs.isEmpty)
+    }
+
+    func testVisibleLogsCacheInvalidatesOnLogSourceChange() {
+        let vm = DebugViewModel()
+        vm.log(.info, "app line", source: .app)
+        vm.log(.info, "firmware line", source: .firmware)
+        vm.flushPendingLogs()
+        XCTAssertEqual(vm.visibleLogs.count, 2)
+
+        vm.logSource = .firmware
+        XCTAssertEqual(vm.visibleLogs.map(\.message), ["firmware line"])
+
+        vm.logSource = .app
+        XCTAssertEqual(vm.visibleLogs.map(\.message), ["app line"])
+
+        vm.logSource = nil
+        XCTAssertEqual(vm.visibleLogs.count, 2)
+    }
+
+    func testClearLogWhilePausedEmptiesBothLiveAndPausedSnapshots() {
+        let vm = DebugViewModel()
+        vm.log(.info, "before-pause")
+        vm.isLogDisplayPaused = true
+        XCTAssertEqual(vm.visibleLogs.map(\.message), ["before-pause"])
+
+        vm.clearLog()
+        XCTAssertTrue(vm.visibleLogs.isEmpty)
+
+        // Resuming after a clear-while-paused must not resurrect anything
+        // from the (now-cleared) live snapshot.
+        vm.isLogDisplayPaused = false
+        XCTAssertTrue(vm.visibleLogs.isEmpty)
+        XCTAssertTrue(vm.logs.isEmpty)
+    }
+
+    /// Regression test for a defect class where `visibleLogs` was a lazily
+    /// recomputed getter over an `@ObservationIgnored` dirty flag/cache: a
+    /// read that lands on the already-clean branch returns the cached array
+    /// directly, without touching any tracked property, so it registers no
+    /// Observation dependency — a later flush would never re-invoke a
+    /// SwiftUI body that had already rendered once.
+    ///
+    /// Every other test in this file reads `vm.visibleLogs` as a plain,
+    /// untracked property access, which recomputes-on-demand regardless of
+    /// whether the *notification* path works — so none of them can catch
+    /// this. This test deliberately primes the cache into the clean state
+    /// with an untracked read *before* opening `withObservationTracking`,
+    /// so the tracked read below is the clean-path read a second SwiftUI
+    /// body pass would actually perform.
+    func testVisibleLogsChangeIsObservableThroughObservationTracking() {
+        let vm = DebugViewModel()
+        vm.log(.info, "seed")
+        vm.flushPendingLogs()
+        _ = vm.visibleLogs // untracked: primes the cache into the clean state
+
+        let changed = expectation(description: "visibleLogs change observed")
+        withObservationTracking {
+            _ = vm.visibleLogs // the clean-path read that must still track
+        } onChange: {
+            changed.fulfill()
+        }
+
+        vm.log(.info, "line two")
+        vm.flushPendingLogs()
+        wait(for: [changed], timeout: 1)
+        XCTAssertEqual(vm.visibleLogs.map(\.message), ["line two", "seed"])
     }
 
     func testPauseSnapshotsCurrentLogsAndResumeShowsLinesLoggedWhilePaused() {

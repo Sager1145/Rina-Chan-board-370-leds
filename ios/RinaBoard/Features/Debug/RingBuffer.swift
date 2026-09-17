@@ -39,15 +39,22 @@ struct RingBuffer<Element> {
     }
 
     /// Elements in insertion order, oldest first.
+    ///
+    /// Force-unwraps `storage[index]`, not `if let`: every slot in
+    /// `[head, head + count)` has been written by `append` before `count`
+    /// was advanced past it, and `removeAll()` resets `count` to 0 in the
+    /// same step it resets `storage` to all-`nil`. So a slot in that range is
+    /// always non-nil here, *including* when `Element` itself is an
+    /// `Optional` (e.g. `RingBuffer<Foo?>`) — `if let` would silently drop a
+    /// legitimately-stored `nil` element in that case instead of surfacing
+    /// the invariant violation it would actually indicate.
     var elements: [Element] {
         guard count > 0 else { return [] }
         var result: [Element] = []
         result.reserveCapacity(count)
         for offset in 0..<count {
             let index = (head + offset) % capacity
-            if let value = storage[index] {
-                result.append(value)
-            }
+            result.append(storage[index]!)
         }
         return result
     }
