@@ -658,34 +658,70 @@ final class ControlViewModel {
     ///
     /// Single-flight across every caller (the event-driven loop, the legacy
     /// poll and `BoardSyncCoordinator`'s direct call all funnel through
-    /// here): if a fetch is already in flight, this call marks a pending
-    /// refetch and waits for that in-flight fetch instead of starting a
-    /// second `getFrame()`. The in-flight caller notices the pending mark
-    /// once it finishes and runs exactly one more fetch on everyone's
-    /// behalf.
+    /// here). The first caller becomes the "owner" and runs the fetch
+    /// *inline*, in its own task, so cancelling that caller (e.g. `.task(id:)`
+    /// tearing down when the app backgrounds) cancels the wire request the
+    /// normal way and the post-fetch guard below still runs. Every other
+    /// concurrent caller parks on a continuation instead of starting a
+    /// second `getFrame()`; the owner resumes every parked waiter, and reruns
+    /// the fetch exactly once more (for whichever connection was most
+    /// recently requested — important across a board switch) if a request
+    /// arrived while it was busy.
     func refreshBoardDisplay(connection: BoardConnection) async {
-        if let inFlight = boardDisplayFetchInFlight {
-            boardDisplayFetchPending = true
-            await inFlight.value
+        guard !boardDisplayFetchOwnerActive else {
+            boardDisplayFetchPendingConnection = connection
+            await waitForBoardDisplayFetchOwner()
             return
         }
-        await runBoardDisplayFetchesWhilePending(connection: connection)
+        boardDisplayFetchOwnerActive = true
+        defer {
+            boardDisplayFetchOwnerActive = false
+            resumeAllBoardDisplayFetchWaiters()
+        }
+        var currentConnection = connection
+        while true {
+            boardDisplayFetchPendingConnection = nil
+            await performBoardDisplayFetch(connection: currentConnection)
+            guard !Task.isCancelled, let pending = boardDisplayFetchPendingConnection else { return }
+            currentConnection = pending
+        }
     }
 
-    private var boardDisplayFetchInFlight: Task<Void, Never>?
-    private var boardDisplayFetchPending = false
+    private var boardDisplayFetchOwnerActive = false
+    private var boardDisplayFetchPendingConnection: BoardConnection?
+    private struct BoardDisplayFetchWaiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Never>
+    }
+    private var boardDisplayFetchWaiters: [BoardDisplayFetchWaiter] = []
 
-    private func runBoardDisplayFetchesWhilePending(connection: BoardConnection) async {
-        repeat {
-            boardDisplayFetchPending = false
-            let task = Task { [weak self] in
-                guard let self else { return }
-                await self.performBoardDisplayFetch(connection: connection)
+    /// Parks until the current owner's fetch (and any rerun it picks up)
+    /// finishes. Cancelling the waiting task resumes and removes only this
+    /// waiter — the owner's own fetch is untouched.
+    private func waitForBoardDisplayFetchOwner() async {
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                boardDisplayFetchWaiters.append(BoardDisplayFetchWaiter(id: id, continuation: continuation))
             }
-            boardDisplayFetchInFlight = task
-            await task.value
-            boardDisplayFetchInFlight = nil
-        } while boardDisplayFetchPending
+        } onCancel: {
+            // `onCancel` is nonisolated; hop back to resume/remove safely.
+            Task { @MainActor [weak self] in
+                self?.resumeAndRemoveBoardDisplayFetchWaiter(id: id)
+            }
+        }
+    }
+
+    private func resumeAndRemoveBoardDisplayFetchWaiter(id: UUID) {
+        guard let index = boardDisplayFetchWaiters.firstIndex(where: { $0.id == id }) else { return }
+        let waiter = boardDisplayFetchWaiters.remove(at: index)
+        waiter.continuation.resume()
+    }
+
+    private func resumeAllBoardDisplayFetchWaiters() {
+        let waiters = boardDisplayFetchWaiters
+        boardDisplayFetchWaiters.removeAll()
+        for waiter in waiters { waiter.continuation.resume() }
     }
 
     private func performBoardDisplayFetch(connection: BoardConnection) async {

@@ -57,8 +57,14 @@ final class ControlEventRefreshTests: XCTestCase {
 
         let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
         // 600 ms idle with no events: the entry fetch plus up to ~6 ticks at
-        // 100 ms. Generous bounds so a loaded Mac cannot flake this, while a
-        // 200 ms poll's ~15-over-3s-equivalent rate still cannot pass.
+        // 100 ms. Bounds are generous for a loaded Mac; this only guards
+        // against the reconciliation loop drifting far off its configured
+        // interval (e.g. a busy-spin) — it is not tight enough to by itself
+        // catch a regression to a fixed-rate legacy poll (a 200 ms poll over
+        // this same 600 ms window yields ~4 fetches, which still fits these
+        // bounds). That regression is covered separately by
+        // `testUnchangedVersionEventsProduceNoExtraFetch` and
+        // `testNilVersionAtEntryThenAppearingSwitchesToEventDrivenFetchRate`.
         try await Task.sleep(for: .milliseconds(600))
         XCTAssertGreaterThanOrEqual(transport.getFrameCount, 2)
         XCTAssertLessThanOrEqual(transport.getFrameCount, 9,
@@ -71,7 +77,10 @@ final class ControlEventRefreshTests: XCTestCase {
     func testBurstOfVersionBumpsCoalescesToAtMostTwoFetches() async throws {
         let (model, connection, transport) = try await connectedFixture()
         model.refreshTiming.reconciliationInterval = .seconds(1000)
-        transport.getFrameDelay = .milliseconds(80) // keep the first fetch "in flight"
+        // Generous in-flight window (vs. the near-instant in-memory event
+        // processing) so a loaded Mac cannot make the burst arrive late and
+        // spill into a third fetch.
+        transport.getFrameDelay = .milliseconds(150)
 
         let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
         await waitUntil { transport.getFrameStarted >= 1 }
@@ -80,7 +89,7 @@ final class ControlEventRefreshTests: XCTestCase {
             transport.pushStatus(version: version)
         }
 
-        try await Task.sleep(for: .milliseconds(300))
+        try await Task.sleep(for: .milliseconds(400))
         XCTAssertLessThanOrEqual(transport.getFrameCount, 2,
                                  "A burst of version bumps must coalesce into at most one extra fetch")
         XCTAssertGreaterThanOrEqual(transport.getFrameCount, 2,
@@ -117,6 +126,7 @@ final class ControlEventRefreshTests: XCTestCase {
         transport.initialControlMode = false // mode never synchronized
         let connected = await connection.connect(using: transport)
         XCTAssertTrue(connected)
+        transport.resetCounters() // connect() itself issues a setup GET_FRAME
         model.refreshTiming.reconciliationInterval = .milliseconds(20)
         // Deliberately do not call model.boardModeSynchronized.
 
@@ -138,6 +148,7 @@ final class ControlEventRefreshTests: XCTestCase {
         transport.initialControlMode = true
         let connected = await connection.connect(using: transport)
         XCTAssertTrue(connected)
+        transport.resetCounters() // connect() itself issues a setup GET_FRAME
         model.boardModeSynchronized(generation: connection.connectionGeneration)
         model.refreshTiming.legacyPollInterval = .milliseconds(15)
 
@@ -212,6 +223,7 @@ final class ControlEventRefreshTests: XCTestCase {
         transport.initialControlMode = true
         let connected = await connection.connect(using: transport)
         XCTAssertTrue(connected)
+        transport.resetCounters() // connect() itself issues a setup GET_FRAME
         model.boardModeSynchronized(generation: connection.connectionGeneration)
         model.refreshTiming.legacyPollInterval = .milliseconds(10)
         model.refreshTiming.reconciliationInterval = .seconds(1000) // isolate the fallback rate
@@ -239,8 +251,12 @@ final class ControlEventRefreshTests: XCTestCase {
         let (model, connection, transport) = try await connectedFixture()
         model.refreshTiming.reconciliationInterval = .seconds(1000)
 
+        // Force the losing order deterministically: keep the entry fetch in
+        // flight so run 1 is cancelled *during* a fetch, and its `defer`
+        // only unwinds after run 2 has already installed its own trigger.
+        transport.getFrameDelay = .milliseconds(80)
         let firstRun = Task { await model.runDisplayRefreshLoop(connection: connection) }
-        await waitUntil { transport.getFrameCount >= 1 }
+        await waitUntil { transport.getFrameStarted >= 1 }
 
         // Simulate `.task(id:)` restarting: cancel the old run and start a
         // new one without waiting for the old one to finish unwinding, so
@@ -248,6 +264,7 @@ final class ControlEventRefreshTests: XCTestCase {
         firstRun.cancel()
         let secondRun = Task { await model.runDisplayRefreshLoop(connection: connection) }
         await firstRun.value
+        transport.getFrameDelay = nil
         await waitUntil { transport.getFrameCount >= 2 }
         XCTAssertGreaterThanOrEqual(transport.getFrameCount, 2, "The restarted run must fetch on entry")
 
@@ -271,8 +288,82 @@ final class ControlEventRefreshTests: XCTestCase {
 
         XCTAssertLessThanOrEqual(transport.maxConcurrentGetFrames, 1,
                                  "refreshBoardDisplay must be single-flight across every caller")
-        XCTAssertLessThanOrEqual(transport.getFrameCount, 2,
-                                 "The second concurrent caller must coalesce, not queue indefinitely")
+        XCTAssertEqual(transport.getFrameCount, 2,
+                       "The second concurrent caller must still be served exactly once, not dropped")
+    }
+
+    func testTriggerDuringTheFinalRerunIsStillServed() async throws {
+        let (model, connection, transport) = try await connectedFixture()
+        transport.getFrameDelay = .milliseconds(60)
+
+        // Fetch #1: the owner.
+        async let ownerCall: Void = model.refreshBoardDisplay(connection: connection)
+        await waitUntil { transport.getFrameStarted >= 1 }
+
+        // A caller arrives while fetch #1 is in flight: it becomes the
+        // pending rerun (fetch #2).
+        async let firstWaiterCall: Void = model.refreshBoardDisplay(connection: connection)
+        await waitUntil { transport.getFrameStarted >= 2 }
+
+        // A further caller arrives while fetch #2 — the rerun — is itself in
+        // flight. It must still be served as one more rerun (fetch #3), not
+        // dropped just because it is not the original fetch.
+        async let secondWaiterCall: Void = model.refreshBoardDisplay(connection: connection)
+        _ = await (ownerCall, firstWaiterCall, secondWaiterCall)
+
+        XCTAssertEqual(transport.getFrameCount, 3,
+                       "A trigger that arrives during the rerun must still produce one more fetch")
+    }
+
+    func testCancelledOwnerDoesNotAdoptFrameAfterCancellation() async throws {
+        let (model, connection, transport) = try await connectedFixture()
+        transport.getFrameDelay = .milliseconds(150)
+        var differing = PackedFrame()
+        differing.set(7)
+        transport.displayFrame = differing
+        let before = model.draftFrame
+        XCTAssertNotEqual(before, differing)
+
+        let ownerTask = Task { await model.refreshBoardDisplay(connection: connection) }
+        await waitUntil { transport.getFrameStarted >= 1 }
+        ownerTask.cancel()
+
+        // A structured, inline fetch must be cancelled promptly along with
+        // its caller, not block for the whole in-flight delay — the exact
+        // regression an unstructured `Task {}` around the fetch reintroduces.
+        let cancelledAt = ContinuousClock.now
+        await ownerTask.value
+        XCTAssertLessThan(cancelledAt.duration(to: .now), .milliseconds(100),
+                          "Cancelling the caller must cancel the in-flight fetch, not wait for it")
+
+        // Give the (now-ignored) reply time to land; it must never adopt.
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(model.draftFrame, before,
+                       "A cancelled fetch must never adopt a frame that lands after teardown")
+    }
+
+    func testCancelledWaiterReturnsPromptlyWithoutCancellingTheFetch() async throws {
+        let (model, connection, transport) = try await connectedFixture()
+        transport.getFrameDelay = .milliseconds(150)
+        var bumped = PackedFrame()
+        bumped.set(11)
+        transport.displayFrame = bumped
+
+        let ownerTask = Task { await model.refreshBoardDisplay(connection: connection) }
+        await waitUntil { transport.getFrameStarted >= 1 }
+
+        let waiterTask = Task { await model.refreshBoardDisplay(connection: connection) }
+        try await Task.sleep(for: .milliseconds(20)) // let the waiter actually park
+        let cancelledAt = ContinuousClock.now
+        waiterTask.cancel()
+        await waiterTask.value
+        XCTAssertLessThan(cancelledAt.duration(to: .now), .milliseconds(100),
+                          "A cancelled waiter must return immediately, not wait for the fetch")
+
+        // The owner's own fetch must be unaffected by the waiter's cancellation.
+        await ownerTask.value
+        XCTAssertEqual(model.draftFrame, bumped,
+                       "Cancelling a waiter must never cancel the fetch it was waiting on")
     }
 
     // MARK: Fixture
@@ -287,6 +378,10 @@ final class ControlEventRefreshTests: XCTestCase {
         transport.initialControlMode = controlMode
         let connected = await connection.connect(using: transport)
         XCTAssertTrue(connected)
+        // `connect()` itself issues a setup-time GET_STATUS/GET_FRAME/
+        // GET_PREVIEW_SYNC read (BoardConnection.refreshBoardSnapshot); reset
+        // so every test's counts describe only what's under test.
+        transport.resetCounters()
         model.boardModeSynchronized(generation: connection.connectionGeneration)
         return (model, connection, transport)
     }
@@ -324,6 +419,17 @@ private final class ControlEventRefreshTransport: @MainActor RinaTransport {
     /// at once. Stays 1 as long as callers are properly single-flighted.
     private(set) var maxConcurrentGetFrames = 0
     private var currentConcurrentGetFrames = 0
+
+    /// Zeroes every counter. `BoardConnection.connect()` runs its own setup
+    /// GET_STATUS/GET_FRAME/GET_PREVIEW_SYNC read before returning, so a test
+    /// that wants exact counts must call this right after `connect()`
+    /// succeeds, before starting whatever is under test.
+    func resetCounters() {
+        getFrameCount = 0
+        getFrameStarted = 0
+        maxConcurrentGetFrames = 0
+        currentConcurrentGetFrames = 0
+    }
 
     private let decoder = RinaLinkDecoder()
     private var stateContinuation: AsyncStream<TransportState>.Continuation?
