@@ -5,9 +5,13 @@ import RinaCore
 
 /// Event-driven Control refresh loop (perf PR-12b): replaces the fixed
 /// 200 ms poll with a status-version trigger, a 1 Hz reconciliation
-/// fallback, and coalesced fetches. `ControlDisplayRefreshTransport` lets a
-/// test push unsolicited EV_STATUS frames the way firmware would on a
-/// runtime-state-version bump, and counts GET_FRAME requests.
+/// fallback, and coalesced fetches. `refreshBoardDisplay` is deliberately
+/// *not* single-flighted across callers (see its doc comment); these tests
+/// pin the loop's own externally-visible behavior — fetch rate, coalescing,
+/// guards, cancellation-safety — not any particular internal mechanism.
+/// `ControlEventRefreshTransport` lets a test push unsolicited EV_STATUS
+/// frames the way firmware would on a runtime-state-version bump, and counts
+/// GET_FRAME requests.
 @MainActor
 final class ControlEventRefreshTests: XCTestCase {
     func testVersionBumpTriggersExactlyOneGetFrameAndAdoptsFrame() async throws {
@@ -278,47 +282,19 @@ final class ControlEventRefreshTests: XCTestCase {
         await secondRun.value
     }
 
-    func testConcurrentCallersNeverOverlapAGetFrame() async throws {
+    /// The core cancellation-safety property this whole loop depends on:
+    /// `refreshBoardDisplay` runs inline in its caller's own task, so
+    /// cancelling that caller must cancel the in-flight `getFrame()` too,
+    /// not merely stop caring about its result. Unrelated to single-flight —
+    /// this must hold for every caller (loop, legacy poll,
+    /// `BoardSyncCoordinator`) since none of them wrap the call in a
+    /// detached `Task {}`.
+    func testCancelledCallerDoesNotAdoptFrameAfterCancellation() async throws {
         let (model, connection, transport) = try await connectedFixture()
-        transport.getFrameDelay = .milliseconds(60)
-
-        async let first: Void = model.refreshBoardDisplay(connection: connection)
-        async let second: Void = model.refreshBoardDisplay(connection: connection)
-        _ = await (first, second)
-
-        XCTAssertLessThanOrEqual(transport.maxConcurrentGetFrames, 1,
-                                 "refreshBoardDisplay must be single-flight across every caller")
-        XCTAssertEqual(transport.getFrameCount, 2,
-                       "The second concurrent caller must still be served exactly once, not dropped")
-    }
-
-    func testTriggerDuringTheFinalRerunIsStillServed() async throws {
-        let (model, connection, transport) = try await connectedFixture()
-        transport.getFrameDelay = .milliseconds(60)
-
-        // Fetch #1: the owner.
-        async let ownerCall: Void = model.refreshBoardDisplay(connection: connection)
-        await waitUntil { transport.getFrameStarted >= 1 }
-
-        // A caller arrives while fetch #1 is in flight: it becomes the
-        // pending rerun (fetch #2).
-        async let firstWaiterCall: Void = model.refreshBoardDisplay(connection: connection)
-        await waitUntil { transport.getFrameStarted >= 2 }
-
-        // A further caller arrives while fetch #2 — the rerun — is itself in
-        // flight. It must still be served as one more rerun (fetch #3), not
-        // dropped just because it is not the original fetch.
-        async let secondWaiterCall: Void = model.refreshBoardDisplay(connection: connection)
-        _ = await (ownerCall, firstWaiterCall, secondWaiterCall)
-
-        XCTAssertEqual(transport.getFrameCount, 3,
-                       "A trigger that arrives during the rerun must still produce one more fetch")
-    }
-
-    func testCancelledOwnerDoesNotAdoptFrameAfterCancellation() async throws {
-        let (model, connection, transport) = try await connectedFixture()
-        // A large in-flight delay against a 100 ms bound gives far more
-        // discrimination than a 150 ms delay would on a heavily loaded Mac.
+        // The delay only needs to be large enough that cancelling reliably
+        // lands mid-flight rather than after the reply — cancellation itself
+        // resolves in ~ms regardless of the delay, since it goes through
+        // BoardConnection's own cancellation handler, not a timeout.
         transport.getFrameDelay = .milliseconds(600)
         var differing = PackedFrame()
         differing.set(7)
@@ -326,15 +302,15 @@ final class ControlEventRefreshTests: XCTestCase {
         let before = model.draftFrame
         XCTAssertNotEqual(before, differing)
 
-        let ownerTask = Task { await model.refreshBoardDisplay(connection: connection) }
+        let callerTask = Task { await model.refreshBoardDisplay(connection: connection) }
         await waitUntil { transport.getFrameStarted >= 1 }
-        ownerTask.cancel()
+        callerTask.cancel()
 
         // A structured, inline fetch must be cancelled promptly along with
         // its caller, not block for the whole in-flight delay — the exact
-        // regression an unstructured `Task {}` around the fetch reintroduces.
+        // regression an unstructured `Task {}` around the fetch would cause.
         let cancelledAt = ContinuousClock.now
-        await ownerTask.value
+        await callerTask.value
         XCTAssertLessThan(cancelledAt.duration(to: .now), .milliseconds(100),
                           "Cancelling the caller must cancel the in-flight fetch, not wait for it")
 
@@ -342,62 +318,6 @@ final class ControlEventRefreshTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(700))
         XCTAssertEqual(model.draftFrame, before,
                        "A cancelled fetch must never adopt a frame that lands after teardown")
-    }
-
-    func testCancelledWaiterReturnsPromptlyWithoutCancellingTheFetch() async throws {
-        let (model, connection, transport) = try await connectedFixture()
-        transport.getFrameDelay = .milliseconds(600)
-        var bumped = PackedFrame()
-        bumped.set(11)
-        transport.displayFrame = bumped
-
-        let ownerTask = Task { await model.refreshBoardDisplay(connection: connection) }
-        await waitUntil { transport.getFrameStarted >= 1 }
-
-        let waiterTask = Task { await model.refreshBoardDisplay(connection: connection) }
-        try await Task.sleep(for: .milliseconds(20)) // let the waiter actually park
-        let cancelledAt = ContinuousClock.now
-        waiterTask.cancel()
-        await waiterTask.value
-        XCTAssertLessThan(cancelledAt.duration(to: .now), .milliseconds(100),
-                          "A cancelled waiter must return immediately, not wait for the fetch")
-
-        // The owner's own fetch must be unaffected by the waiter's cancellation.
-        await ownerTask.value
-        XCTAssertEqual(model.draftFrame, bumped,
-                       "Cancelling a waiter must never cancel the fetch it was waiting on")
-    }
-
-    func testCancelledOwnerHandsOffToAParkedWaiterInsteadOfDroppingItsRequest() async throws {
-        let (model, connection, transport) = try await connectedFixture()
-        transport.getFrameDelay = .milliseconds(300)
-        var bumped = PackedFrame()
-        bumped.set(23)
-
-        // Owner fetch #1 starts; it will be cancelled mid-flight.
-        let ownerTask = Task { await model.refreshBoardDisplay(connection: connection) }
-        await waitUntil { transport.getFrameStarted >= 1 }
-
-        // A waiter parks behind it, requesting a refresh of its own.
-        let waiterTask = Task { await model.refreshBoardDisplay(connection: connection) }
-        try await Task.sleep(for: .milliseconds(20)) // let it actually park
-
-        // The frame the waiter is trying to observe only lands once the
-        // owner is cancelled — mirroring a board switch tearing down the
-        // old owner's `.task(id:)` right as the new tab's request parks.
-        transport.displayFrame = bumped
-        ownerTask.cancel()
-        await ownerTask.value
-
-        // The waiter's own task is still live: it must inherit ownership and
-        // actually run a fetch, not just be released having served nothing
-        // (which would leave the preview stale until the 1 Hz fallback).
-        await waiterTask.value
-        await waitUntil { model.draftFrame == bumped }
-        XCTAssertEqual(model.draftFrame, bumped,
-                       "A parked waiter's request must be served, not dropped, when the owner is cancelled")
-        XCTAssertGreaterThanOrEqual(transport.getFrameStarted, 2,
-                                    "The handed-off request must actually run its own fetch")
     }
 
     // MARK: Fixture
@@ -449,10 +369,6 @@ private final class ControlEventRefreshTransport: @MainActor RinaTransport {
     /// artificial delay — lets a test know the first fetch has started
     /// without waiting for it to finish.
     private(set) var getFrameStarted = 0
-    /// Highest number of GET_FRAME requests this transport was ever handling
-    /// at once. Stays 1 as long as callers are properly single-flighted.
-    private(set) var maxConcurrentGetFrames = 0
-    private var currentConcurrentGetFrames = 0
 
     /// Zeroes every counter. `BoardConnection.connect()` runs its own setup
     /// GET_STATUS/GET_FRAME/GET_PREVIEW_SYNC read before returning, so a test
@@ -461,8 +377,6 @@ private final class ControlEventRefreshTransport: @MainActor RinaTransport {
     func resetCounters() {
         getFrameCount = 0
         getFrameStarted = 0
-        maxConcurrentGetFrames = 0
-        currentConcurrentGetFrames = 0
     }
 
     private let decoder = RinaLinkDecoder()
@@ -490,10 +404,7 @@ private final class ControlEventRefreshTransport: @MainActor RinaTransport {
             switch request.type {
             case RinaLinkMessageType.getFrame.rawValue:
                 getFrameStarted += 1
-                currentConcurrentGetFrames += 1
-                maxConcurrentGetFrames = max(maxConcurrentGetFrames, currentConcurrentGetFrames)
                 if let delay = getFrameDelay { try? await Task.sleep(for: delay) }
-                currentConcurrentGetFrames -= 1
                 getFrameCount += 1
                 reply(to: request, payload: Data(displayFrame.bytes))
             case RinaLinkMessageType.getStatus.rawValue:

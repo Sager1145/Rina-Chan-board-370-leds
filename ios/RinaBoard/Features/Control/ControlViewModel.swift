@@ -656,113 +656,29 @@ final class ControlViewModel {
     /// This preview only mirrors a board in Control mode. Text, lip-sync,
     /// performance and video frames belong to their own tabs' previews.
     ///
-    /// Single-flight across every caller (the event-driven loop, the legacy
-    /// poll and `BoardSyncCoordinator`'s direct call all funnel through
-    /// here). The first caller becomes the "owner" and runs the fetch
-    /// *inline*, in its own task, so cancelling that caller (e.g. `.task(id:)`
-    /// tearing down when the app backgrounds) cancels the wire request the
-    /// normal way and the post-fetch guard below still runs. Every other
-    /// concurrent caller parks on a continuation instead of starting a
-    /// second `getFrame()`; the owner resumes every parked waiter, and reruns
-    /// the fetch exactly once more (for whichever connection was most
-    /// recently requested — important across a board switch) if a request
-    /// arrived while it was busy.
+    /// Runs inline in the caller's own task — never wrapped in a detached
+    /// `Task {}` — so cancelling that caller (e.g. `.task(id:)` tearing down
+    /// when the app backgrounds) cancels the wire request the normal way,
+    /// and the post-fetch guard below still runs: a reply that lands after
+    /// teardown is ignored rather than clobbering the draft.
     ///
-    /// If the owner's own task is cancelled while a request is still
-    /// pending, that request is not dropped: one parked waiter — whose own
-    /// task is still live — inherits ownership and finishes it, so a board
-    /// switch's new entry refresh is never swallowed just because the old
-    /// owner was torn down first.
+    /// Deliberately *not* single-flighted across callers (the event-driven
+    /// loop, the legacy poll, and `BoardSyncCoordinator`'s direct call each
+    /// call this independently). The loop already serialises its own
+    /// fetches — one `AsyncStream` consumer that awaits each fetch before
+    /// pulling the next trigger, coalescing a burst via
+    /// `.bufferingNewest(1)` (see `runEventDrivenDisplayRefreshLoop`) — so it
+    /// never races itself. A loop fetch racing `BoardSyncCoordinator`'s
+    /// direct call is the same harmless overlap the pre-PR-12 200 ms poll
+    /// always allowed: the guards below and `adoptBoardFrameIfUntouched`'s
+    /// own untouched-check make a redundant or stale `getFrame()` a no-op,
+    /// not a correctness risk. An earlier revision added cross-caller
+    /// single-flight with an ownership hand-off for cancellation; two
+    /// independent reviews found real dropped-request and
+    /// duplicate-fetch defects in that machinery before it shipped, for a
+    /// guarantee ("zero concurrent GET_FRAMEs system-wide") no caller
+    /// actually depends on — so it was removed rather than patched again.
     func refreshBoardDisplay(connection: BoardConnection) async {
-        guard !boardDisplayFetchOwnerActive else {
-            boardDisplayFetchPendingConnection = connection
-            if let promoted = await waitForBoardDisplayFetchOwner() {
-                await runBoardDisplayFetchOwnerLoop(connection: promoted)
-            }
-            return
-        }
-        await runBoardDisplayFetchOwnerLoop(connection: connection)
-    }
-
-    @ObservationIgnored private var boardDisplayFetchOwnerActive = false
-    @ObservationIgnored private var boardDisplayFetchPendingConnection: BoardConnection?
-    private struct BoardDisplayFetchWaiter {
-        let id: UUID
-        /// Non-nil when this waiter is being handed ownership (with the
-        /// connection to serve); nil when its request was otherwise served
-        /// or it can just stop waiting.
-        let continuation: CheckedContinuation<BoardConnection?, Never>
-    }
-    @ObservationIgnored private var boardDisplayFetchWaiters: [BoardDisplayFetchWaiter] = []
-
-    private func runBoardDisplayFetchOwnerLoop(connection: BoardConnection) async {
-        boardDisplayFetchOwnerActive = true
-        var currentConnection = connection
-        while true {
-            boardDisplayFetchPendingConnection = nil
-            await performBoardDisplayFetch(connection: currentConnection)
-            if Task.isCancelled {
-                handOffBoardDisplayFetchOwnership()
-                return
-            }
-            guard let pending = boardDisplayFetchPendingConnection else {
-                boardDisplayFetchOwnerActive = false
-                resumeAllBoardDisplayFetchWaiters()
-                return
-            }
-            currentConnection = pending
-        }
-    }
-
-    /// Only reached once this owner's own task is cancelled. A parked
-    /// waiter's task is still live, so — if a request is still pending — one
-    /// waiter inherits ownership and finishes it there; everyone else is
-    /// simply released, and a pending request with nobody left to serve it
-    /// (its waiter cancelled too) is dropped rather than retained forever.
-    private func handOffBoardDisplayFetchOwnership() {
-        boardDisplayFetchOwnerActive = false
-        guard let pending = boardDisplayFetchPendingConnection, !boardDisplayFetchWaiters.isEmpty else {
-            boardDisplayFetchPendingConnection = nil
-            resumeAllBoardDisplayFetchWaiters()
-            return
-        }
-        boardDisplayFetchPendingConnection = nil
-        let successor = boardDisplayFetchWaiters.removeFirst()
-        resumeAllBoardDisplayFetchWaiters()
-        successor.continuation.resume(returning: pending)
-    }
-
-    /// Parks until either released (the owner served or dropped this
-    /// request) or handed ownership (returns the connection to serve).
-    /// Cancelling the waiting task resumes and removes only this waiter —
-    /// the owner's own fetch, or another waiter, is untouched.
-    private func waitForBoardDisplayFetchOwner() async -> BoardConnection? {
-        let id = UUID()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<BoardConnection?, Never>) in
-                boardDisplayFetchWaiters.append(BoardDisplayFetchWaiter(id: id, continuation: continuation))
-            }
-        } onCancel: {
-            // `onCancel` is nonisolated; hop back to resume/remove safely.
-            Task { @MainActor [weak self] in
-                self?.resumeAndRemoveBoardDisplayFetchWaiter(id: id)
-            }
-        }
-    }
-
-    private func resumeAndRemoveBoardDisplayFetchWaiter(id: UUID) {
-        guard let index = boardDisplayFetchWaiters.firstIndex(where: { $0.id == id }) else { return }
-        let waiter = boardDisplayFetchWaiters.remove(at: index)
-        waiter.continuation.resume(returning: nil)
-    }
-
-    private func resumeAllBoardDisplayFetchWaiters() {
-        let waiters = boardDisplayFetchWaiters
-        boardDisplayFetchWaiters.removeAll()
-        for waiter in waiters { waiter.continuation.resume(returning: nil) }
-    }
-
-    private func performBoardDisplayFetch(connection: BoardConnection) async {
         guard connection.connectionState == .connected, !hasUnsentChanges, !isSending,
               boardIsInControlMode(connection) else { return }
         let before = snapshot
@@ -845,10 +761,13 @@ final class ControlViewModel {
     /// Replaces the fixed 200 ms poll with an event-driven refresh: a status
     /// version change or a control-mode transition triggers an immediate
     /// fetch, backed by a 1 Hz reconciliation fallback and one fetch right on
-    /// entry. `refreshBoardDisplay(connection:)` is itself single-flight
-    /// across every caller, so a trigger that arrives while a fetch (from
-    /// this loop or from any other caller, e.g. `BoardSyncCoordinator`) is
-    /// already in flight is coalesced into exactly one more fetch afterward.
+    /// entry. This loop serialises itself — the consumer below awaits each
+    /// `refreshBoardDisplay` before pulling the next trigger — and the
+    /// trigger channel's `.bufferingNewest(1)` policy coalesces a burst that
+    /// arrives while a fetch is in flight into exactly one more fetch
+    /// afterward. It does not coordinate with other callers of
+    /// `refreshBoardDisplay` (e.g. `BoardSyncCoordinator`'s direct call); see
+    /// that function's doc comment for why.
     private func runEventDrivenDisplayRefreshLoop(connection: BoardConnection) async {
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let token = UUID()
