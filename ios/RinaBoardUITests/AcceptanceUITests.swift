@@ -85,7 +85,14 @@ final class AcceptanceUITests: XCTestCase {
         editor.typeText(text)
         let expectedDraft = editor.value as? String
         XCTAssertTrue(expectedDraft?.contains(text) == true)
-        app.buttons["完成"].firstMatch.tap()
+        // No keyboard dismissal needed: the draft is persisted on
+        // `scenePhase != .active` (see RootTabView.swift), not on the
+        // keyboard's own "完成" key. That key's automation type disagreed
+        // between the legacy and modern accessibility attributes on this
+        // Xcode beta (`UIAccessibilityElementKBKey`: legacy computed Button,
+        // modern reported Key), so an `app.buttons` query could never match
+        // it — dropping the tap keeps the test's real assertion (the draft
+        // survives termination) intact without depending on that element.
         XCUIDevice.shared.press(.home)
         app.activate()
         app.terminate()

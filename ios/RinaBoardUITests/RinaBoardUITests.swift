@@ -12,6 +12,7 @@ final class RinaBoardUITests: XCTestCase {
         app = nil
     }
 
+    @MainActor
     func testLegacyControlCenterAndFaceLibraryAreReachable() throws {
         launch(initialTab: "control")
 
@@ -20,26 +21,19 @@ final class RinaBoardUITests: XCTestCase {
             .firstMatch
         XCTAssertTrue(scrollToElement(clearFrame), "The restored Control commands were not reachable")
 
-        let accessory = app.buttons["面板控制"]
-        if accessory.waitForExistence(timeout: 3) {
-            accessory.tap()
-        } else {
-            // iOS 17–25 exposes the same control center from Settings rather
-            // than through the iOS 26 tab-bar accessory.
-            app.tabBars.buttons["设定"].tap()
-            XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
-            let controlCenter = app.buttons["面板控制中心"]
-            XCTAssertTrue(scrollToElement(controlCenter))
-            controlCenter.tap()
-        }
-
-        XCTAssertTrue(app.navigationBars["面板控制"].waitForExistence(timeout: 4))
-        let manageFaces = app.buttons["管理表情"]
-        XCTAssertTrue(scrollToElement(manageFaces), "The face library entry was not reachable")
-        manageFaces.tap()
-        XCTAssertTrue(app.navigationBars["表情库"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.staticTexts["默认表情"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["我的表情"].waitForExistence(timeout: 2))
+        // "管理表情" was removed from BoardControlCenterView in 6658c34
+        // (2026-09-12); the face library is now reached from the Control
+        // tab's own「保存列表」chip instead of the control center. Its rows
+        // no longer sit under "默认表情"/"我的表情" section headers either —
+        // FaceLibraryView.swift (same commit) flattened the list to one
+        // section with a per-row "预设" caption for each bundled default
+        // face. A fresh install never seeds a non-default ("我的表情") face
+        // (every entry in default_faces.json has type "default"), so that
+        // caption cannot be asserted without first saving one — checking for
+        // "预设" is what genuinely exercises this navigation path.
+        XCTAssertTrue(FaceLibraryUITestPath.openFaceLibrary(in: app, timeout: 4),
+                      "The face library was not reachable from the Control tab")
+        XCTAssertTrue(app.staticTexts["预设"].firstMatch.waitForExistence(timeout: 2))
     }
 
     func testDebugWorkspacesAreReachable() throws {
