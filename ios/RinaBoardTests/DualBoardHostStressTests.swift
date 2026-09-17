@@ -255,7 +255,7 @@ final class DualBoardHostStressTests: XCTestCase {
                 connectTransport: { session, _ in await session.connection.connect(using: holdingTransport) }
             )
         }
-        try await waitUntil { store.existingSession(for: boardA.id)?.connection.connectionState == .connecting }
+        await waitUntilTrue { store.existingSession(for: boardA.id)?.connection.connectionState == .connecting }
 
         var interloperDialed = false
         let interloper = ConnectionViewModel()
@@ -270,7 +270,7 @@ final class DualBoardHostStressTests: XCTestCase {
 
         holdingTransport.releaseConnect()
         await dialTask.value
-        try await waitUntil { store.existingSession(for: boardA.id)?.connection.connectionState == .connected }
+        await waitUntilTrue { store.existingSession(for: boardA.id)?.connection.connectionState == .connected }
 
         // --- Part 2: a failed dial to C must not touch the connected session B.
         let boardB = KnownBoard(id: UUID().uuidString, name: "B", preferredTransport: "bluetooth")
@@ -374,14 +374,6 @@ final class DualBoardHostStressTests: XCTestCase {
 
         connA2.disconnect()
         connB.disconnect()
-    }
-
-    private func waitUntil(_ condition: @escaping () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(3)
-        while !condition() && Date() < deadline {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        XCTAssertTrue(condition())
     }
 }
 

@@ -294,7 +294,7 @@ final class SavedConnectionRecoveryTests: XCTestCase {
                 }
             )
         }
-        for _ in 0..<1_000 where joinContinuation == nil { await Task.yield() }
+        await waitUntilTrue("Reconnect never reached the join step") { joinContinuation != nil }
         XCTAssertNotNil(joinContinuation)
 
         model.forgetBoard(board, ble: ble, connection: connection, boardStore: store.value)
@@ -390,7 +390,9 @@ final class SavedConnectionRecoveryTests: XCTestCase {
                 }
             )
         }
-        for _ in 0..<1_000 where connectContinuation == nil { await Task.yield() }
+        await waitUntilTrue("Reconnect never reached the transport connect step") {
+            connectContinuation != nil
+        }
         XCTAssertNotNil(connectContinuation)
 
         model.forgetBoard(board, ble: ble, connection: connection, boardStore: store.value)
