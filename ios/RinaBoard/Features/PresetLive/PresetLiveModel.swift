@@ -876,10 +876,13 @@ final class PresetLiveModel {
            let name = defaults.string(forKey: Self.scriptFileKey) {
             let url = fileStore.storedURL(named: name)
             if let data = try? Data(contentsOf: url) {
-                let scriptParseState = RinaPerf.signposter.beginInterval("PresetLiveScriptParse")
-                let parsed = try? parseScript(data, library: library,
+                let parsed: LivePerformanceScript?
+                do {
+                    let scriptParseState = RinaPerf.signposter.beginInterval("PresetLiveScriptParse")
+                    defer { RinaPerf.signposter.endInterval("PresetLiveScriptParse", scriptParseState) }
+                    parsed = try? parseScript(data, library: library,
                                               encodingError: NSLocalizedString("脚本编码无效，需为 UTF-8 文本", comment: "script encoding invalid"))
-                RinaPerf.signposter.endInterval("PresetLiveScriptParse", scriptParseState)
+                }
                 if let parsed {
                     result.script = parsed
                     result.frames = parsed.composedFrames(using: library)

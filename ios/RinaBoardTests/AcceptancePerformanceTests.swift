@@ -506,6 +506,53 @@ final class AcceptancePerformanceTests: XCTestCase {
         XCTAssertEqual(try context.storedFileNames(), storedFilesBefore)
     }
 
+    // MARK: PR-13 importCustomAudio(loadAudio: false) coverage
+    //
+    // Every pre-existing custom-audio import test either starts in custom
+    // mode already (so `enterCustom` never runs) or has no stored
+    // `presetLiveAudioFile` (so `restoreCustomMaterial`'s audio branch was a
+    // no-op either way). This is the one case where `loadAudio: false`
+    // actually skips real work: built-in mode, with a *previously* imported
+    // custom script and audio both still on disk from an earlier session.
+
+    /// Importing new custom audio while in built-in mode must still reuse the
+    /// stored custom script (needed for the commit that follows) while
+    /// skipping the now-discarded old custom audio load. A future change that
+    /// also short-circuited the script half (committing a `nil` script)
+    /// would fail `canPlay`/`script` here instead of shipping green.
+    func testCustomAudioImportInBuiltInModeReusesStoredScriptWithoutLoadingOldAudio() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let model = context.makeModel()
+
+        // Establish a previously-imported custom script + audio pair, then
+        // switch to built-in mode without clearing that stored material.
+        await model.importScript(from: try context.writeImport(
+            named: "reuse.rinalive",
+            data: validScriptData
+        ))
+        await model.importCustomAudio(from: try context.writeImport(
+            named: "old-custom.wav",
+            data: syntheticWAV(sample: 111)
+        ))
+        let songA = try XCTUnwrap(model.builtInPerformances.first { $0.id == "song-a" })
+        XCTAssertTrue(model.selectBuiltIn(songA))
+        XCTAssertFalse(model.isCustomMode)
+
+        await model.importCustomAudio(from: try context.writeImport(
+            named: "new-custom.wav",
+            data: syntheticWAV(sample: -111)
+        ))
+
+        XCTAssertTrue(model.isCustomMode)
+        XCTAssertEqual(model.audioTitle, "new-custom.wav")
+        XCTAssertTrue(model.hasAudio)
+        XCTAssertNotNil(model.script)
+        XCTAssertEqual(model.scriptName, "reuse.rinalive")
+        XCTAssertTrue(model.canPlay)
+        XCTAssertNil(model.errorMessage)
+    }
+
     // MARK: PR-13 cold-restore audio-load coverage
     //
     // Each test below builds material with one `PresetLiveModel` and then
@@ -560,17 +607,28 @@ final class AcceptancePerformanceTests: XCTestCase {
     /// A fresh model restoring a built-in performance's own imported audio
     /// from a board checkpoint must select that performance, load its stored
     /// audio, and leave the passively-remembered built-in selection alone.
+    /// Song B is left as the persisted selection so the final assertion can
+    /// actually distinguish "restore used `persistSelection: false`" from a
+    /// bug that persists song A over it.
     func testFreshModelColdRestoresBuiltInAudioFromBoardCheckpoint() async throws {
         let context = try makeContext()
         defer { context.cleanUp() }
-        let firstModel = context.makeModel()
-        let songA = try XCTUnwrap(firstModel.builtInPerformances.first { $0.id == "song-a" })
-        XCTAssertTrue(firstModel.selectBuiltIn(songA))
-        await firstModel.importAudio(
+        let setupA = context.makeModel()
+        let songA = try XCTUnwrap(setupA.builtInPerformances.first { $0.id == "song-a" })
+        XCTAssertTrue(setupA.selectBuiltIn(songA))
+        await setupA.importAudio(
             from: try context.writeImport(named: "cold-builtin.wav", data: syntheticWAV(sampleCount: 80_000)),
             forBuiltIn: songA.id
         )
         let storedName = try XCTUnwrap(context.defaults.string(forKey: "performanceAudio.song-a"))
+
+        let setupB = context.makeModel()
+        let songB = try XCTUnwrap(setupB.builtInPerformances.first { $0.id == "song-b" })
+        XCTAssertTrue(setupB.selectBuiltIn(songB))
+        // `selectBuiltIn(songB)` persisted last, so the passively-remembered
+        // selection is song B going into the checkpoint restore below.
+        XCTAssertEqual(context.defaults.string(forKey: "presetLiveBuiltIn"), "song-b")
+
         let streamID = UUID().uuidString
         let material = "builtIn|song-a|\(storedName)"
         context.defaults.set(material, forKey: "presetLivePlaybackMaterial")
@@ -587,7 +645,7 @@ final class AcceptancePerformanceTests: XCTestCase {
 
         XCTAssertEqual(freshModel.selectedBuiltIn, "song-a")
         XCTAssertTrue(freshModel.isPlaying)
-        XCTAssertEqual(context.defaults.string(forKey: "presetLiveBuiltIn"), "song-a")
+        XCTAssertEqual(context.defaults.string(forKey: "presetLiveBuiltIn"), "song-b")
     }
 
     /// A fresh model that already has a player loaded for one built-in song
