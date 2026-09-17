@@ -22,14 +22,18 @@ final class SnapshotAcceptanceUITests: XCTestCase {
         XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 10))
     }
 
-    private func reach(_ element: XCUIElement) {
+    // `file`/`line` default to the call site so a failure here is attributed
+    // to the caller, not always to this line — previously every `reach()`
+    // failure was reported at this function's own `XCTAssertTrue`, regardless
+    // of which test called it.
+    private func reach(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
         for _ in 0..<12 {
             if element.exists && element.isHittable && element.frame.midY < app.frame.maxY - 150 && element.frame.midY > 90 { return }
             let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.67))
             let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.37))
             start.press(forDuration: 0.05, thenDragTo: end)
         }
-        XCTAssertTrue(element.isHittable)
+        XCTAssertTrue(element.isHittable, file: file, line: line)
     }
 
     /// No accessibility hook exposes the boot loader overlay's state, so we
@@ -66,8 +70,14 @@ final class SnapshotAcceptanceUITests: XCTestCase {
         // tab's own「保存列表」chip instead of the control center.
         XCTAssertTrue(FaceLibraryUITestPath.openFaceLibrary(in: app),
                       "The face library was not reachable from the Control tab")
-        XCTAssertTrue(app.staticTexts["本机"].firstMatch.waitForExistence(timeout: 3),
-                      "The local ('本机') library location must be shown when no board is connected")
+        // The location picker is a segmented control (`FaceLibraryLocation`
+        // titles as its segments), so its labels surface as buttons under
+        // `segmentedControls`, not as bare `staticTexts`.
+        let localSegment = app.segmentedControls.buttons["本机"]
+        XCTAssertTrue(localSegment.waitForExistence(timeout: 3),
+                      "The local ('本机') library location must be offered when no board is connected")
+        XCTAssertTrue(localSegment.isSelected,
+                      "Offline, the picker must default to the local library, not the (empty) board one")
         // `FaceLibraryView` puts the thumbnail, name and caption inside a
         // `Button`'s label, so SwiftUI collapses that subtree into a single
         // element carrying the button trait — "预设" is a fragment of the
@@ -77,6 +87,52 @@ final class SnapshotAcceptanceUITests: XCTestCase {
                       "Bundled preset faces must be available offline")
         XCTAssertFalse(app.staticTexts["暂无"].exists,
                        "Library must provide its own local content even without a connected board")
+    }
+
+    /// Covers the picker itself (DEF-07's wider two-library UI): switching
+    /// to 当前面板 while offline must actually change the list, not just the
+    /// segmented control's selection state — the (unloaded, disconnected)
+    /// board document is empty, so "暂无" must appear and the preset row
+    /// must disappear.
+    func testFaceLibraryPickerSwitchesBetweenLocalAndBoardLists() {
+        launch("control")
+        XCTAssertTrue(FaceLibraryUITestPath.openFaceLibrary(in: app),
+                      "The face library was not reachable from the Control tab")
+        let presetRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "预设")).firstMatch
+        XCTAssertTrue(presetRow.waitForExistence(timeout: 3),
+                      "Local presets should be showing by default while offline")
+
+        let boardSegment = app.segmentedControls.buttons["当前面板"]
+        XCTAssertTrue(boardSegment.exists, "The board location must also be offered by the picker")
+        boardSegment.tap()
+        XCTAssertTrue(boardSegment.isSelected)
+        XCTAssertTrue(app.staticTexts["暂无"].waitForExistence(timeout: 3),
+                      "A disconnected board's library has never been loaded and must show as empty")
+        XCTAssertFalse(presetRow.exists,
+                       "Switching to the board location must stop showing the local presets")
+
+        let localSegment = app.segmentedControls.buttons["本机"]
+        localSegment.tap()
+        XCTAssertTrue(localSegment.isSelected)
+        XCTAssertTrue(presetRow.waitForExistence(timeout: 3),
+                      "Switching back to 本机 must restore the local presets")
+    }
+
+    /// Cross-library copy (`FaceLibraryModel.copy(_:from:to:)`) exists and is
+    /// unit-tested; this only checks the row action is actually wired up.
+    /// A full round-trip (copy from 本机 to 当前面板 and confirm it landed)
+    /// needs a connected board, which this offline UI suite cannot provide —
+    /// not exercised here.
+    func testFaceLibraryContextMenuOffersCopyToTheOtherLocation() {
+        launch("control")
+        XCTAssertTrue(FaceLibraryUITestPath.openFaceLibrary(in: app),
+                      "The face library was not reachable from the Control tab")
+        let presetRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "预设")).firstMatch
+        XCTAssertTrue(presetRow.waitForExistence(timeout: 3))
+        presetRow.press(forDuration: 0.6)
+        let copyAction = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "复制到")).firstMatch
+        XCTAssertTrue(copyAction.waitForExistence(timeout: 3),
+                      "A row's context menu must offer copying it to the other library")
     }
 
     func testTextDraftRestoresAfterBackgroundAndRelaunch() {
