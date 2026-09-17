@@ -89,6 +89,11 @@ struct RinaStarfield: View {
                 let time: TimeInterval = isFrozen
                     ? RinaStarfieldSourceSpec.snapshotTime
                     : (reduceMotion ? 0 : RinaStarClock.shared.time(at: timeline.date))
+                // Energy investigation (PR-12): lets a signpost trace show
+                // whether this instance's timeline content closure keeps
+                // firing while its page is not visible (background tab,
+                // covered NavigationStack push).
+                let _ = RinaPerf.signposter.emitEvent("StarfieldFrame")
                 Canvas(rendersAsynchronously: true) { context, size in
                     Self.draw(elements: elements, in: &context, size: size, time: time)
                 }
