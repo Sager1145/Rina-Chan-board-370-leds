@@ -454,10 +454,16 @@ final class DebugViewModel {
                     self?.firmwareLogState = .failed(reply.error ?? NSLocalizedString("固件拒绝订阅", comment: "debug firmware log subscription rejected"))
                     return
                 }
-                guard !Task.isCancelled, let self else { return }
-                self.firmwareLogState = .on
+                guard !Task.isCancelled else { return }
+                self?.firmwareLogState = .on
+                // Resolve `self` per event rather than binding it for the whole
+                // loop: `self.firmwareLogTask` holds this task, so a strong
+                // binding held across the stream's awaits is a retain cycle and
+                // the model outlives the screen, still mirroring EV_LOG into its
+                // rings and running the redaction regexes on the main actor.
                 for await event in connection.events() {
                     if Task.isCancelled { return }
+                    guard let self else { return }
                     if case .log(let entry) = event {
                         let tag = entry.tag.map { "[\($0)] " } ?? ""
                         self.log(Self.debugLevel(for: entry.level),
@@ -466,13 +472,24 @@ final class DebugViewModel {
                     }
                 }
                 if !Task.isCancelled {
-                    self.firmwareLogState = .failed(NSLocalizedString("固件日志流已停止", comment: "debug firmware log stream ended"))
+                    self?.firmwareLogState = .failed(NSLocalizedString("固件日志流已停止", comment: "debug firmware log stream ended"))
                 }
             } catch is CancellationError {
             } catch {
                 self?.firmwareLogState = .failed(error.localizedDescription)
             }
         }
+    }
+
+    /// The active board changed. `handleConnectionStateChange` is driven by
+    /// `connectionState`, so switching between two boards that are both
+    /// `.connected` never reached it: the old board's log task kept streaming
+    /// (it holds the old connection), the header still claimed the firmware log
+    /// was on, and the overview stayed on the previous board.
+    func handleSessionChange() {
+        firmwareLogTask?.cancel()
+        firmwareLogTask = nil
+        firmwareLogState = .off
     }
 
     func handleConnectionStateChange(_ state: BoardConnectionState) {
