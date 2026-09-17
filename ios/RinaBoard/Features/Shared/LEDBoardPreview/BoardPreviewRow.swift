@@ -33,6 +33,13 @@ struct BoardPreviewRow: View {
     var maxHeight: CGFloat = 420
     /// Overrides the VoiceOver summary; defaults to a lit-count description.
     var accessibilityDescription: String? = nil
+    #if DEBUG
+    /// PR-11 item 3 measurement harness only: opts this row's preview into
+    /// `LEDPreviewFrameDropProbe` under this label. `nil` (the default) is a
+    /// no-op; only the call sites the harness drives (Text, Video) pass one,
+    /// and even then only `-perfProbeScenario <label>` actually starts it.
+    var probeLabel: String? = nil
+    #endif
 
     /// Optional on purpose. A non-optional `@Environment` object traps during
     /// `DynamicProperty.update()` — before `body` ever reads it — so declaring
@@ -73,6 +80,9 @@ struct BoardPreviewRow: View {
             // clips the board photo at the left and right edges.
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
+            #if DEBUG
+            .modifier(OptionalProbeModifier(label: probeLabel))
+            #endif
     }
 }
 

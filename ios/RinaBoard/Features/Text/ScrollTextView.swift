@@ -67,10 +67,18 @@ struct ScrollTextView: View {
         Section {
             // `.inert` by default: the scroll preview mirrors the board's
             // own animation and is not editable (§22.1).
+            #if DEBUG
+            BoardPreviewRow(
+                frame: model.previewFrame,
+                accessibilityDescription: previewAccessibilityDescription,
+                probeLabel: "textHighFps"
+            )
+            #else
             BoardPreviewRow(
                 frame: model.previewFrame,
                 accessibilityDescription: previewAccessibilityDescription
             )
+            #endif
         } footer: {
             previewStatus
         }

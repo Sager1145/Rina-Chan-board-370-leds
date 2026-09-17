@@ -61,6 +61,16 @@ enum LEDBloomRenderer {
     /// Builds the closed perimeter contours of every connected lit region, in
     /// `layout`'s view coordinates, via the shared unit-space cache.
     static func contourPath(frame: PackedFrame, layout: LEDBoardLayout) -> Path {
+        let state = RinaPerf.signposter.beginInterval("LEDBloomContourFetch")
+        #if DEBUG || RINA_PERF_LOG
+        let start = ContinuousClock.now
+        defer {
+            RinaPerf.signposter.endInterval("LEDBloomContourFetch", state)
+            BloomFrameTiming.record(stage: "LEDBloomContourFetch", elapsed: ContinuousClock.now - start)
+        }
+        #else
+        defer { RinaPerf.signposter.endInterval("LEDBloomContourFetch", state) }
+        #endif
         let unit = contourCache.path(for: frame, build: { unitPath(for: frame) })
         guard !unit.isEmpty else { return Path() }
         return unit.applying(CGAffineTransform(a: layout.cell, b: 0, c: 0, d: layout.cell,
@@ -81,12 +91,36 @@ enum LEDBloomRenderer {
     ) {
         guard !path.isEmpty, layout.cell > 0, intensity > 0 else { return }
 
+        let state = RinaPerf.signposter.beginInterval("LEDBloomDraw")
+        #if DEBUG || RINA_PERF_LOG
+        let start = ContinuousClock.now
+        defer {
+            RinaPerf.signposter.endInterval("LEDBloomDraw", state)
+            BloomFrameTiming.record(stage: "LEDBloomDraw", elapsed: ContinuousClock.now - start)
+        }
+        #else
+        defer { RinaPerf.signposter.endInterval("LEDBloomDraw", state) }
+        #endif
+
         // Wide, faint halo just outside the perimeter.
+        let haloState = RinaPerf.signposter.beginInterval("LEDBloomHalo")
+        #if DEBUG || RINA_PERF_LOG
+        let haloStart = ContinuousClock.now
+        #endif
         context.drawLayer { layer in
             layer.addFilter(.blur(radius: layout.cell * 0.85))
             layer.fill(path, with: .color(color.opacity(0.22 * intensity)))
         }
+        RinaPerf.signposter.endInterval("LEDBloomHalo", haloState)
+        #if DEBUG || RINA_PERF_LOG
+        BloomFrameTiming.record(stage: "LEDBloomHalo", elapsed: ContinuousClock.now - haloStart)
+        #endif
+
         // Tight, brighter rim hugging the contour itself.
+        let rimState = RinaPerf.signposter.beginInterval("LEDBloomRim")
+        #if DEBUG || RINA_PERF_LOG
+        let rimStart = ContinuousClock.now
+        #endif
         context.drawLayer { layer in
             layer.addFilter(.blur(radius: layout.cell * 0.30))
             layer.fill(path, with: .color(color.opacity(0.38 * intensity)))
@@ -94,6 +128,10 @@ enum LEDBloomRenderer {
                          with: .color(color.opacity(0.50 * intensity)),
                          lineWidth: layout.cell * 0.34)
         }
+        RinaPerf.signposter.endInterval("LEDBloomRim", rimState)
+        #if DEBUG || RINA_PERF_LOG
+        BloomFrameTiming.record(stage: "LEDBloomRim", elapsed: ContinuousClock.now - rimStart)
+        #endif
     }
 }
 
