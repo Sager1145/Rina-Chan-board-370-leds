@@ -56,7 +56,7 @@ struct AboutView: View {
             .rinaTranslucentRows()
         }
         .listSectionSpacing(.compact)
-        .rinaScrollBackground(debugTag: "AboutView")
+        .rinaScrollBackground()
         .navigationTitle("关于")
         .navigationBarTitleDisplayMode(.inline)
     }

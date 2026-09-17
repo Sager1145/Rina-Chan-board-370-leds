@@ -41,7 +41,7 @@ struct PerformanceTabView: View {
                 .rinaTranslucentRows()
             }
             .listSectionSpacing(.compact)
-            .rinaScrollBackground(debugTag: "PerformanceTabView")
+            .rinaScrollBackground()
             .toolbar(.hidden, for: .navigationBar)
             .contentMargins(.top, 0, for: .scrollContent)
             .errorAlert(Bindable(presetLive).errorMessage)

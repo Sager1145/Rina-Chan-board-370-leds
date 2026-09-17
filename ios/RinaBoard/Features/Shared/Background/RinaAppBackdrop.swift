@@ -12,9 +12,18 @@ struct RinaAppBackdrop: View {
     /// Optional so previews without the app environment still render.
     @Environment(BootLoaderModel.self) private var bootLoader: BootLoaderModel?
 
+    /// Tracks whether this instance's page is actually on screen: a page
+    /// covered by a `NavigationStack` push stays mounted (its `onAppear` has
+    /// already fired and does not fire again on the pop back to it), but
+    /// should not keep drawing star frames while hidden underneath. Starts
+    /// `false` so a freshly pushed page does not draw a frame before its own
+    /// `onAppear` runs.
+    @State private var isPageVisible = false
+
     /// Identifies the hosting page for the DEBUG-only starfield frame probe
-    /// (PR-12 measurement only); forwarded to `RinaStarfield`.
-    var debugTag: String = "unknown"
+    /// (PR-12 measurement only); forwarded to `RinaStarfield`. Defaults to
+    /// the caller's source location so call sites never need to pass it.
+    var debugTag: String = "\(#fileID):\(#line)"
 
     /// `-disableStarAnimation YES` freezes the stars at a fixed point in
     /// their cycle (`RinaStarfieldSourceSpec.snapshotTime`), generated from a
@@ -35,11 +44,14 @@ struct RinaAppBackdrop: View {
             // main thread quiet during launch.
             RinaStarfield(isPaused: bootLoader?.isVisible ?? false,
                           isFrozen: Self.isFrozen,
+                          isPageVisible: isPageVisible,
                           debugTag: debugTag)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        .onAppear { isPageVisible = true }
+        .onDisappear { isPageVisible = false }
     }
 }
 
@@ -53,9 +65,11 @@ extension View {
     ///
     /// - Parameter debugTag: identifies the hosting page for the DEBUG-only
     ///   starfield frame probe (PR-12 measurement only); has no effect on a
-    ///   Release build. Optional so existing call sites need not change.
+    ///   Release build. Defaults to the caller's source location (file and
+    ///   line) so existing call sites need not pass it, and two call sites
+    ///   in the same file (e.g. `DebugView`) still resolve to distinct tags.
     @ViewBuilder
-    func rinaScrollBackground(_ isEnabled: Bool = true, debugTag: String = "unknown") -> some View {
+    func rinaScrollBackground(_ isEnabled: Bool = true, debugTag: String = "\(#fileID):\(#line)") -> some View {
         if !isEnabled {
             self
         } else if #available(iOS 18.0, *) {
