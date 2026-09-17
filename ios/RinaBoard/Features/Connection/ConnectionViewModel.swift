@@ -642,26 +642,16 @@ public final class ConnectionViewModel {
             _ = try await connection.command(.wifiConnect)
             hotspotProvisionStage = .waitingForBoard
 
-            let joined: Bool = await withTaskGroup(of: Bool.self) { group in
-                group.addTask {
-                    for await event in stream {
-                        if case .wifi(let status) = event,
-                           status.staConnected == true, status.activeProfile == "hotspot" {
-                            return true
-                        }
-                    }
-                    return false
-                }
-                group.addTask {
-                    try? await Task.sleep(nanoseconds: 45_000_000_000)
-                    return false
-                }
-                let first = await group.next() ?? false
-                group.cancelAll()
-                return first
-            }
+            let joined = await waitForAssociation(
+                in: stream, profile: "hotspot", expectedSSID: ssid)
 
-            guard joined, let ip = connection.wifi?.ip, !ip.isEmpty else {
+            // Prefer the IP carried by the matching association; fall back to
+            // the merged snapshot only for firmware that omits it.
+            let joinedIP = joined.flatMap { status -> String? in
+                if let ip = status.ip, !ip.isEmpty { return ip }
+                return connection.wifi?.ip
+            }
+            guard joined != nil, let ip = joinedIP, !ip.isEmpty else {
                 hotspotProvisionStage = .failed(NSLocalizedString(
                     "板子未能加入热点。请确认个人热点已开启，名称和密码正确，并按需打开“最大兼容性”。",
                     comment: "board failed to join phone hotspot"
@@ -744,7 +734,8 @@ public final class ConnectionViewModel {
             _ = try await connection.command(.wifiConnect)
             homeProvisionStage = .waitingForBoard
 
-            let associated = await waitForAssociation(in: stream, profile: "home")
+            let associated = await waitForAssociation(
+                in: stream, profile: "home", expectedSSID: ssid) != nil
             if associated {
                 homeProvisionStage = .boardJoined
             } else {
@@ -803,23 +794,48 @@ public final class ConnectionViewModel {
         ))
     }
 
-    private func waitForAssociation(in stream: AsyncStream<BoardEvent>, profile: String) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
+    /// Waits for the board to report that it actually associated with
+    /// `expectedSSID` on `profile`, and returns the matching status (its `ip`
+    /// belongs to that association, unlike a later read of `connection.wifi`).
+    ///
+    /// Matching the profile alone is not enough. `wifiManagerSetHotspotCredentials`
+    /// / `wifiManagerSetCredentials` only *start* an async scan
+    /// (`startStaSelection` in `esp32s3_firmware/src/wifi_manager.cpp`) while the
+    /// previous association stays up, so the first `EV_WIFI` after the commands
+    /// normally still describes the OLD network under the same profile — a stale
+    /// match reports success, and persists credentials, for a network the board
+    /// never joined. `WifiStatus.ssid` is the associated SSID and is the only
+    /// field that distinguishes them; `hotspotSsid`/`homeSsid` are updated by the
+    /// set-credentials command itself and must not be used here. Firmware that
+    /// does not report `ssid` at all falls back to the profile-only match so
+    /// older boards keep provisioning as before.
+    ///
+    /// Internal rather than private so `ConnectionProvisioningTests` can pin the
+    /// stale-association predicate without driving a real TCP connect.
+    func waitForAssociation(
+        in stream: AsyncStream<BoardEvent>,
+        profile: String,
+        expectedSSID: String
+    ) async -> WifiStatus? {
+        await withTaskGroup(of: WifiStatus?.self) { group in
             group.addTask {
                 for await event in stream {
-                    if case .wifi(let status) = event,
-                       status.staConnected == true,
-                       status.activeProfile == profile {
-                        return true
+                    guard case .wifi(let status) = event,
+                          status.staConnected == true,
+                          status.activeProfile == profile
+                    else { continue }
+                    if let reported = status.ssid, !reported.isEmpty, reported != expectedSSID {
+                        continue
                     }
+                    return status
                 }
-                return false
+                return nil
             }
             group.addTask {
                 try? await Task.sleep(for: .seconds(45))
-                return false
+                return nil
             }
-            let first = await group.next() ?? false
+            let first = await group.next() ?? nil
             group.cancelAll()
             return first
         }
