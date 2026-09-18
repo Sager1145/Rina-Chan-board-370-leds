@@ -1049,13 +1049,27 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
             sendErrorReply(c, seq, 409, "boot_mismatch");
             return;
         }
-        const uint64_t atUs = cu64(d, p, "atUs", 0);
+        // F4: atUs must be an explicit unsigned integer -- a missing or
+        // wrong-typed atUs silently defaulting to 0 (via cu64()) would anchor
+        // the schedule at time zero instead of being rejected. Check it on
+        // whichever object (payload or top-level) the other fields are read
+        // from, same selection cu64()/cint() use.
+        JsonVariant atUsSrc = (!p.isNull() && !p["atUs"].isNull()) ? p["atUs"] : d["atUs"];
         const int intervalMs = cint(d, p, "intervalMs", -1);
         const int startFrame = cint(d, p, "startFrame", 0);
         const bool loop = cbool(d, p, "loop", true);
-        if (intervalMs < 20 || intervalMs > 2000 || startFrame < 0) {
+        if (!atUsSrc.is<uint64_t>() || intervalMs < 20 || intervalMs > 2000 ||
+            startFrame < 0 || startFrame > 65535) {
             ++runtimeState().commandsRejected;
-            sendErrorReply(c, seq, 400, "group_start requires intervalMs 20..2000 and startFrame >= 0");
+            sendErrorReply(c, seq, 400,
+                           "group_start requires atUs (u64), intervalMs 20..2000, startFrame 0..65535");
+            return;
+        }
+        const uint64_t atUs = cu64(d, p, "atUs", 0);
+        const uint16_t frameCount = runtimeState().scrollFrameCount;
+        if (frameCount > 0 && static_cast<uint32_t>(startFrame) > static_cast<uint32_t>(frameCount - 1)) {
+            ++runtimeState().commandsRejected;
+            sendErrorReply(c, seq, 400, "startFrame exceeds frameCount-1");
             return;
         }
         if (!scrollSessionGroupStart(atUs, static_cast<uint16_t>(startFrame),
