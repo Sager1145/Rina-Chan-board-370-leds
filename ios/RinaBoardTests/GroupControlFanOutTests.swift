@@ -75,6 +75,44 @@ final class GroupControlFanOutTests: XCTestCase {
         XCTAssertNotEqual(session(h, "CCCC").connection.output.source, .groupControl)
     }
 
+    // MARK: 1b. Coalescing a queued command moves it to the end, preserving
+    // relative order with other still-queued commands (F8).
+
+    func testCoalescedCommandMovesToEndPreservingOrder() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.transports["BBBB"]?.cmdReplyDelay["set_color"] = 0.3
+        h.fanOut.setTarget(.group(h.group.id))
+        let primary = session(h, "AAAA")
+
+        // First item: dequeued and sent immediately, blocking the sink's
+        // worker on its (delayed) reply — everything sent while it's in
+        // flight piles up in the queue behind it.
+        _ = try await primary.connection.command(.setColor(hex: "#111111"))
+        // Queued while the worker is still blocked on set_color's reply:
+        _ = try await primary.connection.command(.setBrightness(raw: 10))
+        _ = try await primary.connection.command(.setAutoInterval(ms: 500))
+        // Coalesces with the already-queued setBrightness(10) — must replace
+        // it AND move to the end, after setAutoInterval, not keep its old
+        // (earlier) position.
+        _ = try await primary.connection.command(.setBrightness(raw: 20))
+
+        await waitUntil(timeout: 2) { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 20 }
+        let names = h.transports["BBBB"]?.receivedCmdNames ?? []
+        let colorIdx = names.lastIndex(of: "set_color")
+        let intervalIdx = names.lastIndex(of: "set_auto_interval")
+        let brightnessIdx = names.lastIndex(of: "set_brightness")
+        XCTAssertNotNil(colorIdx); XCTAssertNotNil(intervalIdx); XCTAssertNotNil(brightnessIdx)
+        // set_color, then set_auto_interval, then the coalesced set_brightness
+        // last — never brightness before the auto-interval it was queued
+        // behind at enqueue time.
+        XCTAssertLessThan(colorIdx!, intervalIdx!)
+        XCTAssertLessThan(intervalIdx!, brightnessIdx!)
+        XCTAssertEqual(h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int, 20)
+        // Only ever one set_brightness reached the sink — the earlier
+        // queued(10) was replaced, not sent-then-followed-by-20.
+        XCTAssertEqual(names.filter { $0 == "set_brightness" }.count, 1)
+    }
+
     // MARK: 2. Deny-list commands never fan out
 
     func testDenyListCommandReachesOnlyPrimary() async throws {
@@ -145,6 +183,43 @@ final class GroupControlFanOutTests: XCTestCase {
         XCTAssertFalse(h.transports["BBBB"]?.receivedCmdNames.contains("apply_saved_face") == true)
     }
 
+    // MARK: 5b. No resolver (or a nil resolve): read the primary's own
+    // resulting frame back via get_frame and mirror that, never replay
+    // apply_saved_face/B1/B2 verbatim (F5).
+
+    func testUnresolvedFaceReadsBackPrimaryFrameInsteadOfReplayingVerbatim() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.fanOut.setTarget(.group(h.group.id))
+        // No `faceFrameResolver` wired at all — the common real-world "not
+        // wired yet" / "couldn't resolve" case.
+        var readBack = PackedFrame()
+        readBack.set(9)
+        h.transports["AAAA"]?.getFrameReply = readBack
+        let primary = session(h, "AAAA")
+
+        _ = try await primary.connection.command(.applySavedFace(index: 3, reason: nil, playback: nil))
+
+        await waitUntil(timeout: 2) { !(h.transports["BBBB"]?.receivedFrameBytes.isEmpty ?? true) }
+        XCTAssertEqual(h.transports["BBBB"]?.receivedFrameBytes.last, readBack.bytes)
+        XCTAssertFalse(h.transports["BBBB"]?.receivedCmdNames.contains("apply_saved_face") == true)
+    }
+
+    // MARK: 5c. Read-back also failing records a per-sink error instead of
+    // guessing (F5).
+
+    func testUnresolvedFaceReadBackFailureRecordsMemberError() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.fanOut.setTarget(.group(h.group.id))
+        h.transports["AAAA"]?.failGetFrame = true
+        let primary = session(h, "AAAA")
+
+        _ = try await primary.connection.command(.applySavedFace(index: 4, reason: nil, playback: nil))
+
+        await waitUntil(timeout: 2) { h.fanOut.memberErrors["BBBB"] != nil }
+        XCTAssertNotNil(h.fanOut.memberErrors["BBBB"])
+        XCTAssertFalse(h.transports["BBBB"]?.receivedCmdNames.contains("apply_saved_face") == true)
+    }
+
     // MARK: 6. A face during group play supersedes the Text-tab playback
 
     func testFaceDuringGroupPlaySupersedesPlaybackWithoutReanchor() async throws {
@@ -172,6 +247,33 @@ final class GroupControlFanOutTests: XCTestCase {
         await h.coordinator.debugReanchorNow()
         #endif
         XCTAssertEqual(h.transports["BBBB"]?.sentGroupStartAtUs.count, startCountB)
+    }
+
+    // MARK: 6b. A control command during group play (source == .group on the
+    // primary, unlike test 6's reclaimed-to-.manual face apply) still
+    // mirrors to every sink and never ends group play (F2).
+
+    func testControlCommandDuringGroupPlayStillMirrorsAndDoesNotEndPlay() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.transports["AAAA"]?.caps = ["identify", "clock_sample", "scroll_viewport", "group_start"]
+        h.transports["BBBB"]?.caps = ["identify", "clock_sample", "scroll_viewport", "group_start"]
+        h.fanOut.setTarget(.group(h.group.id))
+
+        try await h.coordinator.play(group: h.group, text: "AB", fps: 10, loop: true)
+        XCTAssertTrue(h.coordinator.isPlaying)
+
+        let primary = session(h, "AAAA")
+        // Deliberately do NOT reclaim the primary's output first — the
+        // coordinator holds every member's `output.source == .group` for the
+        // whole play, and only ever calls `requestReliable`, never
+        // `command(_:)`, itself. A `set_brightness` reaching `command(_:)`
+        // here is exactly the real scenario `command(_:)` must still mirror.
+        XCTAssertEqual(primary.connection.output.source, .group)
+        _ = try await primary.connection.command(.setBrightness(raw: 88))
+
+        await waitUntil { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 88 }
+        XCTAssertEqual(h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int, 88)
+        XCTAssertTrue(h.coordinator.isPlaying)
     }
 
     // MARK: 7. target -> single invalidates sink leases and clears fanOut
@@ -227,6 +329,31 @@ final class GroupControlFanOutTests: XCTestCase {
         XCTAssertEqual(newTransport.lastCmdField("set_brightness", "raw") as? Int, 55)
     }
 
+    // MARK: 9b. Removing a sink's session from BoardSessionStore mid-group-
+    // control doesn't crash, and tears the channel down (F3: SinkChannel
+    // .connection is `weak`, not `unowned`).
+
+    func testRemovingSinkSessionMidGroupControlDoesNotCrash() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.fanOut.setTarget(.group(h.group.id))
+        let primary = session(h, "AAAA")
+        let sink = session(h, "BBBB")
+
+        _ = try await primary.connection.command(.setBrightness(raw: 42))
+        await waitUntil { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 42 }
+
+        guard let sinkKey = sink.boardID else { return XCTFail("sink has no boardID") }
+        h.sessions.remove(id: sinkKey)
+
+        // Would trap under the old `unowned` reference if a queued/racing
+        // worker touched a deallocated connection; must instead simply drop
+        // the sink.
+        _ = try await primary.connection.command(.setBrightness(raw: 43))
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertFalse(h.sessions.sessions.contains { $0 === sink })
+        XCTAssertNil(h.fanOut.memberErrors["BBBB"])
+    }
+
     // MARK: 10. Debug output source is not mirrored
 
     func testDebugOutputSourceIsNotMirrored() async throws {
@@ -248,15 +375,38 @@ final class GroupControlFanOutTests: XCTestCase {
         h.fanOut.setTarget(.group(h.group.id))
         XCTAssertEqual(h.fanOut.primaryID, "AAAA")
 
-        var retagged: String?
-        h.fanOut.draftPromotionHook = { retagged = $0 }
-
         let primary = session(h, "AAAA")
+        let oldKey = primary.connection.boardKey
+
+        // Wire `draftPromotionHook` to a real `ControlViewModel` the way
+        // `RinaBoardApp` does, and give it an in-progress, unsaved edit
+        // against the primary the way a user's Faces draft would exist —
+        // this is what F10 asks to actually prove survives promotion,
+        // instead of only checking the hook fired with the right key.
+        let editor = ControlViewModel()
+        editor.boardDidChange(to: oldKey ?? "AAAA")
+        editor.toggle(led: 0, connection: primary.connection)
+        XCTAssertTrue(editor.draftFrame[0])
+        let draftBeforePromotion = editor.draftFrame
+
+        h.fanOut.draftPromotionHook = { editor.retagDraftForGroupPromotion(to: $0) }
+
         primary.connection.disconnect()
 
         await waitUntil { h.fanOut.primaryID == "BBBB" }
         XCTAssertEqual(h.fanOut.primaryID, "BBBB")
-        XCTAssertEqual(retagged, session(h, "BBBB").connection.boardKey)
+        let newKey = session(h, "BBBB").connection.boardKey
+        XCTAssertEqual(editor.draftBoardID, newKey)
+
+        // The ordinary board-switch handling (`BoardSyncCoordinator` calling
+        // `boardDidChange(to:)` once `BoardSessionStore.select` completes the
+        // promotion) must now be a no-op — `retagDraftForGroupPromotion`
+        // already retagged `draftBoardID` to the new primary — so the draft
+        // survives instead of being discarded as an ordinary board switch
+        // would.
+        editor.boardDidChange(to: newKey ?? "BBBB")
+        XCTAssertEqual(editor.draftFrame, draftBeforePromotion)
+        XCTAssertTrue(editor.draftFrame[0])
     }
 }
 
@@ -271,6 +421,14 @@ private final class GroupControlFakeTransport: RinaTransport {
     var bootId = "aaaaaaaa"
     var caps = ["identify", "clock_sample", "scroll_viewport", "group_start"]
     var wifiBoardId: String?
+    /// What `get_frame` replies with; overridable so a test can prove a
+    /// sink actually receives the primary's *read-back* frame (F5).
+    var getFrameReply = PackedFrame()
+    /// `get_frame` isn't a `.cmd`-typed message (so `failCmds` can't reach
+    /// it) — this makes it reply with a payload `PackedFrame(data:)` can't
+    /// decode, so `BoardConnection.getFrame()` throws (F5's read-back-fails
+    /// path).
+    var failGetFrame = false
     var clockRxUs: Int64 = 1_000
     var clockTxUs: Int64 = 1_200
     var cmdReplyDelay: [String: TimeInterval] = [:]
@@ -333,7 +491,7 @@ private final class GroupControlFakeTransport: RinaTransport {
         case .getPreviewSync:
             return (try? JSONSerialization.data(withJSONObject: ["ok": true, "mode": "manual"])) ?? Data()
         case .getFrame:
-            return PackedFrame().data
+            return failGetFrame ? Data() : getFrameReply.data
         case .setFrame:
             let bytes = Array(request.payload.suffix(PackedFrame.byteCount))
             receivedFrameBytes.append(bytes)
