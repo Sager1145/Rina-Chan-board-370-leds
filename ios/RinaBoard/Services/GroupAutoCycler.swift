@@ -125,11 +125,49 @@ final class GroupAutoCycler {
         _ = beginIfPossible()
     }
 
+    // MARK: - Primary tracking (M1)
+
+    /// Only ever one observation chain armed at a time — see
+    /// `GroupControlFanOut.reconcileEpoch` for the identical pattern this
+    /// mirrors.
+    private var observeEpoch = 0
+
+    /// Re-arms itself via `withObservationTracking` on `fanOut.primaryID`
+    /// (and, transitively, `fanOut.primaryConnection`), so a primary
+    /// promotion (the established primary disconnects and
+    /// `GroupControlFanOut` adopts the next online member) is noticed the
+    /// instant it happens rather than only on this loop's own next tick.
+    private func observePrimary() {
+        observeEpoch += 1
+        let epoch = observeEpoch
+        withObservationTracking {
+            _ = fanOut.primaryID
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, epoch == self.observeEpoch else { return }
+                self.handlePrimaryChange()
+            }
+        }
+    }
+
+    /// User decision: the cycler keeps running across a primary promotion —
+    /// ends the loop on the stale primary without touching `wantsRunning`
+    /// and immediately re-begins on whatever `fanOut.primaryConnection` now
+    /// is (nil if the whole group went offline, in which case this simply
+    /// stays stopped until a member reconnects and this fires again).
+    private func handlePrimaryChange() {
+        observePrimary()
+        let newConnection = fanOut.primaryConnection
+        guard newConnection !== observedConnection else { return }
+        if isRunning { endLoop(clearWantsRunning: false) }
+        if wantsRunning { _ = beginIfPossible() }
+    }
+
     // MARK: - Loop
 
     @discardableResult
     private func beginIfPossible() -> Bool {
-        guard wantsRunning, !isRunning, let connection = fanOut.primaryConnection else { return false }
+        guard !isRunning, let connection = fanOut.primaryConnection else { return false }
         isRunning = true
         runToken += 1
         let myToken = runToken
@@ -150,14 +188,23 @@ final class GroupAutoCycler {
         return true
     }
 
-    private func restartLoop(connection: BoardConnection) {
+    private func restartLoop(connection: BoardConnection, sleepBeforeFirstSend: Bool = false) {
         runToken += 1
         let myToken = runToken
         task?.cancel()
         let session = connection.output.claim(.automatic)
         task = Task { [weak self] in
-            await self?.run(token: myToken, session: session, connection: connection)
+            await self?.run(token: myToken, session: session, connection: connection, sleepBeforeFirstSend: sleepBeforeFirstSend)
         }
+    }
+
+    /// Clears the stop-handler registration this loop's own `.automatic`
+    /// source held on `connection` (L3): otherwise a stale closure — keyed
+    /// to a `runToken` that can never match again once this loop has ended
+    /// or moved to a new primary — sits registered on that connection's
+    /// `BoardPlaybackCoordinator` indefinitely.
+    private func clearStopHandler(on connection: BoardConnection?) {
+        connection?.output.register(.automatic) {}
     }
 
     private func endLoop(clearWantsRunning: Bool = true, callerAlreadySuperseded: Bool = false) {
@@ -173,24 +220,41 @@ final class GroupAutoCycler {
         if !callerAlreadySuperseded, let connection = observedConnection, connection.output.source == .automatic {
             connection.output.invalidate()
         }
+        clearStopHandler(on: observedConnection)
         observedConnection = nil
     }
 
-    /// The primary changing out from under the cycle (member offline, group
-    /// left) is handled by whoever routes the toggle re-checking `isRunning`/
-    /// `fanOut.primaryID` — see `BoardControlCenterModel`/the views. This
-    /// loop itself simply stops once it notices its primary is no longer
-    /// current, rather than silently sending to a stale connection.
-    private func run(token: Int, session: UUID, connection: BoardConnection) async {
+    /// A primary promotion is normally caught proactively by
+    /// `handlePrimaryChange` (M1); the `fanOut.primaryConnection === connection`
+    /// check here is a synchronous safety net for the narrow window before
+    /// that observation callback runs. On a mismatch this simply returns
+    /// without calling `endLoop` itself — `handlePrimaryChange` (whether it
+    /// already ran or runs right after) is solely responsible for the
+    /// actual teardown/restart, so `wantsRunning` is never touched by a
+    /// promotion that's still in flight. `connection.output.isCurrent(session)`
+    /// going false is the genuine "another source claims the primary" stop
+    /// condition (normally caught synchronously by the `register(.automatic:)`
+    /// handler already); this is likewise just its safety net.
+    private func run(token: Int, session: UUID, connection: BoardConnection, sleepBeforeFirstSend: Bool = false) async {
+        var skipSend = sleepBeforeFirstSend
         while runToken == token, !Task.isCancelled {
-            guard fanOut.primaryConnection === connection, connection.output.isCurrent(session) else {
+            guard fanOut.primaryConnection === connection else { return }
+            guard connection.output.isCurrent(session) else {
                 endLoop()
                 return
             }
-            let faces = faceLibrary.faces(in: .board)
-            if !faces.isEmpty {
-                await sendCurrentFace(faces: faces, connection: connection, session: session)
-                currentIndex += 1
+            if skipSend {
+                skipSend = false
+            } else {
+                let faces = faceLibrary.faces(in: .board)
+                if !faces.isEmpty {
+                    await sendCurrentFace(faces: faces, connection: connection, session: session)
+                    // L1: the send above awaited a network round-trip; only
+                    // advance the shared index if this run is still current —
+                    // a stale send racing a restart/stop must not skip a face.
+                    guard runToken == token else { return }
+                    currentIndex += 1
+                }
             }
             await sleeper(max(0.05, intervalProvider()))
         }

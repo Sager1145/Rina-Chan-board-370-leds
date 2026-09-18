@@ -131,9 +131,13 @@ struct RinaBoardApp: App {
                     // "App backgrounded" stop condition: pause the loop
                     // without clearing the user's auto intent, so a later
                     // foreground resumes it if the group is still targeted.
+                    // `.inactive` (e.g. the app switcher, a system sheet, or
+                    // Control Center momentarily covering the app) must not
+                    // suspend the cycle — only a real background transition
+                    // does (L2).
                     if newPhase == .active {
                         groupAutoCycler.resumeForForeground()
-                    } else {
+                    } else if newPhase == .background {
                         groupAutoCycler.suspendForBackground()
                     }
                 }
@@ -163,6 +167,12 @@ struct RinaBoardApp: App {
                     }
                     groupControlFanOut.draftPromotionHook = { [editor] boardID in
                         editor.retagDraftForGroupPromotion(to: boardID)
+                    }
+                    // M2: a freshly-established group primary that's still in
+                    // firmware auto keeps the user's auto intent alive via
+                    // the synced cycler instead of just forcing it manual.
+                    groupControlFanOut.primaryWasAutoHook = { [groupAutoCycler] in
+                        groupAutoCycler.start()
                     }
                 }
         }

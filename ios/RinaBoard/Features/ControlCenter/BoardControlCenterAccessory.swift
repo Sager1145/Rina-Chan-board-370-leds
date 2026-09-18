@@ -24,6 +24,7 @@ struct BoardControlCenterAccessory: View {
     @Environment(BoardControlCenterModel.self) private var model
     @Environment(BoardGroupStore.self) private var groupStore
     @Environment(BoardGroupCoordinator.self) private var groupCoordinator
+    @Environment(GroupControlFanOut.self) private var fanOut
     @Environment(GroupAutoCycler.self) private var groupAutoCycler
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -58,7 +59,7 @@ struct BoardControlCenterAccessory: View {
     /// leaves `manual` while the synced cycle runs (item 3, BOARD_GROUP_SPEC
     /// .md §3 addendum).
     private var isAuto: Bool {
-        targetedGroup != nil ? groupAutoCycler.isRunning : model.isAutoMode(status: connection.status)
+        groupControlSynced ? groupAutoCycler.isRunning : model.isAutoMode(status: connection.status)
     }
 
     /// The targeted group, or `nil` when the control target is `.single`.
@@ -66,6 +67,14 @@ struct BoardControlCenterAccessory: View {
         guard case .group(let id) = ControlTarget.resolved(storedGroupIDString: controlTargetGroupIDStorage, in: groupStore)
         else { return nil }
         return groupStore.groups.first { $0.id == id }
+    }
+
+    /// True only while a group is targeted AND the fan-out actually has a
+    /// primary attached — see `BoardControlCenterView.groupControlSynced`
+    /// (H1); the accessory's compact prev/next/mode controls fall back to
+    /// the ordinary single-board path the same way when this is `false`.
+    private var groupControlSynced: Bool {
+        targetedGroup != nil && fanOut.primaryID != nil
     }
 
     /// The capsule's own corner radius, i.e. half the measured bar height.
@@ -301,7 +310,7 @@ struct BoardControlCenterAccessory: View {
     /// Routes the mode toggle to the synced group cycler while a group is
     /// targeted, instead of sending `set_mode auto` to the primary.
     private func toggleAutoMode() async {
-        if targetedGroup != nil {
+        if groupControlSynced {
             if groupAutoCycler.isRunning { groupAutoCycler.stop() } else { _ = groupAutoCycler.start() }
         } else {
             await model.toggleAutoMode(connection: connection)
@@ -309,9 +318,10 @@ struct BoardControlCenterAccessory: View {
     }
 
     /// Routes prev/next to the group cycler's own index while a group is
-    /// targeted, so every member receives the identical resulting frame.
+    /// targeted and synced, so every member receives the identical resulting
+    /// frame. Falls back to the ordinary single-board path otherwise (H1).
     private func stepFace(direction: Int) async {
-        if targetedGroup != nil {
+        if groupControlSynced {
             await groupAutoCycler.step(direction: direction)
         } else {
             await model.step(face: direction, connection: connection)

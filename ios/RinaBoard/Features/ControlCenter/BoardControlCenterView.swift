@@ -22,6 +22,7 @@ struct BoardControlCenterView: View {
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(BoardGroupStore.self) private var groupStore
     @Environment(BoardGroupCoordinator.self) private var groupCoordinator
+    @Environment(GroupControlFanOut.self) private var fanOut
     @Environment(GroupAutoCycler.self) private var groupAutoCycler
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var boardSwitcher: ConnectionViewModel?
@@ -62,20 +63,33 @@ struct BoardControlCenterView: View {
 
     private var isConnected: Bool { connection.connectionState == .connected }
 
+    /// True only while a group is targeted AND the fan-out actually has a
+    /// primary attached (`fanOut.primaryID != nil`) — H1: a group can be the
+    /// "控制对象" while the active board isn't currently one of its members
+    /// (an implicit, non-explicit navigation away), in which case the group
+    /// cycler/fan-out has nothing to mirror through and the mode row/prev/
+    /// next must fall back to the ordinary single-board path instead of
+    /// silently doing nothing.
+    private var groupControlSynced: Bool {
+        targetedGroup != nil && fanOut.primaryID != nil
+    }
+
     /// The mode row's displayed auto/manual state. While a group is targeted
-    /// this reads `GroupAutoCycler.isRunning` instead of the primary's own
-    /// firmware `renderer.mode` — the primary never leaves `manual` while the
-    /// synced cycle runs (BOARD_GROUP_SPEC.md §3 addendum).
+    /// and synced this reads `GroupAutoCycler.isRunning` instead of the
+    /// primary's own firmware `renderer.mode` — the primary never leaves
+    /// `manual` while the synced cycle runs (BOARD_GROUP_SPEC.md §3
+    /// addendum).
     private var isAutoModeOn: Bool {
-        targetedGroup != nil ? groupAutoCycler.isRunning : model.isAutoMode(status: connection.status)
+        groupControlSynced ? groupAutoCycler.isRunning : model.isAutoMode(status: connection.status)
     }
 
     /// Routes the mode toggle to the synced group cycler while a group is
-    /// targeted, instead of sending `set_mode auto` to the primary (which
-    /// `GroupControlFanOut` would otherwise mirror to every member's own
-    /// independent, unsynced firmware auto timer).
+    /// targeted and synced, instead of sending `set_mode auto` to the primary
+    /// (which `GroupControlFanOut` would otherwise mirror to every member's
+    /// own independent, unsynced firmware auto timer). Falls back to the
+    /// ordinary single-board path otherwise (H1).
     private func toggleAutoMode() async {
-        if targetedGroup != nil {
+        if groupControlSynced {
             if groupAutoCycler.isRunning { groupAutoCycler.stop() } else { _ = groupAutoCycler.start() }
         } else {
             await model.toggleAutoMode(connection: connection)
@@ -83,9 +97,10 @@ struct BoardControlCenterView: View {
     }
 
     /// Routes prev/next to the group cycler's own index while a group is
-    /// targeted, so every member receives the identical resulting frame.
+    /// targeted and synced, so every member receives the identical resulting
+    /// frame. Falls back to the ordinary single-board path otherwise (H1).
     private func stepFace(direction: Int) async {
-        if targetedGroup != nil {
+        if groupControlSynced {
             await groupAutoCycler.step(direction: direction)
         } else {
             await model.step(face: direction, connection: connection)
@@ -465,6 +480,16 @@ struct BoardControlCenterView: View {
             Section("多板组控制") {
                 LabeledContent("名称", value: group.name)
                 LabeledContent("模式", value: group.mode == .stitched ? "拼接" : "镜像")
+                // H1: the active board is targeting this group but isn't
+                // (yet) one of its members, so the fan-out has no primary to
+                // mirror through — the mode row/prev/next below fell back to
+                // the ordinary single-board path; say so rather than leaving
+                // it looking like group control silently did nothing.
+                if fanOut.primaryID == nil, isConnected {
+                    Text("当前面板不在组内，未同步")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 GroupMemberStatusList(group: group)
             }
 
