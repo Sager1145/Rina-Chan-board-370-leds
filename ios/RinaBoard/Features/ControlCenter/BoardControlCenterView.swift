@@ -418,7 +418,7 @@ struct BoardControlCenterView: View {
             }
         )) {
             ForEach(presets.parents) { parent in
-                Text(parent.name).tag(String(parent.id))
+                Text(ColorPresets.displayName(parent.name)).tag(String(parent.id))
             }
         }
         .disabled(!isConnected)
@@ -441,7 +441,7 @@ struct BoardControlCenterView: View {
                         Text("自定义").tag("")
                     }
                     ForEach(swatches, id: \.hex) { swatch in
-                        Text(swatch.name).tag(swatch.hex)
+                        Text(ColorPresets.displayName(swatch.name)).tag(swatch.hex)
                     }
                 }
                 .disabled(!isConnected)

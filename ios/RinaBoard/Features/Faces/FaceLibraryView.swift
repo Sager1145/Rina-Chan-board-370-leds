@@ -64,7 +64,9 @@ struct FaceLibraryView: View {
     }
 
     private func matchesSearch(_ face: SavedFace) -> Bool {
-        searchText.isEmpty || face.name.localizedCaseInsensitiveContains(searchText)
+        searchText.isEmpty
+            || face.name.localizedCaseInsensitiveContains(searchText)
+            || model.displayName(for: face).localizedCaseInsensitiveContains(searchText)
     }
 
     var body: some View {
@@ -204,7 +206,7 @@ struct FaceLibraryView: View {
                         .frame(width: SavedFaceThumbnail.size.width, height: SavedFaceThumbnail.size.height)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(face.name)
+                    Text(model.displayName(for: face))
                     HStack(spacing: 6) {
                         Text(face.type == .default ? "预设" : "我的表情")
                         if face.type == .parts {
@@ -227,7 +229,7 @@ struct FaceLibraryView: View {
             }
             Button("重命名", systemImage: "character.cursor.ibeam") {
                 model.renamingFace = face
-                model.renameText = face.name
+                model.renameText = model.displayName(for: face)
             }
             Button("复制到\(otherLocation.title)", systemImage: "arrow.turn.up.right") {
                 Task { await model.copy(face, from: location, to: otherLocation, connection: connection) }
@@ -246,7 +248,7 @@ struct FaceLibraryView: View {
             }
             Button("重命名") {
                 model.renamingFace = face
-                model.renameText = face.name
+                model.renameText = model.displayName(for: face)
             }
             .tint(.blue)
         }
