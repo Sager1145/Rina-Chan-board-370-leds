@@ -21,6 +21,12 @@ struct RinaBoardApp: App {
     @State private var boardGroupStore: BoardGroupStore
     @State private var boardGroupCoordinator: BoardGroupCoordinator
     @State private var groupControlFanOut: GroupControlFanOut
+    /// Auto-connects every member of a targeted board group in the
+    /// background (user requirement: "切换到多板组时自动连接多个板子"; root cause of
+    /// "多板组同步功能没有生效" — `GroupControlFanOut` only mirrors to members
+    /// already connected). Kept alongside `groupControlFanOut` and driven by
+    /// the same "控制对象" `onChange` below.
+    @State private var groupAutoConnector: GroupAutoConnector
     /// Synced group auto face cycling (BOARD_GROUP_SPEC.md §3 addendum, user
     /// requirement "自动轮播表情必须同步"): built in `init()` alongside
     /// `groupControlFanOut` since it needs live references to
@@ -48,6 +54,8 @@ struct RinaBoardApp: App {
         // `sessions.select(_:)` needs a way to ask the coordinator whether a
         // session is currently group-owned without a hard dependency on it.
         let sessions = BoardSessionStore()
+        let boardStore = BoardStore()
+        _boardStore = State(initialValue: boardStore)
         let boardGroupStore = BoardGroupStore()
         let coordinator = BoardGroupCoordinator(store: boardGroupStore, sessions: sessions)
         sessions.isGroupOwned = { [weak coordinator] session in coordinator?.isGroupOwned(session) ?? false }
@@ -58,6 +66,9 @@ struct RinaBoardApp: App {
             sessions: sessions, groups: boardGroupStore, coordinator: coordinator
         )
         _groupControlFanOut = State(initialValue: groupControlFanOut)
+        _groupAutoConnector = State(initialValue: GroupAutoConnector(
+            sessions: sessions, groupStore: boardGroupStore, boardStore: boardStore
+        ))
         let controlCenter = BoardControlCenterModel()
         let faceLibrary = FaceLibraryModel()
         _controlCenter = State(initialValue: controlCenter)
@@ -115,6 +126,7 @@ struct RinaBoardApp: App {
                 .environment(boardGroupStore)
                 .environment(boardGroupCoordinator)
                 .environment(groupControlFanOut)
+                .environment(groupAutoConnector)
                 .environment(groupAutoCycler)
                 .environment(bootLoader)
                 .environment(controlCenter)
@@ -139,6 +151,11 @@ struct RinaBoardApp: App {
                     // does (L2).
                     if newPhase == .active {
                         groupAutoCycler.resumeForForeground()
+                        // Re-kick the auto-connector on every foreground, not
+                        // just launch — a member that dropped while
+                        // backgrounded (no reconnect loop runs off-screen)
+                        // needs a fresh attempt now that the app is back.
+                        groupAutoConnector.setTarget(ControlTarget(storedGroupIDString: controlTargetGroupIDStorage))
                     } else if newPhase == .background {
                         groupAutoCycler.suspendForBackground()
                     }
@@ -153,6 +170,12 @@ struct RinaBoardApp: App {
                     let newTarget = ControlTarget(storedGroupIDString: stored)
                     groupControlFanOut.setTarget(newTarget, isExplicit: hasRestoredControlTarget)
                     hasRestoredControlTarget = true
+                    // Auto-connect every member of a freshly-targeted group —
+                    // both an explicit "控制对象" choice and this launch-time
+                    // restore (requirement: "切换到多板组时自动连接多个板子" and "on
+                    // app launch/foreground when the persisted target is a
+                    // group").
+                    groupAutoConnector.setTarget(newTarget)
                     // "target → single" stop condition: leaving group control
                     // must not leave the cycler still sending to the old
                     // primary underneath the now-single-board UI.

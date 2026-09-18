@@ -114,6 +114,13 @@ public final class GroupAutoConnector {
             if let session, session.connection.connectionState == .connected {
                 cancelPending(member.physicalBoardID)
                 failureCount[member.physicalBoardID] = 0
+                // Refresh the durable mapping every time a matching session
+                // connects — covers a member added before this mapping
+                // existed, or reconnected over a different saved record
+                // (e.g. re-paired BLE) than the one it was added with.
+                for knownID in session.knownIdentifiers {
+                    groupStore.rememberKnownBoardID(knownID, forPhysicalBoardID: member.physicalBoardID)
+                }
                 continue
             }
             // Already trying (in flight or waiting out a backoff delay).
