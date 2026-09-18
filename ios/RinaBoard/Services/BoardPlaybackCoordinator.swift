@@ -7,6 +7,12 @@ public enum BoardOutputSource: String, Sendable {
     /// sequence, and released the moment any single-board action claims a
     /// different source on that same board.
     case group
+    /// A board acting as a sink of `GroupControlFanOut`: its primary is the
+    /// group's control target and mirrors non-Text-tab commands/frames here
+    /// (board-group control-fan-out addendum). Held for the duration of a
+    /// group control session and released when the target leaves group mode
+    /// or this board leaves the group.
+    case groupControl
 
     public var title: String {
         switch self {
@@ -18,6 +24,7 @@ public enum BoardOutputSource: String, Sendable {
         case .video: return NSLocalizedString("视频", comment: "output source")
         case .debug: return NSLocalizedString("调试输出", comment: "output source")
         case .group: return NSLocalizedString("多板组", comment: "output source")
+        case .groupControl: return NSLocalizedString("多板组控制", comment: "output source")
         }
     }
 }
