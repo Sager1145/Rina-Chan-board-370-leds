@@ -65,4 +65,24 @@ final class ClockOffsetEstimatorTests: XCTestCase {
         XCTAssertEqual(estimator.samples.count, 1)
         XCTAssertEqual(estimator.bootId, "boot-2")
     }
+
+    func testRemoveAllSamplesClearsSamplesButKeepsBootId() {
+        // A fresh re-anchor sampling burst must not let a stale low-RTT
+        // sample from an earlier burst keep winning the estimate.
+        var estimator = ClockOffsetEstimator()
+        estimator.addSample(ClockSample(m1: 0, b2: 50, b3: 50, m4: 10), bootId: "boot-1") // rtt=10
+        XCTAssertEqual(estimator.bestRttUs, 10)
+
+        estimator.removeAllSamples()
+        XCTAssertTrue(estimator.samples.isEmpty)
+        XCTAssertNil(estimator.bestRttUs)
+        XCTAssertNil(estimator.offsetUs)
+        // bootId is remembered, so a same-boot sample after clearing does not
+        // get treated as a boot change (no implicit extra discard).
+        XCTAssertEqual(estimator.bootId, "boot-1")
+
+        estimator.addSample(ClockSample(m1: 1000, b2: 1500, b3: 1500, m4: 1000), bootId: "boot-1") // rtt=0
+        XCTAssertEqual(estimator.samples.count, 1)
+        XCTAssertEqual(estimator.bestRttUs, 0)
+    }
 }
