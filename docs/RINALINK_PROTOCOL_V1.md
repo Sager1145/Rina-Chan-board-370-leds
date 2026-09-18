@@ -230,7 +230,16 @@ current interval — clients should send both),
 `terminate_other_activities{targetMode?}`, `reset_battery_min`, `reset_battery_max`,
 `battery_overlay{singleShot?}` — plus new device commands:
 `reboot`, `get_info` (fw/build/led backend/heap/psram/name), `set_device_name{name}`,
-`wifi_*` (§4).
+`set_hint_led{led}`, `wifi_*` (§4).
+
+**`set_hint_led{led}`** — draws logical LED `led` (0…369) at half the board
+colour on top of whatever frame is showing, lit or not; `-1` clears it. It
+changes no frame state, only what is latched. The hint belongs to the client that
+set it and is cleared when that client disconnects. The app uses it to mirror an
+Apple Pencil hovering over the face editor, so it is sent often: the reply is a
+bare `{"ok":true}` rather than the status document, and it does not bump the
+state version. An out-of-range `led` gets `ERR 400`; firmware without the command
+answers `ERR 400 unknown command: set_hint_led`.
 
 **`scroll_seek{frameIndex}`** — jumps the loaded scroll timeline to an absolute
 frame, clamped to `0…frameCount−1`, and presents it immediately. A playing

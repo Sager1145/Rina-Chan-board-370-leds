@@ -9,9 +9,11 @@ import RinaCore
 /// everything is read from `BoardConnection` and `BoardControlCenterModel`,
 /// so a change made here is immediately visible on every tab (§51).
 ///
-/// The same view is used for both presentations: as the expanded sheet behind
-/// the iOS 26 tab-bar accessory, and as a pushed screen under Settings on
-/// earlier releases.
+/// The same view is used for all three presentations: as the expanded sheet
+/// behind the iOS 26 tab-bar accessory, as a pushed screen under Settings on
+/// earlier releases, and — with `isEmbedded` — as a block of sections inside
+/// another page's list, which is where the two-column iPad layout puts it
+/// (under every page's board preview, `BoardSplitPage`).
 struct BoardControlCenterView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardControlCenterModel.self) private var model
@@ -24,6 +26,12 @@ struct BoardControlCenterView: View {
     /// Non-nil when presented as a sheet, so it can offer a Done button.
     var onDismiss: (() -> Void)?
 
+    /// True when the sections are dropped straight into another page's list
+    /// instead of owning one. An embedded panel brings no list, no navigation
+    /// title and no background of its own — the page around it supplies all
+    /// three — and it is never a sheet, so it never has a Done button.
+    var isEmbedded = false
+
     @AppStorage(AppSettingsKey.hapticsEnabled) private var hapticsEnabled = true
 
     /// Bumped by the transport row's own taps. Board-driven state changes must
@@ -33,6 +41,25 @@ struct BoardControlCenterView: View {
     private var isConnected: Bool { connection.connectionState == .connected }
 
     var body: some View {
+        if isEmbedded {
+            // A modifier on a `Group` of `Section`s is applied to every
+            // section in it, so the lifecycle rides the first section alone:
+            // one alert and one run of each task, not five.
+            Group {
+                statusSection
+                    .errorAlert(errorMessage)
+                    .task { await loadPanelContents() }
+                    .task { await HotspotJoiner.revalidateLastJoinedSSID() }
+                brightnessSection
+                modeSection
+                colorSection
+            }
+        } else {
+            ownList
+        }
+    }
+
+    private var ownList: some View {
         List {
             Group {
                 statusSection
@@ -56,16 +83,18 @@ struct BoardControlCenterView: View {
                 }
             }
         }
-        .task {
-            model.loadDefaultsIfNeeded()
-            if faceLibrary.faceDocument.faces.isEmpty {
-                await faceLibrary.reload(connection: connection)
-            }
-        }
+        .task { await loadPanelContents() }
         .task {
             // See ConnectionView: refresh the cache whenever this surface
             // (re)appears rather than trusting a possibly stale join.
             await HotspotJoiner.revalidateLastJoinedSSID()
+        }
+    }
+
+    private func loadPanelContents() async {
+        model.loadDefaultsIfNeeded()
+        if faceLibrary.faceDocument.faces.isEmpty {
+            await faceLibrary.reload(connection: connection)
         }
     }
 
@@ -110,22 +139,18 @@ struct BoardControlCenterView: View {
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("connection.failureReason")
             }
-            if let power = connection.power, let percent = power.batteryPercent {
-                LabeledContent("电量") {
-                    // Not a `Label`: inside a List row a Label gets the
-                    // leading-icon layout, which sizes the wide battery glyph
-                    // as a row icon and makes this row much taller than its
-                    // neighbours.
-                    HStack(spacing: 6) {
-                        Image(systemName: power.charging == true ? "battery.100percent.bolt" : "battery.100percent")
-                        Text("\(percent)%")
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                .accessibilityValue(power.charging == true
-                                    ? Text("\(percent)% 充电中")
-                                    : Text("\(percent)%"))
+            // Embedded (the iPad preview column) the bar is always there: that
+            // column is the only place the battery shows on iPad, and a row
+            // that appears with the first power report would shift the whole
+            // panel. As its own screen it keeps to real readings.
+            if isEmbedded || connection.batteryReading != nil {
+                BoardBatteryRow()
             }
+        } header: {
+            // Named only where the panel rides inside another page's list
+            // (the iPad preview column). On its own screen the navigation
+            // title already says what this is.
+            if isEmbedded { Text("面板控制") }
         }
     }
 

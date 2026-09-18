@@ -240,23 +240,9 @@ struct BoardControlCenterAccessory: View {
     }
 
     /// What the ring shows, or `nil` for the plain connection symbol (not
-    /// connected, or no power report yet).
-    ///
-    /// The firmware reports `batteryPercent: 0` both when the reading is
-    /// invalid and when the battery is unplugged or too low to be powering the
-    /// board — the latter two with `batteryValid` still true — so all three
-    /// count as "no battery detected" rather than an empty battery.
-    private var battery: BatteryReading? {
-        // The power event only arrives once a second; the status echo carries
-        // the same object, so fall back to it rather than wait.
-        guard isConnected, let power = connection.power ?? connection.status?.power else { return nil }
-        if power.batteryValid == false
-            || power.batteryDisconnected == true
-            || power.batteryLowVoltageUnpowered == true {
-            return .notDetected
-        }
-        return power.batteryPercent.map { .level(min(100, max(0, $0))) }
-    }
+    /// connected, or no power report yet). Shared with the Control Center's
+    /// battery bar — see `BoardConnection.batteryReading`.
+    private var battery: BatteryReading? { connection.batteryReading }
 
     /// The board colour as a solid dot inside the row's ring. Tapping it opens
     /// a menu of the preset groups (配色组), each a submenu of its colours; a
@@ -383,12 +369,6 @@ struct BoardControlCenterAccessory: View {
         case .failed: return .red
         }
     }
-}
-
-@available(iOS 26.0, *)
-private enum BatteryReading: Equatable {
-    case level(Int)
-    case notDetected
 }
 
 /// Battery level as a ring: a coloured arc over a gray track, around a filled

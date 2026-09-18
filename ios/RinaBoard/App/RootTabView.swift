@@ -48,7 +48,9 @@ enum AppTab: String, CaseIterable {
 /// the system tab-bar bottom accessory and expands into a real detented
 /// sheet; on iOS 17–25, where no such persistent system surface exists, it
 /// lives at the top of Settings instead of being faked with a custom
-/// draggable panel (§2, §4.2).
+/// draggable panel (§2, §4.2). The two-column iPad layout has neither: every
+/// page carries the panel under its own board preview — see
+/// `ControlCenterPlacement`.
 struct RootTabView: View {
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(AppRouter.self) private var router
@@ -301,9 +303,12 @@ struct RootTabView: View {
 ///
 /// On earlier releases it adds nothing at all — not even the sheet — because
 /// the Settings tab hosts the Control Center there; leaving the sheet attached
-/// would give those releases a second, undocumented way in.
+/// would give those releases a second, undocumented way in. Same on the
+/// two-column iPad layout, where every page carries the panel in its preview
+/// column: the user asked for no separate bottom bar there.
 private struct ControlCenterPresenter: ViewModifier {
     @Environment(BoardConnection.self) private var connection
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Binding var isPresented: Bool
     @Binding var detent: PresentationDetent
     var namespace: Namespace.ID
@@ -312,8 +317,12 @@ private struct ControlCenterPresenter: ViewModifier {
 
     static let transitionSourceID = "controlCenter"
 
+    private var placement: ControlCenterPlacement {
+        .resolve(splitLayout: BoardPageColumns.isSplit(horizontalSizeClass))
+    }
+
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *), placement == .tabBarAccessory {
             content
                 .tabViewBottomAccessory {
                     // The accessory hosts real controls, so it wires up its
@@ -354,12 +363,26 @@ private struct ControlCenterPresenter: ViewModifier {
     }
 }
 
-/// True where the system provides a persistent bottom accessory, so Settings
-/// can omit its Control Center section instead of duplicating it.
+/// Where the global Control Center lives. A property of the layout, not of
+/// the OS version alone: the two-column iPad layout has a home for it on every
+/// page and therefore wants neither the accessory nor the Settings link.
 enum ControlCenterPlacement {
-    static var usesTabBarAccessory: Bool {
-        if #available(iOS 26.0, *) { return true }
-        return false
+    /// The system tab-bar bottom accessory, which expands into a sheet
+    /// (iOS 26+, single column).
+    case tabBarAccessory
+    /// Inline under each page's board preview (the two-column iPad layout).
+    /// Settings has no preview and so shows no panel at all; it is one column
+    /// away on every other tab.
+    case previewColumn
+    /// A pushed screen under Settings (iOS 17–25, single column), where no
+    /// persistent system bottom surface exists and the guide forbids faking
+    /// one (§2).
+    case settingsLink
+
+    static func resolve(splitLayout: Bool) -> ControlCenterPlacement {
+        if splitLayout { return .previewColumn }
+        if #available(iOS 26.0, *) { return .tabBarAccessory }
+        return .settingsLink
     }
 }
 

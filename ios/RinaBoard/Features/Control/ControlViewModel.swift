@@ -104,6 +104,30 @@ final class ControlViewModel {
     private var draftSaveTask: Task<Void, Never>?
     private var sentGeneration: UUID?
     @ObservationIgnored private var liveSender: LatestValueSender<LiveFrameSubmission>?
+    /// Mirrors the Apple Pencil hover to the board, newest LED only: a pencil
+    /// sweeping the board crosses LEDs far faster than commands round-trip.
+    @ObservationIgnored private var hintSender: LatestValueSender<HintSubmission>?
+    /// The LED the pencil hovers over in the editor, whether or not the board
+    /// is shown it — kept so a change in 即时预览, in who owns the board's
+    /// output, or in which board is active can re-decide without waiting for
+    /// the pencil to move.
+    @ObservationIgnored private var hoveredLED: Int?
+    /// What the board holding the hint was last asked to show, and which
+    /// board and link that is. `boardHintUncertain` is set when a send failed
+    /// without the board saying no: it may or may not have taken it, so the
+    /// next change must be sent even if it looks like a repeat.
+    @ObservationIgnored private var boardHintLED: Int?
+    @ObservationIgnored private weak var boardHintConnection: BoardConnection?
+    @ObservationIgnored private var boardHintGeneration: UUID?
+    @ObservationIgnored private var boardHintUncertain = false
+    /// Links whose firmware predates `set_hint_led`: stop asking them.
+    @ObservationIgnored private var hintUnsupportedGenerations: Set<UUID> = []
+
+    private struct HintSubmission: Sendable {
+        let led: Int?
+        let generation: UUID
+        let connection: BoardConnection
+    }
     /// The board this draft was drawn for, as `RootTabView` identifies the
     /// current link. Nil until the editor first sees a connected board.
     private(set) var draftBoardID: String?
@@ -308,6 +332,9 @@ final class ControlViewModel {
         lastSentFrame = draftFrame
         liveSender = LatestValueSender(minInterval: 0) { [weak self] submission in
             await self?.sendLive(submission)
+        }
+        hintSender = LatestValueSender(minInterval: 0) { [weak self] submission in
+            await self?.sendHint(submission)
         }
     }
 
@@ -573,6 +600,76 @@ final class ControlViewModel {
                 format: NSLocalizedString("实时同步失败：%@", comment: "live face sync failed"),
                 error.localizedDescription
             )
+        }
+    }
+
+    // MARK: Apple Pencil hover
+
+    /// The LED an Apple Pencil hovers over on the editor, or `nil` once it
+    /// hovers over none. The preview already draws it at half brightness; with
+    /// 即时预览 on, the board shows the same LED at half brightness too, and
+    /// loses it the moment the pencil leaves.
+    func pencilHover(led: Int?, connection: BoardConnection) {
+        hoveredLED = led
+        syncBoardHint(connection: connection)
+    }
+
+    /// Re-decides what the board should show for the current hover. Called on
+    /// every hover change, and by the editor whenever 即时预览, the board's
+    /// output owner or the active board changes, so a pencil held still never
+    /// leaves a stale hint behind.
+    func syncBoardHint(connection: BoardConnection) {
+        let generation = connection.connectionGeneration
+        // The hint lives on another board (or an earlier link to this one):
+        // put that one out explicitly — the coalescing sender below serves the
+        // current board only, and could drop a clear queued behind it.
+        if boardHintConnection !== connection || boardHintGeneration != generation {
+            if let previous = boardHintConnection, let previousGeneration = boardHintGeneration,
+               boardHintLED != nil || boardHintUncertain,
+               previous.connectionState == .connected, previous.connectionGeneration == previousGeneration,
+               !hintUnsupportedGenerations.contains(previousGeneration) {
+                Task { _ = try? await previous.command(.setHintLED(led: nil)) }
+            }
+            boardHintConnection = connection
+            boardHintGeneration = generation
+            // A new link starts clear: the board drops a hint with its client.
+            boardHintLED = nil
+            boardHintUncertain = false
+        }
+
+        var target = hoveredLED
+        if target != nil, !(livePreview
+                            && connection.connectionState == .connected
+                            && draftBelongs(to: connection)
+                            // Not over another feature's output (a scroll, a
+                            // performance) that the board is showing instead.
+                            && (connection.output.source ?? .manual) == .manual) {
+            target = nil
+        }
+        guard !hintUnsupportedGenerations.contains(generation),
+              connection.connectionState == .connected,
+              target != boardHintLED || boardHintUncertain else { return }
+        boardHintLED = target
+        boardHintUncertain = false
+        hintSender?.submit(HintSubmission(led: target, generation: generation, connection: connection))
+    }
+
+    private func sendHint(_ s: HintSubmission) async {
+        let connection = s.connection
+        guard connection.connectionState == .connected,
+              connection.connectionGeneration == s.generation,
+              !hintUnsupportedGenerations.contains(s.generation) else { return }
+        do {
+            _ = try await connection.command(.setHintLED(led: s.led))
+        } catch let error as RinaLinkError where error.code == 400 && error.error.hasPrefix("unknown command") {
+            // Firmware without the hint LED: it lit nothing, and the hover is
+            // a courtesy never worth an alert. Stop asking this link.
+            hintUnsupportedGenerations.insert(s.generation)
+            if boardHintGeneration == s.generation { boardHintLED = nil }
+        } catch {
+            // Timed out or lost on the way: the board may or may not show it.
+            // Leave the record alone and make the next change go out anyway.
+            if boardHintGeneration == s.generation { boardHintUncertain = true }
         }
     }
 

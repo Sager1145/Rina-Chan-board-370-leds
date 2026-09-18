@@ -6,11 +6,13 @@ import RinaCore
 /// On iOS 17–25 this screen also hosts the Control Center, because those
 /// releases have no persistent system bottom surface to attach it to and the
 /// guide forbids hand-building one (§2). On iOS 26+ the Control Center lives
-/// in the tab bar accessory and this section is omitted rather than
-/// duplicated (§33).
+/// in the tab bar accessory, and on the two-column iPad layout it lives under
+/// every other page's board preview; either way this section is omitted rather
+/// than duplicated (§33).
 struct SettingsView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardControlCenterModel.self) private var controlCenter
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @AppStorage(AppSettingsKey.showBoardPhoto) private var showBoardPhoto = true
     @AppStorage(AppSettingsKey.hapticsEnabled) private var hapticsEnabled = true
@@ -28,7 +30,9 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Group {
-                    if !ControlCenterPlacement.usesTabBarAccessory {
+                    if ControlCenterPlacement.resolve(
+                        splitLayout: BoardPageColumns.isSplit(horizontalSizeClass)
+                    ) == .settingsLink {
                         Section {
                             NavigationLink {
                                 BoardControlCenterView()
