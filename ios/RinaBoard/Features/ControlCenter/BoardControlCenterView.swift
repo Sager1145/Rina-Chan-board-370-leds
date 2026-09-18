@@ -282,7 +282,10 @@ struct BoardControlCenterView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
+                // A Menu sizes to its label's ideal width by default, which
+                // wrapped the value at half the row; give it the full row.
                 controlTargetMenu
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {
             LabeledContent("控制对象") {
@@ -355,6 +358,7 @@ struct BoardControlCenterView: View {
     private var controlTargetMenuLabel: some View {
         if dynamicTypeSize.isAccessibilitySize {
             Label(controlTargetLabel, systemImage: controlTargetIcon)
+                .multilineTextAlignment(.leading)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, minHeight: AppLayout.minimumTapTarget, alignment: .leading)
