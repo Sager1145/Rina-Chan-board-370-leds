@@ -3,10 +3,9 @@ import SwiftUI
 /// Scrolling-text transport row (design guide §24). System buttons and SF
 /// Symbols only — no custom icon artwork.
 ///
-/// Five pills, no separate send row: play/pause and stop sit on the left,
-/// frame stepping in the middle and the loop toggle on the right. The second
-/// slot is the stop button while the board is scrolling a bound timeline, and
-/// turns into "send and play" once there is nothing to stop.
+/// Five pills, no separate send row: play/pause, stop, loop, « and ». The
+/// first slot is "send and play" while the board has nothing to scroll, and
+/// pause/resume once it does; stop is greyed out until there is a scroll.
 struct TextPlaybackControls: View {
     var isConnected: Bool
     var hasTimeline: Bool
@@ -37,17 +36,9 @@ struct TextPlaybackControls: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if isPaused {
-                control("play.fill", label: "继续", action: onPlay)
-                    .disabled(!transportEnabled)
-            } else {
-                control("pause.fill", label: "暂停", action: onPause)
-                    .disabled(!transportEnabled)
-            }
-            stopOrSendControl
-            control("backward.frame.fill", label: "上一帧", action: onStepBackward)
-                .disabled(!transportEnabled)
-            control("forward.frame.fill", label: "下一帧", action: onStepForward)
+            playPauseControl
+            // Stop keeps working in group mode, like send.
+            control("stop.fill", label: "停止并清屏", action: onStop)
                 .disabled(!transportEnabled)
             Toggle(isOn: $loopPlayback) {
                 RepeatSymbol(isOn: loopPlayback)
@@ -56,17 +47,25 @@ struct TextPlaybackControls: View {
             .toggleStyle(.pill)
             .accessibilityLabel(LocalizedStringKey("循环播放"))
             .disabled(loopDisabled)
+            control("chevron.backward.2", label: "上一帧", action: onStepBackward)
+                .disabled(!transportEnabled)
+            control("chevron.forward.2", label: "下一帧", action: onStepForward)
+                .disabled(!transportEnabled)
         }
         .buttonStyle(.pill)
         .pillButtonRow()
     }
 
     @ViewBuilder
-    private var stopOrSendControl: some View {
+    private var playPauseControl: some View {
         if hasBoardScroll {
-            // Stop keeps working in group mode, like send.
-            control("stop.fill", label: "停止并清屏", action: onStop)
-                .disabled(!isConnected)
+            if isPaused {
+                control("play.fill", label: "继续", action: onPlay)
+                    .disabled(!transportEnabled)
+            } else {
+                control("pause.fill", label: "暂停", action: onPause)
+                    .disabled(!transportEnabled)
+            }
         } else {
             Button(action: onSend) {
                 Group {
@@ -83,7 +82,7 @@ struct TextPlaybackControls: View {
                                 .controlSize(.mini)
                         }
                     } else {
-                        Image(systemName: isGeneratingFont ? "hourglass" : "play.circle.fill")
+                        Image(systemName: isGeneratingFont ? "hourglass" : "play.fill")
                     }
                 }
                 .frame(maxWidth: .infinity)
