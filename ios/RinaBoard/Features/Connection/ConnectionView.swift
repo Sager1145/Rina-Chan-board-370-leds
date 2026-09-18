@@ -117,7 +117,7 @@ struct ConnectionView: View {
                 // Only once the app has given up: while it is still
                 // retrying on its own, lastError is set too.
                 if case .failed = connection.connectionState {
-                    Text("再试着连接一次吧。")
+                    Text("请重新尝试连接")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

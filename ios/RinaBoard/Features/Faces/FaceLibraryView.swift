@@ -92,7 +92,7 @@ struct FaceLibraryView: View {
                 // (guarded above), never after a load error, and never for
                 // the board library while disconnected (nothing was loaded).
                 if isEmptyLibraryConfirmed {
-                    Text("这里还没有表情。一起做一个吧。")
+                    Text("还没有表情")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

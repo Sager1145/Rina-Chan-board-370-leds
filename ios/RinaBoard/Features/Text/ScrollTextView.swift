@@ -164,7 +164,7 @@ struct ScrollTextView: View {
             // placeholder and the byte-limit footer below (both kept intact):
             // only while the draft is genuinely empty.
             if model.text.isEmpty {
-                Text("把想传达的话写下来。")
+                Text("输入要滚动显示的文字")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

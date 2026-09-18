@@ -184,7 +184,7 @@ struct ControlView: View {
             // editor that has never been assigned a saved-face identity and
             // has nothing drawn on it yet.
             if model.editingFaceId == nil, model.draftFrame.litCount == 0 {
-                Text("一起做个新表情吧。")
+                Text("在面板上点按或拖动即可绘制表情")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

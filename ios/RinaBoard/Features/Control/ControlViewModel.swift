@@ -591,7 +591,7 @@ final class ControlViewModel {
     }
 
     private func showSendConfirmation() {
-        sendConfirmationMessage = NSLocalizedString("表情送到了。", comment: "secondary caption shown once the board confirms a face send")
+        sendConfirmationMessage = NSLocalizedString("表情已发送", comment: "secondary caption shown once the board confirms a face send")
         sendConfirmationClearTask?.cancel()
         sendConfirmationClearTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))

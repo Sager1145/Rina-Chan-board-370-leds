@@ -121,11 +121,11 @@ final class BoardSyncCoordinator {
         if isFirstConnectionThisRun {
             hasConnectedSuccessfullyThisRun = true
             deps.controlCenter.showConnectionGreeting(
-                NSLocalizedString("连上了，真好。", comment: "secondary caption shown once after the first successful board connection this app run")
+                NSLocalizedString("已连接到璃奈板", comment: "secondary caption shown once after the first successful board connection this app run")
             )
         } else if isGenuineReconnect {
             deps.controlCenter.showConnectionGreeting(
-                NSLocalizedString("又连上了。", comment: "secondary caption shown after reconnecting to the board following a genuine drop")
+                NSLocalizedString("已重新连接", comment: "secondary caption shown after reconnecting to the board following a genuine drop")
             )
         }
         deps.controlCenter.sync(from: status)

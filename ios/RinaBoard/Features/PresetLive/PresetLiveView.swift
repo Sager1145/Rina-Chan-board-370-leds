@@ -78,7 +78,7 @@ struct PresetLiveView: View {
                 // Script and audio are both loaded and valid, and playback
                 // has not started yet.
                 if model.canPlay {
-                    Text("准备好了，一起开始吧。")
+                    Text("已准备就绪，可以开始播放")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -953,3 +953,12 @@
 {"k": "语言", "en": "Language", "hant": "語言", "ja": "言語"}
 {"k": "跟随系统", "en": "System", "hant": "跟隨系統", "ja": "システムに従う"}
 {"k": "重新打开应用后将切换为所选语言。", "en": "The selected language takes effect the next time you open the app.", "hant": "重新開啟 App 後將切換為所選語言。", "ja": "アプリを再度開くと、選択した言語に切り替わります。"}
+{"en": "Connected to the board.", "hant": "已連線至璃奈板", "ja": "つながった。…うれしい。", "k": "已连接到璃奈板"}
+{"en": "Reconnected.", "hant": "已重新連線", "ja": "また、つながれた。", "k": "已重新连接"}
+{"en": "Tap or drag on the board to draw an expression.", "hant": "在面板上點按或拖曳即可繪製表情", "ja": "新しい表情、一緒につくろう。", "k": "在面板上点按或拖动即可绘制表情"}
+{"en": "Expression sent.", "hant": "表情已傳送", "ja": "表情、ちゃんと届いた。", "k": "表情已发送"}
+{"en": "No expressions yet.", "hant": "還沒有表情", "ja": "まだ、表情がないみたい。一緒につくろう。", "k": "还没有表情"}
+{"en": "Enter the text to scroll.", "hant": "輸入要捲動顯示的文字", "ja": "伝えたい気持ち、文字にしてみよう。", "k": "输入要滚动显示的文字"}
+{"en": "Once syncing starts, the mouth follows the microphone.", "hant": "開始同步後，嘴型會隨麥克風的聲音變化", "ja": "声に合わせて、表情も動かしてみよう。", "k": "开始同步后，口型会随麦克风的声音变化"}
+{"en": "Ready to play.", "hant": "已準備就緒，可以開始播放", "ja": "準備、できた。一緒に始めよう。", "k": "已准备就绪，可以开始播放"}
+{"en": "Try connecting again.", "hant": "請重新嘗試連線", "ja": "もう一度、つないでみよう。", "k": "请重新尝试连接"}

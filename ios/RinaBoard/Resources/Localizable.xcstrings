@@ -21483,6 +21483,7 @@
       }
     },
     "一起做个新表情吧。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -21505,6 +21506,7 @@
       }
     },
     "再试着连接一次吧。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -21527,6 +21529,7 @@
       }
     },
     "准备好了，一起开始吧。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -21549,6 +21552,7 @@
       }
     },
     "又连上了。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -21571,6 +21575,7 @@
       }
     },
     "把想传达的话写下来。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -21637,6 +21642,7 @@
       }
     },
     "表情送到了。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -21659,6 +21665,7 @@
       }
     },
     "让表情跟着声音动起来。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -21681,6 +21688,7 @@
       }
     },
     "这里还没有表情。一起做一个吧。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -21703,6 +21711,7 @@
       }
     },
     "连上了，真好。" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -21830,6 +21839,213 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重新開啟 App 後將切換為所選語言。"
+          }
+        }
+      }
+    },
+    "已连接到璃奈板" : {
+      "comment" : "plain caption; only Japanese keeps the Rina voice",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connected to the board."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "つながった。…うれしい。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已連線至璃奈板"
+          }
+        }
+      }
+    },
+    "已重新连接" : {
+      "comment" : "plain caption; only Japanese keeps the Rina voice",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "また、つながれた。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已重新連線"
+          }
+        }
+      }
+    },
+    "在面板上点按或拖动即可绘制表情" : {
+      "comment" : "plain caption; only Japanese keeps the Rina voice",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap or drag on the board to draw an expression."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい表情、一緒につくろう。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在面板上點按或拖曳即可繪製表情"
+          }
+        }
+      }
+    },
+    "表情已发送" : {
+      "comment" : "plain caption; only Japanese keeps the Rina voice",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expression sent."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情、ちゃんと届いた。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情已傳送"
+          }
+        }
+      }
+    },
+    "还没有表情" : {
+      "comment" : "plain caption; only Japanese keeps the Rina voice",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No expressions yet."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "まだ、表情がないみたい。一緒につくろう。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "還沒有表情"
+          }
+        }
+      }
+    },
+    "输入要滚动显示的文字" : {
+      "comment" : "plain caption; only Japanese keeps the Rina voice",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter the text to scroll."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "伝えたい気持ち、文字にしてみよう。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "輸入要捲動顯示的文字"
+          }
+        }
+      }
+    },
+    "开始同步后，口型会随麦克风的声音变化" : {
+      "comment" : "plain caption; only Japanese keeps the Rina voice",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Once syncing starts, the mouth follows the microphone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "声に合わせて、表情も動かしてみよう。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開始同步後，嘴型會隨麥克風的聲音變化"
+          }
+        }
+      }
+    },
+    "已准备就绪，可以开始播放" : {
+      "comment" : "plain caption; only Japanese keeps the Rina voice",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ready to play."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "準備、できた。一緒に始めよう。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已準備就緒，可以開始播放"
+          }
+        }
+      }
+    },
+    "请重新尝试连接" : {
+      "comment" : "plain caption; only Japanese keeps the Rina voice",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try connecting again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "もう一度、つないでみよう。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請重新嘗試連線"
           }
         }
       }

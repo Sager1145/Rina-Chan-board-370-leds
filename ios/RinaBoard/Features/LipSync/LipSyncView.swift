@@ -82,7 +82,7 @@ struct LipSyncView: View {
             // sync has not started yet — never while permission is denied
             // or undetermined, and never once sync is already running.
             if model.permission == .granted {
-                Text("让表情跟着声音动起来。")
+                Text("开始同步后，口型会随麦克风的声音变化")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
