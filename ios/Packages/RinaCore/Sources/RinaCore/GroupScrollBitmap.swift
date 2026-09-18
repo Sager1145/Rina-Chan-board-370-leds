@@ -66,15 +66,31 @@ public enum GroupScrollBitmap {
 
     /// Pure window sampler (BOARD_GROUP_SPEC.md §1.4/§2): frame `frameIndex` at
     /// `viewportX` shows, at board cell `(x, y)`, bitmap pixel
-    /// `(frameIndex + viewportX + x, y)`; columns `>= width` (or negative) are
-    /// dark. Reuses `ScrollRasterizer.frame(from:offset:)` — the same packed-
-    /// frame / logical-LED-index mapping the single-board path uses — rather
-    /// than reimplementing it.
+    /// `(frameIndex + viewportX + x, y)`; columns `>= width` **or negative**
+    /// are dark. Implemented with its own loop rather than delegating to
+    /// `ScrollRasterizer.frame(from:offset:)`: that helper clamps its offset
+    /// to `>= 0` (`start = max(0, offset)`), which is the wrong rule here —
+    /// §1.4 says the *column* (`frameIndex + viewportX + x`), not the
+    /// offset, must be checked against `0..<width`. Uses the same LED
+    /// index/packing as the single-board path (`MatrixGeometry.validXRange` +
+    /// row-length prefix sum, matching `ScrollRasterizer.frame`'s index math).
     public static func frame(
         bitmap: ScrollBitmap, viewportX: Int, frameIndex: Int,
         geometry: MatrixGeometry.Type = MatrixGeometry.self
     ) -> PackedFrame {
-        ScrollRasterizer.frame(from: bitmap, offset: frameIndex + viewportX, geometry: geometry)
+        var result = PackedFrame()
+        var rowBase = 0
+        for y in 0..<geometry.rows {
+            defer { rowBase += geometry.rowLengths[y] }
+            guard let range = geometry.validXRange(row: y) else { continue }
+            let srcRow = bitmap.rows[y]
+            for x in range {
+                let idx = rowBase + (x - range.lowerBound)
+                let srcX = frameIndex + viewportX + x
+                result[idx] = srcX >= 0 && srcX < bitmap.width && srcRow[srcX]
+            }
+        }
+        return result
     }
 
     /// Reference `virtualWidth × 18` canvas at `frameIndex`: virtual column `c`

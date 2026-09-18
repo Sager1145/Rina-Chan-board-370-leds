@@ -78,6 +78,11 @@ final class GroupScrollBitmapTests: XCTestCase {
         XCTAssertEqual(GroupScrollBitmap.frameCount(bitmapWidth: 100, virtualWidth: 110), 2)
     }
 
+    /// Replaces the old placeholder (which never built a per-slot frame or
+    /// compared anything): builds an actual per-slot frame at slot count
+    /// 2/3/4, asserts every slot reports the *same* `frameCount`, and that
+    /// frame 0 and the last frame are dark on every slot (the `[V dark]…[V
+    /// dark]` padding guarantee, §1.4).
     func testFrameCountIdenticalAcrossAllSlots() throws {
         let font = try loadFont()
         for slotCount in [2, 3, 4] {
@@ -85,13 +90,69 @@ final class GroupScrollBitmapTests: XCTestCase {
                 slotCount: slotCount, gapsAfter: [Int](repeating: 2, count: slotCount - 1)
             )
             let bitmap = try GroupScrollBitmap.build(text: "你好 Rina!", font: font, virtualWidth: layout.virtualWidth)
-            let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: bitmap.width, virtualWidth: layout.virtualWidth)
-            // frameCount does not depend on viewportX/slot at all (it's purely W, V).
-            for slot in 0..<slotCount {
-                _ = layout.viewportX(slot: slot) // every slot uses the same bitmap/frameCount
+            let frameCounts = (0..<slotCount).map { slot -> Int in
+                // frameCount is purely a function of (bitmap.width, virtualWidth);
+                // it does not depend on viewportX/slot, but computing it via the
+                // same formula per slot (rather than once) is what actually
+                // exercises "identical across all slots" instead of assuming it.
+                _ = layout.viewportX(slot: slot)
+                return GroupScrollBitmap.frameCount(bitmapWidth: bitmap.width, virtualWidth: layout.virtualWidth)
             }
+            XCTAssertEqual(Set(frameCounts).count, 1, "slotCount=\(slotCount) frameCounts=\(frameCounts)")
+            let frameCount = frameCounts[0]
             XCTAssertGreaterThan(frameCount, 0)
+
+            for frameIndex in [0, frameCount - 1] {
+                for slot in 0..<slotCount {
+                    let frame = GroupScrollBitmap.frame(
+                        bitmap: bitmap, viewportX: layout.viewportX(slot: slot), frameIndex: frameIndex)
+                    XCTAssertTrue(frame.isEmpty,
+                                  "slotCount=\(slotCount) frame=\(frameIndex) slot=\(slot) should be dark")
+                }
+            }
         }
+    }
+
+    // MARK: - Golden case (F6): hand-computed frame at V=46, X=24, f=3
+
+    /// A fixed W=60 bitmap with exactly one lit pixel per row, placed at
+    /// `27 + xStart(row)` (`xStart` = the row's centred valid-range start,
+    /// `MatrixGeometry.validXRange`). At viewportX=24, frameIndex=3, §1.4's
+    /// rule (`srcX = frameIndex + viewportX + x = 27 + x`) makes that pixel
+    /// land exactly on `x == xStart(row)` -- the *first* valid column of
+    /// every row, i.e. logical LED index `rowStartIndex[row]` (the prefix
+    /// sum of `MatrixGeometry.rowLengths`, mirrored in
+    /// `esp32s3_firmware/src/group_math.h`'s host test as `rowOffsets`).
+    /// Hand-computed from `MatrixGeometry.rowLengths`
+    /// `[18,20,20,20,22,22,22,22,22,22,22,22,22,20,20,20,18,16]`:
+    /// prefix sums `[0,18,38,58,78,100,122,144,166,188,210,232,254,276,296,316,336,354]`.
+    func testGoldenFrameAtKnownViewportAndFrameIndex() {
+        // viewportX=24 is a real second-board offset for a V=46 two-board
+        // layout (22 + gap 2 + 22 = 46); `GroupScrollBitmap.frame` itself only
+        // needs `viewportX`, not `V`, since the bitmap already carries the
+        // `[V dark]…[V dark]` padding.
+        let width = 60
+        let viewportX = 24
+        let frameIndex = 3
+        var rows = [[Bool]](repeating: [Bool](repeating: false, count: width), count: MatrixGeometry.rows)
+        for y in 0..<MatrixGeometry.rows {
+            let range = MatrixGeometry.validXRange(row: y)!
+            let litColumn = 27 + range.lowerBound
+            rows[y][litColumn] = true
+        }
+        let bitmap = ScrollBitmap(rows: rows, width: width)
+
+        let expectedLitIndices = [
+            0, 18, 38, 58, 78, 100, 122, 144, 166, 188, 210, 232, 254, 276, 296, 316, 336, 354,
+        ]
+        var expected = PackedFrame()
+        for index in expectedLitIndices {
+            expected.set(index)
+        }
+
+        let actual = GroupScrollBitmap.frame(bitmap: bitmap, viewportX: viewportX, frameIndex: frameIndex)
+        XCTAssertEqual(actual.bytes, expected.bytes)
+        XCTAssertEqual(actual.litCount, expectedLitIndices.count)
     }
 
     // MARK: - Window sampler vs. virtual canvas — all 120 orderings x 2 gap configs

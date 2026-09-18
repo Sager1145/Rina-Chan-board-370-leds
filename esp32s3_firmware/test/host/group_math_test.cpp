@@ -248,6 +248,56 @@ static void test_identify_placement_stays_within_valid_led_cells() {
            litMappedCount, litSkippedCount);
 }
 
+// F6: mirrors GroupScrollBitmapTests.swift's
+// testGoldenFrameAtKnownViewportAndFrameIndex() -- same W=60 bitmap (one lit
+// pixel per row at column 27 + xStart(row)), same (V=46, X=24, f=3), same
+// hand-computed expected lit logical LED index list, but built here from
+// viewportColumnFor() + gridCellToLogicalIndex() instead of the Swift-side
+// GroupScrollBitmap.frame().
+static void test_golden_frame_at_known_viewport_and_frame_index() {
+    static const uint8_t rowLengths[18] = {
+        18, 20, 20, 20, 22, 22, 22, 22, 22,
+        22, 22, 22, 22, 20, 20, 20, 18, 16};
+    static const uint16_t rowOffsets[18] = {
+        0, 18, 38, 58, 78, 100, 122, 144, 166,
+        188, 210, 232, 254, 276, 296, 316, 336, 354};
+    const uint32_t width = 60;
+    const uint32_t viewportX = 24;
+    const uint32_t frameIndex = 3;
+
+    // xStart(row) = (22 - rowLength) / 2 (same centring rule as
+    // gridCellToLogicalIndex()/MatrixGeometry.validXRange). One lit bitmap
+    // column per row, at 27 + xStart(row).
+    uint8_t litColumn[18];
+    for (uint8_t row = 0; row < 18; ++row)
+        litColumn[row] = static_cast<uint8_t>(27 + (22 - rowLengths[row]) / 2);
+
+    const uint16_t expectedLitIndices[18] = {
+        0, 18, 38, 58, 78, 100, 122, 144, 166, 188, 210, 232, 254, 276, 296, 316, 336, 354};
+
+    int litCount = 0;
+    for (uint8_t row = 0; row < 18; ++row) {
+        const uint8_t xStart = static_cast<uint8_t>((22 - rowLengths[row]) / 2);
+        bool foundLit = false;
+        for (uint16_t gx = xStart; gx < xStart + rowLengths[row]; ++gx) {
+            uint32_t col = 0;
+            const bool onScreen = viewportColumnFor(frameIndex, viewportX, gx, width, col);
+            const bool lit = onScreen && col == litColumn[row];
+            if (!lit)
+                continue;
+            foundLit = true;
+            uint16_t idx = 0;
+            assert(gridCellToLogicalIndex(gx, row, 22, rowLengths, rowOffsets, 18, idx));
+            assert(idx == expectedLitIndices[row]);
+            assert(idx == rowOffsets[row]); // the row's first (leftmost) LED, i.e. gx == xStart
+            ++litCount;
+        }
+        assert(foundLit);
+    }
+    assert(litCount == 18);
+    printf("test_golden_frame_at_known_viewport_and_frame_index: OK\n");
+}
+
 static void test_grid_cell_to_logical_index_matches_known_points() {
     static const uint8_t rowLengths[18] = {
         18, 20, 20, 20, 22, 22, 22, 22, 22,
@@ -284,6 +334,7 @@ int main() {
     test_identify_digit_stays_within_glyph_box();
     test_identify_digit_out_of_range_never_lit();
     test_identify_placement_stays_within_valid_led_cells();
+    test_golden_frame_at_known_viewport_and_frame_index();
     test_grid_cell_to_logical_index_matches_known_points();
     printf("All group_math tests passed.\n");
     return 0;
