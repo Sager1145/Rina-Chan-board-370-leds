@@ -112,6 +112,19 @@ struct LEDBoardLayout: Equatable {
     private static let photoGridTop: CGFloat = 850.71
     private static let photoCell: CGFloat = 127.43
 
+    /// Width of one LED column as a fraction of the whole board view's width.
+    static func columnWidthFraction(usePhoto: Bool) -> CGFloat {
+        usePhoto ? photoCell / photoWidth : 1 / CGFloat(LEDBoardGeometry.cols)
+    }
+
+    /// Photo border left and right of the LED matrix together, as a fraction
+    /// of the board view's width (0 without the photo: the grid fills it).
+    static func matrixSideInsetsFraction(usePhoto: Bool) -> CGFloat {
+        guard usePhoto else { return 0 }
+        let gridWidth = photoCell * CGFloat(LEDBoardGeometry.cols)
+        return (photoWidth - gridWidth) / photoWidth
+    }
+
     /// Aspect ratio the preview should be constrained to.
     static func aspectRatio(usePhoto: Bool, region: LEDBoardRegion) -> CGFloat {
         if usePhoto { return photoWidth / photoHeight }

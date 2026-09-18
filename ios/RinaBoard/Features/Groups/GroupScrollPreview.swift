@@ -41,7 +41,6 @@ struct GroupScrollPreview: View {
     @State private var cachedFont: ArkPixelFont?
     @State private var targetedIndex: Int?
 
-    private static let minGap: CGFloat = 8
     private static let minCellSide: CGFloat = 70
     /// App-private drag type: a board can't be dropped into a text field as
     /// text, and outside text can't trigger a swap.
@@ -143,7 +142,13 @@ struct GroupScrollPreview: View {
 
     @ViewBuilder
     private func boardRow(members: [BoardGroup.Member], frame: @escaping (Int) -> PackedFrame) -> some View {
-        let layout = BoardRowLayout(gapColumns: group.gapsAfter, minGap: Self.minGap, minBoardWidth: Self.minCellSide)
+        let usePhoto = LEDBoardPreview.drawsPhoto(showBoardImage: showBoardPhoto)
+        let layout = BoardRowLayout(
+            gapColumns: group.gapsAfter,
+            columnFraction: LEDBoardLayout.columnWidthFraction(usePhoto: usePhoto),
+            matrixInsetsFraction: LEDBoardLayout.matrixSideInsetsFraction(usePhoto: usePhoto),
+            minBoardWidth: Self.minCellSide
+        )
         // Fit every board across the width; once they'd shrink below
         // `minCellSide`, keep that size and scroll sideways instead.
         ViewThatFits(in: .horizontal) {
@@ -226,18 +231,26 @@ struct GroupScrollPreview: View {
     }
 }
 
-/// Boards left to right at one shared width; the space after board `i` is
-/// `max(minGap, width × gapColumns[i] / 22)`, i.e. the group's configured gap
-/// in LED columns, never less than `minGap` so boards never touch. With no
-/// width proposed (inside a horizontal scroll view) boards use `minBoardWidth`.
+/// Boards left to right at one shared width. Adjacent boards sit one LED
+/// column apart edge to edge (photo edge, or grid edge without the photo).
+/// That already leaves `1 + matrixInsets` columns between the two LED
+/// matrices; only a configured matrix gap larger than that pushes the boards
+/// further apart, so the matrices end up exactly `gapColumns[i]` columns
+/// apart. With no width proposed (inside a horizontal scroll view) boards use
+/// `minBoardWidth`.
 private struct BoardRowLayout: Layout {
     let gapColumns: [Int]
-    let minGap: CGFloat
+    /// One LED column's width as a fraction of a board's width.
+    let columnFraction: CGFloat
+    /// Photo border on both sides of the matrix, as a fraction of a board's width.
+    let matrixInsetsFraction: CGFloat
     let minBoardWidth: CGFloat
 
     private func gap(after index: Int, boardWidth: CGFloat) -> CGFloat {
+        let column = boardWidth * columnFraction
         let columns = index < gapColumns.count ? gapColumns[index] : 0
-        return max(minGap, boardWidth * CGFloat(columns) / CGFloat(MatrixGeometry.cols))
+        let matrixGapEdgeToEdge = CGFloat(columns) * column - boardWidth * matrixInsetsFraction
+        return max(column, matrixGapEdgeToEdge)
     }
 
     private func totalWidth(boardWidth: CGFloat, count: Int) -> CGFloat {

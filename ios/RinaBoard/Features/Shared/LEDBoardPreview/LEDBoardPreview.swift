@@ -461,6 +461,12 @@ struct LEDBoardPreview: View {
     /// The aspect ratio a whole-board preview lays itself out at for the
     /// given photo setting, resolved the same way `body` does (a missing photo
     /// falls back to the bare grid), so callers can size a row to match.
+    /// Whether a preview asked to show the board photo actually draws it
+    /// (the asset can be missing).
+    static func drawsPhoto(showBoardImage: Bool) -> Bool {
+        showBoardImage && boardImage != nil
+    }
+
     static func wholeBoardAspectRatio(showBoardImage: Bool) -> CGFloat {
         LEDBoardLayout.aspectRatio(usePhoto: showBoardImage && boardImage != nil, region: .wholeBoard)
     }
