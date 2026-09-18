@@ -593,7 +593,7 @@ private struct TwoFingerTransformTracker: UIViewRepresentable {
 /// each need their own hysteresis before recognizing, and a two-finger slide
 /// with no change in spread never recognizes a pinch at all; tracking the
 /// touches directly gives one recognizer with one lifetime for both.
-private final class TwoFingerTransformRecognizer: UIGestureRecognizer {
+final class TwoFingerTransformRecognizer: UIGestureRecognizer {
     /// The space `midpoint` is reported in: the board's untransformed frame.
     weak var referenceView: UIView?
     /// Midpoint of the fingers on the board.
@@ -608,6 +608,15 @@ private final class TwoFingerTransformRecognizer: UIGestureRecognizer {
     private var trackedTouches: [UITouch] = []
     private var baselineSpread: CGFloat = 0
     private var needsBaseline = true
+
+    /// Fingers only. An Apple Pencil on the glass is drawing: counted here,
+    /// pencil plus one finger would read as a pinch and suspend the stroke.
+    static let acceptedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        allowedTouchTypes = Self.acceptedTouchTypes
+    }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         trackedTouches.append(contentsOf: touches)

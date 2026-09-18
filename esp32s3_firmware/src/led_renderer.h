@@ -46,6 +46,13 @@ void setBrightness(int raw);
 bool setHintLed(int led, uint8_t ownerSlot, String& error);
 void clearHintLedOwnedBy(uint8_t ownerSlot);
 
+// Unconditional clear (any owner), used when output leaves the control mode.
+// Loop-task only.
+void clearHintLed();
+
+// Current hint LED index (-1 if none), for status/diagnostics.
+int16_t hintLedForDiagnostics();
+
 void requestLedRender();
 
 bool consumeLedRenderRequest();

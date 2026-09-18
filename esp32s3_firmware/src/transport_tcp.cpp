@@ -7,6 +7,7 @@
 #include <lwip/sockets.h>
 #include <errno.h>
 #include "tcp_frame_sender.h"
+#include "led_renderer.h"
 
 using rinalink::Carrier;
 using rinalink::ClientId;
@@ -21,6 +22,10 @@ struct TcpSlot {
     ClientId id{0xFF};
     bool registered = false;
     uint32_t lastActivityMs = 0;
+    // Sent bytes don't count: this tracks only inbound data, so a peer that
+    // has gone quiet (dropped Wi-Fi, backgrounded app, etc.) loses any hint
+    // LED it owns even while we're still pushing frames/status to it.
+    uint32_t lastInboundMs = 0;
 };
 
 TcpSlot g_slots[MAX_TCP_SLOTS];
@@ -135,6 +140,7 @@ void tcpTransportService() {
             s.client = incoming;
             s.client.setNoDelay(true);
             s.lastActivityMs = millis();
+            s.lastInboundMs = millis();
             if (transportRegisterClient(&g_transport, Carrier::Tcp, &s.id)) {
                 s.registered = true;
                 RLOG_INFO("TCP", "event=connect slot=%d", freeIdx);
@@ -163,6 +169,7 @@ void tcpTransportService() {
                 toRead = free;
             if (toRead > 0) {
                 s.lastActivityMs = millis();
+                s.lastInboundMs = millis();
                 size_t remaining = toRead;
                 while (remaining > 0) {
                     size_t want = remaining > sizeof(buf) ? sizeof(buf) : remaining;
@@ -176,6 +183,13 @@ void tcpTransportService() {
         } else if (millisElapsed(millis(), s.lastActivityMs, TCP_IDLE_TIMEOUT_MS)) {
             RLOG_INFO("TCP", "event=idle_timeout");
             closeSlot(s);
+            continue;
         }
+        // Doesn't disconnect and doesn't touch lastActivityMs/idle-disconnect
+        // semantics above; just drops a hint LED this peer may still own once
+        // it's gone quiet inbound. s.id.slot is the protocol client-table
+        // index (the hint owner slot), not this TCP array index.
+        if (millisElapsed(millis(), s.lastInboundMs, TCP_HINT_SILENCE_MS))
+            clearHintLedOwnedBy(s.id.slot);
     }
 }

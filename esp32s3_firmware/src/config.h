@@ -32,6 +32,10 @@ constexpr uint32_t WIFI_STA_RETRY_MS = 60000;
 // cycle (its fail counter is then reset so it gets a fresh 3 tries).
 constexpr uint8_t WIFI_PROFILE_FAIL_LIMIT = 3;
 constexpr uint32_t TCP_IDLE_TIMEOUT_MS = 20000;
+// A TCP peer that stops sending (but hasn't hit the idle-disconnect timeout
+// above, or isn't idle at all thanks to periodic outbound traffic) still
+// shouldn't be left owning a stale hint LED hover indefinitely.
+constexpr uint32_t TCP_HINT_SILENCE_MS = 12000;
 
 #include <IPAddress.h>
 

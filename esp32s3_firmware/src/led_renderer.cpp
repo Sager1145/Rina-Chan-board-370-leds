@@ -442,6 +442,11 @@ bool setHintLed(int led, uint8_t ownerSlot, String& error) {
 }
 
 void clearHintLedOwnedBy(uint8_t ownerSlot) {
+    // Polled on every loop pass: skip the frame lock when nothing is lit.
+    // Unlocked read is safe here because only the loop task ever writes the
+    // hint; the render task only reads it, under the lock.
+    if (g_hintLed < 0)
+        return;
     withFrameLock([&]() {
         if (g_hintLed < 0 || g_hintOwnerSlot != ownerSlot)
             return;
@@ -449,6 +454,29 @@ void clearHintLedOwnedBy(uint8_t ownerSlot) {
         g_hintOwnerSlot = 0xFF;
         showCurrentFrameNoLock();
     });
+}
+
+void clearHintLed() {
+    // Polled on every loop pass: skip the frame lock when nothing is lit.
+    // Unlocked read is safe here because only the loop task ever writes the
+    // hint; the render task only reads it, under the lock.
+    if (g_hintLed < 0)
+        return;
+    withFrameLock([&]() {
+        if (g_hintLed < 0)
+            return;
+        g_hintLed = -1;
+        g_hintOwnerSlot = 0xFF;
+        showCurrentFrameNoLock();
+    });
+}
+
+int16_t hintLedForDiagnostics() {
+    int16_t hint = -1;
+    withFrameLock([&]() {
+        hint = g_hintLed;
+    });
+    return hint;
 }
 
 void setBrightness(int raw) {

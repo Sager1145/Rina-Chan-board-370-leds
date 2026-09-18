@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Hint LED (`set_hint_led`): range check, ownership and render wiring.
 
-Compiles the real setHintLed/clearHintLedOwnedBy bodies from led_renderer.cpp
-against stubs, then checks the source wiring the host build cannot reach.
+Compiles the real setHintLed/clearHintLedOwnedBy/clearHintLed/
+hintLedForDiagnostics bodies from led_renderer.cpp against stubs, then checks
+the source wiring the host build cannot reach (output-mode gating in
+serviceProtocol(), the handler's `shown` reply, the TCP dead-peer clear, and
+serial console wiring).
 """
 
 from pathlib import Path
@@ -12,6 +15,9 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 RENDERER = (ROOT / "src/led_renderer.cpp").read_text()
 PROTOCOL = (ROOT / "src/protocol.cpp").read_text()
+TRANSPORT_TCP = (ROOT / "src/transport_tcp.cpp").read_text()
+SERIAL_CONSOLE = (ROOT / "src/serial_console.cpp").read_text()
+CONFIG = (ROOT / "src/config.h").read_text()
 
 
 def function(source: str, signature: str) -> str:
@@ -44,7 +50,9 @@ static void showCurrentFrameNoLock() { ++renders; }
 static int16_t g_hintLed = -1;
 static uint8_t g_hintOwnerSlot = 0xFF;
 ''' + function(RENDERER, "bool setHintLed(") + "\n" \
-    + function(RENDERER, "void clearHintLedOwnedBy(") + r'''
+    + function(RENDERER, "void clearHintLedOwnedBy(") + "\n" \
+    + function(RENDERER, "void clearHintLed(") + "\n" \
+    + function(RENDERER, "int16_t hintLedForDiagnostics(") + r'''
 static int hintLed() { return g_hintLed; }
 int main() {
     String err;
@@ -63,6 +71,21 @@ int main() {
 
     assert(setHintLed(0, 2, err) && setHintLed(369, 2, err) && hintLed() == 369);
     assert(setHintLed(-1, 2, err) && hintLed() == -1);
+
+    // clearHintLed(): unconditional, regardless of owner; no-op (no extra
+    // render) when already clear.
+    assert(hintLedForDiagnostics() == -1);
+    assert(setHintLed(5, 7, err) && hintLedForDiagnostics() == 5);
+    int rendersBefore = renders;
+    clearHintLed();
+    assert(hintLedForDiagnostics() == -1 && renders == rendersBefore + 1);
+    int rendersAfterClear = renders;
+    clearHintLed();                                        // already clear
+    assert(renders == rendersAfterClear);
+
+    assert(setHintLed(100, 3, err));
+    clearHintLed();                                        // clears regardless of owner
+    assert(hintLedForDiagnostics() == -1);
     return 0;
 }
 '''
@@ -85,4 +108,43 @@ assert "setHintLed(" in hint_cmd and "sendErrorReply(c, seq, 400" in hint_cmd, "
 assert "touchRuntimeState" not in hint_cmd, "a hover step is not board state and must not bump it"
 assert "reply(out" not in hint_cmd, "a hover step is acked, not answered with the status document"
 assert "clearHintLedOwnedBy(static_cast<uint8_t>(i))" in PROTOCOL, "disconnect must clear the client's hint"
+
+# --- output-mode gate in serviceProtocol() -------------------------------
+service_protocol = function(PROTOCOL, "void serviceProtocol(")
+assert 'runtimeState().outputMode != "control"' in service_protocol, \
+    "serviceProtocol must drop the hint once output leaves the control mode"
+assert "clearHintLed();" in service_protocol, \
+    "serviceProtocol must call the unconditional clearHintLed(), not the owner-scoped variant"
+
+# --- handler's `shown` reply, gated on control output --------------------
+hint_cmd_full = PROTOCOL[PROTOCOL.index('strcmp(cmd, "set_hint_led")'):]
+hint_cmd_full = hint_cmd_full[:hint_cmd_full.index('\n    }\n\n    String err;')]
+assert 'runtimeState().outputMode == "control"' in hint_cmd_full, \
+    "handler must gate led>=0 on the control output"
+assert 'out["shown"]' in hint_cmd_full, "reply must carry shown"
+assert "++runtimeState().commandsAccepted;" in hint_cmd_full, "must still count as accepted"
+decline = hint_cmd_full[hint_cmd_full.index("if (led >= 0 && !isControlOutput)"):]
+assert "sendErrorReply" not in decline.split('} else {')[0], \
+    "declining because another output owns the frame must not be an error"
+assert hint_cmd_full.index("led >= static_cast<int>(LED_COUNT)") < hint_cmd_full.index("isControlOutput"), \
+    "an out-of-range led must be a 400 before the output-mode decline, in every mode"
+
+# --- TCP dead-peer hint clear ---------------------------------------------
+assert "uint32_t lastInboundMs" in TRANSPORT_TCP, "TCP slot must track last inbound time"
+assert "TCP_HINT_SILENCE_MS" in TRANSPORT_TCP, "TCP service loop must reference the silence constant"
+assert "clearHintLedOwnedBy(s.id.slot)" in TRANSPORT_TCP, \
+    "TCP silence check must clear by protocol client slot (s.id.slot), not the TCP array index"
+tcp_service = function(TRANSPORT_TCP, "void tcpTransportService(")
+assert "s.lastActivityMs = millis();" in tcp_service and "closeSlot(s);" in tcp_service, \
+    "idle-disconnect semantics must be untouched"
+assert "TCP_HINT_SILENCE_MS" in CONFIG, "TCP_HINT_SILENCE_MS must be defined in config.h"
+
+# --- serial console wiring -------------------------------------------------
+status_fn = function(SERIAL_CONSOLE, "void printStatus(")
+assert "hintLedForDiagnostics()" in status_fn, "status must report the hint LED"
+assert '"STATUS hint=' in status_fn, "status output must be prefixed hint="
+run_line = function(SERIAL_CONSOLE, "void runLine(")
+frame_clear = run_line[run_line.index('"clear") == 0'):run_line.index('"OK frame clear"')]
+assert "clearHintLed();" in frame_clear, "frame clear must also clear the hint LED"
+
 print("hint_led_test: ok")

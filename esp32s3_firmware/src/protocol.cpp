@@ -1054,15 +1054,32 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
     // Sent on every LED a hovering pencil crosses: answered with a bare ack,
     // not the status document, and it is not board state, so no state bump.
     if (strcmp(cmd, "set_hint_led") == 0) {
-        String hintErr;
-        if (!setHintLed(cint(d, p, "led", -1), static_cast<uint8_t>(&c - g_clients), hintErr)) {
+        int led = cint(d, p, "led", -1);
+        // Range first, so a bad LED is a 400 in every output mode.
+        if (led < -1 || led >= static_cast<int>(LED_COUNT)) {
             ++runtimeState().commandsRejected;
-            sendErrorReply(c, seq, 400, hintErr);
+            sendErrorReply(c, seq, 400, "led must be -1 or 0.." + String(LED_COUNT - 1));
             return;
         }
+        bool shown = false;
+        const bool isControlOutput = runtimeState().outputMode == "control";
+        if (led >= 0 && !isControlOutput) {
+            // Only the control output shows the hint LED; silently decline
+            // without touching the renderer while another output owns it.
+            shown = false;
+        } else {
+            String hintErr;
+            if (!setHintLed(led, static_cast<uint8_t>(&c - g_clients), hintErr)) {
+                ++runtimeState().commandsRejected;
+                sendErrorReply(c, seq, 400, hintErr);
+                return;
+            }
+            shown = (led >= 0) && isControlOutput;
+        }
         ++runtimeState().commandsAccepted;
-        StaticJsonDocument<32> out;
+        StaticJsonDocument<48> out;
         out["ok"] = true;
+        out["shown"] = shown;
         sendJsonReply(c, msg::CMD, seq, out);
         return;
     }
@@ -2337,6 +2354,10 @@ static void finalizePendingRegistryChanges() {
 
 void serviceProtocol() {
     finalizePendingRegistryChanges();
+    // The hint LED is only meaningful while the control output is on screen;
+    // if a face/text/etc. output has taken over, drop it. Loop task only.
+    if (runtimeState().outputMode != "control")
+        clearHintLed();
     expireBlobSessions();
     if (g_rebootPending && millisReached(millis(), g_rebootAtMs)) {
         ESP.restart();
