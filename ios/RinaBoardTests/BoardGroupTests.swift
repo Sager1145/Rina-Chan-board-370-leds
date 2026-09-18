@@ -183,13 +183,17 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(transportA.lastBlobBeginMeta?["virtualWidth"] as? Int, MatrixGeometry.cols * 2 + 3)
         XCTAssertTrue(coordinator.isPlaying)
-        // Both boards saw an identical (m1..m4, rx, tx) clock exchange shape,
-        // so their computed `atUs` (phone anchor mapped through each board's
-        // own offset) must match.
+        // Both boards saw the same (rx, tx) clock exchange shape, so their
+        // computed `atUs` (phone anchor mapped through each board's own
+        // offset) must be close -- not necessarily bit-identical, since the
+        // two boards' 8-sample clock loops run concurrently and interleave
+        // draws from the shared `nowUs` counter, giving each board slightly
+        // different (m1, m4) phone-side timestamps for its best sample.
         XCTAssertEqual(transportA.sentGroupStartAtUs.count, 1)
         XCTAssertEqual(transportB.sentGroupStartAtUs.count, 1)
-        XCTAssertEqual(transportA.sentGroupStartAtUs.last, transportB.sentGroupStartAtUs.last)
-        XCTAssertNotNil(transportA.sentGroupStartAtUs.last)
+        let atUsA = try XCTUnwrap(transportA.sentGroupStartAtUs.last)
+        let atUsB = try XCTUnwrap(transportB.sentGroupStartAtUs.last)
+        XCTAssertLessThan(abs(atUsA - atUsB), 1_000, "atUs should agree within microseconds of interleave noise")
     }
 
     func testOfflineMemberBlocksPlay() async throws {
@@ -276,7 +280,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertTrue(transportB.receivedStopScroll)
         // stop() releases the lease, so the board falls back to plain
         // "connected" rather than staying stuck reporting group ownership.
-        XCTAssertEqual(coordinator.status(for: group.members[0]), .connected)
+        XCTAssertEqual(coordinator.status(for: store.groups[0].members[0]), .connected)
         XCTAssertNotEqual(sessionA.connection.output.source, .group)
 
         // No re-anchor pass can have run (the loop was cancelled), so no
@@ -312,10 +316,20 @@ final class BoardGroupCoordinatorTests: XCTestCase {
             try await playTask.value
             XCTFail("Expected the partial group_start failure to abort play()")
         } catch {
-            // The underlying failure is B's generation mismatch, surfaced as
-            // whatever `requestReliableDecoding` throws for that -- assert
-            // that specific shape rather than swallowing every error.
-            XCTAssertTrue(error is CancellationError, "unexpected error: \(error)")
+            // B's disconnect surfaces as either "no transport" (if the
+            // disconnect lands before B's own `group_start` send) or a
+            // generation-mismatch cancellation (if it lands after) --
+            // assert one of those two specific shapes rather than
+            // swallowing every error.
+            let isExpectedShape: Bool
+            if case RinaTransportError.notConnected = error {
+                isExpectedShape = true
+            } else if error is CancellationError {
+                isExpectedShape = true
+            } else {
+                isExpectedShape = false
+            }
+            XCTAssertTrue(isExpectedShape, "unexpected error: \(error)")
         }
         XCTAssertFalse(coordinator.isPlaying)
         XCTAssertNil(coordinator.activeGroupID)
