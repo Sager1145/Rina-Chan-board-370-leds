@@ -10,6 +10,8 @@ import SwiftUI
 struct TextPlaybackControls: View {
     var isConnected: Bool
     var hasTimeline: Bool
+    /// The board reports a scroll of its own, bound here or not.
+    var boardHasScroll: Bool
     var isPaused: Bool
     var isUploading: Bool
     var isGeneratingFont: Bool
@@ -27,8 +29,10 @@ struct TextPlaybackControls: View {
     var onStepBackward: () -> Void
     var onStepForward: () -> Void
 
-    /// Stepping, pausing and stopping all need a timeline on the board.
-    private var transportEnabled: Bool { isConnected && hasTimeline && !transportLimitedToSendStop }
+    /// Stepping, pausing and stopping act on the board's scroll session, so
+    /// they only need one to exist there, not a timeline bound in the app.
+    private var hasBoardScroll: Bool { hasTimeline || boardHasScroll }
+    private var transportEnabled: Bool { isConnected && hasBoardScroll && !transportLimitedToSendStop }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -58,9 +62,10 @@ struct TextPlaybackControls: View {
 
     @ViewBuilder
     private var stopOrSendControl: some View {
-        if hasTimeline {
+        if hasBoardScroll {
+            // Stop keeps working in group mode, like send.
             control("stop.fill", label: "停止并清屏", action: onStop)
-                .disabled(!transportEnabled)
+                .disabled(!isConnected)
         } else {
             Button(action: onSend) {
                 Group {

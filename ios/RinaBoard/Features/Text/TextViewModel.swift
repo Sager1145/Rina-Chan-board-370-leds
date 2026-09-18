@@ -867,6 +867,16 @@ final class TextViewModel {
 
     // MARK: Labels
 
+    /// Whether the board itself has a scroll it can pause, step or stop, even
+    /// when nothing is bound here (sent from the WebUI or another phone, or a
+    /// restore that could not rebuild the timeline). The transport commands
+    /// act on the board's own session and need no local timeline.
+    func boardHasScroll(connection: BoardConnection) -> Bool {
+        let renderer = connection.status?.renderer
+        if let count = renderer?.scrollFrameCount { return count > 0 }
+        return (renderer?.firmwareScrollActive ?? connection.preview?.firmwareScrollActive) == true
+    }
+
     func phaseKey(connection: BoardConnection) -> String {
         if let localPhase { return localPhase }
         if isStepping { return "STEPPING" }

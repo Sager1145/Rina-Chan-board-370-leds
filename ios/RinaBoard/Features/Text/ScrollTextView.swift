@@ -46,6 +46,7 @@ struct ScrollTextView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// Ark Pixel editor size; follows Dynamic Type, snapped to crisp steps.
     @ScaledMetric(relativeTo: .body) private var editorFontSize: CGFloat = 16
+    private static let editorMinHeight: CGFloat = 132
 
     /// Mirrors the Control Center's "控制对象" choice (BOARD_GROUP_SPEC.md
     /// §3): empty string = `.single`. When a group is targeted, send/stop
@@ -163,6 +164,7 @@ struct ScrollTextView: View {
                 TextPlaybackControls(
                     isConnected: allOnline,
                     hasTimeline: playing,
+                    boardHasScroll: false,
                     isPaused: false,
                     isUploading: starting,
                     isGeneratingFont: false,
@@ -216,6 +218,7 @@ struct ScrollTextView: View {
             TextPlaybackControls(
                 isConnected: isConnected,
                 hasTimeline: model.boundTimelineId != nil,
+                boardHasScroll: model.boardHasScroll(connection: connection),
                 isPaused: model.boardPaused,
                 isUploading: model.isUploading,
                 isGeneratingFont: model.isGeneratingFont,
@@ -340,15 +343,32 @@ struct ScrollTextView: View {
 
             // The list row is already the card; the editor fills it directly
             // (an inner bordered card read as a double border).
-            TextEditor(text: Binding(
-                get: { model.text },
-                set: { model.editText($0) }
-            ))
-            .frame(minHeight: 132)
+            ZStack(alignment: .topLeading) {
+                // Invisible copy of the text sizes the editor: it grows with
+                // the text block from the base height up to twice that, then
+                // the editor scrolls inside. Padding mirrors UITextView's
+                // text container insets (5 pt line padding, 8 pt top/bottom).
+                Text(model.text.hasSuffix("\n") || model.text.isEmpty ? model.text + " " : model.text)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 8)
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: Self.editorMinHeight,
+                        maxHeight: Self.editorMinHeight * 2,
+                        alignment: .topLeading
+                    )
+                    .hidden()
+                    .accessibilityHidden(true)
+                TextEditor(text: Binding(
+                    get: { model.text },
+                    set: { model.editText($0) }
+                ))
+                .scrollContentBackground(.hidden)
+                .accessibilityLabel("滚动文字内容")
+            }
             // Same Ark Pixel font the WebUI uses for this field and the
             // frame generator rasterizes, so the draft previews its glyphs.
             .font(ArkPixelInputFont.font(size: editorFontSize, displayScale: displayScale))
-            .scrollContentBackground(.hidden)
             .padding(.top, 6)
             // Leaves room for the character counter in the bottom corner.
             .padding(.bottom, 24)
@@ -380,7 +400,6 @@ struct ScrollTextView: View {
                 if !focused { model.restoreDefaultTextIfEmpty() }
             }
             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-            .accessibilityLabel("滚动文字内容")
         } footer: {
             if model.exceedsByteLimit {
                 Text("超出固件 \(ScrollText.maxTextBytes) 字节上限，发送前请缩短文字；不会自动截断。")
