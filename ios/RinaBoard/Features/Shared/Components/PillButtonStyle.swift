@@ -30,6 +30,10 @@ struct PillButtonStyle: ButtonStyle {
             .contentShape(Capsule())
             .opacity(configuration.isPressed ? 0.6 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            // A pill row stops growing at the largest standard text size
+            // (see `PillButtonRow`); at the accessibility sizes a long press
+            // shows the enlarged icon and title instead, as the tab bar does.
+            .accessibilityShowsLargeContentViewer()
     }
 
     /// White label on a lit pill, grey on an off toggle, fainter grey when
@@ -110,11 +114,18 @@ struct RepeatSymbol: View {
 /// Puts a row of pill buttons in place of its list cell: the cell's grouped
 /// background is cleared and the row has no insets, so the pills take the
 /// cell's full height and reach its left and right edges.
+///
+/// The row follows Dynamic Type up to the largest standard size and no
+/// further. Five icon pills at an accessibility size are wider than a phone
+/// or a Slide Over window, and in a half-width iPad column a chip's title
+/// shrank to "…"; past that size each pill offers the Large Content Viewer
+/// instead (`PillButtonStyle`), the way the system tab bar does.
 private struct PillButtonRow: ViewModifier {
     @Environment(\.defaultMinListRowHeight) private var rowHeight
 
     func body(content: Content) -> some View {
         content
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             .frame(maxWidth: .infinity, minHeight: rowHeight)
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
