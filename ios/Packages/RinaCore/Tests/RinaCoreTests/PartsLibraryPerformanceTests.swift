@@ -23,9 +23,9 @@ final class PartsLibraryPerformanceTests: XCTestCase {
             .appendingPathComponent("RinaBoard/Resources")
     }
 
-    func loadLibrary() throws -> PartsLibrary? {
+    func loadLibrary() throws -> PartsLibrary {
         let url = Self.resourcesURL.appendingPathComponent("expression_parts.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        let data = try TestResources.data(at: url)
         return try PartsLibrary(jsonData: data)
     }
 
@@ -101,9 +101,7 @@ final class PartsLibraryPerformanceTests: XCTestCase {
     }
 
     func testComposeRatio() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         let call = PartsCall(leye: "115", reye: "215", mouth: "320", cheek: "403")
         let (reference, fast) = interleavedTimings(
             iterations: 500,
@@ -118,9 +116,7 @@ final class PartsLibraryPerformanceTests: XCTestCase {
     }
 
     func testMatchingCallRatio() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         let call = PartsCall(leye: "115", reye: "215", mouth: "320", cheek: "403")
         let composed = library.compose(call: call)
         let (reference, fast) = interleavedTimings(

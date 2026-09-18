@@ -12,25 +12,21 @@ final class ColorPresetsTests: XCTestCase {
             .appendingPathComponent("RinaBoard/Resources")
     }
 
-    func loadPresets() throws -> ColorPresets? {
+    func loadPresets() throws -> ColorPresets {
         let url = Self.resourcesURL.appendingPathComponent("color_presets.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        let data = try TestResources.data(at: url)
         return try ColorPresets(jsonData: data)
     }
 
     func testParentAndChildCounts() throws {
-        guard let presets = try loadPresets() else {
-            throw XCTSkip("color_presets.json not found")
-        }
+        let presets = try loadPresets()
         XCTAssertEqual(presets.parents.count, 6)
         let totalChildren = presets.children.values.reduce(0) { $0 + $1.count }
         XCTAssertEqual(totalChildren, 67)
     }
 
     func testLookupByHex() throws {
-        guard let presets = try loadPresets() else {
-            throw XCTSkip("color_presets.json not found")
-        }
+        let presets = try loadPresets()
         guard let firstParent = presets.parents.first(where: { presets.children(of: $0).isEmpty == false }) else {
             XCTFail("no parent with children")
             return
@@ -75,9 +71,7 @@ final class ColorPresetsTests: XCTestCase {
 
     func testDefaultFacesDocument() throws {
         let url = Self.resourcesURL.appendingPathComponent("default_faces.json")
-        guard let data = try? Data(contentsOf: url) else {
-            throw XCTSkip("default_faces.json not found")
-        }
+        let data = try TestResources.data(at: url)
         struct DefaultFacesDoc: Codable {
             let faces: [FaceEntry]
             let startupDefaultId: String
