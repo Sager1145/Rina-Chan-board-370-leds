@@ -50,6 +50,15 @@ public struct ClockOffsetEstimator: Sendable, Equatable {
         }
     }
 
+    /// Discards all recorded samples without forgetting `bootId`. Callers use
+    /// this before a fresh re-anchor sampling burst (BOARD_GROUP_SPEC §3's
+    /// periodic re-anchor) so a stale low-RTT sample from a much earlier
+    /// burst can't keep winning the "minimum RTT of the last `maxSamples`"
+    /// selection over a fresher, more representative one.
+    public mutating func removeAllSamples() {
+        samples.removeAll()
+    }
+
     private var bestSample: ClockSample? {
         samples.min { $0.rttUs < $1.rttUs }
     }

@@ -50,10 +50,6 @@ public final class BoardGroupCoordinator {
     /// goes to background (BOARD_GROUP_SPEC §3 "while the app is active").
     public var isAppActive = true
 
-    /// Boards currently held by a group's output lease. `select(_:)` (via
-    /// `BoardSessionStore.isGroupOwned`) and any other single-board flow
-    /// consult this before invalidating a member's output.
-    private var groupOwnedBoardIDs: Set<String> = []
     private var estimators: [String: ClockOffsetEstimator] = [:]
     private var identifyTask: Task<Void, Never>?
     private var reanchorTask: Task<Void, Never>?
@@ -103,13 +99,15 @@ public final class BoardGroupCoordinator {
         BoardCapability.allCases.allSatisfy(connection.supports)
     }
 
-    /// `true` iff `session`'s output is currently held by a group (BOARD_GROUP_SPEC §3):
-    /// `BoardSessionStore.select(_:)` must not invalidate it, and any
-    /// single-board action that claims a different output source on this
-    /// board ends group ownership.
+    /// `true` iff `session`'s output lease is currently held by a group
+    /// (BOARD_GROUP_SPEC §3): `BoardSessionStore.select(_:)` must not
+    /// invalidate it. Reads `BoardPlaybackCoordinator.source` directly —
+    /// the single source of truth — rather than a separately tracked set, so
+    /// any single-board action that claims a different output source on this
+    /// board (which changes `source` itself) automatically ends group
+    /// ownership without the coordinator having to notice.
     public func isGroupOwned(_ session: BoardSession) -> Bool {
-        guard let identity = session.connection.boardIdentity else { return false }
-        return groupOwnedBoardIDs.contains(identity)
+        session.connection.output.source == .group
     }
 
     // MARK: - Identify
@@ -215,7 +213,6 @@ public final class BoardGroupCoordinator {
         guard stillValid() else { throw GroupPlayError.aborted }
 
         let timelineId = UUID().uuidString
-        for captured in online { groupOwnedBoardIDs.insert(captured.member.physicalBoardID) }
 
         // Upload concurrently, each board's own output lease.
         try await withThrowingTaskGroup(of: Void.self) { group in
@@ -335,6 +332,10 @@ public final class BoardGroupCoordinator {
             if let bootId = session.connection.bootId { bootIds[member.physicalBoardID] = bootId }
             var estimator = estimators[member.physicalBoardID] ?? ClockOffsetEstimator()
             guard session.connection.connectionState == .connected else { continue }
+            // Start this re-anchor's window fresh: a stale low-RTT sample
+            // from a much earlier burst must not keep winning "minimum RTT
+            // of the last N" over this pass's fresher samples.
+            estimator.removeAllSamples()
             for _ in 0..<4 {
                 guard let sample = try? await takeClockSample(connection: session.connection),
                       let bootId = session.connection.bootId else { continue }
@@ -370,7 +371,6 @@ public final class BoardGroupCoordinator {
                 _ = try await session.connection.command(.stopScroll(restoreAuto: nil, clear: nil))
             }
             memberStatus[member.physicalBoardID] = .connected
-            groupOwnedBoardIDs.remove(member.physicalBoardID)
         }
     }
 }
