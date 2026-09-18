@@ -6,8 +6,10 @@ struct RinaBoardApp: App {
     // Each board retains its own connection; tabs control the selected session.
     // Draft models remain app-scoped so switching tabs preserves unsent work.
     @State private var router = AppRouter()
-    @State private var sessions = BoardSessionStore()
+    @State private var sessions: BoardSessionStore
     @State private var boardStore = BoardStore()
+    @State private var boardGroupStore: BoardGroupStore
+    @State private var boardGroupCoordinator: BoardGroupCoordinator
     @State private var bootLoader = BootLoaderModel()
     @State private var controlCenter = BoardControlCenterModel()
     @State private var faceLibrary = FaceLibraryModel()
@@ -22,6 +24,18 @@ struct RinaBoardApp: App {
         // The loader is the first thing on screen; get its texture and
         // images ready in the background before the first frame.
         BootLoaderOverlay.prewarm()
+
+        // Board groups (BOARD_GROUP_SPEC.md §3): the coordinator needs the
+        // same session store instance the app injects everywhere else, and
+        // `sessions.select(_:)` needs a way to ask the coordinator whether a
+        // session is currently group-owned without a hard dependency on it.
+        let sessions = BoardSessionStore()
+        let boardGroupStore = BoardGroupStore()
+        let coordinator = BoardGroupCoordinator(store: boardGroupStore, sessions: sessions)
+        sessions.isGroupOwned = { [weak coordinator] session in coordinator?.isGroupOwned(session) ?? false }
+        _sessions = State(initialValue: sessions)
+        _boardGroupStore = State(initialValue: boardGroupStore)
+        _boardGroupCoordinator = State(initialValue: coordinator)
     }
 
     var body: some Scene {
@@ -32,6 +46,8 @@ struct RinaBoardApp: App {
                 .environment(sessions.active.connection)
                 .environment(router)
                 .environment(boardStore)
+                .environment(boardGroupStore)
+                .environment(boardGroupCoordinator)
                 .environment(bootLoader)
                 .environment(controlCenter)
                 .environment(faceLibrary)
