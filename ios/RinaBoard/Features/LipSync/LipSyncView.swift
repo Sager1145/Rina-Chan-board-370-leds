@@ -31,6 +31,13 @@ struct LipSyncView: View {
                 if let message = model.loadError {
                     loadErrorSection(message)
                 }
+                // Last on every layout: the editor is a detour off this page,
+                // not one of its options.
+                Section {
+                    // Not gated like the options: the mapping can be edited
+                    // while sync runs, and the preview reflects it immediately.
+                    mouthMappingLink
+                }
             }
             .listSectionSpacing(.compact)
             .rinaScrollBackground()
@@ -219,9 +226,6 @@ struct LipSyncView: View {
         Section {
             recognitionOptions(model: model)
                 .disabled(!self.model.canEditOptions)
-            // Not gated like the options above: the mapping can be edited
-            // while sync runs, and the preview reflects it immediately.
-            mouthMappingLink
         }
     }
 
@@ -335,11 +339,15 @@ struct LipSyncView: View {
                     }
                     .contentShape(Rectangle())
                 }
-                // Opening downward keeps it over the controls column; a
-                // sideways popover would cover the board it relies on.
-                .popover(isPresented: $isMouthMappingPresented, arrowEdge: .top) {
+                // The row is last on the page, so it opens upward over the
+                // controls column; a sideways popover would cover the board
+                // it relies on.
+                .popover(isPresented: $isMouthMappingPresented, arrowEdge: .bottom) {
+                    // Ideal, not fixed: in a short window the system shrinks
+                    // the popover, and a fixed 600 pt list was clipped there
+                    // instead of scrolling to its last rows.
                     mouthMappingView(library: library, showsPreview: false)
-                        .frame(width: 400, height: 600)
+                        .frame(idealWidth: 400, maxWidth: 400, idealHeight: 600, maxHeight: 600)
                         .presentationCompactAdaptation(.popover)
                 }
             } else {
