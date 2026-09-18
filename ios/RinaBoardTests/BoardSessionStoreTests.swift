@@ -424,8 +424,8 @@ final class BoardSessionStoreTests: XCTestCase {
         _ = await (firstConnection, secondConnection)
         firstTransport.fail("link lost")
 
-        for _ in 0..<20 where first.connection.connectionState == .connected {
-            await Task.yield()
+        await waitUntilTrue("The failed transport never left the connected state") {
+            first.connection.connectionState != .connected
         }
         XCTAssertNotEqual(first.connection.connectionState, .connected)
         XCTAssertEqual(second.connection.connectionState, .connected)
