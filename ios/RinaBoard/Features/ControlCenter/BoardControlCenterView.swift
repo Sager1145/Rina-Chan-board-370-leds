@@ -220,7 +220,7 @@ struct BoardControlCenterView: View {
         case .reconnecting(let attempt):
             return String(format: NSLocalizedString("重连中（第 %lld 次）", comment: "connection state reconnecting"), attempt)
         case .disconnected: return NSLocalizedString("未连接", comment: "connection state disconnected")
-        case .failed(let message): return NSLocalizedString("连接失败", comment: "connection state failed") + "：" + message
+        case .failed(let message): return String(format: NSLocalizedString("连接失败：%@", comment: "connection state failed"), message)
         }
     }
 

@@ -104,7 +104,7 @@ final class TextViewModel {
             draftStorageError = nil
         } catch {
             draftStorageError = String(
-                format: NSLocalizedString("文字草稿尚未保存：%@", comment: "text draft persistence failed"),
+                format: NSLocalizedString("保存文字草稿失败：%@", comment: "text draft persistence failed"),
                 error.localizedDescription
             )
         }

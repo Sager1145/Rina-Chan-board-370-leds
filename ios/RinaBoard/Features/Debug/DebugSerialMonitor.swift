@@ -73,7 +73,7 @@ struct DebugSerialMonitor: View {
             Toggle("显示全部可用指令", isOn: $showCommands)
                 .accessibilityIdentifier("debug.monitor.commands")
         } header: {
-            Text("Serial Monitor")
+            Text("通信监视器")
         } footer: {
             Text("通过当前蓝牙／Wi-Fi 连接发送 RinaLink 指令。带参数的指令请使用 JSON；USB 串口命令不适用于此页面。")
         }

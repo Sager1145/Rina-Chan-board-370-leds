@@ -143,11 +143,11 @@ enum DebugPattern: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .off: return NSLocalizedString("全黑", comment: "debug test pattern")
+        case .off: return NSLocalizedString("全部熄灭", comment: "debug test pattern")
         case .checker: return NSLocalizedString("棋盘", comment: "debug test pattern")
         case .border: return NSLocalizedString("边框", comment: "debug test pattern")
         case .saved: return NSLocalizedString("当前保存表情", comment: "debug test pattern")
-        case .allOn: return NSLocalizedString("全亮", comment: "debug test pattern")
+        case .allOn: return NSLocalizedString("全部点亮", comment: "debug test pattern")
         }
     }
 
@@ -796,7 +796,7 @@ final class DebugViewModel {
             packedLabValid = frame
         } else {
             packedLabValid = nil
-            packedLabError = NSLocalizedString("无法解析：需要 94 位十六进制 / 47 项整数 JSON 数组 / base64", comment: "debug packed frame parse error")
+            packedLabError = NSLocalizedString("无法解析：需要 94 个十六进制字符 / 47 项整数 JSON 数组 / Base64", comment: "debug packed frame parse error")
         }
     }
 

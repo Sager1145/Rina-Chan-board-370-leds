@@ -559,7 +559,7 @@ struct ConnectionView: View {
                 Text("关闭").tag("off")
                 Text("仅热点").tag("ap")
                 Text("家庭 Wi-Fi").tag("sta")
-                Text("家庭 Wi-Fi + 热点备用").tag("sta_or_ap")
+                Text("家庭 Wi-Fi（热点备用）").tag("sta_or_ap")
             }
             .disabled(!isConnected)
 

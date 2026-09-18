@@ -187,7 +187,7 @@ public final class ConnectionViewModel {
             // and the BLE scan response has a hard 31-byte payload.
             lastErrorMessage = String(
                 format: NSLocalizedString(
-                    "名称过长（%1$lld 字节，上限 %2$lld 字节，中文约 8 个字）",
+                    "名称过长（%1$lld 字节，上限 %2$lld 字节）",
                     comment: "board name UTF-8 byte limit"
                 ),
                 Int64(bytes),
@@ -385,7 +385,7 @@ public final class ConnectionViewModel {
             connection.expectedHotspotSSID = joinedSSID
             let connected = await connectTransport(target, HotspotJoiner.makeTransport())
             guard connected, connection.connectionState == .connected else {
-                let message = connection.lastError ?? NSLocalizedString("已加入板子热点，但未能连接璃奈板", comment: "direct AP control connection failed")
+                let message = connection.lastError ?? NSLocalizedString("已连接璃奈板热点，但未能建立控制连接", comment: "direct AP control connection failed")
                 directAPStage = .failed(message)
                 return
             }

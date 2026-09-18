@@ -160,7 +160,7 @@ struct DebugView: View {
             }
             .buttonStyle(.pill)
 
-            DisclosureGroup("本次 Debug 会话") {
+            DisclosureGroup("本次调试会话") {
                 LabeledContent("命令尝试", value: "\(vm.commandAttempts)")
                 LabeledContent("设备拒绝", value: "\(vm.commandRejected)")
                 LabeledContent("通信失败", value: "\(vm.commandFailures)")
@@ -309,13 +309,13 @@ struct DebugView: View {
         } footer: {
             Text("选择图案仅更新本机预览；发送、按键模拟和维护操作会直接控制面板。")
         }
-        .confirmationDialog("发送全亮图案？", isPresented: $confirmAllOn, titleVisibility: .visible) {
-            Button("发送全亮", role: .destructive) {
+        .confirmationDialog("发送全部点亮的图案？", isPresented: $confirmAllOn, titleVisibility: .visible) {
+            Button("发送全亮图案", role: .destructive) {
                 Task { await vm.sendPattern(.allOn, connection: connection) }
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("全亮会点亮全部 370 颗 LED，估算功耗可能超过 40 W。")
+            Text("此操作会点亮全部 370 颗 LED，估算功耗可能超过 40 W。")
         }
         .confirmationDialog("重置最低电压？", isPresented: $confirmResetMin, titleVisibility: .visible) {
             Button("重置", role: .destructive) { Task { await vm.runCommand(.resetBatteryMin, connection: connection) } }
@@ -395,13 +395,13 @@ struct DebugView: View {
     }
 
     private var packedFrameLab: some View {
-        DisclosureGroup("封包帧实验室") {
+        DisclosureGroup("帧数据测试") {
             TextEditor(text: $vm.packedLabText)
                 .frame(minHeight: 96)
                 .font(.system(.caption, design: .monospaced))
                 .overlay(alignment: .topLeading) {
                     if vm.packedLabText.isEmpty {
-                        Text("94 位十六进制 / 47 项整数 JSON 数组 / base64")
+                        Text("94 个十六进制字符 / 47 项整数 JSON 数组 / Base64")
                             .foregroundStyle(.tertiary)
                             .font(.caption)
                             .padding(8)
@@ -545,7 +545,7 @@ private struct RawCommandConsoleView: View {
                           systemImage: vm.rawCommandValid ? "checkmark.circle" : "xmark.circle")
                         .font(.caption)
                         .foregroundStyle(vm.rawCommandValid ? .green : .red)
-                    Toggle("我确认发送原始指令", isOn: $vm.rawCommandConfirmed)
+                    Toggle("我已检查内容，确认发送此指令", isOn: $vm.rawCommandConfirmed)
                     Button("发送原始指令") {
                         Task { await vm.sendRawCommand(connection: connection) }
                     }

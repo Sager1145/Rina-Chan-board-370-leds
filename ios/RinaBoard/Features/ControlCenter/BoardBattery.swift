@@ -46,7 +46,7 @@ struct BoardBatteryRow: View {
         let reading = connection.batteryReading
         let charging = connection.isBatteryCharging
         VStack(alignment: .leading, spacing: 6) {
-            LabeledContent("电量") {
+            LabeledContent("剩余电量") {
                 // Not a `Label`: inside a List row a Label gets the
                 // leading-icon layout, which sizes the wide battery glyph as a
                 // row icon and makes this row taller than its neighbours.
@@ -65,7 +65,7 @@ struct BoardBatteryRow: View {
             .labelsHidden()
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("电量")
+        .accessibilityLabel("剩余电量")
         .accessibilityValue(accessibilityValue(reading, charging: charging))
         .animation(.snappy, value: reading)
     }

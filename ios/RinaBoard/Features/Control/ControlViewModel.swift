@@ -199,7 +199,7 @@ final class ControlViewModel {
             draftStorageError = nil
         } catch {
             draftStorageError = String(
-                format: NSLocalizedString("草稿尚未保存到本机：%@", comment: "face draft persistence failed"),
+                format: NSLocalizedString("将草稿保存到本机失败：%@", comment: "face draft persistence failed"),
                 error.localizedDescription
             )
         }

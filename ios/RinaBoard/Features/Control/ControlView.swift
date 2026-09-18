@@ -295,7 +295,7 @@ struct ControlView: View {
                 }
 
                 Toggle(isOn: Bindable(model).brushOn) {
-                    CommandChip(model.brushOn ? "画亮" : "画灭",
+                    CommandChip(model.brushOn ? "绘制" : "擦除",
                                 systemImage: model.brushOn ? "lightbulb.fill" : "lightbulb.slash.fill")
                 }
                 .toggleStyle(.pill)

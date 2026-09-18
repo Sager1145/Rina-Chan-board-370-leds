@@ -242,9 +242,9 @@ struct VideoPlayerView: View {
 
     private var conversionSection: some View {
         Section {
-            Picker(NSLocalizedString("画面适配", comment: "video fit picker"), selection: setting(\.fit)) {
-                Text("填充").tag(VideoFrameQuantizer.Fit.fill)
-                Text("适应").tag(VideoFrameQuantizer.Fit.fit)
+            Picker(NSLocalizedString("画面缩放", comment: "video fit picker"), selection: setting(\.fit)) {
+                Text("填满画面").tag(VideoFrameQuantizer.Fit.fill)
+                Text("完整显示").tag(VideoFrameQuantizer.Fit.fit)
                 Text("拉伸").tag(VideoFrameQuantizer.Fit.stretch)
             }
             .pickerStyle(.menu)
