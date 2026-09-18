@@ -635,6 +635,16 @@ final class TextViewModel {
         }
     }
 
+    /// A group scroll taken back after reconnect (`adoptRunningScroll`) keeps
+    /// the boards' rate, so the speed control shows and remembers that rate.
+    /// Nothing is sent: only the group's re-anchor path may retune members.
+    func adoptGroupFps(_ fps: Int) {
+        // Counts as a speed edit so a draft still loading can't overwrite it.
+        speedEdits += 1
+        pendingFps = nil
+        requestedFps = Double(clampFps(Double(fps)))
+    }
+
     // MARK: Restore from the board (§26)
 
     func restoreOnConnect(connection: BoardConnection) async {
@@ -645,6 +655,9 @@ final class TextViewModel {
               outputSession == connection.output.session, !isUploading,
               meta.uploadComplete == true,
               meta.firmwareScrollActive == true,
+              // A group-timed scroll belongs to BoardGroupCoordinator; the
+              // single-board path must not bind or claim `.text` on it.
+              meta.groupTimed != true,
               let frameCount = meta.frameCount, frameCount > 0,
               let sourceText = meta.sourceText, !sourceText.isEmpty,
               meta.fontId == ScrollRasterizer.fontId,
@@ -814,7 +827,7 @@ final class TextViewModel {
         boardPaused = renderer.firmwareScrollPaused == true
         if let loop = renderer.scrollLoop { loopPlayback = loop }
         if let connection, boundTimelineId == nil, frameCount == 0, !isUploading,
-           renderer.firmwareScrollActive == true {
+           renderer.firmwareScrollActive == true, renderer.groupTimed != true {
             scheduleRestoreRetryIfNeeded(connection: connection)
         }
         guard boundTimelineId != nil, !isUploading, localPhase == nil else { return }

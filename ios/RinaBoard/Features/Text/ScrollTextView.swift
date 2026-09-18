@@ -228,7 +228,10 @@ struct ScrollTextView: View {
         let driving = groupCoordinator.activeGroupID == group.id
             && (groupCoordinator.isPlaying || groupCoordinator.isPaused)
         if driving { return true }
-        return await groupCoordinator.adoptRunningScroll(group: group)
+        guard await groupCoordinator.adoptRunningScroll(group: group) else { return false }
+        // The speed follows the boards, as on a single-board reconnect.
+        if let fps = groupCoordinator.activeFps { model.adoptGroupFps(fps) }
+        return true
     }
 
     /// Item 2 (BOARD_GROUP_SPEC.md §3 addendum): applies a speed/loop change

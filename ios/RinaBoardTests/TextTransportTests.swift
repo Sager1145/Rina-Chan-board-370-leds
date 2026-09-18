@@ -659,6 +659,42 @@ final class TextTransportTests: XCTestCase {
                        "The transport controls still bind to the scroll already running on the board")
     }
 
+    /// A group-timed scroll is BoardGroupCoordinator's: binding it here would
+    /// claim `.text` on the primary and block the group from rejoining it.
+    func testReconnectLeavesGroupTimedScrollToGroupCoordinator() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let boardText = "Group scroll"
+        let expected = try makeTimeline(text: boardText, fps: 30)
+        var meta = restoreMeta(text: boardText, timelineId: "group-timed", timeline: expected, fps: 30)
+        meta.groupTimed = true
+        transport.scrollMeta = meta
+        transport.previewSync = restorePreview(
+            timelineId: "group-timed", timeline: expected, frameIndex: 2, fps: 30
+        )
+        let model = TextViewModel()
+        model.requestedFps = 12
+
+        await model.restoreOnConnect(connection: connection)
+        model.suspendPreviewLoop()
+
+        XCTAssertNil(model.boundTimelineId)
+        XCTAssertNil(connection.output.source)
+        XCTAssertEqual(model.requestedFps, 12)
+    }
+
+    func testAdoptGroupFpsFollowsBoardsWithoutSending() async throws {
+        let (_, transport) = try await connectedBoard()
+        let sentBefore = transport.requests.count
+        let model = TextViewModel()
+        model.requestedFps = 10
+
+        model.adoptGroupFps(30)
+        XCTAssertEqual(model.requestedFps, 30)
+        model.adoptGroupFps(10_000)
+        XCTAssertEqual(model.requestedFps, Double(RinaLinkConstants.scrollFpsMax))
+        XCTAssertEqual(transport.requests.count, sentBefore)
+    }
+
     func testReconnectRestoresAlreadySentDraftWithoutConflict() async throws {
         let (connection, transport) = try await connectedBoard()
         let boardText = "Previously sent text"
