@@ -14,6 +14,11 @@ struct TextPlaybackControls: View {
     var boardHasScroll: Bool
     var isPaused: Bool
     var isUploading: Bool
+    /// N6: determinate upload fraction (0...1), when known, shown as a small
+    /// circular ring inside the send pill instead of the indeterminate
+    /// spinner. `nil` while uploading falls back to the indeterminate
+    /// spinner; ignored while `isUploading` is false.
+    var uploadProgress: Double?
     var isGeneratingFont: Bool
     var canSend: Bool
     @Binding var loopPlayback: Bool
@@ -66,8 +71,17 @@ struct TextPlaybackControls: View {
             Button(action: onSend) {
                 Group {
                     if isUploading {
-                        ProgressView()
-                            .controlSize(.mini)
+                        // N6: a determinate ring when we know how far along
+                        // the upload is, so there's no separate progress row
+                        // in either single-board or group mode.
+                        if let uploadProgress {
+                            ProgressView(value: uploadProgress)
+                                .progressViewStyle(.circular)
+                                .controlSize(.mini)
+                        } else {
+                            ProgressView()
+                                .controlSize(.mini)
+                        }
                     } else {
                         Image(systemName: isGeneratingFont ? "hourglass" : "play.circle.fill")
                     }

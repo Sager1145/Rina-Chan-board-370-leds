@@ -169,6 +169,7 @@ struct ScrollTextView: View {
                 boardHasScroll: false,
                 isPaused: paused,
                 isUploading: starting,
+                uploadProgress: starting ? groupCoordinator.uploadProgress(for: group) : nil,
                 isGeneratingFont: false,
                 canSend: !model.exceedsByteLimit && !model.text.isEmpty,
                 loopPlayback: Binding(
@@ -219,6 +220,7 @@ struct ScrollTextView: View {
                 boardHasScroll: model.boardHasScroll(connection: connection),
                 isPaused: model.boardPaused,
                 isUploading: model.isUploading,
+                uploadProgress: model.isUploading ? model.uploadProgress : nil,
                 isGeneratingFont: model.isGeneratingFont,
                 canSend: !model.exceedsByteLimit,
                 loopPlayback: Binding(
