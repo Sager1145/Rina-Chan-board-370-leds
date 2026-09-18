@@ -978,6 +978,12 @@ public enum BoardCapability: String, Sendable, CaseIterable {
     case clockSample = "clock_sample"
     case scrollViewport = "scroll_viewport"
     case groupStart = "group_start"
+    /// Firmware `group_start` accepts `intervalMs` down to 17 (60 fps)
+    /// instead of the legacy 20 ms (50 fps) floor. Optional — NOT required
+    /// for baseline board-group support, so callers that gate "can this
+    /// board join a group at all" (e.g. `BoardGroupCoordinator.hasAllCaps`)
+    /// must not include it in that set.
+    case group60Fps = "group_60fps"
 }
 
 // MARK: - `EV_LOG` (0x94) — `{"level":"I","tag":"…","msg":"…"}`, docs §3.5

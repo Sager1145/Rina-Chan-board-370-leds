@@ -972,7 +972,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     // MARK: - 4.1 firmware intervalMs floor
 
     /// 4.1: firmware `group_start` rejects `intervalMs < 20`. `play()` must
-    /// clamp any fps above `RinaLinkConstants.groupScrollFpsMax` (50) down to
+    /// clamp any fps above `RinaLinkConstants.groupScrollFpsMaxLegacy` (50) down to
     /// the 20 ms floor instead of passing `ScrollRasterizer.intervalMs(forFps:)`
     /// straight through.
     func testPlayAt60FpsClampsIntervalMsToFirmwareMinimum() async throws {
@@ -991,8 +991,8 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
         try await coordinator.play(group: store.groups[0], text: "快", fps: 60, loop: true)
 
-        XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, RinaLinkConstants.groupStartIntervalMsMin)
-        XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, RinaLinkConstants.groupStartIntervalMsMin)
+        XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, RinaLinkConstants.groupStartIntervalMsMinLegacy)
+        XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, RinaLinkConstants.groupStartIntervalMsMinLegacy)
     }
 
     /// Same floor, via `updatePlayback` (the live fps-change path).
@@ -1014,8 +1014,103 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
         await coordinator.updatePlayback(group: store.groups[0], fps: 60, loop: nil)
 
-        XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, RinaLinkConstants.groupStartIntervalMsMin)
-        XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, RinaLinkConstants.groupStartIntervalMsMin)
+        XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, RinaLinkConstants.groupStartIntervalMsMinLegacy)
+        XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, RinaLinkConstants.groupStartIntervalMsMinLegacy)
+    }
+
+    /// `group_60fps` firmware accepts 17 ms, so a group whose every member
+    /// advertises it plays and updates at a real 60 fps.
+    func testGroup60FpsCapableBoardsGet17Ms() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        transportA.caps.append("group_60fps")
+        transportB.caps.append("group_60fps")
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "真六十帧组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+        XCTAssertEqual(coordinator.maxFps(for: store.groups[0]), 60)
+
+        try await coordinator.play(group: store.groups[0], text: "快", fps: 60, loop: true)
+        XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, 17)
+        XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, 17)
+
+        await coordinator.updatePlayback(group: store.groups[0], fps: 30, loop: nil)
+        await coordinator.updatePlayback(group: store.groups[0], fps: 60, loop: nil)
+        XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, 17)
+        XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, 17)
+    }
+
+    /// One legacy member holds the whole group to the 20 ms / 50 fps floor.
+    func testGroupWithOneLegacyBoardStaysAt20Ms() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        transportA.caps.append("group_60fps")
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "混合固件组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+        XCTAssertEqual(coordinator.maxFps(for: store.groups[0]), 50)
+
+        try await coordinator.play(group: store.groups[0], text: "快", fps: 60, loop: true)
+        XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, 20)
+        XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, 20)
+    }
+
+    /// Starting group two stops group one's boards that group two doesn't
+    /// use, and leaves the shared board to group two.
+    func testPlayingAnotherGroupStopsThePreviousGroupsOtherBoards() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let transportC = GroupFakeTransport()
+        let transportD = GroupFakeTransport()
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let sessionC = await connectedSession(sessions: sessions, identity: "C", transport: transportC)
+        let sessionD = await connectedSession(sessions: sessions, identity: "D", transport: transportD)
+
+        let group1 = store.create(name: "组一")
+        for id in ["A", "B", "C"] {
+            try store.addMember(groupID: group1.id, member: .init(physicalBoardID: id, displayName: id))
+        }
+        let group2 = store.create(name: "组二")
+        for id in ["A", "D"] {
+            try store.addMember(groupID: group2.id, member: .init(physicalBoardID: id, displayName: id))
+        }
+
+        try await coordinator.play(group: store.groups.first { $0.id == group1.id }!, text: "组一", fps: 10, loop: true)
+        try await coordinator.play(group: store.groups.first { $0.id == group2.id }!, text: "组二", fps: 10, loop: true)
+        // The cleanup runs beside the new upload; give it a moment to land.
+        for _ in 0..<50 where !(transportB.receivedStopScroll && transportC.receivedStopScroll) {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertTrue(transportB.receivedStopScroll)
+        XCTAssertTrue(transportC.receivedStopScroll)
+        XCTAssertNotEqual(sessionB.connection.output.source, .group)
+        XCTAssertNotEqual(sessionC.connection.output.source, .group)
+        XCTAssertFalse(transportA.receivedStopScroll, "A moved to group two and must not be stopped")
+        XCTAssertFalse(transportD.receivedStopScroll)
+        XCTAssertEqual(sessionA.connection.output.source, .group)
+        XCTAssertEqual(sessionD.connection.output.source, .group)
+        XCTAssertEqual(coordinator.activeGroupID, group2.id)
+        XCTAssertTrue(coordinator.isPlaying)
     }
 
     /// 4.1 hardening: if every participant's `group_start` reply comes back

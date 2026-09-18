@@ -62,23 +62,23 @@ struct BoardGroupPlayView: View {
 
             Section("速度") {
                 LabeledContent("速度") {
-                    Text("\(Int(fps)) fps")
+                    Text("\(min(Int(fps), coordinator.maxFps(for: group))) fps")
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
                 Slider(
                     value: Binding(
-                        get: { fps },
+                        get: { min(fps, Double(coordinator.maxFps(for: group))) },
                         set: { newValue in
                             fps = newValue
                             if isPlayingOrPaused(group) { scheduleUpdate(group: group) }
                         }
                     ),
-                    in: Double(RinaLinkConstants.scrollFpsMin)...Double(RinaLinkConstants.groupScrollFpsMax),
+                    in: Double(RinaLinkConstants.scrollFpsMin)...Double(coordinator.maxFps(for: group)),
                     step: 1
                 )
                 .accessibilityLabel("速度")
-                .accessibilityValue(Text("\(Int(fps)) fps"))
+                .accessibilityValue(Text("\(min(Int(fps), coordinator.maxFps(for: group))) fps"))
                 Toggle("循环", isOn: Binding(
                     get: { loop },
                     set: { newValue in
@@ -177,7 +177,7 @@ struct BoardGroupPlayView: View {
     /// within the 250 ms debounce window cancels the pending speed change.
     private func scheduleUpdate(group: BoardGroup) {
         playbackUpdateTask?.cancel()
-        let sendFps = min(Int(fps), RinaLinkConstants.groupScrollFpsMax)
+        let sendFps = min(Int(fps), coordinator.maxFps(for: group))
         let sendLoop = loop
         playbackUpdateTask = Task {
             try? await Task.sleep(nanoseconds: 250_000_000)
@@ -226,7 +226,7 @@ struct BoardGroupPlayView: View {
         defer { isSending = false }
         do {
             try await coordinator.play(
-                group: group, text: text, fps: min(Int(fps), RinaLinkConstants.groupScrollFpsMax), loop: loop
+                group: group, text: text, fps: min(Int(fps), coordinator.maxFps(for: group)), loop: loop
             )
         } catch {
             errorMessage = error.localizedDescription

@@ -236,8 +236,15 @@ public final class BoardGroupCoordinator {
         return .connected
     }
 
+    /// The four caps every board-group feature requires. `.group60Fps` is
+    /// deliberately excluded — it's an optional speed upgrade
+    /// (`maxFps(for:)`/`groupIntervalMs(forFps:)`), not a baseline
+    /// requirement, so a board that lacks it must still read `.connected`/
+    /// join a group, just capped at the legacy 50 fps.
+    private static let requiredCaps: [BoardCapability] = [.identify, .clockSample, .scrollViewport, .groupStart]
+
     private func hasAllCaps(_ connection: BoardConnection) -> Bool {
-        BoardCapability.allCases.allSatisfy(connection.supports)
+        Self.requiredCaps.allSatisfy(connection.supports)
     }
 
     /// `true` iff `session`'s output lease is currently held by a group
@@ -306,12 +313,32 @@ public final class BoardGroupCoordinator {
     // MARK: - Play
 
     /// 4.1: firmware `group_start` rejects `intervalMs < 20`
-    /// (`RinaLinkConstants.groupStartIntervalMsMin`) — every `group_start`
-    /// this coordinator ever sends (`play()`, `updatePlayback()`) must clamp
-    /// to that floor rather than pass through whatever
-    /// `ScrollRasterizer.intervalMs(forFps:)` computes for a >50fps request.
-    private func groupIntervalMs(forFps fps: Int) -> Int {
-        max(RinaLinkConstants.groupStartIntervalMsMin, ScrollRasterizer.intervalMs(forFps: fps))
+    /// (`RinaLinkConstants.groupStartIntervalMsMinLegacy`) — every
+    /// `group_start` this coordinator ever sends (`play()`,
+    /// `updatePlayback()`) must clamp to that floor rather than pass through
+    /// whatever `ScrollRasterizer.intervalMs(forFps:)` computes for a
+    /// >50fps request. `capable` lifts the floor to `intervalMinMs` (17,
+    /// 60 fps) — the caller must pass `true` only when EVERY board this
+    /// specific command is about to reach (not the group's full, possibly-
+    /// offline membership) advertises `group_60fps` (BOARD_GROUP_SPEC §1.1).
+    private func groupIntervalMs(forFps fps: Int, capable: Bool) -> Int {
+        let floor = capable ? RinaLinkConstants.intervalMinMs : RinaLinkConstants.groupStartIntervalMsMinLegacy
+        return max(floor, ScrollRasterizer.intervalMs(forFps: fps))
+    }
+
+    /// The fastest fps `group`'s currently-connected members support in
+    /// concert: 60 if every connected member advertises `group_60fps`,
+    /// else the legacy 50 fps cap. A group with no members connected yet
+    /// reads 60 (display-only default; the actual floor used by
+    /// `play()`/`updatePlayback()` is always recomputed from the boards
+    /// really being sent to, never from this display value).
+    public func maxFps(for group: BoardGroup) -> Int {
+        let connected = group.members.compactMap { session(for: $0) }
+            .filter { $0.connection.connectionState == .connected }
+        guard !connected.isEmpty else { return RinaLinkConstants.scrollFpsMax }
+        return connected.allSatisfy { $0.connection.supports(.group60Fps) }
+            ? RinaLinkConstants.scrollFpsMax
+            : RinaLinkConstants.groupScrollFpsMaxLegacy
     }
 
     /// Builds one group bitmap, uploads it to every member concurrently,
@@ -383,6 +410,15 @@ public final class BoardGroupCoordinator {
         }
         guard preflightStillValid() else { throw GroupPlayError.aborted }
 
+        // Part B: whatever the previous attempt/active group was doing —
+        // playing, paused, or itself mid-`play()` — snapshot the boards it
+        // was driving (`claimedBoardIDs` covers a still-`isStarting` attempt
+        // too, `participants` covers a fully joined one) before any of that
+        // gets torn down below. Diffed against this new group's own
+        // membership once its own claim lands (below), and stopped
+        // concurrently with the new upload (`stopBoardsNotInNewGroup`).
+        let previouslyClaimedIDs = claimedBoardIDs.union(participants.keys)
+
         // B4: a fresh play supersedes whatever the previous one was doing.
         // No `stop_scroll` here — the upload below replaces the timeline on
         // every board it reaches — but the old re-anchor loop, participant
@@ -418,6 +454,19 @@ public final class BoardGroupCoordinator {
             tokens[captured.member.physicalBoardID] = captured.session.connection.output.claim(.group)
         }
         claimedBoardIDs = Set(tokens.keys)
+
+        // Part B: starting this group must stop any board a previous group
+        // was driving that isn't a member of THIS one — run concurrently
+        // (unstructured Task, never awaited here) so it can never delay this
+        // group's own upload/start. `stopBoardsNotInNewGroup` re-checks
+        // `claimedBoardIDs` itself (which is already this new group's own
+        // set as of the line above) before touching anything, so a board a
+        // later `play()` claims while this cleanup is still in flight is
+        // never stepped on.
+        let boardsToStop = previouslyClaimedIDs.subtracting(claimedBoardIDs)
+        if !boardsToStop.isEmpty {
+            Task { [weak self] in await self?.stopBoardsNotInNewGroup(boardsToStop) }
+        }
 
         func stillValid() -> Bool {
             guard playEpoch == capturedEpoch else { return false }
@@ -497,7 +546,8 @@ public final class BoardGroupCoordinator {
 
             let worstRtt = online.compactMap { estimators[$0.member.physicalBoardID]?.bestRttUs }.max() ?? 0
             let phoneStart = nowUs() + max(400_000, 3 * worstRtt)
-            let intervalMs = groupIntervalMs(forFps: fps)
+            let capable60 = online.allSatisfy { $0.session.connection.supports(.group60Fps) }
+            let intervalMs = groupIntervalMs(forFps: fps, capable: capable60)
             var bootIds: [String: String] = [:]
             var ests: [String: ClockOffsetEstimator] = [:]
             for captured in online {
@@ -641,6 +691,34 @@ public final class BoardGroupCoordinator {
         claimedBoardIDs.removeAll()
     }
 
+    /// Part B: stops every board in `boardIDs` that a previous group left
+    /// running/claimed and that this new group's own `play()` didn't just
+    /// claim for itself — called as a fire-and-forget `Task` from `play()`
+    /// right after it claims its own `claimedBoardIDs`, so it runs
+    /// concurrently with (never delays) the new group's upload. Same
+    /// cross-group-stop shape as `stop()`/`abortStartedBoards`: only acts on
+    /// a board still actually owned by a group (`output.source == .group`)
+    /// — never one a single-board action already took over — and rechecks
+    /// `claimedBoardIDs` (this coordinator's single running total, already
+    /// overwritten to the new group's own set by the time this task starts)
+    /// both before claiming and before invalidating, so a later `play()`
+    /// that re-claims one of these same boards while this cleanup is still
+    /// in flight is never stepped on.
+    private func stopBoardsNotInNewGroup(_ boardIDs: Set<String>) async {
+        for id in boardIDs {
+            guard !claimedBoardIDs.contains(id) else { continue }
+            guard let session = sessions.session(matchingGroupMember: id),
+                  session.connection.output.source == .group else { continue }
+            let token = session.connection.output.claim(.group)
+            _ = try? await session.connection.withOutput(token) {
+                _ = try? await session.connection.requestReliable(.stopScroll(restoreAuto: nil, clear: nil))
+            }
+            guard !claimedBoardIDs.contains(id) else { continue }
+            session.connection.output.invalidate(ifCurrent: token)
+            memberStatus.removeValue(forKey: id)
+        }
+    }
+
     private func viewportX(for slot: Int, mode: BoardGroup.Mode, layout: StitchedScreenLayout) -> Int {
         // Mirror mode: every board shows the same V=22 viewport at X=0.
         mode == .mirror ? 0 : layout.viewportX(slot: slot)
@@ -773,6 +851,18 @@ public final class BoardGroupCoordinator {
         guard let playState, let anchor = currentAnchor,
               let slot = playState.memberOrder.firstIndex(where: { $0.physicalBoardID == id }) else { return }
 
+        // A legacy board (no `group_60fps`) rejoining a group already
+        // running at a 60fps-only anchor (< 20ms) can't be sent that
+        // `group_start` at all — firmware would reject it. Simpler-and-
+        // correct choice over re-anchoring every other, already-synced
+        // participant down to 20ms just to fit one latecomer: leave this
+        // board out until it either reconnects with capable firmware or the
+        // whole group is restarted at a rate everyone can join.
+        if anchor.intervalMs < RinaLinkConstants.groupStartIntervalMsMinLegacy, !session.connection.supports(.group60Fps) {
+            memberStatus[id] = .error("固件不支持 60 fps")
+            return
+        }
+
         memberStatus[id] = .error("需要重新上传")
         let viewportX = viewportX(for: slot, mode: playState.mode, layout: playState.layout)
         let token = session.connection.output.claim(.group)
@@ -868,7 +958,15 @@ public final class BoardGroupCoordinator {
         guard let liveGroup = store.groups.first(where: { $0.id == group.id }),
               liveGroup.layoutRevision == revision else { return }
 
-        let newIntervalMs = fps.map { groupIntervalMs(forFps: $0) } ?? anchor.intervalMs
+        // C1: same live-participant pruning `reanchor` uses — never touches
+        // a board that isn't still exactly the one this group started with.
+        // Run up front (even on the paused path below, which sends nothing
+        // yet) so the 60fps-capability check just below reflects the boards
+        // this update actually targets, not a stale/offline membership list.
+        pruneParticipants()
+        guard !participants.isEmpty else { return }
+        let capable = participants.values.allSatisfy { $0.session.connection.supports(.group60Fps) }
+        let newIntervalMs = fps.map { groupIntervalMs(forFps: $0, capable: capable) } ?? anchor.intervalMs
         let newLoop = loop ?? anchor.loop
 
         // Paused: no live re-anchor to send — just remember the new
@@ -879,11 +977,6 @@ public final class BoardGroupCoordinator {
         }
 
         let gen = controlGeneration // B1: captured before any await below
-
-        // C1: same live-participant pruning `reanchor` uses — never touches
-        // a board that isn't still exactly the one this group started with.
-        pruneParticipants()
-        guard !participants.isEmpty else { return }
 
         // 4.7: sample every live participant's clock in parallel (boards
         // never wait on each other's round trips), and only *after* every

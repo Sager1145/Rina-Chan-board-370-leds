@@ -203,7 +203,7 @@ struct ScrollTextView: View {
     /// within the 250 ms debounce window cancels the pending speed change.
     private func scheduleGroupPlaybackUpdate(group: BoardGroup) {
         groupPlaybackUpdateTask?.cancel()
-        let sendFps = min(Int(model.requestedFps), RinaLinkConstants.groupScrollFpsMax)
+        let sendFps = min(Int(model.requestedFps), groupCoordinator.maxFps(for: group))
         let sendLoop = model.loopPlayback
         groupPlaybackUpdateTask = Task {
             try? await Task.sleep(nanoseconds: 250_000_000)
@@ -273,7 +273,7 @@ struct ScrollTextView: View {
             try await groupCoordinator.play(
                 group: group,
                 text: model.text,
-                fps: min(Int(model.requestedFps), RinaLinkConstants.groupScrollFpsMax),
+                fps: min(Int(model.requestedFps), groupCoordinator.maxFps(for: group)),
                 loop: model.loopPlayback
             )
         } catch {
@@ -384,13 +384,15 @@ struct ScrollTextView: View {
 
     // MARK: §27 Speed
 
-    /// Group playback can't exceed the firmware's 20 ms `group_start` floor,
-    /// so a faster rate adopted from a single board shows as the rate the
-    /// group will actually send.
+    /// Group playback can't exceed its members' `group_start` floor — 60 fps
+    /// (17 ms) if every connected member advertises `group_60fps`, else the
+    /// legacy 50 fps (20 ms) — so a faster rate adopted from a single board
+    /// shows as the rate the group will actually send.
     private var displayedFps: Double {
-        targetedGroup != nil
-            ? min(model.requestedFps, Double(RinaLinkConstants.groupScrollFpsMax))
-            : model.requestedFps
+        if let group = targetedGroup {
+            return min(model.requestedFps, Double(groupCoordinator.maxFps(for: group)))
+        }
+        return model.requestedFps
     }
 
     private var speedSection: some View {
@@ -427,9 +429,8 @@ struct ScrollTextView: View {
                         }
                     ),
                     in: Double(RinaLinkConstants.scrollFpsMin)...(
-                        targetedGroup != nil
-                            ? Double(RinaLinkConstants.groupScrollFpsMax)
-                            : Double(RinaLinkConstants.scrollFpsMax)
+                        targetedGroup.map { Double(groupCoordinator.maxFps(for: $0)) }
+                            ?? Double(RinaLinkConstants.scrollFpsMax)
                     ),
                     step: 1
                 )
