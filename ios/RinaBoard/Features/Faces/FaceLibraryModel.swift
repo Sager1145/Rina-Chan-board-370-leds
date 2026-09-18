@@ -116,6 +116,28 @@ final class FaceLibraryModel {
         !isProtected(face) && face.deletable != false
     }
 
+    /// Board-group control fan-out helper (`GroupControlFanOut`): resolves a
+    /// group control primary's `apply_saved_face`/B1/B2 reply to the actual
+    /// frame it applied, purely from this model's already-cached board face
+    /// list — never a network round trip (face libraries aren't synced
+    /// across group members, so a sink must receive the resolved bitmap, not
+    /// the primary's face id/index). Returns nil (falls back to replaying
+    /// the command verbatim) unless `generation` still matches the cache
+    /// this model loaded for the primary (`boardGeneration`), since a stale
+    /// cache could resolve to the wrong board's face. Prefers `id`
+    /// (`CommandReply.autoFaceId`) over `index` (`autoFaceIndex`) since ids
+    /// are stable across reorders.
+    func boardFaceFrame(id: String?, index: Int?, generation: UUID) -> PackedFrame? {
+        guard boardGeneration == generation else { return nil }
+        if let id, let face = cachedBoardSortedFaces.first(where: { $0.id == id }) {
+            return PackedFrame(bytes: face.frameBytes.map(UInt8.init))
+        }
+        if let index, cachedBoardSortedFaces.indices.contains(index) {
+            return PackedFrame(bytes: cachedBoardSortedFaces[index].frameBytes.map(UInt8.init))
+        }
+        return nil
+    }
+
     // MARK: Loading and connection identity
 
     func loadLocalIfNeeded(bundle: Bundle = .main) async {
