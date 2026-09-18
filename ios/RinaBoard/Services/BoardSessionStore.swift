@@ -10,15 +10,23 @@ public final class BoardSession: Identifiable {
     public fileprivate(set) var boardID: String?
     public var name: String
     public let connection = BoardConnection()
-    public let bleTransport = BLETransport()
+    /// Built by the store's factory rather than constructed here, because
+    /// `BLETransport.init` opens a `CBCentralManager` immediately: a session
+    /// that hardcoded it would power the radio even in a virtual run.
+    public let bleTransport: any BLEConnecting
 
     /// A board can be reached by its BLE UUID, a Bonjour identity, and a Wi-Fi
     /// host over its lifetime. Keep every observed spelling for lookup.
     @ObservationIgnored fileprivate var aliases: Set<String> = []
 
-    fileprivate init(boardID: String? = nil, name: String = "璃奈板") {
+    fileprivate init(
+        boardID: String? = nil,
+        name: String = "璃奈板",
+        makeBLETransport: @MainActor () -> any BLEConnecting
+    ) {
         self.boardID = boardID
         self.name = name
+        self.bleTransport = makeBLETransport()
         if let boardID { aliases.insert(boardID) }
     }
 
@@ -50,19 +58,36 @@ public final class BoardSession: Identifiable {
     }
 }
 
-/// Keeps independent board sessions while retaining one BLE scanner for
-/// discovery. The scanner deliberately is not any session's connecting BLE
-/// transport, because CoreBluetooth scanning is shared across boards.
+/// Keeps independent board sessions while retaining one scanner for discovery.
+/// The scanner deliberately is not any session's connecting BLE transport,
+/// because CoreBluetooth scanning is shared across boards.
+///
+/// `scanner` and `makeBLETransport` are protocol-typed rather than
+/// `BLETransport` so a caller can supply BLE stand-ins that never touch
+/// CoreBluetooth. Both defaults construct a real `BLETransport`, which opens a
+/// `CBCentralManager` in its initializer — overriding *both* is what keeps the
+/// radio out of a virtual run.
 @Observable
 @MainActor
 public final class BoardSessionStore {
     public private(set) var sessions: [BoardSession] = []
     public private(set) var active: BoardSession
-    public let scanner: BLETransport
+    public let scanner: any BoardScanning
+    /// One carrier per session, so connecting one board never replaces another
+    /// board's link.
+    @ObservationIgnored private let makeBLETransport: @MainActor () -> any BLEConnecting
 
-    public init(scanner: BLETransport? = nil) {
+    /// The defaults are resolved in the body rather than as default arguments,
+    /// because a default argument is evaluated in a nonisolated context and
+    /// `BLETransport.init` is main-actor isolated.
+    public init(
+        scanner: (any BoardScanning)? = nil,
+        makeBLETransport: (@MainActor () -> any BLEConnecting)? = nil
+    ) {
+        let make: @MainActor () -> any BLEConnecting = makeBLETransport ?? { BLETransport() }
+        self.makeBLETransport = make
         self.scanner = scanner ?? BLETransport()
-        self.active = BoardSession()
+        self.active = BoardSession(makeBLETransport: make)
     }
 
     /// Finds a session by its persisted or currently connected identity, or
@@ -82,7 +107,7 @@ public final class BoardSessionStore {
             return active
         }
 
-        let session = BoardSession(boardID: id, name: name)
+        let session = BoardSession(boardID: id, name: name, makeBLETransport: makeBLETransport)
         sessions.append(session)
         return session
     }
@@ -128,7 +153,7 @@ public final class BoardSessionStore {
         if let retained = sessions.first {
             select(retained)
         } else {
-            let placeholder = BoardSession()
+            let placeholder = BoardSession(makeBLETransport: makeBLETransport)
             // `select` deliberately invalidates the removed output again; it
             // is harmless and keeps the selection transition consistent.
             select(placeholder)

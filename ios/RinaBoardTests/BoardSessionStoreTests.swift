@@ -431,6 +431,74 @@ final class BoardSessionStoreTests: XCTestCase {
         XCTAssertEqual(second.connection.connectionState, .connected)
         XCTAssertEqual(secondTransport.disconnectCount, 0)
     }
+
+    /// The store's scanner is `any BoardScanning`, so discovery can be served by
+    /// something that never opens a `CBCentralManager`. This covers the scanner
+    /// only; the per-session carrier keeps its default here, see the next test.
+    func testInjectedScannerServesDiscoveryInsteadOfCoreBluetooth() {
+        let stub = StubScanner()
+        let store = BoardSessionStore(scanner: stub)
+        let model = ConnectionViewModel()
+
+        XCTAssertTrue(store.scanner === stub)
+        XCTAssertFalse(store.scanner is BLETransport)
+
+        model.toggleBLEScan(ble: store.scanner)
+        XCTAssertEqual(stub.startCount, 1)
+        XCTAssertTrue(store.scanner.isScanning)
+
+        model.toggleBLEScan(ble: store.scanner)
+        XCTAssertEqual(stub.stopCount, 1)
+        XCTAssertFalse(store.scanner.isScanning)
+    }
+
+    /// P0's actual bar: with both BLE seams supplied, nothing in the store
+    /// constructs a `BLETransport`, whose initializer opens a
+    /// `CBCentralManager`. Covers all three `BoardSession` construction sites —
+    /// the initial session, `session(for:name:)`, and `remove`'s placeholder.
+    func testInjectedBLESeamsKeepEveryBoardSessionOffCoreBluetooth() {
+        let store = BoardSessionStore(scanner: StubScanner(), makeBLETransport: { StubBLECarrier() })
+        let first = store.session(for: "board-a", name: "A")
+        let second = store.session(for: "board-b", name: "B")
+
+        XCTAssertFalse(store.scanner is BLETransport)
+        for session in [first, second] {
+            XCTAssertFalse(session.bleTransport is BLETransport,
+                           "Session \(session.name) built a real BLETransport")
+        }
+
+        store.remove(id: "board-a")
+        store.remove(id: "board-b")
+        XCTAssertTrue(store.sessions.isEmpty)
+        XCTAssertFalse(store.active.bleTransport is BLETransport,
+                       "The replacement placeholder session built a real BLETransport")
+    }
+}
+
+/// A BLE carrier that never opens CoreBluetooth. Answers the discovery half
+/// emptily, which is honest: it has no radio to find anything with.
+@MainActor
+private final class StubBLECarrier: BLEConnecting {
+    let kind: TransportKind = .bluetooth
+    let preferredChunkBytes = 180
+    var peripheralIdentifier: UUID?
+    private(set) var connectingPeripheralID: UUID?
+    private(set) var connectedPeripheralID: UUID?
+    private(set) var connectedPeripheralName: String?
+    private(set) var connectedRSSI: Int?
+    private(set) var discoveredPeripherals: [DiscoveredPeripheral] = []
+    private(set) var isScanning = false
+    private(set) var scanDidTimeOut = false
+    var lastError: String?
+
+    func updateConnectedPeripheralName(_ name: String) { connectedPeripheralName = name }
+    func startScan() { isScanning = true }
+    func stopScan() { isScanning = false }
+    func stateStream() -> AsyncStream<TransportState> { AsyncStream { _ in } }
+    func incomingStream() -> AsyncStream<Data> { AsyncStream { _ in } }
+    func connect() async throws {}
+    func disconnect() {}
+    func send(_ data: Data) async throws {}
 }
 
 @MainActor
@@ -485,5 +553,27 @@ private final class SessionTransport: RinaTransport {
 
     func fail(_ message: String) {
         stateContinuation?.yield(.failed(message))
+    }
+}
+
+/// A scanner that never touches CoreBluetooth, used to prove `BoardSessionStore`
+/// routes discovery through the injected instance rather than its own default.
+@MainActor
+private final class StubScanner: BoardScanning {
+    private(set) var discoveredPeripherals: [DiscoveredPeripheral] = []
+    private(set) var isScanning = false
+    private(set) var scanDidTimeOut = false
+    var lastError: String?
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+
+    func startScan() {
+        startCount += 1
+        isScanning = true
+    }
+
+    func stopScan() {
+        stopCount += 1
+        isScanning = false
     }
 }

@@ -19,7 +19,6 @@ struct BoardControlCenterView: View {
     @Environment(BoardControlCenterModel.self) private var model
     @Environment(FaceLibraryModel.self) private var faceLibrary
     @Environment(BoardStore.self) private var boardStore
-    @Environment(BLETransport.self) private var bleTransport
     @Environment(BoardSessionStore.self) private var sessions
     @State private var boardSwitcher: ConnectionViewModel?
 
@@ -39,6 +38,11 @@ struct BoardControlCenterView: View {
     @State private var controlTicks = 0
 
     private var isConnected: Bool { connection.connectionState == .connected }
+
+    /// Read through the store rather than injected: `any BLEConnecting` cannot
+    /// go in the environment (`@Environment(T.self)` needs a concrete
+    /// observable type).
+    private var bleTransport: any BLEConnecting { sessions.active.bleTransport }
 
     var body: some View {
         if isEmbedded {
