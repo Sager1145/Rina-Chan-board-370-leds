@@ -31,6 +31,12 @@ public final class BoardConnection {
     // MARK: Published state
 
     public let output = BoardPlaybackCoordinator()
+    /// Set by `GroupControlFanOut` on exactly one connection at a time — the
+    /// board group's current control primary — so its `command(_:)`/
+    /// `setFrame(_:...)` calls can mirror to the group's other members. Never
+    /// awaited from the primary's own send path (mirroring is fire-and-forget
+    /// from the primary's perspective).
+    @ObservationIgnored public weak var fanOut: GroupControlFanOut?
     public private(set) var connectionGeneration = UUID()
     public private(set) var connectionState: BoardConnectionState = .disconnected {
         didSet {
@@ -48,7 +54,18 @@ public final class BoardConnection {
     /// `get_info.defaultName`), fixed when the handshake completes. Unlike a
     /// name or an address it is the same over every transport and unique per
     /// board. Nil for firmware that reports neither.
-    public private(set) var boardIdentity: String?
+    public private(set) var boardIdentity: String? {
+        didSet {
+            if let boardIdentity { lastKnownBoardIdentity = boardIdentity }
+        }
+    }
+    /// The last non-nil `boardIdentity` this connection object has ever
+    /// reported, surviving `clearBoardSnapshot()`/`disconnect()` (unlike
+    /// `boardIdentity` itself). Group-member resolution (`GroupControlFanOut`,
+    /// `BoardGroupCoordinator.session(for:)`) must match against this, not
+    /// `boardIdentity`, so a just-disconnected primary/sink doesn't
+    /// momentarily look like a different board.
+    public private(set) var lastKnownBoardIdentity: String?
     private var setupDefaultName: String?
     /// Remembers, per transport fallback key (the `ble:<uuid>` / `wifi:<host>`
     /// key `boardKey` would fall back to without an identity), the last
@@ -866,6 +883,27 @@ public final class BoardConnection {
         let token = BoardOutputContext.session
         return try await commandPump.run { @MainActor in
             if let token { try self.output.check(token) }
+            // Board-group control fan-out: mirror this command to the
+            // group's other members before sending it on the wire, unless
+            // this connection is under debug output (see
+            // `GroupControlFanOut`). Deliberately still mirrors while
+            // `output.source == .group` — the coordinator holds `.group` on
+            // every member during group Text-tab play, and only ever calls
+            // `requestReliable` (never `command(_:)`) itself, so a
+            // `command(_:)` reaching here during play is always a genuine
+            // control action (e.g. brightness) that must still reach every
+            // sink. Never awaited — fire-and-forget from the primary's
+            // perspective.
+            // `.verbatim` still claims/mirrors synchronously before the send
+            // (dispatch's own doc: kept for latency, and a failing/slow send
+            // is the primary's own concern either way). `.resolveFace` is
+            // different: claiming sinks (`beginLeasedAction`) here, before
+            // the send, would hand them over to a group-control lease even
+            // if the primary's own apply then throws — so it's deferred
+            // until after a confirmed `reply.ok` below instead (F7).
+            if self.output.source != .debug, case .verbatim = cmd.groupFanOutPolicy {
+                self.fanOut?.dispatch(cmd, leased: token != nil, from: self)
+            }
             let generation = self.connectionGeneration
             guard let activeTransport = self.transport else {
                 throw RinaTransportError.notConnected
@@ -877,6 +915,11 @@ public final class BoardConnection {
             let reply = try JSONDecoder().decode(CommandReply.self, from: frame.payload)
             guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)") }
             self.updateDeviceName(from: reply, for: cmd, transport: activeTransport, generation: generation)
+            if self.output.source != .debug, case .resolveFace = cmd.groupFanOutPolicy {
+                if let ticket = self.fanOut?.beginLeasedAction(from: self) {
+                    self.fanOut?.primaryFaceApplied(reply: reply, original: cmd, ticket: ticket, from: self)
+                }
+            }
             return reply
         }
     }
@@ -1018,6 +1061,13 @@ public final class BoardConnection {
         let token = outputSession ?? BoardOutputContext.session ?? output.claim(.manual)
         let reply = try await framePump.run { @MainActor in
             try self.output.check(token)
+            // Board-group control fan-out: mirror every SET_FRAME (Faces/
+            // Live/video/lip-sync/performance) to the group's other members.
+            // Skipped when this board is itself a group Text-tab member or
+            // under debug output.
+            if self.output.source != .debug, self.output.source != .group {
+                self.fanOut?.dispatchFrame(packed, playback: playback, reason: reason, from: self)
+            }
             var payload = Data()
             payload.append(playback.rawValue)
             let reasonBytes = Array(reason.utf8.prefix(255))

@@ -4,6 +4,15 @@ import RinaCore
 @main
 struct RinaBoardApp: App {
     @Environment(\.scenePhase) private var scenePhase
+    /// Board-group control fan-out addendum: the same persisted "控制对象"
+    /// selection `Settings`/`BoardControlCenterView`/etc. read, watched here
+    /// so `groupControlFanOut` can track it without those views needing a
+    /// hard dependency on this type.
+    @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
+    /// Distinguishes the launch-time restore of `controlTargetGroupIDStorage`
+    /// (its `onChange(initial: true)` first call) from every later, genuine
+    /// change — see that `onChange` handler and `GroupControlFanOut.setTarget`.
+    @State private var hasRestoredControlTarget = false
     // Each board retains its own connection; tabs control the selected session.
     // Draft models remain app-scoped so switching tabs preserves unsent work.
     @State private var router = AppRouter()
@@ -11,10 +20,17 @@ struct RinaBoardApp: App {
     @State private var boardStore = BoardStore()
     @State private var boardGroupStore: BoardGroupStore
     @State private var boardGroupCoordinator: BoardGroupCoordinator
+    @State private var groupControlFanOut: GroupControlFanOut
+    /// Synced group auto face cycling (BOARD_GROUP_SPEC.md §3 addendum, user
+    /// requirement "自动轮播表情必须同步"): built in `init()` alongside
+    /// `groupControlFanOut` since it needs live references to
+    /// `controlCenter`/`faceLibrary`, which are likewise built as `init()`
+    /// locals below rather than via their own property-default expressions.
+    @State private var groupAutoCycler: GroupAutoCycler
     @State private var bootLoader = BootLoaderModel()
-    @State private var controlCenter = BoardControlCenterModel()
+    @State private var controlCenter: BoardControlCenterModel
     @State private var settingsWorkspace = SettingsWorkspace()
-    @State private var faceLibrary = FaceLibraryModel()
+    @State private var faceLibrary: FaceLibraryModel
     @State private var editor = ControlViewModel()
     @State private var textModel = TextViewModel()
     @State private var lipSyncModel = LipSyncModel()
@@ -38,6 +54,19 @@ struct RinaBoardApp: App {
         _sessions = State(initialValue: sessions)
         _boardGroupStore = State(initialValue: boardGroupStore)
         _boardGroupCoordinator = State(initialValue: coordinator)
+        let groupControlFanOut = GroupControlFanOut(
+            sessions: sessions, groups: boardGroupStore, coordinator: coordinator
+        )
+        _groupControlFanOut = State(initialValue: groupControlFanOut)
+        let controlCenter = BoardControlCenterModel()
+        let faceLibrary = FaceLibraryModel()
+        _controlCenter = State(initialValue: controlCenter)
+        _faceLibrary = State(initialValue: faceLibrary)
+        _groupAutoCycler = State(initialValue: GroupAutoCycler(
+            fanOut: groupControlFanOut,
+            faceLibrary: faceLibrary,
+            intervalProvider: { [controlCenter] in controlCenter.autoIntervalDraft }
+        ))
         #if DEBUG
         Self.seedDemoGroupIfNeeded(store: boardGroupStore)
         #endif
@@ -85,6 +114,8 @@ struct RinaBoardApp: App {
                 .environment(boardStore)
                 .environment(boardGroupStore)
                 .environment(boardGroupCoordinator)
+                .environment(groupControlFanOut)
+                .environment(groupAutoCycler)
                 .environment(bootLoader)
                 .environment(controlCenter)
                 .environment(settingsWorkspace)
@@ -99,6 +130,52 @@ struct RinaBoardApp: App {
                     // the app is active; it must not exit a running group
                     // play just because the app went to the background.
                     boardGroupCoordinator.isAppActive = newPhase == .active
+                    // "App backgrounded" stop condition: pause the loop
+                    // without clearing the user's auto intent, so a later
+                    // foreground resumes it if the group is still targeted.
+                    // `.inactive` (e.g. the app switcher, a system sheet, or
+                    // Control Center momentarily covering the app) must not
+                    // suspend the cycle — only a real background transition
+                    // does (L2).
+                    if newPhase == .active {
+                        groupAutoCycler.resumeForForeground()
+                    } else if newPhase == .background {
+                        groupAutoCycler.suspendForBackground()
+                    }
+                }
+                .onChange(of: controlTargetGroupIDStorage, initial: true) { _, stored in
+                    // The very first call (`initial: true`) is a launch-time
+                    // restore of the persisted target, not a user choice —
+                    // `isExplicit: false` so it never force-selects a primary
+                    // the user didn't pick (F6: only explicit choices switch
+                    // control). Every later call is a real change to the
+                    // stored value, i.e. an explicit selection.
+                    let newTarget = ControlTarget(storedGroupIDString: stored)
+                    groupControlFanOut.setTarget(newTarget, isExplicit: hasRestoredControlTarget)
+                    hasRestoredControlTarget = true
+                    // "target → single" stop condition: leaving group control
+                    // must not leave the cycler still sending to the old
+                    // primary underneath the now-single-board UI.
+                    if newTarget == .single { groupAutoCycler.stop() }
+                }
+                .task {
+                    // Wired once; both models are app-scoped for the app's
+                    // lifetime, so there's no teardown to mirror.
+                    groupControlFanOut.faceFrameResolver = { [faceLibrary] connection, reply in
+                        faceLibrary.boardFaceFrame(
+                            id: reply.autoFaceId, index: reply.autoFaceIndex,
+                            generation: connection.connectionGeneration
+                        )
+                    }
+                    groupControlFanOut.draftPromotionHook = { [editor] boardID in
+                        editor.retagDraftForGroupPromotion(to: boardID)
+                    }
+                    // M2: a freshly-established group primary that's still in
+                    // firmware auto keeps the user's auto intent alive via
+                    // the synced cycler instead of just forcing it manual.
+                    groupControlFanOut.primaryWasAutoHook = { [groupAutoCycler] in
+                        groupAutoCycler.start()
+                    }
                 }
         }
     }

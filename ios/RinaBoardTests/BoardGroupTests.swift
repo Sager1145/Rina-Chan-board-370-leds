@@ -118,7 +118,14 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     private func connectedSession(
         sessions: BoardSessionStore, identity: String, transport: GroupFakeTransport
     ) async -> BoardSession {
-        let session = sessions.session(for: identity, name: identity)
+        // Deliberately a BLE-UUID-like session key, distinct from `identity`
+        // (the firmware `boardIdentity`/`physicalBoardID` a group member is
+        // keyed by): a regression that resolves group members by
+        // `BoardSession.boardID` instead of `BoardConnection.boardIdentity`
+        // must fail tests that use this helper, not pass by both happening
+        // to be the same string (F1).
+        let sessionKey = "ble:\(UUID().uuidString)"
+        let session = sessions.session(for: sessionKey, name: identity)
         transport.wifiBoardId = identity
         _ = await session.connection.connect(using: transport)
         return session
@@ -575,6 +582,55 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         }
         _ = try await occupier.value
     }
+
+    // MARK: - updatePlayback
+
+    func testUpdatePlaybackSendsOneGroupStartPerParticipantWithNewIntervalAndFrame() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let counter = Counter()
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, nowUs: { counter.next() })
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "更新播放")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "AB", fps: 10, loop: true)
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, 1)
+        XCTAssertEqual(transportB.sentGroupStartAtUs.count, 1)
+
+        await coordinator.updatePlayback(group: store.groups[0], fps: 20, loop: nil)
+
+        // One additional `group_start` per participant, at the new interval.
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, 2)
+        XCTAssertEqual(transportB.sentGroupStartAtUs.count, 2)
+        let expectedIntervalMs = ScrollRasterizer.intervalMs(forFps: 20)
+        XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, expectedIntervalMs)
+        XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, expectedIntervalMs)
+        XCTAssertTrue(coordinator.isPlaying)
+    }
+
+    func testUpdatePlaybackDoesNothingWhenNotPlaying() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        let group = store.create(name: "未播放")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        await coordinator.updatePlayback(group: store.groups[0], fps: 20, loop: true)
+
+        XCTAssertTrue(transportA.sentGroupStartAtUs.isEmpty)
+        XCTAssertFalse(coordinator.isPlaying)
+    }
 }
 
 // MARK: - Fake transport
@@ -601,6 +657,8 @@ private final class GroupFakeTransport: RinaTransport {
     /// needing a timeout.
     var failBlobBegin = false
     private(set) var sentGroupStartAtUs: [Int64] = []
+    private(set) var sentGroupStartIntervalMs: [Int] = []
+    private(set) var sentGroupStartFrames: [Int] = []
     private(set) var lastBlobBeginMeta: [String: Any]?
     private(set) var receivedStopScroll = false
 
@@ -677,6 +735,8 @@ private final class GroupFakeTransport: RinaTransport {
                 return (try? JSONSerialization.data(withJSONObject: ["ok": true, "rxUs": clockRxUs, "txUs": clockTxUs, "bootId": bootId])) ?? Data()
             case "group_start":
                 if let atUs = object["atUs"] as? NSNumber { sentGroupStartAtUs.append(atUs.int64Value) }
+                if let intervalMs = object["intervalMs"] as? NSNumber { sentGroupStartIntervalMs.append(intervalMs.intValue) }
+                sentGroupStartFrames.append(object["startFrame"] as? Int ?? 0)
                 return (try? JSONSerialization.data(withJSONObject: ["ok": true, "nowUs": 0, "frameCount": 10])) ?? Data()
             case "identify":
                 return (try? JSONSerialization.data(withJSONObject: [

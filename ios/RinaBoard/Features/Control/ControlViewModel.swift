@@ -253,6 +253,21 @@ final class ControlViewModel {
         discardDraft(newBoardID: boardID)
     }
 
+    /// Board-group control fan-out addendum: when `GroupControlFanOut`
+    /// auto-promotes a group's control primary to the next online member
+    /// (the old primary disconnected), the new primary is a genuinely
+    /// different physical board — but the user decision behind this promotion
+    /// is that it must not discard the in-progress Faces draft the way an
+    /// ordinary board switch does. Called *before* `BoardSessionStore.select`
+    /// so that the next `boardDidChange(to:)` this promotion triggers (via
+    /// `BoardSyncCoordinator`) sees `draftBoardID` already matching and is a
+    /// no-op, instead of retagging the draft directly here (which would race
+    /// a concurrent user edit changing `draftBoardID` first).
+    func retagDraftForGroupPromotion(to boardID: String) {
+        guard draftBoardID != nil, draftBoardID != boardID else { return }
+        draftBoardID = boardID
+    }
+
     private func discardDraft(newBoardID: String) {
         releaseOutput()
         let fresh = library?.compose(call: .defaultCall) ?? PackedFrame()

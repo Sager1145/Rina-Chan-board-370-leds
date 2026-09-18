@@ -22,6 +22,8 @@ struct BoardControlCenterView: View {
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(BoardGroupStore.self) private var groupStore
     @Environment(BoardGroupCoordinator.self) private var groupCoordinator
+    @Environment(GroupControlFanOut.self) private var fanOut
+    @Environment(GroupAutoCycler.self) private var groupAutoCycler
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var boardSwitcher: ConnectionViewModel?
 
@@ -60,6 +62,50 @@ struct BoardControlCenterView: View {
     @State private var controlTicks = 0
 
     private var isConnected: Bool { connection.connectionState == .connected }
+
+    /// True only while a group is targeted AND the fan-out actually has a
+    /// primary attached (`fanOut.primaryID != nil`) — H1: a group can be the
+    /// "控制对象" while the active board isn't currently one of its members
+    /// (an implicit, non-explicit navigation away), in which case the group
+    /// cycler/fan-out has nothing to mirror through and the mode row/prev/
+    /// next must fall back to the ordinary single-board path instead of
+    /// silently doing nothing.
+    private var groupControlSynced: Bool {
+        targetedGroup != nil && fanOut.primaryID != nil
+    }
+
+    /// The mode row's displayed auto/manual state. While a group is targeted
+    /// and synced this reads `GroupAutoCycler.isRunning` instead of the
+    /// primary's own firmware `renderer.mode` — the primary never leaves
+    /// `manual` while the synced cycle runs (BOARD_GROUP_SPEC.md §3
+    /// addendum).
+    private var isAutoModeOn: Bool {
+        groupControlSynced ? groupAutoCycler.isRunning : model.isAutoMode(status: connection.status)
+    }
+
+    /// Routes the mode toggle to the synced group cycler while a group is
+    /// targeted and synced, instead of sending `set_mode auto` to the primary
+    /// (which `GroupControlFanOut` would otherwise mirror to every member's
+    /// own independent, unsynced firmware auto timer). Falls back to the
+    /// ordinary single-board path otherwise (H1).
+    private func toggleAutoMode() async {
+        if groupControlSynced {
+            if groupAutoCycler.isRunning { groupAutoCycler.stop() } else { _ = groupAutoCycler.start() }
+        } else {
+            await model.toggleAutoMode(connection: connection)
+        }
+    }
+
+    /// Routes prev/next to the group cycler's own index while a group is
+    /// targeted and synced, so every member receives the identical resulting
+    /// frame. Falls back to the ordinary single-board path otherwise (H1).
+    private func stepFace(direction: Int) async {
+        if groupControlSynced {
+            await groupAutoCycler.step(direction: direction)
+        } else {
+            await model.step(face: direction, connection: connection)
+        }
+    }
 
     /// Read through the store rather than injected: `any BLEConnecting` cannot
     /// go in the environment (`@Environment(T.self)` needs a concrete
@@ -234,11 +280,14 @@ struct BoardControlCenterView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            // While a group is targeted, `groupControlSection`'s member list
+            // already shows every member's battery (including this board's),
+            // so this row would just repeat the primary's own reading.
             // Embedded (the iPad preview column) the bar is always there: that
             // column is the only place the battery shows on iPad, and a row
             // that appears with the first power report would shift the whole
             // panel. As its own screen it keeps to real readings.
-            if isEmbedded || connection.batteryReading != nil {
+            if targetedGroup == nil, isEmbedded || connection.batteryReading != nil {
                 BoardBatteryRow()
             }
         } header: {
@@ -435,37 +484,6 @@ struct BoardControlCenterView: View {
         group.members.filter { groupCoordinator.status(for: $0) != .offline }.count
     }
 
-    /// One member of the targeted group's roster. At accessibility sizes the
-    /// status drops below the name instead of squeezing it against a
-    /// trailing `Spacer` — no fixed width anywhere in the row.
-    @ViewBuilder
-    private func groupMemberRow(index: Int, member: BoardGroup.Member) -> some View {
-        let status = groupCoordinator.status(for: member)
-        let name = groupCoordinator.session(for: member)?.connection.deviceName ?? member.displayName
-        let statusText = Text(BoardGroupStatusFormatting.text(status))
-            .font(.caption)
-            .foregroundStyle(BoardGroupStatusFormatting.color(status))
-        if dynamicTypeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(index + 1). \(name)")
-                statusText
-            }
-        } else {
-            HStack(spacing: 12) {
-                Text("\(index + 1)")
-                    .font(.headline)
-                    .monospacedDigit()
-                    .frame(width: 24)
-                    .foregroundStyle(.secondary)
-                Text(name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 8)
-                statusText
-            }
-        }
-    }
-
     // MARK: §7.2 Multi-board group panel
 
     /// Shown only while the control target is a group: the group's own
@@ -477,9 +495,17 @@ struct BoardControlCenterView: View {
             Section("多板组控制") {
                 LabeledContent("名称", value: group.name)
                 LabeledContent("模式", value: group.mode == .stitched ? "拼接" : "镜像")
-                ForEach(Array(group.members.enumerated()), id: \.element.physicalBoardID) { index, member in
-                    groupMemberRow(index: index, member: member)
+                // H1: the active board is targeting this group but isn't
+                // (yet) one of its members, so the fan-out has no primary to
+                // mirror through — the mode row/prev/next below fell back to
+                // the ordinary single-board path; say so rather than leaving
+                // it looking like group control silently did nothing.
+                if fanOut.primaryID == nil, isConnected {
+                    Text("当前面板不在组内，未同步")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+                GroupMemberStatusList(group: group)
             }
 
             Section {
@@ -647,7 +673,7 @@ struct BoardControlCenterView: View {
             HStack(spacing: 10) {
                 Button {
                     controlTicks += 1
-                    Task { await model.step(face: -1, connection: connection) }
+                    Task { await stepFace(direction: -1) }
                 } label: {
                     Image(systemName: "chevron.left")
                         .frame(maxWidth: .infinity, minHeight: 22)
@@ -655,16 +681,16 @@ struct BoardControlCenterView: View {
                 .accessibilityLabel("上一个表情")
 
                 Toggle(isOn: Binding(
-                    get: { model.isAutoMode(status: connection.status) },
+                    get: { isAutoModeOn },
                     set: { _ in
                         controlTicks += 1
-                        Task { await model.toggleAutoMode(connection: connection) }
+                        Task { await toggleAutoMode() }
                     }
                 )) {
                     // Glyph + title, so the state never rests on the fill
                     // colour alone (§41).
-                    Label(model.isAutoMode(status: connection.status) ? "自动" : "手动",
-                          systemImage: model.isAutoMode(status: connection.status)
+                    Label(isAutoModeOn ? "自动" : "手动",
+                          systemImage: isAutoModeOn
                                        ? "arrow.triangle.2.circlepath"
                                        : "hand.tap.fill")
                         .frame(maxWidth: .infinity, minHeight: 22)
@@ -674,7 +700,7 @@ struct BoardControlCenterView: View {
 
                 Button {
                     controlTicks += 1
-                    Task { await model.step(face: 1, connection: connection) }
+                    Task { await stepFace(direction: 1) }
                 } label: {
                     Image(systemName: "chevron.right")
                         .frame(maxWidth: .infinity, minHeight: 22)
