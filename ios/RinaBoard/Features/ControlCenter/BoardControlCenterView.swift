@@ -275,7 +275,7 @@ struct BoardControlCenterView: View {
                         // `disconnect()` cancels the retry task too.
                         if canDisconnect {
                             Button(isConnected ? "断开" : "取消", role: .destructive) {
-                                connection.disconnect()
+                                connection.disconnect(userInitiated: true)
                             }
                             .buttonStyle(.borderless)
                             .accessibilityIdentifier("controlCenter.disconnect")

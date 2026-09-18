@@ -117,7 +117,7 @@ struct ConnectionView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        Button("断开", role: .destructive) { session.connection.disconnect() }
+                        Button("断开", role: .destructive) { session.connection.disconnect(userInitiated: true) }
                     }
                     .buttonStyle(.borderless)
                 }
@@ -179,7 +179,7 @@ struct ConnectionView: View {
                 Text(isConnected ? "在线" : "离线")
                 Spacer()
                 if isConnected {
-                    Button("断开", role: .destructive) { connection.disconnect() }
+                    Button("断开", role: .destructive) { connection.disconnect(userInitiated: true) }
                 }
             }
         }
