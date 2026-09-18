@@ -707,6 +707,13 @@ public struct CommandReply: Codable, Equatable, Sendable {
     public var persisted: Bool?
     /// RinaLink protocol version returned by `get_info`.
     public var proto: Int?
+    /// `get_info` only (BOARD_GROUP_SPEC §1.1): 8 lowercase hex chars, changes
+    /// on every boot/deep-sleep wake. `nil` on firmware that predates board
+    /// groups.
+    public var bootId: String?
+    /// `get_info` only (BOARD_GROUP_SPEC §1.1): feature capability tokens.
+    /// `nil` on firmware that predates board groups — treat as "no caps".
+    public var caps: [String]?
 
     public init(ok: Bool, error: String? = nil, code: Int? = nil, v: Int? = nil, cmd: String? = nil,
                 color: String? = nil, brightness: Int? = nil, mode: String? = nil, playback: String? = nil,
@@ -719,7 +726,8 @@ public struct CommandReply: Codable, Equatable, Sendable {
                 scrollIntervalMs: Int? = nil, uiFps: Int? = nil, scrollFps: Int? = nil,
                 scrollTimelineId: String? = nil, scrollUploadComplete: Bool? = nil,
                 scrollHasSourceText: Bool? = nil, name: String? = nil, defaultName: String? = nil,
-                customName: Bool? = nil, persisted: Bool? = nil, proto: Int? = nil) {
+                customName: Bool? = nil, persisted: Bool? = nil, proto: Int? = nil,
+                bootId: String? = nil, caps: [String]? = nil) {
         self.ok = ok
         self.error = error
         self.code = code
@@ -757,6 +765,8 @@ public struct CommandReply: Codable, Equatable, Sendable {
         self.customName = customName
         self.persisted = persisted
         self.proto = proto
+        self.bootId = bootId
+        self.caps = caps
     }
 }
 
