@@ -44,6 +44,7 @@ struct BoardControlCenterView: View {
     /// observable type).
     private var bleTransport: any BLEConnecting { sessions.active.bleTransport }
 
+    @ViewBuilder
     var body: some View {
         if isEmbedded {
             // A modifier on a `Group` of `Section`s is applied to every

@@ -24,6 +24,7 @@ struct BoardControlCenterAccessory: View {
     @Environment(BoardControlCenterModel.self) private var model
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @AppStorage(AppSettingsKey.hapticsEnabled) private var hapticsEnabled = true
 
@@ -46,6 +47,31 @@ struct BoardControlCenterAccessory: View {
 
     private var isConnected: Bool { connection.connectionState == .connected }
     private var isAuto: Bool { model.isAutoMode(status: connection.status) }
+
+    /// The capsule's own corner radius, i.e. half the measured bar height.
+    /// Falls back to the slot's radius for the first frame, before the
+    /// preference has reported a height.
+    private var barRadius: CGFloat { barHeight > 0 ? barHeight / 2 : Self.slot / 2 }
+
+    /// Whether there is room for the second line: not in the `.inline`
+    /// placement inside a minimised tab bar, and not at accessibility sizes.
+    private var showsSubtitle: Bool {
+        placement != .inline && !dynamicTypeSize.isAccessibilitySize
+    }
+
+    /// The subtitle's cross-fade when the bar loses the room for a second
+    /// line. Reduce Motion keeps it — a cross-fade is the preferred stand-in
+    /// for a hard swap, not something to strip — just shorter and flatter.
+    ///
+    /// Deliberately *not* keyed to `barHeight`: the bar's own resize is
+    /// already smooth, because `GeometryReader` reports the interpolated
+    /// height every frame while the system animates the capsule, so the
+    /// insets below track it as it moves. Animating on the measurement would
+    /// restart a curve on every one of those frames and leave the insets
+    /// chasing the capsule long after it had settled.
+    private var subtitleAnimation: Animation {
+        reduceMotion ? .easeOut(duration: 0.2) : .snappy(duration: 0.25)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -119,13 +145,15 @@ struct BoardControlCenterAccessory: View {
                     // `.inline` placement inside a minimised tab bar, and at
                     // accessibility sizes. VoiceOver still reads it as the
                     // element's value either way.
-                    if placement != .inline && !dynamicTypeSize.isAccessibilitySize {
+                    if showsSubtitle {
                         Text(subtitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                            .transition(.opacity)
                     }
                 }
+                .animation(subtitleAnimation, value: showsSubtitle)
                 Spacer(minLength: 0)
             }
             // The zoom source's clip shape below clips this region at rest too.
@@ -142,9 +170,11 @@ struct BoardControlCenterAccessory: View {
         // The zoom starts from (and collapses back into) this region only —
         // not the whole pill, whose trailing controls stay put.
         .matchedTransitionSource(id: transitionSourceID, in: transitionNamespace) { source in
-            // Only rounded rectangles are accepted here; at the summary's
-            // slot height this radius reads as the accessory pill's own curve.
-            source.clipShape(RoundedRectangle(cornerRadius: Self.slot / 2, style: .continuous))
+            // Only rounded rectangles are accepted here. The radius has to be
+            // the capsule's own — half the *measured* bar height, not half a
+            // slot — or the sheet finishes collapsing into a corner tighter
+            // than the bar it is disappearing into.
+            source.clipShape(RoundedRectangle(cornerRadius: barRadius, style: .continuous))
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
@@ -429,13 +459,33 @@ private struct BatteryRing: View {
 /// Press feedback for the accessory's inline controls: the pressed control
 /// itself shrinks and dims, so the response stays on the button that was
 /// touched instead of reading as the whole bar reacting.
+///
+/// The dim matches `PillButtonStyle`, the app's other pressable surface. The
+/// shrink stays inside the 0.95-0.98 band — these are the most frequently
+/// pressed controls in the app, on a bar that is mounted for its whole
+/// lifetime, so the response has to register without reading as a pop. Under
+/// Reduce Motion only the dim is left: the scale is a size change.
 @available(iOS 26.0, *)
 private struct AccessoryControlStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.82 : 1)
-            .opacity(configuration.isPressed ? 0.6 : 1)
-            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+        Feedback(configuration: configuration)
+    }
+
+    /// A real view rather than the style's own body, so the environment read
+    /// is guaranteed to resolve against the view hierarchy. (`PillButtonStyle`
+    /// reads `isEnabled` straight off the style struct; that works, but only
+    /// this form is documented to.)
+    private struct Feedback: View {
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+        let configuration: ButtonStyleConfiguration
+
+        var body: some View {
+            configuration.label
+                .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+                .opacity(configuration.isPressed ? 0.6 : 1)
+                .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+        }
     }
 }
 

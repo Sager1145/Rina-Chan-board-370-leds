@@ -105,11 +105,23 @@ final class BoardSyncCoordinator {
             let streamID = stream.id.flatMap { $0.isEmpty ? nil : $0 }
             if mode != .performance { deps.performance.pause() }
             if mode != .video { deps.video.pause() }
-            showControlCenter.wrappedValue = false
             // Mode first, preview second: the right tab is already showing
             // before anything is mirrored, and only the tab that owns the
             // board's mode mirrors it.
             deps.router.showBoardMode(mode)
+            // Neither of these is user-initiated, and written back to back
+            // they land in one SwiftUI update: the sheet's collapse and a tab
+            // change then play over each other. Crossing a frame first lets
+            // the tab change commit while it is still hidden behind the
+            // sheet, so the collapse runs alone and reveals the destination
+            // already in place. A bare `Task.yield()` can resume inside the
+            // same run-loop turn, so this is a timer hop (see RootTabView's
+            // boot sequence). Only when there is actually a sheet to collapse.
+            if showControlCenter.wrappedValue {
+                try? await Task.sleep(for: .milliseconds(16))
+                guard !Task.isCancelled, generation == connection.connectionGeneration else { return }
+                showControlCenter.wrappedValue = false
+            }
             if mode == .control {
                 deps.editor.boardModeSynchronized(generation: generation)
                 await deps.editor.refreshBoardDisplay(connection: connection)

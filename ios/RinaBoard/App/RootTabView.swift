@@ -315,6 +315,19 @@ private struct ControlCenterPresenter: ViewModifier {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Reduce Motion resolved at the moment the sheet is opened, not read
+    /// live: the zoom and the plain transition are different types, so the
+    /// choice has to be a branch, and a branch that flips while the sheet is
+    /// up would swap the `NavigationStack`'s identity and rebuild its content
+    /// mid-presentation. It is only ever written while nothing is presented.
+    ///
+    /// Seeded from UIKit rather than defaulted to `true`, because
+    /// `-openControlCenter YES` has the sheet presented on the very first
+    /// update: the `onChange` below is already blocked by its own guard by
+    /// then, and there is no ordering guarantee that it would run before the
+    /// sheet's content is built anyway.
+    @State private var useZoomTransition = !UIAccessibility.isReduceMotionEnabled
+
     static let transitionSourceID = "controlCenter"
 
     private var placement: ControlCenterPlacement {
@@ -330,10 +343,22 @@ private struct ControlCenterPresenter: ViewModifier {
                     // button that would swallow every tap.
                     BoardControlCenterAccessory(transitionSourceID: Self.transitionSourceID,
                                                 transitionNamespace: namespace) {
+                        // Never while presented: swapping the flag under a
+                        // live sheet is the identity change the flag exists
+                        // to prevent. Unreachable today, since the sheet
+                        // covers the bar, but a smaller detent would expose
+                        // the accessory again.
+                        guard !isPresented else { return }
+                        useZoomTransition = !reduceMotion
                         isPresented = true
                     }
                 }
-                .sheet(isPresented: $isPresented) {
+                // Reopening starts at the detent it was opened at, not the one
+                // it was last dragged to: a sheet left at `.large` would
+                // otherwise collapse across twice the distance next time, into
+                // the same small region of the bar. Reset after the collapse
+                // has finished, so it cannot re-detent mid-transition.
+                .sheet(isPresented: $isPresented, onDismiss: { detent = .medium }) {
                     expandedSheet
                     .presentationDetents([.medium, .large], selection: $detent)
                     .presentationDragIndicator(.visible)
@@ -342,23 +367,32 @@ private struct ControlCenterPresenter: ViewModifier {
                     // iOS 26, which lets the tab behind it ghost through.
                     .presentationBackground(Color(.systemGroupedBackground))
                 }
+                // Keeps the flag current while nothing is presented. The
+                // launch-argument presentation is already up when this first
+                // runs, so it is the seeded default above that covers that
+                // path, not this.
+                .onChange(of: reduceMotion, initial: true) { _, reduced in
+                    guard !isPresented else { return }
+                    useZoomTransition = !reduced
+                }
         } else {
             content
         }
     }
 
     /// The zoom and the plain transition are different `NavigationTransition`
-    /// types, so the Reduce Motion choice has to be a branch, not a ternary.
+    /// types, so the choice has to be a branch, not a ternary — see
+    /// `useZoomTransition` for why it is not read from the environment here.
     @available(iOS 26.0, *)
     @ViewBuilder
     private var expandedSheet: some View {
         let stack = NavigationStack {
             BoardControlCenterView(onDismiss: { isPresented = false })
         }
-        if reduceMotion {
-            stack
-        } else {
+        if useZoomTransition {
             stack.navigationTransition(.zoom(sourceID: Self.transitionSourceID, in: namespace))
+        } else {
+            stack
         }
     }
 }
