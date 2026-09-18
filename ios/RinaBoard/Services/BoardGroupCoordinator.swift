@@ -99,8 +99,22 @@ public final class BoardGroupCoordinator {
     private var currentAnchor: (phoneUs: Int64, startFrame: Int, intervalMs: Int, loop: Bool)?
     private var participants: [String: Participant] = [:]
     private var playState: PlayState?
-    /// Bumped every `stop()`; a `play()` call captures it and refuses to act
-    /// (and its re-anchor loop refuses to run) once it no longer matches.
+    /// The `(groupID, layoutRevision, playEpoch)` a successful `play()` was
+    /// last started with — frozen for `debugReanchorNow()` and re-anchoring,
+    /// so a later live read of the group's revision can't defeat the
+    /// staleness checks in `reanchor(groupID:revision:epoch:)` (B4/N3).
+    private var activeRevision: Int?
+    private var activeEpoch: Int?
+    /// Members dropped from `participants` because something else took over
+    /// their output lease (source changed away from `.group`) rather than
+    /// because their connection generation/bootId changed. These must never
+    /// be auto-rejoined — that would steal the board back from whatever
+    /// single-board action now owns it (N1). Cleared at the start of the
+    /// next `play()`.
+    private var evictedByOwnership: Set<String> = []
+    /// Bumped every `stop()`/`play()`; a `play()` call captures it and
+    /// refuses to act (and its re-anchor loop refuses to run) once it no
+    /// longer matches.
     private var playEpoch = 0
 
     public init(
@@ -174,18 +188,23 @@ public final class BoardGroupCoordinator {
     /// when it closes.
     public func startIdentifyLoop(for group: BoardGroup) {
         identifyTask?.cancel()
+        let groupID = group.id
         identifyTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                await self.identifyAll(group)
+                // Re-read from the store each pass rather than closing over
+                // the `group` snapshot: a reorder while the loop is running
+                // must be reflected in the next `identify{number:}` burst.
+                if let live = self.store.groups.first(where: { $0.id == groupID }) {
+                    await self.identifyAll(live)
+                }
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
             }
         }
     }
 
     public func stopIdentifyLoop(for group: BoardGroup) {
-        identifyTask?.cancel()
-        identifyTask = nil
+        stopIdentifyLoop()
         Task { [weak self] in
             guard let self else { return }
             for member in group.members {
@@ -194,6 +213,14 @@ public final class BoardGroupCoordinator {
                 _ = try? await session.connection.requestReliable(.identify(number: 1, ttlMs: 0))
             }
         }
+    }
+
+    /// Unconditional cancel of the polling task, with no group needed — safe
+    /// to call from a view's `onDisappear` even after the group itself was
+    /// deleted while the editor was open (N4).
+    public func stopIdentifyLoop() {
+        identifyTask?.cancel()
+        identifyTask = nil
     }
 
     // MARK: - Play
@@ -209,6 +236,19 @@ public final class BoardGroupCoordinator {
         let capturedGroupID = group.id
         let capturedRevision = group.layoutRevision
         guard group.members.count >= BoardGroup.minMembersToPlay else { throw GroupPlayError.tooFewMembers }
+
+        // B4: a fresh play supersedes whatever the previous one was doing.
+        // No `stop_scroll` here — the upload below replaces the timeline on
+        // every board it reaches — but the old re-anchor loop, participant
+        // set, and anchor must not keep acting once this one has started.
+        playEpoch += 1
+        reanchorTask?.cancel()
+        reanchorTask = nil
+        participants.removeAll()
+        currentAnchor = nil
+        playState = nil
+        isPlaying = false
+        evictedByOwnership.removeAll()
 
         var online: [CapturedMember] = []
         var offlineNames: [String] = []
@@ -261,89 +301,94 @@ public final class BoardGroupCoordinator {
 
         let timelineId = UUID().uuidString
 
-        // Upload concurrently, each board's own output lease.
-        try await withThrowingTaskGroup(of: Void.self) { taskGroup in
-            for captured in online {
-                let viewportX = self.viewportX(for: captured.slot, mode: mode, layout: layout)
-                taskGroup.addTask { @MainActor in
-                    let token = captured.session.connection.output.claim(.group)
-                    self.memberStatus[captured.member.physicalBoardID] = .uploading(progress: 0)
-                    do {
-                        try await captured.session.connection.withOutput(token) {
-                            _ = try await captured.session.connection.uploadGroupScrollBitmap(
-                                bitmap: bitmap, viewportX: viewportX, virtualWidth: virtualWidth,
-                                fps: fps, timelineId: timelineId, sourceText: text, start: false,
-                                onProgress: { progress in
-                                    self.memberStatus[captured.member.physicalBoardID] = .uploading(progress: progress)
-                                }
-                            )
-                        }
-                    } catch {
-                        // Member-scoped failure: recorded so the play panel can
-                        // show which board failed, in addition to the throw
-                        // that aborts the whole `play()` (BOARD_GROUP_SPEC §3).
-                        self.memberStatus[captured.member.physicalBoardID] = .error(error.localizedDescription)
-                        throw error
-                    }
-                    self.memberStatus[captured.member.physicalBoardID] = .ready
-                }
-            }
-            try await taskGroup.waitForAll()
-        }
-        guard stillValid() else { throw GroupPlayError.aborted }
-
-        // 8 clock samples per board, sequential per board, boards in parallel.
-        try await withThrowingTaskGroup(of: (String, ClockOffsetEstimator).self) { taskGroup in
-            for captured in online {
-                taskGroup.addTask { @MainActor in
-                    var estimator = self.estimators[captured.member.physicalBoardID] ?? ClockOffsetEstimator()
-                    estimator.removeAllSamples()
-                    for _ in 0..<8 {
-                        let sample = try await self.takeClockSample(connection: captured.session.connection)
-                        if let sample, let bootId = captured.session.connection.bootId {
-                            estimator.addSample(sample, bootId: bootId)
-                        }
-                    }
-                    return (captured.member.physicalBoardID, estimator)
-                }
-            }
-            for try await (id, estimator) in taskGroup {
-                self.estimators[id] = estimator
-            }
-        }
-        guard stillValid() else { throw GroupPlayError.aborted }
-
-        let worstRtt = online.compactMap { estimators[$0.member.physicalBoardID]?.bestRttUs }.max() ?? 0
-        let phoneStart = nowUs() + max(400_000, 3 * worstRtt)
-        let intervalMs = ScrollRasterizer.intervalMs(forFps: fps)
-        var bootIds: [String: String] = [:]
-        var ests: [String: ClockOffsetEstimator] = [:]
-        for captured in online {
-            if let bootId = captured.session.connection.bootId {
-                bootIds[captured.member.physicalBoardID] = bootId
-            }
-            if let estimator = estimators[captured.member.physicalBoardID] {
-                ests[captured.member.physicalBoardID] = estimator
-            }
-        }
-        let commands = GroupSchedule.startCommands(
-            phoneStartUs: phoneStart, estimators: ests, bootIds: bootIds, intervalMs: intervalMs, loop: loop
-        )
-
-        // H5: every online member must have a `group_start` command (a valid
-        // clock estimate + bootId) before any board is sent one — never
-        // start some boards and leave others silently unsynced.
-        let missing = online.filter { commands[$0.member.physicalBoardID] == nil }
-        guard missing.isEmpty else {
-            let names = missing.map(\.member.displayName).joined(separator: "、")
-            throw GroupPlayError.buildFailed("时钟同步失败：\(names)")
-        }
-
-        // H3: partial-start abort. If any board fails to receive
-        // `group_start` (or the captured state went stale), best-effort stop
-        // every board that did start, release their leases, and rethrow —
-        // never leave a mix of started/unstarted boards claiming "playing".
+        // B3: from the upload phase through the final `group_start`, one
+        // do/catch. Any throw here — upload failure, a `stillValid()` abort,
+        // a clock-phase failure, H5's missing-command guard, or H3's
+        // partial-start guard — must release every board this attempt
+        // touched, not just the ones reached by the last sub-phase.
         do {
+            // Upload concurrently, each board's own output lease.
+            try await withThrowingTaskGroup(of: Void.self) { taskGroup in
+                for captured in online {
+                    let viewportX = self.viewportX(for: captured.slot, mode: mode, layout: layout)
+                    taskGroup.addTask { @MainActor in
+                        let token = captured.session.connection.output.claim(.group)
+                        self.memberStatus[captured.member.physicalBoardID] = .uploading(progress: 0)
+                        do {
+                            try await captured.session.connection.withOutput(token) {
+                                _ = try await captured.session.connection.uploadGroupScrollBitmap(
+                                    bitmap: bitmap, viewportX: viewportX, virtualWidth: virtualWidth,
+                                    fps: fps, timelineId: timelineId, sourceText: text, start: false,
+                                    onProgress: { progress in
+                                        self.memberStatus[captured.member.physicalBoardID] = .uploading(progress: progress)
+                                    }
+                                )
+                            }
+                        } catch {
+                            // Member-scoped failure: recorded so the play panel can
+                            // show which board failed, in addition to the throw
+                            // that aborts the whole `play()` (BOARD_GROUP_SPEC §3).
+                            self.memberStatus[captured.member.physicalBoardID] = .error(error.localizedDescription)
+                            throw error
+                        }
+                        self.memberStatus[captured.member.physicalBoardID] = .ready
+                    }
+                }
+                try await taskGroup.waitForAll()
+            }
+            guard stillValid() else { throw GroupPlayError.aborted }
+
+            // 8 clock samples per board, sequential per board, boards in parallel.
+            try await withThrowingTaskGroup(of: (String, ClockOffsetEstimator).self) { taskGroup in
+                for captured in online {
+                    taskGroup.addTask { @MainActor in
+                        var estimator = self.estimators[captured.member.physicalBoardID] ?? ClockOffsetEstimator()
+                        estimator.removeAllSamples()
+                        for _ in 0..<8 {
+                            let sample = try await self.takeClockSample(connection: captured.session.connection)
+                            if let sample, let bootId = captured.session.connection.bootId {
+                                estimator.addSample(sample, bootId: bootId)
+                            }
+                        }
+                        return (captured.member.physicalBoardID, estimator)
+                    }
+                }
+                for try await (id, estimator) in taskGroup {
+                    self.estimators[id] = estimator
+                }
+            }
+            guard stillValid() else { throw GroupPlayError.aborted }
+
+            let worstRtt = online.compactMap { estimators[$0.member.physicalBoardID]?.bestRttUs }.max() ?? 0
+            let phoneStart = nowUs() + max(400_000, 3 * worstRtt)
+            let intervalMs = ScrollRasterizer.intervalMs(forFps: fps)
+            var bootIds: [String: String] = [:]
+            var ests: [String: ClockOffsetEstimator] = [:]
+            for captured in online {
+                if let bootId = captured.session.connection.bootId {
+                    bootIds[captured.member.physicalBoardID] = bootId
+                }
+                if let estimator = estimators[captured.member.physicalBoardID] {
+                    ests[captured.member.physicalBoardID] = estimator
+                }
+            }
+            let commands = GroupSchedule.startCommands(
+                phoneStartUs: phoneStart, estimators: ests, bootIds: bootIds, intervalMs: intervalMs, loop: loop
+            )
+
+            // H5: every online member must have a `group_start` command (a valid
+            // clock estimate + bootId) before any board is sent one — never
+            // start some boards and leave others silently unsynced.
+            let missing = online.filter { commands[$0.member.physicalBoardID] == nil }
+            guard missing.isEmpty else {
+                let names = missing.map(\.member.displayName).joined(separator: "、")
+                throw GroupPlayError.buildFailed("时钟同步失败：\(names)")
+            }
+
+            // H3: partial-start abort. If any board fails to receive
+            // `group_start` (or the captured state went stale), best-effort stop
+            // every board that did start, release their leases, and rethrow —
+            // never leave a mix of started/unstarted boards claiming "playing".
             try await withThrowingTaskGroup(of: Void.self) { taskGroup in
                 for captured in online {
                     guard let cmd = commands[captured.member.physicalBoardID] else { continue }
@@ -363,35 +408,41 @@ public final class BoardGroupCoordinator {
                 try await taskGroup.waitForAll()
             }
             guard stillValid() else { throw GroupPlayError.aborted }
+
+            activeGroupID = capturedGroupID
+            activeRevision = capturedRevision
+            activeEpoch = capturedEpoch
+            isPlaying = true
+            currentAnchor = (phoneUs: phoneStart, startFrame: 0, intervalMs: intervalMs, loop: loop)
+            playState = PlayState(
+                bitmap: bitmap, layout: layout, mode: mode, virtualWidth: virtualWidth, fps: fps,
+                timelineId: timelineId, sourceText: text, loop: loop, memberOrder: group.members
+            )
+            participants.removeAll()
+            for captured in online {
+                guard let bootId = captured.session.connection.bootId else { continue }
+                let token = captured.session.connection.output.claim(.group)
+                participants[captured.member.physicalBoardID] = Participant(
+                    member: captured.member, session: captured.session,
+                    generation: captured.session.connection.connectionGeneration, bootId: bootId, token: token
+                )
+            }
+            startReanchorLoop(groupID: capturedGroupID, revision: capturedRevision, epoch: capturedEpoch)
         } catch {
-            await abortStartedBoards(online)
+            await abortStartedBoards(online, epoch: capturedEpoch)
             throw error
         }
-
-        activeGroupID = capturedGroupID
-        isPlaying = true
-        currentAnchor = (phoneUs: phoneStart, startFrame: 0, intervalMs: intervalMs, loop: loop)
-        playState = PlayState(
-            bitmap: bitmap, layout: layout, mode: mode, virtualWidth: virtualWidth, fps: fps,
-            timelineId: timelineId, sourceText: text, loop: loop, memberOrder: group.members
-        )
-        participants.removeAll()
-        for captured in online {
-            guard let bootId = captured.session.connection.bootId else { continue }
-            let token = captured.session.connection.output.claim(.group)
-            participants[captured.member.physicalBoardID] = Participant(
-                member: captured.member, session: captured.session,
-                generation: captured.session.connection.connectionGeneration, bootId: bootId, token: token
-            )
-        }
-        startReanchorLoop(groupID: capturedGroupID, revision: capturedRevision, epoch: capturedEpoch)
     }
 
-    /// Best-effort: `stop_scroll` + release the lease on every board that
-    /// reached "started"/"playing", so a partial start never leaves a board
-    /// scrolling under a stale group anchor while the coordinator reports
-    /// nothing is playing (H3, M3).
-    private func abortStartedBoards(_ online: [CapturedMember]) async {
+    /// Best-effort: `stop_scroll` + release the lease on every captured board
+    /// still owned by this group attempt, so a partial start never leaves a
+    /// board scrolling under a stale group anchor while the coordinator
+    /// reports nothing is playing (H3, M3, B3). Guarded by `epoch`: if a
+    /// newer `play()` has since bumped `playEpoch`, this attempt's boards may
+    /// already belong to that newer attempt, so this does nothing at all —
+    /// touching them here would wipe state the newer play just set up.
+    private func abortStartedBoards(_ online: [CapturedMember], epoch: Int) async {
+        guard playEpoch == epoch else { return }
         for captured in online {
             guard captured.session.connection.output.source == .group else { continue }
             let token = captured.session.connection.output.claim(.group)
@@ -406,6 +457,8 @@ public final class BoardGroupCoordinator {
         playState = nil
         isPlaying = false
         activeGroupID = nil
+        activeRevision = nil
+        activeEpoch = nil
     }
 
     private func viewportX(for slot: Int, mode: BoardGroup.Mode, layout: StitchedScreenLayout) -> Int {
@@ -432,7 +485,7 @@ public final class BoardGroupCoordinator {
                 guard let self, !Task.isCancelled else { return }
                 guard self.isPlaying, self.activeGroupID == groupID, self.playEpoch == epoch else { return }
                 guard self.isAppActive else { continue } // M1: skip this pass, keep the loop running
-                await self.reanchor(groupID: groupID, revision: revision)
+                await self.reanchor(groupID: groupID, revision: revision, epoch: epoch)
             }
         }
     }
@@ -442,8 +495,12 @@ public final class BoardGroupCoordinator {
     /// stored lease token is still current) — never claims a lease itself.
     /// C2: a member whose generation/bootId changed (or was never a
     /// participant while the layout stayed the same) gets a per-board
-    /// rejoin instead, unless something else now owns its output.
-    private func reanchor(groupID: UUID, revision: Int) async {
+    /// rejoin instead, unless something else now owns its output. N1: a
+    /// member dropped because its output ownership itself moved away from
+    /// `.group` is never auto-rejoined — that would steal it back from
+    /// whatever single-board action now owns it.
+    private func reanchor(groupID: UUID, revision: Int, epoch: Int) async {
+        guard playEpoch == epoch else { return } // N3
         guard let group = store.groups.first(where: { $0.id == groupID }), group.layoutRevision == revision,
               let anchor = currentAnchor, playState != nil else { return }
 
@@ -454,6 +511,12 @@ public final class BoardGroupCoordinator {
                   participant.session.connection.output.source == .group,
                   participant.session.connection.output.isCurrent(participant.token) else {
                 memberStatus.removeValue(forKey: id) // M3: falls back to live status
+                // N1: distinguish "something else now owns this board's
+                // output" from a plain generation/bootId change — only the
+                // latter is eligible for an automatic rejoin.
+                if participant.session.connection.output.source != .group {
+                    evictedByOwnership.insert(id)
+                }
                 continue
             }
             survivors[id] = participant
@@ -474,6 +537,7 @@ public final class BoardGroupCoordinator {
             }
             estimators[id] = estimator
         }
+        guard playEpoch == epoch else { return } // N3: re-check after the sampling awaits
         let commands = GroupSchedule.reanchorCommands(
             phoneAnchorUs: anchor.phoneUs, startFrame: anchor.startFrame, intervalMs: anchor.intervalMs,
             loop: anchor.loop, estimators: estimators.filter { participants[$0.key] != nil }, bootIds: bootIds
@@ -484,8 +548,10 @@ public final class BoardGroupCoordinator {
                 try await participant.session.connection.withOutput(participant.token) {
                     _ = try await participant.session.connection.requestReliable(cmd)
                 }
+                guard playEpoch == epoch else { return } // N3: before writing memberStatus
                 memberStatus[id] = .playing
             } catch {
+                guard playEpoch == epoch else { return } // N3: before writing memberStatus
                 // Member-scoped re-anchor failure: recorded rather than
                 // silently swallowed, so the play panel can surface which
                 // board drifted out of sync (BOARD_GROUP_SPEC §3).
@@ -493,8 +559,9 @@ public final class BoardGroupCoordinator {
             }
         }
 
-        for member in group.members where participants[member.physicalBoardID] == nil {
-            await rejoin(member: member, groupID: groupID, revision: revision)
+        for member in group.members
+        where participants[member.physicalBoardID] == nil && !evictedByOwnership.contains(member.physicalBoardID) {
+            await rejoin(member: member, groupID: groupID, revision: revision, epoch: epoch)
         }
     }
 
@@ -502,7 +569,8 @@ public final class BoardGroupCoordinator {
     /// stored `playState`) and send `group_start` mapped to the same phone
     /// anchor, only if this board isn't already owned by something else
     /// (never steal — H4/C2).
-    private func rejoin(member: BoardGroup.Member, groupID: UUID, revision: Int) async {
+    private func rejoin(member: BoardGroup.Member, groupID: UUID, revision: Int, epoch: Int) async {
+        guard playEpoch == epoch else { return } // N3
         let id = member.physicalBoardID
         guard let session = session(for: member), session.connection.connectionState == .connected else { return }
         guard hasAllCaps(session.connection) else { return }
@@ -524,7 +592,8 @@ public final class BoardGroupCoordinator {
             }
             // Same live-state guards `play()` uses: bail without touching
             // anything durable if the group moved on underneath us.
-            guard store.groups.first(where: { $0.id == groupID })?.layoutRevision == revision,
+            guard playEpoch == epoch, // N3
+                  store.groups.first(where: { $0.id == groupID })?.layoutRevision == revision,
                   isPlaying, activeGroupID == groupID, currentAnchor?.phoneUs == anchor.phoneUs else { return }
 
             var estimator = estimators[id] ?? ClockOffsetEstimator()
@@ -540,18 +609,21 @@ public final class BoardGroupCoordinator {
                     loop: anchor.loop, estimators: [id: estimator], bootIds: [id: bootId]
                   )[id]
             else {
+                guard playEpoch == epoch else { return } // N3
                 memberStatus[id] = .error("时钟同步失败：\(member.displayName)")
                 return
             }
             try await session.connection.withOutput(token) {
                 _ = try await session.connection.requestReliable(cmd)
             }
+            guard playEpoch == epoch else { return } // N3
             memberStatus[id] = .playing
             participants[id] = Participant(
                 member: member, session: session, generation: session.connection.connectionGeneration,
                 bootId: bootId, token: token
             )
         } catch {
+            guard playEpoch == epoch else { return } // N3
             memberStatus[id] = .error(error.localizedDescription)
         }
     }
@@ -559,10 +631,13 @@ public final class BoardGroupCoordinator {
     #if DEBUG
     /// Test-only seam: runs one re-anchor pass synchronously instead of
     /// waiting for the 30s interval loop. Never called from production code.
+    /// B4: uses the revision/epoch frozen at the last successful `play()`
+    /// (`activeRevision`/`activeEpoch`) rather than the group's *current*
+    /// live revision — reading the live revision here would always agree
+    /// with itself and silently defeat `reanchor`'s own staleness guard.
     func debugReanchorNow() async {
-        guard let groupID = activeGroupID,
-              let group = store.groups.first(where: { $0.id == groupID }) else { return }
-        await reanchor(groupID: groupID, revision: group.layoutRevision)
+        guard let groupID = activeGroupID, let revision = activeRevision, let epoch = activeEpoch else { return }
+        await reanchor(groupID: groupID, revision: revision, epoch: epoch)
     }
     #endif
 
@@ -578,9 +653,17 @@ public final class BoardGroupCoordinator {
         reanchorTask = nil
         isPlaying = false
         activeGroupID = nil
+        activeRevision = nil
+        activeEpoch = nil
         currentAnchor = nil
         playState = nil
-        for member in group.members {
+        // N2: clear before the awaited loop below, with the members to stop
+        // captured up front (`group.members`, the parameter) — a concurrent
+        // reader must not see this coordinator still claiming an anchor or
+        // participant set mid-stop.
+        let toStop = group.members
+        participants.removeAll()
+        for member in toStop {
             guard let session = session(for: member), session.connection.output.source == .group else { continue }
             let token = session.connection.output.claim(.group)
             _ = try? await session.connection.withOutput(token) {
@@ -589,6 +672,5 @@ public final class BoardGroupCoordinator {
             session.connection.output.invalidate()
             memberStatus.removeValue(forKey: member.physicalBoardID)
         }
-        participants.removeAll()
     }
 }
