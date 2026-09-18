@@ -300,10 +300,19 @@ final class GroupControlFanOutTests: XCTestCase {
         // Same as 6b: the primary's lease is still `.group` while paused —
         // a paused group never releases its participants' output leases.
         XCTAssertEqual(primary.connection.output.source, .group)
+        // Brightness is lease-free and, like 6b during play, must NOT end a
+        // paused group (firmware B4/B5 don't exit group-timed either).
         _ = try await primary.connection.command(.setBrightness(raw: 42))
-
         await waitUntil { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 42 }
         XCTAssertEqual(h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int, 42)
+        XCTAssertTrue(h.coordinator.isPaused, "a lease-free control keeps the group paused")
+
+        // A frame (e.g. a face send) takes over output on every member, so it
+        // must supersede the paused group.
+        var frame = PackedFrame()
+        frame.set(7)
+        _ = try await primary.connection.setFrame(frame, playback: .idle, reason: "t")
+        await waitUntil { !h.coordinator.isPaused }
         // N2: the control dispatch must have superseded the paused group —
         // clearing isPaused/pausedFrame, not just isPlaying.
         XCTAssertFalse(h.coordinator.isPaused)
