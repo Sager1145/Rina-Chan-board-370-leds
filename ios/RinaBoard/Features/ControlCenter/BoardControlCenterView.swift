@@ -246,7 +246,16 @@ struct BoardControlCenterView: View {
     /// board, or a multi-board group.
     private enum ControlSelection: Hashable {
         case board(String)
+        /// Single-board mode on whatever board is connected (or none), for
+        /// when that board is not a saved one — so "单板" is always a choice.
+        case currentSingle
         case group(UUID)
+    }
+
+    /// True when the live board has no saved-board row to check, including
+    /// when nothing is saved at all.
+    private var showsCurrentSingleRow: Bool {
+        !boardStore.boards.contains { $0.id == currentBoardID }
     }
 
     /// The row currently checked by the picker. `.board("")` when no saved
@@ -254,8 +263,9 @@ struct BoardControlCenterView: View {
     /// something not saved) — it simply leaves every row unchecked.
     private var controlSelectionTag: ControlSelection {
         if let group = targetedGroup { return .group(group.id) }
-        if isConnected, let id = currentBoardID { return .board(id) }
-        return .board("")
+        if isConnected, let id = currentBoardID,
+           boardStore.boards.contains(where: { $0.id == id }) { return .board(id) }
+        return showsCurrentSingleRow ? .currentSingle : .board("")
     }
 
     private func handleControlSelection(_ newValue: ControlSelection) {
@@ -264,6 +274,8 @@ struct BoardControlCenterView: View {
             guard let board = boardStore.boards.first(where: { $0.id == id }) else { return }
             controlTargetGroupIDStorage = ControlTarget.single.storedGroupIDString
             switchBoard(to: board)
+        case .currentSingle:
+            controlTargetGroupIDStorage = ControlTarget.single.storedGroupIDString
         case .group(let id):
             controlTargetGroupIDStorage = ControlTarget.group(id).storedGroupIDString
         }
@@ -302,6 +314,11 @@ struct BoardControlCenterView: View {
         Menu {
             Picker(selection: Binding(get: { controlSelectionTag }, set: handleControlSelection)) {
                 Section("单板") {
+                    if showsCurrentSingleRow {
+                        Label(isConnected ? "单板：\(boardName)" : "单板（未连接）",
+                              systemImage: "rectangle.on.rectangle")
+                            .tag(ControlSelection.currentSingle)
+                    }
                     ForEach(boardStore.boards) { board in
                         Label(board.name, systemImage: "rectangle.on.rectangle")
                             .tag(ControlSelection.board(board.id))
