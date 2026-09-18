@@ -11,10 +11,31 @@ public struct BoardGroup: Codable, Equatable, Identifiable, Sendable {
     public struct Member: Codable, Equatable, Sendable {
         public var physicalBoardID: String
         public var displayName: String
+        /// `KnownBoard.id` values (BLE UUID/host/Bonjour storage id) ever seen
+        /// carrying this member's `physicalBoardID`, so `GroupAutoConnector`
+        /// can dial this board directly instead of only reconnecting whichever
+        /// one the user happens to have connected manually (user bug: "多板组
+        /// 同步功能没有生效" — the fan-out never connected anyone). Filled when
+        /// a member is added (`BoardGroupEditorView`) and refreshed whenever a
+        /// session with this `physicalBoardID` connects. Defaults to `[]` so
+        /// JSON written before this field existed still decodes.
+        public var knownBoardIDs: [String]
 
-        public init(physicalBoardID: String, displayName: String) {
+        public init(physicalBoardID: String, displayName: String, knownBoardIDs: [String] = []) {
             self.physicalBoardID = physicalBoardID
             self.displayName = displayName
+            self.knownBoardIDs = knownBoardIDs
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case physicalBoardID, displayName, knownBoardIDs
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            physicalBoardID = try container.decode(String.self, forKey: .physicalBoardID)
+            displayName = try container.decode(String.self, forKey: .displayName)
+            knownBoardIDs = try container.decodeIfPresent([String].self, forKey: .knownBoardIDs) ?? []
         }
     }
 
@@ -167,6 +188,28 @@ public final class BoardGroupStore {
         group.layoutRevision += 1
         groups[index] = group
         persist()
+    }
+
+    /// Remembers a `KnownBoard.id` (BLE UUID/host/Bonjour storage id) as one
+    /// that carries `physicalBoardID`, on every member across every group
+    /// that matches — called whenever a session with that identity connects
+    /// (`GroupAutoConnector`/`RinaBoardApp`), so a board reconnected over a
+    /// different saved record (e.g. re-paired BLE) keeps `GroupAutoConnector`
+    /// able to dial it directly. A no-op (no persist) if every matching
+    /// member already has it, so this can be called on every connect without
+    /// spamming `UserDefaults` writes.
+    public func rememberKnownBoardID(_ knownBoardID: String, forPhysicalBoardID physicalBoardID: String) {
+        var changed = false
+        for groupIndex in groups.indices {
+            for memberIndex in groups[groupIndex].members.indices
+            where groups[groupIndex].members[memberIndex].physicalBoardID == physicalBoardID {
+                if !groups[groupIndex].members[memberIndex].knownBoardIDs.contains(knownBoardID) {
+                    groups[groupIndex].members[memberIndex].knownBoardIDs.append(knownBoardID)
+                    changed = true
+                }
+            }
+        }
+        if changed { persist() }
     }
 
     /// Sets the gap (virtual columns, `0...8`) after member `slot`.

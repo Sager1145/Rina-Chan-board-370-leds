@@ -250,7 +250,12 @@ struct BoardGroupEditorView: View {
         guard let identity = session.connection.boardIdentity else { return }
         let member = BoardGroup.Member(
             physicalBoardID: identity,
-            displayName: session.connection.deviceName ?? session.name
+            displayName: session.connection.deviceName ?? session.name,
+            // Snapshot every saved-board id this session is reachable by, so
+            // `GroupAutoConnector` can dial it directly later without the
+            // user having manually connected it first (user bug: "多板组同步
+            // 功能没有生效").
+            knownBoardIDs: session.knownIdentifiers
         )
         do {
             try store.addMember(groupID: group.id, member: member)

@@ -52,6 +52,17 @@ public final class BoardSession: Identifiable {
         (connection.boardIdentity ?? connection.lastKnownBoardIdentity) == physicalBoardID
     }
 
+    /// Every `KnownBoard.id` spelling (BLE UUID/host/Bonjour storage id) this
+    /// session has ever been reached by, plus its own `boardID` — what
+    /// `BoardGroupEditorView.addMember` snapshots into a fresh member's
+    /// `knownBoardIDs` (BOARD_GROUP_SPEC.md §3 auto-connect addendum).
+    public var knownIdentifiers: [String] {
+        rememberCurrentTransportIdentity()
+        var ids = aliases
+        if let boardID { ids.insert(boardID) }
+        return Array(ids)
+    }
+
     private func rememberCurrentTransportIdentity() {
         if let peripheralID = bleTransport.peripheralIdentifier?.uuidString {
             aliases.insert(peripheralID)
