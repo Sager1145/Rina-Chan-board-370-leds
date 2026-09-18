@@ -68,6 +68,18 @@ struct RuntimeState {
     uint16_t scrollIntervalMs = DEFAULT_SCROLL_INTERVAL_MS;
     uint32_t lastScrollFrameMs = 0;
 
+    // Board group v1 (docs/BOARD_GROUP_SPEC.md §1.5): group-timed playback.
+    // Guarded by the Scroll lock, like the rest of the scroll fields above.
+    // While groupTimed is true, the cursor is computed from groupAtUs/
+    // groupStartFrame/groupIntervalMs/groupLoop each tick (absolute time, no
+    // per-tick accumulation); lastScrollFrameMs is not used/advanced. Any
+    // command that already ends/changes a scroll today also clears groupTimed.
+    bool groupTimed = false;
+    uint64_t groupAtUs = 0;
+    uint16_t groupStartFrame = 0;
+    uint16_t groupIntervalMs = 0;
+    bool groupLoop = true;
+
     bool deferredFaceRestoreActive = false;
     uint8_t deferredFaceRestoreKind = 0;
     bool deferredFaceRestoreAutoMode = false;

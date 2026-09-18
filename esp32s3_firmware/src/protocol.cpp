@@ -12,6 +12,8 @@
 #include "power_monitor.h"
 #include "scroll_session.h"
 #include "wifi_manager.h"
+#include "board_identity.h"
+#include "group_math.h"
 #include "transport_ble.h"
 #include "utils.h"
 #include "psram_json.h"
@@ -105,6 +107,12 @@ struct BlobSession {
     String bitmapFontId;
     String bitmapGeneratorVersion;
     String bitmapSourceText;
+    // Board group v1 (§1.4): optional viewport into a wider virtual/stitched
+    // screen. bitmapViewportX defaults to 0 so scrollBitmapPixelLit() is
+    // unchanged when a legacy (non-group) upload never sets these.
+    bool bitmapHasViewport = false;
+    uint32_t bitmapVirtualWidth = 0;
+    uint32_t bitmapViewportX = 0;
 
     void reset() {
         if (scrollBuf) {
@@ -133,6 +141,9 @@ struct BlobSession {
         bitmapFontId = "";
         bitmapGeneratorVersion = "";
         bitmapSourceText = "";
+        bitmapHasViewport = false;
+        bitmapVirtualWidth = 0;
+        bitmapViewportX = 0;
         kind = BlobKind::None;
         expectedOffset = 0;
         totalBytes = 0;
@@ -348,6 +359,7 @@ static void addScroll(JsonObject o) {
     o["firmwareScrollSystemPaused"] = s.firmwareScrollSystemPaused;
     o["restoreAutoAfterScroll"] = s.restoreAutoAfterScroll;
     o["scrollLoop"] = s.scrollLoop;
+    o["groupTimed"] = s.groupTimed;
     o["scrollFrameCount"] = s.scrollFrameCount;
     o["scrollFrameIndex"] = s.scrollFrameIndex;
     o["scrollIntervalMs"] = s.scrollIntervalMs;
@@ -457,6 +469,15 @@ static bool cbool(JsonDocument& d, JsonVariant p, const char* k, bool fb) {
         return p[k].as<bool>();
     if (d[k].is<bool>())
         return d[k].as<bool>();
+    return fb;
+}
+// u64 fields (group_start's atUs) can exceed the int32 range cint() handles, so
+// presence is checked by null-ness (like cstr()) rather than is<int>().
+static uint64_t cu64(JsonDocument& d, JsonVariant p, const char* k, uint64_t fb) {
+    if (!p.isNull() && !p[k].isNull())
+        return p[k].as<uint64_t>();
+    if (!d[k].isNull())
+        return d[k].as<uint64_t>();
     return fb;
 }
 static uint8_t cUiFps(JsonDocument& d, JsonVariant p, uint16_t intervalMs) {
@@ -583,7 +604,7 @@ static void handleWifiCmd(ClientSlot& c, uint8_t seq, const char* cmd, JsonDocum
 }
 
 static void handleGetInfo(ClientSlot& c, uint8_t seq) {
-    DynamicJsonDocument out(512);
+    DynamicJsonDocument out(768);
     out["ok"] = true;
     out["device"] = "RinaChanBoard";
     // Board identity: `name` is what the board advertises over BLE and what the
@@ -605,6 +626,13 @@ static void handleGetInfo(ClientSlot& c, uint8_t seq) {
     out["psramSize"] = ESP.getPsramSize();
     out["uptimeMs"] = millis() - runtimeState().bootMs;
     out["proto"] = 1;
+    // Board group v1 (docs/BOARD_GROUP_SPEC.md §1.1).
+    out["bootId"] = boardBootId();
+    JsonArray caps = out.createNestedArray("caps");
+    caps.add("identify");
+    caps.add("clock_sample");
+    caps.add("scroll_viewport");
+    caps.add("group_start");
     sendJsonReply(c, msg::CMD, seq, out);
 }
 
@@ -952,6 +980,10 @@ static void handleFacesClearUser(ClientSlot& c, uint8_t seq) {
 }
 
 static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16_t len) {
+    // clock_sample (§1.3) wants rxUs "as early as possible when the command is
+    // dispatched"; sampling here (before JSON parsing) is the earliest point at
+    // which handleCmd is entered for every command, not just clock_sample.
+    const uint64_t cmdRxUs = static_cast<uint64_t>(esp_timer_get_time());
     if (len == 0) {
         sendErrorReply(c, seq, 400, "empty CMD payload");
         return;
@@ -976,6 +1008,68 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
     }
     if (strcmp(cmd, "get_info") == 0) {
         handleGetInfo(c, seq);
+        return;
+    }
+    // Board group v1 (docs/BOARD_GROUP_SPEC.md §1.3): cheap, never rate-limited
+    // or coalesced -- answered directly here, not through the ok/err chain below.
+    if (strcmp(cmd, "clock_sample") == 0) {
+        DynamicJsonDocument out(160);
+        out["ok"] = true;
+        out["rxUs"] = cmdRxUs;
+        out["txUs"] = static_cast<uint64_t>(esp_timer_get_time());
+        out["bootId"] = boardBootId();
+        sendJsonReply(c, msg::CMD, seq, out);
+        return;
+    }
+    // §1.2: a render overlay, not board state -- no touchRuntimeState() call,
+    // matching set_hint_led's style below.
+    if (strcmp(cmd, "identify") == 0) {
+        const int number = cint(d, p, "number", -1);
+        const int ttlMs = cint(d, p, "ttlMs", 5000);
+        if (number < 1 || number > 9 || ttlMs < 0 || ttlMs > 30000) {
+            ++runtimeState().commandsRejected;
+            sendErrorReply(c, seq, 400, "identify requires number 1..9 and ttlMs 0..30000");
+            return;
+        }
+        setIdentifyOverlay(number, ttlMs);
+        ++runtimeState().commandsAccepted;
+        StaticJsonDocument<96> out;
+        out["ok"] = true;
+        out["shown"] = ttlMs > 0;
+        out["number"] = number;
+        out["ttlMs"] = ttlMs;
+        sendJsonReply(c, msg::CMD, seq, out);
+        return;
+    }
+    // §1.5: enter/re-anchor group-timed playback.
+    if (strcmp(cmd, "group_start") == 0) {
+        const char* bootId = cstr(d, p, "bootId", "");
+        if (strcmp(bootId, boardBootId()) != 0) {
+            ++runtimeState().commandsRejected;
+            sendErrorReply(c, seq, 409, "boot_mismatch");
+            return;
+        }
+        const uint64_t atUs = cu64(d, p, "atUs", 0);
+        const int intervalMs = cint(d, p, "intervalMs", -1);
+        const int startFrame = cint(d, p, "startFrame", 0);
+        const bool loop = cbool(d, p, "loop", true);
+        if (intervalMs < 20 || intervalMs > 2000 || startFrame < 0) {
+            ++runtimeState().commandsRejected;
+            sendErrorReply(c, seq, 400, "group_start requires intervalMs 20..2000 and startFrame >= 0");
+            return;
+        }
+        if (!scrollSessionGroupStart(atUs, static_cast<uint16_t>(startFrame),
+                                     static_cast<uint16_t>(intervalMs), loop)) {
+            ++runtimeState().commandsRejected;
+            sendErrorReply(c, seq, 409, "no_timeline");
+            return;
+        }
+        ++runtimeState().commandsAccepted;
+        DynamicJsonDocument out(128);
+        out["ok"] = true;
+        out["nowUs"] = static_cast<uint64_t>(esp_timer_get_time());
+        out["frameCount"] = runtimeState().scrollFrameCount;
+        sendJsonReply(c, msg::CMD, seq, out);
         return;
     }
     if (strcmp(cmd, "reboot") == 0) {
@@ -1153,8 +1247,12 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
             static_cast<uint16_t>(index < 0 ? 0 : index),
             String(cstr(d, p, "reason", "rinalink_apply_saved_face")),
             cstr(d, p, "playback", DEFAULT_PLAYBACK));
-    } else if (strcmp(cmd, "button") == 0)
+    } else if (strcmp(cmd, "button") == 0) {
+        // §1.5: a button always ends group-timed playback, even if this
+        // particular button does not itself stop/replace the scroll.
+        scrollSessionExitGroupTimed();
         ok = runButtonAction(String(cstr(d, p, "button", "")), "rinalink");
+    }
     else if (strcmp(cmd, "terminate_other_activities") == 0) {
         stopFirmwareScroll(false, true, false);
         setMode(cstr(d, p, "targetMode", "manual"), false);
@@ -1231,6 +1329,7 @@ static void handleGetScrollMeta(ClientSlot& c, uint8_t seq) {
     d["firmwareScrollUserPaused"] = o.userPaused;
     d["firmwareScrollSystemPaused"] = o.systemPaused;
     d["scrollLoop"] = o.loop;
+    d["groupTimed"] = o.groupTimed;
 
     // The serialized JSON (sourceText up to 4 KB) can exceed MAX_PAYLOAD_BYTES;
     // emitJson (via sendJsonReply) spans it across multiple FLAG_MORE frames as
@@ -1282,6 +1381,7 @@ static void buildPreviewSyncJson(JsonDocument& d) {
     d["firmwareScrollUserPaused"] = live.firmwareScrollUserPaused;
     d["firmwareScrollSystemPaused"] = live.firmwareScrollSystemPaused;
     d["scrollLoop"] = live.scrollLoop;
+    d["groupTimed"] = live.groupTimed;
     d["rateEligible"] = s.rateEligible;
 }
 
@@ -1489,8 +1589,43 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
             sendErrorReply(c, seq, 400, "scroll_bitmap totalBytes mismatch");
             return;
         }
-        // frameCount = max(1, width-22) + 1, computed without unsigned underflow.
-        uint32_t frameCount = (width > 22 ? (uint32_t)(width - 22) : 1U) + 1U;
+        // Board group v1 (§1.4): optional viewport into a wider virtual/stitched
+        // screen. Both fields must be present and valid together, else 400.
+        const bool hasVirtualWidth = !d["virtualWidth"].isNull();
+        const bool hasViewportX = !d["viewportX"].isNull();
+        bool hasViewport = false;
+        uint32_t virtualWidth = 22;
+        uint32_t viewportX = 0;
+        if (hasVirtualWidth || hasViewportX) {
+            if (!hasVirtualWidth || !hasViewportX) {
+                resetBlob(c);
+                sendErrorReply(c, seq, 400, "scroll_bitmap viewportX/virtualWidth must both be present");
+                return;
+            }
+            const int vw = d["virtualWidth"] | 0;
+            const int vx = d["viewportX"] | -1;
+            if (vw < 22 || vw > 200) {
+                resetBlob(c);
+                sendErrorReply(c, seq, 400, "scroll_bitmap virtualWidth out of range");
+                return;
+            }
+            if (vx < 0 || vx > vw - 22) {
+                resetBlob(c);
+                sendErrorReply(c, seq, 400, "scroll_bitmap viewportX out of range");
+                return;
+            }
+            if (width < (uint32_t)vw) {
+                resetBlob(c);
+                sendErrorReply(c, seq, 400, "scroll_bitmap width must be >= virtualWidth");
+                return;
+            }
+            hasViewport = true;
+            virtualWidth = (uint32_t)vw;
+            viewportX = (uint32_t)vx;
+        }
+        // frameCount = max(1, width-V) + 1, computed without unsigned underflow.
+        // V defaults to 22 (the legacy single-board width) when no viewport is given.
+        uint32_t frameCount = group_math::viewportFrameCount(width, virtualWidth);
         if (frameCount > MAX_SCROLL_FRAMES) {
             resetBlob(c);
             sendErrorReply(c, seq, 413, "too many scroll frames");
@@ -1527,6 +1662,9 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
         c.blob.intervalMs = interval;
         c.blob.uiFps = uiFps;
         c.blob.expectedOffset = 0;
+        c.blob.bitmapHasViewport = hasViewport;
+        c.blob.bitmapVirtualWidth = virtualWidth;
+        c.blob.bitmapViewportX = viewportX;
         g_activeScrollBlobSlot = selfSlot;
     } else if (strcmp(kind, "faces") == 0) {
         if (totalBytes > MAX_FACES_DOCUMENT_BYTES) {
@@ -1640,14 +1778,16 @@ static void handleBlobChunk(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
     }
 }
 
-// --- scroll_bitmap expansion (§7.1) ---------------------------------------------------
+// --- scroll_bitmap expansion (§7.1, §1.4) ---------------------------------------------
 // Maps a bitmap column `x` (0..21, absolute grid coordinate) at row `y` through the
 // centred valid-x-range + logical LED index math (config.h ROW_LENGTHS/ROW_OFFSETS,
 // mirrors MatrixGeometry.swift: xStart = (22 - rowLength) / 2, logical index =
-// ROW_OFFSETS[y] + (x - xStart)).
+// ROW_OFFSETS[y] + (x - xStart)). bitmapViewportX (default 0) folds in the
+// board-group viewport offset (§1.4: pixel = (f + X + x, y)) via the same pure
+// math used by the host tests.
 static inline bool scrollBitmapPixelLit(const BlobSession& b, uint32_t offset, uint8_t x, uint8_t y) {
-    uint32_t srcX = offset + x;
-    if (srcX >= b.bitmapWidth)
+    uint32_t srcX = 0;
+    if (!group_math::viewportColumnFor(offset, b.bitmapViewportX, x, b.bitmapWidth, srcX))
         return false;
     uint32_t byteIndex = (uint32_t)y * b.bitmapStride + (srcX >> 3);
     return ((b.bitmapBuf[byteIndex] >> (srcX & 7)) & 1U) != 0;
@@ -1759,15 +1899,19 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
         const uint16_t frameCount = c.blob.bitmapFrameCount;
 
         // Rotate so index 0 is the first frame with any lit LED (0 if nothing lit).
+        // §1.4: viewport uploads never rotate (every board must show frame f at
+        // the same instant; rotating would desync the group), so rotation stays 0.
         uint32_t t0 = micros();
         uint16_t rotation = 0;
-        for (uint16_t i = 0; i < frameCount; ++i) {
-            if (scrollBitmapFrameHasAnyLit(c.blob, i)) {
-                rotation = i;
-                break;
+        if (!c.blob.bitmapHasViewport) {
+            for (uint16_t i = 0; i < frameCount; ++i) {
+                if (scrollBitmapFrameHasAnyLit(c.blob, i)) {
+                    rotation = i;
+                    break;
+                }
+                if ((i & 0xFF) == 0xFF)
+                    vTaskDelay(pdMS_TO_TICKS(1));
             }
-            if ((i & 0xFF) == 0xFF)
-                vTaskDelay(pdMS_TO_TICKS(1));
         }
 
         // Item A7: expand every frame into a PSRAM staging buffer BEFORE touching
@@ -1843,6 +1987,10 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
         out["scrollFps"] = snap.uiFps;
         out["width"] = c.blob.bitmapWidth;
         out["rotation"] = rotation;
+        if (c.blob.bitmapHasViewport) {
+            out["viewportX"] = c.blob.bitmapViewportX;
+            out["virtualWidth"] = c.blob.bitmapVirtualWidth;
+        }
         resetBlob(c);
         sendJsonReply(c, msg::BLOB_END, seq, out);
     } else {

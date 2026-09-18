@@ -53,6 +53,7 @@ struct ScrollMetaOut {
     bool userPaused = false;
     bool systemPaused = false;
     bool loop = true;
+    bool groupTimed = false;
 };
 
 struct ScrollSessionSnapshot {
@@ -69,6 +70,9 @@ struct ScrollSessionSnapshot {
     char scrollTimelineId[MAX_SCROLL_TIMELINE_ID_CHARS + 1] = {0};
     bool scrollUploadComplete = false;
     bool scrollHasSourceText = false;
+    // Board group v1 (§1.5): true while the cursor is driven by group_start's
+    // absolute-time schedule instead of legacy per-tick accumulation.
+    bool groupTimed = false;
 
     bool scrolling() const {
         return firmwareScrollActive || firmwareScrollPaused;
@@ -112,6 +116,23 @@ bool scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize
 ScrollSessionSnapshot scrollSessionSnapshot();
 
 bool scrollSessionTickCursorLocked(uint32_t now, uint8_t* outFrameBits);
+
+// Board group v1 (§1.5): enter/re-anchor group-timed playback. Requires a
+// loaded timeline (frameCount > 0); returns false (no-op) otherwise, so the
+// caller can reply ERR 409 "no_timeline". Re-anchoring (already in
+// group-timed mode on the same timeline) just replaces the schedule
+// atomically, with no restart flash.
+bool scrollSessionGroupStart(uint64_t atUs, uint16_t startFrame, uint16_t intervalMs, bool loop);
+
+// Leaves group-timed mode, back to legacy local timing. Call on every command
+// that already ends/changes a scroll today (start_scroll, pause_scroll,
+// scroll_seek, scroll_step, set_scroll_interval, a new scroll upload, a
+// button, stop_scroll, or any other output taking over). A no-op when not
+// currently group-timed.
+void scrollSessionExitGroupTimed();
+// Same as scrollSessionExitGroupTimed(), but the caller must already hold
+// the Scroll lock (used by scroll_session.cpp's own locked call sites).
+void scrollSessionExitGroupTimedLocked();
 
 // Core-0 service: promotes a pending end-of-timeline pause (latched by the Core-1 tick when
 // loop is off) into the cooperative-loop runtimeState().paused/playback fields so EV_STATUS
