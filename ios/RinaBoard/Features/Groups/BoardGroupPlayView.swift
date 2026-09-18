@@ -17,12 +17,6 @@ struct BoardGroupPlayView: View {
     @State private var isSending = false
     @State private var errorMessage: String?
 
-    /// The bitmap the preview draws from; rebuilt off the main actor and
-    /// cached rather than every frame (BOARD_GROUP_SPEC.md §3).
-    @State private var previewBitmap: ScrollBitmap?
-    @State private var previewVirtualWidth: Int = MatrixGeometry.cols
-    @State private var previewStartDate = Date()
-    @State private var cachedFont: ArkPixelFont?
     /// Debounces speed-slider drags while playing (BOARD_GROUP_SPEC.md §3
     /// addendum), same 250 ms trailing debounce as the Text tab's group mode.
     @State private var playbackUpdateTask: Task<Void, Never>?
@@ -48,11 +42,21 @@ struct BoardGroupPlayView: View {
     private func content(for group: BoardGroup) -> some View {
         List {
             Section("预览") {
-                stitchedPreview(group: group)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 120)
-                    .listRowInsets(EdgeInsets())
-                    .padding()
+                GroupScrollPreview(
+                    group: group,
+                    draftText: text,
+                    draftFps: min(Int(fps), coordinator.maxFps(for: group)),
+                    onSwap: { a, b in
+                        store.swapMembers(groupID: group.id, a, b)
+                        if let live = store.groups.first(where: { $0.id == group.id }) {
+                            Task { try? await coordinator.replayWithCurrentLayout(group: live) }
+                        }
+                    }
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: 150)
+                .listRowInsets(EdgeInsets())
+                .padding()
             }
 
             Section("文字") {
@@ -134,9 +138,6 @@ struct BoardGroupPlayView: View {
         .rinaTranslucentRows()
         .listSectionSpacing(.compact)
         .rinaScrollBackground()
-        .task(id: previewKey(group)) {
-            await rebuildPreview(group: group)
-        }
     }
 
     @ViewBuilder
@@ -233,90 +234,6 @@ struct BoardGroupPlayView: View {
         }
     }
 
-    // MARK: - Preview
-
-    /// A value that changes exactly when the preview needs rebuilding, so
-    /// `.task(id:)` only reruns for the inputs that actually affect the
-    /// bitmap.
-    private func previewKey(_ group: BoardGroup) -> String {
-        "\(text)|\(Int(fps))|\(group.mode.rawValue)|\(group.members.count)|\(group.gapsAfter)"
-    }
-
-    private func rebuildPreview(group: BoardGroup) async {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, group.members.count >= 1,
-              let layout = try? StitchedScreenLayout(slotCount: group.members.count, gapsAfter: group.gapsAfter)
-        else {
-            previewBitmap = nil
-            return
-        }
-        let mode = group.mode
-        let virtualWidth = mode == .mirror ? MatrixGeometry.cols : layout.virtualWidth
-        let font: ArkPixelFont
-        if let cachedFont {
-            font = cachedFont
-        } else {
-            guard let loaded = try? BoardGroupCoordinator.loadDefaultFont() else {
-                previewBitmap = nil
-                return
-            }
-            font = loaded
-            cachedFont = loaded
-        }
-        let built = await Task.detached(priority: .utility) {
-            try? GroupScrollBitmap.build(text: trimmed, font: font, virtualWidth: virtualWidth)
-        }.value
-        guard !Task.isCancelled else { return }
-        previewBitmap = built
-        previewVirtualWidth = virtualWidth
-        previewStartDate = Date()
-    }
-
-    @ViewBuilder
-    private func stitchedPreview(group: BoardGroup) -> some View {
-        guard let bitmap = previewBitmap,
-              let displayLayout = try? StitchedScreenLayout(slotCount: group.members.count, gapsAfter: group.gapsAfter)
-        else {
-            return AnyView(
-                Text("输入文字后可预览拼接效果")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            )
-        }
-        let intervalMs = ScrollRasterizer.intervalMs(forFps: Int(fps))
-        let intervalSeconds = Double(intervalMs) / 1000
-        let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: bitmap.width, virtualWidth: previewVirtualWidth)
-        let mode = group.mode
-
-        return AnyView(
-            TimelineView(.animation(minimumInterval: intervalSeconds)) { context in
-                let elapsed = context.date.timeIntervalSince(previewStartDate)
-                let frameIndex = frameCount > 0 ? Int(elapsed / max(intervalSeconds, 0.001)) % frameCount : 0
-                GeometryReader { geo in
-                    let cellWidth = displayLayout.virtualWidth > 0 ? geo.size.width / CGFloat(displayLayout.virtualWidth) : 0
-                    HStack(spacing: 0) {
-                        ForEach(Array(group.members.enumerated()), id: \.element.physicalBoardID) { index, _ in
-                            let viewportX = mode == .mirror ? 0 : displayLayout.viewportX(slot: index)
-                            let frame = GroupScrollBitmap.frame(bitmap: bitmap, viewportX: viewportX, frameIndex: frameIndex)
-                            LEDBoardPreview(
-                                frame: frame,
-                                color: .rinaPink,
-                                brightness: 200,
-                                showBoardImage: false,
-                                bloom: false,
-                                showsUnlitCells: true
-                            )
-                            .frame(width: cellWidth * CGFloat(MatrixGeometry.cols))
-                            if index < group.members.count - 1 {
-                                Spacer()
-                                    .frame(width: cellWidth * CGFloat(group.gapsAfter[index]))
-                            }
-                        }
-                    }
-                }
-            }
-        )
-    }
 }
 
 #Preview {

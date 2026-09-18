@@ -124,9 +124,23 @@ struct ScrollTextView: View {
 
     @ViewBuilder
     private var previewBoard: some View {
-        // `.inert` by default: the scroll preview mirrors the board's
-        // own animation and is not editable (§22.1).
-        TextPreviewBoard(model: model)
+        if let group = targetedGroup {
+            GroupScrollPreview(
+                group: group,
+                draftText: model.text,
+                draftFps: min(Int(model.requestedFps), groupCoordinator.maxFps(for: group)),
+                onSwap: { a, b in
+                    groupStore.swapMembers(groupID: group.id, a, b)
+                    if let live = groupStore.groups.first(where: { $0.id == group.id }) {
+                        Task { try? await groupCoordinator.replayWithCurrentLayout(group: live) }
+                    }
+                }
+            )
+        } else {
+            // `.inert` by default: the scroll preview mirrors the board's
+            // own animation and is not editable (§22.1).
+            TextPreviewBoard(model: model)
+        }
     }
 
     private var previewStatus: some View {
