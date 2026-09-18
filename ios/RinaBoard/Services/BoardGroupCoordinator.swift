@@ -1099,6 +1099,58 @@ public final class BoardGroupCoordinator {
         participants = survivors
     }
 
+    // MARK: - Preview snapshot
+
+    /// What the group preview draws while a group is playing or paused: the
+    /// exact bitmap and per-slot viewports the boards were given, so the
+    /// preview shows what the hardware shows rather than a re-render.
+    public struct PlaybackSnapshot {
+        public let groupID: UUID
+        public let bitmap: ScrollBitmap
+        /// Member order at `play()` time, left to right.
+        public let memberOrder: [BoardGroup.Member]
+        /// `viewportX` per slot of `memberOrder`.
+        public let viewportXs: [Int]
+        public let frameCount: Int
+        public let sourceText: String
+    }
+
+    /// `nil` unless a group is playing or paused.
+    public var playbackSnapshot: PlaybackSnapshot? {
+        guard let groupID = activeGroupID, isPlaying || isPaused, let playState else { return nil }
+        return PlaybackSnapshot(
+            groupID: groupID,
+            bitmap: playState.bitmap,
+            memberOrder: playState.memberOrder,
+            viewportXs: playState.memberOrder.indices.map {
+                viewportX(for: $0, mode: playState.mode, layout: playState.layout)
+            },
+            frameCount: GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth),
+            sourceText: playState.sourceText
+        )
+    }
+
+    /// The global frame the boards are showing now: `pausedFrame` while
+    /// paused, else computed from the live anchor. `nil` when idle.
+    public func currentFrame() -> Int? {
+        guard let playState, isPlaying || isPaused else { return nil }
+        if isPaused { return pausedFrame }
+        guard let anchor = currentAnchor else { return nil }
+        let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
+        return frame(atPhoneUs: nowUs(), anchor: anchor, frameCount: frameCount)
+    }
+
+    /// Restarts the active group's text with its current layout (after a
+    /// drag-to-swap in the preview), at the current speed and loop setting.
+    /// No-op unless `group` is the one playing or paused.
+    public func replayWithCurrentLayout(group: BoardGroup) async throws {
+        guard activeGroupID == group.id, isPlaying || isPaused,
+              let playState, let anchor = currentAnchor,
+              let live = store.groups.first(where: { $0.id == group.id }) else { return }
+        let fps = max(1, Int((1000.0 / Double(max(anchor.intervalMs, 1))).rounded()))
+        try await play(group: live, text: playState.sourceText, fps: fps, loop: anchor.loop)
+    }
+
     /// The global frame index at `phoneUs` under `anchor`, wrapped (loop) or
     /// clamped (no loop) to `frameCount` — same math `updatePlayback` uses to
     /// find the frame to resume from at a new rate.

@@ -190,6 +190,18 @@ public final class BoardGroupStore {
         persist()
     }
 
+    /// Swaps the boards at slots `a` and `b` (drag-to-swap in the group
+    /// preview). Gaps stay attached to slot positions, not to boards.
+    public func swapMembers(groupID: UUID, _ a: Int, _ b: Int) {
+        guard a != b, let index = groups.firstIndex(where: { $0.id == groupID }) else { return }
+        var group = groups[index]
+        guard group.members.indices.contains(a), group.members.indices.contains(b) else { return }
+        group.members.swapAt(a, b)
+        group.layoutRevision += 1
+        groups[index] = group
+        persist()
+    }
+
     /// Remembers a `KnownBoard.id` (BLE UUID/host/Bonjour storage id) as one
     /// that carries `physicalBoardID`, on every member across every group
     /// that matches — called whenever a session with that identity connects
