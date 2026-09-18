@@ -40,9 +40,9 @@ final class PartsLibraryPR10Tests: XCTestCase {
             .appendingPathComponent("RinaBoard/Resources")
     }
 
-    func loadLibrary() throws -> PartsLibrary? {
+    func loadLibrary() throws -> PartsLibrary {
         let url = Self.resourcesURL.appendingPathComponent("expression_parts.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        let data = try TestResources.data(at: url)
         return try PartsLibrary(jsonData: data)
     }
 
@@ -112,9 +112,7 @@ final class PartsLibraryPR10Tests: XCTestCase {
     // MARK: - compose: ALL callable combinations
 
     func testComposeMatchesReferenceForAllCallableCombinations() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         let leyeIds = library.ids(for: .leye)
         let reyeIds = library.ids(for: .reye)
         let mouthIds = library.ids(for: .mouth)
@@ -152,9 +150,7 @@ final class PartsLibraryPR10Tests: XCTestCase {
     }
 
     func testMatchingCallRoundTripsOneFactorAtATime() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         for group in [PartGroup.leye, .reye, .mouth, .cheek] {
             for id in library.ids(for: group) {
                 var call = PartsCall.defaultCall
@@ -165,9 +161,7 @@ final class PartsLibraryPR10Tests: XCTestCase {
     }
 
     func testMatchingCallRoundTripsForRandomSample() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         let leyeIds = library.ids(for: .leye)
         let reyeIds = library.ids(for: .reye)
         let mouthIds = library.ids(for: .mouth)
@@ -187,9 +181,7 @@ final class PartsLibraryPR10Tests: XCTestCase {
     // MARK: - matchingCall vs old reference: one-factor-at-a-time + random sample
 
     func testMatchingCallMatchesReferenceOneFactorAtATime() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         let groups = [PartGroup.leye, .reye, .mouth, .cheek]
         for group in groups {
             for id in library.ids(for: group) {
@@ -204,9 +196,7 @@ final class PartsLibraryPR10Tests: XCTestCase {
     }
 
     func testMatchingCallMatchesReferenceForRandomSample() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         let leyeIds = library.ids(for: .leye)
         let reyeIds = library.ids(for: .reye)
         let mouthIds = library.ids(for: .mouth)
@@ -227,9 +217,7 @@ final class PartsLibraryPR10Tests: XCTestCase {
     }
 
     func testMatchingCallMatchesReferenceForUnmatchableFrame() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         var unmatched = PackedFrame()
         let everyPart = library.parts.values.reduce(into: PackedFrame()) { frame, part in
             frame.formUnion(library.frame(for: part))

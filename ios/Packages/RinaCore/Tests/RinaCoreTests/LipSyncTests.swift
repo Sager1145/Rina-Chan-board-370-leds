@@ -12,9 +12,9 @@ final class LipSyncTests: XCTestCase {
             .appendingPathComponent("RinaBoard/Resources")
     }
 
-    private func loadLibrary() throws -> PartsLibrary? {
+    private func loadLibrary() throws -> PartsLibrary {
         let url = Self.resourcesURL.appendingPathComponent("expression_parts.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        let data = try TestResources.data(at: url)
         return try PartsLibrary(jsonData: data)
     }
 
@@ -314,9 +314,7 @@ final class LipSyncTests: XCTestCase {
     // MARK: Mouth mapping
 
     func testDefaultMouthMappingUsesDistinctRealParts() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not available")
-        }
+        let library = try loadLibrary()
         let mapping = LipSyncMouthMapping.default
         let available = Set(library.ids(for: .mouth))
         XCTAssertTrue(available.contains(mapping.silence))
@@ -330,9 +328,7 @@ final class LipSyncTests: XCTestCase {
     }
 
     func testSanitizingReplacesUnknownMouthIds() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not available")
-        }
+        let library = try loadLibrary()
         var mapping = LipSyncMouthMapping.default
         mapping.setMouthId("999", for: .a)
         mapping.setMouthId("nope", for: nil)
