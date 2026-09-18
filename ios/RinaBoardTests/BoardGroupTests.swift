@@ -511,6 +511,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         // generation-changed rejoin path (N1), not the ownership-eviction
         // path -- `evictedByOwnership` must stay empty for it.
         let newTransportB = GroupFakeTransport()
+        newTransportB.wifiBoardId = "B" // matches connectedSession's own setup, so boardIdentity re-resolves to "B"
         _ = await sessionB.connection.connect(using: newTransportB)
 
         await coordinator.debugReanchorNow()
