@@ -168,6 +168,46 @@ public final class ConnectionViewModel {
         wifiNetworks = []
     }
 
+    /// One connected board session, as the Connection page sees it.
+    public struct BoardDetailsKey: Hashable, Sendable {
+        let connection: ObjectIdentifier
+        let generation: UUID
+    }
+
+    /// The session whose details were cleared for / fully loaded into the
+    /// fields. Two keys, so a load cancelled halfway (the page left the
+    /// screen) is retried without wiping what the user typed since.
+    @ObservationIgnored private var clearedBoardDetailsKey: BoardDetailsKey??
+    @ObservationIgnored private var loadedBoardDetailsKey: BoardDetailsKey??
+
+    /// Loads the rename field and default name for `key`'s session, once.
+    /// The Connection page calls this every time it is built, which includes
+    /// every Settings layout change; only a different board session (or a
+    /// disconnect) clears the fields, and a reply is dropped if the board
+    /// changed while it was in flight or the user already started typing.
+    public func loadBoardDetails(for key: BoardDetailsKey?, connection: BoardConnection) async {
+        guard loadedBoardDetailsKey != .some(key) else { return }
+        if clearedBoardDetailsKey != .some(key) {
+            resetBoardDetails()
+            clearedBoardDetailsKey = .some(key)
+        }
+        guard key != nil else {
+            loadedBoardDetailsKey = .some(nil)
+            return
+        }
+        let reply = try? await connection.command(.getInfo)
+        guard !Task.isCancelled, clearedBoardDetailsKey == .some(key) else { return }
+        // One attempt per session, as before: an older firmware that cannot
+        // answer must not be asked again on every rebuild of the page.
+        loadedBoardDetailsKey = .some(key)
+        guard let reply else { return }
+        boardDefaultName = reply.defaultName
+        boardHasCustomName = reply.customName ?? false
+        if boardNameInput.isEmpty, let name = reply.name, !name.isEmpty {
+            boardNameInput = name
+        }
+    }
+
     public func refreshBoardName(connection: BoardConnection) async {
         guard let reply = try? await connection.command(.getInfo), !Task.isCancelled else { return }
         boardDefaultName = reply.defaultName

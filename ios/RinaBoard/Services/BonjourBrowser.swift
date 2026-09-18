@@ -44,7 +44,9 @@ public final class BonjourBrowser {
 
     public init() {}
 
+    /// Idempotent: a second call while browsing keeps the one browser.
     public func start() {
+        guard browser == nil else { return }
         let params = NWParameters()
         params.includePeerToPeer = true
         let browser = NWBrowser(for: .bonjour(type: RinaLinkConstants.bonjourType, domain: nil), using: params)
@@ -66,6 +68,9 @@ public final class BonjourBrowser {
         browser = nil
         for (_, connection) in resolveConnections { connection.cancel() }
         resolveConnections.removeAll()
+        // The next browse starts empty rather than listing boards seen on a
+        // previous visit, possibly on another network.
+        boards = []
     }
 
     private func merge(_ entries: [(BonjourServiceIdentity, NWEndpoint)]) {

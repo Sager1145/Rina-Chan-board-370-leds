@@ -43,7 +43,7 @@ final class RinaBoardUITests: XCTestCase {
         launch(initialTab: "settings")
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 6))
 
-        let debugTools = app.buttons["调试工具"]
+        let debugTools = app.buttons["settings.category.debug"]
         XCTAssertTrue(scrollToElement(debugTools))
         debugTools.tap()
         XCTAssertTrue(app.navigationBars["调试"].waitForExistence(timeout: 3))
@@ -65,7 +65,7 @@ final class RinaBoardUITests: XCTestCase {
 
     func testSerialMonitorCommandPicker() throws {
         launch(initialTab: "settings")
-        let debugTools = app.buttons["调试工具"]
+        let debugTools = app.buttons["settings.category.debug"]
         XCTAssertTrue(scrollToElement(debugTools))
         debugTools.tap()
         let workspace = app.segmentedControls["debug.workspace"]

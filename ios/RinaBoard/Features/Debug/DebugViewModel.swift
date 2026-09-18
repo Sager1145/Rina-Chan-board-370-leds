@@ -486,6 +486,41 @@ final class DebugViewModel {
     /// `.connected` never reached it: the old board's log task kept streaming
     /// (it holds the old connection), the header still claimed the firmware log
     /// was on, and the overview stayed on the previous board.
+    @ObservationIgnored private var lastSessionKey: String?
+
+    /// How old an overview may be before the page reloads it on appearing.
+    static let overviewFreshness: TimeInterval = 10
+
+    /// Called whenever the Debug page is built. A different session resets
+    /// the firmware log and reloads; the same session only reloads a stale
+    /// snapshot, so a resize that rebuilds the page sends nothing.
+    func pageAppeared(sessionKey: String, connection: BoardConnection) async {
+        if sessionKey != lastSessionKey {
+            lastSessionKey = sessionKey
+            handleSessionChange()
+            // The model outlives the page; never show one board's snapshot
+            // as another's, which a disconnected board would otherwise do.
+            clearSnapshots()
+        } else if let updated = statusUpdatedAt,
+                  Date().timeIntervalSince(updated) < Self.overviewFreshness {
+            return
+        }
+        await refreshOverview(connection: connection)
+    }
+
+    private func clearSnapshots() {
+        statusRows = []
+        powerRows = []
+        statusRawText = ""
+        powerRawText = ""
+        statusSnapshot = nil
+        powerSnapshot = nil
+        deviceInfo = nil
+        statusUpdatedAt = nil
+        powerUpdatedAt = nil
+        deviceInfoUpdatedAt = nil
+    }
+
     func handleSessionChange() {
         firmwareLogTask?.cancel()
         firmwareLogTask = nil

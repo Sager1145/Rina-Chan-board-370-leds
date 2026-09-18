@@ -104,6 +104,9 @@ final class AcceptanceUITests: XCTestCase {
 
     func testSettingsRestoreLastTabAcrossLaunch() {
         launch(tab: "settings")
+        let application = app.buttons["settings.category.application"]
+        XCTAssertTrue(reach(application))
+        application.tap()
         let restore = app.switches["记住上次的标签页"]
         XCTAssertTrue(reach(restore))
         if restore.value as? String == "0" {
