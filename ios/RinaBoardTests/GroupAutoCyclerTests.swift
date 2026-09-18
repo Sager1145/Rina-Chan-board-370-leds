@@ -157,6 +157,101 @@ final class GroupAutoCyclerTests: XCTestCase {
         XCTAssertFalse(h.transports["BBBB"]?.receivedCmdNames.contains("set_mode") == true)
         cycler.stop()
     }
+
+    // MARK: 6. H2 — start() without a primary leaves wantsRunning false, and
+    // a later foreground never silently auto-starts it.
+
+    func testStartWithoutPrimaryLeavesWantsRunningFalse() async throws {
+        let (h, cycler) = await harness([])
+        XCTAssertNil(h.fanOut.primaryConnection)
+
+        XCTAssertFalse(cycler.start())
+        XCTAssertFalse(cycler.wantsRunning)
+        XCTAssertFalse(cycler.isRunning)
+
+        cycler.resumeForForeground()
+        XCTAssertFalse(cycler.isRunning)
+    }
+
+    // MARK: 7. M1 — the cycler keeps running across a primary promotion.
+
+    func testCyclerKeepsRunningAcrossPrimaryPromotion() async throws {
+        let (h, cycler) = await harness(["AAAA", "BBBB"], interval: 0.05)
+        XCTAssertTrue(cycler.start())
+        await waitUntil { h.transports["BBBB"]?.receivedFrameBytes.isEmpty == false }
+
+        let primary = session(h, "AAAA")
+        primary.connection.disconnect()
+
+        await waitUntil { h.fanOut.primaryID == "BBBB" }
+        XCTAssertTrue(cycler.isRunning)
+        XCTAssertTrue(cycler.wantsRunning)
+
+        let countAtPromotion = h.transports["BBBB"]!.receivedFrameBytes.count
+        await waitUntil(timeout: 2) { (h.transports["BBBB"]?.receivedFrameBytes.count ?? 0) > countAtPromotion }
+        XCTAssertGreaterThan(h.transports["BBBB"]!.receivedFrameBytes.count, countAtPromotion)
+        cycler.stop()
+    }
+
+    // MARK: 8. L1 — a stale, in-flight send completing after a stop must not
+    // advance the shared face index.
+
+    func testStaleSendCompletingAfterStopDoesNotSkipAFace() async throws {
+        let (h, cycler) = await harness(["AAAA"], interval: 0.05)
+        h.transports["AAAA"]?.frameReplyDelay = 0.3
+        XCTAssertTrue(cycler.start())
+
+        // Let the loop start its first (now slow-replying) send.
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(cycler.currentIndex, 0)
+        cycler.stop()
+
+        // Let the stale reply land well after the stop.
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertEqual(cycler.currentIndex, 0)
+    }
+
+    // MARK: 9. M2 — a freshly-established primary still in firmware auto
+    // starts the cycler instead of just being forced manual; every other
+    // member in firmware auto is still forced manual.
+
+    func testPrimaryInFirmwareAutoStartsCyclerAndForcesMembersManual() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "gac.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let fanOut = GroupControlFanOut(sessions: sessions, groups: store, coordinator: coordinator)
+        let faceLibrary = FaceLibraryModel()
+        faceLibrary.faceDocument = FaceDocument(faces: makeFaces())
+
+        var transports: [String: AutoCyclerFakeTransport] = [:]
+        for id in ["AAAA", "BBBB"] {
+            let transport = AutoCyclerFakeTransport()
+            transport.wifiBoardId = id
+            transport.rendererMode = "auto"
+            let session = sessions.session(for: "ble:\(UUID().uuidString)", name: id)
+            _ = await session.connection.connect(using: transport)
+            transports[id] = transport
+        }
+        let group = store.create(name: "测试组")
+        for id in ["AAAA", "BBBB"] {
+            try? store.addMember(groupID: group.id, member: .init(physicalBoardID: id, displayName: id))
+        }
+
+        let cycler = GroupAutoCycler(
+            fanOut: fanOut, faceLibrary: faceLibrary, intervalProvider: { 0.05 },
+            sleeper: { seconds in try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+        )
+        fanOut.primaryWasAutoHook = { [cycler] in cycler.start() }
+
+        fanOut.setTarget(.group(group.id))
+
+        await waitUntil { cycler.isRunning }
+        XCTAssertTrue(cycler.isRunning)
+        await waitUntil { transports["BBBB"]?.receivedCmdNames.contains("set_mode") == true }
+        XCTAssertTrue(transports["BBBB"]?.receivedCmdNames.contains("set_mode") == true)
+        XCTAssertFalse(transports["AAAA"]?.receivedCmdNames.contains("set_mode") == true)
+        cycler.stop()
+    }
 }
 
 // MARK: - Fake transport
@@ -170,6 +265,11 @@ private final class AutoCyclerFakeTransport: RinaTransport {
     var bootId = "aaaaaaaa"
     var caps = ["identify", "clock_sample", "scroll_viewport", "group_start"]
     var wifiBoardId: String?
+    /// M2: firmware `renderer.mode`, as reported by `getStatus`.
+    var rendererMode = "manual"
+    /// L1: delays a SET_FRAME reply, so a test can stop/restart the cycler
+    /// while a send is still in flight.
+    var frameReplyDelay: TimeInterval = 0
     private(set) var receivedCmdNames: [String] = []
     private(set) var receivedFrameBytes: [[UInt8]] = []
 
@@ -184,6 +284,15 @@ private final class AutoCyclerFakeTransport: RinaTransport {
 
     func send(_ data: Data) async throws {
         for request in decoder.feed(data) {
+            if request.type == RinaLinkMessageType.setFrame.rawValue, frameReplyDelay > 0 {
+                let delay = frameReplyDelay
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    guard let self else { return }
+                    self.emitReply(request, payload: self.replyPayload(for: request))
+                }
+                continue
+            }
             emitReply(request, payload: replyPayload(for: request))
         }
     }
@@ -199,7 +308,7 @@ private final class AutoCyclerFakeTransport: RinaTransport {
         case .getStatus:
             var wifi: [String: Any] = ["ip": "192.168.4.1"]
             if let wifiBoardId { wifi["boardId"] = wifiBoardId }
-            let object: [String: Any] = ["ok": true, "renderer": ["mode": "manual"], "power": [:], "wifi": wifi]
+            let object: [String: Any] = ["ok": true, "renderer": ["mode": rendererMode], "power": [:], "wifi": wifi]
             return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
         case .getPreviewSync:
             return (try? JSONSerialization.data(withJSONObject: ["ok": true, "mode": "manual"])) ?? Data()

@@ -413,6 +413,129 @@ final class GroupControlFanOutTests: XCTestCase {
         XCTAssertEqual(editor.draftFrame, draftBeforePromotion)
         XCTAssertTrue(editor.draftFrame[0])
     }
+
+    // MARK: 12. H1/F6 — an implicit non-member selection keeps the group as
+    // the in-memory target (not `.single`); re-selecting a member re-attaches
+    // and mirroring resumes.
+
+    func testNonMemberActiveKeepsGroupTargetThenReattachesOnMemberReturn() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.fanOut.setTarget(.group(h.group.id))
+        XCTAssertEqual(h.fanOut.primaryID, "AAAA")
+
+        let outsider = GroupControlFakeTransport()
+        outsider.wifiBoardId = "OUTSIDER"
+        let outsiderSession = h.sessions.session(for: "OUTSIDER", name: "OUTSIDER")
+        _ = await outsiderSession.connection.connect(using: outsider)
+
+        // An implicit non-member selection (e.g. a Settings board switch),
+        // not via `setTarget` — must not force the in-memory target back to
+        // `.single` (H1).
+        h.sessions.select(outsiderSession)
+        await waitUntil { h.fanOut.primaryID == nil }
+        XCTAssertNil(h.fanOut.primaryID)
+
+        let primary = session(h, "AAAA")
+        h.sessions.select(primary)
+        await waitUntil { h.fanOut.primaryID == "AAAA" }
+        XCTAssertEqual(h.fanOut.primaryID, "AAAA")
+
+        _ = try await primary.connection.command(.setBrightness(raw: 66))
+        await waitUntil { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 66 }
+        XCTAssertEqual(h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int, 66)
+    }
+
+    // MARK: 12b. F6 — a launch-time restore (`isExplicit: false`) with the
+    // active board outside the group must not force-select a member either.
+
+    func testLaunchRestoreWithNonMemberActiveDoesNotForceSelect() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        let outsider = GroupControlFakeTransport()
+        outsider.wifiBoardId = "OUTSIDER"
+        let outsiderSession = h.sessions.session(for: "OUTSIDER", name: "OUTSIDER")
+        _ = await outsiderSession.connection.connect(using: outsider)
+        h.sessions.select(outsiderSession)
+
+        h.fanOut.setTarget(.group(h.group.id), isExplicit: false)
+
+        XCTAssertNil(h.fanOut.primaryID)
+    }
+
+    // MARK: 13. F7 — the primary's own apply_saved_face throwing must never
+    // claim the sinks' output lease.
+
+    func testPrimaryApplySavedFaceFailureDoesNotClaimSinks() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.fanOut.setTarget(.group(h.group.id))
+        h.transports["AAAA"]?.failCmds.insert("apply_saved_face")
+        let primary = session(h, "AAAA")
+        let sink = session(h, "BBBB")
+
+        do {
+            _ = try await primary.connection.command(.applySavedFace(index: 0, reason: nil, playback: nil))
+            XCTFail("expected the primary's own apply_saved_face to throw")
+        } catch {
+            // Expected — the board rejected it.
+        }
+
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertNotEqual(sink.connection.output.source, .groupControl)
+        XCTAssertTrue(h.transports["BBBB"]?.receivedFrameBytes.isEmpty ?? true)
+        XCTAssertTrue(h.transports["BBBB"]?.receivedCmdNames.isEmpty ?? true)
+    }
+
+    // MARK: 14. F9 — a nil primary status at attach retries alignment once a
+    // real status arrives.
+
+    func testStatusNilAtAttachAlignsOnceStatusArrives() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.transports["AAAA"]?.includeRenderer = false
+        h.fanOut.setTarget(.group(h.group.id))
+        let primary = session(h, "AAAA")
+
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertNil(h.transports["BBBB"]?.lastCmdField("set_brightness", "raw"))
+
+        h.transports["AAAA"]?.includeRenderer = true
+        h.transports["AAAA"]?.rendererBrightness = 123
+        _ = try? await primary.connection.getStatus()
+
+        await waitUntil { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 123 }
+        XCTAssertEqual(h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int, 123)
+    }
+
+    // MARK: 15. M3 — member resolution prefers a CONNECTED session over a
+    // stale duplicate that only matches via `lastKnownBoardIdentity`.
+
+    func testMemberResolutionPrefersConnectedSessionOverStaleDuplicate() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "gcf.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let fanOut = GroupControlFanOut(sessions: sessions, groups: store, coordinator: coordinator)
+
+        // Added to the store FIRST, so a naive `sessions.first(where:)` scan
+        // would find this one before the currently-connected one below.
+        let staleTransport = GroupControlFakeTransport()
+        staleTransport.wifiBoardId = "AAAA"
+        let staleSession = sessions.session(for: "ble:\(UUID().uuidString)", name: "AAAA-stale")
+        _ = await staleSession.connection.connect(using: staleTransport)
+        staleSession.connection.disconnect()
+        await waitUntil { staleSession.connection.connectionState == .disconnected }
+
+        let liveTransport = GroupControlFakeTransport()
+        liveTransport.wifiBoardId = "AAAA"
+        let liveSession = sessions.session(for: "ble:\(UUID().uuidString)", name: "AAAA-live")
+        _ = await liveSession.connection.connect(using: liveTransport)
+
+        XCTAssertTrue(sessions.session(matchingGroupMember: "AAAA") === liveSession)
+
+        let group = store.create(name: "测试组")
+        try? store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "AAAA"))
+        fanOut.setTarget(.group(group.id))
+
+        XCTAssertTrue(sessions.active === liveSession)
+        XCTAssertEqual(fanOut.primaryID, "AAAA")
+    }
 }
 
 // MARK: - Fake transport
@@ -434,6 +557,15 @@ private final class GroupControlFakeTransport: RinaTransport {
     /// decode, so `BoardConnection.getFrame()` throws (F5's read-back-fails
     /// path).
     var failGetFrame = false
+    /// F9: when `false`, `getStatus`'s reply omits the `renderer` object
+    /// entirely, so a connection's `status?.renderer` decodes to `nil` —
+    /// simulating "no status received yet" without leaving `status` itself
+    /// nil (which `BoardConnection.connect` never actually leaves it as
+    /// once the handshake completes).
+    var includeRenderer = true
+    var rendererBrightness: Int?
+    /// M2: firmware `renderer.mode`, as reported by `getStatus`.
+    var rendererMode = "manual"
     var clockRxUs: Int64 = 1_000
     var clockTxUs: Int64 = 1_200
     var cmdReplyDelay: [String: TimeInterval] = [:]
@@ -514,7 +646,12 @@ private final class GroupControlFakeTransport: RinaTransport {
         case .getStatus:
             var wifi: [String: Any] = ["ip": "192.168.4.1"]
             if let wifiBoardId { wifi["boardId"] = wifiBoardId }
-            let object: [String: Any] = ["ok": true, "renderer": ["mode": "manual"], "power": [:], "wifi": wifi]
+            var object: [String: Any] = ["ok": true, "power": [:], "wifi": wifi]
+            if includeRenderer {
+                var renderer: [String: Any] = ["mode": rendererMode]
+                if let rendererBrightness { renderer["brightness"] = rendererBrightness }
+                object["renderer"] = renderer
+            }
             return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
         case .getPreviewSync:
             return (try? JSONSerialization.data(withJSONObject: ["ok": true, "mode": "manual"])) ?? Data()
