@@ -120,3 +120,81 @@ struct BoardBatteryRow: View {
         }
     }
 }
+
+/// A battery glyph plus the percentage, for places that list several boards
+/// (the group member list, the group editor) so every board shows an icon,
+/// not just a number. The fill tracks the level to the percent (not SF
+/// Symbols' five steps). Red at 20% and below, like the accessory's ring.
+struct BoardBatteryLabel: View {
+    let reading: BatteryReading?
+    let charging: Bool
+    let connectionState: BoardConnectionState
+
+    var body: some View {
+        HStack(spacing: 4) {
+            BatteryGlyph(level: level, fill: fillColor, charging: charging)
+            Text(text)
+                .monospacedDigit()
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("剩余电量")
+        .accessibilityValue(charging ? "\(text) 充电中" : text)
+        .animation(.snappy, value: reading)
+    }
+
+    private var level: Double {
+        if case .level(let percent) = reading { return Double(percent) / 100 }
+        return 0
+    }
+
+    private var fillColor: Color {
+        guard case .level(let percent) = reading else { return .secondary }
+        if charging { return .green }
+        return percent > 20 ? .secondary : .red
+    }
+
+    private var text: String {
+        switch reading {
+        case .level(let percent): return "\(percent)%"
+        case .notDetected: return String(localized: "未检测到电池")
+        case nil:
+            return connectionState == .connected ? "—" : String(localized: "未连接")
+        }
+    }
+}
+
+/// A horizontal battery outline whose inner bar is `level` (0...1) of the
+/// full width, sized with the surrounding text.
+private struct BatteryGlyph: View {
+    var level: Double
+    var fill: Color
+    var charging: Bool
+
+    @ScaledMetric(relativeTo: .caption) private var height: CGFloat = 10
+
+    var body: some View {
+        let width = height * 2.1
+        let line = max(1, height / 10)
+        let inset = line * 2
+        HStack(spacing: line) {
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: height * 0.28)
+                    .strokeBorder(.secondary.opacity(0.6), lineWidth: line)
+                RoundedRectangle(cornerRadius: height * 0.16)
+                    .fill(fill)
+                    .frame(width: max(0, (width - inset * 2) * min(1, max(0, level))))
+                    .padding(inset)
+                if charging {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: height * 0.8, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(width: width, height: height)
+            RoundedRectangle(cornerRadius: line)
+                .fill(.secondary.opacity(0.6))
+                .frame(width: line * 1.5, height: height * 0.4)
+        }
+    }
+}

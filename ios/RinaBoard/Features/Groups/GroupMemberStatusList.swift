@@ -123,13 +123,11 @@ struct GroupMemberStatusList: View {
     @ViewBuilder
     private func batteryLine(_ connection: BoardConnection?) -> some View {
         if let connection {
-            HStack(spacing: 6) {
-                if connection.isBatteryCharging { Image(systemName: "bolt.fill") }
-                Text(batteryText(connection.batteryReading, connectionState: connection.connectionState))
-                    .monospacedDigit()
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            BoardBatteryLabel(reading: connection.batteryReading,
+                              charging: connection.isBatteryCharging,
+                              connectionState: connection.connectionState)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -139,14 +137,6 @@ struct GroupMemberStatusList: View {
             Text(error)
                 .font(.caption2)
                 .foregroundStyle(.red)
-        }
-    }
-
-    private func batteryText(_ reading: BatteryReading?, connectionState: BoardConnectionState) -> String {
-        switch reading {
-        case .level(let percent): return "\(percent)%"
-        case .notDetected: return "未检测到电池"
-        case nil: return connectionState == .connected ? "—" : "未连接"
         }
     }
 }

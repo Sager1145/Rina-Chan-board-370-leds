@@ -283,43 +283,51 @@ struct BoardControlCenterAccessory: View {
     /// percentage in white. Otherwise it is the connection-state symbol. The
     /// cell is the ring's size in every state, so the title never shifts when
     /// the badge changes.
+    ///
+    /// While a group is targeted it is one ring per member instead, in slot
+    /// order (user requirement: every board shows its own battery), shrunk as
+    /// the group grows so the title keeps its room. A member that is offline
+    /// or hasn't reported yet gets an empty gray ring.
     @ViewBuilder
     private var statusBadge: some View {
-        Group {
-            if let battery {
-                BatteryRing(reading: battery)
-            } else if targetedGroup != nil {
-                Image(systemName: "rectangle.split.3x1")
-                    .foregroundStyle(.tint)
-                    .imageScale(.medium)
-            } else {
-                Image(systemName: symbol)
-                    .foregroundStyle(tint)
-                    .imageScale(.medium)
+        if let targetedGroup {
+            let diameter = Self.groupRingDiameter(memberCount: targetedGroup.members.count)
+            HStack(spacing: 3) {
+                ForEach(targetedGroup.members, id: \.physicalBoardID) { member in
+                    BatteryRing(reading: memberBattery(member))
+                        .frame(width: diameter, height: diameter)
+                }
             }
+            .frame(height: Self.ringDiameter)
+            .accessibilityHidden(true)
+        } else {
+            Group {
+                if let battery = connection.batteryReading {
+                    BatteryRing(reading: battery)
+                } else {
+                    Image(systemName: symbol)
+                        .foregroundStyle(tint)
+                        .imageScale(.medium)
+                }
+            }
+            .frame(width: Self.ringDiameter, height: Self.ringDiameter)
+            .accessibilityHidden(true)
         }
-        .frame(width: Self.ringDiameter, height: Self.ringDiameter)
-        .accessibilityHidden(true)
     }
 
-    /// What the ring shows, or `nil` for the plain connection symbol (not
-    /// connected, or no power report yet). While a group is targeted this is
-    /// the lowest reported level among online members (user requirement:
-    /// "keep showing lowest battery" — the one board most likely to need
-    /// attention), falling back to the fallback icon above while no member
-    /// has reported one yet. Otherwise the primary's own reading, same as
-    /// the Control Center's battery bar (`BoardConnection.batteryReading`).
-    private var battery: BatteryReading? {
-        guard let targetedGroup else { return connection.batteryReading }
-        let levels = targetedGroup.members.compactMap { member -> Int? in
-            guard let memberConnection = groupCoordinator.session(for: member)?.connection,
-                  memberConnection.connectionState == .connected,
-                  case .level(let percent) = memberConnection.batteryReading
-            else { return nil }
-            return percent
+    /// Full size for one or two boards, smaller for bigger groups (up to
+    /// `BoardGroup.maxMembers`, 5) so five rings still leave the title room.
+    private static func groupRingDiameter(memberCount: Int) -> CGFloat {
+        switch memberCount {
+        case ...2: return ringDiameter
+        case 3: return 28
+        default: return 24
         }
-        guard let lowest = levels.min() else { return nil }
-        return .level(lowest)
+    }
+
+    /// One member's battery, or `nil` while it's offline or has no report.
+    private func memberBattery(_ member: BoardGroup.Member) -> BatteryReading? {
+        groupCoordinator.session(for: member)?.connection.batteryReading
     }
 
     /// Routes the mode toggle to the synced group cycler while a group is
@@ -455,17 +463,23 @@ struct BoardControlCenterAccessory: View {
         return "\(online)/\(group.members.count) 在线"
     }
 
-    /// The state line plus the battery level, which is only drawn in the ring.
+    /// The state line plus the battery level, which is only drawn in the
+    /// ring(s). While a group is targeted every member's level is read out,
+    /// in slot order.
     private var accessibilitySummary: String {
-        switch battery {
-        case .level(let percent):
-            return subtitle + " · "
-                + String(format: NSLocalizedString("电量 %lld%%", comment: "battery percent"), percent)
-        case .notDetected:
-            return subtitle + " · " + NSLocalizedString("未检测到电池", comment: "battery not detected")
-        case nil:
-            return subtitle
+        let readings: [BatteryReading?] = targetedGroup.map { $0.members.map(memberBattery) }
+            ?? [connection.batteryReading]
+        let parts = readings.compactMap { reading -> String? in
+            switch reading {
+            case .level(let percent):
+                return String(format: NSLocalizedString("电量 %lld%%", comment: "battery percent"), percent)
+            case .notDetected:
+                return NSLocalizedString("未检测到电池", comment: "battery not detected")
+            case nil:
+                return nil
+            }
         }
+        return parts.isEmpty ? subtitle : subtitle + " · " + parts.joined(separator: "，")
     }
 
     private var stateText: String {
@@ -503,7 +517,9 @@ struct BoardControlCenterAccessory: View {
 /// exclamation mark instead of a number.
 @available(iOS 26.0, *)
 private struct BatteryRing: View {
-    var reading: BatteryReading
+    /// `nil` draws an empty gray ring: a group member that is offline or
+    /// hasn't reported yet.
+    var reading: BatteryReading?
 
     private static let lineWidth: CGFloat = 3
     private static let gap: CGFloat = 2
@@ -514,8 +530,11 @@ private struct BatteryRing: View {
     }
 
     private var color: Color {
-        if case .level(let percent) = reading, percent > 20 { return .green }
-        return .red
+        switch reading {
+        case .level(let percent) where percent > 20: return .green
+        case nil: return Color.gray.opacity(0.35)
+        default: return .red
+        }
     }
 
     var body: some View {
@@ -540,6 +559,8 @@ private struct BatteryRing: View {
                 case .notDetected:
                     Image(systemName: "exclamationmark")
                         .font(.system(size: 11, weight: .heavy))
+                case nil:
+                    EmptyView()
                 }
             }
             .foregroundStyle(.white)
