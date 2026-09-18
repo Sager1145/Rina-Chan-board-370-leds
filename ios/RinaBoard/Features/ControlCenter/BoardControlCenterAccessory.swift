@@ -444,8 +444,12 @@ struct BoardControlCenterAccessory: View {
     /// "<online>/<total> 在线" (BOARD_GROUP_SPEC.md §3).
     private var subtitle: String {
         guard let group = targetedGroup else { return stateText }
-        if groupCoordinator.isPlaying, groupCoordinator.activeGroupID == group.id {
-            return "播放中"
+        // N1: paused counts as active here too — app-level pause never ends
+        // group ownership, so this must keep reading "已暂停" rather than
+        // falling back to the plain online count.
+        if groupCoordinator.activeGroupID == group.id {
+            if groupCoordinator.isPlaying { return "播放中" }
+            if groupCoordinator.isPaused { return "已暂停" }
         }
         let online = group.members.filter { groupCoordinator.status(for: $0) != .offline }.count
         return "\(online)/\(group.members.count) 在线"

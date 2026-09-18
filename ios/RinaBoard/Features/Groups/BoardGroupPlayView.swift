@@ -162,12 +162,18 @@ struct BoardGroupPlayView: View {
         } label: {
             Label("停止", systemImage: "stop.fill")
         }
-        .disabled(!isPlaying(group))
-        .foregroundStyle(isPlaying(group) ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+        .disabled(!isPlayingOrPaused(group))
+        .foregroundStyle(isPlayingOrPaused(group) ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
     }
 
     private func isPlaying(_ group: BoardGroup) -> Bool {
         coordinator.isPlaying && coordinator.activeGroupID == group.id
+    }
+
+    /// N1: stop must stay enabled while a group is paused, not just while
+    /// it's actively playing — app-level pause never ends group ownership.
+    private func isPlayingOrPaused(_ group: BoardGroup) -> Bool {
+        (coordinator.isPlaying || coordinator.isPaused) && coordinator.activeGroupID == group.id
     }
 
     private func scheduleUpdate(group: BoardGroup, fps: Int?, loop: Bool?) {
