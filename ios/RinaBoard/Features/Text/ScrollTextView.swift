@@ -176,11 +176,15 @@ struct ScrollTextView: View {
         let allOnline = !group.members.isEmpty
             && group.members.allSatisfy { groupCoordinator.status(for: $0) != .offline }
         let starting = groupCoordinator.isStarting && groupCoordinator.startingGroupID == group.id
+        // Boards still scrolling a group the app lost track of (relaunch,
+        // reconnect): keep the transport live. Stop works as is; the other
+        // controls take the scroll over first (`adoptRunningScroll`).
+        let orphaned = !playing && !paused && !starting && groupCoordinator.hasOrphanedScroll(group: group)
         return Section {
             TextPlaybackControls(
                 isConnected: allOnline,
                 hasTimeline: playing || paused,
-                boardHasScroll: false,
+                boardHasScroll: orphaned,
                 isPaused: paused,
                 isUploading: starting,
                 uploadProgress: starting ? groupCoordinator.uploadProgress(for: group) : nil,
@@ -195,19 +199,36 @@ struct ScrollTextView: View {
                 ),
                 loopDisabled: false,
                 onSend: { Task { await sendOrPlayGroup() } },
-                onPlay: { Task { await groupCoordinator.resume(group: group) } },
-                onPause: { Task { await groupCoordinator.pause(group: group) } },
+                onPlay: { Task { if await adoptIfOrphaned(group) { await groupCoordinator.resume(group: group) } } },
+                onPause: { Task { if await adoptIfOrphaned(group) { await groupCoordinator.pause(group: group) } } },
                 onStop: { Task { await stopOrStopGroup() } },
-                onStepBackward: { Task { await groupCoordinator.step(group: group, direction: -1) } },
-                onStepForward: { Task { await groupCoordinator.step(group: group, direction: 1) } }
+                onStepBackward: { Task { if await adoptIfOrphaned(group) { await groupCoordinator.step(group: group, direction: -1) } } },
+                onStepForward: { Task { if await adoptIfOrphaned(group) { await groupCoordinator.step(group: group, direction: 1) } } }
             )
         } footer: {
             if playing {
                 Text("多板组播放中。")
             } else if paused {
                 Text("多板组已暂停。")
+            } else if orphaned {
+                Text("板子仍在播放上次的多板滚动，正在接管控制。")
             }
         }
+        // Take a still-running group scroll back as soon as every member is
+        // online again, so pause/step/speed work without a tap first.
+        .task(id: "\(group.id)|\(allOnline)|\(orphaned)") {
+            if allOnline && orphaned { _ = await adoptIfOrphaned(group) }
+        }
+    }
+
+    /// Makes sure the coordinator drives `group` before a transport action:
+    /// adopts a still-running scroll if needed. `false` if nothing is
+    /// playing or paused afterwards (the action would be a no-op).
+    private func adoptIfOrphaned(_ group: BoardGroup) async -> Bool {
+        let driving = groupCoordinator.activeGroupID == group.id
+            && (groupCoordinator.isPlaying || groupCoordinator.isPaused)
+        if driving { return true }
+        return await groupCoordinator.adoptRunningScroll(group: group)
     }
 
     /// Item 2 (BOARD_GROUP_SPEC.md §3 addendum): applies a speed/loop change

@@ -1070,6 +1070,99 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     }
 
     /// Starting group two stops group one's boards that group two doesn't
+    /// Reconnect/relaunch bug: a fresh coordinator (app relaunched) takes a
+    /// group scroll the boards are still playing back — no re-upload, the
+    /// boards re-anchored in step from where they are — so pause/step/speed
+    /// work again.
+    func testFreshCoordinatorAdoptsStillRunningGroupScroll() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let first = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let group = store.create(name: "接管组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try await first.play(group: store.groups[0], text: "接管", fps: 10, loop: true)
+        let frameCount = try XCTUnwrap(first.playbackSnapshot?.frameCount)
+        let timelineId = try XCTUnwrap(transportA.lastBlobBeginMeta?["timelineId"] as? String)
+
+        for transport in [transportA, transportB] {
+            transport.scrollMeta = [
+                "ok": true, "scrollTimelineId": timelineId, "hasSourceText": true, "sourceText": "接管",
+                "frameCount": frameCount, "frameIndex": 5, "scrollIntervalMs": 100,
+                "firmwareScrollActive": true, "firmwareScrollPaused": false, "scrollLoop": true, "groupTimed": true,
+            ]
+        }
+        let uploadsBefore = transportA.blobBeginCount
+        let relaunched = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let adopted = await relaunched.adoptRunningScroll(group: store.groups[0])
+
+        XCTAssertTrue(adopted)
+        XCTAssertTrue(relaunched.isPlaying)
+        XCTAssertEqual(relaunched.activeGroupID, group.id)
+        XCTAssertEqual(transportA.blobBeginCount, uploadsBefore, "adoption must not re-upload")
+        XCTAssertGreaterThanOrEqual(transportA.sentGroupStartFrames.last ?? -1, 5)
+        XCTAssertEqual(transportA.sentGroupStartFrames.last, transportB.sentGroupStartFrames.last)
+
+        await relaunched.pause(group: store.groups[0])
+        XCTAssertTrue(relaunched.isPaused, "controls work again after adoption")
+    }
+
+    /// Boards that don't agree (different text) are not adopted, and nothing
+    /// is sent to them.
+    func testAdoptionRefusedWhenBoardsDisagree() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let group = store.create(name: "不一致组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        let base: [String: Any] = [
+            "ok": true, "scrollTimelineId": "T", "hasSourceText": true, "frameCount": 50, "frameIndex": 0,
+            "scrollIntervalMs": 100, "firmwareScrollActive": true, "scrollLoop": true, "groupTimed": true,
+        ]
+        transportA.scrollMeta = base.merging(["sourceText": "甲"]) { _, new in new }
+        transportB.scrollMeta = base.merging(["sourceText": "乙"]) { _, new in new }
+
+        let adopted = await coordinator.adoptRunningScroll(group: store.groups[0])
+
+        XCTAssertFalse(adopted)
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertTrue(transportA.sentGroupStartAtUs.isEmpty)
+    }
+
+    /// Reconnect/relaunch bug: Stop must reach boards still scrolling whose
+    /// output lease the reconnect cleared (`source == nil`), not skip them.
+    func testStopReachesStillScrollingBoardsAfterRelaunch() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        transportA.statusRenderer = ["firmwareScrollActive": true, "scrollFrameCount": 40]
+        transportB.statusRenderer = ["firmwareScrollActive": true, "scrollFrameCount": 40]
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let group = store.create(name: "孤儿组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        await waitUntil { sessionA.connection.status?.renderer?.firmwareScrollActive == true }
+        XCTAssertTrue(coordinator.hasOrphanedScroll(group: store.groups[0]))
+
+        await coordinator.stop(group: store.groups[0])
+
+        XCTAssertTrue(transportA.receivedStopScroll)
+        XCTAssertTrue(transportB.receivedStopScroll)
+    }
+
     /// Drag-swap on an idle group only reorders.
     func testSwapMembersOnIdleGroupJustReorders() async throws {
         let sessions = BoardSessionStore()
@@ -1643,6 +1736,11 @@ private final class GroupFakeTransport: RinaTransport {
     /// (still recorded in `sentGroupStartAtUs`/`sentGroupStartIntervalMs` --
     /// the point is that the reply itself, not the send, is rejected).
     var rejectGroupStart = false
+    /// Extra `renderer` fields for `get_status` (e.g. a scroll still running).
+    var statusRenderer: [String: Any] = [:]
+    /// `GET_SCROLL_META` reply; `nil` replies with an empty meta.
+    var scrollMeta: [String: Any]?
+    private(set) var blobBeginCount = 0
     private(set) var sentGroupStartAtUs: [Int64] = []
     private(set) var sentGroupStartIntervalMs: [Int] = []
     private(set) var sentGroupStartFrames: [Int] = []
@@ -1696,13 +1794,17 @@ private final class GroupFakeTransport: RinaTransport {
         case .getStatus:
             var wifi: [String: Any] = ["ip": "192.168.4.1"]
             if let wifiBoardId { wifi["boardId"] = wifiBoardId }
-            let object: [String: Any] = ["ok": true, "renderer": ["mode": "manual"], "power": [:], "wifi": wifi]
+            let renderer = statusRenderer.merging(["mode": "manual"]) { current, _ in current }
+            let object: [String: Any] = ["ok": true, "renderer": renderer, "power": [:], "wifi": wifi]
             return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
         case .getPreviewSync:
             return (try? JSONSerialization.data(withJSONObject: ["ok": true, "mode": "manual"])) ?? Data()
         case .getFrame:
             return PackedFrame().data
+        case .getScrollMeta:
+            return (try? JSONSerialization.data(withJSONObject: scrollMeta ?? ["ok": true])) ?? Data()
         case .blobBegin:
+            blobBeginCount += 1
             if let object = try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any] {
                 lastBlobBeginMeta = object
             }

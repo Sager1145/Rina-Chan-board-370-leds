@@ -639,13 +639,17 @@ public struct ScrollMeta: Codable, Equatable, Sendable {
     public var firmwareScrollActive: Bool?
     public var scrollLoop: Bool?
     public var firmwareScrollPaused: Bool?
+    /// Board is playing a `group_start` schedule (BOARD_GROUP_SPEC §1.5).
+    public var groupTimed: Bool?
 
     public init(ok: Bool? = nil, scrollTimelineId: String? = nil, hasSourceText: Bool? = nil,
                 sourceText: String? = nil, sourceTextBytes: Int? = nil, fontId: String? = nil,
                 generatorVersion: String? = nil, uiFps: Int? = nil, scrollIntervalMs: Int? = nil,
                 frameCount: Int? = nil, frameIndex: Int? = nil, uploadComplete: Bool? = nil,
-                firmwareScrollActive: Bool? = nil, firmwareScrollPaused: Bool? = nil, scrollLoop: Bool? = nil) {
+                firmwareScrollActive: Bool? = nil, firmwareScrollPaused: Bool? = nil, scrollLoop: Bool? = nil,
+                groupTimed: Bool? = nil) {
         self.scrollLoop = scrollLoop
+        self.groupTimed = groupTimed
         self.ok = ok
         self.scrollTimelineId = scrollTimelineId
         self.hasSourceText = hasSourceText

@@ -349,6 +349,93 @@ public final class BoardGroupCoordinator {
     /// to the group. Requires every member online and supported (L2): a
     /// group never plays with a silently-skipped gap.
     public func play(group: BoardGroup, text: String, fps: Int, loop: Bool) async throws {
+        try await startGroup(group: group, text: text, fps: fps, loop: loop, startFrame: 0, adoption: nil)
+    }
+
+    /// Whether a board reports a scroll timeline loaded or running.
+    static func isScrolling(_ connection: BoardConnection) -> Bool {
+        let renderer = connection.status?.renderer
+        if let count = renderer?.scrollFrameCount, count > 0 { return true }
+        return (renderer?.firmwareScrollActive ?? connection.preview?.firmwareScrollActive) == true
+    }
+
+    /// Some member of `group` is still scrolling although this coordinator
+    /// isn't driving the group (state lost to a relaunch or reconnect). The
+    /// Text tab keeps Stop available for exactly this case.
+    public func hasOrphanedScroll(group: BoardGroup) -> Bool {
+        guard !(activeGroupID == group.id && (isPlaying || isPaused)) else { return false }
+        return group.members.contains { member in
+            guard let session = session(for: member), session.connection.connectionState == .connected else { return false }
+            let source = session.connection.output.source
+            return (source == nil || source == .group) && Self.isScrolling(session.connection)
+        }
+    }
+
+    /// Takes back control of `group`'s scroll after an app relaunch or a
+    /// reconnect wiped this coordinator's in-memory state while the boards
+    /// kept playing their `group_start` schedule. Every member must be
+    /// connected and report the same group-timed timeline, text, length and
+    /// rate; the text is rebuilt with the current layout and must produce the
+    /// same frame count. On success the group is playing (or paused, if the
+    /// boards were) from where the boards are, with no re-upload. Returns
+    /// whether it adopted; a no-op while this coordinator already drives or
+    /// is starting anything.
+    @discardableResult
+    public func adoptRunningScroll(group: BoardGroup) async -> Bool {
+        guard !isStarting, !(isPlaying || isPaused),
+              group.members.count >= BoardGroup.minMembersToPlay else { return false }
+        var metas: [ScrollMeta] = []
+        for member in group.members {
+            guard let session = session(for: member), session.connection.connectionState == .connected,
+                  hasAllCaps(session.connection),
+                  let meta = try? await session.connection.getScrollMeta() else { return false }
+            metas.append(meta)
+        }
+        let readAt = nowUs()
+        guard let first = metas.first,
+              let timelineId = first.scrollTimelineId, !timelineId.isEmpty,
+              let text = first.sourceText, !text.isEmpty,
+              let frameCount = first.frameCount, frameCount > 0,
+              let intervalMs = first.scrollIntervalMs, intervalMs > 0,
+              metas.allSatisfy({
+                  $0.groupTimed == true && $0.firmwareScrollActive == true
+                      && $0.scrollTimelineId == timelineId && $0.sourceText == text
+                      && $0.frameCount == frameCount && $0.scrollIntervalMs == intervalMs
+              }) else { return false }
+        // Re-checked after the awaits above: someone may have started a play.
+        guard !isStarting, !(isPlaying || isPaused),
+              let live = store.groups.first(where: { $0.id == group.id }) else { return false }
+        let wasPaused = first.firmwareScrollPaused == true
+        let fps = max(1, Int((1000.0 / Double(intervalMs)).rounded()))
+        do {
+            try await startGroup(
+                group: live, text: text, fps: fps, loop: first.scrollLoop ?? true, startFrame: 0,
+                adoption: Adoption(timelineId: timelineId, frameCount: frameCount,
+                                   frameIndex: first.frameIndex ?? 0, readAtPhoneUs: wasPaused ? .max : readAt)
+            )
+        } catch {
+            return false
+        }
+        if wasPaused { await pause(group: live) }
+        return isPlaying || isPaused
+    }
+
+    /// A group scroll that is already running on every member (left behind
+    /// by an app relaunch or a BLE drop), to be taken over without
+    /// re-uploading: the boards keep their timeline and are re-anchored in
+    /// step from `startFrame`.
+    private struct Adoption {
+        let timelineId: String
+        let frameCount: Int
+        /// Where the boards were (`frameIndex` from their scroll meta) and
+        /// when that was read, so the anchor can be projected forward.
+        let frameIndex: Int
+        let readAtPhoneUs: Int64
+    }
+
+    private func startGroup(
+        group: BoardGroup, text: String, fps: Int, loop: Bool, startFrame: Int, adoption: Adoption?
+    ) async throws {
         let capturedGroupID = group.id
         let capturedRevision = group.layoutRevision
         guard group.members.count >= BoardGroup.minMembersToPlay else { throw GroupPlayError.tooFewMembers }
@@ -409,6 +496,12 @@ public final class BoardGroupCoordinator {
             throw GroupPlayError.buildFailed("\(error)")
         }
         guard preflightStillValid() else { throw GroupPlayError.aborted }
+        if let adoption {
+            // Taking over only works if this layout and text rebuild exactly
+            // the timeline the boards are playing.
+            let builtFrames = GroupScrollBitmap.frameCount(bitmapWidth: bitmap.width, virtualWidth: virtualWidth)
+            guard builtFrames == adoption.frameCount else { throw GroupPlayError.aborted }
+        }
 
         // Part B: whatever the previous attempt/active group was doing —
         // playing, paused, or itself mid-`play()` — snapshot the boards it
@@ -482,7 +575,7 @@ public final class BoardGroupCoordinator {
             return true
         }
 
-        let timelineId = UUID().uuidString
+        let timelineId = adoption?.timelineId ?? UUID().uuidString
 
         // B3: from the upload phase through the final `group_start`, one
         // do/catch. Any throw here — upload failure, a `stillValid()` abort,
@@ -492,7 +585,10 @@ public final class BoardGroupCoordinator {
         isStarting = true
         startingGroupID = capturedGroupID
         do {
-            // Upload concurrently, each board's own (already-claimed) output lease.
+            // Upload concurrently, each board's own (already-claimed) output
+            // lease. Skipped when adopting: every board already holds this
+            // timeline.
+            if adoption == nil {
             try await withThrowingTaskGroup(of: Void.self) { taskGroup in
                 for captured in online {
                     let viewportX = self.viewportX(for: captured.slot, mode: mode, layout: layout)
@@ -520,6 +616,7 @@ public final class BoardGroupCoordinator {
                     }
                 }
                 try await taskGroup.waitForAll()
+            }
             }
             guard stillValid() else { throw GroupPlayError.aborted }
 
@@ -558,8 +655,17 @@ public final class BoardGroupCoordinator {
                     ests[captured.member.physicalBoardID] = estimator
                 }
             }
+            var firstFrame = startFrame
+            if let adoption, adoption.frameCount > 0 {
+                // Where the still-running boards will be at `phoneStart`,
+                // at the rate they were running when their meta was read.
+                let elapsedFrames = Int((phoneStart - adoption.readAtPhoneUs) / Int64(max(intervalMs, 1) * 1000))
+                let projected = adoption.frameIndex + max(0, elapsedFrames)
+                firstFrame = loop ? projected % adoption.frameCount : min(projected, adoption.frameCount - 1)
+            }
             let commands = GroupSchedule.startCommands(
-                phoneStartUs: phoneStart, estimators: ests, bootIds: bootIds, intervalMs: intervalMs, loop: loop
+                phoneStartUs: phoneStart, estimators: ests, bootIds: bootIds, intervalMs: intervalMs,
+                startFrame: firstFrame, loop: loop
             )
 
             // H5: every online member must have a `group_start` command (a valid
@@ -605,7 +711,7 @@ public final class BoardGroupCoordinator {
             activeRevision = capturedRevision
             activeEpoch = capturedEpoch
             isPlaying = true
-            currentAnchor = (phoneUs: phoneStart, startFrame: 0, intervalMs: intervalMs, loop: loop)
+            currentAnchor = (phoneUs: phoneStart, startFrame: firstFrame, intervalMs: intervalMs, loop: loop)
             playState = PlayState(
                 bitmap: bitmap, layout: layout, mode: mode, virtualWidth: virtualWidth, fps: fps,
                 timelineId: timelineId, sourceText: text, loop: loop, memberOrder: group.members
@@ -1588,7 +1694,14 @@ public final class BoardGroupCoordinator {
             // (e.g. G1={A,B,C} stopping while G2={A,D} starts mid-stop must
             // still deliver `stop_scroll` to B and C).
             if playEpoch != epoch, claimedBoardIDs.contains(id) { continue }
-            guard let session = session(for: member), session.connection.output.source == .group else { continue }
+            // A board whose lease a reconnect cleared (`source == nil`) but
+            // that is still scrolling is as much this group's as one we own:
+            // skipping it would leave it scrolling with Stop gone. A board
+            // owned by anything else is still left alone (H6).
+            guard let session = session(for: member),
+                  session.connection.output.source == .group
+                      || (session.connection.output.source == nil && Self.isScrolling(session.connection))
+            else { continue }
             let token = session.connection.output.claim(.group)
             _ = try? await session.connection.withOutput(token) {
                 _ = try? await session.connection.requestReliable(.stopScroll(restoreAuto: nil, clear: nil))
