@@ -103,8 +103,12 @@ lane_app() {
         return
     fi
     xctestrun=$(ls "$WORK"/app-dd/Build/Products/*.xctestrun 2>/dev/null | head -1)
+    # A hung test must fail by name. Without a per-test timeout a stuck stress
+    # test stalls the whole run for about 10 minutes, and the only summary left
+    # belongs to whichever sub-suite finished last.
     xcodebuild test-without-building -xctestrun "$xctestrun" -destination "$dest" \
-        -only-testing:RinaBoardTests >"$log" 2>&1
+        -only-testing:RinaBoardTests \
+        -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 >"$log" 2>&1
     judge_tests app "$log" $?
 }
 
