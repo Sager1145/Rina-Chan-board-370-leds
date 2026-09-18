@@ -1063,7 +1063,7 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
         const int intervalMs = cint(d, p, "intervalMs", -1);
         const int startFrame = cint(d, p, "startFrame", 0);
         const bool loop = cbool(d, p, "loop", true);
-        if (!atUsSrc.is<uint64_t>() || intervalMs < MIN_SCROLL_INTERVAL_MS || intervalMs > 2000 ||
+        if (!atUsSrc.is<uint64_t>() || intervalMs < static_cast<int>(MIN_SCROLL_INTERVAL_MS) || intervalMs > 2000 ||
             startFrame < 0 || startFrame > 65535) {
             ++runtimeState().commandsRejected;
             sendErrorReply(c, seq, 400,
