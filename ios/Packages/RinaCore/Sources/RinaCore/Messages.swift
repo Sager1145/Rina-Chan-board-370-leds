@@ -818,11 +818,18 @@ public struct ScrollUploadReply: Codable, Equatable, Sendable {
     /// `kind:"scroll_bitmap"` only (§7.1): leading dark frames rotated to the
     /// end so index 0 is the first lit frame (0 when nothing lit).
     public var rotation: Int?
+    /// Echoed back only when the upload used the group-viewport BEGIN meta
+    /// fields (BOARD_GROUP_SPEC §1.4): the stitched virtual screen width.
+    public var virtualWidth: Int?
+    /// Echoed back only when the upload used the group-viewport BEGIN meta
+    /// fields (BOARD_GROUP_SPEC §1.4): this board's left edge inside the
+    /// virtual screen.
+    public var viewportX: Int?
 
     public init(ok: Bool? = nil, frames: Int? = nil, chunkFrames: Int? = nil, append: Bool? = nil,
                 started: Bool? = nil, timelineId: String? = nil, uploadComplete: Bool? = nil,
                 frameBytes: Int? = nil, scrollIntervalMs: Int? = nil, uiFps: Int? = nil, scrollFps: Int? = nil,
-                width: Int? = nil, rotation: Int? = nil) {
+                width: Int? = nil, rotation: Int? = nil, virtualWidth: Int? = nil, viewportX: Int? = nil) {
         self.ok = ok
         self.frames = frames
         self.chunkFrames = chunkFrames
@@ -836,6 +843,8 @@ public struct ScrollUploadReply: Codable, Equatable, Sendable {
         self.scrollFps = scrollFps
         self.width = width
         self.rotation = rotation
+        self.virtualWidth = virtualWidth
+        self.viewportX = viewportX
     }
 }
 
@@ -856,6 +865,52 @@ public struct FaceOpReply: Codable, Equatable, Sendable {
 }
 
 
+// MARK: - Board group commands (BOARD_GROUP_SPEC §1.2/§1.3/§1.5)
+
+/// Reply to `CMD identify{number, ttlMs}` (§1.2).
+public struct IdentifyReply: Codable, Equatable, Sendable {
+    public var ok: Bool?
+    public var shown: Bool?
+    public var number: Int?
+    public var ttlMs: Int?
+
+    public init(ok: Bool? = nil, shown: Bool? = nil, number: Int? = nil, ttlMs: Int? = nil) {
+        self.ok = ok
+        self.shown = shown
+        self.number = number
+        self.ttlMs = ttlMs
+    }
+}
+
+/// Reply to `CMD clock_sample{}` (§1.3). `rxUs`/`txUs` are the board's
+/// `esp_timer_get_time()` at receive/reply-serialize time.
+public struct ClockSampleReply: Codable, Equatable, Sendable {
+    public var ok: Bool?
+    public var rxUs: Int64?
+    public var txUs: Int64?
+    public var bootId: String?
+
+    public init(ok: Bool? = nil, rxUs: Int64? = nil, txUs: Int64? = nil, bootId: String? = nil) {
+        self.ok = ok
+        self.rxUs = rxUs
+        self.txUs = txUs
+        self.bootId = bootId
+    }
+}
+
+/// Reply to `CMD group_start{atUs, bootId, intervalMs, startFrame?, loop?}` (§1.5).
+public struct GroupStartReply: Codable, Equatable, Sendable {
+    public var ok: Bool?
+    public var nowUs: Int64?
+    public var frameCount: Int?
+
+    public init(ok: Bool? = nil, nowUs: Int64? = nil, frameCount: Int? = nil) {
+        self.ok = ok
+        self.nowUs = nowUs
+        self.frameCount = frameCount
+    }
+}
+
 // MARK: - `CMD get_info` (`handleGetInfo()`)
 
 public struct DeviceInfo: Codable, Equatable, Sendable {
@@ -870,10 +925,19 @@ public struct DeviceInfo: Codable, Equatable, Sendable {
     public var psramSize: Int?
     public var uptimeMs: Int?
     public var proto: Int?
+    /// 8 lowercase hex chars, from `esp_random()` once at boot; changes on every
+    /// boot / deep-sleep wake (BOARD_GROUP_SPEC §1.1). `nil` on firmware that
+    /// predates board groups — decoding must still succeed.
+    public var bootId: String?
+    /// Feature capability tokens (BOARD_GROUP_SPEC §1.1), e.g.
+    /// `["identify","clock_sample","scroll_viewport","group_start"]`. `nil` on
+    /// old firmware — decoding must still succeed; treat as "supports nothing".
+    public var caps: [String]?
 
     public init(ok: Bool? = nil, device: String? = nil, fw: String? = nil, build: String? = nil,
                 ledBackend: String? = nil, ledDma: Bool? = nil, heapFree: Int? = nil, psramFree: Int? = nil,
-                psramSize: Int? = nil, uptimeMs: Int? = nil, proto: Int? = nil) {
+                psramSize: Int? = nil, uptimeMs: Int? = nil, proto: Int? = nil,
+                bootId: String? = nil, caps: [String]? = nil) {
         self.ok = ok
         self.device = device
         self.fw = fw
@@ -885,7 +949,25 @@ public struct DeviceInfo: Codable, Equatable, Sendable {
         self.psramSize = psramSize
         self.uptimeMs = uptimeMs
         self.proto = proto
+        self.bootId = bootId
+        self.caps = caps
     }
+
+    /// `true` iff `caps` (from `get_info`) lists `cap`. Always `false` on
+    /// firmware old enough to omit `caps` (BOARD_GROUP_SPEC §1.1/§2) — callers
+    /// must check this before using any board-group command and never
+    /// silently fall back while claiming "synchronized".
+    public func supports(_ cap: BoardCapability) -> Bool {
+        caps?.contains(cap.rawValue) ?? false
+    }
+}
+
+/// `get_info.caps` tokens (BOARD_GROUP_SPEC §1.1/§2).
+public enum BoardCapability: String, Sendable, CaseIterable {
+    case identify
+    case clockSample = "clock_sample"
+    case scrollViewport = "scroll_viewport"
+    case groupStart = "group_start"
 }
 
 // MARK: - `EV_LOG` (0x94) — `{"level":"I","tag":"…","msg":"…"}`, docs §3.5

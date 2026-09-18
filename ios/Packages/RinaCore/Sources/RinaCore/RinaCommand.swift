@@ -67,6 +67,17 @@ public enum RinaCommand: Sendable {
     /// Sets (or, with an empty/omitted `name`, clears) the board's custom
     /// display name (`RINALINK_PROTOCOL_V1` `set_device_name`).
     case setDeviceName(name: String)
+    // Board groups (BOARD_GROUP_SPEC.md §1.2/§1.3/§1.5).
+    /// Overlay-draws a large digit (`number` 1…9) for `ttlMs` (0 cancels;
+    /// missing → 5000); re-arms on repeat calls.
+    case identify(number: Int, ttlMs: Int?)
+    /// Cheap, never rate-limited round-trip timestamp exchange used to build a
+    /// `ClockOffsetEstimator` sample.
+    case clockSample
+    /// Enters/re-anchors group-timed scroll playback: `atUs` is this board's
+    /// own `esp_timer_get_time()` latch point, `bootId` must match the
+    /// board's current boot, `startFrame` defaults to 0, `loop` defaults to `true`.
+    case groupStart(atUs: Int64, bootId: String, intervalMs: Int, startFrame: Int?, loop: Bool?)
 
     public var name: String {
         switch self {
@@ -111,6 +122,9 @@ public enum RinaCommand: Sendable {
         case .faceUpsert: return "face_upsert"
         case .facesClearUser: return "faces_clear_user"
         case .setDeviceName: return "set_device_name"
+        case .identify: return "identify"
+        case .clockSample: return "clock_sample"
+        case .groupStart: return "group_start"
         }
     }
 
@@ -189,6 +203,17 @@ public enum RinaCommand: Sendable {
             break
         case .setDeviceName(let name):
             fields["name"] = name
+        case .identify(let number, let ttlMs):
+            fields["number"] = number
+            if let ttlMs { fields["ttlMs"] = ttlMs }
+        case .clockSample:
+            break
+        case .groupStart(let atUs, let bootId, let intervalMs, let startFrame, let loop):
+            fields["atUs"] = atUs
+            fields["bootId"] = bootId
+            fields["intervalMs"] = intervalMs
+            if let startFrame { fields["startFrame"] = startFrame }
+            if let loop { fields["loop"] = loop }
         }
         return fields
     }
