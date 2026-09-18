@@ -121,15 +121,34 @@ struct BoardPreviewStatus<Detail: View>: View {
         self.init(Text(title), systemImage: systemImage, tone: tone, detail: detail)
     }
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// One line, or the detail under the state at the accessibility sizes.
+    /// Squeezing both into one line there wrapped the state one character per
+    /// line and cut the detail to "…".
+    ///
+    /// Chosen by text size, never by measuring the content: the detail is
+    /// live (a frame counter, a mic level), and a layout picked from its
+    /// current width would flip between one and two lines as it ticks, making
+    /// everything below the footer jump.
     var body: some View {
-        HStack(spacing: 8) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(spacing: 8))
+        layout {
             Label { title } icon: { Image(systemName: systemImage) }
                 .foregroundStyle(tone.color)
-            Spacer(minLength: 0)
+                // The state never wraps mid-word; the detail gives way.
+                .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: false)
+            if !dynamicTypeSize.isAccessibilitySize {
+                Spacer(minLength: 0)
+            }
             detail
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .font(.caption.monospacedDigit())
         .accessibilityElement(children: .combine)
     }

@@ -8,8 +8,12 @@ struct ConnectionView: View {
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardStore.self) private var boardStore
-    @Environment(BLETransport.self) private var bleTransport
     @State private var viewModel = ConnectionViewModel()
+
+    /// Read through the store rather than injected, because `any BLEConnecting`
+    /// cannot go in the environment (`@Environment(T.self)` needs a concrete
+    /// observable type) and the active session is the one this tab acts on.
+    private var bleTransport: any BLEConnecting { sessions.active.bleTransport }
 
     @State private var networkForPassword: WifiNetwork?
     @State private var passwordInput = ""

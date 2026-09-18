@@ -81,7 +81,7 @@ public final class ConnectionViewModel {
 
     // MARK: BLE
 
-    public func toggleBLEScan(ble: BLETransport) {
+    public func toggleBLEScan(ble: any BoardScanning) {
         if ble.isScanning {
             ble.stopScan()
         } else {
@@ -94,7 +94,7 @@ public final class ConnectionViewModel {
         }
     }
 
-    public func connectBLE(_ peripheral: DiscoveredPeripheral, ble: BLETransport, connection: BoardConnection, boardStore: BoardStore) async {
+    public func connectBLE(_ peripheral: DiscoveredPeripheral, ble: any BLEConnecting, connection: BoardConnection, boardStore: BoardStore) async {
         let boardID = peripheral.id.uuidString
         let reconnectingSavedBoard = boardStore.boards.contains { $0.id == boardID }
         await connectBLE(peripheral, ble: ble, connection: connection, boardStore: boardStore) { [connection, boardStore] transport in
@@ -116,10 +116,10 @@ public final class ConnectionViewModel {
 
     func connectBLE(
         _ peripheral: DiscoveredPeripheral,
-        ble: BLETransport,
+        ble: any BLEConnecting,
         connection: BoardConnection,
         boardStore: BoardStore,
-        connectTransport: @escaping @MainActor (BLETransport) async -> Bool
+        connectTransport: @escaping @MainActor (any BLEConnecting) async -> Bool
     ) async {
         guard !isConnectingBLE else { return }
         isConnectingBLE = true
@@ -179,7 +179,7 @@ public final class ConnectionViewModel {
 
     /// Renames the board. An empty name clears the override and restores the
     /// MAC-derived default, which is the only way back from a bad name.
-    public func renameBoard(connection: BoardConnection, boardStore: BoardStore, ble: BLETransport) async {
+    public func renameBoard(connection: BoardConnection, boardStore: BoardStore, ble: any BLEConnecting) async {
         let requested = boardNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
         switch DeviceNameValidator.validateDeviceName(requested) {
         case .tooLong(let bytes):
@@ -424,7 +424,7 @@ public final class ConnectionViewModel {
 
     // MARK: Saved boards
 
-    public func forgetBoard(_ board: KnownBoard, ble: BLETransport,
+    public func forgetBoard(_ board: KnownBoard, ble: any BLEConnecting,
                             connection: BoardConnection, boardStore: BoardStore) {
         let isCurrent: Bool
         switch connection.transportKind {
@@ -506,7 +506,7 @@ public final class ConnectionViewModel {
 
     public func connectSavedBoard(
         _ board: KnownBoard,
-        ble: BLETransport,
+        ble: any BLEConnecting,
         connection: BoardConnection,
         boardStore: BoardStore,
         disconnectOtherHotspotSessions: () -> Void = {}
@@ -530,7 +530,7 @@ public final class ConnectionViewModel {
     ///   every board's SoftAP shares one IP.
     func connectSavedBoard(
         _ board: KnownBoard,
-        ble: BLETransport,
+        ble: any BLEConnecting,
         connection: BoardConnection,
         boardStore: BoardStore,
         joinBoardHotspot: @escaping @MainActor (String?) async throws -> String,
