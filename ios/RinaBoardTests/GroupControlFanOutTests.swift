@@ -281,6 +281,37 @@ final class GroupControlFanOutTests: XCTestCase {
         XCTAssertTrue(h.coordinator.isPlaying)
     }
 
+    // MARK: 6c. N2: a control command dispatched while the group is paused
+    // (not playing) must still supersede it and clear the paused state —
+    // `claimAllSinksAndBumpSeq` only checked `isPlaying` before.
+
+    func testControlCommandDuringGroupPauseSupersedesAndClearsPausedState() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.transports["AAAA"]?.caps = ["identify", "clock_sample", "scroll_viewport", "group_start"]
+        h.transports["BBBB"]?.caps = ["identify", "clock_sample", "scroll_viewport", "group_start"]
+        h.fanOut.setTarget(.group(h.group.id))
+
+        try await h.coordinator.play(group: h.group, text: "AB", fps: 10, loop: true)
+        await h.coordinator.pause(group: h.group)
+        XCTAssertTrue(h.coordinator.isPaused)
+        XCTAssertFalse(h.coordinator.isPlaying)
+
+        let primary = session(h, "AAAA")
+        // Same as 6b: the primary's lease is still `.group` while paused —
+        // a paused group never releases its participants' output leases.
+        XCTAssertEqual(primary.connection.output.source, .group)
+        _ = try await primary.connection.command(.setBrightness(raw: 42))
+
+        await waitUntil { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 42 }
+        XCTAssertEqual(h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int, 42)
+        // N2: the control dispatch must have superseded the paused group —
+        // clearing isPaused/pausedFrame, not just isPlaying.
+        XCTAssertFalse(h.coordinator.isPaused)
+        XCTAssertFalse(h.coordinator.isPlaying)
+        XCTAssertEqual(h.coordinator.pausedFrame, 0)
+        XCTAssertNil(h.coordinator.activeGroupID)
+    }
+
     // MARK: 7. target -> single invalidates sink leases and clears fanOut
 
     func testTargetToSingleInvalidatesSinkLeasesAndClearsFanOut() async throws {

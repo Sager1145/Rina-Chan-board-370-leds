@@ -833,6 +833,137 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertTrue(transportB.receivedStopScroll)
         XCTAssertNotEqual(sessionA.connection.output.source, .group)
     }
+
+    /// N1, unit-level: the same `isPlaying || isPaused` combination the UI
+    /// gates the stop button on (BoardGroupPlayView.isPlayingOrPaused,
+    /// BoardGroupListView's row label, BoardControlCenterAccessory's
+    /// subtitle) must read "active" while paused, and stop must still work
+    /// from there.
+    func testStopEnabledFromPausedCoordinatorState() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "停止可用组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        XCTAssertTrue(coordinator.isPlaying || coordinator.isPaused, "stop must read enabled while paused")
+
+        await coordinator.stop(group: store.groups[0])
+
+        XCTAssertFalse(coordinator.isPlaying || coordinator.isPaused, "stop must read disabled once actually stopped")
+    }
+
+    /// B1: a re-anchor pass already mid-clock-sampling when `pause()` lands
+    /// must abort before it ever sends a `group_start`, instead of racing
+    /// one out after the pause.
+    func testPauseDuringMidSamplingReanchorSendsNoFurtherGroupStart() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "重锚定暂停组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        XCTAssertTrue(coordinator.isPlaying)
+        let startsBefore = transportA.sentGroupStartAtUs.count
+
+        // Slow the clock-sample exchange so a re-anchor pass is still in its
+        // sampling loop when pause() lands.
+        transportA.clockSampleReplyDelay = 0.3
+        transportB.clockSampleReplyDelay = 0.3
+
+        #if DEBUG
+        let reanchorTask = Task { await coordinator.debugReanchorNow() }
+        // Give the re-anchor pass time to reach its (slowed) sampling loop
+        // before pausing.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        await coordinator.pause(group: store.groups[0])
+        await reanchorTask.value
+        #endif
+
+        XCTAssertTrue(coordinator.isPaused)
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, startsBefore,
+                        "no group_start must arrive from a reanchor pass that started before pause")
+        XCTAssertEqual(transportB.sentGroupStartAtUs.count, startsBefore)
+    }
+
+    /// B2: `updatePlayback` while paused must only remember the new
+    /// interval/loop — never send anything on the wire.
+    func testUpdatePlaybackWhilePausedSendsNothing() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "暂停中更新组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        XCTAssertTrue(coordinator.isPaused)
+        let startsBeforeUpdate = transportA.sentGroupStartAtUs.count
+
+        await coordinator.updatePlayback(group: store.groups[0], fps: 20, loop: nil)
+
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, startsBeforeUpdate)
+        XCTAssertEqual(transportB.sentGroupStartAtUs.count, startsBeforeUpdate)
+        XCTAssertTrue(coordinator.isPaused, "updatePlayback must not itself resume playback")
+    }
+
+    /// N5: two pause taps racing each other (e.g. a fast double-tap) must
+    /// still land every participant on one identical frame — the second
+    /// tap is ignored outright, not sent as a second, possibly different, n.
+    func testOverlappingPauseTapsSendASingleConsistentFrame() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "并发暂停组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+
+        async let firstTap: Void = coordinator.pause(group: store.groups[0])
+        async let secondTap: Void = coordinator.pause(group: store.groups[0])
+        _ = await (firstTap, secondTap)
+
+        XCTAssertTrue(coordinator.isPaused)
+        XCTAssertEqual(transportA.receivedPauseScrollCount, 1, "the overlapping tap must be ignored, not sent twice")
+        XCTAssertEqual(transportB.receivedPauseScrollCount, 1)
+        XCTAssertEqual(transportA.sentScrollSeekFrames.count, 1)
+        XCTAssertEqual(transportB.sentScrollSeekFrames.count, 1)
+        let frameA = try XCTUnwrap(transportA.sentScrollSeekFrames.last)
+        let frameB = try XCTUnwrap(transportB.sentScrollSeekFrames.last)
+        XCTAssertEqual(frameA, frameB, "every participant must still pause on the identical frame")
+        XCTAssertEqual(coordinator.pausedFrame, frameA)
+    }
 }
 
 // MARK: - Fake transport
