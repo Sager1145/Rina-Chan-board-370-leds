@@ -199,6 +199,12 @@ header with no Arduino dependencies) so they are testable with `c++ -std=c++17`.
   - `stop()`: `stop_scroll` to all members; cancels timers.
   - An offline member keeps its slot; the virtual width never shrinks
     automatically.
+  - Play requires every member online and supported (≥2 members); an
+    offline member blocks play (`offlineMembers`) rather than playing a gap.
+  - Control target: the 控制对象 menu (Control Center) switches between a
+    single board and a group (`ControlTarget`, persisted). With a group
+    targeted, the Text tab's send/stop go to the group and pause/step/seek
+    are hidden (v1 has no timed pause).
   - Members without all four caps are shown as unsupported and block play
     (clear message), never silently skipped.
 - **Do not break single-board flows.** Selecting/focusing a member board in

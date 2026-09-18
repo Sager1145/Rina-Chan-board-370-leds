@@ -132,6 +132,42 @@ struct ScrollTextView: View {
     /// section with ordinary rows left it sitting on top of a broken card.
     @ViewBuilder
     private var playbackSection: some View {
+        if let group = targetedGroup {
+            groupPlaybackSection(group)
+        } else {
+            singleBoardPlaybackSection
+        }
+    }
+
+    /// v1 groups have no timed pause/step/seek (BOARD_GROUP_SPEC.md), so a
+    /// group target gets only play, stop and loop instead of the single-board
+    /// pills and progress bar, which would act on one board.
+    private func groupPlaybackSection(_ group: BoardGroup) -> some View {
+        let playing = groupCoordinator.isPlaying && groupCoordinator.activeGroupID == group.id
+        return Section {
+            Toggle("循环播放", isOn: Binding(
+                get: { model.loopPlayback },
+                set: { model.loopPlayback = $0 }
+            ))
+            HStack {
+                Button(playing ? "重新播放到多板组" : "播放到多板组", systemImage: "play.fill") {
+                    Task { await sendOrPlayGroup() }
+                }
+                .disabled(model.exceedsByteLimit || model.text.isEmpty)
+                Spacer()
+                Button("停止", systemImage: "stop.fill") {
+                    Task { await stopOrStopGroup() }
+                }
+                .disabled(!playing)
+            }
+            .buttonStyle(.borderless)
+        } footer: {
+            Text(playing ? "多板组播放中。暂停与单步仅在单板模式可用。" : "暂停与单步仅在单板模式可用。")
+        }
+    }
+
+    @ViewBuilder
+    private var singleBoardPlaybackSection: some View {
         Section {
             // Transport pills plus the loop toggle (§24): with nothing bound
             // on the board the stop slot becomes "send and play".
