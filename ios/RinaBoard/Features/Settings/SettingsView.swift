@@ -13,6 +13,12 @@ struct SettingsView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardControlCenterModel.self) private var controlCenter
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(BoardGroupStore.self) private var groupStore
+
+    /// Mirrors the Control Center's "控制对象" choice (BOARD_GROUP_SPEC.md
+    /// §3), so the row that pushes it can show which one is active — on
+    /// iOS 17–25 there is no tab-bar accessory to show it instead.
+    @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
 
     @AppStorage(AppSettingsKey.showBoardPhoto) private var showBoardPhoto = true
     @AppStorage(AppSettingsKey.hapticsEnabled) private var hapticsEnabled = true
@@ -38,7 +44,12 @@ struct SettingsView: View {
                             NavigationLink {
                                 BoardControlCenterView()
                             } label: {
-                                Label("面板控制中心", systemImage: "slider.horizontal.below.rectangle")
+                                LabeledContent {
+                                    Text(controlTargetSummary)
+                                        .foregroundStyle(.secondary)
+                                } label: {
+                                    Label("面板控制中心", systemImage: "slider.horizontal.below.rectangle")
+                                }
                             }
                         }
                     }
@@ -72,6 +83,19 @@ struct SettingsView: View {
             } label: {
                 Label("连接设置", systemImage: "antenna.radiowaves.left.and.right")
             }
+        }
+    }
+
+    /// "单板 · <board>" / "多板组 · <name>" — the current 控制对象, shown as
+    /// this row's secondary value since iOS 17–25 has no tab-bar accessory to
+    /// show it instead (BOARD_GROUP_SPEC.md §3).
+    private var controlTargetSummary: String {
+        switch ControlTarget.resolved(storedGroupIDString: controlTargetGroupIDStorage, in: groupStore) {
+        case .single:
+            return "单板 · \(connection.deviceName ?? "未连接")"
+        case .group(let id):
+            let name = groupStore.groups.first { $0.id == id }?.name ?? "多板组"
+            return "多板组 · \(name)"
         }
     }
 

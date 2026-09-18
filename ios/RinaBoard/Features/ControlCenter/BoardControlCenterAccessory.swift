@@ -191,7 +191,7 @@ struct BoardControlCenterAccessory: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("面板控制")
+        .accessibilityLabel(Text(accessibilityTitle))
         .accessibilityValue(Text(accessibilitySummary))
         .accessibilityHint("打开面板控制中心")
     }
@@ -372,6 +372,20 @@ struct BoardControlCenterAccessory: View {
     }
 
     // MARK: Derived state
+
+    /// The summary button's accessibility label. While a group is targeted
+    /// this spells out the group name and its online count even at
+    /// accessibility sizes, where `showsSubtitle` drops the second line from
+    /// the visible bar to keep its fixed system height (BOARD_GROUP_SPEC.md
+    /// §3).
+    private var accessibilityTitle: String {
+        guard let group = targetedGroup else { return "面板控制" }
+        let online = group.members.filter { groupCoordinator.status(for: $0) != .offline }.count
+        return String(
+            format: NSLocalizedString("控制对象：多板组 %@，%lld/%lld 在线", comment: "control target accessibility label for a group"),
+            group.name, online, group.members.count
+        )
+    }
 
     /// "已连接" — the compact secondary state line: connection state only.
     /// While a group is targeted this instead reads "播放中" or

@@ -43,6 +43,7 @@ struct ScrollTextView: View {
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var isEditorFocused: Bool
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// Ark Pixel editor size; follows Dynamic Type, snapped to crisp steps.
     @ScaledMetric(relativeTo: .body) private var editorFontSize: CGFloat = 16
 
@@ -149,21 +150,35 @@ struct ScrollTextView: View {
                 get: { model.loopPlayback },
                 set: { model.loopPlayback = $0 }
             ))
-            HStack {
-                Button(playing ? "重新播放到多板组" : "播放到多板组", systemImage: "play.fill") {
-                    Task { await sendOrPlayGroup() }
+            ViewThatFits {
+                HStack {
+                    groupPlayButton(playing: playing)
+                    Spacer()
+                    groupStopButton(playing: playing)
                 }
-                .disabled(model.exceedsByteLimit || model.text.isEmpty)
-                Spacer()
-                Button("停止", systemImage: "stop.fill") {
-                    Task { await stopOrStopGroup() }
+                VStack(alignment: .leading, spacing: 8) {
+                    groupPlayButton(playing: playing)
+                    groupStopButton(playing: playing)
                 }
-                .disabled(!playing)
             }
             .buttonStyle(.borderless)
         } footer: {
             Text(playing ? "多板组播放中。暂停与单步仅在单板模式可用。" : "暂停与单步仅在单板模式可用。")
         }
+    }
+
+    private func groupPlayButton(playing: Bool) -> some View {
+        Button(playing ? "重新播放到多板组" : "播放到多板组", systemImage: "play.fill") {
+            Task { await sendOrPlayGroup() }
+        }
+        .disabled(model.exceedsByteLimit || model.text.isEmpty)
+    }
+
+    private func groupStopButton(playing: Bool) -> some View {
+        Button("停止", systemImage: "stop.fill") {
+            Task { await stopOrStopGroup() }
+        }
+        .disabled(!playing)
     }
 
     @ViewBuilder
@@ -222,14 +237,24 @@ struct ScrollTextView: View {
     private var groupTargetBanner: some View {
         if let group = targetedGroup {
             Section {
-                HStack {
-                    Text("发送到多板组：\(group.name)（\(group.mode == .stitched ? "拼接" : "镜像")）")
-                        .font(.footnote)
-                    Spacer()
-                    Button("切回单板") {
-                        controlTargetGroupIDStorage = ControlTarget.single.storedGroupIDString
+                let bannerText = Text("发送到多板组：\(group.name)（\(group.mode == .stitched ? "拼接" : "镜像")）")
+                    .font(.footnote)
+                let backButton = Button("切回单板") {
+                    controlTargetGroupIDStorage = ControlTarget.single.storedGroupIDString
+                }
+                .buttonStyle(.borderless)
+
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        bannerText
+                        backButton
                     }
-                    .buttonStyle(.borderless)
+                } else {
+                    HStack {
+                        bannerText
+                        Spacer()
+                        backButton
+                    }
                 }
             }
         }

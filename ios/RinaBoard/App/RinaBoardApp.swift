@@ -37,7 +37,42 @@ struct RinaBoardApp: App {
         _sessions = State(initialValue: sessions)
         _boardGroupStore = State(initialValue: boardGroupStore)
         _boardGroupCoordinator = State(initialValue: coordinator)
+        #if DEBUG
+        Self.seedDemoGroupIfNeeded(store: boardGroupStore)
+        #endif
     }
+
+    #if DEBUG
+    /// Screenshot-tooling only: `-seedDemoGroup YES` creates a fixed
+    /// three-board demo group (if one by this name doesn't already exist)
+    /// and points the "控制对象" menu at it, so a fresh simulator can be
+    /// screenshotted in multi-board mode without pairing real hardware.
+    /// Compiled out of Release.
+    private static func seedDemoGroupIfNeeded(store: BoardGroupStore) {
+        guard UserDefaults.standard.string(forKey: "seedDemoGroup") == "YES" else { return }
+        let name = "演示组"
+        if let existing = store.groups.first(where: { $0.name == name }) {
+            UserDefaults.standard.set(existing.id.uuidString, forKey: ControlTargetKey.groupID)
+            return
+        }
+        let group = store.create(name: name)
+        let members: [(id: String, displayName: String)] = [
+            ("DEMO-A", "璃奈板 A"),
+            ("DEMO-B", "璃奈板 B"),
+            ("DEMO-C", "璃奈板 C"),
+        ]
+        for member in members {
+            try? store.addMember(
+                groupID: group.id,
+                member: BoardGroup.Member(physicalBoardID: member.id, displayName: member.displayName)
+            )
+        }
+        store.setMode(id: group.id, mode: .stitched)
+        try? store.setGap(groupID: group.id, afterSlot: 0, columns: 2)
+        try? store.setGap(groupID: group.id, afterSlot: 1, columns: 2)
+        UserDefaults.standard.set(group.id.uuidString, forKey: ControlTargetKey.groupID)
+    }
+    #endif
 
     var body: some Scene {
         WindowGroup {

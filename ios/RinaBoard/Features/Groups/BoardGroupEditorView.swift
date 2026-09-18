@@ -10,6 +10,7 @@ struct BoardGroupEditorView: View {
     @Environment(BoardGroupCoordinator.self) private var coordinator
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(\.editMode) private var editMode
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @State private var nameDraft = ""
     @State private var isIdentifying = false
@@ -134,36 +135,43 @@ struct BoardGroupEditorView: View {
     @ViewBuilder
     private func memberRow(group: BoardGroup, member: BoardGroup.Member, slot: Int) -> some View {
         let status = coordinator.status(for: member)
-        HStack(spacing: 12) {
-            Text("\(slot + 1)")
-                .font(.headline)
-                .monospacedDigit()
-                .frame(width: 24)
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(displayName(for: member))
-                Text(BoardGroupStatusFormatting.text(status))
-                    .font(.caption)
-                    .foregroundStyle(BoardGroupStatusFormatting.color(status))
+        let nameAndStatus = VStack(alignment: .leading, spacing: 2) {
+            Text("\(slot + 1). \(displayName(for: member))")
+            Text(BoardGroupStatusFormatting.text(status))
+                .font(.caption)
+                .foregroundStyle(BoardGroupStatusFormatting.color(status))
+        }
+        let reorderButtons = HStack(spacing: 4) {
+            Button {
+                moveMember(group: group, slot: slot, delta: -1)
+            } label: {
+                Image(systemName: "chevron.up")
             }
-            Spacer()
-            VStack(spacing: 4) {
-                Button {
-                    moveMember(group: group, slot: slot, delta: -1)
-                } label: {
-                    Image(systemName: "chevron.up")
-                }
-                .disabled(slot == 0)
-                .accessibilityLabel("左移")
-                Button {
-                    moveMember(group: group, slot: slot, delta: 1)
-                } label: {
-                    Image(systemName: "chevron.down")
-                }
-                .disabled(slot == group.members.count - 1)
-                .accessibilityLabel("右移")
+            .disabled(slot == 0)
+            .accessibilityLabel("左移")
+            Button {
+                moveMember(group: group, slot: slot, delta: 1)
+            } label: {
+                Image(systemName: "chevron.down")
             }
-            .buttonStyle(.borderless)
+            .disabled(slot == group.members.count - 1)
+            .accessibilityLabel("右移")
+        }
+        .buttonStyle(.borderless)
+
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    nameAndStatus
+                    reorderButtons
+                }
+            } else {
+                HStack(spacing: 12) {
+                    nameAndStatus
+                    Spacer()
+                    reorderButtons
+                }
+            }
         }
         .swipeActions {
             Button(role: .destructive) {

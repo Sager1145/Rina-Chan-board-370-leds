@@ -22,6 +22,7 @@ struct BoardControlCenterView: View {
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(BoardGroupStore.self) private var groupStore
     @Environment(BoardGroupCoordinator.self) private var groupCoordinator
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var boardSwitcher: ConnectionViewModel?
 
     /// Which board(s) the sections below act on (BOARD_GROUP_SPEC.md §3's
@@ -205,63 +206,7 @@ struct BoardControlCenterView: View {
 
     private var statusSection: some View {
         Section {
-            LabeledContent("控制对象") {
-                Menu {
-                    Section("单板") {
-                        ForEach(boardStore.boards) { board in
-                            Button {
-                                controlTargetGroupIDStorage = ControlTarget.single.storedGroupIDString
-                                switchBoard(to: board)
-                            } label: {
-                                if controlTarget == .single && isConnected && board.id == currentBoardID {
-                                    Label(connection.deviceName ?? board.name, systemImage: "checkmark")
-                                } else {
-                                    Text(board.name)
-                                }
-                            }
-                        }
-                    }
-                    if !groupStore.groups.isEmpty {
-                        Section("多板组") {
-                            ForEach(groupStore.groups) { group in
-                                Button {
-                                    controlTargetGroupIDStorage = ControlTarget.group(group.id).storedGroupIDString
-                                } label: {
-                                    let isCurrent = controlTarget == .group(group.id)
-                                    Label(
-                                        "\(group.name)（\(onlineMemberCount(group))/\(group.members.count) 在线）",
-                                        systemImage: isCurrent ? "checkmark" : "rectangle.split.3x1"
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Section {
-                        Button {
-                            let group = groupStore.create(name: Self.defaultNewGroupName)
-                            pendingNewGroupID = group.id
-                            newGroupEditorTarget = GroupSheetTarget(id: group.id)
-                        } label: {
-                            Label("新建多板组…", systemImage: "plus")
-                        }
-                        Button {
-                            isPresentingGroupManage = true
-                        } label: {
-                            Label("管理多板组…", systemImage: "list.bullet")
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Label(controlTargetLabel, systemImage: controlTargetIcon)
-                        Image(systemName: "chevron.down")
-                            .font(.caption.weight(.semibold))
-                    }
-                }
-                .disabled(isSwitchingBoard)
-                .accessibilityLabel("控制对象")
-                .accessibilityValue(controlTargetLabel)
-                .accessibilityIdentifier("controlCenter.controlTargetSelector")
-            }
+            controlTargetRow
             LabeledContent("连接状态") {
                 // State is never communicated by colour alone (§7, §41).
                 Label(connectionStateText, systemImage: connectionStateSymbol)
@@ -297,6 +242,134 @@ struct BoardControlCenterView: View {
         )
     }
 
+    /// One selectable row of the "控制对象" menu's inline picker: a saved
+    /// board, or a multi-board group.
+    private enum ControlSelection: Hashable {
+        case board(String)
+        case group(UUID)
+    }
+
+    /// The row currently checked by the picker. `.board("")` when no saved
+    /// board matches the live connection (not yet connected, or connected to
+    /// something not saved) — it simply leaves every row unchecked.
+    private var controlSelectionTag: ControlSelection {
+        if let group = targetedGroup { return .group(group.id) }
+        if isConnected, let id = currentBoardID { return .board(id) }
+        return .board("")
+    }
+
+    private func handleControlSelection(_ newValue: ControlSelection) {
+        switch newValue {
+        case .board(let id):
+            guard let board = boardStore.boards.first(where: { $0.id == id }) else { return }
+            controlTargetGroupIDStorage = ControlTarget.single.storedGroupIDString
+            switchBoard(to: board)
+        case .group(let id):
+            controlTargetGroupIDStorage = ControlTarget.group(id).storedGroupIDString
+        }
+    }
+
+    /// The "控制对象" row: a title above a `Menu`. At accessibility sizes the
+    /// title sits above the menu instead of beside it (via `LabeledContent`,
+    /// whose own adaptive layout truncates rather than wraps).
+    @ViewBuilder
+    private var controlTargetRow: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 4) {
+                // The menu itself already carries "控制对象" as its
+                // accessibility label; this caption is for sighted users only.
+                Text("控制对象")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                controlTargetMenu
+            }
+        } else {
+            LabeledContent("控制对象") {
+                controlTargetMenu
+            }
+        }
+    }
+
+    /// The native `Menu` a tap opens: an inline `Picker` over every saved
+    /// board and multi-board group (so the system draws the checkmark,
+    /// handles Dynamic Type, VoiceOver's "已选择" and keyboard/pointer), plus
+    /// the two group-management actions below a divider.
+    private var controlTargetMenu: some View {
+        Menu {
+            Picker(selection: Binding(get: { controlSelectionTag }, set: handleControlSelection)) {
+                Section("单板") {
+                    ForEach(boardStore.boards) { board in
+                        Label(board.name, systemImage: "rectangle.on.rectangle")
+                            .tag(ControlSelection.board(board.id))
+                    }
+                }
+                if !groupStore.groups.isEmpty {
+                    Section("多板组") {
+                        ForEach(groupStore.groups) { group in
+                            Label {
+                                VStack(alignment: .leading) {
+                                    Text(group.name)
+                                    Text("\(onlineMemberCount(group))/\(group.members.count) 在线")
+                                }
+                            } icon: {
+                                Image(systemName: "rectangle.split.3x1")
+                            }
+                            .tag(ControlSelection.group(group.id))
+                        }
+                    }
+                }
+            } label: {
+                EmptyView()
+            }
+            .pickerStyle(.inline)
+
+            Divider()
+
+            Button {
+                let group = groupStore.create(name: Self.defaultNewGroupName)
+                pendingNewGroupID = group.id
+                newGroupEditorTarget = GroupSheetTarget(id: group.id)
+            } label: {
+                Label("新建多板组…", systemImage: "plus")
+            }
+            Button {
+                isPresentingGroupManage = true
+            } label: {
+                Label("管理多板组…", systemImage: "list.bullet")
+            }
+        } label: {
+            controlTargetMenuLabel
+        }
+        .disabled(isSwitchingBoard)
+        .accessibilityLabel("控制对象")
+        .accessibilityValue(controlTargetLabel)
+        .accessibilityIdentifier("controlCenter.controlTargetSelector")
+    }
+
+    /// The row the user taps to open the menu. At accessibility sizes the
+    /// title and value stack vertically and the value is free to wrap onto
+    /// further lines; otherwise it's one line, truncating in the middle so
+    /// both a long board name's start and end stay legible.
+    @ViewBuilder
+    private var controlTargetMenuLabel: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            Label(controlTargetLabel, systemImage: controlTargetIcon)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: AppLayout.minimumTapTarget, alignment: .leading)
+        } else {
+            HStack(spacing: 6) {
+                Label(controlTargetLabel, systemImage: controlTargetIcon)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+            }
+            .frame(minHeight: AppLayout.minimumTapTarget)
+        }
+    }
+
     /// The "控制对象" menu label: the active board's name with a single-board
     /// glyph, or the targeted group's name and member count with a
     /// multi-board glyph.
@@ -315,6 +388,37 @@ struct BoardControlCenterView: View {
         group.members.filter { groupCoordinator.status(for: $0) != .offline }.count
     }
 
+    /// One member of the targeted group's roster. At accessibility sizes the
+    /// status drops below the name instead of squeezing it against a
+    /// trailing `Spacer` — no fixed width anywhere in the row.
+    @ViewBuilder
+    private func groupMemberRow(index: Int, member: BoardGroup.Member) -> some View {
+        let status = groupCoordinator.status(for: member)
+        let name = groupCoordinator.session(for: member)?.connection.deviceName ?? member.displayName
+        let statusText = Text(BoardGroupStatusFormatting.text(status))
+            .font(.caption)
+            .foregroundStyle(BoardGroupStatusFormatting.color(status))
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(index + 1). \(name)")
+                statusText
+            }
+        } else {
+            HStack(spacing: 12) {
+                Text("\(index + 1)")
+                    .font(.headline)
+                    .monospacedDigit()
+                    .frame(width: 24)
+                    .foregroundStyle(.secondary)
+                Text(name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                statusText
+            }
+        }
+    }
+
     // MARK: §7.2 Multi-board group panel
 
     /// Shown only while the control target is a group: the group's own
@@ -327,19 +431,7 @@ struct BoardControlCenterView: View {
                 LabeledContent("名称", value: group.name)
                 LabeledContent("模式", value: group.mode == .stitched ? "拼接" : "镜像")
                 ForEach(Array(group.members.enumerated()), id: \.element.physicalBoardID) { index, member in
-                    let status = groupCoordinator.status(for: member)
-                    HStack(spacing: 12) {
-                        Text("\(index + 1)")
-                            .font(.headline)
-                            .monospacedDigit()
-                            .frame(width: 24)
-                            .foregroundStyle(.secondary)
-                        Text(groupCoordinator.session(for: member)?.connection.deviceName ?? member.displayName)
-                        Spacer()
-                        Text(BoardGroupStatusFormatting.text(status))
-                            .font(.caption)
-                            .foregroundStyle(BoardGroupStatusFormatting.color(status))
-                    }
+                    groupMemberRow(index: index, member: member)
                 }
             }
 

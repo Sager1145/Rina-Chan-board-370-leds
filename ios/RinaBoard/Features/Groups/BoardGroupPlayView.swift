@@ -9,6 +9,7 @@ struct BoardGroupPlayView: View {
 
     @Environment(BoardGroupStore.self) private var store
     @Environment(BoardGroupCoordinator.self) private var coordinator
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @State private var text = ""
     @State private var fps: Double = 10
@@ -78,38 +79,39 @@ struct BoardGroupPlayView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                HStack {
-                    Button {
-                        Task { await play(group: group) }
-                    } label: {
-                        if isSending {
-                            ProgressView()
-                        } else {
-                            Label("播放", systemImage: "play.fill")
-                        }
+                ViewThatFits {
+                    HStack {
+                        playButton(group: group)
+                        Spacer()
+                        stopButton(group: group)
                     }
-                    .disabled(!canPlay(group) || isSending)
-
-                    Spacer()
-
-                    Button(role: .destructive) {
-                        Task { await coordinator.stop(group: group) }
-                    } label: {
-                        Label("停止", systemImage: "stop.fill")
+                    VStack(alignment: .leading, spacing: 8) {
+                        playButton(group: group)
+                        stopButton(group: group)
                     }
-                    .disabled(!coordinator.isPlaying || coordinator.activeGroupID != group.id)
                 }
             }
 
             Section("面板状态") {
                 ForEach(group.members, id: \.physicalBoardID) { member in
                     let status = coordinator.status(for: member)
-                    HStack {
-                        Text(coordinator.session(for: member)?.connection.deviceName ?? member.displayName)
-                        Spacer()
-                        Text(BoardGroupStatusFormatting.text(status))
-                            .font(.caption)
-                            .foregroundStyle(BoardGroupStatusFormatting.color(status))
+                    if dynamicTypeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(coordinator.session(for: member)?.connection.deviceName ?? member.displayName)
+                            Text(BoardGroupStatusFormatting.text(status))
+                                .font(.caption)
+                                .foregroundStyle(BoardGroupStatusFormatting.color(status))
+                        }
+                    } else {
+                        HStack {
+                            Text(coordinator.session(for: member)?.connection.deviceName ?? member.displayName)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Text(BoardGroupStatusFormatting.text(status))
+                                .font(.caption)
+                                .foregroundStyle(BoardGroupStatusFormatting.color(status))
+                        }
                     }
                 }
             }
@@ -120,6 +122,30 @@ struct BoardGroupPlayView: View {
         .task(id: previewKey(group)) {
             await rebuildPreview(group: group)
         }
+    }
+
+    @ViewBuilder
+    private func playButton(group: BoardGroup) -> some View {
+        Button {
+            Task { await play(group: group) }
+        } label: {
+            if isSending {
+                ProgressView()
+            } else {
+                Label("播放", systemImage: "play.fill")
+            }
+        }
+        .disabled(!canPlay(group) || isSending)
+    }
+
+    @ViewBuilder
+    private func stopButton(group: BoardGroup) -> some View {
+        Button(role: .destructive) {
+            Task { await coordinator.stop(group: group) }
+        } label: {
+            Label("停止", systemImage: "stop.fill")
+        }
+        .disabled(!coordinator.isPlaying || coordinator.activeGroupID != group.id)
     }
 
     // MARK: - Play gating
