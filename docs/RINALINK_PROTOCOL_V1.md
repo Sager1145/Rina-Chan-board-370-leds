@@ -470,5 +470,9 @@ accumulation, no drift rebase; a late tick jumps straight to the right frame. A 
 `(atUs, startFrame, intervalMs, loop)` atomically, no restart flash. Leaves group-timed mode
 (back to legacy local timing) on `start_scroll`, `pause_scroll`, `stop_scroll`, `scroll_seek`,
 `scroll_step`, `set_scroll_interval`, a new scroll upload, a button, or any other output
-takeover. `GET_SCROLL_META`, status `renderer`, and `GET_PREVIEW_SYNC` all gain
+takeover — **except** the brightness buttons (`B4`/`B5`, `CMD button`), which do not affect
+scroll timing and so never exit group-timed mode, matching the physical gpio buttons (which
+already never call the group-timed exit for any button). Every other button (`B1`…`B3`,
+`B6`, `B3B1`, `B3B2`) still ends group-timed mode even if that button does not itself
+stop/replace the scroll. `GET_SCROLL_META`, status `renderer`, and `GET_PREVIEW_SYNC` all gain
 `"groupTimed":bool`. Reply: `{"ok":true,"nowUs":u64,"frameCount":n}`.

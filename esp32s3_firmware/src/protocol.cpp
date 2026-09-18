@@ -1262,10 +1262,15 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
             String(cstr(d, p, "reason", "rinalink_apply_saved_face")),
             cstr(d, p, "playback", DEFAULT_PLAYBACK));
     } else if (strcmp(cmd, "button") == 0) {
-        // §1.5: a button always ends group-timed playback, even if this
-        // particular button does not itself stop/replace the scroll.
-        scrollSessionExitGroupTimed();
-        ok = runButtonAction(String(cstr(d, p, "button", "")), "rinalink");
+        // §1.5 / v1.2: a button ends group-timed playback, even if this
+        // particular button does not itself stop/replace the scroll --
+        // except the brightness buttons (B4/B5), which do not affect scroll
+        // timing and so must not exit group-timed mode, matching what the
+        // physical gpio buttons already do for every button.
+        const String buttonCode = String(cstr(d, p, "button", ""));
+        if (!isBrightnessButtonCode(buttonCode))
+            scrollSessionExitGroupTimed();
+        ok = runButtonAction(buttonCode, "rinalink");
     }
     else if (strcmp(cmd, "terminate_other_activities") == 0) {
         stopFirmwareScroll(false, true, false);
