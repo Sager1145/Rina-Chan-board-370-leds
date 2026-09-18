@@ -80,16 +80,16 @@ final class GroupControlFanOutTests: XCTestCase {
 
     func testCoalescedCommandMovesToEndPreservingOrder() async throws {
         let h = await harness(["AAAA", "BBBB"])
-        // Comfortably longer than the primary's own commandPump spacing
-        // (`minInterval: 0.120`) across the 4 sequential sends below (~0.5s
-        // worst case), so the sink's worker is still reliably blocked on
-        // set_color's reply when the coalescing send arrives.
-        h.transports["BBBB"]?.cmdReplyDelay["set_color"] = 3.0
+        // Deterministically (not via a wall-clock delay a loaded machine
+        // could blow through) blocks the sink's worker on set_color's reply
+        // until this test explicitly releases it below, once every
+        // subsequent send has already been dispatched.
+        h.transports["BBBB"]?.holdCmds = ["set_color"]
         h.fanOut.setTarget(.group(h.group.id))
         let primary = session(h, "AAAA")
 
         // First item: dequeued and sent immediately, blocking the sink's
-        // worker on its (delayed) reply — everything sent while it's in
+        // worker on its (held) reply — everything sent while it's in
         // flight piles up in the queue behind it.
         _ = try await primary.connection.command(.setColor(hex: "#111111"))
         // Queued while the worker is still blocked on set_color's reply:
@@ -100,7 +100,8 @@ final class GroupControlFanOutTests: XCTestCase {
         // (earlier) position.
         _ = try await primary.connection.command(.setBrightness(raw: 20))
 
-        await waitUntil(timeout: 5) { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 20 }
+        h.transports["BBBB"]?.releaseHeld("set_color")
+        await waitUntil(timeout: 3) { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 20 }
         let names = h.transports["BBBB"]?.receivedCmdNames ?? []
         let colorIdx = names.lastIndex(of: "set_color")
         let intervalIdx = names.lastIndex(of: "set_auto_interval")
@@ -438,6 +439,13 @@ private final class GroupControlFakeTransport: RinaTransport {
     var cmdReplyDelay: [String: TimeInterval] = [:]
     var frameReplyDelay: TimeInterval = 0
     var failCmds: Set<String> = []
+    /// Commands named here never get a reply until `releaseHeld(_:)` is
+    /// called — deterministic, unlike `cmdReplyDelay`'s wall-clock delay,
+    /// which a loaded machine can blow through (a test racing a fixed delay
+    /// against several other sends is exactly the kind of flake a shared-Mac
+    /// load skews).
+    var holdCmds: Set<String> = []
+    private var heldRequests: [String: [RinaLinkFrame]] = [:]
     private(set) var sentGroupStartAtUs: [Int64] = []
     private(set) var receivedCmdNames: [String] = []
     private(set) var receivedFrameBytes: [[UInt8]] = []
@@ -458,6 +466,10 @@ private final class GroupControlFakeTransport: RinaTransport {
 
     func send(_ data: Data) async throws {
         for request in decoder.feed(data) {
+            if let cmd = cmdName(of: request), holdCmds.contains(cmd) {
+                heldRequests[cmd, default: []].append(request)
+                continue
+            }
             let delay = delay(for: request)
             if delay > 0 {
                 Task { @MainActor [weak self] in
@@ -471,11 +483,23 @@ private final class GroupControlFakeTransport: RinaTransport {
         }
     }
 
+    /// Replies to every request currently held for `cmd` (see `holdCmds`).
+    func releaseHeld(_ cmd: String) {
+        guard let requests = heldRequests.removeValue(forKey: cmd) else { return }
+        for request in requests {
+            emitReply(request, payload: replyPayload(for: request))
+        }
+    }
+
+    private func cmdName(of request: RinaLinkFrame) -> String? {
+        guard request.type == RinaLinkMessageType.cmd.rawValue,
+              let object = try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any] else { return nil }
+        return object["cmd"] as? String
+    }
+
     private func delay(for request: RinaLinkFrame) -> TimeInterval {
         if request.type == RinaLinkMessageType.setFrame.rawValue { return frameReplyDelay }
-        guard request.type == RinaLinkMessageType.cmd.rawValue,
-              let object = try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any],
-              let cmd = object["cmd"] as? String else { return 0 }
+        guard let cmd = cmdName(of: request) else { return 0 }
         return cmdReplyDelay[cmd] ?? 0
     }
 

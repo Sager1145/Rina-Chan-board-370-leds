@@ -55,17 +55,22 @@ final class GroupAutoCycler {
         self.faceLibrary = faceLibrary
         self.intervalProvider = intervalProvider
         self.sleeper = sleeper
+        observePrimary()
     }
 
     // MARK: - Start / stop
 
-    /// Turns synced auto cycling on. No-op if there is no current primary
-    /// (target isn't a group, or every member is offline) — the caller
-    /// should fall back to ordinary single-board auto in that case.
+    /// Turns synced auto cycling on. No-op — and leaves `wantsRunning`
+    /// `false` — if there is no current primary (target isn't a group, or
+    /// every member is offline): a caller must read the `false` return (or a
+    /// transient message) rather than assume this silently queues itself to
+    /// start once a primary later appears (H2) — the caller should fall back
+    /// to ordinary single-board auto in that case.
     @discardableResult
     func start() -> Bool {
-        wantsRunning = true
-        return beginIfPossible()
+        let began = beginIfPossible()
+        if began { wantsRunning = true }
+        return began
     }
 
     /// Turns synced auto cycling off — a real stop, not the background pause:
@@ -84,11 +89,24 @@ final class GroupAutoCycler {
         let faces = faceLibrary.faces(in: .board)
         guard !faces.isEmpty else { return }
         currentIndex = ((currentIndex + direction) % faces.count + faces.count) % faces.count
-        await sendCurrentFace(faces: faces, connection: connection)
         if isRunning {
+            await sendCurrentFace(faces: faces, connection: connection)
             // Restart the sleep window from now, so a manual step doesn't
-            // leave a short remainder before the next automatic tick.
-            restartLoop(connection: connection)
+            // leave a short remainder before the next automatic tick; the
+            // fresh loop must not re-send the face `sendCurrentFace` above
+            // already delivered (L1).
+            restartLoop(connection: connection, sleepBeforeFirstSend: true)
+        } else {
+            // L3: not running — this is an ordinary manual face send, not an
+            // auto-cycle tick, so it must not claim the `.automatic` output
+            // source (which would misreport the mode row as "auto" and could
+            // fight a real auto-cycle start racing in). Goes through the
+            // primary's own normal manual send path, which self-claims
+            // `.manual` and still mirrors to every sink via
+            // `GroupControlFanOut.dispatchFrame`.
+            let face = faces[currentIndex % faces.count]
+            guard let frame = PackedFrame(bytes: face.frameBytes.map(UInt8.init)) else { return }
+            _ = try? await connection.setFrame(frame, playback: .idle, reason: "group_auto_cycle")
         }
     }
 

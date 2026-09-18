@@ -136,6 +136,26 @@ public final class BoardSessionStore {
         sessions.first { $0.matches(id) }
     }
 
+    /// Shared board-group member-resolution rule (M3): `GroupControlFanOut`
+    /// and `BoardGroupCoordinator.session(for:)` both call this instead of
+    /// picking `sessions.first(where: matchesGroupMember:)` on their own, so
+    /// two sessions that both resolve to the same `physicalBoardID` (e.g. a
+    /// stale, disconnected session still holding the identity in
+    /// `lastKnownBoardIdentity`, alongside a freshly (re)connected one)
+    /// always resolve to the same session in both callers. Prefers a
+    /// currently CONNECTED session whose live `boardIdentity` matches;
+    /// falls back to `BoardSession.matchesGroupMember(physicalBoardID:)`
+    /// (which also accepts `lastKnownBoardIdentity`) only when no session is
+    /// connected under that identity.
+    public func session(matchingGroupMember physicalBoardID: String) -> BoardSession? {
+        if let connected = sessions.first(where: {
+            $0.connection.connectionState == .connected && $0.connection.boardIdentity == physicalBoardID
+        }) {
+            return connected
+        }
+        return sessions.first { $0.matchesGroupMember(physicalBoardID: physicalBoardID) }
+    }
+
     /// Changes the visible board and stops its old producers, while leaving
     /// both underlying connections intact.
     public func select(_ session: BoardSession) {

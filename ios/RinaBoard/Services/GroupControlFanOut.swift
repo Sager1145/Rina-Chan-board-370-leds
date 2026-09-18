@@ -59,6 +59,26 @@ public final class GroupControlFanOut {
     /// yet.
     public var draftPromotionHook: ((String) -> Void)?
 
+    /// Called at most once per "target session" (from no primary to a
+    /// primary being established, whether by explicit selection or
+    /// promotion into an empty slot), when that freshly-established
+    /// primary's own firmware `renderer.mode` is `"auto"` (M2). Turning a
+    /// group on must not leave the primary free-running its own independent
+    /// auto timer while every other member gets forced to `manual`
+    /// (`alignSink`) — the user's auto intent is kept, just synced, by
+    /// starting `GroupAutoCycler` instead. Wired in `RinaBoardApp` to
+    /// `GroupAutoCycler.start()`. Never called again for the same
+    /// continuous primary (a later reconcile of the same target/primary is
+    /// not "the group was chosen" again) — see `primaryAutoCheckDone`.
+    public var primaryWasAutoHook: (() -> Void)?
+    /// `true` once `attachPrimary` has either found a definitive
+    /// `renderer.mode` for the current primary (and, if `"auto"`, already
+    /// fired `primaryWasAutoHook`) or is still waiting on the primary's
+    /// first `status`. Reset to `false` only when transitioning from no
+    /// primary to establishing one, so a promoted primary (already forced to
+    /// `manual` by `alignSink` while it was a sink) is never re-checked.
+    private var primaryAutoCheckDone = false
+
     private var target: ControlTarget = .single
     /// Consumed by the very next `performReconcile()` and reset to `false`
     /// immediately after: only a real, explicit `setTarget` call (the user
@@ -168,20 +188,23 @@ public final class GroupControlFanOut {
             return
         }
 
-        // Resolved by the shared sticky-identity rule
-        // (`BoardSession.matchesGroupMember(physicalBoardID:)`), the same one
-        // `BoardGroupCoordinator.session(for:)` uses — never `BoardSession
-        // .boardID` (the session's own persistent slot identity, which is a
-        // BLE UUID/host/Bonjour storage id, not the firmware
-        // `physicalBoardID`). Sticky because a connection clears its
-        // `boardIdentity` the instant it disconnects (`clearBoardSnapshot()`)
-        // but keeps `lastKnownBoardIdentity`, so a just-disconnected primary
-        // doesn't otherwise silently drop out of `memberSessions` entirely,
-        // making it indistinguishable from "the user switched to a board
-        // outside this group" below.
+        // Resolved by the shared `BoardSessionStore.session(matchingGroupMember:)`
+        // helper (M3) — the same one `BoardGroupCoordinator.session(for:)`
+        // uses — never `BoardSession.boardID` (the session's own persistent
+        // slot identity, which is a BLE UUID/host/Bonjour storage id, not the
+        // firmware `physicalBoardID`). That helper prefers a currently
+        // CONNECTED session's live `boardIdentity`, falling back to
+        // `matchesGroupMember(physicalBoardID:)` (which also accepts
+        // `lastKnownBoardIdentity`) only when none is connected — sticky
+        // because a connection clears its `boardIdentity` the instant it
+        // disconnects (`clearBoardSnapshot()`) but keeps
+        // `lastKnownBoardIdentity`, so a just-disconnected primary doesn't
+        // otherwise silently drop out of `memberSessions` entirely, making it
+        // indistinguishable from "the user switched to a board outside this
+        // group" below.
         var memberSessions: [(member: BoardGroup.Member, session: BoardSession)] = []
         for member in group.members {
-            guard let session = sessions.sessions.first(where: { $0.matchesGroupMember(physicalBoardID: member.physicalBoardID) }) else { continue }
+            guard let session = sessions.session(matchingGroupMember: member.physicalBoardID) else { continue }
             // Touched for `withObservationTracking` even when not used below.
             _ = session.connection.connectionState
             _ = session.connection.connectionGeneration
@@ -200,15 +223,18 @@ public final class GroupControlFanOut {
         pendingExplicitTargetChange = false
 
         if activeEntry == nil, primaryID != nil {
-            // The user navigated to a board outside this group after a
-            // primary was already established — leaving group control mode
-            // is the real intent, not something to fight by re-selecting a
-            // member underneath them. Only this object's own in-memory
-            // target/primary reset; the persisted "控制对象" selection is
-            // left alone (F6: only an explicit user choice may change it).
+            // The user navigated to a board outside this group, but not via
+            // the "控制对象" menu — an implicit non-member selection (e.g. a
+            // Settings board switch) must not silently drop the group as the
+            // in-memory target either: only an explicit `setTarget` call may
+            // change it (H1/F6). Detach every sink and clear `primaryID` (no
+            // board to mirror through right now), but keep `target` pointed
+            // at the group so a later re-selection of a member re-attaches
+            // through the normal path above instead of requiring the user to
+            // re-pick the group from the menu. The persisted "控制对象"
+            // selection was never touched either way.
             detachAllSinks()
             primaryID = nil
-            target = .single
             return
         }
 
@@ -248,9 +274,23 @@ public final class GroupControlFanOut {
         session: BoardSession,
         memberSessions: [(member: BoardGroup.Member, session: BoardSession)]
     ) {
+        if primaryID == nil { primaryAutoCheckDone = false }
         primaryID = member.physicalBoardID
         let primaryConnection = session.connection
         primaryConnectionRef = primaryConnection
+
+        // M2: if this is a freshly-established primary (not a promotion —
+        // already-manual sink taking over) and it turns out to still be in
+        // firmware auto, keep the user's auto intent by starting the synced
+        // cycler instead of forcing it to manual. Reading `status` here
+        // (even when nil) keeps it tracked by the enclosing
+        // `withObservationTracking`, so this retries on the next reconcile
+        // once a real `status` arrives, mirroring the `alignSink` F9
+        // pattern.
+        if !primaryAutoCheckDone, let mode = primaryConnection.status?.renderer?.mode {
+            primaryAutoCheckDone = true
+            if mode == "auto" { primaryWasAutoHook?() }
+        }
 
         for other in sessions.sessions where other !== session {
             if other.connection.fanOut === self { other.connection.fanOut = nil }
@@ -305,6 +345,14 @@ public final class GroupControlFanOut {
         if let ms = renderer.autoIntervalMs {
             enqueueAndWake(.command(.setAutoInterval(ms: ms), leased: false), to: channel)
         }
+        // M2: also align firmware mode — a member still free-running its own
+        // firmware auto timer must be forced to manual, the same as every
+        // other non-Text-tab aspect of this sink, so its display can't drift
+        // out of sync with the primary while it isn't yet receiving mirrored
+        // frames.
+        if channel.connection?.status?.renderer?.mode == "auto" {
+            enqueueAndWake(.command(.setMode(mode: "manual"), leased: false), to: channel)
+        }
         channel.isAligned = true
     }
 
@@ -325,6 +373,7 @@ public final class GroupControlFanOut {
         if let primary = primaryConnectionRef, primary.fanOut === self { primary.fanOut = nil }
         primaryConnectionRef = nil
         memberErrors.removeAll()
+        primaryAutoCheckDone = false
     }
 
     // MARK: - Dispatch (called from `BoardConnection` on the primary)
