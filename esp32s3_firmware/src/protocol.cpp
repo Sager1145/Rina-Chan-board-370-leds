@@ -1054,7 +1054,9 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
         // the schedule at time zero instead of being rejected. Check it on
         // whichever object (payload or top-level) the other fields are read
         // from, same selection cu64()/cint() use.
-        JsonVariant atUsSrc = (!p.isNull() && !p["atUs"].isNull()) ? p["atUs"] : d["atUs"];
+        JsonVariant atUsSrc = (!p.isNull() && !p["atUs"].isNull())
+            ? static_cast<JsonVariant>(p["atUs"])
+            : static_cast<JsonVariant>(d["atUs"]);
         const int intervalMs = cint(d, p, "intervalMs", -1);
         const int startFrame = cint(d, p, "startFrame", 0);
         const bool loop = cbool(d, p, "loop", true);
