@@ -70,6 +70,21 @@ public final class BoardConnection {
     private var setupGetInfoReadFailed = false
     /// RinaLink protocol version reported by `CMD get_info` for this connection.
     public private(set) var protocolVersion: Int?
+    /// This board's `get_info.bootId` (BOARD_GROUP_SPEC §1.1): 8 lowercase hex
+    /// chars, changes on every boot/deep-sleep wake. `nil` before the first
+    /// `get_info` round trip completes, or on firmware that predates it.
+    public private(set) var bootId: String?
+    /// This board's `get_info.caps` (BOARD_GROUP_SPEC §1.1). Empty (never
+    /// nil) before the first `get_info` round trip, or on firmware that
+    /// predates it — `supports(_:)` is `false` either way.
+    public private(set) var deviceInfoCaps: [String] = []
+
+    /// `true` iff the last `get_info` reported `cap` (BOARD_GROUP_SPEC §1.1/§2).
+    /// Callers must check this before using any board-group command and never
+    /// silently fall back while claiming "synchronized".
+    public func supports(_ cap: BoardCapability) -> Bool {
+        deviceInfoCaps.contains(cap.rawValue)
+    }
 
     public private(set) var status: DeviceStatus?
     public private(set) var preview: PreviewSync?
@@ -522,6 +537,8 @@ public final class BoardConnection {
         protocolVersion = nil
         boardIdentity = nil
         setupDefaultName = nil
+        bootId = nil
+        deviceInfoCaps = []
         // A generation only means anything within the carrier that reported it:
         // another client may have mutated the document while we were away.
         facesGen = nil
@@ -864,6 +881,39 @@ public final class BoardConnection {
         }
     }
 
+    /// Like `command(_:)`, but bypasses `commandPump` (BOARD_GROUP_SPEC §3):
+    /// the drop-oldest depth-4 command queue would silently discard
+    /// `clock_sample`/`identify`/`group_start` calls sent in a tight burst
+    /// (e.g. 8 clock samples in a row), which board-group scheduling cannot
+    /// tolerate. Still goes through the normal seq/pending/output-lease/
+    /// generation machinery in `send`/`sendUnqueued`, and still throws if the
+    /// connection's generation changes while the request is in flight.
+    @discardableResult
+    public func requestReliable(_ cmd: RinaCommand, timeout: TimeInterval = 5) async throws -> CommandReply {
+        try await requestReliableDecoding(cmd, timeout: timeout)
+    }
+
+    /// Typed-decoding variant of `requestReliable(_:timeout:)`, for replies
+    /// that carry fields `CommandReply` doesn't model (`IdentifyReply`,
+    /// `ClockSampleReply`, `GroupStartReply`). Does not check an `ok` field
+    /// itself (callers decode whichever reply type they asked for and inspect
+    /// its own `ok`).
+    public func requestReliableDecoding<Reply: Decodable & Sendable>(
+        _ cmd: RinaCommand, timeout: TimeInterval = 5
+    ) async throws -> Reply {
+        let token = BoardOutputContext.session
+        if let token { try output.check(token) }
+        let generation = connectionGeneration
+        guard transport != nil else { throw RinaTransportError.notConnected }
+        let payload = try cmd.encode()
+        let frame = try await BoardOutputContext.$session.withValue(token) {
+            try await self.send(type: .cmd, payload: payload, timeout: timeout)
+        }
+        guard generation == connectionGeneration else { throw CancellationError() }
+        if let token { try output.check(token) }
+        return try JSONDecoder().decode(Reply.self, from: frame.payload)
+    }
+
     private func refreshDeviceNameDuringSetup(
         for transport: RinaTransport,
         generation: UUID,
@@ -903,6 +953,8 @@ public final class BoardConnection {
             deviceName = reply.name
             if case .getInfo = command {
                 protocolVersion = reply.proto
+                bootId = reply.bootId
+                deviceInfoCaps = reply.caps ?? []
                 if isEstablishing { setupDefaultName = reply.defaultName }
             }
         default:
@@ -1062,6 +1114,7 @@ public final class BoardConnection {
         kind: BlobKind,
         meta: [String: Any],
         data: Data,
+        endStart: Bool = true,
         onProgress: ((Double) -> Void)? = nil
     ) async throws -> Data {
         var beginMeta = meta
@@ -1078,7 +1131,7 @@ public final class BoardConnection {
             do {
                 return try await BoardOutputContext.$session.withValue(token) {
                     try await self.uploadBlobSerial(kind: kind, beginPayload: beginPayload,
-                                                    data: data, onProgress: onProgress)
+                                                    data: data, endStart: endStart, onProgress: onProgress)
                 }
             } catch {
                 // Keep the blob slot until cleanup completes. This task must
@@ -1108,6 +1161,7 @@ public final class BoardConnection {
         kind: BlobKind,
         beginPayload: Data,
         data: Data,
+        endStart: Bool = true,
         onProgress: ((Double) -> Void)? = nil
     ) async throws -> Data {
         let beginFrame = try await send(type: .blobBegin, payload: beginPayload)
@@ -1154,7 +1208,7 @@ public final class BoardConnection {
             }
         }
 
-        let endMeta: [String: Any] = (kind == .scroll || kind == .scrollBitmap) ? ["start": true] : [:]
+        let endMeta: [String: Any] = (kind == .scroll || kind == .scrollBitmap) ? ["start": endStart] : [:]
         let endPayload = try JSONSerialization.data(withJSONObject: endMeta)
         let endFrame = try await send(type: .blobEnd, payload: endPayload)
         return endFrame.payload
@@ -1230,6 +1284,45 @@ public final class BoardConnection {
             )
         }
         return reply
+    }
+
+    /// `BLOB kind:"scroll_bitmap"` with the group-viewport BEGIN meta fields
+    /// (BOARD_GROUP_SPEC §1.4/§3): `bitmap` is the whole stitched
+    /// `[V dark][text][V dark]` canvas (`GroupScrollBitmap.build`), unlike
+    /// `startScrollBitmapUpload` every member board uploads the *same* bytes
+    /// and only `viewportX` differs. `start: false` lets the caller upload to
+    /// every member before any of them starts scrolling locally (§3's
+    /// `play(text:fps:loop:)` sends the real start via `group_start` once
+    /// every board has been re-anchored).
+    public func uploadGroupScrollBitmap(
+        bitmap: ScrollBitmap,
+        viewportX: Int,
+        virtualWidth: Int,
+        fps: Int,
+        timelineId: String,
+        sourceText: String,
+        start: Bool,
+        onProgress: ((Double) -> Void)? = nil
+    ) async throws -> ScrollUploadReply {
+        let bytes = bitmap.packedBytes()
+        var meta: [String: Any] = [
+            "width": bitmap.width,
+            "rows": MatrixGeometry.rows,
+            "fps": fps,
+            // See `startScrollUpload`: without it the board ticks at its old interval.
+            "intervalMs": ScrollRasterizer.intervalMs(forFps: fps),
+            "timelineId": timelineId,
+            "fontId": ScrollRasterizer.fontId,
+            "generatorVersion": ScrollRasterizer.generatorVersion,
+            "virtualWidth": virtualWidth,
+            "viewportX": viewportX,
+        ]
+        if sourceText.utf8.count <= 4096 {
+            meta["sourceText"] = sourceText
+        }
+        let replyData = try await uploadBlob(kind: .scrollBitmap, meta: meta, data: bytes,
+                                             endStart: start, onProgress: onProgress)
+        return try JSONDecoder().decode(ScrollUploadReply.self, from: replyData)
     }
 
     public func saveFaces(document: FaceDocument) async throws {
