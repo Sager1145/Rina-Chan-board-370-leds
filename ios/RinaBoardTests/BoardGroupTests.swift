@@ -118,7 +118,14 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     private func connectedSession(
         sessions: BoardSessionStore, identity: String, transport: GroupFakeTransport
     ) async -> BoardSession {
-        let session = sessions.session(for: identity, name: identity)
+        // Deliberately a BLE-UUID-like session key, distinct from `identity`
+        // (the firmware `boardIdentity`/`physicalBoardID` a group member is
+        // keyed by): a regression that resolves group members by
+        // `BoardSession.boardID` instead of `BoardConnection.boardIdentity`
+        // must fail tests that use this helper, not pass by both happening
+        // to be the same string (F1).
+        let sessionKey = "ble:\(UUID().uuidString)"
+        let session = sessions.session(for: sessionKey, name: identity)
         transport.wifiBoardId = identity
         _ = await session.connection.connect(using: transport)
         return session
