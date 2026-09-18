@@ -152,7 +152,8 @@ struct ControlView: View {
                 },
                 onPencilHover: { led in
                     model.pencilHover(led: led, connection: connection)
-                }
+                },
+                pencilHoverMirror: { led in model.pencilHoverMirror(of: led) }
             ),
             zoom: .pinchable(isTouching: $isTouchingBoard),
             accessibilityDescription: previewAccessibilityDescription

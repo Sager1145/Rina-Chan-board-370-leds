@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Hint LED (`set_hint_led`): range check, ownership and render wiring.
+"""Hint LED (`set_hint_led{led, mirror}`): range check, ownership and render wiring.
 
 Compiles the real setHintLed/clearHintLedOwnedBy/clearHintLed/
-hintLedForDiagnostics bodies from led_renderer.cpp against stubs, then checks
-the source wiring the host build cannot reach (output-mode gating in
-serviceProtocol(), the handler's `shown` reply, the TCP dead-peer clear, and
-serial console wiring).
+hintLedForDiagnostics/hintMirrorLedForDiagnostics bodies from led_renderer.cpp
+against stubs, then checks the source wiring the host build cannot reach
+(output-mode gating in serviceProtocol(), the handler's `shown` reply, the
+TCP dead-peer clear, and serial console wiring).
 """
 
 from pathlib import Path
@@ -48,44 +48,63 @@ template <typename F> static void withFrameLock(F f) { f(); }
 static int renders = 0;
 static void showCurrentFrameNoLock() { ++renders; }
 static int16_t g_hintLed = -1;
+static int16_t g_hintMirrorLed = -1;
 static uint8_t g_hintOwnerSlot = 0xFF;
 ''' + function(RENDERER, "bool setHintLed(") + "\n" \
     + function(RENDERER, "void clearHintLedOwnedBy(") + "\n" \
     + function(RENDERER, "void clearHintLed(") + "\n" \
-    + function(RENDERER, "int16_t hintLedForDiagnostics(") + r'''
+    + function(RENDERER, "int16_t hintLedForDiagnostics(") + "\n" \
+    + function(RENDERER, "int16_t hintMirrorLedForDiagnostics(") + r'''
 static int hintLed() { return g_hintLed; }
+static int hintMirror() { return g_hintMirrorLed; }
 int main() {
     String err;
-    assert(!setHintLed(370, 0, err) && !err.empty());
-    assert(!setHintLed(-2, 0, err));
-    assert(hintLed() == -1 && renders == 0);
+    assert(!setHintLed(370, -1, 0, err) && !err.empty());
+    assert(!setHintLed(-2, -1, 0, err));
+    assert(!setHintLed(5, 370, 0, err) && !err.empty());
+    assert(!setHintLed(5, -2, 0, err));
+    assert(hintLed() == -1 && hintMirror() == -1 && renders == 0);
 
-    assert(setHintLed(12, 1, err) && hintLed() == 12 && renders == 1);
-    assert(setHintLed(12, 1, err) && renders == 1);      // unchanged: no re-render
+    assert(setHintLed(12, -1, 1, err) && hintLed() == 12 && hintMirror() == -1 && renders == 1);
+    assert(setHintLed(12, -1, 1, err) && renders == 1);      // unchanged: no re-render
     clearHintLedOwnedBy(0);                               // not the owner
     assert(hintLed() == 12);
     clearHintLedOwnedBy(1);                               // owner leaves
-    assert(hintLed() == -1 && renders == 2);
+    assert(hintLed() == -1 && hintMirror() == -1 && renders == 2);
     clearHintLedOwnedBy(1);
     assert(renders == 2);
 
-    assert(setHintLed(0, 2, err) && setHintLed(369, 2, err) && hintLed() == 369);
-    assert(setHintLed(-1, 2, err) && hintLed() == -1);
+    assert(setHintLed(0, -1, 2, err) && setHintLed(369, -1, 2, err) && hintLed() == 369);
+    assert(setHintLed(-1, -1, 2, err) && hintLed() == -1);
+
+    // mirror: lights a second LED alongside led.
+    assert(setHintLed(20, 30, 4, err) && hintLed() == 20 && hintMirror() == 30);
+    // changing to a single led (mirror omitted/-1) drops the mirror.
+    assert(setHintLed(20, -1, 4, err) && hintLed() == 20 && hintMirror() == -1);
+    // mirror == led is treated as none.
+    assert(setHintLed(21, 21, 4, err) && hintLed() == 21 && hintMirror() == -1);
+    // led == -1 clears the whole hint regardless of mirror.
+    assert(setHintLed(-1, 15, 4, err) && hintLed() == -1 && hintMirror() == -1);
 
     // clearHintLed(): unconditional, regardless of owner; no-op (no extra
     // render) when already clear.
     assert(hintLedForDiagnostics() == -1);
-    assert(setHintLed(5, 7, err) && hintLedForDiagnostics() == 5);
+    assert(setHintLed(5, 6, 7, err) && hintLedForDiagnostics() == 5 && hintMirrorLedForDiagnostics() == 6);
     int rendersBefore = renders;
     clearHintLed();
-    assert(hintLedForDiagnostics() == -1 && renders == rendersBefore + 1);
+    assert(hintLedForDiagnostics() == -1 && hintMirrorLedForDiagnostics() == -1 && renders == rendersBefore + 1);
     int rendersAfterClear = renders;
     clearHintLed();                                        // already clear
     assert(renders == rendersAfterClear);
 
-    assert(setHintLed(100, 3, err));
+    assert(setHintLed(100, 101, 3, err));
     clearHintLed();                                        // clears regardless of owner
-    assert(hintLedForDiagnostics() == -1);
+    assert(hintLedForDiagnostics() == -1 && hintMirrorLedForDiagnostics() == -1);
+
+    // clearHintLedOwnedBy clears both.
+    assert(setHintLed(50, 51, 8, err));
+    clearHintLedOwnedBy(8);
+    assert(hintLedForDiagnostics() == -1 && hintMirrorLedForDiagnostics() == -1);
     return 0;
 }
 '''
@@ -100,7 +119,9 @@ with tempfile.TemporaryDirectory() as tmp:
 
 render = function(RENDERER, "void renderCurrentFrameToLedStrip(")
 assert "hint = g_hintLed;" in render, "render pass must snapshot the hint under the frame lock"
-assert "half(colorR), half(colorG), half(colorB)" in render, "hint must be drawn at half colour"
+assert "hintMirror = g_hintMirrorLed;" in render, "render pass must snapshot the mirror hint under the frame lock"
+assert render.count("half(colorR), half(colorG), half(colorB)") == 2, \
+    "both hint and mirror must be drawn at half colour"
 assert "(v + 1) / 2" in render, "a lit channel must not halve to off"
 hint_cmd = PROTOCOL[PROTOCOL.index('strcmp(cmd, "set_hint_led")'):]
 hint_cmd = hint_cmd[:hint_cmd.index("String err;")]
@@ -128,6 +149,8 @@ assert "sendErrorReply" not in decline.split('} else {')[0], \
     "declining because another output owns the frame must not be an error"
 assert hint_cmd_full.index("led >= static_cast<int>(LED_COUNT)") < hint_cmd_full.index("isControlOutput"), \
     "an out-of-range led must be a 400 before the output-mode decline, in every mode"
+assert hint_cmd_full.index("mirror >= static_cast<int>(LED_COUNT)") < hint_cmd_full.index("isControlOutput"), \
+    "an out-of-range mirror must be a 400 before the output-mode decline, in every mode"
 
 # --- TCP dead-peer hint clear ---------------------------------------------
 assert "uint32_t lastInboundMs" in TRANSPORT_TCP, "TCP slot must track last inbound time"
@@ -142,7 +165,9 @@ assert "TCP_HINT_SILENCE_MS" in CONFIG, "TCP_HINT_SILENCE_MS must be defined in 
 # --- serial console wiring -------------------------------------------------
 status_fn = function(SERIAL_CONSOLE, "void printStatus(")
 assert "hintLedForDiagnostics()" in status_fn, "status must report the hint LED"
-assert '"STATUS hint=' in status_fn, "status output must be prefixed hint="
+assert "hintMirrorLedForDiagnostics()" in status_fn, "status must report the mirror hint LED"
+assert '"STATUS hint=' in status_fn and "mirror=" in status_fn, \
+    "status output must be prefixed hint= and include mirror="
 run_line = function(SERIAL_CONSOLE, "void runLine(")
 frame_clear = run_line[run_line.index('"clear") == 0'):run_line.index('"OK frame clear"')]
 assert "clearHintLed();" in frame_clear, "frame clear must also clear the hint LED"

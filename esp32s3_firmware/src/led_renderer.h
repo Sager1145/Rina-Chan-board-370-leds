@@ -41,9 +41,11 @@ void setBrightness(int raw);
 // Hint LED: one logical LED drawn at half the board colour on top of the
 // current frame, whether that LED is lit in the frame or not. The app uses it
 // to mirror where an Apple Pencil hovers over the face editor. `led` = -1
-// clears it. Owned by the client slot that set it, so that client's
-// disconnect can clear it (see clearHintLedOwnedBy).
-bool setHintLed(int led, uint8_t ownerSlot, String& error);
+// clears it. `mirror` (-1 = none) draws a second LED the same way, for the
+// left/right-eye mirror mode; it is ignored (treated as none) whenever `led`
+// is -1 or equal to `mirror`. Owned by the client slot that set it, so that
+// client's disconnect can clear it (see clearHintLedOwnedBy).
+bool setHintLed(int led, int mirror, uint8_t ownerSlot, String& error);
 void clearHintLedOwnedBy(uint8_t ownerSlot);
 
 // Unconditional clear (any owner), used when output leaves the control mode.
@@ -52,6 +54,9 @@ void clearHintLed();
 
 // Current hint LED index (-1 if none), for status/diagnostics.
 int16_t hintLedForDiagnostics();
+
+// Current hint mirror LED index (-1 if none), for status/diagnostics.
+int16_t hintMirrorLedForDiagnostics();
 
 void requestLedRender();
 

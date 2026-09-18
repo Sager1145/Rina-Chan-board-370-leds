@@ -1055,10 +1055,16 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
     // not the status document, and it is not board state, so no state bump.
     if (strcmp(cmd, "set_hint_led") == 0) {
         int led = cint(d, p, "led", -1);
-        // Range first, so a bad LED is a 400 in every output mode.
+        int mirror = cint(d, p, "mirror", -1);
+        // Range first, so a bad LED (either field) is a 400 in every output mode.
         if (led < -1 || led >= static_cast<int>(LED_COUNT)) {
             ++runtimeState().commandsRejected;
             sendErrorReply(c, seq, 400, "led must be -1 or 0.." + String(LED_COUNT - 1));
+            return;
+        }
+        if (mirror < -1 || mirror >= static_cast<int>(LED_COUNT)) {
+            ++runtimeState().commandsRejected;
+            sendErrorReply(c, seq, 400, "mirror must be -1 or 0.." + String(LED_COUNT - 1));
             return;
         }
         bool shown = false;
@@ -1069,7 +1075,7 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
             shown = false;
         } else {
             String hintErr;
-            if (!setHintLed(led, static_cast<uint8_t>(&c - g_clients), hintErr)) {
+            if (!setHintLed(led, mirror, static_cast<uint8_t>(&c - g_clients), hintErr)) {
                 ++runtimeState().commandsRejected;
                 sendErrorReply(c, seq, 400, hintErr);
                 return;

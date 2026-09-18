@@ -232,23 +232,29 @@ current interval — clients should send both),
 `reboot`, `get_info` (fw/build/led backend/heap/psram/name), `set_device_name{name}`,
 `set_hint_led{led}`, `wifi_*` (§4).
 
-**`set_hint_led{led}`** — draws logical LED `led` (0…369) at half the board
-colour on top of whatever frame is showing, lit or not; `-1` clears it. It
-changes no frame state, only what is latched. The hint belongs to the client that
-set it and is cleared when that client disconnects. The app uses it to mirror an
-Apple Pencil hovering over the face editor, so it is sent often: the reply is
-`{"ok":true,"shown":<bool>}` rather than the status document, and it does not
-bump the state version. `shown` is `true` only when the hint is actually lit
-after the call. The hint is only ever drawn while the board's current output is
-the control output (faces, auto-cycling and the app's live edits; not a text
-scroll, lip sync, performance or video): a `set_hint_led{led}` with `led >= 0` while some other output
-owns the frame is accepted (`ok:true`) but declined (`shown:false`) and does not
-touch the renderer, and any hint already lit is dropped the moment another
-output takes over. It is also dropped if the owning Wi-Fi (TCP) client goes 12 s
-without sending any inbound data, even if the connection itself is still open
-(BLE clients are unaffected by this timeout; their hint is only cleared on
-disconnect). An out-of-range `led` gets `ERR 400`; firmware without the command
-answers `ERR 400 unknown command: set_hint_led`.
+**`set_hint_led{led, mirror}`** — draws logical LED `led` (0…369) at half the
+board colour on top of whatever frame is showing, lit or not; `-1` clears it.
+`mirror` is optional (default `-1`, meaning none); when given as a valid LED
+index other than `led` itself, that second LED is also drawn at half colour
+the same way, for the left/right-eye mirror mode — `mirror == led` is treated
+as no mirror, and `mirror` is ignored (no second LED) whenever `led` is `-1`.
+It changes no frame state, only what is latched. The hint belongs to the
+client that set it and is cleared when that client disconnects. The app uses
+it to mirror an Apple Pencil hovering over the face editor, so it is sent
+often: the reply is `{"ok":true,"shown":<bool>}` rather than the status
+document, and it does not bump the state version. `shown` is `true` only when
+the hint is actually lit after the call. The hint is only ever drawn while the
+board's current output is the control output (faces, auto-cycling and the
+app's live edits; not a text scroll, lip sync, performance or video): a
+`set_hint_led{led}` with `led >= 0` while some other output owns the frame is
+accepted (`ok:true`) but declined (`shown:false`) and does not touch the
+renderer, and any hint already lit is dropped the moment another output takes
+over. It is also dropped if the owning Wi-Fi (TCP) client goes 12 s without
+sending any inbound data, even if the connection itself is still open (BLE
+clients are unaffected by this timeout; their hint is only cleared on
+disconnect). An out-of-range `led` or `mirror` gets `ERR 400`; firmware
+without the command answers `ERR 400 unknown command: set_hint_led`. Firmware
+that predates `mirror` ignores the field entirely and shows only `led`.
 
 **`scroll_seek{frameIndex}`** — jumps the loaded scroll timeline to an absolute
 frame, clamped to `0…frameCount−1`, and presents it immediately. A playing

@@ -28,20 +28,36 @@ enum LEDBoardInteraction {
     /// hovering over (Pencil 2 on M2+ iPads, Pencil Pro), and `nil` as soon as
     /// it hovers over none — including the moment it leaves hover range or
     /// touches down. The preview draws that LED at half brightness by itself;
-    /// the handler is for mirroring it anywhere else.
-    case editable(onTap: (Int) -> Void, onDrag: (Int) -> Void, onPencilHover: ((Int?) -> Void)? = nil)
+    /// the handler is for mirroring it anywhere else. `pencilHoverMirror`,
+    /// when it answers, names a second LED to draw at half brightness with it
+    /// (the other eye, while the eyes are edited as a pair).
+    ///
+    /// With a hover handler, an Apple Pencil taps on touch-down rather than
+    /// on lift: `onTap` fires the moment the tip lands, and a stroke that
+    /// follows starts painting from the next LED it crosses.
+    case editable(onTap: (Int) -> Void,
+                  onDrag: (Int) -> Void,
+                  onPencilHover: ((Int?) -> Void)? = nil,
+                  pencilHoverMirror: ((Int) -> Int?)? = nil)
 
     var handlers: (onTap: (Int) -> Void, onDrag: (Int) -> Void)? {
         switch self {
         case .inert: nil
-        case .editable(let onTap, let onDrag, _): (onTap, onDrag)
+        case .editable(let onTap, let onDrag, _, _): (onTap, onDrag)
         }
     }
 
     var pencilHoverHandler: ((Int?) -> Void)? {
         switch self {
         case .inert: nil
-        case .editable(_, _, let onPencilHover): onPencilHover
+        case .editable(_, _, let onPencilHover, _): onPencilHover
+        }
+    }
+
+    var pencilHoverMirror: ((Int) -> Int?)? {
+        switch self {
+        case .inert: nil
+        case .editable(_, _, _, let mirror): mirror
         }
     }
 
@@ -88,6 +104,19 @@ struct LEDBoardPreview: View {
     @State private var paintedThisStroke: Set<Int> = []
     /// The LED an Apple Pencil is hovering over, drawn at half brightness.
     @State private var pencilHoverLED: Int?
+    /// Where an Apple Pencil now on the glass landed, as the window-level
+    /// tracker saw it. On its own it edits nothing: only a stroke of this
+    /// board's own drag that starts at the same point turns it into a tap, so
+    /// a pencil landing outside what the board visibly shows (the clipped
+    /// overflow of a zoomed board) never changes the drawing.
+    @State private var pencilLanding: CGPoint?
+    /// Where the stroke in progress started, once its first sample arrived.
+    @State private var strokeStart: CGPoint?
+    /// The stroke in progress is a pencil's, and its landing LED has been
+    /// toggled already: it is not a tap again on lift, and its brush starts
+    /// on the next LED.
+    @State private var strokeIsPencil = false
+    @State private var pencilLandingLED: Int?
     /// Where the previous touch sample of this stroke landed. `nil` until the
     /// touch has moved far enough to be a stroke — until then it may still be
     /// a tap, and nothing has been reported.
@@ -134,12 +163,19 @@ struct LEDBoardPreview: View {
                 : LEDBoardLayout.make(in: geo.size, region: region)
             ZStack(alignment: .topLeading) {
                 if let onPencilHover = interaction.pencilHoverHandler {
-                    PencilHoverTracker { point in
-                        let led = point.flatMap { layout.ledIndex(at: $0) }
-                        guard led != pencilHoverLED else { return }
-                        pencilHoverLED = led
-                        onPencilHover(led)
-                    }
+                    PencilHoverTracker(
+                        onHover: { point in
+                            let led = point.flatMap { layout.ledIndex(at: $0) }
+                            guard led != pencilHoverLED else { return }
+                            pencilHoverLED = led
+                            onPencilHover(led)
+                        },
+                        onPencilDown: { point in
+                            pencilLanding = point
+                            applyPencilLanding(layout: layout)
+                        },
+                        onPencilUp: { pencilLanding = nil }
+                    )
                     .frame(width: geo.size.width, height: geo.size.height)
                 }
                 if usePhoto, let image = Self.boardImage {
@@ -216,8 +252,9 @@ struct LEDBoardPreview: View {
         let litColor = color.opacity(0.45 + 0.55 * intensity)
         let cornerRadius = layout.cell * 0.12
 
+        let hoverLEDs = pencilHoverLEDs
         var lit = Path()
-        for cell in LEDBoardGeometry.cells where frame[cell.id] && cell.id != pencilHoverLED {
+        for cell in LEDBoardGeometry.cells where frame[cell.id] && !hoverLEDs.contains(cell.id) {
             let rect = layout.ledRect(gridX: cell.gridX, gridY: cell.gridY, gapRatio: gapRatio)
             lit.addPath(Path(roundedRect: rect, cornerRadius: cornerRadius))
         }
@@ -226,11 +263,19 @@ struct LEDBoardPreview: View {
         // The LED under a hovering Apple Pencil glows at half the board's
         // brightness whether it is lit or not, so the pencil shows which LED a
         // touch would toggle without the drawing changing.
-        if let led = pencilHoverLED, let cell = LEDBoardGeometry.cells.first(where: { $0.id == led }) {
+        var hover = Path()
+        for cell in LEDBoardGeometry.cells where hoverLEDs.contains(cell.id) {
             let rect = layout.ledRect(gridX: cell.gridX, gridY: cell.gridY, gapRatio: gapRatio)
-            context.fill(Path(roundedRect: rect, cornerRadius: cornerRadius),
-                         with: .color(color.opacity((0.45 + 0.55 * intensity) * 0.5)))
+            hover.addPath(Path(roundedRect: rect, cornerRadius: cornerRadius))
         }
+        context.fill(hover, with: .color(color.opacity((0.45 + 0.55 * intensity) * 0.5)))
+    }
+
+    /// The hovered LED and, while the eyes are edited as a pair, its partner.
+    private var pencilHoverLEDs: [Int] {
+        guard let led = pencilHoverLED else { return [] }
+        if let mirror = interaction.pencilHoverMirror?(led), mirror != led { return [led, mirror] }
+        return [led]
     }
 
     /// Approximate perceived brightness: the firmware's 10…200 range maps to
@@ -273,6 +318,10 @@ struct LEDBoardPreview: View {
             .updating($isStroking) { _, stroking, _ in stroking = true }
             .onChanged { value in
                 guard interaction.isInteractive else { return }
+                if strokeStart == nil {
+                    strokeStart = value.startLocation
+                    applyPencilLanding(layout: layout)
+                }
                 if isPaintingSuspended {
                     strokeWasSuspended = true
                     pendingSample = nil
@@ -293,7 +342,10 @@ struct LEDBoardPreview: View {
                 // Translation is checked as well as `lastPaintPoint` so the
                 // decision rests on the gesture's own value, not only on
                 // state a cleanup elsewhere might already have cleared.
-                guard lastPaintPoint == nil,
+                // A pencil tapped on touch-down already; its lift is not
+                // another tap.
+                guard !strokeIsPencil,
+                      lastPaintPoint == nil,
                       !strokeWasSuspended, !isPaintingSuspended,
                       Self.distance(value.translation) < layout.cell * Self.tapSlopInCells,
                       let onTap = interaction.handlers?.onTap,
@@ -329,7 +381,9 @@ struct LEDBoardPreview: View {
             // where it was when the slop ran out.
             if let led = layout.ledIndex(at: sample.startLocation),
                paintedThisStroke.insert(led).inserted {
-                onDrag(led)
+                // The LED a pencil landed on was toggled at touch-down: the
+                // brush starts on the next one.
+                if led != pencilLandingLED { onDrag(led) }
             }
             from = sample.startLocation
         }
@@ -341,8 +395,28 @@ struct LEDBoardPreview: View {
         lastPaintPoint = sample.location
     }
 
+    /// A pencil touch toggles the LED it lands on at once, not on lift. It
+    /// takes both halves: the tracker saying a pencil landed here, and this
+    /// board's drag starting here. They arrive in either order within the
+    /// same touch event, so each calls this and the second one acts.
+    private func applyPencilLanding(layout: LEDBoardLayout) {
+        guard !strokeIsPencil,
+              let start = strokeStart, let landing = pencilLanding,
+              Self.distance(CGSize(width: start.x - landing.x, height: start.y - landing.y))
+                < layout.cell * Self.tapSlopInCells,
+              !strokeWasSuspended, !isPaintingSuspended,
+              let onTap = interaction.handlers?.onTap else { return }
+        strokeIsPencil = true
+        guard let led = layout.ledIndex(at: start) else { return }
+        pencilLandingLED = led
+        onTap(led)
+    }
+
     private func resetStroke() {
         paintedThisStroke.removeAll()
+        strokeStart = nil
+        strokeIsPencil = false
+        pencilLandingLED = nil
         lastPaintPoint = nil
         pendingSample = nil
         strokeWasSuspended = false

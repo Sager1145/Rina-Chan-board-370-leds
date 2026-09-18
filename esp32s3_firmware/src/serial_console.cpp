@@ -117,7 +117,7 @@ void printStatus() {
     sout("STATUS heapFree=%u largestBlock=%u",
          static_cast<unsigned>(ESP.getFreeHeap()),
          static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
-    sout("STATUS hint=%d", static_cast<int>(hintLedForDiagnostics()));
+    sout("STATUS hint=%d mirror=%d", static_cast<int>(hintLedForDiagnostics()), static_cast<int>(hintMirrorLedForDiagnostics()));
     sout("=== STATUS END ===");
 }
 

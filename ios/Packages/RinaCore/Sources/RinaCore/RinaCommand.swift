@@ -17,7 +17,9 @@ public enum RinaCommand: Sendable {
     /// Draws one logical LED at half the board colour on top of whatever is
     /// showing (`nil` clears it) — the face editor's Apple Pencil hover. Owned
     /// by the sending client; the board clears it when that client leaves.
-    case setHintLED(led: Int?)
+    /// `mirror`: a second LED shown with `led` (the other eye). Firmware
+    /// older than the field ignores it and shows `led` alone.
+    case setHintLED(led: Int?, mirror: Int? = nil)
     case setMode(mode: String)
     case setAutoInterval(ms: Int)
     case setScrollInterval(intervalMs: Int?, fps: Int?)
@@ -122,8 +124,9 @@ public enum RinaCommand: Sendable {
             fields["hex"] = hex
         case .setBrightness(let raw):
             fields["raw"] = raw
-        case .setHintLED(let led):
+        case .setHintLED(let led, let mirror):
             fields["led"] = led ?? -1
+            if led != nil, let mirror { fields["mirror"] = mirror }
         case .setMode(let mode):
             fields["mode"] = mode
         case .setAutoInterval(let ms):
