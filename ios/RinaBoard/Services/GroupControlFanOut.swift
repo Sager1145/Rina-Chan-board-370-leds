@@ -58,6 +58,15 @@ public final class GroupControlFanOut {
     public var draftPromotionHook: ((String) -> Void)?
 
     private var target: ControlTarget = .single
+    /// Consumed by the very next `performReconcile()` and reset to `false`
+    /// immediately after: only a real, explicit `setTarget` call (the user
+    /// choosing a group target) may force-select a first primary when the
+    /// active board isn't already a member. A launch-time restore of the
+    /// persisted target, or any reconcile triggered afterwards by
+    /// `withObservationTracking` (a connect/disconnect, a group edit), must
+    /// never silently switch control onto a board the user didn't pick
+    /// (product rule: only explicit choices switch control).
+    private var pendingExplicitTargetChange = false
     private weak var primaryConnectionRef: BoardConnection?
     private var dispatchSeq = 0
     private var channels: [String: SinkChannel] = [:]
@@ -73,7 +82,12 @@ public final class GroupControlFanOut {
     /// start a fresh channel rather than resume a stale one.
     private final class SinkChannel {
         let id: String
-        unowned let connection: BoardConnection
+        /// Weak, not `unowned`: the owning `BoardSession` (and its
+        /// `connection`) can be removed from `BoardSessionStore` while this
+        /// channel is still active (e.g. a session torn down mid group-play);
+        /// an `unowned` reference would trap instead of letting the worker
+        /// notice and tear the channel down.
+        weak var connection: BoardConnection?
         var connectionGeneration: UUID
         /// Bumped on teardown; a running worker compares this against the
         /// value it captured at start and stops once they differ, instead of
@@ -99,8 +113,15 @@ public final class GroupControlFanOut {
 
     // MARK: - Target / reconciliation
 
-    func setTarget(_ t: ControlTarget) {
+    /// - Parameter isExplicit: `true` (the default) for a real user choice of
+    ///   control target — the only case allowed to force-select a first
+    ///   primary when the active board isn't already a member. Pass `false`
+    ///   for a launch-time restore of the persisted target, where the active
+    ///   board being outside the restored group must leave `primaryID == nil`
+    ///   instead (product rule: only explicit choices switch control).
+    func setTarget(_ t: ControlTarget, isExplicit: Bool = true) {
         target = t
+        if isExplicit { pendingExplicitTargetChange = true }
         reconcile()
     }
 
@@ -153,28 +174,48 @@ public final class GroupControlFanOut {
             return
         }
 
+        let wasExplicit = pendingExplicitTargetChange
+        pendingExplicitTargetChange = false
+
         if activeEntry == nil, primaryID != nil {
             // The user navigated to a board outside this group after a
             // primary was already established — leaving group control mode
             // is the real intent, not something to fight by re-selecting a
-            // member underneath them.
+            // member underneath them. Only this object's own in-memory
+            // target/primary reset; the persisted "控制对象" selection is
+            // left alone (F6: only an explicit user choice may change it).
             detachAllSinks()
             primaryID = nil
             target = .single
-            UserDefaults.standard.set("", forKey: ControlTargetKey.groupID)
             return
         }
 
-        // Either the freshly selected target's active board isn't a member
-        // yet, or the established primary just went offline: adopt the next
-        // online member in slot order.
         guard let next = memberSessions.first(where: { $0.session.connection.connectionState == .connected }) else {
             detachAllSinks()
             primaryID = nil
             return
         }
-        if primaryID != nil, let newKey = next.session.connection.boardKey {
-            draftPromotionHook?(newKey)
+
+        if primaryID != nil {
+            // The established primary just went offline: primary-disconnect
+            // promotion always adopts the next online member, regardless of
+            // whether this reconcile was triggered explicitly.
+            if let newKey = next.session.connection.boardKey {
+                draftPromotionHook?(newKey)
+            }
+            sessions.select(next.session)
+            attachPrimary(member: next.member, session: next.session, memberSessions: memberSessions)
+            return
+        }
+
+        // No established primary yet. Force-selecting the active board's
+        // group's first online member is only correct right after the user
+        // explicitly chose this target — never at launch restore, and never
+        // on a later automatic reconcile (a member simply reconnecting must
+        // not silently switch control onto it).
+        guard wasExplicit else {
+            primaryID = nil
+            return
         }
         sessions.select(next.session)
         attachPrimary(member: next.member, session: next.session, memberSessions: memberSessions)
@@ -241,8 +282,8 @@ public final class GroupControlFanOut {
         channel.worker?.cancel()
         channel.wake?.resume()
         channel.wake = nil
-        if channel.connection.output.source == .groupControl {
-            channel.connection.output.invalidate()
+        if let connection = channel.connection, connection.output.source == .groupControl {
+            connection.output.invalidate()
         }
         memberErrors.removeValue(forKey: id)
     }
@@ -268,7 +309,7 @@ public final class GroupControlFanOut {
     private func claimAllSinksAndBumpSeq() -> Int {
         dispatchSeq += 1
         for channel in channels.values {
-            channel.token = channel.connection.output.claim(.groupControl)
+            channel.token = channel.connection?.output.claim(.groupControl)
         }
         if case .group(let groupID) = target, coordinator.isPlaying, coordinator.activeGroupID == groupID {
             coordinator.markSupersededByControl()
@@ -368,6 +409,13 @@ public final class GroupControlFanOut {
     private func runWorker(_ channel: SinkChannel, myGeneration: Int) async {
         while !Task.isCancelled {
             guard channel.channelGeneration == myGeneration else { return }
+            if channel.connection == nil {
+                // The sink's session was torn down (e.g. removed from
+                // `BoardSessionStore`) out from under a still-active channel;
+                // there is nothing left to mirror to.
+                detachSink(id: channel.id)
+                return
+            }
             if channel.items.isEmpty {
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     guard channel.channelGeneration == myGeneration else {
@@ -385,7 +433,10 @@ public final class GroupControlFanOut {
     }
 
     private func process(_ item: Item, channel: SinkChannel, myGeneration: Int) async {
-        let connection = channel.connection
+        guard let connection = channel.connection else {
+            detachSink(id: channel.id)
+            return
+        }
         do {
             switch item {
             case .command(let cmd, let leased):
