@@ -43,12 +43,22 @@ final class KeyboardDismissalView: UIView, UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        var touchedView = touch.view
-        while let view = touchedView {
+        // Walk the responder chain rather than the superviews: it passes
+        // through every superview and also through the view controllers that
+        // own them, which the alert check below needs.
+        var responder: UIResponder? = touch.view
+        while let current = responder {
             // Includes secure fields and the inner views used for cursor and
             // selection interaction. Tapping another input should focus it.
-            if view is UITextField || view is UITextView { return false }
-            touchedView = view.superview
+            if current is UITextField || current is UITextView { return false }
+            // An alert that carries a text field lays itself out above the
+            // keyboard, so dismissing the keyboard from under it shifts its
+            // buttons down mid-touch and the button the finger is on never
+            // fires: 清空用户表情 needed two taps on 取消 (2026-09-17). The
+            // alert ends its own editing session when it dismisses, so leave
+            // its touches alone.
+            if current is UIAlertController { return false }
+            responder = current.next
         }
         return true
     }
