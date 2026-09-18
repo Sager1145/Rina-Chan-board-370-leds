@@ -24,6 +24,7 @@ struct BoardControlCenterAccessory: View {
     @Environment(BoardControlCenterModel.self) private var model
     @Environment(BoardGroupStore.self) private var groupStore
     @Environment(BoardGroupCoordinator.self) private var groupCoordinator
+    @Environment(GroupAutoCycler.self) private var groupAutoCycler
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -52,7 +53,13 @@ struct BoardControlCenterAccessory: View {
     @State private var barHeight: CGFloat = 0
 
     private var isConnected: Bool { connection.connectionState == .connected }
-    private var isAuto: Bool { model.isAutoMode(status: connection.status) }
+    /// While a group is targeted this reads `GroupAutoCycler.isRunning`
+    /// instead of the primary's own firmware `renderer.mode`, which never
+    /// leaves `manual` while the synced cycle runs (item 3, BOARD_GROUP_SPEC
+    /// .md §3 addendum).
+    private var isAuto: Bool {
+        targetedGroup != nil ? groupAutoCycler.isRunning : model.isAutoMode(status: connection.status)
+    }
 
     /// The targeted group, or `nil` when the control target is `.single`.
     private var targetedGroup: BoardGroup? {
@@ -201,7 +208,7 @@ struct BoardControlCenterAccessory: View {
     private func stepButton(direction: Int, symbol: String, label: LocalizedStringKey) -> some View {
         Button {
             stepTicks += 1
-            Task { await model.step(face: direction, connection: connection) }
+            Task { await stepFace(direction: direction) }
         } label: {
             Image(systemName: symbol)
                 .font(.subheadline.weight(.semibold))
@@ -228,7 +235,7 @@ struct BoardControlCenterAccessory: View {
             get: { isAuto },
             set: { _ in
                 modeTicks += 1
-                Task { await model.toggleAutoMode(connection: connection) }
+                Task { await toggleAutoMode() }
             }
         )) {
             Text(isAuto ? "A" : "M")
@@ -290,6 +297,26 @@ struct BoardControlCenterAccessory: View {
     /// connected, or no power report yet). Shared with the Control Center's
     /// battery bar — see `BoardConnection.batteryReading`.
     private var battery: BatteryReading? { connection.batteryReading }
+
+    /// Routes the mode toggle to the synced group cycler while a group is
+    /// targeted, instead of sending `set_mode auto` to the primary.
+    private func toggleAutoMode() async {
+        if targetedGroup != nil {
+            if groupAutoCycler.isRunning { groupAutoCycler.stop() } else { _ = groupAutoCycler.start() }
+        } else {
+            await model.toggleAutoMode(connection: connection)
+        }
+    }
+
+    /// Routes prev/next to the group cycler's own index while a group is
+    /// targeted, so every member receives the identical resulting frame.
+    private func stepFace(direction: Int) async {
+        if targetedGroup != nil {
+            await groupAutoCycler.step(direction: direction)
+        } else {
+            await model.step(face: direction, connection: connection)
+        }
+    }
 
     /// The board colour as a solid dot inside the row's ring. Tapping it opens
     /// a menu of the preset groups (配色组), each a submenu of its colours; a

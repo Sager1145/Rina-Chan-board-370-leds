@@ -22,6 +22,7 @@ struct BoardControlCenterView: View {
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(BoardGroupStore.self) private var groupStore
     @Environment(BoardGroupCoordinator.self) private var groupCoordinator
+    @Environment(GroupAutoCycler.self) private var groupAutoCycler
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var boardSwitcher: ConnectionViewModel?
 
@@ -60,6 +61,36 @@ struct BoardControlCenterView: View {
     @State private var controlTicks = 0
 
     private var isConnected: Bool { connection.connectionState == .connected }
+
+    /// The mode row's displayed auto/manual state. While a group is targeted
+    /// this reads `GroupAutoCycler.isRunning` instead of the primary's own
+    /// firmware `renderer.mode` — the primary never leaves `manual` while the
+    /// synced cycle runs (BOARD_GROUP_SPEC.md §3 addendum).
+    private var isAutoModeOn: Bool {
+        targetedGroup != nil ? groupAutoCycler.isRunning : model.isAutoMode(status: connection.status)
+    }
+
+    /// Routes the mode toggle to the synced group cycler while a group is
+    /// targeted, instead of sending `set_mode auto` to the primary (which
+    /// `GroupControlFanOut` would otherwise mirror to every member's own
+    /// independent, unsynced firmware auto timer).
+    private func toggleAutoMode() async {
+        if targetedGroup != nil {
+            if groupAutoCycler.isRunning { groupAutoCycler.stop() } else { _ = groupAutoCycler.start() }
+        } else {
+            await model.toggleAutoMode(connection: connection)
+        }
+    }
+
+    /// Routes prev/next to the group cycler's own index while a group is
+    /// targeted, so every member receives the identical resulting frame.
+    private func stepFace(direction: Int) async {
+        if targetedGroup != nil {
+            await groupAutoCycler.step(direction: direction)
+        } else {
+            await model.step(face: direction, connection: connection)
+        }
+    }
 
     /// Read through the store rather than injected: `any BLEConnecting` cannot
     /// go in the environment (`@Environment(T.self)` needs a concrete
@@ -602,7 +633,7 @@ struct BoardControlCenterView: View {
             HStack(spacing: 10) {
                 Button {
                     controlTicks += 1
-                    Task { await model.step(face: -1, connection: connection) }
+                    Task { await stepFace(direction: -1) }
                 } label: {
                     Image(systemName: "chevron.left")
                         .frame(maxWidth: .infinity, minHeight: 22)
@@ -610,16 +641,16 @@ struct BoardControlCenterView: View {
                 .accessibilityLabel("上一个表情")
 
                 Toggle(isOn: Binding(
-                    get: { model.isAutoMode(status: connection.status) },
+                    get: { isAutoModeOn },
                     set: { _ in
                         controlTicks += 1
-                        Task { await model.toggleAutoMode(connection: connection) }
+                        Task { await toggleAutoMode() }
                     }
                 )) {
                     // Glyph + title, so the state never rests on the fill
                     // colour alone (§41).
-                    Label(model.isAutoMode(status: connection.status) ? "自动" : "手动",
-                          systemImage: model.isAutoMode(status: connection.status)
+                    Label(isAutoModeOn ? "自动" : "手动",
+                          systemImage: isAutoModeOn
                                        ? "arrow.triangle.2.circlepath"
                                        : "hand.tap.fill")
                         .frame(maxWidth: .infinity, minHeight: 22)
@@ -629,7 +660,7 @@ struct BoardControlCenterView: View {
 
                 Button {
                     controlTicks += 1
-                    Task { await model.step(face: 1, connection: connection) }
+                    Task { await stepFace(direction: 1) }
                 } label: {
                     Image(systemName: "chevron.right")
                         .frame(maxWidth: .infinity, minHeight: 22)
