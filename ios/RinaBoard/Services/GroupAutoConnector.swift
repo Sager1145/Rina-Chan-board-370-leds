@@ -220,6 +220,11 @@ public final class GroupAutoConnector {
             if matching.contains(where: { $0.connection.connectionState == .connected }) {
                 cancelQueued(id)
                 if failureCount[id] != nil { failureCount[id] = nil }
+                // Connected elsewhere clears the user-disconnect block on
+                // every session that is this member, not just the live one.
+                for session in matching where session.connection.wasUserDisconnected {
+                    session.connection.resetUserDisconnected()
+                }
                 if let proven = sessions.session(matchingGroupMember: id),
                    proven.connection.connectionState == .connected,
                    proven.connection.boardIdentity == id {
@@ -286,21 +291,23 @@ public final class GroupAutoConnector {
             }
             phases[id] = .dialing(token: token)
             isDialing = true
+            // The only place a session may be created/renamed, done in the
+            // same turn as the re-check above.
+            let session = plan.session ?? sessions.session(for: plan.known.id, name: plan.known.name)
+            let connect = self.connect
+            let known = plan.known
+            // Unstructured and never cancelled here: a target change or
+            // timeout must not abort a connect that succeeds, or its
+            // post-connect naming.
+            let dial = Task { @MainActor in await connect(known, session) }
             Task { @MainActor [weak self] in
-                await self?.runDial(id: id, token: token, plan: plan)
+                await self?.finishDial(id: id, token: token, session: session, dial: dial)
             }
             return
         }
     }
 
-    private func runDial(id: String, token: UUID, plan: DialPlan) async {
-        // The only place a session may be created/renamed.
-        let session = plan.session ?? sessions.session(for: plan.known.id, name: plan.known.name)
-        let connect = self.connect
-        let known = plan.known
-        // Unstructured and never cancelled here: a target change or timeout
-        // must not abort a connect that succeeds, or its post-connect naming.
-        let dial = Task { @MainActor in await connect(known, session) }
+    private func finishDial(id: String, token: UUID, session: BoardSession, dial: Task<Void, Never>) async {
         let finished = await Self.wait(for: dial, timeout: attemptTimeout, sleep: sleep)
         if !finished, session.connection.connectionState == .connecting {
             // A carrier hung mid-connect; tear it down so it cannot hold the

@@ -268,11 +268,12 @@ final class GroupAutoConnectorTests: XCTestCase {
     private func makeConnector(
         _ sessions: BoardSessionStore, _ groupStore: BoardGroupStore, _ boardStore: BoardStore,
         clock: ScaledClock,
+        backoff: [Double] = [5, 15, 30],
         connect: @escaping @MainActor (KnownBoard, BoardSession) async -> Void
     ) -> GroupAutoConnector {
         GroupAutoConnector(
             sessions: sessions, groupStore: groupStore, boardStore: boardStore,
-            sleep: { try await clock.sleep($0) }, connect: connect
+            backoffSchedule: backoff, sleep: { try await clock.sleep($0) }, connect: connect
         )
     }
 
@@ -435,8 +436,8 @@ final class GroupAutoConnectorTests: XCTestCase {
         XCTAssertEqual(sessions.sessions.count, 1)
 
         // A session already .connecting for the member (e.g. a manual connect) blocks dialing.
+        // connect(using:) goes straight to .connecting in the same turn.
         let hang = ScriptedTransport(.gated("AAAA"))
-        wifiSession.connection.disconnect()
         Task { _ = await wifiSession.connection.connect(using: hang) }
         await waitUntil { hang.isWaiting }
         try? await Task.sleep(nanoseconds: 300_000_000)
@@ -454,7 +455,8 @@ final class GroupAutoConnectorTests: XCTestCase {
         let clock = ScaledClock()
         let hung = ScriptedTransport(.gated("AAAA")) // never released
         var dialed: [String] = []
-        let connector = makeConnector(sessions, groupStore, boardStore, clock: clock) { known, session in
+        // A long backoff keeps A's second dial out of the assertion window.
+        let connector = makeConnector(sessions, groupStore, boardStore, clock: clock, backoff: [1000]) { known, session in
             dialed.append(known.id)
             let transport = known.id == "known-AAAA" ? hung : ScriptedTransport(.succeed("BBBB"))
             _ = await session.connection.connect(using: transport)
