@@ -48,10 +48,9 @@ struct ScrollTextView: View {
     private static let editorMinHeight: CGFloat = 132
 
     /// Mirrors the Control Center's "控制对象" choice (BOARD_GROUP_SPEC.md
-    /// §3): empty string = `.single`. When a group is targeted, send/stop
-    /// below act on the whole group instead of the single connected board;
-    /// everything else on this tab (preview, speed, sync diagnostics) stays
-    /// single-board and unchanged.
+    /// §3): empty string = `.single`. When a group is targeted, transport,
+    /// speed and the sync diagnostics act on / report the whole group; the
+    /// preview stays single-board.
     @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
 
     /// Debounces rapid speed-slider drags (250 ms trailing) while a group is
@@ -457,7 +456,13 @@ struct ScrollTextView: View {
             }
 
             // Measured from board telemetry, never an echo of the request.
-            TextMeasuredFpsRow(model: model)
+            // A group scroll never binds `model`'s single-board timeline, so
+            // its rows read the members' own telemetry instead.
+            if let group = targetedGroup {
+                GroupMeasuredFpsRow(group: group)
+            } else {
+                TextMeasuredFpsRow(model: model)
+            }
         }
     }
 
@@ -465,7 +470,11 @@ struct ScrollTextView: View {
 
     private var syncSection: some View {
         Section("同步状态") {
-            TextSyncDiagnosticsRows(model: model, connection: connection)
+            if let group = targetedGroup {
+                GroupSyncDiagnosticsRows(group: group)
+            } else {
+                TextSyncDiagnosticsRows(model: model, connection: connection)
+            }
         }
     }
 }
@@ -648,5 +657,129 @@ private struct TextSyncDiagnosticsRows: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+// MARK: - Board group target rows (BOARD_GROUP_SPEC.md §3)
+
+/// The group's live scroll state, read from every member's own board
+/// telemetry — `TextViewModel`'s PLL only ever follows a single-board
+/// timeline, so it has nothing to report for a group scroll.
+private struct GroupScrollTelemetry {
+    /// Member count and how many are online / in step with the group.
+    var memberCount = 0
+    var inSyncCount = 0
+    var failedCount = 0
+    /// Rates the members' scroll clocks actually run at, one per member
+    /// that reports an active scroll.
+    var boardFps: [Int] = []
+
+    @MainActor
+    init(group: BoardGroup, coordinator: BoardGroupCoordinator, active: Bool, paused: Bool) {
+        memberCount = group.members.count
+        guard active else { return }
+        for member in group.members {
+            switch coordinator.status(for: member) {
+            // A paused group sits every participant on the same frame
+            // (`pauseCore` marks them `.ready`).
+            case .playing: if !paused { inSyncCount += 1 }
+            case .ready: if paused { inSyncCount += 1 }
+            case .error: failedCount += 1
+            default: break
+            }
+            guard let connection = coordinator.session(for: member)?.connection,
+                  connection.connectionState == .connected else { continue }
+            let renderer = connection.status?.renderer
+            let preview = connection.preview
+            guard (renderer?.firmwareScrollActive ?? preview?.firmwareScrollActive) == true,
+                  let fps = TextViewModel.boardFps(
+                    intervalMs: renderer?.scrollIntervalMs ?? preview?.scrollIntervalMs,
+                    uiFps: renderer?.uiFps ?? preview?.uiFps
+                  )
+            else { continue }
+            boardFps.append(fps)
+        }
+    }
+}
+
+private extension BoardGroupCoordinator {
+    func groupIsActive(_ group: BoardGroup) -> Bool {
+        activeGroupID == group.id && (isPlaying || isPaused)
+    }
+
+    func groupIsPaused(_ group: BoardGroup) -> Bool {
+        activeGroupID == group.id && isPaused
+    }
+
+    func groupIsStarting(_ group: BoardGroup) -> Bool {
+        isStarting && startingGroupID == group.id
+    }
+}
+
+/// "面板实测" for a group: the rate the member boards report running at, or
+/// a range when they disagree (a member that missed the last speed change).
+private struct GroupMeasuredFpsRow: View {
+    var group: BoardGroup
+    @Environment(BoardGroupCoordinator.self) private var coordinator
+
+    var body: some View {
+        let telemetry = GroupScrollTelemetry(
+            group: group, coordinator: coordinator,
+            active: coordinator.groupIsActive(group), paused: coordinator.groupIsPaused(group)
+        )
+        LabeledContent("面板实测") {
+            Text(label(telemetry.boardFps))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func label(_ rates: [Int]) -> String {
+        guard let low = rates.min(), let high = rates.max() else { return "—" }
+        return low == high ? "\(low) fps" : "\(low)–\(high) fps"
+    }
+}
+
+/// The sync-status rows for a group: the group's own play phase, and how many
+/// members are phase-locked to the group clock (re-anchored, or seeked to the
+/// shared paused frame).
+private struct GroupSyncDiagnosticsRows: View {
+    var group: BoardGroup
+    @Environment(BoardGroupCoordinator.self) private var coordinator
+
+    var body: some View {
+        let active = coordinator.groupIsActive(group)
+        let paused = coordinator.groupIsPaused(group)
+        let telemetry = GroupScrollTelemetry(group: group, coordinator: coordinator, active: active, paused: paused)
+        Group {
+            LabeledContent("状态") {
+                Text(TextViewModel.phaseLabel(phaseKey(active: active, paused: paused)))
+                    .foregroundStyle(.secondary)
+            }
+            LabeledContent("相位锁定") {
+                Text(lockLabel(telemetry, active: active))
+                    .monospacedDigit()
+                    .foregroundStyle(telemetry.failedCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+            }
+        }
+    }
+
+    private func phaseKey(active: Bool, paused: Bool) -> String {
+        if coordinator.groupIsStarting(group) { return "STARTING" }
+        guard active else { return "IDLE" }
+        return paused ? "PAUSED" : "ACTIVE"
+    }
+
+    private func lockLabel(_ telemetry: GroupScrollTelemetry, active: Bool) -> String {
+        guard active, telemetry.memberCount > 0 else {
+            return TextViewModel.lockStateLabel(.free)
+        }
+        if telemetry.inSyncCount == telemetry.memberCount {
+            return TextViewModel.lockStateLabel(.locked)
+        }
+        return String(
+            format: NSLocalizedString("%1$lld / %2$lld 块同步", comment: "group boards phase-locked to the group clock"),
+            telemetry.inSyncCount, telemetry.memberCount
+        )
     }
 }
