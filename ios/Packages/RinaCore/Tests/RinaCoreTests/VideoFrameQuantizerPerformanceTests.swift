@@ -49,7 +49,7 @@ final class VideoFrameQuantizerPerformanceTests: XCTestCase {
         return Double(components.seconds) * 1000 + Double(components.attoseconds) / 1e15
     }
 
-    private static var randomImage: VideoFrameQuantizer.LumaImage = {
+    private static let randomImage: VideoFrameQuantizer.LumaImage = {
         var rng = PR6PerfSplitMix64(seed: 0x5EED)
         let width = 160, height = 90
         var pixels = [UInt8](repeating: 0, count: width * height)

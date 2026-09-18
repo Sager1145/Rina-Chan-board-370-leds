@@ -18,11 +18,14 @@ public enum RinaResources {
     }
 
     private static let lock = NSLock()
-    private static var partsLibraryCache: [ObjectIdentifier: PartsLibrary] = [:]
-    private static var colorPresetsCache: [ObjectIdentifier: ColorPresets] = [:]
-    private static var defaultFacesCache: [ObjectIdentifier: FaceDocument] = [:]
-    private static var appDefaultsCache: [ObjectIdentifier: AppDefaults] = [:]
-    private static var matrixGeometryJSONCache: [ObjectIdentifier: Data] = [:]
+    // Every read and write of these caches happens between `lock.lock()` and
+    // `lock.unlock()`. `nonisolated(unsafe)` records that the lock, not the
+    // compiler, provides the synchronization.
+    nonisolated(unsafe) private static var partsLibraryCache: [ObjectIdentifier: PartsLibrary] = [:]
+    nonisolated(unsafe) private static var colorPresetsCache: [ObjectIdentifier: ColorPresets] = [:]
+    nonisolated(unsafe) private static var defaultFacesCache: [ObjectIdentifier: FaceDocument] = [:]
+    nonisolated(unsafe) private static var appDefaultsCache: [ObjectIdentifier: AppDefaults] = [:]
+    nonisolated(unsafe) private static var matrixGeometryJSONCache: [ObjectIdentifier: Data] = [:]
 
     /// `expression_parts.json`, decoded once per `bundle`.
     public static func partsLibrary(bundle: Bundle = .main) throws -> PartsLibrary {

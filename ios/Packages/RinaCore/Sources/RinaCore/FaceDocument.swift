@@ -245,10 +245,21 @@ public struct FaceDocument: Codable, Equatable, Sendable {
 /// import can refuse to silently replace a library with a partial parse.
 /// Passed through `JSONDecoder.userInfo`; reading paths simply omit it and keep
 /// the lenient behavior.
-public final class FaceDecodeDiagnostics {
-    public private(set) var skippedFaceCount = 0
+///
+/// `JSONDecoder.userInfo` values must be `Sendable`. The count is guarded by a
+/// lock so the conformance holds even if a decoder is shared.
+public final class FaceDecodeDiagnostics: @unchecked Sendable {
+    private let lock = NSLock()
+    private var skipped = 0
     public init() {}
-    func noteSkippedFace() { skippedFaceCount += 1 }
+    public var skippedFaceCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return skipped
+    }
+    func noteSkippedFace() {
+        lock.lock(); defer { lock.unlock() }
+        skipped += 1
+    }
 }
 
 extension CodingUserInfoKey {
