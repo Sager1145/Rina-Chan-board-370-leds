@@ -3,6 +3,7 @@ import RinaCore
 
 @main
 struct RinaBoardApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     // Each board retains its own connection; tabs control the selected session.
     // Draft models remain app-scoped so switching tabs preserves unsent work.
     @State private var router = AppRouter()
@@ -56,6 +57,12 @@ struct RinaBoardApp: App {
                 .environment(lipSyncModel)
                 .environment(presetLiveModel)
                 .environment(videoModel)
+                .onChange(of: scenePhase, initial: true) { _, newPhase in
+                    // BOARD_GROUP_SPEC §3 / M1: re-anchoring only runs while
+                    // the app is active; it must not exit a running group
+                    // play just because the app went to the background.
+                    boardGroupCoordinator.isAppActive = newPhase == .active
+                }
         }
     }
 }

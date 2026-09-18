@@ -115,6 +115,7 @@ public final class BoardGroupStore {
     public func setMode(id: UUID, mode: BoardGroup.Mode) {
         guard let index = groups.firstIndex(where: { $0.id == id }) else { return }
         groups[index].mode = mode
+        groups[index].layoutRevision += 1
         persist()
     }
 
