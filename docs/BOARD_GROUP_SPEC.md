@@ -84,9 +84,10 @@ has the same frameCount.
 - `atUs`: u64, **this board's** `esp_timer_get_time()` value at which frame
   `startFrame` (default 0) must be latched. `bootId` must equal the board's
   current bootId, else `ERR 409` (`"error":"boot_mismatch"`).
-- `intervalMs`: 20…2000. `loop`: default true. The app therefore caps group
-  scrolling at 50 fps (`RinaLinkConstants.groupScrollFpsMax`) and clamps any
-  interval below 20 ms before sending.
+- `intervalMs`: 17…2000 on firmware advertising cap `group_60fps` (60 fps,
+  same floor as single-board scroll); 20…2000 on older firmware. `loop`:
+  default true. The app sends ≥17 ms only when every group member advertises
+  `group_60fps`, otherwise it clamps to 20 ms (50 fps).
 - Requires a loaded scroll timeline, else `ERR 409` (`"no_timeline"`).
 - Enters **group-timed playback**: the cursor is computed from absolute time,
   never by per-tick accumulation:

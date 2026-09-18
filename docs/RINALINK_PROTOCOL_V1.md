@@ -437,7 +437,7 @@ for the full spec this section summarizes.
 
 ### 9.1 `get_info` additions
 `bootId`: 8 lowercase hex chars from `esp_random()`, generated once at boot/wake (changes
-on every boot). `caps`: `["identify","clock_sample","scroll_viewport","group_start"]`.
+on every boot). `caps`: `["identify","clock_sample","scroll_viewport","group_start","group_60fps"]`.
 
 ### 9.2 `CMD identify{number, ttlMs}`
 `number` 1…9, `ttlMs` 0…30000 (default 5000, `0` cancels; out-of-range → `ERR 400`). Draws a
@@ -466,7 +466,7 @@ the fields, behaviour (including single-board rotation) is unchanged.
 ### 9.5 `CMD group_start{atUs, bootId, intervalMs, startFrame?, loop?}`
 `atUs` (u64): this board's `esp_timer_get_time()` at which frame `startFrame` (default 0)
 latches; `bootId` must match the board's current `bootId` else `ERR 409 boot_mismatch`.
-`intervalMs` 20…2000, `loop` default true. Requires a loaded scroll timeline, else
+`intervalMs` 17…2000 (20…2000 on firmware without cap `group_60fps`), `loop` default true. Requires a loaded scroll timeline, else
 `ERR 409 no_timeline`. Enters **group-timed playback**: cursor from absolute time only —
 `elapsed = now − atUs`; `elapsed < 0` → hold `startFrame`; else
 `n = startFrame + floor(elapsed / (intervalMs*1000))`, `frame = n mod frameCount` (loop) or

@@ -633,6 +633,9 @@ static void handleGetInfo(ClientSlot& c, uint8_t seq) {
     caps.add("clock_sample");
     caps.add("scroll_viewport");
     caps.add("group_start");
+    // group_start accepts intervalMs down to MIN_SCROLL_INTERVAL_MS (17 ms,
+    // 60 fps); firmware without this cap rejects anything below 20 ms.
+    caps.add("group_60fps");
     sendJsonReply(c, msg::CMD, seq, out);
 }
 
@@ -1060,11 +1063,11 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
         const int intervalMs = cint(d, p, "intervalMs", -1);
         const int startFrame = cint(d, p, "startFrame", 0);
         const bool loop = cbool(d, p, "loop", true);
-        if (!atUsSrc.is<uint64_t>() || intervalMs < 20 || intervalMs > 2000 ||
+        if (!atUsSrc.is<uint64_t>() || intervalMs < MIN_SCROLL_INTERVAL_MS || intervalMs > 2000 ||
             startFrame < 0 || startFrame > 65535) {
             ++runtimeState().commandsRejected;
             sendErrorReply(c, seq, 400,
-                           "group_start requires atUs (u64), intervalMs 20..2000, startFrame 0..65535");
+                           "group_start requires atUs (u64), intervalMs 17..2000, startFrame 0..65535");
             return;
         }
         const uint64_t atUs = cu64(d, p, "atUs", 0);
