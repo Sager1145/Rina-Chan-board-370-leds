@@ -190,6 +190,15 @@ public final class BoardGroupStore {
         persist()
     }
 
+    /// Puts back an earlier value of an existing group verbatim, including
+    /// its `layoutRevision` — used to undo a drag-swap whose replay failed,
+    /// so the still-running playback keeps matching the stored revision.
+    public func restore(_ group: BoardGroup) {
+        guard let index = groups.firstIndex(where: { $0.id == group.id }) else { return }
+        groups[index] = group
+        persist()
+    }
+
     /// Swaps the boards at slots `a` and `b` (drag-to-swap in the group
     /// preview). Gaps stay attached to slot positions, not to boards.
     public func swapMembers(groupID: UUID, _ a: Int, _ b: Int) {

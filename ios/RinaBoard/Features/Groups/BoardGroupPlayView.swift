@@ -46,15 +46,17 @@ struct BoardGroupPlayView: View {
                     group: group,
                     draftText: text,
                     draftFps: min(Int(fps), coordinator.maxFps(for: group)),
-                    onSwap: { a, b in
-                        store.swapMembers(groupID: group.id, a, b)
-                        if let live = store.groups.first(where: { $0.id == group.id }) {
-                            Task { try? await coordinator.replayWithCurrentLayout(group: live) }
+                    onSwap: { boardA, boardB in
+                        Task {
+                            do {
+                                try await coordinator.swapMembers(group: group, boardA, boardB)
+                            } catch {
+                                errorMessage = "调整顺序失败：\(error.localizedDescription)"
+                            }
                         }
                     }
                 )
                 .frame(maxWidth: .infinity)
-                .frame(height: 150)
                 .listRowInsets(EdgeInsets())
                 .padding()
             }

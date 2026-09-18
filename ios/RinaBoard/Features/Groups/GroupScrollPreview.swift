@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import RinaCore
 
 /// Multi-board scroll preview for a targeted `BoardGroup` (BOARD_GROUP_SPEC.md
@@ -12,7 +13,9 @@ struct GroupScrollPreview: View {
     let draftFps: Int
     var color: Color = .rinaPink
     var brightness: Int = 200
-    let onSwap: (Int, Int) -> Void
+    /// Called with the dragged board's and the drop target's
+    /// `physicalBoardID`.
+    let onSwap: (String, String) -> Void
 
     @Environment(BoardGroupCoordinator.self) private var coordinator
 
@@ -22,11 +25,13 @@ struct GroupScrollPreview: View {
     @State private var draftVirtualWidth: Int = MatrixGeometry.cols
     @State private var draftStartDate = Date()
     @State private var cachedFont: ArkPixelFont?
-    @State private var draggingIndex: Int?
     @State private var targetedIndex: Int?
 
     private static let minGap: CGFloat = 8
     private static let minCellSide: CGFloat = 70
+    /// App-private drag type: a board can't be dropped into a text field as
+    /// text, and outside text can't trigger a swap.
+    private static let boardDragType = UTType(exportedAs: "com.rinaboard.group-member", conformingTo: .data)
 
     private var displayLayout: StitchedScreenLayout? {
         try? StitchedScreenLayout(slotCount: group.members.count, gapsAfter: group.gapsAfter)
@@ -49,10 +54,17 @@ struct GroupScrollPreview: View {
 
     @ViewBuilder
     private func livePreview(snapshot: BoardGroupCoordinator.PlaybackSnapshot) -> some View {
-        TimelineView(.animation) { _ in
-            let frameIndex = coordinator.currentFrame().map { snapshot.frameCount > 0 ? $0 % max(snapshot.frameCount, 1) : 0 } ?? 0
+        let row = { (frameIndex: Int) in
             boardRow(members: snapshot.memberOrder) { index in
                 GroupScrollBitmap.frame(bitmap: snapshot.bitmap, viewportX: snapshot.viewportXs[index], frameIndex: frameIndex)
+            }
+        }
+        if coordinator.isPaused {
+            // A still frame; step() changes pausedFrame, which re-renders.
+            row(coordinator.currentFrame() ?? 0)
+        } else {
+            TimelineView(.animation(minimumInterval: Double(max(snapshot.intervalMs, 1)) / 1000)) { _ in
+                row(coordinator.currentFrame() ?? 0)
             }
         }
     }
@@ -174,25 +186,27 @@ struct GroupScrollPreview: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("板 \(index + 1)，\(name)，\(BoardGroupStatusFormatting.text(status))")
-        .opacity(draggingIndex == index ? 0.5 : 1)
         .disabled(coordinator.isStarting)
-        .draggable(String(index)) {
-            Text("\(index + 1)")
-                .font(.caption)
-                .padding(6)
-                .background(Capsule().fill(.thinMaterial))
-                .onAppear { draggingIndex = index }
-        }
-        .dropDestination(for: String.self) { items, _ in
-            defer {
-                draggingIndex = nil
-                targetedIndex = nil
+        .onDrag {
+            let provider = NSItemProvider()
+            let id = member.physicalBoardID
+            provider.registerDataRepresentation(forTypeIdentifier: Self.boardDragType.identifier, visibility: .ownProcess) { completion in
+                completion(Data(id.utf8), nil)
+                return nil
             }
-            guard let raw = items.first, let sourceIndex = Int(raw), sourceIndex != index else { return false }
-            onSwap(sourceIndex, index)
+            return provider
+        }
+        .onDrop(of: [Self.boardDragType], isTargeted: Binding(
+            get: { targetedIndex == index },
+            set: { targeted in targetedIndex = targeted ? index : (targetedIndex == index ? nil : targetedIndex) }
+        )) { providers in
+            guard !coordinator.isStarting, let provider = providers.first else { return false }
+            let targetID = member.physicalBoardID
+            _ = provider.loadDataRepresentation(forTypeIdentifier: Self.boardDragType.identifier) { data, _ in
+                guard let data, let sourceID = String(data: data, encoding: .utf8), sourceID != targetID else { return }
+                Task { @MainActor in onSwap(sourceID, targetID) }
+            }
             return true
-        } isTargeted: { targeted in
-            targetedIndex = targeted ? index : (targetedIndex == index ? nil : targetedIndex)
         }
     }
 }

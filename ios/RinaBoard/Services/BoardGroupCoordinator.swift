@@ -1113,6 +1113,9 @@ public final class BoardGroupCoordinator {
         public let viewportXs: [Int]
         public let frameCount: Int
         public let sourceText: String
+        /// Current frame interval, so the preview redraws at the playback
+        /// rate rather than every display refresh.
+        public let intervalMs: Int
     }
 
     /// `nil` unless a group is playing or paused.
@@ -1126,7 +1129,8 @@ public final class BoardGroupCoordinator {
                 viewportX(for: $0, mode: playState.mode, layout: playState.layout)
             },
             frameCount: GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth),
-            sourceText: playState.sourceText
+            sourceText: playState.sourceText,
+            intervalMs: currentAnchor?.intervalMs ?? ScrollRasterizer.intervalMs(forFps: playState.fps)
         )
     }
 
@@ -1140,15 +1144,48 @@ public final class BoardGroupCoordinator {
         return frame(atPhoneUs: nowUs(), anchor: anchor, frameCount: frameCount)
     }
 
-    /// Restarts the active group's text with its current layout (after a
-    /// drag-to-swap in the preview), at the current speed and loop setting.
-    /// No-op unless `group` is the one playing or paused.
-    public func replayWithCurrentLayout(group: BoardGroup) async throws {
-        guard activeGroupID == group.id, isPlaying || isPaused,
-              let playState, let anchor = currentAnchor,
-              let live = store.groups.first(where: { $0.id == group.id }) else { return }
+    /// Drag-to-swap from the group preview, by board identity (the preview
+    /// may be drawing the play-time order while the store already differs).
+    /// Idle group: just reorders. Playing or paused: every member must be
+    /// online and group-capable first, then the order is swapped and the text
+    /// restarted with the new layout; if that restart fails the group is put
+    /// back exactly as it was (revision included) so the running playback
+    /// keeps its controls, and the error is rethrown. Refused while starting.
+    public func swapMembers(group: BoardGroup, _ boardA: String, _ boardB: String) async throws {
+        guard boardA != boardB,
+              let before = store.groups.first(where: { $0.id == group.id }),
+              let a = before.members.firstIndex(where: { $0.physicalBoardID == boardA }),
+              let b = before.members.firstIndex(where: { $0.physicalBoardID == boardB }) else { return }
+        if isStarting { throw GroupPlayError.aborted }
+        let active = activeGroupID == group.id && (isPlaying || isPaused)
+        guard active, let playState, let anchor = currentAnchor else {
+            store.swapMembers(groupID: group.id, a, b)
+            return
+        }
+        var offlineNames: [String] = []
+        var unsupportedNames: [String] = []
+        for member in before.members {
+            guard let session = session(for: member), session.connection.connectionState == .connected else {
+                offlineNames.append(member.displayName)
+                continue
+            }
+            if !hasAllCaps(session.connection) { unsupportedNames.append(member.displayName) }
+        }
+        guard offlineNames.isEmpty else { throw GroupPlayError.offlineMembers(offlineNames) }
+        guard unsupportedNames.isEmpty else { throw GroupPlayError.unsupportedMembers(unsupportedNames) }
+
+        store.swapMembers(groupID: group.id, a, b)
+        guard let live = store.groups.first(where: { $0.id == group.id }) else { return }
         let fps = max(1, Int((1000.0 / Double(max(anchor.intervalMs, 1))).rounded()))
-        try await play(group: live, text: playState.sourceText, fps: fps, loop: anchor.loop)
+        do {
+            try await play(group: live, text: playState.sourceText, fps: fps, loop: anchor.loop)
+        } catch {
+            // Only undo if nothing else changed the group meanwhile.
+            if store.groups.first(where: { $0.id == group.id })?.layoutRevision == live.layoutRevision {
+                store.restore(before)
+            }
+            throw error
+        }
     }
 
     /// The global frame index at `phoneUs` under `anchor`, wrapped (loop) or

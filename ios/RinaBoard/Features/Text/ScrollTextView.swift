@@ -129,12 +129,15 @@ struct ScrollTextView: View {
                 group: group,
                 draftText: model.text,
                 draftFps: min(Int(model.requestedFps), groupCoordinator.maxFps(for: group)),
-                onSwap: { a, b in
-                    groupStore.swapMembers(groupID: group.id, a, b)
-                    if let live = groupStore.groups.first(where: { $0.id == group.id }) {
-                        Task { try? await groupCoordinator.replayWithCurrentLayout(group: live) }
+                onSwap: { boardA, boardB in
+                        Task {
+                            do {
+                                try await groupCoordinator.swapMembers(group: group, boardA, boardB)
+                            } catch {
+                                model.errorMessage = "调整顺序失败：\(error.localizedDescription)"
+                            }
+                        }
                     }
-                }
             )
         } else {
             // `.inert` by default: the scroll preview mirrors the board's

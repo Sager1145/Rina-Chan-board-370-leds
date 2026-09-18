@@ -1070,6 +1070,85 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     }
 
     /// Starting group two stops group one's boards that group two doesn't
+    /// Drag-swap on an idle group only reorders.
+    func testSwapMembersOnIdleGroupJustReorders() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let group = store.create(name: "换序组")
+        for id in ["A", "B", "C"] {
+            try store.addMember(groupID: group.id, member: .init(physicalBoardID: id, displayName: id))
+        }
+        try await coordinator.swapMembers(group: store.groups[0], "A", "C")
+        XCTAssertEqual(store.groups[0].members.map(\.physicalBoardID), ["C", "B", "A"])
+        XCTAssertFalse(coordinator.isPlaying)
+    }
+
+    /// Drag-swap while playing restarts with the new layout: each board's
+    /// fresh upload carries its new slot's viewport.
+    func testSwapMembersWhilePlayingReplaysWithNewViewports() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let group = store.create(name: "播放换序组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "AB", fps: 10, loop: true)
+        XCTAssertEqual(transportA.lastBlobBeginMeta?["viewportX"] as? Int, 0)
+        let startsBefore = transportA.sentGroupStartAtUs.count
+
+        try await coordinator.swapMembers(group: store.groups[0], "A", "B")
+
+        XCTAssertEqual(store.groups[0].members.map(\.physicalBoardID), ["B", "A"])
+        XCTAssertEqual(transportA.lastBlobBeginMeta?["viewportX"] as? Int, MatrixGeometry.cols)
+        XCTAssertEqual(transportB.lastBlobBeginMeta?["viewportX"] as? Int, 0)
+        XCTAssertGreaterThan(transportA.sentGroupStartAtUs.count, startsBefore)
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertEqual(coordinator.playbackSnapshot?.memberOrder.map(\.physicalBoardID), ["B", "A"])
+    }
+
+    /// Reviewer blocker: a swap that can't be replayed (a member offline)
+    /// must fail loudly and leave the group — order and revision — exactly
+    /// as it was, so the running playback keeps its controls.
+    func testSwapMembersWithOfflineMemberFailsAndKeepsPlaybackControllable() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let transportC = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let sessionC = await connectedSession(sessions: sessions, identity: "C", transport: transportC)
+        let group = store.create(name: "离线换序组")
+        for id in ["A", "B", "C"] {
+            try store.addMember(groupID: group.id, member: .init(physicalBoardID: id, displayName: id))
+        }
+        try await coordinator.play(group: store.groups[0], text: "ABC", fps: 10, loop: true)
+        let revisionBefore = store.groups[0].layoutRevision
+
+        sessionC.connection.disconnect()
+        await waitUntil { sessionC.connection.connectionState != .connected }
+
+        do {
+            try await coordinator.swapMembers(group: store.groups[0], "A", "B")
+            XCTFail("swap must fail while a member is offline")
+        } catch let error as BoardGroupCoordinator.GroupPlayError {
+            XCTAssertEqual(error, .offlineMembers(["C"]))
+        }
+        XCTAssertEqual(store.groups[0].members.map(\.physicalBoardID), ["A", "B", "C"])
+        XCTAssertEqual(store.groups[0].layoutRevision, revisionBefore)
+
+        await coordinator.pause(group: store.groups[0])
+        XCTAssertTrue(coordinator.isPaused, "pause must still work after the refused swap")
+        XCTAssertEqual(transportA.sentScrollSeekFrames.count, 1)
+    }
+
     /// use, and leaves the shared board to group two.
     func testPlayingAnotherGroupStopsThePreviousGroupsOtherBoards() async throws {
         let sessions = BoardSessionStore()
