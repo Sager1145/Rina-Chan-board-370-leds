@@ -34,6 +34,7 @@ enum ControlTarget: Equatable, Sendable {
     /// not touch the persisted value; call `validate(_:in:)` from a
     /// non-view-body context (`.task`, `.onChange`, a delete action) to reset
     /// the stale storage itself.
+    @MainActor
     static func resolved(storedGroupIDString: String, in store: BoardGroupStore) -> ControlTarget {
         let target = ControlTarget(storedGroupIDString: storedGroupIDString)
         guard case .group(let id) = target else { return .single }
@@ -44,6 +45,7 @@ enum ControlTarget: Equatable, Sendable {
     /// group that no longer exists in `store`. Safe to call from `.task`/
     /// `.onChange`/a delete action; must not be called from inside a view's
     /// `body`.
+    @MainActor
     static func validate(_ stored: inout String, in store: BoardGroupStore) {
         guard case .group(let id) = ControlTarget(storedGroupIDString: stored),
               !store.groups.contains(where: { $0.id == id }) else { return }

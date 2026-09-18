@@ -66,8 +66,13 @@ struct BoardControlCenterView: View {
             .sheet(isPresented: $isPresentingGroupManage) {
                 NavigationStack { BoardGroupListView() }
             }
-            .sheet(item: $newGroupEditorID) { id in
-                NavigationStack { BoardGroupEditorView(groupID: id) }
+            .sheet(isPresented: Binding(
+                get: { newGroupEditorID != nil },
+                set: { if !$0 { newGroupEditorID = nil } }
+            )) {
+                if let id = newGroupEditorID {
+                    NavigationStack { BoardGroupEditorView(groupID: id) }
+                }
             }
             .sheet(isPresented: $isPresentingGroupPlay) {
                 if case .group(let id) = controlTarget {
