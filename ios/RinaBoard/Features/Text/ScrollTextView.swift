@@ -163,6 +163,7 @@ struct ScrollTextView: View {
                 TextPlaybackControls(
                     isConnected: allOnline,
                     hasTimeline: playing,
+                    boardHasScroll: false,
                     isPaused: false,
                     isUploading: starting,
                     isGeneratingFont: false,
@@ -216,6 +217,7 @@ struct ScrollTextView: View {
             TextPlaybackControls(
                 isConnected: isConnected,
                 hasTimeline: model.boundTimelineId != nil,
+                boardHasScroll: model.boardHasScroll(connection: connection),
                 isPaused: model.boardPaused,
                 isUploading: model.isUploading,
                 isGeneratingFont: model.isGeneratingFont,

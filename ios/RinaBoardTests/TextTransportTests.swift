@@ -39,6 +39,36 @@ final class TextTransportTests: XCTestCase {
         XCTAssertEqual(model.frameCount, 0)
     }
 
+    /// A scroll the app did not upload or could not restore (WebUI, another
+    /// phone, a font mismatch) left pause/step/stop greyed out, although the
+    /// firmware commands act on the board's own session.
+    func testBoardScrollEnablesTransportWithoutBoundTimeline() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        XCTAssertFalse(model.boardHasScroll(connection: connection))
+
+        transport.pushStatus(#"{"renderer":{"firmwareScrollActive":true,"scrollFrameCount":40,"scrollFrameIndex":3}}"#)
+        let deadline = Date().addingTimeInterval(2)
+        while connection.status?.renderer?.scrollFrameCount == nil, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertNil(model.boundTimelineId)
+        XCTAssertTrue(model.boardHasScroll(connection: connection))
+
+        await model.pause(connection: connection)
+        XCTAssertTrue(model.boardPaused)
+        await model.stepFrame(direction: 1, connection: connection)
+        await model.stop(connection: connection)
+        XCTAssertEqual(transport.scrollCommands.map(\.name), ["pause_scroll", "scroll_step", "stop_scroll"])
+        XCTAssertNil(model.errorMessage)
+
+        transport.pushStatus(#"{"renderer":{"firmwareScrollActive":false,"scrollFrameCount":0}}"#)
+        while connection.status?.renderer?.scrollFrameCount != 0, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertFalse(model.boardHasScroll(connection: connection))
+    }
+
     func testSeekClampsToTimelineAndClearsScrub() async throws {
         let (connection, transport) = try await connectedBoard()
         let model = TextViewModel()
@@ -904,6 +934,13 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
         let parked: Int
         let wanted: Int
         var description: String { "timed out with \(parked) parked request(s), wanted \(wanted)" }
+    }
+
+    /// An unsolicited EV_STATUS frame, as the firmware broadcasts one.
+    func pushStatus(_ json: String) {
+        incomingContinuation?.yield(try! RinaLinkEncoder.encode(
+            RinaLinkFrame(type: RinaLinkMessageType.evStatus.rawValue, seq: 0, flags: 0, payload: Data(json.utf8))
+        ))
     }
 
     func clearRecordedRequests() { requests.removeAll() }
