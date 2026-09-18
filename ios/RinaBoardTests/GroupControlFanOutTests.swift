@@ -22,7 +22,14 @@ final class GroupControlFanOutTests: XCTestCase {
         for id in memberIDs {
             let transport = GroupControlFakeTransport()
             transport.wifiBoardId = id
-            let session = sessions.session(for: id, name: id)
+            // Deliberately a BLE-UUID-like session key, distinct from `id`
+            // (the firmware identity/`physicalBoardID` a group member is
+            // keyed by): a regression that resolves group members by
+            // `BoardSession.boardID` (the session's own persistent slot
+            // identity) instead of `BoardConnection.boardIdentity` must fail
+            // these tests, not pass by both happening to be the same string.
+            let sessionKey = "ble:\(UUID().uuidString)"
+            let session = sessions.session(for: sessionKey, name: id)
             _ = await session.connection.connect(using: transport)
             transports[id] = transport
         }
@@ -34,8 +41,12 @@ final class GroupControlFanOutTests: XCTestCase {
                        transports: transports, group: store.groups[0])
     }
 
+    /// Resolves by the live `BoardConnection.boardIdentity` (the firmware
+    /// identity, i.e. `physicalBoardID`) rather than `BoardSession.boardID`
+    /// (the session's own persistent slot key, which `harness` deliberately
+    /// makes a different, BLE-UUID-like string) — see `harness`.
     private func session(_ h: Harness, _ id: String) -> BoardSession {
-        h.sessions.session(for: id, name: id)
+        h.sessions.sessions.first { $0.connection.boardIdentity == id }!
     }
 
     private func waitUntil(timeout: TimeInterval = 3, _ condition: @escaping () -> Bool) async {

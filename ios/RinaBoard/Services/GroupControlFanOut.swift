@@ -43,7 +43,9 @@ public final class GroupControlFanOut {
     /// directly instead of an id/index its own (unsynced) face library may
     /// not share. Wired in `RinaBoardApp` to
     /// `FaceLibraryModel.boardFaceFrame(id:index:generation:)`. Returning nil
-    /// falls back to replaying the original command verbatim.
+    /// (or this being unset) falls back to reading the primary's resulting
+    /// frame back via `getFrame()` instead — never to replaying the original
+    /// command verbatim (`primaryFaceApplied(reply:original:ticket:from:)`).
     public var faceFrameResolver: ((BoardConnection, CommandReply) -> PackedFrame?)?
 
     /// Called with a promoted primary's `boardKey` right before this type
@@ -97,6 +99,12 @@ public final class GroupControlFanOut {
         var items: [Item] = []
         var worker: Task<Void, Never>?
         var wake: CheckedContinuation<Void, Never>?
+        /// `true` once attach-time alignment (brightness/colour/auto interval
+        /// from the primary's `status`) has actually been sent. A sink
+        /// attached before the primary's first `status` arrives starts
+        /// `false`, and `attachPrimary` retries alignment for it on every
+        /// later reconcile until it succeeds (F9).
+        var isAligned = false
 
         init(id: String, connection: BoardConnection, connectionGeneration: UUID) {
             self.id = id
@@ -130,11 +138,25 @@ public final class GroupControlFanOut {
     /// `groupStore.groups`, and every current target member's
     /// `connectionState`/`connectionGeneration`, so a connect/disconnect or a
     /// group edit re-runs this automatically without any external observer.
+    ///
+    /// Only ever one observation chain is actually armed: each call bumps
+    /// `reconcileEpoch` and captures it, so if `reconcile()` runs again (e.g.
+    /// `setTarget` called again) before an older chain's `onChange` fires,
+    /// that stale `onChange` recognizes it's no longer current and does
+    /// nothing instead of re-arming a second, redundant chain on top of the
+    /// fresh one `performReconcile()` already re-armed.
+    private var reconcileEpoch = 0
+
     public func reconcile() {
+        reconcileEpoch += 1
+        let epoch = reconcileEpoch
         withObservationTracking {
             performReconcile()
         } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.reconcile() }
+            Task { @MainActor [weak self] in
+                guard let self, epoch == self.reconcileEpoch else { return }
+                self.reconcile()
+            }
         }
     }
 
@@ -248,6 +270,7 @@ public final class GroupControlFanOut {
             let id = entry.member.physicalBoardID
             let connection = entry.session.connection
             if let existing = channels[id], existing.connectionGeneration == connection.connectionGeneration {
+                if !existing.isAligned { alignSink(existing, primary: primaryConnection) }
                 continue
             }
             if channels[id] != nil { detachSink(id: id) }
@@ -260,20 +283,29 @@ public final class GroupControlFanOut {
         channels[id] = channel
         memberErrors.removeValue(forKey: id)
         startWorker(channel)
+        alignSink(channel, primary: primary)
+    }
 
-        // Alignment on attach: the same fields `BoardControlCenterModel.sync(from:)`
-        // reads, so a newly attached sink starts matching the primary.
-        if let renderer = primary.status?.renderer {
-            if let brightness = renderer.brightness {
-                enqueueAndWake(.command(.setBrightness(raw: brightness), leased: false), to: channel)
-            }
-            if let hex = renderer.color {
-                enqueueAndWake(.command(.setColor(hex: hex), leased: false), to: channel)
-            }
-            if let ms = renderer.autoIntervalMs {
-                enqueueAndWake(.command(.setAutoInterval(ms: ms), leased: false), to: channel)
-            }
+    /// Alignment on attach: the same fields `BoardControlCenterModel.sync(from:)`
+    /// reads, so a newly attached sink starts matching the primary. The
+    /// primary's `status` (and so its `renderer`) can still be nil right
+    /// after `attachPrimary` first runs for a freshly connected primary —
+    /// reading it here (even when nil) keeps it tracked by the enclosing
+    /// `withObservationTracking`, so `attachPrimary` retries this on the
+    /// next reconcile once a real `status` arrives, instead of leaving the
+    /// sink silently unaligned forever (F9).
+    private func alignSink(_ channel: SinkChannel, primary: BoardConnection) {
+        guard let renderer = primary.status?.renderer else { return }
+        if let brightness = renderer.brightness {
+            enqueueAndWake(.command(.setBrightness(raw: brightness), leased: false), to: channel)
         }
+        if let hex = renderer.color {
+            enqueueAndWake(.command(.setColor(hex: hex), leased: false), to: channel)
+        }
+        if let ms = renderer.autoIntervalMs {
+            enqueueAndWake(.command(.setAutoInterval(ms: ms), leased: false), to: channel)
+        }
+        channel.isAligned = true
     }
 
     private func detachSink(id: String) {
@@ -340,14 +372,47 @@ public final class GroupControlFanOut {
 
     public func primaryFaceApplied(reply: CommandReply, original: RinaCommand, ticket: Int, from primary: BoardConnection) {
         guard isCurrentPrimary(primary), ticket == dispatchSeq else { return }
-        let resolved = faceFrameResolver?(primary, reply)
-        for channel in channels.values {
-            if let frame = resolved {
-                enqueueAndWake(.frame(frame, .idle, reason: "group_control_face"), to: channel)
+        if let resolved = faceFrameResolver?(primary, reply) {
+            for channel in channels.values {
+                enqueueAndWake(.frame(resolved, .idle, reason: "group_control_face"), to: channel)
+            }
+            return
+        }
+        // No resolver, or it returned nil: never replay the original
+        // apply_saved_face/B1/B2 verbatim — a sink's own (unsynced) face
+        // library may not share the id/index, so it would end up showing a
+        // different face than the primary. Instead read back the primary's
+        // own resulting frame once the apply has settled and mirror that
+        // bitmap; if that also fails, record a per-sink error rather than
+        // guess.
+        Task { @MainActor [weak self, weak primary] in
+            guard let self, let primary else { return }
+            if let frame = await self.primaryFrameAfterApply(primary: primary, ticket: ticket) {
+                guard self.isCurrentPrimary(primary), ticket == self.dispatchSeq else { return }
+                for channel in self.channels.values {
+                    self.enqueueAndWake(.frame(frame, .idle, reason: "group_control_face"), to: channel)
+                }
             } else {
-                enqueueAndWake(.command(original, leased: true), to: channel)
+                guard self.isCurrentPrimary(primary), ticket == self.dispatchSeq else { return }
+                for id in self.channels.keys {
+                    self.memberErrors[id] = NSLocalizedString("未能同步表情", comment: "group control sink face sync failed")
+                }
             }
         }
+    }
+
+    /// Reads the primary's current frame after its `apply_saved_face`/B1/B2
+    /// reply resolved to no bitmap, waiting for the apply to settle first
+    /// (small delay/retry acceptable: a fresh `get_frame` immediately after
+    /// the apply can race the firmware's own render). One retry; `nil` if
+    /// both attempts fail or this primary/ticket is no longer current.
+    private func primaryFrameAfterApply(primary: BoardConnection, ticket: Int) async -> PackedFrame? {
+        for _ in 0..<2 {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard isCurrentPrimary(primary), ticket == dispatchSeq else { return nil }
+            if let frame = try? await primary.getFrame() { return frame }
+        }
+        return nil
     }
 
     // MARK: - Per-sink queue / worker
@@ -377,7 +442,12 @@ public final class GroupControlFanOut {
                    if case .command(let queued, _) = $0 { return coalesceKey(for: queued) == key }
                    return false
                }) {
-                channel.items[idx] = item
+                // Coalescing replaces the earlier same-key entry, but moves
+                // to the end: its relative order against every other queued
+                // command must reflect when this newer value arrived, not
+                // where the stale one happened to sit.
+                channel.items.remove(at: idx)
+                channel.items.append(item)
             } else {
                 channel.items.append(item)
             }

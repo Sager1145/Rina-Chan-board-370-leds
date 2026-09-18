@@ -24,26 +24,26 @@ import RinaCore
 /// firmware `renderer.mode` never leaves `manual` while this runs.
 @Observable
 @MainActor
-public final class GroupAutoCycler {
+final class GroupAutoCycler {
     private let fanOut: GroupControlFanOut
     private let faceLibrary: FaceLibraryModel
     private let intervalProvider: () -> Double
     private let sleeper: (Double) async -> Void
 
-    public private(set) var isRunning = false
+    private(set) var isRunning = false
     /// The user's own "auto should be on" intent, independent of `isRunning`:
     /// stays true across an app-backgrounding pause (`suspendForBackground()`
     /// stops the loop but leaves this set, so `resumeForForeground()` restarts
     /// it), and is cleared by every real stop condition (`stop()`, target →
     /// single, another source claiming the primary).
-    public private(set) var wantsRunning = false
+    private(set) var wantsRunning = false
     private(set) var currentIndex = 0
 
     private var runToken = 0
     private var task: Task<Void, Never>?
     private var observedConnection: BoardConnection?
 
-    public init(
+    init(
         fanOut: GroupControlFanOut,
         faceLibrary: FaceLibraryModel,
         intervalProvider: @escaping () -> Double,
@@ -63,14 +63,14 @@ public final class GroupAutoCycler {
     /// (target isn't a group, or every member is offline) — the caller
     /// should fall back to ordinary single-board auto in that case.
     @discardableResult
-    public func start() -> Bool {
+    func start() -> Bool {
         wantsRunning = true
         return beginIfPossible()
     }
 
     /// Turns synced auto cycling off — a real stop, not the background pause:
     /// clears `wantsRunning`, so a later foreground doesn't resume it.
-    public func stop() {
+    func stop() {
         wantsRunning = false
         endLoop()
     }
@@ -79,7 +79,7 @@ public final class GroupAutoCycler {
     /// that frame via the primary (mirrored to every sink), whether or not
     /// the cycle is currently running, so the boards stay identical either
     /// way. Does not itself start or stop the timer loop.
-    public func step(direction: Int) async {
+    func step(direction: Int) async {
         guard let connection = fanOut.primaryConnection else { return }
         let faces = faceLibrary.faces(in: .board)
         guard !faces.isEmpty else { return }
@@ -95,14 +95,14 @@ public final class GroupAutoCycler {
     /// App-lifecycle pause (BOARD_GROUP_SPEC's "app backgrounded" stop
     /// condition): stops the loop but keeps `wantsRunning`, so
     /// `resumeForForeground()` restarts it if it's still the group's target.
-    public func suspendForBackground() {
+    func suspendForBackground() {
         guard isRunning else { return }
         endLoop(clearWantsRunning: false)
     }
 
     /// Resumes after `suspendForBackground()`, only if the user's auto
     /// intent is still on.
-    public func resumeForForeground() {
+    func resumeForForeground() {
         guard wantsRunning, !isRunning else { return }
         _ = beginIfPossible()
     }
@@ -166,7 +166,7 @@ public final class GroupAutoCycler {
     private func run(token: Int, session: UUID, connection: BoardConnection) async {
         while runToken == token, !Task.isCancelled {
             guard fanOut.primaryConnection === connection, connection.output.isCurrent(session) else {
-                await MainActor.run { self.endLoop() }
+                endLoop()
                 return
             }
             let faces = faceLibrary.faces(in: .board)
@@ -179,9 +179,9 @@ public final class GroupAutoCycler {
     }
 
     private func sendCurrentFace(faces: [SavedFace], connection: BoardConnection, session: UUID? = nil) async {
-        guard faces.indices.contains(currentIndex % faces.count) else { return }
+        guard !faces.isEmpty else { return }
         let face = faces[currentIndex % faces.count]
-        let frame = PackedFrame(bytes: face.frameBytes.map(UInt8.init))
+        guard let frame = PackedFrame(bytes: face.frameBytes.map(UInt8.init)) else { return }
         let token = session ?? connection.output.claim(.automatic)
         _ = try? await connection.withOutput(token) {
             try await connection.setFrame(frame, playback: .idle, reason: "group_auto_cycle", outputSession: token)

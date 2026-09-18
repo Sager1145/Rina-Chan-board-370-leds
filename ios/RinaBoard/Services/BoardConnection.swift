@@ -894,16 +894,15 @@ public final class BoardConnection {
             // control action (e.g. brightness) that must still reach every
             // sink. Never awaited — fire-and-forget from the primary's
             // perspective.
-            var faceTicket: Int?
-            if self.output.source != .debug {
-                switch cmd.groupFanOutPolicy {
-                case .verbatim:
-                    self.fanOut?.dispatch(cmd, leased: token != nil, from: self)
-                case .resolveFace:
-                    faceTicket = self.fanOut?.beginLeasedAction(from: self)
-                case .deny:
-                    break
-                }
+            // `.verbatim` still claims/mirrors synchronously before the send
+            // (dispatch's own doc: kept for latency, and a failing/slow send
+            // is the primary's own concern either way). `.resolveFace` is
+            // different: claiming sinks (`beginLeasedAction`) here, before
+            // the send, would hand them over to a group-control lease even
+            // if the primary's own apply then throws — so it's deferred
+            // until after a confirmed `reply.ok` below instead (F7).
+            if self.output.source != .debug, case .verbatim = cmd.groupFanOutPolicy {
+                self.fanOut?.dispatch(cmd, leased: token != nil, from: self)
             }
             let generation = self.connectionGeneration
             guard let activeTransport = self.transport else {
@@ -916,8 +915,10 @@ public final class BoardConnection {
             let reply = try JSONDecoder().decode(CommandReply.self, from: frame.payload)
             guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)") }
             self.updateDeviceName(from: reply, for: cmd, transport: activeTransport, generation: generation)
-            if let ticket = faceTicket {
-                self.fanOut?.primaryFaceApplied(reply: reply, original: cmd, ticket: ticket, from: self)
+            if self.output.source != .debug, case .resolveFace = cmd.groupFanOutPolicy {
+                if let ticket = self.fanOut?.beginLeasedAction(from: self) {
+                    self.fanOut?.primaryFaceApplied(reply: reply, original: cmd, ticket: ticket, from: self)
+                }
             }
             return reply
         }
