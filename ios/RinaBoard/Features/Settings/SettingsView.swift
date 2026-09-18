@@ -106,6 +106,11 @@ struct SettingsView: View {
                 confirmReboot = true
             }
             .disabled(!isConnected)
+            NavigationLink {
+                BoardGroupListView()
+            } label: {
+                Label("多板组", systemImage: "square.grid.3x1.below.line.grid.1x2")
+            }
         } header: {
             Text("面板")
         }
