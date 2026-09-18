@@ -1179,25 +1179,29 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     /// 4.7: `updatePlayback` must pick its switch time `T` *after* this
     /// pass's own clock sampling, not before it -- picking `T` up front (the
-    /// pre-fix order) means the sampling that follows can eat well past `T`,
-    /// so the boards see a schedule already in their past. Pins each board's
-    /// clock reply (`rxUs`/`txUs`) to a real wall-clock reading taken right
-    /// before the test starts, so `atUs` (phone time + that board's clock
-    /// offset) tracks real elapsed microseconds since that baseline -- a
-    /// slowed, real (wall-clock) clock-sample exchange then shows up directly
-    /// in `atUs` if and only if `T` was actually chosen after it finished.
+    /// pre-fix order, 9c12a20) means the sampling that follows can eat well
+    /// past `T`, so the boards see a schedule already in their past.
+    ///
+    /// The original version of this test pinned each board's clock reply
+    /// (`rxUs`/`txUs`) to a *fixed* baseline constant and compared the
+    /// resulting `atUs` (phone uptime, dominated by that same huge absolute
+    /// uptime constant, on the order of 1e11us on a machine that's been up
+    /// for days) against a small elapsed-time value -- so the assertion held
+    /// unconditionally regardless of ordering and the test passed on 9c12a20
+    /// too. Instead, `GroupFakeTransport.clockUsesRealTime` makes each
+    /// board's clock reply track real `DispatchTime.now()` at the moment the
+    /// (possibly delayed) reply is generated, so the estimated clock offset
+    /// against the coordinator's own real `nowUs()` is ~0 and `atUs` is
+    /// directly comparable to real elapsed wall time.
     func testUpdatePlaybackPicksSwitchTimeAfterItsOwnSampling() async throws {
         let sessions = BoardSessionStore()
         let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
-        let baselineUs = Int64(DispatchTime.now().uptimeNanoseconds / 1_000)
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
-        transportA.clockRxUs = baselineUs
-        transportA.clockTxUs = baselineUs + 100
-        transportB.clockRxUs = baselineUs
-        transportB.clockTxUs = baselineUs + 100
+        transportA.clockUsesRealTime = true
+        transportB.clockUsesRealTime = true
         _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
         _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
 
@@ -1205,26 +1209,190 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
         try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
 
+        let baselineUs = Int64(DispatchTime.now().uptimeNanoseconds / 1_000)
         try await coordinator.play(group: store.groups[0], text: "AB", fps: 10, loop: true)
         XCTAssertEqual(transportA.sentGroupStartAtUs.count, 1)
 
-        // Slow only this pass's own clock sampling by a known real amount
-        // (not the initial play(), whose own group_start already went out).
-        transportA.clockSampleReplyDelay = 0.1
-        transportB.clockSampleReplyDelay = 0.1
+        // Slow only this pass's own clock sampling (4 sequential samples per
+        // board, boards run in parallel) by a known real amount -- not the
+        // initial play() above, whose own group_start already went out.
+        // 150ms * 4 samples = ~600ms of real wall time per board, well past
+        // the 300ms switch-time margin.
+        transportA.clockSampleReplyDelay = 0.15
+        transportB.clockSampleReplyDelay = 0.15
 
         let beforeUpdateUs = Int64(DispatchTime.now().uptimeNanoseconds / 1_000) - baselineUs
 
         await coordinator.updatePlayback(group: store.groups[0], fps: 20, loop: nil)
 
-        let atUsA = try XCTUnwrap(transportA.sentGroupStartAtUs.last)
-        // If T were still chosen *before* this pass's sampling (the pre-fix
-        // bug), `atUs` would land around `beforeUpdateUs` plus only the flat
-        // 300ms margin (~300,000us). Choosing T after the (>=400ms, at 4
-        // sequential 100ms-delayed samples) sampling this fix performs pushes
-        // it well past that.
+        let atUsA = try XCTUnwrap(transportA.sentGroupStartAtUs.last) - baselineUs
+        // Reasoning about 9c12a20's ordering (pick T, *then* sample): T would
+        // be `nowUs() + max(300_000, 3 * worstRtt)` using the *stale*
+        // estimator from the initial (undelayed) play() -- worstRtt ~= 0 --
+        // so `atUs` would land around `beforeUpdateUs + 300_000`us, well
+        // under `beforeUpdateUs + 500_000`. This fix's order (sample, *then*
+        // pick T) makes `nowUs()` itself only run after ~600ms of real
+        // sampling delay has already elapsed, so `atUs` lands well past it.
         XCTAssertGreaterThan(atUsA, beforeUpdateUs + 500_000,
                               "switch time must be chosen after this pass's own clock sampling, not before it")
+    }
+
+    // MARK: - Cross-group stop / overlapping play / resume rejection (reviewer fixes)
+
+    /// Reviewer fix: a `stop()` for G1={A,B,C} whose `stop_scroll` reply from
+    /// A is still in flight when G2={A,D} starts (reusing A) must not
+    /// abandon B and C -- `stop()`'s epoch guard used to `return` out of its
+    /// *whole* loop the instant the epoch moved on (9c12a20 and this branch
+    /// before the `claimedBoardIDs` fix), silently leaving B and C
+    /// `.group`-owned forever with no `stop_scroll` ever sent and no control
+    /// able to reach them. B and C are never claimed by G2, so they must
+    /// still be stopped and released; only A -- which G2 legitimately
+    /// claimed (and which reuses A's *same* lease token, since `claim(.group)`
+    /// on a board whose source is already `.group` returns the current
+    /// token) -- must be left alone by the stale `stop()`.
+    func testCrossGroupStopLeavesUnclaimedSiblingsStopped() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let transportC = GroupFakeTransport()
+        let transportD = GroupFakeTransport()
+        transportA.cmdReplyDelay["stop_scroll"] = 0.3
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let sessionC = await connectedSession(sessions: sessions, identity: "C", transport: transportC)
+        _ = await connectedSession(sessions: sessions, identity: "D", transport: transportD)
+
+        let group1 = store.create(name: "组一")
+        try store.addMember(groupID: group1.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group1.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try store.addMember(groupID: group1.id, member: .init(physicalBoardID: "C", displayName: "C"))
+        let group2 = store.create(name: "组二")
+        try store.addMember(groupID: group2.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group2.id, member: .init(physicalBoardID: "D", displayName: "D"))
+
+        try await coordinator.play(group: store.groups.first { $0.id == group1.id }!, text: "组一", fps: 10, loop: true)
+        XCTAssertTrue(coordinator.isPlaying)
+
+        let stopTask = Task { await coordinator.stop(group: store.groups.first { $0.id == group1.id }!) }
+        // Give stop() time to reach A (the first member) and start its slow stop_scroll.
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        try await coordinator.play(group: store.groups.first { $0.id == group2.id }!, text: "组二", fps: 10, loop: true)
+        await stopTask.value
+
+        XCTAssertTrue(transportB.receivedStopScroll, "B must still be stopped despite the cross-group race")
+        XCTAssertTrue(transportC.receivedStopScroll, "C must still be stopped despite the cross-group race")
+        XCTAssertNotEqual(sessionB.connection.output.source, .group)
+        XCTAssertNotEqual(sessionC.connection.output.source, .group)
+
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertEqual(coordinator.activeGroupID, group2.id, "G2 must have taken over and be playing")
+        XCTAssertEqual(sessionA.connection.output.source, .group, "A must remain G2's, never invalidated by the stale stop()")
+    }
+
+    /// Reviewer fix: a stale `play()`'s `catch` block must only clear
+    /// `isStarting`/`startingGroupID` under its *own* epoch. Pre-fix, it
+    /// cleared them unconditionally -- so a first play (aborted here by a
+    /// manual claim stealing one of its boards) finishing its failure
+    /// handling *after* a second, unrelated play (disjoint boards, a
+    /// different group) has already begun its own `isStarting` phase would
+    /// wipe out the second play's still-in-flight upload spinner state.
+    func testStalePlayAbortDoesNotClearNewerPlaysIsStarting() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        transportA.clockSampleReplyDelay = 0.05
+        transportB.clockSampleReplyDelay = 0.05
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let transportC = GroupFakeTransport()
+        let transportD = GroupFakeTransport()
+        transportC.clockSampleReplyDelay = 0.1
+        transportD.clockSampleReplyDelay = 0.1
+        _ = await connectedSession(sessions: sessions, identity: "C", transport: transportC)
+        _ = await connectedSession(sessions: sessions, identity: "D", transport: transportD)
+
+        let group1 = store.create(name: "第一组")
+        try store.addMember(groupID: group1.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group1.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        let group2 = store.create(name: "第二组")
+        try store.addMember(groupID: group2.id, member: .init(physicalBoardID: "C", displayName: "C"))
+        try store.addMember(groupID: group2.id, member: .init(physicalBoardID: "D", displayName: "D"))
+
+        let playTask1 = Task {
+            try await coordinator.play(group: store.groups.first { $0.id == group1.id }!, text: "第一次", fps: 10, loop: true)
+        }
+        await waitUntil { transportA.lastBlobBeginMeta != nil && transportB.lastBlobBeginMeta != nil }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        // Forces play1 to abort at its next `stillValid()` check (after its
+        // own clock-sampling phase finishes), the same technique
+        // `testManualClaimBetweenUploadAndClockSamplingAbortsPlay` uses.
+        sessionA.connection.output.claim(.manual)
+
+        let playTask2 = Task {
+            try await coordinator.play(group: store.groups.first { $0.id == group2.id }!, text: "第二次", fps: 10, loop: true)
+        }
+        // Wait until play2 has become the coordinator's active isStarting
+        // attempt (and so has already bumped `playEpoch` past play1's own)
+        // before letting play1's abort run.
+        await waitUntil { coordinator.startingGroupID == group2.id }
+
+        do {
+            try await playTask1.value
+            XCTFail("Expected the manual claim to abort play1")
+        } catch BoardGroupCoordinator.GroupPlayError.aborted {
+        }
+
+        // play1's own stale abort must not have cleared play2's
+        // still-in-flight isStarting/startingGroupID.
+        XCTAssertTrue(coordinator.isStarting)
+        XCTAssertEqual(coordinator.startingGroupID, group2.id)
+
+        try await playTask2.value
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertEqual(coordinator.activeGroupID, group2.id)
+        XCTAssertFalse(coordinator.isStarting)
+    }
+
+    /// Reviewer fix: `resumeCore` must treat a rejected `group_start` reply
+    /// (every participant rejects) exactly like `updatePlayback` already
+    /// does -- staying paused rather than flipping to playing when nothing
+    /// on the wire actually accepted the new anchor. 9c12a20 never checked
+    /// `reply.ok` here at all.
+    func testResumeStaysPausedWhenEveryBoardRejectsGroupStart() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "拒绝恢复组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        XCTAssertTrue(coordinator.isPaused)
+        let pausedFrame = coordinator.pausedFrame
+
+        transportA.rejectGroupStart = true
+        transportB.rejectGroupStart = true
+
+        await coordinator.resume(group: store.groups[0])
+
+        XCTAssertTrue(coordinator.isPaused, "every board rejecting group_start must leave the group paused")
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertEqual(coordinator.pausedFrame, pausedFrame, "pausedFrame must be untouched by the rejected resume")
     }
 
     // MARK: - Deletion / cleanup
@@ -1280,6 +1448,14 @@ private final class GroupFakeTransport: RinaTransport {
     var wifiBoardId: String?
     var clockRxUs: Int64 = 1_000
     var clockTxUs: Int64 = 1_200
+    /// When set, `clock_sample` ignores `clockRxUs`/`clockTxUs` and instead
+    /// stamps both `rxUs`/`txUs` with real `DispatchTime.now()` at the
+    /// moment the (possibly delayed) reply payload is actually generated --
+    /// i.e. board clock == phone clock (offset ~=0), so a caller using the
+    /// coordinator's own real `nowUs()` can compare `atUs` directly against
+    /// real elapsed wall time instead of it being dominated by a pinned
+    /// constant.
+    var clockUsesRealTime = false
     /// Per-`cmd`-name reply delay, so a burst test can keep one slot of the
     /// command pump busy without delaying every reply.
     var cmdReplyDelay: [String: TimeInterval] = [:]
@@ -1373,7 +1549,17 @@ private final class GroupFakeTransport: RinaTransport {
             case "get_info":
                 return (try? JSONSerialization.data(withJSONObject: ["ok": true, "proto": 1, "bootId": bootId, "caps": caps])) ?? Data()
             case "clock_sample":
-                return (try? JSONSerialization.data(withJSONObject: ["ok": true, "rxUs": clockRxUs, "txUs": clockTxUs, "bootId": bootId])) ?? Data()
+                let rx: Int64
+                let tx: Int64
+                if clockUsesRealTime {
+                    let now = Int64(DispatchTime.now().uptimeNanoseconds / 1_000)
+                    rx = now
+                    tx = now
+                } else {
+                    rx = clockRxUs
+                    tx = clockTxUs
+                }
+                return (try? JSONSerialization.data(withJSONObject: ["ok": true, "rxUs": rx, "txUs": tx, "bootId": bootId])) ?? Data()
             case "group_start":
                 if let atUs = object["atUs"] as? NSNumber { sentGroupStartAtUs.append(atUs.int64Value) }
                 if let intervalMs = object["intervalMs"] as? NSNumber { sentGroupStartIntervalMs.append(intervalMs.intValue) }

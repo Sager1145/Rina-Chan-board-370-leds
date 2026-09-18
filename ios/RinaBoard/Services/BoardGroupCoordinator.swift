@@ -151,6 +151,21 @@ public final class BoardGroupCoordinator {
     /// (as one further step) once the in-flight call finishes.
     private var isControlBusy = false
     private var pendingStepDirection = 0
+    /// The board IDs the latest `play()` attempt claimed output leases for
+    /// (set synchronously alongside `tokens` when it claims them, before the
+    /// upload/clock-sync phases even start — so it already covers an
+    /// in-flight `isStarting` attempt, not just a fully joined one).
+    /// `claim(.group)` on a board whose source is already `.group` returns
+    /// the SAME token a stale attempt's own captured `tokens` map still
+    /// holds, so token equality alone can never tell a newer attempt's claim
+    /// on a reused board apart from a stale attempt's own claim on it — this
+    /// set is what `stop()`/`abortStartedBoards` consult instead, to never
+    /// touch a board a newer attempt has claimed while still acting on every
+    /// other board a stale attempt legitimately owns (cross-group stop).
+    /// Cleared when the attempt owning it (matching `playEpoch`) finishes its
+    /// own `stop()`/`abortStartedBoards`/`markSupersededByControl` pass, or
+    /// overwritten wholesale by the next `play()`'s own claim.
+    private var claimedBoardIDs: Set<String> = []
 
     public init(
         store: BoardGroupStore,
@@ -402,6 +417,7 @@ public final class BoardGroupCoordinator {
         for captured in online {
             tokens[captured.member.physicalBoardID] = captured.session.connection.output.claim(.group)
         }
+        claimedBoardIDs = Set(tokens.keys)
 
         func stillValid() -> Bool {
             guard playEpoch == capturedEpoch else { return false }
@@ -516,7 +532,13 @@ public final class BoardGroupCoordinator {
                     taskGroup.addTask { @MainActor in
                         do {
                             try await captured.session.connection.withOutput(token) {
-                                _ = try await captured.session.connection.requestReliable(cmd)
+                                let reply = try await captured.session.connection.requestReliable(cmd)
+                                // Same H3 partial-start treatment as an outright
+                                // send failure: a rejected `group_start` reply
+                                // (e.g. firmware still enforcing `intervalMs >=
+                                // 20`) must never be treated as this board
+                                // having started.
+                                guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：group_start") }
                             }
                         } catch {
                             self.memberStatus[captured.member.physicalBoardID] = .error(error.localizedDescription)
@@ -551,8 +573,14 @@ public final class BoardGroupCoordinator {
             isStarting = false
             startingGroupID = nil
         } catch {
-            isStarting = false
-            startingGroupID = nil
+            // A newer `play()` may already have bumped `playEpoch` (and so
+            // captured its own `isStarting`/`startingGroupID`) while this
+            // stale attempt was still failing — only this attempt's own
+            // epoch may clear them, never a newer attempt's in-flight state.
+            if playEpoch == capturedEpoch {
+                isStarting = false
+                startingGroupID = nil
+            }
             await abortStartedBoards(online, tokens: tokens, epoch: capturedEpoch)
             // A member disconnecting (or any other generation change) mid-flight
             // surfaces here as `CancellationError` from the in-flight request
@@ -569,30 +597,36 @@ public final class BoardGroupCoordinator {
     /// Best-effort: `stop_scroll` + release the lease on every captured board
     /// still owned by this group attempt, so a partial start never leaves a
     /// board scrolling under a stale group anchor while the coordinator
-    /// reports nothing is playing (H3, M3, B3). Guarded by `epoch`: if a
-    /// newer `play()` has since bumped `playEpoch`, this attempt's boards may
-    /// already belong to that newer attempt, so this does nothing at all —
-    /// touching them here would wipe state the newer play just set up.
+    /// reports nothing is playing (H3, M3, B3). If a newer `play()` has since
+    /// bumped `playEpoch`, this attempt must never touch a board the newer
+    /// attempt claimed (`claimedBoardIDs` — token equality can't tell them
+    /// apart on a reused board, see its declaration) — but a sibling board
+    /// the newer attempt left alone still belongs to this stale attempt and
+    /// must still be stopped/released (cross-group stop: a second group
+    /// starting mid-abort must never strand the boards it didn't touch).
     private func abortStartedBoards(_ online: [CapturedMember], tokens: [String: UUID], epoch: Int) async {
-        guard playEpoch == epoch else { return }
         for captured in online {
+            let id = captured.member.physicalBoardID
             // 4.3: rechecked on every iteration (not just once up front) — a
             // newer `play()` can start mid-loop while an earlier board's
             // best-effort `stop_scroll` is still in flight, and this attempt
-            // must stop touching boards the instant that happens.
-            guard playEpoch == epoch,
-                  let token = tokens[captured.member.physicalBoardID],
-                  captured.session.connection.output.isCurrent(token) else { continue }
+            // must stop touching any board that newer attempt claimed the
+            // instant that happens.
+            if playEpoch != epoch, claimedBoardIDs.contains(id) { continue }
+            guard let token = tokens[id], captured.session.connection.output.isCurrent(token) else {
+                memberStatus.removeValue(forKey: id)
+                continue
+            }
             _ = try? await captured.session.connection.withOutput(token) {
                 _ = try? await captured.session.connection.requestReliable(.stopScroll(restoreAuto: nil, clear: nil))
             }
-            guard playEpoch == epoch else { return }
+            if playEpoch != epoch, claimedBoardIDs.contains(id) { continue }
             // Conditional on `token` still being current: a newer play that
             // reused this exact board (source unchanged, so its own claim
             // returned the same token) must never have its lease invalidated
             // out from under it by this stale abort.
             captured.session.connection.output.invalidate(ifCurrent: token)
-            memberStatus.removeValue(forKey: captured.member.physicalBoardID)
+            memberStatus.removeValue(forKey: id)
         }
         guard playEpoch == epoch else { return }
         participants.removeAll()
@@ -604,6 +638,7 @@ public final class BoardGroupCoordinator {
         activeGroupID = nil
         activeRevision = nil
         activeEpoch = nil
+        claimedBoardIDs.removeAll()
     }
 
     private func viewportX(for slot: Int, mode: BoardGroup.Mode, layout: StitchedScreenLayout) -> Int {
@@ -1315,9 +1350,23 @@ public final class BoardGroupCoordinator {
         activeEpoch = nil
         currentAnchor = nil
         playState = nil
+        // `claimedBoardIDs` covers a `play()` still mid `isStarting` (its
+        // tokens are claimed before `participants` is ever populated) as
+        // well as a fully joined play, so this clears memberStatus for
+        // either case — not just the boards that had already become
+        // `participants`.
+        for id in claimedBoardIDs { memberStatus.removeValue(forKey: id) }
         for id in participants.keys { memberStatus.removeValue(forKey: id) }
         participants.removeAll()
         evictedByOwnership.removeAll()
+        claimedBoardIDs.removeAll()
+        // This bump just invalidated any in-flight `play()`'s own epoch, so
+        // its `catch` block will no longer clear these itself (it only ever
+        // clears them under its own matching epoch) — this call must take
+        // over that responsibility instead of leaving the Text tab's upload
+        // spinner stuck on.
+        isStarting = false
+        startingGroupID = nil
     }
 
     // MARK: - Stop
@@ -1347,23 +1396,31 @@ public final class BoardGroupCoordinator {
         let toStop = group.members
         participants.removeAll()
         for member in toStop {
-            // 4.3: a `play()` started while this `stop()`'s own loop is still
-            // awaiting an earlier board's `stop_scroll` reply bumps
-            // `playEpoch` again — from that point these boards belong to the
-            // newer play, and this stale `stop()` must not touch any more of
-            // them (nor invalidate a lease that new play just claimed).
-            guard playEpoch == epoch else { return }
+            let id = member.physicalBoardID
+            // 4.3/cross-group: a `play()` started while this `stop()`'s own
+            // loop is still awaiting an earlier board's `stop_scroll` reply
+            // bumps `playEpoch` again — from that point this stale `stop()`
+            // must never touch a board that newer play claimed
+            // (`claimedBoardIDs`), but a sibling board the newer play didn't
+            // touch still belongs to this group and must still be stopped
+            // (e.g. G1={A,B,C} stopping while G2={A,D} starts mid-stop must
+            // still deliver `stop_scroll` to B and C).
+            if playEpoch != epoch, claimedBoardIDs.contains(id) { continue }
             guard let session = session(for: member), session.connection.output.source == .group else { continue }
             let token = session.connection.output.claim(.group)
             _ = try? await session.connection.withOutput(token) {
                 _ = try? await session.connection.requestReliable(.stopScroll(restoreAuto: nil, clear: nil))
             }
-            guard playEpoch == epoch else { return }
+            if playEpoch != epoch, claimedBoardIDs.contains(id) { continue }
             // Conditional on `token` still being current: never invalidate a
             // newer play's lease out from under it just because this board
             // happened to reuse the same session (source never left `.group`).
             session.connection.output.invalidate(ifCurrent: token)
-            memberStatus.removeValue(forKey: member.physicalBoardID)
+            memberStatus.removeValue(forKey: id)
         }
+        // Only this stop's own (still-current) epoch may declare "nothing is
+        // claimed anymore" — a newer play's `claimedBoardIDs` must survive a
+        // stale stop() finishing after it.
+        if playEpoch == epoch { claimedBoardIDs.removeAll() }
     }
 }
