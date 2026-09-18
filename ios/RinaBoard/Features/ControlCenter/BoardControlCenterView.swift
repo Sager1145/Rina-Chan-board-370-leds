@@ -191,7 +191,6 @@ struct BoardControlCenterView: View {
                         .task { await HotspotJoiner.revalidateLastJoinedSSID() }
                 )
                 groupControlSection
-                singleBoardHeaderSection
                 brightnessSection
                 modeSection
                 colorSection
@@ -218,7 +217,6 @@ struct BoardControlCenterView: View {
                 Group {
                     statusSection
                     groupControlSection
-                    singleBoardHeaderSection
                     brightnessSection
                     modeSection
                     colorSection
@@ -554,21 +552,6 @@ struct BoardControlCenterView: View {
                 } label: {
                     Label("切回单板", systemImage: "rectangle")
                 }
-            }
-        }
-    }
-
-    /// A header-only section that makes explicit, while a group is targeted,
-    /// that the brightness/mode/colour sections below only affect the one
-    /// board still shown here — never the whole group
-    /// (BOARD_GROUP_SPEC.md §3).
-    @ViewBuilder
-    private var singleBoardHeaderSection: some View {
-        if targetedGroup != nil {
-            Section {
-                Text("单板设置：\(boardName)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }
