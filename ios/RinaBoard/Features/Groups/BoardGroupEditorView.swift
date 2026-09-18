@@ -33,7 +33,14 @@ struct BoardGroupEditorView: View {
         .errorAlert($errorMessage)
         .onDisappear {
             isIdentifying = false
-            if let group { coordinator.stopIdentifyLoop(for: group) }
+            // N4: the loop must stop even if the group was deleted out from
+            // under this screen while it was open — `stopIdentifyLoop()`
+            // cancels the polling task unconditionally, with no group needed.
+            if let group {
+                coordinator.stopIdentifyLoop(for: group)
+            } else {
+                coordinator.stopIdentifyLoop()
+            }
         }
     }
 
