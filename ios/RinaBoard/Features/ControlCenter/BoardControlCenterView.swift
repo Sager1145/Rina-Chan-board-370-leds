@@ -107,6 +107,13 @@ struct BoardControlCenterView: View {
         }
     }
 
+    private var canDisconnect: Bool {
+        switch connection.connectionState {
+        case .connected, .connecting, .reconnecting: return true
+        case .disconnected, .failed: return false
+        }
+    }
+
     /// Read through the store rather than injected: `any BLEConnecting` cannot
     /// go in the environment (`@Environment(T.self)` needs a concrete
     /// observable type).
@@ -255,9 +262,20 @@ struct BoardControlCenterView: View {
             controlTargetRow
             LabeledContent("连接状态") {
                 // State is never communicated by colour alone (§7, §41).
-                Label(connectionStateText, systemImage: connectionStateSymbol)
-                    .labelStyle(.titleAndIcon)
-                    .foregroundStyle(connectionStateTint)
+                HStack(spacing: 10) {
+                    Label(connectionStateText, systemImage: connectionStateSymbol)
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(connectionStateTint)
+                    // Also stops a connect or reconnect loop in progress:
+                    // `disconnect()` cancels the retry task too.
+                    if canDisconnect {
+                        Button(isConnected ? "断开" : "取消", role: .destructive) {
+                            connection.disconnect()
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("controlCenter.disconnect")
+                    }
+                }
             }
             if let greeting = model.connectionGreeting {
                 Text(greeting)
