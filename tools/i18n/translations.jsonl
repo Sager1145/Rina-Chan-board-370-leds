@@ -875,3 +875,6 @@
 {"k": "收发记录（最新在前）", "en": "Traffic (newest first)", "hant": "收發記錄（最新在前）", "ja": "送受信履歴（新しい順）"}
 {"k": "终端", "en": "Terminal", "hant": "終端機", "ja": "端末"}
 {"k": "Serial Monitor", "en": "Serial Monitor", "hant": "Serial Monitor", "ja": "Serial Monitor"}
+{"k": "语言", "en": "Language", "hant": "語言", "ja": "言語"}
+{"k": "跟随系统", "en": "System", "hant": "跟隨系統", "ja": "システムに従う"}
+{"k": "重新打开应用后将切换为所选语言。", "en": "The selected language takes effect the next time you open the app.", "hant": "重新開啟 App 後將切換為所選語言。", "ja": "アプリを再度開くと、選択した言語に切り替わります。"}
