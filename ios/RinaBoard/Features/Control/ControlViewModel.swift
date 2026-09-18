@@ -128,8 +128,8 @@ final class ControlViewModel {
     /// Links whose firmware predates `set_hint_led`: stop asking them.
     @ObservationIgnored private var hintUnsupportedGenerations: Set<UUID> = []
 
-    /// One hint as the board shows it: the hovered LED and, while the eyes
-    /// are edited as a pair, the other eye's LED.
+    /// One hint as the board shows it: the hovered LED and, while the
+    /// drawing 镜像 is on, its mirrored LED.
     private struct HintTarget: Equatable, Sendable {
         let led: Int
         let mirror: Int?
@@ -660,7 +660,7 @@ final class ControlViewModel {
     /// The LED an Apple Pencil hovers over on the editor, or `nil` once it
     /// hovers over none. The preview already draws it at half brightness; with
     /// 即时预览 on, the board shows the same LED at half brightness too (and
-    /// its partner, while the eyes are edited as a pair), and loses it the
+    /// its mirror, while the drawing 镜像 is on), and loses it the
     /// moment the pencil leaves.
     func pencilHover(led: Int?, connection: BoardConnection) {
         hoveredLED = led

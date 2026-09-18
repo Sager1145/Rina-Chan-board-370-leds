@@ -30,7 +30,7 @@ enum LEDBoardInteraction {
     /// touches down. The preview draws that LED at half brightness by itself;
     /// the handler is for mirroring it anywhere else. `pencilHoverMirror`,
     /// when it answers, names a second LED to draw at half brightness with it
-    /// (the other eye, while the eyes are edited as a pair).
+    /// (its mirror, while the drawing 镜像 is on).
     ///
     /// With a hover handler, an Apple Pencil taps on touch-down rather than
     /// on lift: `onTap` fires the moment the tip lands, and a stroke that
@@ -271,7 +271,7 @@ struct LEDBoardPreview: View {
         context.fill(hover, with: .color(color.opacity((0.45 + 0.55 * intensity) * 0.5)))
     }
 
-    /// The hovered LED and, while the eyes are edited as a pair, its partner.
+    /// The hovered LED and, while the drawing 镜像 is on, its mirror.
     private var pencilHoverLEDs: [Int] {
         guard let led = pencilHoverLED else { return [] }
         if let mirror = interaction.pencilHoverMirror?(led), mirror != led { return [led, mirror] }
