@@ -11,13 +11,27 @@ struct GroupScrollPreview: View {
     let group: BoardGroup
     let draftText: String
     let draftFps: Int
-    var color: Color = .rinaPink
-    var brightness: Int = 200
+    /// `nil` follows the Control Center draft, like `BoardPreviewRow`.
+    var color: Color? = nil
+    var brightness: Int? = nil
     /// Called with the dragged board's and the drop target's
     /// `physicalBoardID`.
     let onSwap: (String, String) -> Void
 
     @Environment(BoardGroupCoordinator.self) private var coordinator
+    /// Optional for the same reason as in `BoardPreviewRow`: test hosts and
+    /// previews don't inject it.
+    @Environment(BoardControlCenterModel.self) private var controlCenter: BoardControlCenterModel?
+    /// Same setting as the single-board preview's board photo.
+    @AppStorage(AppSettingsKey.showBoardPhoto) private var showBoardPhoto = true
+
+    private var resolvedColor: Color {
+        color ?? controlCenter?.draftColor ?? .rinaPink
+    }
+
+    private var resolvedBrightness: Int {
+        brightness ?? controlCenter.map(\.draftBrightness) ?? RinaLinkConstants.brightnessDefault
+    }
 
     /// Rebuilt off the main actor and cached rather than every frame, same
     /// approach as `BoardGroupPlayView`'s previous `rebuildPreview`.
@@ -156,10 +170,11 @@ struct GroupScrollPreview: View {
         VStack(spacing: 4) {
             LEDBoardPreview(
                 frame: frame,
-                color: color,
-                brightness: brightness,
-                showBoardImage: false,
-                bloom: false,
+                color: resolvedColor,
+                brightness: resolvedBrightness,
+                showBoardImage: showBoardPhoto,
+                // Bloom only while boards are big enough for it to read.
+                bloom: group.members.count <= 2,
                 showsUnlitCells: true
             )
             .overlay {
