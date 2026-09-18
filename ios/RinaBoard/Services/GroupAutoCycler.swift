@@ -176,10 +176,13 @@ final class GroupAutoCycler {
         // video, Text tab…) claims this board's output lease out from under
         // the cycle — the "another output source claims the primary" stop
         // condition.
-        connection.output.register(.automatic) { [weak self] in
+        connection.output.register(.automatic) { [weak self, weak connection] in
             guard let self, self.runToken == myToken else { return }
-            self.wantsRunning = false
-            self.endLoop(clearWantsRunning: true, callerAlreadySuperseded: true)
+            // A disconnect also invalidates the lease (BoardConnection's
+            // connectionState didSet), and that is not the user turning auto
+            // off: keep the intent so the promoted primary picks it up (M1).
+            let lostLink = connection?.connectionState != .connected
+            self.endLoop(clearWantsRunning: !lostLink, callerAlreadySuperseded: true)
         }
         let session = connection.output.claim(.automatic)
         task = Task { [weak self] in
