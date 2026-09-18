@@ -101,6 +101,9 @@ has the same frameCount.
   `start_scroll`, `pause_scroll`, `stop_scroll`, `scroll_seek`, `scroll_step`,
   `set_scroll_interval`, a new scroll upload, a button, or any other output
   taking over — i.e. anything that already ends/changes a scroll today.
+  Exception: the brightness buttons (`B4`/`B5`) do not affect scroll timing
+  and never exit group-timed mode, matching the physical gpio buttons (which
+  never exit group-timed mode for any button).
   (v1 has no timed pause.)
 - Status/scroll meta add `"groupTimed":<bool>`. `GET_PREVIEW_SYNC` adds
   `"groupTimed":<bool>`.
