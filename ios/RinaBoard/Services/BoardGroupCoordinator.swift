@@ -221,14 +221,22 @@ public final class BoardGroupCoordinator {
                 group.addTask { @MainActor in
                     let token = captured.session.connection.output.claim(.group)
                     self.memberStatus[captured.member.physicalBoardID] = .uploading(progress: 0)
-                    try await captured.session.connection.withOutput(token) {
-                        _ = try await captured.session.connection.uploadGroupScrollBitmap(
-                            bitmap: bitmap, viewportX: viewportX, virtualWidth: virtualWidth,
-                            fps: fps, timelineId: timelineId, sourceText: text, start: false,
-                            onProgress: { progress in
-                                self.memberStatus[captured.member.physicalBoardID] = .uploading(progress: progress)
-                            }
-                        )
+                    do {
+                        try await captured.session.connection.withOutput(token) {
+                            _ = try await captured.session.connection.uploadGroupScrollBitmap(
+                                bitmap: bitmap, viewportX: viewportX, virtualWidth: virtualWidth,
+                                fps: fps, timelineId: timelineId, sourceText: text, start: false,
+                                onProgress: { progress in
+                                    self.memberStatus[captured.member.physicalBoardID] = .uploading(progress: progress)
+                                }
+                            )
+                        }
+                    } catch {
+                        // Member-scoped failure: recorded so the play panel can
+                        // show which board failed, in addition to the throw
+                        // that aborts the whole `play()` (BOARD_GROUP_SPEC §3).
+                        self.memberStatus[captured.member.physicalBoardID] = .error(error.localizedDescription)
+                        throw error
                     }
                     self.memberStatus[captured.member.physicalBoardID] = .ready
                 }
@@ -279,8 +287,13 @@ public final class BoardGroupCoordinator {
                 guard let cmd = commands[captured.member.physicalBoardID] else { continue }
                 taskGroup.addTask { @MainActor in
                     let token = captured.session.connection.output.claim(.group)
-                    try await captured.session.connection.withOutput(token) {
-                        _ = try await captured.session.connection.requestReliable(cmd)
+                    do {
+                        try await captured.session.connection.withOutput(token) {
+                            _ = try await captured.session.connection.requestReliable(cmd)
+                        }
+                    } catch {
+                        self.memberStatus[captured.member.physicalBoardID] = .error(error.localizedDescription)
+                        throw error
                     }
                     self.memberStatus[captured.member.physicalBoardID] = .playing
                 }
@@ -350,8 +363,15 @@ public final class BoardGroupCoordinator {
         for member in group.members {
             guard let cmd = commands[member.physicalBoardID], let session = session(for: member) else { continue }
             let token = session.connection.output.claim(.group)
-            _ = try? await session.connection.withOutput(token) {
-                _ = try await session.connection.requestReliable(cmd)
+            do {
+                _ = try await session.connection.withOutput(token) {
+                    _ = try await session.connection.requestReliable(cmd)
+                }
+            } catch {
+                // Member-scoped re-anchor failure: recorded rather than
+                // silently swallowed, so the play panel can surface which
+                // board drifted out of sync (BOARD_GROUP_SPEC §3).
+                memberStatus[member.physicalBoardID] = .error(error.localizedDescription)
             }
         }
     }
