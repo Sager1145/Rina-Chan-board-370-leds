@@ -117,41 +117,27 @@ struct GroupScrollPreview: View {
 
     @ViewBuilder
     private func boardRow(members: [BoardGroup.Member], frame: @escaping (Int) -> PackedFrame) -> some View {
-        let count = members.count
-        GeometryReader { geo in
-            let gapCount = max(count - 1, 0)
-            let cellSide = gapCount > 0
-                ? (geo.size.width - Self.minGap * CGFloat(gapCount)) / CGFloat(count)
-                : geo.size.width
-            if cellSide >= Self.minCellSide || count <= 1 {
-                HStack(spacing: 0) {
-                    boardCells(members: members, cellWidth: cellSide, frame: frame)
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 0) {
-                        boardCells(members: members, cellWidth: Self.minCellSide, frame: frame)
-                    }
-                }
+        let layout = BoardRowLayout(gapColumns: group.gapsAfter, minGap: Self.minGap, minBoardWidth: Self.minCellSide)
+        // Fit every board across the width; once they'd shrink below
+        // `minCellSide`, keep that size and scroll sideways instead.
+        ViewThatFits(in: .horizontal) {
+            layout { boardCells(members: members, frame: frame) }
+                .frame(maxWidth: .infinity)
+            ScrollView(.horizontal, showsIndicators: false) {
+                layout { boardCells(members: members, frame: frame) }
             }
         }
     }
 
     @ViewBuilder
-    private func boardCells(members: [BoardGroup.Member], cellWidth: CGFloat, frame: @escaping (Int) -> PackedFrame) -> some View {
+    private func boardCells(members: [BoardGroup.Member], frame: @escaping (Int) -> PackedFrame) -> some View {
         ForEach(Array(members.enumerated()), id: \.element.physicalBoardID) { index, member in
-            boardCell(member: member, index: index, cellWidth: cellWidth, frame: frame(index))
-            if index < members.count - 1 {
-                let gapCells = index < group.gapsAfter.count ? group.gapsAfter[index] : 0
-                Spacer()
-                    .frame(width: max(Self.minGap, cellWidth * CGFloat(gapCells) / CGFloat(MatrixGeometry.cols)))
-            }
+            boardCell(member: member, index: index, frame: frame(index))
         }
     }
 
     @ViewBuilder
-    private func boardCell(member: BoardGroup.Member, index: Int, cellWidth: CGFloat, frame: PackedFrame) -> some View {
+    private func boardCell(member: BoardGroup.Member, index: Int, frame: PackedFrame) -> some View {
         let status = coordinator.status(for: member)
         let name = coordinator.session(for: member)?.connection.deviceName ?? member.displayName
         let isTargeted = targetedIndex == index
@@ -164,7 +150,6 @@ struct GroupScrollPreview: View {
                 bloom: false,
                 showsUnlitCells: true
             )
-            .frame(width: cellWidth)
             .overlay {
                 if isTargeted {
                     RoundedRectangle(cornerRadius: 6)
@@ -187,7 +172,6 @@ struct GroupScrollPreview: View {
                 .font(.caption2)
                 .foregroundStyle(BoardGroupStatusFormatting.color(status))
         }
-        .frame(width: cellWidth)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("板 \(index + 1)，\(name)，\(BoardGroupStatusFormatting.text(status))")
         .opacity(draggingIndex == index ? 0.5 : 1)
@@ -209,6 +193,57 @@ struct GroupScrollPreview: View {
             return true
         } isTargeted: { targeted in
             targetedIndex = targeted ? index : (targetedIndex == index ? nil : targetedIndex)
+        }
+    }
+}
+
+/// Boards left to right at one shared width; the space after board `i` is
+/// `max(minGap, width × gapColumns[i] / 22)`, i.e. the group's configured gap
+/// in LED columns, never less than `minGap` so boards never touch. With no
+/// width proposed (inside a horizontal scroll view) boards use `minBoardWidth`.
+private struct BoardRowLayout: Layout {
+    let gapColumns: [Int]
+    let minGap: CGFloat
+    let minBoardWidth: CGFloat
+
+    private func gap(after index: Int, boardWidth: CGFloat) -> CGFloat {
+        let columns = index < gapColumns.count ? gapColumns[index] : 0
+        return max(minGap, boardWidth * CGFloat(columns) / CGFloat(MatrixGeometry.cols))
+    }
+
+    private func totalWidth(boardWidth: CGFloat, count: Int) -> CGFloat {
+        guard count > 0 else { return 0 }
+        return CGFloat(count) * boardWidth + (0..<(count - 1)).reduce(0) { $0 + gap(after: $1, boardWidth: boardWidth) }
+    }
+
+    /// Widest board width whose row still fits `available` (total width is
+    /// monotonic in board width, so bisect), floored at `minBoardWidth`.
+    private func boardWidth(available: CGFloat?, count: Int) -> CGFloat {
+        guard let available, available.isFinite, count > 0 else { return minBoardWidth }
+        var low: CGFloat = 0
+        var high = available / CGFloat(count)
+        for _ in 0..<24 {
+            let mid = (low + high) / 2
+            if totalWidth(boardWidth: mid, count: count) <= available { low = mid } else { high = mid }
+        }
+        return max(low, minBoardWidth)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = boardWidth(available: proposal.width, count: subviews.count)
+        let height = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)).height }.max() ?? 0
+        return CGSize(width: totalWidth(boardWidth: width, count: subviews.count), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let width = boardWidth(available: bounds.width, count: subviews.count)
+        // Centre the row when the boards hit their minimum width limit
+        // exactly and leave slack.
+        var x = bounds.minX + max(0, (bounds.width - totalWidth(boardWidth: width, count: subviews.count)) / 2)
+        for (index, subview) in subviews.enumerated() {
+            subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: width, height: nil))
+            x += width + gap(after: index, boardWidth: width)
         }
     }
 }
