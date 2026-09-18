@@ -43,7 +43,6 @@ struct ScrollTextView: View {
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var isEditorFocused: Bool
     @Environment(\.displayScale) private var displayScale
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// Ark Pixel editor size; follows Dynamic Type, snapped to crisp steps.
     @ScaledMetric(relativeTo: .body) private var editorFontSize: CGFloat = 16
     private static let editorMinHeight: CGFloat = 132
@@ -80,7 +79,6 @@ struct ScrollTextView: View {
             } status: {
                 previewStatus
             } controls: {
-                groupTargetBanner
                 playbackSection
                 editorSection
                 speedSection
@@ -257,36 +255,6 @@ struct ScrollTextView: View {
     }
 
     // MARK: Board group target (BOARD_GROUP_SPEC.md §3)
-
-    /// A compact banner shown only while the 控制对象 menu targets a group:
-    /// "发送" below then plays to the whole group instead of the single
-    /// connected board.
-    @ViewBuilder
-    private var groupTargetBanner: some View {
-        if let group = targetedGroup {
-            Section {
-                let bannerText = Text("发送到多板组：\(group.name)（\(group.mode == .stitched ? "拼接" : "镜像")）")
-                    .font(.footnote)
-                let backButton = Button("切回单板") {
-                    controlTargetGroupIDStorage = ControlTarget.single.storedGroupIDString
-                }
-                .buttonStyle(.borderless)
-
-                if dynamicTypeSize.isAccessibilitySize {
-                    VStack(alignment: .leading, spacing: 8) {
-                        bannerText
-                        backButton
-                    }
-                } else {
-                    HStack {
-                        bannerText
-                        Spacer()
-                        backButton
-                    }
-                }
-            }
-        }
-    }
 
     /// Send: plays to the targeted group when one is set, otherwise the
     /// single-board `model.send(connection:)` — byte-for-byte unchanged in
