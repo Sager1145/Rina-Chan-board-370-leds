@@ -155,6 +155,10 @@ final class BoardGroupCoordinatorTests: XCTestCase {
             defer { value += 1 }
             return value
         }
+        /// Reads the current value without advancing it -- used to snapshot
+        /// "now" as a lower bound before an operation that will itself call
+        /// `next()` many more times.
+        func peek() -> Int64 { value }
     }
 
     private func connectedSession(
@@ -964,6 +968,301 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertEqual(frameA, frameB, "every participant must still pause on the identical frame")
         XCTAssertEqual(coordinator.pausedFrame, frameA)
     }
+
+    // MARK: - 4.1 firmware intervalMs floor
+
+    /// 4.1: firmware `group_start` rejects `intervalMs < 20`. `play()` must
+    /// clamp any fps above `RinaLinkConstants.groupScrollFpsMax` (50) down to
+    /// the 20 ms floor instead of passing `ScrollRasterizer.intervalMs(forFps:)`
+    /// straight through.
+    func testPlayAt60FpsClampsIntervalMsToFirmwareMinimum() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "六十帧组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "快", fps: 60, loop: true)
+
+        XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, RinaLinkConstants.groupStartIntervalMsMin)
+        XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, RinaLinkConstants.groupStartIntervalMsMin)
+    }
+
+    /// Same floor, via `updatePlayback` (the live fps-change path).
+    func testUpdatePlaybackAt60FpsClampsIntervalMsToFirmwareMinimum() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "更新六十帧组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "AB", fps: 10, loop: true)
+
+        await coordinator.updatePlayback(group: store.groups[0], fps: 60, loop: nil)
+
+        XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, RinaLinkConstants.groupStartIntervalMsMin)
+        XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, RinaLinkConstants.groupStartIntervalMsMin)
+    }
+
+    /// 4.1 hardening: if every participant's `group_start` reply comes back
+    /// rejected, `updatePlayback` must leave the anchor (and so the interval
+    /// the next re-anchor/rejoin pass computes against) exactly as it was.
+    func testUpdatePlaybackRejectedByAllBoardsLeavesAnchorUnchanged() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "全拒绝组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "AB", fps: 10, loop: true)
+        XCTAssertTrue(coordinator.isPlaying)
+        #if DEBUG
+        XCTAssertEqual(coordinator.debugAnchorIntervalMs, ScrollRasterizer.intervalMs(forFps: 10))
+        #endif
+
+        transportA.rejectGroupStart = true
+        transportB.rejectGroupStart = true
+
+        await coordinator.updatePlayback(group: store.groups[0], fps: 20, loop: nil)
+
+        XCTAssertTrue(coordinator.isPlaying, "a fully-rejected update must not disturb isPlaying")
+        #if DEBUG
+        XCTAssertEqual(coordinator.debugAnchorIntervalMs, ScrollRasterizer.intervalMs(forFps: 10),
+                        "the anchor must still reflect the original play-time interval, not the rejected 20fps one")
+        #endif
+    }
+
+    // MARK: - 4.2 no re-claim inside play()
+
+    /// 4.2: `play()` must never re-claim `.group` on a board after its
+    /// per-board token is captured up front -- a single-board action that
+    /// claims a different output source on one of the group's boards between
+    /// the upload phase and the clock-sync phase must abort the whole
+    /// attempt, not have its claim silently paved over by `play()`'s own
+    /// stale re-claim.
+    func testManualClaimBetweenUploadAndClockSamplingAbortsPlay() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        // Slow the clock-sample exchange (not the upload) so there's a real
+        // window between "both uploads landed" and "group_start about to
+        // send" for the test to steal A's lease in.
+        transportA.clockSampleReplyDelay = 0.05
+        transportB.clockSampleReplyDelay = 0.05
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "抢占中断组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        let playTask = Task { try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true) }
+        // Wait for both boards' uploads to reach BEGIN (and settle), then
+        // steal A's output lease before the (slowed) clock-sample phase
+        // finishes.
+        await waitUntil { transportA.lastBlobBeginMeta != nil && transportB.lastBlobBeginMeta != nil }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        sessionA.connection.output.claim(.manual)
+
+        do {
+            try await playTask.value
+            XCTFail("Expected the manual claim to abort play()")
+        } catch BoardGroupCoordinator.GroupPlayError.aborted {
+        }
+
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertTrue(transportA.sentGroupStartAtUs.isEmpty, "the takeover must be caught before any group_start is sent")
+        XCTAssertTrue(transportB.sentGroupStartAtUs.isEmpty)
+        XCTAssertEqual(sessionA.connection.output.source, .manual, "the manual claim must not be paved over by a play() re-claim")
+    }
+
+    // MARK: - 4.3 stop() vs a concurrent play()
+
+    /// 4.3: an unwaited `stop()` still mid-flight (its `stop_scroll` reply
+    /// pending) must not clobber a `play()` for the *same* group started
+    /// while it's in flight -- `stop()`'s per-member epoch guard must catch
+    /// this and leave the new play alone.
+    func testUnwaitedStopFollowedByPlaySucceeds() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        transportA.cmdReplyDelay["stop_scroll"] = 0.3
+        transportB.cmdReplyDelay["stop_scroll"] = 0.3
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "并发停止组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "第一次", fps: 10, loop: true)
+        XCTAssertTrue(coordinator.isPlaying)
+
+        let stopTask = Task { await coordinator.stop(group: store.groups[0]) }
+        // Give stop() time to claim its lease and send the (slow) stop_scroll.
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        try await coordinator.play(group: store.groups[0], text: "第二次", fps: 10, loop: true)
+        await stopTask.value
+
+        XCTAssertTrue(coordinator.isPlaying, "the second play must win over the stale, still-in-flight stop()")
+        XCTAssertEqual(sessionA.connection.output.source, .group)
+    }
+
+    // MARK: - 4.4 preflight before state wipe
+
+    /// 4.4: a failed second `play()` (text too wide for the wire limit) must
+    /// leave the first, still-running play completely untouched -- the
+    /// preflight (including `GroupScrollBitmap.build`) now runs before any of
+    /// this coordinator's state is wiped.
+    func testFailedSecondPlayWithTooWideTextLeavesFirstPlayRunning() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "过宽文字组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "第一次", fps: 10, loop: true)
+        XCTAssertTrue(coordinator.isPlaying)
+        let startsBefore = transportA.sentGroupStartAtUs.count
+
+        let tooWideText = String(repeating: "宽", count: 1000) // far past GroupScrollBitmap.maxWidth (3093px)
+        do {
+            try await coordinator.play(group: store.groups[0], text: tooWideText, fps: 10, loop: true)
+            XCTFail("Expected buildFailed for text exceeding the wire width limit")
+        } catch BoardGroupCoordinator.GroupPlayError.buildFailed {
+        }
+
+        XCTAssertTrue(coordinator.isPlaying, "the first play must still be running after the failed second attempt")
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, startsBefore, "no group_start from the failed second play")
+
+        await coordinator.stop(group: store.groups[0])
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertTrue(transportA.receivedStopScroll)
+    }
+
+    // MARK: - 4.7 updatePlayback switch-time ordering
+
+    /// 4.7: `updatePlayback` must pick its switch time `T` *after* this
+    /// pass's own clock sampling, not before it -- picking `T` up front (the
+    /// pre-fix order) means the sampling that follows can eat well past `T`,
+    /// so the boards see a schedule already in their past. Pins each board's
+    /// clock reply (`rxUs`/`txUs`) to a real wall-clock reading taken right
+    /// before the test starts, so `atUs` (phone time + that board's clock
+    /// offset) tracks real elapsed microseconds since that baseline -- a
+    /// slowed, real (wall-clock) clock-sample exchange then shows up directly
+    /// in `atUs` if and only if `T` was actually chosen after it finished.
+    func testUpdatePlaybackPicksSwitchTimeAfterItsOwnSampling() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let baselineUs = Int64(DispatchTime.now().uptimeNanoseconds / 1_000)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        transportA.clockRxUs = baselineUs
+        transportA.clockTxUs = baselineUs + 100
+        transportB.clockRxUs = baselineUs
+        transportB.clockTxUs = baselineUs + 100
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "延迟采样组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "AB", fps: 10, loop: true)
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, 1)
+
+        // Slow only this pass's own clock sampling by a known real amount
+        // (not the initial play(), whose own group_start already went out).
+        transportA.clockSampleReplyDelay = 0.1
+        transportB.clockSampleReplyDelay = 0.1
+
+        let beforeUpdateUs = Int64(DispatchTime.now().uptimeNanoseconds / 1_000) - baselineUs
+
+        await coordinator.updatePlayback(group: store.groups[0], fps: 20, loop: nil)
+
+        let atUsA = try XCTUnwrap(transportA.sentGroupStartAtUs.last)
+        // If T were still chosen *before* this pass's sampling (the pre-fix
+        // bug), `atUs` would land around `beforeUpdateUs` plus only the flat
+        // 300ms margin (~300,000us). Choosing T after the (>=400ms, at 4
+        // sequential 100ms-delayed samples) sampling this fix performs pushes
+        // it well past that.
+        XCTAssertGreaterThan(atUsA, beforeUpdateUs + 500_000,
+                              "switch time must be chosen after this pass's own clock sampling, not before it")
+    }
+
+    // MARK: - Deletion / cleanup
+
+    /// Covers the `BoardGroupListView` "delete-while-playing" fix: stopping a
+    /// group before removing it from the store must actually release every
+    /// member's output lease, not just clear the coordinator's own state --
+    /// a board still claiming `.group` after the group it belonged to is
+    /// gone would be stuck unable to accept any other single-board action.
+    func testStopThenRemoveFromStoreReleasesEveryBoard() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "删除组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertEqual(sessionA.connection.output.source, .group)
+        XCTAssertEqual(sessionB.connection.output.source, .group)
+
+        let groupToDelete = store.groups[0]
+        await coordinator.stop(group: groupToDelete)
+        store.remove(id: groupToDelete.id)
+
+        XCTAssertTrue(transportA.receivedStopScroll)
+        XCTAssertTrue(transportB.receivedStopScroll)
+        XCTAssertNotEqual(sessionA.connection.output.source, .group)
+        XCTAssertNotEqual(sessionB.connection.output.source, .group)
+        XCTAssertTrue(store.groups.isEmpty)
+    }
 }
 
 // MARK: - Fake transport
@@ -989,6 +1288,11 @@ private final class GroupFakeTransport: RinaTransport {
     /// `uploadGroupScrollBitmap` throws for this board's upload without
     /// needing a timeout.
     var failBlobBegin = false
+    /// 4.1: makes this board reply `{"ok": false}` to `group_start`, the
+    /// same shape firmware sends when it rejects the requested `intervalMs`
+    /// (still recorded in `sentGroupStartAtUs`/`sentGroupStartIntervalMs` --
+    /// the point is that the reply itself, not the send, is rejected).
+    var rejectGroupStart = false
     private(set) var sentGroupStartAtUs: [Int64] = []
     private(set) var sentGroupStartIntervalMs: [Int] = []
     private(set) var sentGroupStartFrames: [Int] = []
@@ -1074,6 +1378,9 @@ private final class GroupFakeTransport: RinaTransport {
                 if let atUs = object["atUs"] as? NSNumber { sentGroupStartAtUs.append(atUs.int64Value) }
                 if let intervalMs = object["intervalMs"] as? NSNumber { sentGroupStartIntervalMs.append(intervalMs.intValue) }
                 sentGroupStartFrames.append(object["startFrame"] as? Int ?? 0)
+                if rejectGroupStart {
+                    return (try? JSONSerialization.data(withJSONObject: ["ok": false])) ?? Data()
+                }
                 return (try? JSONSerialization.data(withJSONObject: ["ok": true, "nowUs": 0, "frameCount": 10])) ?? Data()
             case "identify":
                 return (try? JSONSerialization.data(withJSONObject: [

@@ -394,9 +394,16 @@ public final class GroupControlFanOut {
         }
         // N2: a paused group still owns its participants' output leases —
         // a control dispatch must supersede it (and clear the paused state)
-        // the same as it would a playing one.
-        if case .group(let groupID) = target, coordinator.activeGroupID == groupID,
-           coordinator.isPlaying || coordinator.isPaused {
+        // the same as it would a playing one. 4.2: a `play()` still in its
+        // upload/clock-sync phase (`isStarting`) hasn't populated
+        // `participants`/`activeGroupID` yet, but its captured per-board
+        // tokens are already live -- a control dispatch reaching a member
+        // mid-start must still supersede it, or that in-flight `play()`
+        // would go on to overwrite this claim's frame with its own
+        // `group_start`.
+        if case .group(let groupID) = target,
+           (coordinator.activeGroupID == groupID && (coordinator.isPlaying || coordinator.isPaused))
+           || (coordinator.isStarting && coordinator.startingGroupID == groupID) {
             coordinator.markSupersededByControl()
         }
         return dispatchSeq

@@ -96,6 +96,16 @@ public final class BoardPlaybackCoordinator {
         if let previous { stopHandlers[previous]?() }
     }
 
+    /// Like `invalidate()`, but only if `token` is still the current lease --
+    /// a no-op otherwise. Lets a caller that captured a token before an
+    /// `await` (e.g. a best-effort stop send) release *that* lease without
+    /// clobbering a newer one a concurrent claim may have installed in the
+    /// meantime.
+    public func invalidate(ifCurrent token: UUID) {
+        guard isCurrent(token) else { return }
+        invalidate()
+    }
+
     private func cancelSupersededOperations(keeping token: UUID?) {
         let superseded = operations.filter { $0.key != token }
         for oldToken in superseded.keys {
