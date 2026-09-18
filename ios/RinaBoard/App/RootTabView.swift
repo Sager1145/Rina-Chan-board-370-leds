@@ -87,6 +87,9 @@ struct RootTabView: View {
     @State private var wasBackgrounded = false
     @State private var resumeGeneration = 0
     @State private var syncCoordinator = BoardSyncCoordinator()
+    /// One scroll offset for the Control Center column every tab's
+    /// `BoardSplitPage` shows on iPad, so the column stays put across tabs.
+    @State private var controlCenterColumnScroll = ControlCenterColumnScroll()
 
     var body: some View {
         ZStack {
@@ -234,6 +237,7 @@ struct RootTabView: View {
                 .tabItem { Label("设定", image: "TabRinaSettings") }
                 .tag(AppTab.settings)
         }
+        .environment(controlCenterColumnScroll)
     }
 
     private func configureOutputHandlers() {

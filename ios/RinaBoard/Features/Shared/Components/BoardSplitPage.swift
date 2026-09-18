@@ -60,6 +60,7 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
                         }
                         .rinaTranslucentRows()
                     }
+                    .modifier(SharedControlCenterScroll())
                 }
                 // Equal halves, measured against the page rather than laid
                 // out by the stack, so rotating keeps them equal.
@@ -99,5 +100,135 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 4)
+    }
+}
+
+/// The scroll offset of the Control Center under the preview, shared by every
+/// tab in one window.
+///
+/// Each tab builds its own `BoardSplitPage`, so each has its own copy of the
+/// panel's list. Without this, switching tabs lands on a copy scrolled
+/// somewhere else and the left column visibly jumps; with it the panel reads
+/// as one fixed column that the tabs only change the right side of.
+@Observable
+final class ControlCenterColumnScroll {
+    /// Distance scrolled from the top of the content, insets excluded.
+    var offset: CGFloat = 0
+}
+
+/// Keeps one copy of the Control Center list in step with the window's
+/// `ControlCenterColumnScroll`: the copy on screen records the user's
+/// scrolling, and a copy that comes on screen is moved to the stored offset
+/// before its first frame.
+///
+/// Reaches the list's `UIScrollView` directly. SwiftUI's `ScrollPosition`
+/// cannot do this on a `List`: it is applied before a newly shown tab's list
+/// has laid out, and re-assigning the same offset later is not a change, so
+/// the copy stays where it was. A no-op when no `ControlCenterColumnScroll` is
+/// in the environment (unit-test hosts).
+private struct SharedControlCenterScroll: ViewModifier {
+    @Environment(ControlCenterColumnScroll.self) private var shared: ControlCenterColumnScroll?
+
+    func body(content: Content) -> some View {
+        if let shared {
+            content.background(ScrollViewLink(shared: shared))
+        } else {
+            content
+        }
+    }
+}
+
+/// A zero-content view laid out exactly over the list, used to find the list's
+/// scroll view and to learn when this tab's copy enters or leaves the window.
+private struct ScrollViewLink: UIViewRepresentable {
+    let shared: ControlCenterColumnScroll
+
+    func makeUIView(context: Context) -> LinkView {
+        let view = LinkView()
+        view.isUserInteractionEnabled = false
+        view.shared = shared
+        return view
+    }
+
+    func updateUIView(_ view: LinkView, context: Context) {
+        view.shared = shared
+    }
+
+    final class LinkView: UIView {
+        var shared: ControlCenterColumnScroll?
+        private weak var scrollView: UIScrollView?
+        private var observation: NSKeyValueObservation?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil else { return }
+            restore()
+            // A tab shown for the first time has not laid its list out yet.
+            DispatchQueue.main.async { [weak self] in self?.restore() }
+        }
+
+        private func restore() {
+            guard window != nil, let shared, let scrollView = linkScrollView() else { return }
+            let top = -scrollView.adjustedContentInset.top
+            let bottom = scrollView.contentSize.height + scrollView.adjustedContentInset.bottom
+                - scrollView.bounds.height
+            let target = min(max(top, top + shared.offset), max(top, bottom))
+            guard abs(scrollView.contentOffset.y - target) > 0.5 else { return }
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: target),
+                                        animated: false)
+        }
+
+        private func linkScrollView() -> UIScrollView? {
+            if let scrollView, scrollView.window != nil { return scrollView }
+            guard let found = findScrollView() else { return nil }
+            scrollView = found
+            // Only the user's own scrolling is recorded. Offsets UIKit sets —
+            // a restore clamped on a shorter page, a relayout — would
+            // otherwise overwrite the position every other tab should show.
+            observation = found.observe(\.contentOffset) { [weak self] scrollView, _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.window != nil,
+                          scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating
+                    else { return }
+                    self.shared?.offset = max(0, scrollView.contentOffset.y + scrollView.adjustedContentInset.top)
+                }
+            }
+            return found
+        }
+
+        /// The scroll view that occupies the same frame as this background:
+        /// the list's own. Searched outward from here, nearest first.
+        private func findScrollView() -> UIScrollView? {
+            let frame = convert(bounds, to: nil)
+            var ancestor = superview
+            while let container = ancestor {
+                if let match = Self.scrollView(in: container, matching: frame, excluding: self) {
+                    return match
+                }
+                ancestor = container.superview
+            }
+            return nil
+        }
+
+        private static func scrollView(in view: UIView, matching frame: CGRect,
+                                       excluding link: UIView) -> UIScrollView? {
+            for subview in view.subviews where subview !== link {
+                if let scrollView = subview as? UIScrollView,
+                   sameFrame(scrollView.convert(scrollView.bounds, to: nil), frame) {
+                    return scrollView
+                }
+                if subview is UIScrollView { continue }
+                if let match = scrollView(in: subview, matching: frame, excluding: link) {
+                    return match
+                }
+            }
+            return nil
+        }
+
+        /// Height is left out: a list's scroll view can run on under the
+        /// home indicator while its SwiftUI frame stops at the safe area.
+        private static func sameFrame(_ a: CGRect, _ b: CGRect) -> Bool {
+            abs(a.minX - b.minX) < 1 && abs(a.minY - b.minY) < 1 && abs(a.width - b.width) < 1
+        }
     }
 }
