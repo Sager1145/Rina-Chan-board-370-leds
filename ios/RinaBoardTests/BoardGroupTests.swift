@@ -97,6 +97,48 @@ final class BoardGroupStoreTests: XCTestCase {
             XCTAssertEqual(error as? BoardGroupStore.GroupError, .duplicateMember)
         }
     }
+
+    /// `BoardGroup.Member.knownBoardIDs` (GroupAutoConnector addendum) must
+    /// default to `[]` decoding JSON written before the field existed,
+    /// rather than failing to decode the whole group.
+    func testMemberDecodesOldJSONWithoutKnownBoardIDs() throws {
+        let json = """
+        {"physicalBoardID":"AAAA","displayName":"A"}
+        """
+        let member = try JSONDecoder().decode(BoardGroup.Member.self, from: Data(json.utf8))
+        XCTAssertEqual(member.physicalBoardID, "AAAA")
+        XCTAssertEqual(member.displayName, "A")
+        XCTAssertEqual(member.knownBoardIDs, [])
+    }
+
+    func testMemberRoundTripsKnownBoardIDs() throws {
+        let member = BoardGroup.Member(physicalBoardID: "AAAA", displayName: "A", knownBoardIDs: ["known-1", "known-2"])
+        let data = try JSONEncoder().encode(member)
+        let decoded = try JSONDecoder().decode(BoardGroup.Member.self, from: data)
+        XCTAssertEqual(decoded.knownBoardIDs, ["known-1", "known-2"])
+    }
+
+    func testRememberKnownBoardIDUpdatesMatchingMembersAcrossGroups() {
+        let (defaults, suite) = freshDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = BoardGroupStore(defaults: defaults)
+        let groupA = store.create(name: "组甲")
+        let groupB = store.create(name: "组乙")
+        try? store.addMember(groupID: groupA.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try? store.addMember(groupID: groupB.id, member: .init(physicalBoardID: "AAAA", displayName: "A（乙组）"))
+        try? store.addMember(groupID: groupB.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        store.rememberKnownBoardID("known-A", forPhysicalBoardID: "AAAA")
+
+        XCTAssertEqual(store.groups.first { $0.id == groupA.id }?.members.first?.knownBoardIDs, ["known-A"])
+        let membersB = store.groups.first { $0.id == groupB.id }?.members ?? []
+        XCTAssertEqual(membersB.first { $0.physicalBoardID == "AAAA" }?.knownBoardIDs, ["known-A"])
+        XCTAssertEqual(membersB.first { $0.physicalBoardID == "BBBB" }?.knownBoardIDs, [])
+
+        // Idempotent: remembering the same id again must not duplicate it.
+        store.rememberKnownBoardID("known-A", forPhysicalBoardID: "AAAA")
+        XCTAssertEqual(store.groups.first { $0.id == groupA.id }?.members.first?.knownBoardIDs, ["known-A"])
+    }
 }
 
 // MARK: - Coordinator tests
