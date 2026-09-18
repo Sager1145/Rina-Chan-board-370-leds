@@ -9,7 +9,9 @@ import RinaCore
 /// conversion.
 ///
 /// Hosted by `PerformanceTabView`, which owns the list and page lifecycle;
-/// this view only supplies the sections for one half of the page.
+/// this view only supplies the sections for one slice of the page — the board
+/// preview is its own slice because the two-column layout puts it in the
+/// other column.
 struct VideoPlayerView: View {
     let part: PerformancePagePart
 
@@ -27,8 +29,11 @@ struct VideoPlayerView: View {
 
     var body: some View {
         switch part {
+        case .previewBoard:
+            previewBoard
+        case .previewStatus:
+            previewStatus
         case .transport:
-            previewSection
             playbackSection
         case .content:
             sourcePreviewSection
@@ -75,15 +80,12 @@ struct VideoPlayerView: View {
 
     // MARK: Preview
 
-    private var previewSection: some View {
-        Section {
-            BoardPreviewRow(
-                frame: model.previewFrame,
-                accessibilityDescription: previewAccessibilityDescription
-            )
-        } footer: {
-            previewStatus
-        }
+    @ViewBuilder
+    private var previewBoard: some View {
+        BoardPreviewRow(
+            frame: model.previewFrame,
+            accessibilityDescription: previewAccessibilityDescription
+        )
     }
 
     @ViewBuilder

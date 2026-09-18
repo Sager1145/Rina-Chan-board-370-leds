@@ -18,17 +18,17 @@ struct LipSyncView: View {
         @Bindable var model = model
 
         NavigationStack {
-            List {
-                Group {
-                    previewSection
-                    transportSection
-                    recognitionSection(model: $model)
-                    calibrationSection
-                    if let message = model.loadError {
-                        loadErrorSection(message)
-                    }
+            BoardSplitPage {
+                previewBoard
+            } status: {
+                previewStatus
+            } controls: {
+                transportSection
+                recognitionSection(model: $model)
+                calibrationSection
+                if let message = model.loadError {
+                    loadErrorSection(message)
                 }
-                .rinaTranslucentRows()
             }
             .listSectionSpacing(.compact)
             .rinaScrollBackground()
@@ -41,13 +41,10 @@ struct LipSyncView: View {
 
     // MARK: Preview
 
-    private var previewSection: some View {
-        Section {
-            BoardPreviewRow(frame: model.previewFrame,
-                            accessibilityDescription: previewAccessibilityDescription)
-        } footer: {
-            previewStatus
-        }
+    @ViewBuilder
+    private var previewBoard: some View {
+        BoardPreviewRow(frame: model.previewFrame,
+                        accessibilityDescription: previewAccessibilityDescription)
     }
 
     @ViewBuilder

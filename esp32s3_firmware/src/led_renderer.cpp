@@ -250,6 +250,10 @@ FrameStateSnapshot readFrameStateSnapshot() {
     return s;
 }
 
+// Hint LED (see setHintLed). Guarded by the frame lock, like the rest of what the render pass snapshots.
+static int16_t g_hintLed = -1;
+static uint8_t g_hintOwnerSlot = 0xFF;
+
 // Consistency note (C3): this function is NOT reentrant — `overlayRgb`,
 // `lastAppliedBrightness` and `lastLedShowUs` are unguarded statics. It is safe only
 // because its callers are mutually exclusive by construction:
@@ -264,8 +268,10 @@ void renderCurrentFrameToLedStrip() {
     static uint8_t overlayRgb[LED_COUNT * 3];
     uint8_t brightness = DEFAULT_BRIGHTNESS;
     uint8_t colorR = 0, colorG = 0, colorB = 0;
+    int16_t hint = -1;
     withFrameLock([&]() {
         ctx = consumePendingLedPresentationContext();
+        hint = g_hintLed;
         memcpy(localFrame, runtimeFrameBits(), FRAME_BYTES);
         brightness = runtimeState().brightness;
         colorR = runtimeState().colorR;
@@ -298,6 +304,15 @@ void renderCurrentFrameToLedStrip() {
                 leddrv::setPixel(logicalToPhysicalMap[logical], colorR, colorG, colorB);
             else
                 leddrv::setPixel(logicalToPhysicalMap[logical], 0, 0, 0);
+        }
+        // Half the colour is half the PWM duty at the same global brightness.
+        // A channel that is on never halves to off, or a very dim colour would
+        // show the hint as a dark LED.
+        if (hint >= 0 && hint < static_cast<int16_t>(LED_COUNT)) {
+            const auto half = [](uint8_t v) -> uint8_t { return v ? static_cast<uint8_t>((v + 1) / 2) : 0; };
+            leddrv::setPixel(logicalToPhysicalMap[hint], half(colorR), half(colorG), half(colorB));
+            // Not a clean frame of whatever timeline is playing.
+            ctx.rateEligible = false;
         }
     }
     delayMicroseconds(LED_SIGNAL_RESET_US);
@@ -409,6 +424,31 @@ bool setColor(const String& input, String& error) {
     });
     RLOG_INFO("LED", "event=color value=%s", colorHex.c_str());
     return true;
+}
+
+bool setHintLed(int led, uint8_t ownerSlot, String& error) {
+    if (led < -1 || led >= static_cast<int>(LED_COUNT)) {
+        error = "led must be -1 or 0.." + String(LED_COUNT - 1);
+        return false;
+    }
+    withFrameLock([&]() {
+        if (g_hintLed == led && (led < 0 || g_hintOwnerSlot == ownerSlot))
+            return;
+        g_hintLed = static_cast<int16_t>(led);
+        g_hintOwnerSlot = led < 0 ? 0xFF : ownerSlot;
+        showCurrentFrameNoLock();
+    });
+    return true;
+}
+
+void clearHintLedOwnedBy(uint8_t ownerSlot) {
+    withFrameLock([&]() {
+        if (g_hintLed < 0 || g_hintOwnerSlot != ownerSlot)
+            return;
+        g_hintLed = -1;
+        g_hintOwnerSlot = 0xFF;
+        showCurrentFrameNoLock();
+    });
 }
 
 void setBrightness(int raw) {

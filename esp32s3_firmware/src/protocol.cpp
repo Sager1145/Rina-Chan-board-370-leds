@@ -1051,6 +1051,22 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
         return;
     }
 
+    // Sent on every LED a hovering pencil crosses: answered with a bare ack,
+    // not the status document, and it is not board state, so no state bump.
+    if (strcmp(cmd, "set_hint_led") == 0) {
+        String hintErr;
+        if (!setHintLed(cint(d, p, "led", -1), static_cast<uint8_t>(&c - g_clients), hintErr)) {
+            ++runtimeState().commandsRejected;
+            sendErrorReply(c, seq, 400, hintErr);
+            return;
+        }
+        ++runtimeState().commandsAccepted;
+        StaticJsonDocument<32> out;
+        out["ok"] = true;
+        sendJsonReply(c, msg::CMD, seq, out);
+        return;
+    }
+
     String err;
     bool ok = true;
     if (strcmp(cmd, "set_color") == 0)
@@ -2298,6 +2314,8 @@ static void finalizePendingRegistryChanges() {
             // Without this, a carrier could keep pushing bytes into a slot that
             // a different client later claims.
             ITransport* transport = c.transport;
+            // A hint left lit by a client that is gone would never be cleared.
+            clearHintLedOwnedBy(static_cast<uint8_t>(i));
             resetSlotSessionState(c);
             portENTER_CRITICAL(&g_registryMux);
             c.transport = nullptr;

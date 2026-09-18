@@ -9,10 +9,15 @@ enum PerformanceTabMode: String, CaseIterable {
     static let storageKey = "performanceTabMode"
 }
 
-/// Which half of a page a view renders: the sections above the 演出 | 视频
-/// switch, or the ones below it.
+/// Which slice of a page a view renders: the board preview and its status
+/// line, the transport sections between it and the 演出 | 视频 switch, or the
+/// ones below it.
+///
+/// The preview parts are their own slices rather than part of `.transport`
+/// because the two-column iPad layout pins them above the other column
+/// (`BoardSplitPage`).
 enum PerformancePagePart {
-    case transport, content
+    case previewBoard, previewStatus, transport, content
 }
 
 /// One list for both pages. Switching modes swaps only the sections above and
@@ -26,19 +31,26 @@ struct PerformanceTabView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Group {
-                    switch mode {
-                    case .performance: PresetLiveView(part: .transport)
-                    case .video: VideoPlayerView(part: .transport)
-                    }
-                    PerformanceModeSection()
-                    switch mode {
-                    case .performance: PresetLiveView(part: .content)
-                    case .video: VideoPlayerView(part: .content)
-                    }
+            BoardSplitPage {
+                switch mode {
+                case .performance: PresetLiveView(part: .previewBoard)
+                case .video: VideoPlayerView(part: .previewBoard)
                 }
-                .rinaTranslucentRows()
+            } status: {
+                switch mode {
+                case .performance: PresetLiveView(part: .previewStatus)
+                case .video: VideoPlayerView(part: .previewStatus)
+                }
+            } controls: {
+                switch mode {
+                case .performance: PresetLiveView(part: .transport)
+                case .video: VideoPlayerView(part: .transport)
+                }
+                PerformanceModeSection()
+                switch mode {
+                case .performance: PresetLiveView(part: .content)
+                case .video: VideoPlayerView(part: .content)
+                }
             }
             .listSectionSpacing(.compact)
             .rinaScrollBackground()

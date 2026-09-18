@@ -51,15 +51,15 @@ struct ScrollTextView: View {
         let _ = PR9BodyProbe.hit("ScrollTextView")
         #endif
         NavigationStack {
-            List {
-                Group {
-                    previewSection
-                    playbackSection
-                    editorSection
-                    speedSection
-                    syncSection
-                }
-                .rinaTranslucentRows()
+            BoardSplitPage {
+                previewBoard
+            } status: {
+                previewStatus
+            } controls: {
+                playbackSection
+                editorSection
+                speedSection
+                syncSection
             }
             .listSectionSpacing(.compact)
             .rinaScrollBackground()
@@ -94,14 +94,15 @@ struct ScrollTextView: View {
 
     // MARK: §23 Preview
 
-    private var previewSection: some View {
-        Section {
-            // `.inert` by default: the scroll preview mirrors the board's
-            // own animation and is not editable (§22.1).
-            TextPreviewBoard(model: model)
-        } footer: {
-            TextPreviewStatusFooter(model: model, connection: connection)
-        }
+    @ViewBuilder
+    private var previewBoard: some View {
+        // `.inert` by default: the scroll preview mirrors the board's
+        // own animation and is not editable (§22.1).
+        TextPreviewBoard(model: model)
+    }
+
+    private var previewStatus: some View {
+        TextPreviewStatusFooter(model: model, connection: connection)
     }
 
     // MARK: §24 Playback

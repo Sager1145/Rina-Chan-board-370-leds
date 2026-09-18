@@ -38,6 +38,14 @@ bool setColor(const String& input, String& error);
 
 void setBrightness(int raw);
 
+// Hint LED: one logical LED drawn at half the board colour on top of the
+// current frame, whether that LED is lit in the frame or not. The app uses it
+// to mirror where an Apple Pencil hovers over the face editor. `led` = -1
+// clears it. Owned by the client slot that set it, so that client's
+// disconnect can clear it (see clearHintLedOwnedBy).
+bool setHintLed(int led, uint8_t ownerSlot, String& error);
+void clearHintLedOwnedBy(uint8_t ownerSlot);
+
 void requestLedRender();
 
 bool consumeLedRenderRequest();
