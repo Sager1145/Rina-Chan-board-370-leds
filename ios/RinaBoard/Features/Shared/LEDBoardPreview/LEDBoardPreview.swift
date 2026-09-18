@@ -23,12 +23,25 @@ enum LEDBoardInteraction {
     /// A touch is exactly one of the two, never both. The preview only
     /// reports *where*; the Control tab decides that a tap toggles and a
     /// stroke paints its brush value.
-    case editable(onTap: (Int) -> Void, onDrag: (Int) -> Void)
+    ///
+    /// `onPencilHover`, when given, hears which LED an Apple Pencil is
+    /// hovering over (Pencil 2 on M2+ iPads, Pencil Pro), and `nil` as soon as
+    /// it hovers over none — including the moment it leaves hover range or
+    /// touches down. The preview draws that LED at half brightness by itself;
+    /// the handler is for mirroring it anywhere else.
+    case editable(onTap: (Int) -> Void, onDrag: (Int) -> Void, onPencilHover: ((Int?) -> Void)? = nil)
 
     var handlers: (onTap: (Int) -> Void, onDrag: (Int) -> Void)? {
         switch self {
         case .inert: nil
-        case .editable(let onTap, let onDrag): (onTap, onDrag)
+        case .editable(let onTap, let onDrag, _): (onTap, onDrag)
+        }
+    }
+
+    var pencilHoverHandler: ((Int?) -> Void)? {
+        switch self {
+        case .inert: nil
+        case .editable(_, _, let onPencilHover): onPencilHover
         }
     }
 
@@ -73,6 +86,8 @@ struct LEDBoardPreview: View {
     /// wanders back over a cell cannot report it twice — with a paint brush
     /// that is invisible, but the handler is free to count edits.
     @State private var paintedThisStroke: Set<Int> = []
+    /// The LED an Apple Pencil is hovering over, drawn at half brightness.
+    @State private var pencilHoverLED: Int?
     /// Where the previous touch sample of this stroke landed. `nil` until the
     /// touch has moved far enough to be a stroke — until then it may still be
     /// a tap, and nothing has been reported.
@@ -118,6 +133,15 @@ struct LEDBoardPreview: View {
                 ? LEDBoardLayout.make(in: geo.size, usePhoto: true)
                 : LEDBoardLayout.make(in: geo.size, region: region)
             ZStack(alignment: .topLeading) {
+                if let onPencilHover = interaction.pencilHoverHandler {
+                    PencilHoverTracker { point in
+                        let led = point.flatMap { layout.ledIndex(at: $0) }
+                        guard led != pencilHoverLED else { return }
+                        pencilHoverLED = led
+                        onPencilHover(led)
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
                 if usePhoto, let image = Self.boardImage {
                     Image(uiImage: image)
                         .resizable()
@@ -193,11 +217,20 @@ struct LEDBoardPreview: View {
         let cornerRadius = layout.cell * 0.12
 
         var lit = Path()
-        for cell in LEDBoardGeometry.cells where frame[cell.id] {
+        for cell in LEDBoardGeometry.cells where frame[cell.id] && cell.id != pencilHoverLED {
             let rect = layout.ledRect(gridX: cell.gridX, gridY: cell.gridY, gapRatio: gapRatio)
             lit.addPath(Path(roundedRect: rect, cornerRadius: cornerRadius))
         }
         context.fill(lit, with: .color(litColor))
+
+        // The LED under a hovering Apple Pencil glows at half the board's
+        // brightness whether it is lit or not, so the pencil shows which LED a
+        // touch would toggle without the drawing changing.
+        if let led = pencilHoverLED, let cell = LEDBoardGeometry.cells.first(where: { $0.id == led }) {
+            let rect = layout.ledRect(gridX: cell.gridX, gridY: cell.gridY, gapRatio: gapRatio)
+            context.fill(Path(roundedRect: rect, cornerRadius: cornerRadius),
+                         with: .color(color.opacity((0.45 + 0.55 * intensity) * 0.5)))
+        }
     }
 
     /// Approximate perceived brightness: the firmware's 10…200 range maps to

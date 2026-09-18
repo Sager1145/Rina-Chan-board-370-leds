@@ -17,6 +17,14 @@ final class RinaCommandTests: XCTestCase {
         XCTAssertEqual(obj?["playback"] as? String, "idle")
     }
 
+    func testSetHintLEDEncodesLedAndMinusOneToClear() throws {
+        let set = try JSONSerialization.jsonObject(with: RinaCommand.setHintLED(led: 57).encode()) as? [String: Any]
+        XCTAssertEqual(set?["cmd"] as? String, "set_hint_led")
+        XCTAssertEqual(set?["led"] as? Int, 57)
+        let clear = try JSONSerialization.jsonObject(with: RinaCommand.setHintLED(led: nil).encode()) as? [String: Any]
+        XCTAssertEqual(clear?["led"] as? Int, -1)
+    }
+
     func testScrollSeekEncodesFrameIndex() throws {
         let data = try RinaCommand.scrollSeek(frameIndex: 42).encode()
         let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]

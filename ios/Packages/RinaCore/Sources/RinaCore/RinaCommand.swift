@@ -14,6 +14,10 @@ public enum Playback: UInt8, Sendable {
 public enum RinaCommand: Sendable {
     case setColor(hex: String)
     case setBrightness(raw: Int)
+    /// Draws one logical LED at half the board colour on top of whatever is
+    /// showing (`nil` clears it) — the face editor's Apple Pencil hover. Owned
+    /// by the sending client; the board clears it when that client leaves.
+    case setHintLED(led: Int?)
     case setMode(mode: String)
     case setAutoInterval(ms: Int)
     case setScrollInterval(intervalMs: Int?, fps: Int?)
@@ -68,6 +72,7 @@ public enum RinaCommand: Sendable {
         switch self {
         case .setColor: return "set_color"
         case .setBrightness: return "set_brightness"
+        case .setHintLED: return "set_hint_led"
         case .setMode: return "set_mode"
         case .setAutoInterval: return "set_auto_interval"
         case .setScrollInterval: return "set_scroll_interval"
@@ -117,6 +122,8 @@ public enum RinaCommand: Sendable {
             fields["hex"] = hex
         case .setBrightness(let raw):
             fields["raw"] = raw
+        case .setHintLED(let led):
+            fields["led"] = led ?? -1
         case .setMode(let mode):
             fields["mode"] = mode
         case .setAutoInterval(let ms):

@@ -43,13 +43,13 @@ struct ControlView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Group {
-                    previewSection
-                    commandSection
-                    partsSection
-                }
-                .rinaTranslucentRows()
+            BoardSplitPage {
+                previewBoard
+            } status: {
+                previewStatus
+            } controls: {
+                commandSection
+                partsSection
             }
             .listSectionSpacing(.compact)
             .rinaScrollBackground()
@@ -58,6 +58,19 @@ struct ControlView: View {
             // own undo step.
             .onChange(of: isTouchingBoard) { _, touching in
                 if !touching { model.endStroke() }
+            }
+            // A pencil held still over the board sends no hover events, so
+            // anything that changes whether (or where) the board mirrors it
+            // re-decides here: 即时预览, another feature taking the output,
+            // or a switch to another board.
+            .onChange(of: model.livePreview) { _, _ in
+                model.syncBoardHint(connection: connection)
+            }
+            .onChange(of: connection.output.source) { _, _ in
+                model.syncBoardHint(connection: connection)
+            }
+            .onChange(of: ObjectIdentifier(connection)) { _, _ in
+                model.syncBoardHint(connection: connection)
             }
             .toolbar(.hidden, for: .navigationBar)
             // No navigation bar, so the list's default top margin only pushes
@@ -120,31 +133,31 @@ struct ControlView: View {
     /// A tap toggles the LED under it. A drag paints the brush's value
     /// (§18.5) instead, so the finger can light or clear a whole run of LEDs
     /// in one stroke; the brush toggle has no say over taps.
-    private var previewSection: some View {
-        Section {
-            BoardPreviewRow(
-                frame: model.draftFrame,
-                interaction: .editable(
-                    onTap: { led in
-                        model.toggle(led: led, connection: connection)
+    @ViewBuilder
+    private var previewBoard: some View {
+        BoardPreviewRow(
+            frame: model.draftFrame,
+            interaction: .editable(
+                onTap: { led in
+                    model.toggle(led: led, connection: connection)
+                    toggleCount += 1
+                },
+                onDrag: { led in
+                    // Only a real change is worth a haptic: a stroke that
+                    // runs over cells already in the brush's state must
+                    // stay silent.
+                    if model.paint(led: led, connection: connection) {
                         toggleCount += 1
-                    },
-                    onDrag: { led in
-                        // Only a real change is worth a haptic: a stroke that
-                        // runs over cells already in the brush's state must
-                        // stay silent.
-                        if model.paint(led: led, connection: connection) {
-                            toggleCount += 1
-                        }
                     }
-                ),
-                zoom: .pinchable(isTouching: $isTouchingBoard),
-                accessibilityDescription: previewAccessibilityDescription
-            )
-            .bootReveal(index: 0)
-        } footer: {
-            previewStatus
-        }
+                },
+                onPencilHover: { led in
+                    model.pencilHover(led: led, connection: connection)
+                }
+            ),
+            zoom: .pinchable(isTouching: $isTouchingBoard),
+            accessibilityDescription: previewAccessibilityDescription
+        )
+        .bootReveal(index: 0)
     }
 
     /// Draft state is never shown as board-confirmed state (§37), so an
