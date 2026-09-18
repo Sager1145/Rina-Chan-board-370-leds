@@ -93,16 +93,16 @@ struct BoardControlCenterView: View {
                 ControlTarget.validate(&controlTargetGroupIDStorage, in: groupStore)
             }
             .sheet(isPresented: $isPresentingGroupManage) {
-                NavigationStack { BoardGroupListView() }
+                NavigationStack { BoardGroupListView().sheetDoneButton() }
             }
             .sheet(item: $newGroupEditorTarget, onDismiss: cleanupNewGroupIfUnused) { target in
-                NavigationStack { BoardGroupEditorView(groupID: target.id) }
+                NavigationStack { BoardGroupEditorView(groupID: target.id).sheetDoneButton() }
             }
             .sheet(item: $playingGroupTarget) { target in
-                NavigationStack { BoardGroupPlayView(groupID: target.id) }
+                NavigationStack { BoardGroupPlayView(groupID: target.id).sheetDoneButton() }
             }
             .sheet(item: $editingGroupTarget) { target in
-                NavigationStack { BoardGroupEditorView(groupID: target.id) }
+                NavigationStack { BoardGroupEditorView(groupID: target.id).sheetDoneButton() }
             }
     }
 
@@ -791,4 +791,22 @@ struct BoardControlCenterView: View {
         }
         return candidate == current
     }
+}
+
+/// A 完成 button for the group sheets opened from the Control Center, so
+/// they close without a swipe (pointer and keyboard on iPad, VoiceOver).
+private struct SheetDoneButton: ViewModifier {
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content.toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("完成") { dismiss() }
+            }
+        }
+    }
+}
+
+private extension View {
+    func sheetDoneButton() -> some View { modifier(SheetDoneButton()) }
 }

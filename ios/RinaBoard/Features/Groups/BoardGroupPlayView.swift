@@ -136,6 +136,8 @@ struct BoardGroupPlayView: View {
             }
         }
         .disabled(!canPlay(group) || isSending)
+        // The app's row styling kept a disabled button looking tappable.
+        .foregroundStyle(canPlay(group) && !isSending ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
     }
 
     @ViewBuilder
@@ -145,7 +147,12 @@ struct BoardGroupPlayView: View {
         } label: {
             Label("停止", systemImage: "stop.fill")
         }
-        .disabled(!coordinator.isPlaying || coordinator.activeGroupID != group.id)
+        .disabled(!isPlaying(group))
+        .foregroundStyle(isPlaying(group) ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+    }
+
+    private func isPlaying(_ group: BoardGroup) -> Bool {
+        coordinator.isPlaying && coordinator.activeGroupID == group.id
     }
 
     // MARK: - Play gating
