@@ -58,6 +58,15 @@ public struct ColorPresets: Codable, Sendable {
         return parents.first { RGBHex.normalize($0.color) == target }
             ?? lookup(hex: hex)?.parent
     }
+
+    /// Localized display name for a preset's raw stored `name` (a parent or
+    /// child `name` straight out of `color_presets.json`), looked up in
+    /// `PresetNames.xcstrings` keyed by that raw name. Falls back to the raw
+    /// name unchanged if there's no translation for it, so calling this on a
+    /// string that isn't a built-in preset name is harmless.
+    public static func displayName(_ raw: String, bundle: Bundle = .main) -> String {
+        bundle.localizedString(forKey: raw, value: raw, table: "PresetNames")
+    }
 }
 
 /// Hex color parsing/formatting and the LED power estimate used by the

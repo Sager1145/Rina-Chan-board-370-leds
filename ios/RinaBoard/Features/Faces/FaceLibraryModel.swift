@@ -112,6 +112,20 @@ final class FaceLibraryModel {
         face.type == .default || face.locked == true || face.editable == false
     }
 
+    /// Localized display name for a built-in preset face (`PresetNames.xcstrings`,
+    /// keyed `"face." + id`), or the face's own stored name unchanged if `face`
+    /// isn't a built-in default or the user has renamed it — a user-created or
+    /// user-renamed name is never translated. Applies equally to the board's
+    /// library and the local one: both share the same built-in ids (the
+    /// firmware's `saved_faces.json` uses the same `face_NN_...` ids).
+    func displayName(for face: SavedFace, bundle: Bundle = .main) -> String {
+        guard let original = bundledDefaults(bundle: bundle).faces.first(where: { $0.id == face.id })?.name,
+              original == face.name else {
+            return face.name
+        }
+        return bundle.localizedString(forKey: "face." + face.id, value: face.name, table: "PresetNames")
+    }
+
     func canDelete(_ face: SavedFace) -> Bool {
         !isProtected(face) && face.deletable != false
     }
@@ -455,7 +469,7 @@ final class FaceLibraryModel {
             return .failed
         }
         let payload = FaceUpsertPayload(
-            name: copyName(for: face.name, in: destination),
+            name: copyName(for: displayName(for: face), in: destination),
             type: (face.type == .parts ? SavedFace.Kind.parts : .custom).rawValue,
             frameHex: frame.hex94,
             call: face.type == .parts ? face.call : nil

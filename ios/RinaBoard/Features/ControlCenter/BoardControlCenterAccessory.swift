@@ -284,17 +284,17 @@ struct BoardControlCenterAccessory: View {
                 ForEach(presets.parents) { parent in
                     let children = presets.children(of: parent)
                     if children.isEmpty {
-                        colorMenuItem(name: parent.name, hex: parent.color)
+                        colorMenuItem(name: ColorPresets.displayName(parent.name), hex: parent.color)
                     } else {
                         Menu {
-                            colorMenuItem(name: parent.name, hex: parent.color)
+                            colorMenuItem(name: ColorPresets.displayName(parent.name), hex: parent.color)
                             Divider()
                             ForEach(children, id: \.hex) { child in
-                                colorMenuItem(name: child.name, hex: child.hex)
+                                colorMenuItem(name: ColorPresets.displayName(child.name), hex: child.hex)
                             }
                         } label: {
                             Label {
-                                Text(parent.name)
+                                Text(ColorPresets.displayName(parent.name))
                             } icon: {
                                 swatchImage(hex: parent.color)
                             }
