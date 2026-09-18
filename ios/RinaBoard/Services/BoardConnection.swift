@@ -123,6 +123,23 @@ public final class BoardConnection {
     /// (unset, or cleared on a non-hotspot connect) skips the check.
     public var expectedHotspotSSID: String?
 
+    /// `true` once a `disconnect(userInitiated: true)` call has torn this
+    /// connection down and no successful `connect(using:)` has happened
+    /// since. `GroupAutoConnector` checks this before auto-redialing a group
+    /// member: a person tapping "断开" must not be immediately re-dialed in
+    /// the background. Cleared by the next `connect(using:)` call (a manual
+    /// reconnect, from the saved-board list or the per-member "连接" button)
+    /// — never by this object's own internal retry loop, which never calls
+    /// the public `connect(using:)` entry point.
+    public private(set) var wasUserDisconnected = false
+
+    /// Explicit hook for `GroupAutoConnector`/UI code that wants to clear the
+    /// user-disconnect block without an intervening successful connect, e.g.
+    /// re-targeting the group at this board again.
+    public func resetUserDisconnected() {
+        wasUserDisconnected = false
+    }
+
     // MARK: Private
 
     private var eventContinuations: [UUID: AsyncStream<BoardEvent>.Continuation] = [:]
@@ -248,6 +265,7 @@ public final class BoardConnection {
         reconnectAttempts = 0
         self.transport = transport
         transportKind = transport.kind
+        wasUserDisconnected = false
         if transport.kind != .hotspot {
             // A saved-board reconnect over a different transport (or a
             // manual host/BLE connect) is not a hotspot identity claim.
@@ -398,7 +416,13 @@ public final class BoardConnection {
         transport?.disconnect()
     }
 
-    public func disconnect() {
+    /// `userInitiated: true` marks this as a person tapping a "断开" button
+    /// (see `wasUserDisconnected`) rather than an internal teardown (forget
+    /// board, transport switch, session removal, etc.) — those must keep the
+    /// default `false` so they don't block `GroupAutoConnector` from ever
+    /// redialing this board.
+    public func disconnect(userInitiated: Bool = false) {
+        if userInitiated { wasUserDisconnected = true }
         reconnectTask?.cancel()
         reconnectTask = nil
         stopCarrier()
