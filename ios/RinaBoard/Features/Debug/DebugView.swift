@@ -5,14 +5,22 @@ import RinaCore
 struct DebugView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BootLoaderModel.self) private var bootLoader
-    @State private var vm = DebugViewModel()
-    @State private var workspace = 0
+    /// The model, the selected workspace and the open confirmations live in
+    /// the app-scoped Settings workspace: a resize that swaps the Settings
+    /// layout rebuilds this page, and must not drop the terminal, the log or
+    /// a dialog the user is answering.
+    @Bindable private var settings: SettingsWorkspace
+    @Bindable private var vm: DebugViewModel
 
-    @State private var confirmResetMin = false
-    @State private var confirmResetMax = false
-    @State private var confirmAllOn = false
-    @State private var confirmReboot = false
-    @State private var confirmClearFaces = false
+    /// Shown beside the sidebar without the user having opened it: sends
+    /// nothing to the board.
+    private let isPassive: Bool
+
+    init(workspace: SettingsWorkspace, isPassive: Bool = false) {
+        settings = workspace
+        vm = workspace.debug
+        self.isPassive = isPassive
+    }
 
     private var isConnected: Bool { connection.connectionState == .connected }
 
@@ -27,7 +35,7 @@ struct DebugView: View {
     var body: some View {
         List {
             Group {
-                switch workspace {
+                switch settings.debugWorkspace {
                 case 1: logSection
                 case 2: testSection
                 case 3: rawDataSection
@@ -43,7 +51,7 @@ struct DebugView: View {
         .navigationBarTitleDisplayMode(.inline)
         .errorAlert($vm.lastLocalError)
         .safeAreaInset(edge: .top, spacing: 0) {
-            Picker("调试工作区", selection: $workspace) {
+            Picker("调试工作区", selection: $settings.debugWorkspace) {
                 Text("概览").tag(0)
                 Text("日志").tag(1)
                 Text("测试").tag(2)
@@ -56,9 +64,12 @@ struct DebugView: View {
             .padding(.vertical, 10)
             .background(.bar)
         }
-        .task(id: sessionKey) {
-            vm.handleSessionChange()
-            await vm.refreshOverview(connection: connection)
+        // The model outlives this page, so being rebuilt by a Settings
+        // layout change is not a new session and does not reload what is
+        // already fresh.
+        .task(id: "\(sessionKey)-\(isPassive)") {
+            guard !isPassive else { return }
+            await vm.pageAppeared(sessionKey: sessionKey, connection: connection)
         }
         .refreshable { await vm.refreshOverview(connection: connection) }
         .onChange(of: connection.connectionState) { _, state in
@@ -300,45 +311,17 @@ struct DebugView: View {
             DisclosureGroup("危险操作") {
                 Button("清空用户表情", role: .destructive) {
                     vm.clearFacesConfirmText = ""
-                    confirmClearFaces = true
+                    settings.confirmDebugClearFaces = true
                 }
-                Button("重启设备", role: .destructive) { confirmReboot = true }
+                Button("重启设备", role: .destructive) { settings.confirmDebugReboot = true }
             }
         } header: {
             Text("测试")
         } footer: {
             Text("选择图案仅更新本机预览；发送、按键模拟和维护操作会直接控制面板。")
         }
-        .confirmationDialog("发送全部点亮的图案？", isPresented: $confirmAllOn, titleVisibility: .visible) {
-            Button("发送全亮图案", role: .destructive) {
-                Task { await vm.sendPattern(.allOn, connection: connection) }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("此操作会点亮全部 370 颗 LED，估算功耗可能超过 40 W。")
-        }
-        .confirmationDialog("重置最低电压？", isPresented: $confirmResetMin, titleVisibility: .visible) {
-            Button("重置", role: .destructive) { Task { await vm.runCommand(.resetBatteryMin, connection: connection) } }
-            Button("取消", role: .cancel) {}
-        }
-        .confirmationDialog("重置最高电压？", isPresented: $confirmResetMax, titleVisibility: .visible) {
-            Button("重置", role: .destructive) { Task { await vm.runCommand(.resetBatteryMax, connection: connection) } }
-            Button("取消", role: .cancel) {}
-        }
-        .alert("清空用户表情", isPresented: $confirmClearFaces) {
-            TextField("输入 CLEAR 以确认", text: $vm.clearFacesConfirmText)
-            Button("确认清空", role: .destructive) {
-                guard vm.clearFacesConfirmText == "CLEAR" else { return }
-                Task { await vm.clearUserFaces(connection: connection) }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("此操作会删除所有非默认表情，且不可撤销。输入 CLEAR 确认。")
-        }
-        .confirmationDialog("确定要重启设备吗？", isPresented: $confirmReboot, titleVisibility: .visible) {
-            Button("重启", role: .destructive) { Task { await vm.reboot(connection: connection) } }
-            Button("取消", role: .cancel) {}
-        }
+        // The confirmations are attached in `SettingsView`, above the layout
+        // switch, so a resize cannot dismiss them.
     }
 
     private var patternTool: some View {
@@ -360,7 +343,7 @@ struct DebugView: View {
             Button("发送当前预览") {
                 guard let pattern = vm.selectedPattern else { return }
                 if pattern == .allOn {
-                    confirmAllOn = true
+                    settings.confirmDebugAllOn = true
                 } else {
                     Task { await vm.sendPattern(pattern, connection: connection) }
                 }
@@ -430,8 +413,8 @@ struct DebugView: View {
 
     private var powerMaintenance: some View {
         DisclosureGroup("电源维护与 ADC 模拟") {
-            Button("重置最低电压") { confirmResetMin = true }.disabled(!isConnected)
-            Button("重置最高电压") { confirmResetMax = true }.disabled(!isConnected)
+            Button("重置最低电压") { settings.confirmDebugResetMin = true }.disabled(!isConnected)
+            Button("重置最高电压") { settings.confirmDebugResetMax = true }.disabled(!isConnected)
             LabeledContent("ADC 原始值") {
                 TextField("0–4095", value: $vm.simAdcRaw, format: .number)
                     .keyboardType(.numberPad)
@@ -572,7 +555,7 @@ private struct RawCommandConsoleView: View {
 
 #Preview {
     NavigationStack {
-        DebugView()
+        DebugView(workspace: SettingsWorkspace())
             .environment(BoardConnection())
             .environment(BootLoaderModel())
     }

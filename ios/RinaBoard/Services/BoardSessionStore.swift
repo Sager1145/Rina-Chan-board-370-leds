@@ -41,6 +41,17 @@ public final class BoardSession: Identifiable {
         return self.boardID == boardID || aliases.contains(boardID)
     }
 
+    /// Shared board-group member-resolution rule for `GroupControlFanOut`
+    /// and `BoardGroupCoordinator.session(for:)`: a member's
+    /// `physicalBoardID` is `BoardConnection.boardIdentity` (or, once this
+    /// connection has disconnected and cleared it, the last identity it ever
+    /// reported), never `boardID` (the session's own persistent slot id) —
+    /// the two callers must agree, or a just-disconnected primary/sink would
+    /// resolve differently in each.
+    public func matchesGroupMember(physicalBoardID: String) -> Bool {
+        (connection.boardIdentity ?? connection.lastKnownBoardIdentity) == physicalBoardID
+    }
+
     private func rememberCurrentTransportIdentity() {
         if let peripheralID = bleTransport.peripheralIdentifier?.uuidString {
             aliases.insert(peripheralID)
@@ -73,6 +84,13 @@ public final class BoardSessionStore {
     public private(set) var sessions: [BoardSession] = []
     public private(set) var active: BoardSession
     public let scanner: any BoardScanning
+    /// Lets `BoardGroupCoordinator` (BOARD_GROUP_SPEC §3) claim that a session
+    /// is currently group-owned, so `select(_:)` leaves its output lease
+    /// alone instead of invalidating a running group upload/playback just
+    /// because a person tapped that board's tab. Kept as an injected closure
+    /// rather than a hard dependency on the coordinator type, so this store
+    /// stays usable (and testable) without board groups at all.
+    public var isGroupOwned: ((BoardSession) -> Bool)?
     /// One carrier per session, so connecting one board never replaces another
     /// board's link.
     @ObservationIgnored private let makeBLETransport: @MainActor () -> any BLEConnecting
@@ -118,11 +136,33 @@ public final class BoardSessionStore {
         sessions.first { $0.matches(id) }
     }
 
+    /// Shared board-group member-resolution rule (M3): `GroupControlFanOut`
+    /// and `BoardGroupCoordinator.session(for:)` both call this instead of
+    /// picking `sessions.first(where: matchesGroupMember:)` on their own, so
+    /// two sessions that both resolve to the same `physicalBoardID` (e.g. a
+    /// stale, disconnected session still holding the identity in
+    /// `lastKnownBoardIdentity`, alongside a freshly (re)connected one)
+    /// always resolve to the same session in both callers. Prefers a
+    /// currently CONNECTED session whose live `boardIdentity` matches;
+    /// falls back to `BoardSession.matchesGroupMember(physicalBoardID:)`
+    /// (which also accepts `lastKnownBoardIdentity`) only when no session is
+    /// connected under that identity.
+    public func session(matchingGroupMember physicalBoardID: String) -> BoardSession? {
+        if let connected = sessions.first(where: {
+            $0.connection.connectionState == .connected && $0.connection.boardIdentity == physicalBoardID
+        }) {
+            return connected
+        }
+        return sessions.first { $0.matchesGroupMember(physicalBoardID: physicalBoardID) }
+    }
+
     /// Changes the visible board and stops its old producers, while leaving
     /// both underlying connections intact.
     public func select(_ session: BoardSession) {
         guard active !== session else { return }
-        active.connection.output.invalidate()
+        if isGroupOwned?(active) != true {
+            active.connection.output.invalidate()
+        }
         active = session
     }
 

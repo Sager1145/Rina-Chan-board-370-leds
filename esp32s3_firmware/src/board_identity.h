@@ -18,3 +18,8 @@ String boardHostname();
 
 // "RinaBoard-" + boardId(), identical to the default BLE device name.
 String boardServiceInstanceName();
+
+// 8 lowercase hex chars from esp_random(), computed once at boot (board group
+// spec §1.1). Changes on every boot / deep-sleep wake; used by the app to
+// detect a reboot mid-session (`group_start`'s bootId check, §1.5).
+const char* boardBootId();

@@ -8,22 +8,29 @@ struct ConnectionView: View {
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardStore.self) private var boardStore
-    @State private var viewModel = ConnectionViewModel()
+    /// Model and unsent input live in the app-scoped workspace, so a resize
+    /// that swaps the Settings layout — and rebuilds this page — keeps them.
+    @Bindable private var workspace: SettingsWorkspace
+    @Bindable private var viewModel: ConnectionViewModel
+
+    /// Shown beside the sidebar without the user having opened it: reads
+    /// nothing from the board and does not browse the network.
+    private let isPassive: Bool
+
+    init(workspace: SettingsWorkspace, isPassive: Bool = false) {
+        self.workspace = workspace
+        self.viewModel = workspace.connection
+        self.isPassive = isPassive
+    }
 
     /// Read through the store rather than injected, because `any BLEConnecting`
     /// cannot go in the environment (`@Environment(T.self)` needs a concrete
     /// observable type) and the active session is the one this tab acts on.
     private var bleTransport: any BLEConnecting { sessions.active.bleTransport }
 
-    @State private var networkForPassword: WifiNetwork?
-    @State private var passwordInput = ""
-    @State private var apSSID = ""
-    @State private var apPassword = ""
-    @State private var bluetoothFilter = ""
-
     private var isConnected: Bool { connection.connectionState == .connected }
     private var filteredPeripherals: [DiscoveredPeripheral] {
-        let query = bluetoothFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = workspace.bluetoothFilter.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return sessions.scanner.discoveredPeripherals }
         return sessions.scanner.discoveredPeripherals.filter {
             $0.name.localizedCaseInsensitiveContains(query)
@@ -49,20 +56,43 @@ struct ConnectionView: View {
         .listSectionSpacing(.compact)
         .rinaScrollBackground()
         .navigationTitle("连接")
-        .task(id: isConnected ? connection.connectionGeneration : nil) {
-            viewModel.resetBoardDetails()
-            if isConnected { await viewModel.refreshBoardName(connection: connection) }
+        // Keyed on the board session, and the model remembers which session
+        // it last loaded, so the page being rebuilt by a resize neither wipes
+        // a half-typed name nor reloads what it already has.
+        .task(id: PageTaskID(board: boardDetailsKey, isPassive: isPassive)) {
+            guard !isPassive else { return }
+            await viewModel.loadBoardDetails(for: boardDetailsKey, connection: connection)
         }
-        .task {
+        // Bonjour browses while an opened Connection page is on screen. A
+        // task rather than onAppear/onDisappear: its cancellation always
+        // pairs with its start, so the browser cannot be left running.
+        .task(id: isPassive) {
+            guard !isPassive else { return }
+            workspace.connectionPageAppeared()
+            while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
+            workspace.connectionPageDisappeared()
+        }
+        .task(id: isPassive) {
+            guard !isPassive else { return }
             // The phone can wander onto a different remembered board hotspot
             // (or off it entirely) while this tab isn't visible; refresh the
             // cache whenever it (re)appears rather than trusting a stale join.
             await HotspotJoiner.revalidateLastJoinedSSID()
         }
         .errorAlert($viewModel.lastErrorMessage)
-        .sheet(item: $networkForPassword) { network in
-            passwordSheet(for: network)
-        }
+        // The password sheet is attached in `SettingsView`, above the layout
+        // switch, so a resize cannot dismiss it.
+    }
+
+    private struct PageTaskID: Hashable {
+        let board: ConnectionViewModel.BoardDetailsKey?
+        let isPassive: Bool
+    }
+
+    /// One connected board session; `nil` while disconnected.
+    private var boardDetailsKey: ConnectionViewModel.BoardDetailsKey? {
+        guard isConnected else { return nil }
+        return .init(connection: ObjectIdentifier(connection), generation: connection.connectionGeneration)
     }
 
     private func selectSession(id: String, name: String) -> BoardSession {
@@ -91,6 +121,11 @@ struct ConnectionView: View {
                     }
                     .buttonStyle(.borderless)
                 }
+            }
+            NavigationLink {
+                BoardGroupListView()
+            } label: {
+                Label("多板组…", systemImage: "rectangle.split.3x1")
             }
         } header: {
             Text("控制对象 · \(sessions.sessions.filter { $0.connection.connectionState == .connected }.count) 块在线")
@@ -251,7 +286,7 @@ struct ConnectionView: View {
                     .foregroundStyle(.secondary)
             }
 
-            TextField("按名称或设备编号筛选", text: $bluetoothFilter)
+            TextField("按名称或设备编号筛选", text: $workspace.bluetoothFilter)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .accessibilityIdentifier("bluetooth.deviceFilter")
@@ -590,8 +625,8 @@ struct ConnectionView: View {
 
             ForEach(viewModel.wifiNetworks) { network in
                 Button {
-                    networkForPassword = network
-                    passwordInput = ""
+                    workspace.passwordInput = ""
+                    workspace.networkForPassword = network
                 } label: {
                     HStack {
                         Text(network.ssid)
@@ -621,14 +656,14 @@ struct ConnectionView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("热点名称与密码").font(.subheadline)
-                TextField("SSID", text: $apSSID)
+                TextField("SSID", text: $workspace.apSSID)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                SecureField("密码 (留空为开放网络)", text: $apPassword)
+                SecureField("密码 (留空为开放网络)", text: $workspace.apPassword)
                 Button("保存") {
-                    Task { await viewModel.setAp(ssid: apSSID, password: apPassword, connection: connection, boardStore: boardStore) }
+                    Task { await viewModel.setAp(ssid: workspace.apSSID, password: workspace.apPassword, connection: connection, boardStore: boardStore) }
                 }
-                .disabled(apSSID.isEmpty)
+                .disabled(workspace.apSSID.isEmpty)
             }
             .disabled(!isConnected)
         }
@@ -641,13 +676,26 @@ struct ConnectionView: View {
         )
     }
 
-    @ViewBuilder
-    private func passwordSheet(for network: WifiNetwork) -> some View {
+}
+
+// No #Preview: ConnectionView requires a live BLETransport (backed by a real
+// CBCentralManager), which isn't safe/meaningful to construct in the
+// Xcode Previews sandbox.
+
+/// Joins the board to a scanned network. Presented from `SettingsView` so it
+/// survives the Settings layout changing under it.
+struct ConnectionPasswordSheet: View {
+    let network: WifiNetwork
+    @Environment(SettingsWorkspace.self) private var workspace
+    @Environment(BoardConnection.self) private var connection
+
+    var body: some View {
+        @Bindable var workspace = workspace
         NavigationStack {
             Form {
                 Section(network.ssid) {
                     if network.secure {
-                        SecureField("密码", text: $passwordInput)
+                        SecureField("密码", text: $workspace.passwordInput)
                     } else {
                         Text("开放网络，无需密码")
                     }
@@ -657,13 +705,18 @@ struct ConnectionView: View {
             .navigationTitle("连接网络")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { networkForPassword = nil }
+                    Button("取消") {
+                        workspace.passwordInput = ""
+                        workspace.networkForPassword = nil
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("连接") {
                         let ssid = network.ssid
-                        let password = passwordInput
-                        networkForPassword = nil
+                        let password = workspace.passwordInput
+                        workspace.passwordInput = ""
+                        workspace.networkForPassword = nil
+                        let viewModel = workspace.connection
                         Task { await viewModel.connectNetwork(ssid: ssid, password: password, connection: connection) }
                     }
                 }
@@ -672,7 +725,3 @@ struct ConnectionView: View {
         .presentationDetents([.medium])
     }
 }
-
-// No #Preview: ConnectionView requires a live BLETransport (backed by a real
-// CBCentralManager), which isn't safe/meaningful to construct in the
-// Xcode Previews sandbox.

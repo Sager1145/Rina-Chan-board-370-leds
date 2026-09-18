@@ -22,9 +22,17 @@ import RinaCore
 struct BoardControlCenterAccessory: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardControlCenterModel.self) private var model
+    @Environment(BoardGroupStore.self) private var groupStore
+    @Environment(BoardGroupCoordinator.self) private var groupCoordinator
+    @Environment(GroupControlFanOut.self) private var fanOut
+    @Environment(GroupAutoCycler.self) private var groupAutoCycler
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Mirrors the Control Center's own "控制对象" choice
+    /// (BOARD_GROUP_SPEC.md §3): empty string = `.single`.
+    @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
 
     @AppStorage(AppSettingsKey.hapticsEnabled) private var hapticsEnabled = true
 
@@ -46,7 +54,28 @@ struct BoardControlCenterAccessory: View {
     @State private var barHeight: CGFloat = 0
 
     private var isConnected: Bool { connection.connectionState == .connected }
-    private var isAuto: Bool { model.isAutoMode(status: connection.status) }
+    /// While a group is targeted this reads `GroupAutoCycler.isRunning`
+    /// instead of the primary's own firmware `renderer.mode`, which never
+    /// leaves `manual` while the synced cycle runs (item 3, BOARD_GROUP_SPEC
+    /// .md §3 addendum).
+    private var isAuto: Bool {
+        groupControlSynced ? groupAutoCycler.isRunning : model.isAutoMode(status: connection.status)
+    }
+
+    /// The targeted group, or `nil` when the control target is `.single`.
+    private var targetedGroup: BoardGroup? {
+        guard case .group(let id) = ControlTarget.resolved(storedGroupIDString: controlTargetGroupIDStorage, in: groupStore)
+        else { return nil }
+        return groupStore.groups.first { $0.id == id }
+    }
+
+    /// True only while a group is targeted AND the fan-out actually has a
+    /// primary attached — see `BoardControlCenterView.groupControlSynced`
+    /// (H1); the accessory's compact prev/next/mode controls fall back to
+    /// the ordinary single-board path the same way when this is `false`.
+    private var groupControlSynced: Bool {
+        targetedGroup != nil && fanOut.primaryID != nil
+    }
 
     /// The capsule's own corner radius, i.e. half the measured bar height.
     /// Falls back to the slot's radius for the first frame, before the
@@ -138,7 +167,7 @@ struct BoardControlCenterAccessory: View {
             HStack(spacing: 8) {
                 statusBadge
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(connection.deviceName ?? "面板控制")
+                    Text(targetedGroup.map { "多板组 · \($0.name)" } ?? connection.deviceName ?? "面板控制")
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
                     // Dropped where there is no room for a second line: the
@@ -178,7 +207,7 @@ struct BoardControlCenterAccessory: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("面板控制")
+        .accessibilityLabel(Text(accessibilityTitle))
         .accessibilityValue(Text(accessibilitySummary))
         .accessibilityHint("打开面板控制中心")
     }
@@ -188,7 +217,7 @@ struct BoardControlCenterAccessory: View {
     private func stepButton(direction: Int, symbol: String, label: LocalizedStringKey) -> some View {
         Button {
             stepTicks += 1
-            Task { await model.step(face: direction, connection: connection) }
+            Task { await stepFace(direction: direction) }
         } label: {
             Image(systemName: symbol)
                 .font(.subheadline.weight(.semibold))
@@ -215,7 +244,7 @@ struct BoardControlCenterAccessory: View {
             get: { isAuto },
             set: { _ in
                 modeTicks += 1
-                Task { await model.toggleAutoMode(connection: connection) }
+                Task { await toggleAutoMode() }
             }
         )) {
             Text(isAuto ? "A" : "M")
@@ -257,7 +286,11 @@ struct BoardControlCenterAccessory: View {
     @ViewBuilder
     private var statusBadge: some View {
         Group {
-            if let battery {
+            if targetedGroup != nil {
+                Image(systemName: "rectangle.split.3x1")
+                    .foregroundStyle(.tint)
+                    .imageScale(.medium)
+            } else if let battery {
                 BatteryRing(reading: battery)
             } else {
                 Image(systemName: symbol)
@@ -273,6 +306,27 @@ struct BoardControlCenterAccessory: View {
     /// connected, or no power report yet). Shared with the Control Center's
     /// battery bar — see `BoardConnection.batteryReading`.
     private var battery: BatteryReading? { connection.batteryReading }
+
+    /// Routes the mode toggle to the synced group cycler while a group is
+    /// targeted, instead of sending `set_mode auto` to the primary.
+    private func toggleAutoMode() async {
+        if groupControlSynced {
+            if groupAutoCycler.isRunning { groupAutoCycler.stop() } else { _ = groupAutoCycler.start() }
+        } else {
+            await model.toggleAutoMode(connection: connection)
+        }
+    }
+
+    /// Routes prev/next to the group cycler's own index while a group is
+    /// targeted and synced, so every member receives the identical resulting
+    /// frame. Falls back to the ordinary single-board path otherwise (H1).
+    private func stepFace(direction: Int) async {
+        if groupControlSynced {
+            await groupAutoCycler.step(direction: direction)
+        } else {
+            await model.step(face: direction, connection: connection)
+        }
+    }
 
     /// The board colour as a solid dot inside the row's ring. Tapping it opens
     /// a menu of the preset groups (配色组), each a submenu of its colours; a
@@ -356,8 +410,31 @@ struct BoardControlCenterAccessory: View {
 
     // MARK: Derived state
 
+    /// The summary button's accessibility label. While a group is targeted
+    /// this spells out the group name and its online count even at
+    /// accessibility sizes, where `showsSubtitle` drops the second line from
+    /// the visible bar to keep its fixed system height (BOARD_GROUP_SPEC.md
+    /// §3).
+    private var accessibilityTitle: String {
+        guard let group = targetedGroup else { return "面板控制" }
+        let online = group.members.filter { groupCoordinator.status(for: $0) != .offline }.count
+        return String(
+            format: NSLocalizedString("控制对象：多板组 %@，%lld/%lld 在线", comment: "control target accessibility label for a group"),
+            group.name, online, group.members.count
+        )
+    }
+
     /// "已连接" — the compact secondary state line: connection state only.
-    private var subtitle: String { stateText }
+    /// While a group is targeted this instead reads "播放中" or
+    /// "<online>/<total> 在线" (BOARD_GROUP_SPEC.md §3).
+    private var subtitle: String {
+        guard let group = targetedGroup else { return stateText }
+        if groupCoordinator.isPlaying, groupCoordinator.activeGroupID == group.id {
+            return "播放中"
+        }
+        let online = group.members.filter { groupCoordinator.status(for: $0) != .offline }.count
+        return "\(online)/\(group.members.count) 在线"
+    }
 
     /// The state line plus the battery level, which is only drawn in the ring.
     private var accessibilitySummary: String {

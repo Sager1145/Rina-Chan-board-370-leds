@@ -1,6 +1,7 @@
 #include "board_identity.h"
 
 #include <esp_mac.h>
+#include <esp_random.h>
 #include <stdio.h>
 
 #include "config.h"
@@ -33,4 +34,14 @@ String boardHostname() {
 
 String boardServiceInstanceName() {
     return String(BOARD_NAME_PREFIX) + boardId();
+}
+
+const char* boardBootId() {
+    static char id[9] = {0};
+    static bool resolved = false;
+    if (!resolved) {
+        snprintf(id, sizeof(id), "%08x", static_cast<unsigned int>(esp_random()));
+        resolved = true;
+    }
+    return id;
 }

@@ -427,3 +427,58 @@ app (connected over BLE) sends `wifi_set_hotspot_credentials` + `wifi_set_mode s
 to the reported `ip` (the phone is the hotspot gateway, so the board is directly reachable;
 Bonjour also works on the hotspot interface) and remembers `hotspot-tcp` as the preferred
 transport for that board.
+
+## 9. v1.2 additions — board groups (identify, stitched text, synchronized start)
+
+All-additive; old firmware answers `ERR 400 unknown command` and `get_info` has no
+`caps`/`bootId`. The app must check `get_info.caps` before using any of this and must
+never silently fall back while claiming "synchronized". See docs/BOARD_GROUP_SPEC.md §1
+for the full spec this section summarizes.
+
+### 9.1 `get_info` additions
+`bootId`: 8 lowercase hex chars from `esp_random()`, generated once at boot/wake (changes
+on every boot). `caps`: `["identify","clock_sample","scroll_viewport","group_start"]`.
+
+### 9.2 `CMD identify{number, ttlMs}`
+`number` 1…9, `ttlMs` 0…30000 (default 5000, `0` cancels; out-of-range → `ERR 400`). Draws a
+render overlay — black background + one large digit (5×7 font ×2, top-left logical (6,2) in
+the 22×18 grid, board colour, cells outside the board's valid range skipped) — through the
+existing single render path only. Touches no frame/scroll/face/mode state, no flash write, no
+`stateVersion` bump; scroll time keeps advancing underneath. Self-expires
+(`esp_timer_get_time() + ttlMs*1000`) independent of any client connection; a new call re-arms
+it. Priority identify > `set_hint_led` hint > button-animation overlay > content; presented
+samples while shown have `rateEligible:false`. Reply: `{"ok":true,"shown":bool,"number":n,"ttlMs":t}`.
+
+### 9.3 `CMD clock_sample{}`
+Reply `{"ok":true,"rxUs":u64,"txUs":u64,"bootId":"…"}`, both `esp_timer_get_time()` (rxUs as
+early as possible on dispatch, txUs just before serializing). Never rate-limited/coalesced.
+
+### 9.4 `BLOB kind:"scroll_bitmap"` viewport extension
+New optional BEGIN meta: `virtualWidth` V (22…200, the whole stitched screen), `viewportX` X
+(0…V−22, this board's left edge in the virtual screen). Both must be present together, else
+`ERR 400`. When present: `frameCount = max(1, W−V) + 1` (`ERR 413` if > 3072); `W` is still
+22…3093 and `W ≥ V` is required (`ERR 400` otherwise). Frame `f` shows board cell `(x,y)` =
+bitmap pixel `(f+X+x, y)`; columns ≥ W are off. **No rotation** — END reply reports
+`"rotation":0` plus echoes `"viewportX":X,"virtualWidth":V`. Otherwise identical to the
+existing `scroll_bitmap` upload (staging, commit at END, `start`, `timelineId`, …). Without
+the fields, behaviour (including single-board rotation) is unchanged.
+
+### 9.5 `CMD group_start{atUs, bootId, intervalMs, startFrame?, loop?}`
+`atUs` (u64): this board's `esp_timer_get_time()` at which frame `startFrame` (default 0)
+latches; `bootId` must match the board's current `bootId` else `ERR 409 boot_mismatch`.
+`intervalMs` 20…2000, `loop` default true. Requires a loaded scroll timeline, else
+`ERR 409 no_timeline`. Enters **group-timed playback**: cursor from absolute time only —
+`elapsed = now − atUs`; `elapsed < 0` → hold `startFrame`; else
+`n = startFrame + floor(elapsed / (intervalMs*1000))`, `frame = n mod frameCount` (loop) or
+`min(n, frameCount−1)` + the existing paused-on-last-frame hold (no loop). No per-tick
+accumulation, no drift rebase; a late tick jumps straight to the right frame. A second
+`group_start` on the same timeline while already group-timed **re-anchors**: replaces
+`(atUs, startFrame, intervalMs, loop)` atomically, no restart flash. Leaves group-timed mode
+(back to legacy local timing) on `start_scroll`, `pause_scroll`, `stop_scroll`, `scroll_seek`,
+`scroll_step`, `set_scroll_interval`, a new scroll upload, a button, or any other output
+takeover — **except** the brightness buttons (`B4`/`B5`, `CMD button`), which do not affect
+scroll timing and so never exit group-timed mode, matching the physical gpio buttons (which
+already never call the group-timed exit for any button). Every other button (`B1`…`B3`,
+`B6`, `B3B1`, `B3B2`) still ends group-timed mode even if that button does not itself
+stop/replace the scroll. `GET_SCROLL_META`, status `renderer`, and `GET_PREVIEW_SYNC` all gain
+`"groupTimed":bool`. Reply: `{"ok":true,"nowUs":u64,"frameCount":n}`.

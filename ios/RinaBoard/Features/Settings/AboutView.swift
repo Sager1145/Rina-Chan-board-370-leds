@@ -2,7 +2,7 @@ import SwiftUI
 
 /// "关于" screen: version, project links and upstream credits.
 ///
-/// Reached from the last section of ``SettingsView``. Every link opens in the
+/// Reached from the 关于 category of ``SettingsView``. Every link opens in the
 /// system browser; the screen has no board dependency and works offline.
 struct AboutView: View {
     private static let repositoryURL = URL(string: "https://github.com/Sager1145/Rina-Chan-board-370-leds")!

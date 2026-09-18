@@ -69,6 +69,17 @@ public enum RinaCommand: Sendable {
     /// Sets (or, with an empty/omitted `name`, clears) the board's custom
     /// display name (`RINALINK_PROTOCOL_V1` `set_device_name`).
     case setDeviceName(name: String)
+    // Board groups (BOARD_GROUP_SPEC.md §1.2/§1.3/§1.5).
+    /// Overlay-draws a large digit (`number` 1…9) for `ttlMs` (0 cancels;
+    /// missing → 5000); re-arms on repeat calls.
+    case identify(number: Int, ttlMs: Int?)
+    /// Cheap, never rate-limited round-trip timestamp exchange used to build a
+    /// `ClockOffsetEstimator` sample.
+    case clockSample
+    /// Enters/re-anchors group-timed scroll playback: `atUs` is this board's
+    /// own `esp_timer_get_time()` latch point, `bootId` must match the
+    /// board's current boot, `startFrame` defaults to 0, `loop` defaults to `true`.
+    case groupStart(atUs: Int64, bootId: String, intervalMs: Int, startFrame: Int?, loop: Bool?)
 
     public var name: String {
         switch self {
@@ -113,6 +124,9 @@ public enum RinaCommand: Sendable {
         case .faceUpsert: return "face_upsert"
         case .facesClearUser: return "faces_clear_user"
         case .setDeviceName: return "set_device_name"
+        case .identify: return "identify"
+        case .clockSample: return "clock_sample"
+        case .groupStart: return "group_start"
         }
     }
 
@@ -192,6 +206,17 @@ public enum RinaCommand: Sendable {
             break
         case .setDeviceName(let name):
             fields["name"] = name
+        case .identify(let number, let ttlMs):
+            fields["number"] = number
+            if let ttlMs { fields["ttlMs"] = ttlMs }
+        case .clockSample:
+            break
+        case .groupStart(let atUs, let bootId, let intervalMs, let startFrame, let loop):
+            fields["atUs"] = atUs
+            fields["bootId"] = bootId
+            fields["intervalMs"] = intervalMs
+            if let startFrame { fields["startFrame"] = startFrame }
+            if let loop { fields["loop"] = loop }
         }
         return fields
     }
@@ -200,6 +225,59 @@ public enum RinaCommand: Sendable {
     public func encode() throws -> Data {
         try JSONSerialization.data(withJSONObject: jsonObject, options: [.sortedKeys])
     }
+
+    /// How this command should fan out to the other boards in a board group
+    /// when it's sent to the group's primary board (`BOARD_GROUP_SPEC.md`
+    /// control-fan-out addendum). `resolveFace` commands are re-resolved to
+    /// the primary's actual resulting frame rather than replayed verbatim,
+    /// since face libraries aren't synced across members. Everything not
+    /// explicitly listed defaults to `.deny` so new commands are safe by
+    /// default.
+    public var groupFanOutPolicy: GroupFanOutPolicy {
+        switch self {
+        case .setColor: return .verbatim(coalesceKey: "set_color")
+        case .setBrightness: return .verbatim(coalesceKey: "set_brightness")
+        case .setAutoInterval: return .verbatim(coalesceKey: "set_auto_interval")
+        case .setHintLED: return .verbatim(coalesceKey: "set_hint_led")
+        case .setMode: return .verbatim(coalesceKey: nil)
+        case .pause: return .verbatim(coalesceKey: nil)
+        case .resume: return .verbatim(coalesceKey: nil)
+        case .terminateOtherActivities: return .verbatim(coalesceKey: nil)
+        case .batteryOverlay: return .verbatim(coalesceKey: nil)
+        case .button(let button):
+            return (button == "B1" || button == "B2") ? .resolveFace : .verbatim(coalesceKey: nil)
+        case .applySavedFace: return .resolveFace
+        case .setScrollInterval, .startScroll, .scrollStep, .scrollSeek, .setScrollLoop,
+             .pauseScroll, .resumeScroll, .stopScroll:
+            return .deny
+        case .identify, .clockSample, .groupStart, .getInfo, .subscribe, .logSubscribe:
+            return .deny
+        case .reboot, .resetBatteryMin, .resetBatteryMax:
+            return .deny
+        case .setDeviceName:
+            return .deny
+        case .wifiStatus, .wifiScan, .wifiScanResult, .wifiSetCredentials, .wifiClearCredentials,
+             .wifiSetMode, .wifiConnect, .wifiSetAp, .wifiSetHotspotCredentials, .wifiClearHotspotCredentials:
+            return .deny
+        case .faceUpsert, .faceDelete, .faceReorder, .faceRename, .facesClearUser:
+            return .deny
+        }
+    }
+}
+
+/// Fan-out behavior of a `RinaCommand` when it's dispatched from a board
+/// group's primary connection to the group's other (sink) members. See
+/// `RinaCommand.groupFanOutPolicy`.
+public enum GroupFanOutPolicy: Equatable, Sendable {
+    /// Replay the same command on every sink. `coalesceKey` non-nil means
+    /// only the latest queued command with that key is kept per sink
+    /// (latest-wins); nil means every call is queued and sent in order.
+    case verbatim(coalesceKey: String?)
+    /// Don't replay the command as-is; instead resolve it to the primary's
+    /// resulting frame and `SET_FRAME` that to every sink.
+    case resolveFace
+    /// Never fan out; only the primary receives this command.
+    case deny
 }
 
 /// `face_upsert`'s `{"face": {...}}` payload (§7.2): create when `id` is nil

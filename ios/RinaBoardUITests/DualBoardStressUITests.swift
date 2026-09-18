@@ -162,7 +162,7 @@ final class DualBoardStressUITests: XCTestCase {
         }
     }
 
-    /// DB-SW-04 regression: E2 (Control Center "面板" menu) onto a board that
+    /// DB-SW-04 regression: E2 (Control Center "控制对象" menu) onto a board that
     /// already has its own online session must reuse that session, not spin
     /// up a second one (DB-BUG-1).
     func testControlCenterSwitchToOnlineBoardSelectsExistingSession() throws {
@@ -180,10 +180,10 @@ final class DualBoardStressUITests: XCTestCase {
         try openControlCenter()
         let start = Date()
         let menu = controlCenterBoardMenu()
-        XCTAssertTrue(menu.waitForExistence(timeout: 5), "面板 menu not found in Control Center")
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), "控制对象 menu not found in Control Center")
         menu.tap()
         let boardYItem = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", boardY)).firstMatch
-        XCTAssertTrue(boardYItem.waitForExistence(timeout: 5), "\(boardY) not offered in the 面板 menu")
+        XCTAssertTrue(boardYItem.waitForExistence(timeout: 5), "\(boardY) not offered in the 控制对象 menu")
         boardYItem.tap()
         let end = Date()
         closeControlCenterIfPresented()
@@ -252,7 +252,7 @@ final class DualBoardStressUITests: XCTestCase {
                       "The boot overlay was still up after 15 s", file: file, line: line)
     }
 
-    /// 设定 → 连接设置 (SettingsView.swift connectionSection → ConnectionView).
+    /// 设定 → 连接 (SettingsView category list → ConnectionView).
     @discardableResult
     private func openConnectionScreen() -> Bool {
         let settingsTab = app.tabBars.buttons["设定"]
@@ -262,7 +262,7 @@ final class DualBoardStressUITests: XCTestCase {
                        "The 设定 tab was not hittable within 10 s")
         settingsTab.tap()
         guard app.navigationBars["设置"].waitForExistence(timeout: 5) else { return false }
-        let row = app.buttons["连接设置"]
+        let row = app.buttons["settings.category.connection"]
         guard scrollToElement(row) else { return false }
         row.tap()
         return app.navigationBars["连接"].waitForExistence(timeout: 5)
@@ -280,7 +280,7 @@ final class DualBoardStressUITests: XCTestCase {
         } else {
             app.tabBars.buttons["设定"].tap()
             XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
-            let link = app.buttons["面板控制中心"]
+            let link = app.buttons["settings.category.controlCenter"]
             XCTAssertTrue(scrollToElement(link), "面板控制中心 entry not reachable")
             link.tap()
         }
@@ -301,14 +301,14 @@ final class DualBoardStressUITests: XCTestCase {
         }
     }
 
-    /// The "面板" board-switcher menu inside `BoardControlCenterView`
-    /// (`accessibilityIdentifier("controlCenter.boardSelector")`). SwiftUI
-    /// exposes a `Menu` as a button-like element that isn't always reported
-    /// under `app.buttons`, so this falls back to the visible label.
+    /// The "控制对象" board/group-switcher menu inside `BoardControlCenterView`
+    /// (`accessibilityIdentifier("controlCenter.controlTargetSelector")`).
+    /// SwiftUI exposes a `Menu` as a button-like element that isn't always
+    /// reported under `app.buttons`, so this falls back to the visible label.
     private func controlCenterBoardMenu() -> XCUIElement {
-        let byID = app.descendants(matching: .any).matching(identifier: "controlCenter.boardSelector").firstMatch
+        let byID = app.descendants(matching: .any).matching(identifier: "controlCenter.controlTargetSelector").firstMatch
         if byID.waitForExistence(timeout: 2) { return byID }
-        return app.buttons["面板"]
+        return app.buttons["控制对象"]
     }
 
     // MARK: - R1 connect-all

@@ -147,6 +147,13 @@ static bool runButtonActionImpl(const String& button, const String& source, Stri
 // log line. Every logical button action (physical, serial-emulated, or RinaLink app)
 // funnels through here, so this single hook covers them all without changing
 // any action semantics.
+bool isBrightnessButtonCode(const String& button) {
+    String code = button;
+    code.trim();
+    code.toUpperCase();
+    return code == "B4" || code == "B5";
+}
+
 bool runButtonAction(const String& button, const String& source) {
     String code;
     const bool handled = runButtonActionImpl(button, source, code);

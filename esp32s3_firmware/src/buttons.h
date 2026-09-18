@@ -21,3 +21,11 @@ void initHardwareButtons();
 void serviceHardwareButtons();
 
 bool runButtonAction(const String& button, const String& source);
+
+// Board group v1 (§1.5, docs/RINALINK_PROTOCOL_V1.md v1.2): true for the
+// brightness buttons (B4/B5), normalizing the same way runButtonAction()
+// does (trim + uppercase). Brightness never affects scroll timing, so a
+// group-timed playback should not be exited by these -- matching what the
+// physical gpio buttons already do (they never call
+// scrollSessionExitGroupTimed() at all).
+bool isBrightnessButtonCode(const String& button);
