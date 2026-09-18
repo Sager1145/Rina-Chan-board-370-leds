@@ -32,6 +32,12 @@ public final class GroupControlFanOut {
     /// out of sync.
     public private(set) var memberErrors: [String: String] = [:]
 
+    /// The current control primary's own connection (`GroupAutoCycler`'s only
+    /// dependency on this type): the board whose `setFrame` a synced
+    /// auto-cycle tick should call, since this type's own dispatch mirrors
+    /// that call to every sink. `nil` exactly when `primaryID` is.
+    public var primaryConnection: BoardConnection? { primaryConnectionRef }
+
     /// Resolves a group control primary's `apply_saved_face`/B1/B2 reply to
     /// the frame it actually applied, so a sink can be sent that bitmap
     /// directly instead of an id/index its own (unsynced) face library may
