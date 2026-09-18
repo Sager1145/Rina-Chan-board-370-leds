@@ -415,6 +415,145 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertTrue(sessionA.connection.output.isCurrent(token), "group lease must survive a tab switch")
     }
 
+    /// B3: an upload failure on one member must abort the whole attempt and
+    /// release every board it touched — not just the board that failed.
+    func testUploadFailureOnOneBoardAbortsBothWithNoGroupStart() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        transportB.failBlobBegin = true
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "上传失败组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        do {
+            try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+            XCTFail("Expected B's upload failure to abort play()")
+        } catch {
+            // The undecodable BLOB_BEGIN reply surfaces as a decoding error,
+            // not one of BoardGroupCoordinator's own cases -- any throw is
+            // the point here.
+        }
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertNil(coordinator.activeGroupID)
+        XCTAssertNil(sessionA.connection.output.source, "A's successful upload must still be released on B's failure")
+        XCTAssertNil(sessionB.connection.output.source)
+        XCTAssertTrue(transportA.sentGroupStartAtUs.isEmpty, "the failure happened during upload, before group_start")
+        XCTAssertTrue(transportB.sentGroupStartAtUs.isEmpty)
+    }
+
+    /// B4: a second `play()` must invalidate the first run's re-anchor state
+    /// so it can never send a stale `group_start` once the second run has
+    /// begun. `debugReanchorNow` is fixed to use the revision/epoch frozen
+    /// at play() time (B4), so this exercises the guard the fix depends on.
+    func testSecondPlaySupersedesFirstRunsReanchor() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "二次播放组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "第一次", fps: 10, loop: true)
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, 1)
+        let firstGroupID = try XCTUnwrap(coordinator.activeGroupID)
+        let firstRevision = store.groups[0].layoutRevision
+        let firstEpoch = coordinator.debugPlayEpoch
+
+        try await coordinator.play(group: store.groups[0], text: "第二次", fps: 10, loop: true)
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, 2, "the second play's own group_start")
+
+        // A re-anchor pass using the *first* run's now-stale (groupID,
+        // revision, epoch) must be a no-op: play() bumped playEpoch, so
+        // reanchor()'s epoch guard rejects it outright.
+        await coordinator.debugReanchor(groupID: firstGroupID, revision: firstRevision, epoch: firstEpoch)
+
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, 2, "no group_start from the superseded first run")
+        XCTAssertEqual(transportB.sentGroupStartAtUs.count, 2, "no group_start from the superseded first run")
+    }
+
+    /// N1: only a member dropped for a generation/bootId change is
+    /// auto-rejoined — the rejoin re-uploads and sends exactly one
+    /// group_start, to that board only, mapped to the same phone anchor the
+    /// original play() established.
+    func testGenerationChangeTriggersRejoinOfThatBoardOnly() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "重连组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, 1)
+        XCTAssertNil(transportB.lastBlobBeginMeta, "B's *original* upload happened on the pre-reconnect transport")
+
+        // B reconnects with a new transport/connection generation. Its
+        // output ownership was never taken by anything else, so this is the
+        // generation-changed rejoin path (N1), not the ownership-eviction
+        // path -- `evictedByOwnership` must stay empty for it.
+        let newTransportB = GroupFakeTransport()
+        _ = await sessionB.connection.connect(using: newTransportB)
+
+        await coordinator.debugReanchorNow()
+
+        XCTAssertEqual(newTransportB.sentGroupStartAtUs.count, 1,
+                       "the reconnected board is rejoined with exactly one group_start")
+        XCTAssertNotNil(newTransportB.lastBlobBeginMeta, "rejoin re-uploads the bitmap to the reconnected board")
+        // A stayed a live participant throughout and is unaffected by B's
+        // reconnect.
+        XCTAssertEqual(sessionA.connection.output.source, .group)
+    }
+
+    /// stop() only ever acts on a board it currently owns (H6/M3): a member
+    /// some other single-board action already took over must be left
+    /// completely alone.
+    func testStopLeavesNonGroupOwnedMemberUntouched() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "旁路组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+
+        // Something else takes over B's output before stop() runs.
+        sessionB.connection.output.begin(.text)
+        let tokenBeforeStop = sessionB.connection.output.session
+
+        await coordinator.stop(group: store.groups[0])
+
+        XCTAssertTrue(transportA.receivedStopScroll)
+        XCTAssertFalse(transportB.receivedStopScroll, "stop() must never touch a board it no longer owns")
+        XCTAssertEqual(sessionB.connection.output.source, .text)
+        XCTAssertEqual(sessionB.connection.output.session, tokenBeforeStop, "B's lease token must be untouched by stop()")
+    }
+
     func testRequestReliableNotDroppedUnderBurst() async throws {
         let transport = GroupFakeTransport()
         transport.cmdReplyDelay["set_color"] = 0.3
@@ -456,6 +595,10 @@ private final class GroupFakeTransport: RinaTransport {
     /// command pump busy without delaying every reply.
     var cmdReplyDelay: [String: TimeInterval] = [:]
     var clockSampleReplyDelay: TimeInterval = 0
+    /// B3: makes `BLOB_BEGIN` reply with undecodable JSON, so
+    /// `uploadGroupScrollBitmap` throws for this board's upload without
+    /// needing a timeout.
+    var failBlobBegin = false
     private(set) var sentGroupStartAtUs: [Int64] = []
     private(set) var lastBlobBeginMeta: [String: Any]?
     private(set) var receivedStopScroll = false
@@ -513,6 +656,7 @@ private final class GroupFakeTransport: RinaTransport {
             if let object = try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any] {
                 lastBlobBeginMeta = object
             }
+            if failBlobBegin { return Data("not json".utf8) }
             return Data(#"{"ok":true,"offset":0,"chunkMax":512}"#.utf8)
         case .blobChunk:
             let offset = request.payload.prefix(4).withUnsafeBytes { $0.load(as: UInt32.self) }

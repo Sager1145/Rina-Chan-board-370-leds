@@ -639,6 +639,20 @@ public final class BoardGroupCoordinator {
         guard let groupID = activeGroupID, let revision = activeRevision, let epoch = activeEpoch else { return }
         await reanchor(groupID: groupID, revision: revision, epoch: epoch)
     }
+
+    /// Test-only accessor: the epoch counter right now, so a test can
+    /// snapshot it after one `play()` completes and later prove a re-anchor
+    /// pass computed with that stale epoch is rejected once a second
+    /// `play()` has bumped it (B4/N3).
+    var debugPlayEpoch: Int { playEpoch }
+
+    /// Test-only seam: like `debugReanchorNow()`, but takes an explicit
+    /// `(groupID, revision, epoch)` instead of reading the coordinator's
+    /// current `active*` state — lets a test simulate a re-anchor pass that
+    /// was captured before a later `play()` superseded it.
+    func debugReanchor(groupID: UUID, revision: Int, epoch: Int) async {
+        await reanchor(groupID: groupID, revision: revision, epoch: epoch)
+    }
     #endif
 
     // MARK: - Stop
