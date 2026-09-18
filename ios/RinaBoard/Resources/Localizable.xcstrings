@@ -6975,6 +6975,28 @@
         }
       }
     },
+    "清除视频" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear Video"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ビデオを消去"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除影片"
+          }
+        }
+      }
+    },
     "导入视频失败：%@" : {
       "comment" : "video import failed",
       "localizations" : {
