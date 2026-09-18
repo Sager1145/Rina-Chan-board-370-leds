@@ -4,6 +4,11 @@ import RinaCore
 @main
 struct RinaBoardApp: App {
     @Environment(\.scenePhase) private var scenePhase
+    /// Board-group control fan-out addendum: the same persisted "控制对象"
+    /// selection `Settings`/`BoardControlCenterView`/etc. read, watched here
+    /// so `groupControlFanOut` can track it without those views needing a
+    /// hard dependency on this type.
+    @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
     // Each board retains its own connection; tabs control the selected session.
     // Draft models remain app-scoped so switching tabs preserves unsent work.
     @State private var router = AppRouter()
@@ -11,6 +16,7 @@ struct RinaBoardApp: App {
     @State private var boardStore = BoardStore()
     @State private var boardGroupStore: BoardGroupStore
     @State private var boardGroupCoordinator: BoardGroupCoordinator
+    @State private var groupControlFanOut: GroupControlFanOut
     @State private var bootLoader = BootLoaderModel()
     @State private var controlCenter = BoardControlCenterModel()
     @State private var faceLibrary = FaceLibraryModel()
@@ -37,6 +43,9 @@ struct RinaBoardApp: App {
         _sessions = State(initialValue: sessions)
         _boardGroupStore = State(initialValue: boardGroupStore)
         _boardGroupCoordinator = State(initialValue: coordinator)
+        _groupControlFanOut = State(initialValue: GroupControlFanOut(
+            sessions: sessions, groups: boardGroupStore, coordinator: coordinator
+        ))
         #if DEBUG
         Self.seedDemoGroupIfNeeded(store: boardGroupStore)
         #endif
@@ -84,6 +93,7 @@ struct RinaBoardApp: App {
                 .environment(boardStore)
                 .environment(boardGroupStore)
                 .environment(boardGroupCoordinator)
+                .environment(groupControlFanOut)
                 .environment(bootLoader)
                 .environment(controlCenter)
                 .environment(faceLibrary)
@@ -97,6 +107,22 @@ struct RinaBoardApp: App {
                     // the app is active; it must not exit a running group
                     // play just because the app went to the background.
                     boardGroupCoordinator.isAppActive = newPhase == .active
+                }
+                .onChange(of: controlTargetGroupIDStorage, initial: true) { _, stored in
+                    groupControlFanOut.setTarget(ControlTarget(storedGroupIDString: stored))
+                }
+                .task {
+                    // Wired once; both models are app-scoped for the app's
+                    // lifetime, so there's no teardown to mirror.
+                    groupControlFanOut.faceFrameResolver = { [faceLibrary] connection, reply in
+                        faceLibrary.boardFaceFrame(
+                            id: reply.autoFaceId, index: reply.autoFaceIndex,
+                            generation: connection.connectionGeneration
+                        )
+                    }
+                    groupControlFanOut.draftPromotionHook = { [editor] boardID in
+                        editor.retagDraftForGroupPromotion(to: boardID)
+                    }
                 }
         }
     }
