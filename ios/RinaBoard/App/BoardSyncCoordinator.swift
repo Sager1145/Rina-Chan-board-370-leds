@@ -109,7 +109,13 @@ final class BoardSyncCoordinator {
         // Foreground recovery also needs fresh reads: the board can change
         // modes while this app is suspended without dropping the transport.
         guard let status = try? await connection.getStatus() else { return }
-        // The board has now actually answered this connection — the proof
+        let preview = try? await connection.getPreviewSync()
+        guard !Task.isCancelled, generation == connection.connectionGeneration,
+              deps.sessions.active.connection === connection,
+              session == connection.output.session,
+              initialTab == deps.router.selectedTab,
+              scenePhase == .active else { return }
+        // The board has answered and is still the active one — the proof
         // the greeting lines require, not merely the transport reporting
         // `.connected`.
         if isFirstConnectionThisRun {
@@ -122,12 +128,6 @@ final class BoardSyncCoordinator {
                 NSLocalizedString("又连上了。", comment: "secondary caption shown after reconnecting to the board following a genuine drop")
             )
         }
-        let preview = try? await connection.getPreviewSync()
-        guard !Task.isCancelled, generation == connection.connectionGeneration,
-              deps.sessions.active.connection === connection,
-              session == connection.output.session,
-              initialTab == deps.router.selectedTab,
-              scenePhase == .active else { return }
         deps.controlCenter.sync(from: status)
 
         if let mode = BoardResumeMode.resolve(status: status, preview: preview) {

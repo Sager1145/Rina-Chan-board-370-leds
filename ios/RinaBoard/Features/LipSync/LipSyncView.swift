@@ -377,7 +377,7 @@ struct LipSyncMouthMappingView: View {
                             get: { model.syncEyes },
                             set: { model.setSyncEyes($0) }
                         )) {
-                            CommandChip("左右眼同步", systemImage: "arrow.triangle.2.circlepath")
+                            CommandChip("镜像", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
                         }
                         .toggleStyle(.pill)
 

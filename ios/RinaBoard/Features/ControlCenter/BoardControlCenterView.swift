@@ -151,9 +151,13 @@ struct BoardControlCenterView: View {
                 // Secondary encouragement directly under the concrete
                 // failure reason above — it never stands in for that
                 // reason, and only appears once one is already shown.
-                Text("再试着连接一次吧。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                // Only once the app has given up: while it is still
+                // retrying on its own, lastError is set too.
+                if case .failed = connection.connectionState {
+                    Text("再试着连接一次吧。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             // Embedded (the iPad preview column) the bar is always there: that
             // column is the only place the battery shows on iPad, and a row

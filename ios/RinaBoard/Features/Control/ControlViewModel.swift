@@ -212,6 +212,7 @@ final class ControlViewModel {
 
     func releaseOutput() { liveSender?.cancel() }
     func connectionChanged(generation: UUID? = nil) {
+        clearSendConfirmation()
         currentBoardGeneration = generation
         sentGeneration = nil
         modeSynchronizedGeneration = nil
@@ -376,6 +377,7 @@ final class ControlViewModel {
     }
 
     private func recordEdit(_ before: EditorSnapshot) {
+        clearSendConfirmation()
         strokeIsOpen = false
         editHistory.append(before)
         // Trim from index 1: element 0 is the checkpoint state, still needed
@@ -388,6 +390,7 @@ final class ControlViewModel {
     ///   drew it; `false` for a part choice, whose undo returns to the
     ///   previous part choice without the drawing on top of it.
     private func recordCheckpoint(keepingEdits: Bool) {
+        clearSendConfirmation()
         strokeIsOpen = false
         if keepingEdits {
             checkpointHistory.append(contentsOf: editHistory)
@@ -549,6 +552,7 @@ final class ControlViewModel {
             return
         }
         guard draftBelongs(to: connection) else { return }
+        clearSendConfirmation()
         isSending = true
         defer { isSending = false }
         let frame = draftFrame
@@ -567,6 +571,14 @@ final class ControlViewModel {
             errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),
                                   error.localizedDescription)
         }
+    }
+
+    /// The caption only describes the send that just succeeded: any edit,
+    /// a new send attempt or a connection change retires it at once.
+    private func clearSendConfirmation() {
+        sendConfirmationClearTask?.cancel()
+        sendConfirmationClearTask = nil
+        sendConfirmationMessage = nil
     }
 
     private func showSendConfirmation() {
