@@ -216,7 +216,8 @@ final class DualBoardStressUITests: XCTestCase {
             app.terminate()
             app.launch()
             XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 15),
-                          "Boot overlay did not clear after relaunch (round \(round))")
+                          "The app tabs did not appear after relaunch (round \(round))")
+            waitForBootOverlayToFinish()
             let online = try connectAllDiscovered(step: round)
             let end = Date()
             XCTAssertGreaterThanOrEqual(online.count, minBoards,
@@ -233,12 +234,33 @@ final class DualBoardStressUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10),
                       "The boot animation did not reveal the app tabs")
+        waitForBootOverlayToFinish()
+    }
+
+    /// The tab bar mounts while `BootLoaderOverlay` is still up. The overlay
+    /// is `.isModal`, so XCTest reports it as an alert ("页面加载中", then
+    /// "页面加载完成") interrupting any tap underneath, and when it finishes
+    /// mid-tap the interruption handler loses the element: "No matches found
+    /// for Descendants matching type Alert" on the first 设定 tap of any test
+    /// in this class (2026-09-17: one of four at load 18, all four at load
+    /// 234). SnapshotAcceptanceUITests waits on the same labels.
+    private func waitForBootOverlayToFinish(file: StaticString = #filePath, line: UInt = #line) {
+        let overlay = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@ OR label == %@", "页面加载中", "页面加载完成"))
+            .firstMatch
+        XCTAssertTrue(overlay.waitForNonExistence(timeout: 15),
+                      "The boot overlay was still up after 15 s", file: file, line: line)
     }
 
     /// 设定 → 连接设置 (SettingsView.swift connectionSection → ConnectionView).
     @discardableResult
     private func openConnectionScreen() -> Bool {
-        app.tabBars.buttons["设定"].tap()
+        let settingsTab = app.tabBars.buttons["设定"]
+        let reachable = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND hittable == true"), object: settingsTab)
+        XCTAssertEqual(XCTWaiter.wait(for: [reachable], timeout: 10), .completed,
+                       "The 设定 tab was not hittable within 10 s")
+        settingsTab.tap()
         guard app.navigationBars["设置"].waitForExistence(timeout: 5) else { return false }
         let row = app.buttons["连接设置"]
         guard scrollToElement(row) else { return false }
