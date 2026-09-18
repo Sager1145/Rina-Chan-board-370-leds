@@ -180,6 +180,8 @@ struct LipSyncView: View {
                 let isCurrent = model.vowel == vowel
                 Text(vowelLabel(vowel))
                     .font(.caption.monospacedDigit())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
                     .padding(.vertical, 4)
                     .padding(.horizontal, 8)
                     .background {
@@ -195,6 +197,9 @@ struct LipSyncView: View {
                     .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
             }
         }
+        // Five chips in one line: past the largest standard size they no
+        // longer fit a phone width, so the row stops growing there.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .frame(maxWidth: .infinity)
     }
 
