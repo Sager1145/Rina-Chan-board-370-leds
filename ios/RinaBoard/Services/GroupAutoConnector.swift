@@ -34,7 +34,8 @@ public final class GroupAutoConnector {
     /// schedule below advances per member rather than globally.
     private var failureCount: [String: Int] = [:]
     /// 5s / 15s / 30s, then holds at 30s (brief: "back off... per member").
-    private static let backoffSchedule: [Double] = [5, 15, 30]
+    /// Injectable so tests can shrink it instead of actually waiting.
+    private let backoffSchedule: [Double]
 
     private var reconcileEpoch = 0
 
@@ -42,11 +43,13 @@ public final class GroupAutoConnector {
         sessions: BoardSessionStore,
         groupStore: BoardGroupStore,
         boardStore: BoardStore,
+        backoffSchedule: [Double] = [5, 15, 30],
         connect: (@MainActor (KnownBoard, BoardSession) async -> Void)? = nil
     ) {
         self.sessions = sessions
         self.groupStore = groupStore
         self.boardStore = boardStore
+        self.backoffSchedule = backoffSchedule
         if let connect {
             self.connect = connect
         } else {
@@ -154,7 +157,7 @@ public final class GroupAutoConnector {
             }
             let attempt = self.failureCount[id] ?? 0
             self.failureCount[id] = attempt + 1
-            let nextDelay = Self.backoffSchedule[min(attempt, Self.backoffSchedule.count - 1)]
+            let nextDelay = self.backoffSchedule[min(attempt, self.backoffSchedule.count - 1)]
             self.scheduleConnect(member: member, known: known, delay: nextDelay)
         }
     }
