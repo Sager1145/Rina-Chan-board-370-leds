@@ -79,8 +79,11 @@ struct BoardGroupListView: View {
     }
 
     private func deleteGroups(at offsets: IndexSet) {
-        for index in offsets {
-            let id = store.groups[index].id
+        // N5: collect ids from the IndexSet against the list as it stands
+        // now, before any removal shifts later indices out from under the
+        // remaining offsets.
+        let ids = offsets.map { store.groups[$0].id }
+        for id in ids {
             store.remove(id: id)
             if ControlTarget(storedGroupIDString: controlTargetGroupIDStorage) == .group(id) {
                 controlTargetGroupIDStorage = ""
