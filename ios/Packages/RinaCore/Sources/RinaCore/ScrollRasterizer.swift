@@ -85,12 +85,30 @@ public enum ScrollRasterizer {
     public static func buildBitmap(
         text: String, font: ArkPixelFont, geometry: MatrixGeometry.Type = MatrixGeometry.self
     ) -> ScrollBitmap {
+        buildBitmapCore(
+            text: text, font: font, geometry: geometry,
+            leading: leadingBlank(geometry: geometry), trailing: trailingBlank(geometry: geometry),
+            minWidth: geometry.cols * 2 + 8
+        )
+    }
+
+    /// Same glyph rasterization as `buildBitmap`, but without the single-board
+    /// leading/trailing blank padding — used by the group bitmap builder
+    /// (`GroupScrollBitmap`), which applies its own `[V dark][text][V dark]`
+    /// padding (BOARD_GROUP_SPEC.md §1.4/§2).
+    public static func buildRawTextBitmap(
+        text: String, font: ArkPixelFont, geometry: MatrixGeometry.Type = MatrixGeometry.self
+    ) -> ScrollBitmap {
+        buildBitmapCore(text: text, font: font, geometry: geometry, leading: 0, trailing: 0, minWidth: 0)
+    }
+
+    private static func buildBitmapCore(
+        text: String, font: ArkPixelFont, geometry: MatrixGeometry.Type,
+        leading: Int, trailing: Int, minWidth: Int
+    ) -> ScrollBitmap {
         let raw = text.isEmpty ? " " : text
         let chars = raw.unicodeScalars.filter { !ScrollText.isEmojiFormatControl($0) }
         let glyphs = chars.map { font.glyph(for: $0) }
-
-        let leading = leadingBlank(geometry: geometry)
-        let trailing = trailingBlank(geometry: geometry)
 
         var contentWidth = 0
         for i in 0..<glyphs.count {
@@ -100,7 +118,7 @@ public enum ScrollRasterizer {
             }
         }
 
-        let width = max(geometry.cols * 2 + 8, leading + contentWidth + trailing)
+        let width = max(minWidth, leading + contentWidth + trailing)
         var rows = [[Bool]](repeating: [Bool](repeating: false, count: width), count: geometry.rows)
 
         let vOffset = verticalOffset(font: font, geometry: geometry)

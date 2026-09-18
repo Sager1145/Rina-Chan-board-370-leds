@@ -61,10 +61,16 @@ final class TextPreviewInvalidationTests: XCTestCase {
         previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
         self.window = window
+        // ScrollTextView reads the board-group target too; an isolated,
+        // empty store keeps it on the single-board path under test.
+        let groupStore = BoardGroupStore(defaults: UserDefaults(suiteName: "TextPreviewInvalidationTests")!)
+        let groupCoordinator = BoardGroupCoordinator(store: groupStore, sessions: BoardSessionStore())
         let hosting = UIHostingController(
             rootView: ScrollTextView()
                 .environment(connection)
                 .environment(model)
+                .environment(groupStore)
+                .environment(groupCoordinator)
         )
         window.rootViewController = hosting
         window.isHidden = false

@@ -73,6 +73,13 @@ public final class BoardSessionStore {
     public private(set) var sessions: [BoardSession] = []
     public private(set) var active: BoardSession
     public let scanner: any BoardScanning
+    /// Lets `BoardGroupCoordinator` (BOARD_GROUP_SPEC §3) claim that a session
+    /// is currently group-owned, so `select(_:)` leaves its output lease
+    /// alone instead of invalidating a running group upload/playback just
+    /// because a person tapped that board's tab. Kept as an injected closure
+    /// rather than a hard dependency on the coordinator type, so this store
+    /// stays usable (and testable) without board groups at all.
+    public var isGroupOwned: ((BoardSession) -> Bool)?
     /// One carrier per session, so connecting one board never replaces another
     /// board's link.
     @ObservationIgnored private let makeBLETransport: @MainActor () -> any BLEConnecting
@@ -122,7 +129,9 @@ public final class BoardSessionStore {
     /// both underlying connections intact.
     public func select(_ session: BoardSession) {
         guard active !== session else { return }
-        active.connection.output.invalidate()
+        if isGroupOwned?(active) != true {
+            active.connection.output.invalidate()
+        }
         active = session
     }
 

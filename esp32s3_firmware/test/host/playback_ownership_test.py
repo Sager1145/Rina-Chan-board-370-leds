@@ -38,7 +38,23 @@ struct Runtime {
  String playback="scroll";
  uint16_t scrollFrameIndex=0, scrollFrameCount=2, scrollIntervalMs=10;
  uint32_t lastScrollFrameMs=1, framesAccepted=0, framesDropped=0, framesQueued=0;
+ // Board group v1 (§1.5): unused by these tests (groupTimed stays false), but
+ // scrollSessionTickCursorLocked()/setFirmwareScrollPauseFlag() reference them.
+ bool groupTimed=false;
+ uint64_t groupAtUs=0;
+ uint16_t groupStartFrame=0, groupIntervalMs=0;
+ bool groupLoop=true;
 } rs;
+namespace group_math {
+struct GroupCursor { uint32_t frame=0; bool held=false; bool endedNoLoop=false; };
+GroupCursor groupCursorAt(uint64_t,uint64_t,uint32_t,uint32_t,uint32_t,bool){return GroupCursor{};}
+bool groupCursorEndLatchDue(const GroupCursor& c, uint16_t currentFrameIndex){
+ return c.endedNoLoop && currentFrameIndex != static_cast<uint16_t>(c.frame);
+}
+}
+uint64_t esp_timer_get_time(){return 0;}
+bool identifyOverlayExpiryDue(uint64_t){return false;}
+void scrollSessionExitGroupTimedLocked(){rs.groupTimed=false;}
 struct Meta { uint16_t framesReceived=0, nextChunkIndex=0, totalFramesExpected=0; uint8_t uiFps=0; bool uploadComplete=false; char timelineId[8]={}; } meta;
 using ScrollTimelineMeta=Meta;
 struct ScrollUploadTxn { uint32_t generation=0; uint16_t baseIndex=0,framesReceivedBase=0,nextChunkIndex=0; bool append=false; };

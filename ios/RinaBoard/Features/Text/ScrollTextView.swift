@@ -38,13 +38,36 @@ enum PR9BodyProbe {
 struct ScrollTextView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(TextViewModel.self) private var model
+    @Environment(BoardGroupStore.self) private var groupStore
+    @Environment(BoardGroupCoordinator.self) private var groupCoordinator
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var isEditorFocused: Bool
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// Ark Pixel editor size; follows Dynamic Type, snapped to crisp steps.
     @ScaledMetric(relativeTo: .body) private var editorFontSize: CGFloat = 16
 
+    /// Mirrors the Control Center's "控制对象" choice (BOARD_GROUP_SPEC.md
+    /// §3): empty string = `.single`. When a group is targeted, send/stop
+    /// below act on the whole group instead of the single connected board;
+    /// everything else on this tab (preview, speed, sync diagnostics) stays
+    /// single-board and unchanged.
+    @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
+
+    /// Debounces rapid speed-slider drags (250 ms trailing) while a group is
+    /// targeted, so `BoardGroupCoordinator.updatePlayback` isn't called on
+    /// every slider tick (BOARD_GROUP_SPEC.md §3). Single-board speed
+    /// changes are unaffected — those already debounce inside
+    /// `TextViewModel`'s own `fpsSender`.
+    @State private var groupPlaybackUpdateTask: Task<Void, Never>?
+
     private var isConnected: Bool { connection.connectionState == .connected }
+
+    private var targetedGroup: BoardGroup? {
+        guard case .group(let id) = ControlTarget.resolved(storedGroupIDString: controlTargetGroupIDStorage, in: groupStore)
+        else { return nil }
+        return groupStore.groups.first { $0.id == id }
+    }
 
     var body: some View {
         #if DEBUG
@@ -56,6 +79,7 @@ struct ScrollTextView: View {
             } status: {
                 previewStatus
             } controls: {
+                groupTargetBanner
                 playbackSection
                 editorSection
                 speedSection
@@ -90,6 +114,11 @@ struct ScrollTextView: View {
                 model.suspendPreviewLoop()
             }
         }
+        .onChange(of: groupStore.groups) { _, _ in
+            // A group deleted out from under the current target must not
+            // keep this tab pointed at a dead id (BOARD_GROUP_SPEC.md §3).
+            ControlTarget.validate(&controlTargetGroupIDStorage, in: groupStore)
+        }
     }
 
     // MARK: §23 Preview
@@ -111,6 +140,76 @@ struct ScrollTextView: View {
     /// section with ordinary rows left it sitting on top of a broken card.
     @ViewBuilder
     private var playbackSection: some View {
+        if let group = targetedGroup {
+            groupPlaybackSection(group)
+        } else {
+            singleBoardPlaybackSection
+        }
+    }
+
+    /// v1 groups have no timed pause/step/seek (BOARD_GROUP_SPEC.md), so a
+    /// group target reuses the single-board pill row with pause/play/step
+    /// greyed out (`transportLimitedToSendStop`) instead of a different
+    /// widget — same look, same layout, as the user asked. The single-board
+    /// progress bar is board-specific and stays hidden; a second section
+    /// keeps the same spacing and carries the group's own upload progress.
+    private func groupPlaybackSection(_ group: BoardGroup) -> some View {
+        let playing = groupCoordinator.isPlaying && groupCoordinator.activeGroupID == group.id
+        let allOnline = !group.members.isEmpty
+            && group.members.allSatisfy { groupCoordinator.status(for: $0) != .offline }
+        let starting = groupCoordinator.isStarting && groupCoordinator.startingGroupID == group.id
+        return Group {
+            Section {
+                TextPlaybackControls(
+                    isConnected: allOnline,
+                    hasTimeline: playing,
+                    isPaused: false,
+                    isUploading: starting,
+                    isGeneratingFont: false,
+                    canSend: !model.exceedsByteLimit && !model.text.isEmpty,
+                    loopPlayback: Binding(
+                        get: { model.loopPlayback },
+                        set: { loop in
+                            model.loopPlayback = loop
+                            if playing { scheduleGroupPlaybackUpdate(group: group, fps: nil, loop: loop) }
+                        }
+                    ),
+                    loopDisabled: false,
+                    transportLimitedToSendStop: true,
+                    onSend: { Task { await sendOrPlayGroup() } },
+                    onPlay: {},
+                    onPause: {},
+                    onStop: { Task { await stopOrStopGroup() } },
+                    onStepBackward: {},
+                    onStepForward: {}
+                )
+            } footer: {
+                Text(playing ? "多板组播放中。暂停与单步仅在单板模式可用。" : "暂停与单步仅在单板模式可用。")
+            }
+
+            Section {
+                if starting {
+                    ProgressView()
+                }
+            }
+        }
+    }
+
+    /// Item 2 (BOARD_GROUP_SPEC.md §3 addendum): applies a speed/loop change
+    /// live to a playing group via `BoardGroupCoordinator.updatePlayback`,
+    /// debounced 250 ms so a slider drag doesn't fire one re-anchor per
+    /// tick. Single-board speed changes never go through here.
+    private func scheduleGroupPlaybackUpdate(group: BoardGroup, fps: Int?, loop: Bool?) {
+        groupPlaybackUpdateTask?.cancel()
+        groupPlaybackUpdateTask = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            await groupCoordinator.updatePlayback(group: group, fps: fps, loop: loop)
+        }
+    }
+
+    @ViewBuilder
+    private var singleBoardPlaybackSection: some View {
         Section {
             // Transport pills plus the loop toggle (§24): with nothing bound
             // on the board the stop slot becomes "send and play".
@@ -129,10 +228,10 @@ struct ScrollTextView: View {
                     }
                 ),
                 loopDisabled: loopUnsupported,
-                onSend: { Task { await model.send(connection: connection) } },
+                onSend: { Task { await sendOrPlayGroup() } },
                 onPlay: { Task { await model.resume(connection: connection) } },
                 onPause: { Task { await model.pause(connection: connection) } },
-                onStop: { Task { await model.stop(connection: connection) } },
+                onStop: { Task { await stopOrStopGroup() } },
                 onStepBackward: { Task { await model.stepFrame(direction: -1, connection: connection) } },
                 onStepForward: { Task { await model.stepFrame(direction: 1, connection: connection) } }
             )
@@ -154,6 +253,65 @@ struct ScrollTextView: View {
     private var loopUnsupported: Bool {
         guard let renderer = connection.status?.renderer else { return false }
         return renderer.scrollFrameCount != nil && renderer.scrollLoop == nil
+    }
+
+    // MARK: Board group target (BOARD_GROUP_SPEC.md §3)
+
+    /// A compact banner shown only while the 控制对象 menu targets a group:
+    /// "发送" below then plays to the whole group instead of the single
+    /// connected board.
+    @ViewBuilder
+    private var groupTargetBanner: some View {
+        if let group = targetedGroup {
+            Section {
+                let bannerText = Text("发送到多板组：\(group.name)（\(group.mode == .stitched ? "拼接" : "镜像")）")
+                    .font(.footnote)
+                let backButton = Button("切回单板") {
+                    controlTargetGroupIDStorage = ControlTarget.single.storedGroupIDString
+                }
+                .buttonStyle(.borderless)
+
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        bannerText
+                        backButton
+                    }
+                } else {
+                    HStack {
+                        bannerText
+                        Spacer()
+                        backButton
+                    }
+                }
+            }
+        }
+    }
+
+    /// Send: plays to the targeted group when one is set, otherwise the
+    /// single-board `model.send(connection:)` — byte-for-byte unchanged in
+    /// that case.
+    private func sendOrPlayGroup() async {
+        guard let group = targetedGroup else {
+            await model.send(connection: connection)
+            return
+        }
+        do {
+            try await groupCoordinator.play(
+                group: group, text: model.text, fps: Int(model.requestedFps), loop: model.loopPlayback
+            )
+        } catch {
+            model.errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Stop: stops the targeted group when one is set, otherwise the
+    /// single-board `model.stop(connection:)`.
+    private func stopOrStopGroup() async {
+        guard let group = targetedGroup else {
+            await model.stop(connection: connection)
+            return
+        }
+        await groupCoordinator.stop(group: group)
     }
 
     // MARK: §25 Text input, §26 restore conflict
@@ -244,12 +402,26 @@ struct ScrollTextView: View {
                 Slider(
                     value: Binding(
                         get: { model.requestedFps },
-                        set: { model.setRequestedFps($0, connection: connection) }
+                        set: { newValue in
+                            if let group = targetedGroup {
+                                // Group mode: never touch the primary
+                                // connection's own scroll timing (that would
+                                // drop it out of group-timed playback) — only
+                                // the group's own re-anchor path may retune it.
+                                model.requestedFps = newValue
+                                let playing = groupCoordinator.isPlaying && groupCoordinator.activeGroupID == group.id
+                                if playing {
+                                    scheduleGroupPlaybackUpdate(group: group, fps: Int(newValue), loop: nil)
+                                }
+                            } else {
+                                model.setRequestedFps(newValue, connection: connection)
+                            }
+                        }
                     ),
                     in: Double(RinaLinkConstants.scrollFpsMin)...Double(RinaLinkConstants.scrollFpsMax),
                     step: 1
                 )
-                .disabled(!isConnected)
+                .disabled(targetedGroup == nil && !isConnected)
                 .accessibilityLabel("请求速度")
                 .accessibilityValue(Text(String(format: "%.0f fps", model.requestedFps)))
             }

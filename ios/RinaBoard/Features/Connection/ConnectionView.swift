@@ -122,6 +122,11 @@ struct ConnectionView: View {
                     .buttonStyle(.borderless)
                 }
             }
+            NavigationLink {
+                BoardGroupListView()
+            } label: {
+                Label("多板组…", systemImage: "rectangle.split.3x1")
+            }
         } header: {
             Text("控制对象 · \(sessions.sessions.filter { $0.connection.connectionState == .connected }.count) 块在线")
         } footer: {

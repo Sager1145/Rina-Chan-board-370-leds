@@ -124,7 +124,13 @@ private struct SettingsStackLayout: View {
 private struct SettingsCategoryRows: View {
     @Environment(SettingsWorkspace.self) private var workspace
     @Environment(BoardConnection.self) private var connection
+    @Environment(BoardGroupStore.self) private var groupStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    /// Mirrors the Control Center's "控制对象" choice (BOARD_GROUP_SPEC.md
+    /// §3), so the row that pushes it can show which one is active — on
+    /// iOS 17–25 there is no tab-bar accessory to show it instead.
+    @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
 
     private var controlCenterInSettings: Bool {
         ControlCenterPlacement.resolve(
@@ -149,11 +155,27 @@ private struct SettingsCategoryRows: View {
                 if category == .connection {
                     Spacer()
                     Text(stateText).foregroundStyle(.secondary)
+                } else if category == .controlCenter {
+                    Spacer()
+                    Text(controlTargetSummary).foregroundStyle(.secondary)
                 }
             }
         }
         .tag(category)
         .accessibilityIdentifier("settings.category.\(category.rawValue)")
+    }
+
+    /// "单板 · <board>" / "多板组 · <name>" — the current 控制对象, shown as
+    /// this row's secondary value since iOS 17–25 has no tab-bar accessory to
+    /// show it instead (BOARD_GROUP_SPEC.md §3).
+    private var controlTargetSummary: String {
+        switch ControlTarget.resolved(storedGroupIDString: controlTargetGroupIDStorage, in: groupStore) {
+        case .single:
+            return "单板 · \(connection.deviceName ?? "未连接")"
+        case .group(let id):
+            let name = groupStore.groups.first { $0.id == id }?.name ?? "多板组"
+            return "多板组 · \(name)"
+        }
     }
 
     private var stateText: String {

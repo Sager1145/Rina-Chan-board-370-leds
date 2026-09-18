@@ -7,6 +7,7 @@
 #include "scroll_session.h"
 #include "serial_log.h"
 #include <freertos/task.h>
+#include <esp_timer.h>
 #include <string.h>
 
 static TaskHandle_t sScrollTaskHandle = nullptr;
@@ -42,6 +43,15 @@ static void scrollRenderTask(void* parameter) {
             });
             shouldRender = true;
         });
+
+        // Released the Scroll lock (Scroll -> Frame is an allowed order, but
+        // this check only needs the Frame lock, taken internally by
+        // identifyOverlayExpiryDue()). Forces a render pass so the identify
+        // overlay (§1.2) self-expires promptly even on an otherwise-static
+        // screen, instead of waiting for the next scroll tick or main-task
+        // render request.
+        if (identifyOverlayExpiryDue(static_cast<uint64_t>(esp_timer_get_time())))
+            shouldRender = true;
 
         if (hasScrollFrame) {
             // Core-1 tick telemetry: TRACE-only (off by default) and rate-limited

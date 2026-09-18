@@ -58,6 +58,25 @@ int16_t hintLedForDiagnostics();
 // Current hint mirror LED index (-1 if none), for status/diagnostics.
 int16_t hintMirrorLedForDiagnostics();
 
+// Board group v1 identify overlay (docs/BOARD_GROUP_SPEC.md §1.2): replaces the
+// whole presented frame with a black background and a large digit (board
+// colour) while shown. `number` 1..9, `ttlMs` 0..30000 (0 cancels). Self-expires
+// by wall clock (esp_timer_get_time()) inside the render path -- independent of
+// any client connection; a new call re-arms it. Highest overlay priority
+// (identify > hint > button overlay > content): while shown, the hint LED and
+// button-animation overlay are not drawn. Caller (protocol.cpp) validates the
+// number/ttlMs ranges before calling.
+void setIdentifyOverlay(int number, int ttlMs);
+
+// True when the identify overlay is currently armed and its ttl has elapsed
+// as of `nowUs` (esp_timer_get_time()). Read-only: does NOT clear the
+// overlay itself (that still happens inside renderCurrentFrameToLedStrip()
+// the next time it runs). Callers that only render on state changes (the
+// scroll render task) use this to force a render pass so a static screen
+// still clears the overlay promptly instead of waiting for unrelated
+// scroll/content activity. Takes the Frame lock internally.
+bool identifyOverlayExpiryDue(uint64_t nowUs);
+
 void requestLedRender();
 
 bool consumeLedRenderRequest();

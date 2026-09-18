@@ -2,6 +2,11 @@ import Foundation
 
 public enum BoardOutputSource: String, Sendable {
     case manual, automatic, text, lipSync, performance, video, debug
+    /// A board acting as a member of a `BoardGroupCoordinator` playback
+    /// (BOARD_GROUP_SPEC §3): held for the group upload + `group_start`
+    /// sequence, and released the moment any single-board action claims a
+    /// different source on that same board.
+    case group
 
     public var title: String {
         switch self {
@@ -12,6 +17,7 @@ public enum BoardOutputSource: String, Sendable {
         case .performance: return NSLocalizedString("演出", comment: "output source")
         case .video: return NSLocalizedString("视频", comment: "output source")
         case .debug: return NSLocalizedString("调试输出", comment: "output source")
+        case .group: return NSLocalizedString("多板组", comment: "output source")
         }
     }
 }
