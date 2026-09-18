@@ -430,6 +430,14 @@ public final class BoardGroupCoordinator {
             startReanchorLoop(groupID: capturedGroupID, revision: capturedRevision, epoch: capturedEpoch)
         } catch {
             await abortStartedBoards(online, epoch: capturedEpoch)
+            // A member disconnecting (or any other generation change) mid-flight
+            // surfaces here as `CancellationError` from the in-flight request
+            // whose connection generation moved out from under it — not a
+            // distinct failure the UI should show differently from any other
+            // "the group changed underneath us" abort.
+            if error is CancellationError {
+                throw GroupPlayError.aborted
+            }
             throw error
         }
     }
@@ -632,6 +640,105 @@ public final class BoardGroupCoordinator {
             guard playEpoch == epoch else { return } // N3
             memberStatus[id] = .error(error.localizedDescription)
         }
+    }
+
+    // MARK: - Live playback updates
+
+    /// BOARD_GROUP_SPEC.md §3 addendum (live fps/loop update): re-anchors
+    /// every live participant to a new `(intervalMs, loop)` without a phase
+    /// jump. Picks one common phone instant `T = now + max(300 ms, 3 ×
+    /// worst bestRtt)`, computes the global frame index at `T` under the
+    /// *current* anchor (wrapped/clamped per the old `loop`), then
+    /// re-anchors every participant with fresh clock samples to resume from
+    /// that frame at the new rate — same live-participant/epoch/revision
+    /// guards as `reanchor`. Does nothing unless this exact group is
+    /// currently playing. `fps`/`loop` left `nil` keep that part of the
+    /// anchor unchanged; if both are `nil` this is a no-op.
+    public func updatePlayback(group: BoardGroup, fps: Int?, loop: Bool?) async {
+        guard fps != nil || loop != nil else { return }
+        guard isPlaying, activeGroupID == group.id,
+              let epoch = activeEpoch, playEpoch == epoch,
+              let revision = activeRevision,
+              let anchor = currentAnchor, let playState else { return }
+        guard let liveGroup = store.groups.first(where: { $0.id == group.id }),
+              liveGroup.layoutRevision == revision else { return }
+
+        let newIntervalMs = fps.map { ScrollRasterizer.intervalMs(forFps: $0) } ?? anchor.intervalMs
+        let newLoop = loop ?? anchor.loop
+
+        // C1: same live-participant pruning `reanchor` uses — never touches
+        // a board that isn't still exactly the one this group started with.
+        var survivors: [String: Participant] = [:]
+        for (id, participant) in participants {
+            let connection = participant.session.connection
+            let sameConnection = connection.connectionState == .connected
+                && connection.connectionGeneration == participant.generation
+            guard sameConnection, connection.output.source == .group,
+                  connection.output.isCurrent(participant.token) else {
+                memberStatus.removeValue(forKey: id) // M3: falls back to live status
+                if sameConnection, connection.output.source != .group {
+                    evictedByOwnership.insert(id) // N1: never auto-rejoined
+                }
+                continue
+            }
+            survivors[id] = participant
+        }
+        participants = survivors
+        guard !participants.isEmpty else { return }
+
+        let worstRtt = participants.keys.compactMap { estimators[$0]?.bestRttUs }.max() ?? 0
+        let phoneNow = nowUs() + max(300_000, 3 * worstRtt)
+
+        let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
+        let oldIntervalUs = Int64(anchor.intervalMs) * 1000
+        let elapsedUs = phoneNow - anchor.phoneUs
+        let rawFrame = elapsedUs < 0
+            ? Int64(anchor.startFrame)
+            : Int64(anchor.startFrame) + elapsedUs / max(oldIntervalUs, 1)
+        let newStartFrame: Int
+        if frameCount <= 0 {
+            newStartFrame = 0
+        } else if anchor.loop {
+            let m = Int64(frameCount)
+            newStartFrame = Int(((rawFrame % m) + m) % m)
+        } else {
+            newStartFrame = Int(min(max(rawFrame, 0), Int64(frameCount - 1)))
+        }
+
+        // Fresh clock samples, same as a `reanchor` pass.
+        var bootIds: [String: String] = [:]
+        for (id, participant) in participants {
+            bootIds[id] = participant.bootId
+            var estimator = estimators[id] ?? ClockOffsetEstimator()
+            estimator.removeAllSamples()
+            for _ in 0..<4 {
+                guard let sample = try? await takeClockSample(connection: participant.session.connection) else { continue }
+                estimator.addSample(sample, bootId: participant.bootId)
+            }
+            estimators[id] = estimator
+        }
+        guard playEpoch == epoch, isPlaying, activeGroupID == group.id else { return } // N3
+
+        let commands = GroupSchedule.reanchorCommands(
+            phoneAnchorUs: phoneNow, startFrame: newStartFrame, intervalMs: newIntervalMs,
+            loop: newLoop, estimators: estimators.filter { participants[$0.key] != nil }, bootIds: bootIds
+        )
+        for (id, participant) in participants {
+            guard let cmd = commands[id] else { continue }
+            do {
+                try await participant.session.connection.withOutput(participant.token) {
+                    _ = try await participant.session.connection.requestReliable(cmd)
+                }
+                guard playEpoch == epoch else { return } // N3
+                memberStatus[id] = .playing
+            } catch {
+                guard playEpoch == epoch else { return } // N3
+                memberStatus[id] = .error(error.localizedDescription)
+            }
+        }
+
+        guard playEpoch == epoch else { return } // N3
+        currentAnchor = (phoneUs: phoneNow, startFrame: newStartFrame, intervalMs: newIntervalMs, loop: newLoop)
     }
 
     #if DEBUG
