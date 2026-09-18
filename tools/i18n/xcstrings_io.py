@@ -20,7 +20,9 @@ import json, os, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CATALOG_REL = "ios/RinaBoard/Resources/Localizable.xcstrings"
-CATALOG = os.path.join(ROOT, CATALOG_REL)
+# Override for tests: point the whole toolchain at a throwaway catalog instead
+# of the real one.
+CATALOG = os.environ.get("RINA_I18N_CATALOG") or os.path.join(ROOT, CATALOG_REL)
 INDENT = "  "
 
 
@@ -68,11 +70,14 @@ def write_xcstrings(catalog, path=CATALOG):
 
 def selftest():
     failures = 0
-    head = subprocess.run(["git", "-C", ROOT, "show", "HEAD:" + CATALOG_REL],
-                          capture_output=True, check=False)
-    sources = [("HEAD", head.stdout.decode("utf-8"))] if head.returncode == 0 else []
-    if not sources:
-        print("skip HEAD: %s" % head.stderr.decode("utf-8", "replace").strip())
+    sources = []
+    if CATALOG == os.path.join(ROOT, CATALOG_REL):
+        head = subprocess.run(["git", "-C", ROOT, "show", "HEAD:" + CATALOG_REL],
+                              capture_output=True, check=False)
+        if head.returncode == 0:
+            sources.append(("HEAD", head.stdout.decode("utf-8")))
+        else:
+            print("skip HEAD: %s" % head.stderr.decode("utf-8", "replace").strip())
     with open(CATALOG, encoding="utf-8", newline="") as fh:
         sources.append(("working tree", fh.read()))
     for label, text in sources:
