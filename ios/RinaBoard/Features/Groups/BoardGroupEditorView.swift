@@ -274,7 +274,9 @@ struct BoardGroupEditorView: View {
     }
 
     private func addMember(group: BoardGroup, session: BoardSession) {
-        guard let identity = session.connection.boardIdentity else { return }
+        // A sheet opened before playback started can still be confirmed
+        // after the layout lock engages.
+        guard !isLocked(group), let identity = session.connection.boardIdentity else { return }
         let member = BoardGroup.Member(
             physicalBoardID: identity,
             displayName: session.connection.deviceName ?? session.name,

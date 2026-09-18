@@ -384,17 +384,26 @@ struct ScrollTextView: View {
 
     // MARK: §27 Speed
 
+    /// Group playback can't exceed the firmware's 20 ms `group_start` floor,
+    /// so a faster rate adopted from a single board shows as the rate the
+    /// group will actually send.
+    private var displayedFps: Double {
+        targetedGroup != nil
+            ? min(model.requestedFps, Double(RinaLinkConstants.groupScrollFpsMax))
+            : model.requestedFps
+    }
+
     private var speedSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 4) {
                 LabeledContent("请求速度") {
-                    Text(String(format: "%.0f fps", model.requestedFps))
+                    Text(String(format: "%.0f fps", displayedFps))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
                 Slider(
                     value: Binding(
-                        get: { model.requestedFps },
+                        get: { displayedFps },
                         set: { newValue in
                             if let group = targetedGroup {
                                 // Group mode: never touch the primary
@@ -426,7 +435,7 @@ struct ScrollTextView: View {
                 )
                 .disabled(targetedGroup == nil && !isConnected)
                 .accessibilityLabel("请求速度")
-                .accessibilityValue(Text(String(format: "%.0f fps", model.requestedFps)))
+                .accessibilityValue(Text(String(format: "%.0f fps", displayedFps)))
             }
 
             // Measured from board telemetry, never an echo of the request.
