@@ -158,6 +158,8 @@ public struct RendererStatus: Codable, Equatable, Sendable {
     public var scrollHasSourceText: Bool?
     /// Firmware loop preference (`set_scroll_loop`); absent on older firmware.
     public var scrollLoop: Bool?
+    /// True while a multi-board group-timed scroll owns this board's `.text` output.
+    public var groupTimed: Bool?
 
     public init(color: String? = nil, brightness: Int? = nil, brightnessMin: Int? = nil, brightnessMax: Int? = nil,
                 mode: String? = nil, playback: String? = nil, paused: Bool? = nil, autoIntervalMs: Int? = nil,
@@ -171,7 +173,7 @@ public struct RendererStatus: Codable, Equatable, Sendable {
                 scrollFrameCount: Int? = nil, scrollFrameIndex: Int? = nil, scrollIntervalMs: Int? = nil,
                 uiFps: Int? = nil, scrollFps: Int? = nil, scrollTimelineId: String? = nil,
                 scrollUploadComplete: Bool? = nil, scrollHasSourceText: Bool? = nil, scrollLoop: Bool? = nil, outputMode: String? = nil,
-                outputStreamID: String? = nil, outputPositionMs: Int? = nil) {
+                outputStreamID: String? = nil, outputPositionMs: Int? = nil, groupTimed: Bool? = nil) {
         self.color = color
         self.brightness = brightness
         self.brightnessMin = brightnessMin
@@ -213,6 +215,7 @@ public struct RendererStatus: Codable, Equatable, Sendable {
         self.scrollUploadComplete = scrollUploadComplete
         self.scrollHasSourceText = scrollHasSourceText
         self.scrollLoop = scrollLoop
+        self.groupTimed = groupTimed
     }
 
     public init(from decoder: Decoder) throws {
@@ -258,6 +261,7 @@ public struct RendererStatus: Codable, Equatable, Sendable {
         scrollUploadComplete = try? c.decodeIfPresent(Bool.self, forKey: .init("scrollUploadComplete"))
         scrollHasSourceText = try? c.decodeIfPresent(Bool.self, forKey: .init("scrollHasSourceText"))
         scrollLoop = try? c.decodeIfPresent(Bool.self, forKey: .init("scrollLoop"))
+        groupTimed = try? c.decodeIfPresent(Bool.self, forKey: .init("groupTimed"))
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -267,7 +271,7 @@ public struct RendererStatus: Codable, Equatable, Sendable {
              ledRefreshFail, autoFaceId, autoFaceName, firmwareScrollActive, firmwareScrollPaused,
              firmwareScrollUserPaused, firmwareScrollSystemPaused, restoreAutoAfterScroll,
              scrollFrameCount, scrollFrameIndex, scrollIntervalMs, uiFps, scrollFps, scrollTimelineId,
-             scrollUploadComplete, scrollHasSourceText, scrollLoop
+             scrollUploadComplete, scrollHasSourceText, scrollLoop, groupTimed
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -313,6 +317,7 @@ public struct RendererStatus: Codable, Equatable, Sendable {
         try c.encodeIfPresent(scrollUploadComplete, forKey: .scrollUploadComplete)
         try c.encodeIfPresent(scrollHasSourceText, forKey: .scrollHasSourceText)
         try c.encodeIfPresent(scrollLoop, forKey: .scrollLoop)
+        try c.encodeIfPresent(groupTimed, forKey: .groupTimed)
     }
 }
 
@@ -558,6 +563,8 @@ public struct PreviewSync: Codable, Equatable, Sendable {
     public var firmwareScrollUserPaused: Bool?
     public var firmwareScrollSystemPaused: Bool?
     public var rateEligible: Bool?
+    /// True while a multi-board group-timed scroll owns this board's `.text` output.
+    public var groupTimed: Bool?
 
     /// Effective playback rate in frames/sec, derived from `uiFps`/`scrollIntervalMs`
     /// for callers that want a `Double` FPS (the wire format only carries `uiFps`, an int).
@@ -577,7 +584,7 @@ public struct PreviewSync: Codable, Equatable, Sendable {
                 firmwareScrollUserPaused: Bool? = nil, firmwareScrollSystemPaused: Bool? = nil,
                 rateEligible: Bool? = nil, scrollAdvanceSeq: UInt32? = nil,
                 sampledAtUs: Int64? = nil, scrollLoop: Bool? = nil, outputMode: String? = nil,
-                outputStreamID: String? = nil, outputPositionMs: Int? = nil) {
+                outputStreamID: String? = nil, outputPositionMs: Int? = nil, groupTimed: Bool? = nil) {
         self.scrollAdvanceSeq = scrollAdvanceSeq
         self.sampledAtUs = sampledAtUs
         self.scrollLoop = scrollLoop
@@ -610,6 +617,7 @@ public struct PreviewSync: Codable, Equatable, Sendable {
         self.firmwareScrollUserPaused = firmwareScrollUserPaused
         self.firmwareScrollSystemPaused = firmwareScrollSystemPaused
         self.rateEligible = rateEligible
+        self.groupTimed = groupTimed
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -617,7 +625,7 @@ public struct PreviewSync: Codable, Equatable, Sendable {
         case ok, v, mode, outputMode, outputStreamID, outputPositionMs, playback, autoFaceIndex, autoFaceCount, lastReason, valid, presentedSeq, source,
              reason, scrollTimelineId, presentedFrameIndex, presentedFrameCount, frameIndex, frameCount,
              presentedAtUs, renderStartUs, renderDurationUs, scrollIntervalMs, uiFps, firmwareScrollActive,
-             firmwareScrollPaused, firmwareScrollUserPaused, firmwareScrollSystemPaused, rateEligible
+             firmwareScrollPaused, firmwareScrollUserPaused, firmwareScrollSystemPaused, rateEligible, groupTimed
     }
 }
 
