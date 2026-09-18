@@ -114,6 +114,7 @@ public final class GroupControlFanOut {
     private func performReconcile() {
         guard case .group(let groupID) = target,
               let group = groupStore.groups.first(where: { $0.id == groupID }) else {
+            print("DEBUG no group target=\(target)")
             detachAllSinks()
             primaryID = nil
             return
@@ -152,10 +153,12 @@ public final class GroupControlFanOut {
         // yet, or the established primary just went offline: adopt the next
         // online member in slot order.
         guard let next = memberSessions.first(where: { $0.session.connection.connectionState == .connected }) else {
+            print("DEBUG no online member, members=\(memberSessions.map { ($0.member.physicalBoardID, $0.session.connection.connectionState) })")
             detachAllSinks()
             primaryID = nil
             return
         }
+        print("DEBUG promoting to \(next.member.physicalBoardID)")
         if primaryID != nil, let newKey = next.session.connection.boardKey {
             draftPromotionHook?(newKey)
         }
