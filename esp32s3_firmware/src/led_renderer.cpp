@@ -275,6 +275,14 @@ void setIdentifyOverlay(int number, int ttlMs) {
     });
 }
 
+bool identifyOverlayExpiryDue(uint64_t nowUs) {
+    bool due = false;
+    withFrameLock([&]() {
+        due = (g_identifyNumber >= 0 && nowUs >= g_identifyExpireAtUs);
+    });
+    return due;
+}
+
 // Consistency note (C3): this function is NOT reentrant — `overlayRgb`,
 // `lastAppliedBrightness` and `lastLedShowUs` are unguarded statics. It is safe only
 // because its callers are mutually exclusive by construction:
@@ -297,8 +305,12 @@ void renderCurrentFrameToLedStrip() {
         hint = g_hintLed;
         // Self-expiry: a call to renderCurrentFrameToLedStrip() after ttlMs has
         // elapsed clears the overlay itself, independent of any client
-        // connection (§1.2). The scroll-render task loops at ~1 kHz regardless
-        // of pending work, so this fires promptly.
+        // connection (§1.2). This function only runs when the scroll render
+        // task actually decides to render a frame (scroll tick, main-task
+        // render request, or an identify-overlay expiry it detected itself via
+        // identifyOverlayExpiryDue()) -- NOT on every ~1 ms task wakeup. On a
+        // static screen with nothing else changing, identifyOverlayExpiryDue()
+        // is what forces that render pass so the overlay still clears promptly.
         if (g_identifyNumber >= 0 && identifyNowUs >= g_identifyExpireAtUs) {
             g_identifyNumber = -1;
             g_identifyExpireAtUs = 0;

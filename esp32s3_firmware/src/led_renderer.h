@@ -63,6 +63,15 @@ int16_t hintLedForDiagnostics();
 // number/ttlMs ranges before calling.
 void setIdentifyOverlay(int number, int ttlMs);
 
+// True when the identify overlay is currently armed and its ttl has elapsed
+// as of `nowUs` (esp_timer_get_time()). Read-only: does NOT clear the
+// overlay itself (that still happens inside renderCurrentFrameToLedStrip()
+// the next time it runs). Callers that only render on state changes (the
+// scroll render task) use this to force a render pass so a static screen
+// still clears the overlay promptly instead of waiting for unrelated
+// scroll/content activity. Takes the Frame lock internally.
+bool identifyOverlayExpiryDue(uint64_t nowUs);
+
 void requestLedRender();
 
 bool consumeLedRenderRequest();

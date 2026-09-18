@@ -121,6 +121,18 @@ def test_scroll_bitmap_rotation_skipped_for_viewport_uploads():
     print("test_scroll_bitmap_rotation_skipped_for_viewport_uploads: OK")
 
 
+def test_scroll_task_forces_render_on_identify_expiry():
+    # F1: a static screen (no scroll tick, no main-task render request) must
+    # still clear an expired identify overlay promptly -- scroll.cpp's render
+    # task must call identifyOverlayExpiryDue() and force a render when due.
+    scroll_cpp = (SRC / "scroll.cpp").read_text()
+    check("identifyOverlayExpiryDue(" in scroll_cpp,
+          "scroll.cpp must call identifyOverlayExpiryDue() to expire the identify overlay on a static screen")
+    check("bool identifyOverlayExpiryDue(uint64_t nowUs);" in (SRC / "led_renderer.h").read_text(),
+          "led_renderer.h must declare identifyOverlayExpiryDue()")
+    print("test_scroll_task_forces_render_on_identify_expiry: OK")
+
+
 def main():
     test_identify_state_only_touched_in_led_renderer()
     test_identify_drawn_only_in_render_pass()
@@ -128,6 +140,7 @@ def main():
     test_identify_priority_over_hint_and_button_overlay()
     test_cmd_identify_never_touches_scroll_frame_face_state()
     test_scroll_bitmap_rotation_skipped_for_viewport_uploads()
+    test_scroll_task_forces_render_on_identify_expiry()
     print("All group_identify pattern checks passed.")
 
 
