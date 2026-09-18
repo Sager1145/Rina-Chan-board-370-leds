@@ -32,7 +32,6 @@ struct RinaBoardApp: App {
                 .environment(sessions.active.connection)
                 .environment(router)
                 .environment(boardStore)
-                .environment(sessions.active.bleTransport)
                 .environment(bootLoader)
                 .environment(controlCenter)
                 .environment(faceLibrary)

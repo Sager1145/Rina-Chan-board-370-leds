@@ -47,7 +47,7 @@ public struct BLEInfo: Codable, Equatable, Sendable {
 /// outgoing writes to the negotiated MTU.
 @Observable
 @MainActor
-public final class BLETransport: NSObject, @MainActor RinaTransport, @unchecked Sendable {
+public final class BLETransport: NSObject, @MainActor RinaTransport, BLEConnecting, @unchecked Sendable {
     public let kind: TransportKind = .bluetooth
 
     /// Sorted strongest-signal-first, stale entries pruned. Only boards

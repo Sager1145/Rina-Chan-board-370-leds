@@ -45,12 +45,10 @@ public extension BoardConnection {
         return frame.payload
     }
 
-    // NOTE (C10 firmware log): `EV_LOG` (0x94) frames are consumed and
-    // discarded inside `BoardConnection.route(_:)`, which is private and
-    // lives in `Services/BoardConnection.swift` (out of scope to edit for
-    // this feature). There is no public event stream/callback exposed for
-    // events other than the already-published `status`/`power`/`wifi`/
-    // `preview` properties, so this extension cannot observe `EV_LOG`
-    // without modifying `BoardConnection.swift`. The Debug tab's "固件日志"
-    // subscribe toggle is therefore left disabled with an explanatory note.
+    // NOTE (C10 firmware log): no helper is needed here. `BoardConnection`
+    // decodes `EV_LOG` (0x94) into `lastLog` and fans it out as
+    // `BoardEvent.log` on the public multi-consumer `events()` stream, so
+    // the Debug tab's "固件日志" toggle drives the feature directly from
+    // `DebugViewModel`: `CMD log_subscribe` to turn the firmware stream on,
+    // then `for await` over `events()`.
 }
