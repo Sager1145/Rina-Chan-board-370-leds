@@ -398,7 +398,7 @@ public final class BoardGroupCoordinator {
               let frameCount = first.frameCount, frameCount > 0,
               let intervalMs = first.scrollIntervalMs, intervalMs > 0,
               metas.allSatisfy({
-                  $0.groupTimed == true && $0.firmwareScrollActive == true
+                  $0.groupTimed == true && $0.firmwareScrollActive == true && $0.uploadComplete != false
                       && $0.scrollTimelineId == timelineId && $0.sourceText == text
                       && $0.frameCount == frameCount && $0.scrollIntervalMs == intervalMs
               }) else { return false }
@@ -1222,6 +1222,14 @@ public final class BoardGroupCoordinator {
         /// Current frame interval, so the preview redraws at the playback
         /// rate rather than every display refresh.
         public let intervalMs: Int
+    }
+
+    /// The rate the active group is running at (or will resume at while
+    /// paused), from the live anchor — including after `adoptRunningScroll`,
+    /// so the Text tab can adopt it as its requested speed. `nil` when idle.
+    public var activeFps: Int? {
+        guard isPlaying || isPaused, let anchor = currentAnchor else { return nil }
+        return max(1, Int((1000.0 / Double(max(anchor.intervalMs, 1))).rounded()))
     }
 
     /// `nil` unless a group is playing or paused.
