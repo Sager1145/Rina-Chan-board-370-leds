@@ -112,10 +112,20 @@ def main():
     strings = catalog["strings"]
 
     missing = sorted(k for k in found if k not in strings)
+    stale = sorted(k for k in found
+                   if k in strings and strings[k].get("extractionState") == "stale")
+
     print("%d key(s) in code, %d missing from the catalog" % (len(found), len(missing)))
     for key in missing:
         print("  %s" % key)
-    if check or not missing:
+    if stale:
+        print("%d key(s) in code but marked stale in the catalog:" % len(stale))
+        for key in stale:
+            print("  %s" % key)
+
+    if check:
+        return 1 if (missing or stale) else 0
+    if not missing:
         return 0
 
     # Appended in insertion order: the existing keys keep Xcode's order, so the
