@@ -157,8 +157,6 @@ final class VideoPlayerModel {
     @ObservationIgnored private let store: PresetLiveFileStore
     /// Observed so the source preview picks up a newly imported video.
     private(set) var player: AVPlayer?
-    /// Upright pixel size of the current video, `.zero` when there is none.
-    private(set) var videoSize: CGSize = .zero
     @ObservationIgnored private var videoOutput: AVPlayerItemVideoOutput?
     @ObservationIgnored private var imageGenerator: AVAssetImageGenerator?
     @ObservationIgnored private var storedURL: URL?
@@ -218,6 +216,7 @@ final class VideoPlayerModel {
     func restoreLastVideoIfNeeded() {
         guard !didRestore else { return }
         didRestore = true
+        removeOrphanedFiles()
         guard player == nil else { return }
         restoreTask = makeRestoreTask()
     }
@@ -231,6 +230,7 @@ final class VideoPlayerModel {
         positionMs boardPositionMs: Int? = nil,
         shouldResume: @escaping @MainActor () async -> Bool = { true }
     ) async {
+        if !didRestore { removeOrphanedFiles() }
         didRestore = true
         let generation = connection.connectionGeneration
         let previousOutputSession = connection.output.session
@@ -418,7 +418,6 @@ final class VideoPlayerModel {
         generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 20)
 
         self.player = player
-        videoSize = composition.renderSize
         videoOutput = output
         imageGenerator = generator
         storedURL = url
@@ -432,6 +431,43 @@ final class VideoPlayerModel {
         defaults.set(url.lastPathComponent, forKey: Self.fileKey)
         defaults.set(title, forKey: Self.titleKey)
         renderStill(atMs: 0)
+    }
+
+    /// Drops the current video: stops it, deletes the stored copy and forgets
+    /// it, so the next launch does not restore it either.
+    func clearVideo() {
+        // Invalidates a load or restore still in flight.
+        loadGeneration += 1
+        restoreTask?.cancel()
+        restoreTask = nil
+        isLoading = false
+        stop()
+        teardownPlayer()
+        if let storedURL { store.remove(storedURL) }
+        storedURL = nil
+        forgetStoredVideo()
+        title = nil
+        durationMs = 0
+        positionMs = 0
+        precisePositionMs = 0
+        lastLuma = nil
+        lastPersistedPositionMs = nil
+        playbackStreamID = nil
+        previewFrame = PackedFrame()
+        errorMessage = nil
+    }
+
+    /// Deletes every stored file no saved key points at: copies left behind
+    /// when the app died mid-import or before an old video was removed, and
+    /// half-copied `.importing` files. Runs once, at the first restore, before
+    /// the user can start an import that this would race with.
+    private func removeOrphanedFiles() {
+        let keep = Set([Self.fileKey, Self.playbackFileKey].compactMap { defaults.string(forKey: $0) })
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: store.directory, includingPropertiesForKeys: nil)) ?? []
+        for file in files where !keep.contains(file.lastPathComponent) {
+            store.remove(file)
+        }
     }
 
     private func forgetStoredVideo() {
@@ -453,7 +489,6 @@ final class VideoPlayerModel {
         player?.pause()
         player?.replaceCurrentItem(with: nil)
         player = nil
-        videoSize = .zero
         videoOutput = nil
         imageGenerator = nil
     }

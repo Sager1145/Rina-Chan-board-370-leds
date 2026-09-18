@@ -46,19 +46,23 @@ struct VideoPlayerView: View {
 
     /// The video itself as the phone plays it, next to the 22×18 board
     /// preview above. Shows the current frame while paused or stopped.
+    /// Framed at the board's own shape and cropped the way 画面适配 crops it,
+    /// so the window shows exactly the part of the picture the LEDs get.
     private var sourcePreviewSection: some View {
         Section {
             ZStack {
                 Color.black
                 if let player = model.player {
-                    PlayerLayerView(player: player)
+                    PlayerLayerView(player: player, gravity: playerGravity)
+                        .scaleEffect(x: model.settings.mirror ? -1 : 1)
                 } else {
                     Image(systemName: "film")
                         .font(.largeTitle)
                         .foregroundStyle(.secondary)
                 }
             }
-            .aspectRatio(sourcePreviewAspectRatio, contentMode: .fit)
+            .aspectRatio(CGFloat(LEDBoardGeometry.cols) / CGFloat(LEDBoardGeometry.rows),
+                         contentMode: .fit)
             // Framed by the list card around it, so the black picture doesn't
             // dissolve into a dark-mode page. A stroke on a zero-inset row
             // doesn't work: the cell's own larger corner radius clips the
@@ -70,12 +74,13 @@ struct VideoPlayerView: View {
         }
     }
 
-    /// The video's own shape, clamped between square and 16:9 so a portrait
-    /// clip doesn't push the controls below off screen.
-    private var sourcePreviewAspectRatio: CGFloat {
-        let size = model.videoSize
-        guard size.width > 0, size.height > 0 else { return 16.0 / 9.0 }
-        return min(max(size.width / size.height, 1), 16.0 / 9.0)
+    /// The same mapping `VideoFrameQuantizer` applies to the square-pitch grid.
+    private var playerGravity: AVLayerVideoGravity {
+        switch model.settings.fit {
+        case .fill: .resizeAspectFill
+        case .fit: .resizeAspect
+        case .stretch: .resize
+        }
     }
 
     // MARK: Preview
@@ -204,6 +209,7 @@ struct VideoPlayerView: View {
                 if model.isLoading {
                     ProgressView()
                 } else {
+                    HStack(spacing: 8) {
                     Menu {
                         Button {
                             isPickingPhoto = true
@@ -220,6 +226,18 @@ struct VideoPlayerView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
+                    if model.hasVideo {
+                        Button {
+                            model.clearVideo()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        // Borderless so a tap on the row doesn't also fire it.
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(LocalizedStringKey("清除视频"))
+                    }
+                    }
                 }
             }
             // Presented from the row that opens them: inside a list,
@@ -229,10 +247,16 @@ struct VideoPlayerView: View {
                     Task { await model.importFile(from: url) }
                 }
             }
-            .photosPicker(isPresented: $isPickingPhoto, selection: $photoSelection, matching: .videos)
+            // The picker inline in a form-size sheet of our own. On iPad
+            // `.photosPicker` presents a full-height sheet over a blurred
+            // window; this matches the Files importer's form sheet instead.
+            .sheet(isPresented: $isPickingPhoto) {
+                PhotoVideoPickerSheet(selection: $photoSelection)
+            }
             .onChange(of: photoSelection) { _, item in
                 guard let item else { return }
                 photoSelection = nil
+                isPickingPhoto = false
                 Task { await model.importFromPhotos(item) }
             }
         }
@@ -352,19 +376,59 @@ private struct VideoTransportSliderView: View {
     }
 }
 
+/// The Photos library inline, with our own 取消 in place of the system
+/// picker's bar.
+private struct PhotoVideoPickerSheet: View {
+    @Binding var selection: PhotosPickerItem?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            PhotosPicker(selection: $selection, matching: .videos, preferredItemEncoding: .current) {
+                EmptyView()
+            }
+            .photosPickerStyle(.inline)
+            .photosPickerAccessoryVisibility(.hidden, edges: .top)
+            .ignoresSafeArea(edges: .bottom)
+            .navigationTitle(Text("从相册选择"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
+        }
+        .modifier(FormSheetSizing())
+    }
+}
+
+private struct FormSheetSizing: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.presentationSizing(.form)
+        } else {
+            content
+        }
+    }
+}
+
 /// A bare `AVPlayerLayer`: the picture only. AVKit's `VideoPlayer` would add
 /// its own transport, duplicating the controls above.
 private struct PlayerLayerView: UIViewRepresentable {
     let player: AVPlayer
+    let gravity: AVLayerVideoGravity
 
     func makeUIView(context: Context) -> PlayerLayerHostView {
         let view = PlayerLayerHostView()
-        view.playerLayer.videoGravity = .resizeAspect
+        view.playerLayer.videoGravity = gravity
         view.playerLayer.player = player
         return view
     }
 
     func updateUIView(_ view: PlayerLayerHostView, context: Context) {
+        if view.playerLayer.videoGravity != gravity {
+            view.playerLayer.videoGravity = gravity
+        }
         if view.playerLayer.player !== player {
             view.playerLayer.player = player
         }

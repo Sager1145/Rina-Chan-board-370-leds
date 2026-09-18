@@ -23,6 +23,16 @@ final class RinaCommandTests: XCTestCase {
         XCTAssertEqual(set?["led"] as? Int, 57)
         let clear = try JSONSerialization.jsonObject(with: RinaCommand.setHintLED(led: nil).encode()) as? [String: Any]
         XCTAssertEqual(clear?["led"] as? Int, -1)
+        XCTAssertNil(set?["mirror"])
+    }
+
+    func testSetHintLEDEncodesMirrorOnlyWithAnLED() throws {
+        let pair = try JSONSerialization.jsonObject(with: RinaCommand.setHintLED(led: 57, mirror: 60).encode()) as? [String: Any]
+        XCTAssertEqual(pair?["led"] as? Int, 57)
+        XCTAssertEqual(pair?["mirror"] as? Int, 60)
+        let clear = try JSONSerialization.jsonObject(with: RinaCommand.setHintLED(led: nil, mirror: 60).encode()) as? [String: Any]
+        XCTAssertEqual(clear?["led"] as? Int, -1)
+        XCTAssertNil(clear?["mirror"])
     }
 
     func testScrollSeekEncodesFrameIndex() throws {

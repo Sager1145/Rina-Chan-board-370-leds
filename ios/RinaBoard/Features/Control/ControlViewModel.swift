@@ -121,15 +121,22 @@ final class ControlViewModel {
     /// board and link that is. `boardHintUncertain` is set when a send failed
     /// without the board saying no: it may or may not have taken it, so the
     /// next change must be sent even if it looks like a repeat.
-    @ObservationIgnored private var boardHintLED: Int?
+    @ObservationIgnored private var boardHintLED: HintTarget?
     @ObservationIgnored private weak var boardHintConnection: BoardConnection?
     @ObservationIgnored private var boardHintGeneration: UUID?
     @ObservationIgnored private var boardHintUncertain = false
     /// Links whose firmware predates `set_hint_led`: stop asking them.
     @ObservationIgnored private var hintUnsupportedGenerations: Set<UUID> = []
 
+    /// One hint as the board shows it: the hovered LED and, while the eyes
+    /// are edited as a pair, the other eye's LED.
+    private struct HintTarget: Equatable, Sendable {
+        let led: Int
+        let mirror: Int?
+    }
+
     private struct HintSubmission: Sendable {
-        let led: Int?
+        let target: HintTarget?
         let generation: UUID
         let connection: BoardConnection
     }
@@ -410,6 +417,8 @@ final class ControlViewModel {
     func setSyncEyes(_ enabled: Bool, connection: BoardConnection) {
         guard syncEyes != enabled else { return }
         syncEyes = enabled
+        // A pencil hovering now gains or loses its partner LED on the board.
+        defer { syncBoardHint(connection: connection) }
         guard enabled else { return }
 
         // A parts-composed draft syncs at the part level, which keeps
@@ -634,10 +643,18 @@ final class ControlViewModel {
 
     // MARK: Apple Pencil hover
 
+    /// The other eye's LED to hover with `led`, while the eyes are edited as
+    /// a pair — the LED an edit there would also change.
+    func pencilHoverMirror(of led: Int) -> Int? {
+        guard syncEyes, let mirrored = eyeTopology?.mirroredLED(of: led), mirrored != led else { return nil }
+        return mirrored
+    }
+
     /// The LED an Apple Pencil hovers over on the editor, or `nil` once it
     /// hovers over none. The preview already draws it at half brightness; with
-    /// 即时预览 on, the board shows the same LED at half brightness too, and
-    /// loses it the moment the pencil leaves.
+    /// 即时预览 on, the board shows the same LED at half brightness too (and
+    /// its partner, while the eyes are edited as a pair), and loses it the
+    /// moment the pencil leaves.
     func pencilHover(led: Int?, connection: BoardConnection) {
         hoveredLED = led
         syncBoardHint(connection: connection)
@@ -666,7 +683,7 @@ final class ControlViewModel {
             boardHintUncertain = false
         }
 
-        var target = hoveredLED
+        var target = hoveredLED.map { HintTarget(led: $0, mirror: pencilHoverMirror(of: $0)) }
         if target != nil, !(livePreview
                             && connection.connectionState == .connected
                             && draftBelongs(to: connection)
@@ -680,7 +697,7 @@ final class ControlViewModel {
               target != boardHintLED || boardHintUncertain else { return }
         boardHintLED = target
         boardHintUncertain = false
-        hintSender?.submit(HintSubmission(led: target, generation: generation, connection: connection))
+        hintSender?.submit(HintSubmission(target: target, generation: generation, connection: connection))
     }
 
     private func sendHint(_ s: HintSubmission) async {
@@ -689,7 +706,7 @@ final class ControlViewModel {
               connection.connectionGeneration == s.generation,
               !hintUnsupportedGenerations.contains(s.generation) else { return }
         do {
-            _ = try await connection.command(.setHintLED(led: s.led))
+            _ = try await connection.command(.setHintLED(led: s.target?.led, mirror: s.target?.mirror))
         } catch let error as RinaLinkError where error.code == 400 && error.error.hasPrefix("unknown command") {
             // Firmware without the hint LED: it lit nothing, and the hover is
             // a courtesy never worth an alert. Stop asking this link.

@@ -64,6 +64,44 @@ final class VideoPlaybackRecoveryTests: XCTestCase {
         try await transport.waitForSent(type: .setFrame, count: 1)
     }
 
+    func testClearVideoDeletesStoredCopyAndForgetsIt() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let videoURL = try await makeVideo(at: context.root.appendingPathComponent("clear.mp4"))
+        let model = context.makeModel()
+        await model.importFile(from: videoURL)
+        let storedFile = try XCTUnwrap(context.defaults.string(forKey: "videoFile"))
+        let storedURL = context.store.storedURL(named: storedFile)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: storedURL.path))
+
+        model.clearVideo()
+
+        XCTAssertFalse(model.hasVideo)
+        XCTAssertNil(model.title)
+        XCTAssertEqual(model.durationMs, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: storedURL.path))
+        XCTAssertNil(context.defaults.string(forKey: "videoFile"))
+        XCTAssertNil(context.defaults.string(forKey: "videoPlaybackFile"))
+    }
+
+    func testFirstRestoreRemovesOrphanedFilesButKeepsSavedVideo() async throws {
+        let context = try makeContext()
+        defer { context.cleanUp() }
+        let videoURL = try await makeVideo(at: context.root.appendingPathComponent("kept.mp4"))
+        await context.makeModel().importFile(from: videoURL)
+        let storedFile = try XCTUnwrap(context.defaults.string(forKey: "videoFile"))
+        let orphan = context.store.directory.appendingPathComponent("orphan.mp4")
+        let partial = context.store.directory.appendingPathComponent(".partial.importing")
+        try Data([1]).write(to: orphan)
+        try Data([1]).write(to: partial)
+
+        context.makeModel().restoreLastVideoIfNeeded()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: context.store.storedURL(named: storedFile).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphan.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path))
+    }
+
     private func makeContext() throws -> VideoTestContext {
         let identifier = UUID().uuidString
         let root = FileManager.default.temporaryDirectory

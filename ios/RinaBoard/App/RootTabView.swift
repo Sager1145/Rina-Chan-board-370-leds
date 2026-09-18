@@ -303,9 +303,10 @@ struct RootTabView: View {
 ///
 /// On earlier releases it adds nothing at all — not even the sheet — because
 /// the Settings tab hosts the Control Center there; leaving the sheet attached
-/// would give those releases a second, undocumented way in. Same on the
-/// two-column iPad layout, where every page carries the panel in its preview
-/// column: the user asked for no separate bottom bar there.
+/// would give those releases a second, undocumented way in. The two-column
+/// iPad layout gets no accessory and never presents the sheet, since every
+/// page carries the panel in its preview column: the user asked for no
+/// separate bottom bar there.
 private struct ControlCenterPresenter: ViewModifier {
     @Environment(BoardConnection.self) private var connection
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -335,30 +336,21 @@ private struct ControlCenterPresenter: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *), placement == .tabBarAccessory {
-            content
-                .tabViewBottomAccessory {
-                    // The accessory hosts real controls, so it wires up its
-                    // own expand affordance instead of being wrapped in one
-                    // button that would swallow every tap.
-                    BoardControlCenterAccessory(transitionSourceID: Self.transitionSourceID,
-                                                transitionNamespace: namespace) {
-                        // Never while presented: swapping the flag under a
-                        // live sheet is the identity change the flag exists
-                        // to prevent. Unreachable today, since the sheet
-                        // covers the bar, but a smaller detent would expose
-                        // the accessory again.
-                        guard !isPresented else { return }
-                        useZoomTransition = !reduceMotion
-                        isPresented = true
-                    }
-                }
+        // The branch is on the OS version only, never on the width class.
+        // Everything this modifier wraps is the root `TabView`, so a branch
+        // that flips when a Stage Manager window is resized or snapped to
+        // full screen would tear the tab bar down and rebuild it — the items
+        // visibly re-tint and fade in mid-resize. The width class only turns
+        // the accessory on and off; the sheet stays attached and is simply
+        // never presented in the two-column layout.
+        if #available(iOS 26.0, *), placement != .settingsLink {
+            accessoryHost(content)
                 // Reopening starts at the detent it was opened at, not the one
                 // it was last dragged to: a sheet left at `.large` would
                 // otherwise collapse across twice the distance next time, into
                 // the same small region of the bar. Reset after the collapse
                 // has finished, so it cannot re-detent mid-transition.
-                .sheet(isPresented: $isPresented, onDismiss: { detent = .medium }) {
+                .sheet(isPresented: sheetPresented, onDismiss: { detent = .medium }) {
                     expandedSheet
                     .presentationDetents([.medium, .large], selection: $detent)
                     .presentationDragIndicator(.visible)
@@ -375,8 +367,54 @@ private struct ControlCenterPresenter: ViewModifier {
                     guard !isPresented else { return }
                     useZoomTransition = !reduced
                 }
+                // Widening into the two-column layout closes the sheet, as
+                // removing the modifier used to, so it does not reappear when
+                // the window is narrowed again.
+                .onChange(of: placement) { _, placement in
+                    if placement != .tabBarAccessory { isPresented = false }
+                }
         } else {
             content
+        }
+    }
+
+    /// The sheet only exists in the single-column layout; the two-column one
+    /// carries the panel in every preview column instead.
+    private var sheetPresented: Binding<Bool> {
+        Binding(get: { isPresented && placement == .tabBarAccessory },
+                set: { isPresented = $0 })
+    }
+
+    @available(iOS 26.0, *)
+    @ViewBuilder
+    private func accessoryHost(_ content: Content) -> some View {
+        if #available(iOS 26.1, *) {
+            content.tabViewBottomAccessory(isEnabled: placement == .tabBarAccessory) {
+                accessory
+            }
+        } else if placement == .tabBarAccessory {
+            // iOS 26.0 has no way to switch the accessory off in place, so
+            // only there does a width-class change still rebuild the tab bar.
+            content.tabViewBottomAccessory { accessory }
+        } else {
+            content
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private var accessory: some View {
+        // The accessory hosts real controls, so it wires up its own expand
+        // affordance instead of being wrapped in one button that would
+        // swallow every tap.
+        BoardControlCenterAccessory(transitionSourceID: Self.transitionSourceID,
+                                    transitionNamespace: namespace) {
+            // Never while presented: swapping the flag under a live sheet is
+            // the identity change the flag exists to prevent. Unreachable
+            // today, since the sheet covers the bar, but a smaller detent
+            // would expose the accessory again.
+            guard !isPresented else { return }
+            useZoomTransition = !reduceMotion
+            isPresented = true
         }
     }
 

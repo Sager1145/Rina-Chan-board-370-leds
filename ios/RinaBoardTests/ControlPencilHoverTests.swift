@@ -39,6 +39,56 @@ final class ControlPencilHoverTests: XCTestCase {
         }
     }
 
+    /// `led` and `mirror` (nil when absent) of every `set_hint_led`, in order.
+    private func hintPairs(_ transport: FakeRinaTransport) -> [[Int?]] {
+        transport.sentFrames(type: .cmd).compactMap { frame in
+            guard let object = try? JSONSerialization.jsonObject(with: frame.payload) as? [String: Any],
+                  object["cmd"] as? String == "set_hint_led" else { return nil }
+            return [object["led"] as? Int, object["mirror"] as? Int]
+        }
+    }
+
+    /// With the eyes edited as a pair, hovering one eye shows the LED an edit
+    /// would also change in the other eye — in the preview and on the board.
+    func testSyncedEyesHoverTheMirroredLEDToo() async throws {
+        let (connection, transport) = await connectedBoard()
+        let model = ControlViewModel()
+        model.livePreview = true
+        let pair = try XCTUnwrap(model.eyeTopology?.leftToRightPairs.first)
+
+        XCTAssertNil(model.pencilHoverMirror(of: pair.left), "eye sync is off")
+        model.setSyncEyes(true, connection: connection)
+        XCTAssertEqual(model.pencilHoverMirror(of: pair.left), pair.right)
+        XCTAssertEqual(model.pencilHoverMirror(of: pair.right), pair.left)
+
+        model.pencilHover(led: pair.left, connection: connection)
+        await waitFor("the board must show both eyes") { hintPairs(transport) == [[pair.left, pair.right]] }
+        model.pencilHover(led: nil, connection: connection)
+        await waitFor { hintPairs(transport) == [[pair.left, pair.right], [-1, nil]] }
+        connection.disconnect()
+    }
+
+    /// Turning eye sync on or off while the pencil is held still re-sends the
+    /// hint with or without its partner.
+    func testTogglingEyeSyncMidHoverUpdatesTheBoard() async throws {
+        let (connection, transport) = await connectedBoard()
+        let model = ControlViewModel()
+        model.livePreview = true
+        let pair = try XCTUnwrap(model.eyeTopology?.leftToRightPairs.first)
+
+        model.pencilHover(led: pair.left, connection: connection)
+        await waitFor { hintPairs(transport) == [[pair.left, nil]] }
+        model.setSyncEyes(true, connection: connection)
+        await waitFor("sync on adds the partner") {
+            hintPairs(transport) == [[pair.left, nil], [pair.left, pair.right]]
+        }
+        model.setSyncEyes(false, connection: connection)
+        await waitFor("sync off drops it again") {
+            hintPairs(transport) == [[pair.left, nil], [pair.left, pair.right], [pair.left, nil]]
+        }
+        connection.disconnect()
+    }
+
     func testHoverLightsTheBoardLEDAndLeavingClearsIt() async {
         let (connection, transport) = await connectedBoard()
         let model = ControlViewModel()

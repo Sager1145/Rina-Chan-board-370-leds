@@ -11,6 +11,8 @@ struct LipSyncView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(LipSyncModel.self) private var model
     @Environment(BoardControlCenterModel.self) private var controlCenter
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var isMouthMappingPresented = false
 
     private var isConnected: Bool { connection.connectionState == .connected }
 
@@ -313,17 +315,48 @@ struct LipSyncView: View {
 
     // MARK: Mouth mapping
 
+    /// On a phone the editor is pushed with its own board preview. On iPad the
+    /// pinned board in the left column already shows the same frame, so the
+    /// editor pops over the controls column without a second preview.
     @ViewBuilder
     private var mouthMappingLink: some View {
         if let library = model.library {
-            NavigationLink {
-                LipSyncMouthMappingView(library: library,
-                                        color: controlCenter.draftColor,
-                                        brightness: controlCenter.draftBrightness)
-            } label: {
-                Text("口型与造型")
+            if BoardPageColumns.isSplit(horizontalSizeClass) {
+                Button {
+                    isMouthMappingPresented = true
+                } label: {
+                    HStack {
+                        Text("口型与造型")
+                            .foregroundStyle(Color.primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Color(uiColor: .tertiaryLabel))
+                    }
+                    .contentShape(Rectangle())
+                }
+                // Opening downward keeps it over the controls column; a
+                // sideways popover would cover the board it relies on.
+                .popover(isPresented: $isMouthMappingPresented, arrowEdge: .top) {
+                    mouthMappingView(library: library, showsPreview: false)
+                        .frame(width: 400, height: 600)
+                        .presentationCompactAdaptation(.popover)
+                }
+            } else {
+                NavigationLink {
+                    mouthMappingView(library: library, showsPreview: true)
+                } label: {
+                    Text("口型与造型")
+                }
             }
         }
+    }
+
+    private func mouthMappingView(library: PartsLibrary, showsPreview: Bool) -> some View {
+        LipSyncMouthMappingView(library: library,
+                                color: controlCenter.draftColor,
+                                brightness: controlCenter.draftBrightness,
+                                showsPreview: showsPreview)
     }
 
     // MARK: Errors
@@ -348,21 +381,36 @@ struct LipSyncMouthMappingView: View {
     let library: PartsLibrary
     let color: Color
     let brightness: Int
+    /// False in the iPad popover, where the pinned board beside it is the preview.
+    var showsPreview = true
 
     @Environment(LipSyncModel.self) private var model
 
     var body: some View {
         @Bindable var model = model
 
+        // The board stays pinned above the list, like the iPad preview
+        // column, so it never scrolls away while the parts below are picked.
+        VStack(spacing: 0) {
+            if showsPreview {
+                BoardPreviewRow(frame: model.previewFrame,
+                                color: color,
+                                brightness: brightness,
+                                accessibilityDescription: NSLocalizedString("口型预览",
+                                                                            comment: "mouth mapping preview"))
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 4)
+            }
+            partsList
+        }
+        .rinaScrollBackground()
+        .navigationTitle("口型与造型")
+        .toolbarTitleDisplayMode(.inline)
+    }
+
+    private var partsList: some View {
         List {
             Group {
-                Section {
-                    BoardPreviewRow(frame: model.previewFrame,
-                                    color: color,
-                                    brightness: brightness,
-                                    accessibilityDescription: NSLocalizedString("口型预览",
-                                                                                comment: "mouth mapping preview"))
-                }
 
                 Section {
                     HStack(spacing: 8) {
@@ -414,9 +462,7 @@ struct LipSyncMouthMappingView: View {
             .rinaTranslucentRows()
         }
         .listSectionSpacing(.compact)
-        .rinaScrollBackground()
-        .navigationTitle("口型与造型")
-        .navigationBarTitleDisplayMode(.inline)
+        .contentMargins(.top, showsPreview ? 4 : 12, for: .scrollContent)
     }
 
     private func vowelTitle(_ vowel: LipSyncVowel) -> String {

@@ -18,6 +18,7 @@ struct SettingsView: View {
     @AppStorage(AppSettingsKey.hapticsEnabled) private var hapticsEnabled = true
     @AppStorage(AppSettingsKey.keepScreenAwake) private var keepScreenAwake = false
     @AppStorage(AppSettingsKey.restoreLastTab) private var restoreLastTab = false
+    @State private var language = AppLanguage.saved
 
     @State private var confirmReboot = false
     @State private var rebootError: String?
@@ -149,8 +150,24 @@ struct SettingsView: View {
             Toggle(isOn: $restoreLastTab) {
                 Label("记住上次的标签页", systemImage: "square.on.square")
             }
+            Picker(selection: $language) {
+                ForEach(AppLanguage.allCases) { option in
+                    if let name = option.nativeName {
+                        Text(verbatim: name).tag(option)
+                    } else {
+                        Text("跟随系统").tag(option)
+                    }
+                }
+            } label: {
+                Label("语言", systemImage: "globe")
+            }
+            .onChange(of: language) { _, newValue in newValue.save() }
         } header: {
             Text("应用")
+        } footer: {
+            if language.needsRelaunch {
+                Text("重新打开应用后将切换为所选语言。")
+            }
         }
     }
 

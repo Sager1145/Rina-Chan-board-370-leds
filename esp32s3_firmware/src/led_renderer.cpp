@@ -252,6 +252,7 @@ FrameStateSnapshot readFrameStateSnapshot() {
 
 // Hint LED (see setHintLed). Guarded by the frame lock, like the rest of what the render pass snapshots.
 static int16_t g_hintLed = -1;
+static int16_t g_hintMirrorLed = -1;
 static uint8_t g_hintOwnerSlot = 0xFF;
 
 // Consistency note (C3): this function is NOT reentrant — `overlayRgb`,
@@ -269,9 +270,11 @@ void renderCurrentFrameToLedStrip() {
     uint8_t brightness = DEFAULT_BRIGHTNESS;
     uint8_t colorR = 0, colorG = 0, colorB = 0;
     int16_t hint = -1;
+    int16_t hintMirror = -1;
     withFrameLock([&]() {
         ctx = consumePendingLedPresentationContext();
         hint = g_hintLed;
+        hintMirror = g_hintMirrorLed;
         memcpy(localFrame, runtimeFrameBits(), FRAME_BYTES);
         brightness = runtimeState().brightness;
         colorR = runtimeState().colorR;
@@ -311,6 +314,8 @@ void renderCurrentFrameToLedStrip() {
         if (hint >= 0 && hint < static_cast<int16_t>(LED_COUNT)) {
             const auto half = [](uint8_t v) -> uint8_t { return v ? static_cast<uint8_t>((v + 1) / 2) : 0; };
             leddrv::setPixel(logicalToPhysicalMap[hint], half(colorR), half(colorG), half(colorB));
+            if (hintMirror >= 0 && hintMirror < static_cast<int16_t>(LED_COUNT))
+                leddrv::setPixel(logicalToPhysicalMap[hintMirror], half(colorR), half(colorG), half(colorB));
             // Not a clean frame of whatever timeline is playing.
             ctx.rateEligible = false;
         }
@@ -426,15 +431,22 @@ bool setColor(const String& input, String& error) {
     return true;
 }
 
-bool setHintLed(int led, uint8_t ownerSlot, String& error) {
+bool setHintLed(int led, int mirror, uint8_t ownerSlot, String& error) {
     if (led < -1 || led >= static_cast<int>(LED_COUNT)) {
         error = "led must be -1 or 0.." + String(LED_COUNT - 1);
         return false;
     }
+    if (mirror < -1 || mirror >= static_cast<int>(LED_COUNT)) {
+        error = "mirror must be -1 or 0.." + String(LED_COUNT - 1);
+        return false;
+    }
+    if (led < 0 || mirror == led)
+        mirror = -1;
     withFrameLock([&]() {
-        if (g_hintLed == led && (led < 0 || g_hintOwnerSlot == ownerSlot))
+        if (g_hintLed == led && g_hintMirrorLed == mirror && (led < 0 || g_hintOwnerSlot == ownerSlot))
             return;
         g_hintLed = static_cast<int16_t>(led);
+        g_hintMirrorLed = static_cast<int16_t>(mirror);
         g_hintOwnerSlot = led < 0 ? 0xFF : ownerSlot;
         showCurrentFrameNoLock();
     });
@@ -444,13 +456,15 @@ bool setHintLed(int led, uint8_t ownerSlot, String& error) {
 void clearHintLedOwnedBy(uint8_t ownerSlot) {
     // Polled on every loop pass: skip the frame lock when nothing is lit.
     // Unlocked read is safe here because only the loop task ever writes the
-    // hint; the render task only reads it, under the lock.
+    // hint; the render task only reads it, under the lock. A mirror never
+    // exists without a primary hint, so gating on g_hintLed alone is safe.
     if (g_hintLed < 0)
         return;
     withFrameLock([&]() {
         if (g_hintLed < 0 || g_hintOwnerSlot != ownerSlot)
             return;
         g_hintLed = -1;
+        g_hintMirrorLed = -1;
         g_hintOwnerSlot = 0xFF;
         showCurrentFrameNoLock();
     });
@@ -459,13 +473,15 @@ void clearHintLedOwnedBy(uint8_t ownerSlot) {
 void clearHintLed() {
     // Polled on every loop pass: skip the frame lock when nothing is lit.
     // Unlocked read is safe here because only the loop task ever writes the
-    // hint; the render task only reads it, under the lock.
+    // hint; the render task only reads it, under the lock. A mirror never
+    // exists without a primary hint, so gating on g_hintLed alone is safe.
     if (g_hintLed < 0)
         return;
     withFrameLock([&]() {
         if (g_hintLed < 0)
             return;
         g_hintLed = -1;
+        g_hintMirrorLed = -1;
         g_hintOwnerSlot = 0xFF;
         showCurrentFrameNoLock();
     });
@@ -477,6 +493,14 @@ int16_t hintLedForDiagnostics() {
         hint = g_hintLed;
     });
     return hint;
+}
+
+int16_t hintMirrorLedForDiagnostics() {
+    int16_t mirror = -1;
+    withFrameLock([&]() {
+        mirror = g_hintMirrorLed;
+    });
+    return mirror;
 }
 
 void setBrightness(int raw) {

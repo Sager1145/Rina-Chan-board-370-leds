@@ -950,3 +950,6 @@
 {"en": "Let your expression move with your voice.", "hant": "讓表情跟著聲音動起來。", "ja": "声に合わせて、表情も動かしてみよう。", "k": "让表情跟着声音动起来。"}
 {"en": "Ready. Let’s begin together.", "hant": "準備好了，一起開始吧。", "ja": "準備、できた。一緒に始めよう。", "k": "准备好了，一起开始吧。"}
 {"en": "Let’s try connecting again.", "hant": "再試著連線一次吧。", "ja": "もう一度、つないでみよう。", "k": "再试着连接一次吧。"}
+{"k": "语言", "en": "Language", "hant": "語言", "ja": "言語"}
+{"k": "跟随系统", "en": "System", "hant": "跟隨系統", "ja": "システムに従う"}
+{"k": "重新打开应用后将切换为所选语言。", "en": "The selected language takes effect the next time you open the app.", "hant": "重新開啟 App 後將切換為所選語言。", "ja": "アプリを再度開くと、選択した言語に切り替わります。"}

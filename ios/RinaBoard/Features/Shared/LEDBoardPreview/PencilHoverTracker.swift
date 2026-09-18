@@ -8,6 +8,11 @@ import UIKit
 /// Pencil only (`allowedTouchTypes`): a trackpad or mouse pointer resting on
 /// the board must not light anything, so pointer hover never reaches this.
 ///
+/// The pencil touching the glass is tracked too, by its own recognizer: hover
+/// is not reliably ended by a touch-down, so contact itself clears the hover
+/// and holds it off until the pencil lifts, and `onPencilDown` hears where the
+/// tip landed the moment it lands.
+///
 /// Built on the same pattern as `BoardPreviewZoom`'s tracker — a
 /// non-interactive marker view in the layout, with the recognizer on the
 /// window — but placed the other way round: that tracker sits outside the zoom
@@ -15,6 +20,10 @@ import UIKit
 /// answers in board space at any magnification.
 struct PencilHoverTracker: UIViewRepresentable {
     var onHover: (CGPoint?) -> Void
+    /// The pencil tip touched the board here (board space).
+    var onPencilDown: ((CGPoint) -> Void)? = nil
+    /// The pencil that touched the board has lifted (or was cancelled).
+    var onPencilUp: (() -> Void)? = nil
 
     func makeUIView(context: Context) -> MarkerView {
         MarkerView()
@@ -22,6 +31,8 @@ struct PencilHoverTracker: UIViewRepresentable {
 
     func updateUIView(_ view: MarkerView, context: Context) {
         view.onHover = onHover
+        view.onPencilDown = onPencilDown
+        view.onPencilUp = onPencilUp
     }
 
     static func dismantleUIView(_ view: MarkerView, coordinator: ()) {
@@ -30,15 +41,28 @@ struct PencilHoverTracker: UIViewRepresentable {
 
     final class MarkerView: UIView, UIGestureRecognizerDelegate {
         var onHover: ((CGPoint?) -> Void)?
+        var onPencilDown: ((CGPoint) -> Void)?
+        var onPencilUp: (() -> Void)?
 
         private var pendingDetach = false
         private var isReporting = false
+        /// A pencil is on the glass over this board: hover reports are held
+        /// off until it lifts.
+        private var isInContact = false
 
         private lazy var hover: UIHoverGestureRecognizer = {
             let recognizer = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
             recognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
             recognizer.cancelsTouchesInView = false
             recognizer.delegate = self
+            return recognizer
+        }()
+
+        private lazy var contact: PencilContactRecognizer = {
+            let recognizer = PencilContactRecognizer(target: nil, action: nil)
+            recognizer.delegate = self
+            recognizer.onBegan = { [weak self] touch in self?.pencilBegan(touch) }
+            recognizer.onEnded = { [weak self] in self?.pencilEnded() }
             return recognizer
         }()
 
@@ -68,6 +92,7 @@ struct PencilHoverTracker: UIViewRepresentable {
             guard hover.view !== window else { return }
             detach()
             window.addGestureRecognizer(hover)
+            window.addGestureRecognizer(contact)
         }
 
         /// Called from `dismantleUIView`, i.e. in the middle of a SwiftUI
@@ -75,6 +100,12 @@ struct PencilHoverTracker: UIViewRepresentable {
         /// later: it writes view state, and must still reach the board.
         func detach() {
             hover.view?.removeGestureRecognizer(hover)
+            contact.view?.removeGestureRecognizer(contact)
+            if isInContact {
+                isInContact = false
+                let onPencilUp = onPencilUp
+                DispatchQueue.main.async { onPencilUp?() }
+            }
             guard isReporting else { return }
             isReporting = false
             let onHover = onHover
@@ -85,10 +116,26 @@ struct PencilHoverTracker: UIViewRepresentable {
             switch recognizer.state {
             case .began, .changed:
                 let point = recognizer.location(in: self)
-                report(accepts(point) ? point : nil)
+                report(!isInContact && accepts(point) ? point : nil)
             default:
                 report(nil)
             }
+        }
+
+        /// Touch-down puts the hover out first, so the LED it was showing
+        /// never lingers at half brightness under a stroke.
+        private func pencilBegan(_ touch: UITouch) {
+            let point = touch.location(in: self)
+            guard accepts(point) else { return }
+            isInContact = true
+            report(nil)
+            onPencilDown?(point)
+        }
+
+        private func pencilEnded() {
+            guard isInContact else { return }
+            isInContact = false
+            onPencilUp?()
         }
 
         /// Repeated `nil`s are dropped: the pencil wandering around the rest
@@ -126,5 +173,51 @@ struct PencilHoverTracker: UIViewRepresentable {
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
             true
         }
+    }
+}
+
+/// Watches an Apple Pencil touching the glass without ever recognizing: it
+/// stays `.possible` for the whole touch, so it claims nothing and every
+/// other gesture (the board's own stroke included) still gets the touch.
+final class PencilContactRecognizer: UIGestureRecognizer {
+    var onBegan: ((UITouch) -> Void)?
+    var onEnded: (() -> Void)?
+    private var tracked: Set<UITouch> = []
+
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        for touch in touches where tracked.insert(touch).inserted {
+            onBegan?(touch)
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        lift(touches)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        lift(touches)
+    }
+
+    override func reset() {
+        super.reset()
+        if !tracked.isEmpty {
+            tracked.removeAll()
+            onEnded?()
+        }
+    }
+
+    private func lift(_ touches: Set<UITouch>) {
+        tracked.subtract(touches)
+        guard tracked.isEmpty else { return }
+        onEnded?()
+        state = .failed
     }
 }

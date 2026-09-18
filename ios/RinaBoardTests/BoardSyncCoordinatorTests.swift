@@ -109,6 +109,31 @@ final class BoardSyncCoordinatorTests: XCTestCase {
                        "a scrolling A must rebind its timeline")
     }
 
+    // MARK: Connecting from Settings stays in Settings
+
+    /// Before iOS 26 the Control Center is a page pushed inside Settings, so a
+    /// board switch made there must not throw the user onto the tab that owns
+    /// the board's mode. From any other tab the jump still happens.
+    func testConnectingFromSettingsDoesNotSwitchTabs() async throws {
+        let timeline = try makeTimeline(text: "Scrolling")
+
+        for (startTab, expectedTab) in [(AppTab.settings, AppTab.settings), (.control, .text)] {
+            let sessions = BoardSessionStore()
+            let coordinator = BoardSyncCoordinator()
+            let deps = makeDeps(sessions: sessions)
+            deps.router.selectedTab = startTab
+            let transport = SyncTransport()
+            transport.status = scrollingStatus(timeline: timeline)
+            transport.scrollMeta = scrollingMeta(timeline: timeline)
+            transport.preview = scrollingPreview(timeline: timeline)
+            let connected = await sessions.active.connection.connect(using: transport)
+            XCTAssertTrue(connected)
+
+            await synchronize(coordinator, connection: sessions.active.connection, deps: deps, draftsRestored: true)
+            XCTAssertEqual(deps.router.selectedTab, expectedTab, "connected from \(startTab)")
+        }
+    }
+
     // MARK: Helpers
 
     private func synchronize(
