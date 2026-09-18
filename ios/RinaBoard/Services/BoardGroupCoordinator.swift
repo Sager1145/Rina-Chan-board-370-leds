@@ -88,6 +88,14 @@ public final class BoardGroupCoordinator {
     public private(set) var memberStatus: [String: MemberStatus] = [:]
     public private(set) var activeGroupID: UUID?
     public private(set) var isPlaying = false
+    /// `true` between a successful `pause()` and the next `resume()`/`stop()`/
+    /// `play()` — app-level group pause (no firmware timed-pause support,
+    /// BOARD_GROUP_SPEC.md §1.5): every participant sits on `pausedFrame` via
+    /// `pause_scroll` + `scroll_seek`, exited on `resume()`/`step()`.
+    public private(set) var isPaused = false
+    /// The global frame index every participant is seeked to while
+    /// `isPaused` — the base `step()` nudges and `resume()` restarts from.
+    public private(set) var pausedFrame = 0
     /// `true` from the moment a `play()` call starts uploading/clock-sampling
     /// until it either starts playing or aborts — lets the Text tab show its
     /// send pill's uploading spinner for a group the same way it does for a
@@ -264,6 +272,8 @@ public final class BoardGroupCoordinator {
         currentAnchor = nil
         playState = nil
         isPlaying = false
+        isPaused = false
+        pausedFrame = 0
         evictedByOwnership.removeAll()
 
         var online: [CapturedMember] = []
@@ -486,6 +496,8 @@ public final class BoardGroupCoordinator {
         currentAnchor = nil
         playState = nil
         isPlaying = false
+        isPaused = false
+        pausedFrame = 0
         activeGroupID = nil
         activeRevision = nil
         activeEpoch = nil
@@ -678,7 +690,7 @@ public final class BoardGroupCoordinator {
     /// anchor unchanged; if both are `nil` this is a no-op.
     public func updatePlayback(group: BoardGroup, fps: Int?, loop: Bool?) async {
         guard fps != nil || loop != nil else { return }
-        guard isPlaying, activeGroupID == group.id,
+        guard isPlaying || isPaused, activeGroupID == group.id,
               let epoch = activeEpoch, playEpoch == epoch,
               let revision = activeRevision,
               let anchor = currentAnchor, let playState else { return }
@@ -687,6 +699,13 @@ public final class BoardGroupCoordinator {
 
         let newIntervalMs = fps.map { ScrollRasterizer.intervalMs(forFps: $0) } ?? anchor.intervalMs
         let newLoop = loop ?? anchor.loop
+
+        // Paused: no live re-anchor to send — just remember the new
+        // interval/loop on the anchor, applied by `resume()` next.
+        if isPaused {
+            currentAnchor = (phoneUs: anchor.phoneUs, startFrame: anchor.startFrame, intervalMs: newIntervalMs, loop: newLoop)
+            return
+        }
 
         // C1: same live-participant pruning `reanchor` uses — never touches
         // a board that isn't still exactly the one this group started with.
@@ -763,6 +782,214 @@ public final class BoardGroupCoordinator {
         currentAnchor = (phoneUs: phoneNow, startFrame: newStartFrame, intervalMs: newIntervalMs, loop: newLoop)
     }
 
+    // MARK: - Pause / resume / step (app-level; no firmware timed-pause)
+
+    /// C1: same live-participant pruning `reanchor`/`updatePlayback` use —
+    /// never touches a board that isn't still exactly the one this group
+    /// started with. Shared by `pause`/`resume`/`step`.
+    private func pruneParticipants() {
+        var survivors: [String: Participant] = [:]
+        for (id, participant) in participants {
+            let connection = participant.session.connection
+            let sameConnection = connection.connectionState == .connected
+                && connection.connectionGeneration == participant.generation
+            guard sameConnection, connection.output.source == .group,
+                  connection.output.isCurrent(participant.token) else {
+                memberStatus.removeValue(forKey: id) // M3: falls back to live status
+                if sameConnection, connection.output.source != .group {
+                    evictedByOwnership.insert(id) // N1: never auto-rejoined
+                }
+                continue
+            }
+            survivors[id] = participant
+        }
+        participants = survivors
+    }
+
+    /// The global frame index at `phoneUs` under `anchor`, wrapped (loop) or
+    /// clamped (no loop) to `frameCount` — same math `updatePlayback` uses to
+    /// find the frame to resume from at a new rate.
+    private func frame(atPhoneUs phoneUs: Int64, anchor: (phoneUs: Int64, startFrame: Int, intervalMs: Int, loop: Bool), frameCount: Int) -> Int {
+        guard frameCount > 0 else { return 0 }
+        let intervalUs = Int64(anchor.intervalMs) * 1000
+        let elapsedUs = phoneUs - anchor.phoneUs
+        let rawFrame = elapsedUs < 0
+            ? Int64(anchor.startFrame)
+            : Int64(anchor.startFrame) + elapsedUs / max(intervalUs, 1)
+        if anchor.loop {
+            let m = Int64(frameCount)
+            return Int(((rawFrame % m) + m) % m)
+        }
+        return Int(min(max(rawFrame, 0), Int64(frameCount - 1)))
+    }
+
+    /// Pauses a playing group in place (BOARD_GROUP_SPEC.md §1.5: `pause_scroll`
+    /// / `scroll_seek` exit group-timed mode): picks one common phone instant
+    /// `T`, computes the global frame `n` every member is showing at `T` under
+    /// the current anchor, stops re-anchoring, then sends every live
+    /// participant `pause_scroll` followed by `scroll_seek{frameIndex:n}` in
+    /// parallel — so every board ends up paused on the identical frame. A
+    /// member whose request fails is recorded `.error`; the others still end
+    /// paused. Same live-participant/epoch/revision guards as `reanchor` (C1/N3).
+    public func pause(group: BoardGroup) async {
+        guard isPlaying, activeGroupID == group.id,
+              let epoch = activeEpoch, playEpoch == epoch,
+              let revision = activeRevision,
+              let anchor = currentAnchor, let playState else { return }
+        guard let liveGroup = store.groups.first(where: { $0.id == group.id }),
+              liveGroup.layoutRevision == revision else { return }
+
+        pruneParticipants()
+        guard !participants.isEmpty else { return }
+
+        reanchorTask?.cancel()
+        reanchorTask = nil
+
+        let worstRtt = participants.keys.compactMap { estimators[$0]?.bestRttUs }.max() ?? 0
+        let phoneNow = nowUs() + max(300_000, 3 * worstRtt)
+        let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
+        let n = frame(atPhoneUs: phoneNow, anchor: anchor, frameCount: frameCount)
+
+        guard playEpoch == epoch else { return } // N3
+
+        let snapshot = participants
+        await withTaskGroup(of: Void.self) { taskGroup in
+            for (id, participant) in snapshot {
+                taskGroup.addTask { @MainActor in
+                    do {
+                        try await participant.session.connection.withOutput(participant.token) {
+                            _ = try await participant.session.connection.requestReliable(.pauseScroll)
+                            _ = try await participant.session.connection.requestReliable(.scrollSeek(frameIndex: n))
+                        }
+                        guard self.playEpoch == epoch else { return } // N3
+                        self.memberStatus[id] = .ready
+                    } catch {
+                        guard self.playEpoch == epoch else { return } // N3
+                        self.memberStatus[id] = .error(error.localizedDescription)
+                    }
+                }
+            }
+        }
+
+        guard playEpoch == epoch else { return } // N3
+        isPlaying = false
+        isPaused = true
+        pausedFrame = n
+    }
+
+    /// Resumes a paused group from `pausedFrame`: fresh clock samples (like
+    /// `reanchor`), a fresh common phone start instant, then one `group_start`
+    /// per live participant anchored at `pausedFrame` — restarting the
+    /// re-anchor loop once every reachable board is back in group-timed
+    /// playback. `intervalMs`/`loop` are whatever `updatePlayback` last stored
+    /// while paused (or the play-time values if it was never called).
+    public func resume(group: BoardGroup) async {
+        guard isPaused, activeGroupID == group.id,
+              let epoch = activeEpoch, playEpoch == epoch,
+              let revision = activeRevision,
+              let anchor = currentAnchor, let playState else { return }
+        guard let liveGroup = store.groups.first(where: { $0.id == group.id }),
+              liveGroup.layoutRevision == revision else { return }
+
+        pruneParticipants()
+        guard !participants.isEmpty else { return }
+
+        var bootIds: [String: String] = [:]
+        for (id, participant) in participants {
+            bootIds[id] = participant.bootId
+            var estimator = estimators[id] ?? ClockOffsetEstimator()
+            estimator.removeAllSamples()
+            for _ in 0..<4 {
+                guard let sample = try? await takeClockSample(connection: participant.session.connection) else { continue }
+                estimator.addSample(sample, bootId: participant.bootId)
+            }
+            estimators[id] = estimator
+        }
+        guard playEpoch == epoch else { return } // N3: re-check after sampling awaits
+
+        let worstRtt = participants.keys.compactMap { estimators[$0]?.bestRttUs }.max() ?? 0
+        let phoneStart = nowUs() + max(400_000, 3 * worstRtt)
+        let intervalMs = anchor.intervalMs
+        let loop = anchor.loop
+        let commands = GroupSchedule.reanchorCommands(
+            phoneAnchorUs: phoneStart, startFrame: pausedFrame, intervalMs: intervalMs,
+            loop: loop, estimators: estimators.filter { participants[$0.key] != nil }, bootIds: bootIds
+        )
+
+        for (id, participant) in participants {
+            guard let cmd = commands[id] else { continue }
+            do {
+                try await participant.session.connection.withOutput(participant.token) {
+                    _ = try await participant.session.connection.requestReliable(cmd)
+                }
+                guard playEpoch == epoch else { return } // N3
+                memberStatus[id] = .playing
+            } catch {
+                guard playEpoch == epoch else { return } // N3
+                memberStatus[id] = .error(error.localizedDescription)
+            }
+        }
+
+        guard playEpoch == epoch else { return } // N3
+        currentAnchor = (phoneUs: phoneStart, startFrame: pausedFrame, intervalMs: intervalMs, loop: loop)
+        isPaused = false
+        isPlaying = true
+        startReanchorLoop(groupID: group.id, revision: revision, epoch: epoch)
+    }
+
+    /// Steps one frame while paused (or pauses first if the group was
+    /// playing): `pausedFrame` moves by `direction`, wrapped if the current
+    /// loop setting is on, else clamped, then every live participant is sent
+    /// `scroll_seek{frameIndex:pausedFrame}` — never `scroll_step`, so every
+    /// board lands on the exact same frame the app just computed rather than
+    /// each stepping its own board-side state independently.
+    public func step(group: BoardGroup, direction: Int) async {
+        if isPlaying, activeGroupID == group.id {
+            await pause(group: group)
+        }
+        guard isPaused, activeGroupID == group.id,
+              let epoch = activeEpoch, playEpoch == epoch,
+              let revision = activeRevision,
+              let anchor = currentAnchor, let playState else { return }
+        guard let liveGroup = store.groups.first(where: { $0.id == group.id }),
+              liveGroup.layoutRevision == revision else { return }
+
+        pruneParticipants()
+        guard !participants.isEmpty else { return }
+
+        let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
+        let newFrame: Int
+        if frameCount <= 0 {
+            newFrame = 0
+        } else if anchor.loop {
+            let m = frameCount
+            newFrame = ((pausedFrame + direction) % m + m) % m
+        } else {
+            newFrame = min(max(pausedFrame + direction, 0), frameCount - 1)
+        }
+
+        let snapshot = participants
+        await withTaskGroup(of: Void.self) { taskGroup in
+            for (id, participant) in snapshot {
+                taskGroup.addTask { @MainActor in
+                    do {
+                        try await participant.session.connection.withOutput(participant.token) {
+                            _ = try await participant.session.connection.requestReliable(.scrollSeek(frameIndex: newFrame))
+                        }
+                        guard self.playEpoch == epoch else { return } // N3
+                        self.memberStatus[id] = .ready
+                    } catch {
+                        guard self.playEpoch == epoch else { return } // N3
+                        self.memberStatus[id] = .error(error.localizedDescription)
+                    }
+                }
+            }
+        }
+
+        guard playEpoch == epoch else { return } // N3
+        pausedFrame = newFrame
+    }
+
     #if DEBUG
     /// Test-only seam: runs one re-anchor pass synchronously instead of
     /// waiting for the 30s interval loop. Never called from production code.
@@ -804,6 +1031,8 @@ public final class BoardGroupCoordinator {
         reanchorTask?.cancel()
         reanchorTask = nil
         isPlaying = false
+        isPaused = false
+        pausedFrame = 0
         activeGroupID = nil
         activeRevision = nil
         activeEpoch = nil
@@ -825,6 +1054,8 @@ public final class BoardGroupCoordinator {
         reanchorTask?.cancel()
         reanchorTask = nil
         isPlaying = false
+        isPaused = false
+        pausedFrame = 0
         activeGroupID = nil
         activeRevision = nil
         activeEpoch = nil

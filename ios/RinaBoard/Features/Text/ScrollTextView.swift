@@ -148,51 +148,49 @@ struct ScrollTextView: View {
         }
     }
 
-    /// v1 groups have no timed pause/step/seek (BOARD_GROUP_SPEC.md), so a
-    /// group target reuses the single-board pill row with pause/play/step
-    /// greyed out (`transportLimitedToSendStop`) instead of a different
-    /// widget — same look, same layout, as the user asked. The single-board
-    /// progress bar is board-specific and stays hidden; a second section
-    /// keeps the same spacing and carries the group's own upload progress.
+    /// App-level group pause/resume/step (`BoardGroupCoordinator.pause`/
+    /// `resume`/`step` — no firmware timed-pause support, so this replays
+    /// `pause_scroll`/`scroll_seek` to every member instead): the group
+    /// target reuses the single-board pill row with pause/play/step live,
+    /// same look and layout as the single-board case. The single-board
+    /// progress bar is board-specific and stays hidden; the send pill's own
+    /// spinner (`isUploading: starting`) is the only loading indicator —
+    /// no extra row.
     private func groupPlaybackSection(_ group: BoardGroup) -> some View {
         let playing = groupCoordinator.isPlaying && groupCoordinator.activeGroupID == group.id
+        let paused = groupCoordinator.isPaused && groupCoordinator.activeGroupID == group.id
         let allOnline = !group.members.isEmpty
             && group.members.allSatisfy { groupCoordinator.status(for: $0) != .offline }
         let starting = groupCoordinator.isStarting && groupCoordinator.startingGroupID == group.id
-        return Group {
-            Section {
-                TextPlaybackControls(
-                    isConnected: allOnline,
-                    hasTimeline: playing,
-                    boardHasScroll: false,
-                    isPaused: false,
-                    isUploading: starting,
-                    isGeneratingFont: false,
-                    canSend: !model.exceedsByteLimit && !model.text.isEmpty,
-                    loopPlayback: Binding(
-                        get: { model.loopPlayback },
-                        set: { loop in
-                            model.loopPlayback = loop
-                            if playing { scheduleGroupPlaybackUpdate(group: group, fps: nil, loop: loop) }
-                        }
-                    ),
-                    loopDisabled: false,
-                    transportLimitedToSendStop: true,
-                    onSend: { Task { await sendOrPlayGroup() } },
-                    onPlay: {},
-                    onPause: {},
-                    onStop: { Task { await stopOrStopGroup() } },
-                    onStepBackward: {},
-                    onStepForward: {}
-                )
-            } footer: {
-                Text(playing ? "多板组播放中。暂停与单步仅在单板模式可用。" : "暂停与单步仅在单板模式可用。")
-            }
-
-            Section {
-                if starting {
-                    ProgressView()
-                }
+        return Section {
+            TextPlaybackControls(
+                isConnected: allOnline,
+                hasTimeline: playing || paused,
+                boardHasScroll: false,
+                isPaused: paused,
+                isUploading: starting,
+                isGeneratingFont: false,
+                canSend: !model.exceedsByteLimit && !model.text.isEmpty,
+                loopPlayback: Binding(
+                    get: { model.loopPlayback },
+                    set: { loop in
+                        model.loopPlayback = loop
+                        if playing || paused { scheduleGroupPlaybackUpdate(group: group, fps: nil, loop: loop) }
+                    }
+                ),
+                loopDisabled: false,
+                onSend: { Task { await sendOrPlayGroup() } },
+                onPlay: { Task { await groupCoordinator.resume(group: group) } },
+                onPause: { Task { await groupCoordinator.pause(group: group) } },
+                onStop: { Task { await stopOrStopGroup() } },
+                onStepBackward: { Task { await groupCoordinator.step(group: group, direction: -1) } },
+                onStepForward: { Task { await groupCoordinator.step(group: group, direction: 1) } }
+            )
+        } footer: {
+            if playing {
+                Text("多板组播放中。")
+            } else if paused {
+                Text("多板组已暂停。")
             }
         }
     }
@@ -242,12 +240,10 @@ struct ScrollTextView: View {
 
         Section {
             // Always present, like the Preset Live tab; greyed out until a
-            // timeline is on the board.
+            // timeline is on the board. The send pill (`TextPlaybackControls`)
+            // already shows its own uploading spinner — no separate progress
+            // row here.
             TextPlaybackProgressBar(model: model, connection: connection, isConnected: isConnected)
-
-            if model.isUploading {
-                ProgressView(value: model.uploadProgress)
-            }
         }
     }
 

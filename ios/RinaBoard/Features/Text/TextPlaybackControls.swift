@@ -18,10 +18,6 @@ struct TextPlaybackControls: View {
     var canSend: Bool
     @Binding var loopPlayback: Bool
     var loopDisabled: Bool
-    /// Board-group mode (BOARD_GROUP_SPEC.md §3, v1 has no timed pause): when
-    /// `true`, pause/play and frame-step stay visible but greyed out — only
-    /// the send/stop pill and the loop toggle keep working.
-    var transportLimitedToSendStop: Bool = false
     var onSend: () -> Void
     var onPlay: () -> Void
     var onPause: () -> Void
@@ -32,7 +28,7 @@ struct TextPlaybackControls: View {
     /// Stepping, pausing and stopping act on the board's scroll session, so
     /// they only need one to exist there, not a timeline bound in the app.
     private var hasBoardScroll: Bool { hasTimeline || boardHasScroll }
-    private var transportEnabled: Bool { isConnected && hasBoardScroll && !transportLimitedToSendStop }
+    private var transportEnabled: Bool { isConnected && hasBoardScroll }
 
     var body: some View {
         HStack(spacing: 8) {
