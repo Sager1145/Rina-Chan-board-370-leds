@@ -22,9 +22,15 @@ import RinaCore
 struct BoardControlCenterAccessory: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardControlCenterModel.self) private var model
+    @Environment(BoardGroupStore.self) private var groupStore
+    @Environment(BoardGroupCoordinator.self) private var groupCoordinator
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Mirrors the Control Center's own "控制对象" choice
+    /// (BOARD_GROUP_SPEC.md §3): empty string = `.single`.
+    @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
 
     @AppStorage(AppSettingsKey.hapticsEnabled) private var hapticsEnabled = true
 
@@ -47,6 +53,13 @@ struct BoardControlCenterAccessory: View {
 
     private var isConnected: Bool { connection.connectionState == .connected }
     private var isAuto: Bool { model.isAutoMode(status: connection.status) }
+
+    /// The targeted group, or `nil` when the control target is `.single`.
+    private var targetedGroup: BoardGroup? {
+        guard case .group(let id) = ControlTarget.resolved(storedGroupIDString: controlTargetGroupIDStorage, in: groupStore)
+        else { return nil }
+        return groupStore.groups.first { $0.id == id }
+    }
 
     /// The capsule's own corner radius, i.e. half the measured bar height.
     /// Falls back to the slot's radius for the first frame, before the
@@ -138,7 +151,7 @@ struct BoardControlCenterAccessory: View {
             HStack(spacing: 8) {
                 statusBadge
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(connection.deviceName ?? "面板控制")
+                    Text(targetedGroup.map { "多板组 · \($0.name)" } ?? connection.deviceName ?? "面板控制")
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
                     // Dropped where there is no room for a second line: the
@@ -257,7 +270,11 @@ struct BoardControlCenterAccessory: View {
     @ViewBuilder
     private var statusBadge: some View {
         Group {
-            if let battery {
+            if targetedGroup != nil {
+                Image(systemName: "rectangle.split.3x1")
+                    .foregroundStyle(.tint)
+                    .imageScale(.medium)
+            } else if let battery {
                 BatteryRing(reading: battery)
             } else {
                 Image(systemName: symbol)
@@ -357,7 +374,16 @@ struct BoardControlCenterAccessory: View {
     // MARK: Derived state
 
     /// "已连接" — the compact secondary state line: connection state only.
-    private var subtitle: String { stateText }
+    /// While a group is targeted this instead reads "播放中" or
+    /// "<online>/<total> 在线" (BOARD_GROUP_SPEC.md §3).
+    private var subtitle: String {
+        guard let group = targetedGroup else { return stateText }
+        if groupCoordinator.isPlaying, groupCoordinator.activeGroupID == group.id {
+            return "播放中"
+        }
+        let online = group.members.filter { groupCoordinator.status(for: $0) != .offline }.count
+        return "\(online)/\(group.members.count) 在线"
+    }
 
     /// The state line plus the battery level, which is only drawn in the ring.
     private var accessibilitySummary: String {
