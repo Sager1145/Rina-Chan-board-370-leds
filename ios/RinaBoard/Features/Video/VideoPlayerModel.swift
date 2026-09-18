@@ -738,7 +738,7 @@ final class VideoPlayerModel {
 
     /// Off-main-actor transform run by `frameProcessor`: decode luma, then
     /// quantize to a board frame.
-    nonisolated private static func processFrame(_ job: VideoFrameJob) -> VideoFrameResult? {
+    @Sendable nonisolated private static func processFrame(_ job: VideoFrameJob) -> VideoFrameResult? {
         let state = RinaPerf.signposter.beginInterval("VideoFrameProcess")
         defer { RinaPerf.signposter.endInterval("VideoFrameProcess", state) }
         guard let luma = luma(from: job.buffer) else { return nil }

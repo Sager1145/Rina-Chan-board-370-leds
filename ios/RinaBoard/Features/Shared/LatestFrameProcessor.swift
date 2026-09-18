@@ -49,7 +49,7 @@ final class LatestFrameProcessor<Input: Sendable, Output: Sendable> {
         let transform = transform
         Task.detached(priority: priority) { [weak self] in
             let output = transform(input)
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 self?.completed(output: output, generation: generationAtStart)
             }
         }
