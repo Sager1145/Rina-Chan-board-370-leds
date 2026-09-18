@@ -31,6 +31,12 @@ public final class BoardConnection {
     // MARK: Published state
 
     public let output = BoardPlaybackCoordinator()
+    /// Set by `GroupControlFanOut` on exactly one connection at a time — the
+    /// board group's current control primary — so its `command(_:)`/
+    /// `setFrame(_:...)` calls can mirror to the group's other members. Never
+    /// awaited from the primary's own send path (mirroring is fire-and-forget
+    /// from the primary's perspective).
+    @ObservationIgnored public weak var fanOut: GroupControlFanOut?
     public private(set) var connectionGeneration = UUID()
     public private(set) var connectionState: BoardConnectionState = .disconnected {
         didSet {
@@ -866,6 +872,22 @@ public final class BoardConnection {
         let token = BoardOutputContext.session
         return try await commandPump.run { @MainActor in
             if let token { try self.output.check(token) }
+            // Board-group control fan-out: mirror this command to the
+            // group's other members before sending it on the wire, unless
+            // this connection is itself acting as a group Text-tab member or
+            // is under debug output (see `GroupControlFanOut`). Never
+            // awaited — fire-and-forget from the primary's perspective.
+            var faceTicket: Int?
+            if self.output.source != .debug, self.output.source != .group {
+                switch cmd.groupFanOutPolicy {
+                case .verbatim:
+                    self.fanOut?.dispatch(cmd, leased: token != nil, from: self)
+                case .resolveFace:
+                    faceTicket = self.fanOut?.beginLeasedAction(from: self)
+                case .deny:
+                    break
+                }
+            }
             let generation = self.connectionGeneration
             guard let activeTransport = self.transport else {
                 throw RinaTransportError.notConnected
@@ -877,6 +899,9 @@ public final class BoardConnection {
             let reply = try JSONDecoder().decode(CommandReply.self, from: frame.payload)
             guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)") }
             self.updateDeviceName(from: reply, for: cmd, transport: activeTransport, generation: generation)
+            if let ticket = faceTicket {
+                self.fanOut?.primaryFaceApplied(reply: reply, original: cmd, ticket: ticket, from: self)
+            }
             return reply
         }
     }
@@ -1018,6 +1043,13 @@ public final class BoardConnection {
         let token = outputSession ?? BoardOutputContext.session ?? output.claim(.manual)
         let reply = try await framePump.run { @MainActor in
             try self.output.check(token)
+            // Board-group control fan-out: mirror every SET_FRAME (Faces/
+            // Live/video/lip-sync/performance) to the group's other members.
+            // Skipped when this board is itself a group Text-tab member or
+            // under debug output.
+            if self.output.source != .debug, self.output.source != .group {
+                self.fanOut?.dispatchFrame(packed, playback: playback, reason: reason, from: self)
+            }
             var payload = Data()
             payload.append(playback.rawValue)
             let reasonBytes = Array(reason.utf8.prefix(255))

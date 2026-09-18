@@ -782,6 +782,30 @@ public final class BoardGroupCoordinator {
     }
     #endif
 
+    /// Board-group control fan-out addendum: called by `GroupControlFanOut`
+    /// right before it claims a `.groupControl` lease on a board this
+    /// coordinator currently owns as a Text-tab participant (a face/button
+    /// applied while the group is playing supersedes its scroll). Unlike
+    /// `stop()`, sends nothing on the wire — the claim about to happen (and
+    /// `output.invalidate()` on takeover, or the next `SET_FRAME`/command)
+    /// is what actually stops the board; this only stops the coordinator
+    /// from fighting that with a re-anchor or treating the board as still
+    /// playing.
+    public func markSupersededByControl() {
+        playEpoch += 1
+        reanchorTask?.cancel()
+        reanchorTask = nil
+        isPlaying = false
+        activeGroupID = nil
+        activeRevision = nil
+        activeEpoch = nil
+        currentAnchor = nil
+        playState = nil
+        for id in participants.keys { memberStatus.removeValue(forKey: id) }
+        participants.removeAll()
+        evictedByOwnership.removeAll()
+    }
+
     // MARK: - Stop
 
     /// H6/M3: only ever acts on a board this coordinator currently owns
