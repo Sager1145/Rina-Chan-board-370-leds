@@ -82,7 +82,7 @@ public final class GroupAutoConnector {
         groupStore: BoardGroupStore,
         boardStore: BoardStore,
         backoffSchedule: [Double] = [5, 15, 30],
-        attemptTimeout: Double = 20,
+        attemptTimeout: Double = 45,
         sleep: Sleeper? = nil,
         connect: (@MainActor (KnownBoard, BoardSession) async -> Void)? = nil
     ) {
@@ -103,6 +103,7 @@ public final class GroupAutoConnector {
                 await model.connectSavedBoard(
                     board, ble: session.bleTransport, connection: session.connection,
                     boardStore: boardStore,
+                    updateLastSeen: false,
                     disconnectOtherHotspotSessions: {
                         for other in sessions.sessions
                         where other.connection !== session.connection && other.connection.transportKind == .hotspot {
@@ -292,8 +293,10 @@ public final class GroupAutoConnector {
             phases[id] = .dialing(token: token)
             isDialing = true
             // The only place a session may be created/renamed, done in the
-            // same turn as the re-check above.
-            let session = plan.session ?? sessions.session(for: plan.known.id, name: plan.known.name)
+            // same turn as the re-check above. `backgroundSession` never
+            // binds/replaces `sessions.active`, even the launch-time unbound
+            // placeholder.
+            let session = plan.session ?? sessions.backgroundSession(for: plan.known.id, name: plan.known.name)
             let connect = self.connect
             let known = plan.known
             // Unstructured and never cancelled here: a target change or
@@ -308,10 +311,16 @@ public final class GroupAutoConnector {
     }
 
     private func finishDial(id: String, token: UUID, session: BoardSession, dial: Task<Void, Never>) async {
+        // The generation this dial owns, captured as close to its own start
+        // as this side of the Task can get.
+        let generation = session.connection.connectionGeneration
         let finished = await Self.wait(for: dial, timeout: attemptTimeout, sleep: sleep)
-        if !finished, session.connection.connectionState == .connecting {
+        if !finished, session.connection.connectionState == .connecting,
+           session.connection.connectionGeneration == generation {
             // A carrier hung mid-connect; tear it down so it cannot hold the
-            // board in `.connecting` and block every later dial.
+            // board in `.connecting` and block every later dial. Skipped if
+            // the generation moved on: some other connect already superseded
+            // this one, and tearing that down would be wrong.
             session.connection.disconnect()
         }
 
@@ -320,7 +329,10 @@ public final class GroupAutoConnector {
         if targetedMember(id) != nil {
             if session.connection.connectionState == .connected {
                 if failureCount[id] != nil { failureCount[id] = nil }
-            } else if !session.connection.wasUserDisconnected {
+            } else if !session.connection.wasUserDisconnected, !Self.isDialing(session.connection.connectionState) {
+                // Superseded by another connect, or BoardConnection's own
+                // retry loop still running after this attempt's failure:
+                // neither is this dial's own failure to count.
                 failureCount[id, default: 0] += 1
             }
         }

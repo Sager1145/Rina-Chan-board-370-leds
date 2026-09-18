@@ -549,6 +549,7 @@ public final class ConnectionViewModel {
         ble: any BLEConnecting,
         connection: BoardConnection,
         boardStore: BoardStore,
+        updateLastSeen: Bool = true,
         disconnectOtherHotspotSessions: () -> Void = {}
     ) async {
         await connectSavedBoard(
@@ -558,12 +559,16 @@ public final class ConnectionViewModel {
             boardStore: boardStore,
             joinBoardHotspot: { ssid in try await HotspotJoiner.join(ssid: ssid) },
             connectTransport: { transport in await connection.connect(using: transport) },
+            updateLastSeen: updateLastSeen,
             disconnectOtherHotspotSessions: disconnectOtherHotspotSessions
         )
     }
 
     /// Injectable seams keep the ordering around the system hotspot prompt
     /// covered without touching the user's real Wi-Fi configuration in tests.
+    /// - Parameter updateLastSeen: `false` for background (connector) dials,
+    ///   so an auto-connected group member does not become next launch's
+    ///   autoReconnect board just because it happened to answer first.
     /// - Parameter disconnectOtherHotspotSessions: See `connectHotspot`. Called
     ///   right before joining a board's SoftAP, so no other session can later
     ///   reconnect its TCP link onto the board this join lands the phone on —
@@ -575,6 +580,7 @@ public final class ConnectionViewModel {
         boardStore: BoardStore,
         joinBoardHotspot: @escaping @MainActor (String?) async throws -> String,
         connectTransport: @escaping @MainActor (RinaTransport) async -> Bool,
+        updateLastSeen: Bool = true,
         disconnectOtherHotspotSessions: () -> Void = {}
     ) async {
         guard connectingSavedBoardID == nil else { return }
@@ -644,7 +650,7 @@ public final class ConnectionViewModel {
             refreshed.hotspotSSID = migratedHotspotSSID
         }
         refreshed.name = connection.deviceName ?? board.name
-        refreshed.lastSeen = Date()
+        if updateLastSeen { refreshed.lastSeen = Date() }
         boardStore.upsert(refreshed)
         await refreshBoardName(connection: connection)
     }
