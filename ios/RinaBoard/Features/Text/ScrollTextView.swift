@@ -38,13 +38,28 @@ enum PR9BodyProbe {
 struct ScrollTextView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(TextViewModel.self) private var model
+    @Environment(BoardGroupStore.self) private var groupStore
+    @Environment(BoardGroupCoordinator.self) private var groupCoordinator
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var isEditorFocused: Bool
     @Environment(\.displayScale) private var displayScale
     /// Ark Pixel editor size; follows Dynamic Type, snapped to crisp steps.
     @ScaledMetric(relativeTo: .body) private var editorFontSize: CGFloat = 16
 
+    /// Mirrors the Control Center's "控制对象" choice (BOARD_GROUP_SPEC.md
+    /// §3): empty string = `.single`. When a group is targeted, send/stop
+    /// below act on the whole group instead of the single connected board;
+    /// everything else on this tab (preview, speed, sync diagnostics) stays
+    /// single-board and unchanged.
+    @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
+
     private var isConnected: Bool { connection.connectionState == .connected }
+
+    private var targetedGroup: BoardGroup? {
+        guard case .group(let id) = ControlTarget.resolved(storedGroupIDString: controlTargetGroupIDStorage, in: groupStore)
+        else { return nil }
+        return groupStore.groups.first { $0.id == id }
+    }
 
     var body: some View {
         #if DEBUG
@@ -56,6 +71,7 @@ struct ScrollTextView: View {
             } status: {
                 previewStatus
             } controls: {
+                groupTargetBanner
                 playbackSection
                 editorSection
                 speedSection
@@ -89,6 +105,11 @@ struct ScrollTextView: View {
             } else {
                 model.suspendPreviewLoop()
             }
+        }
+        .onChange(of: groupStore.groups) { _, _ in
+            // A group deleted out from under the current target must not
+            // keep this tab pointed at a dead id (BOARD_GROUP_SPEC.md §3).
+            ControlTarget.validate(&controlTargetGroupIDStorage, in: groupStore)
         }
     }
 
@@ -129,10 +150,10 @@ struct ScrollTextView: View {
                     }
                 ),
                 loopDisabled: loopUnsupported,
-                onSend: { Task { await model.send(connection: connection) } },
+                onSend: { Task { await sendOrPlayGroup() } },
                 onPlay: { Task { await model.resume(connection: connection) } },
                 onPause: { Task { await model.pause(connection: connection) } },
-                onStop: { Task { await model.stop(connection: connection) } },
+                onStop: { Task { await stopOrStopGroup() } },
                 onStepBackward: { Task { await model.stepFrame(direction: -1, connection: connection) } },
                 onStepForward: { Task { await model.stepFrame(direction: 1, connection: connection) } }
             )
@@ -154,6 +175,55 @@ struct ScrollTextView: View {
     private var loopUnsupported: Bool {
         guard let renderer = connection.status?.renderer else { return false }
         return renderer.scrollFrameCount != nil && renderer.scrollLoop == nil
+    }
+
+    // MARK: Board group target (BOARD_GROUP_SPEC.md §3)
+
+    /// A compact banner shown only while the 控制对象 menu targets a group:
+    /// "发送" below then plays to the whole group instead of the single
+    /// connected board.
+    @ViewBuilder
+    private var groupTargetBanner: some View {
+        if let group = targetedGroup {
+            Section {
+                HStack {
+                    Text("发送到多板组：\(group.name)（\(group.mode == .stitched ? "拼接" : "镜像")）")
+                        .font(.footnote)
+                    Spacer()
+                    Button("切回单板") {
+                        controlTargetGroupIDStorage = ControlTarget.single.storedGroupIDString
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+        }
+    }
+
+    /// Send: plays to the targeted group when one is set, otherwise the
+    /// single-board `model.send(connection:)` — byte-for-byte unchanged in
+    /// that case.
+    private func sendOrPlayGroup() async {
+        guard let group = targetedGroup else {
+            await model.send(connection: connection)
+            return
+        }
+        do {
+            try await groupCoordinator.play(
+                group: group, text: model.text, fps: Int(model.requestedFps), loop: model.loopPlayback
+            )
+        } catch {
+            model.errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Stop: stops the targeted group when one is set, otherwise the
+    /// single-board `model.stop(connection:)`.
+    private func stopOrStopGroup() async {
+        guard let group = targetedGroup else {
+            await model.stop(connection: connection)
+            return
+        }
+        await groupCoordinator.stop(group: group)
     }
 
     // MARK: §25 Text input, §26 restore conflict
