@@ -12,7 +12,6 @@ static constexpr uint8_t DEFERRED_RESTORE_STARTUP_DEFAULT = 1;
 static constexpr uint8_t DEFERRED_RESTORE_CURRENT_FACE = 2;
 
 static bool shouldForceClearWhenStoppingScroll();
-static void cancelDeferredFaceRestore();
 static void scheduleCurrentSavedFaceRestoreAfterBlank(bool autoMode, const String& reason);
 
 bool isAutoMode() { return runtimeState().mode == "auto"; }
@@ -204,7 +203,7 @@ static bool applyStartupDefaultFaceAfterScrollStop(bool restoreAutoMode) {
     return true;
 }
 
-static void cancelDeferredFaceRestore() {
+void cancelDeferredFaceRestore() {
     const bool changed = runtimeState().deferredFaceRestoreActive || runtimeState().deferredFaceRestoreKind != DEFERRED_RESTORE_NONE || runtimeState().deferredFaceRestoreDueMs != 0;
     runtimeState().deferredFaceRestoreActive = false;
     runtimeState().deferredFaceRestoreKind = DEFERRED_RESTORE_NONE;

@@ -5,6 +5,7 @@
 #include "led_renderer.h"
 #include "serial_log.h"
 #include "group_math.h"
+#include "faces.h"
 #include <esp_timer.h>
 #include <string.h>
 
@@ -578,17 +579,30 @@ ScrollSessionSnapshot scrollSessionSnapshot() {
 }
 
 bool scrollSessionGroupStart(uint64_t atUs, uint16_t startFrame, uint16_t intervalMs, bool loop) {
+    // Match scrollSessionStart()'s entry sequence: drop any in-flight queued
+    // frames and a pending deferred face restore before touching scroll state,
+    // so neither can race in and stomp the group frame we are about to present.
+    clearQueuedPackedFrames();
+    cancelDeferredFaceRestore();
+
     bool ok = false;
+    uint8_t firstFrame[FRAME_BYTES];
+
     withScrollLock([&]() {
         if (runtimeState().scrollFrameCount == 0 || !runtimeScrollFrameBufferReady())
             return;
-        // Re-anchoring (already group-timed) just replaces the schedule fields
-        // atomically -- no stop/restart, so no restart flash.
+        // Re-anchoring (already group-timed on this timeline) just replaces the
+        // schedule fields atomically -- no stop/restart. A fresh (non-re-anchor)
+        // group_start must instead present its start frame immediately, the
+        // same way scrollSessionStart() presents frame 0 immediately, so the
+        // board does not keep showing whatever it was doing before (§1.5).
+        const bool isReanchor = runtimeState().groupTimed;
         runtimeState().groupTimed = true;
         runtimeState().groupAtUs = atUs;
         runtimeState().groupStartFrame = startFrame;
         runtimeState().groupIntervalMs = intervalMs;
         runtimeState().groupLoop = loop;
+        runtimeState().scrollIntervalMs = intervalMs;
         runtimeState().firmwareScrollActive = true;
         runtimeState().firmwareScrollPaused = false;
         runtimeState().firmwareScrollUserPaused = false;
@@ -596,6 +610,28 @@ bool scrollSessionGroupStart(uint64_t atUs, uint16_t startFrame, uint16_t interv
         runtimeState().paused = false;
         runtimeState().playback = "scroll";
         ok = true;
+
+        const group_math::GroupCursor cursor = group_math::groupCursorAt(
+            static_cast<uint64_t>(esp_timer_get_time()), atUs, startFrame, intervalMs,
+            runtimeState().scrollFrameCount, loop);
+        const uint16_t cursorFrame = static_cast<uint16_t>(cursor.frame);
+
+        // Non-re-anchor: always publish (this is the "present the start frame
+        // immediately" case). Re-anchor: publish only if the recomputed frame
+        // actually differs from what is already showing, so a drift-correcting
+        // re-anchor never causes a restart flash.
+        const bool shouldPublish = !isReanchor || cursorFrame != runtimeState().scrollFrameIndex;
+        if (shouldPublish) {
+            runtimeState().scrollFrameIndex = cursorFrame;
+            const uint8_t* src = runtimeScrollFrameBits(cursorFrame);
+            if (src) {
+                memcpy(firstFrame, src, FRAME_BYTES);
+                LedPresentationContext ctx;
+                scrollSessionFillPresentationContextLocked(ctx, LedPresentationSource::ScrollStart,
+                                                           "firmware_group_start", false);
+                applyPackedFrameImmediate(firstFrame, "firmware_group_start", &ctx);
+            }
+        }
     });
     if (ok) {
         setRuntimeOutputMode("text");
@@ -623,13 +659,25 @@ bool scrollSessionTickCursorLocked(uint32_t now, uint8_t* outFrameBits) {
             runtimeState().groupLoop);
         if (cursor.endedNoLoop) {
             // Same "hold on last frame, paused" behaviour as the legacy
-            // loop-disabled end-of-timeline hold (§1.5: "v1 has no timed pause").
-            if (runtimeState().scrollFrameIndex != static_cast<uint16_t>(cursor.frame))
-                runtimeState().scrollFrameIndex = static_cast<uint16_t>(cursor.frame);
+            // loop-disabled end-of-timeline hold (§1.5: "v1 has no timed pause"),
+            // but a group-timed cursor can jump straight from well before the
+            // end to at-or-past the last frame in a single tick (no catch-up
+            // replay) -- unlike the legacy per-tick path, the last frame's
+            // bits may never have been latched into the LED frame buffer.
+            // Latch (and present) it exactly once, on the tick that first
+            // detects the end; a later tick with the same cursor.frame is a
+            // no-op, matching the legacy path's steady "already there" state.
+            if (!group_math::groupCursorEndLatchDue(cursor, runtimeState().scrollFrameIndex))
+                return false;
+            runtimeState().scrollFrameIndex = static_cast<uint16_t>(cursor.frame);
             runtimeState().firmwareScrollUserPaused = true;
             runtimeState().firmwareScrollPaused = true;
             sScrollEndPausePending = true;
-            return false;
+            const uint8_t* src = runtimeScrollFrameBits(runtimeState().scrollFrameIndex);
+            if (!src)
+                return false;
+            memcpy(outFrameBits, src, FRAME_BYTES);
+            return true;
         }
         if (runtimeState().scrollFrameIndex == static_cast<uint16_t>(cursor.frame))
             return false;

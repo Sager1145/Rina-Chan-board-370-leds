@@ -15,6 +15,11 @@ bool toggleModeFromButtonAction(const String& source);
 
 void serviceDeferredFaceRestore();
 
+// Board group v1 (§1.5): scrollSessionGroupStart() calls this directly (like
+// startFirmwareScroll() does for scrollSessionStart()) so a group_start that
+// interrupts a pending deferred face restore does not race it.
+void cancelDeferredFaceRestore();
+
 void stopFirmwareScroll(bool restoreAuto, bool clearDisplay = false, bool restoreDefaultAfterClear = false);
 
 // Transfer display ownership to an external frame without inserting a blank.
