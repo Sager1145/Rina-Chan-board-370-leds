@@ -23,6 +23,9 @@ struct BoardGroupPlayView: View {
     @State private var previewVirtualWidth: Int = MatrixGeometry.cols
     @State private var previewStartDate = Date()
     @State private var cachedFont: ArkPixelFont?
+    /// Debounces speed-slider drags while playing (BOARD_GROUP_SPEC.md §3
+    /// addendum), same 250 ms trailing debounce as the Text tab's group mode.
+    @State private var playbackUpdateTask: Task<Void, Never>?
 
     private var group: BoardGroup? {
         store.groups.first { $0.id == groupID }
@@ -64,13 +67,25 @@ struct BoardGroupPlayView: View {
                         .foregroundStyle(.secondary)
                 }
                 Slider(
-                    value: $fps,
+                    value: Binding(
+                        get: { fps },
+                        set: { newValue in
+                            fps = newValue
+                            if isPlaying(group) { scheduleUpdate(group: group, fps: Int(newValue), loop: nil) }
+                        }
+                    ),
                     in: Double(RinaLinkConstants.scrollFpsMin)...Double(RinaLinkConstants.scrollFpsMax),
                     step: 1
                 )
                 .accessibilityLabel("速度")
                 .accessibilityValue(Text("\(Int(fps)) fps"))
-                Toggle("循环", isOn: $loop)
+                Toggle("循环", isOn: Binding(
+                    get: { loop },
+                    set: { newValue in
+                        loop = newValue
+                        if isPlaying(group) { scheduleUpdate(group: group, fps: nil, loop: newValue) }
+                    }
+                ))
             }
 
             Section {
@@ -153,6 +168,15 @@ struct BoardGroupPlayView: View {
 
     private func isPlaying(_ group: BoardGroup) -> Bool {
         coordinator.isPlaying && coordinator.activeGroupID == group.id
+    }
+
+    private func scheduleUpdate(group: BoardGroup, fps: Int?, loop: Bool?) {
+        playbackUpdateTask?.cancel()
+        playbackUpdateTask = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            await coordinator.updatePlayback(group: group, fps: fps, loop: loop)
+        }
     }
 
     // MARK: - Play gating

@@ -88,6 +88,14 @@ public final class BoardGroupCoordinator {
     public private(set) var memberStatus: [String: MemberStatus] = [:]
     public private(set) var activeGroupID: UUID?
     public private(set) var isPlaying = false
+    /// `true` from the moment a `play()` call starts uploading/clock-sampling
+    /// until it either starts playing or aborts — lets the Text tab show its
+    /// send pill's uploading spinner for a group the same way it does for a
+    /// single board, before `isPlaying` flips (BOARD_GROUP_SPEC.md §3).
+    public private(set) var isStarting = false
+    /// The group a `play()` currently in flight (`isStarting`) targets, so a
+    /// UI watching a *different* group doesn't show its spinner.
+    public private(set) var startingGroupID: UUID?
     /// Whether re-anchoring should keep running; set from `RinaBoardApp` via
     /// `scenePhase` (BOARD_GROUP_SPEC §3 "while the app is active"). Going
     /// inactive only pauses re-anchor passes, it never ends playback.
@@ -306,6 +314,8 @@ public final class BoardGroupCoordinator {
         // a clock-phase failure, H5's missing-command guard, or H3's
         // partial-start guard — must release every board this attempt
         // touched, not just the ones reached by the last sub-phase.
+        isStarting = true
+        startingGroupID = capturedGroupID
         do {
             // Upload concurrently, each board's own output lease.
             try await withThrowingTaskGroup(of: Void.self) { taskGroup in
@@ -428,7 +438,11 @@ public final class BoardGroupCoordinator {
                 )
             }
             startReanchorLoop(groupID: capturedGroupID, revision: capturedRevision, epoch: capturedEpoch)
+            isStarting = false
+            startingGroupID = nil
         } catch {
+            isStarting = false
+            startingGroupID = nil
             await abortStartedBoards(online, epoch: capturedEpoch)
             // A member disconnecting (or any other generation change) mid-flight
             // surfaces here as `CancellationError` from the in-flight request
