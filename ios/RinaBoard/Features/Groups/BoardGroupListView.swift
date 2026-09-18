@@ -10,6 +10,11 @@ struct BoardGroupListView: View {
     @State private var newGroupName = ""
     @State private var isPresentingCreate = false
 
+    /// The 控制对象 menu's choice (BOARD_GROUP_SPEC.md §3): deleting the
+    /// targeted group must reset this to `.single` rather than leave it
+    /// pointed at a dead id.
+    @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
+
     var body: some View {
         List {
             if store.groups.isEmpty {
@@ -75,7 +80,11 @@ struct BoardGroupListView: View {
 
     private func deleteGroups(at offsets: IndexSet) {
         for index in offsets {
-            store.remove(id: store.groups[index].id)
+            let id = store.groups[index].id
+            store.remove(id: id)
+            if ControlTarget(storedGroupIDString: controlTargetGroupIDStorage) == .group(id) {
+                controlTargetGroupIDStorage = ""
+            }
         }
     }
 }
