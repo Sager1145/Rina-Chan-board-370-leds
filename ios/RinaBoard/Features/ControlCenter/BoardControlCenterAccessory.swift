@@ -286,12 +286,12 @@ struct BoardControlCenterAccessory: View {
     @ViewBuilder
     private var statusBadge: some View {
         Group {
-            if targetedGroup != nil {
+            if let battery {
+                BatteryRing(reading: battery)
+            } else if targetedGroup != nil {
                 Image(systemName: "rectangle.split.3x1")
                     .foregroundStyle(.tint)
                     .imageScale(.medium)
-            } else if let battery {
-                BatteryRing(reading: battery)
             } else {
                 Image(systemName: symbol)
                     .foregroundStyle(tint)
@@ -303,9 +303,24 @@ struct BoardControlCenterAccessory: View {
     }
 
     /// What the ring shows, or `nil` for the plain connection symbol (not
-    /// connected, or no power report yet). Shared with the Control Center's
-    /// battery bar — see `BoardConnection.batteryReading`.
-    private var battery: BatteryReading? { connection.batteryReading }
+    /// connected, or no power report yet). While a group is targeted this is
+    /// the lowest reported level among online members (user requirement:
+    /// "keep showing lowest battery" — the one board most likely to need
+    /// attention), falling back to the fallback icon above while no member
+    /// has reported one yet. Otherwise the primary's own reading, same as
+    /// the Control Center's battery bar (`BoardConnection.batteryReading`).
+    private var battery: BatteryReading? {
+        guard let targetedGroup else { return connection.batteryReading }
+        let levels = targetedGroup.members.compactMap { member -> Int? in
+            guard let memberConnection = groupCoordinator.session(for: member)?.connection,
+                  memberConnection.connectionState == .connected,
+                  case .level(let percent) = memberConnection.batteryReading
+            else { return nil }
+            return percent
+        }
+        guard let lowest = levels.min() else { return nil }
+        return .level(lowest)
+    }
 
     /// Routes the mode toggle to the synced group cycler while a group is
     /// targeted, instead of sending `set_mode auto` to the primary.
