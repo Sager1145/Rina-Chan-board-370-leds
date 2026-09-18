@@ -522,6 +522,9 @@ public final class BoardConnection {
         protocolVersion = nil
         boardIdentity = nil
         setupDefaultName = nil
+        // A generation only means anything within the carrier that reported it:
+        // another client may have mutated the document while we were away.
+        facesGen = nil
     }
 
     /// Read a snapshot even when the firmware has no new events to publish.
@@ -1045,6 +1048,11 @@ public final class BoardConnection {
                 throw error
             }
         }
+        // Record the generation this document was read at, so the next face op
+        // has something real to compare its reply against. Without this the
+        // expectation stayed `nil` after every reload and the first mutation
+        // was declared in sync unconditionally.
+        if let gen { facesGen = Int(gen) }
         return result
     }
 
@@ -1269,10 +1277,18 @@ public final class BoardConnection {
             let frame = try await self.send(type: .cmd, payload: payload)
             return try JSONDecoder().decode(FaceOpReply.self, from: frame.payload)
         }
+        // The reply's generation is the only evidence that nobody else mutated
+        // `saved_faces.json` between our read and this write. Without it — no
+        // `gen` field at all, or none observed for this carrier — there is no
+        // basis for that claim, so callers must reload rather than apply an
+        // optimistic in-place mutation. Firmware that does not report `gen`
+        // therefore always takes the reload path, by design: a silently stale
+        // library is worse than a redundant fetch.
         if let gen = reply.gen {
-            let expected = facesGen.map { $0 + 1 }
-            lastFaceOpGenMatchedExpectation = (expected == nil) || (gen == expected)
+            lastFaceOpGenMatchedExpectation = facesGen.map { gen == $0 + 1 } ?? false
             facesGen = gen
+        } else {
+            lastFaceOpGenMatchedExpectation = false
         }
         return reply
     }

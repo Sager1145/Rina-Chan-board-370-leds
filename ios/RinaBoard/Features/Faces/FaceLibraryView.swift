@@ -153,7 +153,10 @@ struct FaceLibraryView: View {
             guard case .success(let url) = result else { return }
             let accessed = url.startAccessingSecurityScopedResource()
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else { return }
+            guard let data = try? Data(contentsOf: url) else {
+                model.reportImportUnreadable()
+                return
+            }
             Task { await model.importDocument(from: data, to: location, connection: connection) }
         }
     }

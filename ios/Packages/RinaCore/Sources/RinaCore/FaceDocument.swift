@@ -83,14 +83,18 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
         } else {
             type = .custom
         }
-        if let bytes = try? container.decode([Int].self, forKey: .frameBytes), !bytes.isEmpty {
-            frameBytes = bytes
-        } else if let hex = try? container.decode(String.self, forKey: .frameHex),
-                  let decoded = SavedFace.bytes(fromHex: hex) {
-            frameBytes = decoded
-        } else {
-            frameBytes = []
-        }
+        // `frameBytes` wins only when it is actually usable. Accepting any
+        // non-empty array let a malformed one (e.g. `[999]`) beat a perfectly
+        // valid `frameHex`, so the documented hex fallback never ran and the
+        // face failed to decode at all. When neither representation is usable
+        // the old `frameBytes`-first precedence still applies, so nothing that
+        // used to round-trip is dropped.
+        let rawBytes = (try? container.decode([Int].self, forKey: .frameBytes))
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let hexBytes = (try? container.decode(String.self, forKey: .frameHex))
+            .flatMap { SavedFace.bytes(fromHex: $0) }
+        frameBytes = [rawBytes, hexBytes].compactMap { $0 }.first(where: SavedFace.isUsableFrame)
+            ?? rawBytes ?? hexBytes ?? []
         order = (try? container.decode(Int.self, forKey: .order)) ?? SavedFace.missingOrderSentinel
         editable = try? container.decode(Bool.self, forKey: .editable)
         deletable = try? container.decode(Bool.self, forKey: .deletable)
@@ -116,10 +120,14 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
         return result
     }
 
+    /// Whether `bytes` has the exact shape a `PackedFrame` needs.
+    static func isUsableFrame(_ bytes: [Int]) -> Bool {
+        bytes.count == PackedFrame.byteCount && bytes.allSatisfy { (0...255).contains($0) }
+    }
+
     /// The `PackedFrame` for `frameBytes`, or nil if malformed.
     public var packedFrame: PackedFrame? {
-        guard frameBytes.count == PackedFrame.byteCount,
-              frameBytes.allSatisfy({ (0...255).contains($0) }) else { return nil }
+        guard Self.isUsableFrame(frameBytes) else { return nil }
         let bytes = frameBytes.map { UInt8($0) }
         return PackedFrame(bytes: bytes)
     }
@@ -177,6 +185,25 @@ public struct FaceDocument: Codable, Equatable, Sendable {
         self = try JSONDecoder().decode(FaceDocument.self, from: jsonData)
     }
 
+    /// Decodes for a user-initiated import, additionally reporting how many
+    /// entries the lenient decoder had to skip.
+    ///
+    /// Skipping is the right behavior when reading data the board or this app
+    /// already owns — one bad entry must not cost the whole library. It is the
+    /// wrong behavior for an import the user just asked for, because the result
+    /// is uploaded as a whole-document replacement: the difference between
+    /// "imported your file" and "imported the part of your file that parsed"
+    /// has to be visible. Callers refuse the import when this is non-zero.
+    public static func decodedForImport(
+        jsonData: Data
+    ) throws -> (document: FaceDocument, skippedFaceCount: Int) {
+        let diagnostics = FaceDecodeDiagnostics()
+        let decoder = JSONDecoder()
+        decoder.userInfo[.faceDecodeDiagnostics] = diagnostics
+        let document = try decoder.decode(FaceDocument.self, from: jsonData)
+        return (document, diagnostics.skippedFaceCount)
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         format = (try? container.decode(String.self, forKey: .format)) ?? "rina_packed_faces_370_v2"
@@ -193,6 +220,8 @@ public struct FaceDocument: Codable, Equatable, Sendable {
                     // Advance the cursor past the malformed element (JSON
                     // faces are always objects) instead of looping forever.
                     _ = try? facesContainer.decode(AnyJSONSkip.self)
+                    (decoder.userInfo[.faceDecodeDiagnostics] as? FaceDecodeDiagnostics)?
+                        .noteSkippedFace()
                 }
             }
         }
@@ -210,6 +239,20 @@ public struct FaceDocument: Codable, Equatable, Sendable {
         encoder.outputFormatting = [.sortedKeys]
         return try encoder.encode(self)
     }
+}
+
+/// Collects what the lenient face decoder had to discard, so a user-initiated
+/// import can refuse to silently replace a library with a partial parse.
+/// Passed through `JSONDecoder.userInfo`; reading paths simply omit it and keep
+/// the lenient behavior.
+public final class FaceDecodeDiagnostics {
+    public private(set) var skippedFaceCount = 0
+    public init() {}
+    func noteSkippedFace() { skippedFaceCount += 1 }
+}
+
+extension CodingUserInfoKey {
+    public static let faceDecodeDiagnostics = CodingUserInfoKey(rawValue: "rina.faceDecodeDiagnostics")!
 }
 
 /// Consumes exactly one JSON value (object, array, or scalar) without caring

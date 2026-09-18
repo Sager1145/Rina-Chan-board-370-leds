@@ -16,6 +16,14 @@ struct DebugView: View {
 
     private var isConnected: Bool { connection.connectionState == .connected }
 
+    /// Identifies one board session: the connection object changes when the
+    /// active board changes, and its generation changes when the same board
+    /// reconnects. Keying the overview task on both means diagnostics follow
+    /// the board instead of staying on whichever one was showing first.
+    private var sessionKey: String {
+        "\(ObjectIdentifier(connection).hashValue)-\(connection.connectionGeneration)"
+    }
+
     var body: some View {
         List {
             Group {
@@ -48,7 +56,10 @@ struct DebugView: View {
             .padding(.vertical, 10)
             .background(.bar)
         }
-        .task { await vm.refreshOverview(connection: connection) }
+        .task(id: sessionKey) {
+            vm.handleSessionChange()
+            await vm.refreshOverview(connection: connection)
+        }
         .refreshable { await vm.refreshOverview(connection: connection) }
         .onChange(of: connection.connectionState) { _, state in
             vm.handleConnectionStateChange(state)

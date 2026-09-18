@@ -31,4 +31,20 @@ final class PowerStatusDecodingTests: XCTestCase {
         let status = try JSONDecoder().decode(DeviceStatus.self, from: data)
         XCTAssertEqual(status.power?.batteryPercent, 29)
     }
+
+    /// `FlexibleNumber.int` accepts a JSON float for an integral field. An
+    /// out-of-range or non-finite value must decode as `nil` rather than trap,
+    /// while in-range floats keep truncating toward zero as before.
+    func testFlexibleIntegerRejectsOutOfRangeFloatInsteadOfTrapping() throws {
+        func percent(_ literal: String) throws -> Int? {
+            let json = "{\"ok\":true,\"batteryPercent\":\(literal)}"
+            return try JSONDecoder().decode(PowerStatus.self, from: Data(json.utf8)).batteryPercent
+        }
+        XCTAssertEqual(try percent("29"), 29)
+        XCTAssertEqual(try percent("29.0"), 29)
+        XCTAssertEqual(try percent("29.7"), 29)
+        XCTAssertEqual(try percent("-29.7"), -29)
+        XCTAssertNil(try percent("1e100"))
+        XCTAssertNil(try percent("-1e100"))
+    }
 }

@@ -434,6 +434,10 @@ struct ConnectionView: View {
             }
             .disabled(isJoiningHotspot)
 
+            if let status = directAPStatusText {
+                Text(status).font(.footnote).foregroundStyle(.secondary)
+            }
+
             if case .bluetooth = connection.transportKind, connection.wifi?.staConnected == true {
                 Button("切换到 Wi-Fi") {
                     Task { await viewModel.switchToWifi(connection: connection, boardStore: boardStore) }
@@ -511,6 +515,41 @@ struct ConnectionView: View {
         }
     }
 
+    /// `homeProvisionStage` used to be written on every home-Wi-Fi provisioning
+    /// path and read by nothing at all, so a wrong password produced a failure
+    /// message that no view rendered — on the app's main onboarding path.
+    private var homeStatusText: String? {
+        switch viewModel.homeProvisionStage {
+        case .idle:
+            nil
+        case .sendingCredentials, .waitingForBoard:
+            "等待板子加入网络…"
+        case .boardJoined:
+            "板子已加入网络"
+        case .connectingToBoard:
+            "正在连接板子…"
+        case .connected:
+            "已连接到板子"
+        case .failed(let message):
+            message
+        }
+    }
+
+    /// `isJoiningHotspot` maps `.failed` to "not joining", which made the
+    /// spinner disappear with the reason discarded.
+    private var directAPStatusText: String? {
+        switch viewModel.directAPStage {
+        case .idle, .joiningPhoneToBoardAP:
+            nil
+        case .connectingToBoard:
+            "正在连接板子…"
+        case .connected:
+            "已连接到板子（板载热点）"
+        case .failed(let message):
+            message
+        }
+    }
+
     // MARK: Board Wi-Fi settings
 
     @ViewBuilder
@@ -534,6 +573,10 @@ struct ConnectionView: View {
                 }
             }
             .disabled(!isConnected)
+
+            if let status = homeStatusText {
+                Text(status).font(.footnote).foregroundStyle(.secondary)
+            }
 
             ForEach(viewModel.wifiNetworks) { network in
                 Button {

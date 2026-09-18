@@ -221,4 +221,54 @@ final class ScrollPreviewControllerTests: XCTestCase {
         let outcome = controller.record(sample: sample, nowMs: 0)
         XCTAssertEqual(outcome, .snapped(7))
     }
+
+    // MARK: Malformed telemetry boundaries
+
+    /// `presentedFrameIndex` arrives straight off the wire. An extreme value
+    /// used to trap in the signed subtraction inside `shortestRingDelta`;
+    /// it must be folded onto the ring instead. Reaching the non-anchor path
+    /// requires a second sample inside the 1500 ms anchor window.
+    func testExtremeFrameIndexDoesNotTrapAndStaysOnRing() {
+        var controller = ScrollPreviewController(frameCount: 300, userFps: 10)
+        controller.bind(timelineId: "tl-1", frameCount: 300)
+        _ = controller.record(sample: PreviewSync(
+            presentedSeq: 1, source: "scroll_tick", scrollTimelineId: "tl-1",
+            presentedFrameIndex: 10, presentedFrameCount: 300), nowMs: 0)
+
+        for extreme in [Int.min, Int.max, Int.min + 1, Int.max - 1] {
+            _ = controller.record(sample: PreviewSync(
+                presentedSeq: 2, source: "scroll_tick", scrollTimelineId: "tl-1",
+                presentedFrameIndex: extreme, presentedFrameCount: 300), nowMs: 100)
+            XCTAssertTrue((0..<300).contains(controller.displayIndex),
+                          "displayIndex \(controller.displayIndex) left the ring for \(extreme)")
+        }
+    }
+
+    /// The paused/stepping branch bumps `ignoreRateUntilSeq` by 2; a wire
+    /// sequence at `Int.max` must saturate rather than overflow.
+    func testExtremeSequenceDoesNotTrapOnPausedSample() {
+        var controller = ScrollPreviewController(frameCount: 300, userFps: 10)
+        controller.bind(timelineId: "tl-1", frameCount: 300)
+        let outcome = controller.record(sample: PreviewSync(
+            presentedSeq: Int.max, source: "scroll_tick", scrollTimelineId: "tl-1",
+            presentedFrameIndex: 7, presentedFrameCount: 300,
+            firmwareScrollPaused: true), nowMs: 0)
+        XCTAssertEqual(outcome, .snapped(7))
+    }
+
+    /// `presentedAtUs`/`sampledAtUs` are Int64 wire clocks; their difference
+    /// must be taken in `Double` so opposite extremes cannot trap.
+    func testExtremeClockValuesDoNotTrap() {
+        var controller = ScrollPreviewController(frameCount: 300, userFps: 10)
+        controller.bind(timelineId: "tl-1", frameCount: 300)
+        _ = controller.record(sample: PreviewSync(
+            presentedSeq: 1, source: "scroll_step", scrollTimelineId: "tl-1",
+            presentedFrameIndex: 3, presentedFrameCount: 300,
+            presentedAtUs: Int64.max, sampledAtUs: Int64.min), nowMs: 0)
+        _ = controller.record(sample: PreviewSync(
+            presentedSeq: 2, source: "scroll_tick", scrollTimelineId: "tl-1",
+            presentedFrameIndex: 4, presentedFrameCount: 300,
+            presentedAtUs: Int64.min, sampledAtUs: Int64.max), nowMs: 2000)
+        XCTAssertTrue((0..<300).contains(controller.displayIndex))
+    }
 }
