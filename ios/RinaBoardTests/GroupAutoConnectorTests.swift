@@ -349,7 +349,8 @@ final class GroupAutoConnectorTests: XCTestCase {
 
         XCTAssertEqual(dials, GroupAutoConnector.maxConsecutiveFailures)
         XCTAssertTrue(connector.hasGivenUp(members[0]))
-        XCTAssertEqual(clock.requested.filter { $0 != 20 }, [5, 15, 30, 30])
+        // Drop the per-attempt timeout timers (default 45 s).
+        XCTAssertEqual(clock.requested.filter { $0 != 45 }, [5, 15, 30, 30])
         for state in statesAtDial {
             XCTAssertFalse(state == .connecting, "never dials over an in-flight connect")
             if case .reconnecting = state { XCTFail("never dials while BoardConnection's own loop runs") }
