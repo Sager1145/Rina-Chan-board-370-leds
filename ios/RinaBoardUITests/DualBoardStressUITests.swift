@@ -252,7 +252,7 @@ final class DualBoardStressUITests: XCTestCase {
                       "The boot overlay was still up after 15 s", file: file, line: line)
     }
 
-    /// 设定 → 连接设置 (SettingsView.swift connectionSection → ConnectionView).
+    /// 设定 → 连接 (SettingsView category list → ConnectionView).
     @discardableResult
     private func openConnectionScreen() -> Bool {
         let settingsTab = app.tabBars.buttons["设定"]
@@ -262,7 +262,7 @@ final class DualBoardStressUITests: XCTestCase {
                        "The 设定 tab was not hittable within 10 s")
         settingsTab.tap()
         guard app.navigationBars["设置"].waitForExistence(timeout: 5) else { return false }
-        let row = app.buttons["连接设置"]
+        let row = app.buttons["settings.category.connection"]
         guard scrollToElement(row) else { return false }
         row.tap()
         return app.navigationBars["连接"].waitForExistence(timeout: 5)
@@ -280,7 +280,7 @@ final class DualBoardStressUITests: XCTestCase {
         } else {
             app.tabBars.buttons["设定"].tap()
             XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
-            let link = app.buttons["面板控制中心"]
+            let link = app.buttons["settings.category.controlCenter"]
             XCTAssertTrue(scrollToElement(link), "面板控制中心 entry not reachable")
             link.tap()
         }

@@ -27,7 +27,7 @@ enum BoardPageColumns {
 /// the Control Center under it scrolls (§5–§11), so the board-global controls
 /// are reachable from every page without the tab-bar accessory the phone
 /// layout uses. Settings has no preview and therefore no such column — it
-/// stays a single `Form`.
+/// has its own adaptive layout (`SettingsView`).
 ///
 /// The caller keeps its own list modifiers (`listSectionSpacing`,
 /// `rinaScrollBackground`, `contentMargins`, `scrollDisabled`, alerts): all of

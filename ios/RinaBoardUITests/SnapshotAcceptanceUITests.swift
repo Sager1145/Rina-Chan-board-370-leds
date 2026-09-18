@@ -181,7 +181,7 @@ final class SnapshotAcceptanceUITests: XCTestCase {
 
     func testDebugCancelDestructiveDialogAndReplayBootLocally() {
         launch("settings")
-        let debug = app.buttons["调试工具"]
+        let debug = app.buttons["settings.category.debug"]
         reach(debug); debug.tap()
         XCTAssertTrue(app.navigationBars["调试"].waitForExistence(timeout: 5))
         app.segmentedControls["debug.workspace"].buttons["测试"].tap()
