@@ -47,6 +47,11 @@ public enum RinaLinkConstants {
     public static let scrollFpsMax = 60
     public static let scrollFpsDefault = 10
 
+    /// Firmware `group_start` rejects intervalMs below 20 (protocol.cpp), so
+    /// synced group scrolling tops out at 50 fps (51 fps also rounds to 20 ms).
+    public static let groupStartIntervalMsMin = 20
+    public static let groupScrollFpsMax = 50
+
     public static let intervalMinMs = 17
     public static let intervalMaxMs = 1000
 
