@@ -180,16 +180,14 @@ struct BoardControlCenterView: View {
     @ViewBuilder
     private var content: some View {
         if isEmbedded {
-            // A modifier on a `Group` of `Section`s is applied to every
-            // section in it, so the lifecycle rides the first section alone:
-            // one alert and one run of each task, not five.
+            // The lifecycle (sheets, alert, tasks) rides the status
+            // section's first row — see `statusSection`. It cannot sit on a
+            // `Section`: a modifier there is applied to every row in it, so
+            // each row carried its own copy of the four group sheets, and a
+            // sheet presented by one copy was dismissed by the others the
+            // moment it appeared (管理多板组… etc. closed on open).
             Group {
-                groupSheets(
-                    statusSection
-                        .errorAlert(errorMessage)
-                        .task { await loadPanelContents() }
-                        .task { await HotspotJoiner.revalidateLastJoinedSSID() }
-                )
+                statusSection
                 groupControlSection
                 brightnessSection
                 modeSection
@@ -257,7 +255,18 @@ struct BoardControlCenterView: View {
 
     private var statusSection: some View {
         Section {
-            controlTargetRow
+            if isEmbedded {
+                // The one row that hosts the embedded panel's lifecycle:
+                // exactly one copy of each sheet, alert and task (`content`).
+                groupSheets(
+                    controlTargetRow
+                        .errorAlert(errorMessage)
+                        .task { await loadPanelContents() }
+                        .task { await HotspotJoiner.revalidateLastJoinedSSID() }
+                )
+            } else {
+                controlTargetRow
+            }
             if let group = targetedGroup {
                 // Group mode: one row per member (name, 主控 badge, connection
                 // state + a per-member "连接" retry, battery) replaces the
