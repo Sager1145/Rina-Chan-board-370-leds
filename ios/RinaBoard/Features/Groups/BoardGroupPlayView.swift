@@ -71,10 +71,10 @@ struct BoardGroupPlayView: View {
                         get: { fps },
                         set: { newValue in
                             fps = newValue
-                            if isPlaying(group) { scheduleUpdate(group: group, fps: Int(newValue), loop: nil) }
+                            if isPlayingOrPaused(group) { scheduleUpdate(group: group) }
                         }
                     ),
-                    in: Double(RinaLinkConstants.scrollFpsMin)...Double(RinaLinkConstants.scrollFpsMax),
+                    in: Double(RinaLinkConstants.scrollFpsMin)...Double(RinaLinkConstants.groupScrollFpsMax),
                     step: 1
                 )
                 .accessibilityLabel("速度")
@@ -83,7 +83,7 @@ struct BoardGroupPlayView: View {
                     get: { loop },
                     set: { newValue in
                         loop = newValue
-                        if isPlaying(group) { scheduleUpdate(group: group, fps: nil, loop: newValue) }
+                        if isPlayingOrPaused(group) { scheduleUpdate(group: group) }
                     }
                 ))
             }
@@ -176,12 +176,17 @@ struct BoardGroupPlayView: View {
         (coordinator.isPlaying || coordinator.isPaused) && coordinator.activeGroupID == group.id
     }
 
-    private func scheduleUpdate(group: BoardGroup, fps: Int?, loop: Bool?) {
+    /// Always sends the complete desired state (fps + loop), not just the
+    /// field that changed — otherwise a speed drag followed by a loop toggle
+    /// within the 250 ms debounce window cancels the pending speed change.
+    private func scheduleUpdate(group: BoardGroup) {
         playbackUpdateTask?.cancel()
+        let sendFps = min(Int(fps), RinaLinkConstants.groupScrollFpsMax)
+        let sendLoop = loop
         playbackUpdateTask = Task {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
-            await coordinator.updatePlayback(group: group, fps: fps, loop: loop)
+            await coordinator.updatePlayback(group: group, fps: sendFps, loop: sendLoop)
         }
     }
 
@@ -224,7 +229,9 @@ struct BoardGroupPlayView: View {
         isSending = true
         defer { isSending = false }
         do {
-            try await coordinator.play(group: group, text: text, fps: Int(fps), loop: loop)
+            try await coordinator.play(
+                group: group, text: text, fps: min(Int(fps), RinaLinkConstants.groupScrollFpsMax), loop: loop
+            )
         } catch {
             errorMessage = error.localizedDescription
         }

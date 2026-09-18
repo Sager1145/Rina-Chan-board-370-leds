@@ -86,10 +86,22 @@ struct BoardGroupListView: View {
         // now, before any removal shifts later indices out from under the
         // remaining offsets.
         let ids = offsets.map { store.groups[$0].id }
-        for id in ids {
-            store.remove(id: id)
-            if ControlTarget(storedGroupIDString: controlTargetGroupIDStorage) == .group(id) {
-                controlTargetGroupIDStorage = ""
+        let groupsByID = Dictionary(uniqueKeysWithValues: store.groups.map { ($0.id, $0) })
+        Task {
+            for id in ids {
+                // A group still playing or starting must give up ownership
+                // first — otherwise the boards keep scrolling group-owned,
+                // the resync loop no-ops against a deleted group, and its
+                // Stop button becomes unreachable.
+                if let group = groupsByID[id],
+                   coordinator.activeGroupID == id && (coordinator.isPlaying || coordinator.isPaused)
+                    || (coordinator.isStarting && coordinator.startingGroupID == id) {
+                    await coordinator.stop(group: group)
+                }
+                store.remove(id: id)
+                if ControlTarget(storedGroupIDString: controlTargetGroupIDStorage) == .group(id) {
+                    controlTargetGroupIDStorage = ""
+                }
             }
         }
     }

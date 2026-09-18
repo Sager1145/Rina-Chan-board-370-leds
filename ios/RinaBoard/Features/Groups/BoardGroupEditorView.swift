@@ -21,6 +21,21 @@ struct BoardGroupEditorView: View {
         store.groups.first { $0.id == groupID }
     }
 
+    /// True while this group owns playback (or is starting it), during which
+    /// layout edits (mode, reorder, gaps, membership) must be blocked — after
+    /// they'd bump `layoutRevision`, the coordinator's pause/resume/step/
+    /// speed/resync calls silently no-op while the boards keep the old
+    /// layout (BOARD_GROUP_SPEC.md §3). Renaming and identify stay allowed.
+    private func isLocked(_ group: BoardGroup) -> Bool {
+        if coordinator.activeGroupID == group.id && (coordinator.isPlaying || coordinator.isPaused) {
+            return true
+        }
+        if coordinator.isStarting && coordinator.startingGroupID == group.id {
+            return true
+        }
+        return false
+    }
+
     var body: some View {
         Group {
             if let group {
@@ -58,6 +73,7 @@ struct BoardGroupEditorView: View {
                     Text("镜像").tag(BoardGroup.Mode.mirror)
                 }
                 .pickerStyle(.segmented)
+                .disabled(isLocked(group))
             }
 
             Section {
@@ -66,28 +82,37 @@ struct BoardGroupEditorView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(Array(group.members.enumerated()), id: \.element.physicalBoardID) { index, member in
-                        memberRow(group: group, member: member, slot: index)
+                        memberRow(group: group, member: member, slot: index, locked: isLocked(group))
                     }
-                    .onMove { offsets, destination in
+                    .onMove(perform: isLocked(group) ? nil : { offsets, destination in
                         moveMembers(group: group, offsets: offsets, destination: destination)
-                    }
+                    })
                 }
             } header: {
                 Text("面板（\(group.members.count)/\(BoardGroup.maxMembers)）")
             } footer: {
                 if group.members.count >= BoardGroup.maxMembers {
                     Text("已达到 5 块面板上限。")
+                } else if isLocked(group) {
+                    Text("播放中不能修改布局，请先停止。")
                 }
             }
 
             if group.mode == .stitched, group.members.count > 1 {
-                Section("间隔（拼接模式）") {
+                Section {
                     ForEach(Array(group.gapsAfter.enumerated()), id: \.offset) { index, gap in
                         Stepper(
                             "第 \(index + 1)、\(index + 2) 块面板之间：\(gap) 列",
                             value: gapBinding(group: group, slot: index),
                             in: 0...BoardGroup.maxGap
                         )
+                        .disabled(isLocked(group))
+                    }
+                } header: {
+                    Text("间隔（拼接模式）")
+                } footer: {
+                    if isLocked(group) {
+                        Text("播放中不能修改布局，请先停止。")
                     }
                 }
             }
@@ -98,7 +123,7 @@ struct BoardGroupEditorView: View {
                 } label: {
                     Label("添加板子", systemImage: "plus.circle")
                 }
-                .disabled(group.members.count >= BoardGroup.maxMembers)
+                .disabled(group.members.count >= BoardGroup.maxMembers || isLocked(group))
 
                 Button {
                     toggleIdentify(group: group)
@@ -133,7 +158,7 @@ struct BoardGroupEditorView: View {
     // MARK: - Member row
 
     @ViewBuilder
-    private func memberRow(group: BoardGroup, member: BoardGroup.Member, slot: Int) -> some View {
+    private func memberRow(group: BoardGroup, member: BoardGroup.Member, slot: Int, locked: Bool) -> some View {
         let status = coordinator.status(for: member)
         let connection = coordinator.session(for: member)?.connection
         let nameAndStatus = VStack(alignment: .leading, spacing: 2) {
@@ -148,14 +173,14 @@ struct BoardGroupEditorView: View {
             } label: {
                 Image(systemName: "chevron.up")
             }
-            .disabled(slot == 0)
+            .disabled(locked || slot == 0)
             .accessibilityLabel("左移")
             Button {
                 moveMember(group: group, slot: slot, delta: 1)
             } label: {
                 Image(systemName: "chevron.down")
             }
-            .disabled(slot == group.members.count - 1)
+            .disabled(locked || slot == group.members.count - 1)
             .accessibilityLabel("右移")
         }
         .buttonStyle(.borderless)
@@ -175,10 +200,12 @@ struct BoardGroupEditorView: View {
             }
         }
         .swipeActions {
-            Button(role: .destructive) {
-                store.removeMember(groupID: group.id, physicalBoardID: member.physicalBoardID)
-            } label: {
-                Label("移除", systemImage: "trash")
+            if !locked {
+                Button(role: .destructive) {
+                    store.removeMember(groupID: group.id, physicalBoardID: member.physicalBoardID)
+                } label: {
+                    Label("移除", systemImage: "trash")
+                }
             }
         }
     }

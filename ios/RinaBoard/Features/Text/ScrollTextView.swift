@@ -174,7 +174,7 @@ struct ScrollTextView: View {
                     get: { model.loopPlayback },
                     set: { loop in
                         model.loopPlayback = loop
-                        if playing || paused { scheduleGroupPlaybackUpdate(group: group, fps: nil, loop: loop) }
+                        if playing || paused { scheduleGroupPlaybackUpdate(group: group) }
                     }
                 ),
                 loopDisabled: false,
@@ -198,12 +198,17 @@ struct ScrollTextView: View {
     /// live to a playing group via `BoardGroupCoordinator.updatePlayback`,
     /// debounced 250 ms so a slider drag doesn't fire one re-anchor per
     /// tick. Single-board speed changes never go through here.
-    private func scheduleGroupPlaybackUpdate(group: BoardGroup, fps: Int?, loop: Bool?) {
+    /// Always sends the complete desired state (fps + loop), not just the
+    /// field that changed — otherwise a speed drag followed by a loop toggle
+    /// within the 250 ms debounce window cancels the pending speed change.
+    private func scheduleGroupPlaybackUpdate(group: BoardGroup) {
         groupPlaybackUpdateTask?.cancel()
+        let sendFps = min(Int(model.requestedFps), RinaLinkConstants.groupScrollFpsMax)
+        let sendLoop = model.loopPlayback
         groupPlaybackUpdateTask = Task {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
-            await groupCoordinator.updatePlayback(group: group, fps: fps, loop: loop)
+            await groupCoordinator.updatePlayback(group: group, fps: sendFps, loop: sendLoop)
         }
     }
 
@@ -266,7 +271,10 @@ struct ScrollTextView: View {
         }
         do {
             try await groupCoordinator.play(
-                group: group, text: model.text, fps: Int(model.requestedFps), loop: model.loopPlayback
+                group: group,
+                text: model.text,
+                fps: min(Int(model.requestedFps), RinaLinkConstants.groupScrollFpsMax),
+                loop: model.loopPlayback
             )
         } catch {
             model.errorMessage = error.localizedDescription
@@ -402,14 +410,18 @@ struct ScrollTextView: View {
                                 let active = groupCoordinator.activeGroupID == group.id
                                     && (groupCoordinator.isPlaying || groupCoordinator.isPaused)
                                 if active {
-                                    scheduleGroupPlaybackUpdate(group: group, fps: Int(newValue), loop: nil)
+                                    scheduleGroupPlaybackUpdate(group: group)
                                 }
                             } else {
                                 model.setRequestedFps(newValue, connection: connection)
                             }
                         }
                     ),
-                    in: Double(RinaLinkConstants.scrollFpsMin)...Double(RinaLinkConstants.scrollFpsMax),
+                    in: Double(RinaLinkConstants.scrollFpsMin)...(
+                        targetedGroup != nil
+                            ? Double(RinaLinkConstants.groupScrollFpsMax)
+                            : Double(RinaLinkConstants.scrollFpsMax)
+                    ),
                     step: 1
                 )
                 .disabled(targetedGroup == nil && !isConnected)
