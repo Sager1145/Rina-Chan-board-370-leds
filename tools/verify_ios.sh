@@ -36,7 +36,8 @@
 
 set -uo pipefail
 
-APP_STRICT_CONCURRENCY_BASELINE=46
+# Distinct file:line sites, counted the way lane_concurrency counts them.
+APP_STRICT_CONCURRENCY_BASELINE=44
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORK=${RINA_VERIFY_DIR:-${TMPDIR:-/tmp}/rinaboard-verify}
