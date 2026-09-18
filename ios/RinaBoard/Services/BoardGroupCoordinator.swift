@@ -506,15 +506,21 @@ public final class BoardGroupCoordinator {
 
         var survivors: [String: Participant] = [:]
         for (id, participant) in participants {
-            guard participant.session.connection.connectionState == .connected,
-                  participant.session.connection.connectionGeneration == participant.generation,
-                  participant.session.connection.output.source == .group,
-                  participant.session.connection.output.isCurrent(participant.token) else {
+            let connection = participant.session.connection
+            // A reconnect (new connection generation) naturally invalidates
+            // the output lease too, same as a deliberate takeover — so
+            // "still the exact same connection generation" is what actually
+            // distinguishes the two (N1), not the output source alone.
+            let sameConnection = connection.connectionState == .connected
+                && connection.connectionGeneration == participant.generation
+            guard sameConnection, connection.output.source == .group,
+                  connection.output.isCurrent(participant.token) else {
                 memberStatus.removeValue(forKey: id) // M3: falls back to live status
-                // N1: distinguish "something else now owns this board's
-                // output" from a plain generation/bootId change — only the
-                // latter is eligible for an automatic rejoin.
-                if participant.session.connection.output.source != .group {
+                // N1: only a same-generation member whose output moved to a
+                // different source was actually taken over — never rejoin
+                // it. A member dropped by a generation/bootId change (or a
+                // disconnect) stays eligible.
+                if sameConnection, connection.output.source != .group {
                     evictedByOwnership.insert(id)
                 }
                 continue

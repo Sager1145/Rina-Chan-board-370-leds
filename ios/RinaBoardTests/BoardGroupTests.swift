@@ -504,7 +504,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
         try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
         XCTAssertEqual(transportA.sentGroupStartAtUs.count, 1)
-        XCTAssertNil(transportB.lastBlobBeginMeta, "B's *original* upload happened on the pre-reconnect transport")
+        XCTAssertNotNil(transportB.lastBlobBeginMeta, "B's original upload happened on the pre-reconnect transport")
 
         // B reconnects with a new transport/connection generation. Its
         // output ownership was never taken by anything else, so this is the
