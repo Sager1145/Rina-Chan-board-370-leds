@@ -80,6 +80,43 @@ final class GroupAutoConnectorTests: XCTestCase {
         XCTAssertTrue(sessions.active === activeBefore, "background member connects must never reselect the active board")
     }
 
+    // MARK: 2b. Never binds the launch-time unbound placeholder to a member
+
+    /// Regression for the reviewer-found bug: a fresh store's `active` is an
+    /// unbound placeholder (`boardID == nil`). Dialing a group member through
+    /// `session(for:name:)` turned that very placeholder into the member's
+    /// own session, so `RootTabView`'s autoReconnect guard
+    /// (`active.boardID == expected` / `.disconnected`) saw an
+    /// already-claimed active session and skipped the user's real
+    /// last-used board. `backgroundSession` must leave `active` untouched
+    /// and give the member its own, separate session.
+    func testDoesNotBindLaunchPlaceholderToAGroupMember() async throws {
+        let sessions = BoardSessionStore()
+        let boardStore = freshBoardStore()
+        let groupStore = freshGroupStore()
+        boardStore.upsert(KnownBoard(id: "known-A", name: "璃奈板 A", preferredTransport: "bluetooth"))
+        let group = groupStore.create(name: "测试组")
+        try groupStore.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A", knownBoardIDs: ["known-A"]))
+
+        XCTAssertNil(sessions.active.boardID, "a fresh store's active session starts unbound")
+        var dialedSession: BoardSession?
+        let connector = GroupAutoConnector(
+            sessions: sessions, groupStore: groupStore, boardStore: boardStore,
+            backoffSchedule: [0.05, 0.05, 0.05]
+        ) { known, session in
+            dialedSession = session
+            let transport = GroupAutoConnectorFakeTransport()
+            transport.wifiBoardId = "AAAA"
+            _ = await session.connection.connect(using: transport)
+        }
+
+        connector.setTarget(.group(group.id), isExplicit: true)
+        await waitUntil { dialedSession != nil }
+
+        XCTAssertNil(sessions.active.boardID, "the unbound placeholder must stay unbound")
+        XCTAssertFalse(dialedSession === sessions.active, "the member must get its own session, not the active placeholder")
+    }
+
     // MARK: 3. Does nothing for `.single`
 
     func testDoesNothingForSingleTarget() async throws {
@@ -317,15 +354,17 @@ final class GroupAutoConnectorTests: XCTestCase {
             XCTAssertFalse(state == .connecting, "never dials over an in-flight connect")
             if case .reconnecting = state { XCTFail("never dials while BoardConnection's own loop runs") }
         }
-        // Every dial reached the real carrier. How many extra attempts
-        // BoardConnection's own retry loop adds per dial is its business, not
-        // the connector's (it measured 27, not 6 per dial), so only the floor
-        // is asserted here.
-        let carrierCount = await carrierConnects.counts["x"] ?? 0
-        XCTAssertGreaterThanOrEqual(carrierCount, GroupAutoConnector.maxConsecutiveFailures)
-
         try? await Task.sleep(nanoseconds: 600_000_000)
         XCTAssertEqual(dials, 5, "must stop dialing once the cap is reached")
+
+        // Every dial reached the real carrier. BoardConnection's own retry
+        // loop adds extra attempts per dial; read only after the 600 ms
+        // settle above, once that loop has actually stopped for every dial
+        // (reading it earlier caught the 5th dial's retry loop still
+        // running mid-count, measuring 27 instead of the settled 30 — 5
+        // dials x 6 carrier attempts each).
+        let carrierCount = await carrierConnects.counts["x"] ?? 0
+        XCTAssertEqual(carrierCount, 30)
 
         connector.connectNow(members[0])
         await waitUntil { dials == 6 }
@@ -469,7 +508,7 @@ final class GroupAutoConnectorTests: XCTestCase {
         await waitUntil { sessions.session(matchingGroupMember: "BBBB")?.connection.connectionState == .connected }
 
         XCTAssertEqual(Array(dialed.prefix(2)), ["known-AAAA", "known-BBBB"])
-        XCTAssertTrue(clock.requested.contains(20), "the per-attempt timeout ran")
+        XCTAssertTrue(clock.requested.contains(45), "the per-attempt timeout ran")
         let aSession = sessions.existingSession(for: "known-AAAA")
         XCTAssertNotEqual(aSession?.connection.connectionState, .connecting, "the hung carrier was torn down")
     }
