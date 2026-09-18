@@ -1163,6 +1163,65 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertTrue(transportB.receivedStopScroll)
     }
 
+    /// Paused group, one member drops and reconnects: resume must bring it
+    /// back (re-upload + group_start) instead of silently skipping it.
+    func testResumeAfterMemberReconnectedWhilePausedIncludesIt() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let group = store.create(name: "暂停重连组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try await coordinator.play(group: store.groups[0], text: "暂停重连", fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        XCTAssertTrue(coordinator.isPaused)
+        let pausedAt = coordinator.pausedFrame
+
+        let newTransportB = GroupFakeTransport()
+        newTransportB.wifiBoardId = "B"
+        _ = await sessionB.connection.connect(using: newTransportB)
+
+        await coordinator.resume(group: store.groups[0])
+
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertNotNil(newTransportB.lastBlobBeginMeta, "the reconnected board gets the timeline again")
+        XCTAssertEqual(newTransportB.sentGroupStartFrames.last, pausedAt)
+        XCTAssertEqual(transportA.sentGroupStartFrames.last, pausedAt)
+    }
+
+    /// Same gap for step: the reconnected board is brought back and the
+    /// group ends paused on the stepped frame.
+    func testStepAfterMemberReconnectedWhilePausedIncludesIt() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let group = store.create(name: "逐帧重连组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try await coordinator.play(group: store.groups[0], text: "逐帧重连", fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        let target = coordinator.pausedFrame + 1
+
+        let newTransportB = GroupFakeTransport()
+        newTransportB.wifiBoardId = "B"
+        _ = await sessionB.connection.connect(using: newTransportB)
+
+        await coordinator.step(group: store.groups[0], direction: 1)
+
+        XCTAssertTrue(coordinator.isPaused)
+        XCTAssertEqual(coordinator.pausedFrame, target)
+        XCTAssertNotNil(newTransportB.lastBlobBeginMeta)
+        XCTAssertEqual(newTransportB.sentScrollSeekFrames.last, target)
+    }
+
     /// Drag-swap on an idle group only reorders.
     func testSwapMembersOnIdleGroupJustReorders() async throws {
         let sessions = BoardSessionStore()

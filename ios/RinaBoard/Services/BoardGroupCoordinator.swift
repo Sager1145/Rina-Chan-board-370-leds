@@ -1205,6 +1205,35 @@ public final class BoardGroupCoordinator {
         participants = survivors
     }
 
+    /// Members that are connected again but no longer participants (they
+    /// dropped and reconnected, e.g. while the group was paused and the
+    /// re-anchor loop that would rejoin them wasn't running). Boards taken
+    /// over by another feature (`evictedByOwnership`) don't count.
+    private func reconnectedNonParticipants(_ group: BoardGroup) -> [BoardGroup.Member] {
+        group.members.filter { member in
+            let id = member.physicalBoardID
+            guard participants[id] == nil, !evictedByOwnership.contains(id),
+                  let session = session(for: member), session.connection.connectionState == .connected else { return false }
+            let source = session.connection.output.source
+            return source == nil || source == .group
+        }
+    }
+
+    /// Paused group with reconnected members: pause/resume/step only reach
+    /// participants, so bring everyone back by re-uploading and restarting
+    /// from `frame`, then (if `paused`) pausing again right there.
+    private func restartIncludingReconnected(group: BoardGroup, frame: Int, paused: Bool) async {
+        guard let playState, let anchor = currentAnchor else { return }
+        let fps = max(1, Int((1000.0 / Double(max(anchor.intervalMs, 1))).rounded()))
+        do {
+            try await startGroup(group: group, text: playState.sourceText, fps: fps, loop: anchor.loop,
+                                 startFrame: frame, adoption: nil)
+        } catch {
+            return
+        }
+        if paused { await pauseCore(group: group) }
+    }
+
     // MARK: - Preview snapshot
 
     /// What the group preview draws while a group is playing or paused: the
@@ -1444,6 +1473,10 @@ public final class BoardGroupCoordinator {
               liveGroup.layoutRevision == revision else { return }
 
         pruneParticipants()
+        if !reconnectedNonParticipants(liveGroup).isEmpty {
+            await restartIncludingReconnected(group: liveGroup, frame: pausedFrame, paused: false)
+            return
+        }
         guard !participants.isEmpty else { return }
 
         let gen = controlGeneration // B1: captured before any await below
@@ -1552,7 +1585,8 @@ public final class BoardGroupCoordinator {
               liveGroup.layoutRevision == revision else { return }
 
         pruneParticipants()
-        guard !participants.isEmpty else { return }
+        let needsRestart = !reconnectedNonParticipants(liveGroup).isEmpty
+        guard needsRestart || !participants.isEmpty else { return }
 
         let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
         let newFrame: Int
@@ -1563,6 +1597,10 @@ public final class BoardGroupCoordinator {
             newFrame = ((pausedFrame + direction) % m + m) % m
         } else {
             newFrame = min(max(pausedFrame + direction, 0), frameCount - 1)
+        }
+        if needsRestart {
+            await restartIncludingReconnected(group: liveGroup, frame: newFrame, paused: true)
+            return
         }
 
         // B1: bump before the only await below (the send fan-out) — the
