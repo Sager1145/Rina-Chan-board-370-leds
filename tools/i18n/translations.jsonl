@@ -26,10 +26,10 @@
 {"hant": "LED 後端", "ja": "LED バックエンド", "k": "LED 后端"}
 {"hant": "MakerWorld 模型檔案", "ja": "MakerWorld モデルファイル", "k": "MakerWorld 模型文件"}
 {"hant": "iPhone 個人熱點", "ja": "iPhone のインターネット共有", "k": "iPhone 热点"}
-{"hant": "上一個表情", "ja": "前の表情", "k": "上一个表情"}
+{"en": "Previous expression", "hant": "上一個表情", "ja": "前の表情", "k": "上一个表情"}
 {"hant": "上一影格", "ja": "前のフレーム", "k": "上一帧"}
 {"hant": "上傳中", "ja": "アップロード中", "k": "上传中"}
-{"hant": "下一個表情", "ja": "次の表情", "k": "下一个表情"}
+{"en": "Next expression", "hant": "下一個表情", "ja": "次の表情", "k": "下一个表情"}
 {"hant": "下一影格", "ja": "次のフレーム", "k": "下一帧"}
 {"hant": "亮度", "ja": "明るさ", "k": "亮度"}
 {"hant": "亮度 %lld%%", "ja": "明るさ %lld%%", "k": "亮度 %lld%%"}
@@ -47,7 +47,7 @@
 {"hant": "儲存", "ja": "保存", "k": "保存"}
 {"hant": "儲存到面板的表情庫，可在控制中心管理。", "ja": "ボードの表情ライブラリに保存されます。コントロールセンターで管理できます。", "k": "保存到面板的表情库，可在控制中心中管理。"}
 {"hant": "儲存目前狀態", "ja": "現在の状態を保存", "k": "保存当前"}
-{"hant": "儲存表情", "ja": "表情を保存", "k": "保存表情"}
+{"en": "Save expression", "hant": "儲存表情", "ja": "表情を保存", "k": "保存表情"}
 {"hant": "保留草稿", "ja": "下書きを残す", "k": "保留草稿"}
 {"en": "Signal", "hant": "訊號", "ja": "電波", "k": "信号"}
 {"hant": "訊號強度", "ja": "電波強度", "k": "信号强度"}
@@ -67,7 +67,7 @@
 {"hant": "重新整理狀態", "ja": "ステータスを更新", "k": "刷新状态"}
 {"hant": "重新整理電源資訊", "ja": "電源情報を更新", "k": "刷新电源"}
 {"hant": "重新整理耗時", "ja": "更新にかかった時間", "k": "刷新耗时"}
-{"hant": "加入璃奈板熱點並連線", "ja": "璃奈ちゃんボードのホットスポットに参加して接続", "k": "加入璃奈板热点并连接"}
+{"hant": "連線至璃奈板熱點", "ja": "璃奈ちゃんボードの Wi-Fi に接続", "k": "加入璃奈板热点并连接"}
 {"hant": "載入字型…", "ja": "フォントを読み込み中…", "k": "加载字体…"}
 {"hant": "十六進位", "ja": "16 進数", "k": "十六进制"}
 {"hant": "通訊協定版本", "ja": "プロトコルバージョン", "k": "协议版本"}
@@ -86,7 +86,7 @@
 {"hant": "傳送失敗：%@", "ja": "送信に失敗しました：%@", "k": "发送失败：%@"}
 {"hant": "傳送並播放", "ja": "送信して再生", "k": "发送并播放"}
 {"en": "Cancel", "hant": "取消", "ja": "キャンセル", "k": "取消"}
-{"hant": "另存為新表情", "ja": "別の表情として保存", "k": "另存为新表情"}
+{"en": "Save as new expression", "hant": "另存為新表情", "ja": "別の表情として保存", "k": "另存为新表情"}
 {"en": "Sync", "hant": "同步", "ja": "同期", "k": "同步"}
 {"hant": "同步失敗：%@", "ja": "同期に失敗しました：%@", "k": "同步失败：%@"}
 {"hant": "同步狀態", "ja": "同期状況", "k": "同步状态"}
@@ -105,7 +105,7 @@
 {"hant": "堆積記憶體", "ja": "ヒープメモリ", "k": "堆内存"}
 {"hant": "拷貝", "ja": "コピー", "k": "复制"}
 {"hant": "拷貝診斷 JSON", "ja": "診断 JSON をコピー", "k": "复制诊断 JSON"}
-{"hant": "拷貝預覽影格", "ja": "プレビューフレームをコピー", "k": "复制预览帧"}
+{"hant": "複製預覽影格", "ja": "プレビューフレームをコピー", "k": "复制预览帧"}
 {"hant": "外觀跟隨系統設定。", "ja": "外観はシステム設定に従います。", "k": "外观跟随系统设置。"}
 {"en": "OK", "hant": "好", "ja": "OK", "k": "好"}
 {"hant": "缺少字型資源", "ja": "フォントリソースがありません", "k": "字体资源缺失"}
@@ -124,7 +124,7 @@
 {"hant": "密碼", "ja": "パスワード", "k": "密码"}
 {"hant": "密碼（留空表示開放網路）", "ja": "パスワード（空欄はオープンネットワーク）", "k": "密码 (留空为开放网络)"}
 {"hant": "匯入失敗：檔案格式無效", "ja": "読み込みに失敗しました：ファイル形式が正しくありません", "k": "导入失败：文件格式无效"}
-{"hant": "匯入表情列表", "ja": "表情リストを読み込む", "k": "导入表情列表"}
+{"en": "Import expression list", "hant": "匯入表情列表", "ja": "表情リストを読み込む", "k": "导入表情列表"}
 {"hant": "全部匯出", "ja": "すべて書き出す", "k": "导出全部"}
 {"hant": "封包影格實驗室", "ja": "パックフレーム ラボ", "k": "封包帧实验室"}
 {"hant": "已儲存的表情", "ja": "保存した表情", "k": "已保存的表情"}
@@ -145,7 +145,7 @@
 {"hant": "微調", "ja": "微調整", "k": "微调"}
 {"hant": "忘記網路", "ja": "ネットワークを削除", "k": "忘记网络"}
 {"hant": "恢復中", "ja": "復帰中", "k": "恢复中"}
-{"hant": "我的表情", "ja": "マイ表情", "k": "我的表情"}
+{"en": "My expressions", "hant": "我的表情", "ja": "マイ表情", "k": "我的表情"}
 {"hant": "我確認要傳送原始指令", "ja": "raw コマンドの送信を確認しました", "k": "我确认发送原始指令"}
 {"en": "Manual", "hant": "手動", "ja": "手動", "k": "手动"}
 {"hant": "手動輸入主機名稱或 IP", "ja": "ホスト名または IP を手入力", "k": "手动输入主机名或 IP"}
@@ -175,7 +175,7 @@
 {"hant": "未連線", "ja": "未接続", "k": "未连接"}
 {"hant": "未連線，無法儲存到面板", "ja": "未接続のため、ボードに保存できません", "k": "未连接，无法保存到面板"}
 {"hant": "未連線，無法同步到面板", "ja": "未接続のため、ボードに同期できません", "k": "未连接，无法同步到面板"}
-{"hant": "未連線，無法套用表情", "ja": "未接続のため、表情を適用できません", "k": "未连接，无法应用表情"}
+{"en": "Not connected — can’t apply the expression", "hant": "未連線，無法套用表情", "ja": "未接続のため、表情を適用できません", "k": "未连接，无法应用表情"}
 {"hant": "本專案以上述開源專案的創意與實作為基礎，在此向原作者致謝。各元件的著作權歸原作者所有，並依其各自的開源授權條款使用。", "ja": "本プロジェクトは上記のオープンソースプロジェクトのアイデアと実装を土台にしています。作者の皆さまに感謝します。各コンポーネントの著作権は原作者に帰属し、それぞれのオープンソースライセンスに従って利用しています。", "k": "本项目基于上述开源项目的创意与实现，向原作者致谢。各组件版权归原作者所有，并遵循其各自的开源许可证。"}
 {"hant": "板載 Wi-Fi 設定", "ja": "ボードの Wi-Fi 設定", "k": "板载 Wi-Fi 设置"}
 {"hant": "驗證", "ja": "検証", "k": "校验"}
@@ -183,11 +183,11 @@
 {"hant": "格式必須為 #RRGGBB", "ja": "形式は #RRGGBB にしてください", "k": "格式应为 #RRGGBB"}
 {"en": "Mode", "hant": "模式", "ja": "モード", "k": "模式"}
 {"hant": "充電中", "ja": "充電中", "k": "正在充电"}
-{"hant": "此操作會刪除所有非預設表情，且無法復原。請輸入 CLEAR 以確認。", "ja": "この操作はデフォルト以外のすべての表情を削除し、取り消せません。確認のため CLEAR と入力してください。", "k": "此操作会删除所有非默认表情，且不可撤销。输入 CLEAR 确认。"}
-{"hant": "此表情的影格資料無效", "ja": "この表情のフレームデータは無効です", "k": "此表情的帧数据无效"}
+{"en": "This will delete all non-default expressions and cannot be undone. Type CLEAR to confirm.", "hant": "此操作會刪除所有非預設表情，且無法復原。請輸入 CLEAR 以確認。", "ja": "この操作はデフォルト以外のすべての表情を削除し、取り消せません。確認のため CLEAR と入力してください。", "k": "此操作会删除所有非默认表情，且不可撤销。输入 CLEAR 确认。"}
+{"en": "This expression has invalid frame data", "hant": "此表情的影格資料無效", "ja": "この表情のフレームデータは無効です", "k": "此表情的帧数据无效"}
 {"hant": "測試圖樣", "ja": "テストパターン", "k": "测试图案"}
 {"hant": "清空", "ja": "消去", "k": "清空"}
-{"hant": "清空使用者表情", "ja": "ユーザー表情をすべて削除", "k": "清空用户表情"}
+{"en": "Delete all user expressions", "hant": "清空使用者表情", "ja": "ユーザー表情をすべて削除", "k": "清空用户表情"}
 {"hant": "清除", "ja": "クリア", "k": "清除"}
 {"hant": "清除錯誤", "ja": "エラーをクリア", "k": "清除错误"}
 {"hant": "跑馬燈文字內容", "ja": "スクロールテキストの内容", "k": "滚动文字内容"}
@@ -231,7 +231,7 @@
 {"hant": "致謝", "ja": "クレジット", "k": "致谢"}
 {"hant": "取得資訊", "ja": "情報を取得", "k": "获取信息"}
 {"en": "Bluetooth", "hant": "藍牙", "ja": "Bluetooth", "k": "蓝牙"}
-{"hant": "表情庫", "ja": "表情ライブラリ", "k": "表情库"}
+{"en": "Expression Library", "hant": "表情庫", "ja": "表情ライブラリ", "k": "表情库"}
 {"hant": "解析為預覽", "ja": "解析してプレビュー", "k": "解析为预览"}
 {"hant": "解析並傳送", "ja": "解析して送信", "k": "解析并发送"}
 {"hant": "觸覺回饋", "ja": "触覚フィードバック", "k": "触感反馈"}
@@ -295,7 +295,7 @@
 {"hant": "預覽（僅本機）", "ja": "プレビュー（ローカルのみ）", "k": "预览 (仅本地)"}
 {"hant": "顏色", "ja": "カラー", "k": "颜色"}
 {"hant": "預設", "ja": "デフォルト", "k": "默认"}
-{"hant": "預設表情", "ja": "デフォルトの表情", "k": "默认表情"}
+{"en": "Default expressions", "hant": "預設表情", "ja": "デフォルトの表情", "k": "默认表情"}
 {"hant": "預設表情無法刪除", "ja": "デフォルトの表情は削除できません", "k": "默认表情不可删除"}
 {"en": "Stop", "hant": "停止", "ja": "停止", "k": "停止"}
 {"en": "Stop Sync", "hant": "停止同步", "ja": "同期を停止", "k": "停止同步"}
@@ -324,8 +324,8 @@
 {"en": "Calibrate", "hant": "校準", "ja": "キャリブレーション", "k": "校准"}
 {"en": "Each vowel maps to one mouth part; the eyes and cheeks stay put while syncing.", "hant": "每個母音對應一個嘴巴元件；眼睛與臉頰在同步期間維持不變。", "ja": "母音ごとに 1 つの口パーツが対応します。同期中、目と頬は変わりません。", "k": "每个元音对应一个嘴巴部件；眼睛和脸颊在同步期间保持不变。"}
 {"en": "Not enough sound was captured — move closer to the microphone and try again", "hant": "沒有收到足夠的聲音，請靠近麥克風再試一次", "ja": "十分な音を取得できませんでした。マイクに近づいて、もう一度お試しください", "k": "没有采集到足够的声音，请靠近麦克风再试一次"}
-{"en": "Performance preview, nothing loaded", "hant": "演出預覽，目前沒有內容", "ja": "パフォーマンスのプレビュー、読み込まれた内容がありません", "k": "演出预览，暂无内容"}
-{"en": "Performance preview, keyframe %1$lld of %2$lld", "hant": "演出預覽，第 %1$lld 個關鍵影格，共 %2$lld 個", "ja": "パフォーマンスのプレビュー、%2$lld 個中 %1$lld 番目のキーフレーム", "k": "演出预览，第 %1$lld 关键帧，共 %2$lld 个"}
+{"en": "Performance preview, nothing loaded", "hant": "演出預覽，目前沒有內容", "ja": "ライブのプレビュー、読み込まれた内容がありません", "k": "演出预览，暂无内容"}
+{"en": "Performance preview, keyframe %1$lld of %2$lld", "hant": "演出預覽，第 %1$lld 個關鍵影格，共 %2$lld 個", "ja": "ライブのプレビュー、%2$lld 個中 %1$lld 番目のキーフレーム", "k": "演出预览，第 %1$lld 关键帧，共 %2$lld 个"}
 {"en": "Demo script", "hant": "示範腳本", "ja": "デモスクリプト", "k": "演示脚本"}
 {"en": "Could not load the demo script: %@", "hant": "示範腳本載入失敗：%@", "ja": "デモスクリプトを読み込めませんでした：%@", "k": "演示脚本加载失败：%@"}
 {"en": "The demo script is not valid text", "hant": "示範腳本編碼無效", "ja": "デモスクリプトが有効なテキストではありません", "k": "演示脚本编码无效"}
@@ -355,7 +355,7 @@
 {"en": "Keyframe %lld / %lld", "hant": "關鍵影格 %lld / %lld", "ja": "キーフレーム %lld / %lld", "k": "关键帧 %lld / %lld"}
 {"en": "Keyframe 0 / %lld", "hant": "關鍵影格 0 / %lld", "ja": "キーフレーム 0 / %lld", "k": "关键帧 0 / %lld"}
 {"en": "Lip Sync", "hant": "嘴型", "ja": "リップシンク", "k": "口型"}
-{"en": "Live", "hant": "演出", "ja": "演出", "k": "演出"}
+{"en": "Performance", "hant": "演出", "ja": "ライブ", "k": "演出"}
 {"k": "·", "nt": true}
 {"en": "Song", "hant": "歌曲", "ja": "楽曲", "k": "歌曲"}
 {"en": "Custom…", "hant": "自訂…", "ja": "カスタム…", "k": "自定义…"}
@@ -368,7 +368,7 @@
 {"k":"%.0f Hz","nt":true}
 {"k":"%.0f dB","nt":true}
 {"k":"演出脚本加载失败：%@","en":"Could not load the performance script: %@","hant":"演出腳本載入失敗：%@","ja":"パフォーマンススクリプトを読み込めませんでした：%@"}
-{"k":"演出脚本编码无效","en":"The performance script is not valid text","hant":"演出腳本編碼無效","ja":"パフォーマンススクリプトが有効なテキストではありません"}
+{"en": "The performance script is not valid text", "hant": "演出腳本編碼無效", "ja": "ライブ用スクリプトが有効なテキストではありません", "k": "演出脚本编码无效"}
 {"k":"partGroup.leye","hans":"左眼","en":"Left eye","hant":"左眼","ja":"左目"}
 {"k":"partGroup.reye","hans":"右眼","en":"Right eye","hant":"右眼","ja":"右目"}
 {"k":"partGroup.mouth","hans":"嘴巴","en":"Mouth","hant":"嘴巴","ja":"口"}
@@ -420,7 +420,7 @@
 {"k":"局域网内暂未发现璃奈板","en":"No Rina boards found on the local network yet","hant":"區域網路內暫未找到璃奈板","ja":"ローカルネットワーク上に璃奈ちゃんボードがまだ見つかりません"}
 {"k":"局域网发现","en":"Local network discovery","hant":"區域網路探索","ja":"ローカルネットワークで検出"}
 {"k":"已保存","en":"Saved","hant":"已儲存","ja":"保存済み"}
-{"k":"已保存的璃奈板","en":"Saved Rina boards","hant":"已儲存的璃奈板","ja":"保存した璃奈ちゃんボード"}
+{"en": "Saved Rina-chan Boards", "hant": "已儲存的璃奈板", "ja": "保存した璃奈ちゃんボード", "k": "已保存的璃奈板"}
 {"k":"已关闭","en":"Off","hant":"已關閉","ja":"オフ"}
 {"k":"已加入板子热点，但未能连接璃奈板","en":"Joined the board's hotspot, but could not connect to the Rina board","hant":"已加入板子熱點，但無法連線璃奈板","ja":"ボードのホットスポットには参加しましたが、璃奈ちゃんボードへ接続できませんでした"}
 {"k":"已开启","en":"On","hant":"已開啟","ja":"オン"}
@@ -469,7 +469,7 @@
 {"k":"清除板子和本机保存的热点密码","en":"Clear hotspot password from the board and this device","hant":"清除板子和本機儲存的熱點密碼","ja":"ボードとこのデバイスに保存したホットスポットのパスワードを消去"}
 {"k":"点按下方按钮后才会请求读取","en":"Reading is requested only after you tap the button below","hant":"只有在你點一下下方按鈕後，App 才會要求讀取","ja":"下のボタンをタップした場合にのみ読み取りを要求します"}
 {"k":"状态未知","en":"Status unknown","hant":"狀態未知","ja":"状態不明"}
-{"k":"璃奈板名称","en":"Rina board name","hant":"璃奈板名稱","ja":"璃奈ちゃんボードの名前"}
+{"en": "Rina-chan Board name", "hant": "璃奈板名稱", "ja": "璃奈ちゃんボードの名前", "k": "璃奈板名称"}
 {"k":"璃奈板直连热点","en":"Rina board direct hotspot","hant":"璃奈板直連熱點","ja":"璃奈ちゃんボードの直接接続用ホットスポット"}
 {"k":"璃奈板网络与名称","en":"Rina board network and name","hant":"璃奈板網路與名稱","ja":"璃奈ちゃんボードのネットワークと名前"}
 {"k":"直连热点名称","en":"Direct hotspot name","hant":"直連熱點名稱","ja":"直接接続用ホットスポット名"}
@@ -487,8 +487,8 @@
 {"k":"蓝牙 · %@","en":"Bluetooth · %@","hant":"藍牙 · %@","ja":"Bluetooth · %@"}
 {"k":"让璃奈板扫描热点","en":"Have the Rina board scan for hotspots","hant":"讓璃奈板掃描熱點","ja":"璃奈ちゃんボードでホットスポットをスキャン"}
 {"k":"让璃奈板扫描网络","en":"Have the Rina board scan for networks","hant":"讓璃奈板掃描網路","ja":"璃奈ちゃんボードでネットワークをスキャン"}
-{"k":"请先连接璃奈板","en":"Connect to a Rina board first","hant":"請先連線璃奈板","ja":"先に璃奈ちゃんボードへ接続してください"}
-{"k":"请先通过蓝牙或其他方式连接璃奈板","en":"Connect to the Rina board over Bluetooth or another method first","hant":"請先透過藍牙或其他方式連線璃奈板","ja":"先に Bluetooth または別の方法で璃奈ちゃんボードへ接続してください"}
+{"en": "Connect to a Rina-chan Board first", "hant": "請先連線璃奈板", "ja": "先に璃奈ちゃんボードへ接続してください", "k": "请先连接璃奈板"}
+{"en": "Connect to the Rina-chan Board over Bluetooth or another method first", "hant": "請先透過藍牙或其他方式連線璃奈板", "ja": "先に Bluetooth または別の方法で璃奈ちゃんボードへ接続してください", "k": "请先通过蓝牙或其他方式连接璃奈板"}
 {"k":"请输入热点名称","en":"Enter the hotspot name","hant":"請輸入熱點名稱","ja":"ホットスポット名を入力してください"}
 {"k":"读取 iPhone 当前 Wi-Fi","en":"Read iPhone's current Wi-Fi","hant":"讀取 iPhone 目前的 Wi-Fi","ja":"iPhone の現在の Wi-Fi を読み取る"}
 {"k":"读取失败","en":"Could not read","hant":"讀取失敗","ja":"読み取りに失敗しました"}
@@ -628,17 +628,17 @@
 {"k":"当前面板播放预览 · 新草稿尚未发送","en":"Current board is playing the preview · New draft not sent","hant":"目前面板正在播放預覽 · 新草稿尚未傳送","ja":"現在のボードでプレビューを再生中 · 新しい下書きは未送信"}
 {"k":"恢复同步到面板","en":"Resume syncing to board","hant":"恢復同步到面板","ja":"ボードとの同期を再開"}
 {"k":"所选歌曲已改变，请重新导入","en":"The selected song changed. Import it again.","hant":"所選歌曲已變更，請重新匯入。","ja":"選択した曲が変更されました。もう一度読み込んでください。"}
-{"k":"手动表情","en":"Manual face","hant":"手動表情","ja":"手動表情"}
+{"en": "Manual expression", "hant": "手動表情", "ja": "手動表情", "k": "手动表情"}
 {"k":"打开应用设置","en":"Open app settings","hant":"開啟 App 設定","ja":"App の設定を開く"}
 {"k":"排列我的表情","en":"Reorder my faces","hant":"排列我的表情","ja":"マイ表情を並べ替える"}
 {"k":"搜索字段、值或来源","en":"Search fields, values, or sources","hant":"搜尋欄位、值或來源","ja":"フィールド、値、ソースを検索"}
 {"k":"搜索日志","en":"Search logs","hant":"搜尋記錄","ja":"ログを検索"}
-{"k":"搜索表情","en":"Search faces","hant":"搜尋表情","ja":"表情を検索"}
+{"en": "Search expressions", "hant": "搜尋表情", "ja": "表情を検索", "k": "搜索表情"}
 {"k":"撤销","en":"Undo","hant":"復原","ja":"取り消す"}
 {"k":"新表情","en":"New face","hant":"新表情","ja":"新しい表情"}
 {"k":"无法开始播放音频","en":"Could not start audio playback","hant":"無法開始播放音訊","ja":"オーディオを再生できませんでした"}
 {"k":"无法读取表情库","en":"Could not read the face library","hant":"無法讀取表情庫","ja":"表情ライブラリを読み取れませんでした"}
-{"k":"无法载入演出：%@","en":"Could not load performance: %@","hant":"無法載入演出：%@","ja":"演出を読み込めませんでした：%@"}
+{"en": "Could not load performance: %@", "hant": "無法載入演出：%@", "ja": "ライブを読み込めませんでした：%@", "k": "无法载入演出：%@"}
 {"k":"无法选择脚本：%@","en":"Could not select script: %@","hant":"無法選擇腳本：%@","ja":"スクリプトを選択できませんでした：%@"}
 {"k":"无法选择音频：%@","en":"Could not select audio: %@","hant":"無法選擇音訊：%@","ja":"オーディオを選択できませんでした：%@"}
 {"k":"日志","en":"Logs","hant":"記錄","ja":"ログ"}
@@ -699,7 +699,7 @@
 {"k":"缺少音频","en":"Audio missing","hant":"缺少音訊","ja":"オーディオがありません"}
 {"k":"网络模式","en":"Network mode","hant":"網路模式","ja":"ネットワークモード"}
 {"k":"脚本已就绪 · 需要导入音频","en":"Script ready · Audio import required","hant":"腳本已就緒 · 需要匯入音訊","ja":"スクリプト準備完了 · オーディオの読み込みが必要"}
-{"k":"自动表情","en":"Automatic faces","hant":"自動表情","ja":"自動表情"}
+{"en": "Automatic expressions", "hant": "自動表情", "ja": "自動表情", "k": "自动表情"}
 {"k":"自定义演出","en":"Custom performance","hant":"自訂演出","ja":"カスタム演出"}
 {"k":"自定义素材","en":"Custom media","hant":"自訂素材","ja":"カスタム素材"}
 {"k":"自定义脚本和音频分别导入；只有两者都有效时才能播放。","en":"Import the custom script and audio separately. Playback is available only when both are valid.","hant":"自訂腳本和音訊需分別匯入；只有兩者都有效時才能播放。","ja":"カスタムスクリプトとオーディオは別々に読み込みます。両方が有効な場合にのみ再生できます。"}
@@ -712,8 +712,8 @@
 {"k":"请先选择有效的脚本和音频","en":"Select a valid script and audio file first","hant":"請先選擇有效的腳本和音訊","ja":"先に有効なスクリプトとオーディオを選択してください"}
 {"k":"请尝试其他名称。","en":"Try a different name.","hant":"請嘗試其他名稱。","ja":"別の名前をお試しください。"}
 {"k":"读数来自最近一次 GET_STATUS、GET_POWER 与 get_info；功耗由状态中的点亮数、亮度和颜色在本机估算。","en":"Readings come from the latest GET_STATUS, GET_POWER, and get_info responses. Power is estimated on this device from the reported LED count, brightness, and color.","hant":"讀數來自最近一次 GET_STATUS、GET_POWER 與 get_info；功耗會依狀態中的點亮數、亮度和顏色在本機估算。","ja":"値は直近の GET_STATUS、GET_POWER、get_info から取得します。消費電力は、報告された点灯数、明るさ、色を使ってこのデバイス上で推定します。"}
-{"k":"调试工作区","en":"Debug workspace","hant":"偵錯工作區","ja":"デバッグワークスペース"}
-{"k":"调试输出","en":"Debug output","hant":"偵錯輸出","ja":"デバッグ出力"}
+{"en": "Debug workspace", "hant": "除錯工作區", "ja": "デバッグワークスペース", "k": "调试工作区"}
+{"en": "Debug output", "hant": "除錯輸出", "ja": "デバッグ出力", "k": "调试输出"}
 {"k":"连接与设备","en":"Connection and device","hant":"連線與裝置","ja":"接続とデバイス"}
 {"k":"连接后可查看和管理当前面板的表情。","en":"Connect to view and manage faces on the current board.","hant":"連線後可查看和管理目前面板的表情。","ja":"接続すると、現在のボードにある表情を表示して管理できます。"}
 {"k":"选择","en":"Choose","hant":"選擇","ja":"選択"}
@@ -744,11 +744,11 @@
 {"k":"表情草稿，%lld 颗灯点亮。可使用下方逐灯编辑。","en":"Face draft with %lld LEDs lit. Use the controls below to edit individual LEDs.","hant":"表情草稿，%lld 顆燈已點亮。可使用下方控制項逐燈編輯。","ja":"表情の下書き。%lld 個の LED が点灯しています。下のコントロールで LED ごとに編集できます。"}
 {"k":"连接失败 · 点此重试","en":"Connection failed · Tap to try again","hant":"連線失敗 · 點一下以重試","ja":"接続に失敗 · タップして再試行"}
 {"k":"连接璃奈板","en":"Connect Rina Board","hant":"連接璃奈板","ja":"璃奈ボードに接続"}
-{"k":"面板已更换，请重新选择表情","en":"The connected board changed. Select the face again.","hant":"已連接其他面板，請重新選擇表情。","ja":"接続先のボードが変わりました。表情を選び直してください。"}
+{"en": "The connected board changed. Select the expression again.", "hant": "已連接其他面板，請重新選擇表情。", "ja": "接続先のボードが変わりました。表情を選び直してください。", "k": "面板已更换，请重新选择表情"}
 {"k":"仅错误","en":"Errors only","hant":"僅錯誤","ja":"エラーのみ"}
 {"k":"信息","en":"Info","hant":"資訊","ja":"情報"}
 {"k":"全黑","en":"All off","hant":"全暗","ja":"全消灯"}
-{"k":"当前保存表情","en":"Currently saved face","hant":"目前儲存的表情","ja":"現在保存されている表情"}
+{"en": "Currently saved expression", "hant": "目前儲存的表情", "ja": "現在保存されている表情", "k": "当前保存表情"}
 {"k":"棋盘","en":"Checkerboard","hant":"棋盤","ja":"市松模様"}
 {"k":"正常","en":"Normal","hant":"一般","ja":"通常"}
 {"k":"警告","en":"Warning","hant":"警告","ja":"警告"}
@@ -787,45 +787,45 @@
 {"k":"固件拒绝订阅","en":"The firmware rejected the subscription","hant":"韌體拒絕訂閱","ja":"ファームウェアが購読を拒否しました"}
 {"k":"固件日志流已停止","en":"The firmware log stream stopped","hant":"韌體記錄串流已停止","ja":"ファームウェアログのストリームが停止しました"}
 {"k":"复制失败","en":"Copy failed","hant":"複製失敗","ja":"コピーに失敗しました"}
-{"k":"已删除 %lld 个表情","en":"Deleted %lld faces","hant":"已刪除 %lld 個表情","ja":"%lld 個の表情を削除しました"}
+{"en": "Deleted %lld faces", "en_plural": {"one": "Deleted %lld expression", "other": "Deleted %lld expressions"}, "hant": "已刪除 %lld 個表情", "ja": "%lld 個の表情を削除しました", "k": "已删除 %lld 个表情"}
 {"k":"已删除 %lld 个，%lld 个失败","en":"Deleted %lld; %lld failed","hant":"已刪除 %lld 個，%lld 個失敗","ja":"%lld 個を削除、%lld 個は失敗しました"}
 {"k":"已发送图案：%@","en":"Pattern sent: %@","hant":"已傳送圖案：%@","ja":"パターンを送信しました：%@"}
 {"k":"已发送解析帧","en":"Parsed frame sent","hant":"已傳送解析影格","ja":"解析したフレームを送信しました"}
-{"k":"已复制 %lld 个表情","en":"Copied %lld faces","hant":"已複製 %lld 個表情","ja":"%lld 個の表情をコピーしました"}
+{"en": "Copied %lld faces", "en_plural": {"one": "Copied %lld expression", "other": "Copied %lld expressions"}, "hant": "已複製 %lld 個表情", "ja": "%lld 個の表情をコピーしました", "k": "已复制 %lld 个表情"}
 {"k":"已复制 %lld 个，%lld 个失败","en":"Copied %lld; %lld failed","hant":"已複製 %lld 個，%lld 個失敗","ja":"%lld 個をコピー、%lld 個は失敗しました"}
 {"k":"已复制脱敏原始快照","en":"Copied redacted raw snapshot","hant":"已複製已遮蔽敏感資訊的原始快照","ja":"機密情報を除いた RAW スナップショットをコピーしました"}
 {"k":"已复制诊断 JSON","en":"Copied diagnostic JSON","hant":"已複製診斷 JSON","ja":"診断 JSON をコピーしました"}
 {"k":"已复制预览帧 (hex94)","en":"Copied preview frame (hex94)","hant":"已複製預覽影格 (hex94)","ja":"プレビューフレーム（hex94）をコピーしました"}
-{"k":"已恢复 %lld 个本机表情","en":"Restored %lld local faces","hant":"已還原 %lld 個本機表情","ja":"%lld 個のローカル表情を復元しました"}
-{"k":"已清空用户表情，保留 %lld 个默认表情 (gen=%lld)","en":"Cleared user faces; kept %lld default faces (gen=%lld)","hant":"已清除使用者表情，保留 %lld 個預設表情 (gen=%lld)","ja":"ユーザー表情を消去し、%lld 個のデフォルト表情を保持しました（gen=%lld）"}
+{"en": "Restored %lld local faces", "en_plural": {"one": "Restored %lld local expression", "other": "Restored %lld local expressions"}, "hant": "已還原 %lld 個本機表情", "ja": "%lld 個のローカル表情を復元しました", "k": "已恢复 %lld 个本机表情"}
+{"en": "Cleared user expressions; kept %lld default expressions (gen=%lld)", "hant": "已清除使用者表情，保留 %lld 個預設表情 (gen=%lld)", "ja": "ユーザー表情を消去し、%lld 個のデフォルト表情を保持しました（gen=%lld）", "k": "已清空用户表情，保留 %lld 个默认表情 (gen=%lld)"}
 {"k":"已解析为本地预览","en":"Parsed into the local preview","hant":"已解析為本機預覽","ja":"ローカルプレビューに反映しました"}
 {"k":"已请求重启设备","en":"Device restart requested","hant":"已要求重新啟動裝置","ja":"デバイスの再起動を要求しました"}
 {"k":"帧数据无效，无法保存到本机","en":"The frame data is invalid and cannot be saved on this device","hant":"影格資料無效，無法儲存到本機","ja":"フレームデータが無効なため、このデバイスに保存できません"}
 {"k":"排序列表已发生变化，请取消后重试","en":"The order changed. Cancel and try again.","hant":"排序清單已變更，請取消後再試一次。","ja":"並び順が変更されました。キャンセルしてやり直してください。"}
 {"k":"断线前 · %@","en":"Before disconnection · %@","hant":"斷線前 · %@","ja":"切断前 · %@"}
-{"k":"无法保存本机表情库：%@","en":"The local face library could not be saved: %@","hant":"無法儲存本機表情庫：%@","ja":"ローカル表情ライブラリを保存できませんでした：%@"}
+{"en": "The local expression library could not be saved: %@", "hant": "無法儲存本機表情庫：%@", "ja": "ローカル表情ライブラリを保存できませんでした：%@", "k": "无法保存本机表情库：%@"}
 {"k":"无法解析：需要 94 位十六进制 / 47 项整数 JSON 数组 / base64","en":"Could not parse. Enter 94 hexadecimal characters, a 47-item integer JSON array, or base64.","hant":"無法解析：需要 94 位十六進位字元、47 項整數 JSON 陣列或 base64。","ja":"解析できません。94 桁の16進数、47個の整数を含む JSON 配列、または base64 を入力してください。"}
 {"k":"无法读取文件：%@","en":"The file could not be read: %@","hant":"無法讀取檔案：%@","ja":"ファイルを読み込めませんでした：%@"}
-{"k":"无法读取本机表情库：%@","en":"The local face library could not be read: %@","hant":"無法讀取本機表情庫：%@","ja":"ローカル表情ライブラリを読み込めませんでした：%@"}
+{"en": "The local expression library could not be read: %@", "hant": "無法讀取本機表情庫：%@", "ja": "ローカル表情ライブラリを読み込めませんでした：%@", "k": "无法读取本机表情库：%@"}
 {"k":"是","en":"Yes","hant":"是","ja":"はい"}
 {"k":"更新于 %@","en":"Updated %@","hant":"更新於 %@","ja":"%@に更新"}
 {"k":"未知","en":"Unknown","hant":"未知","ja":"不明"}
 {"k":"未知原因","en":"Unknown reason","hant":"未知原因","ja":"不明な理由"}
 {"k":"未采样","en":"Not sampled","hant":"尚未取樣","ja":"未取得"}
 {"k":"本地预览：%@","en":"Local preview: %@","hant":"本機預覽：%@","ja":"ローカルプレビュー：%@"}
-{"k":"清空用户表情失败：%@","en":"Failed to clear user faces: %@","hant":"清除使用者表情失敗：%@","ja":"ユーザー表情を消去できませんでした：%@"}
-{"k":"清空用户表情已被新的输出操作替代","en":"Clearing user faces was replaced by a newer output operation","hant":"清除使用者表情已被新的輸出操作取代","ja":"ユーザー表情の消去は新しい出力操作に置き換えられました"}
-{"k":"清空用户表情被设备拒绝","en":"The device rejected clearing user faces","hant":"裝置拒絕清除使用者表情","ja":"デバイスがユーザー表情の消去を拒否しました"}
+{"en": "Failed to clear user expressions: %@", "hant": "清除使用者表情失敗：%@", "ja": "ユーザー表情を消去できませんでした：%@", "k": "清空用户表情失败：%@"}
+{"en": "Clearing user expressions was replaced by a newer output operation", "hant": "清除使用者表情已被新的輸出操作取代", "ja": "ユーザー表情の消去は新しい出力操作に置き換えられました", "k": "清空用户表情已被新的输出操作替代"}
+{"en": "The device rejected clearing user expressions", "hant": "裝置拒絕清除使用者表情", "ja": "デバイスがユーザー表情の消去を拒否しました", "k": "清空用户表情被设备拒绝"}
 {"k":"获取设备信息失败：%@","en":"Failed to get device information: %@","hant":"取得裝置資訊失敗：%@","ja":"デバイス情報を取得できませんでした：%@"}
 {"k":"获取设备信息成功","en":"Device information retrieved","hant":"已取得裝置資訊","ja":"デバイス情報を取得しました"}
 {"k":"表情预览：%@","en":"Face preview: %@","hant":"表情預覽：%@","ja":"表情プレビュー：%@"}
-{"k":"读取面板表情失败：%@","en":"Failed to read board faces: %@","hant":"讀取面板表情失敗：%@","ja":"ボードの表情を読み込めませんでした：%@"}
+{"en": "Failed to read board expressions: %@", "hant": "讀取面板表情失敗：%@", "ja": "ボードの表情を読み込めませんでした：%@", "k": "读取面板表情失败：%@"}
 {"k":"连接已断开","en":"The connection was lost","hant":"連線已中斷","ja":"接続が切れました"}
 {"k":"连接状态：%@","en":"Connection state: %@","hant":"連線狀態：%@","ja":"接続状態：%@"}
 {"k":"重连中 · 第 %lld 次","en":"Reconnecting · Attempt %lld","hant":"重新連線中 · 第 %lld 次","ja":"再接続中 · %lld 回目"}
 {"k":"错误：%@","en":"Error: %@","hant":"錯誤：%@","ja":"エラー：%@"}
-{"k":"默认或锁定表情不可删除","en":"Default or locked faces cannot be deleted","hant":"無法刪除預設或鎖定的表情","ja":"デフォルトまたはロックされた表情は削除できません"}
-{"k":"默认或锁定表情不可重命名，可先创建副本","en":"Default or locked faces cannot be renamed. Create a copy first.","hant":"無法重新命名預設或鎖定的表情，請先建立副本。","ja":"デフォルトまたはロックされた表情は名前を変更できません。先にコピーを作成してください。"}
+{"en": "Default or locked expressions cannot be deleted", "hant": "無法刪除預設或鎖定的表情", "ja": "デフォルトまたはロックされた表情は削除できません", "k": "默认或锁定表情不可删除"}
+{"en": "Default or locked expressions cannot be renamed. Create a copy first.", "hant": "無法重新命名預設或鎖定的表情，請先建立副本。", "ja": "デフォルトまたはロックされた表情は名前を変更できません。先にコピーを作成してください。", "k": "默认或锁定表情不可重命名，可先创建副本"}
 {"k":"选择图案仅更新本机预览；发送、按键模拟和维护操作会直接控制面板。","en":"Selecting a pattern updates only the local preview. Send, button simulation, and maintenance actions control the board directly.","hant":"選擇圖案只會更新本機預覽；傳送、按鍵模擬和維護操作會直接控制面板。","ja":"パターンを選んでもローカルプレビューだけが更新されます。送信、ボタン操作のシミュレーション、メンテナンス操作はボードを直接制御します。"}
 {"k":"无法恢复播放音频","en":"Could not resume audio playback","hant":"無法恢復播放音訊","ja":"オーディオ再生を再開できませんでした"}
 {"k":"仅本地预览","en":"Local preview only","hant":"僅本機預覽","ja":"ローカルプレビューのみ"}
@@ -870,8 +870,71 @@
 {"k": "搜索指令", "en": "Search commands", "hant": "搜尋指令", "ja": "コマンドを検索"}
 {"k": "可用指令", "en": "Available commands", "hant": "可用指令", "ja": "利用可能なコマンド"}
 {"k": "列出当前项目固件支持的全部 CMD 指令及常用查询。点选示例后可修改参数，再发送；设备实际支持情况取决于固件版本。", "en": "All CMD commands and common queries supported by this project’s firmware. Tap an example, edit its parameters, then send. Device support depends on the firmware version.", "hant": "列出目前專案韌體支援的全部 CMD 指令及常用查詢。點選範例後可修改參數，再傳送；裝置實際支援情況取決於韌體版本。", "ja": "このプロジェクトのファームウェアが対応するすべての CMD コマンドと主な照会です。例をタップし、引数を編集してから送信します。対応状況はファームウェアのバージョンによって異なります。"}
-{"k": "接收固件日志", "en": "Receive firmware logs", "hant": "接收韌體日誌", "ja": "ファームウェアログを受信"}
+{"en": "Receive firmware logs", "hant": "接收韌體記錄", "ja": "ファームウェアログを受信", "k": "接收固件日志"}
 {"k": "发送指令后，回复将显示在这里。", "en": "Replies appear here after you send a command.", "hant": "傳送指令後，回覆將顯示在這裡。", "ja": "コマンドを送信すると、ここに応答が表示されます。"}
 {"k": "收发记录（最新在前）", "en": "Traffic (newest first)", "hant": "收發記錄（最新在前）", "ja": "送受信履歴（新しい順）"}
-{"k": "终端", "en": "Terminal", "hant": "終端機", "ja": "端末"}
+{"en": "Terminal", "hant": "終端機", "ja": "ターミナル", "k": "终端"}
 {"k": "Serial Monitor", "en": "Serial Monitor", "hant": "Serial Monitor", "ja": "Serial Monitor"}
+{"en": "All LEDs on", "hant": "全部點亮", "ja": "全点灯", "k": "全部点亮"}
+{"en": "All LEDs off", "hant": "全部熄滅", "ja": "全消灯", "k": "全部熄灭"}
+{"en": "This turns on all 370 LEDs. Estimated power consumption may exceed 40 W.", "hant": "此操作會點亮全部 370 顆 LED，估算功耗可能超過 40 W。", "ja": "370 個すべての LED が点灯します。推定消費電力が 40 W を超える場合があります。", "k": "此操作会点亮全部 370 颗 LED，估算功耗可能超过 40 W。"}
+{"en": "Send the all-on pattern?", "hant": "傳送全部點亮的圖樣？", "ja": "全点灯パターンを送信しますか？", "k": "发送全部点亮的图案？"}
+{"en": "Send all-on pattern", "hant": "傳送全亮圖樣", "ja": "全点灯パターンを送信", "k": "发送全亮图案"}
+{"en": "This debug session", "hant": "本次除錯工作階段", "ja": "今回のデバッグセッション", "k": "本次调试会话"}
+{"en": "I’ve reviewed this command and want to send it", "hant": "我已檢查內容，確認傳送此指令", "ja": "内容を確認し、このコマンドを送信します", "k": "我已检查内容，确认发送此指令"}
+{"en": "Frame data test", "hant": "影格資料測試", "ja": "フレームデータのテスト", "k": "帧数据测试"}
+{"en": "94 hex characters / 47-integer JSON array / Base64", "hant": "94 個十六進位字元 / 47 項整數 JSON 陣列 / Base64", "ja": "94 桁の16進数 / 47 要素の整数 JSON 配列 / Base64", "k": "94 个十六进制字符 / 47 项整数 JSON 数组 / Base64"}
+{"en": "Could not parse: expected 94 hex characters, a 47-integer JSON array, or Base64", "hant": "無法解析：需要 94 個十六進位字元 / 47 項整數 JSON 陣列 / Base64", "ja": "解析できません：94 桁の16進数 / 47 要素の整数 JSON 配列 / Base64 のいずれかが必要です", "k": "无法解析：需要 94 个十六进制字符 / 47 项整数 JSON 数组 / Base64"}
+{"en": "Communication monitor", "hant": "通訊監視器", "ja": "通信モニター", "k": "通信监视器"}
+{"en": "Could not save the text draft: %@", "hant": "儲存文字草稿失敗：%@", "ja": "テキストの下書きを保存できませんでした：%@", "k": "保存文字草稿失败：%@"}
+{"en": "Could not save the draft on this device: %@", "hant": "將草稿儲存至本機失敗：%@", "ja": "下書きをこのデバイスに保存できませんでした：%@", "k": "将草稿保存到本机失败：%@"}
+{"en": "The name is too long (%1$lld bytes; limit: %2$lld bytes).", "hant": "名稱過長（%1$lld 位元組，上限 %2$lld 位元組）", "ja": "名前が長すぎます（%1$lld バイト、上限 %2$lld バイト）", "k": "名称过长（%1$lld 字节，上限 %2$lld 字节）"}
+{"en": "Joined the board’s hotspot, but could not establish a control connection.", "hant": "已連線至璃奈板熱點，但無法建立控制連線", "ja": "ボードの Wi-Fi には接続できましたが、制御接続を確立できませんでした。", "k": "已连接璃奈板热点，但未能建立控制连接"}
+{"en": "Home Wi-Fi (board hotspot fallback)", "hant": "家用 Wi-Fi（熱點備援）", "ja": "自宅の Wi-Fi（つながらない時はボードの Wi-Fi）", "k": "家庭 Wi-Fi（热点备用）"}
+{"en": "Draw", "hant": "繪製", "ja": "点灯", "k": "绘制"}
+{"en": "Erase", "hant": "擦除", "ja": "消灯", "k": "擦除"}
+{"en": "Video scaling", "hant": "畫面縮放", "ja": "映像のサイズ調整", "k": "画面缩放"}
+{"en": "Fit", "hant": "完整顯示", "ja": "全体を表示", "k": "完整显示"}
+{"en": "Fill", "hant": "填滿畫面", "ja": "画面いっぱいに表示", "k": "填满画面"}
+{"en": "Battery level", "hant": "剩餘電量", "ja": "バッテリー残量", "k": "剩余电量"}
+{"en": "Not connected to the board.", "hant": "尚未連線璃奈板", "ja": "ボードに接続されていません", "k": "面板未连接"}
+{"en": "The board did not respond in time.", "hant": "璃奈板回應逾時", "ja": "ボードからの応答がタイムアウトしました", "k": "面板响应超时"}
+{"en": "Operation canceled.", "hant": "操作已取消", "ja": "操作をキャンセルしました", "k": "操作已取消"}
+{"en": "Could not parse the board’s response.", "hant": "無法解析璃奈板的回覆", "ja": "ボードからの応答を解析できません", "k": "面板回复无法解析"}
+{"en": "Too many requests are waiting for a response. Try again shortly.", "hant": "等待中的璃奈板要求過多，請稍後再試", "ja": "応答待ちのリクエストが多すぎます。少し待ってから再試行してください。", "k": "等待中的面板请求过多，请稍后重试"}
+{"en": "Library", "hant": "表情庫", "ja": "ライブラリ", "k": "库"}
+{"en": "Copy to %@", "hant": "複製到%@", "ja": "%@にコピー", "k": "复制到%@"}
+{"k": "M", "nt": true}
+{"k": "Wi-Fi", "nt": true}
+{"en": "Saved list", "hant": "儲存列表", "ja": "保存リスト", "k": "保存列表"}
+{"en": "Save to %@", "hant": "儲存到%@", "ja": "%@に保存", "k": "保存到%@"}
+{"en": "unknown board", "hant": "未知的璃奈板", "ja": "不明なボード", "k": "另一块璃奈板"}
+{"en": "You can connect several Rina-chan Boards. Tap the one you want to control; the others stay connected. Boards on Wi-Fi must be on the same network; a direct hotspot connection only works for the hotspot you’ve joined.", "hant": "可連線多塊璃奈板，點選要控制的板，其他板會保持連線。多板 Wi-Fi 連線需位於同一網路；熱點直連僅適用於目前加入的熱點。", "ja": "複数の璃奈ちゃんボードに接続できます。操作するボードをタップしてください。ほかのボードも接続したままです。複数ボードを Wi-Fi で使うには同じネットワークに接続している必要があります。ボードの Wi-Fi への直接接続は、いま接続している Wi-Fi のボードにだけ使えます。", "k": "可连接多块璃奈板，点选要控制的板，其他板保持连接。多板 Wi-Fi 连接需处于同一网络；热点直连仅适用于当前加入的热点。"}
+{"en": "Import failed: %d expressions in the file could not be read. Nothing was changed.", "hant": "匯入失敗：檔案中有 %d 個表情無法解析，未做任何變更", "ja": "読み込みに失敗しました：ファイル内の %d 個の表情を解析できなかったため、何も変更していません", "k": "导入失败：文件中有 %d 个表情无法解析，未做任何改动"}
+{"en": "Import failed: the selected file could not be read.", "hant": "匯入失敗：無法讀取所選檔案", "ja": "読み込みに失敗しました：選択したファイルを読み取れません", "k": "导入失败：无法读取所选文件"}
+{"en": "Connected to %@. To switch, disconnect first or choose a saved Rina-chan Board.", "hant": "已連線至 %@。如需切換，請先中斷連線或選擇已儲存的璃奈板", "ja": "%@ に接続中です。切り替えるには、先に接続を解除するか、保存した璃奈ちゃんボードを選んでください", "k": "已连接到 %@，如需切换请先断开或选择已保存的璃奈板"}
+{"en": "Connected to a different Rina-chan Board (%1$@) instead of %2$@", "hant": "已連線至另一塊璃奈板（%@），而不是 %@", "ja": "%2$@ ではなく、別の璃奈ちゃんボード（%1$@）に接続されています", "k": "已连接到另一块璃奈板（%@），而不是 %@"}
+{"en": "Connected board", "hant": "已連線的璃奈板", "ja": "接続中の璃奈ちゃんボード", "k": "已连接璃奈板"}
+{"hant": "影格率", "ja": "フレームレート", "k": "帧率"}
+{"en": "Forget", "hant": "忘記", "ja": "削除", "k": "忘记"}
+{"en": "Forget %@", "hant": "忘記 %@", "ja": "%@ を削除", "k": "忘记 %@"}
+{"en": "Scanning stopped automatically after %lld seconds. Tap the button above to scan again.", "hant": "掃描已在 %lld 秒後自動停止，點一下上方按鈕即可重新掃描。", "ja": "スキャンは %lld 秒後に自動停止しました。上のボタンをタップすると再スキャンできます。", "k": "扫描已在 %lld 秒后自动停止，点按上方按钮可重新扫描。"}
+{"en": "Control target · %lld online", "hant": "控制對象 · %lld 塊在線", "ja": "操作するボード · %lld 台オンライン", "k": "控制对象 · %lld 块在线"}
+{"en": "Playback position", "hant": "播放進度", "ja": "再生位置", "k": "播放进度"}
+{"en": "Nothing to show", "hant": "無內容", "ja": "内容なし", "k": "无内容"}
+{"en": "Could not find the original playback stream for this performance", "hant": "找不到此演出的原始播放串流", "ja": "このライブの元の再生ストリームが見つかりません", "k": "无法找到此演出的原始播放流"}
+{"en": "Could not find the original playback stream for this video", "hant": "找不到此影片的原始播放串流", "ja": "この動画の元の再生ストリームが見つかりません", "k": "无法找到此视频的原始播放流"}
+{"en": "Could not read the Rina-chan Board’s Wi-Fi status", "hant": "無法讀取璃奈板的 Wi-Fi 狀態", "ja": "璃奈ちゃんボードの Wi-Fi 状態を読み取れません", "k": "无法读取璃奈板的 Wi-Fi 状态"}
+{"en": "No battery detected", "hant": "未偵測到電池", "ja": "バッテリーが検出されません", "k": "未检测到电池"}
+{"en": "Searching…", "hant": "正在搜尋…", "ja": "検索中…", "k": "正在搜索…"}
+{"en": "No matching boards. Change the filter.", "hant": "沒有符合的璃奈板，請修改篩選條件。", "ja": "一致する璃奈ちゃんボードがありません。絞り込み条件を変更してください。", "k": "没有匹配的璃奈板，请修改筛选内容。"}
+{"hant": "捲動文字", "ja": "スクロールテキスト", "k": "滚动文字"}
+{"en": "Battery %lld%%", "hant": "電量 %lld%%", "ja": "バッテリー残量 %lld%%", "k": "电量 %lld%%"}
+{"en": "Bluetooth signal strength", "hant": "藍牙訊號強度", "ja": "Bluetooth の信号強度", "k": "蓝牙信号强度"}
+{"en": "Connect %@", "hant": "連線 %@", "ja": "%@ に接続", "k": "连接 %@"}
+{"en": "The restart command did not reach the board: %@", "hant": "重新啟動指令未送達：%@", "ja": "再起動コマンドが届きませんでした：%@", "k": "重启命令未送达：%@"}
+{"en": "Microphone capture was interrupted. Start syncing again.", "hant": "麥克風收音已中斷，請重新開始同步", "ja": "マイク入力が中断されました。同期をもう一度開始してください", "k": "麦克风采集已中断，请重新开始同步"}
+{"hant": "元件選擇", "k": "部件选择"}
+{"en": "Switch expression", "k": "切换表情"}
+{"en": "Expressions", "k": "表情显示"}
+{"en": "Overwrite expression", "k": "覆盖原表情"}
