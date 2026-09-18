@@ -270,18 +270,15 @@ struct ControlView: View {
                     get: { model.syncEyes },
                     set: { model.setSyncEyes($0, connection: connection) }
                 )) {
-                    CommandChip("左右眼同步", systemImage: "arrow.triangle.2.circlepath")
+                    CommandChip("镜像", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
                 }
                 .toggleStyle(.pill)
                 .disabled(!model.canSyncEyes)
+                .accessibilityHint(Text("选择一侧眼睛部件时，另一侧自动使用对称部件"))
             }
             .pillButtonRow()
         } header: {
             Text("部件选择")
-        } footer: {
-            if !model.canSyncEyes {
-                Text("当前部件数据与左右眼映射不一致，已停用逐灯同步。")
-            }
         }
     }
 
@@ -299,6 +296,12 @@ struct ControlView: View {
                                 systemImage: model.brushOn ? "lightbulb.fill" : "lightbulb.slash.fill")
                 }
                 .toggleStyle(.pill)
+
+                Toggle(isOn: Bindable(model).mirrorDrawing) {
+                    CommandChip("镜像", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
+                }
+                .toggleStyle(.pill)
+                .accessibilityHint(Text("绘制和擦除时，同时修改左右对称位置的 LED"))
 
                 Button {
                     model.invert(connection: connection)

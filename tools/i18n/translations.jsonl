@@ -858,7 +858,7 @@
 {"k":"转换","en":"Conversion","hant":"轉換","ja":"変換"}
 {"k":"转换方式","en":"Method","hant":"轉換方式","ja":"変換方式"}
 {"k":"适应","en":"Fit","hant":"適應","ja":"フィット"}
-{"k":"镜像","en":"Mirror","hant":"鏡像","ja":"ミラー"}
+{"en": "Mirror", "hant": "鏡像", "ja": "ミラー", "k": "镜像"}
 {"k":"阈值","en":"Threshold","hant":"閾值","ja":"しきい値"}
 {"k":"静音","en":"Mute","hant":"靜音","ja":"消音"}
 {"k":"恢复默认","en":"Reset to default","hant":"恢復預設","ja":"デフォルトに戻す"}
@@ -938,3 +938,5 @@
 {"en": "Switch expression", "k": "切换表情"}
 {"en": "Expressions", "k": "表情显示"}
 {"en": "Overwrite expression", "k": "覆盖原表情"}
+{"en": "Picking one eye part uses the mirrored part for the other eye", "hant": "選擇一側眼睛元件時，另一側會自動使用對稱元件", "ja": "片方の目のパーツを選ぶと、もう片方に左右対称のパーツが自動で使われます", "k": "选择一侧眼睛部件时，另一侧自动使用对称部件"}
+{"en": "Drawing and erasing also change the LED at the mirrored position", "hant": "繪製和擦除時，會同時修改左右對稱位置的 LED", "ja": "点灯・消灯するとき、左右対称の位置の LED も同時に変更します", "k": "绘制和擦除时，同时修改左右对称位置的 LED"}

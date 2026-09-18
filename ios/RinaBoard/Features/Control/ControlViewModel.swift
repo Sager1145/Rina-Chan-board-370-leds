@@ -65,10 +65,15 @@ final class ControlViewModel {
 
     /// Starts on so edits reach a connected board immediately.
     var livePreview = true
-    /// §18.3: mirrors edits between the two eyes through an explicit,
-    /// verified topology. Set through `setSyncEyes(_:connection:)` so that
-    /// enabling it also aligns the eyes that are already selected.
+    /// §18.3, parts row "镜像": keeps the two eye *parts* mirrored — picking
+    /// one eye selects the mirrored part for the other, and 随机 draws a
+    /// symmetric pair. It never touches hand-drawn pixels; that is
+    /// `mirrorDrawing`. Set through `setSyncEyes(_:connection:)` so that
+    /// enabling it also aligns the eye parts that are already selected.
     private(set) var syncEyes = false
+    /// Drawing row "镜像": every tap and stroke is also written to the LED
+    /// mirrored across the face's vertical centre line. Parts are unaffected.
+    var mirrorDrawing = false
     /// §18.5: what a drag across the preview writes. `true` lights the LEDs
     /// the finger crosses, `false` puts them out. Painting an explicit value —
     /// rather than toggling each LED — is what makes dragging usable: a
@@ -311,7 +316,7 @@ final class ControlViewModel {
     let eyeTopology: EyeTopology?
     private let draftStorage: DraftStorage
 
-    var canSyncEyes: Bool { eyeTopology != nil }
+    var canSyncEyes: Bool { library != nil }
 
     init(bundle: Bundle = .main, draftStorage: DraftStorage = .shared) {
         self.draftStorage = draftStorage
@@ -390,9 +395,9 @@ final class ControlViewModel {
         }
     }
 
-    /// Turns eye sync on or off. Enabling it projects the **left** eye onto
-    /// the right immediately, so the two eyes are never left mismatched
-    /// until the next edit happens to touch them.
+    /// Turns eye-part mirroring on or off. Enabling it on a parts-composed
+    /// draft selects the part mirrored from the **left** eye for the right
+    /// one immediately, so the two are never left mismatched.
     func setSyncEyes(_ enabled: Bool, connection: BoardConnection) {
         guard syncEyes != enabled else { return }
         syncEyes = enabled
@@ -406,22 +411,17 @@ final class ControlViewModel {
             var call = selectedCall
             call[.reye] = mirrored
             applyCall(call, library: library, connection: connection)
-            return
         }
+    }
 
-        guard let eyeTopology else { return }
-        let before = snapshot
-        var changed = false
-        for pair in eyeTopology.leftToRightPairs where draftFrame[pair.right] != draftFrame[pair.left] {
-            draftFrame[pair.right] = draftFrame[pair.left]
-            changed = true
-        }
-        guard changed else { return }
-        recordEdit(before)
-        userHasEdited = true
-        // The frame no longer matches the selected parts once pixels moved.
-        fromParts = false
-        pushLiveIfNeeded(connection: connection)
+    /// The LED mirrored across the face's vertical centre line, or nil when
+    /// `led` lies on it. Every row is centred with an even length, so the
+    /// mirrored position always exists.
+    private func drawingMirror(of led: Int) -> Int? {
+        guard mirrorDrawing, let position = MatrixGeometry.xy(ofLed: led),
+              let mirrored = MatrixGeometry.ledIndex(x: MatrixGeometry.cols - 1 - position.x, y: position.y),
+              mirrored != led else { return nil }
+        return mirrored
     }
 
     // MARK: Direct LED editing (§16)
@@ -432,9 +432,9 @@ final class ControlViewModel {
         recordEdit(snapshot)
         userHasEdited = true
         draftFrame.toggle(led)
-        if syncEyes, let mirrored = eyeTopology?.mirroredLED(of: led), mirrored != led {
+        if let mirrored = drawingMirror(of: led) {
             // Mirror the resulting *state*, not another toggle, so repeated
-            // edits can't desynchronise the two eyes.
+            // edits can't desynchronise the two halves.
             draftFrame[mirrored] = draftFrame[led]
         }
         fromParts = false
@@ -451,8 +451,8 @@ final class ControlViewModel {
     func paint(led: Int, connection: BoardConnection) -> Bool {
         let on = brushOn
         // Mirror the brush *value*, not a toggle, so a stroke that crosses
-        // both eyes can't desynchronise them.
-        let mirrored = syncEyes ? eyeTopology?.mirroredLED(of: led).flatMap { $0 == led ? nil : $0 } : nil
+        // the centre line can't desynchronise the two halves.
+        let mirrored = drawingMirror(of: led)
         guard draftFrame[led] != on || mirrored.map({ draftFrame[$0] != on }) == true else { return false }
 
         // One undo step per stroke, recorded at its first real change;

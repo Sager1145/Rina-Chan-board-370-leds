@@ -33,28 +33,46 @@ final class AcceptanceControlTests: XCTestCase {
                        "Crossing an already-cleared LED must remain a no-op")
     }
 
-    func testSyncedEyePaintMirrorsTheBrushValueInBothDirections() throws {
+    func testDrawingMirrorPaintsTheBrushValueOnBothHalves() throws {
         let model = ControlViewModel()
         let connection = BoardConnection()
-        let topology = try XCTUnwrap(model.eyeTopology, "The shipped parts must provide a verified eye topology")
-        let pair = try XCTUnwrap(topology.leftToRightPairs.first)
+        let left = try XCTUnwrap(MatrixGeometry.ledIndex(x: 5, y: 6))
+        let right = try XCTUnwrap(MatrixGeometry.ledIndex(x: MatrixGeometry.cols - 1 - 5, y: 6))
 
         model.clear(connection: connection)
         model.brushOn = true
-        XCTAssertTrue(model.paint(led: pair.left, connection: connection))
-        XCTAssertTrue(model.draftFrame[pair.left])
-        XCTAssertFalse(model.draftFrame[pair.right], "Eye sync is still off")
+        XCTAssertTrue(model.paint(led: left, connection: connection))
+        XCTAssertTrue(model.draftFrame[left])
+        XCTAssertFalse(model.draftFrame[right], "Drawing mirror is still off")
 
-        model.setSyncEyes(true, connection: connection)
-        XCTAssertTrue(model.draftFrame[pair.left])
-        XCTAssertTrue(model.draftFrame[pair.right], "Enabling sync must project the left eye immediately")
+        model.mirrorDrawing = true
+        XCTAssertFalse(model.draftFrame[right], "Turning the mirror on must not rewrite existing pixels")
+        XCTAssertTrue(model.paint(led: right, connection: connection))
+        XCTAssertTrue(model.draftFrame[right])
 
         model.brushOn = false
-        XCTAssertTrue(model.paint(led: pair.right, connection: connection))
-        XCTAssertFalse(model.draftFrame[pair.left])
-        XCTAssertFalse(model.draftFrame[pair.right])
-        XCTAssertFalse(model.paint(led: pair.right, connection: connection),
+        XCTAssertTrue(model.paint(led: right, connection: connection))
+        XCTAssertFalse(model.draftFrame[left])
+        XCTAssertFalse(model.draftFrame[right])
+        XCTAssertFalse(model.paint(led: right, connection: connection),
                        "A repeated mirrored erase must not report another edit")
+
+        model.toggle(led: left, connection: connection)
+        XCTAssertTrue(model.draftFrame[left])
+        XCTAssertTrue(model.draftFrame[right], "A tap mirrors the resulting state")
+    }
+
+    func testDrawingMirrorIsIndependentOfPartMirror() throws {
+        let model = ControlViewModel()
+        let connection = BoardConnection()
+        let left = try XCTUnwrap(MatrixGeometry.ledIndex(x: 3, y: 8))
+        let right = try XCTUnwrap(MatrixGeometry.ledIndex(x: MatrixGeometry.cols - 1 - 3, y: 8))
+
+        model.clear(connection: connection)
+        model.setSyncEyes(true, connection: connection)
+        model.brushOn = true
+        XCTAssertTrue(model.paint(led: left, connection: connection))
+        XCTAssertFalse(model.draftFrame[right], "The parts mirror must not mirror hand drawing")
     }
 
     func testEyePartSelectionStaysMirroredWhileSyncIsEnabled() throws {
