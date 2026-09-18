@@ -703,6 +703,10 @@ private final class GroupFakeTransport: RinaTransport {
     private(set) var sentGroupStartFrames: [Int] = []
     private(set) var lastBlobBeginMeta: [String: Any]?
     private(set) var receivedStopScroll = false
+    /// One entry per `pause_scroll` this board received.
+    private(set) var receivedPauseScrollCount = 0
+    /// One entry per `scroll_seek{frameIndex}` this board received, in order.
+    private(set) var sentScrollSeekFrames: [Int] = []
 
     private let decoder = RinaLinkDecoder()
     private var stateContinuation: AsyncStream<TransportState>.Continuation?
@@ -786,6 +790,12 @@ private final class GroupFakeTransport: RinaTransport {
                 ])) ?? Data()
             case "stop_scroll":
                 receivedStopScroll = true
+                return Data(#"{"ok":true}"#.utf8)
+            case "pause_scroll":
+                receivedPauseScrollCount += 1
+                return Data(#"{"ok":true}"#.utf8)
+            case "scroll_seek":
+                sentScrollSeekFrames.append(object["frameIndex"] as? Int ?? -1)
                 return Data(#"{"ok":true}"#.utf8)
             default:
                 return Data(#"{"ok":true}"#.utf8)
