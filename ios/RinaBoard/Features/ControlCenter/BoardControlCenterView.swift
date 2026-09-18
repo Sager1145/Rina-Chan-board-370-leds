@@ -268,6 +268,18 @@ struct BoardControlCenterView: View {
         return showsCurrentSingleRow ? .currentSingle : .board("")
     }
 
+    /// One checkmark row of the 控制对象 menu. Turning a checked row off is
+    /// ignored: the menu always has exactly one target.
+    private func controlTargetToggle(_ title: String, systemImage: String,
+                                     selection: ControlSelection) -> some View {
+        Toggle(isOn: Binding(
+            get: { controlSelectionTag == selection },
+            set: { isOn in if isOn { handleControlSelection(selection) } }
+        )) {
+            Label(title, systemImage: systemImage)
+        }
+    }
+
     private func handleControlSelection(_ newValue: ControlSelection) {
         switch newValue {
         case .board(let id):
@@ -303,60 +315,59 @@ struct BoardControlCenterView: View {
             LabeledContent("控制对象") {
                 controlTargetMenu
             }
+            // Otherwise the separator starts under the menu's value text.
+            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
         }
     }
 
-    /// The native `Menu` a tap opens: an inline `Picker` over every saved
-    /// board and multi-board group (so the system draws the checkmark,
-    /// handles Dynamic Type, VoiceOver's "已选择" and keyboard/pointer), plus
-    /// the two group-management actions below a divider.
+    /// The native `Menu` a tap opens, in two titled sections: "单板" (the
+    /// saved boards) and "多板组" (the groups plus 新建/管理). Rows are inline
+    /// `Picker`s, so the system draws the checkmark and handles Dynamic Type,
+    /// VoiceOver's "已选择" and keyboard/pointer.
     private var controlTargetMenu: some View {
         Menu {
-            Picker(selection: Binding(get: { controlSelectionTag }, set: handleControlSelection)) {
-                Section("单板") {
-                    if showsCurrentSingleRow {
-                        Label(isConnected ? "单板：\(boardName)" : "单板（未连接）",
-                              systemImage: "rectangle.on.rectangle")
-                            .tag(ControlSelection.currentSingle)
-                    }
-                    ForEach(boardStore.boards) { board in
-                        Label(board.name, systemImage: "rectangle.on.rectangle")
-                            .tag(ControlSelection.board(board.id))
+            // Titled Sections of Toggle rows: a Menu draws each Toggle as a
+            // native checkmark item (VoiceOver "已选择"), and keeps the section
+            // titles, which inline Pickers lost on iOS 26.
+            Section("单板") {
+                if showsCurrentSingleRow {
+                    controlTargetToggle(
+                        isConnected ? "单板：\(boardName)" : "单板（未连接）",
+                        systemImage: "rectangle.on.rectangle",
+                        selection: .currentSingle
+                    )
+                }
+                ForEach(boardStore.boards) { board in
+                    controlTargetToggle(board.name, systemImage: "rectangle.on.rectangle",
+                                        selection: .board(board.id))
+                }
+            }
+
+            if !groupStore.groups.isEmpty {
+                Section("多板组") {
+                    ForEach(groupStore.groups) { group in
+                        controlTargetToggle(
+                            "\(group.name) · \(onlineMemberCount(group))/\(group.members.count) 在线",
+                            systemImage: "rectangle.split.3x1",
+                            selection: .group(group.id)
+                        )
                     }
                 }
-                if !groupStore.groups.isEmpty {
-                    Section("多板组") {
-                        ForEach(groupStore.groups) { group in
-                            Label {
-                                VStack(alignment: .leading) {
-                                    Text(group.name)
-                                    Text("\(onlineMemberCount(group))/\(group.members.count) 在线")
-                                }
-                            } icon: {
-                                Image(systemName: "rectangle.split.3x1")
-                            }
-                            .tag(ControlSelection.group(group.id))
-                        }
-                    }
+            }
+
+            Section {
+                Button {
+                    let group = groupStore.create(name: Self.defaultNewGroupName)
+                    pendingNewGroupID = group.id
+                    newGroupEditorTarget = GroupSheetTarget(id: group.id)
+                } label: {
+                    Label("新建多板组…", systemImage: "plus")
                 }
-            } label: {
-                EmptyView()
-            }
-            .pickerStyle(.inline)
-
-            Divider()
-
-            Button {
-                let group = groupStore.create(name: Self.defaultNewGroupName)
-                pendingNewGroupID = group.id
-                newGroupEditorTarget = GroupSheetTarget(id: group.id)
-            } label: {
-                Label("新建多板组…", systemImage: "plus")
-            }
-            Button {
-                isPresentingGroupManage = true
-            } label: {
-                Label("管理多板组…", systemImage: "list.bullet")
+                Button {
+                    isPresentingGroupManage = true
+                } label: {
+                    Label("管理多板组…", systemImage: "list.bullet")
+                }
             }
         } label: {
             controlTargetMenuLabel
