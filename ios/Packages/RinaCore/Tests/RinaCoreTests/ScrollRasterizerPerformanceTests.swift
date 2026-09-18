@@ -22,9 +22,7 @@ final class ScrollRasterizerPerformanceTests: XCTestCase {
     }()
 
     private func loadFont() throws -> ArkPixelFont {
-        guard FileManager.default.fileExists(atPath: Self.fontURL.path) else {
-            throw XCTSkip("ark12.json not found at \(Self.fontURL.path)")
-        }
+        try TestResources.requireFile(Self.fontURL)
         return try ArkPixelFont.loadBundled(url: Self.fontURL)
     }
 

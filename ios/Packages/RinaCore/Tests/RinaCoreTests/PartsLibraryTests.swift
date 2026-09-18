@@ -12,15 +12,15 @@ final class PartsLibraryTests: XCTestCase {
             .appendingPathComponent("RinaBoard/Resources")
     }
 
-    func loadLibrary() throws -> PartsLibrary? {
+    func loadLibrary() throws -> PartsLibrary {
         let url = Self.resourcesURL.appendingPathComponent("expression_parts.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        let data = try TestResources.data(at: url)
         return try PartsLibrary(jsonData: data)
     }
 
-    func loadPhysicalToLogicalTable() throws -> [Int]? {
+    func loadPhysicalToLogicalTable() throws -> [Int] {
         let url = Self.resourcesURL.appendingPathComponent("matrix_geometry.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        let data = try TestResources.data(at: url)
         struct Doc: Codable {
             let physicalToLogicalIndex: [Int]
             enum CodingKeys: String, CodingKey { case physicalToLogicalIndex = "physical_to_logical_index" }
@@ -29,16 +29,12 @@ final class PartsLibraryTests: XCTestCase {
     }
 
     func testPartCount() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         XCTAssertEqual(library.parts.count, 92)
     }
 
     func testIdLists() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         var expectedLeye = ["0"]
         expectedLeye.append(contentsOf: (101...127).map(String.init))
         XCTAssertEqual(library.ids(for: .leye), expectedLeye)
@@ -56,12 +52,8 @@ final class PartsLibraryTests: XCTestCase {
     }
 
     func testHexFrameMatchesStripIndicesFrameForAllParts() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
-        guard let table = try loadPhysicalToLogicalTable() else {
-            throw XCTSkip("matrix_geometry.json not found")
-        }
+        let library = try loadLibrary()
+        let table = try loadPhysicalToLogicalTable()
         for (id, part) in library.parts {
             let hexFrame = library.frame(for: part)
             let stripFrame = library.frameFromStripIndices(part, physicalToLogicalIndex: table)
@@ -70,9 +62,7 @@ final class PartsLibraryTests: XCTestCase {
     }
 
     func testComposeDefaultCall() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         let composed = library.compose(call: .defaultCall)
         XCTAssertGreaterThan(composed.litCount, 0)
 
@@ -106,9 +96,7 @@ final class PartsLibraryTests: XCTestCase {
     }
 
     func testComposeAllEmptyIsBlank() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         let emptyCall = PartsCall(leye: "0", reye: "0", mouth: "0", cheek: "400")
         let composed = library.compose(call: emptyCall)
         XCTAssertEqual(composed, PackedFrame())
@@ -116,32 +104,24 @@ final class PartsLibraryTests: XCTestCase {
     }
 
     func testMatchingCallReturnsDefaultCall() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         XCTAssertEqual(library.matchingCall(for: library.compose(call: .defaultCall)), .defaultCall)
     }
 
     func testMatchingCallReturnsAlternateCall() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         let expected = PartsCall(leye: "102", reye: "202", mouth: "305", cheek: "401")
         XCTAssertEqual(library.matchingCall(for: library.compose(call: expected)), expected)
     }
 
     func testMatchingCallReturnsEmptyCall() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         let expected = PartsCall(leye: "0", reye: "0", mouth: "0", cheek: "400")
         XCTAssertEqual(library.matchingCall(for: library.compose(call: expected)), expected)
     }
 
     func testMatchingCallRejectsUnmatchableFrame() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         var unmatched = PackedFrame()
         let everyPart = library.parts.values.reduce(into: PackedFrame()) { frame, part in
             frame.formUnion(library.frame(for: part))
@@ -155,9 +135,7 @@ final class PartsLibraryTests: XCTestCase {
     }
 
     func testMirroredEyeIdRoundTrips() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         for leyeId in library.ids(for: .leye) {
             guard let reyeId = library.mirroredEyeId(leyeId) else {
                 XCTFail("no mirror for \(leyeId)")
@@ -171,9 +149,7 @@ final class PartsLibraryTests: XCTestCase {
     }
 
     func testRandomCallNeverPicksEmptyEyesOrMouth() throws {
-        guard let library = try loadLibrary() else {
-            throw XCTSkip("expression_parts.json not found")
-        }
+        let library = try loadLibrary()
         var generator = SystemRandomNumberGenerator()
         for _ in 0..<50 {
             let call = library.randomCall(using: &generator)

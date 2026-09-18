@@ -12,14 +12,14 @@ final class LivePerformanceScriptTests: XCTestCase {
             .appendingPathComponent("RinaBoard/Resources")
     }
 
-    func loadLibrary() throws -> PartsLibrary? {
+    func loadLibrary() throws -> PartsLibrary {
         let url = Self.resourcesURL.appendingPathComponent("expression_parts.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        let data = try TestResources.data(at: url)
         return try PartsLibrary(jsonData: data)
     }
 
     func testParsesOwnIdForm() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         let text = """
         #fps 10
         0!101,201,301,400
@@ -33,7 +33,7 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testParsesFlyAkariSmallIndexForm() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         // Index 1 into leye/reye ids ("0", "101"...) resolves to "101"/"201";
         // index 1 into cheek ids ("400"..."405") resolves to "401".
         let text = "0!1,1,1,1"
@@ -43,7 +43,7 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testParsesMixedFile() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         let text = """
         #fps 10
         0!101,201,301,400
@@ -56,7 +56,7 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testTrailingCommaAndWhitespaceTolerance() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         let text = "0! 101 , 201 , 301 , 400 ,"
         let script = try LivePerformanceScriptParser.parse(text, library: library)
         XCTAssertEqual(script.keyframes.count, 1)
@@ -64,7 +64,7 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testFpsAndTitleDirectives() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         let text = """
         # a comment
         #fps 24
@@ -77,7 +77,7 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testDefaultFpsIsTen() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         let text = "0!101,201,301,400"
         let script = try LivePerformanceScriptParser.parse(text, library: library)
         XCTAssertEqual(script.fps, 10)
@@ -85,7 +85,7 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testIndexAtMsBoundaries() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         let text = """
         #fps 10
         1!101,201,301,400
@@ -106,14 +106,14 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testEmptyScriptThrows() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         XCTAssertThrowsError(try LivePerformanceScriptParser.parse("#fps 10\n# only comments\n", library: library)) { error in
             XCTAssertEqual(error as? LivePerformanceScriptError, .empty)
         }
     }
 
     func testBadFpsThrows() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         XCTAssertThrowsError(try LivePerformanceScriptParser.parse("#fps 0\n0!101,201,301,400", library: library)) { error in
             guard case .badFps = error as? LivePerformanceScriptError else {
                 return XCTFail("expected badFps, got \(error)")
@@ -127,7 +127,7 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testBadKeyframeThrows() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         XCTAssertThrowsError(try LivePerformanceScriptParser.parse("not-a-keyframe-line", library: library)) { error in
             guard case .badKeyframe = error as? LivePerformanceScriptError else {
                 return XCTFail("expected badKeyframe, got \(error)")
@@ -146,7 +146,7 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testUnknownPartThrows() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         XCTAssertThrowsError(try LivePerformanceScriptParser.parse("0!999,201,301,400", library: library)) { error in
             guard case .unknownPart(_, let group, let value) = error as? LivePerformanceScriptError else {
                 return XCTFail("expected unknownPart, got \(error)")
@@ -157,7 +157,7 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testNonMonotonicFrameThrows() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         XCTAssertThrowsError(try LivePerformanceScriptParser.parse("""
         5!101,201,301,400
         5!102,202,305,401
@@ -178,7 +178,7 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testFrameTooLargeThrows() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         XCTAssertThrowsError(
             try LivePerformanceScriptParser.parse("1000000000000000000!101,201,301,400", library: library)
         ) { error in
@@ -189,7 +189,7 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testFrameAtBoundComputesDurationWithoutTrapping() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         let text = "\(LivePerformanceScriptParser.maxFrame)!101,201,301,400"
         let script = try LivePerformanceScriptParser.parse(text, library: library)
         XCTAssertEqual(script.durationMs, LivePerformanceScriptParser.maxFrame * 1000 / LivePerformanceScriptParser.defaultFps)
@@ -202,7 +202,7 @@ final class LivePerformanceScriptTests: XCTestCase {
     }
 
     func testComposedFramesMatchesKeyframeCountAndFirstEntry() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not found") }
+        let library = try loadLibrary()
         let text = """
         0!101,201,301,400
         3!102,202,305,401

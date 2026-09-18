@@ -18,9 +18,9 @@ final class BundledPerformanceTests: XCTestCase {
             .appendingPathComponent("RinaBoard/Resources")
     }
 
-    private func loadLibrary() throws -> PartsLibrary? {
+    private func loadLibrary() throws -> PartsLibrary {
         let url = Self.resourcesURL.appendingPathComponent("expression_parts.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        let data = try TestResources.data(at: url)
         return try PartsLibrary(jsonData: data)
     }
 
@@ -31,7 +31,7 @@ final class BundledPerformanceTests: XCTestCase {
     }
 
     func testEveryBundledScriptParses() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not available") }
+        let library = try loadLibrary()
         let urls = try scriptURLs()
         XCTAssertFalse(urls.isEmpty, "no .rinalive scripts found in Resources")
 
@@ -89,7 +89,7 @@ final class BundledPerformanceTests: XCTestCase {
     /// entirely if its `Update()` ever steps over that frame number, while a
     /// search for "the last one at or before now" cannot.
     func testLookupMatchesUpstreamExactFramePolling() throws {
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not available") }
+        let library = try loadLibrary()
 
         for url in try scriptURLs() {
             let name = url.lastPathComponent
@@ -119,9 +119,7 @@ final class BundledPerformanceTests: XCTestCase {
 
     func testCatalogMatchesTheScriptsOnDisk() throws {
         let catalogURL = Self.resourcesURL.appendingPathComponent("preset_live_catalog.json")
-        guard let data = try? Data(contentsOf: catalogURL) else {
-            throw XCTSkip("preset_live_catalog.json not available")
-        }
+        let data = try TestResources.data(at: catalogURL)
 
         struct Entry: Decodable {
             let file: String
@@ -132,7 +130,7 @@ final class BundledPerformanceTests: XCTestCase {
         let catalog = try JSONDecoder().decode([Entry].self, from: data)
         XCTAssertFalse(catalog.isEmpty)
 
-        guard let library = try loadLibrary() else { throw XCTSkip("expression_parts.json not available") }
+        let library = try loadLibrary()
         for entry in catalog {
             let url = Self.resourcesURL.appendingPathComponent("\(entry.file).rinalive")
             XCTAssertTrue(FileManager.default.fileExists(atPath: url.path),
