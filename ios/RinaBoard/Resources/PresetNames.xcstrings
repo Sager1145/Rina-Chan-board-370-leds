@@ -906,7 +906,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nozomi Toujou · Violet"
+            "value" : "Nozomi Tojo · Violet"
           }
         },
         "ja" : {
@@ -1080,7 +1080,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kuko Tang · Crayon blue"
+            "value" : "Keke Tang · Crayon blue"
           }
         },
         "ja" : {
@@ -1202,7 +1202,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "大澤瑠璃乃・瑠璃ピンク"
+            "value" : "大沢瑠璃乃・瑠璃ピンク"
           }
         },
         "zh-Hans" : {
@@ -1231,7 +1231,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "天王寺璃奈・紙白色"
+            "value" : "天王寺璃奈・ペーパーホワイト"
           }
         },
         "zh-Hans" : {
@@ -1254,7 +1254,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Himeme Anyoji · Candy purple"
+            "value" : "Hime Anyoji · Candy purple"
           }
         },
         "ja" : {
@@ -1660,13 +1660,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kinako Sakurakouji · Corn yellow"
+            "value" : "Kinako Sakurakoji · Corn yellow"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "櫻小路希奈子・コーンイエロー"
+            "value" : "桜小路きな子・コーンイエロー"
           }
         },
         "zh-Hans" : {
@@ -1840,7 +1840,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "米女芽衣・カーマイン"
+            "value" : "米女メイ・カーマイン"
           }
         },
         "zh-Hans" : {
@@ -2014,7 +2014,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ヴィエン・マルグリット・エレガントパープル"
+            "value" : "ウィーン・マルガレーテ・エレガントパープル"
           }
         },
         "zh-Hans" : {
@@ -2182,7 +2182,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Honoka Kousaka · Orange"
+            "value" : "Honoka Kosaka · Orange"
           }
         },
         "ja" : {
@@ -2240,7 +2240,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fuuri Onitsuka · Smoky blue"
+            "value" : "Tomari Onitsuka · Smoky blue"
           }
         },
         "ja" : {
@@ -2269,7 +2269,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Natsumi Onitsuka · Onitsu pink"
+            "value" : "Natsumi Onitsuka · Onitsuka pink"
           }
         },
         "ja" : {
@@ -2298,7 +2298,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Leah Kazuno · Sky blue"
+            "value" : "Seira Kazuno · Sky blue"
           }
         },
         "ja" : {
@@ -2327,13 +2327,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ria Kazuno · Pure white"
+            "value" : "Leah Kazuno · Pure white"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "鹿角理亜・ピュアホワイト"
+            "value" : "鹿角理亞・ピュアホワイト"
           }
         },
         "zh-Hans" : {
@@ -2426,13 +2426,13 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "默认璃奈粉色"
+            "value" : "默认配色（粉色）"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "預設璃奈粉色"
+            "value" : "預設配色（粉紅色）"
           }
         }
       }
