@@ -10,65 +10,97 @@ import RinaCore
 /// Connects each offline member's own `BoardSession` directly (never
 /// `sessions.select(_:)`/`sessions.active`): the primary stays whatever board
 /// the user is actually looking at. Never runs while the control target is
-/// `.single`. Backs off per member (5s/15s/30s) instead of hot-looping a
-/// board that keeps failing to connect, and gives up after
-/// `maxConsecutiveFailures` in a row until the person retries by hand.
+/// `.single`.
+///
+/// Per-member state machine (`phases`; absent = idle):
+///
+///     idle ──schedule(delay>0)──▶ waiting ──delay elapses──▶ queued
+///     idle ──schedule(delay=0)──────────────────────────────▶ queued
+///     queued ──dispatch re-check passes──▶ dialing ──finish/timeout──▶ idle
+///     waiting/queued ──invalidate (target/group edit/connectNow/busy)──▶ idle
+///
+/// `dialing` is never cancelled from outside: an attempt already in flight
+/// finishes (including its post-connect naming). Its outcome is counted
+/// exactly once — `.connected` resets `failureCount`, anything else adds one
+/// (unless the user disconnected it). While any matching session is
+/// `.connecting`/`.reconnecting` (e.g. `BoardConnection`'s own retry loop
+/// after a failed dial) the member stays idle; once that loop ends the next
+/// dial waits out the 5 s / 15 s / 30 s backoff for the current count, and at
+/// `maxConsecutiveFailures` the member stops until the user taps "连接".
 @Observable
 @MainActor
 public final class GroupAutoConnector {
-    private let sessions: BoardSessionStore
-    private let groupStore: BoardGroupStore
-    private let boardStore: BoardStore
+    /// Backoff/timeout sleeper; throws when the sleeping task is cancelled.
+    typealias Sleeper = @MainActor (Double) async throws -> Void
+
+    @ObservationIgnored private let sessions: BoardSessionStore
+    @ObservationIgnored private let groupStore: BoardGroupStore
+    @ObservationIgnored private let boardStore: BoardStore
     /// Injectable connect step, so tests can fake the transport instead of
-    /// driving real BLE/Wi-Fi. The default dials through `ConnectionViewModel`
-    /// exactly like a manual "已保存设备" tap, on the member's own session —
-    /// never touching `sessions.active`.
-    private let connect: @MainActor (KnownBoard, BoardSession) async -> Void
+    /// driving real BLE/Wi-Fi. The default dials through a fresh
+    /// `ConnectionViewModel` exactly like a manual "已保存设备" tap, on the
+    /// member's own session — never touching `sessions.active`.
+    @ObservationIgnored private let connect: @MainActor (KnownBoard, BoardSession) async -> Void
+    @ObservationIgnored private let sleep: Sleeper
+    /// 5s / 15s / 30s, then holds at 30s. Indexed by `failureCount - 1`.
+    @ObservationIgnored private let backoffSchedule: [Double]
+    /// One hung connect must not stall the serial queue forever.
+    @ObservationIgnored private let attemptTimeout: Double
+    static let maxConsecutiveFailures = 5
 
-    private var target: ControlTarget = .single
-    /// One retry/backoff task per member currently being pursued, keyed by
-    /// `physicalBoardID`. Present while a connect attempt is in flight or
-    /// waiting out its backoff delay; absent once the member is connected,
-    /// has exhausted its retries, or is no longer in the targeted group.
-    private var pending: [String: Task<Void, Never>] = [:]
-    /// How many consecutive failures each member has seen, so the delay
-    /// schedule below advances per member rather than globally.
+    @ObservationIgnored private var target: ControlTarget = .single
+    /// Consecutive failed dials per member (`physicalBoardID`). Observed by
+    /// the UI through `hasGivenUp`. Reset only on `.connected`, `connectNow`,
+    /// or an explicit re-target of the group.
     private var failureCount: [String: Int] = [:]
-    /// 5s / 15s / 30s, then holds at 30s (brief: "back off... per member").
-    /// Injectable so tests can shrink it instead of actually waiting.
-    private let backoffSchedule: [Double]
-    /// After this many consecutive failures for one member, auto-connect
-    /// stops dialing it and leaves it to the per-member "连接" button (BOARD
-    /// review: "cap retries"). The button resets the count on tap.
-    private let maxConsecutiveFailures = 5
 
-    /// Serializes every background connect attempt (across all members) onto
-    /// one chain instead of letting them race the shared `ConnectionViewModel`
-    /// used by the default `connect` closure — two concurrent calls into it
-    /// silently no-op the second one (its own `connectingSavedBoardID`
-    /// mutex), which showed up as a 3-board group falling into artificial
-    /// backoff even though nothing had actually failed.
-    private var connectQueueTail: Task<Void, Never> = Task {}
+    private enum Phase {
+        case waiting(token: UUID, task: Task<Void, Never>)
+        case queued(token: UUID)
+        case dialing(token: UUID)
+    }
+    @ObservationIgnored private var phases: [String: Phase] = [:]
+    /// FIFO of queued attempts. Stale entries (token no longer current) are
+    /// skipped at dispatch.
+    @ObservationIgnored private var readyQueue: [(id: String, token: UUID)] = []
+    /// Connects are serialized across all members.
+    @ObservationIgnored private var isDialing = false
+    /// Member ids of the targeted group last reconciled; a change is a group
+    /// edit and invalidates queued attempts.
+    @ObservationIgnored private var memberSnapshot: [String] = []
+    @ObservationIgnored private var reconcileEpoch = 0
 
-    private var reconcileEpoch = 0
+    private struct DialPlan {
+        let known: KnownBoard
+        /// An existing session that already answers to this member — dialed
+        /// in place so no second session is ever created for the board.
+        let session: BoardSession?
+    }
 
-    public init(
+    init(
         sessions: BoardSessionStore,
         groupStore: BoardGroupStore,
         boardStore: BoardStore,
         backoffSchedule: [Double] = [5, 15, 30],
+        attemptTimeout: Double = 20,
+        sleep: Sleeper? = nil,
         connect: (@MainActor (KnownBoard, BoardSession) async -> Void)? = nil
     ) {
         self.sessions = sessions
         self.groupStore = groupStore
         self.boardStore = boardStore
         self.backoffSchedule = backoffSchedule
+        self.attemptTimeout = attemptTimeout
+        self.sleep = sleep ?? { seconds in try await Task.sleep(for: .seconds(seconds)) }
         if let connect {
             self.connect = connect
         } else {
-            let reconnectModel = ConnectionViewModel(startBonjourBrowsing: false)
             self.connect = { [sessions] board, session in
-                await reconnectModel.connectSavedBoard(
+                // A fresh model per attempt: its `connectingSavedBoardID`
+                // guard would otherwise silently no-op every later attempt
+                // while a timed-out one is still unwinding.
+                let model = ConnectionViewModel(startBonjourBrowsing: false)
+                await model.connectSavedBoard(
                     board, ble: session.bleTransport, connection: session.connection,
                     boardStore: boardStore,
                     disconnectOtherHotspotSessions: {
@@ -82,30 +114,74 @@ public final class GroupAutoConnector {
         }
     }
 
-    /// Called from `RinaBoardApp` whenever the "控制对象" target changes
-    /// (explicit selection, or a launch/foreground restore of a persisted
-    /// group target) — see `GroupControlFanOut.setTarget`, which this
-    /// mirrors. Never auto-connects for `.single`; switching to `.single`
-    /// only stops dialing (existing member links stay up, see
-    /// `cancelAllPending`). Re-targeting a group (even reselecting the same
-    /// one) clears every member's "user disconnected" block, so a group a
-    /// person just walked away from and comes back to resumes dialing.
-    func setTarget(_ newTarget: ControlTarget) {
+    // MARK: Target
+
+    /// Called from `RinaBoardApp` for the "控制对象" target. `isExplicit` is
+    /// `true` only for a real user change of the stored target (not the
+    /// launch-time restore, not a foreground resume): only that clears every
+    /// member's user-disconnect block and failure count. Any target change
+    /// invalidates queued-but-not-started attempts; `.single` keeps existing
+    /// links and only stops dialing.
+    func setTarget(_ newTarget: ControlTarget, isExplicit: Bool) {
+        let changed = newTarget != target
         target = newTarget
-        if case .group(let groupID) = newTarget,
-           let group = groupStore.groups.first(where: { $0.id == groupID }) {
-            for member in group.members {
-                sessions.session(matchingGroupMember: member.physicalBoardID)?.connection.resetUserDisconnected()
+        if changed || isExplicit { invalidateQueued() }
+        if let group = targetedGroup() {
+            memberSnapshot = group.members.map(\.physicalBoardID)
+            if isExplicit {
+                for member in group.members {
+                    failureCount[member.physicalBoardID] = nil
+                    for session in matchingSessions(for: member) {
+                        session.connection.resetUserDisconnected()
+                    }
+                }
             }
+        } else {
+            memberSnapshot = []
         }
         reconcile()
     }
 
-    /// Re-derives which members need connecting from live state, and re-arms
-    /// itself via `withObservationTracking` the same way
-    /// `GroupControlFanOut.reconcile()` does, so a member dropping
-    /// (disconnect) or the group's membership changing re-triggers this
-    /// automatically.
+    /// The per-member "连接" button: clears the retry cap and the user-
+    /// disconnect block on every matching session, supersedes any waiting/
+    /// queued attempt for the member, and queues exactly one immediate dial
+    /// (none if one is already in flight).
+    func connectNow(_ member: BoardGroup.Member) {
+        guard let current = targetedMember(member.physicalBoardID) else { return }
+        let id = current.physicalBoardID
+        for session in matchingSessions(for: current) {
+            session.connection.resetUserDisconnected()
+        }
+        if failureCount[id] != nil { failureCount[id] = nil }
+        if case .dialing = phases[id] { return }
+        cancelQueued(id)
+        enqueue(id, token: UUID())
+    }
+
+    // MARK: UI queries
+
+    /// `true` when every `KnownBoard` this member could resolve to only
+    /// reaches it via the board's own SoftAP — auto-connect must never dial
+    /// those: joining one board's hotspot drops another board's (and the
+    /// phone's own) TCP/LAN connection. Shown as "热点直连的板需手动连接".
+    func isHotspotOnlyMember(_ member: BoardGroup.Member) -> Bool {
+        let candidates = knownBoardCandidates(for: member)
+        return !candidates.isEmpty && candidates.allSatisfy { $0.preferredTransport == "hotspot" }
+    }
+
+    /// `true` once this member has failed `maxConsecutiveFailures` dials in a
+    /// row; shown as "连接失败，点击重试".
+    func hasGivenUp(_ member: BoardGroup.Member) -> Bool {
+        (failureCount[member.physicalBoardID] ?? 0) >= Self.maxConsecutiveFailures
+    }
+
+    // MARK: Reconcile
+
+    /// Re-derives what each member needs from live state and re-arms itself
+    /// via `withObservationTracking`, like `GroupControlFanOut.reconcile()`.
+    /// Side-effect free apart from scheduling/cancelling this connector's own
+    /// attempts, resetting a connected member's count and refreshing its
+    /// durable `knownBoardIDs`: it never creates, renames or selects a session.
     private func reconcile() {
         reconcileEpoch += 1
         let epoch = reconcileEpoch
@@ -120,161 +196,224 @@ public final class GroupAutoConnector {
     }
 
     private func performReconcile() {
-        guard case .group(let groupID) = target,
-              let group = groupStore.groups.first(where: { $0.id == groupID }) else {
-            cancelAllPending()
+        _ = sessions.sessions
+        _ = boardStore.boards
+        guard let group = targetedGroup() else {
+            invalidateQueued()
+            memberSnapshot = []
             return
         }
-
-        let memberIDs = Set(group.members.map(\.physicalBoardID))
-        for id in pending.keys where !memberIDs.contains(id) {
-            cancelPending(id)
+        let memberIDs = group.members.map(\.physicalBoardID)
+        if memberIDs != memberSnapshot {
+            invalidateQueued()
+            memberSnapshot = memberIDs
         }
 
         for member in group.members {
             let id = member.physicalBoardID
-            let matchedSession = sessions.session(matchingGroupMember: id)
-            // Touched for `withObservationTracking`, so a later connect/
-            // disconnect of this exact member re-triggers reconcile.
-            _ = matchedSession?.connection.connectionState
+            let matching = matchingSessions(for: member)
+            for session in matching {
+                _ = session.connection.connectionState
+                _ = session.connection.wasUserDisconnected
+            }
 
-            if let matchedSession, matchedSession.connection.connectionState == .connected {
-                cancelPending(id)
-                failureCount[id] = 0
-                // Refresh the durable mapping every time a matching session
-                // connects — covers a member added before this mapping
-                // existed, or reconnected over a different saved record
-                // (e.g. re-paired BLE) than the one it was added with.
-                for knownID in matchedSession.knownIdentifiers {
-                    groupStore.rememberKnownBoardID(knownID, forPhysicalBoardID: id)
+            if matching.contains(where: { $0.connection.connectionState == .connected }) {
+                cancelQueued(id)
+                if failureCount[id] != nil { failureCount[id] = nil }
+                if let proven = sessions.session(matchingGroupMember: id),
+                   proven.connection.connectionState == .connected,
+                   proven.connection.boardIdentity == id {
+                    for knownID in proven.knownIdentifiers {
+                        groupStore.rememberKnownBoardID(knownID, forPhysicalBoardID: id)
+                    }
                 }
                 continue
             }
-
-            // Hotspot-only members: joining one board's SoftAP drops another
-            // board's (and the phone's own) TCP/LAN link, so these can only
-            // ever be connected by hand.
-            guard !isHotspotOnlyMember(member) else {
-                cancelPending(id)
+            if isHotspotOnlyMember(member) || matching.contains(where: { $0.connection.wasUserDisconnected }) {
+                cancelQueued(id)
                 continue
             }
-
-            guard let known = resolveKnownBoard(for: member) else { continue }
-            let targetSession = sessions.session(for: known.id, name: known.name)
-            // Also touched, so a session that only resolves to this member by
-            // `known.id` (not yet by live `boardIdentity`, e.g. mid-handshake)
-            // still re-triggers reconcile when its state changes.
-            let targetState = targetSession.connection.connectionState
-
-            if matchedSession?.connection.wasUserDisconnected == true
-                || targetSession.connection.wasUserDisconnected == true {
-                // The user explicitly disconnected this board; do not redial
-                // it until they reconnect it (clearing the flag) or re-target
-                // the group (`setTarget` above).
-                cancelPending(id)
+            if matching.contains(where: { Self.isDialing($0.connection.connectionState) }) {
+                // Our own in-flight dial, a manual connect, or BoardConnection's
+                // own retry loop: stay idle, never cancel a running dial.
+                cancelQueued(id)
                 continue
             }
-
-            switch targetState {
-            case .connecting, .reconnecting:
-                // Already being dialed — by this connector's own in-flight
-                // attempt, by a manual reconnect, or by the launch-time
-                // reconnect of the active session (RootTabView). Never start
-                // a second dial for the same board; BoardConnection.disconnect()
-                // inside a fresh connect(using:) would tear the in-progress
-                // attempt down.
-                cancelPending(id)
-                continue
-            default:
-                break
-            }
-
-            guard (failureCount[id] ?? 0) < maxConsecutiveFailures else { continue }
-            // Already trying (in flight or waiting out a backoff delay).
-            guard pending[id] == nil else { continue }
-            scheduleConnect(member: member, known: known, delay: 0)
-        }
-        // Also tracked: a group edit (member added/removed) changes `.groups`.
-        _ = groupStore.groups
-    }
-
-    private func scheduleConnect(member: BoardGroup.Member, known: KnownBoard, delay: Double) {
-        let id = member.physicalBoardID
-        pending[id] = Task { [weak self] in
-            if delay > 0 {
-                try? await Task.sleep(for: .seconds(delay))
-            }
-            guard let self, !Task.isCancelled else { return }
-            guard self.isStillPending(member) else {
-                self.pending[id] = nil
-                return
-            }
-            let session = self.sessions.session(for: known.id, name: known.name)
-            switch session.connection.connectionState {
-            case .connecting, .reconnecting:
-                // Something else started dialing this board while this
-                // attempt was waiting out its delay. Step aside; reconcile()
-                // re-triggers once that attempt's state changes.
-                self.pending[id] = nil
-                return
-            default:
-                break
-            }
-            await self.performConnect(known, session)
-            guard !Task.isCancelled else { return }
-            self.pending[id] = nil
-            guard self.isStillPending(member) else { return }
-            if session.connection.connectionState == .connected {
-                self.failureCount[id] = 0
-                return
-            }
-            if session.connection.wasUserDisconnected { return }
-            let attempt = self.failureCount[id] ?? 0
-            let nextAttempt = attempt + 1
-            self.failureCount[id] = nextAttempt
-            guard nextAttempt < self.maxConsecutiveFailures else {
-                // Retry cap reached: stop auto-dialing. The per-member "连接"
-                // button (`connectNow`) resets the count and tries again.
-                return
-            }
-            let nextDelay = self.backoffSchedule[min(attempt, self.backoffSchedule.count - 1)]
-            self.scheduleConnect(member: member, known: known, delay: nextDelay)
+            if hasGivenUp(member) { continue }
+            if phases[id] != nil { continue }
+            guard dialPlan(for: member) != nil else { continue }
+            let failures = failureCount[id] ?? 0
+            let delay = failures == 0 || backoffSchedule.isEmpty
+                ? 0 : backoffSchedule[min(failures - 1, backoffSchedule.count - 1)]
+            schedule(id, delay: delay)
         }
     }
 
-    /// Runs one connect attempt on the serial `connectQueueTail` chain, in an
-    /// unstructured child `Task` so that cancelling the *caller's* task (e.g.
-    /// a member leaving the group, or a backoff task cancelled by
-    /// `cancelPending` while this is mid-flight) never cancels the connect
-    /// itself — including its post-connect device-name refresh, which reads
-    /// `Task.isCancelled` and must see a successful connect through to
-    /// completion rather than silently skipping the name read.
-    private func performConnect(_ known: KnownBoard, _ session: BoardSession) async {
-        let previous = connectQueueTail
+    // MARK: Queue
+
+    private func schedule(_ id: String, delay: Double) {
+        let token = UUID()
+        guard delay > 0 else {
+            enqueue(id, token: token)
+            return
+        }
+        let sleep = self.sleep
+        let task = Task { @MainActor [weak self] in
+            do { try await sleep(delay) } catch { return }
+            guard let self, case .waiting(let current, _) = self.phases[id], current == token else { return }
+            self.enqueue(id, token: token)
+        }
+        phases[id] = .waiting(token: token, task: task)
+    }
+
+    private func enqueue(_ id: String, token: UUID) {
+        phases[id] = .queued(token: token)
+        readyQueue.append((id, token))
+        pump()
+    }
+
+    /// Starts the next queued attempt whose dispatch re-check still passes:
+    /// token current, target still this group, member still in it, not
+    /// user-disconnected, not given up, no matching session busy.
+    private func pump() {
+        guard !isDialing else { return }
+        while !readyQueue.isEmpty {
+            let (id, token) = readyQueue.removeFirst()
+            guard case .queued(let current) = phases[id], current == token else { continue }
+            guard let member = targetedMember(id), let plan = dialPlan(for: member) else {
+                phases[id] = nil
+                continue
+            }
+            phases[id] = .dialing(token: token)
+            isDialing = true
+            Task { @MainActor [weak self] in
+                await self?.runDial(id: id, token: token, plan: plan)
+            }
+            return
+        }
+    }
+
+    private func runDial(id: String, token: UUID, plan: DialPlan) async {
+        // The only place a session may be created/renamed.
+        let session = plan.session ?? sessions.session(for: plan.known.id, name: plan.known.name)
         let connect = self.connect
-        let task = Task {
-            _ = await previous.value
-            await connect(known, session)
+        let known = plan.known
+        // Unstructured and never cancelled here: a target change or timeout
+        // must not abort a connect that succeeds, or its post-connect naming.
+        let dial = Task { @MainActor in await connect(known, session) }
+        let finished = await Self.wait(for: dial, timeout: attemptTimeout, sleep: sleep)
+        if !finished, session.connection.connectionState == .connecting {
+            // A carrier hung mid-connect; tear it down so it cannot hold the
+            // board in `.connecting` and block every later dial.
+            session.connection.disconnect()
         }
-        connectQueueTail = task
-        await task.value
+
+        isDialing = false
+        if case .dialing(let current) = phases[id], current == token { phases[id] = nil }
+        if targetedMember(id) != nil {
+            if session.connection.connectionState == .connected {
+                if failureCount[id] != nil { failureCount[id] = nil }
+            } else if !session.connection.wasUserDisconnected {
+                failureCount[id, default: 0] += 1
+            }
+        }
+        reconcile()
+        pump()
     }
 
-    /// `false` once the target has moved off this group or this member left
-    /// it while a connect attempt was in flight/waiting — the attempt must
-    /// not resume or reschedule itself in that case.
-    private func isStillPending(_ member: BoardGroup.Member) -> Bool {
-        guard case .group(let groupID) = target,
-              let group = groupStore.groups.first(where: { $0.id == groupID }) else { return false }
-        return group.members.contains { $0.physicalBoardID == member.physicalBoardID }
+    /// `true` if `dial` finished before `timeout`.
+    private static func wait(for dial: Task<Void, Never>, timeout: Double, sleep: @escaping Sleeper) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let gate = ResumeOnce(continuation)
+            let timer = Task { @MainActor in
+                do { try await sleep(timeout) } catch { return }
+                gate.resume(false)
+            }
+            Task { @MainActor in
+                await dial.value
+                timer.cancel()
+                gate.resume(true)
+            }
+        }
+    }
+
+    private func cancelQueued(_ id: String) {
+        switch phases[id] {
+        case .waiting(_, let task):
+            task.cancel()
+            phases[id] = nil
+        case .queued:
+            phases[id] = nil
+        case .dialing, nil:
+            return
+        }
+    }
+
+    /// Drops every waiting/queued attempt; a dial in flight is left to finish.
+    private func invalidateQueued() {
+        for id in Array(phases.keys) { cancelQueued(id) }
+        readyQueue.removeAll()
+    }
+
+    // MARK: Resolution
+
+    private static func isDialing(_ state: BoardConnectionState) -> Bool {
+        switch state {
+        case .connecting, .reconnecting: return true
+        default: return false
+        }
+    }
+
+    private func targetedGroup() -> BoardGroup? {
+        guard case .group(let groupID) = target else { return nil }
+        return groupStore.groups.first { $0.id == groupID }
+    }
+
+    private func targetedMember(_ id: String) -> BoardGroup.Member? {
+        targetedGroup()?.members.first { $0.physicalBoardID == id }
+    }
+
+    /// Every session that could be this member: live/sticky board identity,
+    /// or any alias equal to one of its `knownBoardIDs` / candidate records.
+    private func matchingSessions(for member: BoardGroup.Member) -> [BoardSession] {
+        var ids = Set(member.knownBoardIDs)
+        ids.formUnion(knownBoardCandidates(for: member).map(\.id))
+        var result = sessions.existingSessions(matchingAnyOf: ids)
+        for session in sessions.sessions
+        where session.matchesGroupMember(physicalBoardID: member.physicalBoardID)
+            && !result.contains(where: { $0 === session }) {
+            result.append(session)
+        }
+        return result
+    }
+
+    /// What a dial for `member` would connect, or `nil` if it must not dial
+    /// now. Side-effect free. Prefers an existing matching session and that
+    /// session's own record; otherwise the member's BLE record.
+    private func dialPlan(for member: BoardGroup.Member) -> DialPlan? {
+        guard !isHotspotOnlyMember(member), !hasGivenUp(member) else { return nil }
+        let matching = matchingSessions(for: member)
+        if matching.contains(where: {
+            $0.connection.connectionState == .connected || Self.isDialing($0.connection.connectionState)
+                || $0.connection.wasUserDisconnected
+        }) { return nil }
+        let candidates = knownBoardCandidates(for: member).filter { $0.preferredTransport != "hotspot" }
+        for session in matching {
+            let own = candidates.filter { record in
+                session.boardID == record.id
+                    || sessions.existingSessions(matchingAnyOf: [record.id]).contains { $0 === session }
+            }
+            if let record = own.first(where: { $0.preferredTransport == "bluetooth" }) ?? own.first {
+                return DialPlan(known: record, session: session)
+            }
+        }
+        guard let record = resolveKnownBoard(for: member) else { return nil }
+        return DialPlan(known: record, session: matching.first)
     }
 
     /// Every `KnownBoard` this member could resolve to: the durable
-    /// `knownBoardIDs` mapping (saved when the member was added, or
-    /// refreshed on a later connect) if it has any matches, else a fallback
-    /// match on the BLE default name, "RinaBoard-<id>" — covers a board
-    /// added to the group before the mapping existed, or never actually
-    /// connected from this phone before.
+    /// `knownBoardIDs` mapping if it has any matches, else a fallback match
+    /// on the BLE default name, "RinaBoard-<id>".
     private func knownBoardCandidates(for member: BoardGroup.Member) -> [KnownBoard] {
         let byMapping = boardStore.boards.filter { member.knownBoardIDs.contains($0.id) }
         if !byMapping.isEmpty { return byMapping }
@@ -282,51 +421,21 @@ public final class GroupAutoConnector {
         return boardStore.boards.filter { $0.name.caseInsensitiveCompare(expectedName) == .orderedSame }
     }
 
-    /// Resolves a member's `physicalBoardID` to a `KnownBoard` to dial:
-    /// never a hotspot-only record (see `isHotspotOnlyMember`), and prefers
-    /// BLE over TCP/Bonjour when both are known for the same board.
+    /// Never a hotspot-only record; prefers BLE over TCP/Bonjour.
     private func resolveKnownBoard(for member: BoardGroup.Member) -> KnownBoard? {
         let candidates = knownBoardCandidates(for: member).filter { $0.preferredTransport != "hotspot" }
         if let ble = candidates.first(where: { $0.preferredTransport == "bluetooth" }) { return ble }
         return candidates.first
     }
+}
 
-    /// `true` when every `KnownBoard` this member could resolve to only
-    /// reaches it via the board's own SoftAP — auto-connect must never dial
-    /// those: joining one board's hotspot drops another board's (and the
-    /// phone's own) TCP/LAN connection. Shown in the UI as "热点直连的板需手动连接".
-    func isHotspotOnlyMember(_ member: BoardGroup.Member) -> Bool {
-        let candidates = knownBoardCandidates(for: member)
-        return !candidates.isEmpty && candidates.allSatisfy { $0.preferredTransport == "hotspot" }
-    }
-
-    /// `true` once this member has failed `maxConsecutiveFailures` times in a
-    /// row and auto-connect has stopped dialing it. The per-member "连接"
-    /// button resets this via `connectNow`.
-    func hasGivenUp(_ member: BoardGroup.Member) -> Bool {
-        (failureCount[member.physicalBoardID] ?? 0) >= maxConsecutiveFailures
-    }
-
-    /// Immediately (re)attempts a connect for `member`, bypassing any backoff
-    /// wait currently in progress and any retry-cap/user-disconnect block —
-    /// the Control Center's per-member "连接" button for an offline member
-    /// (BOARD_GROUP_SPEC.md §3 auto-connect addendum).
-    func connectNow(_ member: BoardGroup.Member) {
-        guard isStillPending(member) else { return }
-        cancelPending(member.physicalBoardID)
-        failureCount[member.physicalBoardID] = 0
-        guard let known = resolveKnownBoard(for: member) else { return }
-        sessions.session(matchingGroupMember: member.physicalBoardID)?.connection.resetUserDisconnected()
-        sessions.session(for: known.id, name: known.name).connection.resetUserDisconnected()
-        scheduleConnect(member: member, known: known, delay: 0)
-    }
-
-    private func cancelPending(_ id: String) {
-        pending.removeValue(forKey: id)?.cancel()
-        failureCount.removeValue(forKey: id)
-    }
-
-    private func cancelAllPending() {
-        for id in pending.keys { cancelPending(id) }
+/// Resumes a continuation at most once (dial finish vs. timeout race).
+@MainActor
+private final class ResumeOnce {
+    private var continuation: CheckedContinuation<Bool, Never>?
+    init(_ continuation: CheckedContinuation<Bool, Never>) { self.continuation = continuation }
+    func resume(_ value: Bool) {
+        continuation?.resume(returning: value)
+        continuation = nil
     }
 }

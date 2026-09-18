@@ -9,7 +9,7 @@ public final class BoardSession: Identifiable {
     public let id = UUID()
     public fileprivate(set) var boardID: String?
     public var name: String
-    public let connection = BoardConnection()
+    public let connection: BoardConnection
     /// Built by the store's factory rather than constructed here, because
     /// `BLETransport.init` opens a `CBCentralManager` immediately: a session
     /// that hardcoded it would power the radio even in a virtual run.
@@ -22,10 +22,12 @@ public final class BoardSession: Identifiable {
     fileprivate init(
         boardID: String? = nil,
         name: String = "璃奈板",
-        makeBLETransport: @MainActor () -> any BLEConnecting
+        makeBLETransport: @MainActor () -> any BLEConnecting,
+        makeConnection: @MainActor () -> BoardConnection
     ) {
         self.boardID = boardID
         self.name = name
+        self.connection = makeConnection()
         self.bleTransport = makeBLETransport()
         if let boardID { aliases.insert(boardID) }
     }
@@ -105,18 +107,25 @@ public final class BoardSessionStore {
     /// One carrier per session, so connecting one board never replaces another
     /// board's link.
     @ObservationIgnored private let makeBLETransport: @MainActor () -> any BLEConnecting
+    /// Tests inject a `BoardConnection` with short reconnect delays so the
+    /// real connect/reconnect path runs in milliseconds. Production uses the
+    /// default `BoardConnection()`.
+    @ObservationIgnored private let makeConnection: @MainActor () -> BoardConnection
 
     /// The defaults are resolved in the body rather than as default arguments,
     /// because a default argument is evaluated in a nonisolated context and
     /// `BLETransport.init` is main-actor isolated.
     public init(
         scanner: (any BoardScanning)? = nil,
-        makeBLETransport: (@MainActor () -> any BLEConnecting)? = nil
+        makeBLETransport: (@MainActor () -> any BLEConnecting)? = nil,
+        makeConnection: (@MainActor () -> BoardConnection)? = nil
     ) {
         let make: @MainActor () -> any BLEConnecting = makeBLETransport ?? { BLETransport() }
+        let makeConn: @MainActor () -> BoardConnection = makeConnection ?? { BoardConnection() }
         self.makeBLETransport = make
+        self.makeConnection = makeConn
         self.scanner = scanner ?? BLETransport()
-        self.active = BoardSession(makeBLETransport: make)
+        self.active = BoardSession(makeBLETransport: make, makeConnection: makeConn)
     }
 
     /// Finds a session by its persisted or currently connected identity, or
@@ -136,7 +145,8 @@ public final class BoardSessionStore {
             return active
         }
 
-        let session = BoardSession(boardID: id, name: name, makeBLETransport: makeBLETransport)
+        let session = BoardSession(boardID: id, name: name, makeBLETransport: makeBLETransport,
+                                   makeConnection: makeConnection)
         sessions.append(session)
         return session
     }
@@ -145,6 +155,14 @@ public final class BoardSessionStore {
     /// forget flows that should not create an empty board row.
     public func existingSession(for id: String) -> BoardSession? {
         sessions.first { $0.matches(id) }
+    }
+
+    /// Every retained session answering to any of `ids` (persisted id or
+    /// alias). Like `existingSession(for:)`, never creates, renames or
+    /// selects a session.
+    public func existingSessions(matchingAnyOf ids: Set<String>) -> [BoardSession] {
+        guard !ids.isEmpty else { return [] }
+        return sessions.filter { session in ids.contains { session.matches($0) } }
     }
 
     /// Shared board-group member-resolution rule (M3): `GroupControlFanOut`
@@ -204,7 +222,7 @@ public final class BoardSessionStore {
         if let retained = sessions.first {
             select(retained)
         } else {
-            let placeholder = BoardSession(makeBLETransport: makeBLETransport)
+            let placeholder = BoardSession(makeBLETransport: makeBLETransport, makeConnection: makeConnection)
             // `select` deliberately invalidates the removed output again; it
             // is harmless and keeps the selection transition consistent.
             select(placeholder)

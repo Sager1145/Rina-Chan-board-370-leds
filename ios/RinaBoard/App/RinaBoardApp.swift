@@ -155,7 +155,11 @@ struct RinaBoardApp: App {
                         // just launch — a member that dropped while
                         // backgrounded (no reconnect loop runs off-screen)
                         // needs a fresh attempt now that the app is back.
-                        groupAutoConnector.setTarget(ControlTarget(storedGroupIDString: controlTargetGroupIDStorage))
+                        // Not explicit: a foreground must not clear a
+                        // member's user-disconnect block or retry cap.
+                        groupAutoConnector.setTarget(
+                            ControlTarget(storedGroupIDString: controlTargetGroupIDStorage), isExplicit: false
+                        )
                     } else if newPhase == .background {
                         groupAutoCycler.suspendForBackground()
                     }
@@ -168,14 +172,16 @@ struct RinaBoardApp: App {
                     // control). Every later call is a real change to the
                     // stored value, i.e. an explicit selection.
                     let newTarget = ControlTarget(storedGroupIDString: stored)
-                    groupControlFanOut.setTarget(newTarget, isExplicit: hasRestoredControlTarget)
+                    let isExplicitChange = hasRestoredControlTarget
+                    groupControlFanOut.setTarget(newTarget, isExplicit: isExplicitChange)
                     hasRestoredControlTarget = true
                     // Auto-connect every member of a freshly-targeted group —
                     // both an explicit "控制对象" choice and this launch-time
                     // restore (requirement: "切换到多板组时自动连接多个板子" and "on
                     // app launch/foreground when the persisted target is a
-                    // group").
-                    groupAutoConnector.setTarget(newTarget)
+                    // group"). Only an explicit change clears user-
+                    // disconnect blocks and retry caps.
+                    groupAutoConnector.setTarget(newTarget, isExplicit: isExplicitChange)
                     // "target → single" stop condition: leaving group control
                     // must not leave the cycler still sending to the old
                     // primary underneath the now-single-board UI.
