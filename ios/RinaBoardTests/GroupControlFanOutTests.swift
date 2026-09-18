@@ -80,7 +80,11 @@ final class GroupControlFanOutTests: XCTestCase {
 
     func testCoalescedCommandMovesToEndPreservingOrder() async throws {
         let h = await harness(["AAAA", "BBBB"])
-        h.transports["BBBB"]?.cmdReplyDelay["set_color"] = 0.3
+        // Comfortably longer than the primary's own commandPump spacing
+        // (`minInterval: 0.120`) across the 4 sequential sends below (~0.5s
+        // worst case), so the sink's worker is still reliably blocked on
+        // set_color's reply when the coalescing send arrives.
+        h.transports["BBBB"]?.cmdReplyDelay["set_color"] = 3.0
         h.fanOut.setTarget(.group(h.group.id))
         let primary = session(h, "AAAA")
 
@@ -96,7 +100,7 @@ final class GroupControlFanOutTests: XCTestCase {
         // (earlier) position.
         _ = try await primary.connection.command(.setBrightness(raw: 20))
 
-        await waitUntil(timeout: 2) { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 20 }
+        await waitUntil(timeout: 5) { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 20 }
         let names = h.transports["BBBB"]?.receivedCmdNames ?? []
         let colorIdx = names.lastIndex(of: "set_color")
         let intervalIdx = names.lastIndex(of: "set_auto_interval")
