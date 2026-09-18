@@ -71,8 +71,17 @@ struct PresetLiveView: View {
                 PresetLiveKeyframeCounterView()
             }
         } else {
-            BoardPreviewStatus("未播放", systemImage: "stop.circle", tone: .neutral) {
-                PresetLiveKeyframeCounterView()
+            VStack(alignment: .leading, spacing: 4) {
+                BoardPreviewStatus("未播放", systemImage: "stop.circle", tone: .neutral) {
+                    PresetLiveKeyframeCounterView()
+                }
+                // Script and audio are both loaded and valid, and playback
+                // has not started yet.
+                if model.canPlay {
+                    Text("准备好了，一起开始吧。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

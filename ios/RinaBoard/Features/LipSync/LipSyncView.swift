@@ -76,6 +76,14 @@ struct LipSyncView: View {
             } else {
                 BoardPreviewStatus("未启动", systemImage: "stop.circle", tone: .neutral) { threshold }
             }
+            // A secondary caption once the mic is actually available and
+            // sync has not started yet — never while permission is denied
+            // or undetermined, and never once sync is already running.
+            if model.permission == .granted {
+                Text("让表情跟着声音动起来。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

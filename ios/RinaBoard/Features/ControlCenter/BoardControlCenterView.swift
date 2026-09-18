@@ -138,11 +138,22 @@ struct BoardControlCenterView: View {
                     .labelStyle(.titleAndIcon)
                     .foregroundStyle(connectionStateTint)
             }
+            if let greeting = model.connectionGreeting {
+                Text(greeting)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             if let error = connection.lastError, !isConnected {
                 Text(error)
                     .font(.footnote)
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("connection.failureReason")
+                // Secondary encouragement directly under the concrete
+                // failure reason above — it never stands in for that
+                // reason, and only appears once one is already shown.
+                Text("再试着连接一次吧。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
             // Embedded (the iPad preview column) the bar is always there: that
             // column is the only place the battery shows on iPad, and a row
