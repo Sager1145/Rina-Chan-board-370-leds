@@ -392,7 +392,11 @@ public final class GroupControlFanOut {
         for channel in channels.values {
             channel.token = channel.connection?.output.claim(.groupControl)
         }
-        if case .group(let groupID) = target, coordinator.isPlaying, coordinator.activeGroupID == groupID {
+        // N2: a paused group still owns its participants' output leases —
+        // a control dispatch must supersede it (and clear the paused state)
+        // the same as it would a playing one.
+        if case .group(let groupID) = target, coordinator.activeGroupID == groupID,
+           coordinator.isPlaying || coordinator.isPaused {
             coordinator.markSupersededByControl()
         }
         return dispatchSeq

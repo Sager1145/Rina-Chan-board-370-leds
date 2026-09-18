@@ -424,8 +424,14 @@ struct ScrollTextView: View {
                                 // drop it out of group-timed playback) — only
                                 // the group's own re-anchor path may retune it.
                                 model.requestedFps = newValue
-                                let playing = groupCoordinator.isPlaying && groupCoordinator.activeGroupID == group.id
-                                if playing {
+                                // N3: forward while paused too — B2 has
+                                // `updatePlayback` just remember the new fps
+                                // on the anchor (no live send) so `resume()`
+                                // picks it up, rather than silently dropping
+                                // a speed change made while paused.
+                                let active = groupCoordinator.activeGroupID == group.id
+                                    && (groupCoordinator.isPlaying || groupCoordinator.isPaused)
+                                if active {
                                     scheduleGroupPlaybackUpdate(group: group, fps: Int(newValue), loop: nil)
                                 }
                             } else {
