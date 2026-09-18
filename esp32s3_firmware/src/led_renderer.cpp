@@ -6,6 +6,7 @@
 #include "button_animations.h"
 #include "serial_log.h"
 #include "led_driver.h"
+#include "group_math.h"
 #include <esp_timer.h>
 
 static uint16_t logicalToPhysicalMap[LED_COUNT] = {};
@@ -254,6 +255,26 @@ FrameStateSnapshot readFrameStateSnapshot() {
 static int16_t g_hintLed = -1;
 static uint8_t g_hintOwnerSlot = 0xFF;
 
+// Identify overlay (board group v1, §1.2). Guarded by the frame lock, same as
+// the hint LED above; self-expiry is checked against esp_timer_get_time() at
+// the top of renderCurrentFrameToLedStrip() on every render pass.
+static int16_t g_identifyNumber = -1;
+static uint64_t g_identifyExpireAtUs = 0;
+
+void setIdentifyOverlay(int number, int ttlMs) {
+    withFrameLock([&]() {
+        if (ttlMs <= 0) {
+            g_identifyNumber = -1;
+            g_identifyExpireAtUs = 0;
+        } else {
+            g_identifyNumber = static_cast<int16_t>(number);
+            g_identifyExpireAtUs = static_cast<uint64_t>(esp_timer_get_time()) +
+                                   static_cast<uint64_t>(ttlMs) * 1000ULL;
+        }
+        showCurrentFrameNoLock();
+    });
+}
+
 // Consistency note (C3): this function is NOT reentrant — `overlayRgb`,
 // `lastAppliedBrightness` and `lastLedShowUs` are unguarded statics. It is safe only
 // because its callers are mutually exclusive by construction:
@@ -269,9 +290,20 @@ void renderCurrentFrameToLedStrip() {
     uint8_t brightness = DEFAULT_BRIGHTNESS;
     uint8_t colorR = 0, colorG = 0, colorB = 0;
     int16_t hint = -1;
+    int16_t identifyNumber = -1;
+    const uint64_t identifyNowUs = static_cast<uint64_t>(esp_timer_get_time());
     withFrameLock([&]() {
         ctx = consumePendingLedPresentationContext();
         hint = g_hintLed;
+        // Self-expiry: a call to renderCurrentFrameToLedStrip() after ttlMs has
+        // elapsed clears the overlay itself, independent of any client
+        // connection (§1.2). The scroll-render task loops at ~1 kHz regardless
+        // of pending work, so this fires promptly.
+        if (g_identifyNumber >= 0 && identifyNowUs >= g_identifyExpireAtUs) {
+            g_identifyNumber = -1;
+            g_identifyExpireAtUs = 0;
+        }
+        identifyNumber = g_identifyNumber;
         memcpy(localFrame, runtimeFrameBits(), FRAME_BYTES);
         brightness = runtimeState().brightness;
         colorR = runtimeState().colorR;
@@ -290,7 +322,25 @@ void renderCurrentFrameToLedStrip() {
         lastAppliedBrightness = brightness;
     }
     const bool overlayActive = copyButtonAnimationOverlay(overlayRgb, LED_COUNT);
-    if (overlayActive) {
+    // Priority: identify > hint > button overlay > content (§1.2). While
+    // identify is shown, the hint and button overlay are not drawn.
+    if (identifyNumber >= 0) {
+        for (uint16_t logical = 0; logical < LED_COUNT; ++logical)
+            leddrv::setPixel(logicalToPhysicalMap[logical], 0, 0, 0);
+        for (uint8_t gy = 0; gy < MATRIX_ROWS; ++gy) {
+            for (uint8_t gx = 0; gx < 22; ++gx) {
+                if (!group_math::identifyDigitPixelLit(static_cast<uint8_t>(identifyNumber), gx, gy))
+                    continue;
+                uint16_t logicalIndex = 0;
+                if (!group_math::gridCellToLogicalIndex(gx, gy, 22, ROW_LENGTHS, ROW_OFFSETS,
+                                                        MATRIX_ROWS, logicalIndex))
+                    continue; // cells outside the board's valid range are skipped
+                leddrv::setPixel(logicalToPhysicalMap[logicalIndex], colorR, colorG, colorB);
+            }
+        }
+        // A replaced frame, not a clean scroll/content frame.
+        ctx.rateEligible = false;
+    } else if (overlayActive) {
         for (uint16_t logical = 0; logical < LED_COUNT; ++logical) {
             const uint16_t offset = logical * 3U;
             leddrv::setPixel(logicalToPhysicalMap[logical], overlayRgb[offset], overlayRgb[offset + 1], overlayRgb[offset + 2]);

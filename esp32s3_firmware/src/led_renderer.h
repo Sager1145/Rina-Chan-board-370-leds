@@ -53,6 +53,16 @@ void clearHintLed();
 // Current hint LED index (-1 if none), for status/diagnostics.
 int16_t hintLedForDiagnostics();
 
+// Board group v1 identify overlay (docs/BOARD_GROUP_SPEC.md §1.2): replaces the
+// whole presented frame with a black background and a large digit (board
+// colour) while shown. `number` 1..9, `ttlMs` 0..30000 (0 cancels). Self-expires
+// by wall clock (esp_timer_get_time()) inside the render path -- independent of
+// any client connection; a new call re-arms it. Highest overlay priority
+// (identify > hint > button overlay > content): while shown, the hint LED and
+// button-animation overlay are not drawn. Caller (protocol.cpp) validates the
+// number/ttlMs ranges before calling.
+void setIdentifyOverlay(int number, int ttlMs);
+
 void requestLedRender();
 
 bool consumeLedRenderRequest();
