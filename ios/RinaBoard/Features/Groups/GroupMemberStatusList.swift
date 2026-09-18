@@ -75,33 +75,48 @@ struct GroupMemberStatusList: View {
         }
     }
 
-    /// Connection state — "连接中"/"已连接"/"离线" — plus, while offline, a
-    /// "连接" button that kicks `GroupAutoConnector` for just this member
-    /// instead of waiting out its backoff (user requirement: "需要显示多条
-    /// 电池信息，连接信息"). Once actually connected this falls back to the
+    /// Connection state — "连接中"/"已连接"/"离线"/etc — plus a button: "断开"
+    /// while connected (calls the same user-disconnect path as the single-
+    /// board Control Center, so `GroupAutoConnector` stops redialing this
+    /// member), or "连接" while offline, which kicks `GroupAutoConnector` for
+    /// just this member instead of waiting out its backoff (user requirement:
+    /// "需要显示多条电池信息，连接信息"). No button while a connect is already in
+    /// flight. Once actually connected the state text falls back to the
     /// coordinator's richer play-state text ("播放中"/"上传中 N%"/etc), same as
     /// before.
     @ViewBuilder
     private func statusLine(_ status: BoardGroupCoordinator.MemberStatus, connection: BoardConnection?, member: BoardGroup.Member) -> some View {
         HStack(spacing: 8) {
-            Text(connectionStateText(status: status, connection: connection))
+            Text(connectionStateText(status: status, connection: connection, member: member))
                 .font(.caption)
                 .foregroundStyle(BoardGroupStatusFormatting.color(status))
-            if connection?.connectionState != .connected {
+            switch connection?.connectionState {
+            case .connected:
+                Button("断开", role: .destructive) {
+                    connection?.disconnect(userInitiated: true)
+                }
+                .font(.caption)
+                .buttonStyle(.borderless)
+            case .disconnected, .failed, nil:
                 Button("连接") {
                     autoConnector.connectNow(member)
                 }
                 .font(.caption)
                 .buttonStyle(.borderless)
+            case .connecting, .reconnecting:
+                EmptyView()
             }
         }
     }
 
-    private func connectionStateText(status: BoardGroupCoordinator.MemberStatus, connection: BoardConnection?) -> String {
+    private func connectionStateText(status: BoardGroupCoordinator.MemberStatus, connection: BoardConnection?, member: BoardGroup.Member) -> String {
         switch connection?.connectionState {
         case .connected: return BoardGroupStatusFormatting.text(status)
         case .connecting, .reconnecting: return "连接中"
-        case .disconnected, .failed, nil: return "离线"
+        case .disconnected, .failed, nil:
+            if autoConnector.isHotspotOnlyMember(member) { return "热点直连的板需手动连接" }
+            if autoConnector.hasGivenUp(member) { return "连接失败，点击重试" }
+            return "离线"
         }
     }
 
