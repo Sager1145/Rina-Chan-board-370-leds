@@ -20,7 +20,17 @@ struct BoardControlCenterView: View {
     @Environment(FaceLibraryModel.self) private var faceLibrary
     @Environment(BoardStore.self) private var boardStore
     @Environment(BoardSessionStore.self) private var sessions
+    @Environment(BoardGroupStore.self) private var groupStore
+    @Environment(BoardGroupCoordinator.self) private var groupCoordinator
     @State private var boardSwitcher: ConnectionViewModel?
+
+    /// Which board(s) the sections below act on (BOARD_GROUP_SPEC.md §3's
+    /// "控制对象" menu). Empty string = `.single`.
+    @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
+    @State private var isPresentingGroupManage = false
+    @State private var newGroupEditorID: UUID?
+    @State private var isPresentingGroupPlay = false
+    @State private var isPresentingGroupEdit = false
 
     /// Non-nil when presented as a sheet, so it can offer a Done button.
     var onDismiss: (() -> Void)?
@@ -46,6 +56,33 @@ struct BoardControlCenterView: View {
 
     @ViewBuilder
     var body: some View {
+        content
+            .onChange(of: groupStore.groups) { _, _ in
+                // Item 7: a group deleted out from under the current target
+                // must not keep this menu (and the Text tab) pointed at a
+                // dead id.
+                ControlTarget.validate(&controlTargetGroupIDStorage, in: groupStore)
+            }
+            .sheet(isPresented: $isPresentingGroupManage) {
+                NavigationStack { BoardGroupListView() }
+            }
+            .sheet(item: $newGroupEditorID) { id in
+                NavigationStack { BoardGroupEditorView(groupID: id) }
+            }
+            .sheet(isPresented: $isPresentingGroupPlay) {
+                if case .group(let id) = controlTarget {
+                    NavigationStack { BoardGroupPlayView(groupID: id) }
+                }
+            }
+            .sheet(isPresented: $isPresentingGroupEdit) {
+                if case .group(let id) = controlTarget {
+                    NavigationStack { BoardGroupEditorView(groupID: id) }
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if isEmbedded {
             // A modifier on a `Group` of `Section`s is applied to every
             // section in it, so the lifecycle rides the first section alone:
@@ -55,6 +92,8 @@ struct BoardControlCenterView: View {
                     .errorAlert(errorMessage)
                     .task { await loadPanelContents() }
                     .task { await HotspotJoiner.revalidateLastJoinedSSID() }
+                groupControlSection
+                singleBoardHeaderSection
                 brightnessSection
                 modeSection
                 colorSection
@@ -64,10 +103,23 @@ struct BoardControlCenterView: View {
         }
     }
 
+    /// The current control target, validated against `groupStore` (a stale
+    /// stored group id reads back as `.single`).
+    private var controlTarget: ControlTarget {
+        ControlTarget.resolved(storedGroupIDString: controlTargetGroupIDStorage, in: groupStore)
+    }
+
+    private var targetedGroup: BoardGroup? {
+        guard case .group(let id) = controlTarget else { return nil }
+        return groupStore.groups.first { $0.id == id }
+    }
+
     private var ownList: some View {
         List {
             Group {
                 statusSection
+                groupControlSection
+                singleBoardHeaderSection
                 brightnessSection
                 modeSection
                 colorSection
@@ -107,30 +159,61 @@ struct BoardControlCenterView: View {
 
     private var statusSection: some View {
         Section {
-            LabeledContent("面板") {
+            LabeledContent("控制对象") {
                 Menu {
-                    ForEach(boardStore.boards) { board in
-                        Button {
-                            switchBoard(to: board)
-                        } label: {
-                            if isConnected && board.id == currentBoardID {
-                                Label(connection.deviceName ?? board.name, systemImage: "checkmark")
-                            } else {
-                                Text(board.name)
+                    Section("单板") {
+                        ForEach(boardStore.boards) { board in
+                            Button {
+                                controlTargetGroupIDStorage = ControlTarget.single.storedGroupIDString
+                                switchBoard(to: board)
+                            } label: {
+                                if controlTarget == .single && isConnected && board.id == currentBoardID {
+                                    Label(connection.deviceName ?? board.name, systemImage: "checkmark")
+                                } else {
+                                    Text(board.name)
+                                }
                             }
+                        }
+                    }
+                    if !groupStore.groups.isEmpty {
+                        Section("多板组") {
+                            ForEach(groupStore.groups) { group in
+                                Button {
+                                    controlTargetGroupIDStorage = ControlTarget.group(group.id).storedGroupIDString
+                                } label: {
+                                    let isCurrent = controlTarget == .group(group.id)
+                                    Label(
+                                        "\(group.name)（\(onlineMemberCount(group))/\(group.members.count) 在线）",
+                                        systemImage: isCurrent ? "checkmark" : "rectangle.split.3x1"
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Section {
+                        Button {
+                            let group = groupStore.create(name: "多板组")
+                            newGroupEditorID = group.id
+                        } label: {
+                            Label("新建多板组…", systemImage: "plus")
+                        }
+                        Button {
+                            isPresentingGroupManage = true
+                        } label: {
+                            Label("管理多板组…", systemImage: "list.bullet")
                         }
                     }
                 } label: {
                     HStack(spacing: 6) {
-                        Text(boardName)
+                        Label(controlTargetLabel, systemImage: controlTargetIcon)
                         Image(systemName: "chevron.down")
                             .font(.caption.weight(.semibold))
                     }
                 }
-                .disabled(boardStore.boards.isEmpty || isSwitchingBoard)
-                .accessibilityLabel("面板")
-                .accessibilityValue(boardName)
-                .accessibilityIdentifier("controlCenter.boardSelector")
+                .disabled(isSwitchingBoard)
+                .accessibilityLabel("控制对象")
+                .accessibilityValue(controlTargetLabel)
+                .accessibilityIdentifier("controlCenter.controlTargetSelector")
             }
             LabeledContent("连接状态") {
                 // State is never communicated by colour alone (§7, §41).
@@ -165,6 +248,96 @@ struct BoardControlCenterView: View {
             get: { boardSwitcher?.lastErrorMessage ?? model.errorMessage ?? faceLibrary.errorMessage },
             set: { if $0 == nil { boardSwitcher?.lastErrorMessage = nil; model.errorMessage = nil; faceLibrary.errorMessage = nil } }
         )
+    }
+
+    /// The "控制对象" menu label: the active board's name with a single-board
+    /// glyph, or the targeted group's name and member count with a
+    /// multi-board glyph.
+    private var controlTargetLabel: String {
+        if let group = targetedGroup {
+            return "\(group.name) · \(group.members.count) 块"
+        }
+        return boardName
+    }
+
+    private var controlTargetIcon: String {
+        targetedGroup != nil ? "rectangle.split.3x1" : "rectangle.on.rectangle"
+    }
+
+    private func onlineMemberCount(_ group: BoardGroup) -> Int {
+        group.members.filter { groupCoordinator.status(for: $0) != .offline }.count
+    }
+
+    // MARK: §7.2 Multi-board group panel
+
+    /// Shown only while the control target is a group: the group's own
+    /// summary and controls, plus a way back to `.single`
+    /// (BOARD_GROUP_SPEC.md §3).
+    @ViewBuilder
+    private var groupControlSection: some View {
+        if let group = targetedGroup {
+            Section("多板组控制") {
+                LabeledContent("名称", value: group.name)
+                LabeledContent("模式", value: group.mode == .stitched ? "拼接" : "镜像")
+                ForEach(Array(group.members.enumerated()), id: \.element.physicalBoardID) { index, member in
+                    let status = groupCoordinator.status(for: member)
+                    HStack(spacing: 12) {
+                        Text("\(index + 1)")
+                            .font(.headline)
+                            .monospacedDigit()
+                            .frame(width: 24)
+                            .foregroundStyle(.secondary)
+                        Text(groupCoordinator.session(for: member)?.connection.deviceName ?? member.displayName)
+                        Spacer()
+                        Text(BoardGroupStatusFormatting.text(status))
+                            .font(.caption)
+                            .foregroundStyle(BoardGroupStatusFormatting.color(status))
+                    }
+                }
+            }
+
+            Section {
+                Button {
+                    Task { await groupCoordinator.identifyAll(group) }
+                } label: {
+                    Label("识别编号", systemImage: "number.circle")
+                }
+                .disabled(group.members.isEmpty)
+
+                Button {
+                    isPresentingGroupPlay = true
+                } label: {
+                    Label("多板播放", systemImage: "play.circle")
+                }
+
+                Button {
+                    isPresentingGroupEdit = true
+                } label: {
+                    Label("编辑组", systemImage: "pencil")
+                }
+
+                Button(role: .destructive) {
+                    controlTargetGroupIDStorage = ControlTarget.single.storedGroupIDString
+                } label: {
+                    Label("切回单板", systemImage: "rectangle")
+                }
+            }
+        }
+    }
+
+    /// A header-only section that makes explicit, while a group is targeted,
+    /// that the brightness/mode/colour sections below only affect the one
+    /// board still shown here — never the whole group
+    /// (BOARD_GROUP_SPEC.md §3).
+    @ViewBuilder
+    private var singleBoardHeaderSection: some View {
+        if targetedGroup != nil {
+            Section {
+                Text("单板设置：\(boardName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var boardName: String {
