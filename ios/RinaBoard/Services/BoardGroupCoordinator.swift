@@ -146,10 +146,15 @@ public final class BoardGroupCoordinator {
 
     // MARK: - Member resolution
 
-    /// Resolves `member` to its connected session, if any, by matching
-    /// `BoardConnection.boardIdentity` — never BLE UUID, host, or name.
+    /// Resolves `member` to its session, if any, by the shared sticky-identity
+    /// rule (`BoardSession.matchesGroupMember(physicalBoardID:)`) —
+    /// `BoardConnection.boardIdentity`, or (once cleared by a disconnect) the
+    /// last identity that connection ever reported — never BLE UUID, host,
+    /// name, or `boardID`. Resolves offline-but-known sessions too (for
+    /// status/promotion); callers that need "and currently online" must check
+    /// `connection.connectionState` themselves.
     public func session(for member: BoardGroup.Member) -> BoardSession? {
-        sessions.sessions.first { $0.connection.boardIdentity == member.physicalBoardID }
+        sessions.sessions.first { $0.matchesGroupMember(physicalBoardID: member.physicalBoardID) }
     }
 
     public func status(for member: BoardGroup.Member) -> MemberStatus {

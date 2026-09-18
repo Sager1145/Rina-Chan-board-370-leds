@@ -54,7 +54,18 @@ public final class BoardConnection {
     /// `get_info.defaultName`), fixed when the handshake completes. Unlike a
     /// name or an address it is the same over every transport and unique per
     /// board. Nil for firmware that reports neither.
-    public private(set) var boardIdentity: String?
+    public private(set) var boardIdentity: String? {
+        didSet {
+            if let boardIdentity { lastKnownBoardIdentity = boardIdentity }
+        }
+    }
+    /// The last non-nil `boardIdentity` this connection object has ever
+    /// reported, surviving `clearBoardSnapshot()`/`disconnect()` (unlike
+    /// `boardIdentity` itself). Group-member resolution (`GroupControlFanOut`,
+    /// `BoardGroupCoordinator.session(for:)`) must match against this, not
+    /// `boardIdentity`, so a just-disconnected primary/sink doesn't
+    /// momentarily look like a different board.
+    public private(set) var lastKnownBoardIdentity: String?
     private var setupDefaultName: String?
     /// Remembers, per transport fallback key (the `ble:<uuid>` / `wifi:<host>`
     /// key `boardKey` would fall back to without an identity), the last
@@ -874,11 +885,17 @@ public final class BoardConnection {
             if let token { try self.output.check(token) }
             // Board-group control fan-out: mirror this command to the
             // group's other members before sending it on the wire, unless
-            // this connection is itself acting as a group Text-tab member or
-            // is under debug output (see `GroupControlFanOut`). Never
-            // awaited — fire-and-forget from the primary's perspective.
+            // this connection is under debug output (see
+            // `GroupControlFanOut`). Deliberately still mirrors while
+            // `output.source == .group` — the coordinator holds `.group` on
+            // every member during group Text-tab play, and only ever calls
+            // `requestReliable` (never `command(_:)`) itself, so a
+            // `command(_:)` reaching here during play is always a genuine
+            // control action (e.g. brightness) that must still reach every
+            // sink. Never awaited — fire-and-forget from the primary's
+            // perspective.
             var faceTicket: Int?
-            if self.output.source != .debug, self.output.source != .group {
+            if self.output.source != .debug {
                 switch cmd.groupFanOutPolicy {
                 case .verbatim:
                     self.fanOut?.dispatch(cmd, leased: token != nil, from: self)

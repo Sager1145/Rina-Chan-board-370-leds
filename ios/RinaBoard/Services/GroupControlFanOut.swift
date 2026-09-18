@@ -119,17 +119,20 @@ public final class GroupControlFanOut {
             return
         }
 
-        // Resolved by `BoardSession.boardID` (the session's own persistent
-        // slot identity), not `coordinator.session(for:)`'s
-        // `connection.boardIdentity` match: a connection clears its
-        // `boardIdentity` the instant it disconnects
-        // (`clearBoardSnapshot()`), so a just-disconnected primary would
-        // otherwise silently drop out of `memberSessions` entirely, making
-        // it indistinguishable from "the user switched to a board outside
-        // this group" below.
+        // Resolved by the shared sticky-identity rule
+        // (`BoardSession.matchesGroupMember(physicalBoardID:)`), the same one
+        // `BoardGroupCoordinator.session(for:)` uses — never `BoardSession
+        // .boardID` (the session's own persistent slot identity, which is a
+        // BLE UUID/host/Bonjour storage id, not the firmware
+        // `physicalBoardID`). Sticky because a connection clears its
+        // `boardIdentity` the instant it disconnects (`clearBoardSnapshot()`)
+        // but keeps `lastKnownBoardIdentity`, so a just-disconnected primary
+        // doesn't otherwise silently drop out of `memberSessions` entirely,
+        // making it indistinguishable from "the user switched to a board
+        // outside this group" below.
         var memberSessions: [(member: BoardGroup.Member, session: BoardSession)] = []
         for member in group.members {
-            guard let session = sessions.sessions.first(where: { $0.boardID == member.physicalBoardID }) else { continue }
+            guard let session = sessions.sessions.first(where: { $0.matchesGroupMember(physicalBoardID: member.physicalBoardID) }) else { continue }
             // Touched for `withObservationTracking` even when not used below.
             _ = session.connection.connectionState
             _ = session.connection.connectionGeneration
