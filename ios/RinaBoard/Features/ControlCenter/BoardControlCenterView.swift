@@ -28,9 +28,20 @@ struct BoardControlCenterView: View {
     /// "控制对象" menu). Empty string = `.single`.
     @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
     @State private var isPresentingGroupManage = false
-    @State private var newGroupEditorID: UUID?
-    @State private var isPresentingGroupPlay = false
-    @State private var isPresentingGroupEdit = false
+    /// The group id captured when "新建多板组…" created it, so the sheet's
+    /// content doesn't depend on the still-current control target and a
+    /// target change while it's open can't blank it out from under the user.
+    @State private var newGroupEditorTarget: GroupSheetTarget?
+    /// The group id captured at the moment each sheet was presented (B1):
+    /// a `sheet(item:)`, not `sheet(isPresented:)` gated on re-reading
+    /// `controlTarget` — so the target menu changing while either sheet is
+    /// open can't blank its content.
+    @State private var playingGroupTarget: GroupSheetTarget?
+    @State private var editingGroupTarget: GroupSheetTarget?
+    /// The id `newGroupEditorTarget` was last set to, read back by
+    /// `cleanupNewGroupIfUnused()` after the sheet's `onDismiss` — by then
+    /// `newGroupEditorTarget` itself has already gone back to `nil`.
+    @State private var pendingNewGroupID: UUID?
 
     /// Non-nil when presented as a sheet, so it can offer a Done button.
     var onDismiss: (() -> Void)?
@@ -57,6 +68,23 @@ struct BoardControlCenterView: View {
     @ViewBuilder
     var body: some View {
         content
+    }
+
+    /// A group's id captured at the moment a sheet was presented — see the
+    /// `newGroupEditorTarget`/`playingGroupTarget`/`editingGroupTarget`
+    /// declarations above (B1).
+    private struct GroupSheetTarget: Identifiable {
+        let id: UUID
+    }
+
+    /// The four group sheets plus the §3 "Item 7" validation, factored out so
+    /// both `content` branches can attach exactly one copy each (B1): on a
+    /// `Group` of `Section`s every modifier is applied per-section, so
+    /// attaching these to the `Group` itself would open/close four sheets and
+    /// run the validation once per section instead of once.
+    @ViewBuilder
+    private func groupSheets<V: View>(_ view: V) -> some View {
+        view
             .onChange(of: groupStore.groups) { _, _ in
                 // Item 7: a group deleted out from under the current target
                 // must not keep this menu (and the Text tab) pointed at a
@@ -66,25 +94,34 @@ struct BoardControlCenterView: View {
             .sheet(isPresented: $isPresentingGroupManage) {
                 NavigationStack { BoardGroupListView() }
             }
-            .sheet(isPresented: Binding(
-                get: { newGroupEditorID != nil },
-                set: { if !$0 { newGroupEditorID = nil } }
-            )) {
-                if let id = newGroupEditorID {
-                    NavigationStack { BoardGroupEditorView(groupID: id) }
-                }
+            .sheet(item: $newGroupEditorTarget, onDismiss: cleanupNewGroupIfUnused) { target in
+                NavigationStack { BoardGroupEditorView(groupID: target.id) }
             }
-            .sheet(isPresented: $isPresentingGroupPlay) {
-                if case .group(let id) = controlTarget {
-                    NavigationStack { BoardGroupPlayView(groupID: id) }
-                }
+            .sheet(item: $playingGroupTarget) { target in
+                NavigationStack { BoardGroupPlayView(groupID: target.id) }
             }
-            .sheet(isPresented: $isPresentingGroupEdit) {
-                if case .group(let id) = controlTarget {
-                    NavigationStack { BoardGroupEditorView(groupID: id) }
-                }
+            .sheet(item: $editingGroupTarget) { target in
+                NavigationStack { BoardGroupEditorView(groupID: target.id) }
             }
     }
+
+    /// "新建多板组…" creates the group immediately (so the editor has an id
+    /// to work with) but the user may simply dismiss without naming or
+    /// adding a member to it. If the sheet closes and the group it created
+    /// is still exactly that — no members, still the default name — delete
+    /// it rather than leave an empty phantom group in "管理多板组…".
+    private func cleanupNewGroupIfUnused() {
+        guard let id = pendingNewGroupID else { return }
+        pendingNewGroupID = nil
+        guard let group = groupStore.groups.first(where: { $0.id == id }) else { return }
+        guard group.members.isEmpty, group.name == Self.defaultNewGroupName else { return }
+        groupStore.remove(id: id)
+        if ControlTarget(storedGroupIDString: controlTargetGroupIDStorage) == .group(id) {
+            controlTargetGroupIDStorage = ""
+        }
+    }
+
+    private static let defaultNewGroupName = "多板组"
 
     @ViewBuilder
     private var content: some View {
@@ -93,10 +130,12 @@ struct BoardControlCenterView: View {
             // section in it, so the lifecycle rides the first section alone:
             // one alert and one run of each task, not five.
             Group {
-                statusSection
-                    .errorAlert(errorMessage)
-                    .task { await loadPanelContents() }
-                    .task { await HotspotJoiner.revalidateLastJoinedSSID() }
+                groupSheets(
+                    statusSection
+                        .errorAlert(errorMessage)
+                        .task { await loadPanelContents() }
+                        .task { await HotspotJoiner.revalidateLastJoinedSSID() }
+                )
                 groupControlSection
                 singleBoardHeaderSection
                 brightnessSection
@@ -120,17 +159,19 @@ struct BoardControlCenterView: View {
     }
 
     private var ownList: some View {
-        List {
-            Group {
-                statusSection
-                groupControlSection
-                singleBoardHeaderSection
-                brightnessSection
-                modeSection
-                colorSection
+        groupSheets(
+            List {
+                Group {
+                    statusSection
+                    groupControlSection
+                    singleBoardHeaderSection
+                    brightnessSection
+                    modeSection
+                    colorSection
+                }
+                .rinaTranslucentRows(onDismiss == nil)
             }
-            .rinaTranslucentRows(onDismiss == nil)
-        }
+        )
         .listSectionSpacing(.compact)
         // Pushed from Settings before iOS 26; with `onDismiss` it is the
         // tab-bar accessory's sheet, which keeps its presentation background.
@@ -197,8 +238,9 @@ struct BoardControlCenterView: View {
                     }
                     Section {
                         Button {
-                            let group = groupStore.create(name: "多板组")
-                            newGroupEditorID = group.id
+                            let group = groupStore.create(name: Self.defaultNewGroupName)
+                            pendingNewGroupID = group.id
+                            newGroupEditorTarget = GroupSheetTarget(id: group.id)
                         } label: {
                             Label("新建多板组…", systemImage: "plus")
                         }
@@ -310,13 +352,16 @@ struct BoardControlCenterView: View {
                 .disabled(group.members.isEmpty)
 
                 Button {
-                    isPresentingGroupPlay = true
+                    // Captured now, not re-read from `controlTarget` once the
+                    // sheet is already up (B1) — the id this button meant
+                    // when pressed, even if the target menu changes later.
+                    playingGroupTarget = GroupSheetTarget(id: group.id)
                 } label: {
                     Label("多板播放", systemImage: "play.circle")
                 }
 
                 Button {
-                    isPresentingGroupEdit = true
+                    editingGroupTarget = GroupSheetTarget(id: group.id)
                 } label: {
                     Label("编辑组", systemImage: "pencil")
                 }
