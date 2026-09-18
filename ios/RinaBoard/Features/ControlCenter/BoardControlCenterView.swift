@@ -219,11 +219,14 @@ struct BoardControlCenterView: View {
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("connection.failureReason")
             }
+            // While a group is targeted, `groupControlSection`'s member list
+            // already shows every member's battery (including this board's),
+            // so this row would just repeat the primary's own reading.
             // Embedded (the iPad preview column) the bar is always there: that
             // column is the only place the battery shows on iPad, and a row
             // that appears with the first power report would shift the whole
             // panel. As its own screen it keeps to real readings.
-            if isEmbedded || connection.batteryReading != nil {
+            if targetedGroup == nil, isEmbedded || connection.batteryReading != nil {
                 BoardBatteryRow()
             }
         } header: {
@@ -420,37 +423,6 @@ struct BoardControlCenterView: View {
         group.members.filter { groupCoordinator.status(for: $0) != .offline }.count
     }
 
-    /// One member of the targeted group's roster. At accessibility sizes the
-    /// status drops below the name instead of squeezing it against a
-    /// trailing `Spacer` — no fixed width anywhere in the row.
-    @ViewBuilder
-    private func groupMemberRow(index: Int, member: BoardGroup.Member) -> some View {
-        let status = groupCoordinator.status(for: member)
-        let name = groupCoordinator.session(for: member)?.connection.deviceName ?? member.displayName
-        let statusText = Text(BoardGroupStatusFormatting.text(status))
-            .font(.caption)
-            .foregroundStyle(BoardGroupStatusFormatting.color(status))
-        if dynamicTypeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(index + 1). \(name)")
-                statusText
-            }
-        } else {
-            HStack(spacing: 12) {
-                Text("\(index + 1)")
-                    .font(.headline)
-                    .monospacedDigit()
-                    .frame(width: 24)
-                    .foregroundStyle(.secondary)
-                Text(name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 8)
-                statusText
-            }
-        }
-    }
-
     // MARK: §7.2 Multi-board group panel
 
     /// Shown only while the control target is a group: the group's own
@@ -462,9 +434,7 @@ struct BoardControlCenterView: View {
             Section("多板组控制") {
                 LabeledContent("名称", value: group.name)
                 LabeledContent("模式", value: group.mode == .stitched ? "拼接" : "镜像")
-                ForEach(Array(group.members.enumerated()), id: \.element.physicalBoardID) { index, member in
-                    groupMemberRow(index: index, member: member)
-                }
+                GroupMemberStatusList(group: group)
             }
 
             Section {

@@ -135,9 +135,10 @@ struct BoardGroupEditorView: View {
     @ViewBuilder
     private func memberRow(group: BoardGroup, member: BoardGroup.Member, slot: Int) -> some View {
         let status = coordinator.status(for: member)
+        let connection = coordinator.session(for: member)?.connection
         let nameAndStatus = VStack(alignment: .leading, spacing: 2) {
             Text("\(slot + 1). \(displayName(for: member))")
-            Text(BoardGroupStatusFormatting.text(status))
+            Text(statusAndBatteryText(status: status, connection: connection))
                 .font(.caption)
                 .foregroundStyle(BoardGroupStatusFormatting.color(status))
         }
@@ -184,6 +185,20 @@ struct BoardGroupEditorView: View {
 
     private func displayName(for member: BoardGroup.Member) -> String {
         coordinator.session(for: member)?.connection.deviceName ?? member.displayName
+    }
+
+    /// The status text plus a battery reading, cheaply appended (user
+    /// requirement: "显示所有板子的电池信息") — no extra row, just the
+    /// existing status caption gaining a "· 82%" suffix.
+    private func statusAndBatteryText(status: BoardGroupCoordinator.MemberStatus, connection: BoardConnection?) -> String {
+        let base = BoardGroupStatusFormatting.text(status)
+        guard let connection, let reading = connection.batteryReading else { return base }
+        switch reading {
+        case .level(let percent):
+            return connection.isBatteryCharging ? "\(base) · \(percent)% ⚡︎" : "\(base) · \(percent)%"
+        case .notDetected:
+            return "\(base) · 未检测到电池"
+        }
     }
 
     // MARK: - Add member sheet

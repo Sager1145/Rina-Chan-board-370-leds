@@ -40,7 +40,23 @@ extension BoardConnection {
 /// the same height whatever the state, so the controls below it never shift
 /// when a power report arrives or the board disconnects.
 struct BoardBatteryRow: View {
-    @Environment(BoardConnection.self) private var connection
+    @Environment(BoardConnection.self) private var environmentConnection
+    private let explicitConnection: BoardConnection?
+
+    private var connection: BoardConnection { explicitConnection ?? environmentConnection }
+
+    /// Reads the connection from the environment (the ordinary single-board
+    /// Control Center path).
+    init() {
+        self.explicitConnection = nil
+    }
+
+    /// Reads a specific connection directly, for callers (the group member
+    /// list) that show more than one board's battery in the same screen and
+    /// so can't rely on a single environment value.
+    init(connection: BoardConnection) {
+        self.explicitConnection = connection
+    }
 
     var body: some View {
         let reading = connection.batteryReading
