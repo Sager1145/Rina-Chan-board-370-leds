@@ -556,6 +556,16 @@ public final class BoardGroupCoordinator {
         }
     }
 
+    #if DEBUG
+    /// Test-only seam: runs one re-anchor pass synchronously instead of
+    /// waiting for the 30s interval loop. Never called from production code.
+    func debugReanchorNow() async {
+        guard let groupID = activeGroupID,
+              let group = store.groups.first(where: { $0.id == groupID }) else { return }
+        await reanchor(groupID: groupID, revision: group.layoutRevision)
+    }
+    #endif
+
     // MARK: - Stop
 
     /// H6/M3: only ever acts on a board this coordinator currently owns

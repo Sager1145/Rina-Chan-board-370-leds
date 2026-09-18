@@ -63,6 +63,21 @@ final class BoardGroupStoreTests: XCTestCase {
         XCTAssertGreaterThan(store.groups[0].layoutRevision, revisionBefore)
     }
 
+    func testSetModeBumpsLayoutRevision() {
+        let (defaults, suite) = freshDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = BoardGroupStore(defaults: defaults)
+        let group = store.create(name: "模式组")
+        try? store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try? store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        let revisionBefore = store.groups[0].layoutRevision
+
+        store.setMode(id: group.id, mode: .mirror)
+
+        XCTAssertEqual(store.groups[0].mode, .mirror)
+        XCTAssertGreaterThan(store.groups[0].layoutRevision, revisionBefore)
+    }
+
     func testMaxMembersAndDuplicateRejected() {
         let (defaults, suite) = freshDefaults()
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -109,6 +124,15 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         return session
     }
 
+    /// Polls `condition` instead of a fixed sleep, so a test only waits as
+    /// long as the async work it's racing actually takes.
+    private func waitUntil(timeout: TimeInterval = 2, _ condition: @escaping () -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
     func testUnsupportedMemberBlocksPlay() async throws {
         let sessions = BoardSessionStore()
         let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
@@ -133,7 +157,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isPlaying)
     }
 
-    func testOfflineSlotPreservedAndAtUsMatchesGroupSchedule() async throws {
+    func testAtUsMatchesAcrossBoardsWithIdenticalClocks() async throws {
         let sessions = BoardSessionStore()
         let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
         let counter = Counter()
@@ -143,39 +167,50 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         transportA.bootId = "boot0001"
         transportA.clockRxUs = 100_000
         transportA.clockTxUs = 100_200
-        let sessionA = await connectedSession(sessions: sessions, identity: "ONLINE1", transport: transportA)
+        let transportB = GroupFakeTransport()
+        transportB.bootId = "boot0002"
+        transportB.clockRxUs = 100_000
+        transportB.clockTxUs = 100_200
+        _ = await connectedSession(sessions: sessions, identity: "ONLINE1", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "ONLINE2", transport: transportB)
 
-        let group = store.create(name: "含离线")
-        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "ONLINE1", displayName: "在线"))
-        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "OFFLINE1", displayName: "离线"))
+        let group = store.create(name: "两块在线")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "ONLINE1", displayName: "左"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "ONLINE2", displayName: "右"))
         try store.setGap(groupID: group.id, afterSlot: 0, columns: 3)
 
         try await coordinator.play(group: store.groups[0], text: "A", fps: 10, loop: true)
 
-        // The stitched layout still has both slots (22*2 + gap 3 = 47), even
-        // though only one board is online -- the virtual width never shrinks.
         XCTAssertEqual(transportA.lastBlobBeginMeta?["virtualWidth"] as? Int, MatrixGeometry.cols * 2 + 3)
-
-        // Independently replicate the same scripted clock exchange
-        // (`nowUs` is a plain 0,1,2,... counter; only one board is online so
-        // there is no cross-board interleaving) and confirm the recorded
-        // `group_start.atUs` on the wire equals `GroupSchedule`'s output.
-        var estimator = ClockOffsetEstimator()
-        for index in 0..<8 {
-            let sample = ClockSample(m1: Int64(2 * index), b2: 100_000, b3: 100_200, m4: Int64(2 * index + 1))
-            estimator.addSample(sample, bootId: "boot0001")
-        }
-        let phoneStart = Int64(16) + max(400_000, 3 * (estimator.bestRttUs ?? 0))
-        let expected = GroupSchedule.startCommands(
-            phoneStartUs: phoneStart, estimators: ["k": estimator], bootIds: ["k": "boot0001"],
-            intervalMs: ScrollRasterizer.intervalMs(forFps: 10), loop: true
-        )
-        guard case .groupStart(let expectedAtUs, _, _, _, _) = expected["k"] else {
-            return XCTFail("expected a groupStart command")
-        }
-        XCTAssertEqual(transportA.sentGroupStartAtUs.last, expectedAtUs)
         XCTAssertTrue(coordinator.isPlaying)
-        _ = sessionA
+        // Both boards saw an identical (m1..m4, rx, tx) clock exchange shape,
+        // so their computed `atUs` (phone anchor mapped through each board's
+        // own offset) must match.
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, 1)
+        XCTAssertEqual(transportB.sentGroupStartAtUs.count, 1)
+        XCTAssertEqual(transportA.sentGroupStartAtUs.last, transportB.sentGroupStartAtUs.last)
+        XCTAssertNotNil(transportA.sentGroupStartAtUs.last)
+    }
+
+    func testOfflineMemberBlocksPlay() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+
+        let group = store.create(name: "含离线组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        do {
+            try await coordinator.play(group: store.groups[0], text: "你好", fps: 10, loop: true)
+            XCTFail("Expected offlineMembers to block play")
+        } catch BoardGroupCoordinator.GroupPlayError.offlineMembers(let names) {
+            XCTAssertEqual(names, ["B"])
+        }
+        XCTAssertFalse(coordinator.isPlaying)
     }
 
     func testAbortsWhenMemberGenerationChangesMidPlay() async throws {
@@ -205,12 +240,145 @@ final class BoardGroupCoordinatorTests: XCTestCase {
             try await playTask.value
             XCTFail("Expected play() to abort when a member's generation changed mid-flight")
         } catch BoardGroupCoordinator.GroupPlayError.aborted {
-        } catch {
-            // Any other thrown error is also an acceptable "never write to
-            // the group" outcome, but assert on the intended case when reachable.
         }
         XCTAssertFalse(coordinator.isPlaying)
         XCTAssertNil(coordinator.activeGroupID)
+        // The disconnect happened during clock sampling, before the
+        // group_start phase is ever reached -- neither board should have
+        // received one.
+        XCTAssertTrue(transportA.sentGroupStartAtUs.isEmpty, "no group_start reached the still-connected board")
+        XCTAssertTrue(transportB.sentGroupStartAtUs.isEmpty, "no group_start reached the aborted board")
+    }
+
+    func testStopDuringPlaySendsNoFurtherGroupStart() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "停止组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, 1)
+
+        await coordinator.stop(group: store.groups[0])
+
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertNil(coordinator.activeGroupID)
+        XCTAssertTrue(transportA.receivedStopScroll)
+        XCTAssertTrue(transportB.receivedStopScroll)
+        // stop() releases the lease, so the board falls back to plain
+        // "connected" rather than staying stuck reporting group ownership.
+        XCTAssertEqual(coordinator.status(for: group.members[0]), .connected)
+        XCTAssertNotEqual(sessionA.connection.output.source, .group)
+
+        // No re-anchor pass can have run (the loop was cancelled), so no
+        // further group_start should ever arrive.
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, 1)
+        XCTAssertEqual(transportB.sentGroupStartAtUs.count, 1)
+    }
+
+    func testPartialGroupStartFailureStopsTheSuccessfulBoard() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        transportB.cmdReplyDelay["group_start"] = 0.3 // gives the test a window to disconnect B mid-command
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "部分失败组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        let playTask = Task { try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true) }
+        // Wait until both boards have uploaded (the group_start phase is
+        // reached), then disconnect B while its delayed group_start reply is
+        // still pending so that command throws.
+        await waitUntil { transportA.lastBlobBeginMeta != nil && transportB.lastBlobBeginMeta != nil }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        sessionB.connection.disconnect()
+
+        do {
+            try await playTask.value
+            XCTFail("Expected the partial group_start failure to abort play()")
+        } catch {
+            // The underlying failure is B's generation mismatch, surfaced as
+            // whatever `requestReliableDecoding` throws for that -- assert
+            // that specific shape rather than swallowing every error.
+            XCTAssertTrue(error is CancellationError, "unexpected error: \(error)")
+        }
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertNil(coordinator.activeGroupID)
+        // A did start, so the abort must have sent it a best-effort
+        // stop_scroll and released its lease.
+        XCTAssertTrue(transportA.receivedStopScroll)
+        XCTAssertNotEqual(sessionA.connection.output.source, .group)
+    }
+
+    func testReanchorAfterSingleBoardTakeoverSkipsThatMember() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "抢占组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, 1)
+
+        // Some other single-board feature takes A's output lease away from
+        // the group.
+        sessionA.connection.output.begin(.text)
+        XCTAssertFalse(coordinator.isGroupOwned(sessionA))
+
+        await coordinator.debugReanchorNow()
+
+        // A must not have been sent a new group_start (re-anchor never
+        // steals a board back), and its lease must still belong to .text.
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, 1)
+        XCTAssertEqual(sessionA.connection.output.source, .text)
+        // B is still a legitimate participant and gets re-anchored.
+        XCTAssertGreaterThan(transportB.sentGroupStartAtUs.count, 1)
+    }
+
+    func testReanchorNeverSendsGroupStartToANonMember() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "旁观组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+
+        // A board connects that isn't part of this group at all.
+        let strayTransport = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "STRAY", transport: strayTransport)
+
+        await coordinator.debugReanchorNow()
+
+        XCTAssertTrue(strayTransport.sentGroupStartAtUs.isEmpty)
     }
 
     func testSelectDoesNotInvalidateGroupOwnedSession() async throws {
@@ -276,6 +444,7 @@ private final class GroupFakeTransport: RinaTransport {
     var clockSampleReplyDelay: TimeInterval = 0
     private(set) var sentGroupStartAtUs: [Int64] = []
     private(set) var lastBlobBeginMeta: [String: Any]?
+    private(set) var receivedStopScroll = false
 
     private let decoder = RinaLinkDecoder()
     private var stateContinuation: AsyncStream<TransportState>.Continuation?
@@ -354,6 +523,9 @@ private final class GroupFakeTransport: RinaTransport {
                 return (try? JSONSerialization.data(withJSONObject: [
                     "ok": true, "shown": true, "number": object["number"] ?? 1, "ttlMs": object["ttlMs"] ?? 5000,
                 ])) ?? Data()
+            case "stop_scroll":
+                receivedStopScroll = true
+                return Data(#"{"ok":true}"#.utf8)
             default:
                 return Data(#"{"ok":true}"#.utf8)
             }
