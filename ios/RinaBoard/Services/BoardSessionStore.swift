@@ -151,6 +151,27 @@ public final class BoardSessionStore {
         return session
     }
 
+    /// Like `session(for:name:)` but for background (non-user-initiated)
+    /// callers such as `GroupAutoConnector`: finds an existing session by
+    /// id/alias, or appends a brand-new session — never binds or replaces
+    /// `active`, even when `active` is still the launch-time unbound
+    /// placeholder. `session(for:name:)` turning that placeholder into the
+    /// first background member it dials made `RootTabView`'s autoReconnect
+    /// guard (`active.boardID == expected` / `.disconnected`) see an
+    /// already-claimed active session and skip the user's real last-used
+    /// board.
+    public func backgroundSession(for id: String, name: String) -> BoardSession {
+        if let existing = existingSession(for: id) {
+            existing.name = name
+            existing.remember(id)
+            return existing
+        }
+        let session = BoardSession(boardID: id, name: name, makeBLETransport: makeBLETransport,
+                                   makeConnection: makeConnection)
+        sessions.append(session)
+        return session
+    }
+
     /// Returns a retained session without creating one; used by status and
     /// forget flows that should not create an empty board row.
     public func existingSession(for id: String) -> BoardSession? {
