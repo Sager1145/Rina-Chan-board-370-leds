@@ -1,5 +1,6 @@
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import CoreText
 import ImageIO
 import SwiftUI
 import UIKit
@@ -164,12 +165,15 @@ private final class BootStageView: UIView {
 
         // `.loading-text`: 15 px / .12em in the page font, GNU Unifont (the
         // CSS asks for 700 but `font-synthesis: none` leaves the pixel font
-        // at its single weight). A subset with ASCII only ships in the bundle.
+        // at its single weight). A subset with ASCII only ships in the
+        // bundle, so a localized line outside that subset (any zh-Hans/ja
+        // string) falls back to the system font at the same size/weight —
+        // checked by actual glyph coverage, never a hardcoded language list.
+        let bootText = NSLocalizedString("正在准备…", comment: "boot loader loading label, shown before the reveal")
         label.attributedText = NSAttributedString(
-            string: "LOADING",
+            string: bootText,
             attributes: [
-                .font: UIFont(name: "GNUUnifont-WebUIOfflineSubset", size: 15)
-                    ?? UIFont.monospacedSystemFont(ofSize: 15, weight: .bold),
+                .font: Self.bootLabelFont(for: bootText, size: 15),
                 .kern: 15 * 0.12,
                 .foregroundColor: Self.loadingPink,
             ]
@@ -207,6 +211,26 @@ private final class BootStageView: UIView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The pixel font when it actually has every glyph the label needs,
+    /// otherwise a system font at the same point size and weight. Coverage
+    /// is checked with `CTFontGetGlyphsForCharacters` rather than a hardcoded
+    /// language check, so this keeps working if the label's copy changes.
+    private static func bootLabelFont(for text: String, size: CGFloat) -> UIFont {
+        guard let pixelFont = UIFont(name: "GNUUnifont-WebUIOfflineSubset", size: size),
+              fontCovers(pixelFont, text) else {
+            return UIFont.monospacedSystemFont(ofSize: size, weight: .bold)
+        }
+        return pixelFont
+    }
+
+    private static func fontCovers(_ font: UIFont, _ text: String) -> Bool {
+        let units = Array(text.utf16)
+        guard !units.isEmpty else { return true }
+        let ctFont = CTFontCreateWithName(font.fontName as CFString, font.pointSize, nil)
+        var glyphs = [CGGlyph](repeating: 0, count: units.count)
+        return CTFontGetGlyphsForCharacters(ctFont, units, &glyphs, units.count)
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()

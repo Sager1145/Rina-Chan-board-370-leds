@@ -160,6 +160,14 @@ struct ScrollTextView: View {
 
     private var editorSection: some View {
         Section {
+            // A secondary caption, separate from the tertiary in-field
+            // placeholder and the byte-limit footer below (both kept intact):
+            // only while the draft is genuinely empty.
+            if model.text.isEmpty {
+                Text("把想传达的话写下来。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if model.restoreConflict {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("面板上的文字与本地未发送的草稿不同。", systemImage: "exclamationmark.circle")

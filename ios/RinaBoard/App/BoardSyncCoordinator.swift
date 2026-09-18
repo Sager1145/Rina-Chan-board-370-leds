@@ -22,6 +22,10 @@ final class BoardSyncCoordinator {
         let connected: Bool
     }
     private var lastHandledKey: HandledKey?
+    /// True once any board has answered a control connection this app run —
+    /// gates the one-time "connected" greeting vs. the "connected again"
+    /// reconnect greeting (design guide secondary-copy pass, 2026-09-17).
+    private var hasConnectedSuccessfullyThisRun = false
 
     /// The environment objects `RootTabView`'s `.task(id:)` closure used to
     /// capture directly. Grouped so call sites (and tests) pass them once.
@@ -51,10 +55,19 @@ final class BoardSyncCoordinator {
         configureOutputHandlers()
         deps.faceLibrary.synchronizeBoardGeneration(connection.connectionGeneration)
 
+        let previousKey = lastHandledKey
         let key = HandledKey(generation: connection.connectionGeneration, sessionID: deps.sessions.active.id,
                              connected: connection.connectionState == .connected)
-        let isResumeOnly = lastHandledKey == key
+        let isResumeOnly = previousKey == key
         lastHandledKey = key
+        // A genuine reconnect: the same session was connected before, dropped
+        // (its `connected` flag went false, which only happens on a real
+        // disconnect/reconnecting transition — see `HandledKey`), and is
+        // connected again. The very first successful connection this run is
+        // reported separately below, once the board actually answers.
+        let isGenuineReconnect = key.connected && !isResumeOnly && hasConnectedSuccessfullyThisRun
+            && previousKey?.sessionID == key.sessionID && previousKey?.connected == false
+        let isFirstConnectionThisRun = key.connected && !isResumeOnly && !hasConnectedSuccessfullyThisRun
 
         deps.controlCenter.connectionChanged()
         // A pure resume (same generation, same active session) must not
@@ -73,7 +86,9 @@ final class BoardSyncCoordinator {
         deps.video.suspendBoardOutput()
         if draftsRestored, connection.connectionState == .connected {
             await resynchronizeWithBoard(connection: connection, deps: deps,
-                                         scenePhase: scenePhase, showControlCenter: showControlCenter)
+                                         scenePhase: scenePhase, showControlCenter: showControlCenter,
+                                         isFirstConnectionThisRun: isFirstConnectionThisRun,
+                                         isGenuineReconnect: isGenuineReconnect)
         }
     }
 
@@ -83,7 +98,9 @@ final class BoardSyncCoordinator {
         connection: BoardConnection,
         deps: Dependencies,
         scenePhase: ScenePhase,
-        showControlCenter: Binding<Bool>
+        showControlCenter: Binding<Bool>,
+        isFirstConnectionThisRun: Bool = false,
+        isGenuineReconnect: Bool = false
     ) async {
         let generation = connection.connectionGeneration
         let session = connection.output.session
@@ -92,6 +109,19 @@ final class BoardSyncCoordinator {
         // Foreground recovery also needs fresh reads: the board can change
         // modes while this app is suspended without dropping the transport.
         guard let status = try? await connection.getStatus() else { return }
+        // The board has now actually answered this connection — the proof
+        // the greeting lines require, not merely the transport reporting
+        // `.connected`.
+        if isFirstConnectionThisRun {
+            hasConnectedSuccessfullyThisRun = true
+            deps.controlCenter.showConnectionGreeting(
+                NSLocalizedString("连上了，真好。", comment: "secondary caption shown once after the first successful board connection this app run")
+            )
+        } else if isGenuineReconnect {
+            deps.controlCenter.showConnectionGreeting(
+                NSLocalizedString("又连上了。", comment: "secondary caption shown after reconnecting to the board following a genuine drop")
+            )
+        }
         let preview = try? await connection.getPreviewSync()
         guard !Task.isCancelled, generation == connection.connectionGeneration,
               deps.sessions.active.connection === connection,

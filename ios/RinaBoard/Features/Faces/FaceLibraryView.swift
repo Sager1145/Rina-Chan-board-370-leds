@@ -52,6 +52,17 @@ struct FaceLibraryView: View {
         location == .board && connection.connectionState == .connected
     }
 
+    /// Proof (not a guess) that the current library actually finished a
+    /// successful load: the local one has completed its one-time load with
+    /// no error, or the board one was read for the connection generation
+    /// that is still current while actually connected.
+    private var isEmptyLibraryConfirmed: Bool {
+        guard model.errorMessage == nil else { return false }
+        if location == .local { return model.isLocalLoaded }
+        return connection.connectionState == .connected
+            && model.boardGeneration == connection.connectionGeneration
+    }
+
     private func matchesSearch(_ face: SavedFace) -> Bool {
         searchText.isEmpty || face.name.localizedCaseInsensitiveContains(searchText)
     }
@@ -74,6 +85,15 @@ struct FaceLibraryView: View {
 
             if allFaces.isEmpty && !isLoadingCurrent {
                 Text("暂无").font(.footnote).foregroundStyle(.secondary)
+                // Only once the library has actually finished loading
+                // successfully and come back empty: never while loading
+                // (guarded above), never after a load error, and never for
+                // the board library while disconnected (nothing was loaded).
+                if isEmptyLibraryConfirmed {
+                    Text("这里还没有表情。一起做一个吧。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             if !defaults.isEmpty {
                 Section("默认表情") {

@@ -301,6 +301,12 @@ final class ControlViewModel {
 
     var errorMessage: String?
     var isSending = false
+    /// A brief secondary caption shown once `send(connection:)`'s awaited
+    /// `setFrame` call has actually returned success — never set on enqueue,
+    /// and never set by the live-preview coalesced sender. Cleared a few
+    /// seconds later so it never lingers as stale chrome.
+    var sendConfirmationMessage: String?
+    @ObservationIgnored private var sendConfirmationClearTask: Task<Void, Never>?
 
     // MARK: Resources
 
@@ -555,10 +561,21 @@ final class ControlViewModel {
             lastSentFrame = frame
             sentGeneration = connection.connectionGeneration
             errorMessage = nil
+            showSendConfirmation()
         } catch is CancellationError {
         } catch {
             errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),
                                   error.localizedDescription)
+        }
+    }
+
+    private func showSendConfirmation() {
+        sendConfirmationMessage = NSLocalizedString("表情送到了。", comment: "secondary caption shown once the board confirms a face send")
+        sendConfirmationClearTask?.cancel()
+        sendConfirmationClearTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.sendConfirmationMessage = nil
         }
     }
 

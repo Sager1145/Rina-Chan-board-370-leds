@@ -165,18 +165,33 @@ struct ControlView: View {
     @ViewBuilder
     private var previewStatus: some View {
         let litCount = Text("点亮 \(model.draftFrame.litCount) / \(PackedFrame.ledCount)")
-        if model.hasUnsentChanges {
-            BoardPreviewStatus("未发送", systemImage: "pencil.circle", tone: .pending) { litCount }
-        } else if !isConnected {
-            BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) { litCount }
-        } else if let source = connection.output.source, source != .manual {
-            // Identify the feature whose current frame the preview follows.
-            BoardPreviewStatus(Text(String(format: NSLocalizedString("面板正在播放：%@",
-                                                                     comment: "board output owned by another feature"),
-                                           source.title)),
-                               systemImage: "rectangle.on.rectangle", tone: .neutral) { litCount }
-        } else {
-            BoardPreviewStatus("已同步", systemImage: "checkmark.circle", tone: .live) { litCount }
+        VStack(alignment: .leading, spacing: 4) {
+            if model.hasUnsentChanges {
+                BoardPreviewStatus("未发送", systemImage: "pencil.circle", tone: .pending) { litCount }
+            } else if !isConnected {
+                BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) { litCount }
+            } else if let source = connection.output.source, source != .manual {
+                // Identify the feature whose current frame the preview follows.
+                BoardPreviewStatus(Text(String(format: NSLocalizedString("面板正在播放：%@",
+                                                                         comment: "board output owned by another feature"),
+                                               source.title)),
+                                   systemImage: "rectangle.on.rectangle", tone: .neutral) { litCount }
+            } else {
+                BoardPreviewStatus("已同步", systemImage: "checkmark.circle", tone: .live) { litCount }
+            }
+            // A caption for the empty-canvas / new-face state only: a fresh
+            // editor that has never been assigned a saved-face identity and
+            // has nothing drawn on it yet.
+            if model.editingFaceId == nil, model.draftFrame.litCount == 0 {
+                Text("一起做个新表情吧。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let confirmation = model.sendConfirmationMessage {
+                Text(confirmation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

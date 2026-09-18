@@ -111,6 +111,12 @@ struct ConnectionView: View {
                     .font(.footnote)
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("connection.failureReason")
+                // Secondary encouragement directly under the concrete
+                // failure reason above — it never stands in for that
+                // reason, and only appears once one is already shown.
+                Text("再试着连接一次吧。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
             if case .bluetooth = connection.transportKind,
                let connectedName = bleTransport.connectedPeripheralName {

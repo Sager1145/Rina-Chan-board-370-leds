@@ -55,6 +55,15 @@ final class BoardControlCenterModel {
 
     var errorMessage: String?
 
+    /// A brief secondary line shown near the connection-state row: once, the
+    /// first time a control connection actually answers this app run, and
+    /// again on a genuine reconnect after a drop. Set by `BoardSyncCoordinator`
+    /// only once the board has confirmed the connection (a status reply came
+    /// back), never on the transport merely reporting `.connected`. Cleared a
+    /// few seconds later so it never lingers as stale chrome.
+    var connectionGreeting: String?
+    @ObservationIgnored private var connectionGreetingClearTask: Task<Void, Never>?
+
     private var didLoadDefaults = false
     private weak var activeConnection: BoardConnection?
     /// Changes whenever the active board changes, so a late completion from
@@ -133,6 +142,17 @@ final class BoardControlCenterModel {
         autoIntervalSender.cancel()
         colorSender.cancel()
         errorMessage = nil
+    }
+
+    /// Shows `connectionGreeting` for a few seconds, then clears it.
+    func showConnectionGreeting(_ text: String) {
+        connectionGreeting = text
+        connectionGreetingClearTask?.cancel()
+        connectionGreetingClearTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            self?.connectionGreeting = nil
+        }
     }
 
     // MARK: Sync from firmware (echo suppression)
