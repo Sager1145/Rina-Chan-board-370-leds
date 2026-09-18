@@ -481,27 +481,54 @@ final class GroupControlFanOutTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 150_000_000)
         XCTAssertNotEqual(sink.connection.output.source, .groupControl)
         XCTAssertTrue(h.transports["BBBB"]?.receivedFrameBytes.isEmpty ?? true)
-        XCTAssertTrue(h.transports["BBBB"]?.receivedCmdNames.isEmpty ?? true)
+        // `receivedCmdNames` isn't empty on its own — every session's
+        // `connect()` issues its own `subscribe` handshake — but it must
+        // never contain `apply_saved_face` (the primary's own failed
+        // command never got replayed or otherwise reached the sink).
+        XCTAssertFalse(h.transports["BBBB"]?.receivedCmdNames.contains("apply_saved_face") == true)
     }
 
     // MARK: 14. F9 — a nil primary status at attach retries alignment once a
     // real status arrives.
 
     func testStatusNilAtAttachAlignsOnceStatusArrives() async throws {
-        let h = await harness(["AAAA", "BBBB"])
-        h.transports["AAAA"]?.includeRenderer = false
-        h.fanOut.setTarget(.group(h.group.id))
-        let primary = session(h, "AAAA")
+        // Built without the shared `harness()` helper so the primary's
+        // transport can be made to omit `renderer` from its very first
+        // `getStatus` reply — i.e. before `connect()` ever populates
+        // `status` — which is what actually leaves `status?.renderer` nil
+        // at attach time (setting the flag only after `harness()`'s own
+        // `connect()` already ran would be too late).
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "gcf.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let fanOut = GroupControlFanOut(sessions: sessions, groups: store, coordinator: coordinator)
+
+        let primaryTransport = GroupControlFakeTransport()
+        primaryTransport.wifiBoardId = "AAAA"
+        primaryTransport.includeRenderer = false
+        let primary = sessions.session(for: "ble:\(UUID().uuidString)", name: "AAAA")
+        _ = await primary.connection.connect(using: primaryTransport)
+        XCTAssertNil(primary.connection.status?.renderer)
+
+        let sinkTransport = GroupControlFakeTransport()
+        sinkTransport.wifiBoardId = "BBBB"
+        let sink = sessions.session(for: "ble:\(UUID().uuidString)", name: "BBBB")
+        _ = await sink.connection.connect(using: sinkTransport)
+
+        let group = store.create(name: "测试组")
+        try? store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "AAAA"))
+        try? store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "BBBB"))
+        fanOut.setTarget(.group(group.id))
 
         try? await Task.sleep(nanoseconds: 150_000_000)
-        XCTAssertNil(h.transports["BBBB"]?.lastCmdField("set_brightness", "raw"))
+        XCTAssertNil(sinkTransport.lastCmdField("set_brightness", "raw"))
 
-        h.transports["AAAA"]?.includeRenderer = true
-        h.transports["AAAA"]?.rendererBrightness = 123
+        primaryTransport.includeRenderer = true
+        primaryTransport.rendererBrightness = 123
         _ = try? await primary.connection.getStatus()
 
-        await waitUntil { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 123 }
-        XCTAssertEqual(h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int, 123)
+        await waitUntil { sinkTransport.lastCmdField("set_brightness", "raw") as? Int == 123 }
+        XCTAssertEqual(sinkTransport.lastCmdField("set_brightness", "raw") as? Int, 123)
     }
 
     // MARK: 15. M3 — member resolution prefers a CONNECTED session over a
