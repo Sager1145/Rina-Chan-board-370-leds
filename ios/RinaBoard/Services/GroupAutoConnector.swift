@@ -184,6 +184,18 @@ public final class GroupAutoConnector {
         }
     }
 
+    /// Immediately (re)attempts a connect for `member`, bypassing any backoff
+    /// wait currently in progress — the Control Center's per-member "连接"
+    /// button for an offline member (BOARD_GROUP_SPEC.md §3 auto-connect
+    /// addendum).
+    func connectNow(_ member: BoardGroup.Member) {
+        guard isStillPending(member) else { return }
+        cancelPending(member.physicalBoardID)
+        failureCount[member.physicalBoardID] = 0
+        guard let known = resolveKnownBoard(for: member) else { return }
+        scheduleConnect(member: member, known: known, delay: 0)
+    }
+
     private func cancelPending(_ id: String) {
         pending.removeValue(forKey: id)?.cancel()
         failureCount.removeValue(forKey: id)

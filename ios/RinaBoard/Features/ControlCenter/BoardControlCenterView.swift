@@ -258,53 +258,59 @@ struct BoardControlCenterView: View {
     private var statusSection: some View {
         Section {
             controlTargetRow
-            LabeledContent("连接状态") {
-                // State is never communicated by colour alone (§7, §41).
-                HStack(spacing: 10) {
-                    Label(connectionStateText, systemImage: connectionStateSymbol)
-                        .labelStyle(.titleAndIcon)
-                        .foregroundStyle(connectionStateTint)
-                    // Also stops a connect or reconnect loop in progress:
-                    // `disconnect()` cancels the retry task too.
-                    if canDisconnect {
-                        Button(isConnected ? "断开" : "取消", role: .destructive) {
-                            connection.disconnect()
+            if let group = targetedGroup {
+                // Group mode: one row per member (name, 主控 badge, connection
+                // state + a per-member "连接" retry, battery) replaces the
+                // single-board connection/battery rows below — never both
+                // (user requirement: "需要显示多条电池信息，连接信息").
+                GroupMemberStatusList(group: group)
+            } else {
+                LabeledContent("连接状态") {
+                    // State is never communicated by colour alone (§7, §41).
+                    HStack(spacing: 10) {
+                        Label(connectionStateText, systemImage: connectionStateSymbol)
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(connectionStateTint)
+                        // Also stops a connect or reconnect loop in progress:
+                        // `disconnect()` cancels the retry task too.
+                        if canDisconnect {
+                            Button(isConnected ? "断开" : "取消", role: .destructive) {
+                                connection.disconnect()
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityIdentifier("controlCenter.disconnect")
                         }
-                        .buttonStyle(.borderless)
-                        .accessibilityIdentifier("controlCenter.disconnect")
                     }
                 }
-            }
-            if let greeting = model.connectionGreeting {
-                Text(greeting)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            if let error = connection.lastError, !isConnected {
-                Text(error)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .accessibilityIdentifier("connection.failureReason")
-                // Secondary encouragement directly under the concrete
-                // failure reason above — it never stands in for that
-                // reason, and only appears once one is already shown.
-                // Only once the app has given up: while it is still
-                // retrying on its own, lastError is set too.
-                if case .failed = connection.connectionState {
-                    Text("请重新尝试连接")
+                if let greeting = model.connectionGreeting {
+                    Text(greeting)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-            }
-            // While a group is targeted, `groupControlSection`'s member list
-            // already shows every member's battery (including this board's),
-            // so this row would just repeat the primary's own reading.
-            // Embedded (the iPad preview column) the bar is always there: that
-            // column is the only place the battery shows on iPad, and a row
-            // that appears with the first power report would shift the whole
-            // panel. As its own screen it keeps to real readings.
-            if targetedGroup == nil, isEmbedded || connection.batteryReading != nil {
-                BoardBatteryRow()
+                if let error = connection.lastError, !isConnected {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("connection.failureReason")
+                    // Secondary encouragement directly under the concrete
+                    // failure reason above — it never stands in for that
+                    // reason, and only appears once one is already shown.
+                    // Only once the app has given up: while it is still
+                    // retrying on its own, lastError is set too.
+                    if case .failed = connection.connectionState {
+                        Text("请重新尝试连接")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                // Embedded (the iPad preview column) the bar is always there:
+                // that column is the only place the battery shows on iPad,
+                // and a row that appears with the first power report would
+                // shift the whole panel. As its own screen it keeps to real
+                // readings.
+                if isEmbedded || connection.batteryReading != nil {
+                    BoardBatteryRow()
+                }
             }
         } header: {
             // Named only where the panel rides inside another page's list
@@ -521,7 +527,6 @@ struct BoardControlCenterView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                GroupMemberStatusList(group: group)
             }
 
             Section {

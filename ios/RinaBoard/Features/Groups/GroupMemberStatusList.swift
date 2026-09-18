@@ -2,11 +2,14 @@ import SwiftUI
 import RinaCore
 
 /// One row per member of the targeted group, in slot order: name, a "主控"
-/// badge on the fan-out's current control primary, connection state, battery
-/// (+ charging indicator), and that member's `GroupControlFanOut.memberErrors`
-/// entry if any (user requirements: "显示所有板子的电池信息",
-/// "界面显示所有板子的信息，主控需要标出来"). Shown in the Control Center's
-/// group panel in place of the single-board `BoardBatteryRow`.
+/// badge on the fan-out's current control primary, connection state (with a
+/// "连接" button that kicks `GroupAutoConnector` for just that member while
+/// it's offline), battery (+ charging indicator), and that member's
+/// `GroupControlFanOut.memberErrors` entry if any (user requirements:
+/// "显示所有板子的电池信息", "界面显示所有板子的信息，主控需要标出来",
+/// "需要显示多条电池信息，连接信息"). Shown at the top of the Control
+/// Center's status section in place of the single-board connection/battery
+/// rows.
 ///
 /// Member lookup goes through `BoardGroupCoordinator.session(for:)`/
 /// `status(for:)`, the same path `BoardControlCenterView.groupMemberRow` and
@@ -18,6 +21,7 @@ struct GroupMemberStatusList: View {
 
     @Environment(BoardGroupCoordinator.self) private var coordinator
     @Environment(GroupControlFanOut.self) private var fanOut
+    @Environment(GroupAutoConnector.self) private var autoConnector
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -37,7 +41,7 @@ struct GroupMemberStatusList: View {
         if dynamicTypeSize.isAccessibilitySize {
             VStack(alignment: .leading, spacing: 6) {
                 header(index: index, name: name, isPrimary: isPrimary)
-                statusLine(status)
+                statusLine(status, connection: connection, member: member)
                 batteryLine(connection)
                 errorLine(error)
             }
@@ -46,7 +50,7 @@ struct GroupMemberStatusList: View {
                 HStack(spacing: 8) {
                     header(index: index, name: name, isPrimary: isPrimary)
                     Spacer(minLength: 8)
-                    statusLine(status)
+                    statusLine(status, connection: connection, member: member)
                 }
                 batteryLine(connection)
                 errorLine(error)
@@ -71,10 +75,34 @@ struct GroupMemberStatusList: View {
         }
     }
 
-    private func statusLine(_ status: BoardGroupCoordinator.MemberStatus) -> some View {
-        Text(BoardGroupStatusFormatting.text(status))
-            .font(.caption)
-            .foregroundStyle(BoardGroupStatusFormatting.color(status))
+    /// Connection state — "连接中"/"已连接"/"离线" — plus, while offline, a
+    /// "连接" button that kicks `GroupAutoConnector` for just this member
+    /// instead of waiting out its backoff (user requirement: "需要显示多条
+    /// 电池信息，连接信息"). Once actually connected this falls back to the
+    /// coordinator's richer play-state text ("播放中"/"上传中 N%"/etc), same as
+    /// before.
+    @ViewBuilder
+    private func statusLine(_ status: BoardGroupCoordinator.MemberStatus, connection: BoardConnection?, member: BoardGroup.Member) -> some View {
+        HStack(spacing: 8) {
+            Text(connectionStateText(status: status, connection: connection))
+                .font(.caption)
+                .foregroundStyle(BoardGroupStatusFormatting.color(status))
+            if connection?.connectionState != .connected {
+                Button("连接") {
+                    autoConnector.connectNow(member)
+                }
+                .font(.caption)
+                .buttonStyle(.borderless)
+            }
+        }
+    }
+
+    private func connectionStateText(status: BoardGroupCoordinator.MemberStatus, connection: BoardConnection?) -> String {
+        switch connection?.connectionState {
+        case .connected: return BoardGroupStatusFormatting.text(status)
+        case .connecting, .reconnecting: return "连接中"
+        case .disconnected, .failed, nil: return "离线"
+        }
     }
 
     @ViewBuilder
