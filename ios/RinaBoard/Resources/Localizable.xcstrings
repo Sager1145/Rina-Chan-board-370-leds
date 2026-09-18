@@ -2269,6 +2269,9 @@
     "保存列表" : {
 
     },
+    "保存到%@" : {
+      "comment" : "save alert title naming its destination"
+    },
     "保存到面板的表情库，可在控制中心中管理。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5941,6 +5944,9 @@
         }
       }
     },
+    "复制到%@" : {
+
+    },
     "复制到本机" : {
       "comment" : "copy face to device",
       "extractionState" : "stale",
@@ -8400,6 +8406,9 @@
         }
       }
     },
+    "库" : {
+
+    },
     "应用" : {
       "comment" : "debug log source",
       "localizations" : {
@@ -9852,7 +9861,6 @@
       }
     },
     "搜索表情" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -20208,7 +20216,6 @@
       }
     },
     "默认表情" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
