@@ -329,10 +329,12 @@ public final class GroupAutoConnector {
         if targetedMember(id) != nil {
             if session.connection.connectionState == .connected {
                 if failureCount[id] != nil { failureCount[id] = nil }
-            } else if !session.connection.wasUserDisconnected, !Self.isDialing(session.connection.connectionState) {
-                // Superseded by another connect, or BoardConnection's own
-                // retry loop still running after this attempt's failure:
-                // neither is this dial's own failure to count.
+            } else if !session.connection.wasUserDisconnected {
+                // Counted even when the connection is now `.reconnecting`: a
+                // failed `connect(using:)` always hands off to BoardConnection's
+                // own retry loop, so skipping that state meant no dial was
+                // ever counted and the cap never engaged (677 dials in a test).
+                // Reconcile stays idle until that loop settles anyway.
                 failureCount[id, default: 0] += 1
             }
         }
