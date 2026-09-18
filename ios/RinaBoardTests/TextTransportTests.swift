@@ -693,6 +693,11 @@ final class TextTransportTests: XCTestCase {
         model.adoptGroupFps(10_000)
         XCTAssertEqual(model.requestedFps, Double(RinaLinkConstants.scrollFpsMax))
         XCTAssertEqual(transport.requests.count, sentBefore)
+
+        // 60 fps ticks at 17 ms, which reads back as 59: the label must not drift.
+        model.requestedFps = 60
+        model.adoptGroupFps(59)
+        XCTAssertEqual(model.requestedFps, 60)
     }
 
     func testReconnectRestoresAlreadySentDraftWithoutConflict() async throws {

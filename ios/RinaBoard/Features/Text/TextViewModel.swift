@@ -642,7 +642,15 @@ final class TextViewModel {
         // Counts as a speed edit so a draft still loading can't overwrite it.
         speedEdits += 1
         pendingFps = nil
-        requestedFps = Double(clampFps(Double(fps)))
+        let adopted = clampFps(Double(fps))
+        // The group's rate comes from its tick interval, which 58/59/60 fps
+        // share (17 ms): keep a remembered speed that already ticks the same.
+        let remembered = clampFps(requestedFps)
+        if Double(remembered) == requestedFps,
+           ScrollRasterizer.intervalMs(forFps: remembered) == ScrollRasterizer.intervalMs(forFps: adopted) {
+            return
+        }
+        requestedFps = Double(adopted)
     }
 
     // MARK: Restore from the board (§26)
