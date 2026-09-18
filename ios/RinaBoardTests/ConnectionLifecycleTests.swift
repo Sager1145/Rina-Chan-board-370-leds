@@ -216,7 +216,10 @@ final class ConnectionLifecycleTests: XCTestCase {
         let connected = await board.connect(using: wire)
         XCTAssertFalse(connected)
         XCTAssertTrue(wire.disconnects > 0)
-        let expectedMessage = "已连接到另一块璃奈板（RinaChanBoard-000000000000），而不是 RinaChanBoard-80B54EF48E09"
+        let expectedMessage = String(
+            format: NSLocalizedString("已连接到另一块璃奈板（%@），而不是 %@", comment: ""),
+            "RinaChanBoard-000000000000", "RinaChanBoard-80B54EF48E09"
+        )
         XCTAssertEqual(board.lastError, expectedMessage)
         XCTAssertEqual(board.connectionState, .failed(expectedMessage))
         // No further reconnect attempt: this transport is retired, not retried.
@@ -247,7 +250,10 @@ final class ConnectionLifecycleTests: XCTestCase {
             if case .failed = board.connectionState { return true }
             return false
         }
-        let expectedMessage = "已连接到另一块璃奈板（RinaChanBoard-000000000000），而不是 RinaChanBoard-80B54EF48E09"
+        let expectedMessage = String(
+            format: NSLocalizedString("已连接到另一块璃奈板（%@），而不是 %@", comment: ""),
+            "RinaChanBoard-000000000000", "RinaChanBoard-80B54EF48E09"
+        )
         XCTAssertEqual(board.connectionState, .failed(expectedMessage))
         XCTAssertEqual(readyCount, 1)
         try await Task.sleep(for: .milliseconds(60))
