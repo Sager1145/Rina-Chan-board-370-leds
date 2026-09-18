@@ -325,9 +325,6 @@ final class ControlViewModel {
 
     let library: PartsLibrary?
     let loadError: String?
-    /// Nil when the shipped part data doesn't match the derived eye mapping,
-    /// in which case LED-level eye sync is unavailable.
-    let eyeTopology: EyeTopology?
     private let draftStorage: DraftStorage
 
     var canSyncEyes: Bool { library != nil }
@@ -338,13 +335,11 @@ final class ControlViewModel {
             let library = try RinaResources.partsLibrary(bundle: bundle)
             self.library = library
             self.loadError = nil
-            self.eyeTopology = EyeTopology.make(from: library)
             self.selectedCall = .defaultCall
             self.draftFrame = library.compose(call: .defaultCall)
             self.fromParts = true
         } catch {
             self.library = nil
-            self.eyeTopology = nil
             self.loadError = String(format: NSLocalizedString("无法加载部件库：%@", comment: "parts library load failed"),
                                     error.localizedDescription)
         }
@@ -417,8 +412,6 @@ final class ControlViewModel {
     func setSyncEyes(_ enabled: Bool, connection: BoardConnection) {
         guard syncEyes != enabled else { return }
         syncEyes = enabled
-        // A pencil hovering now gains or loses its partner LED on the board.
-        defer { syncBoardHint(connection: connection) }
         guard enabled else { return }
 
         // A parts-composed draft syncs at the part level, which keeps
@@ -643,11 +636,10 @@ final class ControlViewModel {
 
     // MARK: Apple Pencil hover
 
-    /// The other eye's LED to hover with `led`, while the eyes are edited as
-    /// a pair — the LED an edit there would also change.
+    /// The LED to hover with `led` while drawing is mirrored — the one an
+    /// edit there would also change.
     func pencilHoverMirror(of led: Int) -> Int? {
-        guard syncEyes, let mirrored = eyeTopology?.mirroredLED(of: led), mirrored != led else { return nil }
-        return mirrored
+        drawingMirror(of: led)
     }
 
     /// The LED an Apple Pencil hovers over on the editor, or `nil` once it

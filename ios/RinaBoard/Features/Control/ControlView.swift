@@ -61,9 +61,13 @@ struct ControlView: View {
             }
             // A pencil held still over the board sends no hover events, so
             // anything that changes whether (or where) the board mirrors it
-            // re-decides here: 即时预览, another feature taking the output,
-            // or a switch to another board.
+            // re-decides here: 即时预览, the drawing 镜像 (which adds or drops
+            // the mirrored LED), another feature taking the output, or a
+            // switch to another board.
             .onChange(of: model.livePreview) { _, _ in
+                model.syncBoardHint(connection: connection)
+            }
+            .onChange(of: model.mirrorDrawing) { _, _ in
                 model.syncBoardHint(connection: connection)
             }
             .onChange(of: connection.output.source) { _, _ in

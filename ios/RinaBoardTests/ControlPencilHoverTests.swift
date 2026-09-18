@@ -48,42 +48,47 @@ final class ControlPencilHoverTests: XCTestCase {
         }
     }
 
-    /// With the eyes edited as a pair, hovering one eye shows the LED an edit
-    /// would also change in the other eye — in the preview and on the board.
-    func testSyncedEyesHoverTheMirroredLEDToo() async throws {
+    /// With drawing mirrored, hovering one side shows the LED an edit would
+    /// also change on the other side — in the preview and on the board.
+    func testMirroredDrawingHoversTheMirroredLEDToo() async throws {
         let (connection, transport) = await connectedBoard()
         let model = ControlViewModel()
         model.livePreview = true
-        let pair = try XCTUnwrap(model.eyeTopology?.leftToRightPairs.first)
+        let pair = try mirrorPair(x: 3, y: 12)
 
-        XCTAssertNil(model.pencilHoverMirror(of: pair.left), "eye sync is off")
+        XCTAssertNil(model.pencilHoverMirror(of: pair.left), "drawing mirror is off")
         model.setSyncEyes(true, connection: connection)
+        XCTAssertNil(model.pencilHoverMirror(of: pair.left), "the parts mirror never affects drawing")
+        model.mirrorDrawing = true
         XCTAssertEqual(model.pencilHoverMirror(of: pair.left), pair.right)
         XCTAssertEqual(model.pencilHoverMirror(of: pair.right), pair.left)
 
         model.pencilHover(led: pair.left, connection: connection)
-        await waitFor("the board must show both eyes") { hintPairs(transport) == [[pair.left, pair.right]] }
+        await waitFor("the board must show both sides") { hintPairs(transport) == [[pair.left, pair.right]] }
         model.pencilHover(led: nil, connection: connection)
         await waitFor { hintPairs(transport) == [[pair.left, pair.right], [-1, nil]] }
         connection.disconnect()
     }
 
-    /// Turning eye sync on or off while the pencil is held still re-sends the
-    /// hint with or without its partner.
-    func testTogglingEyeSyncMidHoverUpdatesTheBoard() async throws {
+    /// Turning the drawing mirror on or off while the pencil is held still
+    /// re-sends the hint with or without its partner (the view calls
+    /// `syncBoardHint` on every `mirrorDrawing` change).
+    func testTogglingDrawingMirrorMidHoverUpdatesTheBoard() async throws {
         let (connection, transport) = await connectedBoard()
         let model = ControlViewModel()
         model.livePreview = true
-        let pair = try XCTUnwrap(model.eyeTopology?.leftToRightPairs.first)
+        let pair = try mirrorPair(x: 3, y: 12)
 
         model.pencilHover(led: pair.left, connection: connection)
         await waitFor { hintPairs(transport) == [[pair.left, nil]] }
-        model.setSyncEyes(true, connection: connection)
-        await waitFor("sync on adds the partner") {
+        model.mirrorDrawing = true
+        model.syncBoardHint(connection: connection)
+        await waitFor("mirror on adds the partner") {
             hintPairs(transport) == [[pair.left, nil], [pair.left, pair.right]]
         }
-        model.setSyncEyes(false, connection: connection)
-        await waitFor("sync off drops it again") {
+        model.mirrorDrawing = false
+        model.syncBoardHint(connection: connection)
+        await waitFor("mirror off drops it again") {
             hintPairs(transport) == [[pair.left, nil], [pair.left, pair.right], [pair.left, nil]]
         }
         connection.disconnect()

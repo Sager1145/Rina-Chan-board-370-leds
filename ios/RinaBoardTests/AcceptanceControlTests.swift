@@ -75,6 +75,19 @@ final class AcceptanceControlTests: XCTestCase {
         XCTAssertFalse(model.draftFrame[right], "The parts mirror must not mirror hand drawing")
     }
 
+    func testPartSelectionIsIndependentOfDrawingMirror() throws {
+        let (model, library) = try loadedModel()
+        let connection = BoardConnection()
+        model.mirrorDrawing = true
+        let rightBefore = model.selectedCall[.reye]
+
+        let leftID = try differentPartID(in: .leye, from: model.selectedCall[.leye], library: library)
+        model.selectPart(group: .leye, id: leftID, connection: connection)
+
+        XCTAssertEqual(model.selectedCall[.leye], leftID)
+        XCTAssertEqual(model.selectedCall[.reye], rightBefore, "The drawing mirror must not pick eye parts")
+    }
+
     func testEyePartSelectionStaysMirroredWhileSyncIsEnabled() throws {
         let (model, library) = try loadedModel()
         let connection = BoardConnection()

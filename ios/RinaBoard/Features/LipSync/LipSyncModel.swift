@@ -240,7 +240,7 @@ final class LipSyncModel {
         refreshPreviewFrame()
     }
 
-    /// Mirrors eye choices onto the other eye, like the Control tab's 同步.
+    /// Mirrors eye choices onto the other eye, like the Control tab's parts 镜像.
     /// Enabling it projects the left eye onto the right immediately.
     private(set) var syncEyes = false
 
