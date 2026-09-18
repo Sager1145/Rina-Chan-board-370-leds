@@ -93,6 +93,32 @@ static void test_large_u64_values_near_wrap_are_irrelevant() {
     printf("test_large_u64_values_near_wrap_are_irrelevant: OK\n");
 }
 
+static void test_end_latch_due_only_once_on_late_jump_past_last() {
+    // F3: a late tick can jump straight from well before the end (e.g.
+    // last-2) to at-or-past the last frame in one call (no catch-up replay).
+    // The caller must still latch/present the last frame exactly once.
+    const uint64_t atUs = 0;
+    const uint32_t intervalMs = 100;
+    const uint32_t frameCount = 5; // last index 4
+    uint16_t currentFrameIndex = frameCount - 3; // "last - 2" == 2
+
+    // Jump far past the end in one tick.
+    GroupCursor c = groupCursorAt(1'000ULL * intervalMs * 1000, atUs, 0, intervalMs, frameCount, false);
+    assert(c.endedNoLoop);
+    assert(c.frame == frameCount - 1);
+    assert(group_math::groupCursorEndLatchDue(c, currentFrameIndex));
+
+    // Caller latches: scrollFrameIndex now equals the last frame.
+    currentFrameIndex = static_cast<uint16_t>(c.frame);
+
+    // A subsequent tick with the same ended cursor must not re-latch.
+    GroupCursor c2 = groupCursorAt(1'001ULL * intervalMs * 1000, atUs, 0, intervalMs, frameCount, false);
+    assert(c2.endedNoLoop);
+    assert(c2.frame == frameCount - 1);
+    assert(!group_math::groupCursorEndLatchDue(c2, currentFrameIndex));
+    printf("test_end_latch_due_only_once_on_late_jump_past_last: OK\n");
+}
+
 static void test_start_frame_offset_and_reanchor_replaces_atomically() {
     // startFrame != 0 shifts the whole schedule; re-anchoring is just calling
     // groupCursorAt again with new (atUs, startFrame) -- no separate API needed
@@ -246,6 +272,7 @@ int main() {
     test_exact_boundary_advances_by_one_step();
     test_loop_wraps_modulo_frame_count();
     test_no_loop_holds_on_last_frame();
+    test_end_latch_due_only_once_on_late_jump_past_last();
     test_late_tick_jumps_no_catchup_replay();
     test_large_u64_values_near_wrap_are_irrelevant();
     test_start_frame_offset_and_reanchor_replaces_atomically();

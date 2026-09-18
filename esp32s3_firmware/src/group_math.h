@@ -61,6 +61,19 @@ inline GroupCursor groupCursorAt(uint64_t nowUs, uint64_t atUs, uint32_t startFr
     return c;
 }
 
+// True when a group-timed `cursor` that has ended (loop disabled, past the
+// last frame) still needs to latch/present the last frame this tick: only
+// when the caller's currently-shown frame index differs from cursor.frame.
+// Once the caller has latched cursor.frame once, subsequent ticks (time keeps
+// advancing while `endedNoLoop` stays true) must not re-latch/re-pause every
+// tick -- same "present once, then hold" shape as the legacy end-of-timeline
+// path. A late tick that jumps straight from well before the end (e.g.
+// last-2) to at-or-past the last frame must still present the last frame
+// exactly once, never skipping the final still frame.
+inline bool groupCursorEndLatchDue(const GroupCursor& cursor, uint16_t currentFrameIndex) {
+    return cursor.endedNoLoop && currentFrameIndex != static_cast<uint16_t>(cursor.frame);
+}
+
 // --- §1.4 scroll_bitmap viewport extension ------------------------------------
 
 // frameCount = max(1, W - V) + 1 (caller applies the >3072 -> 413 limit).

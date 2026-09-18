@@ -48,8 +48,12 @@ struct Runtime {
 namespace group_math {
 struct GroupCursor { uint32_t frame=0; bool held=false; bool endedNoLoop=false; };
 GroupCursor groupCursorAt(uint64_t,uint64_t,uint32_t,uint32_t,uint32_t,bool){return GroupCursor{};}
+bool groupCursorEndLatchDue(const GroupCursor& c, uint16_t currentFrameIndex){
+ return c.endedNoLoop && currentFrameIndex != static_cast<uint16_t>(c.frame);
+}
 }
 uint64_t esp_timer_get_time(){return 0;}
+bool identifyOverlayExpiryDue(uint64_t){return false;}
 void scrollSessionExitGroupTimedLocked(){rs.groupTimed=false;}
 struct Meta { uint16_t framesReceived=0, nextChunkIndex=0, totalFramesExpected=0; uint8_t uiFps=0; bool uploadComplete=false; char timelineId[8]={}; } meta;
 using ScrollTimelineMeta=Meta;
