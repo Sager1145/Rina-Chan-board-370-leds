@@ -143,7 +143,7 @@ final class LipSyncLifecycleTests: XCTestCase {
         let model = LipSyncModel(capture: capture, permissionRequest: { .granted })
         defer { model.stop(); connection.disconnect() }
         let start = Task { await model.start(connection: connection) }
-        while capture.startContinuation == nil { await Task.yield() }
+        await waitUntilTrue("Microphone start never suspended") { capture.startContinuation != nil }
 
         model.stop(connection: connection)
         capture.startContinuation?.resume()

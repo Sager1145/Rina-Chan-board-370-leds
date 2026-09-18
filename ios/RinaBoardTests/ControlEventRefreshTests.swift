@@ -19,7 +19,7 @@ final class ControlEventRefreshTests: XCTestCase {
         model.refreshTiming.reconciliationInterval = .seconds(1000) // isolate the event path
 
         let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
-        await waitUntil { transport.getFrameCount >= 1 }
+        await waitUntilTrue { transport.getFrameCount >= 1 }
         XCTAssertEqual(transport.getFrameCount, 1, "Entry must fetch exactly once")
 
         var bumped = PackedFrame()
@@ -27,9 +27,9 @@ final class ControlEventRefreshTests: XCTestCase {
         transport.displayFrame = bumped
         transport.pushStatus(version: 2)
 
-        await waitUntil { transport.getFrameCount >= 2 }
+        await waitUntilTrue { transport.getFrameCount >= 2 }
         XCTAssertEqual(transport.getFrameCount, 2, "A version bump must fetch exactly once")
-        await waitUntil { model.draftFrame == bumped }
+        await waitUntilTrue { model.draftFrame == bumped }
         XCTAssertEqual(model.draftFrame, bumped)
 
         task.cancel()
@@ -41,7 +41,7 @@ final class ControlEventRefreshTests: XCTestCase {
         model.refreshTiming.reconciliationInterval = .seconds(1000)
 
         let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
-        await waitUntil { transport.getFrameCount >= 1 }
+        await waitUntilTrue { transport.getFrameCount >= 1 }
         XCTAssertEqual(transport.getFrameCount, 1)
 
         // Same version as already applied at setup: must not be treated as a
@@ -87,7 +87,7 @@ final class ControlEventRefreshTests: XCTestCase {
         transport.getFrameDelay = .milliseconds(150)
 
         let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
-        await waitUntil { transport.getFrameStarted >= 1 }
+        await waitUntilTrue { transport.getFrameStarted >= 1 }
 
         for version in 2...6 {
             transport.pushStatus(version: version)
@@ -171,7 +171,7 @@ final class ControlEventRefreshTests: XCTestCase {
         model.refreshTiming.reconciliationInterval = .milliseconds(15)
 
         let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
-        await waitUntil { transport.getFrameCount >= 1 }
+        await waitUntilTrue { transport.getFrameCount >= 1 }
         task.cancel()
         await task.value
 
@@ -189,14 +189,14 @@ final class ControlEventRefreshTests: XCTestCase {
         model.refreshTiming.reconciliationInterval = .seconds(1000) // isolate the wake path
 
         let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
-        await waitUntil { transport.getFrameCount >= 1 }
+        await waitUntilTrue { transport.getFrameCount >= 1 }
         XCTAssertEqual(transport.getFrameCount, 1)
 
         // A mode flip with no accompanying version bump (mirrors
         // BoardSyncCoordinator resolving Control mode) must still wake the
         // loop right away instead of waiting on the 1 Hz fallback.
         model.boardModeSynchronized(generation: connection.connectionGeneration)
-        await waitUntil { transport.getFrameCount >= 2 }
+        await waitUntilTrue { transport.getFrameCount >= 2 }
         XCTAssertEqual(transport.getFrameCount, 2)
 
         task.cancel()
@@ -208,11 +208,11 @@ final class ControlEventRefreshTests: XCTestCase {
         model.refreshTiming.reconciliationInterval = .seconds(1000)
 
         let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
-        await waitUntil { transport.getFrameCount >= 1 }
+        await waitUntilTrue { transport.getFrameCount >= 1 }
         XCTAssertEqual(transport.getFrameCount, 1)
 
         transport.pushStatus(version: 3) // lower than the current 5
-        await waitUntil { transport.getFrameCount >= 2 }
+        await waitUntilTrue { transport.getFrameCount >= 2 }
         XCTAssertEqual(transport.getFrameCount, 2, "Any version change, not just an increase, must refresh")
 
         task.cancel()
@@ -233,14 +233,14 @@ final class ControlEventRefreshTests: XCTestCase {
         model.refreshTiming.reconciliationInterval = .seconds(1000) // isolate the fallback rate
 
         let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
-        await waitUntil { transport.getFrameCount >= 3 }
+        await waitUntilTrue { transport.getFrameCount >= 3 }
         XCTAssertGreaterThanOrEqual(transport.getFrameCount, 3, "Must poll while the version is nil")
 
         // The version arrives (as if the coordinator's GET_STATUS/EV_STATUS
         // filled it in): the loop must settle into the event-driven fallback
         // rate instead of continuing to poll every 10 ms.
         transport.pushStatus(version: 1)
-        await waitUntil { connection.status?.v == 1 }
+        await waitUntilTrue { connection.status?.v == 1 }
         let countAfterVersionAppears = transport.getFrameCount
         try await Task.sleep(for: .milliseconds(150))
         XCTAssertLessThanOrEqual(transport.getFrameCount, countAfterVersionAppears + 2,
@@ -260,7 +260,7 @@ final class ControlEventRefreshTests: XCTestCase {
         // only unwinds after run 2 has already installed its own trigger.
         transport.getFrameDelay = .milliseconds(80)
         let firstRun = Task { await model.runDisplayRefreshLoop(connection: connection) }
-        await waitUntil { transport.getFrameStarted >= 1 }
+        await waitUntilTrue { transport.getFrameStarted >= 1 }
 
         // Simulate `.task(id:)` restarting: cancel the old run and start a
         // new one without waiting for the old one to finish unwinding, so
@@ -269,12 +269,12 @@ final class ControlEventRefreshTests: XCTestCase {
         let secondRun = Task { await model.runDisplayRefreshLoop(connection: connection) }
         await firstRun.value
         transport.getFrameDelay = nil
-        await waitUntil { transport.getFrameCount >= 2 }
+        await waitUntilTrue { transport.getFrameCount >= 2 }
         XCTAssertGreaterThanOrEqual(transport.getFrameCount, 2, "The restarted run must fetch on entry")
 
         let countBeforeWake = transport.getFrameCount
         model.boardModeSynchronized(generation: connection.connectionGeneration)
-        await waitUntil { transport.getFrameCount > countBeforeWake }
+        await waitUntilTrue { transport.getFrameCount > countBeforeWake }
         XCTAssertGreaterThan(transport.getFrameCount, countBeforeWake,
                              "The old run's cleanup must not have cleared the new run's trigger")
 
@@ -303,7 +303,7 @@ final class ControlEventRefreshTests: XCTestCase {
         XCTAssertNotEqual(before, differing)
 
         let callerTask = Task { await model.refreshBoardDisplay(connection: connection) }
-        await waitUntil { transport.getFrameStarted >= 1 }
+        await waitUntilTrue { transport.getFrameStarted >= 1 }
         callerTask.cancel()
 
         // A structured, inline fetch must be cancelled promptly along with
@@ -332,7 +332,7 @@ final class ControlEventRefreshTests: XCTestCase {
         transport.getFrameDelay = .milliseconds(150)
 
         let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
-        await waitUntil { transport.getFrameStarted >= 1 } // the loop's entry fetch is in flight
+        await waitUntilTrue { transport.getFrameStarted >= 1 } // the loop's entry fetch is in flight
 
         // A direct, uncoordinated call — exactly what `BoardSyncCoordinator`
         // does — fires while that fetch is still in flight, against a newer
@@ -342,7 +342,7 @@ final class ControlEventRefreshTests: XCTestCase {
         transport.displayFrame = newer
         await model.refreshBoardDisplay(connection: connection)
 
-        await waitUntil { model.draftFrame == newer }
+        await waitUntilTrue { model.draftFrame == newer }
         XCTAssertEqual(model.draftFrame, newer,
                        "An uncoordinated direct call overlapping the loop's fetch must still converge " +
                        "on the board's current frame")
@@ -369,13 +369,6 @@ final class ControlEventRefreshTests: XCTestCase {
         transport.resetCounters()
         model.boardModeSynchronized(generation: connection.connectionGeneration)
         return (model, connection, transport)
-    }
-
-    private func waitUntil(timeoutMs: Int = 1000, _ condition: @MainActor () -> Bool) async {
-        let deadline = DispatchTime.now() + .milliseconds(timeoutMs)
-        while !condition(), DispatchTime.now() < deadline {
-            try? await Task.sleep(for: .milliseconds(5))
-        }
     }
 }
 

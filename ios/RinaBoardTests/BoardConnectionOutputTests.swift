@@ -246,9 +246,12 @@ final class BoardConnectionOutputTests: XCTestCase {
             json: ["ok": true, "v": 10, "device": "rina", "uptimeMs": 42,
                    "wifi": ["staConnected": true]]
         )
-        await Task.yield()
         transport.emitEvent(type: .evStatus, json: ["ok": true, "v": 11])
-        await Task.yield()
+        // The two events go through one ordered AsyncStream, so waiting for the
+        // second to be published also means the first was merged first.
+        await waitUntilTrue("BoardConnection never published the lite EV_STATUS") {
+            connection.status?.v == 11
+        }
 
         XCTAssertEqual(connection.status?.v, 11)
         XCTAssertEqual(connection.status?.device, "rina")
@@ -841,9 +844,10 @@ final class FakeRinaTransport: @MainActor RinaTransport {
     }
 
     func waitForConnectStarted() async throws {
-        for _ in 0..<1_000 {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
             if connectStarted { return }
-            await Task.yield()
+            try await Task.sleep(nanoseconds: 1_000_000)
         }
         throw FakeTransportError.timedOutWaitingForConnect
     }

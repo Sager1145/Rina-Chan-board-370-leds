@@ -13,7 +13,7 @@ final class ConnectionLifecycleTests: XCTestCase {
         XCTAssertFalse(first)
         XCTAssertEqual(readyCount, 0)
         XCTAssertEqual(board.lastError, "GATT discovery failed")
-        try await waitUntil { board.connectionState == .connected }
+        await waitUntilTrue { board.connectionState == .connected }
         XCTAssertEqual(readyCount, 1)
         XCTAssertEqual(wire.attempts, 3)
         XCTAssertNil(board.lastError)
@@ -26,7 +26,7 @@ final class ConnectionLifecycleTests: XCTestCase {
         wire.replyToPing = false
         let board = BoardConnection(reconnectDelay: { _ in 10 }, handshakeTimeout: 0.02)
         let task = Task { await board.connect(using: wire) }
-        try await waitUntil { wire.pings == 1 }
+        await waitUntilTrue { wire.pings == 1 }
         XCTAssertEqual(board.connectionState, .connecting)
         let result = await task.value
         XCTAssertFalse(result)
@@ -42,7 +42,7 @@ final class ConnectionLifecycleTests: XCTestCase {
         var readyCount = 0
 
         let task = Task { await board.connect(using: wire) { readyCount += 1 } }
-        try await waitUntil { wire.heldGetInfo != nil }
+        await waitUntilTrue { wire.heldGetInfo != nil }
 
         XCTAssertEqual(board.connectionState, .connecting)
         XCTAssertEqual(readyCount, 0)
@@ -58,7 +58,7 @@ final class ConnectionLifecycleTests: XCTestCase {
         let wire = LifecycleTransport(failures: 100)
         let board = BoardConnection(reconnectDelay: { _ in 0.001 })
         _ = await board.connect(using: wire)
-        try await waitUntil {
+        await waitUntilTrue {
             if case .failed = board.connectionState { return true }
             return false
         }
@@ -98,7 +98,7 @@ final class ConnectionLifecycleTests: XCTestCase {
         let board = BoardConnection(reconnectDelay: { _ in 0.01 })
         var readyCount = 0
         let task = Task { await board.connect(using: wire) { readyCount += 1 } }
-        try await waitUntil { wire.pings == 1 }
+        await waitUntilTrue { wire.pings == 1 }
         task.cancel()
         let connected = await task.value
         XCTAssertFalse(connected)
@@ -117,7 +117,7 @@ final class ConnectionLifecycleTests: XCTestCase {
         // consume the next link's handshake as its missing payload.
         wire.receive(Data([0xA5, 0x81, 1, 0, 0, 0x10]))
         wire.emit(.disconnected)
-        try await waitUntil { wire.attempts == 2 && board.connectionState == .connected }
+        await waitUntilTrue { wire.attempts == 2 && board.connectionState == .connected }
         oldStates(.failed("old attempt"))
         try await Task.sleep(for: .milliseconds(30))
         XCTAssertEqual(wire.attempts, 2)
@@ -160,7 +160,7 @@ final class ConnectionLifecycleTests: XCTestCase {
         old.mode = "auto"
         old.holdStatus = true
         let connecting = Task { await board.connect(using: old) }
-        try await waitUntil { old.heldStatus != nil }
+        await waitUntilTrue { old.heldStatus != nil }
         XCTAssertEqual(board.connectionState, .connecting)
 
         let replacement = LifecycleTransport()
@@ -184,7 +184,7 @@ final class ConnectionLifecycleTests: XCTestCase {
         wire.mode = "auto"
         wire.displayFrame.set(30)
         wire.emit(.disconnected)
-        try await waitUntil { wire.attempts == 2 && board.connectionState == .connected }
+        await waitUntilTrue { wire.attempts == 2 && board.connectionState == .connected }
         XCTAssertEqual(board.status?.renderer?.mode, "auto")
         XCTAssertEqual(board.preview?.mode, "auto")
         XCTAssertEqual(board.currentFrame, wire.displayFrame)
@@ -243,7 +243,7 @@ final class ConnectionLifecycleTests: XCTestCase {
 
         wire.wifiApSsid = "RinaChanBoard-000000000000"
         wire.emit(.disconnected)
-        try await waitUntil {
+        await waitUntilTrue {
             if case .failed = board.connectionState { return true }
             return false
         }
@@ -268,7 +268,7 @@ final class ConnectionLifecycleTests: XCTestCase {
         let connected = await board.connect(using: wire)
         XCTAssertFalse(connected)
         XCTAssertNotEqual(board.connectionState, .connected)
-        try await waitUntil { wire.attempts >= 2 }
+        await waitUntilTrue { wire.attempts >= 2 }
         board.disconnect()
     }
 
@@ -309,14 +309,6 @@ final class ConnectionLifecycleTests: XCTestCase {
         XCTAssertTrue(connected)
         XCTAssertEqual(board.connectionState, .connected)
         board.disconnect()
-    }
-
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(3)
-        while !condition() && Date() < deadline {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        XCTAssertTrue(condition())
     }
 }
 
