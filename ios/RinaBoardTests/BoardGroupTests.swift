@@ -673,6 +673,166 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertTrue(transportA.sentGroupStartAtUs.isEmpty)
         XCTAssertFalse(coordinator.isPlaying)
     }
+
+    // MARK: - Pause / resume / step
+
+    /// Long enough that the group bitmap spans several frames at the
+    /// stitched two-board virtual width, so step/resume assertions on
+    /// `pausedFrame` aren't trivially always 0.
+    private static let longScrollText = String(repeating: "你好世界，这是分步测试文字。", count: 3)
+
+    func testPauseSendsPauseScrollThenSameFrameSeekToEveryParticipantAndStopsReanchor() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "暂停组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        XCTAssertTrue(coordinator.isPlaying)
+
+        await coordinator.pause(group: store.groups[0])
+
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertTrue(coordinator.isPaused)
+        XCTAssertEqual(transportA.receivedPauseScrollCount, 1)
+        XCTAssertEqual(transportB.receivedPauseScrollCount, 1)
+        XCTAssertEqual(transportA.sentScrollSeekFrames.count, 1)
+        XCTAssertEqual(transportB.sentScrollSeekFrames.count, 1)
+        let frameA = try XCTUnwrap(transportA.sentScrollSeekFrames.last)
+        let frameB = try XCTUnwrap(transportB.sentScrollSeekFrames.last)
+        XCTAssertEqual(frameA, frameB, "every participant must pause on the identical frame")
+        XCTAssertEqual(coordinator.pausedFrame, frameA)
+
+        // No further group_start can arrive once paused: the re-anchor loop
+        // was stopped, not just skipped for one pass.
+        let startsAfterPause = transportA.sentGroupStartAtUs.count
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, startsAfterPause)
+    }
+
+    func testResumeSendsGroupStartWithStartFrameEqualToPausedFrame() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "恢复组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        XCTAssertTrue(coordinator.isPaused)
+        let pausedFrame = coordinator.pausedFrame
+        let groupStartsBeforeResume = transportA.sentGroupStartAtUs.count
+
+        await coordinator.resume(group: store.groups[0])
+
+        XCTAssertFalse(coordinator.isPaused)
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, groupStartsBeforeResume + 1)
+        XCTAssertEqual(transportB.sentGroupStartAtUs.count, groupStartsBeforeResume + 1)
+        XCTAssertEqual(transportA.sentGroupStartFrames.last, pausedFrame)
+        XCTAssertEqual(transportB.sentGroupStartFrames.last, pausedFrame)
+    }
+
+    func testStepWhilePausedSeeksAllParticipantsToPausedFramePlusDirection() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "单步组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        let before = coordinator.pausedFrame
+
+        await coordinator.step(group: store.groups[0], direction: 1)
+
+        XCTAssertTrue(coordinator.isPaused)
+        XCTAssertEqual(transportA.sentScrollSeekFrames.last, coordinator.pausedFrame)
+        XCTAssertEqual(transportB.sentScrollSeekFrames.last, coordinator.pausedFrame)
+        XCTAssertEqual(transportA.sentScrollSeekFrames.last, transportB.sentScrollSeekFrames.last)
+        XCTAssertNotEqual(coordinator.pausedFrame, before, "the frame counter must have advanced by the given group's frame count")
+    }
+
+    func testStepWhilePlayingPausesFirstThenSeeks() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "播放中单步组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertFalse(coordinator.isPaused)
+
+        await coordinator.step(group: store.groups[0], direction: 1)
+
+        // step() while playing pauses first (pause_scroll sent), then seeks.
+        XCTAssertTrue(coordinator.isPaused)
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertEqual(transportA.receivedPauseScrollCount, 1)
+        XCTAssertEqual(transportB.receivedPauseScrollCount, 1)
+        // One scroll_seek from pause() itself, one more from the step nudge.
+        XCTAssertEqual(transportA.sentScrollSeekFrames.count, 2)
+        XCTAssertEqual(transportB.sentScrollSeekFrames.count, 2)
+        XCTAssertEqual(transportA.sentScrollSeekFrames.last, transportB.sentScrollSeekFrames.last)
+    }
+
+    func testStopFromPausedWorks() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "暂停后停止组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        XCTAssertTrue(coordinator.isPaused)
+
+        await coordinator.stop(group: store.groups[0])
+
+        XCTAssertFalse(coordinator.isPaused)
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertNil(coordinator.activeGroupID)
+        XCTAssertTrue(transportA.receivedStopScroll)
+        XCTAssertTrue(transportB.receivedStopScroll)
+        XCTAssertNotEqual(sessionA.connection.output.source, .group)
+    }
 }
 
 // MARK: - Fake transport
