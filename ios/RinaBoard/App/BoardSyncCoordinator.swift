@@ -107,8 +107,11 @@ final class BoardSyncCoordinator {
             if mode != .video { deps.video.pause() }
             // Mode first, preview second: the right tab is already showing
             // before anything is mirrored, and only the tab that owns the
-            // board's mode mirrors it.
-            deps.router.showBoardMode(mode)
+            // board's mode mirrors it. A connection made from Settings stays
+            // in Settings: the user is still managing boards there, and the
+            // playback resumes below already skip when their tab isn't shown.
+            let stayInSettings = initialTab == .settings
+            if !stayInSettings { deps.router.showBoardMode(mode) }
             // Neither of these is user-initiated, and written back to back
             // they land in one SwiftUI update: the sheet's collapse and a tab
             // change then play over each other. Crossing a frame first lets
@@ -117,7 +120,7 @@ final class BoardSyncCoordinator {
             // already in place. A bare `Task.yield()` can resume inside the
             // same run-loop turn, so this is a timer hop (see RootTabView's
             // boot sequence). Only when there is actually a sheet to collapse.
-            if showControlCenter.wrappedValue {
+            if !stayInSettings, showControlCenter.wrappedValue {
                 try? await Task.sleep(for: .milliseconds(16))
                 guard !Task.isCancelled, generation == connection.connectionGeneration else { return }
                 showControlCenter.wrappedValue = false
