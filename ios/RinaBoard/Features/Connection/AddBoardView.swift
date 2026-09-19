@@ -79,10 +79,11 @@ struct AddBoardView: View {
                 viewModel.toggleBLEScan(ble: sessions.scanner)
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: sessions.scanner.isScanning
+                    SwapSymbol(systemName: sessions.scanner.isScanning
                           ? "stop.circle.fill"
                           : "antenna.radiowaves.left.and.right")
                     Text(sessions.scanner.isScanning ? "停止扫描" : "扫描附近的璃奈板")
+                        .swapText(sessions.scanner.isScanning)
                     Spacer()
                     if sessions.scanner.isScanning { ProgressView() }
                 }

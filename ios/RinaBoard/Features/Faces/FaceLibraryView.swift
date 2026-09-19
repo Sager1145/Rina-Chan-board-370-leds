@@ -145,8 +145,10 @@ struct FaceLibraryView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button(isEditing ? "完成" : "编辑") {
+                Button {
                     withAnimation { isEditing.toggle() }
+                } label: {
+                    Text(isEditing ? "完成" : "编辑").swapText(isEditing)
                 }
             }
             ToolbarItemGroup(placement: .secondaryAction) {

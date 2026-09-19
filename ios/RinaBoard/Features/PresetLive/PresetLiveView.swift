@@ -107,7 +107,7 @@ struct PresetLiveView: View {
                         model.play(connection: connection)
                     }
                 } label: {
-                    Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                    SwapSymbol(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .accessibilityLabel(model.isPlaying
@@ -147,7 +147,7 @@ struct PresetLiveView: View {
                     get: { !model.isMuted },
                     set: { model.isMuted = !$0 }
                 )) {
-                    Image(systemName: model.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    SwapSymbol(systemName: model.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .toggleStyle(.pill)

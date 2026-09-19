@@ -710,10 +710,10 @@ struct BoardControlCenterView: View {
                 )) {
                     // Glyph + title, so the state never rests on the fill
                     // colour alone (§41).
-                    Label(isAutoModeOn ? "自动" : "手动",
-                          systemImage: isAutoModeOn
-                                       ? "arrow.triangle.2.circlepath"
-                                       : "hand.tap.fill")
+                    SwapLabel(isAutoModeOn ? "自动" : "手动",
+                              systemImage: isAutoModeOn
+                                           ? "arrow.triangle.2.circlepath"
+                                           : "hand.tap.fill")
                         .frame(maxWidth: .infinity, minHeight: 22)
                 }
                 .toggleStyle(.pill)

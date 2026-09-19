@@ -196,7 +196,7 @@ struct ConnectionView: View {
                 HStack(spacing: 12) {
                     // The selection mark: filled for the board every other
                     // page acts on, empty for the rest.
-                    Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+                    SwapSymbol(systemName: isActive ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
                         .foregroundStyle(isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
                     VStack(alignment: .leading, spacing: 2) {
@@ -218,6 +218,7 @@ struct ConnectionView: View {
                     } else {
                         Text(isOnline ? "在线" : "未连接")
                             .foregroundStyle(isOnline ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+                            .swapText(isOnline)
                     }
                 }
                 .contentShape(Rectangle())

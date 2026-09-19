@@ -144,7 +144,7 @@ struct VideoPlayerView: View {
                         model.play(connection: connection)
                     }
                 } label: {
-                    Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                    SwapSymbol(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .accessibilityLabel(model.isPlaying
@@ -177,7 +177,7 @@ struct VideoPlayerView: View {
                     get: { !model.isMuted },
                     set: { model.isMuted = !$0 }
                 )) {
-                    Image(systemName: model.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    SwapSymbol(systemName: model.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .toggleStyle(.pill)
@@ -229,6 +229,7 @@ struct VideoPlayerView: View {
                         Text(model.title ?? NSLocalizedString("导入视频…", comment: "choose a video"))
                             .lineLimit(1)
                             .truncationMode(.middle)
+                            .swapText(model.title)
                     }
                     if model.hasVideo {
                         Button {

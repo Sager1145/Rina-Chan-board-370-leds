@@ -62,8 +62,8 @@ struct DebugSerialMonitor: View {
 
     var body: some View {
         Section {
-            Label(connection.connectionState == .connected ? "已连接" : "未连接",
-                  systemImage: connection.connectionState == .connected ? "checkmark.circle.fill" : "circle.dashed")
+            SwapLabel(connection.connectionState == .connected ? "已连接" : "未连接",
+                      systemImage: connection.connectionState == .connected ? "checkmark.circle.fill" : "circle.dashed")
             TextField("指令名或 JSON", text: $vm.monitorInput, axis: .vertical)
                 .font(.system(.body, design: .monospaced))
                 .lineLimit(2...6)
@@ -77,7 +77,7 @@ struct DebugSerialMonitor: View {
             Button {
                 Task { await vm.sendMonitorCommand(connection: connection) }
             } label: {
-                Label(vm.isMonitorSending ? "正在发送…" : "发送指令", systemImage: "paperplane")
+                SwapLabel(vm.isMonitorSending ? "正在发送…" : "发送指令", systemImage: "paperplane")
             }
             .buttonStyle(.pill)
             .disabled(connection.connectionState != .connected || vm.isMonitorSending

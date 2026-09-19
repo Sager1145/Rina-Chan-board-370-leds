@@ -122,14 +122,15 @@ struct LipSyncView: View {
                     Task { await model.start(connection: connection) }
                 }
             } label: {
-                Label(model.isRunning
-                        ? NSLocalizedString("停止同步", comment: "stop lip sync")
-                        : NSLocalizedString("开始同步", comment: "start lip sync"),
-                      systemImage: model.isRunning ? "stop.circle.fill" : "mic.circle.fill")
+                SwapLabel(model.isRunning
+                            ? LocalizedStringKey("停止同步")
+                            : LocalizedStringKey("开始同步"),
+                          systemImage: model.isRunning ? "stop.circle.fill" : "mic.circle.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.pill)
             .tint(model.isRunning ? .red : .accentColor)
+            .animation(.stateSwap, value: model.isRunning)
             // Disconnection gates *starting*, never stopping. This one button
             // owns the microphone, so greying it out while the mic is open
             // would leave the user no way to close it — the board going away

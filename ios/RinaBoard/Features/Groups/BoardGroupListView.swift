@@ -96,7 +96,7 @@ struct BoardGroupListView: View {
             // ends group ownership, so this row must keep showing the group
             // is "live" rather than reading as idle.
             if coordinator.activeGroupID == group.id, coordinator.isPlaying || coordinator.isPaused {
-                Label(coordinator.isPaused ? "已暂停" : "播放中", systemImage: coordinator.isPaused ? "pause.fill" : "play.fill")
+                SwapLabel(coordinator.isPaused ? "已暂停" : "播放中", systemImage: coordinator.isPaused ? "pause.fill" : "play.fill")
                     .labelStyle(.iconOnly)
                     .foregroundStyle(Color.rinaPink)
                     .accessibilityLabel(coordinator.isPaused ? "已暂停" : "播放中")
