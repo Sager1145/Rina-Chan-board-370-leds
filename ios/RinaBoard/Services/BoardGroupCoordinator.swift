@@ -1879,6 +1879,10 @@ public final class BoardGroupCoordinator {
     /// nothing is playing/paused -- lets a test prove a `group_start` every
     /// participant rejected left the anchor untouched (4.1 hardening).
     var debugAnchorIntervalMs: Int? { currentAnchor?.intervalMs }
+
+    /// Test-only accessor: the active play's `timelineId`, so a test can
+    /// script a rejoin's `GET_SCROLL_META` reply to agree with it (R6b).
+    var debugTimelineId: String? { playState?.timelineId }
     #endif
 
     /// Board-group control fan-out addendum: called by `GroupControlFanOut`

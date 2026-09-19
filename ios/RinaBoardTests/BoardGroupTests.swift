@@ -1834,6 +1834,203 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertNotEqual(sessionB.connection.output.source, .group)
         XCTAssertTrue(store.groups.isEmpty)
     }
+
+    // MARK: - R6b/R6a/R6e/F4/F11 (group timeline rejoin)
+
+    /// R6b: a member whose upload content the coordinator already recorded
+    /// AND whose live `GET_SCROLL_META` still agrees is rejoined with no
+    /// bitmap re-upload — only clock samples + one `group_start`.
+    func testRejoinSkipsUploadWhenBoardStillHoldsTheContent() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        _ = sessionA
+
+        let group = store.create(name: "跳过上传组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+        let timelineId = try XCTUnwrap(coordinator.debugTimelineId)
+        let frameCount = try XCTUnwrap(coordinator.playbackSnapshot?.frameCount)
+        XCTAssertEqual(transportB.blobBeginCount, 1, "original play uploaded once")
+
+        // B reconnects with a new connection generation but the SAME boot
+        // (default bootId), and its firmware still reports it holding the
+        // exact content this coordinator uploaded.
+        let newTransportB = GroupFakeTransport()
+        newTransportB.wifiBoardId = "B"
+        newTransportB.scrollMeta = [
+            "ok": true, "groupTimed": true, "firmwareScrollActive": true, "uploadComplete": true,
+            "scrollTimelineId": timelineId, "frameCount": frameCount,
+        ]
+        _ = await sessionB.connection.connect(using: newTransportB)
+
+        await coordinator.debugRejoinReconnectedNow()
+
+        XCTAssertEqual(newTransportB.scrollMetaRequestCount, 1, "the meta must be checked before deciding to skip")
+        XCTAssertEqual(newTransportB.blobBeginCount, 0, "matching content must never be re-uploaded")
+        XCTAssertEqual(newTransportB.sentGroupStartAtUs.count, 1, "the board is still rejoined with a group_start")
+        XCTAssertEqual(sessionB.connection.output.source, .group)
+    }
+
+    /// F11: a board whose clock reads a small uptime (just rebooted) while
+    /// the group's own anchor is from long before must still receive a
+    /// non-negative `atUs` — `rolledForward` keeps the rejoin's sent anchor
+    /// inside the board's own uptime without ever touching `currentAnchor`.
+    func testRejoinOfRebootedBoardSendsNonNegativeAtUs() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let counter = Counter()
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, nowUs: { counter.next() })
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        transportA.clockRxUs = 1_000
+        transportA.clockTxUs = 1_200
+        transportB.clockRxUs = 1_000
+        transportB.clockTxUs = 1_200
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        _ = sessionA
+
+        let group = store.create(name: "重启组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+
+        // Fast-forward the phone's own clock far past the anchor's small
+        // `phoneUs`, simulating real time elapsing while B was rebooted.
+        for _ in 0..<1_000_000 { _ = counter.next() }
+
+        // B reboots: new bootId (discards its old estimator), and its clock
+        // now reads a tiny uptime -- nowhere near the phone's current time.
+        let newTransportB = GroupFakeTransport()
+        newTransportB.wifiBoardId = "B"
+        newTransportB.bootId = "rebooted-boot"
+        newTransportB.clockRxUs = 50
+        newTransportB.clockTxUs = 60
+        _ = await sessionB.connection.connect(using: newTransportB)
+
+        await coordinator.debugReanchorNow()
+
+        let atUs = try XCTUnwrap(newTransportB.sentGroupStartAtUs.last)
+        XCTAssertGreaterThanOrEqual(atUs, 0, "a rolled-forward anchor must never map to a negative atUs")
+    }
+
+    /// R6a: a reconnected member is rejoined by `debugRejoinReconnectedNow`
+    /// (the 1s cheap tick's own body) without waiting for the 30s full
+    /// re-anchor pass.
+    func testDebugRejoinReconnectedNowRejoinsWithoutFullReanchor() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        _ = sessionA
+
+        let group = store.create(name: "快速重连组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+
+        let newTransportB = GroupFakeTransport()
+        newTransportB.wifiBoardId = "B"
+        _ = await sessionB.connection.connect(using: newTransportB)
+
+        await coordinator.debugRejoinReconnectedNow()
+
+        XCTAssertEqual(newTransportB.sentGroupStartAtUs.count, 1,
+                       "the reconnected board is rejoined immediately, without the 30s loop")
+        XCTAssertEqual(sessionB.connection.output.source, .group)
+    }
+
+    /// R6e: the instant something else takes over a participant's output
+    /// (before any re-anchor pass even runs), it's recorded as evicted --
+    /// so a disconnect/reconnect right afterwards must never rejoin it back
+    /// and steal it from whatever now owns it.
+    func testTakeoverThenReconnectIsNeverRejoined() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        _ = sessionA
+
+        let group = store.create(name: "接管组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+        XCTAssertEqual(sessionB.connection.output.source, .group)
+
+        // Something else takes B over -- the R6e handler fires synchronously
+        // right here, before any reanchor/rejoin pass ever runs.
+        sessionB.connection.output.begin(.text)
+        XCTAssertEqual(sessionB.connection.output.source, .text)
+
+        // B then drops and reconnects, as if the takeover's own feature let
+        // it disconnect.
+        let newTransportB = GroupFakeTransport()
+        newTransportB.wifiBoardId = "B"
+        _ = await sessionB.connection.connect(using: newTransportB)
+
+        await coordinator.debugReanchorNow()
+        await coordinator.debugRejoinReconnectedNow()
+
+        XCTAssertTrue(newTransportB.sentGroupStartAtUs.isEmpty, "an evicted board must never be rejoined")
+        XCTAssertNotEqual(sessionB.connection.output.source, .group)
+    }
+
+    /// F4: a live speed change while a group is playing must never send a
+    /// `group_start` whose `atUs` is in the future relative to when the
+    /// board actually applies it -- firmware applies a `group_start` on
+    /// receipt and holds `startFrame` until `atUs`, so a future `atUs`
+    /// would freeze a playing board instead of switching smoothly.
+    func testUpdatePlaybackNeverSendsAFutureAtUs() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        // Board clock == phone clock (offset ~= 0), so `atUs` can be
+        // compared directly against the phone's own real elapsed time.
+        transportA.clockUsesRealTime = true
+        transportB.clockUsesRealTime = true
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "变速组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+
+        await coordinator.updatePlayback(group: store.groups[0], fps: 30, loop: nil)
+
+        let nowUsAfter = Int64(DispatchTime.now().uptimeNanoseconds / 1_000)
+        let atUsA = try XCTUnwrap(transportA.sentGroupStartAtUs.last)
+        let atUsB = try XCTUnwrap(transportB.sentGroupStartAtUs.last)
+        // Generous tolerance for the real time elapsed while the test itself
+        // ran -- the point is that `atUs` never lands meaningfully ahead of
+        // "now", never a check for exact equality.
+        XCTAssertLessThanOrEqual(atUsA, nowUsAfter + 5_000)
+        XCTAssertLessThanOrEqual(atUsB, nowUsAfter + 5_000)
+    }
 }
 
 // MARK: - Fake transport
