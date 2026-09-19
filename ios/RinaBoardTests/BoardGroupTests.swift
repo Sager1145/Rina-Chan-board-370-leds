@@ -935,6 +935,122 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertTrue(coordinator.isPaused, "updatePlayback must not itself resume playback")
     }
 
+    /// R15: a re-anchor pass that started clock-sampling before a speed
+    /// change lands must never resend the OLD anchor's `intervalMs` once
+    /// sampling finishes — both the sent `group_start` and the committed
+    /// anchor must reflect the new fps.
+    func testReanchorMidSamplingSpeedChangeSendsNewIntervalNotStale() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "重锚定变速组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        XCTAssertTrue(coordinator.isPlaying)
+
+        transportA.clockSampleReplyDelay = 0.3
+        transportB.clockSampleReplyDelay = 0.3
+
+        #if DEBUG
+        let reanchorTask = Task { await coordinator.debugReanchorNow() }
+        // Give the re-anchor pass time to reach its (slowed) sampling loop
+        // before the speed change lands.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        await coordinator.updatePlayback(group: store.groups[0], fps: 25, loop: true)
+        await reanchorTask.value
+        #endif
+
+        let expectedIntervalMs = ScrollRasterizer.intervalMs(forFps: 25)
+        XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, expectedIntervalMs)
+        XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, expectedIntervalMs)
+        XCTAssertEqual(coordinator.debugAnchorIntervalMs, expectedIntervalMs)
+    }
+
+    /// R15 mirror for resume: an fps change that lands while `resume()` is
+    /// still clock-sampling must be what actually gets sent/committed, not
+    /// the interval `resume()` captured before sampling started.
+    func testResumeMidSamplingSpeedChangeSendsNewIntervalNotStale() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "恢复变速组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        XCTAssertTrue(coordinator.isPaused)
+
+        transportA.clockSampleReplyDelay = 0.3
+        transportB.clockSampleReplyDelay = 0.3
+
+        let resumeTask = Task { await coordinator.resume(group: store.groups[0]) }
+        // Give resume() time to reach its (slowed) sampling loop before the
+        // speed change lands.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        await coordinator.updatePlayback(group: store.groups[0], fps: 25, loop: nil)
+        await resumeTask.value
+
+        let expectedIntervalMs = ScrollRasterizer.intervalMs(forFps: 25)
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, expectedIntervalMs)
+        XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, expectedIntervalMs)
+        XCTAssertEqual(coordinator.debugAnchorIntervalMs, expectedIntervalMs)
+    }
+
+    /// R14 residue: if EVERY board's pause send fails, the coordinator must
+    /// heal back to reporting `isPlaying`, not strand the UI on `isPaused`
+    /// over boards that never actually paused.
+    func testPauseHealsBackToPlayingWhenEveryBoardsPauseSendFails() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "AAAA", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "BBBB", transport: transportB)
+
+        let group = store.create(name: "暂停全失败组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "AAAA", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "BBBB", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        XCTAssertTrue(coordinator.isPlaying)
+
+        transportA.failPauseScroll = true
+        transportB.failPauseScroll = true
+
+        await coordinator.pause(group: store.groups[0])
+
+        XCTAssertTrue(coordinator.isPlaying, "every pause send failed, so the group never actually paused")
+        XCTAssertFalse(coordinator.isPaused)
+
+        // The re-anchor loop must have been restarted -- a further
+        // re-anchor pass still reaches the wire.
+        #if DEBUG
+        let startsBefore = transportA.sentGroupStartAtUs.count
+        transportA.failPauseScroll = false
+        transportB.failPauseScroll = false
+        await coordinator.debugReanchorNow()
+        XCTAssertGreaterThan(transportA.sentGroupStartAtUs.count, startsBefore)
+        #endif
+    }
+
     /// N5: two pause taps racing each other (e.g. a fast double-tap) must
     /// still land every participant on one identical frame — the second
     /// tap is ignored outright, not sent as a second, possibly different, n.
@@ -1872,6 +1988,10 @@ private final class GroupFakeTransport: RinaTransport {
     /// (still recorded in `sentGroupStartAtUs`/`sentGroupStartIntervalMs` --
     /// the point is that the reply itself, not the send, is rejected).
     var rejectGroupStart = false
+    /// R14 residue: makes this board's `pause_scroll` reply undecodable
+    /// (same shape `failBlobBegin` uses), so a pause fan-out send fails for
+    /// this board without needing a timeout.
+    var failPauseScroll = false
     /// Extra `renderer` fields for `get_status` (e.g. a scroll still running).
     var statusRenderer: [String: Any] = [:]
     /// `GET_SCROLL_META` reply; `nil` replies with an empty meta.
@@ -1992,6 +2112,7 @@ private final class GroupFakeTransport: RinaTransport {
                 return Data(#"{"ok":true}"#.utf8)
             case "pause_scroll":
                 receivedPauseScrollCount += 1
+                if failPauseScroll { return Data("not json".utf8) }
                 return Data(#"{"ok":true}"#.utf8)
             case "scroll_seek":
                 sentScrollSeekFrames.append(object["frameIndex"] as? Int ?? -1)

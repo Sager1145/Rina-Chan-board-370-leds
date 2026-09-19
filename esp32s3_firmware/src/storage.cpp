@@ -101,8 +101,14 @@ bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize) 
         if (!outBuf)
             outBuf = static_cast<char*>(malloc(outSize + 1));
         if (outBuf) {
-            file.readBytes(outBuf, outSize);
-            outBuf[outSize] = '\0';
+            size_t got = file.readBytes(outBuf, outSize);
+            if (got != outSize) {
+                free(outBuf);
+                outBuf = nullptr;
+                outSize = 0;
+            } else {
+                outBuf[outSize] = '\0';
+            }
         }
         file.close();
     });

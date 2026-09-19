@@ -259,6 +259,28 @@ final class BoardConnectionOutputTests: XCTestCase {
         XCTAssertEqual(connection.status?.wifi?.staConnected, true)
     }
 
+    // R09: EV_WIFI (and EV_STATUS carrying wifi) is the freshest wifi source;
+    // a later lite EV_STATUS that omits `wifi` must not roll it back to
+    // whatever the last *full* status held.
+    func testLiteStatusNeverRollsBackWifiPublishedByEvWifi() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+
+        transport.emitEvent(type: .evStatus, json: ["ok": true, "v": 1, "wifi": ["ssid": "A"]])
+        await waitUntilTrue("full status A never published") { connection.status?.wifi?.ssid == "A" }
+
+        transport.emitEvent(type: .evWifi, json: ["ok": true, "ssid": "B"])
+        await waitUntilTrue("EV_WIFI B never published") { connection.wifi?.ssid == "B" }
+
+        transport.emitEvent(type: .evStatus, json: ["ok": true, "v": 2])
+        await waitUntilTrue("lite status v2 never published") { connection.status?.v == 2 }
+
+        XCTAssertEqual(connection.wifi?.ssid, "B")
+        XCTAssertEqual(connection.status?.wifi?.ssid, "B")
+    }
+
     func testProtocolVersionComesFromGetInfoAndClearsOnDisconnect() async {
         let transport = FakeRinaTransport()
         transport.commandReply = ["ok": true, "name": "rina", "proto": 1]
@@ -674,6 +696,28 @@ final class BoardConnectionOutputTests: XCTestCase {
         wire.completeFirst()
         wire.completeFirst()
         try await next.value
+    }
+
+    // R25: RatePump must key spacing off a monotonic clock, not wall time, so
+    // a backward clock step can never stall the pump. The test drives the
+    // pump's clock explicitly via its injectable `now`.
+    func testRatePumpSpacesJobsByMinIntervalUsingInjectedMonotonicClock() async throws {
+        let clockNanos = LockedBox<UInt64>(0)
+        let pump = RatePump(minInterval: 0.05, depth: 4, now: { clockNanos.value })
+        let starts = LockedBox<[UInt64]>([])
+
+        let first = Task { try await pump.run { starts.value.append(clockNanos.value) } }
+        try await first.value
+
+        // Advance the clock by exactly minInterval before the next job: it
+        // must run immediately, with no extra wait beyond minInterval.
+        clockNanos.value += 50_000_000
+        let second = Task { try await pump.run { starts.value.append(clockNanos.value) } }
+        try await second.value
+
+        XCTAssertEqual(starts.value.count, 2)
+        XCTAssertEqual(starts.value[1] - starts.value[0], 50_000_000,
+                        "the pump must never compute a wait longer than minInterval")
     }
 
     private func assertCancelled<T>(_ task: Task<T, Error>,

@@ -71,6 +71,25 @@ final class AcceptanceLibraryTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: fixture.url), before)
     }
 
+    /// The firmware's `validateSavedFaces` rejects any whole-library upload
+    /// whose `category` isn't `unified_saved_faces` (R01); the app must refuse
+    /// the same import client-side rather than let the board reject it later.
+    func testImportWithWrongCategoryIsRefusedWithoutChangingDisk() async throws {
+        let fixture = LibraryDiskFixture()
+        defer { fixture.cleanUp() }
+        let model = await fixture.loadedModel()
+        let existing = try await create("Keep original", led: 65, model: model)
+        let before = try Data(contentsOf: fixture.url)
+        let foreign = SavedFace(id: "foreign-1", name: "Foreign", type: .custom,
+                                frameBytes: PackedFrame().bytes.map(Int.init), order: 1)
+        let data = try FaceDocument(faces: [foreign], category: "some_other_category").encoded()
+        await model.importDocument(from: data, to: .local, connection: BoardConnection())
+
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(model.userFaces(in: .local).map(\.id), [existing.id])
+        XCTAssertEqual(try Data(contentsOf: fixture.url), before)
+    }
+
     func testOutOfRangeImportedByteIsRejectedInsteadOfChangingTheFrame() async throws {
         let fixture = LibraryDiskFixture()
         defer { fixture.cleanUp() }

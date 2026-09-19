@@ -582,7 +582,11 @@ final class ControlViewModel {
             lastSentFrame = frame
             sentGeneration = connection.connectionGeneration
             errorMessage = nil
-            showSendConfirmation()
+            // Only claim "已发送" for the frame that was actually sent — a
+            // draft edit during the round trip already called
+            // `clearSendConfirmation()`, and showing it here would resurrect
+            // a stale confirmation alongside the still-unsent "未发送" state.
+            if draftFrame == frame { showSendConfirmation() }
         } catch is CancellationError {
         } catch {
             errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),

@@ -287,6 +287,37 @@ final class AcceptanceControlTests: XCTestCase {
         connection.disconnect()
     }
 
+    /// R27B: editing the draft while a send's ack is still in flight already
+    /// calls `clearSendConfirmation()`; the ack arriving afterward must not
+    /// resurrect "表情已发送" alongside that "未发送" state. An unchanged
+    /// draft still gets the confirmation once its ack arrives.
+    func testSendConfirmationOnlyShowsForTheFrameThatWasActuallySent() async {
+        let model = ControlViewModel()
+        let connection = BoardConnection()
+        let transport = AcceptanceControlTransport()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        model.livePreview = false
+
+        model.toggle(led: 10, connection: connection)
+        let gate = ControlSendGate()
+        transport.setFrameGate = gate
+        let sendTask = Task { await model.send(connection: connection) }
+        await gate.waitUntilReached()
+        model.toggle(led: 12, connection: connection)
+        await gate.release()
+        await sendTask.value
+
+        XCTAssertNil(model.sendConfirmationMessage,
+                     "a draft edit during the round trip must keep the confirmation cleared")
+
+        transport.setFrameGate = nil
+        await model.send(connection: connection)
+        XCTAssertNotNil(model.sendConfirmationMessage,
+                        "an unchanged draft must still show the confirmation once sent")
+        connection.disconnect()
+    }
+
     func testBoardFrameSelectsMatchingPartsAndClearsSelectionForCustomPixels() throws {
         let (model, library) = try loadedModel()
         var call = PartsCall.defaultCall
@@ -402,6 +433,10 @@ private final class AcceptanceControlTransport: @MainActor RinaTransport {
     let preferredChunkBytes = 512
 
     var displayFrame = PackedFrame()
+    /// When set, `send(_:)` suspends before replying to a `setFrame` request
+    /// until the test calls `ControlSendGate.release()` — lets a test edit
+    /// the draft while a send's round trip is still in flight.
+    var setFrameGate: ControlSendGate?
     private let decoder = RinaLinkDecoder()
     private var stateContinuation: AsyncStream<TransportState>.Continuation?
     private var incomingContinuation: AsyncStream<Data>.Continuation?
@@ -424,6 +459,9 @@ private final class AcceptanceControlTransport: @MainActor RinaTransport {
 
     func send(_ data: Data) async throws {
         for request in decoder.feed(data) {
+            if request.type == RinaLinkMessageType.setFrame.rawValue, let setFrameGate {
+                await setFrameGate.hold()
+            }
             incomingContinuation?.yield(try! RinaLinkEncoder.encode(
                 RinaLinkFrame(type: request.type | 0x80,
                               seq: request.seq,
@@ -432,5 +470,36 @@ private final class AcceptanceControlTransport: @MainActor RinaTransport {
                                 ? Data(displayFrame.bytes) : Data(#"{"ok":true}"#.utf8))
             ))
         }
+    }
+}
+
+/// Deterministically suspends one `setFrame` round trip so a test can edit
+/// the draft while `ControlViewModel.send` is still awaiting its ack. No
+/// sleeps: backed by `CheckedContinuation`.
+private actor ControlSendGate {
+    private var released = false
+    private var reached = false
+    private var reachedContinuations: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func hold() async {
+        reached = true
+        let waiters = reachedContinuations
+        reachedContinuations = []
+        for continuation in waiters { continuation.resume() }
+        if released { return }
+        await withCheckedContinuation { releaseContinuations.append($0) }
+    }
+
+    func waitUntilReached() async {
+        if reached { return }
+        await withCheckedContinuation { reachedContinuations.append($0) }
+    }
+
+    func release() {
+        released = true
+        let waiters = releaseContinuations
+        releaseContinuations = []
+        for continuation in waiters { continuation.resume() }
     }
 }

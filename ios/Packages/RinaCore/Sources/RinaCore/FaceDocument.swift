@@ -113,7 +113,7 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
         result.reserveCapacity(trimmed.count / 2)
         while !trimmed.isEmpty {
             let next = trimmed.index(trimmed.startIndex, offsetBy: 2)
-            guard let byte = UInt8(trimmed[trimmed.startIndex..<next], radix: 16) else { return nil }
+            guard let byte = strictHexByte(trimmed[trimmed.startIndex..<next]) else { return nil }
             result.append(Int(byte))
             trimmed = trimmed[next...]
         }
@@ -152,20 +152,32 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
 
 /// `saved_faces.json` document, format `rina_packed_faces_370_v2`, version 4.
 public struct FaceDocument: Codable, Equatable, Sendable {
+    /// The only `category` the firmware's `validateSavedFaces` accepts for a
+    /// whole-library upload (`esp32s3_firmware/src/storage.cpp`).
+    public static let expectedCategory = "unified_saved_faces"
+
     public var format: String
     public var version: Int
+    public var category: String
     public var matrix: MatrixInfo?
+    /// Firmware `loadSavedFaces` selects this face on a startup boot,
+    /// preferring it over the first `is_startup_default`-flagged face.
+    public var startupDefaultId: String?
     public var faces: [SavedFace]
 
     enum CodingKeys: String, CodingKey {
-        case format, version, matrix, faces
+        case format, version, category, matrix, startupDefaultId, faces
     }
 
     public init(format: String = "rina_packed_faces_370_v2", version: Int = 4,
-                matrix: MatrixInfo? = nil, faces: [SavedFace] = []) {
+                matrix: MatrixInfo? = nil, faces: [SavedFace] = [],
+                category: String = FaceDocument.expectedCategory,
+                startupDefaultId: String? = nil) {
         self.format = format
         self.version = version
+        self.category = category
         self.matrix = matrix
+        self.startupDefaultId = startupDefaultId
         self.faces = faces
     }
 
@@ -208,7 +220,12 @@ public struct FaceDocument: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         format = (try? container.decode(String.self, forKey: .format)) ?? "rina_packed_faces_370_v2"
         version = (try? container.decode(Int.self, forKey: .version)) ?? 4
+        // A present category is preserved verbatim (even a foreign one) so a
+        // round-trip of data this app doesn't own doesn't silently rewrite it;
+        // only an actually-missing category defaults to `expectedCategory`.
+        category = (try? container.decode(String.self, forKey: .category)) ?? FaceDocument.expectedCategory
         matrix = try? container.decode(MatrixInfo.self, forKey: .matrix)
+        startupDefaultId = try? container.decode(String.self, forKey: .startupDefaultId)
         // Decode faces one at a time so a single malformed entry (e.g. missing
         // `id`) is skipped instead of failing the whole `faces` array.
         var decodedFaces: [SavedFace] = []

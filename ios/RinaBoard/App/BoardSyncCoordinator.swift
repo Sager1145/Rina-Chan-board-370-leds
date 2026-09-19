@@ -40,6 +40,12 @@ final class BoardSyncCoordinator {
         let faceLibrary: FaceLibraryModel
         let performance: PresetLiveModel
         let video: VideoPlayerModel
+        /// Reads `RootTabView`'s current `scenePhase` at the moment it is
+        /// called, not a value captured when `synchronize` started. BLE round
+        /// trips can suspend long enough for the app to background in
+        /// between, and every site that gates a playback/mic start on the
+        /// phase needs that answer, not a stale one from before the awaits.
+        let scenePhase: @MainActor () -> ScenePhase
     }
 
     /// Mirrors the previous `.task(id:)` closure body exactly, except for the
@@ -48,7 +54,6 @@ final class BoardSyncCoordinator {
         connection: BoardConnection,
         deps: Dependencies,
         draftsRestored: Bool,
-        scenePhase: ScenePhase,
         showControlCenter: Binding<Bool>,
         configureOutputHandlers: () -> Void
     ) async {
@@ -86,7 +91,7 @@ final class BoardSyncCoordinator {
         deps.video.suspendBoardOutput()
         if draftsRestored, connection.connectionState == .connected {
             await resynchronizeWithBoard(connection: connection, deps: deps,
-                                         scenePhase: scenePhase, showControlCenter: showControlCenter,
+                                         showControlCenter: showControlCenter,
                                          isFirstConnectionThisRun: isFirstConnectionThisRun,
                                          isGenuineReconnect: isGenuineReconnect)
         }
@@ -97,7 +102,6 @@ final class BoardSyncCoordinator {
     private func resynchronizeWithBoard(
         connection: BoardConnection,
         deps: Dependencies,
-        scenePhase: ScenePhase,
         showControlCenter: Binding<Bool>,
         isFirstConnectionThisRun: Bool = false,
         isGenuineReconnect: Bool = false
@@ -110,11 +114,14 @@ final class BoardSyncCoordinator {
         // modes while this app is suspended without dropping the transport.
         guard let status = try? await connection.getStatus() else { return }
         let preview = try? await connection.getPreviewSync()
+        // `deps.scenePhase()` is read live here, not a value captured before
+        // the two awaits above: the app can background mid-round-trip, and
+        // this is the last check before playback/mic restores start below.
         guard !Task.isCancelled, generation == connection.connectionGeneration,
               deps.sessions.active.connection === connection,
               session == connection.output.session,
               initialTab == deps.router.selectedTab,
-              scenePhase == .active else { return }
+              deps.scenePhase() == .active else { return }
         // The board has answered and is still the active one — the proof
         // the greeting lines require, not merely the transport reporting
         // `.connected`.
@@ -152,7 +159,10 @@ final class BoardSyncCoordinator {
             // boot sequence). Only when there is actually a sheet to collapse.
             if !stayInSettings, showControlCenter.wrappedValue {
                 try? await Task.sleep(for: .milliseconds(16))
-                guard !Task.isCancelled, generation == connection.connectionGeneration else { return }
+                // Live-read: this is the last await before the mode-specific
+                // restores below start playback or the mic.
+                guard !Task.isCancelled, generation == connection.connectionGeneration,
+                      deps.scenePhase() == .active else { return }
                 showControlCenter.wrappedValue = false
             }
             if mode == .control {
@@ -178,8 +188,7 @@ final class BoardSyncCoordinator {
                 await deps.lipSyncModel.start(connection: connection, resumingStreamID: streamID) { [weak self] in
                     guard let self, deps.router.selectedTab == .lipSync else { return false }
                     return await self.boardStillMatches(mode, streamID: streamID, generation: generation,
-                                                        session: session, connection: connection, deps: deps,
-                                                        scenePhase: scenePhase)
+                                                        session: session, connection: connection, deps: deps)
                 }
             case .performance:
                 guard let streamID else {
@@ -193,8 +202,7 @@ final class BoardSyncCoordinator {
                         && UserDefaults.standard.string(forKey: PerformanceTabMode.storageKey)
                             == PerformanceTabMode.performance.rawValue else { return false }
                     return await self.boardStillMatches(mode, streamID: streamID, generation: generation,
-                                                        session: session, connection: connection, deps: deps,
-                                                        scenePhase: scenePhase)
+                                                        session: session, connection: connection, deps: deps)
                 }
             case .video:
                 guard let streamID else {
@@ -208,8 +216,7 @@ final class BoardSyncCoordinator {
                         && UserDefaults.standard.string(forKey: PerformanceTabMode.storageKey)
                             == PerformanceTabMode.video.rawValue else { return false }
                     return await self.boardStillMatches(mode, streamID: streamID, generation: generation,
-                                                        session: session, connection: connection, deps: deps,
-                                                        scenePhase: scenePhase)
+                                                        session: session, connection: connection, deps: deps)
                 }
             }
         }
@@ -223,15 +230,15 @@ final class BoardSyncCoordinator {
     /// another client or a GPIO button to take over. Recheck before sending.
     private func boardStillMatches(
         _ mode: BoardResumeMode, streamID: String?, generation: UUID, session: UUID?,
-        connection: BoardConnection, deps: Dependencies, scenePhase: ScenePhase
+        connection: BoardConnection, deps: Dependencies
     ) async -> Bool {
-        guard !Task.isCancelled, scenePhase == .active,
+        guard !Task.isCancelled, deps.scenePhase() == .active,
               deps.sessions.active.connection === connection,
               generation == connection.connectionGeneration,
               session == connection.output.session else { return false }
         guard let status = try? await connection.getStatus() else { return false }
         let preview = try? await connection.getPreviewSync()
-        guard !Task.isCancelled, scenePhase == .active,
+        guard !Task.isCancelled, deps.scenePhase() == .active,
               deps.sessions.active.connection === connection,
               generation == connection.connectionGeneration,
               session == connection.output.session,

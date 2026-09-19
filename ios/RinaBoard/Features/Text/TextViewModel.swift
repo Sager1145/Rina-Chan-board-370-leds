@@ -423,7 +423,7 @@ final class TextViewModel {
         do {
             isGeneratingFont = (font == nil)
             let loadedFont = try await loadFontIfNeeded()
-            isGeneratingFont = false
+            if revision == uploadRevision { isGeneratingFont = false }
             uploadProgress = 0.04
 
             let fpsInt = clampFps(requestedFps)
@@ -495,6 +495,13 @@ final class TextViewModel {
                 if let token = BoardOutputContext.session { try connection.output.check(token) }
                 observe(preview: sample)
             }
+            // `getPreviewSync()` above is `try?`, so a stale-token
+            // `CancellationError` thrown by `output.check` inside it (or a
+            // lease change while it was in flight) is swallowed rather than
+            // unwinding to the `catch is CancellationError` below. Without
+            // this, a superseded upload's success tail would still run,
+            // resurrecting a preview loop `releaseOutput()` already cancelled.
+            guard revision == uploadRevision, let token, connection.output.isCurrent(token) else { return }
             uploadProgress = 1.0
             localPhase = nil
             startPreviewLoop()

@@ -141,4 +141,37 @@ final class PackedFrameTests: XCTestCase {
             XCTAssertEqual(error as? PackedFrameParseError, .invalidFormat)
         }
     }
+
+    // MARK: hex94 strict decoding (R22)
+
+    /// `UInt8(_:radix: 16)` accepts a leading sign, which is not a valid hex
+    /// digit; a pair like `"+1"` or `"-0"` must be rejected, not parsed as 1/0.
+    func testHex94RejectsSignedPairs() {
+        let tail = String(repeating: "0", count: PackedFrame.byteCount * 2 - 2)
+        XCTAssertNil(PackedFrame(hex94: "+1" + tail))
+        XCTAssertNil(PackedFrame(hex94: "-0" + tail))
+    }
+
+    func testHex94RejectsFullWidthDigits() {
+        var hex = Array(String(repeating: "0", count: PackedFrame.byteCount * 2))
+        hex[0] = "\u{FF10}" // fullwidth '0'
+        hex[1] = "\u{FF10}"
+        XCTAssertNil(PackedFrame(hex94: String(hex)))
+    }
+
+    func testHex94RejectsWrongLengths() {
+        let tooShort = String(repeating: "0", count: PackedFrame.byteCount * 2 - 1)
+        let tooLong = String(repeating: "0", count: PackedFrame.byteCount * 2 + 1)
+        XCTAssertNil(PackedFrame(hex94: tooShort))
+        XCTAssertNil(PackedFrame(hex94: tooLong))
+    }
+
+    func testHex94StillDecodesValidInputIdentically() {
+        var frame = PackedFrame()
+        frame.set(3)
+        frame.set(200)
+        let hex = frame.hex94
+        XCTAssertEqual(hex.count, PackedFrame.byteCount * 2)
+        XCTAssertEqual(PackedFrame(hex94: hex), frame)
+    }
 }

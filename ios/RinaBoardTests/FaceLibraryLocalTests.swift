@@ -73,6 +73,32 @@ final class FaceLibraryLocalTests: XCTestCase {
         XCTAssertEqual(model.face(id: first.id, in: .local)?.name, first.name)
     }
 
+    /// `boardFaceFrame` used to build a `PackedFrame` straight from
+    /// `frameBytes.map(UInt8.init)`, which traps on a value outside 0...255
+    /// that lenient decoding otherwise preserves (R08). It must return nil
+    /// instead, via `SavedFace.packedFrame`.
+    func testBoardFaceFrameReturnsNilForOutOfRangeFrameBytes() async throws {
+        let model = FaceLibraryModel()
+        let connection = BoardConnection()
+        let transport = FakeRinaTransport()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+
+        let bad = SavedFace(id: "bad", name: "Bad", type: .custom, frameBytes: [999], order: 1)
+        transport.automaticallyReplies = false
+        let reloadTask = Task { await model.reload(connection: connection) }
+        try await transport.waitForSent(type: .getFaces, count: 1)
+        transport.replyToNext(type: .getFaces,
+                              payload: Data(count: 4) + (try FaceDocument(faces: [bad]).encoded()))
+        let reloaded = await reloadTask.value
+        transport.automaticallyReplies = true
+
+        XCTAssertTrue(reloaded)
+        XCTAssertEqual(model.face(id: "bad", in: .board)?.frameBytes, [999])
+        XCTAssertNil(model.boardFaceFrame(id: "bad", index: nil, generation: connection.connectionGeneration))
+        connection.disconnect()
+    }
+
     private func payload(name: String, led: Int) -> FaceUpsertPayload {
         var frame = PackedFrame()
         frame.set(led)
