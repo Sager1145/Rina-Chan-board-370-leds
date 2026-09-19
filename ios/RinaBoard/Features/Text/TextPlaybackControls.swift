@@ -56,11 +56,45 @@ struct TextPlaybackControls: View {
         .pillButtonRow()
     }
 
+    /// What the first pill does right now.
+    private enum PrimaryAction { case send, play, pause }
+
+    private var primaryAction: PrimaryAction {
+        hasBoardScroll ? (isPaused ? .play : .pause) : .send
+    }
+
+    /// What the pill did when the finger went down on it; `nil` with no touch
+    /// in progress (VoiceOver and keyboard activation never set it).
+    @State private var pressedAction: PrimaryAction?
+
+    /// The board's status can change what the pill does while a finger is on
+    /// it. A press that began on "pause" must not lift as "send and play", so
+    /// it is dropped instead, as it was when each state had its own button.
+    private func performPrimaryAction() {
+        defer { pressedAction = nil }
+        if let pressedAction, pressedAction != primaryAction { return }
+        switch primaryAction {
+        case .send: onSend()
+        case .play: onPlay()
+        case .pause: onPause()
+        }
+    }
+
+    private func pressChanged(_ isPressed: Bool) {
+        if isPressed {
+            pressedAction = primaryAction
+        } else {
+            // The button's action runs in the same event as the lift, before
+            // this; a press dragged off the pill never runs it at all.
+            Task { @MainActor in pressedAction = nil }
+        }
+    }
+
     /// One button rather than a branch per state, so its identity stays
     /// stable and the icon swap animates instead of the whole control
     /// popping in and out.
     private var playPauseControl: some View {
-        Button(action: hasBoardScroll ? (isPaused ? onPlay : onPause) : onSend) {
+        Button(action: performPrimaryAction) {
             Group {
                 if !hasBoardScroll && isUploading {
                     // N6: a determinate ring when we know how far along
@@ -84,7 +118,7 @@ struct TextPlaybackControls: View {
             .frame(maxWidth: .infinity)
             .animation(.stateSwap, value: isUploading)
         }
-        .buttonStyle(.pill)
+        .buttonStyle(PillButtonStyle(onPressChanged: pressChanged))
         .accessibilityLabel(hasBoardScroll
                             ? (isPaused ? LocalizedStringKey("继续") : LocalizedStringKey("暂停"))
                             : (isGeneratingFont ? LocalizedStringKey("加载字体…") : LocalizedStringKey("发送并播放")))

@@ -65,6 +65,9 @@ extension View {
 struct PillButtonStyle: ButtonStyle {
     /// Neutral grey fill, used for a toggle that is off.
     var isNeutral = false
+    /// Told when a touch goes down on the pill and when it lifts, for a
+    /// button that has to know what it showed when the press began.
+    var onPressChanged: ((Bool) -> Void)?
 
     @Environment(\.isEnabled) private var isEnabled
     @ScaledMetric(relativeTo: .footnote) private var minHeight: CGFloat = 31
@@ -81,6 +84,9 @@ struct PillButtonStyle: ButtonStyle {
             .contentShape(Capsule())
             .opacity(configuration.isPressed ? 0.6 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { _, isPressed in
+                onPressChanged?(isPressed)
+            }
             // A pill row stops growing at the largest standard text size
             // (see `PillButtonRow`); at the accessibility sizes a long press
             // shows the enlarged icon and title instead, as the tab bar does.
