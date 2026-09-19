@@ -826,8 +826,13 @@ final class ControlViewModel {
             editingBoardID = draftBoardID
             editingBoardGeneration = currentBoardGeneration
         }
+        // This always builds a *board* upsert payload, so an id loaded from
+        // the local library (whose `editingFaceCanOverwrite` now correctly
+        // describes overwriting it in its own local origin, per C.1) must
+        // never be forwarded as a board face id to overwrite — only an id
+        // whose origin is actually the board is safe to reuse here.
         return library.boardUpsertPayload(editingFaceId: editingFaceId,
-                                          canOverwrite: editingFaceCanOverwrite,
+                                          canOverwrite: editingFaceCanOverwrite && editingLocation == .board,
                                           name: saveName, frame: draftFrame,
                                           fromParts: fromParts, call: selectedCall)
     }
