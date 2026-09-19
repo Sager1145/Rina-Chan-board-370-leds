@@ -105,6 +105,9 @@ private struct SettingsStackLayout: View {
             .listSectionSpacing(.compact)
             .rinaScrollBackground()
             .navigationTitle("设置")
+            // A large title sits under a bar row that has nothing in it here,
+            // which reads as a blank band above the page.
+            .toolbarTitleDisplayMode(.inline)
             .navigationDestination(for: SettingsCategory.self) { category in
                 SettingsDetail(category: category, isPassive: false)
             }
@@ -231,6 +234,8 @@ private struct SettingsDetail: View {
         }
         // `.contain` keeps the page's own identifiers; a bare identifier on
         // a container would be stamped onto every element inside it.
+        // In the detail column the bar row above a large title is empty too.
+        .toolbarTitleDisplayMode(.inline)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("settings.detail.\(category.rawValue)")
     }
