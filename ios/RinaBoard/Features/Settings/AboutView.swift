@@ -101,9 +101,11 @@ struct AboutView: View {
                             Link(destination: credit.url) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(verbatim: credit.name)
+                                    // `Color.secondary`, not `.secondary`: inside a
+                                    // Link the hierarchical style is a shade of the tint.
                                     Text(verbatim: credit.license)
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(Color.secondary)
                                 }
                             }
                         }
