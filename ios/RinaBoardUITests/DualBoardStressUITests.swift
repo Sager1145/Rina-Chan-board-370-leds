@@ -101,6 +101,7 @@ final class DualBoardStressUITests: XCTestCase {
     private var seed: UInt64 = 0
     private var steps = 50
     private var minBoards = 2
+    private var forgetSavedFirst = false
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -108,6 +109,9 @@ final class DualBoardStressUITests: XCTestCase {
         seed = env["STRESS_SEED"].flatMap(UInt64.init) ?? 20260913
         steps = env["STRESS_STEPS"].flatMap(Int.init) ?? 50
         minBoards = env["STRESS_MIN_BOARDS"].flatMap(Int.init) ?? 2
+        // Saved boards reconnect at launch, and a connected board stops
+        // advertising, so the scan below would find nothing.
+        forgetSavedFirst = env["STRESS_FORGET_SAVED"] == "1"
         rng = SplitMix64(seed: seed)
         logger = StepLogger(seed: seed)
         app = XCUIApplication()
@@ -336,6 +340,7 @@ final class DualBoardStressUITests: XCTestCase {
     /// `minBoards`, per the brief.
     @discardableResult
     private func connectAllDiscovered(step: Int) throws -> [String] {
+        if forgetSavedFirst { forgetAllSavedBoards() }
         XCTAssertTrue(openAddBoardScreen(), "Could not reach the add-board screen")
 
         let scanButton = app.buttons["扫描附近的璃奈板"]
@@ -366,25 +371,20 @@ final class DualBoardStressUITests: XCTestCase {
             throw XCTSkip("Only \(discoveredCount) board(s) discovered; need >= \(minBoards)")
         }
 
-        for index in 0..<discoveredCount {
-            let rows = scanResultRows()
-            guard index < rows.count else { break }
-            let row = rows[index]
-            guard row.exists, !row.label.contains("已连接") else { continue }
-
-            let before = connectedScanRowCount()
+        // By name, not position: the scan list re-sorts by RSSI while it
+        // runs, so an index can land on the same board twice.
+        let names = Array(Set(scanResultRows().map { scanRowName($0.label) })).sorted()
+        for name in names {
+            guard let row = scanRow(named: name), !row.label.contains("已连接") else { continue }
             if row.isHittable { row.tap() }
-            var connected = waitForConnectedScanRowIncrease(from: before, timeout: 20)
+            var connected = waitForScanRowConnected(name, timeout: 20)
             if !connected {
                 // One retry, per R1's rule.
-                let retryRows = scanResultRows()
-                if index < retryRows.count, retryRows[index].isHittable {
-                    retryRows[index].tap()
-                }
-                connected = waitForConnectedScanRowIncrease(from: before, timeout: 20)
+                if let retry = scanRow(named: name), retry.isHittable { retry.tap() }
+                connected = waitForScanRowConnected(name, timeout: 20)
             }
             if !connected {
-                logger.logBlocked(step: step, entry: "R1", action: "connect row \(index)")
+                logger.logBlocked(step: step, entry: "R1", action: "connect \(name)")
             }
         }
 
@@ -393,6 +393,20 @@ final class DualBoardStressUITests: XCTestCase {
         XCTAssertEqual(online.count, discoveredCount,
                        "Online count (\(online.count)) does not match discovered boards (\(discoveredCount))")
         return online
+    }
+
+    /// 连接 → each board row's "更多操作" menu → 忘记, until no row is left.
+    private func forgetAllSavedBoards() {
+        XCTAssertTrue(openConnectionScreen(), "Could not reach the connection screen")
+        for _ in 0..<10 {
+            let more = app.buttons["更多操作"].firstMatch
+            guard more.waitForExistence(timeout: 2) else { return }
+            more.tap()
+            let forget = app.buttons["忘记"].firstMatch
+            guard forget.waitForExistence(timeout: 3) else { return }
+            forget.tap()
+            Thread.sleep(forTimeInterval: 1)
+        }
     }
 
     /// R3: if the active board is offline, switch to the first online board;
@@ -490,7 +504,9 @@ final class DualBoardStressUITests: XCTestCase {
     /// with the board's name, valued "在线"/"未连接", and carrying the
     /// selected trait on the board the app is controlling.
     private func sessionRows() -> [XCUIElement] {
-        let query = app.buttons.matching(identifier: "connection.boardRow")
+        // Any type: the row is one combined element, which XCUI may not
+        // report as a Button.
+        let query = app.descendants(matching: .any).matching(identifier: "connection.boardRow")
         return (0..<query.count).map { query.element(boundBy: $0) }
     }
 
@@ -511,15 +527,22 @@ final class DualBoardStressUITests: XCTestCase {
         return nil
     }
 
-    /// Scan rows on the add-board page that already read "已连接".
-    private func connectedScanRowCount() -> Int {
-        scanResultRows().filter { $0.label.contains("已连接") }.count
+    /// The advertised name in a scan row's label: the first part that is
+    /// not the signal bars. Parts are joined with "、" in Chinese, ", " else.
+    private func scanRowName(_ label: String) -> String {
+        let parts = label.components(separatedBy: CharacterSet(charactersIn: "、,"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        return parts.first { !$0.isEmpty && !$0.contains("dBm") && !$0.contains("信号强度") } ?? label
     }
 
-    private func waitForConnectedScanRowIncrease(from count: Int, timeout: TimeInterval) -> Bool {
+    private func scanRow(named name: String) -> XCUIElement? {
+        scanResultRows().first { scanRowName($0.label) == name }
+    }
+
+    private func waitForScanRowConnected(_ name: String, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if connectedScanRowCount() > count { return true }
+            if scanRow(named: name)?.label.contains("已连接") == true { return true }
             Thread.sleep(forTimeInterval: 0.5)
         }
         return false

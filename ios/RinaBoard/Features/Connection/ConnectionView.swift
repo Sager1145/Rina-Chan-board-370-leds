@@ -228,7 +228,8 @@ struct ConnectionView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(name)
             .accessibilityValue(Text(isOnline ? "在线" : "未连接"))
-            .accessibilityAddTraits(isActive ? .isSelected : [])
+            // `.ignore` makes a new element, which drops the button trait.
+            .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
             .accessibilityIdentifier("connection.boardRow")
 
             if canDisconnect || row.session != nil || row.saved != nil {
