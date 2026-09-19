@@ -81,6 +81,14 @@ extension View {
     }
 }
 
+extension PresentationDetent {
+    /// The tall stop for a glass sheet, used in place of `.large`. iOS 26
+    /// swaps a sheet's glass for an opaque ground as it reaches full height
+    /// (and back on the way down), whatever `presentationBackground` says;
+    /// stopping just short keeps it see-through at both sizes.
+    static let rinaTall = PresentationDetent.fraction(0.97)
+}
+
 extension EnvironmentValues {
     /// Set by a container that draws one `RinaAppBackdrop` under several
     /// columns (Settings' two-column layout): screens inside it only clear

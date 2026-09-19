@@ -354,7 +354,7 @@ struct ControlView: View {
                     }
                 }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium, .rinaTall])
         .task {
             if faceLibrary.faceDocument.faces.isEmpty {
                 await faceLibrary.reload(connection: connection)

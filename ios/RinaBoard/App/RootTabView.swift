@@ -399,12 +399,9 @@ private struct ControlCenterPresenter: ViewModifier {
                 // has finished, so it cannot re-detent mid-transition.
                 .sheet(isPresented: sheetPresented, onDismiss: { detent = .medium }) {
                     expandedSheet
-                    .presentationDetents([.medium, .large], selection: $detent)
+                    .presentationDetents([.medium, .rinaTall], selection: $detent)
                     .presentationDragIndicator(.visible)
                     .presentationBackgroundInteraction(.enabled(upThrough: .medium))
-                    // A grouped-list sheet doesn't paint its own background on
-                    // iOS 26, which lets the tab behind it ghost through.
-                    .presentationBackground(Color(.systemGroupedBackground))
                 }
                 // Keeps the flag current while nothing is presented. The
                 // launch-argument presentation is already up when this first
