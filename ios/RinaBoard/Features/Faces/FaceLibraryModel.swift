@@ -83,8 +83,32 @@ final class FaceLibraryModel {
     /// this to tell "still my board, re-read it" from "the model moved on".
     private var boardLoadTargetGeneration: UUID?
 
+    // Every local read-modify-write must acquire this FIFO gate BEFORE
+    // reading `localDocument`, not merely serialize their final disk write:
+    // otherwise two operations can both snapshot `localDocument`, then race
+    // each other's `await localStore.save`, and the loser's write silently
+    // discards the winner's change.
+    private var localMutationBusy = false
+    private var localMutationWaiters: [CheckedContinuation<Void, Never>] = []
+
     init(localStore: any LocalFaceStoring = LocalFaceStore()) {
         self.localStore = localStore
+    }
+
+    private func beginLocalMutation() async {
+        if localMutationBusy {
+            await withCheckedContinuation { localMutationWaiters.append($0) }
+        } else {
+            localMutationBusy = true
+        }
+    }
+
+    private func endLocalMutation() {
+        if localMutationWaiters.isEmpty {
+            localMutationBusy = false
+        } else {
+            localMutationWaiters.removeFirst().resume()
+        }
     }
 
     enum SaveOutcome: Equatable {
@@ -192,6 +216,16 @@ final class FaceLibraryModel {
         }
     }
 
+    /// Forces a fresh read of the local library from disk, discarding
+    /// whatever is currently published — used by the saved-list sheet's
+    /// pull-to-refresh / 「刷新」 action on the local library.
+    func reloadLocal() async {
+        await beginLocalMutation()
+        defer { endLocalMutation() }
+        isLocalLoaded = false
+        await loadLocalIfNeeded()
+    }
+
     /// Invalidates session-owned board data. `boardID` deliberately survives:
     /// it identifies the physical source of an editor save target across a
     /// reconnect, while `boardGeneration` gates replies from the retired link.
@@ -270,22 +304,25 @@ final class FaceLibraryModel {
 
     // MARK: Apply
 
-    func apply(_ face: SavedFace, connection: BoardConnection) async {
+    @discardableResult
+    func apply(_ face: SavedFace, connection: BoardConnection) async -> Bool {
         await apply(face, from: .board, connection: connection)
     }
 
-    func apply(_ face: SavedFace, from location: FaceLibraryLocation, connection: BoardConnection) async {
+    @discardableResult
+    func apply(_ face: SavedFace, from location: FaceLibraryLocation, connection: BoardConnection) async -> Bool {
         errorMessage = nil
+        operationMessage = nil
         guard connection.connectionState == .connected else {
             errorMessage = NSLocalizedString("未连接，无法应用表情", comment: "cannot apply face while disconnected")
-            return
+            return false
         }
         do {
             switch location {
             case .local:
                 guard let frame = face.packedFrame else {
                     errorMessage = NSLocalizedString("此表情的帧数据无效", comment: "saved face frame invalid")
-                    return
+                    return false
                 }
                 let session = connection.output.begin(.manual)
                 _ = try await connection.withOutput(session) {
@@ -297,20 +334,27 @@ final class FaceLibraryModel {
                 guard boardGeneration == connection.connectionGeneration else {
                     await reload(connection: connection)
                     errorMessage = NSLocalizedString("面板已更换，请重新选择表情", comment: "saved face belongs to another board")
-                    return
+                    return false
                 }
-                guard let index = cachedBoardSortedFaces.firstIndex(where: { $0.id == face.id }) else { return }
+                guard let index = cachedBoardSortedFaces.firstIndex(where: { $0.id == face.id }) else {
+                    errorMessage = NSLocalizedString("表情已不存在，请刷新列表", comment: "saved face no longer exists")
+                    return false
+                }
                 let session = connection.output.begin(.manual)
                 _ = try await connection.withOutput(session) {
                     try await connection.applySavedFace(index: index)
                 }
             }
+            operationMessage = NSLocalizedString("已发送表情", comment: "saved face applied successfully")
+            return true
         } catch is CancellationError {
+            return false
         } catch {
             errorMessage = String(
                 format: NSLocalizedString("应用失败：%@", comment: "apply saved face failed"),
                 error.localizedDescription
             )
+            return false
         }
     }
 
@@ -382,6 +426,8 @@ final class FaceLibraryModel {
             return .failed
         }
         await loadLocalIfNeeded()
+        await beginLocalMutation()
+        defer { endLocalMutation() }
         let existingIndex = replacingID.flatMap { id in
             localDocument.faces.firstIndex { $0.id == id && !isProtected($0) }
         }
@@ -466,6 +512,8 @@ final class FaceLibraryModel {
         switch location {
         case .local:
             await loadLocalIfNeeded()
+            await beginLocalMutation()
+            defer { endLocalMutation() }
             var candidate = localDocument
             guard let index = candidate.faces.firstIndex(where: { $0.id == face.id }) else { return false }
             candidate.faces[index].name = clean
@@ -593,6 +641,8 @@ final class FaceLibraryModel {
     @discardableResult
     func undoLocalDelete() async -> Bool {
         guard let deletion = localDeletion else { return false }
+        await beginLocalMutation()
+        defer { endLocalMutation() }
         var candidate = localDocument
         for face in deletion.faces where !candidate.faces.contains(where: { $0.id == face.id }) {
             candidate.faces.append(face)
@@ -609,6 +659,8 @@ final class FaceLibraryModel {
 
     private func deleteLocal(_ faces: [SavedFace]) async -> FaceBatchResult {
         await loadLocalIfNeeded()
+        await beginLocalMutation()
+        defer { endLocalMutation() }
         let deletable = faces.filter(canDelete)
         var result = FaceBatchResult()
         for face in faces where !deletable.contains(where: { $0.id == face.id }) {
@@ -645,19 +697,27 @@ final class FaceLibraryModel {
     func reorderUserFaces(_ newUserOrder: [SavedFace], in location: FaceLibraryLocation,
                           connection: BoardConnection) async -> Bool {
         errorMessage = nil
-        if location == .local { await loadLocalIfNeeded() }
-        let confirmedIDs = Set(userFaces(in: location).map(\.id))
-        guard Set(newUserOrder.map(\.id)) == confirmedIDs,
-              newUserOrder.count == confirmedIDs.count else {
-            errorMessage = NSLocalizedString("排序列表已发生变化，请取消后重试", comment: "face reorder draft is stale")
-            return false
-        }
         switch location {
         case .local:
+            await loadLocalIfNeeded()
+            await beginLocalMutation()
+            defer { endLocalMutation() }
+            let confirmedIDs = Set(userFaces(in: .local).map(\.id))
+            guard Set(newUserOrder.map(\.id)) == confirmedIDs,
+                  newUserOrder.count == confirmedIDs.count else {
+                errorMessage = NSLocalizedString("排序列表已发生变化，请取消后重试", comment: "face reorder draft is stale")
+                return false
+            }
             var candidate = localDocument
             assignOrders(defaults: defaultFaces(in: .local), users: newUserOrder, in: &candidate)
             return await commitLocal(candidate)
         case .board:
+            let confirmedIDs = Set(userFaces(in: .board).map(\.id))
+            guard Set(newUserOrder.map(\.id)) == confirmedIDs,
+                  newUserOrder.count == confirmedIDs.count else {
+                errorMessage = NSLocalizedString("排序列表已发生变化，请取消后重试", comment: "face reorder draft is stale")
+                return false
+            }
             guard await validateBoard(connection) else { return false }
             let ids = (defaultFaces + newUserOrder).map(\.id)
             let revision = boardLoadRevision
