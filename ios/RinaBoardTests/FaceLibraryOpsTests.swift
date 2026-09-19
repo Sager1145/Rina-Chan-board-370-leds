@@ -106,14 +106,16 @@ final class FaceLibraryOpsTests: XCTestCase {
 
         let all = library.faces(in: .local)
         XCTAssertGreaterThanOrEqual(all.count, 3, "Expects the seeded default plus the two user faces just saved")
-        guard let defaultFace = all.first(where: { $0.id == bundledDefault.id && $0.type == .default }) else {
-            return XCTFail("The seeded default must survive the merge with bundled defaults")
-        }
+        XCTAssertTrue(all.contains { $0.id == bundledDefault.id && $0.type == .default },
+                      "The seeded default must survive the merge with bundled defaults")
+        // The merge appends every bundled preset the store has not seen yet,
+        // so the permutation is built from the library as loaded.
+        let presets = all.filter { $0.type == .default }
         let userFaces = all.filter { $0.type != .default }
-        XCTAssertGreaterThanOrEqual(userFaces.count, 2)
-        // The default must actually sit *between* two user faces, not merely
+        XCTAssertEqual(userFaces.count, 2)
+        // Presets must actually sit *between* the two user faces, not merely
         // be reversible as one contiguous block against another.
-        let interleaved = [userFaces[1], defaultFace] + userFaces.dropFirst(2) + [userFaces[0]]
+        let interleaved = [userFaces[1]] + presets + [userFaces[0]]
         XCTAssertEqual(Set(interleaved.map(\.id)), Set(all.map(\.id)))
         let reordered = await library.reorderFaces(interleaved, in: .local, connection: connection)
         XCTAssertTrue(reordered)
