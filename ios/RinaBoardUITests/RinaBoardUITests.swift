@@ -54,7 +54,7 @@ final class RinaBoardUITests: XCTestCase {
             ("概览", "复制诊断摘要"),
             ("日志", "开始接收固件日志"),
             ("测试", "测试图案"),
-            ("原始数据", "复制脱敏快照")
+            ("原始数据", "原始 JSON")
         ]
         for (segment, expectedContent) in destinations {
             workspace.buttons[segment].tap()
