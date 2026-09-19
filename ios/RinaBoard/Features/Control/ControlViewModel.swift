@@ -320,7 +320,11 @@ final class ControlViewModel {
         editingLocation = request.location
         editingBoardID = request.boardID
         editingBoardGeneration = request.boardGeneration
-        if request.location != .board || request.asCopy {
+        // Protected faces are already forced non-overwritable by the
+        // `SavedFace` overload above; a local-origin face is otherwise fully
+        // overwritable in its own (local) library — only an explicit "edit
+        // as copy" request (asCopy) forces a new identity.
+        if request.asCopy {
             editingFaceCanOverwrite = false
         }
         scheduleDraftSave()
@@ -731,6 +735,88 @@ final class ControlViewModel {
     }
 
     // MARK: Saves hand-off (§11)
+
+    /// The destination frozen when the naming sheet opens (Control §11.3): an
+    /// existing, overwritable face saves back to its own origin library;
+    /// otherwise (a brand-new face, or an explicit "save as new") the
+    /// destination follows the connection the moment the sheet opens — the
+    /// board if connected, local otherwise.
+    func suggestedSaveLocation(asNew: Bool, isConnected: Bool) -> FaceLibraryLocation {
+        (!asNew && canOverwriteEditingFace) ? editingLocation : (isConnected ? .board : .local)
+    }
+
+    /// Saves the draft itself; does not send a frame first and does not alter
+    /// `lastSentFrame`. Saving a library entry is not displaying that entry.
+    ///
+    /// `asNew` only means the saved payload carries no replacing id — it does
+    /// **not** clear the editor's current target first (unlike the old
+    /// `startNewFace()` + save sequence): a failed save-as-new must leave the
+    /// editor still pointed at whatever it could overwrite before the attempt.
+    @discardableResult
+    func saveEditedFace(name: String, asNew: Bool, to location: FaceLibraryLocation,
+                        library: FaceLibraryModel, connection: BoardConnection,
+                        expectedBoard: BoardFaceSaveSource? = nil) async -> Bool {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, clean.utf8.count <= 64 else {
+            library.errorMessage = NSLocalizedString("名称不能为空，且不能超过 64 个 UTF-8 字节", comment: "face name validation")
+            return false
+        }
+        if location == .board, let expectedBoard {
+            let matches: Bool
+            if let expectedID = expectedBoard.boardID, let currentID = connection.boardKey {
+                matches = expectedID == currentID
+            } else {
+                matches = expectedBoard.generation == connection.connectionGeneration
+            }
+            guard matches else {
+                library.errorMessage = NSLocalizedString("面板已更换，请重新选择表情", comment: "saved face belongs to another board")
+                return false
+            }
+        }
+        let beforeFrame = draftFrame
+        let beforeParts = fromParts
+        let beforeCall = selectedCall
+        let beforeID = editingFaceId
+        let beforeLocation = editingLocation
+        let beforeBoardID = editingBoardID
+        let beforeDraftBoardID = draftBoardID
+        let beforeGeneration = editingBoardGeneration
+        let replacingID = !asNew && editingFaceCanOverwrite && editingLocation == location
+            ? editingFaceId : nil
+        let payload = FaceUpsertPayload(
+            id: location == .board ? replacingID : nil,
+            name: clean,
+            type: (fromParts ? SavedFace.Kind.parts : .custom).rawValue,
+            frameHex: draftFrame.hex94,
+            call: fromParts ? SavedFace.CallIds(leye: selectedCall.leye, reye: selectedCall.reye,
+                                               mouth: selectedCall.mouth, cheek: selectedCall.cheek) : nil
+        )
+        let destination = BoardFaceSaveSource(boardID: connection.boardKey,
+                                              generation: connection.connectionGeneration)
+        let result: FaceLibraryModel.SaveOutcome
+        switch location {
+        case .local:
+            result = await library.saveLocal(payload, replacingID: replacingID)
+        case .board:
+            result = await library.save(payload, source: boardFaceSaveSource, connection: connection)
+        }
+        guard case .saved(let savedID) = result else { return false }
+
+        // Saving may finish after an explicit board switch or a new edit in
+        // another view. The file was saved, but must not relabel that new draft.
+        guard draftFrame == beforeFrame, fromParts == beforeParts,
+              selectedCall == beforeCall, editingFaceId == beforeID,
+              editingLocation == beforeLocation, editingBoardID == beforeBoardID,
+              draftBoardID == beforeDraftBoardID, editingBoardGeneration == beforeGeneration else { return true }
+        editingFaceId = savedID
+        editingLocation = location
+        editingBoardID = location == .board ? destination.boardID : nil
+        editingBoardGeneration = location == .board ? destination.generation : nil
+        editingFaceCanOverwrite = savedID != nil
+        saveName = clean
+        scheduleDraftSave()
+        return true
+    }
 
     func upsertPayload(using library: FaceLibraryModel) -> FaceUpsertPayload {
         // A newly-created face belongs to the board that is current now. An

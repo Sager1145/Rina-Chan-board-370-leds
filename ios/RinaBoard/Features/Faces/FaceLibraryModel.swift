@@ -767,6 +767,33 @@ final class FaceLibraryModel {
         }
     }
 
+    /// Whole-library ordering for either store: presets and user faces may
+    /// interleave freely, and `newOrder` must be a full permutation of every
+    /// id currently in `location` — ids never change.
+    @discardableResult
+    func reorderFaces(_ newOrder: [SavedFace], in location: FaceLibraryLocation,
+                      connection: BoardConnection) async -> Bool {
+        if location == .board {
+            return await reorderFaces(newOrder, connection: connection)
+        }
+        errorMessage = nil
+        await loadLocalIfNeeded()
+        await beginLocalMutation()
+        defer { endLocalMutation() }
+        let confirmed = localDocument.faces.map(\.id)
+        let proposed = newOrder.map(\.id)
+        guard proposed.count == confirmed.count,
+              Set(proposed).count == proposed.count,
+              Set(proposed) == Set(confirmed) else {
+            errorMessage = NSLocalizedString("排序列表已发生变化，请取消后重试", comment: "face reorder draft is stale")
+            return false
+        }
+        var candidate = localDocument
+        // Modify only order. Do not write stale names/frames from the draft.
+        assignOrders(defaults: [], users: newOrder, in: &candidate)
+        return await commitLocal(candidate)
+    }
+
     // MARK: Import / export
 
     func exportData() -> Data? { try? faceDocument.encoded() }
@@ -829,6 +856,8 @@ final class FaceLibraryModel {
         switch location {
         case .local:
             await loadLocalIfNeeded()
+            await beginLocalMutation()
+            defer { endLocalMutation() }
             var candidate = localDocument
             for source in decoded.faces {
                 guard let frame = source.packedFrame else { continue }
@@ -898,11 +927,27 @@ final class FaceLibraryModel {
         return document
     }
 
+    /// Refreshes preset *content* from the bundle while keeping the
+    /// persisted interleaving of presets and user faces: a straight
+    /// `defaults + users` concatenation (the previous implementation) would
+    /// silently reset any drag reorder that mixed the two on every launch. A
+    /// newly shipped preset that the stored document has never seen is
+    /// appended once instead of resetting every existing face's rank.
     private func mergedWithBundledDefaults(_ stored: FaceDocument, bundle: Bundle) -> FaceDocument {
-        let defaults = bundledDefaults(bundle: bundle).faces.filter { $0.type == .default }
-        let users = stored.sortedFaces.filter { $0.type != .default }
+        let latest = bundledDefaults(bundle: bundle).faces.filter { $0.type == .default }
+        var remaining = Dictionary(latest.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var ordered: [SavedFace] = []
+        for face in stored.sortedFaces {
+            if face.type == .default {
+                if let refreshed = remaining.removeValue(forKey: face.id) { ordered.append(refreshed) }
+            } else {
+                ordered.append(face)
+            }
+        }
+        for face in latest where remaining[face.id] != nil { ordered.append(face) }
+        for index in ordered.indices { ordered[index].order = index + 1 }
         var result = FaceDocument(format: stored.format, version: stored.version,
-                                  matrix: stored.matrix, faces: defaults + users,
+                                  matrix: stored.matrix, faces: ordered,
                                   category: stored.category, startupDefaultId: stored.startupDefaultId)
         normalize(&result, requireDefault: false)
         return result
@@ -977,8 +1022,16 @@ final class FaceLibraryModel {
     private func handleFaceOpError(_ error: Error, connection: BoardConnection) async {
         if let linkError = error as? RinaLinkError, let code = linkError.code,
            [400, 404, 409].contains(code) {
-            errorMessage = linkError.error
+            let originalMessage = linkError.error
             await reload(connection: connection)
+            // `reload` clears `errorMessage` at entry and may set its own on
+            // failure. The original rejection reason must not disappear
+            // behind a successful (or differently-worded failed) refresh.
+            if let refreshError = errorMessage {
+                errorMessage = originalMessage + "\n" + refreshError
+            } else {
+                errorMessage = originalMessage
+            }
         } else {
             errorMessage = String(
                 format: NSLocalizedString("同步失败：%@", comment: "face library sync failed"),
@@ -1009,9 +1062,23 @@ final class FaceLibraryModel {
         return "\(base) \(suffix)"
     }
 
+    /// Truncates to at most 64 UTF-8 bytes (the protocol's own limit) on a
+    /// `Character` boundary, never splitting a multi-byte grapheme in half —
+    /// `.prefix(64)` truncates by *character* count, which is a different
+    /// (and looser) limit.
     private func cleanName(_ name: String) -> String {
-        let value = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(64))
-        return value.isEmpty ? "face" : value
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "face" }
+        guard trimmed.utf8.count > 64 else { return trimmed }
+        var result = ""
+        var byteCount = 0
+        for character in trimmed {
+            let characterBytes = String(character).utf8.count
+            guard byteCount + characterBytes <= 64 else { break }
+            result.append(character)
+            byteCount += characterBytes
+        }
+        return result.isEmpty ? "face" : result
     }
 
     private func makeLocalID() -> String { "local_\(UUID().uuidString.lowercased())" }

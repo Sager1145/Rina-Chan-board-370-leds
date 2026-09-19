@@ -24,19 +24,27 @@ struct ControlView: View {
     @State private var isNamingSave = false
     @State private var saveNameDraft = ""
     @State private var isChoosingSaveTarget = false
-    /// Set by the save-target dialog; applied only when the name alert is
+    /// Set by the save-target dialog; applied only when the naming sheet is
     /// confirmed, so cancelling leaves the editor's save target untouched.
     @State private var savesAsNew = false
     @State private var isShowingSavedFaces = false
+    /// The destination and identity are frozen the moment the naming sheet
+    /// opens (Control §11.3): a reconnect or a board switch while it is open
+    /// must not silently redirect an in-progress save.
+    @State private var saveLocation: FaceLibraryLocation = .local
+    @State private var saveFrame = PackedFrame()
+    @State private var saveFaceID: String?
+    @State private var saveBoardSource: BoardFaceSaveSource?
 
     private var isConnected: Bool { connection.connectionState == .connected }
-    /// Names the save alert's destination (DEF-05) so a title alone tells the
+    /// Names the save sheet's destination (DEF-05) so a title alone tells the
     /// user where the face is going, reusing `FaceLibraryLocation`'s own
-    /// wording instead of inventing new terms for the same two places.
+    /// wording instead of inventing new terms for the same two places. Uses
+    /// the frozen `saveLocation`, not the live connection state, so the title
+    /// never disagrees with where the sheet is actually about to save.
     private var saveDestinationTitle: String {
-        let location: FaceLibraryLocation = isConnected ? .board : .local
-        return String(format: NSLocalizedString("保存到%@", comment: "save alert title naming its destination"),
-                      location.title)
+        String(format: NSLocalizedString("保存到%@", comment: "save alert title naming its destination"),
+               saveLocation.title)
     }
     private var boardColor: Color { controlCenter.draftColor }
     private var boardBrightness: Int { controlCenter.draftBrightness }
@@ -80,42 +88,17 @@ struct ControlView: View {
             // No navigation bar, so the list's default top margin only pushes
             // the board away from the status bar.
             .contentMargins(.top, 0, for: .scrollContent)
-            .alert(saveDestinationTitle, isPresented: $isNamingSave) {
-                TextField("名称", text: $saveNameDraft)
-                Button("取消", role: .cancel) {}
-                Button("保存") {
-                    Task {
-                        if savesAsNew { model.startNewFace() }
-                        model.saveName = saveNameDraft
-                        if isConnected {
-                            let payload = model.upsertPayload(using: faceLibrary)
-                            let source = model.boardFaceSaveSource
-                            let destination = BoardFaceSaveSource(
-                                boardID: connection.boardKey,
-                                generation: connection.connectionGeneration
-                            )
-                            // Only record the save when the board actually took it;
-                            // `.failed` leaves the editor's state untouched.
-                            if case .saved(let id) = await faceLibrary.save(
-                                payload, source: source, connection: connection
-                            ) {
-                                model.didSave(as: id, on: destination)
-                            }
-                        } else {
-                            // No board to hand the face to (DEF-05): save the
-                            // draft into the local library instead of gating
-                            // saving on a connection the user may not have.
-                            let payload = faceLibrary.upsertPayload(
-                                editingFaceId: model.editingLocation == .local ? model.editingFaceId : nil,
-                                location: .local,
-                                name: model.saveName,
-                                frame: model.draftFrame,
-                                fromParts: model.fromParts,
-                                call: model.selectedCall
-                            )
-                            _ = await faceLibrary.saveLocal(payload)
-                        }
+            .sheet(isPresented: $isNamingSave) {
+                FaceNameEditorSheet(title: saveDestinationTitle, initialName: saveNameDraft) { name in
+                    guard model.draftFrame == saveFrame, model.editingFaceId == saveFaceID else {
+                        return NSLocalizedString("编辑内容已改变，请关闭后重新保存", comment: "face changed while naming")
                     }
+                    let success = await model.saveEditedFace(
+                        name: name, asNew: savesAsNew, to: saveLocation,
+                        library: faceLibrary, connection: connection, expectedBoard: saveBoardSource
+                    )
+                    return success ? nil : (faceLibrary.errorMessage
+                        ?? NSLocalizedString("保存失败，请重试", comment: "save face failed"))
                 }
             }
             .sensoryFeedback(.impact(weight: .light), trigger: toggleCount) { _, _ in hapticsEnabled }
@@ -238,27 +221,13 @@ struct ControlView: View {
                 }
 
                 Button {
-                    saveNameDraft = model.saveName
-                    // Overwrite vs. save-as is decided here, after the tap,
-                    // and only when the edited face can be overwritten.
-                    if model.canOverwriteEditingFace {
-                        isChoosingSaveTarget = true
-                    } else {
-                        savesAsNew = false
-                        isNamingSave = true
-                    }
+                    beginSave()
                 } label: {
                     CommandChip("保存", systemImage: "square.and.arrow.down.fill")
                 }
                 .confirmationDialog("保存表情", isPresented: $isChoosingSaveTarget) {
-                    Button("覆盖原表情") {
-                        savesAsNew = false
-                        isNamingSave = true
-                    }
-                    Button("另存为新表情") {
-                        savesAsNew = true
-                        isNamingSave = true
-                    }
+                    Button("覆盖原表情") { beginNaming(asNew: false) }
+                    Button("另存为新表情") { beginNaming(asNew: true) }
                     Button("取消", role: .cancel) {}
                 }
             }
@@ -360,6 +329,35 @@ struct ControlView: View {
                 await faceLibrary.reload(connection: connection)
             }
         }
+    }
+
+    /// Overwrite vs. save-as is decided here, after the tap: only offered
+    /// when the edited face can actually be overwritten, and — when its
+    /// origin is the board but the board is offline right now — overwrite is
+    /// not possible at all (§11.3), so the choice is skipped entirely and the
+    /// draft goes straight to naming as a new (local) face.
+    private func beginSave() {
+        if model.canOverwriteEditingFace,
+           !(model.editingLocation == .board && !isConnected) {
+            isChoosingSaveTarget = true
+        } else {
+            beginNaming(asNew: true)
+        }
+    }
+
+    /// Freezes the destination, the draft frame and the edited face's
+    /// identity the moment the naming sheet opens, so a reconnect or board
+    /// switch that happens while it is open can never redirect this save.
+    private func beginNaming(asNew: Bool) {
+        savesAsNew = asNew
+        saveNameDraft = model.saveName
+        saveFrame = model.draftFrame
+        saveFaceID = model.editingFaceId
+        saveLocation = model.suggestedSaveLocation(asNew: asNew, isConnected: isConnected)
+        saveBoardSource = saveLocation == .board
+            ? BoardFaceSaveSource(boardID: connection.boardKey, generation: connection.connectionGeneration)
+            : nil
+        isNamingSave = true
     }
 
     // MARK: §19 Face parts
