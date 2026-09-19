@@ -134,6 +134,55 @@ final class BoardSyncCoordinatorTests: XCTestCase {
         }
     }
 
+    // MARK: Launch preview gate release points
+
+    /// The connected resync path (§40's re-read-then-reconcile) is the only
+    /// place that opens `AppRouter`'s launch preview gate; the initial,
+    /// still-disconnected `synchronize` call above it must leave the gate
+    /// alone so `AppRouter`'s own timeout — not a spurious early release —
+    /// is what protects a board that never connects.
+    func testConnectedResyncReleasesTheLaunchGate() async throws {
+        let sessions = BoardSessionStore()
+        let coordinator = BoardSyncCoordinator()
+        let deps = makeDeps(sessions: sessions)
+        deps.router.armLaunchPreviewGate(timeout: .seconds(8))
+        let transport = SyncTransport()
+        let connected = await sessions.active.connection.connect(using: transport)
+        XCTAssertTrue(connected)
+
+        await synchronize(coordinator, connection: sessions.active.connection, deps: deps, draftsRestored: true)
+        XCTAssertFalse(deps.router.launchPreviewPending,
+                       "a connected resync must open the launch preview gate")
+    }
+
+    func testFailedGetStatusStillReleasesTheLaunchGate() async throws {
+        let sessions = BoardSessionStore()
+        let coordinator = BoardSyncCoordinator()
+        let deps = makeDeps(sessions: sessions)
+        deps.router.armLaunchPreviewGate(timeout: .seconds(8))
+        let transport = SyncTransport()
+        transport.failGetStatus = true
+        let connected = await sessions.active.connection.connect(using: transport)
+        XCTAssertTrue(connected)
+
+        await synchronize(coordinator, connection: sessions.active.connection, deps: deps, draftsRestored: true)
+        XCTAssertFalse(deps.router.launchPreviewPending,
+                       "a failed getStatus must still open the gate, not leave every preview blank")
+    }
+
+    func testInitialDisconnectedSynchronizeDoesNotReleaseTheLaunchGate() async throws {
+        let sessions = BoardSessionStore()
+        let coordinator = BoardSyncCoordinator()
+        let deps = makeDeps(sessions: sessions)
+        deps.router.armLaunchPreviewGate(timeout: .seconds(8))
+
+        // Still disconnected: `draftsRestored` is false, matching the very
+        // first `.task(id:)` run in `RootTabView` before drafts restore.
+        await synchronize(coordinator, connection: sessions.active.connection, deps: deps, draftsRestored: false)
+        XCTAssertTrue(deps.router.launchPreviewPending,
+                       "the initial disconnected synchronize must not open the gate on its own")
+    }
+
     // MARK: Helpers
 
     private func synchronize(
@@ -213,6 +262,9 @@ private final class SyncTransport: RinaTransport {
     var status = DeviceStatus(ok: true, renderer: RendererStatus(mode: "manual", playback: "idle"))
     var preview: PreviewSync?
     var scrollMeta: ScrollMeta?
+    /// Forces `getStatus` to fail decode, so a test can drive the resync
+    /// path's early-return branch without a real transport error.
+    var failGetStatus = false
 
     private let decoder = RinaLinkDecoder()
     private var stateContinuation: AsyncStream<TransportState>.Continuation?
@@ -236,6 +288,7 @@ private final class SyncTransport: RinaTransport {
     private func replyPayload(for request: RinaLinkFrame) -> Data {
         switch RinaLinkMessageType(rawValue: request.type) {
         case .getStatus:
+            if failGetStatus { return Data("not json".utf8) }
             return (try? JSONEncoder().encode(status)) ?? Data()
         case .getPreviewSync:
             return (try? JSONEncoder().encode(preview ?? PreviewSync(ok: true))) ?? Data()

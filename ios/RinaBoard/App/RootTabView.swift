@@ -271,17 +271,26 @@ struct RootTabView: View {
         ifSelectionRemains initialSession: BoardSession,
         boardID initialBoardID: String?
     ) async {
-        guard !didAutoReconnect else { return }
+        guard !didAutoReconnect else {
+            router.releaseLaunchPreviewGate()
+            return
+        }
         didAutoReconnect = true
         guard let last = boardStore.boards.max(by: {
             ($0.lastSeen ?? .distantPast) < ($1.lastSeen ?? .distantPast)
-        }) else { return }
+        }) else {
+            router.releaseLaunchPreviewGate()
+            return
+        }
         guard let target = sessions.sessionForAutomaticReconnect(
             id: last.id,
             name: last.name,
             ifCurrent: initialSession,
             withBoardID: initialBoardID
-        ) else { return }
+        ) else {
+            router.releaseLaunchPreviewGate()
+            return
+        }
         await reconnectModel.connectSavedBoard(
             last, ble: target.bleTransport,
             connection: target.connection, boardStore: boardStore,
@@ -292,6 +301,9 @@ struct RootTabView: View {
                 }
             }
         )
+        if target.connection.connectionState != .connected {
+            router.releaseLaunchPreviewGate()
+        }
     }
 }
 

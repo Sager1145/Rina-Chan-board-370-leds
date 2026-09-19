@@ -33,6 +33,12 @@ struct BoardPreviewRow: View {
     var maxHeight: CGFloat = 420
     /// Overrides the VoiceOver summary; defaults to a lit-count description.
     var accessibilityDescription: String? = nil
+    /// Whether this row holds a blank frame while `AppRouter.launchPreviewPending`
+    /// is true (user requirement: "刚打开app同步时，完成同步再显示预览画面，不要让预览画面闪一下").
+    /// `true` by default; Debug's live-editing preview opts out, since it is
+    /// never showing a stale draft/default frame the board is about to
+    /// override.
+    var holdsForLaunchSync = true
 
     /// Optional on purpose. A non-optional `@Environment` object traps during
     /// `DynamicProperty.update()` — before `body` ever reads it — so declaring
@@ -40,7 +46,15 @@ struct BoardPreviewRow: View {
     /// not inject the Control Center, even though both call sites that need a
     /// colour could have passed one explicitly.
     @Environment(BoardControlCenterModel.self) private var controlCenter: BoardControlCenterModel?
+    /// Same reasoning as `controlCenter` above: optional so `#Preview`s and
+    /// test hosts that don't inject `AppRouter` don't crash.
+    @Environment(AppRouter.self) private var router: AppRouter?
     @AppStorage(AppSettingsKey.showBoardPhoto) private var showBoardPhoto = true
+
+    /// True while the launch gate is holding this row blank.
+    private var isHoldingForLaunch: Bool {
+        holdsForLaunchSync && (router?.launchPreviewPending ?? false)
+    }
 
     private var resolvedColor: Color {
         if let color { return color }
@@ -53,7 +67,8 @@ struct BoardPreviewRow: View {
     }
 
     var body: some View {
-        LEDBoardPreview(frame: frame,
+        let holding = isHoldingForLaunch
+        LEDBoardPreview(frame: holding ? PackedFrame() : frame,
                         color: resolvedColor,
                         brightness: resolvedBrightness,
                         showBoardImage: showBoardPhoto,
@@ -63,8 +78,15 @@ struct BoardPreviewRow: View {
                         // of the board an unlit LED sits in — the face would
                         // float on a blank page.
                         showsUnlitCells: true,
-                        interaction: interaction,
-                        accessibilityDescription: accessibilityDescription)
+                        // Blank during the launch hold: nothing to tap or
+                        // drag on a frame that isn't the board's own yet.
+                        interaction: holding ? .inert : interaction,
+                        accessibilityDescription: holding ? String(localized: "正在连接") : accessibilityDescription)
+            .overlay {
+                if holding {
+                    ProgressView()
+                }
+            }
             // Inside the row sizing, so the frame the magnified board is
             // clipped and faded against is the board's own box.
             .boardPreviewZoom(zoom)
