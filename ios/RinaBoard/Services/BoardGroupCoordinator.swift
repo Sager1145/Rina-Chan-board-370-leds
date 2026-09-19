@@ -990,6 +990,8 @@ public final class BoardGroupCoordinator {
             guard playEpoch == epoch, !isPaused else { return } // N3/B1: recheck before each rejoin in the loop
             rejoinInFlight.insert(id)
             await rejoin(member: member, groupID: groupID, revision: revision, epoch: epoch)
+            // A newer play() already reset this bookkeeping for its own run.
+            guard playEpoch == epoch else { return }
             rejoinInFlight.remove(id)
             if participants[id] == nil {
                 lastRejoinFailureAt[id] = Date()
@@ -1063,9 +1065,11 @@ public final class BoardGroupCoordinator {
         // any board whose clock started (rebooted) after that anchor's phone
         // time — firmware rejects a negative `atUs` outright. Rolling the
         // anchor forward to "now" keeps every board's mapped time inside its
-        // own uptime while sending the exact same timeline. `currentAnchor`
-        // itself is never updated to this rolled value — only the value SENT.
-        let sendAnchor = GroupSchedule.rolledForward(scheduleAnchor(anchor), notBeforeUs: nowUs(), frameCount: frameCount)
+        // own uptime while sending the exact same timeline. It rounds down,
+        // so the sent anchor is never in the future (firmware would show the
+        // next frame early and hold it). `currentAnchor` itself is never
+        // updated to this rolled value — only the value SENT.
+        let sendAnchor = GroupSchedule.rolledForward(scheduleAnchor(anchor), toUs: nowUs(), frameCount: frameCount)
         let commands = GroupSchedule.reanchorCommands(
             phoneAnchorUs: sendAnchor.phoneUs, startFrame: sendAnchor.startFrame, intervalMs: sendAnchor.intervalMs,
             loop: sendAnchor.loop, estimators: estimators.filter { participants[$0.key] != nil }, bootIds: bootIds
@@ -1096,6 +1100,8 @@ public final class BoardGroupCoordinator {
             guard playEpoch == epoch, controlGeneration == gen, !isPaused else { return } // B1
             rejoinInFlight.insert(id)
             await rejoin(member: member, groupID: groupID, revision: revision, epoch: epoch)
+            // A newer play() already reset this bookkeeping for its own run.
+            guard playEpoch == epoch else { return }
             rejoinInFlight.remove(id)
             if participants[id] == nil {
                 lastRejoinFailureAt[id] = Date()
@@ -1201,7 +1207,11 @@ public final class BoardGroupCoordinator {
             // the ORIGINAL anchor onto its just-refreshed estimator risks a
             // negative `atUs`, which firmware rejects. Roll forward to "now"
             // — `currentAnchor` itself stays untouched, only the value sent.
-            let sendAnchor = GroupSchedule.rolledForward(scheduleAnchor(anchor), notBeforeUs: nowUs(), frameCount: frameCount)
+            // Reads the LIVE anchor: a speed/loop change that committed while
+            // this board was uploading or sampling must reach it too, or it
+            // would run the old rate until the next full re-anchor.
+            guard let liveAnchor = currentAnchor else { return }
+            let sendAnchor = GroupSchedule.rolledForward(scheduleAnchor(liveAnchor), toUs: nowUs(), frameCount: frameCount)
             guard let bootId = session.connection.bootId,
                   let cmd = GroupSchedule.reanchorCommands(
                     phoneAnchorUs: sendAnchor.phoneUs, startFrame: sendAnchor.startFrame, intervalMs: sendAnchor.intervalMs,
@@ -1331,20 +1341,18 @@ public final class BoardGroupCoordinator {
         let worstRtt = participants.keys.compactMap { estimators[$0]?.bestRttUs }.max() ?? 0
         let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
 
-        // F4: a jump-free switch instead of re-anchoring at a future instant.
-        // Firmware applies a `group_start` the moment it receives it and
-        // holds `startFrame` until `atUs`, so sending a future `atUs` would
-        // make a playing board jump ahead and freeze until then. Instead the
-        // switch happens on the NEXT frame boundary of the OLD timeline at
-        // or after `sendAt + lead`, and the new timeline is walked back by
-        // whole new-rate frames to an anchor at or before `sendAt` — so
-        // every board's `atUs` is always in the past (or now) and no board
-        // ever holds.
-        let sendAt = nowUs()
-        let lead = min(max(worstRtt, 20_000), 150_000)
+        // F4: firmware applies a `group_start` the moment it receives it and
+        // holds `startFrame` until `atUs`, so the old future-`atUs` re-anchor
+        // made a playing board jump ahead and freeze. The switch instant is
+        // now roughly when the command lands (half the worst round trip from
+        // now), and the new timeline continues from the old one's frame AND
+        // the part of it already shown, so a board applying it on time shows
+        // no jump and one applying it a little early/late is off by about
+        // that delay over the frame interval.
+        let switchUs = nowUs() + min(worstRtt / 2, 100_000)
         let next = GroupSchedule.speedChange(
             from: scheduleAnchor(anchor), intervalMs: newIntervalMs, loop: newLoop, frameCount: frameCount,
-            sendAtUs: sendAt, switchNotBeforeUs: sendAt + lead
+            switchUs: switchUs
         )
 
         let commands = GroupSchedule.reanchorCommands(
@@ -1390,6 +1398,27 @@ public final class BoardGroupCoordinator {
         // pass from what the boards are actually showing.
         guard anyAccepted, playEpoch == epoch, controlGeneration == gen, !isPaused else { return } // N3/B1
         currentAnchor = tupleAnchor(next)
+
+        // A member that finished a rejoin while this pass was sampling or
+        // sending joined with the OLD anchor and was never sent the new one;
+        // bring it onto the new timeline now instead of leaving it on the old
+        // rate until the next full re-anchor.
+        for (id, participant) in participants where commands[id] == nil {
+            guard let estimator = estimators[id],
+                  let cmd = GroupSchedule.reanchorCommands(
+                    phoneAnchorUs: next.phoneUs, startFrame: next.startFrame, intervalMs: next.intervalMs,
+                    loop: next.loop, estimators: [id: estimator], bootIds: [id: participant.bootId]
+                  )[id] else { continue }
+            guard playEpoch == epoch, controlGeneration == gen, !isPaused else { return } // B1
+            do {
+                try await participant.session.connection.withOutput(participant.token) {
+                    _ = try await participant.session.connection.requestReliable(cmd)
+                }
+            } catch {
+                guard playEpoch == epoch, controlGeneration == gen else { return } // N3/B1
+                memberStatus[id] = .error(error.localizedDescription)
+            }
+        }
     }
 
     // MARK: - Pause / resume / step (app-level; no firmware timed-pause)

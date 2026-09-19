@@ -80,65 +80,66 @@ public enum GroupSchedule {
         }
     }
 
-    /// The same timeline re-expressed with an anchor time no earlier than
-    /// `notBeforeUs`, moved forward by whole frames so every board keeps
-    /// showing the same frame at the same instant.
+    /// The same timeline re-expressed with its anchor at the last frame
+    /// boundary at or before `toUs`, so every board keeps showing the same
+    /// frame at the same instant.
     ///
     /// A rejoin sends the group's anchor mapped onto the board's clock. A
     /// board that rebooted has a clock that started seconds ago, so an old
     /// anchor maps to a negative `atUs`, which firmware rejects. Rolling the
-    /// anchor forward to "now" keeps the mapped time inside the board's
-    /// uptime. Never moves an anchor backwards.
-    public static func rolledForward(_ anchor: Anchor, notBeforeUs: Int64, frameCount: Int) -> Anchor {
-        guard notBeforeUs > anchor.phoneUs else { return anchor }
+    /// anchor up to "now" keeps the mapped time inside the board's uptime.
+    /// It rounds down, never up: firmware holds `startFrame` until `atUs`,
+    /// so an anchor even one frame in the future would show the next frame
+    /// early and freeze on it. Never moves an anchor backwards.
+    public static func rolledForward(_ anchor: Anchor, toUs: Int64, frameCount: Int) -> Anchor {
+        guard toUs > anchor.phoneUs else { return anchor }
         let intervalUs = anchor.intervalUs
-        let steps = (notBeforeUs - anchor.phoneUs + intervalUs - 1) / intervalUs
+        let steps = (toUs - anchor.phoneUs) / intervalUs
         var out = anchor
         out.phoneUs = anchor.phoneUs + steps * intervalUs
         out.startFrame = anchor.frame(advancedBy: steps, frameCount: frameCount)
         return out
     }
 
-    /// The anchor for a live speed/loop change that boards can apply the
-    /// moment they receive it, with no jump.
+    /// The anchor for a live speed/loop change taking effect at `switchUs`,
+    /// continuing from exactly where the old timeline is at that instant:
+    /// the same frame, and the same fraction of that frame already shown.
     ///
     /// Firmware applies a `group_start` on receipt and holds `startFrame`
-    /// until `atUs`. Sending a future `atUs` therefore makes a playing board
-    /// jump ahead to that frame and freeze until then. Instead:
+    /// until `atUs`. The old code re-anchored at a future instant, so a
+    /// playing board jumped ahead to that frame and froze until then. Here
+    /// the anchor sits at `switchUs` minus the elapsed part of the current
+    /// frame (rescaled to the new interval), so it is never later than
+    /// `switchUs`, and a board that applies the change at `switchUs` shows
+    /// no jump at all. A board that applies it a little earlier or later is
+    /// off by about that delay divided by the frame interval.
     ///
-    /// 1. The switch instant `T` is the first frame boundary of the old
-    ///    timeline at or after `switchNotBeforeUs`, so the frame shown at `T`
-    ///    starts fresh and no part of it is lost.
-    /// 2. The new timeline passes through (`T`, frame at `T`) and is walked
-    ///    back by whole new-rate frames to an anchor at or before
-    ///    `sendAtUs`, so no board ever sees a future `atUs` and holds.
-    ///
-    /// Between receipt and `T` a board runs the new rate a little early; the
-    /// error is below one frame when `T - sendAtUs` is about one round trip.
-    /// Without looping the walk-back stops at frame 0, which can leave a
-    /// short hold on a timeline that has only just started.
+    /// A finished non-looping timeline stays on its last frame. Before the
+    /// old anchor time, the old `startFrame` is kept and only re-timed.
     public static func speedChange(
         from old: Anchor,
         intervalMs: Int,
         loop: Bool,
         frameCount: Int,
-        sendAtUs: Int64,
-        switchNotBeforeUs: Int64
+        switchUs: Int64
     ) -> Anchor {
+        let newIntervalUs = Int64(max(intervalMs, 1)) * 1000
+        guard frameCount > 0 else {
+            return Anchor(phoneUs: switchUs, startFrame: 0, intervalMs: intervalMs, loop: loop)
+        }
+        guard switchUs > old.phoneUs else {
+            return Anchor(phoneUs: old.phoneUs, startFrame: old.startFrame, intervalMs: intervalMs, loop: loop)
+        }
         let oldIntervalUs = old.intervalUs
-        let target = max(switchNotBeforeUs, sendAtUs)
-        let oldSteps = target > old.phoneUs ? (target - old.phoneUs + oldIntervalUs - 1) / oldIntervalUs : 0
-        let switchUs = old.phoneUs + oldSteps * oldIntervalUs
-        let switchFrame = old.frame(advancedBy: oldSteps, frameCount: frameCount)
-
-        let next = Anchor(phoneUs: switchUs, startFrame: switchFrame, intervalMs: intervalMs, loop: loop)
-        let newIntervalUs = next.intervalUs
-        var backSteps = switchUs > sendAtUs ? (switchUs - sendAtUs + newIntervalUs - 1) / newIntervalUs : 0
-        if !loop { backSteps = min(backSteps, Int64(switchFrame)) }
-        var out = next
-        out.phoneUs = switchUs - backSteps * newIntervalUs
-        out.startFrame = next.frame(advancedBy: -backSteps, frameCount: frameCount)
-        return out
+        let elapsed = switchUs - old.phoneUs
+        let steps = elapsed / oldIntervalUs
+        if !old.loop, Int64(old.startFrame) + steps >= Int64(frameCount - 1) {
+            return Anchor(phoneUs: switchUs, startFrame: frameCount - 1, intervalMs: intervalMs, loop: loop)
+        }
+        let intoFrameUs = elapsed - steps * oldIntervalUs
+        let rescaled = intoFrameUs * newIntervalUs / oldIntervalUs
+        return Anchor(phoneUs: switchUs - rescaled, startFrame: old.frame(advancedBy: steps, frameCount: frameCount),
+                      intervalMs: intervalMs, loop: loop)
     }
 
     /// The global frame `anchor` shows at `phoneUs` (its `startFrame` before
