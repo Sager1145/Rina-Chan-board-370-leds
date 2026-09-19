@@ -391,6 +391,7 @@ struct LEDBoardPreview: View {
                       Self.distance(value.translation) < layout.cell * Self.tapSlopInCells,
                       let onTap = interaction.handlers?.onTap,
                       let led = layout.ledIndex(at: value.startLocation) else { return }
+                fader.noteEdit()
                 onTap(led)
             }
     }
@@ -424,13 +425,17 @@ struct LEDBoardPreview: View {
                paintedThisStroke.insert(led).inserted {
                 // The LED a pencil landed on was toggled at touch-down: the
                 // brush starts on the next one.
-                if led != pencilLandingLED { onDrag(led) }
+                if led != pencilLandingLED {
+                    fader.noteEdit()
+                    onDrag(led)
+                }
             }
             from = sample.startLocation
         }
         for point in Self.strokeSamples(from: from, to: sample.location, step: layout.cell / 2) {
             guard let led = layout.ledIndex(at: point),
                   paintedThisStroke.insert(led).inserted else { continue }
+            fader.noteEdit()
             onDrag(led)
         }
         lastPaintPoint = sample.location
@@ -450,6 +455,7 @@ struct LEDBoardPreview: View {
         strokeIsPencil = true
         guard let led = layout.ledIndex(at: start) else { return }
         pencilLandingLED = led
+        fader.noteEdit()
         onTap(led)
     }
 
@@ -528,12 +534,24 @@ final class LEDFadeState {
         var from: Double
         var lit: Bool
         var start: TimeInterval
+        /// How many times faster than the hand-drawing durations it runs.
+        var speed: Double = 1
     }
 
     /// Lighting up is quicker than going out, like the eye reads a real LED.
     static let onDuration: TimeInterval = 0.14
     static let offDuration: TimeInterval = 0.26
+    /// A frame change this soon after a touch was reported is that touch's
+    /// edit (and its mirror), and fades at the drawing pace. Anything else —
+    /// loading a face, undo, clear — changes many LEDs at once and runs
+    /// `bulkSpeed` times faster so the whole face does not feel sluggish.
+    static let editWindow: TimeInterval = 0.25
+    static let bulkSpeed: Double = 2
+
     private var fades: [Int: Fade] = [:]
+    private var lastEdit: TimeInterval = -.infinity
+
+    func noteEdit(at now: TimeInterval = Date.now.timeIntervalSinceReferenceDate) { lastEdit = now }
 
     /// Takes a frame change. Returns how long until every fade has finished,
     /// or `nil` when nothing is fading.
@@ -544,9 +562,10 @@ final class LEDFadeState {
             return nil
         }
         fades = fades.filter { !Self.isFinished($0.value, at: now) }
+        let speed = now - lastEdit <= Self.editWindow ? 1 : Self.bulkSpeed
         for led in 0..<PackedFrame.ledCount where old[led] != new[led] {
             let from = fades[led].map { Self.level(of: $0, at: now) } ?? (old[led] ? 1 : 0)
-            fades[led] = Fade(from: from, lit: new[led], start: now)
+            fades[led] = Fade(from: from, lit: new[led], start: now, speed: speed)
         }
         return fades.isEmpty ? nil : max(Self.onDuration, Self.offDuration)
     }
@@ -563,7 +582,7 @@ final class LEDFadeState {
 
     /// Linear level, so an interrupted fade resumes from exactly where it was.
     static func level(of fade: Fade, at now: TimeInterval) -> Double {
-        let elapsed = max(0, now - fade.start)
+        let elapsed = max(0, now - fade.start) * fade.speed
         return fade.lit ? min(1, fade.from + elapsed / onDuration)
                         : max(0, fade.from - elapsed / offDuration)
     }
