@@ -10,7 +10,7 @@ struct AddBoardView: View {
     @Bindable private var workspace: SettingsWorkspace
     @Bindable private var viewModel: ConnectionViewModel
 
-    /// Shown beside the sidebar without the user having opened it: does not
+    /// Shown beside the category list without the user having opened it: does not
     /// browse the network.
     private let isPassive: Bool
 

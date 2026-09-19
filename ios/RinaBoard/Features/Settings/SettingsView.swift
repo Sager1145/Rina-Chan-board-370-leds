@@ -4,7 +4,7 @@ import RinaCore
 /// Settings tab (design guide §31–§35): a list of categories and the selected
 /// category's page, with no LED preview.
 ///
-/// Wide enough, the categories sit in a sidebar beside the page; otherwise the
+/// Wide enough, the categories sit in a column beside the page; otherwise the
 /// list pushes each page on a stack. Which one is decided from the width this
 /// tab actually gets (`SettingsLayoutPolicy`), not from the device, so resizing
 /// a window, rotating an iPad or switching a folding phone's screen crosses
@@ -53,20 +53,38 @@ struct SettingsView: View {
 
 // MARK: - Layouts
 
-/// Sidebar of categories beside the selected page.
+/// The categories beside the selected page, as the two equal columns every
+/// other tab has (`BoardSplitPage`): plain grouped lists on one backdrop, no
+/// navigation bars. There is no board preview here, so the left column is
+/// only the category list.
 private struct SettingsSplitLayout: View {
     @Environment(SettingsWorkspace.self) private var workspace
 
     var body: some View {
-        @Bindable var workspace = workspace
-        NavigationSplitView(columnVisibility: $workspace.columnVisibility) {
-            List(selection: sidebarSelection) {
-                SettingsCategoryRows()
+        let shown = workspace.selection ?? workspace.lastVisited
+        HStack(spacing: 0) {
+            // A stack of its own, bar hidden, like the other tabs' pages:
+            // outside one, the list slides up under the tab bar whenever the
+            // page beside it shows a navigation bar (多板组, a pushed editor).
+            NavigationStack {
+                List {
+                    Group {
+                        // Highlights the page on screen, which is the last
+                        // one visited when the single-column layout was left
+                        // on its list.
+                        SettingsCategoryRows(shown: shown) { workspace.selection = $0 }
+                    }
+                    .rinaTranslucentRows()
+                }
+                .listSectionSpacing(.compact)
+                .rinaScrollBackground()
+                .toolbar(.hidden, for: .navigationBar)
+                .contentMargins(.top, 0, for: .scrollContent)
+                .accessibilityIdentifier("settings.sidebar")
             }
-            .navigationTitle("设置")
-            .accessibilityIdentifier("settings.sidebar")
-            .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
-        } detail: {
+            // Equal halves, measured against the page — see `BoardSplitPage`.
+            .containerRelativeFrame(.horizontal, count: 2, span: 1, spacing: 0)
+
             // Its own stack so a page can push further pages inside the
             // detail column. Keyed on the category so switching category
             // starts that page at its root instead of inheriting a push.
@@ -74,19 +92,15 @@ private struct SettingsSplitLayout: View {
                 // With nothing selected (the single-column layout was left
                 // on its list) the last page is only shown, not opened: it
                 // must not start network work just because the window grew.
-                SettingsDetail(category: workspace.selection ?? workspace.lastVisited,
-                               isPassive: workspace.selection == nil)
+                SettingsDetail(category: shown, isPassive: workspace.selection == nil,
+                               hidesBar: true)
             }
-            .id(workspace.selection ?? workspace.lastVisited)
+            .id(shown)
         }
-        .navigationSplitViewStyle(.balanced)
-    }
-
-    /// Highlights the page on screen, which is the last one visited when the
-    /// single-column layout was left on its list.
-    private var sidebarSelection: Binding<SettingsCategory?> {
-        Binding(get: { workspace.selection ?? workspace.lastVisited },
-                set: { if let category = $0 { workspace.selection = category } })
+        // One backdrop under both columns; the pages' own would each fill
+        // only the detail column and leave a seam down the middle.
+        .background { RinaAppBackdrop() }
+        .environment(\.rinaBackdropIsShared, true)
     }
 }
 
@@ -109,7 +123,7 @@ private struct SettingsStackLayout: View {
             // which reads as a blank band above the page.
             .toolbarTitleDisplayMode(.inline)
             .navigationDestination(for: SettingsCategory.self) { category in
-                SettingsDetail(category: category, isPassive: false)
+                SettingsDetail(category: category, isPassive: false, hidesBar: false)
             }
         }
     }
@@ -130,6 +144,11 @@ private struct SettingsStackLayout: View {
 
 /// The category rows both layouts show, in one order.
 private struct SettingsCategoryRows: View {
+    /// The split layout's page on screen and how to open another. Without
+    /// them the rows are links for the stack they sit in.
+    var shown: SettingsCategory?
+    var open: ((SettingsCategory) -> Void)?
+
     @Environment(SettingsWorkspace.self) private var workspace
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardGroupStore.self) private var groupStore
@@ -160,21 +179,39 @@ private struct SettingsCategoryRows: View {
         }
     }
 
+    @ViewBuilder
     private func row(_ category: SettingsCategory) -> some View {
-        NavigationLink(value: category) {
-            HStack {
-                Label(category.title, systemImage: category.systemImage)
-                if let value = value(for: category) {
-                    Spacer()
-                    Text(value)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+        if let open {
+            Button { open(category) } label: {
+                rowLabel(category)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            // Its own background replaces `rinaTranslucentRows()`' one, so the
+            // unselected rows repeat that surface.
+            .listRowBackground(category == shown
+                               ? Color.accentColor.opacity(0.18)
+                               : Color(.secondarySystemGroupedBackground).opacity(0.75))
+            .accessibilityAddTraits(category == shown ? .isSelected : [])
+            .accessibilityIdentifier("settings.category.\(category.rawValue)")
+        } else {
+            NavigationLink(value: category) { rowLabel(category) }
+                .accessibilityIdentifier("settings.category.\(category.rawValue)")
+        }
+    }
+
+    private func rowLabel(_ category: SettingsCategory) -> some View {
+        HStack {
+            Label(category.title, systemImage: category.systemImage)
+            if let value = value(for: category) {
+                Spacer()
+                Text(value)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
-        .tag(category)
-        .accessibilityIdentifier("settings.category.\(category.rawValue)")
     }
 
     private func value(for category: SettingsCategory) -> String? {
@@ -221,6 +258,10 @@ private struct SettingsDetail: View {
     let category: SettingsCategory
     /// Shown without being opened — see `SettingsSplitLayout`.
     let isPassive: Bool
+    /// Beside the category list the page needs no back button and the list
+    /// names it, so the bar is only a blank band, as on the other tabs.
+    /// 多板组 keeps it for its add button.
+    let hidesBar: Bool
     @Environment(SettingsWorkspace.self) private var workspace
 
     var body: some View {
@@ -241,8 +282,24 @@ private struct SettingsDetail: View {
         // a container would be stamped onto every element inside it.
         // In the detail column the bar row above a large title is empty too.
         .toolbarTitleDisplayMode(.inline)
+        .toolbar(hidesBar && category != .groups ? .hidden : .automatic, for: .navigationBar)
+        .modifier(BarlessTopMargin(isEnabled: hidesBar && category != .groups))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("settings.detail.\(category.rawValue)")
+    }
+}
+
+/// No navigation bar, so the list's default top margin only pushes the page
+/// away from the tab bar — the other tabs drop it the same way.
+private struct BarlessTopMargin: ViewModifier {
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.contentMargins(.top, 0, for: .scrollContent)
+        } else {
+            content
+        }
     }
 }
 

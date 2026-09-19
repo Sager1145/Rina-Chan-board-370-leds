@@ -41,12 +41,12 @@ final class RinaBoardUITests: XCTestCase {
 
     func testDebugWorkspacesAreReachable() throws {
         launch(initialTab: "settings")
-        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 6))
-
+        // Identifiers, not navigation bars: the iPad two-column layout has none.
         let debugTools = app.buttons["settings.category.debug"]
+        XCTAssertTrue(debugTools.waitForExistence(timeout: 6))
         XCTAssertTrue(scrollToElement(debugTools))
         debugTools.tap()
-        XCTAssertTrue(app.navigationBars["调试"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["settings.detail.debug"].waitForExistence(timeout: 3))
 
         let workspace = app.segmentedControls["debug.workspace"]
         XCTAssertTrue(workspace.waitForExistence(timeout: 2))

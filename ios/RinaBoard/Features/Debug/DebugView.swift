@@ -12,7 +12,7 @@ struct DebugView: View {
     @Bindable private var settings: SettingsWorkspace
     @Bindable private var vm: DebugViewModel
 
-    /// Shown beside the sidebar without the user having opened it: sends
+    /// Shown beside the category list without the user having opened it: sends
     /// nothing to the board.
     private let isPassive: Bool
 

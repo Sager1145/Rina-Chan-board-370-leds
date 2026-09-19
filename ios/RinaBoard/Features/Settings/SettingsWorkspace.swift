@@ -38,9 +38,6 @@ final class SettingsWorkspace {
     var editingGroupID: UUID?
     /// Decided by `SettingsLayoutPolicy` from the width Settings gets.
     var layoutMode: SettingsLayoutMode?
-    /// Whether the user hid the sidebar; kept across layout changes so a
-    /// resize does not force it open again.
-    var columnVisibility: NavigationSplitViewVisibility = .all
 
     // MARK: Page models
 

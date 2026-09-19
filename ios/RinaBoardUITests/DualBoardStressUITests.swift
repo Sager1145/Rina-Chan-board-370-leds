@@ -283,11 +283,11 @@ final class DualBoardStressUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [reachable], timeout: 10), .completed,
                        "The 设定 tab was not hittable within 10 s")
         settingsTab.tap()
-        guard app.navigationBars["设置"].waitForExistence(timeout: 5) else { return false }
+        // The iPad split layout has no navigation bars to wait on.
         let row = app.buttons["settings.category.\(rawValue)"]
-        guard scrollToElement(row) else { return false }
+        guard row.waitForExistence(timeout: 5), scrollToElement(row) else { return false }
         row.tap()
-        return app.navigationBars[title].waitForExistence(timeout: 5)
+        return app.descendants(matching: .any)["settings.detail.\(rawValue)"].waitForExistence(timeout: 5)
     }
 
     /// Opens the Control Center, whichever surface hosts it: the iOS 26
@@ -301,8 +301,8 @@ final class DualBoardStressUITests: XCTestCase {
             accessory.tap()
         } else {
             tabButton("设定").tap()
-            XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
             let link = app.buttons["settings.category.controlCenter"]
+            XCTAssertTrue(link.waitForExistence(timeout: 5))
             XCTAssertTrue(scrollToElement(link), "面板控制中心 entry not reachable")
             link.tap()
         }

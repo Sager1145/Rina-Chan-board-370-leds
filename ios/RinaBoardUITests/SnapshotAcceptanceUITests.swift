@@ -183,7 +183,7 @@ final class SnapshotAcceptanceUITests: XCTestCase {
         launch("settings")
         let debug = app.buttons["settings.category.debug"]
         reach(debug); debug.tap()
-        XCTAssertTrue(app.navigationBars["调试"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["settings.detail.debug"].waitForExistence(timeout: 5))
         app.segmentedControls["debug.workspace"].buttons["测试"].tap()
         let danger = app.buttons["危险操作"]
         reach(danger); danger.tap()
@@ -211,6 +211,6 @@ final class SnapshotAcceptanceUITests: XCTestCase {
             .firstMatch
         XCTAssertTrue(bootOverlay.waitForExistence(timeout: 3))
         XCTAssertTrue(bootOverlay.waitForNonExistence(timeout: 12))
-        XCTAssertTrue(app.navigationBars["调试"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings.detail.debug"].exists)
     }
 }

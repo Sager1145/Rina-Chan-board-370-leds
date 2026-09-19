@@ -81,7 +81,6 @@ final class SettingsNavigationTests: XCTestCase {
         workspace.apSSID = "RinaBoard-AP"
         workspace.apPassword = "draft"
         workspace.debugWorkspace = 4
-        workspace.columnVisibility = .detailOnly
         workspace.layoutMode = .split
         workspace.layoutMode = .compact
         workspace.layoutMode = .split
@@ -89,7 +88,6 @@ final class SettingsNavigationTests: XCTestCase {
         XCTAssertEqual(workspace.apSSID, "RinaBoard-AP")
         XCTAssertEqual(workspace.apPassword, "draft")
         XCTAssertEqual(workspace.debugWorkspace, 4)
-        XCTAssertEqual(workspace.columnVisibility, .detailOnly)
     }
 
     func testControlCenterEntryStaysWhileOpen() {

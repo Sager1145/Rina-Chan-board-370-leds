@@ -58,16 +58,10 @@ extension View {
     /// would otherwise replace it).
     @ViewBuilder
     func rinaScrollBackground(_ isEnabled: Bool = true) -> some View {
-        if !isEnabled {
-            self
-        } else if #available(iOS 18.0, *) {
-            // A plain `.background` is covered by the navigation container's
-            // own opaque ground whenever the navigation bar is visible.
-            scrollContentBackground(.hidden)
-                .containerBackground(for: .navigation) { RinaAppBackdrop() }
+        if isEnabled {
+            modifier(RinaScrollBackground())
         } else {
-            scrollContentBackground(.hidden)
-                .background { RinaAppBackdrop() }
+            self
         }
     }
 
@@ -83,6 +77,36 @@ extension View {
             listRowBackground(Color(.secondarySystemGroupedBackground).opacity(0.75))
         } else {
             self
+        }
+    }
+}
+
+extension EnvironmentValues {
+    /// Set by a container that draws one `RinaAppBackdrop` under several
+    /// columns (Settings' two-column layout): screens inside it only clear
+    /// their own ground instead of drawing a second backdrop over part of it.
+    @Entry var rinaBackdropIsShared = false
+}
+
+private struct RinaScrollBackground: ViewModifier {
+    @Environment(\.rinaBackdropIsShared) private var isShared
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            // A plain `.background` is covered by the navigation container's
+            // own opaque ground whenever the navigation bar is visible.
+            if isShared {
+                content.scrollContentBackground(.hidden)
+                    .containerBackground(.clear, for: .navigation)
+            } else {
+                content.scrollContentBackground(.hidden)
+                    .containerBackground(for: .navigation) { RinaAppBackdrop() }
+            }
+        } else if isShared {
+            content.scrollContentBackground(.hidden)
+        } else {
+            content.scrollContentBackground(.hidden)
+                .background { RinaAppBackdrop() }
         }
     }
 }

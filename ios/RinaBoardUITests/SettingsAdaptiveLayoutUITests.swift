@@ -1,12 +1,12 @@
 import XCTest
 
-/// Settings switches between a stack and a sidebar as its width changes. The
+/// Settings switches between a stack and two columns as its width changes. The
 /// page, the unsent input and the Debug workspace must come through each
 /// switch unchanged.
 ///
 /// Needs a device whose two orientations fall on opposite sides of
 /// `SettingsLayoutPolicy` — iPad mini: 744 pt portrait (stack) and 1133 pt
-/// landscape (sidebar). Elsewhere it still checks that rotating keeps the
+/// landscape (two columns). Elsewhere it still checks that rotating keeps the
 /// state, without asserting a layout change.
 final class SettingsAdaptiveLayoutUITests: XCTestCase {
     private let app = XCUIApplication()
@@ -79,7 +79,8 @@ final class SettingsAdaptiveLayoutUITests: XCTestCase {
 
         for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
             rotate(orientation)
-            XCTAssertTrue(app.navigationBars["添加璃奈板"].waitForExistence(timeout: 3),
+            // The split layout shows its pages without a navigation bar.
+            XCTAssertTrue(app.descendants(matching: .any)["settings.detail.addBoard"].waitForExistence(timeout: 3),
                           "left Add Board after rotating to \(orientation.rawValue)")
             XCTAssertEqual(filter.value as? String, "rina-draft", "Bluetooth filter lost after rotating")
         }

@@ -10,7 +10,7 @@ struct BoardSettingsView: View {
     @Environment(BoardStore.self) private var boardStore
     @Environment(SettingsWorkspace.self) private var workspace
 
-    /// Shown beside the sidebar without the user having opened it: reads
+    /// Shown beside the category list without the user having opened it: reads
     /// nothing from the board.
     var isPassive = false
 

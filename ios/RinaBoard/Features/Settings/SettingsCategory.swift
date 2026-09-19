@@ -45,7 +45,7 @@ enum SettingsCategory: String, CaseIterable, Codable, Hashable, Identifiable {
         }
     }
 
-    /// Which sidebar group the category is listed under.
+    /// Which group of the category list the category is listed under.
     var section: SettingsCategorySection {
         switch self {
         case .controlCenter: .controlCenter
@@ -89,7 +89,7 @@ enum SettingsCategorySection: CaseIterable, Hashable {
 enum SettingsLayoutMode: Equatable {
     /// One column: the category list, pushing each page on a stack.
     case compact
-    /// Categories in a sidebar beside the selected page.
+    /// Two equal columns: the category list beside the selected page.
     case split
 }
 
@@ -108,7 +108,7 @@ enum SettingsLayoutPolicy {
     /// Widths for text at or below the default large size.
     static let enterSplitWidth: CGFloat = 800
     static let leaveSplitWidth: CGFloat = 770
-    /// Accessibility text sizes need a wider page before a sidebar leaves the
+    /// Accessibility text sizes need a wider page before half of it leaves the
     /// detail enough room to read.
     static let accessibilityEnterSplitWidth: CGFloat = 1024
     static let accessibilityLeaveSplitWidth: CGFloat = 960
@@ -117,8 +117,8 @@ enum SettingsLayoutPolicy {
                         horizontalSizeClass: UserInterfaceSizeClass?,
                         dynamicTypeSize: DynamicTypeSize,
                         previous: SettingsLayoutMode?) -> SettingsLayoutMode {
-        // A compact width class collapses `NavigationSplitView` by itself;
-        // asking for two columns there would fight the system.
+        // The other tabs' pages are one column in a compact width class
+        // (`BoardPageColumns`); two columns here would not match them.
         guard horizontalSizeClass == .regular, width > 0 else { return .compact }
         let large = dynamicTypeSize.isAccessibilitySize
         let enter = large ? accessibilityEnterSplitWidth : enterSplitWidth
