@@ -2019,6 +2019,10 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
 
         try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+        // `play()` anchors ~400 ms ahead; before that the boards are still
+        // holding frame 0 and a speed change correctly keeps that start time.
+        // This test is about a group that is already scrolling.
+        try await Task.sleep(for: .milliseconds(600))
 
         await coordinator.updatePlayback(group: store.groups[0], fps: 30, loop: nil)
 
