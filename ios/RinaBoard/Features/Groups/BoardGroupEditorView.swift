@@ -134,8 +134,8 @@ struct BoardGroupEditorView: View {
                 Button {
                     toggleIdentify(group: group)
                 } label: {
-                    Label(isIdentifying ? "停止识别编号" : "识别编号",
-                          systemImage: isIdentifying ? "stop.circle" : "number.circle")
+                    SwapLabel(isIdentifying ? "停止识别编号" : "识别编号",
+                              systemImage: isIdentifying ? "stop.circle" : "number.circle")
                 }
                 .disabled(group.members.isEmpty)
 

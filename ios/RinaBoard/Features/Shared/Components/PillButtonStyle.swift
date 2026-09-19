@@ -1,5 +1,56 @@
 import SwiftUI
 
+extension Animation {
+    /// The one timing for an icon or title swapping with its state.
+    static let stateSwap: Animation = .snappy(duration: 0.2)
+}
+
+/// An SF Symbol that morphs into its replacement when `systemName` changes.
+/// Carries its own animation, because most of the state behind these is set
+/// by a model outside any `withAnimation`. Falls back to a cross-fade under
+/// Reduce Motion, which the system's own `.symbolEffect(.replace)` ignores.
+struct SwapSymbol: View {
+    var systemName: String
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Image(systemName: systemName)
+            .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
+            .animation(.stateSwap, value: systemName)
+    }
+}
+
+/// `Label` whose icon morphs and whose title cross-fades when either changes.
+struct SwapLabel: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+
+    init(_ title: LocalizedStringKey, systemImage: String) {
+        self.title = title
+        self.systemImage = systemImage
+    }
+
+    var body: some View {
+        Label {
+            Text(title).contentTransition(.opacity)
+        } icon: {
+            SwapSymbol(systemName: systemImage)
+        }
+        // Icon and title can each change on their own (e.g. a constant icon
+        // with a changing title), so both are tracked.
+        .animation(.stateSwap, value: systemImage)
+        .animation(.stateSwap, value: title)
+    }
+}
+
+extension View {
+    /// Cross-fades a Text whose string changes with `value`.
+    func swapText<V: Equatable>(_ value: V) -> some View {
+        contentTransition(.opacity).animation(.stateSwap, value: value)
+    }
+}
+
 /// The one pill button used across the app, drawn to match the command chips
 /// on the Control tab (what `.bordered` + `.capsule` + `.small` rendered
 /// there): footnote label, white text on the tint at low opacity, grey
@@ -78,17 +129,21 @@ struct CommandChip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: systemImage)
+            SwapSymbol(systemName: systemImage)
                 .symbolRenderingMode(.hierarchical)
                 .imageScale(.small)
             Text(title)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+                .contentTransition(.opacity)
         }
         .font(.footnote)
         .frame(maxWidth: .infinity, minHeight: Self.minHeight)
         .contentShape(Capsule())
         .accessibilityLabel(Text(title))
+        // Icon and title can each change on their own, so both are tracked.
+        .animation(.stateSwap, value: systemImage)
+        .animation(.stateSwap, value: title)
     }
 }
 
@@ -98,16 +153,21 @@ struct CommandChip: View {
 struct RepeatSymbol: View {
     var isOn: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         Image(systemName: "repeat")
             .overlay {
-                if !isOn {
-                    Capsule()
-                        .frame(width: 1.5)
-                        .padding(.vertical, -3)
-                        .rotationEffect(.degrees(-45))
-                }
+                Capsule()
+                    .frame(width: 1.5)
+                    .padding(.vertical, -3)
+                    // Under Reduce Motion the slash only fades; the collapse
+                    // in height reads as movement.
+                    .scaleEffect(y: reduceMotion || !isOn ? 1 : 0)
+                    .opacity(isOn ? 0 : 1)
+                    .rotationEffect(.degrees(-45))
             }
+            .animation(.stateSwap, value: isOn)
     }
 }
 

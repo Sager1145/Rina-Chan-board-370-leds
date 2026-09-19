@@ -56,43 +56,39 @@ struct TextPlaybackControls: View {
         .pillButtonRow()
     }
 
-    @ViewBuilder
+    /// One button rather than a branch per state, so its identity stays
+    /// stable and the icon swap animates instead of the whole control
+    /// popping in and out.
     private var playPauseControl: some View {
-        if hasBoardScroll {
-            if isPaused {
-                control("play.fill", label: "继续", action: onPlay)
-                    .disabled(!transportEnabled)
-            } else {
-                control("pause.fill", label: "暂停", action: onPause)
-                    .disabled(!transportEnabled)
-            }
-        } else {
-            Button(action: onSend) {
-                Group {
-                    if isUploading {
-                        // N6: a determinate ring when we know how far along
-                        // the upload is, so there's no separate progress row
-                        // in either single-board or group mode.
-                        if let uploadProgress {
-                            ProgressView(value: uploadProgress)
-                                .progressViewStyle(.circular)
-                                .controlSize(.mini)
-                        } else {
-                            ProgressView()
-                                .controlSize(.mini)
-                        }
+        Button(action: hasBoardScroll ? (isPaused ? onPlay : onPause) : onSend) {
+            Group {
+                if !hasBoardScroll && isUploading {
+                    // N6: a determinate ring when we know how far along
+                    // the upload is, so there's no separate progress row
+                    // in either single-board or group mode.
+                    if let uploadProgress {
+                        ProgressView(value: uploadProgress)
+                            .progressViewStyle(.circular)
+                            .controlSize(.mini)
                     } else {
-                        Image(systemName: isGeneratingFont ? "hourglass" : "play.fill")
+                        ProgressView()
+                            .controlSize(.mini)
                     }
+                } else {
+                    SwapSymbol(systemName: hasBoardScroll
+                               ? (isPaused ? "play.fill" : "pause.fill")
+                               : (isGeneratingFont ? "hourglass" : "play.fill"))
+                        .transition(.opacity)
                 }
-                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.pill)
-            .accessibilityLabel(isGeneratingFont
-                                ? LocalizedStringKey("加载字体…")
-                                : LocalizedStringKey("发送并播放"))
-            .disabled(!isConnected || isUploading || !canSend)
+            .frame(maxWidth: .infinity)
+            .animation(.stateSwap, value: isUploading)
         }
+        .buttonStyle(.pill)
+        .accessibilityLabel(hasBoardScroll
+                            ? (isPaused ? LocalizedStringKey("继续") : LocalizedStringKey("暂停"))
+                            : (isGeneratingFont ? LocalizedStringKey("加载字体…") : LocalizedStringKey("发送并播放")))
+        .disabled(hasBoardScroll ? !transportEnabled : (!isConnected || isUploading || !canSend))
     }
 
     private func control(_ symbol: String, label: LocalizedStringKey, action: @escaping () -> Void) -> some View {
