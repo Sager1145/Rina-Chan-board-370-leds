@@ -719,6 +719,9 @@ public struct CommandReply: Codable, Equatable, Sendable {
     public var persisted: Bool?
     /// RinaLink protocol version returned by `get_info`.
     public var proto: Int?
+    /// `get_info` only: firmware version and build stamp.
+    public var fw: String?
+    public var build: String?
     /// `get_info` only (BOARD_GROUP_SPEC §1.1): 8 lowercase hex chars, changes
     /// on every boot/deep-sleep wake. `nil` on firmware that predates board
     /// groups.
@@ -739,8 +742,10 @@ public struct CommandReply: Codable, Equatable, Sendable {
                 scrollTimelineId: String? = nil, scrollUploadComplete: Bool? = nil,
                 scrollHasSourceText: Bool? = nil, name: String? = nil, defaultName: String? = nil,
                 customName: Bool? = nil, persisted: Bool? = nil, proto: Int? = nil,
-                bootId: String? = nil, caps: [String]? = nil) {
+                bootId: String? = nil, caps: [String]? = nil, fw: String? = nil, build: String? = nil) {
         self.ok = ok
+        self.fw = fw
+        self.build = build
         self.error = error
         self.code = code
         self.v = v

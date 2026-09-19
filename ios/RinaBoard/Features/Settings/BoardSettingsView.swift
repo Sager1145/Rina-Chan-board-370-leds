@@ -2,12 +2,12 @@ import SwiftUI
 import RinaCore
 
 /// "面板" category (design guide §33, §35): the selected board's name, what
-/// it reports, the raw values behind the Control Center's drafts, and reboot.
+/// it reports (device, firmware, protocol), and reboot. Brightness, color
+/// and interval stay in the Control Center: its drafts are not board facts.
 struct BoardSettingsView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(BoardStore.self) private var boardStore
-    @Environment(BoardControlCenterModel.self) private var controlCenter
     @Environment(SettingsWorkspace.self) private var workspace
 
     /// Shown beside the sidebar without the user having opened it: reads
@@ -42,6 +42,14 @@ struct BoardSettingsView: View {
                     LabeledContent("设备") {
                         Text(connection.status?.device ?? "—").foregroundStyle(.secondary)
                     }
+                    LabeledContent("固件版本") {
+                        Text(viewModel.boardFirmware ?? "—").foregroundStyle(.secondary)
+                    }
+                    if let build = viewModel.boardBuild {
+                        LabeledContent("固件构建") {
+                            Text(build).font(.callout.monospaced()).foregroundStyle(.secondary)
+                        }
+                    }
                     LabeledContent("协议版本") {
                         Text(connection.protocolVersion.map(String.init) ?? "—")
                             .monospacedDigit()
@@ -58,32 +66,12 @@ struct BoardSettingsView: View {
                             Text("\(refresh) µs").monospacedDigit().foregroundStyle(.secondary)
                         }
                     }
-                    LabeledContent("自动切换间隔") {
-                        Text(String(format: "%.1fs", controlCenter.autoIntervalDraft))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Section {
-                    LabeledContent("亮度原始值") {
-                        Text("\(controlCenter.draftBrightness)")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    LabeledContent("颜色") {
-                        Text(controlCenter.colorHexDraft)
-                            .font(.callout.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
-                } footer: {
-                    Text("亮度在界面上以百分比显示；此处为固件使用的 \(RinaLinkConstants.brightnessMin)–\(RinaLinkConstants.brightnessMax) 原始值。")
                 }
 
                 Section {
                     // The dialog is attached in `SettingsView`, above the
                     // layout switch, so a resize cannot dismiss it.
-                    Button("重启面板", systemImage: "arrow.clockwise") {
+                    Button("重启此面板", systemImage: "arrow.clockwise") {
                         workspace.confirmBoardReboot = true
                     }
                     .disabled(!isConnected)

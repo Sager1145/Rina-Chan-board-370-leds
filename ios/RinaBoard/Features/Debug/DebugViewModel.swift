@@ -68,8 +68,8 @@ enum DebugLogFilter: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .errorsOnly: return NSLocalizedString("仅错误", comment: "debug log filter")
-        case .warnAndUp: return NSLocalizedString("警告以上", comment: "debug log filter")
-        case .normal: return NSLocalizedString("正常", comment: "debug log filter")
+        case .warnAndUp: return NSLocalizedString("警告及以上", comment: "debug log filter")
+        case .normal: return NSLocalizedString("信息及以上", comment: "debug log filter")
         case .verbose: return NSLocalizedString("详细", comment: "debug log filter")
         }
     }
