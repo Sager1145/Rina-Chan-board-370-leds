@@ -75,6 +75,14 @@ struct BoardSettingsView: View {
                         workspace.confirmBoardReboot = true
                     }
                     .disabled(!isConnected)
+
+                    Button("清空此面板的用户表情", systemImage: "trash", role: .destructive) {
+                        workspace.debug.clearFacesConfirmText = ""
+                        workspace.confirmDebugClearFaces = true
+                    }
+                    .disabled(!isConnected)
+                } header: {
+                    Text("维护")
                 }
             }
             .rinaTranslucentRows()

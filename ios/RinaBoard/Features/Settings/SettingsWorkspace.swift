@@ -57,7 +57,6 @@ final class SettingsWorkspace {
     var confirmDebugResetMin = false
     var confirmDebugResetMax = false
     var confirmDebugAllOn = false
-    var confirmDebugReboot = false
     var confirmDebugClearFaces = false
 
     // MARK: Board
@@ -148,7 +147,6 @@ final class SettingsWorkspace {
         confirmDebugResetMin = false
         confirmDebugResetMax = false
         confirmDebugAllOn = false
-        confirmDebugReboot = false
         confirmDebugClearFaces = false
         debug.clearFacesConfirmText = ""
     }

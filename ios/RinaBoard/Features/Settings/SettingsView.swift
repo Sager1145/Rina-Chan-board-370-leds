@@ -299,11 +299,6 @@ private struct SettingsDialogs: ViewModifier {
             } message: {
                 Text("此操作会删除所有非默认表情，且不可撤销。输入 CLEAR 确认。")
             }
-            .confirmationDialog(rebootTitle, isPresented: $workspace.confirmDebugReboot,
-                                titleVisibility: .visible) {
-                Button("重启", role: .destructive) { Task { await debug.reboot(connection: connection) } }
-                Button("取消", role: .cancel) {}
-            }
     }
 
     /// Names the board: reboot reaches the active session only, whatever the

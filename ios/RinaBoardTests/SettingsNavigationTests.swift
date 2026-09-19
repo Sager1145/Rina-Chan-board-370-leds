@@ -108,7 +108,6 @@ final class SettingsNavigationTests: XCTestCase {
         workspace.apSSID = "A-net"
         workspace.bluetoothFilter = "rina"
         workspace.confirmBoardReboot = true
-        workspace.confirmDebugReboot = true
 
         // Re-announcing the same board (a page rebuilt by a resize) keeps all.
         workspace.boardChanged(to: boardA)
@@ -118,7 +117,6 @@ final class SettingsNavigationTests: XCTestCase {
         workspace.boardChanged(to: boardB)
         XCTAssertEqual(workspace.apSSID, "")
         XCTAssertFalse(workspace.confirmBoardReboot)
-        XCTAssertFalse(workspace.confirmDebugReboot)
         // Not tied to a board.
         XCTAssertEqual(workspace.bluetoothFilter, "rina")
     }

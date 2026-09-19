@@ -37,14 +37,6 @@ public extension BoardConnection {
         return (decoded.uptimeMs ?? 0, rtt)
     }
 
-    /// Sends an arbitrary raw `CMD` JSON payload (already-encoded) and returns
-    /// the raw reply JSON, for the Debug tab's "raw command" panel (C11).
-    /// Bypasses the typed `command(_:)` wrapper so any JSON body is accepted.
-    func sendRawCommand(json: Data) async throws -> Data {
-        let frame = try await send(type: .cmd, payload: json)
-        return frame.payload
-    }
-
     // NOTE (C10 firmware log): no helper is needed here. `BoardConnection`
     // decodes `EV_LOG` (0x94) into `lastLog` and fans it out as
     // `BoardEvent.log` on the public multi-consumer `events()` stream, so
