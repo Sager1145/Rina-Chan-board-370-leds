@@ -55,7 +55,7 @@ struct FaceNameEditorSheet: View {
             }
         }
         .interactiveDismissDisabled(isSubmitting)
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium, .rinaTall])
         .onAppear { nameFocused = true }
     }
 

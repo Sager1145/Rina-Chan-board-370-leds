@@ -58,7 +58,7 @@ struct FaceLibraryView: View {
         let generation: UUID
     }
     private struct NumberingKey: Equatable {
-        let scope: String
+        let scope: String?
         let ids: [String]
     }
 
@@ -87,13 +87,15 @@ struct FaceLibraryView: View {
         if location == .local { return model.isLocalLoaded }
         return isConnected && model.boardGeneration == connection.connectionGeneration
     }
-    /// Display-number scope: "local", the connected board's physical id, or
-    /// (lacking one) a session-scoped fallback that is not reconnect-stable
-    /// but never collides with another board's numbers.
-    private var currentScope: String {
+    /// Display-number scope: "local" or the connected board's physical id.
+    /// `nil` when there is no stable board id to scope by — display numbers
+    /// are then simply not allocated or shown for the session (the row still
+    /// shows "顺序 N"), rather than persisting numbers under a
+    /// reconnect-unstable session key.
+    private var currentScope: String? {
         if location == .local { return "local" }
-        if let boardID = model.boardID ?? connection.boardKey { return "board:\(boardID)" }
-        return "session:\(connection.connectionGeneration.uuidString)"
+        guard let boardID = model.boardID ?? connection.boardKey else { return nil }
+        return "board:\(boardID)"
     }
     private var canManage: Bool { libraryReady && !isWorking && !isLoading }
     private var canReorder: Bool {
@@ -202,6 +204,14 @@ struct FaceLibraryView: View {
             deletion = nil
             showDeleteConfirmation = false
         }
+        .onChange(of: location) { _, _ in
+            model.operationMessage = nil
+            model.errorMessage = nil
+        }
+        .onAppear {
+            model.operationMessage = nil
+            model.errorMessage = nil
+        }
         .task(id: LoadKey(location: location, generation: connection.connectionGeneration)) {
             if location == .local {
                 await model.loadLocalIfNeeded()
@@ -210,7 +220,9 @@ struct FaceLibraryView: View {
             }
         }
         .task(id: NumberingKey(scope: currentScope, ids: confirmedFaces.map(\.id))) {
-            numbers.ensureNumbers(for: confirmedFaces.map(\.id), scope: currentScope)
+            if let scope = currentScope {
+                numbers.ensureNumbers(for: confirmedFaces.map(\.id), scope: scope)
+            }
         }
         .refreshable {
             guard !isWorking, !editMode.isEditing else { return }
@@ -282,7 +294,7 @@ struct FaceLibraryView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(model.displayName(for: face))
                 HStack {
-                    if let serial = numbers.number(for: face.id, scope: currentScope) {
+                    if let scope = currentScope, let serial = numbers.number(for: face.id, scope: scope) {
                         Text("编号 F\(String(format: "%06lld", Int64(serial)))")
                     }
                     Text("顺序 \(rank)")
@@ -401,6 +413,10 @@ struct FaceLibraryView: View {
             cancelOrder(); model.errorMessage = changedBoardMessage; return
         }
         guard draft.map(\.id) != model.faces(in: source).map(\.id) else { cancelOrder(); return }
+        // If another operation is already running, `perform` would silently
+        // no-op and leave the drafted order on screen unwritten. Drop the
+        // draft instead of showing an order that was never persisted.
+        guard !isWorking else { orderDraft = nil; orderLocation = nil; orderGeneration = nil; return }
         let link = connection
         perform {
             _ = await model.reorderFaces(draft, in: source, connection: link)
@@ -430,10 +446,7 @@ struct JSONFileDocument: FileDocument {
 
     init(data: Data) { self.data = data }
     init(configuration: ReadConfiguration) throws {
-        guard let contents = configuration.file.regularFileContents else {
-            throw CocoaError(.fileReadCorruptFile)
-        }
-        data = contents
+        data = configuration.file.regularFileContents ?? Data()
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {

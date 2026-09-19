@@ -216,14 +216,40 @@ final class FaceLibraryModel {
         }
     }
 
-    /// Forces a fresh read of the local library from disk, discarding
-    /// whatever is currently published — used by the saved-list sheet's
-    /// pull-to-refresh / 「刷新」 action on the local library.
-    func reloadLocal() async {
+    /// Forces a fresh read of the local library from disk — used by the
+    /// saved-list sheet's pull-to-refresh / 「刷新」 action on the local
+    /// library. Deliberately does not route through `loadLocalIfNeeded`: a
+    /// failed re-read must never replace a previously loaded
+    /// `localDocument` with bundled defaults (that fallback only applies to
+    /// the very first load, when nothing was loaded before). On failure the
+    /// in-memory document and `isLocalLoaded` are left exactly as they were;
+    /// only `errorMessage` reports the failure.
+    func reloadLocal(bundle: Bundle = .main) async {
         await beginLocalMutation()
         defer { endLocalMutation() }
-        isLocalLoaded = false
-        await loadLocalIfNeeded()
+        isLocalLoading = true
+        defer {
+            isLocalLoading = false
+            let waiters = localLoadWaiters
+            localLoadWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+        }
+        do {
+            if var stored = try await localStore.load() {
+                normalize(&stored, requireDefault: false)
+                localDocument = mergedWithBundledDefaults(stored, bundle: bundle)
+            } else {
+                localDocument = bundledDefaults(bundle: bundle)
+                try await localStore.save(localDocument)
+            }
+            isLocalLoaded = true
+            errorMessage = nil
+        } catch {
+            errorMessage = String(
+                format: NSLocalizedString("无法读取本机表情库：%@", comment: "local face library load failed"),
+                error.localizedDescription
+            )
+        }
     }
 
     /// Invalidates session-owned board data. `boardID` deliberately survives:
@@ -428,6 +454,13 @@ final class FaceLibraryModel {
         await loadLocalIfNeeded()
         await beginLocalMutation()
         defer { endLocalMutation() }
+        // An overwrite target that no longer exists in the local library
+        // (deleted, or from a different library entirely) must fail loudly
+        // instead of silently falling through to a brand-new face.
+        if let replacingID, !localDocument.faces.contains(where: { $0.id == replacingID }) {
+            errorMessage = NSLocalizedString("原表情已不存在，请另存为新表情", comment: "local overwrite target no longer exists")
+            return .failed
+        }
         let existingIndex = replacingID.flatMap { id in
             localDocument.faces.firstIndex { $0.id == id && !isProtected($0) }
         }

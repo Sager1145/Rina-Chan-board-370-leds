@@ -24154,6 +24154,28 @@
           }
         }
       }
+    },
+    "原表情已不存在，请另存为新表情" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The original face no longer exists; save as a new one"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元の表情は存在しません。新しい表情として保存してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原表情已不存在，請另存為新表情"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

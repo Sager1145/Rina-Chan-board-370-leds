@@ -1065,3 +1065,4 @@
 {"k":"编辑内容已改变，请关闭后重新保存","en":"The edit has changed; close this and save again","hant":"編輯內容已變更，請關閉後重新儲存","ja":"編集内容が変更されました。閉じてから保存し直してください"}
 {"k":"表情已不存在，请刷新列表","en":"This face no longer exists; refresh the list","hant":"表情已不存在，請重新整理清單","ja":"この表情は存在しません。リストを更新してください"}
 {"k":"顺序 %lld","en":"Rank %lld","hant":"順序 %lld","ja":"順序 %lld"}
+{"k":"原表情已不存在，请另存为新表情","en":"The original face no longer exists; save as a new one","hant":"原表情已不存在，請另存為新表情","ja":"元の表情は存在しません。新しい表情として保存してください"}

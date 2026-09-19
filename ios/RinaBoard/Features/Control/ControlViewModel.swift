@@ -808,11 +808,16 @@ final class ControlViewModel {
               selectedCall == beforeCall, editingFaceId == beforeID,
               editingLocation == beforeLocation, editingBoardID == beforeBoardID,
               draftBoardID == beforeDraftBoardID, editingBoardGeneration == beforeGeneration else { return true }
-        editingFaceId = savedID
-        editingLocation = location
-        editingBoardID = location == .board ? destination.boardID : nil
-        editingBoardGeneration = location == .board ? destination.generation : nil
-        editingFaceCanOverwrite = savedID != nil
+        // `.saved(id: nil)` keeps the old `didSave` semantics: the editor's
+        // target (id/location/board/overwrite) is left exactly as it was,
+        // only `saveName` follows the save.
+        if let savedID {
+            editingFaceId = savedID
+            editingLocation = location
+            editingBoardID = location == .board ? destination.boardID : nil
+            editingBoardGeneration = location == .board ? destination.generation : nil
+            editingFaceCanOverwrite = true
+        }
         saveName = clean
         scheduleDraftSave()
         return true

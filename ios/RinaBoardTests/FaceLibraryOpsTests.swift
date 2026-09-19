@@ -85,8 +85,19 @@ final class FaceLibraryOpsTests: XCTestCase {
         XCTAssertTrue(editor.canOverwriteEditingFace)
     }
 
+    /// Seeds the store with a *default*-type face whose id is one of the
+    /// bundle's real presets, interleaved between two user faces, so the
+    /// reorder + fresh-load round trip actually exercises the preset/user
+    /// interleaving `mergedWithBundledDefaults` is responsible for
+    /// preserving — not just two user faces, which never touch that path.
     func testReorderFacesLocalInterleavedPersistsAcrossFreshLoad() async throws {
-        let store = OpsTestLocalFaceStore(document: FaceDocument())
+        guard let bundledDefault = (try? RinaResources.defaultFaces(bundle: .main))?
+            .faces.first(where: { $0.type == .default }) else {
+            throw XCTSkip("Bundled default faces are not available in this test host")
+        }
+        var seeded = FaceDocument()
+        seeded.faces = [bundledDefault]
+        let store = OpsTestLocalFaceStore(document: seeded)
         let library = FaceLibraryModel(localStore: store)
         let connection = BoardConnection()
         await library.loadLocalIfNeeded()
@@ -94,8 +105,16 @@ final class FaceLibraryOpsTests: XCTestCase {
         _ = await library.saveLocal(payload(name: "User Two", led: 2))
 
         let all = library.faces(in: .local)
-        XCTAssertGreaterThanOrEqual(all.count, 2, "Expects at least the two user faces just saved")
-        let interleaved = Array(all.reversed())
+        XCTAssertGreaterThanOrEqual(all.count, 3, "Expects the seeded default plus the two user faces just saved")
+        guard let defaultFace = all.first(where: { $0.id == bundledDefault.id && $0.type == .default }) else {
+            return XCTFail("The seeded default must survive the merge with bundled defaults")
+        }
+        let userFaces = all.filter { $0.type != .default }
+        XCTAssertGreaterThanOrEqual(userFaces.count, 2)
+        // The default must actually sit *between* two user faces, not merely
+        // be reversible as one contiguous block against another.
+        let interleaved = [userFaces[1], defaultFace] + userFaces.dropFirst(2) + [userFaces[0]]
+        XCTAssertEqual(Set(interleaved.map(\.id)), Set(all.map(\.id)))
         let reordered = await library.reorderFaces(interleaved, in: .local, connection: connection)
         XCTAssertTrue(reordered)
         XCTAssertEqual(library.faces(in: .local).map(\.id), interleaved.map(\.id))
@@ -104,7 +123,8 @@ final class FaceLibraryOpsTests: XCTestCase {
         // interleaving that `mergedWithBundledDefaults` sees on every launch.
         let reloaded = FaceLibraryModel(localStore: store)
         await reloaded.loadLocalIfNeeded()
-        XCTAssertEqual(reloaded.faces(in: .local).map(\.id), interleaved.map(\.id))
+        XCTAssertEqual(reloaded.faces(in: .local).map(\.id), interleaved.map(\.id),
+                       "The exact preset/user order must survive a fresh load")
     }
 
     func testReorderFacesRejectsPartialList() async throws {
@@ -184,6 +204,55 @@ final class FaceLibraryOpsTests: XCTestCase {
                        "A rejected name must not create a new local entry")
     }
 
+    /// `reloadLocal()` must never replace a previously loaded `localDocument`
+    /// with bundled defaults just because the re-read failed: the in-memory
+    /// faces survive, and a following mutation (rename) writes them back —
+    /// not a presets-only document.
+    func testReloadLocalFailureKeepsFacesAndDoesNotWritePresetsOnlyFile() async throws {
+        let store = ThrowOnNthLoadLocalFaceStore(document: FaceDocument(), throwingOnLoad: 2)
+        let library = FaceLibraryModel(localStore: store)
+        let connection = BoardConnection()
+        await library.loadLocalIfNeeded()
+
+        guard case .saved(let id?) = await library.saveLocal(payload(name: "Alpha", led: 1)),
+              let created = library.face(id: id, in: .local) else {
+            return XCTFail("Expected a locally saved face")
+        }
+        let beforeReload = library.faces(in: .local)
+
+        // The second `load()` call (inside `reloadLocal`) throws.
+        await library.reloadLocal()
+        XCTAssertNotNil(library.errorMessage)
+        XCTAssertTrue(library.isLocalLoaded, "A failed re-read must not un-load a library that was already loaded")
+        XCTAssertEqual(library.faces(in: .local).map(\.id), beforeReload.map(\.id),
+                       "A failed re-read must keep the previously loaded faces, not fall back to bundled defaults")
+        XCTAssertEqual(library.face(id: id, in: .local)?.name, created.name)
+
+        // A following mutation must write back the real (in-memory) library,
+        // not silently persist a presets-only document to disk.
+        let renamed = await library.rename(created, to: "Alpha Renamed", in: .local, connection: connection)
+        XCTAssertTrue(renamed)
+        let onDisk = await store.currentDocument()
+        XCTAssertNotNil(onDisk?.faces.first { $0.id == id && $0.name == "Alpha Renamed" },
+                        "The rename must persist the user face, not a presets-only document")
+    }
+
+    /// An overwrite target that no longer exists in the local library (e.g.
+    /// already deleted) must fail loudly instead of silently creating a new
+    /// face under a fresh id.
+    func testLocalOverwriteMissingTargetFailsInsteadOfCreatingNew() async throws {
+        let store = OpsTestLocalFaceStore(document: FaceDocument())
+        let library = FaceLibraryModel(localStore: store)
+        await library.loadLocalIfNeeded()
+        let countBefore = library.faces(in: .local).count
+
+        let outcome = await library.saveLocal(payload(name: "Ghost", led: 1), replacingID: "does-not-exist")
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertNotNil(library.errorMessage, "A missing overwrite target must report a failure message")
+        XCTAssertEqual(library.faces(in: .local).count, countBefore,
+                       "A missing overwrite target must not silently create a new face")
+    }
+
     private func payload(name: String, led: Int) -> FaceUpsertPayload {
         var frame = PackedFrame()
         frame.set(led)
@@ -241,4 +310,31 @@ private actor OpsTestLocalFaceStore: LocalFaceStoring {
     init(document: FaceDocument?) { self.document = document }
     func load() async throws -> FaceDocument? { document }
     func save(_ document: FaceDocument) async throws { self.document = document }
+}
+
+private enum OpsTestLocalFaceStoreError: Error {
+    case loadFailed
+}
+
+/// Throws from `load()` on the Nth call (1-based) and succeeds on every
+/// other call — used to make `reloadLocal()`'s second read fail while the
+/// first (via `loadLocalIfNeeded`) succeeds.
+private actor ThrowOnNthLoadLocalFaceStore: LocalFaceStoring {
+    private var document: FaceDocument?
+    private let throwingOnLoad: Int
+    private var loadCount = 0
+
+    init(document: FaceDocument?, throwingOnLoad: Int) {
+        self.document = document
+        self.throwingOnLoad = throwingOnLoad
+    }
+
+    func load() async throws -> FaceDocument? {
+        loadCount += 1
+        if loadCount == throwingOnLoad { throw OpsTestLocalFaceStoreError.loadFailed }
+        return document
+    }
+
+    func save(_ document: FaceDocument) async throws { self.document = document }
+    func currentDocument() -> FaceDocument? { document }
 }
