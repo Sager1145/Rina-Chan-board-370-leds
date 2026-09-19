@@ -16,6 +16,7 @@ import RinaCore
 /// (under every page's board preview, `BoardSplitPage`).
 struct BoardControlCenterView: View {
     @Environment(BoardConnection.self) private var connection
+    @Environment(AppRouter.self) private var router
     @Environment(BoardControlCenterModel.self) private var model
     @Environment(FaceLibraryModel.self) private var faceLibrary
     @Environment(BoardStore.self) private var boardStore
@@ -39,7 +40,6 @@ struct BoardControlCenterView: View {
     /// a `sheet(item:)`, not `sheet(isPresented:)` gated on re-reading
     /// `controlTarget` — so the target menu changing while either sheet is
     /// open can't blank its content.
-    @State private var playingGroupTarget: GroupSheetTarget?
     @State private var editingGroupTarget: GroupSheetTarget?
     /// The id `newGroupEditorTarget` was last set to, read back by
     /// `cleanupNewGroupIfUnused()` after the sheet's `onDismiss` — by then
@@ -125,7 +125,7 @@ struct BoardControlCenterView: View {
     }
 
     /// A group's id captured at the moment a sheet was presented — see the
-    /// `newGroupEditorTarget`/`playingGroupTarget`/`editingGroupTarget`
+    /// `newGroupEditorTarget`/`editingGroupTarget`
     /// declarations above (B1).
     private struct GroupSheetTarget: Identifiable {
         let id: UUID
@@ -149,13 +149,10 @@ struct BoardControlCenterView: View {
                 NavigationStack { BoardGroupListView().sheetDoneButton() }
             }
             .sheet(item: $newGroupEditorTarget, onDismiss: cleanupNewGroupIfUnused) { target in
-                NavigationStack { BoardGroupEditorView(groupID: target.id).sheetDoneButton() }
-            }
-            .sheet(item: $playingGroupTarget) { target in
-                NavigationStack { BoardGroupPlayView(groupID: target.id).sheetDoneButton() }
+                NavigationStack { BoardGroupEditorView(groupID: target.id, closesOnPlay: true).sheetDoneButton() }
             }
             .sheet(item: $editingGroupTarget) { target in
-                NavigationStack { BoardGroupEditorView(groupID: target.id).sheetDoneButton() }
+                NavigationStack { BoardGroupEditorView(groupID: target.id, closesOnPlay: true).sheetDoneButton() }
             }
     }
 
@@ -547,10 +544,10 @@ struct BoardControlCenterView: View {
                 .disabled(group.members.isEmpty)
 
                 Button {
-                    // Captured now, not re-read from `controlTarget` once the
-                    // sheet is already up (B1) — the id this button meant
-                    // when pressed, even if the target menu changes later.
-                    playingGroupTarget = GroupSheetTarget(id: group.id)
+                    // This group is already the control target, which is
+                    // what the Text tab plays to.
+                    router.selectedTab = .text
+                    onDismiss?()
                 } label: {
                     Label("多板播放", systemImage: "play.circle")
                 }

@@ -2,14 +2,21 @@ import SwiftUI
 import RinaCore
 
 /// Rename, reorder, gap, and membership editor for one `BoardGroup`
-/// (BOARD_GROUP_SPEC.md §3). Pushes `BoardGroupPlayView` for the play panel.
+/// (BOARD_GROUP_SPEC.md §3). Playing is the Text tab's job; this page only
+/// points the control target at the group and goes there.
 struct BoardGroupEditorView: View {
     let groupID: UUID
+    /// Set when shown in the Control Center's sheet, which would otherwise
+    /// stay up over the Text tab.
+    var closesOnPlay = false
 
     @Environment(BoardGroupStore.self) private var store
     @Environment(BoardGroupCoordinator.self) private var coordinator
     @Environment(BoardSessionStore.self) private var sessions
+    @Environment(AppRouter.self) private var router
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.editMode) private var editMode
+    @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @State private var nameDraft = ""
@@ -133,11 +140,16 @@ struct BoardGroupEditorView: View {
                 }
                 .disabled(group.members.isEmpty)
 
-                NavigationLink {
-                    BoardGroupPlayView(groupID: group.id)
+                // Playback lives on the Text tab, which already drives the
+                // targeted group; this only points it at this group.
+                Button {
+                    controlTargetGroupIDStorage = ControlTarget.group(group.id).storedGroupIDString
+                    router.selectedTab = .text
+                    if closesOnPlay { dismiss() }
                 } label: {
-                    Label("播放", systemImage: "play.circle")
+                    Label("在文字页播放此组", systemImage: "play.circle")
                 }
+                .disabled(group.members.isEmpty)
             }
         }
         .rinaTranslucentRows()
@@ -357,4 +369,5 @@ private extension Array {
     .environment(store)
     .environment(BoardGroupCoordinator(store: store, sessions: BoardSessionStore()))
     .environment(BoardSessionStore())
+    .environment(AppRouter())
 }
