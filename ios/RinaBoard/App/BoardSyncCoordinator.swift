@@ -195,7 +195,7 @@ final class BoardSyncCoordinator {
                 await deps.textModel.restoreOnConnect(connection: connection)
             case .lipSync:
                 guard let streamID else {
-                    deps.lipSyncModel.errorMessage = "面板未提供原同步记录，无法自动恢复嘴形同步。"
+                    deps.lipSyncModel.errorMessage = String(localized: "面板未提供原同步记录，无法自动恢复嘴形同步。")
                     break
                 }
                 await deps.lipSyncModel.start(connection: connection, resumingStreamID: streamID) { [weak self] in
@@ -206,7 +206,7 @@ final class BoardSyncCoordinator {
             case .performance:
                 guard let streamID else {
                     deps.performance.pause()
-                    deps.performance.errorMessage = "面板未提供原播放记录，无法自动恢复演出。"
+                    deps.performance.errorMessage = String(localized: "面板未提供原播放记录，无法自动恢复演出。")
                     break
                 }
                 await deps.performance.restorePlaybackFromBoard(connection: connection,
@@ -220,7 +220,7 @@ final class BoardSyncCoordinator {
             case .video:
                 guard let streamID else {
                     deps.video.pause()
-                    deps.video.errorMessage = "面板未提供原播放记录，无法自动恢复视频。"
+                    deps.video.errorMessage = String(localized: "面板未提供原播放记录，无法自动恢复视频。")
                     break
                 }
                 await deps.video.restorePlaybackFromBoard(connection: connection,

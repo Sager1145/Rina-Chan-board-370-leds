@@ -57,8 +57,9 @@ final class LipSyncLifecycleTests: XCTestCase {
     }
 
     func testCalibrationDistinguishesMissingBuffersFromSilentPCM() async throws {
-        for (samples, expected) in [([Float](), "麦克风未传入音频数据"),
-                                     ([Float](repeating: 0, count: 4096), "麦克风传入的音频全部为静音")] {
+        // Looked up the way the model does, so the simulator's language does not matter.
+        for (samples, expected) in [([Float](), String(localized: "麦克风未传入音频数据，请检查输入设备后重新校准")),
+                                     ([Float](repeating: 0, count: 4096), String(localized: "麦克风传入的音频全部为静音，请检查输入设备是否被静音"))] {
             let capture = TestMicrophone()
             capture.samples = samples
             let model = LipSyncModel(capture: capture, permissionRequest: { .granted })
@@ -67,7 +68,7 @@ final class LipSyncLifecycleTests: XCTestCase {
             while model.isCalibrating && ContinuousClock.now < deadline {
                 try await Task.sleep(for: .milliseconds(10))
             }
-            XCTAssertTrue(model.errorMessage?.hasPrefix(expected) == true, model.errorMessage ?? "No error")
+            XCTAssertEqual(model.errorMessage, expected)
             XCTAssertFalse(model.isCalibrating)
             model.cancelCalibration()
         }

@@ -29,12 +29,12 @@ public final class BoardGroupCoordinator {
 
         public var errorDescription: String? {
             switch self {
-            case .tooFewMembers: return "至少需要 2 块板"
+            case .tooFewMembers: return String(localized: "至少需要 2 块板")
             case .offlineMembers(let names):
-                return "有板子离线：\(names.joined(separator: "、"))"
+                return String(localized: "有板子离线：\(names.joined(separator: "、"))")
             case .unsupportedMembers(let names):
-                return "以下面板固件过旧，不支持多板组：\(names.joined(separator: "、"))"
-            case .aborted: return "多板组已变化，播放已取消"
+                return String(localized: "以下面板固件过旧，不支持多板组：\(names.joined(separator: "、"))")
+            case .aborted: return String(localized: "多板组已变化，播放已取消")
             case .buildFailed(let message): return message
             }
         }
@@ -209,7 +209,7 @@ public final class BoardGroupCoordinator {
 
     public static func loadDefaultFont() throws -> ArkPixelFont {
         guard let url = Bundle.main.url(forResource: "ark12", withExtension: "json") else {
-            throw RinaTransportError.underlying("字体资源缺失")
+            throw RinaTransportError.underlying(String(localized: "字体资源缺失"))
         }
         return try ArkPixelFont.loadBundled(url: url)
     }

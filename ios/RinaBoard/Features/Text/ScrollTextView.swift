@@ -145,7 +145,7 @@ struct ScrollTextView: View {
                             do {
                                 try await groupCoordinator.swapMembers(group: group, boardA, boardB)
                             } catch {
-                                model.errorMessage = "调整顺序失败：\(error.localizedDescription)"
+                                model.errorMessage = String(localized: "调整顺序失败：\(error.localizedDescription)")
                             }
                         }
                     }

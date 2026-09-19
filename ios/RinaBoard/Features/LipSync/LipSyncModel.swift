@@ -320,7 +320,7 @@ final class LipSyncModel {
                shouldStart: @MainActor () async -> Bool = { true }) async {
         guard !isRunning, !isCalibrating, !isStarting else { return }
         if let resumingStreamID, resumingStreamID != streamID {
-            errorMessage = "无法恢复原来的嘴形同步：本机没有对应的同步记录。"
+            errorMessage = String(localized: "无法恢复原来的嘴形同步：本机没有对应的同步记录。")
             return
         }
         // `requestPermission` suspends, and the button is still live across
@@ -328,7 +328,7 @@ final class LipSyncModel {
         // `!isRunning` guard too and install a second loop over the first —
         // two analysis loops at twice the configured rate, the first one
         // leaked because only the newest `loopTask` is ever cancelled.
-        guard connection.connectionState == .connected else { errorMessage = "请先连接璃奈板"; return }
+        guard connection.connectionState == .connected else { errorMessage = String(localized: "请先连接璃奈板"); return }
         let attempt = UUID()
         startGeneration = attempt
         isStarting = true
@@ -443,7 +443,7 @@ final class LipSyncModel {
         guard !window.samples.isEmpty else {
             if let since = awaitingAudioSince, Date().timeIntervalSince(since) >= 2 {
                 stop(connection: connection)
-                errorMessage = "麦克风未传入音频数据，请检查输入设备后重新开始同步"
+                errorMessage = String(localized: "麦克风未传入音频数据，请检查输入设备后重新开始同步")
             }
             return
         }
@@ -596,9 +596,9 @@ final class LipSyncModel {
 
             guard vectors.count >= max(3, steps / 4) else {
                 if !receivedSamples {
-                    self.errorMessage = "麦克风未传入音频数据，请检查输入设备后重新校准"
+                    self.errorMessage = String(localized: "麦克风未传入音频数据，请检查输入设备后重新校准")
                 } else if !receivedSignal {
-                    self.errorMessage = "麦克风传入的音频全部为静音，请检查输入设备是否被静音"
+                    self.errorMessage = String(localized: "麦克风传入的音频全部为静音，请检查输入设备是否被静音")
                 } else {
                     self.errorMessage = String(format: "声音不足：最高 %.0f dB，识别阈值 %.0f dB。请降低阈值或靠近麦克风再试一次",
                                                Double(loudestDb), Double(self.sensitivityDb))

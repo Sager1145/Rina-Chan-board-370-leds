@@ -295,7 +295,7 @@ struct BoardGroupEditorView: View {
             try store.addMember(groupID: group.id, member: member)
             isPresentingAddSheet = false
         } catch {
-            errorMessage = "添加失败：\(error)"
+            errorMessage = String(localized: "添加失败：\(String(describing: error))")
         }
     }
 
@@ -322,7 +322,7 @@ struct BoardGroupEditorView: View {
                 do {
                     try store.setGap(groupID: group.id, afterSlot: slot, columns: newValue)
                 } catch {
-                    errorMessage = "设置间隔失败：\(error)"
+                    errorMessage = String(localized: "设置间隔失败：\(String(describing: error))")
                 }
             }
         )

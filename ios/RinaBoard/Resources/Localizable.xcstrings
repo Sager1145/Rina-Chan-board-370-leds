@@ -24176,6 +24176,314 @@
           }
         }
       }
+    },
+    "至少需要 2 块板" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At least two boards are required."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2 台以上のボードが必要です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "至少需要 2 塊板"
+          }
+        }
+      }
+    },
+    "有板子离线：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boards offline: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続されていないボード：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有板子離線：%@"
+          }
+        }
+      }
+    },
+    "以下面板固件过旧，不支持多板组：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These boards have outdated firmware that does not support board groups: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次のボードはファームウェアが古いため、ボードグループに対応していません：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以下面板的韌體版本過舊，不支援多板組：%@"
+          }
+        }
+      }
+    },
+    "多板组已变化，播放已取消" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board group changed. Playback was canceled."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードグループが変更されたため、再生をキャンセルしました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多板組已變更，播放已取消"
+          }
+        }
+      }
+    },
+    "调整顺序失败：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not reorder the boards: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "並べ替えに失敗しました：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "調整順序失敗：%@"
+          }
+        }
+      }
+    },
+    "添加失败：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not add the board: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "追加に失敗しました：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加入失敗：%@"
+          }
+        }
+      }
+    },
+    "设置间隔失败：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not set the gap: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "間隔を設定できませんでした：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定間隔失敗：%@"
+          }
+        }
+      }
+    },
+    "面板未提供原同步记录，无法自动恢复嘴形同步。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board did not provide the original sync record, so Lip Sync cannot resume automatically."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードから元の同期記録が得られなかったため、リップシンクを自動で再開できません。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板未提供原本的同步記錄，無法自動恢復嘴型同步。"
+          }
+        }
+      }
+    },
+    "面板未提供原播放记录，无法自动恢复演出。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board did not provide the original playback record, so the performance cannot resume automatically."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードから元の再生記録が得られなかったため、ライブを自動で再開できません。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板未提供原本的播放記錄，無法自動恢復演出。"
+          }
+        }
+      }
+    },
+    "面板未提供原播放记录，无法自动恢复视频。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board did not provide the original playback record, so the video cannot resume automatically."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードから元の再生記録が得られなかったため、ビデオを自動で再開できません。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板未提供原本的播放記錄，無法自動恢復影片。"
+          }
+        }
+      }
+    },
+    "无法恢复原来的嘴形同步：本机没有对应的同步记录。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cannot resume the previous Lip Sync: this device has no matching sync record."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以前のリップシンクを再開できません。この端末に対応する同期記録がありません。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法恢復原本的嘴型同步：本機沒有對應的同步記錄。"
+          }
+        }
+      }
+    },
+    "麦克风未传入音频数据，请检查输入设备后重新开始同步" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone is not delivering audio. Check the input device, then start syncing again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マイクから音声が届いていません。入力デバイスを確認してから、もう一度同期を開始してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "麥克風未傳入音訊資料，請檢查輸入裝置後重新開始同步"
+          }
+        }
+      }
+    },
+    "麦克风未传入音频数据，请检查输入设备后重新校准" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone is not delivering audio. Check the input device, then calibrate again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マイクから音声が届いていません。入力デバイスを確認してから、もう一度キャリブレーションしてください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "麥克風未傳入音訊資料，請檢查輸入裝置後重新校準"
+          }
+        }
+      }
+    },
+    "麦克风传入的音频全部为静音，请检查输入设备是否被静音" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The microphone is delivering only silence. Check whether the input device is muted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マイクからの音声がすべて無音です。入力デバイスがミュートされていないか確認してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "麥克風傳入的音訊全部為靜音，請檢查輸入裝置是否被靜音"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

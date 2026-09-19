@@ -1066,3 +1066,17 @@
 {"k":"表情已不存在，请刷新列表","en":"This face no longer exists; refresh the list","hant":"表情已不存在，請重新整理清單","ja":"この表情は存在しません。リストを更新してください"}
 {"k":"顺序 %lld","en":"Rank %lld","hant":"順序 %lld","ja":"順序 %lld"}
 {"k":"原表情已不存在，请另存为新表情","en":"The original face no longer exists; save as a new one","hant":"原表情已不存在，請另存為新表情","ja":"元の表情は存在しません。新しい表情として保存してください"}
+{"k":"至少需要 2 块板","en":"At least two boards are required.","hant":"至少需要 2 塊板","ja":"2 台以上のボードが必要です"}
+{"k":"有板子离线：%@","en":"Boards offline: %@","hant":"有板子離線：%@","ja":"接続されていないボード：%@"}
+{"k":"以下面板固件过旧，不支持多板组：%@","en":"These boards have outdated firmware that does not support board groups: %@","hant":"以下面板的韌體版本過舊，不支援多板組：%@","ja":"次のボードはファームウェアが古いため、ボードグループに対応していません：%@"}
+{"k":"多板组已变化，播放已取消","en":"The board group changed. Playback was canceled.","hant":"多板組已變更，播放已取消","ja":"ボードグループが変更されたため、再生をキャンセルしました"}
+{"k":"调整顺序失败：%@","en":"Could not reorder the boards: %@","hant":"調整順序失敗：%@","ja":"並べ替えに失敗しました：%@"}
+{"k":"添加失败：%@","en":"Could not add the board: %@","hant":"加入失敗：%@","ja":"追加に失敗しました：%@"}
+{"k":"设置间隔失败：%@","en":"Could not set the gap: %@","hant":"設定間隔失敗：%@","ja":"間隔を設定できませんでした：%@"}
+{"k":"面板未提供原同步记录，无法自动恢复嘴形同步。","en":"The board did not provide the original sync record, so Lip Sync cannot resume automatically.","hant":"面板未提供原本的同步記錄，無法自動恢復嘴型同步。","ja":"ボードから元の同期記録が得られなかったため、リップシンクを自動で再開できません。"}
+{"k":"面板未提供原播放记录，无法自动恢复演出。","en":"The board did not provide the original playback record, so the performance cannot resume automatically.","hant":"面板未提供原本的播放記錄，無法自動恢復演出。","ja":"ボードから元の再生記録が得られなかったため、ライブを自動で再開できません。"}
+{"k":"面板未提供原播放记录，无法自动恢复视频。","en":"The board did not provide the original playback record, so the video cannot resume automatically.","hant":"面板未提供原本的播放記錄，無法自動恢復影片。","ja":"ボードから元の再生記録が得られなかったため、ビデオを自動で再開できません。"}
+{"k":"无法恢复原来的嘴形同步：本机没有对应的同步记录。","en":"Cannot resume the previous Lip Sync: this device has no matching sync record.","hant":"無法恢復原本的嘴型同步：本機沒有對應的同步記錄。","ja":"以前のリップシンクを再開できません。この端末に対応する同期記録がありません。"}
+{"k":"麦克风未传入音频数据，请检查输入设备后重新开始同步","en":"The microphone is not delivering audio. Check the input device, then start syncing again.","hant":"麥克風未傳入音訊資料，請檢查輸入裝置後重新開始同步","ja":"マイクから音声が届いていません。入力デバイスを確認してから、もう一度同期を開始してください"}
+{"k":"麦克风未传入音频数据，请检查输入设备后重新校准","en":"The microphone is not delivering audio. Check the input device, then calibrate again.","hant":"麥克風未傳入音訊資料，請檢查輸入裝置後重新校準","ja":"マイクから音声が届いていません。入力デバイスを確認してから、もう一度キャリブレーションしてください"}
+{"k":"麦克风传入的音频全部为静音，请检查输入设备是否被静音","en":"The microphone is delivering only silence. Check whether the input device is muted.","hant":"麥克風傳入的音訊全部為靜音，請檢查輸入裝置是否被靜音","ja":"マイクからの音声がすべて無音です。入力デバイスがミュートされていないか確認してください"}
