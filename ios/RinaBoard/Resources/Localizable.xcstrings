@@ -265,7 +265,27 @@
       }
     },
     "%1$lld / %2$lld 块同步" : {
-      "comment" : "group boards phase-locked to the group clock"
+      "comment" : "group boards phase-locked to the group clock",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld / %2$lld boards in sync"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld / %2$lld 台が同期中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld / %2$lld 塊同步"
+          }
+        }
+      }
     },
     "%lld" : {
       "shouldTranslate" : false
@@ -285,7 +305,7 @@
       "shouldTranslate" : false
     },
     "%lld fps" : {
-
+      "shouldTranslate" : false
     },
     "%lld µs" : {
       "shouldTranslate" : false
@@ -315,10 +335,28 @@
     },
     "%lld 块面板 · %@" : {
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld boards · %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボード %lld 台 · %@"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$lld 块面板 · %2$@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 塊面板 · %@"
           }
         }
       }
@@ -342,7 +380,8 @@
             "value" : "%1$lld. %2$@"
           }
         }
-      }
+      },
+      "shouldTranslate" : false
     },
     "%lld/1000 字符" : {
       "extractionState" : "stale",
@@ -1646,7 +1685,26 @@
       }
     },
     "主控" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Primary"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メイン"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主控"
+          }
+        }
+      }
     },
     "主机名或 IP" : {
       "extractionState" : "stale",
@@ -2887,7 +2945,26 @@
       }
     },
     "停止识别编号" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop showing numbers"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "番号表示を止める"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止顯示編號"
+          }
+        }
+      }
     },
     "充电电压" : {
       "localizations" : {
@@ -3481,7 +3558,26 @@
       }
     },
     "切回单板" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back to single board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 台に戻す"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "切回單板"
+          }
+        }
+      }
     },
     "切换到 Wi-Fi" : {
       "localizations" : {
@@ -3595,7 +3691,26 @@
       }
     },
     "创建" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作成"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "建立"
+          }
+        }
+      }
     },
     "创建副本" : {
       "extractionState" : "stale",
@@ -4191,7 +4306,26 @@
       }
     },
     "单板" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Single board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 台"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "單板"
+          }
+        }
+      }
     },
     "单步" : {
       "comment" : "scroll phase stepping",
@@ -5555,7 +5689,26 @@
       }
     },
     "右移" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move right"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右へ移動"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右移"
+          }
+        }
+      }
     },
     "同步" : {
       "extractionState" : "stale",
@@ -6666,25 +6819,160 @@
       }
     },
     "多板播放" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play on group"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "グループで再生"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多板播放"
+          }
+        }
+      }
     },
     "多板组" : {
-      "comment" : "output source"
+      "comment" : "output source",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Board groups"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードグループ"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多板組"
+          }
+        }
+      }
     },
     "多板组最多支持 5 块面板，已达到上限。" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A board group can have up to 5 boards. The limit has been reached."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードグループは最大 5 台までです。上限に達しました。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多板組最多支援 5 塊面板，已達上限。"
+          }
+        }
+      }
     },
     "多板组已删除" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Board group deleted"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードグループを削除しました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多板組已刪除"
+          }
+        }
+      }
     },
     "多板组已暂停" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Board group paused"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードグループは一時停止中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多板組已暫停"
+          }
+        }
+      }
     },
     "多板组控制" : {
-      "comment" : "output source"
+      "comment" : "output source",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Board group control"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードグループの操作"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多板組控制"
+          }
+        }
+      }
     },
     "多板组播放中" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Board group playing"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードグループで再生中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多板組播放中"
+          }
+        }
+      }
     },
     "女声" : {
       "comment" : "lip sync preset: female voice",
@@ -8029,7 +8317,26 @@
       }
     },
     "左移" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move left"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左へ移動"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左移"
+          }
+        }
+      }
     },
     "已从本机删除表情" : {
       "extractionState" : "stale",
@@ -8785,7 +9092,26 @@
       }
     },
     "已达到 5 块面板上限。" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The 5-board limit has been reached."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上限の 5 台に達しました。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已達 5 塊面板上限。"
+          }
+        }
+      }
     },
     "已连接" : {
       "comment" : "connection state connected\ndebug connection state",
@@ -9751,7 +10077,26 @@
       }
     },
     "当前面板不在组内，未同步" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The current board isn’t in this group, so it isn’t synced"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在のボードはグループに含まれていないため、同期されません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目前面板不在組內，未同步"
+          }
+        }
+      }
     },
     "当前面板播放预览 · 新草稿尚未发送" : {
       "extractionState" : "stale",
@@ -9777,7 +10122,26 @@
       }
     },
     "循环" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loop"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ループ"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "循環"
+          }
+        }
+      }
     },
     "循环播放" : {
       "localizations" : {
@@ -10618,7 +10982,26 @@
       }
     },
     "拼接" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stitch"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連結"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拼接"
+          }
+        }
+      }
     },
     "指令名或 JSON" : {
       "localizations" : {
@@ -10778,7 +11161,26 @@
       }
     },
     "控制对象" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Target"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "操作対象"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "控制對象"
+          }
+        }
+      }
     },
     "控制对象 · %lld 块在线" : {
       "extractionState" : "stale",
@@ -10806,10 +11208,28 @@
     "控制对象：多板组 %@，%lld/%lld 在线" : {
       "comment" : "control target accessibility label for a group",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Target: board group %@, %lld/%lld online"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "操作対象：ボードグループ %@、%lld/%lld 台オンライン"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "控制对象：多板组 %1$@，%2$lld/%3$lld 在线"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "控制對象：多板組 %@，%lld/%lld 在線"
           }
         }
       }
@@ -11027,7 +11447,26 @@
       }
     },
     "播放中不能修改布局，请先停止。" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The layout can’t be changed while playing. Stop first."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再生中はレイアウトを変更できません。先に停止してください。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放中無法修改版面，請先停止。"
+          }
+        }
+      }
     },
     "播放进度" : {
       "localizations" : {
@@ -11143,6 +11582,12 @@
     },
     "文字" : {
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -11295,10 +11740,48 @@
       }
     },
     "新建多板组" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New board group"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいボードグループ"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新增多板組"
+          }
+        }
+      }
     },
     "新建多板组…" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New board group…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいボードグループ…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新增多板組…"
+          }
+        }
+      }
     },
     "新表情" : {
       "comment" : "new face editor heading",
@@ -12520,7 +13003,27 @@
       }
     },
     "未能同步表情" : {
-      "comment" : "group control sink face sync failed"
+      "comment" : "group control sink face sync failed",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t sync the expression"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情を同期できませんでした"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法同步表情"
+          }
+        }
+      }
     },
     "未连接" : {
       "comment" : "connection state disconnected\ndebug connection state",
@@ -13032,10 +13535,28 @@
     },
     "板 %lld，%@，%@" : {
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Board %lld, %@, %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボード %lld、%@、%@"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "板 %1$lld，%2$@，%3$@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "板 %lld，%@，%@"
           }
         }
       }
@@ -13852,7 +14373,26 @@
       }
     },
     "正在接管上次的多板滚动" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Taking over the previous group scroll"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回のグループスクロールを引き継いでいます"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在接管上次的多板捲動"
+          }
+        }
+      }
     },
     "正在搜索…" : {
       "localizations" : {
@@ -14336,7 +14876,26 @@
       }
     },
     "没有可添加的已连接面板。先在连接设置里连接更多面板。" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No connected boards to add. Connect more boards in the connection settings first."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "追加できる接続済みのボードがありません。先に接続設定でボードを追加で接続してください。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有可加入的已連線面板。請先在連線設定中連接更多面板。"
+          }
+        }
+      }
     },
     "没有搜索结果" : {
       "comment" : "face search has no results",
@@ -14478,7 +15037,26 @@
       }
     },
     "添加板子" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードを追加"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加入板子"
+          }
+        }
+      }
     },
     "添加璃奈板" : {
       "localizations" : {
@@ -16710,10 +17288,28 @@
     },
     "第 %lld、%lld 块面板之间：%lld 列" : {
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Between boards %lld and %lld: %lld columns"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボード %lld と %lld の間：%lld 列"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "第 %1$lld、%2$lld 块面板之间：%3$lld 列"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "第 %lld、%lld 塊面板之間：%lld 列"
           }
         }
       }
@@ -16765,7 +17361,26 @@
       }
     },
     "管理多板组…" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage board groups…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードグループを管理…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理多板組…"
+          }
+        }
+      }
     },
     "管理表情" : {
       "extractionState" : "stale",
@@ -17013,7 +17628,26 @@
       }
     },
     "组名称" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Group name"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "グループ名"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "組名稱"
+          }
+        }
+      }
     },
     "终端" : {
       "localizations" : {
@@ -17197,7 +17831,26 @@
       }
     },
     "编辑组" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit group"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "グループを編集"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "編輯組"
+          }
+        }
+      }
     },
     "缺少音频" : {
       "comment" : "performance audio missing",
@@ -18161,7 +18814,26 @@
       }
     },
     "要滚动的文字" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text to scroll"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロールするテキスト"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要捲動的文字"
+          }
+        }
+      }
     },
     "覆盖原表情" : {
       "localizations" : {
@@ -18593,7 +19265,26 @@
       }
     },
     "识别编号" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show numbers"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "番号を表示"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示編號"
+          }
+        }
+      }
     },
     "该文件不包含视频画面" : {
       "comment" : "imported file has no video track",
@@ -19350,7 +20041,26 @@
       }
     },
     "输入文字后可预览拼接效果" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter text to preview the stitched result"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "テキストを入力すると連結表示をプレビューできます"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "輸入文字後即可預覽拼接效果"
+          }
+        }
+      }
     },
     "输入要滚动显示的文字" : {
       "comment" : "plain caption; only Japanese keeps the Rina voice",
@@ -19421,7 +20131,26 @@
       }
     },
     "还没有多板组。点击右上角的加号创建一个，把 2–5 块已连接的面板拼成一块大屏。" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No board groups yet. Tap the plus at the top right to create one and join 2–5 connected boards into one large display."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードグループはまだありません。右上のプラスをタップして作成し、接続済みのボード 2〜5 台を 1 枚の大きな画面にまとめましょう。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "還沒有多板組。點一下右上角的加號建立一個，把 2–5 塊已連線的面板拼成一塊大螢幕。"
+          }
+        }
+      }
     },
     "还没有璃奈板。" : {
       "localizations" : {
@@ -19469,7 +20198,26 @@
       }
     },
     "还没有面板。点击下方“添加板子”。" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No boards yet. Tap “Add board” below."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードはまだありません。下の「ボードを追加」をタップしてください。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "還沒有面板。點一下下方的「加入板子」。"
+          }
+        }
+      }
     },
     "这个列表由璃奈板扫描，不是 iPhone 扫描。请自行选择属于你的个人热点；App 无法识别热点所有者。" : {
       "extractionState" : "stale",
@@ -21335,7 +22083,26 @@
       }
     },
     "间隔（拼接模式）" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gap (stitch mode)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "間隔（連結モード）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "間隔（拼接模式）"
+          }
+        }
+      }
     },
     "阈值" : {
       "localizations" : {
@@ -21578,10 +22345,28 @@
     },
     "面板（%lld/%lld）" : {
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boards (%lld/%lld)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボード（%lld/%lld）"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "面板（%1$lld/%2$lld）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板（%lld/%lld）"
           }
         }
       }
@@ -21854,7 +22639,26 @@
       }
     },
     "面板状态" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Board status"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードの状態"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板狀態"
+          }
+        }
+      }
     },
     "面板编辑器，%1$lld/%2$lld 颗 LED 点亮" : {
       "comment" : "editable board preview accessibility summary",
@@ -22486,6 +23290,207 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "預設表情無法刪除"
+          }
+        }
+      }
+    },
+    "Wi-Fi" : {
+      "shouldTranslate" : false
+    },
+    "信息及以上" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Info and above"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "情報以上"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "資訊及以上"
+          }
+        }
+      }
+    },
+    "多板组…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Board groups…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードグループ…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多板組…"
+          }
+        }
+      }
+    },
+    "显示与播放" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display and playback"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示と再生"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示與播放"
+          }
+        }
+      }
+    },
+    "查询" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Queries"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "照会"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查詢"
+          }
+        }
+      }
+    },
+    "网络" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Network"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワーク"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "網路"
+          }
+        }
+      }
+    },
+    "警告及以上" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warnings and above"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "警告以上"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "警告及以上"
+          }
+        }
+      }
+    },
+    "订阅" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subscriptions"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "購読"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "訂閱"
+          }
+        }
+      }
+    },
+    "设备与电源" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Device and power"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デバイスと電源"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "裝置與電源"
+          }
+        }
+      }
+    },
+    "重启「%@」？" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restart “%@”?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」を再起動しますか？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新啟動「%@」？"
           }
         }
       }

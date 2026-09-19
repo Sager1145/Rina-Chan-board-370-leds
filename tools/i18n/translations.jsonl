@@ -159,7 +159,7 @@
 {"hant": "控制時保持螢幕不休眠", "ja": "操作中は画面をスリープさせない", "k": "控制时保持屏幕常亮"}
 {"hant": "播放", "ja": "再生", "k": "播放"}
 {"hant": "播放中", "ja": "再生中", "k": "播放中"}
-{"hant": "文字", "ja": "テキスト", "k": "文字"}
+{"en": "Text", "hant": "文字", "ja": "テキスト", "k": "文字"}
 {"hant": "文字超過 4096 位元組", "ja": "テキストが 4096 バイトを超えています", "k": "文本超过 4096 字节"}
 {"hant": "中斷連線", "ja": "切断", "k": "断开"}
 {"hant": "無法載入元件庫：%@", "ja": "パーツライブラリを読み込めませんでした：%@", "k": "无法加载部件库：%@"}
@@ -977,3 +977,61 @@
 {"k": "%lld µs", "nt": true}
 {"en": "Text", "k": "文字滚动"}
 {"en": "Speak", "k": "嘴形识别"}
+{"en": "%1$lld / %2$lld boards in sync", "hant": "%1$lld / %2$lld 塊同步", "ja": "%1$lld / %2$lld 台が同期中", "k": "%1$lld / %2$lld 块同步"}
+{"en": "%lld boards · %@", "hant": "%lld 塊面板 · %@", "ja": "ボード %lld 台 · %@", "k": "%lld 块面板 · %@"}
+{"en": "Primary", "hant": "主控", "ja": "メイン", "k": "主控"}
+{"en": "Info and above", "hant": "資訊及以上", "ja": "情報以上", "k": "信息及以上"}
+{"en": "Stop showing numbers", "hant": "停止顯示編號", "ja": "番号表示を止める", "k": "停止识别编号"}
+{"en": "Back to single board", "hant": "切回單板", "ja": "1 台に戻す", "k": "切回单板"}
+{"en": "Create", "hant": "建立", "ja": "作成", "k": "创建"}
+{"en": "Single board", "hant": "單板", "ja": "1 台", "k": "单板"}
+{"en": "Move right", "hant": "右移", "ja": "右へ移動", "k": "右移"}
+{"en": "Sound", "hant": "聲音", "ja": "サウンド", "k": "声音"}
+{"en": "Play on group", "hant": "多板播放", "ja": "グループで再生", "k": "多板播放"}
+{"en": "Board groups", "hant": "多板組", "ja": "ボードグループ", "k": "多板组"}
+{"en": "Board groups…", "hant": "多板組…", "ja": "ボードグループ…", "k": "多板组…"}
+{"en": "Board group deleted", "hant": "多板組已刪除", "ja": "ボードグループを削除しました", "k": "多板组已删除"}
+{"en": "Board group paused", "hant": "多板組已暫停", "ja": "ボードグループは一時停止中", "k": "多板组已暂停"}
+{"en": "Board group control", "hant": "多板組控制", "ja": "ボードグループの操作", "k": "多板组控制"}
+{"en": "Board group playing", "hant": "多板組播放中", "ja": "ボードグループで再生中", "k": "多板组播放中"}
+{"en": "A board group can have up to 5 boards. The limit has been reached.", "hant": "多板組最多支援 5 塊面板，已達上限。", "ja": "ボードグループは最大 5 台までです。上限に達しました。", "k": "多板组最多支持 5 块面板，已达到上限。"}
+{"en": "Move left", "hant": "左移", "ja": "左へ移動", "k": "左移"}
+{"en": "The 5-board limit has been reached.", "hant": "已達 5 塊面板上限。", "ja": "上限の 5 台に達しました。", "k": "已达到 5 块面板上限。"}
+{"en": "The current board isn’t in this group, so it isn’t synced", "hant": "目前面板不在組內，未同步", "ja": "現在のボードはグループに含まれていないため、同期されません", "k": "当前面板不在组内，未同步"}
+{"en": "Loop", "hant": "循環", "ja": "ループ", "k": "循环"}
+{"en": "Manual drawing", "hant": "手動繪製", "ja": "手描き", "k": "手动绘画"}
+{"en": "Stitch", "hant": "拼接", "ja": "連結", "k": "拼接"}
+{"en": "Target", "hant": "控制對象", "ja": "操作対象", "k": "控制对象"}
+{"en": "Target: board group %@, %lld/%lld online", "hant": "控制對象：多板組 %@，%lld/%lld 在線", "ja": "操作対象：ボードグループ %@、%lld/%lld 台オンライン", "k": "控制对象：多板组 %@，%lld/%lld 在线"}
+{"en": "The layout can’t be changed while playing. Stop first.", "hant": "播放中無法修改版面，請先停止。", "ja": "再生中はレイアウトを変更できません。先に停止してください。", "k": "播放中不能修改布局，请先停止。"}
+{"en": "New board group", "hant": "新增多板組", "ja": "新しいボードグループ", "k": "新建多板组"}
+{"en": "New board group…", "hant": "新增多板組…", "ja": "新しいボードグループ…", "k": "新建多板组…"}
+{"en": "Display and playback", "hant": "顯示與播放", "ja": "表示と再生", "k": "显示与播放"}
+{"en": "Couldn’t sync the expression", "hant": "無法同步表情", "ja": "表情を同期できませんでした", "k": "未能同步表情"}
+{"en": "Board %lld, %@, %@", "hant": "板 %lld，%@，%@", "ja": "ボード %lld、%@、%@", "k": "板 %lld，%@，%@"}
+{"en": "Queries", "hant": "查詢", "ja": "照会", "k": "查询"}
+{"en": "Taking over the previous group scroll", "hant": "正在接管上次的多板捲動", "ja": "前回のグループスクロールを引き継いでいます", "k": "正在接管上次的多板滚动"}
+{"en": "No connected boards to add. Connect more boards in the connection settings first.", "hant": "沒有可加入的已連線面板。請先在連線設定中連接更多面板。", "ja": "追加できる接続済みのボードがありません。先に接続設定でボードを追加で接続してください。", "k": "没有可添加的已连接面板。先在连接设置里连接更多面板。"}
+{"en": "Add board", "hant": "加入板子", "ja": "ボードを追加", "k": "添加板子"}
+{"en": "Clear video", "hant": "清除影片", "ja": "動画を消去", "k": "清除视频"}
+{"en": "Between boards %lld and %lld: %lld columns", "hant": "第 %lld、%lld 塊面板之間：%lld 列", "ja": "ボード %lld と %lld の間：%lld 列", "k": "第 %lld、%lld 块面板之间：%lld 列"}
+{"en": "Manage board groups…", "hant": "管理多板組…", "ja": "ボードグループを管理…", "k": "管理多板组…"}
+{"en": "Group name", "hant": "組名稱", "ja": "グループ名", "k": "组名称"}
+{"en": "Edit group", "hant": "編輯組", "ja": "グループを編集", "k": "编辑组"}
+{"en": "Network", "hant": "網路", "ja": "ネットワーク", "k": "网络"}
+{"en": "Text to scroll", "hant": "要捲動的文字", "ja": "スクロールするテキスト", "k": "要滚动的文字"}
+{"en": "Warnings and above", "hant": "警告及以上", "ja": "警告以上", "k": "警告及以上"}
+{"en": "Subscriptions", "hant": "訂閱", "ja": "購読", "k": "订阅"}
+{"en": "Device and power", "hant": "裝置與電源", "ja": "デバイスと電源", "k": "设备与电源"}
+{"en": "Settings", "hant": "設定", "ja": "設定", "k": "设定"}
+{"en": "Show numbers", "hant": "顯示編號", "ja": "番号を表示", "k": "识别编号"}
+{"en": "Enter text to preview the stitched result", "hant": "輸入文字後即可預覽拼接效果", "ja": "テキストを入力すると連結表示をプレビューできます", "k": "输入文字后可预览拼接效果"}
+{"en": "No board groups yet. Tap the plus at the top right to create one and join 2–5 connected boards into one large display.", "hant": "還沒有多板組。點一下右上角的加號建立一個，把 2–5 塊已連線的面板拼成一塊大螢幕。", "ja": "ボードグループはまだありません。右上のプラスをタップして作成し、接続済みのボード 2〜5 台を 1 枚の大きな画面にまとめましょう。", "k": "还没有多板组。点击右上角的加号创建一个，把 2–5 块已连接的面板拼成一块大屏。"}
+{"en": "No boards yet. Tap “Add board” below.", "hant": "還沒有面板。點一下下方的「加入板子」。", "ja": "ボードはまだありません。下の「ボードを追加」をタップしてください。", "k": "还没有面板。点击下方“添加板子”。"}
+{"en": "Restart “%@”?", "hant": "重新啟動「%@」？", "ja": "「%@」を再起動しますか？", "k": "重启「%@」？"}
+{"en": "Gap (stitch mode)", "hant": "間隔（拼接模式）", "ja": "間隔（連結モード）", "k": "间隔（拼接模式）"}
+{"en": "Board status", "hant": "面板狀態", "ja": "ボードの状態", "k": "面板状态"}
+{"en": "Boards (%lld/%lld)", "hant": "面板（%lld/%lld）", "ja": "ボード（%lld/%lld）", "k": "面板（%lld/%lld）"}
+{"en": "Presets", "hant": "預設", "ja": "プリセット", "k": "预设"}
+{"k": "%lld fps", "nt": true}
+{"k": "%lld. %@", "nt": true}
