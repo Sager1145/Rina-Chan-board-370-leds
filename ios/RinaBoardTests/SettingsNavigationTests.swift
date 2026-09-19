@@ -100,6 +100,20 @@ final class SettingsNavigationTests: XCTestCase {
         XCTAssertTrue(workspace.categories(controlCenterInSettings: false).contains(.controlCenter))
     }
 
+    func testOpenGroupEditorSurvivesLayoutChangeButNotAnotherCategory() {
+        let workspace = SettingsWorkspace(initialSelection: .groups)
+        let id = UUID()
+        workspace.editingGroupID = id
+
+        workspace.layoutMode = .split
+        workspace.layoutMode = .compact
+        workspace.selection = .groups
+        XCTAssertEqual(workspace.editingGroupID, id)
+
+        workspace.selection = .about
+        XCTAssertNil(workspace.editingGroupID)
+    }
+
     func testSwitchingBoardDropsItsDraftsAndConfirmations() {
         let workspace = SettingsWorkspace(initialSelection: .board)
         let boardA = BoardConnection()

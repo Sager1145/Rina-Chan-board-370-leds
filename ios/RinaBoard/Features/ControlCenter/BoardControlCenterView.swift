@@ -146,7 +146,7 @@ struct BoardControlCenterView: View {
                 ControlTarget.validate(&controlTargetGroupIDStorage, in: groupStore)
             }
             .sheet(isPresented: $isPresentingGroupManage) {
-                NavigationStack { BoardGroupListView().sheetDoneButton() }
+                NavigationStack { BoardGroupListView(closesEditorOnPlay: true).sheetDoneButton() }
             }
             .sheet(item: $newGroupEditorTarget, onDismiss: cleanupNewGroupIfUnused) { target in
                 NavigationStack { BoardGroupEditorView(groupID: target.id, closesOnPlay: true).sheetDoneButton() }

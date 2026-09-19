@@ -7,6 +7,15 @@ struct BoardGroupListView: View {
     @Environment(BoardGroupStore.self) private var store
     @Environment(BoardGroupCoordinator.self) private var coordinator
 
+    /// Where the open editor's group is kept. Settings passes its workspace
+    /// so the editor survives a layout change; a sheet keeps its own.
+    var editing: Binding<UUID?>?
+    /// Set when shown in the Control Center's sheet.
+    var closesEditorOnPlay = false
+    @State private var localEditingGroupID: UUID?
+
+    private var editingGroupID: Binding<UUID?> { editing ?? $localEditingGroupID }
+
     @State private var newGroupName = ""
     @State private var isPresentingCreate = false
 
@@ -25,11 +34,19 @@ struct BoardGroupListView: View {
             } else {
                 Section {
                     ForEach(store.groups) { group in
-                        NavigationLink {
-                            BoardGroupEditorView(groupID: group.id)
+                        Button {
+                            editingGroupID.wrappedValue = group.id
                         } label: {
-                            groupRow(group)
+                            HStack {
+                                groupRow(group)
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                                    .accessibilityHidden(true)
+                            }
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                     }
                     .onDelete(perform: deleteGroups)
                 }
@@ -39,6 +56,12 @@ struct BoardGroupListView: View {
         .listSectionSpacing(.compact)
         .rinaScrollBackground()
         .navigationTitle("多板组")
+        .navigationDestination(item: editingGroupID) { id in
+            BoardGroupEditorView(groupID: id, closesOnPlay: closesEditorOnPlay)
+        }
+        .onChange(of: store.groups.map(\.id)) { _, ids in
+            if let id = editingGroupID.wrappedValue, !ids.contains(id) { editingGroupID.wrappedValue = nil }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {

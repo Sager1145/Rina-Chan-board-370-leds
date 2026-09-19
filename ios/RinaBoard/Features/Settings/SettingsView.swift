@@ -224,7 +224,7 @@ private struct SettingsDetail: View {
             case .controlCenter: BoardControlCenterView()
             case .connection: ConnectionView(workspace: workspace, isPassive: isPassive)
             case .addBoard: AddBoardView(workspace: workspace, isPassive: isPassive)
-            case .groups: BoardGroupListView()
+            case .groups: BoardGroupListView(editing: Bindable(workspace).editingGroupID)
             case .board: BoardSettingsView(isPassive: isPassive)
             case .network: BoardNetworkSettingsView(workspace: workspace)
             case .application: ApplicationSettingsView()
