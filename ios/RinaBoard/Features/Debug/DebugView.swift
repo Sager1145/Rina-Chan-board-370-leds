@@ -338,7 +338,8 @@ struct DebugView: View {
 
             BoardPreviewRow(frame: vm.debugFrame,
                             color: .rinaPink,
-                            brightness: vm.statusSnapshot?.renderer?.brightness ?? 50)
+                            brightness: vm.statusSnapshot?.renderer?.brightness ?? 50,
+                            holdsForLaunchSync: false)
 
             Button("发送当前预览") {
                 guard let pattern = vm.selectedPattern else { return }

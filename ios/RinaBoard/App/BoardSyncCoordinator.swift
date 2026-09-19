@@ -106,6 +106,14 @@ final class BoardSyncCoordinator {
         isFirstConnectionThisRun: Bool = false,
         isGenuineReconnect: Bool = false
     ) async {
+        // This is the connected resync path — the only place the launch
+        // preview gate is released. `defer` so every early return below
+        // (a stale generation, cancellation, a failed `getStatus`) still
+        // opens it, not just the happy path all the way to `faceLibrary.reload`.
+        // The `synchronize` caller above never reaches here while still
+        // disconnected, so a board that never connects keeps the gate closed
+        // until `AppRouter`'s own timeout, not this.
+        defer { deps.router.releaseLaunchPreviewGate() }
         let generation = connection.connectionGeneration
         let session = connection.output.session
         let initialTab = deps.router.selectedTab

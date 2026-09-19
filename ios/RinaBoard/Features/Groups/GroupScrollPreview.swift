@@ -22,6 +22,12 @@ struct GroupScrollPreview: View {
     /// Optional for the same reason as in `BoardPreviewRow`: test hosts and
     /// previews don't inject it.
     @Environment(BoardControlCenterModel.self) private var controlCenter: BoardControlCenterModel?
+    /// Same reasoning: optional so test hosts and `#Preview`s that don't
+    /// inject `AppRouter` don't crash. While its gate is pending (user
+    /// requirement: "刚打开app同步时，完成同步再显示预览画面，不要让预览画面闪一下"), this preview
+    /// holds every cell blank instead of drawing the draft's stitched
+    /// animation or its "输入文字后可预览拼接效果" caption.
+    @Environment(AppRouter.self) private var router: AppRouter?
     /// Same setting as the single-board preview's board photo.
     @AppStorage(AppSettingsKey.showBoardPhoto) private var showBoardPhoto = true
 
@@ -52,7 +58,9 @@ struct GroupScrollPreview: View {
 
     var body: some View {
         Group {
-            if let snapshot = coordinator.playbackSnapshot, snapshot.groupID == group.id {
+            if router?.launchPreviewPending == true {
+                boardRow(members: group.members) { _ in PackedFrame() }
+            } else if let snapshot = coordinator.playbackSnapshot, snapshot.groupID == group.id {
                 livePreview(snapshot: snapshot)
             } else {
                 draftPreview()

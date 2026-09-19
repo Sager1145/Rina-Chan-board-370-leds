@@ -15,7 +15,7 @@ struct RinaBoardApp: App {
     @State private var hasRestoredControlTarget = false
     // Each board retains its own connection; tabs control the selected session.
     // Draft models remain app-scoped so switching tabs preserves unsent work.
-    @State private var router = AppRouter()
+    @State private var router: AppRouter
     @State private var sessions: BoardSessionStore
     @State private var boardStore = BoardStore()
     @State private var boardGroupStore: BoardGroupStore
@@ -56,6 +56,14 @@ struct RinaBoardApp: App {
         let sessions = BoardSessionStore()
         let boardStore = BoardStore()
         _boardStore = State(initialValue: boardStore)
+        let router = AppRouter()
+        // Only when a board is known to reconnect to — a fresh install has
+        // nothing for `autoReconnect` to wait on, so gating its preview would
+        // just hold a blank board for the unused `timeout` for no reason.
+        if !boardStore.boards.isEmpty {
+            router.armLaunchPreviewGate()
+        }
+        _router = State(initialValue: router)
         let boardGroupStore = BoardGroupStore()
         let coordinator = BoardGroupCoordinator(store: boardGroupStore, sessions: sessions)
         sessions.isGroupOwned = { [weak coordinator] session in coordinator?.isGroupOwned(session) ?? false }
