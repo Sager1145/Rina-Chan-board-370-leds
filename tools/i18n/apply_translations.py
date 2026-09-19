@@ -205,14 +205,21 @@ def main():
             print("  %s [%s]%s" % (key, lang, suffix))
         return 1
 
-    untranslated, changed = [], 0
+    untranslated, dictionary_missing, changed = [], [], 0
 
     for key, entry in strings.items():
         if entry.get("extractionState") == "stale":
             continue
         source = translations.get(key)
         if source is None:
-            untranslated.append(key)
+            # No dictionary entry is only a missing translation when the
+            # catalog itself lacks one; a catalog that is already complete
+            # just means translations.jsonl lags behind it.
+            skip_hans = is_source_text_key(key)
+            complete = entry.get("shouldTranslate") is False or all(
+                (lang == "zh-Hans" and skip_hans) or catalog_lang_value(entry, lang)
+                for lang, _ in LANGS)
+            (dictionary_missing if complete else untranslated).append(key)
             continue
         if source.get("nt"):
             if (only and key not in only):
@@ -258,8 +265,14 @@ def main():
                 changed += 1
 
     if untranslated:
-        print("%d string(s) have no entry in translations.jsonl:" % len(untranslated))
+        print("%d string(s) have no entry in translations.jsonl and are "
+              "missing a translation in the catalog:" % len(untranslated))
         for key in sorted(untranslated):
+            print("  %s" % key)
+    if dictionary_missing:
+        print("%d string(s) are translated in the catalog but have no entry "
+              "in translations.jsonl (not an error):" % len(dictionary_missing))
+        for key in sorted(dictionary_missing):
             print("  %s" % key)
 
     gaps, orphans = [], []
@@ -294,7 +307,7 @@ def main():
 
     if check:
         print("check only: %d field(s) would change" % changed)
-        return 1 if (untranslated or gaps) else 0
+        return 1 if (untranslated or gaps or changed) else 0
 
     if changed:
         if os.stat(CATALOG).st_mtime_ns != stamp:

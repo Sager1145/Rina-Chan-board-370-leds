@@ -130,6 +130,23 @@ class ToolTest(unittest.TestCase):
         result = self.run_apply("--check")
         self.assertNotIn("format-specifier mismatch", result.stdout)
 
+    # -- --check semantics -----------------------------------------------------
+    def test_check_fails_while_translations_are_unapplied(self):
+        self.write_catalog({"甲": {}})
+        self.write_dict([{"k": "甲", "en": "A", "hant": "甲", "ja": "甲"}])
+        result = self.run_apply("--check")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("would change", result.stdout)
+
+    def test_check_accepts_catalog_ahead_of_dictionary(self):
+        unit = lambda v: {"stringUnit": {"state": "translated", "value": v}}
+        self.write_catalog({"甲": {"localizations": {
+            "en": unit("A"), "zh-Hant": unit("甲"), "ja": unit("甲")}}})
+        self.write_dict([])
+        result = self.run_apply("--check")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("not an error", result.stdout)
+
     # -- --only restricts writes --------------------------------------------
     def test_only_restricts_writes(self):
         self.write_catalog({"甲": {}, "乙": {}})
