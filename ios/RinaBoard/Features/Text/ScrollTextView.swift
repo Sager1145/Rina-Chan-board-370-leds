@@ -60,6 +60,20 @@ struct ScrollTextView: View {
     /// `TextViewModel`'s own `fpsSender`.
     @State private var groupPlaybackUpdateTask: Task<Void, Never>?
 
+    /// C1: the fps slider's own in-progress value while a drag (or a
+    /// keyboard/VoiceOver adjust) is live, so the label/track never jump
+    /// mid-gesture to whatever `displayedFps` happens to read from a
+    /// still-in-flight commit. `nil` once nothing is pending.
+    @State private var fpsDraft: Double?
+    /// `true` between a slider drag's `onEditingChanged(true)` and its
+    /// matching `(false)` — a keyboard/VoiceOver adjust never sets this, so
+    /// each of its `set` calls schedules its own commit immediately.
+    @State private var fpsEditing = false
+    /// The pending "commit the fps slider's current value" task scheduled by
+    /// `scheduleFpsCommit()` — cancelled and replaced on every new value
+    /// while not mid-drag, so only the last one in a burst actually commits.
+    @State private var fpsCommitTask: Task<Void, Never>?
+
     private var isConnected: Bool { connection.connectionState == .connected }
 
     private var targetedGroup: BoardGroup? {
@@ -242,17 +256,23 @@ struct ScrollTextView: View {
 
     /// Item 2 (BOARD_GROUP_SPEC.md §3 addendum): applies a speed/loop change
     /// live to a playing group via `BoardGroupCoordinator.updatePlayback`,
-    /// debounced 250 ms so a slider drag doesn't fire one re-anchor per
-    /// tick. Single-board speed changes never go through here.
+    /// debounced `delayNanoseconds` (default 250 ms — the loop toggle) so a
+    /// rapid burst doesn't fire one re-anchor per tick. The fps slider (C1)
+    /// commits its own value only once, on release/settle
+    /// (`scheduleFpsCommit`), so it calls this with `delayNanoseconds: 0` —
+    /// an extra 250 ms on top of the slider's own debounce would just be
+    /// felt as lag. Single-board speed changes never go through here.
     /// Always sends the complete desired state (fps + loop), not just the
-    /// field that changed — otherwise a speed drag followed by a loop toggle
-    /// within the 250 ms debounce window cancels the pending speed change.
-    private func scheduleGroupPlaybackUpdate(group: BoardGroup) {
+    /// field that changed — otherwise a speed change followed by a loop
+    /// toggle within the debounce window cancels the pending speed change.
+    private func scheduleGroupPlaybackUpdate(group: BoardGroup, delayNanoseconds: UInt64 = 250_000_000) {
         groupPlaybackUpdateTask?.cancel()
         let sendFps = min(Int(model.requestedFps), groupCoordinator.maxFps(for: group))
         let sendLoop = model.loopPlayback
         groupPlaybackUpdateTask = Task {
-            try? await Task.sleep(nanoseconds: 250_000_000)
+            if delayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+            }
             guard !Task.isCancelled else { return }
             await groupCoordinator.updatePlayback(group: group, fps: sendFps, loop: sendLoop)
         }
@@ -441,36 +461,32 @@ struct ScrollTextView: View {
         return model.requestedFps
     }
 
+    /// C1: the value the fps label/slider/accessibility all show — the
+    /// in-progress drag/adjust value while one is pending, else the
+    /// steady-state `displayedFps`.
+    private var shownFps: Double { fpsDraft ?? displayedFps }
+
     private var speedSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 4) {
                 LabeledContent("请求速度") {
-                    Text(String(format: "%.0f fps", displayedFps))
+                    Text(String(format: "%.0f fps", shownFps))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
                 Slider(
                     value: Binding(
-                        get: { displayedFps },
+                        get: { shownFps },
                         set: { newValue in
-                            if let group = targetedGroup {
-                                // Group mode: never touch the primary
-                                // connection's own scroll timing (that would
-                                // drop it out of group-timed playback) — only
-                                // the group's own re-anchor path may retune it.
-                                model.requestedFps = newValue
-                                // N3: forward while paused too — B2 has
-                                // `updatePlayback` just remember the new fps
-                                // on the anchor (no live send) so `resume()`
-                                // picks it up, rather than silently dropping
-                                // a speed change made while paused.
-                                let active = groupCoordinator.activeGroupID == group.id
-                                    && (groupCoordinator.isPlaying || groupCoordinator.isPaused)
-                                if active {
-                                    scheduleGroupPlaybackUpdate(group: group)
-                                }
-                            } else {
-                                model.setRequestedFps(newValue, connection: connection)
+                            fpsDraft = newValue
+                            // A keyboard/VoiceOver adjust never brackets its
+                            // `set` calls with `onEditingChanged`, so this is
+                            // the only place it gets a commit scheduled; a
+                            // drag's own commit is scheduled from
+                            // `onEditingChanged(false)` below instead, so a
+                            // mid-drag `set` here must not schedule one.
+                            if !fpsEditing {
+                                scheduleFpsCommit()
                             }
                         }
                     ),
@@ -478,11 +494,19 @@ struct ScrollTextView: View {
                         targetedGroup.map { Double(groupCoordinator.maxFps(for: $0)) }
                             ?? Double(RinaLinkConstants.scrollFpsMax)
                     ),
-                    step: 1
+                    step: 1,
+                    onEditingChanged: { editing in
+                        fpsEditing = editing
+                        if editing {
+                            fpsCommitTask?.cancel()
+                        } else {
+                            scheduleFpsCommit()
+                        }
+                    }
                 )
                 .disabled(targetedGroup == nil && !isConnected)
                 .accessibilityLabel("请求速度")
-                .accessibilityValue(Text(String(format: "%.0f fps", displayedFps)))
+                .accessibilityValue(Text(String(format: "%.0f fps", shownFps)))
             }
 
             // Measured from board telemetry, never an echo of the request.
@@ -492,6 +516,52 @@ struct ScrollTextView: View {
                 GroupMeasuredFpsRow(group: group)
             } else {
                 TextMeasuredFpsRow(model: model)
+            }
+        }
+        .onChange(of: targetedGroup?.id) { _, _ in
+            // The commit target (group vs. single board, or which group)
+            // just changed — a pending draft would otherwise commit against
+            // the wrong target a moment later.
+            fpsCommitTask?.cancel()
+            fpsCommitTask = nil
+            fpsDraft = nil
+        }
+        .onDisappear {
+            fpsCommitTask?.cancel()
+            fpsCommitTask = nil
+            fpsDraft = nil
+        }
+    }
+
+    /// C1: commits `fpsDraft` (if any) 100 ms after the slider last moved —
+    /// on release (`onEditingChanged(false)`) this fires once for the final
+    /// value instead of once per drag tick, and a keyboard/VoiceOver adjust
+    /// (no drag) still settles quickly. Runs exactly the commit logic the
+    /// slider's `Binding` used to run inline: group mode never touches the
+    /// primary connection's own scroll timing directly (that would drop it
+    /// out of group-timed playback) — only `updatePlayback` may retune a
+    /// live/paused group, forwarded here with no extra debounce
+    /// (`delayNanoseconds: 0`) since this commit is already the debounced,
+    /// settled value.
+    private func scheduleFpsCommit() {
+        fpsCommitTask?.cancel()
+        fpsCommitTask = Task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            guard !Task.isCancelled, !fpsEditing, let value = fpsDraft else { return }
+            fpsDraft = nil
+            if let group = targetedGroup {
+                model.requestedFps = value
+                // N3: forward while paused too — B2 has `updatePlayback`
+                // just remember the new fps on the anchor (no live send) so
+                // `resume()` picks it up, rather than silently dropping a
+                // speed change made while paused.
+                let active = groupCoordinator.activeGroupID == group.id
+                    && (groupCoordinator.isPlaying || groupCoordinator.isPaused)
+                if active {
+                    scheduleGroupPlaybackUpdate(group: group, delayNanoseconds: 0)
+                }
+            } else {
+                model.setRequestedFps(value, connection: connection)
             }
         }
     }
