@@ -1249,7 +1249,7 @@ public final class BoardConnection {
 
         let beginOffset = begin.offset ?? 0
         // A hostile/corrupt peer could report an offset outside the blob;
-        // clamp to the valid range before it ever reaches Data(subdata:).
+        // reject it before it ever reaches Data(subdata:).
         guard (0...data.count).contains(beginOffset) else {
             throw RinaTransportError.invalidResponse
         }

@@ -109,6 +109,11 @@ final class BoardSyncCoordinator {
         let generation = connection.connectionGeneration
         let session = connection.output.session
         let initialTab = deps.router.selectedTab
+        // A run only restores when it began in the foreground. After that,
+        // only `.background` stops it: `.inactive` (a banner, the app
+        // switcher, a permission alert) must let it finish, because nothing
+        // re-triggers a sync when the phase returns to `.active` from there.
+        let startedActive = deps.scenePhase() == .active
         guard connection.connectionState == .connected, !Task.isCancelled else { return }
         // Foreground recovery also needs fresh reads: the board can change
         // modes while this app is suspended without dropping the transport.
@@ -121,7 +126,7 @@ final class BoardSyncCoordinator {
               deps.sessions.active.connection === connection,
               session == connection.output.session,
               initialTab == deps.router.selectedTab,
-              deps.scenePhase() == .active else { return }
+              startedActive, deps.scenePhase() != .background else { return }
         // The board has answered and is still the active one — the proof
         // the greeting lines require, not merely the transport reporting
         // `.connected`.
@@ -162,7 +167,7 @@ final class BoardSyncCoordinator {
                 // Live-read: this is the last await before the mode-specific
                 // restores below start playback or the mic.
                 guard !Task.isCancelled, generation == connection.connectionGeneration,
-                      deps.scenePhase() == .active else { return }
+                      deps.scenePhase() != .background else { return }
                 showControlCenter.wrappedValue = false
             }
             if mode == .control {
@@ -232,13 +237,13 @@ final class BoardSyncCoordinator {
         _ mode: BoardResumeMode, streamID: String?, generation: UUID, session: UUID?,
         connection: BoardConnection, deps: Dependencies
     ) async -> Bool {
-        guard !Task.isCancelled, deps.scenePhase() == .active,
+        guard !Task.isCancelled, deps.scenePhase() != .background,
               deps.sessions.active.connection === connection,
               generation == connection.connectionGeneration,
               session == connection.output.session else { return false }
         guard let status = try? await connection.getStatus() else { return false }
         let preview = try? await connection.getPreviewSync()
-        guard !Task.isCancelled, deps.scenePhase() == .active,
+        guard !Task.isCancelled, deps.scenePhase() != .background,
               deps.sessions.active.connection === connection,
               generation == connection.connectionGeneration,
               session == connection.output.session,

@@ -180,4 +180,41 @@ final class FaceGenerationTrackingTests: XCTestCase {
         connectionA.disconnect()
         connectionB.disconnect()
     }
+
+    /// A refresh of the SAME board also moves the load revision. A rename that
+    /// raced it succeeded on the board, so the model must re-read rather than
+    /// keep whatever the refresh fetched (possibly from before the rename).
+    func testSameBoardRefreshDuringRenameReReadsInsteadOfDroppingTheResult() async throws {
+        let model = FaceLibraryModel()
+        let (connection, transport) = await wifiBoard(host: "board-a.local")
+        let original = SavedFace(id: "u1", name: "Original", type: .custom,
+                                 frameBytes: PackedFrame().bytes.map(Int.init), order: 1)
+        try await scriptedReload(model, connection, transport, faces: [original])
+
+        transport.resetRecordedFrames()
+        transport.automaticallyReplies = false
+        let renameTask = Task { await model.rename(original, to: "Renamed", in: .board, connection: connection) }
+        try await transport.waitForSent(type: .cmd, count: 1)
+
+        let refreshTask = Task { await model.reload(connection: connection) }
+        for _ in 0..<5 { await Task.yield() }
+        transport.replyToNext(type: .cmd, json: ["ok": true, "gen": 2])
+
+        // The refresh's read predates the rename; the re-read does not.
+        var renamedFace = original
+        renamedFace.name = "Renamed"
+        try await transport.waitForSent(type: .getFaces, count: 1)
+        transport.replyToNext(type: .getFaces, payload: genPrefix(0) + (try FaceDocument(faces: [original]).encoded()))
+        try await transport.waitForSent(type: .getFaces, count: 2)
+        transport.replyToNext(type: .getFaces, payload: genPrefix(2) + (try FaceDocument(faces: [renamedFace]).encoded()))
+
+        let renamed = await renameTask.value
+        _ = await refreshTask.value
+        transport.automaticallyReplies = true
+
+        XCTAssertTrue(renamed)
+        XCTAssertEqual(model.faceDocument.faces.map(\.name), ["Renamed"])
+        XCTAssertEqual(model.boardGeneration, connection.connectionGeneration)
+        connection.disconnect()
+    }
 }

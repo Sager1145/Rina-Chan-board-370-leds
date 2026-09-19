@@ -78,6 +78,10 @@ final class FaceLibraryModel {
     private var nextEditRequestID: UInt64 = 1
     private var localLoadWaiters: [CheckedContinuation<Void, Never>] = []
     private var boardLoadRevision: UInt64 = 0
+    /// Link the latest `boardLoadRevision` bump was made for. A refresh of the
+    /// same board bumps the revision too, so a board op that raced one uses
+    /// this to tell "still my board, re-read it" from "the model moved on".
+    private var boardLoadTargetGeneration: UUID?
 
     init(localStore: any LocalFaceStoring = LocalFaceStore()) {
         self.localStore = localStore
@@ -194,6 +198,7 @@ final class FaceLibraryModel {
     func synchronizeBoardGeneration(_ generation: UUID) {
         guard boardGeneration != generation else { return }
         boardLoadRevision &+= 1
+        boardLoadTargetGeneration = generation
         isLoading = false
         faceDocument = FaceDocument()
         boardGeneration = nil
@@ -210,6 +215,7 @@ final class FaceLibraryModel {
         let generation = connection.connectionGeneration
         let currentBoardID = connection.boardKey
         boardLoadRevision &+= 1
+        boardLoadTargetGeneration = generation
         let revision = boardLoadRevision
         if boardGeneration != generation || boardID != currentBoardID {
             faceDocument = FaceDocument()
@@ -340,9 +346,9 @@ final class FaceLibraryModel {
         let revision = boardLoadRevision
         do {
             _ = try await connection.faceUpsert(payload)
-            guard revision == boardLoadRevision else { return .saved(id: payload.id) }
+            guard boardStillShown(connection, since: revision) else { return .saved(id: payload.id) }
             let savedFrame = PackedFrame(hex94: payload.frameHex)
-            if let id = payload.id, connection.lastFaceOpGenMatchedExpectation,
+            if let id = payload.id, revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation,
                let frame = savedFrame,
                let index = faceDocument.faces.firstIndex(where: { $0.id == id }) {
                 faceDocument.faces[index].name = payload.name
@@ -362,7 +368,7 @@ final class FaceLibraryModel {
             }
             return .saved(id: payload.id)
         } catch {
-            guard revision == boardLoadRevision else { return .failed }
+            guard boardStillShown(connection, since: revision) else { return .failed }
             await handleFaceOpError(error, connection: connection)
             return .failed
         }
@@ -473,8 +479,8 @@ final class FaceLibraryModel {
             let revision = boardLoadRevision
             do {
                 _ = try await connection.faceRename(id: face.id, name: clean)
-                guard revision == boardLoadRevision else { return true }
-                if connection.lastFaceOpGenMatchedExpectation,
+                guard boardStillShown(connection, since: revision) else { return true }
+                if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation,
                    let index = faceDocument.faces.firstIndex(where: { $0.id == face.id }) {
                     faceDocument.faces[index].name = clean
                     faceDocument.faces[index].updatedAt = timestamp()
@@ -483,7 +489,7 @@ final class FaceLibraryModel {
                 }
                 return true
             } catch {
-                guard revision == boardLoadRevision else { return false }
+                guard boardStillShown(connection, since: revision) else { return false }
                 await handleFaceOpError(error, connection: connection)
                 return false
             }
@@ -553,15 +559,15 @@ final class FaceLibraryModel {
             let revision = boardLoadRevision
             do {
                 _ = try await connection.faceDelete(id: face.id)
-                guard revision == boardLoadRevision else { return true }
-                if connection.lastFaceOpGenMatchedExpectation {
+                guard boardStillShown(connection, since: revision) else { return true }
+                if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
                     faceDocument.faces.removeAll { $0.id == face.id }
                 } else {
                     await reload(connection: connection)
                 }
                 return true
             } catch {
-                guard revision == boardLoadRevision else { return false }
+                guard boardStillShown(connection, since: revision) else { return false }
                 await handleFaceOpError(error, connection: connection)
                 return false
             }
@@ -657,15 +663,15 @@ final class FaceLibraryModel {
             let revision = boardLoadRevision
             do {
                 _ = try await connection.faceReorder(ids: ids)
-                guard revision == boardLoadRevision else { return true }
-                if connection.lastFaceOpGenMatchedExpectation {
+                guard boardStillShown(connection, since: revision) else { return true }
+                if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
                     assignOrders(defaults: defaultFaces, users: newUserOrder, in: &faceDocument)
                 } else {
                     return await reload(connection: connection)
                 }
                 return true
             } catch {
-                guard revision == boardLoadRevision else { return false }
+                guard boardStillShown(connection, since: revision) else { return false }
                 await handleFaceOpError(error, connection: connection)
                 return false
             }
@@ -687,15 +693,15 @@ final class FaceLibraryModel {
         let revision = boardLoadRevision
         do {
             _ = try await connection.faceReorder(ids: newOrder.map(\.id))
-            guard revision == boardLoadRevision else { return true }
-            if connection.lastFaceOpGenMatchedExpectation {
+            guard boardStillShown(connection, since: revision) else { return true }
+            if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
                 assignOrders(defaults: [], users: newOrder, in: &faceDocument)
             } else {
                 return await reload(connection: connection)
             }
             return true
         } catch {
-            guard revision == boardLoadRevision else { return false }
+            guard boardStillShown(connection, since: revision) else { return false }
             await handleFaceOpError(error, connection: connection)
             return false
         }
@@ -798,6 +804,16 @@ final class FaceLibraryModel {
             return sourceBoardID != nil && sourceBoardID == currentBoardID
         }
         return sourceGeneration != nil && sourceGeneration == currentGeneration
+    }
+
+    /// False once the model has been pointed at another link since `revision`
+    /// was captured: the op's result then belongs to a board that is no longer
+    /// shown and must not touch shared state. A refresh of the same link also
+    /// moves the revision; callers then skip the in-place patch and re-read,
+    /// because that refresh's GET_FACES may predate the op.
+    private func boardStillShown(_ connection: BoardConnection, since revision: UInt64) -> Bool {
+        revision == boardLoadRevision
+            || boardLoadTargetGeneration == connection.connectionGeneration
     }
 
     private func boardDocumentBelongs(to connection: BoardConnection) -> Bool {
