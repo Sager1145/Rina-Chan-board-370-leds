@@ -1228,6 +1228,44 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertTrue(relaunched.isPaused, "controls work again after adoption")
     }
 
+    /// A group paused from the app has left group-timed mode on every board
+    /// (the firmware drops it on `pause_scroll`). Adoption must still take it
+    /// back — paused — or play/pause do nothing after a reconnect.
+    func testFreshCoordinatorAdoptsPausedGroupScroll() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let first = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let group = store.create(name: "暂停接管组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try await first.play(group: store.groups[0], text: "接管", fps: 10, loop: true)
+        let frameCount = try XCTUnwrap(first.playbackSnapshot?.frameCount)
+        let timelineId = try XCTUnwrap(transportA.lastBlobBeginMeta?["timelineId"] as? String)
+
+        for transport in [transportA, transportB] {
+            transport.scrollMeta = [
+                "ok": true, "scrollTimelineId": timelineId, "hasSourceText": true, "sourceText": "接管",
+                "frameCount": frameCount, "frameIndex": 5, "scrollIntervalMs": 100,
+                "firmwareScrollActive": true, "firmwareScrollPaused": true, "scrollLoop": true, "groupTimed": false,
+            ]
+        }
+        let uploadsBefore = transportA.blobBeginCount
+        let relaunched = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let adopted = await relaunched.adoptRunningScroll(group: store.groups[0])
+
+        XCTAssertTrue(adopted)
+        XCTAssertTrue(relaunched.isPaused, "a paused group is taken back paused")
+        XCTAssertEqual(transportA.blobBeginCount, uploadsBefore, "adoption must not re-upload")
+
+        await relaunched.resume(group: store.groups[0])
+        XCTAssertTrue(relaunched.isPlaying, "play works again after adoption")
+    }
+
     /// Boards that don't agree (different text) are not adopted, and nothing
     /// is sent to them.
     func testAdoptionRefusedWhenBoardsDisagree() async throws {

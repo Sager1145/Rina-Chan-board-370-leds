@@ -443,7 +443,12 @@ public final class BoardGroupCoordinator {
               let frameCount = first.frameCount, frameCount > 0,
               let intervalMs = first.scrollIntervalMs, intervalMs > 0,
               metas.allSatisfy({
-                  $0.groupTimed == true && $0.firmwareScrollActive == true && $0.uploadComplete != false
+                  // A user pause (`pause_scroll`, step, seek — what `pause(group:)`
+                  // sends) makes the firmware leave group-timed mode, so a paused
+                  // group reports `groupTimed == false`. The shared timeline id
+                  // below still proves it is one group upload.
+                  ($0.groupTimed == true || $0.firmwareScrollPaused == true)
+                      && $0.firmwareScrollActive == true && $0.uploadComplete != false
                       && $0.scrollTimelineId == timelineId && $0.sourceText == text
                       && $0.frameCount == frameCount && $0.scrollIntervalMs == intervalMs
               }) else { return false }
