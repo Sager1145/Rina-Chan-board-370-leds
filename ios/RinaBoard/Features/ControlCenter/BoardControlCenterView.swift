@@ -136,6 +136,15 @@ struct BoardControlCenterView: View {
     /// `Group` of `Section`s every modifier is applied per-section, so
     /// attaching these to the `Group` itself would open/close four sheets and
     /// run the validation once per section instead of once.
+    /// Playback moved to the Text tab: take down every sheet above it, this
+    /// panel's own included.
+    private func closeForPlayback() {
+        isPresentingGroupManage = false
+        newGroupEditorTarget = nil
+        editingGroupTarget = nil
+        onDismiss?()
+    }
+
     @ViewBuilder
     private func groupSheets<V: View>(_ view: V) -> some View {
         view
@@ -146,13 +155,13 @@ struct BoardControlCenterView: View {
                 ControlTarget.validate(&controlTargetGroupIDStorage, in: groupStore)
             }
             .sheet(isPresented: $isPresentingGroupManage) {
-                NavigationStack { BoardGroupListView(closesEditorOnPlay: true).sheetDoneButton() }
+                NavigationStack { BoardGroupListView(onPlayed: closeForPlayback).sheetDoneButton() }
             }
             .sheet(item: $newGroupEditorTarget, onDismiss: cleanupNewGroupIfUnused) { target in
-                NavigationStack { BoardGroupEditorView(groupID: target.id, closesOnPlay: true).sheetDoneButton() }
+                NavigationStack { BoardGroupEditorView(groupID: target.id, onPlayed: closeForPlayback).sheetDoneButton() }
             }
             .sheet(item: $editingGroupTarget) { target in
-                NavigationStack { BoardGroupEditorView(groupID: target.id, closesOnPlay: true).sheetDoneButton() }
+                NavigationStack { BoardGroupEditorView(groupID: target.id, onPlayed: closeForPlayback).sheetDoneButton() }
             }
     }
 

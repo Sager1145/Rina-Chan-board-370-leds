@@ -10,8 +10,8 @@ struct BoardGroupListView: View {
     /// Where the open editor's group is kept. Settings passes its workspace
     /// so the editor survives a layout change; a sheet keeps its own.
     var editing: Binding<UUID?>?
-    /// Set when shown in the Control Center's sheet.
-    var closesEditorOnPlay = false
+    /// Passed to the editor; see `BoardGroupEditorView.onPlayed`.
+    var onPlayed: (() -> Void)?
     @State private var localEditingGroupID: UUID?
 
     private var editingGroupID: Binding<UUID?> { editing ?? $localEditingGroupID }
@@ -57,7 +57,7 @@ struct BoardGroupListView: View {
         .rinaScrollBackground()
         .navigationTitle("多板组")
         .navigationDestination(item: editingGroupID) { id in
-            BoardGroupEditorView(groupID: id, closesOnPlay: closesEditorOnPlay)
+            BoardGroupEditorView(groupID: id, onPlayed: onPlayed)
         }
         .onChange(of: store.groups.map(\.id)) { _, ids in
             if let id = editingGroupID.wrappedValue, !ids.contains(id) { editingGroupID.wrappedValue = nil }
@@ -135,4 +135,5 @@ struct BoardGroupListView: View {
     }
     .environment(BoardGroupStore())
     .environment(BoardGroupCoordinator(store: BoardGroupStore(), sessions: BoardSessionStore()))
+    .environment(AppRouter())
 }

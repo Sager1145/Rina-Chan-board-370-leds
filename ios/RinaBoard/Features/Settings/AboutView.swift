@@ -45,7 +45,7 @@ struct AboutView: View {
         ]),
         CreditGroup(title: "字体", credits: [
             Credit("Ark Pixel Font（方舟像素字体）", "SIL OFL 1.1", "https://github.com/TakWolf/ark-pixel-font"),
-            Credit("GNU Unifont", "SIL OFL 1.1", "https://unifoundry.com/unifont/")
+            Credit("GNU Unifont", "SIL OFL 1.1 / GPL-2.0-or-later（含字体例外）", "https://unifoundry.com/unifont/")
         ]),
         CreditGroup(title: "固件", credits: [
             Credit("Arduino core for ESP32", "LGPL-2.1", "https://github.com/espressif/arduino-esp32"),
@@ -54,7 +54,9 @@ struct AboutView: View {
             Credit("ArduinoJson", "MIT", "https://github.com/bblanchon/ArduinoJson"),
             Credit("Adafruit NeoPixel", "LGPL-3.0", "https://github.com/adafruit/Adafruit_NeoPixel")
         ]),
-        CreditGroup(title: "构建工具", credits: [
+        CreditGroup(title: "构建工具",
+                    footer: "《LoveLive!》相关名称、角色与音乐归各自权利人所有，不属于上述开源许可的范围。本项目是爱好者作品，与官方无关。",
+                    credits: [
             Credit("PlatformIO", "Apache-2.0", "https://github.com/platformio/platformio-core"),
             Credit("pioarduino platform-espressif32", "Apache-2.0", "https://github.com/pioarduino/platform-espressif32"),
             Credit("NumPy", "BSD-3-Clause", "https://github.com/numpy/numpy")
@@ -110,11 +112,6 @@ struct AboutView: View {
                     } footer: {
                         if let footer = group.footer { Text(footer) }
                     }
-                }
-
-                Section {
-                } footer: {
-                    Text("《LoveLive!》相关名称、角色与音乐归各自权利人所有，不属于上述开源许可的范围。本项目是爱好者作品，与官方无关。")
                 }
             }
             .rinaTranslucentRows()

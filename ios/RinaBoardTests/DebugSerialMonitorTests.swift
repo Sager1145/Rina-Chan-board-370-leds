@@ -25,6 +25,11 @@ final class DebugSerialMonitorTests: XCTestCase {
         XCTAssertEqual(Set(DebugCommandCatalog.commands.map(\.name)).count, DebugCommandCatalog.commands.count)
         for command in DebugCommandCatalog.commands {
             let request = try DebugMonitorRequest.parse(command.example)
+            // PING / GET_STATUS / GET_POWER are frames of their own, not CMDs.
+            guard request.commandName != nil else {
+                XCTAssertNotEqual(request.type, .cmd, command.name)
+                continue
+            }
             let object = try XCTUnwrap(JSONSerialization.jsonObject(with: request.payload) as? [String: Any])
             XCTAssertEqual(request.type, .cmd)
             XCTAssertEqual(object["cmd"] as? String, command.name)

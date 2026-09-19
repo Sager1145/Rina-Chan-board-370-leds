@@ -6,15 +6,14 @@ import RinaCore
 /// points the control target at the group and goes there.
 struct BoardGroupEditorView: View {
     let groupID: UUID
-    /// Set when shown in the Control Center's sheet, which would otherwise
-    /// stay up over the Text tab.
-    var closesOnPlay = false
+    /// Set by the Control Center, whose sheets would otherwise stay up over
+    /// the Text tab: closes every one of them, which `dismiss` cannot.
+    var onPlayed: (() -> Void)?
 
     @Environment(BoardGroupStore.self) private var store
     @Environment(BoardGroupCoordinator.self) private var coordinator
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(AppRouter.self) private var router
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.editMode) private var editMode
     @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -145,7 +144,7 @@ struct BoardGroupEditorView: View {
                 Button {
                     controlTargetGroupIDStorage = ControlTarget.group(group.id).storedGroupIDString
                     router.selectedTab = .text
-                    if closesOnPlay { dismiss() }
+                    onPlayed?()
                 } label: {
                     Label("在文字页播放此组", systemImage: "play.circle")
                 }

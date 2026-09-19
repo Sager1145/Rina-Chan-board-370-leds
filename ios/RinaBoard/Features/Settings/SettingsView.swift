@@ -117,7 +117,12 @@ private struct SettingsStackLayout: View {
     /// The stack is a projection of `selection`: one page deep, or the list.
     private var path: Binding<[SettingsCategory]> {
         Binding(get: { workspace.selection.map { [$0] } ?? [] },
-                set: { workspace.selection = $0.last })
+                set: {
+                    // Back on the list, nothing is open: a group the split
+                    // layout was editing must not reopen with the next push.
+                    if $0.isEmpty { workspace.editingGroupID = nil }
+                    workspace.selection = $0.last
+                })
     }
 }
 
