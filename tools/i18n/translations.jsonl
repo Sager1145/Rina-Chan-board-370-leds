@@ -1048,3 +1048,20 @@
 {"en": "Clear User Faces on This Board", "hant": "清除此面板的使用者表情", "ja": "このボードのユーザー表情を消去", "k": "清空此面板的用户表情"}
 {"en": "Maintenance", "hant": "維護", "ja": "メンテナンス", "k": "维护"}
 {"en": "Restart This Board", "hant": "重新啟動此面板", "ja": "このボードを再起動", "k": "重启此面板"}
+{"k":"保存失败，请重试","en":"Save failed, please try again","hant":"儲存失敗，請重試","ja":"保存に失敗しました。もう一度お試しください"}
+{"k":"名称不能为空，且不能超过 64 个 UTF-8 字节","en":"Name cannot be empty and must not exceed 64 UTF-8 bytes","hant":"名稱不能為空，且不能超過 64 個 UTF-8 位元組","ja":"名前は空にできず、64 UTF-8 バイトを超えることはできません"}
+{"k":"名称最长 64 字节（约 21 个汉字），不能为空","en":"Name is at most 64 bytes (about 21 CJK characters) and cannot be empty","hant":"名稱最長 64 位元組（約 21 個漢字），不能為空","ja":"名前は最大 64 バイト（漢字約 21 文字）まで、空にはできません"}
+{"k":"复制到当前面板","en":"Copy to current board","hant":"複製到目前面板","ja":"現在のボードにコピー"}
+{"k":"导出失败","en":"Export failed","hant":"匯出失敗","ja":"エクスポートに失敗しました"}
+{"k":"将删除 %lld 个表情","en":"Will delete %lld face(s)","hant":"將刪除 %lld 個表情","ja":"%lld 個の表情を削除します"}
+{"k":"已发送表情","en":"Face sent","hant":"已傳送表情","ja":"表情を送信しました"}
+{"k":"搜索结果不能排序；请先清除搜索","en":"Search results can't be reordered; clear the search first","hant":"搜尋結果不能排序；請先清除搜尋","ja":"検索結果は並べ替えできません。先に検索をクリアしてください"}
+{"k":"撤销删除","en":"Undo delete","hant":"復原刪除","ja":"削除を元に戻す"}
+{"k":"操作失败，请重试","en":"Operation failed, please try again","hant":"操作失敗，請重試","ja":"操作に失敗しました。もう一度お試しください"}
+{"k":"无法分配表情编号","en":"Couldn't assign a face number","hant":"無法分配表情編號","ja":"表情番号を割り当てられませんでした"}
+{"k":"无法读取表情编号；原始 ID 仍可使用","en":"Couldn't read face numbers; the original IDs still work","hant":"無法讀取表情編號；原始 ID 仍可使用","ja":"表情番号を読み込めませんでした。元の ID は引き続き使用できます"}
+{"k":"没有匹配的表情","en":"No matching faces","hant":"沒有符合的表情","ja":"一致する表情がありません"}
+{"k":"编号 F%@","en":"No. F%@","hant":"編號 F%@","ja":"番号 F%@"}
+{"k":"编辑内容已改变，请关闭后重新保存","en":"The edit has changed; close this and save again","hant":"編輯內容已變更，請關閉後重新儲存","ja":"編集内容が変更されました。閉じてから保存し直してください"}
+{"k":"表情已不存在，请刷新列表","en":"This face no longer exists; refresh the list","hant":"表情已不存在，請重新整理清單","ja":"この表情は存在しません。リストを更新してください"}
+{"k":"顺序 %lld","en":"Rank %lld","hant":"順序 %lld","ja":"順序 %lld"}
