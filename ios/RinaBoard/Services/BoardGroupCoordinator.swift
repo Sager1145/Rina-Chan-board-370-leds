@@ -112,6 +112,19 @@ public final class BoardGroupCoordinator {
     private var estimators: [String: ClockOffsetEstimator] = [:]
     private var identifyTask: Task<Void, Never>?
     private var reanchorTask: Task<Void, Never>?
+    /// The in-flight `adoptRunningScrollIfNeeded` attempt, if any — an
+    /// unstructured `Task` (so it outlives whichever caller's own `.task(id:)`
+    /// got cancelled and restarted while it was running). A second caller for
+    /// the SAME group awaits this one's result instead of starting a
+    /// redundant `adoptRunningScroll` pass.
+    private var adoptTask: (groupID: UUID, task: Task<Bool, Never>)?
+    /// The group and time a just-finished `adoptRunningScrollIfNeeded` last
+    /// failed for — `adoptRunningScrollIfNeeded` refuses to retry the same
+    /// group within 5 s of this, without any BLE traffic, so a caller that
+    /// keeps re-requesting adoption (e.g. a `.task(id:)` that restarts every
+    /// time `isStarting` flips) can't hammer disagreeing/offline boards with
+    /// `GET_SCROLL_META` on every restart.
+    private var lastAdoptFailure: (groupID: UUID, at: Date)?
     private var currentAnchor: (phoneUs: Int64, startFrame: Int, intervalMs: Int, loop: Bool)?
     private var participants: [String: Participant] = [:]
     private var playState: PlayState?
@@ -418,6 +431,42 @@ public final class BoardGroupCoordinator {
         }
         if wasPaused { await pause(group: live) }
         return isPlaying || isPaused
+    }
+
+    /// Coalescing, caller-cancellation-immune wrapper around
+    /// `adoptRunningScroll`. A SwiftUI `.task(id:)` cancels and restarts on
+    /// every ID change, and `adoptRunningScroll`'s BLE requests inherit that
+    /// cancellation — which throws `CancellationError` mid-flight and, worse,
+    /// can happen because of `adoptRunningScroll` itself (it flips
+    /// `isStarting`, which a naively-derived task id would include, so the
+    /// task cancels its own in-flight call and restarts forever). This entry
+    /// point runs the real attempt in an unstructured `Task` (does not
+    /// inherit the caller's cancellation), coalesces a second caller for the
+    /// SAME group onto the one already in flight rather than starting a
+    /// redundant pass, and — once an attempt fails — refuses to retry that
+    /// group for 5 s with no BLE traffic at all, so a caller that keeps
+    /// re-requesting adoption can't hammer disagreeing/offline boards with
+    /// `GET_SCROLL_META` on every restart.
+    @discardableResult
+    public func adoptRunningScrollIfNeeded(group: BoardGroup) async -> Bool {
+        if let adoptTask, adoptTask.groupID == group.id {
+            return await adoptTask.task.value
+        }
+        if let lastAdoptFailure, lastAdoptFailure.groupID == group.id,
+           Date().timeIntervalSince(lastAdoptFailure.at) < 5 {
+            return false
+        }
+        let groupID = group.id
+        let task = Task { await self.adoptRunningScroll(group: group) }
+        adoptTask = (groupID: groupID, task: task)
+        let result = await task.value
+        adoptTask = nil
+        if result {
+            lastAdoptFailure = nil
+        } else {
+            lastAdoptFailure = (groupID: groupID, at: Date())
+        }
+        return result
     }
 
     /// A group scroll that is already running on every member (left behind

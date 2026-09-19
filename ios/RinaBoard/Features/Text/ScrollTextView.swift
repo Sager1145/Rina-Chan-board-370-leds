@@ -180,6 +180,12 @@ struct ScrollTextView: View {
         // reconnect): keep the transport live. Stop works as is; the other
         // controls take the scroll over first (`adoptRunningScroll`).
         let orphaned = !playing && !paused && !starting && groupCoordinator.hasOrphanedScroll(group: group)
+        // Drives the adoption `.task(id:)` below. Deliberately omits
+        // `!starting`: `adoptRunningScrollIfNeeded` itself flips `isStarting`
+        // while it runs, so an id that included it would cancel and restart
+        // the task on every attempt (the task would never live long enough
+        // to finish, and `model.adoptGroupFps` would never run).
+        let needsAdoption = !playing && !paused && groupCoordinator.hasOrphanedScroll(group: group)
         return Section {
             TextPlaybackControls(
                 isConnected: allOnline,
@@ -216,8 +222,8 @@ struct ScrollTextView: View {
         }
         // Take a still-running group scroll back as soon as every member is
         // online again, so pause/step/speed work without a tap first.
-        .task(id: "\(group.id)|\(allOnline)|\(orphaned)") {
-            if allOnline && orphaned { _ = await adoptIfOrphaned(group) }
+        .task(id: "\(group.id)|\(allOnline)|\(needsAdoption)") {
+            if allOnline && needsAdoption { _ = await adoptIfOrphaned(group) }
         }
     }
 
@@ -228,7 +234,7 @@ struct ScrollTextView: View {
         let driving = groupCoordinator.activeGroupID == group.id
             && (groupCoordinator.isPlaying || groupCoordinator.isPaused)
         if driving { return true }
-        guard await groupCoordinator.adoptRunningScroll(group: group) else { return false }
+        guard await groupCoordinator.adoptRunningScrollIfNeeded(group: group) else { return false }
         // The speed follows the boards, as on a single-board reconnect.
         if let fps = groupCoordinator.activeFps { model.adoptGroupFps(fps) }
         return true

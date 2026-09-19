@@ -1139,6 +1139,83 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertTrue(transportA.sentGroupStartAtUs.isEmpty)
     }
 
+    /// `.task(id:)` cancels its child task on every id change, and
+    /// `adoptRunningScroll` itself flips `isStarting` (a naive id would
+    /// include it), so a naive caller cancels its own in-flight adoption and
+    /// restarts forever without ever completing (BOARD_GROUP_SPEC.md §3).
+    /// `adoptRunningScrollIfNeeded` must run the real attempt on an
+    /// unstructured `Task` that does not inherit the caller's cancellation,
+    /// so cancelling the awaiting task must not stop the adoption underneath.
+    func testAdoptionCompletesWhenCallerIsCancelled() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let first = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let group = store.create(name: "取消接管组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try await first.play(group: store.groups[0], text: "取消", fps: 10, loop: true)
+        let frameCount = try XCTUnwrap(first.playbackSnapshot?.frameCount)
+        let timelineId = try XCTUnwrap(transportA.lastBlobBeginMeta?["timelineId"] as? String)
+        for transport in [transportA, transportB] {
+            transport.scrollMeta = [
+                "ok": true, "scrollTimelineId": timelineId, "hasSourceText": true, "sourceText": "取消",
+                "frameCount": frameCount, "frameIndex": 5, "scrollIntervalMs": 100,
+                "firmwareScrollActive": true, "firmwareScrollPaused": false, "scrollLoop": true, "groupTimed": true,
+            ]
+        }
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        // Baseline includes `first.play()`'s own `group_start` on each
+        // transport (they're the same boards) — the assertion below checks
+        // adoption sent exactly one MORE, not the lifetime total.
+        let sentBeforeA = transportA.sentGroupStartAtUs.count
+        let sentBeforeB = transportB.sentGroupStartAtUs.count
+
+        let t = Task { await coordinator.adoptRunningScrollIfNeeded(group: store.groups[0]) }
+        t.cancel()
+        let adopted = await t.value
+
+        XCTAssertTrue(adopted)
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertFalse(coordinator.isStarting)
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count - sentBeforeA, 1)
+        XCTAssertEqual(transportB.sentGroupStartAtUs.count - sentBeforeB, 1)
+    }
+
+    /// A failed adoption must not be retried immediately: a second call for
+    /// the same group within the 5 s throttle window must produce no
+    /// additional BLE traffic, so a caller stuck re-requesting adoption can't
+    /// hammer disagreeing boards with `GET_SCROLL_META` on every restart.
+    func testFailedAdoptionIsNotRetriedImmediately() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let group = store.create(name: "重试节流组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        let base: [String: Any] = [
+            "ok": true, "scrollTimelineId": "T", "hasSourceText": true, "frameCount": 50, "frameIndex": 0,
+            "scrollIntervalMs": 100, "firmwareScrollActive": true, "scrollLoop": true, "groupTimed": true,
+        ]
+        transportA.scrollMeta = base.merging(["sourceText": "甲"]) { _, new in new }
+        transportB.scrollMeta = base.merging(["sourceText": "乙"]) { _, new in new }
+
+        let first = await coordinator.adoptRunningScrollIfNeeded(group: store.groups[0])
+        let requestsAfterFirst = transportA.scrollMetaRequestCount
+        let second = await coordinator.adoptRunningScrollIfNeeded(group: store.groups[0])
+
+        XCTAssertFalse(first)
+        XCTAssertFalse(second)
+        XCTAssertEqual(transportA.scrollMetaRequestCount, requestsAfterFirst, "throttled retry must send no BLE traffic")
+    }
+
     /// Reconnect/relaunch bug: Stop must reach boards still scrolling whose
     /// output lease the reconnect cleared (`source == nil`), not skip them.
     func testStopReachesStillScrollingBoardsAfterRelaunch() async throws {
@@ -1799,6 +1876,8 @@ private final class GroupFakeTransport: RinaTransport {
     var statusRenderer: [String: Any] = [:]
     /// `GET_SCROLL_META` reply; `nil` replies with an empty meta.
     var scrollMeta: [String: Any]?
+    /// One entry per `GET_SCROLL_META` request this board received.
+    private(set) var scrollMetaRequestCount = 0
     private(set) var blobBeginCount = 0
     private(set) var sentGroupStartAtUs: [Int64] = []
     private(set) var sentGroupStartIntervalMs: [Int] = []
@@ -1861,6 +1940,7 @@ private final class GroupFakeTransport: RinaTransport {
         case .getFrame:
             return PackedFrame().data
         case .getScrollMeta:
+            scrollMetaRequestCount += 1
             return (try? JSONSerialization.data(withJSONObject: scrollMeta ?? ["ok": true])) ?? Data()
         case .blobBegin:
             blobBeginCount += 1
