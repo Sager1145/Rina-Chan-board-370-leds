@@ -947,15 +947,54 @@ public final class BoardGroupCoordinator {
 
     // MARK: - Re-anchoring
 
+    /// R6a: ticks every 1 s so a reconnected member is rejoined promptly
+    /// (`rejoinReconnected`) instead of waiting for the full 30 s re-anchor
+    /// pass — every 30th tick still runs the full `reanchor` (clock
+    /// resampling of every survivor plus a rejoin pass), same cadence as
+    /// before.
+    private static let reanchorTickNanos: UInt64 = 1_000_000_000
+    private static let fullReanchorEveryNTicks = 30
+
     private func startReanchorLoop(groupID: UUID, revision: Int, epoch: Int) {
         reanchorTask?.cancel()
         reanchorTask = Task { [weak self] in
+            var tick = 0
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                try? await Task.sleep(nanoseconds: Self.reanchorTickNanos)
                 guard let self, !Task.isCancelled else { return }
                 guard self.isPlaying, self.activeGroupID == groupID, self.playEpoch == epoch else { return }
                 guard self.isAppActive else { continue } // M1: skip this pass, keep the loop running
-                await self.reanchor(groupID: groupID, revision: revision, epoch: epoch)
+                tick += 1
+                if tick % Self.fullReanchorEveryNTicks == 0 {
+                    await self.reanchor(groupID: groupID, revision: revision, epoch: epoch)
+                } else {
+                    await self.rejoinReconnected(groupID: groupID, revision: revision, epoch: epoch)
+                }
+            }
+        }
+    }
+
+    /// R6a: the cheap tick between full `reanchor` passes — rejoins members
+    /// that reconnected but aren't participants yet, without resampling
+    /// every existing survivor's clock. Never runs concurrently with itself
+    /// or `reanchor`'s own rejoin loop for the same member (`rejoinInFlight`).
+    private func rejoinReconnected(groupID: UUID, revision: Int, epoch: Int) async {
+        guard playEpoch == epoch, !isPaused else { return } // N3/B1
+        guard let group = store.groups.first(where: { $0.id == groupID }), group.layoutRevision == revision,
+              playState != nil else { return }
+        pruneParticipants()
+        for member in reconnectedNonParticipants(group) {
+            let id = member.physicalBoardID
+            guard !rejoinInFlight.contains(id) else { continue }
+            if let lastFailure = lastRejoinFailureAt[id], Date().timeIntervalSince(lastFailure) < 5 { continue }
+            guard playEpoch == epoch, !isPaused else { return } // N3/B1: recheck before each rejoin in the loop
+            rejoinInFlight.insert(id)
+            await rejoin(member: member, groupID: groupID, revision: revision, epoch: epoch)
+            rejoinInFlight.remove(id)
+            if participants[id] == nil {
+                lastRejoinFailureAt[id] = Date()
+            } else {
+                lastRejoinFailureAt.removeValue(forKey: id)
             }
         }
     }
@@ -1052,8 +1091,17 @@ public final class BoardGroupCoordinator {
 
         for member in group.members
         where participants[member.physicalBoardID] == nil && !evictedByOwnership.contains(member.physicalBoardID) {
+            let id = member.physicalBoardID
+            guard !rejoinInFlight.contains(id) else { continue } // R6a: already being rejoined by the cheap pass
             guard playEpoch == epoch, controlGeneration == gen, !isPaused else { return } // B1
+            rejoinInFlight.insert(id)
             await rejoin(member: member, groupID: groupID, revision: revision, epoch: epoch)
+            rejoinInFlight.remove(id)
+            if participants[id] == nil {
+                lastRejoinFailureAt[id] = Date()
+            } else {
+                lastRejoinFailureAt.removeValue(forKey: id)
+            }
         }
     }
 
@@ -1803,6 +1851,14 @@ public final class BoardGroupCoordinator {
     func debugReanchorNow() async {
         guard let groupID = activeGroupID, let revision = activeRevision, let epoch = activeEpoch else { return }
         await reanchor(groupID: groupID, revision: revision, epoch: epoch)
+    }
+
+    /// Test-only seam: runs one cheap `rejoinReconnected` pass synchronously
+    /// instead of waiting for the 1 s tick (R6a). Never called from
+    /// production code.
+    func debugRejoinReconnectedNow() async {
+        guard let groupID = activeGroupID, let revision = activeRevision, let epoch = activeEpoch else { return }
+        await rejoinReconnected(groupID: groupID, revision: revision, epoch: epoch)
     }
 
     /// Test-only accessor: the epoch counter right now, so a test can
