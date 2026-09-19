@@ -126,6 +126,13 @@ public final class BoardGroupCoordinator {
     /// `GET_SCROLL_META` on every restart.
     private var lastAdoptFailure: (groupID: UUID, at: Date)?
     private var currentAnchor: (phoneUs: Int64, startFrame: Int, intervalMs: Int, loop: Bool)?
+    /// R6b: the group bitmap content each board's connection last
+    /// successfully uploaded — a `rejoin` whose entry here still matches
+    /// (same `bootId`/timeline/viewport) AND whose live `GET_SCROLL_META`
+    /// confirms the board is still actually showing it skips re-uploading.
+    /// A stale entry is harmless: the timeline id must also match, and a new
+    /// `play()`'s fresh `timelineId` never collides with an old one.
+    private var uploadedContent: [String: (bootId: String, timelineId: String, viewportX: Int)] = [:]
     private var participants: [String: Participant] = [:]
     private var playState: PlayState?
     /// The `(groupID, layoutRevision, playEpoch)` a successful `play()` was
@@ -141,6 +148,14 @@ public final class BoardGroupCoordinator {
     /// single-board action now owns it (N1). Cleared at the start of the
     /// next `play()`.
     private var evictedByOwnership: Set<String> = []
+    /// R6a: members a `rejoinReconnected`/`reanchor` pass is currently
+    /// rejoining — skipped by any other pass that finds the same member so
+    /// two concurrent rejoins for the same board can never race each other.
+    private var rejoinInFlight: Set<String> = []
+    /// R6a: the last time a rejoin attempt for a member left it still not a
+    /// participant, so the once-a-second cheap pass backs off that member
+    /// for 5 s instead of hammering an offline/disagreeing board every tick.
+    private var lastRejoinFailureAt: [String: Date] = [:]
     /// Bumped every `stop()`/`play()`; a `play()` call captures it and
     /// refuses to act (and its re-anchor loop refuses to run) once it no
     /// longer matches.
@@ -578,6 +593,8 @@ public final class BoardGroupCoordinator {
         isPaused = false
         pausedFrame = 0
         evictedByOwnership.removeAll()
+        rejoinInFlight.removeAll()
+        lastRejoinFailureAt.removeAll()
 
         let capturedEpoch = playEpoch
 
@@ -662,6 +679,11 @@ public final class BoardGroupCoordinator {
                             throw error
                         }
                         self.memberStatus[captured.member.physicalBoardID] = .ready
+                        // R6b: recorded so a later rejoin of this exact board
+                        // can skip re-uploading if it still holds this content.
+                        if let bootId = captured.session.connection.bootId {
+                            self.uploadedContent[captured.member.physicalBoardID] = (bootId: bootId, timelineId: timelineId, viewportX: viewportX)
+                        }
                     }
                 }
                 try await taskGroup.waitForAll()
@@ -773,6 +795,7 @@ public final class BoardGroupCoordinator {
                     member: captured.member, session: captured.session,
                     generation: captured.session.connection.connectionGeneration, bootId: bootId, token: token
                 )
+                registerTakeoverHandler(id: captured.member.physicalBoardID, connection: captured.session.connection)
             }
             startReanchorLoop(groupID: capturedGroupID, revision: capturedRevision, epoch: capturedEpoch)
             isStarting = false
@@ -874,6 +897,40 @@ public final class BoardGroupCoordinator {
         }
     }
 
+    /// Converts `currentAnchor`'s tuple shape to/from `GroupSchedule.Anchor`
+    /// for the pure scheduling helpers — `currentAnchor` itself keeps its
+    /// tuple type (another branch edits guards comparing `currentAnchor?.phoneUs`).
+    private func scheduleAnchor(_ anchor: (phoneUs: Int64, startFrame: Int, intervalMs: Int, loop: Bool)) -> GroupSchedule.Anchor {
+        GroupSchedule.Anchor(phoneUs: anchor.phoneUs, startFrame: anchor.startFrame, intervalMs: anchor.intervalMs, loop: anchor.loop)
+    }
+
+    private func tupleAnchor(_ anchor: GroupSchedule.Anchor) -> (phoneUs: Int64, startFrame: Int, intervalMs: Int, loop: Bool) {
+        (phoneUs: anchor.phoneUs, startFrame: anchor.startFrame, intervalMs: anchor.intervalMs, loop: anchor.loop)
+    }
+
+    /// R6e: called every time a board becomes a participant (`play()`'s own
+    /// join and `rejoin()`), so a takeover is recorded the instant it
+    /// happens rather than waiting for the next `reanchor`/`pruneParticipants`
+    /// pass to notice. `BoardPlaybackCoordinator.begin()` sets the new
+    /// `source` BEFORE calling the previous source's stop handler (and
+    /// `invalidate()` sets `source` nil first) — so by the time this handler
+    /// runs, `connection.output.source` already reflects what actually
+    /// happened: another feature's `.begin` (non-nil, non-`.group`) or a
+    /// plain disconnect/stop (`nil`, still rejoin-eligible). Without this, a
+    /// takeover followed by a disconnect before the next re-anchor pass
+    /// would be forgotten entirely, and a later rejoin would steal the board
+    /// back from whatever single-board action now owns it.
+    private func registerTakeoverHandler(id: String, connection: BoardConnection) {
+        connection.output.register(.group) { [weak self, weak connection] in
+            guard let self, let connection else { return }
+            guard let source = connection.output.source, source != .group else { return }
+            guard let match = self.participants.first(where: {
+                $0.value.session.connection === connection && $0.value.generation == connection.connectionGeneration
+            }) else { return }
+            self.evictedByOwnership.insert(match.key)
+        }
+    }
+
     private func viewportX(for slot: Int, mode: BoardGroup.Mode, layout: StitchedScreenLayout) -> Int {
         // Mirror mode: every board shows the same V=22 viewport at X=0.
         mode == .mirror ? 0 : layout.viewportX(slot: slot)
@@ -890,15 +947,56 @@ public final class BoardGroupCoordinator {
 
     // MARK: - Re-anchoring
 
+    /// R6a: ticks every 1 s so a reconnected member is rejoined promptly
+    /// (`rejoinReconnected`) instead of waiting for the full 30 s re-anchor
+    /// pass — every 30th tick still runs the full `reanchor` (clock
+    /// resampling of every survivor plus a rejoin pass), same cadence as
+    /// before.
+    private static let reanchorTickNanos: UInt64 = 1_000_000_000
+    private static let fullReanchorEveryNTicks = 30
+
     private func startReanchorLoop(groupID: UUID, revision: Int, epoch: Int) {
         reanchorTask?.cancel()
         reanchorTask = Task { [weak self] in
+            var tick = 0
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                try? await Task.sleep(nanoseconds: Self.reanchorTickNanos)
                 guard let self, !Task.isCancelled else { return }
                 guard self.isPlaying, self.activeGroupID == groupID, self.playEpoch == epoch else { return }
                 guard self.isAppActive else { continue } // M1: skip this pass, keep the loop running
-                await self.reanchor(groupID: groupID, revision: revision, epoch: epoch)
+                tick += 1
+                if tick % Self.fullReanchorEveryNTicks == 0 {
+                    await self.reanchor(groupID: groupID, revision: revision, epoch: epoch)
+                } else {
+                    await self.rejoinReconnected(groupID: groupID, revision: revision, epoch: epoch)
+                }
+            }
+        }
+    }
+
+    /// R6a: the cheap tick between full `reanchor` passes — rejoins members
+    /// that reconnected but aren't participants yet, without resampling
+    /// every existing survivor's clock. Never runs concurrently with itself
+    /// or `reanchor`'s own rejoin loop for the same member (`rejoinInFlight`).
+    private func rejoinReconnected(groupID: UUID, revision: Int, epoch: Int) async {
+        guard playEpoch == epoch, !isPaused else { return } // N3/B1
+        guard let group = store.groups.first(where: { $0.id == groupID }), group.layoutRevision == revision,
+              playState != nil else { return }
+        pruneParticipants()
+        for member in reconnectedNonParticipants(group) {
+            let id = member.physicalBoardID
+            guard !rejoinInFlight.contains(id) else { continue }
+            if let lastFailure = lastRejoinFailureAt[id], Date().timeIntervalSince(lastFailure) < 5 { continue }
+            guard playEpoch == epoch, !isPaused else { return } // N3/B1: recheck before each rejoin in the loop
+            rejoinInFlight.insert(id)
+            await rejoin(member: member, groupID: groupID, revision: revision, epoch: epoch)
+            // A newer play() already reset this bookkeeping for its own run.
+            guard playEpoch == epoch else { return }
+            rejoinInFlight.remove(id)
+            if participants[id] == nil {
+                lastRejoinFailureAt[id] = Date()
+            } else {
+                lastRejoinFailureAt.removeValue(forKey: id)
             }
         }
     }
@@ -916,7 +1014,8 @@ public final class BoardGroupCoordinator {
         guard playEpoch == epoch else { return } // N3
         let gen = controlGeneration // B1: captured before any await below
         guard let group = store.groups.first(where: { $0.id == groupID }), group.layoutRevision == revision,
-              let anchor = currentAnchor, playState != nil, !isPaused else { return } // B1
+              let anchor = currentAnchor, let playState, !isPaused else { return } // B1
+        let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
 
         var survivors: [String: Participant] = [:]
         for (id, participant) in participants {
@@ -970,9 +1069,19 @@ public final class BoardGroupCoordinator {
               liveAnchor.phoneUs == anchor.phoneUs, liveAnchor.intervalMs == anchor.intervalMs,
               liveAnchor.loop == anchor.loop
         else { return }
+        // F11: a board's estimator was just refreshed above from scratch, so
+        // mapping it through the ORIGINAL anchor risks a negative `atUs` for
+        // any board whose clock started (rebooted) after that anchor's phone
+        // time — firmware rejects a negative `atUs` outright. Rolling the
+        // anchor forward to "now" keeps every board's mapped time inside its
+        // own uptime while sending the exact same timeline. It rounds down,
+        // so the sent anchor is never in the future (firmware would show the
+        // next frame early and hold it). `currentAnchor` itself is never
+        // updated to this rolled value — only the value SENT.
+        let sendAnchor = GroupSchedule.rolledForward(scheduleAnchor(anchor), toUs: nowUs(), frameCount: frameCount)
         let commands = GroupSchedule.reanchorCommands(
-            phoneAnchorUs: anchor.phoneUs, startFrame: anchor.startFrame, intervalMs: anchor.intervalMs,
-            loop: anchor.loop, estimators: estimators.filter { participants[$0.key] != nil }, bootIds: bootIds
+            phoneAnchorUs: sendAnchor.phoneUs, startFrame: sendAnchor.startFrame, intervalMs: sendAnchor.intervalMs,
+            loop: sendAnchor.loop, estimators: estimators.filter { participants[$0.key] != nil }, bootIds: bootIds
         )
         for (id, participant) in participants {
             guard let cmd = commands[id] else { continue }
@@ -995,8 +1104,19 @@ public final class BoardGroupCoordinator {
 
         for member in group.members
         where participants[member.physicalBoardID] == nil && !evictedByOwnership.contains(member.physicalBoardID) {
+            let id = member.physicalBoardID
+            guard !rejoinInFlight.contains(id) else { continue } // R6a: already being rejoined by the cheap pass
             guard playEpoch == epoch, controlGeneration == gen, !isPaused else { return } // B1
+            rejoinInFlight.insert(id)
             await rejoin(member: member, groupID: groupID, revision: revision, epoch: epoch)
+            // A newer play() already reset this bookkeeping for its own run.
+            guard playEpoch == epoch else { return }
+            rejoinInFlight.remove(id)
+            if participants[id] == nil {
+                lastRejoinFailureAt[id] = Date()
+            } else {
+                lastRejoinFailureAt.removeValue(forKey: id)
+            }
         }
     }
 
@@ -1027,41 +1147,84 @@ public final class BoardGroupCoordinator {
             return
         }
 
-        memberStatus[id] = .error("需要重新上传")
         let viewportX = viewportX(for: slot, mode: playState.mode, layout: playState.layout)
+        let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
+        // 4.2: the output lease is claimed the same way regardless of which
+        // path below runs — `source` is already known to be `nil` or
+        // `.group` above, so this can never steal a board another feature
+        // owns.
         let token = session.connection.output.claim(.group)
-        do {
-            try await session.connection.withOutput(token) {
-                _ = try await session.connection.uploadGroupScrollBitmap(
-                    bitmap: playState.bitmap, viewportX: viewportX, virtualWidth: playState.virtualWidth,
-                    fps: playState.fps, timelineId: playState.timelineId, sourceText: playState.sourceText,
-                    start: false
-                )
+
+        // R6b: a board that still holds this exact group content (same
+        // bootId/timeline/viewport, confirmed live via `GET_SCROLL_META`)
+        // needs no re-upload — uploading makes firmware leave group-timed
+        // mode and zero the frame index, so a board that stayed in sync
+        // would visibly glitch for no reason. Only a rejoin after a
+        // reconnect/takeover reaches this at all; a board that never lost
+        // its lease is handled by `reanchor`'s survivor path, not here.
+        var skipUpload = false
+        if let bootId = session.connection.bootId,
+           let recorded = uploadedContent[id], recorded.bootId == bootId,
+           recorded.timelineId == playState.timelineId, recorded.viewportX == viewportX {
+            if let meta = try? await session.connection.getScrollMeta(),
+               meta.groupTimed == true, meta.firmwareScrollActive == true, meta.uploadComplete != false,
+               meta.scrollTimelineId == playState.timelineId, meta.frameCount == frameCount {
+                skipUpload = true
             }
-            // Same live-state guards `play()` uses: bail without touching
-            // anything durable if the group moved on underneath us. B1:
-            // also bails if a pause landed mid-upload.
+            // Same live-state guards the post-upload path uses, re-run here
+            // since this branch also awaits (the meta request).
             guard playEpoch == epoch, controlGeneration == gen, !isPaused, // N3/B1
                   store.groups.first(where: { $0.id == groupID })?.layoutRevision == revision,
                   isPlaying, activeGroupID == groupID, currentAnchor?.phoneUs == anchor.phoneUs else { return }
+        }
+        if !skipUpload {
+            memberStatus[id] = .error("需要重新上传")
+        }
+        do {
+            if !skipUpload {
+                try await session.connection.withOutput(token) {
+                    _ = try await session.connection.uploadGroupScrollBitmap(
+                        bitmap: playState.bitmap, viewportX: viewportX, virtualWidth: playState.virtualWidth,
+                        fps: playState.fps, timelineId: playState.timelineId, sourceText: playState.sourceText,
+                        start: false
+                    )
+                }
+                // Same live-state guards `play()` uses: bail without touching
+                // anything durable if the group moved on underneath us. B1:
+                // also bails if a pause landed mid-upload.
+                guard playEpoch == epoch, controlGeneration == gen, !isPaused, // N3/B1
+                      store.groups.first(where: { $0.id == groupID })?.layoutRevision == revision,
+                      isPlaying, activeGroupID == groupID, currentAnchor?.phoneUs == anchor.phoneUs else { return }
+                if let bootId = session.connection.bootId {
+                    uploadedContent[id] = (bootId: bootId, timelineId: playState.timelineId, viewportX: viewportX)
+                }
+            }
 
             var estimator = estimators[id] ?? ClockOffsetEstimator()
             estimator.removeAllSamples()
-            for _ in 0..<8 {
+            // A board that skipped the upload already has a warm connection
+            // (it just answered a `GET_SCROLL_META`) — 4 samples, same as a
+            // routine `reanchor` pass, instead of the 8 a fresh
+            // upload/rejoin uses.
+            for _ in 0..<(skipUpload ? 4 : 8) {
                 guard let sample = try? await takeClockSample(connection: session.connection) else { continue }
                 if let bootId = session.connection.bootId { estimator.addSample(sample, bootId: bootId) }
             }
             estimators[id] = estimator
-            // R15: extend with the same anchor-identity check used before
-            // the upload above — a speed change that lands mid-sampling
-            // must abort this rejoin rather than send it the stale anchor.
-            guard playEpoch == epoch, controlGeneration == gen, !isPaused,
-                  currentAnchor?.phoneUs == anchor.phoneUs
-            else { return } // N3/B1: after the sampling awaits
+            guard playEpoch == epoch, controlGeneration == gen, !isPaused else { return } // N3/B1: after the sampling awaits
+            // F11: a rebooted board's clock started seconds ago, so mapping
+            // the ORIGINAL anchor onto its just-refreshed estimator risks a
+            // negative `atUs`, which firmware rejects. Roll forward to "now"
+            // — `currentAnchor` itself stays untouched, only the value sent.
+            // Reads the LIVE anchor: a speed/loop change that committed while
+            // this board was uploading or sampling must reach it too, or it
+            // would run the old rate until the next full re-anchor.
+            guard let liveAnchor = currentAnchor else { return }
+            let sendAnchor = GroupSchedule.rolledForward(scheduleAnchor(liveAnchor), toUs: nowUs(), frameCount: frameCount)
             guard let bootId = session.connection.bootId,
                   let cmd = GroupSchedule.reanchorCommands(
-                    phoneAnchorUs: anchor.phoneUs, startFrame: anchor.startFrame, intervalMs: anchor.intervalMs,
-                    loop: anchor.loop, estimators: [id: estimator], bootIds: [id: bootId]
+                    phoneAnchorUs: sendAnchor.phoneUs, startFrame: sendAnchor.startFrame, intervalMs: sendAnchor.intervalMs,
+                    loop: sendAnchor.loop, estimators: [id: estimator], bootIds: [id: bootId]
                   )[id]
             else {
                 guard playEpoch == epoch, controlGeneration == gen else { return } // N3/B1
@@ -1079,6 +1242,7 @@ public final class BoardGroupCoordinator {
                 member: member, session: session, generation: session.connection.connectionGeneration,
                 bootId: bootId, token: token
             )
+            registerTakeoverHandler(id: id, connection: session.connection)
         } catch {
             guard playEpoch == epoch, controlGeneration == gen else { return } // N3/B1
             memberStatus[id] = .error(error.localizedDescription)
@@ -1096,14 +1260,17 @@ public final class BoardGroupCoordinator {
 
     /// BOARD_GROUP_SPEC.md §3 addendum (live fps/loop update): re-anchors
     /// every live participant to a new `(intervalMs, loop)` without a phase
-    /// jump. Picks one common phone instant `T = now + max(300 ms, 3 ×
-    /// worst bestRtt)`, computes the global frame index at `T` under the
-    /// *current* anchor (wrapped/clamped per the old `loop`), then
-    /// re-anchors every participant with fresh clock samples to resume from
-    /// that frame at the new rate — same live-participant/epoch/revision
-    /// guards as `reanchor`. Does nothing unless this exact group is
-    /// currently playing. `fps`/`loop` left `nil` keep that part of the
-    /// anchor unchanged; if both are `nil` this is a no-op.
+    /// jump (F4, `GroupSchedule.speedChange`). Firmware applies a
+    /// `group_start` on receipt and holds `startFrame` until `atUs`, so a
+    /// future `atUs` would make a playing board jump ahead and freeze until
+    /// then. Instead the switch happens on a frame boundary of the OLD
+    /// timeline (at or after `now + lead`), and the new timeline is walked
+    /// back by whole new-rate frames to an anchor whose `atUs` is never in
+    /// the future — every board keeps playing right through the switch.
+    /// Same live-participant/epoch/revision guards as `reanchor`. Does
+    /// nothing unless this exact group is currently playing. `fps`/`loop`
+    /// left `nil` keep that part of the anchor unchanged; if both are `nil`
+    /// this is a no-op.
     public func updatePlayback(group: BoardGroup, fps: Int?, loop: Bool?) async {
         guard fps != nil || loop != nil else { return }
         guard !updatePlaybackBusy else {
@@ -1189,27 +1356,25 @@ public final class BoardGroupCoordinator {
               store.groups.first(where: { $0.id == group.id })?.layoutRevision == revision else { return }
 
         let worstRtt = participants.keys.compactMap { estimators[$0]?.bestRttUs }.max() ?? 0
-        let phoneNow = nowUs() + max(300_000, 3 * worstRtt)
-
         let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
-        let oldIntervalUs = Int64(anchor.intervalMs) * 1000
-        let elapsedUs = phoneNow - anchor.phoneUs
-        let rawFrame = elapsedUs < 0
-            ? Int64(anchor.startFrame)
-            : Int64(anchor.startFrame) + elapsedUs / max(oldIntervalUs, 1)
-        let newStartFrame: Int
-        if frameCount <= 0 {
-            newStartFrame = 0
-        } else if anchor.loop {
-            let m = Int64(frameCount)
-            newStartFrame = Int(((rawFrame % m) + m) % m)
-        } else {
-            newStartFrame = Int(min(max(rawFrame, 0), Int64(frameCount - 1)))
-        }
+
+        // F4: firmware applies a `group_start` the moment it receives it and
+        // holds `startFrame` until `atUs`, so the old future-`atUs` re-anchor
+        // made a playing board jump ahead and freeze. The switch instant is
+        // now roughly when the command lands (half the worst round trip from
+        // now), and the new timeline continues from the old one's frame AND
+        // the part of it already shown, so a board applying it on time shows
+        // no jump and one applying it a little early/late is off by about
+        // that delay over the frame interval.
+        let switchUs = nowUs() + min(worstRtt / 2, 100_000)
+        let next = GroupSchedule.speedChange(
+            from: scheduleAnchor(anchor), intervalMs: newIntervalMs, loop: newLoop, frameCount: frameCount,
+            switchUs: switchUs
+        )
 
         let commands = GroupSchedule.reanchorCommands(
-            phoneAnchorUs: phoneNow, startFrame: newStartFrame, intervalMs: newIntervalMs,
-            loop: newLoop, estimators: estimators.filter { participants[$0.key] != nil }, bootIds: bootIds
+            phoneAnchorUs: next.phoneUs, startFrame: next.startFrame, intervalMs: next.intervalMs,
+            loop: next.loop, estimators: estimators.filter { participants[$0.key] != nil }, bootIds: bootIds
         )
 
         // Send `group_start` to every participant in parallel.
@@ -1249,7 +1414,28 @@ public final class BoardGroupCoordinator {
         // `currentAnchor` forward would desync the next re-anchor/rejoin
         // pass from what the boards are actually showing.
         guard anyAccepted, playEpoch == epoch, controlGeneration == gen, !isPaused else { return } // N3/B1
-        currentAnchor = (phoneUs: phoneNow, startFrame: newStartFrame, intervalMs: newIntervalMs, loop: newLoop)
+        currentAnchor = tupleAnchor(next)
+
+        // A member that finished a rejoin while this pass was sampling or
+        // sending joined with the OLD anchor and was never sent the new one;
+        // bring it onto the new timeline now instead of leaving it on the old
+        // rate until the next full re-anchor.
+        for (id, participant) in participants where commands[id] == nil {
+            guard let estimator = estimators[id],
+                  let cmd = GroupSchedule.reanchorCommands(
+                    phoneAnchorUs: next.phoneUs, startFrame: next.startFrame, intervalMs: next.intervalMs,
+                    loop: next.loop, estimators: [id: estimator], bootIds: [id: participant.bootId]
+                  )[id] else { continue }
+            guard playEpoch == epoch, controlGeneration == gen, !isPaused else { return } // B1
+            do {
+                try await participant.session.connection.withOutput(participant.token) {
+                    _ = try await participant.session.connection.requestReliable(cmd)
+                }
+            } catch {
+                guard playEpoch == epoch, controlGeneration == gen else { return } // N3/B1
+                memberStatus[id] = .error(error.localizedDescription)
+            }
+        }
     }
 
     // MARK: - Pause / resume / step (app-level; no firmware timed-pause)
@@ -1737,6 +1923,14 @@ public final class BoardGroupCoordinator {
         await reanchor(groupID: groupID, revision: revision, epoch: epoch)
     }
 
+    /// Test-only seam: runs one cheap `rejoinReconnected` pass synchronously
+    /// instead of waiting for the 1 s tick (R6a). Never called from
+    /// production code.
+    func debugRejoinReconnectedNow() async {
+        guard let groupID = activeGroupID, let revision = activeRevision, let epoch = activeEpoch else { return }
+        await rejoinReconnected(groupID: groupID, revision: revision, epoch: epoch)
+    }
+
     /// Test-only accessor: the epoch counter right now, so a test can
     /// snapshot it after one `play()` completes and later prove a re-anchor
     /// pass computed with that stale epoch is rejected once a second
@@ -1755,6 +1949,10 @@ public final class BoardGroupCoordinator {
     /// nothing is playing/paused -- lets a test prove a `group_start` every
     /// participant rejected left the anchor untouched (4.1 hardening).
     var debugAnchorIntervalMs: Int? { currentAnchor?.intervalMs }
+
+    /// Test-only accessor: the active play's `timelineId`, so a test can
+    /// script a rejoin's `GET_SCROLL_META` reply to agree with it (R6b).
+    var debugTimelineId: String? { playState?.timelineId }
     #endif
 
     /// Board-group control fan-out addendum: called by `GroupControlFanOut`
