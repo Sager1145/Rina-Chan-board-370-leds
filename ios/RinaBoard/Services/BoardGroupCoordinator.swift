@@ -1766,7 +1766,7 @@ public final class BoardGroupCoordinator {
         guard isPaused, activeGroupID == group.id,
               let epoch = activeEpoch, playEpoch == epoch,
               let revision = activeRevision,
-              let anchor = currentAnchor, let playState else { return }
+              let anchor = currentAnchor, playState != nil else { return }
         guard let liveGroup = store.groups.first(where: { $0.id == group.id }),
               liveGroup.layoutRevision == revision else { return }
 
