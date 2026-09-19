@@ -19,7 +19,7 @@ enum AppTab: String, CaseIterable {
             // 视频 is a page inside the 演出 tab; open the tab on that page.
             UserDefaults.standard.set(PerformanceTabMode.video.rawValue, forKey: PerformanceTabMode.storageKey)
             self = .presetLive
-        case "settings", "debug", "connect": self = .settings
+        case "settings", "debug", "connect", "add-board": self = .settings
         default: self = .control
         }
     }

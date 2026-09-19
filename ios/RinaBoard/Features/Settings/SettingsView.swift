@@ -140,11 +140,15 @@ private struct SettingsCategoryRows: View {
 
     var body: some View {
         let categories = workspace.categories(controlCenterInSettings: controlCenterInSettings)
-        if categories.contains(.controlCenter) {
-            Section { row(.controlCenter) }
-        }
-        Section {
-            ForEach(categories.filter { $0 != .controlCenter }) { row($0) }
+        ForEach(SettingsCategorySection.allCases, id: \.self) { section in
+            let rows = categories.filter { $0.section == section }
+            if !rows.isEmpty {
+                Section {
+                    ForEach(rows) { row($0) }
+                } header: {
+                    if let title = section.title { Text(title) }
+                }
+            }
         }
     }
 
@@ -152,17 +156,32 @@ private struct SettingsCategoryRows: View {
         NavigationLink(value: category) {
             HStack {
                 Label(category.title, systemImage: category.systemImage)
-                if category == .connection {
+                if let value = value(for: category) {
                     Spacer()
-                    Text(stateText).foregroundStyle(.secondary)
-                } else if category == .controlCenter {
-                    Spacer()
-                    Text(controlTargetSummary).foregroundStyle(.secondary)
+                    Text(value)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
         }
         .tag(category)
         .accessibilityIdentifier("settings.category.\(category.rawValue)")
+    }
+
+    private func value(for category: SettingsCategory) -> String? {
+        switch category {
+        case .connection: connectionSummary
+        case .controlCenter: controlTargetSummary
+        default: nil
+        }
+    }
+
+    /// The selected board's name while it is online, so the list itself says
+    /// which board the "当前璃奈板" pages act on; otherwise the link state.
+    private var connectionSummary: String {
+        if connection.connectionState == .connected, let name = connection.deviceName { return name }
+        return stateText
     }
 
     /// "单板 · <board>" / "多板组 · <name>" — the current 控制对象, shown as
@@ -201,7 +220,10 @@ private struct SettingsDetail: View {
             switch category {
             case .controlCenter: BoardControlCenterView()
             case .connection: ConnectionView(workspace: workspace, isPassive: isPassive)
-            case .board: BoardSettingsView()
+            case .addBoard: AddBoardView(workspace: workspace, isPassive: isPassive)
+            case .groups: BoardGroupListView()
+            case .board: BoardSettingsView(isPassive: isPassive)
+            case .network: BoardNetworkSettingsView(workspace: workspace)
             case .application: ApplicationSettingsView()
             case .debug: DebugView(workspace: workspace, isPassive: isPassive)
             case .about: AboutView()

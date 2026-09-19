@@ -962,3 +962,16 @@
 {"en": "Once syncing starts, the mouth follows the microphone.", "hant": "開始同步後，嘴型會隨麥克風的聲音變化", "ja": "声に合わせて、表情も動かしてみよう。", "k": "开始同步后，口型会随麦克风的声音变化"}
 {"en": "Ready to play.", "hant": "已準備就緒，可以開始播放", "ja": "準備、できた。一緒に始めよう。", "k": "已准备就绪，可以开始播放"}
 {"en": "Try connecting again.", "hant": "請重新嘗試連線", "ja": "もう一度、つないでみよう。", "k": "请重新尝试连接"}
+{"en": "Add Board", "hant": "新增璃奈板", "ja": "璃奈ボードを追加", "k": "添加璃奈板"}
+{"en": "Add Board…", "hant": "新增璃奈板…", "ja": "璃奈ボードを追加…", "k": "添加璃奈板…"}
+{"en": "Wi-Fi & Hotspot", "hant": "Wi-Fi 與熱點", "ja": "Wi-Fiとホットスポット", "k": "Wi-Fi 与热点"}
+{"en": "Current", "hant": "目前", "ja": "使用中", "k": "当前"}
+{"en": "Current Board", "hant": "目前的璃奈板", "ja": "使用中の璃奈ボード", "k": "当前璃奈板"}
+{"en": "Boards · %lld online", "hant": "璃奈板 · %lld 塊在線", "ja": "璃奈ボード · %lld 台オンライン", "k": "璃奈板 · %lld 块在线"}
+{"en": "More Actions", "hant": "更多操作", "ja": "その他の操作", "k": "更多操作"}
+{"en": "No Board Selected", "hant": "未選擇璃奈板", "ja": "璃奈ボード未選択", "k": "未选择璃奈板"}
+{"en": "No boards yet.", "hant": "還沒有璃奈板。", "ja": "璃奈ボードはまだありません。", "k": "还没有璃奈板。"}
+{"en": "Connecting…", "hant": "連線中…", "ja": "接続中…", "k": "连接中…"}
+{"en": "Connect a board to change these settings.", "hant": "連線璃奈板後即可修改這些設定。", "ja": "璃奈ボードに接続すると変更できます。", "k": "连接璃奈板后可修改这些设置。"}
+{"en": "Reconnecting (%lld)", "hant": "重新連線中(%lld)", "ja": "再接続中(%lld)", "k": "重连中(%lld)"}
+{"k": "%lld µs", "nt": true}

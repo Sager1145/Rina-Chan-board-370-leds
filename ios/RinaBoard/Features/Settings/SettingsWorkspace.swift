@@ -101,6 +101,33 @@ final class SettingsWorkspace {
         if connectionPageVisits == 0 { connection.bonjour.stop() }
     }
 
+    // MARK: Connection errors
+
+    /// The page whose action last went through `connection`. Four pages
+    /// share that model's `lastErrorMessage`; only this one alerts it, so an
+    /// error from a connect that outlives its page does not pop up on
+    /// whichever page opens next. Errors from no page belong to 连接.
+    private(set) var connectionErrorPage: SettingsCategory?
+
+    func markConnectionAction(from page: SettingsCategory) {
+        connectionErrorPage = page
+    }
+
+    /// Runs a page's `connection` action with its errors attributed to it.
+    func run(from page: SettingsCategory, _ action: @escaping @MainActor () async -> Void) {
+        markConnectionAction(from: page)
+        Task { await action() }
+    }
+
+    func connectionError(for page: SettingsCategory) -> Binding<String?> {
+        Binding(
+            get: { [self] in
+                (connectionErrorPage ?? .connection) == page ? connection.lastErrorMessage : nil
+            },
+            set: { [self] in if $0 == nil { connection.lastErrorMessage = nil } }
+        )
+    }
+
     // MARK: Board changes
 
     /// Drops what belonged to the previously controlled board: its Wi-Fi

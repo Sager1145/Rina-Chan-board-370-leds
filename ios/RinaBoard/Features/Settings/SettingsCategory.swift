@@ -7,7 +7,10 @@ enum SettingsCategory: String, CaseIterable, Codable, Hashable, Identifiable {
     /// iOS 17–25 single column only — see `ControlCenterPlacement.settingsLink`.
     case controlCenter
     case connection
+    case addBoard
+    case groups
     case board
+    case network
     case application
     case debug
     case about
@@ -18,7 +21,10 @@ enum SettingsCategory: String, CaseIterable, Codable, Hashable, Identifiable {
         switch self {
         case .controlCenter: "面板控制中心"
         case .connection: "连接"
+        case .addBoard: "添加璃奈板"
+        case .groups: "多板组"
         case .board: "面板"
+        case .network: "Wi-Fi 与热点"
         case .application: "应用"
         case .debug: "调试"
         case .about: "关于"
@@ -29,21 +35,52 @@ enum SettingsCategory: String, CaseIterable, Codable, Hashable, Identifiable {
         switch self {
         case .controlCenter: "slider.horizontal.below.rectangle"
         case .connection: "antenna.radiowaves.left.and.right"
+        case .addBoard: "plus.circle"
+        case .groups: "rectangle.split.3x1"
         case .board: "rectangle.grid.3x2"
+        case .network: "wifi"
         case .application: "gearshape"
         case .debug: "ladybug"
         case .about: "info.circle"
         }
     }
 
-    /// `-initialTab debug` / `-initialTab connect` land on that page, the
+    /// Which sidebar group the category is listed under.
+    var section: SettingsCategorySection {
+        switch self {
+        case .controlCenter: .controlCenter
+        case .connection, .addBoard, .groups: .boards
+        case .board, .network: .currentBoard
+        case .application, .debug, .about: .app
+        }
+    }
+
+    /// `-initialTab debug` / `-initialTab connect` / `-initialTab add-board` land on that page, the
     /// automated-simulator-run affordance `AppTab(launchArgument:)` maps onto
     /// the Settings tab.
     init?(launchArgument raw: String?) {
         switch raw {
         case "debug": self = .debug
         case "connect": self = .connection
+        case "add-board": self = .addBoard
         default: return nil
+        }
+    }
+}
+
+/// The groups of the category list, in order. Everything under
+/// `.currentBoard` acts on the board picked on the Connection page.
+enum SettingsCategorySection: CaseIterable, Hashable {
+    case controlCenter
+    case boards
+    case currentBoard
+    case app
+
+    var title: LocalizedStringKey? {
+        switch self {
+        case .controlCenter, .app: nil
+        case .boards: "璃奈板"
+        case .currentBoard: "当前璃奈板"
         }
     }
 }

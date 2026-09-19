@@ -281,6 +281,9 @@
     "%lld dBm" : {
       "shouldTranslate" : false
     },
+    "%lld µs" : {
+      "shouldTranslate" : false
+    },
     "%lld 关键帧" : {
       "comment" : "keyframe count",
       "localizations" : {
@@ -1179,6 +1182,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wi-Fi TCP · %@"
+          }
+        }
+      }
+    },
+    "Wi-Fi 与热点" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wi-Fi & Hotspot"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wi-Fiとホットスポット"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wi-Fi 與熱點"
           }
         }
       }
@@ -8807,6 +8832,28 @@
         }
       }
     },
+    "当前" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目前"
+          }
+        }
+      }
+    },
     "当前 Wi-Fi 名称" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -8965,6 +9012,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "目前燈號已熄滅"
+          }
+        }
+      }
+    },
+    "当前璃奈板" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current Board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用中の璃奈ボード"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目前的璃奈板"
           }
         }
       }
@@ -11312,6 +11381,28 @@
         }
       }
     },
+    "更多操作" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More Actions"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "その他の操作"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更多操作"
+          }
+        }
+      }
+    },
     "更多编辑" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -11851,6 +11942,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未選擇"
+          }
+        }
+      }
+    },
+    "未选择璃奈板" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Board Selected"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈ボード未選択"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未選擇璃奈板"
           }
         }
       }
@@ -13516,6 +13629,50 @@
         }
       }
     },
+    "添加璃奈板" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈ボードを追加"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新增璃奈板"
+          }
+        }
+      }
+    },
+    "添加璃奈板…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Board…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈ボードを追加…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新增璃奈板…"
+          }
+        }
+      }
+    },
     "清空" : {
       "localizations" : {
         "en" : {
@@ -14519,7 +14676,6 @@
     },
     "璃奈板" : {
       "comment" : "default board name",
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -14537,6 +14693,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "璃奈板"
+          }
+        }
+      }
+    },
+    "璃奈板 · %lld 块在线" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boards · %lld online"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈ボード · %lld 台オンライン"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈板 · %lld 塊在線"
           }
         }
       }
@@ -18091,6 +18269,28 @@
         }
       }
     },
+    "还没有璃奈板。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No boards yet."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈ボードはまだありません。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "還沒有璃奈板。"
+          }
+        }
+      }
+    },
     "这个列表由璃奈板扫描，不是 iPhone 扫描。请自行选择属于你的个人热点；App 无法识别热点所有者。" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -18245,6 +18445,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "連線中"
+          }
+        }
+      }
+    },
+    "连接中…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connecting…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続中…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連線中…"
           }
         }
       }
@@ -18570,6 +18792,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "連接璃奈板"
+          }
+        }
+      }
+    },
+    "连接璃奈板后可修改这些设置。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect a board to change these settings."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈ボードに接続すると変更できます。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連線璃奈板後即可修改這些設定。"
           }
         }
       }
@@ -19588,6 +19832,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重新連線中 · 第 %lld 次"
+          }
+        }
+      }
+    },
+    "重连中(%lld)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnecting (%lld)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再接続中(%lld)"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新連線中(%lld)"
           }
         }
       }

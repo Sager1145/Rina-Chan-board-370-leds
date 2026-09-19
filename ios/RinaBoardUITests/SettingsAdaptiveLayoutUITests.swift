@@ -70,7 +70,7 @@ final class SettingsAdaptiveLayoutUITests: XCTestCase {
     }
 
     func testConnectionFilterAndPageSurviveLayoutChanges() {
-        launch(initialTab: "connect")
+        launch(initialTab: "add-board")
         let filter = app.textFields["bluetooth.deviceFilter"]
         XCTAssertTrue(filter.waitForExistence(timeout: 10))
         filter.tap()
@@ -79,8 +79,8 @@ final class SettingsAdaptiveLayoutUITests: XCTestCase {
 
         for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
             rotate(orientation)
-            XCTAssertTrue(app.navigationBars["连接"].waitForExistence(timeout: 3),
-                          "left Connection after rotating to \(orientation.rawValue)")
+            XCTAssertTrue(app.navigationBars["添加璃奈板"].waitForExistence(timeout: 3),
+                          "left Add Board after rotating to \(orientation.rawValue)")
             XCTAssertEqual(filter.value as? String, "rina-draft", "Bluetooth filter lost after rotating")
         }
     }

@@ -63,6 +63,7 @@ final class SettingsNavigationTests: XCTestCase {
     func testLaunchArgumentRoutes() {
         XCTAssertEqual(SettingsCategory(launchArgument: "debug"), .debug)
         XCTAssertEqual(SettingsCategory(launchArgument: "connect"), .connection)
+        XCTAssertEqual(SettingsCategory(launchArgument: "add-board"), .addBoard)
         XCTAssertNil(SettingsCategory(launchArgument: "settings"))
         XCTAssertNil(SettingsCategory(launchArgument: nil))
     }
@@ -121,4 +122,20 @@ final class SettingsNavigationTests: XCTestCase {
         // Not tied to a board.
         XCTAssertEqual(workspace.bluetoothFilter, "rina")
     }
+
+    func testConnectionErrorAlertsOnlyOnThePageThatActed() {
+        let workspace = SettingsWorkspace(initialSelection: .connection)
+        workspace.connection.lastErrorMessage = "boom"
+        // An error no page claimed belongs to 连接.
+        XCTAssertEqual(workspace.connectionError(for: .connection).wrappedValue, "boom")
+        XCTAssertNil(workspace.connectionError(for: .network).wrappedValue)
+
+        workspace.markConnectionAction(from: .addBoard)
+        XCTAssertEqual(workspace.connectionError(for: .addBoard).wrappedValue, "boom")
+        XCTAssertNil(workspace.connectionError(for: .connection).wrappedValue)
+
+        workspace.connectionError(for: .addBoard).wrappedValue = nil
+        XCTAssertNil(workspace.connection.lastErrorMessage)
+    }
 }
+

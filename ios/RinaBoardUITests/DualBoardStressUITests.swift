@@ -152,7 +152,7 @@ final class DualBoardStressUITests: XCTestCase {
 
             // Return to a tab before issuing the routing command, per the
             // brief's step shape (select → return to a tab → one action).
-            app.tabBars.buttons["表情显示"].tap()
+            tabButton("表情显示").tap()
 
             let action = RoutingAction.allCases.randomElement(using: &rng)!
             try performRoutingAction(action, activeIdentifier: target, step: step)
@@ -215,7 +215,7 @@ final class DualBoardStressUITests: XCTestCase {
             let start = Date()
             app.terminate()
             app.launch()
-            XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 15),
+            XCTAssertTrue(tabButton("设定").waitForExistence(timeout: 15),
                           "The app tabs did not appear after relaunch (round \(round))")
             waitForBootOverlayToFinish()
             let online = try connectAllDiscovered(step: round)
@@ -230,9 +230,17 @@ final class DualBoardStressUITests: XCTestCase {
 
     // MARK: - Navigation
 
+    /// A tab's button. On iPhone the tabs live in a `TabBar`; on iPad (iOS
+    /// 18+) the floating tab bar reports them as plain buttons with no
+    /// `TabBar` ancestor, so fall back to the app-wide button.
+    private func tabButton(_ label: String) -> XCUIElement {
+        let inTabBar = app.tabBars.buttons[label]
+        return inTabBar.exists ? inTabBar : app.buttons[label].firstMatch
+    }
+
     private func launchApp() {
         app.launch()
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10),
+        XCTAssertTrue(tabButton("设定").waitForExistence(timeout: 10),
                       "The boot animation did not reveal the app tabs")
         waitForBootOverlayToFinish()
     }
@@ -255,17 +263,27 @@ final class DualBoardStressUITests: XCTestCase {
     /// 设定 → 连接 (SettingsView category list → ConnectionView).
     @discardableResult
     private func openConnectionScreen() -> Bool {
-        let settingsTab = app.tabBars.buttons["设定"]
+        openSettingsCategory("connection", title: "连接")
+    }
+
+    /// 设定 → 添加璃奈板 (SettingsView category list → AddBoardView).
+    @discardableResult
+    private func openAddBoardScreen() -> Bool {
+        openSettingsCategory("addBoard", title: "添加璃奈板")
+    }
+
+    private func openSettingsCategory(_ rawValue: String, title: String) -> Bool {
+        let settingsTab = tabButton("设定")
         let reachable = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == true AND hittable == true"), object: settingsTab)
         XCTAssertEqual(XCTWaiter.wait(for: [reachable], timeout: 10), .completed,
                        "The 设定 tab was not hittable within 10 s")
         settingsTab.tap()
         guard app.navigationBars["设置"].waitForExistence(timeout: 5) else { return false }
-        let row = app.buttons["settings.category.connection"]
+        let row = app.buttons["settings.category.\(rawValue)"]
         guard scrollToElement(row) else { return false }
         row.tap()
-        return app.navigationBars["连接"].waitForExistence(timeout: 5)
+        return app.navigationBars[title].waitForExistence(timeout: 5)
     }
 
     /// Opens the Control Center, whichever surface hosts it: the iOS 26
@@ -278,7 +296,7 @@ final class DualBoardStressUITests: XCTestCase {
         if accessory.waitForExistence(timeout: 2) {
             accessory.tap()
         } else {
-            app.tabBars.buttons["设定"].tap()
+            tabButton("设定").tap()
             XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
             let link = app.buttons["settings.category.controlCenter"]
             XCTAssertTrue(scrollToElement(link), "面板控制中心 entry not reachable")
@@ -318,7 +336,7 @@ final class DualBoardStressUITests: XCTestCase {
     /// `minBoards`, per the brief.
     @discardableResult
     private func connectAllDiscovered(step: Int) throws -> [String] {
-        XCTAssertTrue(openConnectionScreen(), "Could not reach the connection screen")
+        XCTAssertTrue(openAddBoardScreen(), "Could not reach the add-board screen")
 
         let scanButton = app.buttons["扫描附近的璃奈板"]
         if scanButton.waitForExistence(timeout: 3) {
@@ -354,22 +372,23 @@ final class DualBoardStressUITests: XCTestCase {
             let row = rows[index]
             guard row.exists, !row.label.contains("已连接") else { continue }
 
-            let before = onlineBoards().count
+            let before = connectedScanRowCount()
             if row.isHittable { row.tap() }
-            var connected = waitForOnlineCountIncrease(from: before, timeout: 20)
+            var connected = waitForConnectedScanRowIncrease(from: before, timeout: 20)
             if !connected {
                 // One retry, per R1's rule.
                 let retryRows = scanResultRows()
                 if index < retryRows.count, retryRows[index].isHittable {
                     retryRows[index].tap()
                 }
-                connected = waitForOnlineCountIncrease(from: before, timeout: 20)
+                connected = waitForConnectedScanRowIncrease(from: before, timeout: 20)
             }
             if !connected {
                 logger.logBlocked(step: step, entry: "R1", action: "connect row \(index)")
             }
         }
 
+        XCTAssertTrue(openConnectionScreen(), "Could not reach the connection screen")
         let online = onlineBoards()
         XCTAssertEqual(online.count, discoveredCount,
                        "Online count (\(online.count)) does not match discovered boards (\(discoveredCount))")
@@ -382,7 +401,7 @@ final class DualBoardStressUITests: XCTestCase {
         XCTAssertTrue(openConnectionScreen())
         let online = onlineBoards()
         if let active = activeBoard(), online.contains(active) { return }
-        if let row = sessionRows().first(where: { parseSessionRow($0.label).online }) {
+        if let row = sessionRows().first(where: { parseSessionRow($0).online }) {
             row.tap()
             return
         }
@@ -393,7 +412,7 @@ final class DualBoardStressUITests: XCTestCase {
     /// E1: taps the "控制对象" row matching `identifier`.
     private func selectSessionRow(identifier: String) throws {
         XCTAssertTrue(openConnectionScreen())
-        guard let row = sessionRows().first(where: { parseSessionRow($0.label).identifier == identifier }) else {
+        guard let row = sessionRows().first(where: { parseSessionRow($0).identifier == identifier }) else {
             XCTFail("Session row for \(identifier) not found")
             return
         }
@@ -436,7 +455,7 @@ final class DualBoardStressUITests: XCTestCase {
             slider.adjust(toNormalizedSliderPosition: position)
             closeControlCenterIfPresented()
         case .facesRandom:
-            app.tabBars.buttons["表情显示"].tap()
+            tabButton("表情显示").tap()
             let livePreview = app.switches["实时预览"]
             if livePreview.waitForExistence(timeout: 3), livePreview.value as? String == "0" {
                 livePreview.tap()
@@ -467,67 +486,40 @@ final class DualBoardStressUITests: XCTestCase {
         return (0..<query.count).map { query.element(boundBy: $0) }
     }
 
-    /// "控制对象" rows in `ConnectionView.sessionsSection`. Each row is a
-    /// `Button` whose label merges `Image(systemName: "checkmark.circle.fill"
-    /// | "circle")` with the device name and "在线"/"未连接" — there is no
-    /// `accessibilityIdentifier` here either. FRAGILE: this relies on iOS's
-    /// auto-generated spoken description for SF Symbols (typically the
-    /// symbol name with dots turned into spaces, e.g. "checkmark circle
-    /// fill") staying stable, and on VoiceOver's default ", "-joined
-    /// concatenation of a button's child `Text`/`Image` elements. Verify
-    /// with Accessibility Inspector on the first real run and adjust
-    /// `parseSessionRow` if the device reports a different join style.
+    /// Board rows in `ConnectionView.boardsSection`: one per board, labelled
+    /// with the board's name, valued "在线"/"未连接", and carrying the
+    /// selected trait on the board the app is controlling.
     private func sessionRows() -> [XCUIElement] {
-        let predicate = NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "在线", "未连接")
-        let query = app.buttons.matching(predicate)
-        var rows: [XCUIElement] = []
-        for index in 0..<query.count {
-            let element = query.element(boundBy: index)
-            guard !element.label.contains("dBm") else { continue } // exclude scan rows
-            rows.append(element)
-        }
-        return rows
+        let query = app.buttons.matching(identifier: "connection.boardRow")
+        return (0..<query.count).map { query.element(boundBy: $0) }
     }
 
-    /// Strips the leading checkmark/circle image description and the
-    /// trailing 在线/未连接 status word from a session row's label, leaving a
-    /// stable per-board identifier. See the fragile-spot note on
-    /// `sessionRows()`.
-    private func parseSessionRow(_ label: String) -> (identifier: String, online: Bool) {
-        var text = label
-        for prefix in ["checkmark, circle, fill, ", "checkmark circle fill, ", "checkmark circle fill",
-                       "circle, ", "circle "] {
-            if text.hasPrefix(prefix) {
-                text = String(text.dropFirst(prefix.count))
-                break
-            }
-        }
-        let online = text.contains("在线")
-        for suffix in [", 在线", " 在线", ", 未连接", " 未连接", "在线", "未连接"] {
-            if text.hasSuffix(suffix) {
-                text = String(text.dropLast(suffix.count))
-                break
-            }
-        }
-        return (text.trimmingCharacters(in: .whitespacesAndNewlines), online)
+    private func parseSessionRow(_ row: XCUIElement) -> (identifier: String, online: Bool) {
+        let value = row.value as? String ?? ""
+        return (row.label.trimmingCharacters(in: .whitespacesAndNewlines), value.contains("在线"))
     }
 
     private func onlineBoards() -> [String] {
-        sessionRows().map { parseSessionRow($0.label) }.filter(\.online).map(\.identifier)
+        sessionRows().map(parseSessionRow).filter(\.online).map(\.identifier)
     }
 
     private func activeBoard() -> String? {
-        for row in sessionRows() where row.label.lowercased().hasPrefix("checkmark") {
-            let parsed = parseSessionRow(row.label)
+        for row in sessionRows() where row.isSelected {
+            let parsed = parseSessionRow(row)
             if parsed.online { return parsed.identifier }
         }
         return nil
     }
 
-    private func waitForOnlineCountIncrease(from count: Int, timeout: TimeInterval) -> Bool {
+    /// Scan rows on the add-board page that already read "已连接".
+    private func connectedScanRowCount() -> Int {
+        scanResultRows().filter { $0.label.contains("已连接") }.count
+    }
+
+    private func waitForConnectedScanRowIncrease(from count: Int, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if onlineBoards().count > count { return true }
+            if connectedScanRowCount() > count { return true }
             Thread.sleep(forTimeInterval: 0.5)
         }
         return false
