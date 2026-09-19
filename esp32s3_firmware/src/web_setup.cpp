@@ -127,11 +127,18 @@ function pickLang(){
       return'zh-Hans';
     }
     if(l.indexOf('ja')===0)return'ja';
+    if(l.indexOf('en')===0)return'en';
   }
   return'en';
 }
 var LANG=pickLang();
 function t(k){return(M[LANG]&&M[LANG][k])||k}
+function msg(id,k,x){
+  var el=document.getElementById(id);
+  el.setAttribute('data-msg',k);
+  el._x=x||'';
+  el.textContent=t(k)+el._x;
+}
 function setLang(l){
   if(!M[l])return;
   LANG=l;
@@ -143,6 +150,7 @@ function render(){
   document.getElementById('langSel').value=LANG;
   document.querySelectorAll('[data-i18n]').forEach(function(el){el.textContent=t(el.getAttribute('data-i18n'))});
   document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el){el.placeholder=t(el.getAttribute('data-i18n-placeholder'))});
+  document.querySelectorAll('[data-msg]').forEach(function(el){el.textContent=t(el.getAttribute('data-msg'))+(el._x||'')});
   refresh();
 }
 function j(u,o){return fetch(u,o).then(r=>r.json())}
@@ -161,20 +169,21 @@ function refresh(){
     document.getElementById('modeSel').value=s.mode||'off';
     if(window._connecting && s.staConnected){
       window._connecting=false;
-      document.getElementById('staMsg').textContent=t('status.connected')+': '+s.ip;
+      msg('staMsg','status.connected',': '+s.ip);
     }
   });
 }
 function scan(){
-  document.getElementById('nets').textContent=t('status.scanning');
+  msg('nets','status.scanning');
   j('/api/wifi/scan',{method:'POST'}).then(r=>{
-    if(r.ok){pollScan()}else{document.getElementById('nets').textContent=t('error.scanFailed')}
+    if(r.ok){pollScan()}else{msg('nets','error.scanFailed')}
   });
 }
 function pollScan(){
   j('/api/wifi/scan').then(r=>{
     if(r.scanning){setTimeout(pollScan,1000);return}
     var el=document.getElementById('nets');
+    el.removeAttribute('data-msg');
     el.innerHTML='';
     (r.networks||[]).forEach(function(n){
       var bars=n.rssi>-60?'▉▉▉':(n.rssi>-75?'▉▉':'▉');
@@ -183,37 +192,37 @@ function pollScan(){
       d.onclick=function(){document.getElementById('ssid').value=n.ssid};
       el.appendChild(d);
     });
-    if(!(r.networks||[]).length) el.textContent=t('status.noNetworks');
+    if(!(r.networks||[]).length) msg('nets','status.noNetworks');
   });
 }
 function connect(){
   var ssid=document.getElementById('ssid').value;
   var pass=document.getElementById('pass').value;
-  if(!ssid){document.getElementById('staMsg').textContent=t('error.ssidRequired');return}
-  document.getElementById('staMsg').textContent=t('status.connecting');
+  if(!ssid){msg('staMsg','error.ssidRequired');return}
+  msg('staMsg','status.connecting');
   window._connecting=true;
   j('/api/wifi/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:ssid,password:pass})});
 }
 function setHotspot(){
   var s=document.getElementById('hssid').value;
   var p=document.getElementById('hpass').value;
-  if(!s){document.getElementById('hsMsg').textContent=t('error.ssidRequired');return}
+  if(!s){msg('hsMsg','error.ssidRequired');return}
   j('/api/wifi/hotspot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:s,password:p})}).then(r=>{
-    document.getElementById('hsMsg').textContent=r.ok?t('status.saved'):t('error.saveFailed');
+    msg('hsMsg',r.ok?'status.saved':'error.saveFailed');
   });
 }
 function setMode(){
   var m=document.getElementById('modeSel').value;
   j('/api/wifi/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:m})}).then(r=>{
-    document.getElementById('modeMsg').textContent=r.ok?t('status.applied'):t('error.applyFailed');
+    msg('modeMsg',r.ok?'status.applied':'error.applyFailed');
   });
 }
 function setAp(){
   var s=document.getElementById('apssid').value;
   var p=document.getElementById('appass').value;
-  if(!s){document.getElementById('apMsg').textContent=t('error.nameRequired');return}
+  if(!s){msg('apMsg','error.nameRequired');return}
   j('/api/wifi/ap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:s,password:p})}).then(r=>{
-    document.getElementById('apMsg').textContent=r.ok?t('status.saved'):(r.error==='password_too_short'?t('error.passwordTooShort'):t('error.saveFailed'));
+    msg('apMsg',r.ok?'status.saved':(r.error==='password_too_short'?'error.passwordTooShort':'error.saveFailed'));
   });
 }
 render();
