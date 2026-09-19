@@ -248,6 +248,7 @@ struct BoardControlCenterAccessory: View {
             }
         )) {
             Text(isAuto ? "A" : "M")
+                .contentTransition(.opacity)
                 .font(.system(.subheadline, design: .rounded).weight(isAuto ? .bold : .semibold))
                 .foregroundStyle(isAuto ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                 .frame(width: Self.slot, height: Self.slot)

@@ -199,6 +199,7 @@ struct ConnectionView: View {
                     SwapSymbol(systemName: isActive ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
                         .foregroundStyle(isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                        .animation(.stateSwap, value: isActive)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(name)

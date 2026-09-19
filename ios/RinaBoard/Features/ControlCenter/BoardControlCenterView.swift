@@ -717,6 +717,7 @@ struct BoardControlCenterView: View {
                         .frame(maxWidth: .infinity, minHeight: 22)
                 }
                 .toggleStyle(.pill)
+                .animation(.stateSwap, value: isAutoModeOn)
                 .accessibilityLabel("自动模式")
 
                 Button {

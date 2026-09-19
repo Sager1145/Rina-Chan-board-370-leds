@@ -24,6 +24,7 @@ CALL_NAMES = [
     "Text", "Label", "Button", "LabeledContent", "Section", "Toggle",
     "TextField", "SecureField", "navigationTitle", "ContentUnavailableView",
     "alert", "confirmationDialog", "Picker", "DisclosureGroup",
+    "SwapLabel", "CommandChip",
 ]
 
 # Matches: <call name>( "..."   — captures the raw (unescaped) string body.
