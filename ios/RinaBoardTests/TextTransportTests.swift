@@ -810,6 +810,27 @@ final class TextTransportTests: XCTestCase {
         XCTAssertFalse(model.isUploading, "the replacement finished, so the flag is clear now")
     }
 
+    /// R20: `getPreviewSync()`'s stale-token `CancellationError` is `try?`-
+    /// swallowed, so a `releaseOutput()` that lands while it is in flight
+    /// must still stop the success tail from resurrecting a preview loop or
+    /// reporting the upload complete.
+    func testReleaseOutputDuringGetPreviewSyncSuppressesTheSuccessTail() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let model = TextViewModel()
+        model.text = "Superseded during preview sync"
+        transport.shouldHold = { type, _ in type == .getPreviewSync }
+
+        let send = Task { await model.send(connection: connection) }
+        try await transport.waitForHeld(count: 1)
+        model.releaseOutput()
+        transport.releaseHeld()
+        await send.value
+
+        XCTAssertNotEqual(model.uploadProgress, 1.0,
+                          "a superseded upload must not report completion")
+        XCTAssertFalse(model.isUploading, "releaseOutput must still clear the busy flag")
+    }
+
     // MARK: Upload ownership, happy paths
     //
     // Scope: both tests below pass against the pre-fix code too, so neither
@@ -851,6 +872,56 @@ final class TextTransportTests: XCTestCase {
 
         XCTAssertFalse(model.isUploading, "a superseded upload must not leave the model busy")
         XCTAssertNil(model.localPhase, "the phase must not be left mid-upload")
+    }
+
+    // MARK: R02 — hostile/corrupt blob offsets never reach `Data.subdata`
+
+    func testBlobBeginNegativeOffsetThrowsInvalidResponseInsteadOfTrapping() async throws {
+        let (connection, transport) = try await connectedBoard()
+        transport.blobBeginReplyOverride = Data(#"{"ok":true,"offset":-1}"#.utf8)
+
+        do {
+            _ = try await connection.startScrollUpload(
+                frames: [PackedFrame()], fps: 10, timelineId: "t", fontId: "f",
+                generatorVersion: "v", sourceText: "x")
+            XCTFail("expected invalidResponse")
+        } catch RinaTransportError.invalidResponse {
+            // expected
+        }
+    }
+
+    func testBlobChunkResyncToNegativeExpectedOffsetThrows() async throws {
+        let (connection, transport) = try await connectedBoard()
+        let errorPayload = try JSONEncoder().encode(
+            RinaLinkError(ok: false, error: "bad offset", code: 400, expectedOffset: -1))
+        transport.blobChunkReplyOverrides = [(data: errorPayload, isError: true)]
+
+        do {
+            _ = try await connection.startScrollUpload(
+                frames: [PackedFrame()], fps: 10, timelineId: "t", fontId: "f",
+                generatorVersion: "v", sourceText: "x")
+            XCTFail("expected invalidResponse")
+        } catch RinaTransportError.invalidResponse {
+            // expected
+        }
+    }
+
+    func testBlobChunkAckOffsetBeyondDataThrows() async throws {
+        let (connection, transport) = try await connectedBoard()
+        // A single-frame upload's data is exactly `PackedFrame.byteCount` bytes;
+        // an ACK past that end is out of range no matter what firmware meant.
+        let ackPayload = try JSONEncoder().encode(
+            BlobChunkReply(ok: true, offset: PackedFrame.byteCount + 1, frames: nil))
+        transport.blobChunkReplyOverrides = [(data: ackPayload, isError: false)]
+
+        do {
+            _ = try await connection.startScrollUpload(
+                frames: [PackedFrame()], fps: 10, timelineId: "t", fontId: "f",
+                generatorVersion: "v", sourceText: "x")
+            XCTFail("expected invalidResponse")
+        } catch RinaTransportError.invalidResponse {
+            // expected
+        }
     }
 
     // MARK: Helpers
@@ -1010,6 +1081,13 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
         stateContinuation?.yield(.disconnected)
     }
 
+    /// Overrides the reply payload to the next BLOB_BEGIN, exactly once.
+    var blobBeginReplyOverride: Data?
+    /// Overrides the reply to successive BLOB_CHUNKs, one entry consumed per
+    /// chunk sent; `isError` routes the reply through the 0xFF error frame
+    /// type so it decodes as a `RinaLinkError` instead of a chunk ACK.
+    var blobChunkReplyOverrides: [(data: Data, isError: Bool)] = []
+
     func send(_ data: Data) async throws {
         for request in decoder.feed(data) {
             let messageType = RinaLinkMessageType(rawValue: request.type)
@@ -1020,6 +1098,7 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
                 onBlobBegin?()
             }
             var reply = Data(#"{"ok":true}"#.utf8)
+            var replyType = request.type | 0x80
             if messageType == .getScrollMeta, let scrollMeta {
                 reply = try JSONEncoder().encode(scrollMeta)
             } else if messageType == .getPreviewSync, let previewSync {
@@ -1032,6 +1111,13 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
                 }
                 if name == "scroll_seek" { onScrollSeek?() }
                 if rejectCommands { reply = Data(#"{"ok":false,"error":"denied"}"#.utf8) }
+            } else if messageType == .blobBegin, let override = blobBeginReplyOverride {
+                reply = override
+                blobBeginReplyOverride = nil
+            } else if messageType == .blobChunk, !blobChunkReplyOverrides.isEmpty {
+                let override = blobChunkReplyOverrides.removeFirst()
+                reply = override.data
+                if override.isError { replyType = RinaLinkMessageType.error.rawValue }
             }
             if let shouldHold {
                 let name = (try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any])?["cmd"] as? String
@@ -1040,7 +1126,7 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
                 }
             }
             incomingContinuation?.yield(try! RinaLinkEncoder.encode(
-                RinaLinkFrame(type: request.type | 0x80,
+                RinaLinkFrame(type: replyType,
                               seq: request.seq,
                               flags: 0,
                               payload: reply)

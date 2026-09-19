@@ -105,7 +105,7 @@ final class GroupAutoCycler {
             // `.manual` and still mirrors to every sink via
             // `GroupControlFanOut.dispatchFrame`.
             let face = faces[currentIndex % faces.count]
-            guard let frame = PackedFrame(bytes: face.frameBytes.map(UInt8.init)) else { return }
+            guard let frame = face.packedFrame else { return }
             _ = try? await connection.setFrame(frame, playback: .idle, reason: "group_auto_cycle")
         }
     }
@@ -266,7 +266,7 @@ final class GroupAutoCycler {
     private func sendCurrentFace(faces: [SavedFace], connection: BoardConnection, session: UUID? = nil) async {
         guard !faces.isEmpty else { return }
         let face = faces[currentIndex % faces.count]
-        guard let frame = PackedFrame(bytes: face.frameBytes.map(UInt8.init)) else { return }
+        guard let frame = face.packedFrame else { return }
         let token = session ?? connection.output.claim(.automatic)
         _ = try? await connection.withOutput(token) {
             try await connection.setFrame(frame, playback: .idle, reason: "group_auto_cycle", outputSession: token)

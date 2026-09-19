@@ -116,7 +116,7 @@ public struct PackedFrame: Equatable, Hashable, Sendable {
         var idx = cleaned.startIndex
         for _ in 0..<Self.byteCount {
             let next = cleaned.index(idx, offsetBy: 2)
-            guard let byte = UInt8(cleaned[idx..<next], radix: 16) else { return nil }
+            guard let byte = strictHexByte(cleaned[idx..<next]) else { return nil }
             out.append(byte)
             idx = next
         }
@@ -175,6 +175,27 @@ public struct PackedFrame: Equatable, Hashable, Sendable {
         }
         if let frame = PackedFrame(base64: trimmed) { return frame }
         throw PackedFrameParseError.invalidFormat
+    }
+}
+
+/// Strict ASCII-hex byte decoder shared by `PackedFrame(hex94:)` and
+/// `SavedFace.bytes(fromHex:)`. Unlike `UInt8(_:radix: 16)`, this only accepts
+/// `0-9`/`a-f`/`A-F` — the stdlib initializer also accepts a leading `+`/`-`
+/// sign and other radix-16-legal spellings that are not valid hex digits here.
+/// `pair` must be exactly 2 UTF-8 code units.
+func strictHexByte<S: StringProtocol>(_ pair: S) -> UInt8? {
+    var iterator = pair.utf8.makeIterator()
+    guard let first = iterator.next(), let second = iterator.next(), iterator.next() == nil,
+          let hi = hexNibble(first), let lo = hexNibble(second) else { return nil }
+    return (hi << 4) | lo
+}
+
+private func hexNibble(_ byte: UInt8) -> UInt8? {
+    switch byte {
+    case 0x30...0x39: return byte - 0x30 // '0'...'9'
+    case 0x61...0x66: return byte - 0x61 + 10 // 'a'...'f'
+    case 0x41...0x46: return byte - 0x41 + 10 // 'A'...'F'
+    default: return nil
     }
 }
 

@@ -78,6 +78,10 @@ final class FaceLibraryModel {
     private var nextEditRequestID: UInt64 = 1
     private var localLoadWaiters: [CheckedContinuation<Void, Never>] = []
     private var boardLoadRevision: UInt64 = 0
+    /// Link the latest `boardLoadRevision` bump was made for. A refresh of the
+    /// same board bumps the revision too, so a board op that raced one uses
+    /// this to tell "still my board, re-read it" from "the model moved on".
+    private var boardLoadTargetGeneration: UUID?
 
     init(localStore: any LocalFaceStoring = LocalFaceStore()) {
         self.localStore = localStore
@@ -144,10 +148,10 @@ final class FaceLibraryModel {
     func boardFaceFrame(id: String?, index: Int?, generation: UUID) -> PackedFrame? {
         guard boardGeneration == generation else { return nil }
         if let id, let face = cachedBoardSortedFaces.first(where: { $0.id == id }) {
-            return PackedFrame(bytes: face.frameBytes.map(UInt8.init))
+            return face.packedFrame
         }
         if let index, cachedBoardSortedFaces.indices.contains(index) {
-            return PackedFrame(bytes: cachedBoardSortedFaces[index].frameBytes.map(UInt8.init))
+            return cachedBoardSortedFaces[index].packedFrame
         }
         return nil
     }
@@ -194,6 +198,7 @@ final class FaceLibraryModel {
     func synchronizeBoardGeneration(_ generation: UUID) {
         guard boardGeneration != generation else { return }
         boardLoadRevision &+= 1
+        boardLoadTargetGeneration = generation
         isLoading = false
         faceDocument = FaceDocument()
         boardGeneration = nil
@@ -210,6 +215,7 @@ final class FaceLibraryModel {
         let generation = connection.connectionGeneration
         let currentBoardID = connection.boardKey
         boardLoadRevision &+= 1
+        boardLoadTargetGeneration = generation
         let revision = boardLoadRevision
         if boardGeneration != generation || boardID != currentBoardID {
             faceDocument = FaceDocument()
@@ -332,10 +338,17 @@ final class FaceLibraryModel {
         }
         isSaving = true
         defer { isSaving = false }
+        // Captured immediately before the awaited board-mutating call (R07):
+        // if the model has switched to a different board by the time it
+        // returns, the save already happened for real on `connection`, but
+        // the shared `faceDocument`/`boardID`/`boardGeneration` now belong to
+        // whatever board is current and must not be overwritten with it.
+        let revision = boardLoadRevision
         do {
             _ = try await connection.faceUpsert(payload)
+            guard boardStillShown(connection, since: revision) else { return .saved(id: payload.id) }
             let savedFrame = PackedFrame(hex94: payload.frameHex)
-            if let id = payload.id, connection.lastFaceOpGenMatchedExpectation,
+            if let id = payload.id, revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation,
                let frame = savedFrame,
                let index = faceDocument.faces.firstIndex(where: { $0.id == id }) {
                 faceDocument.faces[index].name = payload.name
@@ -355,6 +368,7 @@ final class FaceLibraryModel {
             }
             return .saved(id: payload.id)
         } catch {
+            guard boardStillShown(connection, since: revision) else { return .failed }
             await handleFaceOpError(error, connection: connection)
             return .failed
         }
@@ -459,9 +473,14 @@ final class FaceLibraryModel {
             return await commitLocal(candidate)
         case .board:
             guard await validateBoard(connection) else { return false }
+            // Captured after `validateBoard`'s own possible reload (R07): the
+            // signal for "did the board change under us" is a bump that
+            // happens strictly after this point.
+            let revision = boardLoadRevision
             do {
                 _ = try await connection.faceRename(id: face.id, name: clean)
-                if connection.lastFaceOpGenMatchedExpectation,
+                guard boardStillShown(connection, since: revision) else { return true }
+                if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation,
                    let index = faceDocument.faces.firstIndex(where: { $0.id == face.id }) {
                     faceDocument.faces[index].name = clean
                     faceDocument.faces[index].updatedAt = timestamp()
@@ -470,6 +489,7 @@ final class FaceLibraryModel {
                 }
                 return true
             } catch {
+                guard boardStillShown(connection, since: revision) else { return false }
                 await handleFaceOpError(error, connection: connection)
                 return false
             }
@@ -536,15 +556,18 @@ final class FaceLibraryModel {
             return await deleteLocal([face]).failedCount == 0
         case .board:
             guard await validateBoard(connection) else { return false }
+            let revision = boardLoadRevision
             do {
                 _ = try await connection.faceDelete(id: face.id)
-                if connection.lastFaceOpGenMatchedExpectation {
+                guard boardStillShown(connection, since: revision) else { return true }
+                if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
                     faceDocument.faces.removeAll { $0.id == face.id }
                 } else {
                     await reload(connection: connection)
                 }
                 return true
             } catch {
+                guard boardStillShown(connection, since: revision) else { return false }
                 await handleFaceOpError(error, connection: connection)
                 return false
             }
@@ -637,15 +660,18 @@ final class FaceLibraryModel {
         case .board:
             guard await validateBoard(connection) else { return false }
             let ids = (defaultFaces + newUserOrder).map(\.id)
+            let revision = boardLoadRevision
             do {
                 _ = try await connection.faceReorder(ids: ids)
-                if connection.lastFaceOpGenMatchedExpectation {
+                guard boardStillShown(connection, since: revision) else { return true }
+                if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
                     assignOrders(defaults: defaultFaces, users: newUserOrder, in: &faceDocument)
                 } else {
                     return await reload(connection: connection)
                 }
                 return true
             } catch {
+                guard boardStillShown(connection, since: revision) else { return false }
                 await handleFaceOpError(error, connection: connection)
                 return false
             }
@@ -664,15 +690,18 @@ final class FaceLibraryModel {
             return false
         }
         guard await validateBoard(connection) else { return false }
+        let revision = boardLoadRevision
         do {
             _ = try await connection.faceReorder(ids: newOrder.map(\.id))
-            if connection.lastFaceOpGenMatchedExpectation {
+            guard boardStillShown(connection, since: revision) else { return true }
+            if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
                 assignOrders(defaults: [], users: newOrder, in: &faceDocument)
             } else {
                 return await reload(connection: connection)
             }
             return true
         } catch {
+            guard boardStillShown(connection, since: revision) else { return false }
             await handleFaceOpError(error, connection: connection)
             return false
         }
@@ -686,7 +715,11 @@ final class FaceLibraryModel {
         var selected = FaceDocument(format: document(in: location).format,
                                     version: document(in: location).version,
                                     matrix: document(in: location).matrix,
-                                    faces: faces)
+                                    faces: faces,
+                                    category: document(in: location).category,
+                                    startupDefaultId: document(in: location).startupDefaultId)
+        // `normalize` nils `startupDefaultId` back out if `faces` didn't
+        // include that face.
         normalize(&selected, requireDefault: false)
         return try? selected.encoded()
     }
@@ -722,7 +755,12 @@ final class FaceLibraryModel {
             return
         }
         var decoded = parsed.document
-        guard !decoded.faces.isEmpty,
+        // A missing `category` already defaults to `expectedCategory` on
+        // decode; only a present-but-different value (or a whole-document
+        // shape the firmware doesn't recognize as a face library) is refused —
+        // the firmware's `validateSavedFaces` rejects any upload otherwise.
+        guard decoded.category == FaceDocument.expectedCategory,
+              !decoded.faces.isEmpty,
               decoded.faces.allSatisfy({ $0.packedFrame != nil }) else {
             errorMessage = NSLocalizedString("导入失败：文件格式无效", comment: "face document import invalid")
             return
@@ -768,6 +806,16 @@ final class FaceLibraryModel {
         return sourceGeneration != nil && sourceGeneration == currentGeneration
     }
 
+    /// False once the model has been pointed at another link since `revision`
+    /// was captured: the op's result then belongs to a board that is no longer
+    /// shown and must not touch shared state. A refresh of the same link also
+    /// moves the revision; callers then skip the in-place patch and re-read,
+    /// because that refresh's GET_FACES may predate the op.
+    private func boardStillShown(_ connection: BoardConnection, since revision: UInt64) -> Bool {
+        revision == boardLoadRevision
+            || boardLoadTargetGeneration == connection.connectionGeneration
+    }
+
     private func boardDocumentBelongs(to connection: BoardConnection) -> Bool {
         Self.sameBoard(sourceBoardID: boardID,
                        sourceGeneration: boardGeneration,
@@ -794,7 +842,8 @@ final class FaceLibraryModel {
         let defaults = bundledDefaults(bundle: bundle).faces.filter { $0.type == .default }
         let users = stored.sortedFaces.filter { $0.type != .default }
         var result = FaceDocument(format: stored.format, version: stored.version,
-                                  matrix: stored.matrix, faces: defaults + users)
+                                  matrix: stored.matrix, faces: defaults + users,
+                                  category: stored.category, startupDefaultId: stored.startupDefaultId)
         normalize(&result, requireDefault: false)
         return result
     }
@@ -806,6 +855,13 @@ final class FaceLibraryModel {
                 document.faces[index].id = makeLocalID()
             }
             seen.insert(document.faces[index].id)
+        }
+        // A subset that dropped the referenced face (an export selection, a
+        // local copy, etc.) must not point `startupDefaultId` at an id that
+        // no longer exists in this document.
+        if let startupID = document.startupDefaultId,
+           !document.faces.contains(where: { $0.id == startupID }) {
+            document.startupDefaultId = nil
         }
         let sorted = document.sortedFaces
         for (rank, face) in sorted.enumerated() {

@@ -595,6 +595,9 @@ final class VideoPlayerModel {
         let clamped = max(0, min(durationMs, ms))
         positionMs = clamped
         precisePositionMs = clamped
+        // A frame processed from the pre-seek position must not be published
+        // after this jump, same as pause/seekForRestore/teardown below.
+        frameProcessor?.invalidate()
         savePlaybackPosition(force: true)
         player.seek(to: CMTime(value: CMTimeValue(clamped), timescale: 1000),
                     toleranceBefore: .zero, toleranceAfter: .zero)

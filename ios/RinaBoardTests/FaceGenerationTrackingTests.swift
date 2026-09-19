@@ -116,4 +116,105 @@ final class FaceGenerationTrackingTests: XCTestCase {
         XCTAssertFalse(connection.lastFaceOpGenMatchedExpectation,
                        "the pre-disconnect generation must not survive the carrier")
     }
+
+    // MARK: R07 — a board switch mid-flight must not overwrite the new board's state
+
+    private func wifiBoard(host: String) async -> (BoardConnection, FakeRinaTransport) {
+        let connection = BoardConnection()
+        let transport = FakeRinaTransport(kind: .wifi(host: host, port: RinaLinkConstants.tcpPort))
+        transport.commandReply = ["ok": true, "gen": 1]
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        return (connection, transport)
+    }
+
+    /// Loads `faces` into `model` as `connection`'s board library.
+    private func scriptedReload(_ model: FaceLibraryModel, _ connection: BoardConnection,
+                                _ transport: FakeRinaTransport, faces: [SavedFace]) async throws {
+        transport.resetRecordedFrames()
+        transport.automaticallyReplies = false
+        let task = Task { await model.reload(connection: connection) }
+        try await transport.waitForSent(type: .getFaces, count: 1)
+        transport.replyToNext(type: .getFaces, payload: genPrefix(0) + (try FaceDocument(faces: faces).encoded()))
+        _ = await task.value
+        transport.automaticallyReplies = true
+    }
+
+    /// `FaceLibraryModel.rename`'s board-mutating await can outlive the board
+    /// switch that made `connection` stale: a rename in flight on board A must
+    /// not overwrite `faceDocument`/`boardID`/`boardGeneration`/`errorMessage`
+    /// once the model has already moved on to board B (R07), even though the
+    /// rename itself genuinely succeeded on A.
+    func testStaleBoardSwitchDuringRenameDoesNotOverwriteTheNewBoardsState() async throws {
+        let model = FaceLibraryModel()
+        let (connectionA, transportA) = await wifiBoard(host: "board-a.local")
+        let (connectionB, transportB) = await wifiBoard(host: "board-b.local")
+
+        let faceA = SavedFace(id: "u1", name: "Original", type: .custom,
+                              frameBytes: PackedFrame().bytes.map(Int.init), order: 1)
+        try await scriptedReload(model, connectionA, transportA, faces: [faceA])
+
+        transportA.resetRecordedFrames()
+        transportA.automaticallyReplies = false
+        let renameTask = Task { await model.rename(faceA, to: "Renamed", in: .board, connection: connectionA) }
+        try await transportA.waitForSent(type: .cmd, count: 1)
+
+        // The model switches to board B and reloads its library while A's
+        // rename reply is still held back.
+        model.synchronizeBoardGeneration(connectionB.connectionGeneration)
+        let faceB = SavedFace(id: "b1", name: "Board B face", type: .custom,
+                              frameBytes: PackedFrame().bytes.map(Int.init), order: 1)
+        try await scriptedReload(model, connectionB, transportB, faces: [faceB])
+
+        // Now release A's rename reply.
+        transportA.replyToNext(type: .cmd, json: ["ok": true, "gen": 2])
+        let renamed = await renameTask.value
+        transportA.automaticallyReplies = true
+
+        XCTAssertTrue(renamed, "the rename itself succeeded on the old board")
+        XCTAssertEqual(model.boardID, connectionB.boardKey)
+        XCTAssertEqual(model.boardGeneration, connectionB.connectionGeneration)
+        XCTAssertEqual(model.faceDocument.faces.map(\.id), ["b1"],
+                       "board A's rename must not leak into board B's document")
+        XCTAssertNil(model.errorMessage)
+        connectionA.disconnect()
+        connectionB.disconnect()
+    }
+
+    /// A refresh of the SAME board also moves the load revision. A rename that
+    /// raced it succeeded on the board, so the model must re-read rather than
+    /// keep whatever the refresh fetched (possibly from before the rename).
+    func testSameBoardRefreshDuringRenameReReadsInsteadOfDroppingTheResult() async throws {
+        let model = FaceLibraryModel()
+        let (connection, transport) = await wifiBoard(host: "board-a.local")
+        let original = SavedFace(id: "u1", name: "Original", type: .custom,
+                                 frameBytes: PackedFrame().bytes.map(Int.init), order: 1)
+        try await scriptedReload(model, connection, transport, faces: [original])
+
+        transport.resetRecordedFrames()
+        transport.automaticallyReplies = false
+        let renameTask = Task { await model.rename(original, to: "Renamed", in: .board, connection: connection) }
+        try await transport.waitForSent(type: .cmd, count: 1)
+
+        let refreshTask = Task { await model.reload(connection: connection) }
+        for _ in 0..<5 { await Task.yield() }
+        transport.replyToNext(type: .cmd, json: ["ok": true, "gen": 2])
+
+        // The refresh's read predates the rename; the re-read does not.
+        var renamedFace = original
+        renamedFace.name = "Renamed"
+        try await transport.waitForSent(type: .getFaces, count: 1)
+        transport.replyToNext(type: .getFaces, payload: genPrefix(0) + (try FaceDocument(faces: [original]).encoded()))
+        try await transport.waitForSent(type: .getFaces, count: 2)
+        transport.replyToNext(type: .getFaces, payload: genPrefix(2) + (try FaceDocument(faces: [renamedFace]).encoded()))
+
+        let renamed = await renameTask.value
+        _ = await refreshTask.value
+        transport.automaticallyReplies = true
+
+        XCTAssertTrue(renamed)
+        XCTAssertEqual(model.faceDocument.faces.map(\.name), ["Renamed"])
+        XCTAssertEqual(model.boardGeneration, connection.connectionGeneration)
+        connection.disconnect()
+    }
 }

@@ -959,8 +959,17 @@ public final class BoardGroupCoordinator {
         }
         // N3/B1: re-check after the sampling awaits — a pause() that landed
         // mid-sampling must stop this pass before it ever reaches a
-        // `group_start` send.
-        guard playEpoch == epoch, controlGeneration == gen, !isPaused else { return }
+        // `group_start` send. R15: also re-check the anchor itself is still
+        // the one this pass captured — `updatePlaybackCore`'s PLAYING path
+        // bumps `controlGeneration` before committing its new anchor, but a
+        // pass that started its clock-sampling loop before that bump lands
+        // and only checks again here must not resend the OLD anchor's
+        // `intervalMs`/`loop` after the live one has already moved on.
+        guard playEpoch == epoch, controlGeneration == gen, !isPaused,
+              let liveAnchor = currentAnchor,
+              liveAnchor.phoneUs == anchor.phoneUs, liveAnchor.intervalMs == anchor.intervalMs,
+              liveAnchor.loop == anchor.loop
+        else { return }
         let commands = GroupSchedule.reanchorCommands(
             phoneAnchorUs: anchor.phoneUs, startFrame: anchor.startFrame, intervalMs: anchor.intervalMs,
             loop: anchor.loop, estimators: estimators.filter { participants[$0.key] != nil }, bootIds: bootIds
@@ -1043,7 +1052,12 @@ public final class BoardGroupCoordinator {
                 if let bootId = session.connection.bootId { estimator.addSample(sample, bootId: bootId) }
             }
             estimators[id] = estimator
-            guard playEpoch == epoch, controlGeneration == gen, !isPaused else { return } // N3/B1: after the sampling awaits
+            // R15: extend with the same anchor-identity check used before
+            // the upload above — a speed change that lands mid-sampling
+            // must abort this rejoin rather than send it the stale anchor.
+            guard playEpoch == epoch, controlGeneration == gen, !isPaused,
+                  currentAnchor?.phoneUs == anchor.phoneUs
+            else { return } // N3/B1: after the sampling awaits
             guard let bootId = session.connection.bootId,
                   let cmd = GroupSchedule.reanchorCommands(
                     phoneAnchorUs: anchor.phoneUs, startFrame: anchor.startFrame, intervalMs: anchor.intervalMs,
@@ -1131,6 +1145,14 @@ public final class BoardGroupCoordinator {
             return
         }
 
+        // R15: bump before capturing `gen` (never while paused — that would
+        // abort an in-flight pauseCore/step fan-out) so an in-flight
+        // reanchor()/rejoin() pass that started before this speed/loop
+        // change aborts at its next check instead of resending the OLD
+        // anchor once this call commits the new one below. This call's own
+        // `updatePlaybackCore` pass captures the bumped value immediately
+        // after, so it can never abort itself.
+        controlGeneration += 1
         let gen = controlGeneration // B1: captured before any await below
 
         // 4.7: sample every live participant's clock in parallel (boards
@@ -1467,24 +1489,43 @@ public final class BoardGroupCoordinator {
         pausedFrame = n
 
         let snapshot = participants
-        await withTaskGroup(of: Void.self) { taskGroup in
+        var anyAccepted = false
+        await withTaskGroup(of: Bool.self) { taskGroup in
             for (id, participant) in snapshot {
                 taskGroup.addTask { @MainActor in
-                    guard self.playEpoch == epoch, self.controlGeneration == gen else { return } // N3/B1
+                    guard self.playEpoch == epoch, self.controlGeneration == gen else { return false } // N3/B1
                     do {
                         try await participant.session.connection.withOutput(participant.token) {
                             _ = try await participant.session.connection.requestReliable(.pauseScroll)
                             _ = try await participant.session.connection.requestReliable(.scrollSeek(frameIndex: n))
                         }
-                        guard self.playEpoch == epoch, self.controlGeneration == gen else { return } // N3/B1
+                        guard self.playEpoch == epoch, self.controlGeneration == gen else { return false } // N3/B1
                         self.memberStatus[id] = .ready
+                        return true
                     } catch {
-                        guard self.playEpoch == epoch, self.controlGeneration == gen else { return } // N3/B1
+                        guard self.playEpoch == epoch, self.controlGeneration == gen else { return false } // N3/B1
                         self.memberStatus[id] = .error(error.localizedDescription)
+                        return false
                     }
                 }
             }
+            for await accepted in taskGroup where accepted { anyAccepted = true }
         }
+
+        // R14 residue: the up-front flip to `isPaused` above is
+        // load-bearing (it's what lets an overlapping reanchor/rejoin/
+        // updatePlayback pass see the pause immediately) — but if EVERY
+        // board's pause send failed, none of them actually paused, and
+        // leaving `isPaused` set would strand the UI showing paused controls
+        // over boards that kept scrolling with nothing left running to fix
+        // it. Heal back to playing and restart the re-anchor loop, same as
+        // the play path started it with. Only this call's own epoch/
+        // generation may still be current here — a pause/resume/stop/play
+        // that landed meanwhile already owns this state instead.
+        guard !anyAccepted, !snapshot.isEmpty, playEpoch == epoch, controlGeneration == gen else { return }
+        isPaused = false
+        isPlaying = true
+        startReanchorLoop(groupID: group.id, revision: revision, epoch: epoch)
     }
 
     /// N5: after `pause()`/`resume()`/`step()` releases the busy flag, kicks
@@ -1545,8 +1586,13 @@ public final class BoardGroupCoordinator {
 
         let worstRtt = participants.keys.compactMap { estimators[$0]?.bestRttUs }.max() ?? 0
         let phoneStart = nowUs() + max(400_000, 3 * worstRtt)
-        let intervalMs = anchor.intervalMs
-        let loop = anchor.loop
+        // R15: read from the LIVE anchor, not the one captured before
+        // sampling — `updatePlaybackCore`'s paused path (B2) stores an
+        // fps/loop change made mid-resume on `currentAnchor` itself, and
+        // that change must be what actually gets sent/committed here rather
+        // than being silently overwritten by the stale captured value.
+        let intervalMs = currentAnchor?.intervalMs ?? anchor.intervalMs
+        let loop = currentAnchor?.loop ?? anchor.loop
         let commands = GroupSchedule.reanchorCommands(
             phoneAnchorUs: phoneStart, startFrame: pausedFrame, intervalMs: intervalMs,
             loop: loop, estimators: estimators.filter { participants[$0.key] != nil }, bootIds: bootIds

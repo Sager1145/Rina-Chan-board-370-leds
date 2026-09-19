@@ -623,15 +623,21 @@ public final class BoardConnection {
             version: decoded.version ?? status?.version,
             device: decoded.device ?? status?.device,
             uptimeMs: decoded.uptimeMs ?? status?.uptimeMs,
-            wifi: decoded.wifi ?? status?.wifi,
-            power: decoded.power ?? status?.power,
+            // Prefer the live property over the stale `status` snapshot: a
+            // lite status / EV_STATUS that omits wifi/power must not roll
+            // these back to whatever the handshake-era `status` last held.
+            wifi: decoded.wifi ?? wifi ?? status?.wifi,
+            power: decoded.power ?? power ?? status?.power,
             renderer: decoded.renderer ?? status?.renderer,
             matrix: decoded.matrix ?? status?.matrix,
             stats: decoded.stats ?? status?.stats
         )
         status = merged
-        if let value = merged.power { power = value }
-        if let value = merged.wifi { wifi = value }
+        // Only assign when this status actually carried the field, otherwise
+        // the published property would be reassigned its own current value
+        // pointlessly (and would mask a future fallback source change).
+        if let value = decoded.power { power = value }
+        if let value = decoded.wifi { wifi = value }
         emit(.status(merged))
         checkHotspotIdentityWhileConnected()
     }
@@ -1241,7 +1247,13 @@ public final class BoardConnection {
         let beginFrame = try await send(type: .blobBegin, payload: beginPayload)
         let begin = try JSONDecoder().decode(BlobBeginReply.self, from: beginFrame.payload)
 
-        var offset = begin.offset ?? 0
+        let beginOffset = begin.offset ?? 0
+        // A hostile/corrupt peer could report an offset outside the blob;
+        // reject it before it ever reaches Data(subdata:).
+        guard (0...data.count).contains(beginOffset) else {
+            throw RinaTransportError.invalidResponse
+        }
+        var offset = beginOffset
         var rawChunkMax = (begin.chunkMax ?? 0) > 0 ? (begin.chunkMax ?? 0) : RinaLinkConstants.blobChunkMaxTCP
         // Use the transport's own preferred chunk size (MTU-derived for BLE)
         // when it's smaller than what the board offered.
@@ -1267,13 +1279,16 @@ public final class BoardConnection {
                 let chunkFrame = try await send(type: .blobChunk, payload: chunkPayload)
                 let chunkReply = try JSONDecoder().decode(BlobChunkReply.self, from: chunkFrame.payload)
                 let newOffset = chunkReply.offset ?? end
-                guard newOffset > offset else {
+                guard newOffset > offset && newOffset <= data.count else {
                     throw RinaTransportError.invalidResponse
                 }
                 offset = newOffset
                 onProgress?(Double(offset) / Double(max(1, data.count)))
             } catch let error as RinaLinkError {
                 if error.code == 400, !didResync, let expected = error.expectedOffset {
+                    guard (0...data.count).contains(expected) else {
+                        throw RinaTransportError.invalidResponse
+                    }
                     didResync = true
                     offset = expected
                     continue
@@ -1553,7 +1568,11 @@ public enum RatePumpError: Error, Sendable {
 actor RatePump {
     private let minInterval: TimeInterval
     private let depth: Int
-    private var lastStart: Date = .distantPast
+    // A monotonic clock (uptime, not wall clock) so a backward NTP/user
+    // clock step can never stall the pump for the size of the step.
+    private let now: @Sendable () -> UInt64
+    private var lastStart: UInt64 = 0
+    private var hasStarted = false
     private var queue: [QueueEntry] = []
     private var isDraining = false
     private var isBusy = false
@@ -1563,9 +1582,10 @@ actor RatePump {
         let continuation: CheckedContinuation<Void, Error>
     }
 
-    init(minInterval: TimeInterval, depth: Int) {
+    init(minInterval: TimeInterval, depth: Int, now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }) {
         self.minInterval = minInterval
         self.depth = depth
+        self.now = now
     }
 
     func run<T: Sendable>(_ operation: @Sendable () async throws -> T) async throws -> T {
@@ -1621,15 +1641,16 @@ actor RatePump {
 
     private func drainLoop() async {
         while !queue.isEmpty, !isBusy {
-            let elapsed = Date().timeIntervalSince(lastStart)
-            if elapsed < minInterval {
-                let waitNanos = UInt64((minInterval - elapsed) * 1_000_000_000)
-                try? await Task.sleep(nanoseconds: waitNanos)
+            let minIntervalNanos = UInt64(max(0, minInterval) * 1_000_000_000)
+            let elapsedNanos = hasStarted ? now() &- lastStart : minIntervalNanos
+            if elapsedNanos < minIntervalNanos {
+                try? await Task.sleep(nanoseconds: minIntervalNanos - elapsedNanos)
                 continue
             }
             let next = queue.removeFirst()
             isBusy = true
-            lastStart = Date()
+            lastStart = now()
+            hasStarted = true
             next.continuation.resume()
         }
         isDraining = false

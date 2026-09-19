@@ -109,6 +109,41 @@ final class BoardSyncCoordinatorTests: XCTestCase {
                        "a scrolling A must rebind its timeline")
     }
 
+    // MARK: Fix — the live scene phase is re-checked after BLE round trips
+
+    /// R19: a BLE round trip inside `getStatus` can outlast foregrounding —
+    /// if the phase closure reports `.background` by the time it answers,
+    /// the resync must not start the scroll restore (or any other
+    /// playback/mic start) it would otherwise begin.
+    func testBackgroundingDuringGetStatusBlocksRestoreEvenAfterRelease() async throws {
+        let sessions = BoardSessionStore()
+        let coordinator = BoardSyncCoordinator()
+        var phase = ScenePhase.active
+        let deps = makeDeps(sessions: sessions, scenePhase: { phase })
+        let timeline = try makeTimeline(text: "Scrolling while backgrounding")
+        let transport = SyncTransport()
+        transport.status = scrollingStatus(timeline: timeline)
+        transport.scrollMeta = scrollingMeta(timeline: timeline)
+        transport.preview = scrollingPreview(timeline: timeline)
+        let gate = SyncGate()
+        transport.statusGate = gate
+        let connected = await sessions.active.connection.connect(using: transport)
+        XCTAssertTrue(connected)
+
+        let syncTask = Task {
+            await synchronize(coordinator, connection: sessions.active.connection, deps: deps, draftsRestored: true)
+        }
+        await gate.waitUntilReached()
+        phase = .background
+        await gate.release()
+        await syncTask.value
+
+        XCTAssertEqual(deps.textModel.frameCount, 0,
+                       "backgrounding mid-round-trip must not start the scroll restore")
+        XCTAssertFalse(deps.video.isPlaying, "backgrounding mid-round-trip must not start video playback")
+        XCTAssertFalse(deps.performance.isPlaying, "backgrounding mid-round-trip must not start a performance")
+    }
+
     // MARK: Connecting from Settings stays in Settings
 
     /// Before iOS 26 the Control Center is a page pushed inside Settings, so a
@@ -142,11 +177,13 @@ final class BoardSyncCoordinatorTests: XCTestCase {
     ) async {
         await coordinator.synchronize(
             connection: connection, deps: deps, draftsRestored: draftsRestored,
-            scenePhase: .active, showControlCenter: .constant(false), configureOutputHandlers: {}
+            showControlCenter: .constant(false), configureOutputHandlers: {}
         )
     }
 
-    private func makeDeps(sessions: BoardSessionStore) -> BoardSyncCoordinator.Dependencies {
+    private func makeDeps(
+        sessions: BoardSessionStore, scenePhase: @escaping @MainActor () -> ScenePhase = { .active }
+    ) -> BoardSyncCoordinator.Dependencies {
         let suiteName = "BoardSyncCoordinatorTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName) ?? .standard
         return BoardSyncCoordinator.Dependencies(
@@ -159,7 +196,8 @@ final class BoardSyncCoordinatorTests: XCTestCase {
             controlCenter: BoardControlCenterModel(),
             faceLibrary: FaceLibraryModel(),
             performance: PresetLiveModel(),
-            video: VideoPlayerModel()
+            video: VideoPlayerModel(),
+            scenePhase: scenePhase
         )
     }
 
@@ -213,6 +251,10 @@ private final class SyncTransport: RinaTransport {
     var status = DeviceStatus(ok: true, renderer: RendererStatus(mode: "manual", playback: "idle"))
     var preview: PreviewSync?
     var scrollMeta: ScrollMeta?
+    /// When set, `send(_:)` suspends before replying to a `getStatus`
+    /// request until the test calls `SyncGate.release()` — lets a test flip
+    /// the live scene-phase closure while a resync round trip is in flight.
+    var statusGate: SyncGate?
 
     private let decoder = RinaLinkDecoder()
     private var stateContinuation: AsyncStream<TransportState>.Continuation?
@@ -226,6 +268,9 @@ private final class SyncTransport: RinaTransport {
 
     func send(_ data: Data) async throws {
         for request in decoder.feed(data) {
+            if RinaLinkMessageType(rawValue: request.type) == .getStatus, let statusGate {
+                await statusGate.hold()
+            }
             let payload = replyPayload(for: request)
             incomingContinuation?.yield(try! RinaLinkEncoder.encode(
                 RinaLinkFrame(type: request.type | 0x80, seq: request.seq, flags: 0, payload: payload)
@@ -246,5 +291,38 @@ private final class SyncTransport: RinaTransport {
         default:
             return Data(#"{"ok":true}"#.utf8)
         }
+    }
+}
+
+/// Deterministically suspends one round trip so a test can flip the live
+/// scene-phase closure while `BoardSyncCoordinator` is mid-await. No sleeps:
+/// backed by `CheckedContinuation`.
+private actor SyncGate {
+    private var released = false
+    private var reached = false
+    private var reachedContinuations: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    /// Called from the transport. Suspends until `release()`.
+    func hold() async {
+        reached = true
+        let waiters = reachedContinuations
+        reachedContinuations = []
+        for continuation in waiters { continuation.resume() }
+        if released { return }
+        await withCheckedContinuation { releaseContinuations.append($0) }
+    }
+
+    /// Suspends until a `hold()` call has been reached.
+    func waitUntilReached() async {
+        if reached { return }
+        await withCheckedContinuation { reachedContinuations.append($0) }
+    }
+
+    func release() {
+        released = true
+        let waiters = releaseContinuations
+        releaseContinuations = []
+        for continuation in waiters { continuation.resume() }
     }
 }

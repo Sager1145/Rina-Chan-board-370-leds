@@ -87,6 +87,14 @@ struct RootTabView: View {
     @State private var wasBackgrounded = false
     @State private var resumeGeneration = 0
     @State private var syncCoordinator = BoardSyncCoordinator()
+    /// A live mirror of `scenePhase`, kept in `@State` (persistent storage
+    /// shared across every `RootTabView` value SwiftUI creates while this
+    /// task keeps running) rather than read directly from `@Environment`:
+    /// the `.task(id:)` closure below only restarts when its id changes, so
+    /// an `@Environment` property captured into that closure would freeze at
+    /// whatever phase was current when the task started. `BoardSyncCoordinator`
+    /// needs the current phase at every await inside a single run.
+    @State private var liveScenePhase: ScenePhase = .active
     /// One scroll offset for the Control Center column every tab's
     /// `BoardSplitPage` shows on iPad, so the column stays put across tabs.
     @State private var controlCenterColumnScroll = ControlCenterColumnScroll()
@@ -121,17 +129,18 @@ struct RootTabView: View {
                 .task(id: BoardSynchronizationID(generation: connection.connectionGeneration,
                                                   connected: connection.connectionState == .connected,
                                                   draftsRestored: draftsRestored,
-                                                  resumeGeneration: resumeGeneration)) {
+                                                  resumeGeneration: resumeGeneration,
+                                                  isBackgrounded: scenePhase == .background)) {
                     await syncCoordinator.synchronize(
                         connection: connection,
                         deps: BoardSyncCoordinator.Dependencies(
                             sessions: sessions, router: router, boardStore: boardStore,
                             editor: editor, textModel: textModel, lipSyncModel: lipSyncModel,
                             controlCenter: controlCenter, faceLibrary: faceLibrary,
-                            performance: performance, video: video
+                            performance: performance, video: video,
+                            scenePhase: { liveScenePhase }
                         ),
                         draftsRestored: draftsRestored,
-                        scenePhase: scenePhase,
                         showControlCenter: $showControlCenter,
                         configureOutputHandlers: configureOutputHandlers
                     )
@@ -158,6 +167,9 @@ struct RootTabView: View {
             faceLibrary.consumePendingEditRequest(id: request.id)
         }
         .errorAlert($reconnectModel.lastErrorMessage)
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            liveScenePhase = phase
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { wasBackgrounded = true }
             if phase == .active, wasBackgrounded {
@@ -486,4 +498,9 @@ private struct BoardSynchronizationID: Hashable {
     let connected: Bool
     let draftsRestored: Bool
     let resumeGeneration: Int
+    /// True only for `.background` — entering it changes this id, which
+    /// cancels any in-flight synchronize task via `.task(id:)` instead of
+    /// leaving it to run to a restore/start that the background handler
+    /// (this view's `onChange(of: scenePhase)`) already paused around.
+    let isBackgrounded: Bool
 }

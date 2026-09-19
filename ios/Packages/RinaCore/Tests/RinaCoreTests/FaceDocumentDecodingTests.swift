@@ -91,4 +91,59 @@ final class FaceDocumentDecodingTests: XCTestCase {
         XCTAssertEqual(face?.frameBytes, [999])
         XCTAssertNil(face?.packedFrame)
     }
+
+    // MARK: category / startupDefaultId (R01)
+
+    private static var firmwareSavedFacesURL: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // FaceDocumentDecodingTests.swift -> RinaCoreTests/
+            .deletingLastPathComponent() // RinaCoreTests -> Tests/
+            .deletingLastPathComponent() // Tests -> RinaCore/ (package root)
+            .deletingLastPathComponent() // RinaCore -> Packages/
+            .deletingLastPathComponent() // Packages -> ios/
+            .deletingLastPathComponent() // ios -> repo root
+            .appendingPathComponent("esp32s3_firmware/data/resources/saved_faces.json")
+    }
+
+    /// The firmware's `validateSavedFaces`/`loadSavedFaces` (`storage.cpp`)
+    /// reject any whole-library upload missing `category` or read
+    /// `startupDefaultId` at the document's top level; both must survive a
+    /// decode→encode round trip of the real bundled fixture unchanged.
+    func testRealFirmwareFixtureRoundTripsCategoryAndStartupDefaultId() throws {
+        let data = try TestResources.data(at: Self.firmwareSavedFacesURL)
+        let document = try FaceDocument(jsonData: data)
+        XCTAssertEqual(document.category, FaceDocument.expectedCategory)
+        XCTAssertEqual(document.startupDefaultId, "face_08_triangle_eyes_frown")
+
+        let reencoded = try FaceDocument(jsonData: document.encoded())
+        XCTAssertEqual(reencoded.category, FaceDocument.expectedCategory)
+        XCTAssertEqual(reencoded.startupDefaultId, "face_08_triangle_eyes_frown")
+    }
+
+    func testMissingCategoryDecodesWithTheExpectedDefault() throws {
+        let data = document(face(id: "a", hex: zerosHex))
+        let decoded = try FaceDocument(jsonData: data)
+        XCTAssertEqual(decoded.category, FaceDocument.expectedCategory)
+    }
+
+    /// A category this app doesn't recognize is preserved verbatim on decode
+    /// rather than silently rewritten to `expectedCategory` — only an
+    /// explicit refusal (the import path) may reject it.
+    func testForeignCategoryIsPreservedByDecode() throws {
+        let data = Data("""
+        {"format":"rina_packed_faces_370_v2","version":4,"category":"something_else","faces":[\(face(id: "a", hex: zerosHex))]}
+        """.utf8)
+        let decoded = try FaceDocument(jsonData: data)
+        XCTAssertEqual(decoded.category, "something_else")
+    }
+
+    // MARK: SavedFace.bytes(fromHex:) strict decoding (R22)
+
+    func testFrameHexRejectsSignedPair() throws {
+        let signedHex = "+1" + String(zerosHex.dropFirst(2))
+        let data = document(face(id: "a", hex: signedHex))
+        let face = try FaceDocument(jsonData: data).faces.first
+        XCTAssertEqual(face?.frameBytes, [], "an unusable frameHex with no frameBytes fallback decodes to empty")
+        XCTAssertNil(face?.packedFrame)
+    }
 }
