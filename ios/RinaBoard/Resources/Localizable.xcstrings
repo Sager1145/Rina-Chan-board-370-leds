@@ -23494,6 +23494,292 @@
           }
         }
       }
+    },
+    "《LoveLive!》相关名称、角色与音乐归各自权利人所有，不属于上述开源许可的范围。本项目是爱好者作品，与官方无关。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Love Live! names, characters and music belong to their respective rights holders and are not covered by the open-source licenses above. This is a fan project with no official affiliation."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「ラブライブ！」に関する名称・キャラクター・楽曲は各権利者に帰属し、上記のオープンソースライセンスの対象外です。本プロジェクトはファンによる作品で、公式とは関係ありません。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "《LoveLive!》相關名稱、角色與音樂歸各自權利人所有，不屬於上述開源授權的範圍。本專案是愛好者作品，與官方無關。"
+          }
+        }
+      }
+    },
+    "口型同步与预设 Live 分别参照 738NGX 与 flyAkari 的实现，用 Swift 重新编写。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lip sync and the preset Lives follow the implementations by 738NGX and flyAkari, rewritten in Swift."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リップシンクとプリセット Live は、それぞれ 738NGX と flyAkari の実装を参考に Swift で書き直したものです。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "口型同步與預設 Live 分別參照 738NGX 與 flyAkari 的實作，以 Swift 重新撰寫。"
+          }
+        }
+      }
+    },
+    "只有这块面板会断开连接并重新启动，多板组里的其他面板不受影响。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only this board disconnects and restarts. Other boards in the group are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このボードだけが切断されて再起動します。グループ内のほかのボードには影響しません。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有這塊面板會中斷連線並重新啟動，多板群組裡的其他面板不受影響。"
+          }
+        }
+      }
+    },
+    "命令终端" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command Terminal"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コマンドターミナル"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "指令終端機"
+          }
+        }
+      }
+    },
+    "固件构建" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Firmware Build"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファームウェアビルド"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "韌體建置"
+          }
+        }
+      }
+    },
+    "在文字页播放此组" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play This Group in the Text Tab"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "テキストタブでこのグループを再生"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在文字頁播放此群組"
+          }
+        }
+      }
+    },
+    "字体" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fonts"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォント"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "字型"
+          }
+        }
+      }
+    },
+    "字段直接来自固件回复，包含当前 App 尚未建模的未知键。发送指令请使用「终端」。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fields come straight from the firmware reply, including keys this app does not model yet. Use Terminal to send commands."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フィールドはファームウェアの応答そのままで、このアプリがまだ扱っていないキーも含みます。コマンドの送信は「ターミナル」を使ってください。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欄位直接來自韌體回覆，包含目前 App 尚未建模的未知鍵。傳送指令請使用「終端機」。"
+          }
+        }
+      }
+    },
+    "构建工具" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Build Tools"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ビルドツール"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "建置工具"
+          }
+        }
+      }
+    },
+    "此面板" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このボード"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此面板"
+          }
+        }
+      }
+    },
+    "清空此面板的用户表情" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear User Faces on This Board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このボードのユーザー表情を消去"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "清除此面板的使用者表情"
+          }
+        }
+      }
+    },
+    "维护" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maintenance"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メンテナンス"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "維護"
+          }
+        }
+      }
+    },
+    "重启此面板" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restart This Board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このボードを再起動"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新啟動此面板"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
