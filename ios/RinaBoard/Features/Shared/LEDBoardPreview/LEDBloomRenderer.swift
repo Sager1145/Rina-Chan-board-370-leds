@@ -60,8 +60,9 @@ enum LEDBloomRenderer {
 
     /// Builds the closed perimeter contours of every connected lit region, in
     /// `layout`'s view coordinates, via the shared unit-space cache.
-    static func contourPath(frame: PackedFrame, layout: LEDBoardLayout) -> Path {
-        let unit = contourCache.path(for: frame, build: { unitPath(for: frame) })
+    static func contourPath(frame: PackedFrame, layout: LEDBoardLayout, cached: Bool = true) -> Path {
+        let unit = cached ? contourCache.path(for: frame, build: { unitPath(for: frame) })
+                          : unitPath(for: frame)
         guard !unit.isEmpty else { return Path() }
         return unit.applying(CGAffineTransform(a: layout.cell, b: 0, c: 0, d: layout.cell,
                                                tx: layout.origin.x, ty: layout.origin.y))

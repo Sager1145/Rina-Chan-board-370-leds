@@ -134,6 +134,15 @@ struct LEDBoardPreview: View {
     /// than an `onEnded` that a cancelled stroke never reaches, the honest
     /// signal to forget the stroke.
     @GestureState private var isStroking = false
+    /// The light-up / fade-out of every LED that changes on the editable
+    /// board (the Control tab's): drawing, but also loading a face, undo,
+    /// clearing. The fade exists only here, in the preview: the frame, and
+    /// what the board is sent, change at once. Display-only previews (scrolling
+    /// text, video) show each frame as it is.
+    @State private var fader = LEDFadeState()
+    /// When the fade in flight ends; `nil` keeps the redraw timeline paused.
+    @State private var fadeEnd: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// True while two fingers are zooming or panning this preview
     /// (`BoardPreviewZoom`). A second finger landing on the board means
     /// "zoom", so the stroke that the first finger started must stop
@@ -184,8 +193,13 @@ struct LEDBoardPreview: View {
                         .frame(width: layout.stage.width, height: layout.stage.height)
                         .offset(x: layout.stage.minX, y: layout.stage.minY)
                 }
-                Canvas(opaque: false, rendersAsynchronously: false) { context, _ in
-                    draw(in: &context, layout: layout)
+                TimelineView(.animation(paused: fadeEnd == nil)) { timeline in
+                    Canvas(opaque: false, rendersAsynchronously: false) { context, _ in
+                        // A paused timeline's date is stale: with no fade
+                        // in flight, draw as of "every fade is over".
+                        draw(in: &context, layout: layout,
+                             at: fadeEnd == nil ? .distantFuture : timeline.date)
+                    }
                 }
                 .contentShape(Rectangle())
                 .accessibilityHidden(true)
@@ -197,6 +211,18 @@ struct LEDBoardPreview: View {
             guard !stroking else { return }
             resetStroke()
         }
+        .onChange(of: frame) { old, new in
+            let now = Date.now
+            fadeEnd = fader.retarget(from: old, to: new, at: now.timeIntervalSinceReferenceDate,
+                                     animated: isInteractive && !reduceMotion)
+                .map { now.addingTimeInterval($0) }
+        }
+        .task(id: fadeEnd) {
+            guard let fadeEnd else { return }
+            try? await Task.sleep(for: .seconds(max(0, fadeEnd.timeIntervalSinceNow) + 0.05))
+            guard !Task.isCancelled else { return }
+            self.fadeEnd = nil
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription ?? defaultAccessibilityLabel)
         .accessibilityAddTraits(isInteractive ? .isButton : [])
@@ -204,12 +230,18 @@ struct LEDBoardPreview: View {
 
     // MARK: Drawing
 
-    private func draw(in context: inout GraphicsContext, layout: LEDBoardLayout) {
+    private func draw(in context: inout GraphicsContext, layout: LEDBoardLayout, at date: Date) {
         guard layout.cell > 0 else { return }
         let intensity = Self.intensity(forBrightness: brightness)
+        let fading = fader.levels(at: date.timeIntervalSinceReferenceDate)
 
         if bloom {
-            let contours = LEDBloomRenderer.contourPath(frame: frame, layout: layout)
+            // A fading LED joins the glowing region once it is half lit. Those
+            // in-between masks are never seen again, so they skip the cache.
+            var glowing = frame
+            for (led, level) in fading { glowing[led] = level > 0.5 }
+            let contours = LEDBloomRenderer.contourPath(frame: glowing, layout: layout,
+                                                        cached: fading.isEmpty)
             // Bloom keeps a visible floor across the brightness range: even a
             // dim board glows a little, it just never becomes a neon halo.
             LEDBloomRenderer.drawBloom(path: contours,
@@ -234,7 +266,7 @@ struct LEDBoardPreview: View {
             for gridY in region.y..<(region.y + region.height) {
                 for gridX in region.x..<(region.x + region.width) {
                     if let led = LEDBoardGeometry.ledIndex(gridX: gridX, gridY: gridY) {
-                        guard !frame[led] else { continue }
+                        guard !frame[led] || fading[led] != nil else { continue }
                     } else {
                         guard fillsWholeWindow else { continue }
                     }
@@ -254,11 +286,20 @@ struct LEDBoardPreview: View {
 
         let hoverLEDs = pencilHoverLEDs
         var lit = Path()
-        for cell in LEDBoardGeometry.cells where frame[cell.id] && !hoverLEDs.contains(cell.id) {
+        for cell in LEDBoardGeometry.cells
+        where frame[cell.id] && fading[cell.id] == nil && !hoverLEDs.contains(cell.id) {
             let rect = layout.ledRect(gridX: cell.gridX, gridY: cell.gridY, gapRatio: gapRatio)
             lit.addPath(Path(roundedRect: rect, cornerRadius: cornerRadius))
         }
         context.fill(lit, with: .color(litColor))
+
+        // LEDs mid-fade, each at its own level — lighting up or going out.
+        for cell in LEDBoardGeometry.cells where !hoverLEDs.contains(cell.id) {
+            guard let level = fading[cell.id], level > 0 else { continue }
+            let rect = layout.ledRect(gridX: cell.gridX, gridY: cell.gridY, gapRatio: gapRatio)
+            context.fill(Path(roundedRect: rect, cornerRadius: cornerRadius),
+                         with: .color(color.opacity((0.45 + 0.55 * intensity) * level)))
+        }
 
         // The LED under a hovering Apple Pencil glows at half the board's
         // brightness whether it is lit or not, so the pencil shows which LED a
@@ -469,6 +510,66 @@ struct LEDBoardPreview: View {
 
     static func wholeBoardAspectRatio(showBoardImage: Bool) -> CGFloat {
         LEDBoardLayout.aspectRatio(usePhoto: showBoardImage && boardImage != nil, region: .wholeBoard)
+    }
+}
+
+// MARK: - Fade
+
+/// Per-LED light-up / fade-out for the editable preview.
+///
+/// A fade is stored as "from this level, since this moment, towards lit or
+/// unlit", and the level at any time is computed from that. Retargeting an LED
+/// mid-fade — rapid taps, a stroke crossing back — just restarts it from the
+/// level it has reached, so a fade can be interrupted at any point without a
+/// jump. A reference type on purpose: retargeting it does not by itself
+/// invalidate the view.
+final class LEDFadeState {
+    struct Fade {
+        var from: Double
+        var lit: Bool
+        var start: TimeInterval
+    }
+
+    /// Lighting up is quicker than going out, like the eye reads a real LED.
+    static let onDuration: TimeInterval = 0.14
+    static let offDuration: TimeInterval = 0.26
+    private var fades: [Int: Fade] = [:]
+
+    /// Takes a frame change. Returns how long until every fade has finished,
+    /// or `nil` when nothing is fading.
+    func retarget(from old: PackedFrame, to new: PackedFrame, at now: TimeInterval,
+                  animated: Bool) -> TimeInterval? {
+        guard animated else {
+            fades.removeAll()
+            return nil
+        }
+        fades = fades.filter { !Self.isFinished($0.value, at: now) }
+        for led in 0..<PackedFrame.ledCount where old[led] != new[led] {
+            let from = fades[led].map { Self.level(of: $0, at: now) } ?? (old[led] ? 1 : 0)
+            fades[led] = Fade(from: from, lit: new[led], start: now)
+        }
+        return fades.isEmpty ? nil : max(Self.onDuration, Self.offDuration)
+    }
+
+    /// The eased level (0…1) of every LED still mid-fade at `now`.
+    func levels(at now: TimeInterval) -> [Int: Double] {
+        var levels: [Int: Double] = [:]
+        for (led, fade) in fades where !Self.isFinished(fade, at: now) {
+            let level = Self.level(of: fade, at: now)
+            levels[led] = level * level * (3 - 2 * level)
+        }
+        return levels
+    }
+
+    /// Linear level, so an interrupted fade resumes from exactly where it was.
+    static func level(of fade: Fade, at now: TimeInterval) -> Double {
+        let elapsed = max(0, now - fade.start)
+        return fade.lit ? min(1, fade.from + elapsed / onDuration)
+                        : max(0, fade.from - elapsed / offDuration)
+    }
+
+    private static func isFinished(_ fade: Fade, at now: TimeInterval) -> Bool {
+        level(of: fade, at: now) == (fade.lit ? 1 : 0)
     }
 }
 
