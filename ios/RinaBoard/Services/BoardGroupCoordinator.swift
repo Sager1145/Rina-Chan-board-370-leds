@@ -242,6 +242,23 @@ public final class BoardGroupCoordinator {
         return memberStatus[member.physicalBoardID] ?? computeIdleStatus(for: member)
     }
 
+    /// `true` iff `member` is a live participant of the currently running
+    /// play: it has a `Participant` record AND still satisfies the same
+    /// liveness conditions `pruneParticipants()` checks (connected, same
+    /// connection generation it joined with, output source still `.group`,
+    /// and its output-lease token still current). Used by the group preview
+    /// to decide whether a cell may show live boards' content instead of a
+    /// static placeholder — it must never report `true` for a board
+    /// `pruneParticipants()` would evict.
+    public func isLiveParticipant(_ member: BoardGroup.Member) -> Bool {
+        guard let participant = participants[member.physicalBoardID] else { return false }
+        let connection = participant.session.connection
+        let sameConnection = connection.connectionState == .connected
+            && connection.connectionGeneration == participant.generation
+        return sameConnection && connection.output.source == .group
+            && connection.output.isCurrent(participant.token)
+    }
+
     /// N6: the send pill's determinate upload progress while `group` is
     /// uploading (`isStarting`/`startingGroupID` — the group-play upload
     /// phase): the average of every member's own `.uploading(progress:)`

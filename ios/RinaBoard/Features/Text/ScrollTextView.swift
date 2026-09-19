@@ -140,8 +140,6 @@ struct ScrollTextView: View {
         if let group = targetedGroup {
             GroupScrollPreview(
                 group: group,
-                draftText: model.text,
-                draftFps: min(Int(model.requestedFps), groupCoordinator.maxFps(for: group)),
                 onSwap: { boardA, boardB in
                         Task {
                             do {
@@ -160,7 +158,21 @@ struct ScrollTextView: View {
     }
 
     private var previewStatus: some View {
-        TextPreviewStatusFooter(model: model, connection: connection, groupPhase: groupPhase)
+        TextPreviewStatusFooter(
+            model: model,
+            connection: connection,
+            groupPhase: groupPhase,
+            groupFrame: pausedGroupSnapshot.flatMap { _ in groupCoordinator.currentFrame() },
+            groupFrameCount: pausedGroupSnapshot?.frameCount
+        )
+    }
+
+    /// The footer's frame counter is not clock-driven, so it only shows the
+    /// group's position while that is a fixed frame: the targeted group, paused.
+    private var pausedGroupSnapshot: BoardGroupCoordinator.PlaybackSnapshot? {
+        guard let group = targetedGroup, groupCoordinator.isPaused,
+              let snapshot = groupCoordinator.playbackSnapshot, snapshot.groupID == group.id else { return nil }
+        return snapshot
     }
 
     /// What the targeted group is doing, for the status line under the
@@ -626,8 +638,19 @@ private struct TextPreviewStatusFooter: View {
     var model: TextViewModel
     var connection: BoardConnection
     var groupPhase: GroupPhase? = nil
+    /// The coordinator's own playback position/frame count while a group is
+    /// targeted — the physical boards' real state, not this page's
+    /// (unbound) `model.frameCount`/`displayIndex`.
+    var groupFrame: Int? = nil
+    var groupFrameCount: Int? = nil
 
     private var isConnected: Bool { connection.connectionState == .connected }
+
+    /// `nil` unless the coordinator actually has a frame/count to show.
+    private var groupFrameCounter: Text? {
+        guard let groupFrameCount, groupFrameCount > 0, let groupFrame else { return nil }
+        return Text("帧 \(groupFrame + 1) / \(groupFrameCount)")
+    }
 
     var body: some View {
         #if DEBUG
@@ -640,18 +663,19 @@ private struct TextPreviewStatusFooter: View {
             : Text("\(model.byteCount) / \(ScrollText.maxTextBytes)")
                 .foregroundStyle(model.exceedsByteLimit ? .red : .secondary)
         if let groupPhase {
+            let counter = groupFrameCounter ?? frameCounter
             switch groupPhase {
             case .playing:
                 BoardPreviewStatus("多板组播放中", systemImage: "play.circle", tone: .live) {
-                    frameCounter
+                    counter
                 }
             case .paused:
                 BoardPreviewStatus("多板组已暂停", systemImage: "pause.circle", tone: .neutral) {
-                    frameCounter
+                    counter
                 }
             case .adopting:
                 BoardPreviewStatus("正在接管上次的多板滚动", systemImage: "arrow.triangle.2.circlepath.circle", tone: .pending) {
-                    frameCounter
+                    counter
                 }
             }
         } else if model.restoreConflict {

@@ -2151,6 +2151,99 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertLessThanOrEqual(atUsA, nowUsAfter + 5_000)
         XCTAssertLessThanOrEqual(atUsB, nowUsAfter + 5_000)
     }
+
+    // MARK: - GroupPreviewPolicy integration (draft-preview-never-free-runs fix)
+
+    /// After `stop()`, `playbackSnapshot` must be gone -- a preview reading
+    /// it and feeding `GroupPreviewPolicy.mode` must land on `.layoutStill`
+    /// (with a draft still typed) rather than keep animating a group that
+    /// no longer plays.
+    func testStopClearsPlaybackSnapshotAndPolicyGivesDark() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "预览停止组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+        XCTAssertNotNil(coordinator.playbackSnapshot)
+
+        await coordinator.stop(group: store.groups[0])
+
+        XCTAssertNil(coordinator.playbackSnapshot)
+        let mode = GroupPreviewPolicy.mode(
+            snapshotGroupID: coordinator.playbackSnapshot?.groupID, groupID: group.id,
+            isPaused: coordinator.isPaused
+        )
+        XCTAssertEqual(mode, .dark)
+    }
+
+    /// Same invariant across `markSupersededByControl()` (a face/button
+    /// applied to a participant while its group plays) -- the preview must
+    /// stop treating the group as playing the instant the coordinator does.
+    func testMarkSupersededByControlClearsPlaybackSnapshotAndPolicyGivesDark() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "预览接管组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+        XCTAssertNotNil(coordinator.playbackSnapshot)
+
+        coordinator.markSupersededByControl()
+
+        XCTAssertNil(coordinator.playbackSnapshot)
+        let mode = GroupPreviewPolicy.mode(
+            snapshotGroupID: coordinator.playbackSnapshot?.groupID, groupID: group.id,
+            isPaused: coordinator.isPaused
+        )
+        XCTAssertEqual(mode, .dark)
+    }
+
+    /// `isLiveParticipant` must track live membership precisely: a board
+    /// whose connection generation changes (disconnect/reconnect) drops out
+    /// until rejoined, while an untouched sibling stays live throughout.
+    func testDisconnectedMemberIsNotLiveParticipantWhileOthersStayLive() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+
+        let group = store.create(name: "在线判定组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+
+        try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true)
+        XCTAssertTrue(coordinator.isLiveParticipant(store.groups[0].members[0]))
+        XCTAssertTrue(coordinator.isLiveParticipant(store.groups[0].members[1]))
+
+        sessionB.connection.disconnect()
+
+        XCTAssertFalse(coordinator.isLiveParticipant(store.groups[0].members[1]),
+                       "a disconnected member must not read as a live participant")
+        XCTAssertTrue(coordinator.isLiveParticipant(store.groups[0].members[0]),
+                      "an untouched sibling stays a live participant")
+        XCTAssertEqual(sessionA.connection.output.source, .group)
+    }
 }
 
 // MARK: - Fake transport

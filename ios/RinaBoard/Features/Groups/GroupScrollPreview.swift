@@ -5,12 +5,10 @@ import RinaCore
 /// Multi-board scroll preview for a targeted `BoardGroup` (BOARD_GROUP_SPEC.md
 /// §3): every member is drawn side by side with a visible gap and a label
 /// (number + name + status) underneath, and can be reordered by long-press
-/// dragging one board onto another. Used by both the Text tab (draft, not yet
-/// playing) and `BoardGroupPlayView` (live playback snapshot).
+/// dragging one board onto another. Cells only light up for content the boards
+/// are confirmed to be running; nothing uploaded or synced means a dark row.
 struct GroupScrollPreview: View {
     let group: BoardGroup
-    let draftText: String
-    let draftFps: Int
     /// `nil` follows the Control Center draft, like `BoardPreviewRow`.
     var color: Color? = nil
     var brightness: Int? = nil
@@ -25,8 +23,7 @@ struct GroupScrollPreview: View {
     /// Same reasoning: optional so test hosts and `#Preview`s that don't
     /// inject `AppRouter` don't crash. While its gate is pending (user
     /// requirement: "刚打开app同步时，完成同步再显示预览画面，不要让预览画面闪一下"), this preview
-    /// holds every cell blank instead of drawing the draft's stitched
-    /// animation or its "输入文字后可预览拼接效果" caption.
+    /// holds every cell blank.
     @Environment(AppRouter.self) private var router: AppRouter?
     /// Same setting as the single-board preview's board photo.
     @AppStorage(AppSettingsKey.showBoardPhoto) private var showBoardPhoto = true
@@ -39,12 +36,6 @@ struct GroupScrollPreview: View {
         brightness ?? controlCenter.map(\.draftBrightness) ?? RinaLinkConstants.brightnessDefault
     }
 
-    /// Rebuilt off the main actor and cached rather than every frame, same
-    /// approach as `BoardGroupPlayView`'s previous `rebuildPreview`.
-    @State private var draftBitmap: ScrollBitmap?
-    @State private var draftVirtualWidth: Int = MatrixGeometry.cols
-    @State private var draftStartDate = Date()
-    @State private var cachedFont: ArkPixelFont?
     @State private var targetedIndex: Int?
 
     private static let minCellSide: CGFloat = 70
@@ -52,35 +43,48 @@ struct GroupScrollPreview: View {
     /// text, and outside text can't trigger a swap.
     private static let boardDragType = UTType(exportedAs: "com.rinaboard.group-member", conformingTo: .data)
 
-    private var displayLayout: StitchedScreenLayout? {
-        try? StitchedScreenLayout(slotCount: group.members.count, gapsAfter: group.gapsAfter)
-    }
-
     var body: some View {
         Group {
             if router?.launchPreviewPending == true {
                 boardRow(members: group.members) { _ in PackedFrame() }
-            } else if let snapshot = coordinator.playbackSnapshot, snapshot.groupID == group.id {
-                livePreview(snapshot: snapshot)
             } else {
-                draftPreview()
+                let snapshot = coordinator.playbackSnapshot
+                let mode = GroupPreviewPolicy.mode(
+                    snapshotGroupID: snapshot?.groupID, groupID: group.id, isPaused: coordinator.isPaused
+                )
+                if let snapshot, mode != .dark {
+                    livePreview(snapshot: snapshot)
+                } else {
+                    // Nothing uploaded or synced: no preview. The dark row
+                    // stays so boards can still be drag-reordered.
+                    boardRow(members: group.members) { _ in PackedFrame() }
+                }
             }
-        }
-        .task(id: draftPreviewKey) {
-            await rebuildDraftBitmap()
         }
     }
 
     // MARK: - Live (playing/paused) preview
 
+    /// Per cell: only a board the coordinator has positive evidence is
+    /// actually running this content (`GroupPreviewPolicy.cellIsLive`) draws
+    /// the live bitmap window; every other cell (offline, superseded,
+    /// uploading, not yet a participant) draws a dark placeholder frame.
     @ViewBuilder
     private func livePreview(snapshot: BoardGroupCoordinator.PlaybackSnapshot) -> some View {
+        let groupPaused = coordinator.isPaused
         let row = { (frameIndex: Int) in
             boardRow(members: snapshot.memberOrder) { index in
-                GroupScrollBitmap.frame(bitmap: snapshot.bitmap, viewportX: snapshot.viewportXs[index], frameIndex: frameIndex)
+                let member = snapshot.memberOrder[index]
+                let isLive = GroupPreviewPolicy.cellIsLive(
+                    coordinator.status(for: member),
+                    isLiveParticipant: coordinator.isLiveParticipant(member),
+                    groupPaused: groupPaused
+                )
+                guard isLive else { return PackedFrame() }
+                return GroupScrollBitmap.frame(bitmap: snapshot.bitmap, viewportX: snapshot.viewportXs[index], frameIndex: frameIndex)
             }
         }
-        if coordinator.isPaused {
+        if groupPaused {
             // A still frame; step() changes pausedFrame, which re-renders.
             row(coordinator.currentFrame() ?? 0)
         } else {
@@ -91,60 +95,6 @@ struct GroupScrollPreview: View {
     }
 
     // MARK: - Draft (not yet playing) preview
-
-    private var draftPreviewKey: String {
-        "\(draftText)|\(group.mode.rawValue)|\(group.members.count)|\(group.gapsAfter)"
-    }
-
-    @ViewBuilder
-    private func draftPreview() -> some View {
-        if let bitmap = draftBitmap, let layout = displayLayout {
-            let intervalMs = ScrollRasterizer.intervalMs(forFps: max(draftFps, 1))
-            let intervalSeconds = Double(intervalMs) / 1000
-            let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: bitmap.width, virtualWidth: draftVirtualWidth)
-            let mode = group.mode
-            TimelineView(.animation(minimumInterval: intervalSeconds)) { context in
-                let elapsed = context.date.timeIntervalSince(draftStartDate)
-                let frameIndex = frameCount > 0 ? Int(elapsed / max(intervalSeconds, 0.001)) % frameCount : 0
-                boardRow(members: group.members) { index in
-                    let viewportX = mode == .mirror ? 0 : layout.viewportX(slot: index)
-                    return GroupScrollBitmap.frame(bitmap: bitmap, viewportX: viewportX, frameIndex: frameIndex)
-                }
-            }
-        } else {
-            Text("输入文字后可预览拼接效果")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func rebuildDraftBitmap() async {
-        let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, group.members.count >= 1, let layout = displayLayout else {
-            draftBitmap = nil
-            return
-        }
-        let mode = group.mode
-        let virtualWidth = mode == .mirror ? MatrixGeometry.cols : layout.virtualWidth
-        let font: ArkPixelFont
-        if let cachedFont {
-            font = cachedFont
-        } else {
-            guard let loaded = try? BoardGroupCoordinator.loadDefaultFont() else {
-                draftBitmap = nil
-                return
-            }
-            font = loaded
-            cachedFont = loaded
-        }
-        let built = await Task.detached(priority: .utility) {
-            try? GroupScrollBitmap.build(text: trimmed, font: font, virtualWidth: virtualWidth)
-        }.value
-        guard !Task.isCancelled else { return }
-        draftBitmap = built
-        draftVirtualWidth = virtualWidth
-        draftStartDate = Date()
-    }
 
     // MARK: - Shared row layout
 

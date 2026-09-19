@@ -905,12 +905,33 @@ final class TextViewModel {
 
     // MARK: Labels
 
+    /// `true` when the board reports a scroll owned by a multi-board group
+    /// (`BoardGroupCoordinator`, not this single-board page) — matches the
+    /// same `groupTimed` guards `restoreOnConnect` (meta) and `observe`
+    /// (renderer) already use to refuse binding/claiming one.
+    static func isForeignGroupScroll(renderer: RendererStatus?, preview: PreviewSync?) -> Bool {
+        (renderer?.groupTimed ?? preview?.groupTimed) == true
+    }
+
+    /// A paused group leaves firmware group-timed mode (`groupTimed == false`),
+    /// so the board's output owner is the second signal: while the group
+    /// coordinator holds it, the scroll is still the group's.
+    private func isGroupOwned(_ connection: BoardConnection, renderer: RendererStatus?) -> Bool {
+        connection.output.source == .group
+            || Self.isForeignGroupScroll(renderer: renderer, preview: connection.preview)
+    }
+
     /// Whether the board itself has a scroll it can pause, step or stop, even
     /// when nothing is bound here (sent from the WebUI or another phone, or a
     /// restore that could not rebuild the timeline). The transport commands
     /// act on the board's own session and need no local timeline.
     func boardHasScroll(connection: BoardConnection) -> Bool {
         let renderer = connection.status?.renderer
+        // A group-timed scroll this page never bound: not "this page's"
+        // scroll to report/control, so it must not claim 播放中 for it.
+        if boundTimelineId == nil, isGroupOwned(connection, renderer: renderer) {
+            return false
+        }
         if let count = renderer?.scrollFrameCount { return count > 0 }
         return (renderer?.firmwareScrollActive ?? connection.preview?.firmwareScrollActive) == true
     }
@@ -918,6 +939,9 @@ final class TextViewModel {
     func phaseKey(connection: BoardConnection) -> String {
         if let localPhase { return localPhase }
         if isStepping { return "STEPPING" }
+        if boundTimelineId == nil, isGroupOwned(connection, renderer: connection.status?.renderer) {
+            return "IDLE"
+        }
         let active = connection.status?.renderer?.firmwareScrollActive ?? connection.preview?.firmwareScrollActive
         guard active == true else { return "IDLE" }
         return boardPaused ? "PAUSED" : "ACTIVE"
