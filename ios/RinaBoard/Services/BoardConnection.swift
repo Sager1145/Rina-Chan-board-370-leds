@@ -145,19 +145,11 @@ public final class BoardConnection {
     private var eventContinuations: [UUID: AsyncStream<BoardEvent>.Continuation] = [:]
     private var transport: RinaTransport?
     private let decoder = RinaLinkDecoder()
-    private var nextSeq: UInt8 = 1
-    private var pending: [UInt8: PendingRequest] = [:]
-    /// Retain only matching metadata until the old reply finishes or the carrier resets.
-    private struct QuarantinedRequest {
-        let replyType: UInt8
-        let aggregateMore: Bool
-    }
-    private var quarantinedSeqs: [UInt8: QuarantinedRequest] = [:]
+    private let broker = RinaRequestBroker()
     /// Test/diagnostic view of how many retired sequence numbers are still quarantined.
-    var quarantinedSequenceCount: Int { quarantinedSeqs.count }
+    var quarantinedSequenceCount: Int { broker.quarantinedSequenceCount }
     /// Cumulative number of times a seq was quarantined (tests/diagnostics).
-    private(set) var quarantineEventCount = 0
-    private static let quarantineReconnectThreshold = 128
+    var quarantineEventCount: Int { broker.quarantineEventCount }
     private var incomingTask: Task<Void, Never>?
     private var stateTask: Task<Void, Never>?
     private var pingTask: Task<Void, Never>?
@@ -171,7 +163,6 @@ public final class BoardConnection {
     private var reconnectDelay: (Int) -> TimeInterval = { min(30, pow(2, Double($0))) }
     private var handshakeTimeout: TimeInterval = 5
     private static let eventBufferLimit = 256
-    private static let maxAggregatedReplyBytes = 256 * 1024
     private static let maxFacesDocumentBytes = 256 * 1024
 
     // Rate limiting (FEATURE_INVENTORY D6): frames >=20ms apart depth 6 drop-oldest,
@@ -204,41 +195,33 @@ public final class BoardConnection {
         }
     }
 
-    private final class PendingRequest {
-        let id: UUID
-        let replyType: UInt8
-        /// When false (GET_FACES), a terminal frame resolves the request
-        /// immediately regardless of `FLAG_MORE` — for that message `MORE`
-        /// means "call again with a higher offset", not "more chunks of this
-        /// same reply are coming on this seq" (A1).
-        let aggregateMore: Bool
-        var accumulated = Data()
-        let continuation: CheckedContinuation<RinaLinkFrame, Error>
-        let timeoutTask: Task<Void, Never>
-        var sendTask: Task<Void, Never>?
-
-        init(
-            id: UUID,
-            replyType: UInt8,
-            aggregateMore: Bool,
-            continuation: CheckedContinuation<RinaLinkFrame, Error>,
-            timeoutTask: Task<Void, Never>,
-            sendTask: Task<Void, Never>?
-        ) {
-            self.id = id
-            self.replyType = replyType
-            self.aggregateMore = aggregateMore
-            self.continuation = continuation
-            self.timeoutTask = timeoutTask
-            self.sendTask = sendTask
-        }
+    public init() {
+        installBrokerHooks()
     }
-
-    public init() {}
 
     init(reconnectDelay: @escaping (Int) -> TimeInterval, handshakeTimeout: TimeInterval = 5) {
         self.reconnectDelay = reconnectDelay
         self.handshakeTimeout = handshakeTimeout
+        installBrokerHooks()
+    }
+
+    /// Wires the broker's quarantine-overflow signal to this connection's own
+    /// reconnect logic. Called once from both initializers so `broker` has a
+    /// hook installed for the object's entire life.
+    private func installBrokerHooks() {
+        broker.onQuarantineOverflow = { [weak self] in
+            guard let self else { return }
+            let session = self.transportSessionID
+            // Leave the current continuation cleanup before resetting the
+            // carrier. The session check coalesces concurrent cancellations
+            // into one reconnect.
+            Task { @MainActor [weak self] in
+                guard let self, self.transportSessionID == session,
+                      self.connectionState == .connected,
+                      self.broker.isQuarantineOverThreshold else { return }
+                self.connectionFailed(RinaTransportError.sequenceSpaceExhausted.localizedDescription)
+            }
+        }
     }
 
     // MARK: Connection lifecycle
@@ -257,7 +240,7 @@ public final class BoardConnection {
         disconnect()
         // An explicit connection starts a new carrier epoch. Callbacks from the
         // old incoming stream are session-gated, so its retired IDs can go.
-        quarantinedSeqs.removeAll()
+        broker.resetQuarantine()
         output.invalidate()
         connectionGeneration = UUID()
         clearBoardSnapshot()
@@ -284,7 +267,7 @@ public final class BoardConnection {
         // A fresh carrier has a fresh board-side parser/reply queue. Sequence
         // IDs poisoned by uncertain requests on the old carrier can be reused;
         // nextSeq itself intentionally keeps advancing to avoid immediate reuse.
-        quarantinedSeqs.removeAll()
+        broker.resetQuarantine()
         isEstablishing = true
         establishmentError = nil
         setupStatusReadFailed = false
@@ -412,7 +395,7 @@ public final class BoardConnection {
         incomingTask?.cancel()
         pingTask?.cancel()
         decoder.reset()
-        failAllPending(RinaTransportError.notConnected)
+        broker.failAll(RinaTransportError.notConnected)
         transport?.disconnect()
     }
 
@@ -442,14 +425,14 @@ public final class BoardConnection {
         case .disconnected:
             if isEstablishing {
                 establishmentError = RinaTransportError.notConnected.localizedDescription
-                failAllPending(RinaTransportError.notConnected)
+                broker.failAll(RinaTransportError.notConnected)
             } else {
                 connectionFailed(RinaTransportError.notConnected.localizedDescription)
             }
         case .failed(let message):
             if isEstablishing {
                 establishmentError = message
-                failAllPending(RinaTransportError.underlying(message))
+                broker.failAll(RinaTransportError.underlying(message))
             } else {
                 connectionFailed(message)
             }
@@ -724,92 +707,10 @@ public final class BoardConnection {
             }
         }
 
-        // A1/quarantine: a reply for a seq we already gave up on (timed out)
-        // must not be delivered to a different, newer request that happens to
-        // have been assigned the same (reused) seq.
-        if let retired = quarantinedSeqs[frame.seq] {
-            if frame.type == retired.replyType || frame.isError {
-                if !retired.aggregateMore || !frame.isMore {
-                    quarantinedSeqs.removeValue(forKey: frame.seq)
-                }
-            }
-            return
-        }
-
-        // Reply matching by seq, aggregating MORE-flagged chunks only for
-        // requests that opted into aggregation (`aggregateMore == true`).
-        guard let request = pending[frame.seq], frame.type == request.replyType || frame.isError else {
-            return
-        }
-        guard frame.payload.count <= Self.maxAggregatedReplyBytes - request.accumulated.count else {
-            pending.removeValue(forKey: frame.seq)
-            quarantine(frame.seq, request: request)
-            request.timeoutTask.cancel()
-            request.sendTask?.cancel()
-            request.continuation.resume(throwing: RinaTransportError.invalidResponse)
-            return
-        }
-        request.accumulated.append(frame.payload)
-        if request.aggregateMore, frame.isMore {
-            return
-        }
-        pending.removeValue(forKey: frame.seq)
-        request.timeoutTask.cancel()
-        if frame.isError {
-            let err = (try? JSONDecoder().decode(RinaLinkError.self, from: request.accumulated))
-                ?? RinaLinkError(error: "unknown error")
-            request.continuation.resume(throwing: err)
-        } else {
-            // H1: propagate the terminal frame's flags (e.g. MORE meaning "call
-            // again with a higher offset") instead of hardcoding 0.
-            request.continuation.resume(returning: RinaLinkFrame(type: frame.type, seq: frame.seq, flags: frame.flags, payload: request.accumulated))
-        }
-    }
-
-    private func failAllPending(_ error: Error) {
-        for (seq, request) in pending {
-            quarantine(seq, request: request, recover: false)
-            request.timeoutTask.cancel()
-            request.sendTask?.cancel()
-            request.continuation.resume(throwing: error)
-        }
-        pending.removeAll()
+        broker.deliver(frame)
     }
 
     // MARK: Low-level request/response
-
-    private func nextSequenceNumber() throws -> UInt8 {
-        // Skip seq values still awaiting a reply, or still quarantined from a
-        // recent timeout, so a wraparound can't collide with an in-flight (or
-        // still-possibly-replying) request.
-        var candidate = nextSeq
-        var attempts = 0
-        while pending[candidate] != nil || quarantinedSeqs[candidate] != nil, attempts < 255 {
-            candidate = candidate == 255 ? 1 : candidate + 1
-            attempts += 1
-        }
-        guard pending[candidate] == nil, quarantinedSeqs[candidate] == nil else {
-            throw RinaTransportError.sequenceSpaceExhausted
-        }
-        nextSeq = candidate == 255 ? 1 : candidate + 1
-        return candidate
-    }
-
-    private func quarantine(_ seq: UInt8, request: PendingRequest, recover: Bool = true) {
-        quarantineEventCount += 1
-        quarantinedSeqs[seq] = QuarantinedRequest(replyType: request.replyType,
-                                                aggregateMore: request.aggregateMore)
-        guard recover, quarantinedSeqs.count >= Self.quarantineReconnectThreshold else { return }
-        let session = transportSessionID
-        // Leave the current continuation cleanup before resetting the carrier.
-        // The session check coalesces concurrent cancellations into one reconnect.
-        Task { @MainActor [weak self] in
-            guard let self, self.transportSessionID == session,
-                  self.connectionState == .connected,
-                  self.quarantinedSeqs.count >= Self.quarantineReconnectThreshold else { return }
-            self.connectionFailed(RinaTransportError.sequenceSpaceExhausted.localizedDescription)
-        }
-    }
 
     /// Sends one framed request and awaits its reply. `aggregateMore: true`
     /// (the default) treats `FLAG_MORE` on the terminal frame as "more chunks
@@ -838,72 +739,25 @@ public final class BoardConnection {
     private func sendUnqueued(type: RinaLinkMessageType, payload: Data, timeout: TimeInterval, aggregateMore: Bool, duringSetup: Bool = false) async throws -> RinaLinkFrame {
         try Task.checkCancellation()
         guard connectionState == .connected || (duringSetup && isEstablishing), let transport else { throw RinaTransportError.notConnected }
-        let seq = try nextSequenceNumber()
-        let requestID = UUID()
-        let data = try RinaLinkEncoder.encode(type: type, seq: seq, payload: payload)
         let sendSession = transportSessionID
-
-        let reply = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RinaLinkFrame, Error>) in
-                let timeoutTask = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                    guard !Task.isCancelled, let self else { return }
-                    if let request = self.removePending(seq: seq, requestID: requestID) {
-                        self.quarantine(seq, request: request)
-                        request.sendTask?.cancel()
-                        request.continuation.resume(throwing: RinaTransportError.timeout)
-                    }
-                }
-                pending[seq] = PendingRequest(id: requestID,
-                                              replyType: type.replyType,
-                                              aggregateMore: aggregateMore,
-                                              continuation: continuation,
-                                              timeoutTask: timeoutTask,
-                                              sendTask: nil)
-                let sendTask = Task {
-                    do {
-                        try await transport.send(data)
-                    } catch {
-                        if let request = self.removePending(seq: seq, requestID: requestID) {
-                            self.quarantine(seq, request: request)
-                            request.timeoutTask.cancel()
-                            request.continuation.resume(throwing: error)
-                        }
-                        guard !(error is CancellationError), self.transportSessionID == sendSession,
-                              self.connectionState == .connected || self.isEstablishing else { return }
-                        // The transport API cannot report whether an error was
-                        // raised before or after a partial write. Reset the
-                        // carrier so a truncated frame cannot poison the next
-                        // request on the board's streaming decoder.
-                        self.connectionFailed(error.localizedDescription)
-                    }
-                }
-                // This closure is synchronous on MainActor, so cancellation
-                // cannot remove `pending[seq]` between registration and storing
-                // the task handle. A cancelled queued transport write is now
-                // removed before BLE back-pressure clears.
-                pending[seq]?.sendTask = sendTask
+        let reply = try await broker.request(
+            replyType: type.replyType,
+            aggregateMore: aggregateMore,
+            timeout: timeout,
+            encode: { seq in try RinaLinkEncoder.encode(type: type, seq: seq, payload: payload) },
+            write: { data in try await transport.send(data) },
+            onWriteFailure: { [weak self] error in
+                guard let self, !(error is CancellationError), self.transportSessionID == sendSession,
+                      self.connectionState == .connected || self.isEstablishing else { return }
+                // The transport API cannot report whether an error was
+                // raised before or after a partial write. Reset the
+                // carrier so a truncated frame cannot poison the next
+                // request on the board's streaming decoder.
+                self.connectionFailed(error.localizedDescription)
             }
-        } onCancel: {
-            Task { @MainActor [weak self] in
-                self?.cancelPending(seq: seq, requestID: requestID)
-            }
-        }
+        )
         try Task.checkCancellation()
         return reply
-    }
-
-    private func removePending(seq: UInt8, requestID: UUID) -> PendingRequest? {
-        guard pending[seq]?.id == requestID else { return nil }
-        return pending.removeValue(forKey: seq)
-    }
-
-    private func cancelPending(seq: UInt8, requestID: UUID) {
-        guard let request = removePending(seq: seq, requestID: requestID) else { return }
-        request.timeoutTask.cancel()
-        request.sendTask?.cancel()
-        quarantine(seq, request: request)
-        request.continuation.resume(throwing: CancellationError())
     }
 
     // MARK: Typed helpers
