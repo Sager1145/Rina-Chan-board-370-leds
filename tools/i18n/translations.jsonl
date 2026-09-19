@@ -936,11 +936,11 @@
 {"en": "Microphone capture was interrupted. Start syncing again.", "hant": "麥克風收音已中斷，請重新開始同步", "ja": "マイク入力が中断されました。同期をもう一度開始してください", "k": "麦克风采集已中断，请重新开始同步"}
 {"hant": "元件選擇", "k": "部件选择"}
 {"en": "Switch expression", "k": "切换表情"}
-{"en": "Expressions", "k": "表情显示"}
+{"en": "Faces", "k": "表情显示"}
 {"en": "Overwrite expression", "k": "覆盖原表情"}
 {"en": "Picking one eye part uses the mirrored part for the other eye", "hant": "選擇一側眼睛元件時，另一側會自動使用對稱元件", "ja": "片方の目のパーツを選ぶと、もう片方に左右対称のパーツが自動で使われます", "k": "选择一侧眼睛部件时，另一侧自动使用对称部件"}
 {"en": "Drawing and erasing also change the LED at the mirrored position", "hant": "繪製和擦除時，會同時修改左右對稱位置的 LED", "ja": "点灯・消灯するとき、左右対称の位置の LED も同時に変更します", "k": "绘制和擦除时，同时修改左右对称位置的 LED"}
-{"en": "Getting ready...", "hant": "正在準備…", "ja": "準備中。もう少し…", "k": "正在准备…"}
+{"en": "LOADING...", "hant": "載入中...", "ja": "LOADING...", "k": "加载中..."}
 {"en": "Connected. That makes me happy.", "hant": "連上了，真好。", "ja": "つながった。…うれしい。", "k": "连上了，真好。"}
 {"en": "Connected again.", "hant": "又連上了。", "ja": "また、つながれた。", "k": "又连上了。"}
 {"en": "Let’s make a new expression.", "hant": "一起做個新表情吧。", "ja": "新しい表情、一緒につくろう。", "k": "一起做个新表情吧。"}
@@ -975,3 +975,5 @@
 {"en": "Connect a board to change these settings.", "hant": "連線璃奈板後即可修改這些設定。", "ja": "璃奈ボードに接続すると変更できます。", "k": "连接璃奈板后可修改这些设置。"}
 {"en": "Reconnecting (%lld)", "hant": "重新連線中(%lld)", "ja": "再接続中(%lld)", "k": "重连中(%lld)"}
 {"k": "%lld µs", "nt": true}
+{"en": "Text", "k": "文字滚动"}
+{"en": "Speak", "k": "嘴形识别"}

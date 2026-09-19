@@ -33,7 +33,7 @@ each with `opacity 320 ms ease` and `translateY 360 ms cubic-bezier(.16,1,.3,1)`
 after the last. Runs while the loader is still covering the screen (its reveal mask shows it).
 
 ## Rules
-- Loader is time/asset based only; it does not wait for the board. Board status fetch begins after the loader is gone.
+- Loader does not wait for the board. On iOS the outro is additionally held until launch loading finishes (drafts, fonts, local face library, the 演出 tab's last material; `BootLoaderModel.markLoadingComplete`, capped at `BootTimeline.maxLoadWait` = 8 s). Board status fetch begins after the loader is gone.
 - Reduced motion: halo breath slows to 2.6 s; waterfall becomes instant (1 ms, no slide). The contract/release/mask sequence still plays.
 
 ## Corrections to this document (verified against the sources above)

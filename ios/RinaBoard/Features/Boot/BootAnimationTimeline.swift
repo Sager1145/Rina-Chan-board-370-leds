@@ -19,6 +19,8 @@ enum BootTimeline {
     // MARK: Constants
 
     static let minDisplay: TimeInterval = 0.400
+    /// Longest the loader holds for launch loading before finishing anyway.
+    static let maxLoadWait: TimeInterval = 8.0
     static let breath: TimeInterval = 1.620
     static let breathReduced: TimeInterval = 2.600
     static let peakRatio: Double = 0.5

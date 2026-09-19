@@ -146,7 +146,19 @@ struct ScrollTextView: View {
     }
 
     private var previewStatus: some View {
-        TextPreviewStatusFooter(model: model, connection: connection)
+        TextPreviewStatusFooter(model: model, connection: connection, groupPhase: groupPhase)
+    }
+
+    /// What the targeted group is doing, for the status line under the
+    /// preview; `nil` with a single-board target or an idle group.
+    private var groupPhase: TextPreviewStatusFooter.GroupPhase? {
+        guard let group = targetedGroup else { return nil }
+        if groupCoordinator.activeGroupID == group.id {
+            if groupCoordinator.isPlaying { return .playing }
+            if groupCoordinator.isPaused { return .paused }
+        }
+        let starting = groupCoordinator.isStarting && groupCoordinator.startingGroupID == group.id
+        return !starting && groupCoordinator.hasOrphanedScroll(group: group) ? .adopting : nil
     }
 
     // MARK: §24 Playback
@@ -211,14 +223,6 @@ struct ScrollTextView: View {
                 onStepBackward: { Task { if await adoptIfOrphaned(group) { await groupCoordinator.step(group: group, direction: -1) } } },
                 onStepForward: { Task { if await adoptIfOrphaned(group) { await groupCoordinator.step(group: group, direction: 1) } } }
             )
-        } footer: {
-            if playing {
-                Text("多板组播放中。")
-            } else if paused {
-                Text("多板组已暂停。")
-            } else if orphaned {
-                Text("板子仍在播放上次的多板滚动，正在接管控制。")
-            }
         }
         // Take a still-running group scroll back as soon as every member is
         // online again, so pause/step/speed work without a tap first.
@@ -542,8 +546,16 @@ private struct TextPreviewBoard: View {
 /// The frame counter under the preview: also moves every tick while a
 /// timeline is bound.
 private struct TextPreviewStatusFooter: View {
+    /// A targeted group's playback state; it replaces the single-board phase.
+    enum GroupPhase {
+        case playing, paused
+        /// The boards still scroll a group the app lost track of.
+        case adopting
+    }
+
     var model: TextViewModel
     var connection: BoardConnection
+    var groupPhase: GroupPhase? = nil
 
     private var isConnected: Bool { connection.connectionState == .connected }
 
@@ -557,10 +569,29 @@ private struct TextPreviewStatusFooter: View {
             ? Text("帧 \(model.displayIndex + 1) / \(model.frameCount)")
             : Text("\(model.byteCount) / \(ScrollText.maxTextBytes)")
                 .foregroundStyle(model.exceedsByteLimit ? .red : .secondary)
-        if model.restoreConflict {
+        if let groupPhase {
+            switch groupPhase {
+            case .playing:
+                BoardPreviewStatus("多板组播放中", systemImage: "play.circle", tone: .live) {
+                    frameCounter
+                }
+            case .paused:
+                BoardPreviewStatus("多板组已暂停", systemImage: "pause.circle", tone: .neutral) {
+                    frameCounter
+                }
+            case .adopting:
+                BoardPreviewStatus("正在接管上次的多板滚动", systemImage: "arrow.triangle.2.circlepath.circle", tone: .pending) {
+                    frameCounter
+                }
+            }
+        } else if model.restoreConflict {
             BoardPreviewStatus("草稿与面板不同", systemImage: "exclamationmark.circle", tone: .pending) {
                 frameCounter
             }
+        } else if isConnected, let source = connection.output.source, source != .text, source != .group {
+            // Some other feature owns board output right now: show the
+            // board's real mode instead of this tab's own idle phase.
+            BoardOwnerStatus(source: source)
         } else if !isConnected {
             BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) {
                 frameCounter

@@ -221,6 +221,11 @@ final class VideoPlayerModel {
         restoreTask = makeRestoreTask()
     }
 
+    /// Launch preload: returns once the persisted video has finished loading.
+    func waitForRestore() async {
+        await restoreTask?.value
+    }
+
     /// Waits for the persisted video to become usable before seeking and
     /// starting it. This explicit board-recovery path is the only restore
     /// operation that auto-plays; normal page restoration remains passive.

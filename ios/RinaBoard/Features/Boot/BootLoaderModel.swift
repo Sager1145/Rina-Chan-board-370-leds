@@ -8,7 +8,9 @@ import Observation
 /// is exactly one clock, no per-frame sampling on the main thread, and no
 /// per-property state to drift out of sync.
 ///
-/// Time/asset based only: it never waits on the board.
+/// The outro is held until the app's launch loading has finished
+/// (`markLoadingComplete`), so nothing is still loading when the loader goes
+/// away. It never waits on the board.
 @Observable
 @MainActor
 final class BootLoaderModel {
@@ -45,6 +47,12 @@ final class BootLoaderModel {
     /// A finish requested before `start` (legacy `finishQueued`): the first
     /// screen's `onAppear` can run ahead of the root's.
     private var finishQueued = false
+    /// Launch loading (drafts, fonts, libraries) has finished. Survives
+    /// `replay()`: a replayed loader has nothing left to wait for.
+    private(set) var loadingComplete = false
+    /// A finish requested while loading was still running.
+    private var finishAwaitingLoad = false
+    private var loadTimeout: Task<Void, Never>?
     private var doneContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
     /// Card count of the last waterfall, so a replay can re-run it.
     private var waterfallCount = 3
@@ -61,11 +69,12 @@ final class BootLoaderModel {
         self.reduceMotion = reduceMotion
         phase = .breathing(since: Date())
 
-        // Warms the Text tab's editor font off the critical path: its first
-        // body evaluation would otherwise pay for an 843 KB woff2 read plus
-        // font-descriptor creation (perf PR-9).
-        Task.detached(priority: .utility) {
-            ArkPixelInputFont.prewarm()
+        // A load that hangs must not strand the user behind the loader.
+        if !loadingComplete {
+            loadTimeout = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(BootTimeline.maxLoadWait)) } catch { return }
+                self?.markLoadingComplete()
+            }
         }
 
         if finishQueued {
@@ -121,6 +130,10 @@ final class BootLoaderModel {
             return
         }
         guard case .breathing(let since) = phase, sequence == nil else { return }
+        guard loadingComplete else {
+            finishAwaitingLoad = true
+            return
+        }
         safetyNet?.cancel()
 
         sequence = Task { [weak self] in
@@ -147,6 +160,18 @@ final class BootLoaderModel {
         }
     }
 
+    /// The app's launch loading is done; releases a finish that was waiting
+    /// on it. Idempotent.
+    func markLoadingComplete() {
+        guard !loadingComplete else { return }
+        loadingComplete = true
+        loadTimeout?.cancel(); loadTimeout = nil
+        if finishAwaitingLoad {
+            finishAwaitingLoad = false
+            requestFinish()
+        }
+    }
+
     /// Debug aid: run the whole loader again from P0 over whatever screen is
     /// showing. Anything still in flight is cancelled first.
     func replay() {
@@ -154,6 +179,7 @@ final class BootLoaderModel {
         waterfall?.cancel(); waterfall = nil
         safetyNet?.cancel(); safetyNet = nil
         finishQueued = false
+        finishAwaitingLoad = false
         revealedCount = 0
         revealsAllCards = false
         interceptsTouches = true

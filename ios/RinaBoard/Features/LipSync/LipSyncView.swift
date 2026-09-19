@@ -74,6 +74,10 @@ struct LipSyncView: View {
             BoardPreviewStatus("仅本地预览", systemImage: "iphone", tone: .pending) {
                 level
             }
+        } else if isConnected, let source = connection.output.source, source != .lipSync {
+            // Some other feature owns board output right now (e.g. 演出 is
+            // playing): show the board's real mode instead of "未启动".
+            BoardOwnerStatus(source: source)
         } else {
             // Idle: the threshold a voice has to clear, so it can be tuned
             // before starting.
@@ -84,14 +88,6 @@ struct LipSyncView: View {
                 BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) { threshold }
             } else {
                 BoardPreviewStatus("未启动", systemImage: "stop.circle", tone: .neutral) { threshold }
-            }
-            // A secondary caption once the mic is actually available and
-            // sync has not started yet — never while permission is denied
-            // or undetermined, and never once sync is already running.
-            if model.permission == .granted {
-                Text("开始同步后，口型会随麦克风的声音变化")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }

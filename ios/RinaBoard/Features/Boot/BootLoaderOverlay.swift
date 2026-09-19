@@ -169,7 +169,7 @@ private final class BootStageView: UIView {
         // bundle, so a localized line outside that subset (any zh-Hans/ja
         // string) falls back to the system font at the same size/weight —
         // checked by actual glyph coverage, never a hardcoded language list.
-        let bootText = NSLocalizedString("正在准备…", comment: "boot loader loading label, shown before the reveal")
+        let bootText = NSLocalizedString("加载中...", comment: "boot loader loading label, shown before the reveal")
         label.attributedText = NSAttributedString(
             string: bootText,
             attributes: [

@@ -62,6 +62,10 @@ struct PresetLiveView: View {
             BoardPreviewStatus("仅本地预览", systemImage: "iphone", tone: .pending) {
                 PresetLiveKeyframeCounterView()
             }
+        } else if isConnected, let source = connection.output.source, source != .performance {
+            // Some other feature owns board output right now: show the
+            // board's real mode instead of "已暂停" or "未播放".
+            BoardOwnerStatus(source: source)
         } else if model.hasPlaybackProgress {
             BoardPreviewStatus("已暂停", systemImage: "pause.circle", tone: .neutral) {
                 PresetLiveKeyframeCounterView()
@@ -74,13 +78,6 @@ struct PresetLiveView: View {
             VStack(alignment: .leading, spacing: 4) {
                 BoardPreviewStatus("未播放", systemImage: "stop.circle", tone: .neutral) {
                     PresetLiveKeyframeCounterView()
-                }
-                // Script and audio are both loaded and valid, and playback
-                // has not started yet.
-                if model.canPlay {
-                    Text("已准备就绪，可以开始播放")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -290,7 +287,11 @@ struct PresetLiveView: View {
 // from re-evaluating on every position update.
 
 /// The "mm:ss / mm:ss · 关键帧 n / m" line shown as the preview status detail.
-private struct PresetLiveKeyframeCounterView: View {
+///
+/// Not `private`: reused by `BoardOwnerStatus` (BoardPreviewRow.swift) so a
+/// tab other than Preset Live can show the same detail while 演出 owns board
+/// output.
+struct PresetLiveKeyframeCounterView: View {
     @Environment(PresetLiveModel.self) private var model
 
     var body: some View {

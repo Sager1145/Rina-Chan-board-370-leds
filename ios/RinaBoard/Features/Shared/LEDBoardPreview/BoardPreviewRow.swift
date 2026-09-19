@@ -160,6 +160,82 @@ extension BoardPreviewStatus where Detail == EmptyView {
     }
 }
 
+// MARK: - Whole-board owner status
+
+/// The status line under the preview, driven by whichever feature currently
+/// owns board output (`BoardOutputSource`) — not by the tab that happens to
+/// be showing it.
+///
+/// A tab's own status branch still wins while *it* is the owner (it knows
+/// more detail than this generic view does); this is only for the case where
+/// some other feature owns output, so a tab like 口型同步 stops claiming
+/// "未启动" while 演出 is actually playing on the board.
+struct BoardOwnerStatus: View {
+    var source: BoardOutputSource
+
+    @Environment(BoardConnection.self) private var connection
+    @Environment(PresetLiveModel.self) private var presetLiveModel
+    @Environment(VideoPlayerModel.self) private var videoModel
+    @Environment(LipSyncModel.self) private var lipSyncModel
+    @Environment(TextViewModel.self) private var textModel
+
+    var body: some View {
+        switch source {
+        case .performance:
+            let playing = presetLiveModel.isPlaying
+            BoardPreviewStatus(titledState(playing ? livePlayingLabel : pausedLabel),
+                               systemImage: playing ? "play.circle" : "pause.circle",
+                               tone: playing ? .live : .neutral) {
+                PresetLiveKeyframeCounterView()
+            }
+        case .video:
+            let playing = videoModel.isPlaying
+            BoardPreviewStatus(titledState(playing ? livePlayingLabel : pausedLabel),
+                               systemImage: playing ? "play.circle" : "pause.circle",
+                               tone: playing ? .live : .neutral) {
+                VideoPositionCounterView()
+            }
+        case .lipSync:
+            let running = lipSyncModel.isRunning
+            BoardPreviewStatus(titledState(running ? livePlayingLabel : pausedLabel),
+                               systemImage: running ? "play.circle" : "pause.circle",
+                               tone: running ? .live : .neutral) {
+                EmptyView()
+            }
+        case .text:
+            let phase = textModel.phaseKey(connection: connection)
+            let (systemImage, tone): (String, BoardPreviewStatusTone) = switch phase {
+            case "ACTIVE": ("play.circle", .live)
+            case "PAUSED": ("pause.circle", .neutral)
+            case "IDLE": ("stop.circle", .neutral)
+            default: ("arrow.triangle.2.circlepath.circle", .pending)
+            }
+            BoardPreviewStatus(titledState(TextViewModel.phaseLabel(phase)), systemImage: systemImage, tone: tone) {
+                if textModel.frameCount > 0 {
+                    Text("帧 \(textModel.displayIndex + 1) / \(textModel.frameCount)")
+                }
+            }
+        case .automatic:
+            BoardPreviewStatus(Text(verbatim: source.title), systemImage: "face.smiling", tone: .live) { EmptyView() }
+        case .manual:
+            BoardPreviewStatus(Text(verbatim: source.title), systemImage: "face.smiling", tone: .neutral) { EmptyView() }
+        case .group, .groupControl, .debug:
+            BoardPreviewStatus(Text(verbatim: source.title), systemImage: "rectangle.on.rectangle", tone: .live) { EmptyView() }
+        }
+    }
+
+    /// `"<owner> · <state>"`, e.g. "演出 · 播放中".
+    private func titledState(_ state: String) -> Text {
+        Text(verbatim: "\(source.title) · \(state)")
+    }
+
+    /// Reuses the Text tab's own "播放中" scroll-phase key (TextViewModel.swift)
+    /// so this adds no new localized strings.
+    private var livePlayingLabel: String { TextViewModel.phaseLabel("ACTIVE") }
+    /// Reuses the Text tab's own "已暂停" scroll-phase key.
+    private var pausedLabel: String { TextViewModel.phaseLabel("PAUSED") }
+}
+
 // MARK: - Row sizing
 
 extension View {

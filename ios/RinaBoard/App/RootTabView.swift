@@ -190,15 +190,19 @@ struct RootTabView: View {
             guard !Task.isCancelled else { return }
             controlCenter.loadDefaultsIfNeeded()
             textModel.loadDefaultsIfNeeded()
-            // The timed loader can finish before disk reads do. Mount the
-            // tabs first so slow draft restoration cannot leave an empty
-            // window after the overlay disappears.
+            // Mount the tabs first: the first page builds and runs its
+            // waterfall while the disk reads below are in flight.
             contentReady = true
             RinaPerf.signposter.emitEvent("ContentReady")
+            // Everything the tabs would otherwise load on first use runs
+            // now, behind the loader, which holds its outro until it is done.
+            async let preload: Void = preloadTabContent()
             await editor.restoreDraft()
             await textModel.restoreDraft()
+            await preload
             guard !Task.isCancelled else { return }
             draftsRestored = true
+            bootLoader.markLoadingComplete()
             // Keep board synchronization behind draft restoration even
             // though the interface is already available.
             await autoReconnect(ifSelectionRemains: initialSession, boardID: initialBoardID)
@@ -238,6 +242,21 @@ struct RootTabView: View {
                 .tag(AppTab.settings)
         }
         .environment(controlCenterColumnScroll)
+    }
+
+    private func preloadTabContent() async {
+        async let inputFont: Void = Task.detached(priority: .userInitiated) {
+            // An 843 KB woff2 read plus font-descriptor creation (perf PR-9).
+            ArkPixelInputFont.prewarm()
+        }.value
+        async let scrollFont: Void = textModel.prewarmFont()
+        async let faces: Void = faceLibrary.loadLocalIfNeeded()
+        _ = await (inputFont, scrollFont, faces)
+        // Parses on the main actor, so it goes last: the tabs have mounted
+        // and the first-page waterfall is under way by now.
+        let mode = PerformanceTabMode.stored
+        mode.restore(presetLive: performance, video: video)
+        if mode == .video { await video.waitForRestore() }
     }
 
     private func configureOutputHandlers() {

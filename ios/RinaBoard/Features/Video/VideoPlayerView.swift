@@ -103,6 +103,10 @@ struct VideoPlayerView: View {
             BoardPreviewStatus("仅本地预览", systemImage: "iphone", tone: .pending) {
                 VideoPositionCounterView()
             }
+        } else if isConnected, let source = connection.output.source, source != .video {
+            // Some other feature owns board output right now: show the
+            // board's real mode instead of "已暂停" or "未播放".
+            BoardOwnerStatus(source: source)
         } else if model.hasPlaybackProgress {
             BoardPreviewStatus("已暂停", systemImage: "pause.circle", tone: .neutral) {
                 VideoPositionCounterView()
@@ -329,7 +333,10 @@ struct VideoPlayerView: View {
 // source/conversion pickers — from re-evaluating on every position update.
 
 /// The "mm:ss / mm:ss · n fps" line shown as the preview status detail.
-private struct VideoPositionCounterView: View {
+///
+/// Not `private`: reused by `BoardOwnerStatus` (BoardPreviewRow.swift) so a
+/// tab other than 视频 can show the same detail while it owns board output.
+struct VideoPositionCounterView: View {
     @Environment(VideoPlayerModel.self) private var model
 
     var body: some View {

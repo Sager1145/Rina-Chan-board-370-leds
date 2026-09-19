@@ -177,10 +177,7 @@ struct ControlView: View {
                 BoardPreviewStatus("未连接", systemImage: "circle.slash", tone: .neutral) { litCount }
             } else if let source = connection.output.source, source != .manual {
                 // Identify the feature whose current frame the preview follows.
-                BoardPreviewStatus(Text(String(format: NSLocalizedString("面板正在播放：%@",
-                                                                         comment: "board output owned by another feature"),
-                                               source.title)),
-                                   systemImage: "rectangle.on.rectangle", tone: .neutral) { litCount }
+                BoardOwnerStatus(source: source)
             } else {
                 BoardPreviewStatus("已同步", systemImage: "checkmark.circle", tone: .live) { litCount }
             }

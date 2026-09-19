@@ -7,6 +7,29 @@ enum PerformanceTabMode: String, CaseIterable {
     case performance, video
 
     static let storageKey = "performanceTabMode"
+
+    /// The mode the tab will open in.
+    static var stored: PerformanceTabMode {
+        UserDefaults.standard.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .performance
+    }
+
+    /// Passive restoration of this mode's last material. Runs during the
+    /// boot loader for the stored mode, and again whenever the mode changes.
+    @MainActor
+    func restore(presetLive: PresetLiveModel, video: VideoPlayerModel) {
+        switch self {
+        case .performance:
+            // Restore first: its own `if script == nil` guard already yields
+            // to a script the user previously imported, so the demo only
+            // fills in when there is nothing to restore. Calling these in
+            // the other order let the demo win every time, since it sets
+            // `script` before restore ever got a chance to run.
+            presetLive.restoreLastImportIfNeeded()
+            presetLive.loadDemoScriptIfNeeded()
+        case .video:
+            video.restoreLastVideoIfNeeded()
+        }
+    }
 }
 
 /// Which slice of a page a view renders: the board preview and its status
@@ -59,27 +82,12 @@ struct PerformanceTabView: View {
             .errorAlert(Bindable(presetLive).errorMessage)
         }
         .errorAlert(Bindable(video).errorMessage)
-        .onAppear { restore(mode) }
-        .onChange(of: mode) { _, newMode in restore(newMode) }
+        .onAppear { mode.restore(presetLive: presetLive, video: video) }
+        .onChange(of: mode) { _, newMode in newMode.restore(presetLive: presetLive, video: video) }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active && mode == .performance {
                 presetLive.pause()
             }
-        }
-    }
-
-    private func restore(_ mode: PerformanceTabMode) {
-        switch mode {
-        case .performance:
-            // Restore first: its own `if script == nil` guard already yields
-            // to a script the user previously imported, so the demo only
-            // fills in when there is nothing to restore. Calling these in
-            // the other order let the demo win every time, since it sets
-            // `script` before restore ever got a chance to run.
-            presetLive.restoreLastImportIfNeeded()
-            presetLive.loadDemoScriptIfNeeded()
-        case .video:
-            video.restoreLastVideoIfNeeded()
         }
     }
 }

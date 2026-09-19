@@ -519,6 +519,11 @@ final class TextViewModel {
         max(RinaLinkConstants.scrollFpsMin, min(RinaLinkConstants.scrollFpsMax, Int(fps.rounded())))
     }
 
+    /// Launch preload: the first send otherwise pays for decoding the font.
+    func prewarmFont() async {
+        _ = try? await loadFontIfNeeded()
+    }
+
     private func loadFontIfNeeded() async throws -> ArkPixelFont {
         if let font { return font }
         guard let url = Bundle.main.url(forResource: "ark12", withExtension: "json") else {
