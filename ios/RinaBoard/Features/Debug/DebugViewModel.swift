@@ -68,8 +68,8 @@ enum DebugLogFilter: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .errorsOnly: return NSLocalizedString("仅错误", comment: "debug log filter")
-        case .warnAndUp: return NSLocalizedString("警告以上", comment: "debug log filter")
-        case .normal: return NSLocalizedString("正常", comment: "debug log filter")
+        case .warnAndUp: return NSLocalizedString("警告及以上", comment: "debug log filter")
+        case .normal: return NSLocalizedString("信息及以上", comment: "debug log filter")
         case .verbose: return NSLocalizedString("详细", comment: "debug log filter")
         }
     }
@@ -302,7 +302,11 @@ final class DebugViewModel {
 
     var selectedPattern: DebugPattern?
 
-    var monitorInput = "get_info"
+    var monitorInput = "get_info" {
+        // A confirmation covers the text it was given for, nothing later.
+        didSet { if monitorInput != oldValue { monitorDestructiveConfirmed = false } }
+    }
+    var monitorDestructiveConfirmed = false
     var isMonitorSending = false
     private var monitorRing = RingBuffer<DebugLogEntry>(capacity: 500)
     /// O(1): checks the ring buffer directly instead of materializing
@@ -317,12 +321,6 @@ final class DebugViewModel {
     func clearMonitor() {
         monitorRing.removeAll()
     }
-
-    // C11 raw command
-    var rawCommandText: String = "{\"cmd\":\"pause_scroll\"}"
-    var rawCommandConfirmed = false
-    var rawCommandResult: String = ""
-    var rawCommandValid = true
 
     // C12 danger zone
     var clearFacesConfirmText = ""
@@ -900,8 +898,12 @@ final class DebugViewModel {
             appendMonitor(.error, error.localizedDescription)
             return
         }
+        guard !request.isDestructive || monitorDestructiveConfirmed else { return }
         isMonitorSending = true
-        defer { isMonitorSending = false }
+        defer {
+            isMonitorSending = false
+            monitorDestructiveConfirmed = false
+        }
         commandAttempts += 1
         appendMonitor(.info, "TX → \(input)")
         do {
@@ -923,43 +925,6 @@ final class DebugViewModel {
         } catch {
             if Self.isDeviceRejection(error) { commandRejected += 1 } else { commandFailures += 1 }
             appendMonitor(.error, "RX ← \(error.localizedDescription)")
-        }
-    }
-
-    // MARK: C11 raw command
-
-    func validateRawCommand() {
-        guard let data = rawCommandText.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data),
-              obj is [String: Any] else {
-            rawCommandValid = false
-            return
-        }
-        rawCommandValid = true
-    }
-
-    func sendRawCommand(connection: BoardConnection) async {
-        guard rawCommandConfirmed, let data = rawCommandText.data(using: .utf8) else { return }
-        commandAttempts += 1
-        let outputSession = connection.output.begin(.debug)
-        do {
-            let reply = try await connection.withOutput(outputSession) {
-                try await connection.sendRawCommand(json: data)
-            }
-            rawCommandResult = DebugJSON.prettyString(from: reply)
-            if let object = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any],
-               object["ok"] as? Bool == false {
-                commandRejected += 1
-                log(.warn, NSLocalizedString("原始指令被设备拒绝", comment: "debug raw command rejected"))
-                return
-            }
-            log(.info, NSLocalizedString("原始指令已发送", comment: "debug raw command sent"))
-        } catch is CancellationError {
-            log(.debug, NSLocalizedString("原始指令已被新的输出操作替代", comment: "debug raw command superseded"))
-        } catch {
-            commandFailures += 1
-            rawCommandResult = String(format: NSLocalizedString("错误：%@", comment: "debug raw command result error"), error.localizedDescription)
-            log(.error, String(format: NSLocalizedString("原始指令失败：%@", comment: "debug raw command failed"), error.localizedDescription))
         }
     }
 
@@ -985,11 +950,6 @@ final class DebugViewModel {
             commandFailures += 1
             log(.error, String(format: NSLocalizedString("清空用户表情失败：%@", comment: "debug clear faces failed"), error.localizedDescription))
         }
-    }
-
-    func reboot(connection: BoardConnection) async {
-        await runCommand(.reboot, connection: connection,
-                         note: NSLocalizedString("已请求重启设备", comment: "debug reboot requested"))
     }
 
     private static func isDeviceRejection(_ error: Error) -> Bool {

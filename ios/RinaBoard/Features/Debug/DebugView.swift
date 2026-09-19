@@ -313,7 +313,7 @@ struct DebugView: View {
                     vm.clearFacesConfirmText = ""
                     settings.confirmDebugClearFaces = true
                 }
-                Button("重启设备", role: .destructive) { settings.confirmDebugReboot = true }
+                Button("重启此面板", role: .destructive) { settings.confirmBoardReboot = true }
             }
         } header: {
             Text("测试")
@@ -464,13 +464,10 @@ struct DebugView: View {
                 Button("复制脱敏快照") { vm.copyRawSnapshots() }
             }
 
-            NavigationLink("原始命令控制台") {
-                RawCommandConsoleView(vm: vm)
-            }
         } header: {
             Text("原始数据")
         } footer: {
-            Text("字段直接来自固件回复，包含当前 App 尚未建模的未知键。原始命令可能改变面板输出。")
+            Text("字段直接来自固件回复，包含当前 App 尚未建模的未知键。发送指令请使用「终端」。")
         }
     }
 
@@ -510,47 +507,6 @@ struct DebugView: View {
         case .disconnected: return .secondary
         case .failed: return .red
         }
-    }
-}
-
-private struct RawCommandConsoleView: View {
-    @Environment(BoardConnection.self) private var connection
-    @Bindable var vm: DebugViewModel
-
-    var body: some View {
-        Form {
-            Group {
-                Section("JSON 指令") {
-                    TextEditor(text: $vm.rawCommandText)
-                        .frame(minHeight: 140)
-                        .font(.system(.caption, design: .monospaced))
-                        .onChange(of: vm.rawCommandText) { _, _ in vm.validateRawCommand() }
-                    Label(vm.rawCommandValid ? "JSON 对象有效" : "JSON 对象无效",
-                          systemImage: vm.rawCommandValid ? "checkmark.circle" : "xmark.circle")
-                        .font(.caption)
-                        .foregroundStyle(vm.rawCommandValid ? .green : .red)
-                    Toggle("我已检查内容，确认发送此指令", isOn: $vm.rawCommandConfirmed)
-                    Button("发送原始指令") {
-                        Task { await vm.sendRawCommand(connection: connection) }
-                    }
-                    .buttonStyle(.pill)
-                    .disabled(!vm.rawCommandValid || !vm.rawCommandConfirmed || connection.connectionState != .connected)
-                }
-
-                if !vm.rawCommandResult.isEmpty {
-                    Section("原始回复") {
-                        Text(vm.rawCommandResult)
-                            .font(.caption2.monospaced())
-                            .textSelection(.enabled)
-                    }
-                }
-            }
-            .rinaTranslucentRows()
-        }
-        .listSectionSpacing(.compact)
-        .rinaScrollBackground()
-        .navigationTitle("原始命令")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

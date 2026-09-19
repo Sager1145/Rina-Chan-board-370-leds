@@ -662,12 +662,17 @@ Arduino `WebServer` 为同步处理模型。前端已经对高频帧发送做了
 
 本项目使用：
 
-- ESP32 Arduino core。
-- PlatformIO。
-- ArduinoJson。
-- Adafruit NeoPixel。
-- GNU Unifont。
-- Ark Pixel Font。
+- ESP32 Arduino core（LGPL-2.1）与 ESP-IDF（Apache-2.0）。
+- PlatformIO（Apache-2.0），平台为 pioarduino platform-espressif32（Apache-2.0）。
+- NimBLE-Arduino（Apache-2.0）。
+- ArduinoJson（MIT）。
+- Adafruit NeoPixel（LGPL-3.0）。
+- GNU Unifont（SIL OFL 1.1）。
+- Ark Pixel Font（SIL OFL 1.1）。
+- flyAkari/RinaChanBoard（GPL-3.0）、738NGX/RinaChanBoard（AGPL-3.0）及其口型同步算法来源 hecomi/uLipSync（MIT），见 `docs/LIVE_FEATURES_ZH.md`。
+- NumPy（BSD-3-Clause），仅 `tools/` 下的校验脚本使用。
+
+iOS App 的「设置 → 关于」列出同一份清单，两处应保持一致。
 
 GNU Unifont 子集 notice 位于：
 

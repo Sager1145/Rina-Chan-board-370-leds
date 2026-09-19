@@ -48,6 +48,9 @@ public final class ConnectionViewModel {
     /// The MAC-derived name the board falls back to when the custom name is
     /// cleared, so the UI can show what "reset" would give you.
     public private(set) var boardDefaultName: String?
+    /// `get_info`'s firmware version and build stamp, shown on the 面板 page.
+    public private(set) var boardFirmware: String?
+    public private(set) var boardBuild: String?
     public private(set) var boardHasCustomName = false
 
     // MARK: iPhone Personal Hotspot profile (RINALINK_PROTOCOL_V1 §8)
@@ -163,6 +166,8 @@ public final class ConnectionViewModel {
     public func resetBoardDetails() {
         boardNameInput = ""
         boardDefaultName = nil
+        boardFirmware = nil
+        boardBuild = nil
         boardHasCustomName = false
         boardNameStatus = nil
         wifiNetworks = []
@@ -202,6 +207,8 @@ public final class ConnectionViewModel {
         loadedBoardDetailsKey = .some(key)
         guard let reply else { return }
         boardDefaultName = reply.defaultName
+        boardFirmware = reply.fw
+        boardBuild = reply.build
         boardHasCustomName = reply.customName ?? false
         if boardNameInput.isEmpty, let name = reply.name, !name.isEmpty {
             boardNameInput = name

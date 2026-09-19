@@ -26,9 +26,16 @@ final class SettingsWorkspace {
             // did when the page owned the model. A layout change never
             // changes `selection`, so it keeps the stream.
             if shown == .debug, selection != .debug { debug.handleSessionChange() }
+            // Another category starts at its root; a layout change never
+            // gets here, so it keeps the editor open.
+            if selection != oldValue, selection != .groups { editingGroupID = nil }
         }
     }
     private(set) var lastVisited: SettingsCategory
+    /// The group whose editor is pushed on the 多板组 page. Settings' one
+    /// second-level page, kept here so crossing between the layouts, which
+    /// rebuilds the stack, reopens it.
+    var editingGroupID: UUID?
     /// Decided by `SettingsLayoutPolicy` from the width Settings gets.
     var layoutMode: SettingsLayoutMode?
     /// Whether the user hid the sidebar; kept across layout changes so a
@@ -57,7 +64,6 @@ final class SettingsWorkspace {
     var confirmDebugResetMin = false
     var confirmDebugResetMax = false
     var confirmDebugAllOn = false
-    var confirmDebugReboot = false
     var confirmDebugClearFaces = false
 
     // MARK: Board
@@ -148,7 +154,6 @@ final class SettingsWorkspace {
         confirmDebugResetMin = false
         confirmDebugResetMax = false
         confirmDebugAllOn = false
-        confirmDebugReboot = false
         confirmDebugClearFaces = false
         debug.clearFacesConfirmText = ""
     }

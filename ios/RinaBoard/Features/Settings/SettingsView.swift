@@ -117,7 +117,12 @@ private struct SettingsStackLayout: View {
     /// The stack is a projection of `selection`: one page deep, or the list.
     private var path: Binding<[SettingsCategory]> {
         Binding(get: { workspace.selection.map { [$0] } ?? [] },
-                set: { workspace.selection = $0.last })
+                set: {
+                    // Back on the list, nothing is open: a group the split
+                    // layout was editing must not reopen with the next push.
+                    if $0.isEmpty { workspace.editingGroupID = nil }
+                    workspace.selection = $0.last
+                })
     }
 }
 
@@ -224,7 +229,7 @@ private struct SettingsDetail: View {
             case .controlCenter: BoardControlCenterView()
             case .connection: ConnectionView(workspace: workspace, isPassive: isPassive)
             case .addBoard: AddBoardView(workspace: workspace, isPassive: isPassive)
-            case .groups: BoardGroupListView()
+            case .groups: BoardGroupListView(editing: Bindable(workspace).editingGroupID)
             case .board: BoardSettingsView(isPassive: isPassive)
             case .network: BoardNetworkSettingsView(workspace: workspace)
             case .application: ApplicationSettingsView()
@@ -257,12 +262,12 @@ private struct SettingsDialogs: ViewModifier {
                 ConnectionPasswordSheet(network: network)
             }
             // Board page.
-            .confirmationDialog("重启面板？", isPresented: $workspace.confirmBoardReboot,
+            .confirmationDialog(rebootTitle, isPresented: $workspace.confirmBoardReboot,
                                 titleVisibility: .visible) {
                 Button("重启", role: .destructive) { rebootBoard() }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("面板将断开连接并重新启动。")
+                Text("只有这块面板会断开连接并重新启动，多板组里的其他面板不受影响。")
             }
             .errorAlert($workspace.boardRebootError)
             // Debug page.
@@ -299,11 +304,13 @@ private struct SettingsDialogs: ViewModifier {
             } message: {
                 Text("此操作会删除所有非默认表情，且不可撤销。输入 CLEAR 确认。")
             }
-            .confirmationDialog("确定要重启设备吗？", isPresented: $workspace.confirmDebugReboot,
-                                titleVisibility: .visible) {
-                Button("重启", role: .destructive) { Task { await debug.reboot(connection: connection) } }
-                Button("取消", role: .cancel) {}
-            }
+    }
+
+    /// Names the board: reboot reaches the active session only, whatever the
+    /// Control Center's target is.
+    private var rebootTitle: String {
+        String(format: NSLocalizedString("重启「%@」？", comment: "reboot confirmation, board name"),
+               connection.deviceName ?? String(localized: "此面板"))
     }
 
     private func rebootBoard() {
