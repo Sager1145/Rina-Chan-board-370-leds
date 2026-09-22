@@ -119,4 +119,48 @@ final class ControlDraftBoardSwitchTests: XCTestCase {
         XCTAssertEqual(relaunched.saveName, "parts_face")
         XCTAssertEqual(relaunched.draftBoardID, "ble:B")
     }
+
+    // MARK: Edit-baseline guard (face_upsert `expect`)
+
+    func testLoadForEditingSetsBaselineFromTheFace() async {
+        let model = await makeModel()
+        var frame = PackedFrame()
+        frame.set(3)
+        let face = SavedFace(id: "f1", name: "Original", type: .custom,
+                             frameBytes: frame.bytes.map(Int.init), order: 1)
+
+        model.loadForEditing(face)
+
+        XCTAssertEqual(model.editingBaseline?.name, "Original")
+        XCTAssertEqual(model.editingBaseline?.frameHex, frame.hex94)
+    }
+
+    func testStartNewFaceClearsTheBaseline() async {
+        let model = await makeModel()
+        var frame = PackedFrame()
+        frame.set(3)
+        let face = SavedFace(id: "f1", name: "Original", type: .custom,
+                             frameBytes: frame.bytes.map(Int.init), order: 1)
+        model.loadForEditing(face)
+        XCTAssertNotNil(model.editingBaseline)
+
+        model.startNewFace()
+
+        XCTAssertNil(model.editingBaseline)
+    }
+
+    func testBaselineSurvivesAPersistAndRestoreRoundTrip() async throws {
+        let model = await makeModel()
+        var frame = PackedFrame()
+        frame.set(3)
+        let face = SavedFace(id: "f1", name: "Original", type: .custom,
+                             frameBytes: frame.bytes.map(Int.init), order: 1)
+        model.loadForEditing(face)
+        await model.persistDraft()
+
+        let relaunched = await makeModel()
+
+        XCTAssertEqual(relaunched.editingBaseline?.name, "Original")
+        XCTAssertEqual(relaunched.editingBaseline?.frameHex, frame.hex94)
+    }
 }

@@ -37,7 +37,7 @@ public enum RinaCommand: Sendable {
     /// `playback` is the firmware's `DEFAULT_PLAYBACK`-style string
     /// (`"idle"|"paused"|"scroll"|"auto"`), not the `SET_FRAME` binary enum —
     /// `apply_saved_face` reads it via `cstr(d, p, "playback", DEFAULT_PLAYBACK)`.
-    case applySavedFace(index: Int, reason: String?, playback: String?)
+    case applySavedFace(index: Int, id: String?, reason: String?, playback: String?)
     case button(button: String)
     case terminateOtherActivities(targetMode: String?)
     case resetBatteryMin
@@ -167,8 +167,9 @@ public enum RinaCommand: Sendable {
         case .stopScroll(let restoreAuto, let clear):
             if let restoreAuto { fields["restoreAuto"] = restoreAuto }
             if let clear { fields["clear"] = clear }
-        case .applySavedFace(let index, let reason, let playback):
+        case .applySavedFace(let index, let id, let reason, let playback):
             fields["index"] = index
+            if let id { fields["id"] = id }
             if let reason { fields["reason"] = reason }
             if let playback { fields["playback"] = playback }
         case .button(let button):
@@ -280,6 +281,20 @@ public enum GroupFanOutPolicy: Equatable, Sendable {
     case deny
 }
 
+/// A snapshot of a face's content used as an edit baseline / optimistic-lock
+/// check for `face_upsert`'s `expect` field: the firmware rejects the upsert
+/// with 409 if the stored face no longer matches, meaning someone else
+/// changed it since it was loaded for editing.
+public struct FaceExpectation: Sendable, Equatable, Codable {
+    public var name: String
+    public var frameHex: String
+
+    public init(name: String, frameHex: String) {
+        self.name = name
+        self.frameHex = frameHex
+    }
+}
+
 /// `face_upsert`'s `{"face": {...}}` payload (§7.2): create when `id` is nil
 /// (server assigns the id, appends with `order = max+1`), update in place
 /// when `id` matches an existing non-default face.
@@ -291,13 +306,20 @@ public struct FaceUpsertPayload: Sendable, Equatable {
     /// 94-hex-char packed frame (`PackedFrame.hex94`).
     public var frameHex: String
     public var call: SavedFace.CallIds?
+    /// Optimistic-lock check against the stored face's content as it was when
+    /// this edit began; the board rejects with 409 if it no longer matches.
+    public var expect: FaceExpectation?
 
-    public init(id: String? = nil, name: String, type: String, frameHex: String, call: SavedFace.CallIds? = nil) {
+    public init(
+        id: String? = nil, name: String, type: String, frameHex: String, call: SavedFace.CallIds? = nil,
+        expect: FaceExpectation? = nil
+    ) {
         self.id = id
         self.name = name
         self.type = type
         self.frameHex = frameHex
         self.call = call
+        self.expect = expect
     }
 
     var jsonObject: [String: Any] {
@@ -310,6 +332,9 @@ public struct FaceUpsertPayload: Sendable, Equatable {
             if let mouth = call.mouth { callObj["mouth"] = mouth }
             if let cheek = call.cheek { callObj["cheek"] = cheek }
             obj["call"] = callObj
+        }
+        if let expect {
+            obj["expect"] = ["name": expect.name, "frameHex": expect.frameHex]
         }
         return obj
     }

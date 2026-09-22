@@ -372,7 +372,7 @@ final class FaceLibraryModel {
                 }
                 let session = connection.output.begin(.manual)
                 _ = try await connection.withOutput(session) {
-                    try await connection.applySavedFace(index: index)
+                    try await connection.applySavedFace(index: index, id: face.id)
                 }
             }
             operationMessage = NSLocalizedString("已发送表情", comment: "saved face applied successfully")
@@ -380,6 +380,14 @@ final class FaceLibraryModel {
         } catch is CancellationError {
             return false
         } catch {
+            // A 404 here means the id/index this apply targeted is already
+            // gone from the board's list (another client deleted or
+            // reordered it): reload the stale list and surface the board's
+            // own message, same as every other face op's stale-state error.
+            if let linkError = error as? RinaLinkError, linkError.code == 404 {
+                await handleFaceOpError(error, connection: connection)
+                return false
+            }
             errorMessage = String(
                 format: NSLocalizedString("应用失败：%@", comment: "apply saved face failed"),
                 error.localizedDescription
@@ -448,9 +456,39 @@ final class FaceLibraryModel {
             return .saved(id: payload.id)
         } catch {
             guard boardStillShown(connection, since: revision) else { return .failed }
+            // A reply lost after the write actually landed (ack dropped, link
+            // hiccup) surfaces here as some transport error, not necessarily
+            // a 409 — but if the board rejected specifically because our own
+            // write already happened, a reload proves it and the retry the
+            // caller would otherwise do is pointless (and would 409 again).
+            if let linkError = error as? RinaLinkError, linkError.code == 409,
+               let id = payload.id, payload.expect != nil {
+                await reload(connection: connection)
+                if boardStillShown(connection, since: revision),
+                   let stored = faceDocument.faces.first(where: { $0.id == id }),
+                   stored.name == payload.name,
+                   stored.packedFrame?.hex94 == payload.frameHex,
+                   Self.callsEqual(stored.type == .parts ? stored.call : nil, payload.call) {
+                    errorMessage = nil
+                    return .saved(id: id)
+                }
+            }
             await handleFaceOpError(error, connection: connection)
             return .failed
         }
+    }
+
+    /// Treats `nil` and an all-empty `CallIds` as equal: `face_upsert`
+    /// payloads for a non-parts face carry `call: nil`, but a round trip
+    /// through the board's stored document can come back as an explicit
+    /// empty object instead.
+    private static func callsEqual(_ a: SavedFace.CallIds?, _ b: SavedFace.CallIds?) -> Bool {
+        func isEmpty(_ c: SavedFace.CallIds?) -> Bool {
+            guard let c else { return true }
+            return c.leye == nil && c.reye == nil && c.mouth == nil && c.cheek == nil
+        }
+        if isEmpty(a) && isEmpty(b) { return true }
+        return a == b
     }
 
     @discardableResult
@@ -469,6 +507,17 @@ final class FaceLibraryModel {
         if let replacingID, !localDocument.faces.contains(where: { $0.id == replacingID }) {
             errorMessage = NSLocalizedString("原表情已不存在，请另存为新表情", comment: "local overwrite target no longer exists")
             return .failed
+        }
+        if let replacingID, let expect = payload.expect,
+           let current = localDocument.faces.first(where: { $0.id == replacingID }) {
+            let currentFrameHex = current.packedFrame?.hex94
+            if current.name != expect.name || currentFrameHex != expect.frameHex {
+                errorMessage = NSLocalizedString(
+                    "此表情已在别处被修改：请另存为新表情，或重新载入该表情后再改",
+                    comment: "local overwrite target changed since it was loaded"
+                )
+                return .failed
+            }
         }
         let existingIndex = replacingID.flatMap { id in
             localDocument.faces.firstIndex { $0.id == id && !isProtected($0) }
@@ -521,7 +570,8 @@ final class FaceLibraryModel {
 
     func boardUpsertPayload(editingFaceId: String?, canOverwrite: Bool,
                             name: String, frame: PackedFrame,
-                            fromParts: Bool, call: PartsCall) -> FaceUpsertPayload {
+                            fromParts: Bool, call: PartsCall,
+                            expect: FaceExpectation? = nil) -> FaceUpsertPayload {
         let overwriteID = canOverwrite ? editingFaceId : nil
         let isCopy = overwriteID == nil && editingFaceId != nil
         let payload = FaceUpsertPayload(
@@ -531,7 +581,8 @@ final class FaceLibraryModel {
             frameHex: frame.hex94,
             call: fromParts
                 ? SavedFace.CallIds(leye: call.leye, reye: call.reye, mouth: call.mouth, cheek: call.cheek)
-                : nil
+                : nil,
+            expect: overwriteID != nil ? expect : nil
         )
         return payload
     }
@@ -1087,7 +1138,16 @@ final class FaceLibraryModel {
     private func handleFaceOpError(_ error: Error, connection: BoardConnection) async {
         if let linkError = error as? RinaLinkError, let code = linkError.code,
            [400, 404, 409].contains(code) {
-            let originalMessage = linkError.error
+            // The firmware's 409 wording ("face changed since it was
+            // loaded…") is an internal protocol message, not UI copy; show
+            // the same localized guidance `saveLocal` gives for the
+            // equivalent local conflict.
+            let originalMessage = (code == 409 && linkError.error.contains("face changed since it was loaded"))
+                ? NSLocalizedString(
+                    "此表情已在别处被修改：请另存为新表情，或重新载入该表情后再改",
+                    comment: "board overwrite target changed since it was loaded"
+                )
+                : linkError.error
             await reload(connection: connection)
             // `reload` clears `errorMessage` at entry and may set its own on
             // failure. The original rejection reason must not disappear

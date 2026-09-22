@@ -933,6 +933,27 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
     const char* savedAt = faceIn["savedAt"] | "";
     const String savedAtStr(savedAt);
 
+    // Optional optimistic-concurrency guard (face.expect = {name, frameHex}):
+    // an editor that loaded face X can assert what it expects to still be
+    // stored so a second client's save in between is not silently clobbered.
+    JsonVariant expectIn = faceIn["expect"];
+    const bool hasExpect = !expectIn.isNull();
+    String expectNameStr;
+    uint8_t expectFrame[FRAME_BYTES] = {};
+    if (hasExpect) {
+        const char* expectName = expectIn["name"] | "";
+        if (strlen(expectName) < 1) {
+            sendErrorReply(c, seq, 400, "face.expect.name is required");
+            return;
+        }
+        expectNameStr = String(expectName);
+        String eerr;
+        if (!parseFaceFrameInput(expectIn, expectFrame, eerr)) {
+            sendErrorReply(c, seq, 400, String("face.expect: ") + eerr);
+            return;
+        }
+    }
+
     mutateFacesDocument(c, seq, "face_upsert", [&](PsramJsonDocument& doc, int& errCode, String& errMsg) -> bool {
         JsonArray faces = doc["faces"].as<JsonArray>();
         JsonObject existing;
@@ -949,6 +970,18 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
                 errCode = 400;
                 errMsg = "cannot overwrite a default face";
                 return false;
+            }
+            if (hasExpect) {
+                const String curName = String((const char*)(existing["name"] | ""));
+                uint8_t curFrame[FRAME_BYTES] = {};
+                String cerr;
+                const bool frameMatches = parseFaceFrameInput(JsonVariant(existing), curFrame, cerr) &&
+                                           memcmp(curFrame, expectFrame, FRAME_BYTES) == 0;
+                if (curName != expectNameStr || !frameMatches) {
+                    errCode = 409;
+                    errMsg = "face changed since it was loaded; reload before overwriting";
+                    return false;
+                }
             }
             existing["name"] = nameStr;
             existing["type"] = typeStr;
@@ -1228,6 +1261,7 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
 
     String err;
     bool ok = true;
+    int errCode = 400;
     if (strcmp(cmd, "set_color") == 0)
         ok = setColor(cstr(d, p, "hex", ""), err);
     else if (strcmp(cmd, "set_brightness") == 0)
@@ -1287,14 +1321,50 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
         runtimeState().playback = DEFAULT_PLAYBACK;
         touchRuntimeState();
     } else if (strcmp(cmd, "apply_saved_face") == 0) {
-        stopFirmwareScroll(false, false, false);
-        setMode("manual", false);
-        scrollSessionSetRestoreAuto(false);
-        const int index = cint(d, p, "index", runtimeState().autoFaceIndex);
-        ok = applySavedFaceIndex(
-            static_cast<uint16_t>(index < 0 ? 0 : index),
-            String(cstr(d, p, "reason", "rinalink_apply_saved_face")),
-            cstr(d, p, "playback", DEFAULT_PLAYBACK));
+        // A saved face `id` (when present) pins the apply to a specific face
+        // rather than its position in the list: another client's reorder or
+        // delete between this client's list refresh and its tap would
+        // otherwise make a plain `index` apply the wrong face.
+        const String idIn = String(cstr(d, p, "id", ""));
+        if (!idIn.isEmpty()) {
+            if (!ensureSavedFacesLoaded()) {
+                ok = false;
+                errCode = 503;
+                err = "saved faces unavailable";
+            } else {
+                int foundIndex = -1;
+                const uint16_t count = runtimeAutoFaceCount();
+                RuntimeFace* faces = runtimeAutoFaces();
+                for (uint16_t i = 0; i < count; ++i) {
+                    if (idIn == faces[i].id) {
+                        foundIndex = (int)i;
+                        break;
+                    }
+                }
+                if (foundIndex < 0) {
+                    ok = false;
+                    errCode = 404;
+                    err = String("saved face not found: ") + idIn;
+                } else {
+                    stopFirmwareScroll(false, false, false);
+                    setMode("manual", false);
+                    scrollSessionSetRestoreAuto(false);
+                    ok = applySavedFaceIndex(
+                        static_cast<uint16_t>(foundIndex),
+                        String(cstr(d, p, "reason", "rinalink_apply_saved_face")),
+                        cstr(d, p, "playback", DEFAULT_PLAYBACK));
+                }
+            }
+        } else {
+            stopFirmwareScroll(false, false, false);
+            setMode("manual", false);
+            scrollSessionSetRestoreAuto(false);
+            const int index = cint(d, p, "index", runtimeState().autoFaceIndex);
+            ok = applySavedFaceIndex(
+                static_cast<uint16_t>(index < 0 ? 0 : index),
+                String(cstr(d, p, "reason", "rinalink_apply_saved_face")),
+                cstr(d, p, "playback", DEFAULT_PLAYBACK));
+        }
     } else if (strcmp(cmd, "button") == 0) {
         // §1.5 / v1.2: a button ends group-timed playback, even if this
         // particular button does not itself stop/replace the scroll --
@@ -1322,7 +1392,7 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
     if (!ok) {
         ++runtimeState().commandsRejected;
         touchRuntimeStateSlow();
-        sendErrorReply(c, seq, 400, err);
+        sendErrorReply(c, seq, errCode, err);
         return;
     }
     ++runtimeState().commandsAccepted;

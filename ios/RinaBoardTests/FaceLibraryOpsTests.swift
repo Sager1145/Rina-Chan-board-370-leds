@@ -373,6 +373,162 @@ final class FaceLibraryOpsTests: XCTestCase {
                        "A missing overwrite target must not silently create a new face")
     }
 
+    /// A stale (mismatching) `expect` must fail the overwrite, leave the
+    /// local document unchanged, and surface the "changed elsewhere" message.
+    func testLocalOverwriteWithMismatchingExpectFailsAndLeavesLibraryUnchanged() async throws {
+        let store = OpsTestLocalFaceStore(document: FaceDocument())
+        let library = FaceLibraryModel(localStore: store)
+        await library.loadLocalIfNeeded()
+        guard case .saved(let id?) = await library.saveLocal(payload(name: "Alpha", led: 1)) else {
+            return XCTFail("Expected a locally saved face")
+        }
+        let before = library.face(id: id, in: .local)
+
+        var overwrite = payload(name: "Alpha Edited", led: 2)
+        overwrite.expect = FaceExpectation(name: "Alpha", frameHex: PackedFrame().hex94) // stale frame
+        let outcome = await library.saveLocal(overwrite, replacingID: id)
+
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertNotNil(library.errorMessage)
+        XCTAssertEqual(library.face(id: id, in: .local)?.name, before?.name)
+        XCTAssertEqual(library.face(id: id, in: .local)?.frameBytes, before?.frameBytes)
+    }
+
+    /// A matching `expect` (the stored face is exactly what the editor
+    /// loaded) lets the overwrite through as before.
+    func testLocalOverwriteWithMatchingExpectSucceeds() async throws {
+        let store = OpsTestLocalFaceStore(document: FaceDocument())
+        let library = FaceLibraryModel(localStore: store)
+        await library.loadLocalIfNeeded()
+        var seedFrame = PackedFrame()
+        seedFrame.set(1)
+        guard case .saved(let id?) = await library.saveLocal(
+            FaceUpsertPayload(name: "Alpha", type: SavedFace.Kind.custom.rawValue, frameHex: seedFrame.hex94)
+        ) else {
+            return XCTFail("Expected a locally saved face")
+        }
+
+        var overwrite = payload(name: "Alpha Edited", led: 2)
+        overwrite.expect = FaceExpectation(name: "Alpha", frameHex: seedFrame.hex94)
+        let outcome = await library.saveLocal(overwrite, replacingID: id)
+
+        XCTAssertEqual(outcome, .saved(id: id))
+        XCTAssertEqual(library.face(id: id, in: .local)?.name, "Alpha Edited")
+    }
+
+    /// `expect == nil` is the legacy path: no optimistic-lock check at all.
+    func testLocalOverwriteWithoutExpectSucceedsLegacyBehavior() async throws {
+        let store = OpsTestLocalFaceStore(document: FaceDocument())
+        let library = FaceLibraryModel(localStore: store)
+        await library.loadLocalIfNeeded()
+        guard case .saved(let id?) = await library.saveLocal(payload(name: "Alpha", led: 1)) else {
+            return XCTFail("Expected a locally saved face")
+        }
+
+        let overwrite = payload(name: "Alpha Edited", led: 2) // expect defaults to nil
+        let outcome = await library.saveLocal(overwrite, replacingID: id)
+
+        XCTAssertEqual(outcome, .saved(id: id))
+        XCTAssertEqual(library.face(id: id, in: .local)?.name, "Alpha Edited")
+    }
+
+    /// A rename made earlier in the *same* session (e.g. via the saved-list
+    /// sheet, while this face was already open in the editor) must not trip
+    /// the optimistic-lock guard: the editor's baseline only knows the name
+    /// as of when it took the face over, but the phone itself already saw
+    /// that rename land, so it is not a foreign edit. The overwrite must
+    /// still land the new drawing and the name given to this save.
+    func testSaveEditedFaceAfterSameSessionRenameSucceedsWithNewDrawingAndName() async throws {
+        let store = OpsTestLocalFaceStore(document: FaceDocument())
+        let library = FaceLibraryModel(localStore: store)
+        let connection = BoardConnection()
+        await library.loadLocalIfNeeded()
+
+        guard case .saved(let id?) = await library.saveLocal(payload(name: "Alpha", led: 1)),
+              let created = library.face(id: id, in: .local) else {
+            return XCTFail("Expected a locally saved face")
+        }
+
+        let editor = ControlViewModel()
+        editor.loadForEditing(FaceEditRequest(id: 1, face: created, location: .local,
+                                              asCopy: false, boardID: nil, boardGeneration: nil))
+        XCTAssertTrue(editor.canOverwriteEditingFace)
+
+        // Renamed elsewhere in this same session — the editor's own
+        // `editingBaseline` still says "Alpha", untouched by this call.
+        let renamed = await library.rename(created, to: "Alpha Renamed", in: .local, connection: connection)
+        XCTAssertTrue(renamed)
+
+        // The user then actually draws something new in the editor.
+        editor.toggle(led: 5, connection: connection)
+        XCTAssertTrue(editor.draftFrame[5])
+
+        let success = await editor.saveEditedFace(name: "Alpha Final", asNew: false, to: .local,
+                                                  library: library, connection: connection)
+        XCTAssertTrue(success, "A same-session rename must not be treated as a foreign edit")
+        let stored = library.face(id: id, in: .local)
+        XCTAssertEqual(stored?.name, "Alpha Final", "The stored name must be the one given to this save")
+        XCTAssertEqual(stored?.frameBytes, editor.draftFrame.bytes.map(Int.init),
+                       "The stored frame must be the new drawing, not the pre-edit one")
+    }
+
+    /// The board's reply to a `face_upsert` can be lost after the write
+    /// already landed (link hiccup). The 409 that follows must not be a dead
+    /// end: `save` reloads, sees the board already holds exactly the name and
+    /// frame we tried to write, and reports success instead of an error a
+    /// retry could never clear.
+    func testBoardSaveLostAckConflictReconcilesAsSavedWhenBoardAlreadyHoldsOurWrite() async throws {
+        let (connection, transport) = await connectedBoard()
+        let library = FaceLibraryModel()
+        var frame = PackedFrame()
+        frame.set(9)
+        let payload = FaceUpsertPayload(id: "custom1", name: "Beta",
+                                        type: SavedFace.Kind.custom.rawValue, frameHex: frame.hex94,
+                                        expect: FaceExpectation(name: "Alpha", frameHex: PackedFrame().hex94))
+        let source = BoardFaceSaveSource(boardID: connection.boardKey,
+                                         generation: connection.connectionGeneration)
+
+        transport.automaticallyReplies = false
+        // The handshake already sent `.cmd` frames; wait for ours specifically.
+        let cmdsBefore = transport.sentFrames(type: .cmd).count
+        let task = Task { await library.save(payload, source: source, connection: connection) }
+
+        try await transport.waitForSent(type: .cmd, count: cmdsBefore + 1)
+        let request = try XCTUnwrap(transport.sentFrames(type: .cmd).last)
+        transport.emitReply(type: .error, seq: request.seq, payload: Data(
+            #"{"ok":false,"error":"face changed since it was loaded; reload before overwriting","code":409}"#.utf8
+        ))
+
+        try await transport.waitForSent(type: .getFaces, count: 1)
+        let boardFace = SavedFace(id: "custom1", name: "Beta", type: .custom,
+                                  frameBytes: frame.bytes.map(Int.init), order: 1)
+        transport.replyToNext(type: .getFaces,
+                              payload: genPrefix(1) + (try FaceDocument(faces: [boardFace]).encoded()))
+
+        let outcome = await task.value
+        XCTAssertEqual(outcome, .saved(id: "custom1"),
+                       "The board already holds our write; the lost-ack retry must converge, not fail")
+        XCTAssertNil(library.errorMessage)
+        connection.disconnect()
+    }
+
+    private func connectedBoard() async -> (BoardConnection, FakeRinaTransport) {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        return (connection, transport)
+    }
+
+    private func genPrefix(_ gen: UInt32) -> Data {
+        var bytes = Data(count: 4)
+        bytes[0] = UInt8(gen & 0xFF)
+        bytes[1] = UInt8((gen >> 8) & 0xFF)
+        bytes[2] = UInt8((gen >> 16) & 0xFF)
+        bytes[3] = UInt8((gen >> 24) & 0xFF)
+        return bytes
+    }
+
     private func payload(name: String, led: Int) -> FaceUpsertPayload {
         var frame = PackedFrame()
         frame.set(led)

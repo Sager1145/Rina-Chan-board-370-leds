@@ -23,7 +23,7 @@ final class GroupFanOutPolicyTests: XCTestCase {
             .stopScroll(restoreAuto: nil, clear: nil),
             .pause,
             .resume,
-            .applySavedFace(index: 0, reason: nil, playback: nil),
+            .applySavedFace(index: 0, id: nil, reason: nil, playback: nil),
             .button(button: "B1"),
             .button(button: "B2"),
             .button(button: "B3"),

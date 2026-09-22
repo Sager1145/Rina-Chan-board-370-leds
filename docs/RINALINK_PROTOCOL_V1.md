@@ -226,7 +226,9 @@ sets the interval to `round(1000/fps)`, and only a request with neither keeps th
 current interval — clients should send both),
 `scroll_step{direction}`, `scroll_seek{frameIndex}`, `set_scroll_loop{loop}`,
 `pause_scroll`, `resume_scroll`, `stop_scroll{restoreAuto?,clear?}`,
-`pause`, `resume`, `apply_saved_face{index,reason?,playback?}`, `button{button}`,
+`pause`, `resume`, `apply_saved_face{index,id?,reason?,playback?}` (`id`, when
+non-empty, pins the apply to that saved face and ignores `index` — 404 if the
+id is not found; without `id`, behaves as before), `button{button}`,
 `terminate_other_activities{targetMode?}`, `reset_battery_min`, `reset_battery_max`,
 `battery_overlay{singleShot?}` — plus new device commands:
 `reboot`, `get_info` (fw/build/led backend/heap/psram/name), `set_device_name{name}`,
@@ -382,7 +384,7 @@ the current file. A partial write never replaces the previous valid file.
 | `face_rename` | `{id, name}` | name ≤ 64 UTF-8 bytes |
 | `face_reorder` | `{ids:[…]}` | must list every face exactly once; assigns `order` 1…n |
 | `face_delete` | `{id}` | 400 for `type:"default"` or when it would remove the last default |
-| `face_upsert` | `{face:{id?, name, type:"custom"|"parts", frameHex (94 hex) or frameBytes[47], call?}}` | new id → appended with `order = max+1`, `savedAt` set; existing id → frame/name/call/type replaced, `updatedAt` set; defaults cannot be overwritten |
+| `face_upsert` | `{face:{id?, name, type:"custom"|"parts", frameHex (94 hex) or frameBytes[47], call?, expect?:{name, frameHex or frameBytes}}}` | new id → appended with `order = max+1`, `savedAt` set; existing id → frame/name/call/type replaced, `updatedAt` set; defaults cannot be overwritten; when `expect` is given on an existing id, the write is rejected 409 unless the face's current stored name and frame still match `expect` (optimistic concurrency for two clients editing the same face) |
 | `faces_clear_user` | — | deletes every non-default face |
 `GET_FACES` (with `gen`) remains the bulk download; `BLOB kind:"faces"` remains for import.
 

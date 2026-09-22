@@ -1087,3 +1087,4 @@
 {"k": "无法读取本机表情库", "en": "Unable to read the local face library", "hant": "無法讀取本機表情庫", "ja": "ローカル表情ライブラリを読み込めません"}
 {"k": "同步队列已满", "en": "Sync queue is full", "hant": "同步佇列已滿", "ja": "同期キューがいっぱいです"}
 {"k": "多板组未同步时无法从手表开始口型同步", "en": "Lip sync can't start from the watch while the group isn't synced", "hant": "多板組未同步時無法從手錶開始口型同步", "ja": "グループが同期していない間は Watch からリップシンクを開始できません"}
+{"k": "此表情已在别处被修改：请另存为新表情，或重新载入该表情后再改", "en": "This face was changed elsewhere. Save it as a new face, or reload the face and edit again.", "hant": "此表情已在別處被修改：請另存為新表情，或重新載入該表情後再改", "ja": "この表情は他の場所で変更されました。新しい表情として保存するか、表情を読み込み直してから編集してください。"}

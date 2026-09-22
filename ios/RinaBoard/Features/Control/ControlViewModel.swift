@@ -84,6 +84,12 @@ final class ControlViewModel {
     // MARK: Save target
 
     var editingFaceId: String?
+    /// The face's content (name + frame) as it was when the editor took it
+    /// over, used as `face_upsert`'s `expect` optimistic-lock check so a
+    /// save cannot silently overwrite a change made elsewhere in the
+    /// meantime. `nil` when there is nothing to guard (no face being edited,
+    /// or an old draft from before this guard existed).
+    private(set) var editingBaseline: FaceExpectation?
     var editingLocation: FaceLibraryLocation = .local
     /// Physical board that owns `editingFaceId`. This remains stable across a
     /// reconnect even though `editingBoardGeneration` changes.
@@ -163,6 +169,11 @@ final class ControlViewModel {
         var call: PartsCall
         var localFaceID: String?
         var boardID: String?
+        /// `editingBaseline`'s content, split into two fields for a stable
+        /// on-disk shape; absent (older drafts, or no face being edited)
+        /// decodes to `nil` and just means the overwrite guard is unarmed.
+        var baseName: String?
+        var baseFrame: String?
     }
 
     func restoreDraft() async {
@@ -181,6 +192,11 @@ final class ControlViewModel {
             selectedCall = draft.call; userHasEdited = true
             editingLocation = .local; editingFaceId = draft.localFaceID
             draftBoardID = draft.boardID
+            if let baseName = draft.baseName, let baseFrame = draft.baseFrame {
+                editingBaseline = FaceExpectation(name: baseName, frameHex: baseFrame)
+            } else {
+                editingBaseline = nil
+            }
             lastSentFrame = PackedFrame()
             resetUndoHistory()
         } catch {
@@ -204,7 +220,8 @@ final class ControlViewModel {
         guard draftRestoreCompleted || userHasEdited else { return }
         let draft = Draft(frame: draftFrame.hex94, name: saveName, fromParts: fromParts,
                           call: selectedCall, localFaceID: editingLocation == .local ? editingFaceId : nil,
-                          boardID: draftBoardID)
+                          boardID: draftBoardID,
+                          baseName: editingBaseline?.name, baseFrame: editingBaseline?.frameHex)
         do {
             let data = try JSONEncoder().encode(draft)
             try await draftStorage.write(data, name: "face")
@@ -279,6 +296,7 @@ final class ControlViewModel {
         saveName = "parts_face"
         userHasEdited = false
         editingFaceId = nil
+        editingBaseline = nil
         editingLocation = .local
         editingBoardID = nil
         editingBoardGeneration = nil
@@ -783,13 +801,26 @@ final class ControlViewModel {
         let beforeGeneration = editingBoardGeneration
         let replacingID = !asNew && editingFaceCanOverwrite && editingLocation == location
             ? editingFaceId : nil
+        // A rename made earlier in this same session (e.g. via the saved-list
+        // sheet) already reached the library's own copy of `replacingID`, but
+        // never touched `editingBaseline` — it isn't a change made elsewhere.
+        // Adopt the known name into the baseline so the guard only fires on
+        // a real foreign edit. Frame differences are never adopted this way:
+        // only a foreign edit changes the frame, and that must still guard.
+        if let replacingID, var baseline = editingBaseline,
+           let known = library.face(id: replacingID, in: location),
+           known.packedFrame?.hex94 == baseline.frameHex, known.name != baseline.name {
+            baseline.name = known.name
+            editingBaseline = baseline
+        }
         let payload = FaceUpsertPayload(
             id: location == .board ? replacingID : nil,
             name: clean,
             type: (fromParts ? SavedFace.Kind.parts : .custom).rawValue,
             frameHex: draftFrame.hex94,
             call: fromParts ? SavedFace.CallIds(leye: selectedCall.leye, reye: selectedCall.reye,
-                                               mouth: selectedCall.mouth, cheek: selectedCall.cheek) : nil
+                                               mouth: selectedCall.mouth, cheek: selectedCall.cheek) : nil,
+            expect: replacingID != nil ? editingBaseline : nil
         )
         let destination = BoardFaceSaveSource(boardID: connection.boardKey,
                                               generation: connection.connectionGeneration)
@@ -818,6 +849,7 @@ final class ControlViewModel {
             editingBoardGeneration = location == .board ? destination.generation : nil
             editingFaceCanOverwrite = true
         }
+        editingBaseline = FaceExpectation(name: clean, frameHex: draftFrame.hex94)
         saveName = clean
         scheduleDraftSave()
         return true
@@ -836,10 +868,12 @@ final class ControlViewModel {
         // describes overwriting it in its own local origin, per C.1) must
         // never be forwarded as a board face id to overwrite — only an id
         // whose origin is actually the board is safe to reuse here.
+        let canOverwrite = editingFaceCanOverwrite && editingLocation == .board
         return library.boardUpsertPayload(editingFaceId: editingFaceId,
-                                          canOverwrite: editingFaceCanOverwrite && editingLocation == .board,
+                                          canOverwrite: canOverwrite,
                                           name: saveName, frame: draftFrame,
-                                          fromParts: fromParts, call: selectedCall)
+                                          fromParts: fromParts, call: selectedCall,
+                                          expect: canOverwrite && editingFaceId != nil ? editingBaseline : nil)
     }
 
     /// Pulls a saved face into the editor (Control Center → Control tab).
@@ -852,6 +886,7 @@ final class ControlViewModel {
         sentGeneration = nil
         userHasEdited = true
         editingFaceId = face.id
+        editingBaseline = FaceExpectation(name: face.name, frameHex: frame.hex94)
         editingLocation = .board
         editingBoardID = draftBoardID
         editingBoardGeneration = currentBoardGeneration
@@ -875,6 +910,7 @@ final class ControlViewModel {
 
     func startNewFace() {
         editingFaceId = nil
+        editingBaseline = nil
         editingBoardID = nil
         editingBoardGeneration = nil
         editingFaceCanOverwrite = false
@@ -896,6 +932,7 @@ final class ControlViewModel {
             editingBoardGeneration = destination.generation
             editingFaceCanOverwrite = true
         }
+        editingBaseline = FaceExpectation(name: saveName, frameHex: draftFrame.hex94)
     }
 
     // MARK: Board display synchronization
@@ -1097,6 +1134,7 @@ final class ControlViewModel {
             draftFrame = frame
             lastSentFrame = frame
             editingFaceId = nil
+            editingBaseline = nil
             editingBoardID = nil
             editingBoardGeneration = nil
             editingFaceCanOverwrite = false

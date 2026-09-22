@@ -10,11 +10,25 @@ final class RinaCommandTests: XCTestCase {
     }
 
     func testApplySavedFaceIncludesOptionalFields() throws {
-        let data = try RinaCommand.applySavedFace(index: 3, reason: "manual", playback: "idle").encode()
+        let data = try RinaCommand.applySavedFace(index: 3, id: nil, reason: "manual", playback: "idle").encode()
         let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual(obj?["index"] as? Int, 3)
         XCTAssertEqual(obj?["reason"] as? String, "manual")
         XCTAssertEqual(obj?["playback"] as? String, "idle")
+    }
+
+    func testApplySavedFaceEncodesIdWhenSetAndOmitsWhenNil() throws {
+        let withId = try JSONSerialization.jsonObject(
+            with: RinaCommand.applySavedFace(index: 3, id: "abc123", reason: nil, playback: nil).encode()
+        ) as? [String: Any]
+        XCTAssertEqual(withId?["index"] as? Int, 3)
+        XCTAssertEqual(withId?["id"] as? String, "abc123")
+
+        let withoutId = try JSONSerialization.jsonObject(
+            with: RinaCommand.applySavedFace(index: 3, id: nil, reason: nil, playback: nil).encode()
+        ) as? [String: Any]
+        XCTAssertEqual(withoutId?["index"] as? Int, 3)
+        XCTAssertNil(withoutId?["id"])
     }
 
     func testSetHintLEDEncodesLedAndMinusOneToClear() throws {
@@ -100,6 +114,29 @@ final class RinaCommandTests: XCTestCase {
         let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let face = obj?["face"] as? [String: Any]
         XCTAssertNil(face?["id"])
+    }
+
+    func testFaceUpsertEncodesExpectWhenSetAndOmitsWhenNil() throws {
+        let withExpect = FaceUpsertPayload(
+            id: "custom_3", name: "新表情", type: "custom",
+            frameHex: String(repeating: "00", count: PackedFrame.byteCount),
+            expect: FaceExpectation(name: "旧表情", frameHex: String(repeating: "11", count: PackedFrame.byteCount))
+        )
+        let dataWithExpect = try RinaCommand.faceUpsert(face: withExpect).encode()
+        let objWithExpect = try JSONSerialization.jsonObject(with: dataWithExpect) as? [String: Any]
+        let faceWithExpect = objWithExpect?["face"] as? [String: Any]
+        let expect = faceWithExpect?["expect"] as? [String: Any]
+        XCTAssertEqual(expect?["name"] as? String, "旧表情")
+        XCTAssertEqual(expect?["frameHex"] as? String, String(repeating: "11", count: PackedFrame.byteCount))
+
+        let withoutExpect = FaceUpsertPayload(
+            id: "custom_3", name: "新表情", type: "custom",
+            frameHex: String(repeating: "00", count: PackedFrame.byteCount)
+        )
+        let dataWithoutExpect = try RinaCommand.faceUpsert(face: withoutExpect).encode()
+        let objWithoutExpect = try JSONSerialization.jsonObject(with: dataWithoutExpect) as? [String: Any]
+        let faceWithoutExpect = objWithoutExpect?["face"] as? [String: Any]
+        XCTAssertNil(faceWithoutExpect?["expect"])
     }
 
     func testWifiSetHotspotCredentialsEncodesSsidAndPassword() throws {

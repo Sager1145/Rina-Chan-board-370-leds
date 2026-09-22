@@ -181,7 +181,7 @@ final class GroupControlFanOutTests: XCTestCase {
         h.fanOut.faceFrameResolver = { _, _ in resolved }
         let primary = session(h, "AAAA")
 
-        _ = try await primary.connection.command(.applySavedFace(index: 2, reason: nil, playback: nil))
+        _ = try await primary.connection.command(.applySavedFace(index: 2, id: nil, reason: nil, playback: nil))
 
         await waitUntil { !(h.transports["BBBB"]?.receivedFrameBytes.isEmpty ?? true) }
         XCTAssertEqual(h.transports["BBBB"]?.receivedFrameBytes.last, resolved.bytes)
@@ -202,7 +202,7 @@ final class GroupControlFanOutTests: XCTestCase {
         h.transports["AAAA"]?.getFrameReply = readBack
         let primary = session(h, "AAAA")
 
-        _ = try await primary.connection.command(.applySavedFace(index: 3, reason: nil, playback: nil))
+        _ = try await primary.connection.command(.applySavedFace(index: 3, id: nil, reason: nil, playback: nil))
 
         await waitUntil(timeout: 2) { !(h.transports["BBBB"]?.receivedFrameBytes.isEmpty ?? true) }
         XCTAssertEqual(h.transports["BBBB"]?.receivedFrameBytes.last, readBack.bytes)
@@ -218,7 +218,7 @@ final class GroupControlFanOutTests: XCTestCase {
         h.transports["AAAA"]?.failGetFrame = true
         let primary = session(h, "AAAA")
 
-        _ = try await primary.connection.command(.applySavedFace(index: 4, reason: nil, playback: nil))
+        _ = try await primary.connection.command(.applySavedFace(index: 4, id: nil, reason: nil, playback: nil))
 
         await waitUntil(timeout: 2) { h.fanOut.memberErrors["BBBB"] != nil }
         XCTAssertNotNil(h.fanOut.memberErrors["BBBB"])
@@ -243,7 +243,7 @@ final class GroupControlFanOutTests: XCTestCase {
         // from `.group` before `command(_:)` checks `output.source`.
         let token = primary.connection.output.claim(.manual)
         _ = try await primary.connection.withOutput(token) {
-            try await primary.connection.command(.applySavedFace(index: 0, reason: nil, playback: nil))
+            try await primary.connection.command(.applySavedFace(index: 0, id: nil, reason: nil, playback: nil))
         }
 
         await waitUntil { h.coordinator.isPlaying == false }
@@ -328,7 +328,7 @@ final class GroupControlFanOutTests: XCTestCase {
         h.fanOut.setTarget(.group(h.group.id))
         let primary = session(h, "AAAA")
         let sink = session(h, "BBBB")
-        _ = try await primary.connection.command(.applySavedFace(index: 0, reason: nil, playback: nil))
+        _ = try await primary.connection.command(.applySavedFace(index: 0, id: nil, reason: nil, playback: nil))
         await waitUntil { sink.connection.output.source == .groupControl }
         XCTAssertEqual(sink.connection.output.source, .groupControl)
 
@@ -512,7 +512,7 @@ final class GroupControlFanOutTests: XCTestCase {
         let sink = session(h, "BBBB")
 
         do {
-            _ = try await primary.connection.command(.applySavedFace(index: 0, reason: nil, playback: nil))
+            _ = try await primary.connection.command(.applySavedFace(index: 0, id: nil, reason: nil, playback: nil))
             XCTFail("expected the primary's own apply_saved_face to throw")
         } catch {
             // Expected — the board rejected it.

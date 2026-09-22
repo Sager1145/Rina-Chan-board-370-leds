@@ -15531,6 +15531,29 @@
         }
       }
     },
+    "此表情已在别处被修改：请另存为新表情，或重新载入该表情后再改" : {
+      "comment" : "overwrite target changed since it was loaded (local and board paths)",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This face was changed elsewhere. Save it as a new face, or reload the face and edit again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この表情は他の場所で変更されました。新しい表情として保存するか、表情を読み込み直してから編集してください。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此表情已在別處被修改：請另存為新表情，或重新載入該表情後再改"
+          }
+        }
+      }
+    },
     "此表情的帧数据无效" : {
       "comment" : "saved face frame invalid\nsaved face has invalid frame data",
       "localizations" : {
