@@ -69,6 +69,17 @@ final class WatchSessionModel {
         if let data = WatchLinkCodec.payload(in: session.receivedApplicationContext) {
             apply(data)
         }
+        // Activation and reachability can complete in either order, and a
+        // request sent before activation is dropped: keep asking, at a
+        // gentle pace, until the first snapshot lands.
+        Task { [weak self] in
+            for _ in 0..<8 {
+                try? await Task.sleep(for: .seconds(1.5))
+                guard let self, self.snapshot == nil else { return }
+                self.sessionStateChanged()
+                self.refresh()
+            }
+        }
     }
 
     private func sessionStateChanged() {
@@ -181,7 +192,20 @@ final class WatchSessionModel {
 
     func toggleLipSync() {
         guard let snapshot else { return }
-        send(snapshot.lipSync.isRunning ? .lipSyncStop : .lipSyncStart)
+        if snapshot.lipSync.isRunning {
+            send(.lipSyncStop)
+        } else {
+            send(.lipSyncStart)
+            // A start is answered before it runs (it may wait on the
+            // microphone prompt); ask again for the outcome in case the
+            // phone's push does not reach us.
+            Task { [weak self] in
+                for delay in [2.0, 5.0] {
+                    try? await Task.sleep(for: .seconds(delay))
+                    self?.refresh()
+                }
+            }
+        }
     }
 
     /// Percentage label for a raw brightness, matching the phone's label.

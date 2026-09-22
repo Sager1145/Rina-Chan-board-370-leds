@@ -61,13 +61,20 @@ struct WatchRootView: View {
                           : NSLocalizedString("已连接", comment: "watch: board connected"),
                           systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
-                    Spacer()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Spacer(minLength: 4)
                     if let percent = snapshot.board.batteryPercent {
-                        Text("\(percent)%")
+                        // One glyph plus the number: the row must fit beside
+                        // "已连接" even on a 42 mm case.
+                        Label("\(percent)%", systemImage: snapshot.board.isCharging
+                              ? "battery.100percent.bolt" : "battery.50percent")
+                            .labelStyle(.titleAndIcon)
+                            .font(.footnote)
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
-                        Image(systemName: snapshot.board.isCharging ? "battery.100percent.bolt" : "battery.50percent")
-                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                 }
             } else {

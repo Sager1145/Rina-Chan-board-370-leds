@@ -77,11 +77,20 @@ final class WatchLinkService {
             }
             Task { @MainActor in
                 guard let self else { reply?(Data()); return }
-                // Reply straight away: a start that waits on the microphone
-                // permission prompt would otherwise outlive WatchConnectivity's
-                // reply timeout. The result reaches the watch as a push.
-                reply?((try? WatchLinkCodec.encode(self.snapshot())) ?? Data())
-                await self.handle(command)
+                if case .lipSyncStart = command {
+                    // A start can block on the microphone permission prompt
+                    // and outlive WatchConnectivity's reply timeout: answer
+                    // now, and let the result reach the watch as a push.
+                    reply?((try? WatchLinkCodec.encode(self.snapshot())) ?? Data())
+                    await self.handle(command)
+                } else {
+                    // Everything else replies with the state *after* the
+                    // command, so the watch's optimistic toggle/value is
+                    // confirmed rather than overwritten by a stale snapshot.
+                    await self.handle(command)
+                    reply?((try? WatchLinkCodec.encode(self.snapshot())) ?? Data())
+                    self.lastCommandError = nil
+                }
                 self.publish(force: true)
             }
         }
@@ -542,8 +551,11 @@ final class WatchLinkService {
     /// reachable. Skipped when nothing changed.
     func publish(force: Bool = false) {
         pendingSince = nil
-        guard let session, session.activationState == .activated,
-              session.isPaired, session.isWatchAppInstalled else { return }
+        // Not gated on `isWatchAppInstalled`: the flag lags behind reality
+        // (it only flips once the watch has spoken, and a simulator pair
+        // never sets it), and both sends below already fail harmlessly when
+        // there is no counterpart.
+        guard let session, session.activationState == .activated, session.isPaired else { return }
         let snap = snapshot()
         guard force || snap != lastPublished else { return }
         lastPublished = snap

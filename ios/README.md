@@ -55,6 +55,13 @@ suspended the watch shows "iPhone 不可达" until the app is back.
   each command per member, and cannot start lip sync.
 - Strings: the watch has its own `RinaBoardWatch/Resources/Localizable.xcstrings`,
   hand-maintained in the same four languages (`tools/i18n/README.md`).
+- Testing without hardware: pair an iPhone and a Watch simulator (`xcrun simctl
+  pair`), install `RinaBoard.app` on the phone and `RinaBoard.app/Watch/RinaBoardWatch.app`
+  on the watch, run `python3 tools/rinalink_board_emulator.py`, and add the board
+  by host (`127.0.0.1`; the Mac's LAN IP gives a second board for a group). The
+  phone's session only reports the watch app as installed/reachable after the
+  watch's first message, which the simulator can hold for the better part of a
+  minute; until then the watch shows "等待 iPhone…".
 
 On-device: real Bluetooth/Wi-Fi/hotspot connectivity requires a physical
 iPhone/iPad; the simulator can still exercise the UI and TCP paths against a
