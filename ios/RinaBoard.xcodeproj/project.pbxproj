@@ -7,11 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A3000000000000000000000D /* RinaBoardWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = A30000000000000000000001 /* RinaBoardWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		9801DA3906E399AB5EE59ECC /* RinaCore in Frameworks */ = {isa = PBXBuildFile; productRef = C0C4492644B3F0C55A2B40B0 /* RinaCore */; };
 		A1000000000000000000000C /* RinaCore in Frameworks */ = {isa = PBXBuildFile; productRef = C0C4492644B3F0C55A2B40B0 /* RinaCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		A3000000000000000000000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 27A177601617B0508B4D91C8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A30000000000000000000003;
+			remoteInfo = RinaBoardWatch;
+		};
 		A1000000000000000000000B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 27A177601617B0508B4D91C8 /* Project object */;
@@ -28,7 +36,22 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		A3000000000000000000000C /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				A3000000000000000000000D /* RinaBoardWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		A30000000000000000000001 /* RinaBoardWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RinaBoardWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000001 /* RinaBoardTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RinaBoardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000001 /* RinaBoardUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RinaBoardUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E892DACA22BF11E6F8F12A59 /* RinaBoard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RinaBoard.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -45,12 +68,21 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		A30000000000000000000002 /* RinaBoardWatch */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = RinaBoardWatch; sourceTree = "<group>"; };
+		A3000000000000000000000E /* RinaWatchLink */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = RinaWatchLink; sourceTree = "<group>"; };
 		A10000000000000000000002 /* RinaBoardTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = RinaBoardTests; sourceTree = "<group>"; };
 		A20000000000000000000002 /* RinaBoardUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = RinaBoardUITests; sourceTree = "<group>"; };
 		F7B8A989E2363511031183D1 /* RinaBoard */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (F3761507BDF69EBCB3B6540E /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = RinaBoard; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A30000000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000000000000000000005 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -81,6 +113,8 @@
 			isa = PBXGroup;
 			children = (
 				F7B8A989E2363511031183D1 /* RinaBoard */,
+				A3000000000000000000000E /* RinaWatchLink */,
+				A30000000000000000000002 /* RinaBoardWatch */,
 				A10000000000000000000002 /* RinaBoardTests */,
 				A20000000000000000000002 /* RinaBoardUITests */,
 				6F169B5FE928077EDCF2A7BA /* Packages */,
@@ -92,6 +126,7 @@
 			isa = PBXGroup;
 			children = (
 				E892DACA22BF11E6F8F12A59 /* RinaBoard.app */,
+				A30000000000000000000001 /* RinaBoardWatch.app */,
 				A10000000000000000000001 /* RinaBoardTests.xctest */,
 				A20000000000000000000001 /* RinaBoardUITests.xctest */,
 			);
@@ -108,6 +143,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A30000000000000000000003 /* RinaBoardWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A30000000000000000000009 /* Build configuration list for PBXNativeTarget "RinaBoardWatch" */;
+			buildPhases = (
+				A30000000000000000000004 /* Sources */,
+				A30000000000000000000005 /* Frameworks */,
+				A30000000000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A30000000000000000000002 /* RinaBoardWatch */,
+				A3000000000000000000000E /* RinaWatchLink */,
+			);
+			name = RinaBoardWatch;
+			packageProductDependencies = (
+			);
+			productName = RinaBoardWatch;
+			productReference = A30000000000000000000001 /* RinaBoardWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
 		401597CB7D2AE015D9C3C8A5 /* RinaBoard */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 59C9285D686FF1665E7116ED /* Build configuration list for PBXNativeTarget "RinaBoard" */;
@@ -115,13 +173,16 @@
 				FD60A109A4B3241F456FEF12 /* Sources */,
 				D92A9B4B9D957EDE1D2E50A7 /* Frameworks */,
 				FF4ED78D0F479773C4C46C50 /* Resources */,
+				A3000000000000000000000C /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A3000000000000000000000A /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				F7B8A989E2363511031183D1 /* RinaBoard */,
+				A3000000000000000000000E /* RinaWatchLink */,
 			);
 			name = RinaBoard;
 			packageProductDependencies = (
@@ -199,6 +260,9 @@
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = 401597CB7D2AE015D9C3C8A5;
 					};
+					A30000000000000000000003 = {
+						CreatedOnToolsVersion = 27.0;
+					};
 				};
 			};
 			buildConfigurationList = 821EF303E84B0A873DEA1DCD /* Build configuration list for PBXProject "RinaBoard" */;
@@ -221,6 +285,7 @@
 			projectRoot = "";
 			targets = (
 				401597CB7D2AE015D9C3C8A5 /* RinaBoard */,
+				A30000000000000000000003 /* RinaBoardWatch */,
 				A10000000000000000000003 /* RinaBoardTests */,
 				A20000000000000000000003 /* RinaBoardUITests */,
 			);
@@ -228,6 +293,13 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A30000000000000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000000000000000000006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -252,6 +324,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A30000000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A10000000000000000000004 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -276,6 +355,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		A3000000000000000000000A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A30000000000000000000003 /* RinaBoardWatch */;
+			targetProxy = A3000000000000000000000B /* PBXContainerItemProxy */;
+		};
 		A1000000000000000000000A /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 401597CB7D2AE015D9C3C8A5 /* RinaBoard */;
@@ -289,6 +373,68 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A30000000000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9JN2TD2UES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "璃奈板";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.rinachan.board;
+				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rinachan.board.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		A30000000000000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9JN2TD2UES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "璃奈板";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.rinachan.board;
+				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rinachan.board.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
 		1134A83E8B3F1BB23945A464 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -533,6 +679,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A30000000000000000000009 /* Build configuration list for PBXNativeTarget "RinaBoardWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A30000000000000000000007 /* Debug */,
+				A30000000000000000000008 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		59C9285D686FF1665E7116ED /* Build configuration list for PBXNativeTarget "RinaBoard" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

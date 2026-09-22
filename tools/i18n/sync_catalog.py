@@ -53,9 +53,17 @@ def objroot():
     sys.exit("could not determine OBJROOT from xcodebuild; " + OBJROOT_HINT)
 
 
+# Build directories whose stringsdata belong to another catalog: the watch
+# app ships its own ios/RinaBoardWatch/Resources/Localizable.xcstrings
+# (hand-maintained, see the README), so its keys must not land here.
+FOREIGN_TARGET_DIRS = ("RinaBoardWatch.build",)
+
+
 def keys_in_code(root):
     found = {}
     for path in glob.glob(os.path.join(root, "**", "*.stringsdata"), recursive=True):
+        if any(part in FOREIGN_TARGET_DIRS for part in path.split(os.sep)):
+            continue
         with open(path, encoding="utf-8") as fh:
             try:
                 data = json.load(fh)

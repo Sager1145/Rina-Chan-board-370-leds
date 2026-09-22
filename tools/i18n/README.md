@@ -11,6 +11,10 @@ The app ships four languages: **简体中文 (zh-Hans, source)**, **繁體中文
   `{"k": "<Simplified Chinese source>", "en": ..., "hant": ..., "ja": ...}`, or
   `{"k": ..., "nt": true}` for strings that must not be translated (bare format
   specifiers, numbers, product names).
+- The Apple Watch app (`ios/RinaBoardWatch`) has its own catalog,
+  `ios/RinaBoardWatch/Resources/Localizable.xcstrings`, edited by hand in the same
+  four languages; `sync_catalog.py` skips that target's `.stringsdata` so watch-only
+  keys never leak into the phone catalog.
 - Info.plist permission prompts are localized in
   `ios/RinaBoard/Resources/InfoPlist.xcstrings` (edited by hand, keyed by Info.plist key).
 

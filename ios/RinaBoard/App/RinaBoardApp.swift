@@ -42,6 +42,10 @@ struct RinaBoardApp: App {
     @State private var lipSyncModel = LipSyncModel()
     @State private var presetLiveModel = PresetLiveModel()
     @State private var videoModel = VideoPlayerModel()
+    /// The Apple Watch companion's phone end (`WatchLinkService`): built in
+    /// `.task` below, once every model it mirrors exists as installed state,
+    /// and kept for the app's lifetime.
+    @State private var watchLink: WatchLinkService?
 
     init() {
         AppSettingsKey.registerDefaults()
@@ -198,6 +202,15 @@ struct RinaBoardApp: App {
                 .task {
                     // Wired once; both models are app-scoped for the app's
                     // lifetime, so there's no teardown to mirror.
+                    if watchLink == nil {
+                        let service = WatchLinkService(deps: .init(
+                            sessions: sessions, controlCenter: controlCenter, lipSync: lipSyncModel,
+                            text: textModel, groupStore: boardGroupStore, fanOut: groupControlFanOut,
+                            groupAutoCycler: groupAutoCycler, groupCoordinator: boardGroupCoordinator
+                        ))
+                        service.activate()
+                        watchLink = service
+                    }
                     groupControlFanOut.faceFrameResolver = { [faceLibrary] connection, reply in
                         faceLibrary.boardFaceFrame(
                             id: reply.autoFaceId, index: reply.autoFaceIndex,
