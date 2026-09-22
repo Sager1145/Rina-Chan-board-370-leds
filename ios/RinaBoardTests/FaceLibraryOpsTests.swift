@@ -169,6 +169,52 @@ final class FaceLibraryOpsTests: XCTestCase {
         XCTAssertNotNil(library.face(id: idB, in: .local), "The overlapping save must not be lost")
     }
 
+    /// The undo record is transaction state. If delete B is already queued
+    /// ahead of an undo for delete A, the undo must consume B's newer record
+    /// after it enters the mutation gate instead of restoring A from a stale
+    /// pre-gate snapshot and clearing B's undo information (R14).
+    func testQueuedUndoConsumesDeletionRecordInsideMutationGate() async throws {
+        let store = BlockingLocalFaceStore(document: FaceDocument())
+        let library = FaceLibraryModel(localStore: store)
+        let connection = BoardConnection()
+        await library.loadLocalIfNeeded()
+
+        guard case .saved(let idA?) = await library.saveLocal(payload(name: "A", led: 1)),
+              case .saved(let idB?) = await library.saveLocal(payload(name: "B", led: 2)),
+              let faceA = library.face(id: idA, in: .local),
+              let faceB = library.face(id: idB, in: .local) else {
+            return XCTFail("Expected two local faces")
+        }
+        let deletedA = await library.delete(faceA, from: .local, connection: connection)
+        XCTAssertTrue(deletedA)
+
+        await store.holdNextSave()
+        let renameTask = Task {
+            await library.rename(faceB, to: "B Renamed", in: .local, connection: connection)
+        }
+        await store.waitForHeldSave()
+
+        let deleteBTask = Task {
+            await library.delete(faceB, from: .local, connection: connection)
+        }
+        // Let delete B enqueue at the model's FIFO mutation gate before undo.
+        await Task.yield()
+        let undoTask = Task { await library.undoLocalDelete() }
+        await store.releaseHeldSave()
+
+        let renamedB = await renameTask.value
+        let deletedB = await deleteBTask.value
+        let restoredB = await undoTask.value
+        XCTAssertTrue(renamedB)
+        XCTAssertTrue(deletedB)
+        XCTAssertTrue(restoredB)
+        XCTAssertNil(library.face(id: idA, in: .local),
+                     "the superseded A deletion must remain deleted")
+        XCTAssertEqual(library.face(id: idB, in: .local)?.name, "B Renamed",
+                       "undo must restore the authoritative object actually deleted by the queued transaction")
+        XCTAssertFalse(library.canUndoLocalDelete)
+    }
+
     /// 30 CJK characters is 90 UTF-8 bytes: `cleanName` must truncate on a
     /// `Character` boundary at <=64 bytes, never splitting a multi-byte glyph.
     func testCleanNameTruncatesOnCharacterBoundaryWithoutExceeding64Bytes() async throws {
@@ -185,6 +231,54 @@ final class FaceLibraryOpsTests: XCTestCase {
         XCTAssertLessThanOrEqual(face.name.utf8.count, 64)
         XCTAssertTrue(longName.hasPrefix(face.name),
                       "Truncation must land on a character boundary, never split a glyph")
+    }
+
+    /// Copy markers are part of the firmware's 64-byte field. The base must
+    /// surrender enough bytes for `_copy`, localized copy text, and numeric
+    /// disambiguators instead of being truncated to 64 first (R16).
+    func testGeneratedCopyNamesReserveSuffixBytesAcrossUnicodeInputs() async throws {
+        let store = OpsTestLocalFaceStore(document: FaceDocument())
+        let library = FaceLibraryModel(localStore: store)
+        await library.loadLocalIfNeeded()
+        let frame = PackedFrame()
+        let parts = PartsCall.defaultCall
+        let names = [
+            String(repeating: "a", count: 64),
+            String(repeating: "汉", count: 30),
+            String(repeating: "👩🏽‍💻", count: 12),
+            "   ",
+        ]
+
+        for name in names {
+            let payload = library.boardUpsertPayload(editingFaceId: "source", canOverwrite: false,
+                                                     name: name, frame: frame,
+                                                     fromParts: false, call: parts)
+            XCTAssertTrue(payload.name.hasSuffix("_copy"))
+            XCTAssertLessThanOrEqual(payload.name.utf8.count, 64,
+                                     "generated name exceeds firmware limit: \(payload.name)")
+        }
+    }
+
+    func testLocalizedAndNumberedCopyNamesStayUniqueAndWithin64Bytes() async throws {
+        let store = OpsTestLocalFaceStore(document: FaceDocument())
+        let library = FaceLibraryModel(localStore: store)
+        let connection = BoardConnection()
+        await library.loadLocalIfNeeded()
+        let source = SavedFace(id: "source", name: String(repeating: "a", count: 64),
+                               type: .custom, frameBytes: PackedFrame().bytes.map(Int.init), order: 1)
+
+        guard case .saved = await library.copy(source, from: .board, to: .local, connection: connection) else {
+            return XCTFail("Expected the first copy to save")
+        }
+        let firstName = try XCTUnwrap(library.userFaces(in: .local).last?.name)
+        XCTAssertLessThanOrEqual(firstName.utf8.count, 64)
+
+        guard case .saved = await library.copy(source, from: .board, to: .local, connection: connection) else {
+            return XCTFail("Expected the numbered copy to save")
+        }
+        let lastTwo = Array(library.userFaces(in: .local).suffix(2)).map(\.name)
+        XCTAssertEqual(Set(lastTwo).count, 2)
+        XCTAssertTrue(lastTwo.allSatisfy { $0.utf8.count <= 64 })
     }
 
     /// User-entered names over the byte limit are refused outright by the
@@ -237,6 +331,30 @@ final class FaceLibraryOpsTests: XCTestCase {
         let onDisk = await store.currentDocument()
         XCTAssertNotNil(onDisk?.faces.first { $0.id == id && $0.name == "Alpha Renamed" },
                         "The rename must persist the user face, not a presets-only document")
+    }
+
+    /// A failed first read may represent recoverable bytes. Defaults can be
+    /// shown, but the model must remain unloaded and reject mutations so the
+    /// original file is never replaced by a presets-only fallback (R15).
+    func testCorruptInitialLocalFileIsPreservedAndBlocksMutation() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FaceLibraryOpsTests-\(UUID().uuidString)", isDirectory: true)
+        let fileURL = directory.appendingPathComponent("local_faces.json")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let original = Data("{ definitely not valid face json".utf8)
+        try original.write(to: fileURL)
+
+        let library = FaceLibraryModel(localStore: LocalFaceStore(fileURL: fileURL))
+        await library.loadLocalIfNeeded()
+        XCTAssertFalse(library.isLocalLoaded)
+        XCTAssertNotNil(library.errorMessage)
+
+        let outcome = await library.saveLocal(payload(name: "Must Not Persist", led: 1))
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertFalse(library.isLocalLoaded)
+        XCTAssertEqual(try Data(contentsOf: fileURL), original,
+                       "a failed read must never authorize overwriting the recoverable source bytes")
     }
 
     /// An overwrite target that no longer exists in the local library (e.g.
@@ -312,6 +430,40 @@ private actor OpsTestLocalFaceStore: LocalFaceStoring {
     init(document: FaceDocument?) { self.document = document }
     func load() async throws -> FaceDocument? { document }
     func save(_ document: FaceDocument) async throws { self.document = document }
+}
+
+private actor BlockingLocalFaceStore: LocalFaceStoring {
+    private var document: FaceDocument?
+    private var shouldHoldNextSave = false
+    private var heldSaveContinuation: CheckedContinuation<Void, Never>?
+    private var heldWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(document: FaceDocument?) { self.document = document }
+
+    func load() async throws -> FaceDocument? { document }
+
+    func save(_ document: FaceDocument) async throws {
+        if shouldHoldNextSave {
+            shouldHoldNextSave = false
+            let waiters = heldWaiters
+            heldWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            await withCheckedContinuation { heldSaveContinuation = $0 }
+        }
+        self.document = document
+    }
+
+    func holdNextSave() { shouldHoldNextSave = true }
+
+    func waitForHeldSave() async {
+        if heldSaveContinuation != nil { return }
+        await withCheckedContinuation { heldWaiters.append($0) }
+    }
+
+    func releaseHeldSave() {
+        heldSaveContinuation?.resume()
+        heldSaveContinuation = nil
+    }
 }
 
 private enum OpsTestLocalFaceStoreError: Error {

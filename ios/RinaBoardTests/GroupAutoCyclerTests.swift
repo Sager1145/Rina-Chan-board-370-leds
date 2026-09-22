@@ -252,6 +252,149 @@ final class GroupAutoCyclerTests: XCTestCase {
         XCTAssertFalse(transports["AAAA"]?.receivedCmdNames.contains("set_mode") == true)
         cycler.stop()
     }
+
+    // MARK: 10. R04 — the cursor is the last successfully displayed face.
+
+    func testManualStepIsRelativeToDisplayedFaceAndAutoContinuesAfterIt() async throws {
+        let (h, cycler) = await harness(["AAAA"], interval: 0.15)
+        let faces = h.faceLibrary.faces(in: .board)
+        XCTAssertTrue(cycler.start())
+        await waitUntil { self.session(h, "AAAA").connection.currentFrame.bytes == faces[0].packedFrame?.bytes }
+        XCTAssertEqual(h.transports["AAAA"]?.receivedFrameBytes.last, faces[0].packedFrame?.bytes)
+
+        await cycler.step(direction: 1)
+        XCTAssertEqual(h.transports["AAAA"]?.receivedFrameBytes.last, faces[1].packedFrame?.bytes)
+
+        await waitUntil(timeout: 1) { h.transports["AAAA"]?.receivedFrameBytes.last == faces[2].packedFrame?.bytes }
+        XCTAssertEqual(h.transports["AAAA"]?.receivedFrameBytes.last, faces[2].packedFrame?.bytes)
+        cycler.stop()
+    }
+
+    func testPreviousFromFirstDisplayedFaceWrapsToLast() async throws {
+        let (h, cycler) = await harness(["AAAA"], interval: 10)
+        let faces = h.faceLibrary.faces(in: .board)
+        XCTAssertTrue(cycler.start())
+        await waitUntil { self.session(h, "AAAA").connection.currentFrame.bytes == faces[0].packedFrame?.bytes }
+
+        await cycler.step(direction: -1)
+
+        XCTAssertEqual(h.transports["AAAA"]?.receivedFrameBytes.last, faces[2].packedFrame?.bytes)
+        XCTAssertEqual(cycler.currentIndex, 2)
+        cycler.stop()
+    }
+
+    func testStepRelocatesDisplayedFaceByStableIDAfterLibraryReorder() async throws {
+        let (h, cycler) = await harness(["AAAA"], interval: 10)
+        XCTAssertTrue(cycler.start())
+        await waitUntil { self.session(h, "AAAA").connection.currentFrame.bytes == h.faceLibrary.faces(in: .board)[0].packedFrame?.bytes }
+
+        let original = makeFaces()
+        h.faceLibrary.faceDocument = FaceDocument(faces: [
+            SavedFace(id: "b", name: "B", type: .custom, frameBytes: original[2].frameBytes, order: 1),
+            SavedFace(id: "c", name: "C", type: .default, frameBytes: original[0].frameBytes, order: 2),
+            SavedFace(id: "a", name: "A", type: .default, frameBytes: original[1].frameBytes, order: 3),
+        ])
+        await cycler.step(direction: 1)
+
+        XCTAssertEqual(h.transports["AAAA"]?.receivedFrameBytes.last, original[2].packedFrame?.bytes)
+        cycler.stop()
+    }
+
+    func testDeletedDisplayedFaceFallsBackWithoutCrashingAndEmptyLibraryDoesNothing() async throws {
+        let (h, cycler) = await harness(["AAAA"], interval: 10)
+        XCTAssertTrue(cycler.start())
+        await waitUntil { self.session(h, "AAAA").connection.currentFrame.bytes == h.faceLibrary.faces(in: .board)[0].packedFrame?.bytes }
+
+        var remaining = makeFaces()
+        remaining.removeAll { $0.id == "a" }
+        h.faceLibrary.faceDocument = FaceDocument(faces: remaining)
+        await cycler.step(direction: 1)
+        XCTAssertEqual(h.transports["AAAA"]?.receivedFrameBytes.last, remaining.first { $0.id == "b" }?.packedFrame?.bytes)
+
+        let count = h.transports["AAAA"]?.receivedFrameBytes.count
+        h.faceLibrary.faceDocument = FaceDocument()
+        await cycler.step(direction: 1)
+        XCTAssertEqual(h.transports["AAAA"]?.receivedFrameBytes.count, count)
+        cycler.stop()
+    }
+
+    func testSingleFaceLibraryRepeatsTheOnlyFace() async throws {
+        let (h, cycler) = await harness(["AAAA"], interval: 10)
+        let only = makeFaces()[1]
+        h.faceLibrary.faceDocument = FaceDocument(faces: [only])
+        XCTAssertTrue(cycler.start())
+        await waitUntil { self.session(h, "AAAA").connection.currentFrame.bytes == only.packedFrame?.bytes }
+
+        await cycler.step(direction: 1)
+
+        XCTAssertEqual(h.transports["AAAA"]?.receivedFrameBytes.count, 2)
+        XCTAssertEqual(h.transports["AAAA"]?.receivedFrameBytes.last, only.packedFrame?.bytes)
+        cycler.stop()
+    }
+
+    // MARK: 11. R03/R05 — stepping cannot revive or detach ownership.
+
+    func testStaleStepCompletionAfterManualTakeoverDoesNotRestartAuto() async throws {
+        let (h, cycler) = await harness(["AAAA"], interval: 10)
+        XCTAssertTrue(cycler.start())
+        await waitUntil { self.session(h, "AAAA").connection.currentFrame.bytes == h.faceLibrary.faces(in: .board)[0].packedFrame?.bytes }
+
+        h.transports["AAAA"]?.frameReplyDelay = 0.3
+        let step = Task { @MainActor in await cycler.step(direction: 1) }
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        let primary = session(h, "AAAA").connection
+        _ = primary.output.claim(.manual)
+        XCTAssertFalse(cycler.isRunning)
+        XCTAssertFalse(cycler.wantsRunning)
+
+        await step.value
+        XCTAssertEqual(primary.output.source, .manual)
+        let countAfterCompletion = h.transports["AAAA"]?.receivedFrameBytes.count
+        try? await Task.sleep(nanoseconds: 250_000_000)
+        XCTAssertEqual(primary.output.source, .manual)
+        XCTAssertEqual(h.transports["AAAA"]?.receivedFrameBytes.count, countAfterCompletion)
+        XCTAssertFalse(cycler.isRunning)
+        XCTAssertFalse(cycler.wantsRunning)
+    }
+
+    func testManualTakeoverStillStopsCycleAfterStepResetsTimer() async throws {
+        let (h, cycler) = await harness(["AAAA"], interval: 10)
+        XCTAssertTrue(cycler.start())
+        await waitUntil { self.session(h, "AAAA").connection.currentFrame.bytes == h.faceLibrary.faces(in: .board)[0].packedFrame?.bytes }
+        await cycler.step(direction: 1)
+        XCTAssertTrue(cycler.isRunning)
+
+        _ = session(h, "AAAA").connection.output.claim(.manual)
+
+        XCTAssertFalse(cycler.isRunning)
+        XCTAssertFalse(cycler.wantsRunning)
+    }
+
+    func testStepCancelsSleepingTimerBeforeAwaitingItsSend() async throws {
+        let (h, cycler) = await harness(["AAAA"], interval: 0.05)
+        XCTAssertTrue(cycler.start())
+        await waitUntil { self.session(h, "AAAA").connection.currentFrame.bytes == h.faceLibrary.faces(in: .board)[0].packedFrame?.bytes }
+
+        h.transports["AAAA"]?.frameReplyDelay = 0.3
+        await cycler.step(direction: 1)
+
+        XCTAssertEqual(h.transports["AAAA"]?.receivedFrameBytes.count, 2, "the cancelled timer must not send alongside the step")
+        cycler.stop()
+    }
+
+    func testFailedAutomaticSendStopsTheCurrentRun() async throws {
+        let (h, cycler) = await harness(["AAAA"], interval: 10)
+        h.faceLibrary.faceDocument = FaceDocument(faces: [
+            SavedFace(id: "invalid", name: "Invalid", type: .custom, frameBytes: [], order: 1)
+        ])
+
+        XCTAssertTrue(cycler.start())
+        await waitUntil { !cycler.isRunning }
+
+        XCTAssertFalse(cycler.isRunning)
+        XCTAssertFalse(cycler.wantsRunning)
+        XCTAssertTrue(h.transports["AAAA"]?.receivedFrameBytes.isEmpty ?? false)
+    }
 }
 
 // MARK: - Fake transport
@@ -284,6 +427,9 @@ private final class AutoCyclerFakeTransport: RinaTransport {
 
     func send(_ data: Data) async throws {
         for request in decoder.feed(data) {
+            if request.type == RinaLinkMessageType.setFrame.rawValue {
+                receivedFrameBytes.append(Array(request.payload.suffix(PackedFrame.byteCount)))
+            }
             if request.type == RinaLinkMessageType.setFrame.rawValue, frameReplyDelay > 0 {
                 let delay = frameReplyDelay
                 Task { @MainActor [weak self] in
@@ -315,8 +461,6 @@ private final class AutoCyclerFakeTransport: RinaTransport {
         case .getFrame:
             return PackedFrame().data
         case .setFrame:
-            let bytes = Array(request.payload.suffix(PackedFrame.byteCount))
-            receivedFrameBytes.append(bytes)
             return Data(#"{"ok":true}"#.utf8)
         case .cmd:
             guard let object = try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any],

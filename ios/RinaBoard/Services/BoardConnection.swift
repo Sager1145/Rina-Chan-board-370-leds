@@ -765,7 +765,10 @@ public final class BoardConnection {
     @discardableResult
     public func command(_ cmd: RinaCommand) async throws -> CommandReply {
         let token = BoardOutputContext.session
+        let generation = connectionGeneration
+        let carrier = transportSessionID
         return try await commandPump.run { @MainActor in
+            try self.checkSubmission(generation: generation, carrier: carrier)
             if let token { try self.output.check(token) }
             // Board-group control fan-out: mirror this command to the
             // group's other members before sending it on the wire, unless
@@ -788,7 +791,6 @@ public final class BoardConnection {
             if self.output.source != .debug, case .verbatim = cmd.groupFanOutPolicy {
                 self.fanOut?.dispatch(cmd, leased: token != nil, from: self)
             }
-            let generation = self.connectionGeneration
             guard let activeTransport = self.transport else {
                 throw RinaTransportError.notConnected
             }
@@ -796,6 +798,8 @@ public final class BoardConnection {
             let frame = try await BoardOutputContext.$session.withValue(token) {
                 try await self.send(type: .cmd, payload: payload)
             }
+            try self.checkSubmission(generation: generation, carrier: carrier)
+            if let token { try self.output.check(token) }
             let reply = try JSONDecoder().decode(CommandReply.self, from: frame.payload)
             guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)") }
             self.updateDeviceName(from: reply, for: cmd, transport: activeTransport, generation: generation)
@@ -817,7 +821,9 @@ public final class BoardConnection {
     /// connection's generation changes while the request is in flight.
     @discardableResult
     public func requestReliable(_ cmd: RinaCommand, timeout: TimeInterval = 5) async throws -> CommandReply {
-        try await requestReliableDecoding(cmd, timeout: timeout)
+        let reply: CommandReply = try await requestReliableDecoding(cmd, timeout: timeout)
+        guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)") }
+        return reply
     }
 
     /// Typed-decoding variant of `requestReliable(_:timeout:)`, for replies
@@ -985,6 +991,14 @@ public final class BoardConnection {
         return try JSONDecoder().decode(ScrollMeta.self, from: frame.payload)
     }
 
+    private func checkSubmission(generation: UUID, carrier: UUID) throws {
+        try Task.checkCancellation()
+        guard connectionGeneration == generation, transportSessionID == carrier else {
+            throw CancellationError()
+        }
+        guard connectionState == .connected else { throw RinaTransportError.notConnected }
+    }
+
     /// `GET_FACES`: the reply payload is `[gen: UInt32 LE][file bytes from
     /// offset]`. The board may require several request/reply round-trips
     /// (one `send()` each) to deliver the whole file — the terminal frame of
@@ -992,11 +1006,14 @@ public final class BoardConnection {
     /// the next request must include `{"offset":n,"gen":g}` so the board can
     /// detect a concurrent mutation (HTTP 409-equivalent error) and restart.
     public func getFaces() async throws -> Data {
+        let generation = connectionGeneration
+        let carrier = transportSessionID
         var result = Data()
         var offset = 0
         var gen: UInt32?
         var didRestart = false
         while true {
+            try checkSubmission(generation: generation, carrier: carrier)
             var payloadDict: [String: Any] = ["offset": offset]
             if let gen { payloadDict["gen"] = gen }
             let payload = try JSONSerialization.data(withJSONObject: payloadDict)
@@ -1005,7 +1022,8 @@ public final class BoardConnection {
                 // round-trip; FLAG_MORE on the terminal frame means "call
                 // again with a higher offset", not "more frames on this seq".
                 let frame = try await send(type: .getFaces, payload: payload, aggregateMore: false)
-                guard frame.payload.count >= 4 else { break }
+                try checkSubmission(generation: generation, carrier: carrier)
+                guard frame.payload.count >= 4 else { throw RinaTransportError.invalidResponse }
                 let genBytes = [UInt8](frame.payload.prefix(4))
                 let frameGen = UInt32(genBytes[0])
                     | (UInt32(genBytes[1]) << 8)
@@ -1038,6 +1056,7 @@ public final class BoardConnection {
         // has something real to compare its reply against. Without this the
         // expectation stayed `nil` after every reload and the first mutation
         // was declared in sync unconditionally.
+        try checkSubmission(generation: generation, carrier: carrier)
         if let gen { facesGen = Int(gen) }
         return result
     }
@@ -1051,6 +1070,9 @@ public final class BoardConnection {
         endStart: Bool = true,
         onProgress: ((Double) -> Void)? = nil
     ) async throws -> Data {
+        if kind == .scroll, data.count % PackedFrame.byteCount != 0 {
+            throw RinaTransportError.invalidResponse
+        }
         var beginMeta = meta
         beginMeta["kind"] = kind.rawValue
         beginMeta["totalBytes"] = data.count
@@ -1059,19 +1081,24 @@ public final class BoardConnection {
         // no board-side blob owner exists until BLOB_BEGIN reaches the wire.
         try RinaLinkEncoder.validatePayloadSize(beginPayload.count)
         let token = BoardOutputContext.session
+        let generation = connectionGeneration
+        let carrier = transportSessionID
         return try await blobPump.run { @MainActor in
+            // Stale queued work has not begun a blob and must not abort a new carrier.
+            try self.checkSubmission(generation: generation, carrier: carrier)
             if let token { try self.output.check(token) }
-            let generation = self.connectionGeneration
             do {
                 return try await BoardOutputContext.$session.withValue(token) {
                     try await self.uploadBlobSerial(kind: kind, beginPayload: beginPayload,
-                                                    data: data, endStart: endStart, onProgress: onProgress)
+                                                    data: data, endStart: endStart, onProgress: onProgress,
+                                                    generation: generation, carrier: carrier)
                 }
             } catch {
                 // Keep the blob slot until cleanup completes. This task must
                 // survive the cancelled producer and must not inherit its lease.
                 let cleanup = Task { @MainActor in
                     guard generation == self.connectionGeneration,
+                          carrier == self.transportSessionID,
                           self.connectionState == .connected else { return }
                     do {
                         _ = try await BoardOutputContext.$session.withValue(nil) {
@@ -1096,15 +1123,20 @@ public final class BoardConnection {
         beginPayload: Data,
         data: Data,
         endStart: Bool = true,
-        onProgress: ((Double) -> Void)? = nil
+        onProgress: ((Double) -> Void)? = nil,
+        generation: UUID,
+        carrier: UUID
     ) async throws -> Data {
+        try checkSubmission(generation: generation, carrier: carrier)
         let beginFrame = try await send(type: .blobBegin, payload: beginPayload)
+        try checkSubmission(generation: generation, carrier: carrier)
         let begin = try JSONDecoder().decode(BlobBeginReply.self, from: beginFrame.payload)
 
         let beginOffset = begin.offset ?? 0
         // A hostile/corrupt peer could report an offset outside the blob;
         // reject it before it ever reaches Data(subdata:).
-        guard (0...data.count).contains(beginOffset) else {
+        guard (0...data.count).contains(beginOffset),
+              kind != .scroll || beginOffset % PackedFrame.byteCount == 0 else {
             throw RinaTransportError.invalidResponse
         }
         var offset = beginOffset
@@ -1124,6 +1156,7 @@ public final class BoardConnection {
         }
         var didResync = false
         while offset < data.count {
+            try checkSubmission(generation: generation, carrier: carrier)
             let end = min(offset + chunkMax, data.count)
             var chunkPayload = Data()
             var offsetLE = UInt32(offset).littleEndian
@@ -1131,16 +1164,17 @@ public final class BoardConnection {
             chunkPayload.append(data.subdata(in: offset..<end))
             do {
                 let chunkFrame = try await send(type: .blobChunk, payload: chunkPayload)
+                try checkSubmission(generation: generation, carrier: carrier)
                 let chunkReply = try JSONDecoder().decode(BlobChunkReply.self, from: chunkFrame.payload)
-                let newOffset = chunkReply.offset ?? end
-                guard newOffset > offset && newOffset <= data.count else {
+                guard let newOffset = chunkReply.offset, newOffset == end else {
                     throw RinaTransportError.invalidResponse
                 }
                 offset = newOffset
                 onProgress?(Double(offset) / Double(max(1, data.count)))
             } catch let error as RinaLinkError {
                 if error.code == 400, !didResync, let expected = error.expectedOffset {
-                    guard (0...data.count).contains(expected) else {
+                    guard (0...data.count).contains(expected),
+                          kind != .scroll || expected % PackedFrame.byteCount == 0 else {
                         throw RinaTransportError.invalidResponse
                     }
                     didResync = true
@@ -1151,9 +1185,11 @@ public final class BoardConnection {
             }
         }
 
+        try checkSubmission(generation: generation, carrier: carrier)
         let endMeta: [String: Any] = (kind == .scroll || kind == .scrollBitmap) ? ["start": endStart] : [:]
         let endPayload = try JSONSerialization.data(withJSONObject: endMeta)
         let endFrame = try await send(type: .blobEnd, payload: endPayload)
+        try checkSubmission(generation: generation, carrier: carrier)
         return endFrame.payload
     }
 
@@ -1309,10 +1345,15 @@ public final class BoardConnection {
 
     private func sendFaceOp(_ cmd: RinaCommand) async throws -> FaceOpReply {
         let payload = try cmd.encode()
+        let generation = connectionGeneration
+        let carrier = transportSessionID
         let reply: FaceOpReply = try await commandPump.run { @MainActor in
+            try self.checkSubmission(generation: generation, carrier: carrier)
             let frame = try await self.send(type: .cmd, payload: payload)
+            try self.checkSubmission(generation: generation, carrier: carrier)
             return try JSONDecoder().decode(FaceOpReply.self, from: frame.payload)
         }
+        try checkSubmission(generation: generation, carrier: carrier)
         // The reply's generation is the only evidence that nobody else mutated
         // `saved_faces.json` between our read and this write. Without it — no
         // `gen` field at all, or none observed for this carrier — there is no
@@ -1341,6 +1382,8 @@ public final class BoardConnection {
     /// race the subscription.
     @discardableResult
     public func wifiScan() async throws -> WifiScanReply {
+        let generation = connectionGeneration
+        let carrier = transportSessionID
         let (subID, stream) = subscribeEvents()
         // A6: guarantee the subscription is torn down on every exit path
         // (synchronous reply, timeout, or an EV_WIFI_SCAN match) — otherwise
@@ -1348,10 +1391,12 @@ public final class BoardConnection {
         // in `eventContinuations` forever (it's never iterated in that case).
         defer { eventContinuations.removeValue(forKey: subID) }
         let decoded = try await commandPump.run { @MainActor in
+            try self.checkSubmission(generation: generation, carrier: carrier)
             let payload = try RinaCommand.wifiScan.encode()
             let frame = try await self.send(type: .cmd, payload: payload)
             return try JSONDecoder().decode(WifiScanReply.self, from: frame.payload)
         }
+        try checkSubmission(generation: generation, carrier: carrier)
         if decoded.networks != nil {
             lastWifiScan = decoded
             return decoded
@@ -1371,6 +1416,7 @@ public final class BoardConnection {
             group.cancelAll()
             return first
         }
+        try checkSubmission(generation: generation, carrier: carrier)
         return result ?? decoded
     }
 
@@ -1378,11 +1424,15 @@ public final class BoardConnection {
     /// next `EV_WIFI` push.
     @discardableResult
     public func refreshWifiStatus() async throws -> WifiStatus {
+        let generation = connectionGeneration
+        let carrier = transportSessionID
         let decoded = try await commandPump.run { @MainActor in
+            try self.checkSubmission(generation: generation, carrier: carrier)
             let payload = try RinaCommand.wifiStatus.encode()
             let frame = try await self.send(type: .cmd, payload: payload)
             return try JSONDecoder().decode(WifiStatus.self, from: frame.payload)
         }
+        try checkSubmission(generation: generation, carrier: carrier)
         wifi = decoded
         return decoded
     }

@@ -603,6 +603,120 @@ final class GroupControlFanOutTests: XCTestCase {
         XCTAssertTrue(sessions.active === liveSession)
         XCTAssertEqual(fanOut.primaryID, "AAAA")
     }
+
+    // MARK: 16. R10 — alignment is confirmed per field and retries are bounded.
+
+    func testPartialAlignmentFailureStaysVisibleAndReconnectRealigns() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        let primary = session(h, "AAAA")
+        let sink = session(h, "BBBB")
+        h.transports["AAAA"]?.rendererBrightness = 123
+        h.transports["AAAA"]?.rendererColor = "#123456"
+        _ = try await primary.connection.getStatus()
+        h.transports["BBBB"]?.failCmds.insert("set_brightness")
+
+        h.fanOut.setTarget(.group(h.group.id))
+
+        await waitUntil { h.transports["BBBB"]?.lastCmdField("set_color", "hex") as? String == "#123456" }
+        await waitUntil { h.fanOut.memberErrors["BBBB"] != nil }
+        await waitUntil { h.transports["BBBB"]?.receivedCmdNames.filter { $0 == "set_brightness" }.count == 3 }
+        XCTAssertEqual(h.transports["BBBB"]?.receivedCmdNames.filter { $0 == "set_brightness" }.count, 3)
+        XCTAssertNotNil(h.fanOut.memberErrors["BBBB"], "a successful color ACK must not erase the brightness failure")
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertEqual(h.transports["BBBB"]?.receivedCmdNames.filter { $0 == "set_brightness" }.count, 3)
+
+        let replacement = GroupControlFakeTransport()
+        replacement.wifiBoardId = "BBBB"
+        sink.connection.disconnect()
+        _ = await sink.connection.connect(using: replacement)
+
+        await waitUntil { replacement.lastCmdField("set_brightness", "raw") as? Int == 123 }
+        await waitUntil { replacement.lastCmdField("set_color", "hex") as? String == "#123456" }
+        await waitUntil { h.fanOut.memberErrors["BBBB"] == nil }
+        XCTAssertNil(h.fanOut.memberErrors["BBBB"])
+    }
+
+    // MARK: 17. R23 — queued leased work keeps its original lease snapshot.
+
+    func testQueuedOldLeaseCannotBorrowNewLeaseAfterManualTakeover() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.fanOut.setTarget(.group(h.group.id))
+        let primary = session(h, "AAAA").connection
+        let sink = session(h, "BBBB").connection
+        h.transports["BBBB"]?.holdCmds.insert("set_color")
+
+        _ = try await primary.command(.setColor(hex: "#111111"))
+        let primaryLease = primary.output.claim(.manual)
+        _ = try await primary.withOutput(primaryLease) {
+            try await primary.command(.button(button: "B3"))
+        }
+
+        _ = sink.output.claim(.manual)
+        _ = try await primary.withOutput(primaryLease) {
+            try await primary.command(.button(button: "B4"))
+        }
+        h.transports["BBBB"]?.releaseHeld("set_color")
+
+        await waitUntil { h.transports["BBBB"]?.lastCmdField("button", "button") as? String == "B4" }
+        XCTAssertEqual(h.transports["BBBB"]?.receivedCmdNames.filter { $0 == "button" }.count, 1)
+        XCTAssertEqual(h.transports["BBBB"]?.lastCmdField("button", "button") as? String, "B4")
+    }
+
+    func testNewSettingSupersedesPendingAlignmentRetry() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        let primary = session(h, "AAAA").connection
+        h.transports["AAAA"]?.rendererBrightness = 123
+        _ = try await primary.getStatus()
+        h.transports["BBBB"]?.failCmds.insert("set_brightness")
+        h.fanOut.setTarget(.group(h.group.id))
+        await waitUntil { h.fanOut.memberErrors["BBBB"] != nil }
+
+        h.transports["BBBB"]?.failCmds.remove("set_brightness")
+        _ = try await primary.command(.setBrightness(raw: 200))
+        await waitUntil { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 200 }
+        try? await Task.sleep(nanoseconds: 400_000_000)
+
+        XCTAssertEqual(h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int, 200)
+        XCTAssertNil(h.fanOut.memberErrors["BBBB"])
+    }
+
+    func testQueueCapPreservesPendingAlignmentAcknowledgements() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        let primary = session(h, "AAAA").connection
+        h.transports["AAAA"]?.rendererBrightness = 123
+        h.transports["AAAA"]?.rendererColor = "#123456"
+        _ = try await primary.getStatus()
+        h.transports["BBBB"]?.holdCmds.insert("set_brightness")
+        h.fanOut.setTarget(.group(h.group.id))
+
+        await waitUntil { h.transports["BBBB"]?.heldCount("set_brightness") == 1 }
+        for _ in 0..<24 {
+            h.fanOut.dispatch(.button(button: "B3"), leased: false, from: primary)
+        }
+        h.transports["BBBB"]?.releaseHeld("set_brightness")
+
+        await waitUntil { h.transports["BBBB"]?.lastCmdField("set_color", "hex") as? String == "#123456" }
+        XCTAssertEqual(h.transports["BBBB"]?.lastCmdField("set_color", "hex") as? String, "#123456")
+        XCTAssertNil(h.fanOut.memberErrors["BBBB"])
+    }
+
+    func testOldInFlightAlignmentAckCannotConfirmNewerValue() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        let primary = session(h, "AAAA").connection
+        h.transports["AAAA"]?.rendererBrightness = 123
+        _ = try await primary.getStatus()
+        h.transports["BBBB"]?.holdCmds.insert("set_brightness")
+        h.fanOut.setTarget(.group(h.group.id))
+        await waitUntil { h.transports["BBBB"]?.heldCount("set_brightness") == 1 }
+
+        _ = try await primary.command(.setBrightness(raw: 200))
+        h.transports["BBBB"]?.holdCmds.remove("set_brightness")
+        h.transports["BBBB"]?.releaseHeld("set_brightness")
+
+        await waitUntil { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 200 }
+        XCTAssertEqual(h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int, 200)
+        XCTAssertNil(h.fanOut.memberErrors["BBBB"])
+    }
 }
 
 // MARK: - Fake transport
@@ -631,6 +745,7 @@ private final class GroupControlFakeTransport: RinaTransport {
     /// once the handshake completes).
     var includeRenderer = true
     var rendererBrightness: Int?
+    var rendererColor: String?
     /// M2: firmware `renderer.mode`, as reported by `getStatus`.
     var rendererMode = "manual"
     var clockRxUs: Int64 = 1_000
@@ -690,6 +805,10 @@ private final class GroupControlFakeTransport: RinaTransport {
         }
     }
 
+    func heldCount(_ cmd: String) -> Int {
+        heldRequests[cmd]?.count ?? 0
+    }
+
     private func cmdName(of request: RinaLinkFrame) -> String? {
         guard request.type == RinaLinkMessageType.cmd.rawValue,
               let object = try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any] else { return nil }
@@ -717,6 +836,7 @@ private final class GroupControlFakeTransport: RinaTransport {
             if includeRenderer {
                 var renderer: [String: Any] = ["mode": rendererMode]
                 if let rendererBrightness { renderer["brightness"] = rendererBrightness }
+                if let rendererColor { renderer["color"] = rendererColor }
                 object["renderer"] = renderer
             }
             return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()

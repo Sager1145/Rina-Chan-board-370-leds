@@ -327,6 +327,44 @@ final class GroupAutoConnectorTests: XCTestCase {
         return (group, members)
     }
 
+    func testWrongPhysicalIdentityDoesNotResetFailuresOrRedialLiveAlias() async throws {
+        let sessions = realSessions()
+        let boardStore = freshBoardStore()
+        let groupStore = freshGroupStore()
+        let (group, members) = try makeGroup(["AAAA"], boardStore: boardStore, groupStore: groupStore)
+        let clock = ScaledClock()
+        var dials = 0
+        let connector = makeConnector(sessions, groupStore, boardStore, clock: clock, backoff: []) { _, session in
+            dials += 1
+            if dials == GroupAutoConnector.maxConsecutiveFailures {
+                _ = await session.connection.connect(using: ScriptedTransport(.succeed("WRONG")))
+            }
+        }
+        connector.setTarget(.group(group.id), isExplicit: true)
+        await waitUntil { sessions.existingSession(for: "known-AAAA")?.connection.connectionState == .connected }
+        await waitUntil { connector.hasGivenUp(members[0]) }
+        XCTAssertTrue(connector.hasGivenUp(members[0]), "A connected address alias does not prove this member is online")
+        XCTAssertNil(sessions.session(matchingGroupMember: "AAAA"))
+        connector.setTarget(.group(group.id), isExplicit: false)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(dials, GroupAutoConnector.maxConsecutiveFailures, "Do not redial over a mismatched live connection")
+    }
+
+    func testSavingNewIdentityPreservesLegacyRecordsAtReusedAddresses() {
+        let store = freshBoardStore()
+        store.upsert(KnownBoard(id: "legacy", name: "Original", preferredTransport: "wifi", lastHost: "10.0.0.7"))
+        let service = BonjourServiceIdentity(name: "New board")
+        store.upsert(KnownBoard(id: service.storageID, name: "New board", preferredTransport: "wifi",
+                                lastHost: "10.0.0.7", bonjourService: service))
+        store.upsert(KnownBoard(id: RinaLinkConstants.apIP, name: "Legacy hotspot", preferredTransport: "hotspot",
+                                lastHost: RinaLinkConstants.apIP))
+        store.upsert(KnownBoard(id: "hotspot:new", name: "New hotspot", preferredTransport: "hotspot",
+                                lastHost: RinaLinkConstants.apIP, hotspotSSID: "RinaChanBoard-AABBCCDDEEFF"))
+        XCTAssertEqual(store.boards.count, 4)
+        XCTAssertEqual(store.boards.first(where: { $0.id == "legacy" })?.name, "Original")
+        XCTAssertEqual(store.boards.first(where: { $0.id == RinaLinkConstants.apIP })?.name, "Legacy hotspot")
+    }
+
     // MARK: R1. Backoff 5/15/30/30 and a cap of 5 dials, idle during the retry loop
 
     func testRealPathBacksOffAndCapsWithoutCountingTheRetryLoop() async throws {

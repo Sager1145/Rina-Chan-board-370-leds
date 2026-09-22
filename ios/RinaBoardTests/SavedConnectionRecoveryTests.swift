@@ -97,7 +97,7 @@ final class SavedConnectionRecoveryTests: XCTestCase {
         XCTAssertEqual(board.connectionTarget, .boardHotspot(host: RinaLinkConstants.apIP, ssid: nil))
     }
 
-    func testHotspotBoardsWithDistinctSSIDsStaySeparateAndReplaceLegacyRecord() {
+    func testHotspotBoardsWithDistinctSSIDsPreserveUnidentifiedLegacyRecord() {
         let store = makeStore()
         defer { clear(store.defaultsSuiteName) }
         let legacy = KnownBoard(id: RinaLinkConstants.apIP, name: "璃奈板",
@@ -110,9 +110,9 @@ final class SavedConnectionRecoveryTests: XCTestCase {
                                  hotspotSSID: ssidA)
         store.value.upsert(boardA)
 
-        // The legacy record (no SSID) is replaced, not left as a duplicate.
-        XCTAssertEqual(store.value.boards.count, 1)
-        XCTAssertEqual(store.value.boards[0].id, KnownBoard.hotspotStorageID(ssid: ssidA))
+        // A shared gateway cannot prove which board the legacy record described.
+        XCTAssertEqual(store.value.boards.count, 2)
+        XCTAssertTrue(store.value.boards.contains { $0.id == legacy.id })
 
         let ssidB = "RinaChanBoard-BBBBBBBBBBBB"
         let boardB = KnownBoard(id: KnownBoard.hotspotStorageID(ssid: ssidB), name: "璃奈板 B",
@@ -120,8 +120,8 @@ final class SavedConnectionRecoveryTests: XCTestCase {
                                  hotspotSSID: ssidB)
         store.value.upsert(boardB)
 
-        // Two distinct SSIDs are two distinct boards.
-        XCTAssertEqual(store.value.boards.count, 2)
+        // Two distinct SSIDs and the unidentified legacy record remain separate.
+        XCTAssertEqual(store.value.boards.count, 3)
         XCTAssertTrue(store.value.boards.contains { $0.id == KnownBoard.hotspotStorageID(ssid: ssidA) })
         XCTAssertTrue(store.value.boards.contains { $0.id == KnownBoard.hotspotStorageID(ssid: ssidB) })
     }
@@ -211,7 +211,7 @@ final class SavedConnectionRecoveryTests: XCTestCase {
         XCTAssertNil(model.lastErrorMessage)
     }
 
-    func testLegacyHotspotBoardMigratesToSSIDKeyedRecordAfterSuccessfulJoin() async {
+    func testLegacyHotspotJoinPreservesUnknownIdentityRecord() async {
         let store = makeStore()
         defer { clear(store.defaultsSuiteName) }
         let board = KnownBoard(id: RinaLinkConstants.apIP, name: "璃奈板",
@@ -231,8 +231,9 @@ final class SavedConnectionRecoveryTests: XCTestCase {
             connectTransport: { _ in true }
         )
 
-        XCTAssertEqual(store.value.boards.count, 1)
-        let migrated = store.value.boards[0]
+        XCTAssertEqual(store.value.boards.count, 2)
+        XCTAssertTrue(store.value.boards.contains { $0.id == board.id })
+        let migrated = store.value.boards.first { $0.id == KnownBoard.hotspotStorageID(ssid: ssid) }!
         XCTAssertEqual(migrated.id, KnownBoard.hotspotStorageID(ssid: ssid))
         XCTAssertEqual(migrated.hotspotSSID, ssid)
     }

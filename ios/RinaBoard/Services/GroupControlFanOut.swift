@@ -93,9 +93,22 @@ public final class GroupControlFanOut {
     private var dispatchSeq = 0
     private var channels: [String: SinkChannel] = [:]
 
+    private struct LeaseSnapshot {
+        let token: UUID
+        let dispatchRevision: Int
+        let connectionGeneration: UUID
+    }
+
+    private struct AlignmentAck: Equatable {
+        let revision: Int
+        let field: String
+        let submissionID: UUID
+    }
+
     private enum Item {
-        case command(RinaCommand, leased: Bool)
-        case frame(PackedFrame, Playback, reason: String)
+        /// `lease == nil` is an explicitly lease-free settings command.
+        case command(RinaCommand, lease: LeaseSnapshot?, connectionGeneration: UUID, alignment: AlignmentAck? = nil)
+        case frame(PackedFrame, Playback, reason: String, lease: LeaseSnapshot)
     }
 
     /// One outstanding mirror queue for one sink connection. Torn down (and
@@ -115,7 +128,7 @@ public final class GroupControlFanOut {
         /// value it captured at start and stops once they differ, instead of
         /// requiring a `Task` cancellation race.
         var channelGeneration = 0
-        var token: UUID?
+        var currentLease: LeaseSnapshot?
         var items: [Item] = []
         var worker: Task<Void, Never>?
         var wake: CheckedContinuation<Void, Never>?
@@ -125,6 +138,13 @@ public final class GroupControlFanOut {
         /// `false`, and `attachPrimary` retries alignment for it on every
         /// later reconcile until it succeeds (F9).
         var isAligned = false
+        var desiredSettingsRevision = 0
+        var confirmedSettingsRevision = 0
+        var pendingAlignment: [String: RinaCommand] = [:]
+        var alignmentSubmissions: [String: UUID] = [:]
+        var alignmentAttempts: [String: Int] = [:]
+        var alignmentErrors: [String: String] = [:]
+        var operationErrors: [String: String] = [:]
 
         init(id: String, connection: BoardConnection, connectionGeneration: UUID) {
             self.id = id
@@ -336,14 +356,18 @@ public final class GroupControlFanOut {
     /// sink silently unaligned forever (F9).
     private func alignSink(_ channel: SinkChannel, primary: BoardConnection) {
         guard let renderer = primary.status?.renderer else { return }
+        guard channel.pendingAlignment.isEmpty else { return }
+        channel.desiredSettingsRevision += 1
+        let revision = channel.desiredSettingsRevision
+        var settings: [(String, RinaCommand)] = []
         if let brightness = renderer.brightness {
-            enqueueAndWake(.command(.setBrightness(raw: brightness), leased: false), to: channel)
+            settings.append(("brightness", .setBrightness(raw: brightness)))
         }
         if let hex = renderer.color {
-            enqueueAndWake(.command(.setColor(hex: hex), leased: false), to: channel)
+            settings.append(("color", .setColor(hex: hex)))
         }
         if let ms = renderer.autoIntervalMs {
-            enqueueAndWake(.command(.setAutoInterval(ms: ms), leased: false), to: channel)
+            settings.append(("autoInterval", .setAutoInterval(ms: ms)))
         }
         // M2: also align firmware mode — a member still free-running its own
         // firmware auto timer must be forced to manual, the same as every
@@ -351,9 +375,28 @@ public final class GroupControlFanOut {
         // out of sync with the primary while it isn't yet receiving mirrored
         // frames.
         if channel.connection?.status?.renderer?.mode == "auto" {
-            enqueueAndWake(.command(.setMode(mode: "manual"), leased: false), to: channel)
+            settings.append(("mode", .setMode(mode: "manual")))
         }
-        channel.isAligned = true
+        channel.isAligned = settings.isEmpty
+        if settings.isEmpty {
+            channel.confirmedSettingsRevision = revision
+            return
+        }
+        channel.pendingAlignment = Dictionary(uniqueKeysWithValues: settings)
+        channel.alignmentAttempts = Dictionary(uniqueKeysWithValues: settings.map { ($0.0, 1) })
+        for (field, command) in settings {
+            let submissionID = UUID()
+            channel.alignmentSubmissions[field] = submissionID
+            enqueueAndWake(
+                .command(
+                    command,
+                    lease: nil,
+                    connectionGeneration: channel.connectionGeneration,
+                    alignment: AlignmentAck(revision: revision, field: field, submissionID: submissionID)
+                ),
+                to: channel
+            )
+        }
     }
 
     private func detachSink(id: String) {
@@ -390,7 +433,15 @@ public final class GroupControlFanOut {
     private func claimAllSinksAndBumpSeq() -> Int {
         dispatchSeq += 1
         for channel in channels.values {
-            channel.token = channel.connection?.output.claim(.groupControl)
+            guard let connection = channel.connection else {
+                channel.currentLease = nil
+                continue
+            }
+            channel.currentLease = LeaseSnapshot(
+                token: connection.output.claim(.groupControl),
+                dispatchRevision: dispatchSeq,
+                connectionGeneration: connection.connectionGeneration
+            )
         }
         // N2: a paused group still owns its participants' output leases —
         // a control dispatch must supersede it (and clear the paused state)
@@ -413,7 +464,46 @@ public final class GroupControlFanOut {
         guard isCurrentPrimary(primary), !channels.isEmpty else { return }
         if leased { claimAllSinksAndBumpSeq() }
         for channel in channels.values {
-            enqueueAndWake(.command(cmd, leased: leased), to: channel)
+            guard !leased || channel.currentLease != nil else { continue }
+            if !leased,
+               let field = alignmentField(for: cmd),
+               channel.pendingAlignment[field] != nil {
+                // A live user setting supersedes the attach-time value that
+                // was awaiting ACK. Make the newer command itself the ACK for
+                // this field so a delayed retry cannot restore the old value.
+                let alignment = AlignmentAck(
+                    revision: channel.desiredSettingsRevision,
+                    field: field,
+                    submissionID: UUID()
+                )
+                channel.pendingAlignment[field] = cmd
+                channel.alignmentSubmissions[field] = alignment.submissionID
+                channel.alignmentAttempts[field] = 1
+                channel.items.removeAll { item in
+                    guard case .command(_, _, _, let queuedAlignment) = item else { return false }
+                    return queuedAlignment?.revision == alignment.revision
+                        && queuedAlignment?.field == alignment.field
+                }
+                refreshMemberError(channel)
+                enqueueAndWake(
+                    .command(
+                        cmd,
+                        lease: nil,
+                        connectionGeneration: channel.connectionGeneration,
+                        alignment: alignment
+                    ),
+                    to: channel
+                )
+                continue
+            }
+            enqueueAndWake(
+                .command(
+                    cmd,
+                    lease: leased ? channel.currentLease : nil,
+                    connectionGeneration: channel.connectionGeneration
+                ),
+                to: channel
+            )
         }
     }
 
@@ -421,7 +511,8 @@ public final class GroupControlFanOut {
         guard isCurrentPrimary(primary), !channels.isEmpty else { return }
         claimAllSinksAndBumpSeq()
         for channel in channels.values {
-            enqueueAndWake(.frame(packed, playback, reason: reason), to: channel)
+            guard let lease = channel.currentLease else { continue }
+            enqueueAndWake(.frame(packed, playback, reason: reason, lease: lease), to: channel)
         }
     }
 
@@ -434,7 +525,8 @@ public final class GroupControlFanOut {
         guard isCurrentPrimary(primary), ticket == dispatchSeq else { return }
         if let resolved = faceFrameResolver?(primary, reply) {
             for channel in channels.values {
-                enqueueAndWake(.frame(resolved, .idle, reason: "group_control_face"), to: channel)
+                guard let lease = channel.currentLease, lease.dispatchRevision == ticket else { continue }
+                enqueueAndWake(.frame(resolved, .idle, reason: "group_control_face", lease: lease), to: channel)
             }
             return
         }
@@ -450,12 +542,14 @@ public final class GroupControlFanOut {
             if let frame = await self.primaryFrameAfterApply(primary: primary, ticket: ticket) {
                 guard self.isCurrentPrimary(primary), ticket == self.dispatchSeq else { return }
                 for channel in self.channels.values {
-                    self.enqueueAndWake(.frame(frame, .idle, reason: "group_control_face"), to: channel)
+                    guard let lease = channel.currentLease, lease.dispatchRevision == ticket else { continue }
+                    self.enqueueAndWake(.frame(frame, .idle, reason: "group_control_face", lease: lease), to: channel)
                 }
             } else {
                 guard self.isCurrentPrimary(primary), ticket == self.dispatchSeq else { return }
-                for id in self.channels.keys {
-                    self.memberErrors[id] = NSLocalizedString("未能同步表情", comment: "group control sink face sync failed")
+                for channel in self.channels.values {
+                    channel.operationErrors["face"] = NSLocalizedString("未能同步表情", comment: "group control sink face sync failed")
+                    self.refreshMemberError(channel)
                 }
             }
         }
@@ -482,6 +576,16 @@ public final class GroupControlFanOut {
         return nil
     }
 
+    private func alignmentField(for cmd: RinaCommand) -> String? {
+        switch cmd {
+        case .setBrightness: return "brightness"
+        case .setColor: return "color"
+        case .setAutoInterval: return "autoInterval"
+        case .setMode: return "mode"
+        default: return nil
+        }
+    }
+
     private func enqueueAndWake(_ item: Item, to channel: SinkChannel) {
         switch item {
         case .frame:
@@ -496,10 +600,12 @@ public final class GroupControlFanOut {
                 channel.items.removeAll { if case .frame = $0 { return true }; return false }
             }
             channel.items.append(item)
-        case .command(let cmd, _):
-            if let key = coalesceKey(for: cmd),
+        case .command(let cmd, _, _, let alignment):
+            if alignment == nil, let key = coalesceKey(for: cmd),
                let idx = channel.items.firstIndex(where: {
-                   if case .command(let queued, _) = $0 { return coalesceKey(for: queued) == key }
+                   if case .command(let queued, _, _, let queuedAlignment) = $0 {
+                       return queuedAlignment == nil && coalesceKey(for: queued) == key
+                   }
                    return false
                }) {
                 // Coalescing replaces the earlier same-key entry, but moves
@@ -523,8 +629,23 @@ public final class GroupControlFanOut {
         while channel.items.count > 16 {
             if let idx = channel.items.firstIndex(where: { if case .frame = $0 { return true }; return false }) {
                 channel.items.remove(at: idx)
+            } else if let idx = channel.items.firstIndex(where: {
+                if case .command(_, _, _, alignment: nil) = $0 { return true }
+                return false
+            }) {
+                channel.items.remove(at: idx)
             } else {
-                channel.items.removeFirst()
+                let dropped = channel.items.removeFirst()
+                if case .command(_, _, _, let alignment) = dropped,
+                   let alignment,
+                   isCurrent(alignment, for: channel) {
+                    channel.alignmentErrors[alignment.field] = NSLocalizedString(
+                        "同步队列已满",
+                        comment: "group control alignment queue full"
+                    )
+                    scheduleAlignmentRetry(alignment, channel: channel)
+                    refreshMemberError(channel)
+                }
             }
         }
     }
@@ -569,43 +690,130 @@ public final class GroupControlFanOut {
         }
         do {
             switch item {
-            case .command(let cmd, let leased):
-                if leased {
-                    guard let token = channel.token, connection.output.isCurrent(token) else {
-                        dropQueuedLeasedItems(channel)
+            case .command(let cmd, let lease, let connectionGeneration, let alignment):
+                guard connectionGeneration == channel.connectionGeneration,
+                      connection.connectionGeneration == connectionGeneration else { return }
+                if let lease {
+                    guard isCurrent(lease, for: channel, connection: connection) else {
+                        dropQueuedItems(channel, for: lease)
                         return
                     }
-                    _ = try await connection.withOutput(token) { try await connection.command(cmd) }
+                    _ = try await connection.withOutput(lease.token) { try await connection.command(cmd) }
                 } else {
                     _ = try await connection.command(cmd)
                 }
-            case .frame(let packed, let playback, let reason):
-                guard let token = channel.token, connection.output.isCurrent(token) else {
-                    dropQueuedLeasedItems(channel)
+                guard channel.channelGeneration == myGeneration else { return }
+                completeSuccess(alignment: alignment, operationKey: "command:\(cmd.name)", channel: channel)
+            case .frame(let packed, let playback, let reason, let lease):
+                guard isCurrent(lease, for: channel, connection: connection) else {
+                    dropQueuedItems(channel, for: lease)
                     return
                 }
-                _ = try await connection.setFrame(packed, playback: playback, reason: reason, outputSession: token)
+                _ = try await connection.setFrame(packed, playback: playback, reason: reason, outputSession: lease.token)
+                guard channel.channelGeneration == myGeneration else { return }
+                channel.operationErrors.removeValue(forKey: "frame")
+                refreshMemberError(channel)
             }
-            guard channel.channelGeneration == myGeneration else { return }
-            memberErrors.removeValue(forKey: channel.id)
         } catch {
             guard channel.channelGeneration == myGeneration else { return }
             if error is CancellationError { return }
-            if case RatePumpError.dropped = error { return }
-            memberErrors[channel.id] = error.localizedDescription
+            if case .command(_, _, _, let alignment) = item, let alignment {
+                guard isCurrent(alignment, for: channel) else { return }
+                channel.alignmentErrors[alignment.field] = error.localizedDescription
+                scheduleAlignmentRetry(alignment, channel: channel)
+            } else {
+                if case RatePumpError.dropped = error { return }
+                channel.operationErrors[operationKey(for: item)] = error.localizedDescription
+            }
+            refreshMemberError(channel)
         }
     }
 
-    /// "A worker finding its token no longer current drops its queued leased
-    /// items and never re-claims" — every frame, and every leased command,
-    /// still queued is discarded; unleased commands (which don't need the
-    /// lease at all) are left in place.
-    private func dropQueuedLeasedItems(_ channel: SinkChannel) {
+    private func isCurrent(_ lease: LeaseSnapshot, for channel: SinkChannel, connection: BoardConnection) -> Bool {
+        channel.currentLease?.token == lease.token
+            && channel.connectionGeneration == lease.connectionGeneration
+            && connection.connectionGeneration == lease.connectionGeneration
+            && connection.output.isCurrent(lease.token)
+    }
+
+    /// Drops only work captured from the same stale lease. A later dispatch
+    /// may already have installed a fresh lease and must remain queued.
+    private func dropQueuedItems(_ channel: SinkChannel, for staleLease: LeaseSnapshot) {
         channel.items.removeAll { item in
             switch item {
-            case .frame: return true
-            case .command(_, let leased): return leased
+            case .frame(_, _, _, let lease):
+                return lease.token == staleLease.token
+            case .command(_, let lease, _, _):
+                return lease?.token == staleLease.token
             }
+        }
+    }
+
+    private func completeSuccess(alignment: AlignmentAck?, operationKey: String, channel: SinkChannel) {
+        guard let alignment else {
+            channel.operationErrors.removeValue(forKey: operationKey)
+            refreshMemberError(channel)
+            return
+        }
+        guard isCurrent(alignment, for: channel) else { return }
+        channel.pendingAlignment.removeValue(forKey: alignment.field)
+        channel.alignmentSubmissions.removeValue(forKey: alignment.field)
+        channel.alignmentAttempts.removeValue(forKey: alignment.field)
+        channel.alignmentErrors.removeValue(forKey: alignment.field)
+        if channel.pendingAlignment.isEmpty {
+            channel.confirmedSettingsRevision = alignment.revision
+            channel.isAligned = true
+        }
+        refreshMemberError(channel)
+    }
+
+    private func scheduleAlignmentRetry(_ alignment: AlignmentAck, channel: SinkChannel) {
+        guard isCurrent(alignment, for: channel),
+              channel.pendingAlignment[alignment.field] != nil else { return }
+        let attempt = channel.alignmentAttempts[alignment.field, default: 1]
+        guard attempt < 3 else { return }
+        channel.alignmentAttempts[alignment.field] = attempt + 1
+        let channelGeneration = channel.channelGeneration
+        let connectionGeneration = channel.connectionGeneration
+        let delay = UInt64(attempt) * 100_000_000
+        Task { @MainActor [weak self, weak channel] in
+            do { try await Task.sleep(nanoseconds: delay) } catch { return }
+            guard let self, let channel,
+                  channel.channelGeneration == channelGeneration,
+                  channel.connectionGeneration == connectionGeneration,
+                  self.isCurrent(alignment, for: channel),
+                  let command = channel.pendingAlignment[alignment.field] else { return }
+            self.enqueueAndWake(
+                .command(
+                    command,
+                    lease: nil,
+                    connectionGeneration: connectionGeneration,
+                    alignment: alignment
+                ),
+                to: channel
+            )
+        }
+    }
+
+    private func refreshMemberError(_ channel: SinkChannel) {
+        var errors = channel.alignmentErrors.keys.sorted().compactMap { channel.alignmentErrors[$0] }
+        errors.append(contentsOf: channel.operationErrors.keys.sorted().compactMap { channel.operationErrors[$0] })
+        if errors.isEmpty {
+            memberErrors.removeValue(forKey: channel.id)
+        } else {
+            memberErrors[channel.id] = errors.joined(separator: "\n")
+        }
+    }
+
+    private func isCurrent(_ alignment: AlignmentAck, for channel: SinkChannel) -> Bool {
+        alignment.revision == channel.desiredSettingsRevision
+            && channel.alignmentSubmissions[alignment.field] == alignment.submissionID
+    }
+
+    private func operationKey(for item: Item) -> String {
+        switch item {
+        case .frame: return "frame"
+        case .command(let command, _, _, _): return "command:\(command.name)"
         }
     }
 }

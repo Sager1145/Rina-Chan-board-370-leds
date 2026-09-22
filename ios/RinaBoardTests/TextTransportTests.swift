@@ -501,6 +501,29 @@ final class TextTransportTests: XCTestCase {
         XCTAssertFalse(model.boardPaused)
     }
 
+    func testRestoreFromPreviousBindingCannotClaimOrPublishAfterBoardSwitch() async throws {
+        let (boardA, transportA) = try await connectedBoard()
+        let (boardB, _) = try await connectedBoard()
+        let model = TextViewModel()
+        let oldTimeline = try makeTimeline(text: "Old board")
+        transportA.scrollMeta = restoreMeta(text: oldTimeline.text, timelineId: oldTimeline.timelineId,
+                                           timeline: oldTimeline)
+        transportA.shouldHold = { type, _ in type == .getScrollMeta }
+        let restore = Task { await model.restoreOnConnect(connection: boardA) }
+        try await transportA.waitForHeld()
+        model.connectionChanged()
+        model.text = "New board"
+        await model.send(connection: boardB)
+        model.suspendPreviewLoop()
+        let newTimeline = try XCTUnwrap(model.boundTimelineId, "The replacement upload must succeed before releasing the old restore")
+        transportA.releaseHeld()
+        await restore.value
+        XCTAssertEqual(model.text, "New board")
+        XCTAssertEqual(model.boundTimelineId, newTimeline)
+        XCTAssertNil(boardA.output.source)
+        XCTAssertEqual(boardB.output.source, .text)
+    }
+
     func testActiveReconnectRestoresBoardTextAtFreshPreviewFrame() async throws {
         let (connection, transport) = try await connectedBoard()
         // Connection setup reads its own board snapshot. Measure only the
@@ -1118,6 +1141,15 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
                 let override = blobChunkReplyOverrides.removeFirst()
                 reply = override.data
                 if override.isError { replyType = RinaLinkMessageType.error.rawValue }
+            } else if messageType == .blobChunk, request.payload.count >= 4 {
+                // Firmware ACKs the exact end of the accepted chunk. Keep
+                // explicit malformed/error overrides above for negative tests.
+                let offset = request.payload.prefix(4).enumerated().reduce(UInt32(0)) {
+                    $0 | (UInt32($1.element) << ($1.offset * 8))
+                }
+                reply = try JSONSerialization.data(withJSONObject: [
+                    "ok": true, "offset": Int(offset) + request.payload.count - 4,
+                ])
             }
             if let shouldHold {
                 let name = (try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any])?["cmd"] as? String

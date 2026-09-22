@@ -247,7 +247,8 @@ struct ScrollTextView: View {
                 onPause: { Task { if await adoptIfOrphaned(group) { await groupCoordinator.pause(group: group) } } },
                 onStop: { Task { await stopOrStopGroup() } },
                 onStepBackward: { Task { if await adoptIfOrphaned(group) { await groupCoordinator.step(group: group, direction: -1) } } },
-                onStepForward: { Task { if await adoptIfOrphaned(group) { await groupCoordinator.step(group: group, direction: 1) } } }
+                onStepForward: { Task { if await adoptIfOrphaned(group) { await groupCoordinator.step(group: group, direction: 1) } } },
+                canStop: starting || playing || paused || orphaned
             )
         }
         // Take a still-running group scroll back as soon as every member is
@@ -370,6 +371,8 @@ struct ScrollTextView: View {
             await model.stop(connection: connection)
             return
         }
+        groupPlaybackUpdateTask?.cancel()
+        groupPlaybackUpdateTask = nil
         await groupCoordinator.stop(group: group)
     }
 
@@ -525,14 +528,19 @@ struct ScrollTextView: View {
                 .accessibilityValue(Text(String(format: "%.0f fps", shownFps)))
             }
 
-            // Measured from board telemetry, never an echo of the request.
-            // A group scroll never binds `model`'s single-board timeline, so
-            // its rows read the members' own telemetry instead.
+            // Single-board rate uses presentation samples. Group rows show
+            // the interval reported by each board, labeled as configuration.
             if let group = targetedGroup {
                 GroupMeasuredFpsRow(group: group)
             } else {
                 TextMeasuredFpsRow(model: model)
             }
+        }
+        .onChange(of: connection.connectionGeneration) { _, _ in
+            fpsCommitTask?.cancel()
+            fpsCommitTask = nil
+            fpsDraft = nil
+            fpsEditing = false
         }
         .onChange(of: targetedGroup?.id) { _, _ in
             // The commit target (group vs. single board, or which group)
@@ -541,11 +549,13 @@ struct ScrollTextView: View {
             fpsCommitTask?.cancel()
             fpsCommitTask = nil
             fpsDraft = nil
+            fpsEditing = false
         }
         .onDisappear {
             fpsCommitTask?.cancel()
             fpsCommitTask = nil
             fpsDraft = nil
+            fpsEditing = false
         }
     }
 
@@ -825,7 +835,7 @@ private struct GroupScrollTelemetry {
     var memberCount = 0
     var inSyncCount = 0
     var failedCount = 0
-    /// Rates the members' scroll clocks actually run at, one per member
+    /// Configured rates reported by the members, one per member
     /// that reports an active scroll.
     var boardFps: [Int] = []
 
@@ -871,7 +881,7 @@ private extension BoardGroupCoordinator {
     }
 }
 
-/// "面板实测" for a group: the rate the member boards report running at, or
+/// Configured group rate reported by member boards, or
 /// a range when they disagree (a member that missed the last speed change).
 private struct GroupMeasuredFpsRow: View {
     var group: BoardGroup
@@ -882,7 +892,7 @@ private struct GroupMeasuredFpsRow: View {
             group: group, coordinator: coordinator,
             active: coordinator.groupIsActive(group), paused: coordinator.groupIsPaused(group)
         )
-        LabeledContent("面板实测") {
+        LabeledContent("面板配置帧率") {
             Text(label(telemetry.boardFps))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
@@ -896,8 +906,8 @@ private struct GroupMeasuredFpsRow: View {
 }
 
 /// The sync-status rows for a group: the group's own play phase, and how many
-/// members are phase-locked to the group clock (re-anchored, or seeked to the
-/// shared paused frame).
+/// members acknowledged the latest start/pause commands. These ACKs do not
+/// measure physical presentation phase.
 private struct GroupSyncDiagnosticsRows: View {
     var group: BoardGroup
     @Environment(BoardGroupCoordinator.self) private var coordinator
@@ -911,7 +921,7 @@ private struct GroupSyncDiagnosticsRows: View {
                 Text(TextViewModel.phaseLabel(phaseKey(active: active, paused: paused)))
                     .foregroundStyle(.secondary)
             }
-            LabeledContent("相位锁定") {
+            LabeledContent("播放指令确认") {
                 Text(lockLabel(telemetry, active: active))
                     .monospacedDigit()
                     .foregroundStyle(telemetry.failedCount > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
@@ -930,10 +940,10 @@ private struct GroupSyncDiagnosticsRows: View {
             return TextViewModel.lockStateLabel(.free)
         }
         if telemetry.inSyncCount == telemetry.memberCount {
-            return TextViewModel.lockStateLabel(.locked)
+            return NSLocalizedString("全部已确认", comment: "all group playback commands acknowledged")
         }
         return String(
-            format: NSLocalizedString("%1$lld / %2$lld 块同步", comment: "group boards phase-locked to the group clock"),
+            format: NSLocalizedString("%1$lld / %2$lld 块已确认", comment: "group boards acknowledging playback commands"),
             telemetry.inSyncCount, telemetry.memberCount
         )
     }

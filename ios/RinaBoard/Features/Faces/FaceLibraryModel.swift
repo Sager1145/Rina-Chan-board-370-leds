@@ -208,7 +208,11 @@ final class FaceLibraryModel {
             isLocalLoaded = true
         } catch {
             localDocument = bundledDefaults(bundle: bundle)
-            isLocalLoaded = true
+            // Defaults are safe to display, but they are not a successfully
+            // loaded backing document. Keep persistence blocked so a later
+            // edit cannot overwrite an unreadable (and potentially
+            // recoverable) local_faces.json with this fallback library.
+            isLocalLoaded = false
             errorMessage = String(
                 format: NSLocalizedString("无法读取本机表情库：%@", comment: "local face library load failed"),
                 error.localizedDescription
@@ -390,6 +394,11 @@ final class FaceLibraryModel {
     func save(_ payload: FaceUpsertPayload, source: BoardFaceSaveSource? = nil,
               connection: BoardConnection) async -> SaveOutcome {
         errorMessage = nil
+        var payload = payload
+        // Enforce the firmware's byte limit at the final wire boundary too;
+        // callers normally arrive through the name builders below, but this
+        // method is also used directly by copy/import-adjacent flows.
+        payload.name = cleanName(payload.name)
         guard connection.connectionState == .connected else {
             errorMessage = NSLocalizedString("未连接，无法保存到面板", comment: "cannot save face to disconnected board")
             return .failed
@@ -451,7 +460,7 @@ final class FaceLibraryModel {
             errorMessage = NSLocalizedString("帧数据无效，无法保存到本机", comment: "cannot save invalid face locally")
             return .failed
         }
-        await loadLocalIfNeeded()
+        guard await loadLocalForMutation() else { return .failed }
         await beginLocalMutation()
         defer { endLocalMutation() }
         // An overwrite target that no longer exists in the local library
@@ -498,10 +507,10 @@ final class FaceLibraryModel {
                        call: PartsCall) -> FaceUpsertPayload {
         let existing = editingFaceId.flatMap { face(id: $0, in: location) }
         let overwriteID = (existing != nil && !isProtected(existing!)) ? existing?.id : nil
-        let clean = cleanName(name)
+        let isCopy = overwriteID == nil && editingFaceId != nil
         return FaceUpsertPayload(
             id: location == .board ? overwriteID : nil,
-            name: overwriteID == nil && editingFaceId != nil ? "\(clean)_copy" : clean,
+            name: isCopy ? fittedName(name, suffix: "_copy") : cleanName(name),
             type: (fromParts ? SavedFace.Kind.parts : .custom).rawValue,
             frameHex: frame.hex94,
             call: fromParts
@@ -513,11 +522,11 @@ final class FaceLibraryModel {
     func boardUpsertPayload(editingFaceId: String?, canOverwrite: Bool,
                             name: String, frame: PackedFrame,
                             fromParts: Bool, call: PartsCall) -> FaceUpsertPayload {
-        let clean = cleanName(name)
         let overwriteID = canOverwrite ? editingFaceId : nil
+        let isCopy = overwriteID == nil && editingFaceId != nil
         let payload = FaceUpsertPayload(
             id: overwriteID,
-            name: overwriteID == nil && editingFaceId != nil ? "\(clean)_copy" : clean,
+            name: isCopy ? fittedName(name, suffix: "_copy") : cleanName(name),
             type: (fromParts ? SavedFace.Kind.parts : .custom).rawValue,
             frameHex: frame.hex94,
             call: fromParts
@@ -544,7 +553,7 @@ final class FaceLibraryModel {
         let clean = cleanName(newName)
         switch location {
         case .local:
-            await loadLocalIfNeeded()
+            guard await loadLocalForMutation() else { return false }
             await beginLocalMutation()
             defer { endLocalMutation() }
             var candidate = localDocument
@@ -673,9 +682,13 @@ final class FaceLibraryModel {
 
     @discardableResult
     func undoLocalDelete() async -> Bool {
-        guard let deletion = localDeletion else { return false }
         await beginLocalMutation()
         defer { endLocalMutation() }
+        // Read the current undo record only after acquiring the same gate as
+        // deletion. A queued delete may replace the record while this undo is
+        // waiting, and consuming a snapshot captured before the gate would
+        // restore the wrong faces and clear the newer record.
+        guard let deletion = localDeletion else { return false }
         var candidate = localDocument
         for face in deletion.faces where !candidate.faces.contains(where: { $0.id == face.id }) {
             candidate.faces.append(face)
@@ -691,10 +704,21 @@ final class FaceLibraryModel {
     }
 
     private func deleteLocal(_ faces: [SavedFace]) async -> FaceBatchResult {
-        await loadLocalIfNeeded()
+        guard await loadLocalForMutation() else {
+            var result = FaceBatchResult()
+            let message = errorMessage
+                ?? NSLocalizedString("无法读取本机表情库", comment: "local face library unavailable")
+            for face in faces { result.failures[face.id] = message }
+            report(result, action: .delete)
+            return result
+        }
         await beginLocalMutation()
         defer { endLocalMutation() }
-        let deletable = faces.filter(canDelete)
+        let requestedIDs = Set(faces.map(\.id))
+        // Use the authoritative objects in the document at transaction time.
+        // The caller's snapshots may have been renamed, protected, or replaced
+        // while this operation waited for the mutation gate.
+        let deletable = localDocument.faces.filter { requestedIDs.contains($0.id) && canDelete($0) }
         var result = FaceBatchResult()
         for face in faces where !deletable.contains(where: { $0.id == face.id }) {
             result.failures[face.id] = NSLocalizedString("默认或锁定表情不可删除", comment: "protected face deletion denied")
@@ -732,7 +756,7 @@ final class FaceLibraryModel {
         errorMessage = nil
         switch location {
         case .local:
-            await loadLocalIfNeeded()
+            guard await loadLocalForMutation() else { return false }
             await beginLocalMutation()
             defer { endLocalMutation() }
             let confirmedIDs = Set(userFaces(in: .local).map(\.id))
@@ -810,7 +834,7 @@ final class FaceLibraryModel {
             return await reorderFaces(newOrder, connection: connection)
         }
         errorMessage = nil
-        await loadLocalIfNeeded()
+        guard await loadLocalForMutation() else { return false }
         await beginLocalMutation()
         defer { endLocalMutation() }
         let confirmed = localDocument.faces.map(\.id)
@@ -888,7 +912,7 @@ final class FaceLibraryModel {
         normalize(&decoded, requireDefault: location == .board)
         switch location {
         case .local:
-            await loadLocalIfNeeded()
+            guard await loadLocalForMutation() else { return }
             await beginLocalMutation()
             defer { endLocalMutation() }
             var candidate = localDocument
@@ -903,10 +927,13 @@ final class FaceLibraryModel {
                 errorMessage = NSLocalizedString("未连接，无法同步到面板", comment: "cannot sync faces while disconnected")
                 return
             }
+            let revision = boardLoadRevision
             do {
                 try await connection.saveFaces(document: decoded)
+                guard boardStillShown(connection, since: revision) else { return }
                 await reload(connection: connection)
             } catch {
+                guard boardStillShown(connection, since: revision) else { return }
                 errorMessage = String(
                     format: NSLocalizedString("同步失败：%@", comment: "face library sync failed"),
                     error.localizedDescription
@@ -947,6 +974,11 @@ final class FaceLibraryModel {
 
     private func document(in location: FaceLibraryLocation) -> FaceDocument {
         location == .local ? localDocument : faceDocument
+    }
+
+    private func loadLocalForMutation() async -> Bool {
+        await loadLocalIfNeeded()
+        return isLocalLoaded
     }
 
     private func bundledDefaults(bundle: Bundle) -> FaceDocument {
@@ -1085,14 +1117,16 @@ final class FaceLibraryModel {
 
     private func copyName(for name: String, in destination: FaceLibraryLocation) -> String {
         let names = Set(faces(in: destination).map { $0.name.localizedLowercase })
-        let base = String(
-            format: NSLocalizedString("%@ 副本", comment: "saved face copy name"),
-            cleanName(name)
-        )
-        guard names.contains(base.localizedLowercase) else { return base }
-        var suffix = 2
-        while names.contains("\(base) \(suffix)".localizedLowercase) { suffix += 1 }
-        return "\(base) \(suffix)"
+        let format = NSLocalizedString("%@ 副本", comment: "saved face copy name")
+        var ordinal = 1
+        while true {
+            let ordinalSuffix = ordinal == 1 ? "" : " \(ordinal)"
+            let candidate = fittedName(name) { base in
+                String(format: format, base) + ordinalSuffix
+            }
+            if !names.contains(candidate.localizedLowercase) { return candidate }
+            ordinal += 1
+        }
     }
 
     /// Truncates to at most 64 UTF-8 bytes (the protocol's own limit) on a
@@ -1100,18 +1134,31 @@ final class FaceLibraryModel {
     /// `.prefix(64)` truncates by *character* count, which is a different
     /// (and looser) limit.
     private func cleanName(_ name: String) -> String {
+        fittedName(name, suffix: "")
+    }
+
+    /// Fits a base plus a fixed suffix into the 64-byte protocol field while
+    /// preserving whole extended grapheme clusters from the base.
+    private func fittedName(_ name: String, suffix: String) -> String {
+        fittedName(name) { $0 + suffix }
+    }
+
+    /// Fits names whose localized affix may appear before or after the base.
+    /// Re-evaluating the formatter also accounts for numbered-copy suffixes.
+    private func fittedName(_ name: String, transform: (String) -> String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "face" }
-        guard trimmed.utf8.count > 64 else { return trimmed }
-        var result = ""
-        var byteCount = 0
-        for character in trimmed {
-            let characterBytes = String(character).utf8.count
-            guard byteCount + characterBytes <= 64 else { break }
-            result.append(character)
-            byteCount += characterBytes
+        let source = trimmed.isEmpty ? "face" : trimmed
+        var base = source
+        while !base.isEmpty {
+            let candidate = transform(base)
+            if candidate.utf8.count <= 64 { return candidate }
+            base.removeLast()
         }
-        return result.isEmpty ? "face" : result
+        // Localized affixes are expected to be short. This final clamp makes
+        // the wire invariant unconditional even for a malformed translation.
+        var candidate = transform("")
+        while candidate.utf8.count > 64 { candidate.removeLast() }
+        return candidate.isEmpty ? "face" : candidate
     }
 
     private func makeLocalID() -> String { "local_\(UUID().uuidString.lowercased())" }

@@ -663,8 +663,15 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
     }
 
     public func send(_ data: Data) async throws {
+        let attempt = connectAttemptID
+        guard let peripheral = targetPeripheral, let rx = rxCharacteristic else {
+            throw RinaTransportError.notConnected
+        }
         try await writePump.run { @MainActor [weak self] in
-            guard let self else { throw CancellationError() }
+            guard let self, self.connectAttemptID == attempt,
+                  self.targetPeripheral === peripheral, self.rxCharacteristic === rx else {
+                throw CancellationError()
+            }
             try await self.sendSerial(data)
         }
     }

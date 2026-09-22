@@ -33,6 +33,7 @@ final class TextViewModel {
     /// the board has accepted it and then echoed it, so echoes of older values
     /// still in flight can't make the slider jump back mid-drag.
     private struct PendingFps {
+        let id = UUID()
         var fps: Int
         /// Before delivery, a cap in case the send never completes; after it,
         /// a short grace for reports the board emitted before taking it.
@@ -50,6 +51,8 @@ final class TextViewModel {
     var draftStorageError: String?
     private var draftSaveTask: Task<Void, Never>?
     private var uploadTask: Task<Void, Never>?
+    private var restoreTask: Task<Void, Never>?
+    private var bindingRevision = 0
     private var restoringDraft = false
     /// False until `restoreDraft()` has run: launch defaults saved before the
     /// read would overwrite the stored draft and its remembered speed.
@@ -111,6 +114,10 @@ final class TextViewModel {
     }
 
     func releaseOutput() {
+        bindingRevision += 1
+        restoreTask?.cancel()
+        restoreTask = nil
+        lastRestoreRetry = nil
         // Any in-flight upload is now superseded: cancellation is cooperative,
         // so the revision is what actually stops its state writes from landing.
         uploadRevision += 1
@@ -279,6 +286,9 @@ final class TextViewModel {
                   // board this value was never meant for.
                   destination.connection === self.activeConnection,
                   self.boundTimelineId == destination.timelineId else { return }
+            let pendingID = self.pendingFps?.id
+            let binding = self.bindingRevision
+            let generation = destination.connection.connectionGeneration
             let connection = destination.connection
             let fpsInt = Int(fps.rounded())
             let intervalMs = ScrollRasterizer.intervalMs(forFps: fpsInt)
@@ -289,7 +299,9 @@ final class TextViewModel {
             // The board never changed, so no status will come to correct the
             // slider: fall back to what it last reported, unless a newer
             // value is already on its way.
-            guard self.pendingFps?.fps == fpsInt else { return }
+            guard self.bindingRevision == binding, self.pendingFps?.id == pendingID,
+                  connection.connectionGeneration == generation,
+                  self.activeConnection === connection, self.boundTimelineId == destination.timelineId else { return }
             if accepted {
                 self.pendingFps?.delivered = true
                 self.pendingFps?.until = Date().addingTimeInterval(0.75)
@@ -386,7 +398,7 @@ final class TextViewModel {
         }
         uploadTask = task
         await task.value
-        if connection.output.isCurrent(token) { uploadTask = nil }
+        if revision == uploadRevision { uploadTask = nil }
     }
 
     private func sendDraft(connection: BoardConnection, revision: Int) async {
@@ -419,11 +431,13 @@ final class TextViewModel {
         // once under a stale setting. Older firmware rejects it; that must not
         // block sending.
         _ = try? await connection.command(.setScrollLoop(loop: loopPlayback))
+        guard revision == uploadRevision, !Task.isCancelled else { return }
 
         do {
             isGeneratingFont = (font == nil)
             let loadedFont = try await loadFontIfNeeded()
-            if revision == uploadRevision { isGeneratingFont = false }
+            guard revision == uploadRevision, !Task.isCancelled else { return }
+            isGeneratingFont = false
             uploadProgress = 0.04
 
             let fpsInt = clampFps(requestedFps)
@@ -432,6 +446,7 @@ final class TextViewModel {
             let built = try await Task.detached(priority: .userInitiated) { [loadedFont] in
                 try ScrollRasterizer.makeTimeline(text: text, font: loadedFont, fps: fpsInt)
             }.value
+            guard revision == uploadRevision, !Task.isCancelled else { return }
             if let token = BoardOutputContext.session { try connection.output.check(token) }
             uploadProgress = 0.34
             timeline = built
@@ -441,8 +456,9 @@ final class TextViewModel {
             let token = BoardOutputContext.session
             let onProgress: (Double) -> Void = { [weak self] progress in
                 Task { @MainActor in
-                    guard let token, connection.output.isCurrent(token) else { return }
-                    self?.uploadProgress = 0.36 + progress * 0.5
+                    guard let self, self.uploadRevision == revision,
+                          let token, connection.output.isCurrent(token) else { return }
+                    self.uploadProgress = 0.36 + progress * 0.5
                 }
             }
             let reply: ScrollUploadReply
@@ -450,9 +466,11 @@ final class TextViewModel {
                 reply = try await connection.startScrollBitmapUpload(
                     timeline: built, fps: fpsInt, sourceText: built.text, onProgress: onProgress
                 )
+                guard revision == uploadRevision, !Task.isCancelled else { return }
                 uploadSummary = String(format: NSLocalizedString("已发送 %lld B（位图）", comment: "scroll bitmap upload size"),
                                        built.bitmap.packedBytes().count)
             } catch ScrollUploadError.timelineMismatch(let expected, let got) {
+                guard revision == uploadRevision, !Task.isCancelled else { return }
                 // Firmware predating the bitmap upload path, or a rasterisation
                 // disagreement: fall back once to raw per-frame upload.
                 errorMessage = nil
@@ -467,6 +485,7 @@ final class TextViewModel {
                     sourceText: built.text,
                     onProgress: onProgress
                 )
+                guard revision == uploadRevision, !Task.isCancelled else { return }
                 uploadSummary = String(
                     format: NSLocalizedString("已发送 %1$lld B（逐帧回退，位图预期 frames=%2$lld rotation=%3$lld，实际 frames=%4$lld rotation=%5$lld）",
                                               comment: "scroll per-frame fallback upload size"),
@@ -493,6 +512,7 @@ final class TextViewModel {
             }
             if let sample = try? await connection.getPreviewSync() {
                 if let token = BoardOutputContext.session { try connection.output.check(token) }
+                guard revision == uploadRevision, !Task.isCancelled else { return }
                 observe(preview: sample)
             }
             // `getPreviewSync()` above is `try?`, so a stale-token
@@ -673,10 +693,11 @@ final class TextViewModel {
     // MARK: Restore from the board (§26)
 
     func restoreOnConnect(connection: BoardConnection) async {
+        let binding = bindingRevision
         let generation = connection.connectionGeneration
         let outputSession = connection.output.session
         guard let meta = try? await connection.getScrollMeta() else { return }
-        guard !Task.isCancelled, generation == connection.connectionGeneration,
+        guard binding == bindingRevision, !Task.isCancelled, generation == connection.connectionGeneration,
               outputSession == connection.output.session, !isUploading,
               meta.uploadComplete == true,
               meta.firmwareScrollActive == true,
@@ -697,14 +718,14 @@ final class TextViewModel {
                 try ScrollRasterizer.makeTimeline(text: sourceText, font: loadedFont, fps: fpsInt)
             }.value
             guard rebuilt.frameCount == frameCount,
-                  !Task.isCancelled,
+                  binding == bindingRevision, !Task.isCancelled,
                   generation == connection.connectionGeneration,
                   outputSession == connection.output.session else { return }
 
             // Font loading/rasterization can take time. Fetch only a small, fresh
             // presentation sample after that work; never replay the old meta cursor.
             let freshPreview = try? await connection.getPreviewSync()
-            guard !Task.isCancelled, generation == connection.connectionGeneration,
+            guard binding == bindingRevision, !Task.isCancelled, generation == connection.connectionGeneration,
                   outputSession == connection.output.session, !isUploading else { return }
             if let id = freshPreview?.scrollTimelineId, !id.isEmpty,
                id != meta.scrollTimelineId { return }
@@ -879,8 +900,11 @@ final class TextViewModel {
             return
         }
         lastRestoreRetry = (generation, now)
-        Task { [weak self] in
-            guard let self, connection.connectionGeneration == generation else { return }
+        let binding = bindingRevision
+        restoreTask?.cancel()
+        restoreTask = Task { [weak self] in
+            guard let self, !Task.isCancelled, self.bindingRevision == binding,
+                  connection.connectionGeneration == generation else { return }
             await self.restoreOnConnect(connection: connection)
         }
     }
@@ -977,12 +1001,17 @@ final class TextViewModel {
     /// Returns whether the board accepted the command.
     @discardableResult
     private func sendWithoutClaim(_ command: RinaCommand, connection: BoardConnection) async -> Bool {
+        let binding = bindingRevision
+        let generation = connection.connectionGeneration
+        let pendingID = pendingFps?.id
         do {
             _ = try await connection.command(command)
             return true
         } catch is CancellationError {
         } catch RatePumpError.dropped {
         } catch {
+            guard binding == bindingRevision, generation == connection.connectionGeneration,
+                  pendingID == pendingFps?.id else { return false }
             errorMessage = error.localizedDescription
         }
         return false

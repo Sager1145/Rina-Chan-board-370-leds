@@ -39,6 +39,8 @@ public final class BonjourBrowser {
     public private(set) var boards: [DiscoveredBoard] = []
 
     private var browser: NWBrowser?
+    private var browseRevision = UUID()
+    private var resolverRevisions: [String: UUID] = [:]
     private let queue = DispatchQueue(label: "com.rinachan.board.bonjour")
     private var resolveConnections: [String: NWConnection] = [:]
 
@@ -51,19 +53,25 @@ public final class BonjourBrowser {
         params.includePeerToPeer = true
         let browser = NWBrowser(for: .bonjour(type: RinaLinkConstants.bonjourType, domain: nil), using: params)
         self.browser = browser
+        let revision = UUID()
+        browseRevision = revision
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             let entries: [(BonjourServiceIdentity, NWEndpoint)] = results.compactMap { result in
                 guard case let .service(name, type, domain, _) = result.endpoint else { return nil }
                 return (BonjourServiceIdentity(name: name, type: type, domain: domain), result.endpoint)
             }
             Task { @MainActor [weak self] in
-                self?.merge(entries)
+                guard let self, self.browseRevision == revision, self.browser != nil else { return }
+                self.merge(entries)
             }
         }
         browser.start(queue: queue)
     }
 
     public func stop() {
+        browseRevision = UUID()
+        resolverRevisions.removeAll()
+        browser?.browseResultsChangedHandler = nil
         browser?.cancel()
         browser = nil
         for (_, connection) in resolveConnections { connection.cancel() }
@@ -75,6 +83,10 @@ public final class BonjourBrowser {
 
     private func merge(_ entries: [(BonjourServiceIdentity, NWEndpoint)]) {
         let identities = Set(entries.map { $0.0.storageID })
+        for id in resolveConnections.keys.filter({ !identities.contains($0) }) {
+            resolverRevisions.removeValue(forKey: id)
+            resolveConnections.removeValue(forKey: id)?.cancel()
+        }
         boards.removeAll { !identities.contains($0.id) }
         for (identity, endpoint) in entries {
             let id = identity.storageID
@@ -96,28 +108,41 @@ public final class BonjourBrowser {
 
     private func resolve(id: String, endpoint: NWEndpoint) {
         let connection = NWConnection(to: endpoint, using: .tcp)
+        let browseRevision = self.browseRevision
+        let revision = UUID()
+        resolverRevisions[id] = revision
         resolveConnections[id] = connection
-        connection.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
+        connection.stateUpdateHandler = { [weak self, weak connection] state in
+            guard let connection else { return }
             switch state {
             case .ready:
-                if let path = connection.currentPath, let remote = path.remoteEndpoint,
-                   case let .hostPort(host, port) = remote {
-                    Task { @MainActor [weak self] in
-                        guard let self, let index = self.boards.firstIndex(where: { $0.id == id }) else { return }
+                let remote = connection.currentPath?.remoteEndpoint
+                Task { @MainActor [weak self] in
+                    guard let self, self.browseRevision == browseRevision,
+                          self.resolverRevisions[id] == revision else { return }
+                    if case let .hostPort(host, port) = remote,
+                       let index = self.boards.firstIndex(where: { $0.id == id }) {
                         self.boards[index].host = "\(host)"
                         self.boards[index].port = port.rawValue
                     }
+                    self.finishResolve(id: id, revision: revision)
                 }
-                connection.cancel()
-                Task { @MainActor [weak self] in self?.resolveConnections.removeValue(forKey: id) }
             case .failed, .cancelled:
-                connection.cancel()
-                Task { @MainActor [weak self] in self?.resolveConnections.removeValue(forKey: id) }
+                Task { @MainActor [weak self] in
+                    self?.finishResolve(id: id, revision: revision)
+                }
             default:
                 break
             }
         }
         connection.start(queue: queue)
+    }
+
+    private func finishResolve(id: String, revision: UUID) {
+        guard resolverRevisions[id] == revision else { return }
+        resolverRevisions.removeValue(forKey: id)
+        let connection = resolveConnections.removeValue(forKey: id)
+        connection?.stateUpdateHandler = nil
+        connection?.cancel()
     }
 }

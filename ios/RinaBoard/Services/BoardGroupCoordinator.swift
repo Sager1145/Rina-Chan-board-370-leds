@@ -96,7 +96,7 @@ public final class BoardGroupCoordinator {
     /// The global frame index every participant is seeked to while
     /// `isPaused` — the base `step()` nudges and `resume()` restarts from.
     public private(set) var pausedFrame = 0
-    /// `true` from the moment a `play()` call starts uploading/clock-sampling
+    /// `true` from the moment a `play()` call starts preparation
     /// until it either starts playing or aborts — lets the Text tab show its
     /// send pill's uploading spinner for a group the same way it does for a
     /// single board, before `isPlaying` flips (BOARD_GROUP_SPEC.md §3).
@@ -117,7 +117,8 @@ public final class BoardGroupCoordinator {
     /// got cancelled and restarted while it was running). A second caller for
     /// the SAME group awaits this one's result instead of starting a
     /// redundant `adoptRunningScroll` pass.
-    private var adoptTask: (groupID: UUID, task: Task<Bool, Never>)?
+    private var adoptTask: (groupID: UUID, attemptID: UUID, task: Task<Bool, Never>)?
+    private var preparationID = UUID()
     /// The group and time a just-finished `adoptRunningScrollIfNeeded` last
     /// failed for — `adoptRunningScrollIfNeeded` refuses to retry the same
     /// group within 5 s of this, without any BLE traffic, so a caller that
@@ -429,14 +430,18 @@ public final class BoardGroupCoordinator {
     public func adoptRunningScroll(group: BoardGroup) async -> Bool {
         guard !isStarting, !(isPlaying || isPaused),
               group.members.count >= BoardGroup.minMembersToPlay else { return false }
+        let intent = preparationID
+        var firstReadAt: Int64?
         var metas: [ScrollMeta] = []
         for member in group.members {
             guard let session = session(for: member), session.connection.connectionState == .connected,
                   hasAllCaps(session.connection),
                   let meta = try? await session.connection.getScrollMeta() else { return false }
+            guard !Task.isCancelled, preparationID == intent else { return false }
+            if firstReadAt == nil { firstReadAt = nowUs() }
             metas.append(meta)
         }
-        let readAt = nowUs()
+        let readAt = firstReadAt ?? nowUs()
         guard let first = metas.first,
               let timelineId = first.scrollTimelineId, !timelineId.isEmpty,
               let text = first.sourceText, !text.isEmpty,
@@ -494,9 +499,13 @@ public final class BoardGroupCoordinator {
             return false
         }
         let groupID = group.id
+        adoptTask?.task.cancel()
+        preparationID = UUID()
+        let attemptID = UUID()
         let task = Task { await self.adoptRunningScroll(group: group) }
-        adoptTask = (groupID: groupID, task: task)
+        adoptTask = (groupID: groupID, attemptID: attemptID, task: task)
         let result = await task.value
+        guard adoptTask?.attemptID == attemptID else { return false }
         adoptTask = nil
         if result {
             lastAdoptFailure = nil
@@ -522,13 +531,23 @@ public final class BoardGroupCoordinator {
     private func startGroup(
         group: BoardGroup, text: String, fps: Int, loop: Bool, startFrame: Int, adoption: Adoption?
     ) async throws {
+        let intent = UUID()
+        preparationID = intent
+        isStarting = true
+        startingGroupID = group.id
+        defer {
+            if preparationID == intent {
+                isStarting = false
+                startingGroupID = nil
+            }
+        }
         let capturedGroupID = group.id
         let capturedRevision = group.layoutRevision
         guard group.members.count >= BoardGroup.minMembersToPlay else { throw GroupPlayError.tooFewMembers }
 
         // 4.4: every preflight step -- online/caps resolution, layout, font
         // load, bitmap build -- runs *before* any of this coordinator's own
-        // state is touched. A failed `play()` (bad text, missing font, an
+        // playback state is touched. A failed `play()` (bad text, missing font, an
         // offline member) must never strand a still-running previous play by
         // wiping its state first and only then discovering the new attempt
         // can't proceed.
@@ -554,6 +573,7 @@ public final class BoardGroupCoordinator {
         // state, so "not still valid" here just means throwing `.aborted`
         // rather than releasing anything.
         func preflightStillValid() -> Bool {
+            guard !Task.isCancelled, preparationID == intent else { return false }
             guard let live = store.groups.first(where: { $0.id == capturedGroupID }),
                   live.layoutRevision == capturedRevision else { return false }
             for captured in online {
@@ -602,7 +622,7 @@ public final class BoardGroupCoordinator {
         // No `stop_scroll` here — the upload below replaces the timeline on
         // every board it reaches — but the old re-anchor loop, participant
         // set, and anchor must not keep acting once this one has started.
-        // Everything above this point was read-only; only now (with every
+        // Everything above this point preserved playback state; only now (with every
         // preflight check already satisfied) does this attempt start
         // touching state a failure would need to unwind.
         playEpoch += 1
@@ -650,7 +670,7 @@ public final class BoardGroupCoordinator {
         }
 
         func stillValid() -> Bool {
-            guard playEpoch == capturedEpoch else { return false }
+            guard !Task.isCancelled, preparationID == intent, playEpoch == capturedEpoch else { return false }
             guard let live = store.groups.first(where: { $0.id == capturedGroupID }),
                   live.layoutRevision == capturedRevision else { return false }
             for captured in online {
@@ -820,14 +840,12 @@ public final class BoardGroupCoordinator {
                 registerTakeoverHandler(id: captured.member.physicalBoardID, connection: captured.session.connection)
             }
             startReanchorLoop(groupID: capturedGroupID, revision: capturedRevision, epoch: capturedEpoch)
-            isStarting = false
-            startingGroupID = nil
         } catch {
             // A newer `play()` may already have bumped `playEpoch` (and so
             // captured its own `isStarting`/`startingGroupID`) while this
             // stale attempt was still failing — only this attempt's own
             // epoch may clear them, never a newer attempt's in-flight state.
-            if playEpoch == capturedEpoch {
+            if preparationID == intent {
                 isStarting = false
                 startingGroupID = nil
             }
@@ -1278,7 +1296,7 @@ public final class BoardGroupCoordinator {
     /// one) and replayed once the in-flight pass finishes, rather than ever
     /// running two passes concurrently against the same participant set.
     private var updatePlaybackBusy = false
-    private var pendingUpdatePlayback: (group: BoardGroup, fps: Int?, loop: Bool?)?
+    private var pendingUpdatePlayback: (group: BoardGroup, fps: Int?, loop: Bool?, epoch: Int)?
 
     /// BOARD_GROUP_SPEC.md §3 addendum (live fps/loop update): re-anchors
     /// every live participant to a new `(intervalMs, loop)` without a phase
@@ -1296,13 +1314,17 @@ public final class BoardGroupCoordinator {
     public func updatePlayback(group: BoardGroup, fps: Int?, loop: Bool?) async {
         guard fps != nil || loop != nil else { return }
         guard !updatePlaybackBusy else {
-            pendingUpdatePlayback = (group, fps, loop)
+            let previous = pendingUpdatePlayback
+            let canMerge = previous?.group.id == group.id && previous?.epoch == playEpoch
+            pendingUpdatePlayback = (group, fps ?? (canMerge ? previous?.fps : nil),
+                                     loop ?? (canMerge ? previous?.loop : nil), playEpoch)
             return
         }
         updatePlaybackBusy = true
         await updatePlaybackCore(group: group, fps: fps, loop: loop)
         while let next = pendingUpdatePlayback {
             pendingUpdatePlayback = nil
+            guard next.epoch == playEpoch else { continue }
             await updatePlaybackCore(group: next.group, fps: next.fps, loop: next.loop)
         }
         updatePlaybackBusy = false
@@ -1987,6 +2009,13 @@ public final class BoardGroupCoordinator {
     /// from fighting that with a re-anchor or treating the board as still
     /// playing.
     public func markSupersededByControl() {
+        preparationID = UUID()
+        adoptTask?.task.cancel()
+        adoptTask = nil
+        isStarting = false
+        startingGroupID = nil
+        pendingUpdatePlayback = nil
+        pendingStepDirection = 0
         playEpoch += 1
         controlGeneration += 1 // B1
         reanchorTask?.cancel()
@@ -2025,6 +2054,13 @@ public final class BoardGroupCoordinator {
     /// took over is left alone. Ends ownership via `output.invalidate()`
     /// after `stop_scroll`, clears per-member status, and cancels re-anchor.
     public func stop(group: BoardGroup) async {
+        preparationID = UUID()
+        adoptTask?.task.cancel()
+        adoptTask = nil
+        isStarting = false
+        startingGroupID = nil
+        pendingUpdatePlayback = nil
+        pendingStepDirection = 0
         playEpoch += 1
         controlGeneration += 1 // B1
         let epoch = playEpoch // 4.3: captured right after this stop's own bump
@@ -2060,19 +2096,25 @@ public final class BoardGroupCoordinator {
             // skipping it would leave it scrolling with Stop gone. A board
             // owned by anything else is still left alone (H6).
             guard let session = session(for: member),
+                  session.connection.connectionState == .connected,
                   session.connection.output.source == .group
                       || (session.connection.output.source == nil && Self.isScrolling(session.connection))
             else { continue }
             let token = session.connection.output.claim(.group)
-            _ = try? await session.connection.withOutput(token) {
-                _ = try? await session.connection.requestReliable(.stopScroll(restoreAuto: nil, clear: nil))
-            }
+            var stopError: Error?
+            do {
+                try await session.connection.withOutput(token) {
+                    _ = try await session.connection.requestReliable(.stopScroll(restoreAuto: nil, clear: nil))
+                }
+            } catch { stopError = error }
             if playEpoch != epoch, claimedBoardIDs.contains(id) { continue }
-            // Conditional on `token` still being current: never invalidate a
-            // newer play's lease out from under it just because this board
-            // happened to reuse the same session (source never left `.group`).
+            guard session.connection.output.isCurrent(token) else { continue }
             session.connection.output.invalidate(ifCurrent: token)
-            memberStatus.removeValue(forKey: id)
+            if let stopError {
+                memberStatus[id] = .error(stopError.localizedDescription)
+            } else {
+                memberStatus.removeValue(forKey: id)
+            }
         }
         // Only this stop's own (still-current) epoch may declare "nothing is
         // claimed anymore" — a newer play's `claimedBoardIDs` must survive a

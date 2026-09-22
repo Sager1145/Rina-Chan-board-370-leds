@@ -218,7 +218,8 @@ public final class GroupAutoConnector {
                 _ = session.connection.wasUserDisconnected
             }
 
-            if matching.contains(where: { $0.connection.connectionState == .connected }) {
+            if matching.contains(where: { $0.connection.connectionState == .connected
+                && $0.connection.boardIdentity == id }) {
                 cancelQueued(id)
                 if failureCount[id] != nil { failureCount[id] = nil }
                 // Connected elsewhere clears the user-disconnect block on
@@ -327,7 +328,7 @@ public final class GroupAutoConnector {
         isDialing = false
         if case .dialing(let current) = phases[id], current == token { phases[id] = nil }
         if targetedMember(id) != nil {
-            if session.connection.connectionState == .connected {
+            if session.connection.connectionState == .connected, session.connection.boardIdentity == id {
                 if failureCount[id] != nil { failureCount[id] = nil }
             } else if !session.connection.wasUserDisconnected {
                 // Counted even when the connection is now `.reconnecting`: a

@@ -39,9 +39,19 @@ final class GroupAutoCycler {
     private(set) var wantsRunning = false
     private(set) var currentIndex = 0
 
-    private var runToken = 0
+    /// Identifies the output ownership registration. It changes only when a
+    /// cycle starts or ends; resetting the timer must not invalidate the stop
+    /// handler registered for this ownership.
+    private var ownershipRunID = 0
+    /// Identifies the current timer task. Manual stepping bumps this without
+    /// claiming a new output lease.
+    private var timerRevision = 0
     private var task: Task<Void, Never>?
     private var observedConnection: BoardConnection?
+    private var outputSession: UUID?
+    /// Stable identity of the last face whose send actually completed while
+    /// this cycle still owned the board.
+    private var displayedFaceID: String?
 
     init(
         fanOut: GroupControlFanOut,
@@ -88,14 +98,45 @@ final class GroupAutoCycler {
         guard let connection = fanOut.primaryConnection else { return }
         let faces = faceLibrary.faces(in: .board)
         guard !faces.isEmpty else { return }
-        currentIndex = ((currentIndex + direction) % faces.count + faces.count) % faces.count
         if isRunning {
-            await sendCurrentFace(faces: faces, connection: connection)
+            guard let session = outputSession else { return }
+            let runID = ownershipRunID
+            // Stop the current timer before the step suspends. Otherwise a
+            // scheduled tick can wake and race this manual send.
+            timerRevision += 1
+            let stepRevision = timerRevision
+            task?.cancel()
+            task = nil
+            let generation = connection.connectionGeneration
+            let candidate = steppedIndex(in: faces, direction: direction)
+            guard await sendFace(
+                faces[candidate],
+                connection: connection,
+                session: session,
+                generation: generation
+            ) else {
+                if ownershipRunID == runID,
+                   timerRevision == stepRevision,
+                   isRunning {
+                    endLoop()
+                }
+                return
+            }
+            // Main-actor reentrancy: every piece of ownership state may have
+            // changed while the transport was awaiting its reply.
+            guard ownershipRunID == runID,
+                  timerRevision == stepRevision,
+                  isRunning, wantsRunning,
+                  observedConnection === connection,
+                  fanOut.primaryConnection === connection,
+                  connection.connectionGeneration == generation,
+                  connection.output.isCurrent(session) else { return }
+            confirmDisplayed(faces[candidate], at: candidate)
             // Restart the sleep window from now, so a manual step doesn't
             // leave a short remainder before the next automatic tick; the
-            // fresh loop must not re-send the face `sendCurrentFace` above
+            // fresh loop must not re-send the face above
             // already delivered (L1).
-            restartLoop(connection: connection, sleepBeforeFirstSend: true)
+            restartTimer(connection: connection, session: session, runID: runID)
         } else {
             // L3: not running — this is an ordinary manual face send, not an
             // auto-cycle tick, so it must not claim the `.automatic` output
@@ -104,9 +145,18 @@ final class GroupAutoCycler {
             // primary's own normal manual send path, which self-claims
             // `.manual` and still mirrors to every sink via
             // `GroupControlFanOut.dispatchFrame`.
-            let face = faces[currentIndex % faces.count]
+            let candidate = steppedIndex(in: faces, direction: direction)
+            let face = faces[candidate]
             guard let frame = face.packedFrame else { return }
-            _ = try? await connection.setFrame(frame, playback: .idle, reason: "group_auto_cycle")
+            let generation = connection.connectionGeneration
+            do {
+                _ = try await connection.setFrame(frame, playback: .idle, reason: "group_auto_cycle")
+                guard fanOut.primaryConnection === connection,
+                      connection.connectionGeneration == generation else { return }
+                confirmDisplayed(face, at: candidate)
+            } catch {
+                return
+            }
         }
     }
 
@@ -169,15 +219,17 @@ final class GroupAutoCycler {
     private func beginIfPossible() -> Bool {
         guard !isRunning, let connection = fanOut.primaryConnection else { return false }
         isRunning = true
-        runToken += 1
-        let myToken = runToken
+        ownershipRunID += 1
+        timerRevision += 1
+        let runID = ownershipRunID
+        let revision = timerRevision
         observedConnection = connection
         // Fires the moment another source (manual face send, Live, lip sync,
         // video, Text tab…) claims this board's output lease out from under
         // the cycle — the "another output source claims the primary" stop
         // condition.
         connection.output.register(.automatic) { [weak self, weak connection] in
-            guard let self, self.runToken == myToken else { return }
+            guard let self, self.ownershipRunID == runID else { return }
             // A disconnect also invalidates the lease (BoardConnection's
             // connectionState didSet), and that is not the user turning auto
             // off: keep the intent so the promoted primary picks it up (M1).
@@ -185,25 +237,31 @@ final class GroupAutoCycler {
             self.endLoop(clearWantsRunning: !lostLink, callerAlreadySuperseded: true)
         }
         let session = connection.output.claim(.automatic)
+        outputSession = session
         task = Task { [weak self] in
-            await self?.run(token: myToken, session: session, connection: connection)
+            await self?.run(runID: runID, timerRevision: revision, session: session, connection: connection)
         }
         return true
     }
 
-    private func restartLoop(connection: BoardConnection, sleepBeforeFirstSend: Bool = false) {
-        runToken += 1
-        let myToken = runToken
+    private func restartTimer(connection: BoardConnection, session: UUID, runID: Int) {
+        timerRevision += 1
+        let revision = timerRevision
         task?.cancel()
-        let session = connection.output.claim(.automatic)
         task = Task { [weak self] in
-            await self?.run(token: myToken, session: session, connection: connection, sleepBeforeFirstSend: sleepBeforeFirstSend)
+            await self?.run(
+                runID: runID,
+                timerRevision: revision,
+                session: session,
+                connection: connection,
+                sleepBeforeFirstSend: true
+            )
         }
     }
 
     /// Clears the stop-handler registration this loop's own `.automatic`
     /// source held on `connection` (L3): otherwise a stale closure — keyed
-    /// to a `runToken` that can never match again once this loop has ended
+    /// to an ownership run that can never match again once this loop has ended
     /// or moved to a new primary — sits registered on that connection's
     /// `BoardPlaybackCoordinator` indefinitely.
     private func clearStopHandler(on connection: BoardConnection?) {
@@ -215,7 +273,8 @@ final class GroupAutoCycler {
             if clearWantsRunning { wantsRunning = false }
             return
         }
-        runToken += 1
+        ownershipRunID += 1
+        timerRevision += 1
         task?.cancel()
         task = nil
         isRunning = false
@@ -225,6 +284,7 @@ final class GroupAutoCycler {
         }
         clearStopHandler(on: observedConnection)
         observedConnection = nil
+        outputSession = nil
     }
 
     /// A primary promotion is normally caught proactively by
@@ -238,9 +298,15 @@ final class GroupAutoCycler {
     /// going false is the genuine "another source claims the primary" stop
     /// condition (normally caught synchronously by the `register(.automatic:)`
     /// handler already); this is likewise just its safety net.
-    private func run(token: Int, session: UUID, connection: BoardConnection, sleepBeforeFirstSend: Bool = false) async {
+    private func run(
+        runID: Int,
+        timerRevision revision: Int,
+        session: UUID,
+        connection: BoardConnection,
+        sleepBeforeFirstSend: Bool = false
+    ) async {
         var skipSend = sleepBeforeFirstSend
-        while runToken == token, !Task.isCancelled {
+        while ownershipRunID == runID, timerRevision == revision, !Task.isCancelled {
             guard fanOut.primaryConnection === connection else { return }
             guard connection.output.isCurrent(session) else {
                 endLoop()
@@ -251,25 +317,82 @@ final class GroupAutoCycler {
             } else {
                 let faces = faceLibrary.faces(in: .board)
                 if !faces.isEmpty {
-                    await sendCurrentFace(faces: faces, connection: connection, session: session)
-                    // L1: the send above awaited a network round-trip; only
-                    // advance the shared index if this run is still current —
-                    // a stale send racing a restart/stop must not skip a face.
-                    guard runToken == token else { return }
-                    currentIndex += 1
+                    let candidate = automaticCandidateIndex(in: faces)
+                    let generation = connection.connectionGeneration
+                    guard await sendFace(
+                        faces[candidate],
+                        connection: connection,
+                        session: session,
+                        generation: generation
+                    ) else {
+                        // A timer reset or ownership change deliberately
+                        // cancelled this stale send. A genuine failure of the
+                        // still-current run must stop the cycle instead of
+                        // leaving `isRunning` true with no timer task.
+                        if ownershipRunID == runID,
+                           timerRevision == revision,
+                           isRunning {
+                            endLoop()
+                        }
+                        return
+                    }
+                    guard ownershipRunID == runID,
+                          timerRevision == revision,
+                          isRunning, wantsRunning,
+                          observedConnection === connection,
+                          fanOut.primaryConnection === connection,
+                          connection.connectionGeneration == generation,
+                          connection.output.isCurrent(session) else { return }
+                    confirmDisplayed(faces[candidate], at: candidate)
                 }
             }
             await sleeper(max(0.05, intervalProvider()))
         }
     }
 
-    private func sendCurrentFace(faces: [SavedFace], connection: BoardConnection, session: UUID? = nil) async {
-        guard !faces.isEmpty else { return }
-        let face = faces[currentIndex % faces.count]
-        guard let frame = face.packedFrame else { return }
-        let token = session ?? connection.output.claim(.automatic)
-        _ = try? await connection.withOutput(token) {
-            try await connection.setFrame(frame, playback: .idle, reason: "group_auto_cycle", outputSession: token)
+    private func sendFace(
+        _ face: SavedFace,
+        connection: BoardConnection,
+        session: UUID,
+        generation: UUID
+    ) async -> Bool {
+        guard let frame = face.packedFrame else { return false }
+        do {
+            _ = try await connection.withOutput(session) {
+                try await connection.setFrame(frame, playback: .idle, reason: "group_auto_cycle", outputSession: session)
+            }
+            return connection.connectionGeneration == generation && connection.output.isCurrent(session)
+        } catch {
+            return false
         }
+    }
+
+    private func automaticCandidateIndex(in faces: [SavedFace]) -> Int {
+        guard let displayedFaceID,
+              let displayed = faces.firstIndex(where: { $0.id == displayedFaceID }) else {
+            return min(currentIndex, faces.count - 1)
+        }
+        return (displayed + 1) % faces.count
+    }
+
+    private func steppedIndex(in faces: [SavedFace], direction: Int) -> Int {
+        if let displayedFaceID {
+            if let displayed = faces.firstIndex(where: { $0.id == displayedFaceID }) {
+                return ((displayed + direction) % faces.count + faces.count) % faces.count
+            }
+            // The displayed face was deleted. `currentIndex` now denotes the
+            // gap it occupied: next selects the item that shifted into that
+            // gap, previous selects the item immediately before it.
+            let gap = min(currentIndex, faces.count)
+            let candidate = direction >= 0 ? min(gap, faces.count - 1) : gap - 1
+            return ((candidate % faces.count) + faces.count) % faces.count
+        }
+        let initial = min(currentIndex, faces.count - 1)
+        return ((initial + direction) % faces.count + faces.count) % faces.count
+    }
+
+    private func confirmDisplayed(_ face: SavedFace, at index: Int) {
+        displayedFaceID = face.id
+        currentIndex = index
     }
 }

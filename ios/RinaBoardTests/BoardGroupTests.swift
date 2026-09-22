@@ -186,6 +186,96 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         }
     }
 
+    func testStopDuringFontPreparationPreventsLatePlay() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        var fontGate: CheckedContinuation<ArkPixelFont, Error>?
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, loadFont: {
+            try await withCheckedThrowingContinuation { fontGate = $0 }
+        })
+        let a = GroupFakeTransport()
+        let b = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: a)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: b)
+        let created = store.create(name: "Preparation")
+        try store.addMember(groupID: created.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: created.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        let group = store.groups[0]
+        let play = Task { try await coordinator.play(group: group, text: "A", fps: 10, loop: true) }
+        await waitUntil { fontGate != nil }
+        XCTAssertNotNil(fontGate)
+        XCTAssertTrue(coordinator.isStarting)
+        await coordinator.stop(group: group)
+        XCTAssertFalse(coordinator.isStarting)
+        XCTAssertNil(coordinator.startingGroupID)
+        fontGate?.resume(returning: try BoardGroupCoordinator.loadDefaultFont())
+        do {
+            try await play.value
+            XCTFail("Stopped preparation must not commit")
+        } catch BoardGroupCoordinator.GroupPlayError.aborted { }
+        XCTAssertEqual(a.blobBeginCount, 0)
+        XCTAssertEqual(b.blobBeginCount, 0)
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertFalse(coordinator.isStarting)
+    }
+
+    func testStopDuringClockSamplingClearsStartingState() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let a = GroupFakeTransport()
+        let b = GroupFakeTransport()
+        a.clockSampleReplyDelay = 0.1
+        b.clockSampleReplyDelay = 0.1
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: a)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: b)
+        let created = store.create(name: "Starting")
+        try store.addMember(groupID: created.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: created.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        let group = store.groups[0]
+        let play = Task { try? await coordinator.play(group: group, text: "A", fps: 10, loop: true) }
+        await waitUntil { a.blobBeginCount > 0 && b.blobBeginCount > 0 }
+        XCTAssertTrue(coordinator.isStarting)
+        await coordinator.stop(group: group)
+        XCTAssertFalse(coordinator.isStarting)
+        XCTAssertNil(coordinator.startingGroupID)
+        await play.value
+        XCTAssertFalse(coordinator.isStarting)
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertTrue(a.sentGroupStartAtUs.isEmpty)
+        XCTAssertTrue(b.sentGroupStartAtUs.isEmpty)
+    }
+
+    func testStopPreservesOfflineAndRejectedMemberOutcomes() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let a = GroupFakeTransport()
+        let b = GroupFakeTransport()
+        let c = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: a)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: b)
+        let offlineSession = await connectedSession(sessions: sessions, identity: "C", transport: c)
+        let created = store.create(name: "Stop outcomes")
+        for id in ["A", "B", "C"] {
+            try store.addMember(groupID: created.id, member: .init(physicalBoardID: id, displayName: id))
+        }
+        let group = store.groups[0]
+        try await coordinator.play(group: group, text: "A", fps: 10, loop: true)
+        b.rejectStopScroll = true
+        offlineSession.connection.disconnect()
+        await coordinator.stop(group: group)
+        XCTAssertTrue(a.receivedStopScroll)
+        XCTAssertTrue(b.receivedStopScroll)
+        XCTAssertFalse(c.receivedStopScroll)
+        XCTAssertEqual(coordinator.status(for: group.members[2]), .offline)
+        if case .error = coordinator.status(for: group.members[1]) { } else {
+            XCTFail("Rejected stop must remain a visible member failure")
+        }
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertFalse(coordinator.isStarting)
+    }
+
     func testUnsupportedMemberBlocksPlay() async throws {
         let sessions = BoardSessionStore()
         let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
@@ -2320,6 +2410,7 @@ private final class GroupFakeTransport: RinaTransport {
     /// (still recorded in `sentGroupStartAtUs`/`sentGroupStartIntervalMs` --
     /// the point is that the reply itself, not the send, is rejected).
     var rejectGroupStart = false
+    var rejectStopScroll = false
     /// R14 residue: makes this board's `pause_scroll` reply undecodable
     /// (same shape `failBlobBegin` uses), so a pause fan-out send fails for
     /// this board without needing a timeout.
@@ -2441,6 +2532,7 @@ private final class GroupFakeTransport: RinaTransport {
                 ])) ?? Data()
             case "stop_scroll":
                 receivedStopScroll = true
+                if rejectStopScroll { return Data(#"{"ok":false}"#.utf8) }
                 return Data(#"{"ok":true}"#.utf8)
             case "pause_scroll":
                 receivedPauseScrollCount += 1

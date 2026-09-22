@@ -23,6 +23,13 @@ with tempfile.TemporaryDirectory(prefix="rina-fw-findings-") as directory:
     tools = sandbox / "tools/firmware"
     tools.mkdir(parents=True)
     shutil.copytree(STRESS / "stress_fakes", tools / "stress_fakes")
+    # Current protocol handlers also reference boot identity and brightness
+    # button classification; these hardware-independent stubs keep the archived
+    # host harness usable against the production translation units.
+    fake_platform = tools / "stress_fakes/fake_platform.cpp"
+    with fake_platform.open("a") as stream:
+        stream.write('\nconst char* boardBootId() { return "host-test-boot"; }\n'
+                     'bool isBrightnessButtonCode(const String&) { return false; }\n')
     for name in (
         "stress_build.sh",
         "stress_common.h",

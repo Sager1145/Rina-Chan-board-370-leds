@@ -1080,3 +1080,10 @@
 {"k":"麦克风未传入音频数据，请检查输入设备后重新开始同步","en":"The microphone is not delivering audio. Check the input device, then start syncing again.","hant":"麥克風未傳入音訊資料，請檢查輸入裝置後重新開始同步","ja":"マイクから音声が届いていません。入力デバイスを確認してから、もう一度同期を開始してください"}
 {"k":"麦克风未传入音频数据，请检查输入设备后重新校准","en":"The microphone is not delivering audio. Check the input device, then calibrate again.","hant":"麥克風未傳入音訊資料，請檢查輸入裝置後重新校準","ja":"マイクから音声が届いていません。入力デバイスを確認してから、もう一度キャリブレーションしてください"}
 {"k":"麦克风传入的音频全部为静音，请检查输入设备是否被静音","en":"The microphone is delivering only silence. Check whether the input device is muted.","hant":"麥克風傳入的音訊全部為靜音，請檢查輸入裝置是否被靜音","ja":"マイクからの音声がすべて無音です。入力デバイスがミュートされていないか確認してください"}
+{"k": "面板配置帧率", "en": "Configured board FPS", "hant": "面板設定幀率", "ja": "ボード設定FPS"}
+{"k": "播放指令确认", "en": "Playback acknowledgments", "hant": "播放指令確認", "ja": "再生指令の応答"}
+{"k": "全部已确认", "en": "All acknowledged", "hant": "全部已確認", "ja": "すべて応答済み"}
+{"k": "%1$lld / %2$lld 块已确认", "en": "%1$lld / %2$lld boards acknowledged", "hant": "%1$lld / %2$lld 塊已確認", "ja": "%1$lld / %2$lld 台が応答済み"}
+{"k": "无法读取本机表情库", "en": "Unable to read the local face library", "hant": "無法讀取本機表情庫", "ja": "ローカル表情ライブラリを読み込めません"}
+{"k": "同步队列已满", "en": "Sync queue is full", "hant": "同步佇列已滿", "ja": "同期キューがいっぱいです"}
+{"k": "多板组未同步时无法从手表开始口型同步", "en": "Lip sync can't start from the watch while the group isn't synced", "hant": "多板組未同步時無法從手錶開始口型同步", "ja": "グループが同期していない間は Watch からリップシンクを開始できません"}

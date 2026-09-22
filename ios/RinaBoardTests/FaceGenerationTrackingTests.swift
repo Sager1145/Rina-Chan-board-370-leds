@@ -181,6 +181,107 @@ final class FaceGenerationTrackingTests: XCTestCase {
         connectionB.disconnect()
     }
 
+    /// A whole-library upload has a second, implicit mutation: its follow-up
+    /// reload. If board A's BLOB_END arrives after the model has moved to B,
+    /// that reload must not start against A or replace B's published library
+    /// (R02).
+    func testStaleBoardSwitchDuringFaceImportDoesNotReloadTheOldBoard() async throws {
+        let model = FaceLibraryModel()
+        let (connectionA, transportA) = await wifiBoard(host: "board-a.local")
+        let (connectionB, transportB) = await wifiBoard(host: "board-b.local")
+        let faceA = SavedFace(id: "a1", name: "Imported A", type: .custom,
+                              frameBytes: PackedFrame().bytes.map(Int.init), order: 1)
+        let imported = try FaceDocument(faces: [faceA]).encoded()
+
+        transportA.resetRecordedFrames()
+        transportA.automaticallyReplies = false
+        let importTask = Task {
+            await model.importDocument(from: imported, to: .board, connection: connectionA)
+        }
+        try await transportA.waitForSent(type: .blobBegin, count: 1)
+        let beginFrame = try XCTUnwrap(transportA.lastSent(type: .blobBegin))
+        let beginJSON = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: beginFrame.payload) as? [String: Any]
+        )
+        let totalBytes = try XCTUnwrap(beginJSON["totalBytes"] as? Int)
+
+        model.synchronizeBoardGeneration(connectionB.connectionGeneration)
+        let faceB = SavedFace(id: "b1", name: "Board B face", type: .custom,
+                              frameBytes: PackedFrame().bytes.map(Int.init), order: 1)
+        try await scriptedReload(model, connectionB, transportB, faces: [faceB])
+
+        transportA.replyToNext(type: .blobBegin, json: ["ok": true, "offset": 0])
+        var offset = 0
+        var chunkCount = 0
+        while offset < totalBytes {
+            chunkCount += 1
+            try await transportA.waitForSent(type: .blobChunk, count: chunkCount)
+            let chunk = try XCTUnwrap(transportA.lastSent(type: .blobChunk))
+            offset += chunk.payload.count - 4
+            transportA.replyToNext(type: .blobChunk, json: ["ok": true, "offset": offset])
+        }
+        try await transportA.waitForSent(type: .blobEnd, count: 1)
+        transportA.replyToNext(type: .blobEnd, json: ["ok": true])
+
+        // If the stale import incorrectly starts GET_FACES, answer it so the
+        // test fails on state/count assertions instead of hanging forever.
+        let staleReloadResponder = Task { @MainActor in
+            for _ in 0..<200 {
+                if transportA.sentCount(type: .getFaces) > 0 {
+                    transportA.replyToNext(type: .getFaces,
+                                           payload: self.genPrefix(1) + (try! FaceDocument(faces: [faceA]).encoded()))
+                    return
+                }
+                try await Task.sleep(nanoseconds: 1_000_000)
+            }
+        }
+        await importTask.value
+        staleReloadResponder.cancel()
+        _ = try? await staleReloadResponder.value
+
+        XCTAssertEqual(transportA.sentCount(type: .getFaces), 0,
+                       "a completed upload for stale board A must not initiate a reload")
+        XCTAssertEqual(model.boardID, connectionB.boardKey)
+        XCTAssertEqual(model.boardGeneration, connectionB.connectionGeneration)
+        XCTAssertEqual(model.faceDocument.faces.map(\.id), ["b1"])
+        XCTAssertNil(model.errorMessage)
+        connectionA.disconnect()
+        connectionB.disconnect()
+    }
+
+    func testStaleBoardSwitchDuringFailedFaceImportDoesNotReplaceNewBoardError() async throws {
+        let model = FaceLibraryModel()
+        let (connectionA, transportA) = await wifiBoard(host: "board-a.local")
+        let (connectionB, transportB) = await wifiBoard(host: "board-b.local")
+        let faceA = SavedFace(id: "a1", name: "Imported A", type: .custom,
+                              frameBytes: PackedFrame().bytes.map(Int.init), order: 1)
+        let imported = try FaceDocument(faces: [faceA]).encoded()
+
+        transportA.resetRecordedFrames()
+        transportA.automaticallyReplies = false
+        let importTask = Task {
+            await model.importDocument(from: imported, to: .board, connection: connectionA)
+        }
+        try await transportA.waitForSent(type: .blobBegin, count: 1)
+
+        model.synchronizeBoardGeneration(connectionB.connectionGeneration)
+        let faceB = SavedFace(id: "b1", name: "Board B face", type: .custom,
+                              frameBytes: PackedFrame().bytes.map(Int.init), order: 1)
+        try await scriptedReload(model, connectionB, transportB, faces: [faceB])
+        model.errorMessage = "Board B warning"
+
+        // Retiring A fails its held upload. That failure belongs to A and must
+        // not publish over B's current error/document state.
+        connectionA.disconnect()
+        await importTask.value
+
+        XCTAssertEqual(model.boardID, connectionB.boardKey)
+        XCTAssertEqual(model.boardGeneration, connectionB.connectionGeneration)
+        XCTAssertEqual(model.faceDocument.faces.map(\.id), ["b1"])
+        XCTAssertEqual(model.errorMessage, "Board B warning")
+        connectionB.disconnect()
+    }
+
     /// A refresh of the SAME board also moves the load revision. A rename that
     /// raced it succeeded on the board, so the model must re-read rather than
     /// keep whatever the refresh fetched (possibly from before the rename).

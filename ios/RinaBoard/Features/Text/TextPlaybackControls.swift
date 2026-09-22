@@ -28,6 +28,7 @@ struct TextPlaybackControls: View {
     var onStop: () -> Void
     var onStepBackward: () -> Void
     var onStepForward: () -> Void
+    var canStop: Bool? = nil
 
     /// Stepping, pausing and stopping act on the board's scroll session, so
     /// they only need one to exist there, not a timeline bound in the app.
@@ -39,7 +40,7 @@ struct TextPlaybackControls: View {
             playPauseControl
             // Stop keeps working in group mode, like send.
             control("stop.fill", label: "停止并清屏", action: onStop)
-                .disabled(!transportEnabled)
+                .disabled(!(canStop ?? transportEnabled))
             Toggle(isOn: $loopPlayback) {
                 RepeatSymbol(isOn: loopPlayback)
                     .frame(maxWidth: .infinity)

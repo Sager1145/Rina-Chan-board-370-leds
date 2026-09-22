@@ -135,25 +135,11 @@ public final class BoardStore {
             if existing.id == board.id { return true }
             if let service = board.bonjourService {
                 if existing.bonjourService == service { return true }
-                // Adopt the stable service identity when replacing a record
-                // made by an older version, which stored either the service
-                // name or the address resolved during that discovery pass as
-                // its id.
-                if existing.bonjourService == nil,
-                   existing.id == service.name
-                    || (board.lastHost != nil && existing.lastHost == board.lastHost) {
+                // A legacy service-name record can acquire its service identity.
+                // Reused LAN/SoftAP addresses are not evidence of board identity.
+                if existing.bonjourService == nil, existing.id == service.name {
                     return true
                 }
-            }
-            // A newly-learned board SSID replaces a legacy hotspot record
-            // (saved before boards had unique SSIDs, keyed by the shared
-            // SoftAP IP with no SSID of its own) rather than sitting beside
-            // it as a duplicate. Two records with *different* known SSIDs
-            // must stay separate — they are different boards.
-            if board.preferredTransport == "hotspot", board.hotspotSSID != nil,
-               existing.preferredTransport == "hotspot", existing.hotspotSSID == nil,
-               existing.id == RinaLinkConstants.apIP {
-                return true
             }
             return false
         }) {

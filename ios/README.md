@@ -1,7 +1,13 @@
 # RinaBoard iOS app
 
-Open `RinaBoard.xcodeproj` in Xcode 16+ (or run the command below) and build
-the `RinaBoard` scheme for an iOS 17+ simulator or device.
+Open `RinaBoard.xcodeproj` in Xcode 27.0 (the verified toolchain), or run the
+command below, and build the `RinaBoard` scheme for an iOS 17+ simulator or device.
+The minimum deployment target is iOS 17; this is separate from the build SDK.
+Sources reference iOS 26.1 APIs behind runtime availability checks, so Xcode 16
+cannot compile them. Older Xcode releases have not been validated by this audit.
+The app remains in Swift 5 language mode; RinaCore uses Swift 6. Run
+`tools/verify_ios.sh` from the repository root for the package, app tests and
+strict-concurrency warning baseline rather than changing the language mode alone.
 
 ```sh
 cd ios
@@ -15,6 +21,40 @@ group; drop new Swift files or resources into the right subfolder and Xcode
 picks them up on the next build. `Packages/RinaCore` is a local Swift package
 (`swift test` from that directory runs its unit tests) providing the
 transport-agnostic RinaLink protocol codec and models.
+
+## Apple Watch companion
+
+`RinaBoardWatch` is a watchOS 10+ app embedded in `RinaBoard.app` (the
+`Embed Watch Content` phase; bundle id `com.rinachan.board.watchkitapp`). It
+never pairs with a board: every action goes to the paired iPhone over
+WatchConnectivity and the phone runs it against the boards it is connected to.
+The watch works while the iPhone app is running in the foreground; the phone
+app has no Bluetooth background mode, so with the phone locked or the app
+suspended the watch shows "iPhone 不可达" until the app is back.
+
+- Sources: `RinaBoardWatch/` (watch UI), `RinaWatchLink/` (the wire format and
+  `WCSessionDelegate` relay, compiled into both apps), and
+  `RinaBoard/Services/WatchLinkService.swift` (the phone end). Build or run the
+  watch app with the `RinaBoardWatch` scheme on a watch simulator paired with an
+  iPhone simulator; building `RinaBoard` builds and embeds it.
+- What it controls: the Control Center's board-wide state (brightness,
+  previous/next face, auto cycle and its interval, preset colours), the scroll
+  speed of a running text scroll (greyed out otherwise), and lip sync
+  (start/stop and microphone sensitivity; the iPhone's microphone does the
+  listening). Every value opens a screen the Digital Crown drives.
+- Target: 控制对象 on the watch defaults to whatever the phone is controlling
+  and can be switched to any connected board or any board group. That choice
+  lives on the phone side of the link only — it never changes the phone's
+  active session or its own 控制对象, so the phone keeps running what it was
+  running. Only prev/next, auto on/off and lip sync take over a board's
+  output, exactly as the phone's Control Center would; brightness, colour,
+  interval and scroll speed retune whatever is already playing. The phone's
+  own board goes through `BoardControlCenterModel` (so its drafts and group
+  fan-out apply); any other board or group is driven directly through its
+  `BoardConnection`(s). A group that is not the phone's synced group receives
+  each command per member, and cannot start lip sync.
+- Strings: the watch has its own `RinaBoardWatch/Resources/Localizable.xcstrings`,
+  hand-maintained in the same four languages (`tools/i18n/README.md`).
 
 On-device: real Bluetooth/Wi-Fi/hotspot connectivity requires a physical
 iPhone/iPad; the simulator can still exercise the UI and TCP paths against a

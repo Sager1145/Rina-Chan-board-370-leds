@@ -205,6 +205,14 @@ static uint32_t g_rebootAtMs = 0;
 // the connectPending/disconnectPending flags. See transport.h for the contract.
 static portMUX_TYPE g_registryMux = portMUX_INITIALIZER_UNLOCKED;
 
+static bool clientActive(const ClientSlot& c) {
+    portENTER_CRITICAL(&g_registryMux);
+    const bool active = c.used && !c.disconnectPending && !c.connectPending;
+    portEXIT_CRITICAL(&g_registryMux);
+    return active;
+}
+
+
 // Only one client may hold an in-progress "scroll" blob upload at a time (item 10).
 static int g_activeScrollBlobSlot = -1;
 
@@ -275,8 +283,9 @@ static void expireBlobSessions() {
 // pass (item 1/8).
 static bool sendFrame(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags,
                       const uint8_t* payload, uint16_t len, bool isEvent = false) {
-    if (c.disconnectPending || !c.transport)
-        return false;
+    if (!clientActive(c)) return false;
+    // A claimed slot's transport is stable until loop-task finalization.
+    if (!c.transport) return false;
     static uint8_t buf[FRAME_HEADER_BYTES + MAX_PAYLOAD_BYTES];
     size_t total = transportFrame(buf, type, seq, flags, payload, len);
     uint8_t slot = static_cast<uint8_t>(&c - g_clients);
@@ -296,11 +305,19 @@ static bool sendFrame(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags,
 // former sendJsonReply / sendEvent / sendErrorReply / sendJsonReplyChunked.
 static bool emitJson(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags, JsonDocument& doc,
                      bool isEvent = false) {
-    constexpr size_t kScratchCap = static_cast<size_t>(MAX_SCROLL_TEXT_BYTES) + 2048U;
+    // A source byte can become six JSON bytes (\u00XX). Measure before
+    // emitting any frame so MORE never disguises a truncated document.
+    constexpr size_t kScratchCap = static_cast<size_t>(MAX_SCROLL_TEXT_BYTES) * 6U + 2048U;
     static char scratch[kScratchCap];
-    size_t n = serializeJson(doc, scratch, kScratchCap);
-    if (n >= kScratchCap)
-        n = kScratchCap - 1;
+    const size_t required = measureJson(doc);
+    if (doc.overflowed() || required >= kScratchCap) {
+        if (isEvent) return false;
+        static const char error[] = "{\"code\":507,\"error\":\"JSON response exceeds capacity\"}";
+        return sendFrame(c, msg::ERR, seq, 0,
+                         reinterpret_cast<const uint8_t*>(error), sizeof(error) - 1);
+    }
+    const size_t n = serializeJson(doc, scratch, kScratchCap);
+    if (n != required) return false;
     if (n == 0) {
         return sendFrame(c, type, seq, flags, nullptr, 0, isEvent);
     }
@@ -393,6 +410,12 @@ static void addPower(JsonObject p) {
     p["battCalibMaxLearned"] = s.batteryCalibMaxLearned;
     p["battCalibCutoffLearned"] = s.batteryCalibCutoffLearned;
     p["batteryAdcSaturated"] = s.batteryAdcMv >= BATTERY_ADC_CLIP_MV;
+}
+
+// Include all nested object slots plus copied runtime strings. Slot size is
+// target-dependent (the host regression harness uses wider pointers).
+static size_t statusJsonCapacity(bool lite) {
+    return JSON_OBJECT_SIZE(lite ? 72 : 104) + 1024;
 }
 
 static void buildStatusJson(JsonDocument& d, bool lite) {
@@ -1317,7 +1340,7 @@ static void handleGetStatus(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
         if (!deserializeJson(d, payload, len))
             lite = d["lite"] | false;
     }
-    PsramJsonDocument d(lite ? 1536 : 3072);
+    PsramJsonDocument d(statusJsonCapacity(lite));
     buildStatusJson(d, lite);
     sendJsonReply(c, msg::GET_STATUS, seq, d);
 }
@@ -1523,7 +1546,11 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
         return;
     }
     const char* kind = d["kind"] | "";
-    uint32_t totalBytes = d["totalBytes"] | 0;
+    if (!d["totalBytes"].is<uint32_t>()) {
+        sendErrorReply(c, seq, 400, "invalid totalBytes");
+        return;
+    }
+    uint32_t totalBytes = d["totalBytes"].as<uint32_t>();
     uint16_t chunkMax = c.transport->preferredChunkBytes(ClientId{static_cast<uint8_t>(selfSlot)});
     if (chunkMax == 0 || chunkMax > 4032)
         chunkMax = 4032;
@@ -1546,9 +1573,16 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
         uint8_t uiFps = cUiFps(d, noPayload, interval);
         uint32_t implied = totalBytes / FRAME_BYTES;
         uint32_t totalFrames = d["totalFrames"] | (append ? runtimeState().scrollFrameCount + implied : implied);
-        if (totalFrames > MAX_SCROLL_FRAMES) {
+        const uint32_t existingFrames = append ? runtimeState().scrollFrameCount : 0;
+        if (totalFrames > MAX_SCROLL_FRAMES || implied > MAX_SCROLL_FRAMES ||
+            existingFrames > MAX_SCROLL_FRAMES || implied > MAX_SCROLL_FRAMES - existingFrames) {
             resetBlob(c);
             sendErrorReply(c, seq, 413, "too many scroll frames");
+            return;
+        }
+        if (totalBytes % FRAME_BYTES != 0 || totalFrames < existingFrames + implied) {
+            resetBlob(c);
+            sendErrorReply(c, seq, 400, "scroll totalBytes/totalFrames mismatch");
             return;
         }
         // Gather + validate everything (including sourceText length) BEFORE marking
@@ -2206,8 +2240,11 @@ size_t transportPushInbound(ClientId id, const uint8_t* data, size_t len) {
     if (id.slot >= MAX_CLIENTS)
         return 0;
     ClientSlot& c = g_clients[id.slot];
-    if (!c.used || c.disconnectPending || !c.inbound)
+    portENTER_CRITICAL(&g_registryMux);
+    if (!c.used || c.disconnectPending || !c.inbound) {
+        portEXIT_CRITICAL(&g_registryMux);
         return 0;
+    }
     portENTER_CRITICAL(&c.mux);
     size_t room = INBOUND_BUFFER_BYTES - c.inboundLen;
     size_t take = len > room ? room : len;
@@ -2216,6 +2253,7 @@ size_t transportPushInbound(ClientId id, const uint8_t* data, size_t len) {
         c.inboundLen += take;
     }
     portEXIT_CRITICAL(&c.mux);
+    portEXIT_CRITICAL(&g_registryMux);
     if (take < len) {
         RLOG_WARN("PROTO", "event=inbound_overflow slot=%u dropped=%u", (unsigned)id.slot, (unsigned)(len - take));
     }
@@ -2226,11 +2264,15 @@ size_t transportInboundFree(ClientId id) {
     if (id.slot >= MAX_CLIENTS)
         return 0;
     ClientSlot& c = g_clients[id.slot];
-    if (!c.used || !c.inbound)
+    portENTER_CRITICAL(&g_registryMux);
+    if (!c.used || c.disconnectPending || !c.inbound) {
+        portEXIT_CRITICAL(&g_registryMux);
         return 0;
+    }
     portENTER_CRITICAL(&c.mux);
     size_t freeBytes = INBOUND_BUFFER_BYTES - c.inboundLen;
     portEXIT_CRITICAL(&c.mux);
+    portEXIT_CRITICAL(&g_registryMux);
     return freeBytes;
 }
 
@@ -2238,13 +2280,17 @@ void transportMarkResyncNeeded(ClientId id) {
     if (id.slot >= MAX_CLIENTS)
         return;
     ClientSlot& c = g_clients[id.slot];
-    if (!c.used)
+    portENTER_CRITICAL(&g_registryMux);
+    if (!c.used || c.disconnectPending) {
+        portEXIT_CRITICAL(&g_registryMux);
         return;
+    }
     portENTER_CRITICAL(&c.mux);
     c.inboundLen = 0;
     c.oversizedBytesRemaining = 0;
     c.resyncNeeded = true;
     portEXIT_CRITICAL(&c.mux);
+    portEXIT_CRITICAL(&g_registryMux);
 }
 
 size_t transportFrame(uint8_t* out, uint8_t type, uint8_t seq, uint8_t flags,
@@ -2293,7 +2339,7 @@ static void processClientInbound(ClientSlot& c) {
             rinalink::transportUnregisterClient(ClientId{slot});
             return;
         }
-        if (popped.frameBytes == 0 || c.disconnectPending)
+        if (popped.frameBytes == 0 || !clientActive(c))
             return;
         dispatch(c, frame[1], frame[2], frame[3], frame + FRAME_HEADER_BYTES,
                  static_cast<uint16_t>(popped.frameBytes - FRAME_HEADER_BYTES));
@@ -2307,7 +2353,7 @@ static void serviceProtocolEvents() {
     bool wifiScanReady = wifiManagerScanResultReady();
     if (wifiChanged) {
         for (auto& client : g_clients) {
-            if (client.used && !client.disconnectPending)
+            if (clientActive(client))
                 client.wifiEventPending = true;
         }
     }
@@ -2316,7 +2362,7 @@ static void serviceProtocolEvents() {
 
     // Drain the EV_LOG ring (item 9): copy out under the lock, then fan out to
     // subscribed clients without holding it.
-    if (g_logRing && g_logCount > 0) {
+    if (g_logRing) {
         static LogRingEntry local[LOG_RING_CAP]; // loop-task only; avoid ~2.8 KB of stack
         uint8_t count;
         portENTER_CRITICAL(&g_logRingMux);
@@ -2330,7 +2376,7 @@ static void serviceProtocolEvents() {
             char lvl[2] = {local[i].level ? local[i].level : 'I', 0};
             for (uint8_t ci = 0; ci < MAX_CLIENTS; ci++) {
                 ClientSlot& lc = g_clients[ci];
-                if (!lc.used || lc.disconnectPending || !lc.subLog)
+                if (!clientActive(lc) || !lc.subLog)
                     continue;
                 DynamicJsonDocument d(256);
                 d["level"] = lvl;
@@ -2348,14 +2394,14 @@ static void serviceProtocolEvents() {
         wifiManagerGetScanJson(arr);
         int slot = g_wifiScanRequesterSlot;
         bool sentToRequester = false;
-        if (slot >= 0 && slot < MAX_CLIENTS && g_clients[slot].used && !g_clients[slot].disconnectPending) {
+        if (slot >= 0 && slot < MAX_CLIENTS && clientActive(g_clients[slot])) {
             sentToRequester = sendEvent(g_clients[slot], msg::EV_WIFI_SCAN, out);
         }
         if (!sentToRequester) {
             bool anyRecipient = false;
             bool allSent = true;
             for (uint8_t i = 0; i < MAX_CLIENTS; i++) {
-                if (g_clients[i].used && !g_clients[i].disconnectPending) {
+                if (clientActive(g_clients[i])) {
                     anyRecipient = true;
                     allSent = sendEvent(g_clients[i], msg::EV_WIFI_SCAN, out) && allSent;
                 }
@@ -2370,7 +2416,7 @@ static void serviceProtocolEvents() {
 
     for (uint8_t i = 0; i < MAX_CLIENTS; i++) {
         ClientSlot& c = g_clients[i];
-        if (!c.used)
+        if (!clientActive(c))
             continue;
 
         if (c.subPreview) {
@@ -2391,7 +2437,7 @@ static void serviceProtocolEvents() {
         if (c.subStatus) {
             uint32_t v = runtimeStateVersion();
             if ((!c.haveStatusVersion || v != c.lastStatusVersion) && millisElapsed(now, c.lastStatusSentMs, 200)) {
-                PsramJsonDocument d(1536);
+                PsramJsonDocument d(statusJsonCapacity(true));
                 buildStatusJson(d, true);
                 if (sendEvent(c, msg::EV_STATUS, d)) {
                     c.lastStatusVersion = v;
@@ -2541,7 +2587,7 @@ void serviceProtocol() {
         ESP.restart();
     }
     for (uint8_t i = 0; i < MAX_CLIENTS; i++) {
-        if (g_clients[i].used && !g_clients[i].disconnectPending)
+        if (clientActive(g_clients[i]))
             processClientInbound(g_clients[i]);
     }
     serviceProtocolEvents();

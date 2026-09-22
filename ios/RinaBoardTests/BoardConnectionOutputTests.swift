@@ -932,6 +932,11 @@ final class FakeRinaTransport: @MainActor RinaTransport {
     }
 
     private func defaultPayload(for request: RinaLinkFrame) -> Data {
+        if request.type == RinaLinkMessageType.blobChunk.rawValue, request.payload.count >= 4 {
+            let bytes = [UInt8](request.payload.prefix(4))
+            let offset = Int(bytes[0]) | (Int(bytes[1]) << 8) | (Int(bytes[2]) << 16) | (Int(bytes[3]) << 24)
+            return try! JSONSerialization.data(withJSONObject: ["offset": offset + request.payload.count - 4])
+        }
         if request.type == RinaLinkMessageType.cmd.rawValue {
             var payload = commandReply
             if let gen = nextCommandGen {
