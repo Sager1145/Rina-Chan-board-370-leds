@@ -822,7 +822,7 @@ public final class BoardConnection {
     @discardableResult
     public func requestReliable(_ cmd: RinaCommand, timeout: TimeInterval = 5) async throws -> CommandReply {
         let reply: CommandReply = try await requestReliableDecoding(cmd, timeout: timeout)
-        guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)") }
+        guard reply.ok else { throw RinaTransportError.underlying(String(localized: "面板拒绝指令：\(cmd.name)")) }
         return reply
     }
 

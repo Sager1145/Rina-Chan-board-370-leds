@@ -217,11 +217,17 @@ final class WatchLinkTests: XCTestCase {
         try await h.coordinator.play(group: h.group, text: "A", fps: 10, loop: true)
         XCTAssertTrue(h.coordinator.isPlaying)
         await h.service.handle(.selectTarget(id: "group:\(h.group.id.uuidString)"))
+        let startsBeforeA = h.transports["A"]?.sentGroupStartIntervalMs.count ?? 0
+        let startsBeforeB = h.transports["B"]?.sentGroupStartIntervalMs.count ?? 0
 
         await h.service.handle(.setScrollFps(fps: 24))
 
         XCTAssertEqual(h.text.requestedFps, 24)
         XCTAssertTrue(h.coordinator.isPlaying)
+        XCTAssertEqual(h.transports["A"]?.sentGroupStartIntervalMs.count, startsBeforeA + 1)
+        XCTAssertEqual(h.transports["B"]?.sentGroupStartIntervalMs.count, startsBeforeB + 1)
+        XCTAssertEqual(h.transports["A"]?.sentGroupStartIntervalMs.last, 42)
+        XCTAssertEqual(h.transports["B"]?.sentGroupStartIntervalMs.last, 42)
         XCTAssertFalse(h.transports.values.contains { $0.receivedCmdNames.contains("set_scroll_interval") })
         await h.coordinator.stop(group: h.group)
     }
@@ -302,6 +308,7 @@ private final class WatchLinkFakeTransport: RinaTransport {
     var caps = ["identify", "clock_sample", "scroll_viewport", "group_start"]
     var rendererScrollActive = false
     private(set) var receivedCmdNames: [String] = []
+    private(set) var sentGroupStartIntervalMs: [Int] = []
     private var lastCmdPayloads: [String: [String: Any]] = [:]
     private let decoder = RinaLinkDecoder()
     private var stateContinuation: AsyncStream<TransportState>.Continuation?
@@ -368,6 +375,9 @@ private final class WatchLinkFakeTransport: RinaTransport {
                     "ok": true, "rxUs": 1_000, "txUs": 1_200, "bootId": "aaaaaaaa",
                 ])) ?? Data()
             case "group_start":
+                if let intervalMs = object["intervalMs"] as? NSNumber {
+                    sentGroupStartIntervalMs.append(intervalMs.intValue)
+                }
                 return (try? JSONSerialization.data(withJSONObject: [
                     "ok": true, "nowUs": 0, "frameCount": 10,
                 ])) ?? Data()

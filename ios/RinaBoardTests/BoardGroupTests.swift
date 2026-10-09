@@ -1436,6 +1436,42 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertEqual(transportB.sentGroupStartAtUs.count - sentBeforeB, 1)
     }
 
+    func testStopDuringAdoptionPreventsLaterGroupStart() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let first = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let group = store.create(name: "停止接管组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try await first.play(group: store.groups[0], text: "接管", fps: 10, loop: true)
+        let frameCount = try XCTUnwrap(first.playbackSnapshot?.frameCount)
+        let timelineId = try XCTUnwrap(transportA.lastBlobBeginMeta?["timelineId"] as? String)
+        for transport in [transportA, transportB] {
+            transport.scrollMeta = [
+                "ok": true, "scrollTimelineId": timelineId, "hasSourceText": true, "sourceText": "接管",
+                "frameCount": frameCount, "frameIndex": 5, "scrollIntervalMs": 100,
+                "firmwareScrollActive": true, "firmwareScrollPaused": false, "scrollLoop": true, "groupTimed": true,
+            ]
+            transport.scrollMetaReplyDelay = 0.3
+        }
+        let startsBefore = transportA.sentGroupStartAtUs.count
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+
+        let adoption = Task { await coordinator.adoptRunningScrollIfNeeded(group: store.groups[0], loop: true) }
+        await waitUntil { transportA.scrollMetaRequestCount > 0 }
+        await coordinator.stop(group: store.groups[0])
+        _ = await adoption.value
+        try? await Task.sleep(nanoseconds: 350_000_000)
+
+        XCTAssertEqual(transportA.sentGroupStartAtUs.count, startsBefore)
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertFalse(coordinator.isStarting)
+    }
+
     /// A failed adoption must not be retried immediately: a second call for
     /// the same group within the 5 s throttle window must produce no
     /// additional BLE traffic, so a caller stuck re-requesting adoption can't
@@ -1586,6 +1622,40 @@ final class BoardGroupCoordinatorTests: XCTestCase {
                       "B is left for the existing rejoin path while C remains offline")
     }
 
+    func testResumeReportsErrorWhenRestartLeavesNoFallbackParticipants() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        let transportC = GroupFakeTransport()
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let sessionC = await connectedSession(sessions: sessions, identity: "C", transport: transportC)
+        let group = store.create(name: "无回退组")
+        for id in ["A", "B", "C"] {
+            try store.addMember(groupID: group.id, member: .init(physicalBoardID: id, displayName: id))
+        }
+        try await coordinator.play(group: store.groups[0], text: "恢复", fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+
+        let newTransportB = GroupFakeTransport()
+        newTransportB.wifiBoardId = "B"
+        _ = await sessionB.connection.connect(using: newTransportB)
+        sessionA.connection.disconnect()
+        sessionC.connection.disconnect()
+        await waitUntil {
+            sessionA.connection.connectionState != .connected && sessionC.connection.connectionState != .connected
+        }
+
+        await coordinator.resume(group: store.groups[0])
+
+        XCTAssertTrue(coordinator.isPaused)
+        XCTAssertNotNil(coordinator.lastPlayError)
+        await coordinator.stop(group: store.groups[0])
+        XCTAssertNil(coordinator.lastPlayError)
+    }
+
     /// Same gap for step: the reconnected board is brought back and the
     /// group ends paused on the stepped frame.
     func testStepAfterMemberReconnectedWhilePausedIncludesIt() async throws {
@@ -1613,6 +1683,36 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pausedFrame, target)
         XCTAssertNotNil(newTransportB.lastBlobBeginMeta)
         XCTAssertEqual(newTransportB.sentScrollSeekFrames.last, target)
+    }
+
+    func testStepDoesNotSeekWhenRestartCannotRestorePausedState() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let transportA = GroupFakeTransport()
+        let transportB = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
+        let group = store.create(name: "逐帧暂停失败组")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try await coordinator.play(group: store.groups[0], text: "逐帧", fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        let seeksBeforeA = transportA.sentScrollSeekFrames.count
+
+        let newTransportB = GroupFakeTransport()
+        newTransportB.wifiBoardId = "B"
+        _ = await sessionB.connection.connect(using: newTransportB)
+        transportA.failPauseScroll = true
+        newTransportB.failPauseScroll = true
+
+        await coordinator.step(group: store.groups[0], direction: 1)
+
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertFalse(coordinator.isPaused)
+        XCTAssertNotNil(coordinator.lastPlayError)
+        XCTAssertEqual(transportA.sentScrollSeekFrames.count, seeksBeforeA)
+        XCTAssertTrue(newTransportB.sentScrollSeekFrames.isEmpty)
     }
 
     /// Drag-swap on an idle group only reorders.
@@ -2563,6 +2663,7 @@ private final class GroupFakeTransport: RinaTransport {
     var statusRenderer: [String: Any] = [:]
     /// `GET_SCROLL_META` reply; `nil` replies with an empty meta.
     var scrollMeta: [String: Any]?
+    var scrollMetaReplyDelay: TimeInterval = 0
     /// One entry per `GET_SCROLL_META` request this board received.
     private(set) var scrollMetaRequestCount = 0
     private(set) var blobBeginCount = 0
@@ -2588,6 +2689,9 @@ private final class GroupFakeTransport: RinaTransport {
 
     func send(_ data: Data) async throws {
         for request in decoder.feed(data) {
+            if request.type == RinaLinkMessageType.getScrollMeta.rawValue {
+                scrollMetaRequestCount += 1
+            }
             let delay = delay(for: request)
             if delay > 0 {
                 Task { @MainActor [weak self] in
@@ -2602,6 +2706,7 @@ private final class GroupFakeTransport: RinaTransport {
     }
 
     private func delay(for request: RinaLinkFrame) -> TimeInterval {
+        if request.type == RinaLinkMessageType.getScrollMeta.rawValue { return scrollMetaReplyDelay }
         guard request.type == RinaLinkMessageType.cmd.rawValue,
               let object = try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any],
               let cmd = object["cmd"] as? String else { return 0 }
@@ -2628,7 +2733,6 @@ private final class GroupFakeTransport: RinaTransport {
         case .getFrame:
             return PackedFrame().data
         case .getScrollMeta:
-            scrollMetaRequestCount += 1
             return (try? JSONSerialization.data(withJSONObject: scrollMeta ?? ["ok": true])) ?? Data()
         case .blobBegin:
             blobBeginCount += 1

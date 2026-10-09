@@ -255,6 +255,12 @@ struct ScrollTextView: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
+            if let error = groupCoordinator.lastPlayError,
+               groupCoordinator.lastPlayErrorGroupID == group.id {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         }
         // Take a still-running group scroll back as soon as every member is
         // online again, so pause/step/speed work without a tap first.

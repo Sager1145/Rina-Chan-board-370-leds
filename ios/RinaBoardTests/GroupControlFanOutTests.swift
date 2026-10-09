@@ -177,6 +177,56 @@ final class GroupControlFanOutTests: XCTestCase {
         XCTAssertEqual(sink.connection.output.source, .groupControl)
     }
 
+    func testReattachedSinkDoesNotTakeOverAnotherOutputOwner() async throws {
+        for source in [BoardOutputSource.group, .manual] {
+            let h = await harness(["AAAA", "BBBB"])
+            h.fanOut.setTarget(.group(h.group.id))
+            let primary = session(h, "AAAA")
+            let sink = session(h, "BBBB")
+            var frame = PackedFrame()
+            frame.set(17)
+            _ = try await primary.connection.setFrame(frame, playback: .idle, reason: "ownership_alignment")
+            await waitUntil { h.transports["BBBB"]?.receivedFrameBytes.last == frame.bytes }
+
+            h.store.removeMember(groupID: h.group.id, physicalBoardID: "BBBB")
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            let token = sink.connection.output.claim(source)
+            let frameCount = h.transports["BBBB"]?.receivedFrameBytes.count
+            try h.store.addMember(
+                groupID: h.group.id,
+                member: .init(physicalBoardID: "BBBB", displayName: "BBBB")
+            )
+            try? await Task.sleep(nanoseconds: 200_000_000)
+
+            XCTAssertEqual(sink.connection.output.source, source)
+            XCTAssertTrue(sink.connection.output.isCurrent(token))
+            XCTAssertEqual(h.transports["BBBB"]?.receivedFrameBytes.count, frameCount)
+        }
+    }
+
+    func testGroupScrollClearsLastMirroredFrameBeforeLaterReattach() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.fanOut.setTarget(.group(h.group.id))
+        let primary = session(h, "AAAA")
+        var frame = PackedFrame()
+        frame.set(19)
+        _ = try await primary.connection.setFrame(frame, playback: .idle, reason: "before_group_scroll")
+        await waitUntil { h.transports["BBBB"]?.receivedFrameBytes.last == frame.bytes }
+        let frameCount = h.transports["BBBB"]?.receivedFrameBytes.count
+
+        try await h.coordinator.play(group: h.store.groups[0], text: "滚动", fps: 10, loop: true)
+        await h.coordinator.stop(group: h.store.groups[0])
+        h.store.removeMember(groupID: h.group.id, physicalBoardID: "BBBB")
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        try h.store.addMember(
+            groupID: h.group.id,
+            member: .init(physicalBoardID: "BBBB", displayName: "BBBB")
+        )
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertEqual(h.transports["BBBB"]?.receivedFrameBytes.count, frameCount)
+    }
+
     // MARK: 4. Sink failure doesn't affect the primary; sets memberErrors
 
     func testSinkFailureRecordsMemberErrorWithoutAffectingPrimary() async throws {

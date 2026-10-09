@@ -158,6 +158,12 @@ public final class GroupControlFanOut {
         self.sessions = sessions
         self.groupStore = groups
         self.coordinator = coordinator
+        coordinator.groupScrollStartedHook = { [weak self] groupID in
+            guard let self, case .group(groupID) = self.target else { return }
+            self.dispatchSeq += 1
+            self.lastDispatchedFrame = nil
+            for channel in self.channels.values { channel.currentLease = nil }
+        }
     }
 
     // MARK: - Target / reconciliation
@@ -355,7 +361,8 @@ public final class GroupControlFanOut {
     private func alignFrame(_ channel: SinkChannel) {
         guard !groupScrollOwnsBoards,
               let frame = lastDispatchedFrame,
-              let connection = channel.connection else { return }
+              let connection = channel.connection,
+              connection.output.source == nil || connection.output.source == .groupControl else { return }
         let lease = LeaseSnapshot(
             token: connection.output.claim(.groupControl),
             dispatchRevision: dispatchSeq,

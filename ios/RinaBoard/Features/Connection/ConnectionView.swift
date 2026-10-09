@@ -11,6 +11,7 @@ struct ConnectionView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardStore.self) private var boardStore
     @Environment(BoardGroupStore.self) private var groupStore
+    @Environment(BoardGroupCoordinator.self) private var coordinator
     @Bindable private var viewModel: ConnectionViewModel
 
     @State private var pendingForget: ForgetRequest?
@@ -52,6 +53,9 @@ struct ConnectionView: View {
         } message: {
             if let pendingForget, pendingForget.groupCount > 0 {
                 Text("它也会从 \(pendingForget.groupCount) 个多板组中移除")
+                if pendingForget.stopsPlayingGroup {
+                    Text("正在播放的多板组会停止。")
+                }
             }
         }
         .errorAlert(workspace.connectionError(for: .connection))
@@ -154,7 +158,9 @@ struct ConnectionView: View {
         let sessionBoardID: String?
         let recordIDs: [String]
         let physicalBoardIDs: Set<String>
+        let affectedGroupIDs: [UUID]
         let groupCount: Int
+        let stopsPlayingGroup: Bool
     }
 
     /// Saved boards in their saved order, then any live board session that no
@@ -309,15 +315,20 @@ struct ConnectionView: View {
                 physicalBoardIDs.insert(member.physicalBoardID)
             }
         }
-        let groupCount = groupStore.groups.filter { group in
+        let affectedGroups = groupStore.groups.filter { group in
             group.members.contains { physicalBoardIDs.contains($0.physicalBoardID) }
-        }.count
+        }
+        let affectedGroupIDs = Set(affectedGroups.map(\.id))
         pendingForget = ForgetRequest(
             name: name,
             sessionBoardID: row.session?.boardID,
             recordIDs: recordIDs,
             physicalBoardIDs: physicalBoardIDs,
-            groupCount: groupCount
+            affectedGroupIDs: Array(affectedGroupIDs),
+            groupCount: affectedGroups.count,
+            stopsPlayingGroup: (coordinator.activeGroupID.map { affectedGroupIDs.contains($0) } == true
+                && (coordinator.isPlaying || coordinator.isPaused))
+                || (coordinator.startingGroupID.map { affectedGroupIDs.contains($0) } == true && coordinator.isStarting)
         )
     }
 
@@ -325,13 +336,21 @@ struct ConnectionView: View {
     private func confirmForget() {
         guard let request = pendingForget else { return }
         pendingForget = nil
-        if let id = request.sessionBoardID { sessions.remove(id: id) }
-        for id in request.recordIDs {
-            sessions.remove(id: id)
-            boardStore.remove(id: id)
-        }
-        for physicalBoardID in request.physicalBoardIDs {
-            groupStore.removeMember(physicalBoardID: physicalBoardID)
+        Task {
+            for groupID in request.affectedGroupIDs {
+                guard let group = groupStore.groups.first(where: { $0.id == groupID }) else { continue }
+                let active = coordinator.activeGroupID == groupID && (coordinator.isPlaying || coordinator.isPaused)
+                let starting = coordinator.startingGroupID == groupID && coordinator.isStarting
+                if active || starting { await coordinator.stop(group: group) }
+            }
+            if let id = request.sessionBoardID { sessions.remove(id: id) }
+            for id in request.recordIDs {
+                sessions.remove(id: id)
+                boardStore.remove(id: id)
+            }
+            for physicalBoardID in request.physicalBoardIDs {
+                groupStore.removeMember(physicalBoardID: physicalBoardID)
+            }
         }
     }
 
