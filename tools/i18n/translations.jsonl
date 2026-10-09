@@ -1138,3 +1138,7 @@
 {"k":"这首没有音频文件。运行 tools/fetch_preset_live_audio.sh 获取，或改选「自定义」导入你自己的音频。","en":"This one has no audio file. Run tools/fetch_preset_live_audio.sh to fetch it locally, or switch to \"Custom\" and import your own.","hant":"這首沒有音訊檔案。執行 tools/fetch_preset_live_audio.sh 取得，或改選「自訂」匯入你自己的音訊。","ja":"この曲にはオーディオファイルがありません。tools/fetch_preset_live_audio.sh で取得するか、「カスタム」から自分のオーディオを読み込んでください。"}
 {"k":"连接失败，点击重试","en":"Connection failed. Tap to retry","hant":"連線失敗，點一下重試","ja":"接続に失敗しました。タップして再試行"}
 {"k":"面板拒绝指令：group_start","en":"Board rejected command: group_start","hant":"面板拒絕指令：group_start","ja":"ボードがコマンドを拒否しました：group_start"}
+{"k":"正在播放的多板组会停止。","en":"The board group that's playing will stop.","hant":"正在播放的多板組會停止。","ja":"再生中のボードグループは停止します。"}
+{"k":"没有可用的面板，无法恢复多板组播放","en":"No boards available, so group playback can't resume","hant":"沒有可用的面板，無法恢復多板組播放","ja":"使用できるボードがないため、グループの再生を再開できません"}
+{"k":"没有可用的面板，无法逐帧控制多板组","en":"No boards available, so the group can't be stepped frame by frame","hant":"沒有可用的面板，無法逐格控制多板組","ja":"使用できるボードがないため、グループをコマ送りできません"}
+{"k":"面板拒绝指令：%@","en":"The board rejected the command: %@","hant":"面板拒絕指令：%@","ja":"ボードがコマンドを拒否しました：%@"}
