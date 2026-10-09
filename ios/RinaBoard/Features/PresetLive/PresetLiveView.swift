@@ -169,21 +169,26 @@ struct PresetLiveView: View {
 
     // MARK: Built-in performances
 
-    /// One row: a dropdown of every built-in performance, plus a 自定义…
-    /// entry that opens the file importers.
+    /// One row: a dropdown of every built-in performance, plus a 自定义
+    /// entry that switches to the user's imported material.
     ///
     /// The song is the only thing a user normally picks here, so it gets a
-    /// single control rather than a list of rows competing with a separate
-    /// pair of audio/script importers. Importing is still reachable, but as
-    /// one entry inside the same menu instead of a parallel section.
+    /// single control. Selecting 自定义 reveals the separate audio and script
+    /// importer rows below it.
     private var songSection: some View {
         Section {
             Picker(NSLocalizedString("歌曲", comment: "song picker label"), selection: songSelection) {
                 ForEach(model.builtInPerformances) { performance in
-                    Text(songLabel(performance)).tag(performance.id as String?)
+                    HStack {
+                        Text(songLabel(performance))
+                        if !model.hasAudioAvailable(for: performance) {
+                            Image(systemName: "speaker.slash")
+                        }
+                    }
+                    .tag(performance.id as String?)
                 }
                 Divider()
-                Text("自定义…").tag(Self.customSelection as String?)
+                Text("自定义").tag(Self.customSelection as String?)
             }
             .pickerStyle(.menu)
 
@@ -214,8 +219,9 @@ struct PresetLiveView: View {
                         Task { await model.importScript(from: url) }
                     }
                 }
-            } else if let performance = selectedPerformance, !performance.hasAudio {
-                Text("这首没有音频文件。运行 tools/fetch_preset_live_audio.sh 获取，或改选「自定义…」导入你自己的音频。")
+            } else if let performance = selectedPerformance,
+                      !model.hasAudioAvailable(for: performance) {
+                Text("这首没有音频文件。运行 tools/fetch_preset_live_audio.sh 获取，或改选「自定义」导入你自己的音频。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

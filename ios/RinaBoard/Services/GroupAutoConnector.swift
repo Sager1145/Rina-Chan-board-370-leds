@@ -231,7 +231,8 @@ public final class GroupAutoConnector {
                    proven.connection.connectionState == .connected,
                    proven.connection.boardIdentity == id {
                     for knownID in proven.knownIdentifiers {
-                        groupStore.rememberKnownBoardID(knownID, forPhysicalBoardID: id)
+                        groupStore.rememberKnownBoardID(knownID, forPhysicalBoardID: id,
+                                                        name: proven.connection.deviceName)
                     }
                 }
                 continue

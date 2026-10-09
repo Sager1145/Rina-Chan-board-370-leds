@@ -34,8 +34,8 @@ final class GroupAutoCycler {
     /// The user's own "auto should be on" intent, independent of `isRunning`:
     /// stays true across an app-backgrounding pause (`suspendForBackground()`
     /// stops the loop but leaves this set, so `resumeForForeground()` restarts
-    /// it), and is cleared by every real stop condition (`stop()`, target →
-    /// single, another source claiming the primary).
+    /// it), and is cleared by every real stop condition (`stop()`, changing
+    /// the control target, another source claiming the primary).
     private(set) var wantsRunning = false
     private(set) var currentIndex = 0
 
@@ -47,6 +47,7 @@ final class GroupAutoCycler {
     /// claiming a new output lease.
     private var timerRevision = 0
     private var task: Task<Void, Never>?
+    private var intervalObservationEpoch = 0
     private var observedConnection: BoardConnection?
     private var outputSession: UUID?
     /// Stable identity of the last face whose send actually completed while
@@ -66,6 +67,7 @@ final class GroupAutoCycler {
         self.intervalProvider = intervalProvider
         self.sleeper = sleeper
         observePrimary()
+        observeInterval()
     }
 
     // MARK: - Start / stop
@@ -88,6 +90,14 @@ final class GroupAutoCycler {
     func stop() {
         wantsRunning = false
         endLoop()
+    }
+
+    /// A primary replacement inside one group is handled by
+    /// `handlePrimaryChange()` and preserves intent. Choosing a genuinely
+    /// different control target is a user stop and must clear it.
+    func controlTargetDidChange(from oldTarget: ControlTarget, to newTarget: ControlTarget) {
+        guard oldTarget != newTarget else { return }
+        stop()
     }
 
     /// Prev/next while a group is targeted: steps the shared index and sends
@@ -211,6 +221,34 @@ final class GroupAutoCycler {
         guard newConnection !== observedConnection else { return }
         if isRunning { endLoop(clearWantsRunning: false) }
         if wantsRunning { _ = beginIfPossible() }
+    }
+
+    // MARK: - Interval tracking
+
+    /// `intervalProvider` reads the Control Center's observable draft. Re-arm
+    /// around every read so changing the slider cancels the old sleep and
+    /// starts a complete window at the new interval immediately.
+    private func observeInterval() {
+        intervalObservationEpoch += 1
+        let epoch = intervalObservationEpoch
+        withObservationTracking {
+            _ = intervalProvider()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, epoch == self.intervalObservationEpoch else { return }
+                self.handleIntervalChange()
+            }
+        }
+    }
+
+    private func handleIntervalChange() {
+        observeInterval()
+        guard isRunning, wantsRunning,
+              let connection = observedConnection,
+              let session = outputSession,
+              fanOut.primaryConnection === connection,
+              connection.output.isCurrent(session) else { return }
+        restartTimer(connection: connection, session: session, runID: ownershipRunID)
     }
 
     // MARK: - Loop

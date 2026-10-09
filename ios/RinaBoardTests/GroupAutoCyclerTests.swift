@@ -30,7 +30,12 @@ final class GroupAutoCyclerTests: XCTestCase {
         ]
     }
 
-    private func harness(_ memberIDs: [String], interval: Double = 0.05) async -> (Harness, GroupAutoCycler) {
+    private func harness(
+        _ memberIDs: [String],
+        interval: Double = 0.05,
+        intervalProvider: (() -> Double)? = nil,
+        sleeper: ((Double) async -> Void)? = nil
+    ) async -> (Harness, GroupAutoCycler) {
         let sessions = BoardSessionStore()
         let store = BoardGroupStore(defaults: UserDefaults(suiteName: "gac.\(UUID())")!)
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
@@ -55,8 +60,10 @@ final class GroupAutoCyclerTests: XCTestCase {
         let cycler = GroupAutoCycler(
             fanOut: fanOut,
             faceLibrary: faceLibrary,
-            intervalProvider: { interval },
-            sleeper: { seconds in try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+            intervalProvider: intervalProvider ?? { interval },
+            sleeper: sleeper ?? { seconds in
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            }
         )
         let h = Harness(sessions: sessions, store: store, coordinator: coordinator, fanOut: fanOut,
                         faceLibrary: faceLibrary, transports: transports, group: store.groups[0])
@@ -190,6 +197,39 @@ final class GroupAutoCyclerTests: XCTestCase {
         let countAtPromotion = h.transports["BBBB"]!.receivedFrameBytes.count
         await waitUntil(timeout: 2) { (h.transports["BBBB"]?.receivedFrameBytes.count ?? 0) > countAtPromotion }
         XCTAssertGreaterThan(h.transports["BBBB"]!.receivedFrameBytes.count, countAtPromotion)
+        cycler.stop()
+    }
+
+    func testDifferentGroupTargetStopsButSameGroupTargetDoesNot() async throws {
+        let (h, cycler) = await harness(["AAAA"], interval: 10)
+        XCTAssertTrue(cycler.start())
+        await waitUntil { h.transports["AAAA"]?.receivedFrameBytes.isEmpty == false }
+
+        cycler.controlTargetDidChange(from: .group(h.group.id), to: .group(h.group.id))
+        XCTAssertTrue(cycler.isRunning)
+        XCTAssertTrue(cycler.wantsRunning)
+
+        cycler.controlTargetDidChange(from: .group(h.group.id), to: .group(UUID()))
+        XCTAssertFalse(cycler.isRunning)
+        XCTAssertFalse(cycler.wantsRunning)
+    }
+
+    func testIntervalChangeRestartsThePendingSleepFromNow() async throws {
+        let interval = AutoCycleInterval(10)
+        let recorder = AutoCycleSleepRecorder()
+        let (_, cycler) = await harness(
+            ["AAAA"],
+            intervalProvider: { interval.seconds },
+            sleeper: { seconds in await recorder.sleep(seconds) }
+        )
+        XCTAssertTrue(cycler.start())
+        await waitUntil { recorder.intervals.count == 1 }
+        XCTAssertEqual(recorder.intervals, [10])
+
+        interval.seconds = 0.2
+
+        await waitUntil { recorder.intervals.count == 2 }
+        XCTAssertEqual(recorder.intervals, [10, 0.2])
         cycler.stop()
     }
 
@@ -394,6 +434,26 @@ final class GroupAutoCyclerTests: XCTestCase {
         XCTAssertFalse(cycler.isRunning)
         XCTAssertFalse(cycler.wantsRunning)
         XCTAssertTrue(h.transports["AAAA"]?.receivedFrameBytes.isEmpty ?? false)
+    }
+}
+
+@Observable
+@MainActor
+private final class AutoCycleInterval {
+    var seconds: Double
+
+    init(_ seconds: Double) {
+        self.seconds = seconds
+    }
+}
+
+@MainActor
+private final class AutoCycleSleepRecorder {
+    private(set) var intervals: [Double] = []
+
+    func sleep(_ seconds: Double) async {
+        intervals.append(seconds)
+        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
 }
 

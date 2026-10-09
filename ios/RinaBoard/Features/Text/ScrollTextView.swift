@@ -250,6 +250,11 @@ struct ScrollTextView: View {
                 onStepForward: { Task { if await adoptIfOrphaned(group) { await groupCoordinator.step(group: group, direction: 1) } } },
                 canStop: starting || playing || paused || orphaned
             )
+            if playing && groupCoordinator.allMembersOffline {
+                Text("所有板子均已离线，重新连接后会自动继续")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
         }
         // Take a still-running group scroll back as soon as every member is
         // online again, so pause/step/speed work without a tap first.
@@ -265,7 +270,7 @@ struct ScrollTextView: View {
         let driving = groupCoordinator.activeGroupID == group.id
             && (groupCoordinator.isPlaying || groupCoordinator.isPaused)
         if driving { return true }
-        guard await groupCoordinator.adoptRunningScrollIfNeeded(group: group) else { return false }
+        guard await groupCoordinator.adoptRunningScrollIfNeeded(group: group, loop: model.loopPlayback) else { return false }
         // The speed follows the boards, as on a single-board reconnect.
         if let fps = groupCoordinator.activeFps { model.adoptGroupFps(fps) }
         return true
@@ -373,7 +378,11 @@ struct ScrollTextView: View {
         }
         groupPlaybackUpdateTask?.cancel()
         groupPlaybackUpdateTask = nil
-        await groupCoordinator.stop(group: group)
+        let activeTargetID = groupCoordinator.activeGroupID ?? groupCoordinator.startingGroupID
+        let groupToStop = activeTargetID == group.id
+            ? groupStore.groups.first(where: { $0.id == activeTargetID }) ?? group
+            : group
+        await groupCoordinator.stop(group: groupToStop)
     }
 
     // MARK: §25 Text input, §26 restore conflict

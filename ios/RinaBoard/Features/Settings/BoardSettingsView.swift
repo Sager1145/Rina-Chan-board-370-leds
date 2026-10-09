@@ -8,6 +8,7 @@ struct BoardSettingsView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(BoardStore.self) private var boardStore
+    @Environment(BoardGroupStore.self) private var groupStore
     @Environment(SettingsWorkspace.self) private var workspace
 
     /// Shown beside the category list without the user having opened it: reads
@@ -34,6 +35,7 @@ struct BoardSettingsView: View {
                 BoardNameSection(viewModel: viewModel, isConnected: isConnected) {
                     workspace.run(from: .board) {
                         await viewModel.renameBoard(connection: connection, boardStore: boardStore,
+                                                    groupStore: groupStore,
                                                     ble: sessions.active.bleTransport)
                     }
                 }

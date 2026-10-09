@@ -78,7 +78,7 @@ struct BoardGroupListView: View {
             Button("取消", role: .cancel) {}
             Button("创建") {
                 let trimmed = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
-                store.create(name: trimmed.isEmpty ? "多板组" : trimmed)
+                store.create(name: trimmed.isEmpty ? String(localized: "多板组") : trimmed)
             }
         }
     }
@@ -87,7 +87,8 @@ struct BoardGroupListView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(group.name)
-                Text("\(group.members.count) 块面板 · \(group.mode == .stitched ? "拼接" : "镜像")")
+                let mode = group.mode == .stitched ? String(localized: "拼接") : String(localized: "镜像")
+                Text("\(group.members.count) 块面板 · \(mode)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

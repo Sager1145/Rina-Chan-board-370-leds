@@ -144,7 +144,7 @@ struct DebugView: View {
                         .foregroundStyle(watts > 40 ? .red : .secondary)
                 }
             } else {
-                LabeledContent("客户端估算功耗", value: "输入不足")
+                LabeledContent("客户端估算功耗", value: String(localized: "输入不足"))
                     .foregroundStyle(.secondary)
             }
 
@@ -327,7 +327,7 @@ struct DebugView: View {
     private var patternTool: some View {
         DisclosureGroup("测试图案") {
             Picker("图案", selection: $vm.selectedPattern) {
-                Text("选择图案…").tag(nil as DebugPattern?)
+                Text("无").tag(nil as DebugPattern?)
                 ForEach(DebugPattern.allCases) { pattern in
                     Text(pattern.label).tag(pattern as DebugPattern?)
                 }
@@ -372,8 +372,8 @@ struct DebugView: View {
         }
     }
 
-    private func simButton(_ title: String, _ command: RinaCommand) -> some View {
-        Button(LocalizedStringKey(title)) { Task { await vm.runCommand(command, connection: connection) } }
+    private func simButton(_ title: LocalizedStringKey, _ command: RinaCommand) -> some View {
+        Button(title) { Task { await vm.runCommand(command, connection: connection) } }
             .buttonStyle(.pill)
             .disabled(!isConnected)
     }

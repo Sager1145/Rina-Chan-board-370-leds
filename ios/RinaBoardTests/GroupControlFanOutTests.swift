@@ -156,6 +156,27 @@ final class GroupControlFanOutTests: XCTestCase {
         XCTAssertEqual(h.transports["BBBB"]?.receivedFrameBytes.last, lastBytes)
     }
 
+    func testReattachedSinkReceivesTheLastMirroredFrame() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.fanOut.setTarget(.group(h.group.id))
+        let primary = session(h, "AAAA")
+        let sink = session(h, "BBBB")
+        sink.connection.disconnect()
+        await waitUntil { sink.connection.connectionState != .connected }
+
+        var frame = PackedFrame()
+        frame.set(17)
+        _ = try await primary.connection.setFrame(frame, playback: .idle, reason: "reattach_alignment")
+
+        let replacement = GroupControlFakeTransport()
+        replacement.wifiBoardId = "BBBB"
+        _ = await sink.connection.connect(using: replacement)
+
+        await waitUntil { replacement.receivedFrameBytes.last == frame.bytes }
+        XCTAssertEqual(replacement.receivedFrameBytes.last, frame.bytes)
+        XCTAssertEqual(sink.connection.output.source, .groupControl)
+    }
+
     // MARK: 4. Sink failure doesn't affect the primary; sets memberErrors
 
     func testSinkFailureRecordsMemberErrorWithoutAffectingPrimary() async throws {

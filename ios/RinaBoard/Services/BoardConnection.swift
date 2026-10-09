@@ -1278,6 +1278,7 @@ public final class BoardConnection {
         viewportX: Int,
         virtualWidth: Int,
         fps: Int,
+        intervalMs: Int,
         timelineId: String,
         sourceText: String,
         start: Bool,
@@ -1289,7 +1290,7 @@ public final class BoardConnection {
             "rows": MatrixGeometry.rows,
             "fps": fps,
             // See `startScrollUpload`: without it the board ticks at its old interval.
-            "intervalMs": ScrollRasterizer.intervalMs(forFps: fps),
+            "intervalMs": intervalMs,
             "timelineId": timelineId,
             "fontId": ScrollRasterizer.fontId,
             "generatorVersion": ScrollRasterizer.generatorVersion,

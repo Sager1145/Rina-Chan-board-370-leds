@@ -92,6 +92,7 @@ public final class GroupControlFanOut {
     private weak var primaryConnectionRef: BoardConnection?
     private var dispatchSeq = 0
     private var channels: [String: SinkChannel] = [:]
+    private var lastDispatchedFrame: (packed: PackedFrame, playback: Playback, reason: String)?
 
     private struct LeaseSnapshot {
         let token: UUID
@@ -168,6 +169,7 @@ public final class GroupControlFanOut {
     ///   board being outside the restored group must leave `primaryID == nil`
     ///   instead (product rule: only explicit choices switch control).
     func setTarget(_ t: ControlTarget, isExplicit: Bool = true) {
+        if target != t { lastDispatchedFrame = nil }
         target = t
         if isExplicit { pendingExplicitTargetChange = true }
         reconcile()
@@ -344,6 +346,23 @@ public final class GroupControlFanOut {
         memberErrors.removeValue(forKey: id)
         startWorker(channel)
         alignSink(channel, primary: primary)
+        alignFrame(channel)
+    }
+
+    /// Replays the last bitmap mirrored by this target so a reconnecting sink
+    /// does not wait for the next face change. A live or paused stitched
+    /// scroll owns its board leases and will align the member itself.
+    private func alignFrame(_ channel: SinkChannel) {
+        guard !groupScrollOwnsBoards,
+              let frame = lastDispatchedFrame,
+              let connection = channel.connection else { return }
+        let lease = LeaseSnapshot(
+            token: connection.output.claim(.groupControl),
+            dispatchRevision: dispatchSeq,
+            connectionGeneration: connection.connectionGeneration
+        )
+        channel.currentLease = lease
+        enqueueAndWake(.frame(frame.packed, frame.playback, reason: frame.reason, lease: lease), to: channel)
     }
 
     /// Alignment on attach: the same fields `BoardControlCenterModel.sync(from:)`
@@ -425,6 +444,12 @@ public final class GroupControlFanOut {
         primaryConnectionRef === connection
     }
 
+    private var groupScrollOwnsBoards: Bool {
+        guard case .group(let groupID) = target else { return false }
+        return (coordinator.activeGroupID == groupID && (coordinator.isPlaying || coordinator.isPaused))
+            || (coordinator.isStarting && coordinator.startingGroupID == groupID)
+    }
+
     /// Synchronously claims a `.groupControl` lease on every sink (bumping
     /// `dispatchSeq`), and — if the target group is currently playing on the
     /// Text tab — tells the coordinator it's been superseded so its
@@ -452,9 +477,7 @@ public final class GroupControlFanOut {
         // mid-start must still supersede it, or that in-flight `play()`
         // would go on to overwrite this claim's frame with its own
         // `group_start`.
-        if case .group(let groupID) = target,
-           (coordinator.activeGroupID == groupID && (coordinator.isPlaying || coordinator.isPaused))
-           || (coordinator.isStarting && coordinator.startingGroupID == groupID) {
+        if groupScrollOwnsBoards {
             coordinator.markSupersededByControl()
         }
         return dispatchSeq
@@ -508,7 +531,9 @@ public final class GroupControlFanOut {
     }
 
     public func dispatchFrame(_ packed: PackedFrame, playback: Playback, reason: String, from primary: BoardConnection) {
-        guard isCurrentPrimary(primary), !channels.isEmpty else { return }
+        guard isCurrentPrimary(primary) else { return }
+        lastDispatchedFrame = (packed, playback, reason)
+        guard !channels.isEmpty else { return }
         claimAllSinksAndBumpSeq()
         for channel in channels.values {
             guard let lease = channel.currentLease else { continue }
@@ -524,6 +549,7 @@ public final class GroupControlFanOut {
     public func primaryFaceApplied(reply: CommandReply, original: RinaCommand, ticket: Int, from primary: BoardConnection) {
         guard isCurrentPrimary(primary), ticket == dispatchSeq else { return }
         if let resolved = faceFrameResolver?(primary, reply) {
+            lastDispatchedFrame = (resolved, .idle, "group_control_face")
             for channel in channels.values {
                 guard let lease = channel.currentLease, lease.dispatchRevision == ticket else { continue }
                 enqueueAndWake(.frame(resolved, .idle, reason: "group_control_face", lease: lease), to: channel)
@@ -541,6 +567,7 @@ public final class GroupControlFanOut {
             guard let self, let primary else { return }
             if let frame = await self.primaryFrameAfterApply(primary: primary, ticket: ticket) {
                 guard self.isCurrentPrimary(primary), ticket == self.dispatchSeq else { return }
+                self.lastDispatchedFrame = (frame, .idle, "group_control_face")
                 for channel in self.channels.values {
                     guard let lease = channel.currentLease, lease.dispatchRevision == ticket else { continue }
                     self.enqueueAndWake(.frame(frame, .idle, reason: "group_control_face", lease: lease), to: channel)

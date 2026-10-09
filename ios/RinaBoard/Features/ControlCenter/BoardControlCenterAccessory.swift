@@ -167,7 +167,7 @@ struct BoardControlCenterAccessory: View {
             HStack(spacing: 8) {
                 statusBadge
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(targetedGroup.map { "多板组 · \($0.name)" } ?? connection.deviceName ?? "面板控制")
+                    Text(summaryTitle)
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
                     // Dropped where there is no room for a second line: the
@@ -393,6 +393,7 @@ struct BoardControlCenterAccessory: View {
         // The accessory sits at the bottom of the screen, so the menu opens
         // upwards; keep the presets in their JSON order rather than reversed.
         .menuOrder(.fixed)
+        .disabled(model.colorPresets?.parents.isEmpty != false)
         // The dot is custom-filled, so it keeps full strength when disabled;
         // the cluster's grayscale handles the hue, this handles the weight.
         .opacity(isConnected ? 1 : 0.4)
@@ -434,13 +435,18 @@ struct BoardControlCenterAccessory: View {
 
     // MARK: Derived state
 
+    private var summaryTitle: String {
+        if let group = targetedGroup { return String(localized: "多板组 · \(group.name)") }
+        return connection.deviceName ?? String(localized: "面板控制")
+    }
+
     /// The summary button's accessibility label. While a group is targeted
     /// this spells out the group name and its online count even at
     /// accessibility sizes, where `showsSubtitle` drops the second line from
     /// the visible bar to keep its fixed system height (BOARD_GROUP_SPEC.md
     /// §3).
     private var accessibilityTitle: String {
-        guard let group = targetedGroup else { return "面板控制" }
+        guard let group = targetedGroup else { return String(localized: "面板控制") }
         let online = group.members.filter { groupCoordinator.status(for: $0) != .offline }.count
         return String(
             format: NSLocalizedString("控制对象：多板组 %@，%lld/%lld 在线", comment: "control target accessibility label for a group"),
@@ -457,11 +463,11 @@ struct BoardControlCenterAccessory: View {
         // group ownership, so this must keep reading "已暂停" rather than
         // falling back to the plain online count.
         if groupCoordinator.activeGroupID == group.id {
-            if groupCoordinator.isPlaying { return "播放中" }
-            if groupCoordinator.isPaused { return "已暂停" }
+            if groupCoordinator.isPlaying { return String(localized: "播放中") }
+            if groupCoordinator.isPaused { return String(localized: "已暂停") }
         }
         let online = group.members.filter { groupCoordinator.status(for: $0) != .offline }.count
-        return "\(online)/\(group.members.count) 在线"
+        return String(localized: "\(online)/\(group.members.count) 在线")
     }
 
     /// The state line plus the battery level, which is only drawn in the
