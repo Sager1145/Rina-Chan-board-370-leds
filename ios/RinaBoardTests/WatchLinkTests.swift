@@ -108,11 +108,11 @@ final class WatchLinkTests: XCTestCase {
         await h.service.handle(.selectTarget(id: "group:\(h.group.id.uuidString)"))
 
         await h.service.handle(.stepFace(direction: 1))
-        XCTAssertEqual(h.service.snapshot().errorMessage, "多板组未同步时无法从手表切换表情")
+        XCTAssertEqual(h.service.snapshot().errorMessage, String(localized: "多板组未同步时无法从手表切换表情"))
         XCTAssertFalse(h.transports.values.contains { $0.receivedCmdNames.contains("button") })
 
         await h.service.handle(.setAutoMode(enabled: true))
-        XCTAssertEqual(h.service.snapshot().errorMessage, "多板组未同步时无法从手表开启自动播放")
+        XCTAssertEqual(h.service.snapshot().errorMessage, String(localized: "多板组未同步时无法从手表开启自动播放"))
         XCTAssertFalse(h.transports.values.contains { $0.receivedCmdNames.contains("set_mode") })
 
         await h.service.handle(.setAutoMode(enabled: false))
