@@ -1045,7 +1045,7 @@ public final class BoardConnection {
         let reply: CommandReply = try await requestReliableDecoding(cmd, timeout: timeout)
         guard reply.ok else {
             let detail = reply.error.flatMap { $0.isEmpty ? nil : "：\($0)" } ?? ""
-            throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)\(detail)")
+            throw RinaTransportError.underlying(String(localized: "面板拒绝指令：\(cmd.name)") + detail)
         }
         return reply
     }
@@ -1502,6 +1502,7 @@ public final class BoardConnection {
         viewportX: Int,
         virtualWidth: Int,
         fps: Int,
+        intervalMs: Int,
         timelineId: String,
         sourceText: String,
         start: Bool,
@@ -1513,7 +1514,7 @@ public final class BoardConnection {
             "rows": MatrixGeometry.rows,
             "fps": fps,
             // See `startScrollUpload`: without it the board ticks at its old interval.
-            "intervalMs": ScrollRasterizer.intervalMs(forFps: fps),
+            "intervalMs": intervalMs,
             "timelineId": timelineId,
             "fontId": ScrollRasterizer.fontId,
             "generatorVersion": ScrollRasterizer.generatorVersion,

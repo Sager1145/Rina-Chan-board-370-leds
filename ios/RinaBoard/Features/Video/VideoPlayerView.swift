@@ -234,11 +234,18 @@ struct VideoPlayerView: View {
                             Label("从文件选择", systemImage: "folder")
                         }
                     } label: {
-                        Text(model.title ?? NSLocalizedString("导入视频…", comment: "choose a video"))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .swapText(model.title)
+                        HStack(spacing: 4) {
+                            Text(model.title ?? NSLocalizedString("导入视频…", comment: "choose a video"))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .swapText(model.title)
+                            if model.hasVideo {
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .imageScale(.small)
+                            }
+                        }
                     }
+                    .accessibilityHint(model.hasVideo ? Text("更换视频") : Text(""))
                     if model.hasVideo {
                         Button {
                             model.clearVideo()

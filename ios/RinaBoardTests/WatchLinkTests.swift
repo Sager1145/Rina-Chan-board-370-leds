@@ -103,6 +103,24 @@ final class WatchLinkTests: XCTestCase {
         XCTAssertFalse(snapshot.lipSync.isAvailable, "no single board for the phone's microphone to drive")
     }
 
+    func testUnsyncedGroupRefusesFaceStepAndAutoOnButAllowsAutoOff() async throws {
+        let h = await harness(["A", "B"])
+        await h.service.handle(.selectTarget(id: "group:\(h.group.id.uuidString)"))
+
+        await h.service.handle(.stepFace(direction: 1))
+        XCTAssertEqual(h.service.snapshot().errorMessage, String(localized: "多板组未同步时无法从手表切换表情"))
+        XCTAssertFalse(h.transports.values.contains { $0.receivedCmdNames.contains("button") })
+
+        await h.service.handle(.setAutoMode(enabled: true))
+        XCTAssertEqual(h.service.snapshot().errorMessage, String(localized: "多板组未同步时无法从手表开启自动播放"))
+        XCTAssertFalse(h.transports.values.contains { $0.receivedCmdNames.contains("set_mode") })
+
+        await h.service.handle(.setAutoMode(enabled: false))
+        XCTAssertTrue(h.transports.values.allSatisfy {
+            $0.lastCmdField("set_mode", "mode") as? String == "manual"
+        })
+    }
+
     // MARK: Interrupting vs. retuning actions
 
     func testStepFaceTakesOverTheOutputAndStopsARunningScroll() async throws {
@@ -208,6 +226,26 @@ final class WatchLinkTests: XCTestCase {
                        "never retunes the primary alone: that would tear the stitch apart")
     }
 
+    func testDirectGroupScrollSpeedUsesTheActiveCoordinatorPlayback() async throws {
+        let h = await harness(["A", "B"])
+        try await h.coordinator.play(group: h.group, text: "A", fps: 10, loop: true)
+        XCTAssertTrue(h.coordinator.isPlaying)
+        await h.service.handle(.selectTarget(id: "group:\(h.group.id.uuidString)"))
+        let startsBeforeA = h.transports["A"]?.sentGroupStartIntervalMs.count ?? 0
+        let startsBeforeB = h.transports["B"]?.sentGroupStartIntervalMs.count ?? 0
+
+        await h.service.handle(.setScrollFps(fps: 24))
+
+        XCTAssertEqual(h.text.requestedFps, 24)
+        XCTAssertTrue(h.coordinator.isPlaying)
+        XCTAssertEqual(h.transports["A"]?.sentGroupStartIntervalMs.count, startsBeforeA + 1)
+        XCTAssertEqual(h.transports["B"]?.sentGroupStartIntervalMs.count, startsBeforeB + 1)
+        XCTAssertEqual(h.transports["A"]?.sentGroupStartIntervalMs.last, 42)
+        XCTAssertEqual(h.transports["B"]?.sentGroupStartIntervalMs.last, 42)
+        XCTAssertFalse(h.transports.values.contains { $0.receivedCmdNames.contains("set_scroll_interval") })
+        await h.coordinator.stop(group: h.group)
+    }
+
     // MARK: Harness
 
     @MainActor private struct Harness {
@@ -216,6 +254,8 @@ final class WatchLinkTests: XCTestCase {
         let lipSync: LipSyncModel
         let service: WatchLinkService
         let cycler: GroupAutoCycler
+        let coordinator: BoardGroupCoordinator
+        let text: TextViewModel
         let transports: [String: WatchLinkFakeTransport]
         let group: BoardGroup
 
@@ -253,13 +293,15 @@ final class WatchLinkTests: XCTestCase {
         // The phone's Control Center draft mirrors its own board's status.
         controlCenter.sync(from: sessions.active.connection.status)
         if phoneTargetsGroup { fanOut.setTarget(.group(group.id)) }
+        let text = TextViewModel()
         let service = WatchLinkService(deps: .init(
-            sessions: sessions, controlCenter: controlCenter, lipSync: lipSync, text: TextViewModel(),
+            sessions: sessions, controlCenter: controlCenter, lipSync: lipSync, text: text,
             groupStore: store, fanOut: fanOut, groupAutoCycler: cycler, groupCoordinator: coordinator,
             controlTargetStorage: { phoneTargetsGroup ? group.id.uuidString : "" }
         ))
         return Harness(sessions: sessions, controlCenter: controlCenter, lipSync: lipSync, service: service,
-                       cycler: cycler, transports: transports, group: store.groups[0])
+                       cycler: cycler, coordinator: coordinator, text: text,
+                       transports: transports, group: store.groups[0])
     }
 
     private func waitUntil(timeout: TimeInterval = 3, _ condition: @escaping () -> Bool) async {
@@ -277,8 +319,10 @@ private final class WatchLinkFakeTransport: RinaTransport {
     let preferredChunkBytes = 512
     var wifiBoardId: String?
     var name = "rina"
+    var caps = ["identify", "clock_sample", "scroll_viewport", "group_start"]
     var rendererScrollActive = false
     private(set) var receivedCmdNames: [String] = []
+    private(set) var sentGroupStartIntervalMs: [Int] = []
     private var lastCmdPayloads: [String: [String: Any]] = [:]
     private let decoder = RinaLinkDecoder()
     private var stateContinuation: AsyncStream<TransportState>.Continuation?
@@ -320,6 +364,14 @@ private final class WatchLinkFakeTransport: RinaTransport {
             return (try? JSONSerialization.data(withJSONObject: ["ok": true, "mode": "auto"])) ?? Data()
         case .getFrame:
             return PackedFrame().data
+        case .blobBegin:
+            return Data(#"{"ok":true,"offset":0,"chunkMax":512}"#.utf8)
+        case .blobChunk:
+            let offset = request.payload.prefix(4).withUnsafeBytes { $0.load(as: UInt32.self) }
+            let newOffset = Int(offset) + max(0, request.payload.count - 4)
+            return (try? JSONSerialization.data(withJSONObject: ["ok": true, "offset": newOffset])) ?? Data()
+        case .blobEnd:
+            return Data(#"{"ok":true}"#.utf8)
         case .cmd:
             guard let object = try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any],
                   let cmd = object["cmd"] as? String else {
@@ -330,7 +382,18 @@ private final class WatchLinkFakeTransport: RinaTransport {
             switch cmd {
             case "get_info":
                 return (try? JSONSerialization.data(withJSONObject: [
-                    "ok": true, "proto": 1, "name": name, "bootId": "aaaaaaaa", "caps": ["identify"],
+                    "ok": true, "proto": 1, "name": name, "bootId": "aaaaaaaa", "caps": caps,
+                ])) ?? Data()
+            case "clock_sample":
+                return (try? JSONSerialization.data(withJSONObject: [
+                    "ok": true, "rxUs": 1_000, "txUs": 1_200, "bootId": "aaaaaaaa",
+                ])) ?? Data()
+            case "group_start":
+                if let intervalMs = object["intervalMs"] as? NSNumber {
+                    sentGroupStartIntervalMs.append(intervalMs.intValue)
+                }
+                return (try? JSONSerialization.data(withJSONObject: [
+                    "ok": true, "nowUs": 0, "frameCount": 10,
                 ])) ?? Data()
             default:
                 return Data(#"{"ok":true}"#.utf8)

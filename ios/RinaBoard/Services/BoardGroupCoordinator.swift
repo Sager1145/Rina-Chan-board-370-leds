@@ -89,6 +89,13 @@ public final class BoardGroupCoordinator {
     public private(set) var memberStatus: [String: MemberStatus] = [:]
     public private(set) var activeGroupID: UUID?
     public private(set) var isPlaying = false
+    /// The active group has no currently-online members. Playback state and
+    /// the rejoin loop stay alive so the first board back can continue.
+    public private(set) var allMembersOffline = false
+    /// The latest group-level resume/step failure that could not fall back to
+    /// any still-live participant. Cleared by the next successful operation.
+    public private(set) var lastPlayError: String?
+    private(set) var lastPlayErrorGroupID: UUID?
     /// `true` between a successful `pause()` and the next `resume()`/`stop()`/
     /// `play()` — app-level group pause (no firmware timed-pause support,
     /// BOARD_GROUP_SPEC.md §1.5): every participant sits on `pausedFrame` via
@@ -118,7 +125,7 @@ public final class BoardGroupCoordinator {
     /// got cancelled and restarted while it was running). A second caller for
     /// the SAME group awaits this one's result instead of starting a
     /// redundant `adoptRunningScroll` pass.
-    private var adoptTask: (groupID: UUID, attemptID: UUID, task: Task<Bool, Never>)?
+    private var adoptTask: (groupID: UUID, loop: Bool, attemptID: UUID, task: Task<Bool, Never>)?
     private var preparationID = UUID()
     /// The group and time a just-finished `adoptRunningScrollIfNeeded` last
     /// failed for — `adoptRunningScrollIfNeeded` refuses to retry the same
@@ -211,6 +218,10 @@ public final class BoardGroupCoordinator {
     /// own `stop()`/`abortStartedBoards`/`markSupersededByControl` pass, or
     /// overwritten wholesale by the next `play()`'s own claim.
     private var claimedBoardIDs: Set<String> = []
+
+    /// Lets the selected group's control fan-out discard its pre-scroll face
+    /// when stitched playback takes ownership of the same boards.
+    var groupScrollStartedHook: ((UUID) -> Void)?
 
     public init(
         store: BoardGroupStore,
@@ -388,6 +399,11 @@ public final class BoardGroupCoordinator {
         return max(floor, ScrollRasterizer.intervalMs(forFps: fps))
     }
 
+    private func groupFps(forIntervalMs intervalMs: Int) -> Int {
+        if intervalMs == RinaLinkConstants.intervalMinMs { return RinaLinkConstants.scrollFpsMax }
+        return max(1, Int((1000.0 / Double(max(intervalMs, 1))).rounded()))
+    }
+
     /// The fastest fps `group`'s currently-connected members support in
     /// concert: 60 if every connected member advertises `group_60fps`,
     /// else the legacy 50 fps cap. A group with no members connected yet
@@ -443,7 +459,7 @@ public final class BoardGroupCoordinator {
     /// whether it adopted; a no-op while this coordinator already drives or
     /// is starting anything.
     @discardableResult
-    public func adoptRunningScroll(group: BoardGroup) async -> Bool {
+    public func adoptRunningScroll(group: BoardGroup, loop: Bool) async -> Bool {
         guard !isStarting, !(isPlaying || isPaused),
               group.members.count >= BoardGroup.minMembersToPlay else { return false }
         let intent = preparationID
@@ -486,7 +502,7 @@ public final class BoardGroupCoordinator {
         }
         do {
             try await startGroup(
-                group: live, text: text, fps: fps, loop: first.scrollLoop ?? true, startFrame: 0,
+                group: live, text: text, fps: fps, loop: loop, startFrame: 0,
                 adoption: Adoption(timelineId: timelineId, frameCount: frameCount,
                                    frameIndex: first.frameIndex ?? 0, readAtPhoneUs: wasPaused ? .max : readAt)
             )
@@ -512,8 +528,8 @@ public final class BoardGroupCoordinator {
     /// re-requesting adoption can't hammer disagreeing/offline boards with
     /// `GET_SCROLL_META` on every restart.
     @discardableResult
-    public func adoptRunningScrollIfNeeded(group: BoardGroup) async -> Bool {
-        if let adoptTask, adoptTask.groupID == group.id {
+    public func adoptRunningScrollIfNeeded(group: BoardGroup, loop: Bool) async -> Bool {
+        if let adoptTask, adoptTask.groupID == group.id, adoptTask.loop == loop {
             return await adoptTask.task.value
         }
         // A view can still see the previous scroll while an explicit play
@@ -528,8 +544,8 @@ public final class BoardGroupCoordinator {
         adoptTask?.task.cancel()
         preparationID = UUID()
         let attemptID = UUID()
-        let task = Task { await self.adoptRunningScroll(group: group) }
-        adoptTask = (groupID: groupID, attemptID: attemptID, task: task)
+        let task = Task { await self.adoptRunningScroll(group: group, loop: loop) }
+        adoptTask = (groupID: groupID, loop: loop, attemptID: attemptID, task: task)
         let result = await task.value
         guard adoptTask?.attemptID == attemptID else { return false }
         adoptTask = nil
@@ -613,7 +629,7 @@ public final class BoardGroupCoordinator {
         }
 
         guard let layout = try? StitchedScreenLayout(slotCount: group.members.count, gapsAfter: group.gapsAfter) else {
-            throw GroupPlayError.buildFailed("布局无效")
+            throw GroupPlayError.buildFailed(String(localized: "布局无效"))
         }
         let mode = group.mode
         let virtualWidth = mode == .mirror ? MatrixGeometry.cols : layout.virtualWidth
@@ -628,7 +644,7 @@ public final class BoardGroupCoordinator {
         do {
             bitmap = try GroupScrollBitmap.build(text: text, font: font, virtualWidth: virtualWidth)
         } catch {
-            throw GroupPlayError.buildFailed("\(error)")
+            throw GroupPlayError.buildFailed(error.localizedDescription)
         }
         guard preflightStillValid() else { throw GroupPlayError.aborted }
         if let adoption {
@@ -658,6 +674,7 @@ public final class BoardGroupCoordinator {
         reanchorTask?.cancel()
         reanchorTask = nil
         participants.removeAll()
+        allMembersOffline = false
         currentAnchor = nil
         requestedPausedFps = nil
         playState = nil
@@ -714,6 +731,9 @@ public final class BoardGroupCoordinator {
         }
 
         let timelineId = adoption?.timelineId ?? UUID().uuidString
+        let capable60 = online.allSatisfy { $0.session.connection.supports(.group60Fps) }
+        let intervalMs = groupIntervalMs(forFps: fps, capable: capable60)
+        let effectiveFps = groupFps(forIntervalMs: intervalMs)
 
         // B3: from the upload phase through the final `group_start`, one
         // do/catch. Any throw here — upload failure, a `stillValid()` abort,
@@ -737,7 +757,8 @@ public final class BoardGroupCoordinator {
                             try await captured.session.connection.withOutput(token) {
                                 _ = try await captured.session.connection.uploadGroupScrollBitmap(
                                     bitmap: bitmap, viewportX: viewportX, virtualWidth: virtualWidth,
-                                    fps: fps, timelineId: timelineId, sourceText: text, start: false,
+                                    fps: effectiveFps, intervalMs: intervalMs,
+                                    timelineId: timelineId, sourceText: text, start: false,
                                     onProgress: { progress in
                                         self.memberStatus[captured.member.physicalBoardID] = .uploading(progress: progress)
                                     }
@@ -786,8 +807,6 @@ public final class BoardGroupCoordinator {
 
             let worstRtt = online.compactMap { estimators[$0.member.physicalBoardID]?.bestRttUs }.max() ?? 0
             let phoneStart = nowUs() + max(400_000, 3 * worstRtt)
-            let capable60 = online.allSatisfy { $0.session.connection.supports(.group60Fps) }
-            let intervalMs = groupIntervalMs(forFps: fps, capable: capable60)
             var bootIds: [String: String] = [:]
             var ests: [String: ClockOffsetEstimator] = [:]
             for captured in online {
@@ -817,7 +836,7 @@ public final class BoardGroupCoordinator {
             let missing = online.filter { commands[$0.member.physicalBoardID] == nil }
             guard missing.isEmpty else {
                 let names = missing.map(\.member.displayName).joined(separator: "、")
-                throw GroupPlayError.buildFailed("时钟同步失败：\(names)")
+                throw GroupPlayError.buildFailed(String(localized: "时钟同步失败：\(names)"))
             }
 
             // H3: partial-start abort. If any board fails to receive
@@ -831,13 +850,7 @@ public final class BoardGroupCoordinator {
                     taskGroup.addTask { @MainActor in
                         do {
                             try await captured.session.connection.withOutput(token) {
-                                let reply = try await captured.session.connection.requestReliable(cmd)
-                                // Same H3 partial-start treatment as an outright
-                                // send failure: a rejected `group_start` reply
-                                // (e.g. firmware still enforcing `intervalMs >=
-                                // 20`) must never be treated as this board
-                                // having started.
-                                guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：group_start") }
+                                _ = try await captured.session.connection.requestReliable(cmd)
                             }
                         } catch {
                             self.memberStatus[captured.member.physicalBoardID] = .error(error.localizedDescription)
@@ -854,6 +867,9 @@ public final class BoardGroupCoordinator {
             activeRevision = capturedRevision
             activeEpoch = capturedEpoch
             isPlaying = true
+            lastPlayError = nil
+            lastPlayErrorGroupID = nil
+            allMembersOffline = false
             currentAnchor = (phoneUs: phoneStart, startFrame: firstFrame, intervalMs: intervalMs, loop: loop)
             playState = PlayState(
                 bitmap: bitmap, layout: layout, mode: mode, virtualWidth: virtualWidth, fps: fps,
@@ -869,6 +885,7 @@ public final class BoardGroupCoordinator {
                 )
                 registerTakeoverHandler(id: captured.member.physicalBoardID, connection: captured.session.connection)
             }
+            groupScrollStartedHook?(capturedGroupID)
             startReanchorLoop(groupID: capturedGroupID, revision: capturedRevision, epoch: capturedEpoch)
         } catch {
             if let pausedReorderPreviewID, pausedReorderPreview?.id == pausedReorderPreviewID {
@@ -941,6 +958,7 @@ public final class BoardGroupCoordinator {
         requestedPausedFps = nil
         playState = nil
         isPlaying = false
+        allMembersOffline = false
         isPaused = false
         pausedFrame = 0
         activeGroupID = nil
@@ -1121,6 +1139,7 @@ public final class BoardGroupCoordinator {
             survivors[id] = participant
         }
         participants = survivors
+        updateAllMembersOffline()
 
         var bootIds: [String: String] = [:]
         for (id, participant) in participants {
@@ -1163,6 +1182,7 @@ public final class BoardGroupCoordinator {
             phoneAnchorUs: sendAnchor.phoneUs, startFrame: sendAnchor.startFrame, intervalMs: sendAnchor.intervalMs,
             loop: sendAnchor.loop, estimators: estimators.filter { participants[$0.key] != nil }, bootIds: bootIds
         )
+        var failedParticipantIDs: [String] = []
         for (id, participant) in participants {
             guard let cmd = commands[id] else { continue }
             // B1: recheck immediately before every group_start send.
@@ -1179,8 +1199,13 @@ public final class BoardGroupCoordinator {
                 // silently swallowed, so the play panel can surface which
                 // board drifted out of sync (BOARD_GROUP_SPEC §3).
                 memberStatus[id] = .error(error.localizedDescription)
+                // A rejected start commonly means firmware discarded this
+                // board's timeline. Demote it without marking an ownership
+                // eviction so the rejoin pass below uploads it again.
+                failedParticipantIDs.append(id)
             }
         }
+        for id in failedParticipantIDs { participants.removeValue(forKey: id) }
 
         for member in group.members
         where participants[member.physicalBoardID] == nil && !evictedByOwnership.contains(member.physicalBoardID) {
@@ -1223,12 +1248,15 @@ public final class BoardGroupCoordinator {
         // board out until it either reconnects with capable firmware or the
         // whole group is restarted at a rate everyone can join.
         if anchor.intervalMs < RinaLinkConstants.groupStartIntervalMsMinLegacy, !session.connection.supports(.group60Fps) {
-            memberStatus[id] = .error("固件不支持 60 fps")
+            let status = MemberStatus.error(String(localized: "固件不支持 60 fps"))
+            if memberStatus[id] != status { memberStatus[id] = status }
             return
         }
 
         let viewportX = viewportX(for: slot, mode: playState.mode, layout: playState.layout)
         let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
+        let uploadIntervalMs = anchor.intervalMs
+        let uploadFps = groupFps(forIntervalMs: uploadIntervalMs)
         // 4.2: the output lease is claimed the same way regardless of which
         // path below runs — `source` is already known to be `nil` or
         // `.group` above, so this can never steal a board another feature
@@ -1258,15 +1286,22 @@ public final class BoardGroupCoordinator {
                   isPlaying, activeGroupID == groupID, currentAnchor?.phoneUs == anchor.phoneUs else { return }
         }
         if !skipUpload {
-            memberStatus[id] = .error("需要重新上传")
+            memberStatus[id] = .uploading(progress: 0)
         }
         do {
             if !skipUpload {
                 try await session.connection.withOutput(token) {
                     _ = try await session.connection.uploadGroupScrollBitmap(
                         bitmap: playState.bitmap, viewportX: viewportX, virtualWidth: playState.virtualWidth,
-                        fps: playState.fps, timelineId: playState.timelineId, sourceText: playState.sourceText,
-                        start: false
+                        fps: uploadFps, intervalMs: uploadIntervalMs,
+                        timelineId: playState.timelineId, sourceText: playState.sourceText, start: false,
+                        onProgress: { progress in
+                            guard self.playEpoch == epoch, self.controlGeneration == gen, !self.isPaused,
+                                  self.store.groups.first(where: { $0.id == groupID })?.layoutRevision == revision,
+                                  self.isPlaying, self.activeGroupID == groupID,
+                                  self.currentAnchor?.phoneUs == anchor.phoneUs else { return }
+                            self.memberStatus[id] = .uploading(progress: progress)
+                        }
                     )
                 }
                 // Same live-state guards `play()` uses: bail without touching
@@ -1274,7 +1309,12 @@ public final class BoardGroupCoordinator {
                 // also bails if a pause landed mid-upload.
                 guard playEpoch == epoch, controlGeneration == gen, !isPaused, // N3/B1
                       store.groups.first(where: { $0.id == groupID })?.layoutRevision == revision,
-                      isPlaying, activeGroupID == groupID, currentAnchor?.phoneUs == anchor.phoneUs else { return }
+                      isPlaying, activeGroupID == groupID, currentAnchor?.phoneUs == anchor.phoneUs else {
+                    if case .uploading = memberStatus[id] {
+                        memberStatus[id] = activeGroupID == groupID && isPaused ? .ready : .connected
+                    }
+                    return
+                }
                 if let bootId = session.connection.bootId {
                     uploadedContent[id] = (bootId: bootId, timelineId: playState.timelineId, viewportX: viewportX)
                 }
@@ -1308,7 +1348,7 @@ public final class BoardGroupCoordinator {
                   )[id]
             else {
                 guard playEpoch == epoch, controlGeneration == gen else { return } // N3/B1
-                memberStatus[id] = .error("时钟同步失败：\(member.displayName)")
+                memberStatus[id] = .error(String(localized: "时钟同步失败：\(member.displayName)"))
                 return
             }
             // B1: recheck immediately before sending group_start.
@@ -1474,13 +1514,7 @@ public final class BoardGroupCoordinator {
                     guard self.playEpoch == epoch, self.controlGeneration == gen, !self.isPaused else { return false }
                     do {
                         try await participant.session.connection.withOutput(participant.token) {
-                            let reply = try await participant.session.connection.requestReliable(cmd)
-                            // 4.1 hardening: firmware `group_start` rejects
-                            // `intervalMs < 20` -- normally prevented by
-                            // `groupIntervalMs`, but a rejected reply must
-                            // still be treated as this board not having
-                            // accepted the new anchor, not as success.
-                            guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：group_start") }
+                            _ = try await participant.session.connection.requestReliable(cmd)
                         }
                         guard self.playEpoch == epoch, self.controlGeneration == gen else { return false } // N3/B1
                         self.memberStatus[id] = .playing
@@ -1548,6 +1582,18 @@ public final class BoardGroupCoordinator {
             survivors[id] = participant
         }
         participants = survivors
+        updateAllMembersOffline()
+    }
+
+    private func updateAllMembersOffline() {
+        if let activeGroupID, let group = store.groups.first(where: { $0.id == activeGroupID }) {
+            allMembersOffline = participants.isEmpty && group.members.allSatisfy { member in
+                guard let session = session(for: member) else { return true }
+                return session.connection.connectionState != .connected
+            }
+        } else {
+            allMembersOffline = false
+        }
     }
 
     /// Members that are connected again but no longer participants (they
@@ -1567,16 +1613,21 @@ public final class BoardGroupCoordinator {
     /// Paused group with reconnected members: pause/resume/step only reach
     /// participants, so bring everyone back by re-uploading and restarting
     /// from `frame`, then (if `paused`) pausing again right there.
-    private func restartIncludingReconnected(group: BoardGroup, frame: Int, paused: Bool) async {
-        guard let playState, let anchor = currentAnchor else { return }
+    private func restartIncludingReconnected(group: BoardGroup, frame: Int, paused: Bool) async -> Bool {
+        guard let playState, let anchor = currentAnchor else { return false }
+        let fallbackParticipantIDs = Array(participants.keys)
         let fps = requestedPausedFps ?? playState.fps
         do {
             try await startGroup(group: group, text: playState.sourceText, fps: fps, loop: anchor.loop,
                                  startFrame: frame, adoption: nil)
         } catch {
-            return
+            for id in fallbackParticipantIDs {
+                memberStatus[id] = .error(error.localizedDescription)
+            }
+            return false
         }
         if paused { await pauseCore(group: group) }
+        return paused ? isPaused : isPlaying
     }
 
     // MARK: - Preview snapshot
@@ -1755,7 +1806,11 @@ public final class BoardGroupCoordinator {
                 requestedPausedFps = pausedFps
                 await pauseCore(group: live, atFrame: heldFrame)
             } else {
-                try await play(group: live, text: playState.sourceText, fps: fps, loop: anchor.loop)
+                let restartFrame = frame(atPhoneUs: nowUs(), anchor: anchor,
+                                         frameCount: GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width,
+                                                                                  virtualWidth: playState.virtualWidth))
+                try await startGroup(group: live, text: playState.sourceText, fps: fps, loop: anchor.loop,
+                                     startFrame: restartFrame, adoption: nil)
             }
         } catch {
             // Only undo if nothing else changed the group meanwhile.
@@ -1928,10 +1983,13 @@ public final class BoardGroupCoordinator {
 
         pruneParticipants()
         if !reconnectedNonParticipants(liveGroup).isEmpty {
-            await restartIncludingReconnected(group: liveGroup, frame: pausedFrame, paused: false)
+            if await restartIncludingReconnected(group: liveGroup, frame: pausedFrame, paused: false) { return }
+        }
+        guard !participants.isEmpty else {
+            lastPlayError = String(localized: "没有可用的面板，无法恢复多板组播放")
+            lastPlayErrorGroupID = group.id
             return
         }
-        guard !participants.isEmpty else { return }
 
         let gen = controlGeneration // B1: captured before any await below
 
@@ -1941,7 +1999,11 @@ public final class BoardGroupCoordinator {
             guard playEpoch == epoch, controlGeneration == gen, isPaused,
                   store.groups.first(where: { $0.id == group.id })?.layoutRevision == revision else { return }
             pruneParticipants()
-            guard !participants.isEmpty else { return }
+            guard !participants.isEmpty else {
+                lastPlayError = String(localized: "没有可用的面板，无法恢复多板组播放")
+                lastPlayErrorGroupID = group.id
+                return
+            }
             let snapshot = participants
             var bootIds: [String: String] = [:]
             for (id, participant) in snapshot {
@@ -1957,7 +2019,11 @@ public final class BoardGroupCoordinator {
             }
             guard playEpoch == epoch, controlGeneration == gen else { return }
             pruneParticipants()
-            guard !participants.isEmpty else { return }
+            guard !participants.isEmpty else {
+                lastPlayError = String(localized: "没有可用的面板，无法恢复多板组播放")
+                lastPlayErrorGroupID = group.id
+                return
+            }
 
             let intentRevision = pausedPlaybackRevision
             let liveAnchor = currentAnchor ?? anchor
@@ -1988,8 +2054,7 @@ public final class BoardGroupCoordinator {
                       let cmd = commands[id] else { continue }
                 do {
                     try await connection.withOutput(participant.token) {
-                        let reply = try await connection.requestReliable(cmd)
-                        guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：group_start") }
+                        _ = try await connection.requestReliable(cmd)
                     }
                     guard playEpoch == epoch, controlGeneration == gen else { return }
                     guard connection.connectionGeneration == participant.generation,
@@ -2004,11 +2069,17 @@ public final class BoardGroupCoordinator {
             guard playEpoch == epoch, controlGeneration == gen else { return }
             if pausedPlaybackRevision != intentRevision { continue }
             // Rejected commands leave the group paused with its latest intent.
-            guard anyAccepted else { return }
+            guard anyAccepted else {
+                lastPlayError = String(localized: "没有可用的面板，无法恢复多板组播放")
+                lastPlayErrorGroupID = group.id
+                return
+            }
             currentAnchor = (phoneUs: phoneStart, startFrame: pausedFrame, intervalMs: intervalMs, loop: loop)
             requestedPausedFps = nil
             isPaused = false
             isPlaying = true
+            lastPlayError = nil
+            lastPlayErrorGroupID = nil
             startReanchorLoop(groupID: group.id, revision: revision, epoch: epoch)
             return
         }
@@ -2060,7 +2131,11 @@ public final class BoardGroupCoordinator {
 
         pruneParticipants()
         let needsRestart = !reconnectedNonParticipants(liveGroup).isEmpty
-        guard needsRestart || !participants.isEmpty else { return }
+        guard needsRestart || !participants.isEmpty else {
+            lastPlayError = String(localized: "没有可用的面板，无法逐帧控制多板组")
+            lastPlayErrorGroupID = group.id
+            return
+        }
 
         let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
         let newFrame: Int
@@ -2073,7 +2148,16 @@ public final class BoardGroupCoordinator {
             newFrame = min(max(pausedFrame + direction, 0), frameCount - 1)
         }
         if needsRestart {
-            await restartIncludingReconnected(group: liveGroup, frame: newFrame, paused: true)
+            if await restartIncludingReconnected(group: liveGroup, frame: newFrame, paused: true) { return }
+            guard isPaused else {
+                lastPlayError = String(localized: "没有可用的面板，无法逐帧控制多板组")
+                lastPlayErrorGroupID = group.id
+                return
+            }
+        }
+        guard !participants.isEmpty else {
+            lastPlayError = String(localized: "没有可用的面板，无法逐帧控制多板组")
+            lastPlayErrorGroupID = group.id
             return
         }
 
@@ -2146,6 +2230,9 @@ public final class BoardGroupCoordinator {
     /// Test-only accessor: the active play's `timelineId`, so a test can
     /// script a rejoin's `GET_SCROLL_META` reply to agree with it (R6b).
     var debugTimelineId: String? { playState?.timelineId }
+
+    /// Test-only proof that an unrelated stop did not cancel re-anchoring.
+    var debugHasReanchorTask: Bool { reanchorTask != nil }
     #endif
 
     /// Board-group control fan-out addendum: called by `GroupControlFanOut`
@@ -2162,6 +2249,8 @@ public final class BoardGroupCoordinator {
         preparationID = UUID()
         adoptTask?.task.cancel()
         adoptTask = nil
+        lastPlayError = nil
+        lastPlayErrorGroupID = nil
         isStarting = false
         startingGroupID = nil
         pendingUpdatePlayback = nil
@@ -2171,6 +2260,7 @@ public final class BoardGroupCoordinator {
         reanchorTask?.cancel()
         reanchorTask = nil
         isPlaying = false
+        allMembersOffline = false
         isPaused = false
         pausedFrame = 0
         activeGroupID = nil
@@ -2205,7 +2295,39 @@ public final class BoardGroupCoordinator {
     /// took over is left alone. Ends ownership via `output.invalidate()`
     /// after `stop_scroll`, clears per-member status, and cancels re-anchor.
     public func stop(group: BoardGroup) async {
+        let targetsSharedState = activeGroupID == group.id || startingGroupID == group.id || adoptTask?.groupID == group.id
+        if !targetsSharedState {
+            for member in group.members {
+                let id = member.physicalBoardID
+                guard participants[id] == nil, !claimedBoardIDs.contains(id),
+                      let session = session(for: member),
+                      session.connection.connectionState == .connected,
+                      session.connection.output.source == .group
+                          || (session.connection.output.source == nil && Self.isScrolling(session.connection))
+                else { continue }
+                let token = session.connection.output.claim(.group)
+                var stopError: Error?
+                do {
+                    try await session.connection.withOutput(token) {
+                        _ = try await session.connection.requestReliable(.stopScroll(restoreAuto: nil, clear: nil))
+                    }
+                } catch { stopError = error }
+                // An active/start attempt may have claimed this board while
+                // the stop reply was in flight. Its lease and status win.
+                guard participants[id] == nil, !claimedBoardIDs.contains(id),
+                      session.connection.output.isCurrent(token) else { continue }
+                session.connection.output.invalidate(ifCurrent: token)
+                if let stopError {
+                    memberStatus[id] = .error(stopError.localizedDescription)
+                } else {
+                    memberStatus.removeValue(forKey: id)
+                }
+            }
+            return
+        }
         pausedReorderPreview = nil
+        lastPlayError = nil
+        lastPlayErrorGroupID = nil
         preparationID = UUID()
         adoptTask?.task.cancel()
         adoptTask = nil
@@ -2219,6 +2341,7 @@ public final class BoardGroupCoordinator {
         reanchorTask?.cancel()
         reanchorTask = nil
         isPlaying = false
+        allMembersOffline = false
         isPaused = false
         pausedFrame = 0
         activeGroupID = nil

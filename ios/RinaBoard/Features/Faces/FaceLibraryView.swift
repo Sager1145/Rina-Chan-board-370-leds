@@ -164,6 +164,7 @@ struct FaceLibraryView: View {
             ToolbarItem(placement: .secondaryAction) {
                 Menu {
                     Button("导出全部", systemImage: "square.and.arrow.up") { exportAll() }
+                        .disabled(!libraryReady || confirmedFaces.isEmpty)
                     Button("导入表情列表", systemImage: "square.and.arrow.down") {
                         importLocation = location
                         importGeneration = connection.connectionGeneration
@@ -174,6 +175,7 @@ struct FaceLibraryView: View {
                         let link = connection
                         perform { await refresh(source, connection: link) }
                     }
+                    .disabled(!libraryReady)
                     if location == .local, model.canUndoLocalDelete {
                         Button("撤销删除", systemImage: "arrow.uturn.backward") {
                             perform { _ = await model.undoLocalDelete() }
@@ -284,7 +286,7 @@ struct FaceLibraryView: View {
 
     @ViewBuilder
     private func row(_ face: SavedFace, rank: Int) -> some View {
-        HStack(spacing: 12) {
+        let rowContent = HStack(spacing: 12) {
             if let frame = face.packedFrame {
                 SavedFaceThumbnail(frame: frame, accessibilityDescription: "")
             } else {
@@ -311,7 +313,7 @@ struct FaceLibraryView: View {
                 Button { edit(face) } label: { Image(systemName: "pencil") }
                     .buttonStyle(.borderless)
                     .frame(minWidth: 44, minHeight: 44)
-                    .accessibilityLabel(Text(model.isProtected(face) ? "编辑副本" : "编辑"))
+                    .accessibilityLabel(model.isProtected(face) ? Text("编辑副本") : Text("编辑"))
                     .disabled(!canManage || face.packedFrame == nil)
                 Button { send(face) } label: { Image(systemName: "paperplane") }
                     .buttonStyle(.borderless)
@@ -320,32 +322,44 @@ struct FaceLibraryView: View {
                     .disabled(!canManage || !isConnected || face.packedFrame == nil)
             }
         }
-        // The row itself is never disabled as a whole when offline: local
-        // management (edit/rename/delete/reorder) works without a board.
-        // Only 发送 (above) and the board-only actions below check
-        // `isConnected`.
-        .contextMenu {
-            Button(model.isProtected(face) ? "编辑副本" : "编辑", systemImage: "pencil") { edit(face) }
-                .disabled(!canManage || editMode.isEditing || face.packedFrame == nil)
-            Button("发送", systemImage: "paperplane") { send(face) }
-                .disabled(!canManage || !isConnected || editMode.isEditing || face.packedFrame == nil)
-            if !model.isProtected(face) {
-                Button("重命名", systemImage: "character.cursor.ibeam") { rename(face) }
-                    .disabled(!canManage || editMode.isEditing)
-            }
-            Button("创建副本", systemImage: "plus.square.on.square") {
-                let source = location; let link = connection
-                perform { _ = await model.duplicate(face, from: source, connection: link) }
-            }.disabled(!canManage || editMode.isEditing)
-            Button(location == .local ? "复制到当前面板" : "复制到本机", systemImage: "arrow.turn.up.right") {
-                let source = location
-                let target: FaceLibraryLocation = source == .local ? .board : .local
-                let link = connection
-                perform { _ = await model.copy(face, from: source, to: target, connection: link) }
-            }.disabled(!canManage || editMode.isEditing || (location == .local && !isConnected))
-            if model.canDelete(face) {
-                Button("删除", systemImage: "trash", role: .destructive) { prepareDelete([face]) }
-                    .disabled(!canManage)
+        Group {
+            if editMode.isEditing {
+                rowContent
+            } else {
+                // The row itself is never disabled as a whole when offline:
+                // local management works without a board. Only 发送 and the
+                // board-only copy action check `isConnected`.
+                rowContent.contextMenu {
+                    if model.isProtected(face) {
+                        Button("编辑副本", systemImage: "pencil") { edit(face) }
+                            .disabled(!canManage || face.packedFrame == nil)
+                    } else {
+                        Button("编辑", systemImage: "pencil") { edit(face) }
+                            .disabled(!canManage || face.packedFrame == nil)
+                    }
+                    Button("发送", systemImage: "paperplane") { send(face) }
+                        .disabled(!canManage || !isConnected || face.packedFrame == nil)
+                    if !model.isProtected(face) {
+                        Button("重命名", systemImage: "character.cursor.ibeam") { rename(face) }
+                            .disabled(!canManage)
+                    }
+                    Button("创建副本", systemImage: "plus.square.on.square") {
+                        let source = location; let link = connection
+                        perform { _ = await model.duplicate(face, from: source, connection: link) }
+                    }.disabled(!canManage)
+                    if location == .local {
+                        Button("复制到当前面板", systemImage: "arrow.turn.up.right") { copy(face) }
+                            .disabled(!canManage || !isConnected)
+                    } else {
+                        Button("复制到本机", systemImage: "arrow.turn.up.right") { copy(face) }
+                            .disabled(!canManage)
+                    }
+                    if model.canDelete(face) {
+                        Divider()
+                        Button("删除", systemImage: "trash", role: .destructive) { prepareDelete([face]) }
+                            .disabled(!canManage)
+                    }
+                }
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -396,6 +410,12 @@ struct FaceLibraryView: View {
     private func rename(_ face: SavedFace) {
         guard canManage, !editMode.isEditing, !model.isProtected(face) else { return }
         renaming = RenameTarget(face: face, location: location, generation: connection.connectionGeneration)
+    }
+    private func copy(_ face: SavedFace) {
+        let source = location
+        let target: FaceLibraryLocation = source == .local ? .board : .local
+        let link = connection
+        perform { _ = await model.copy(face, from: source, to: target, connection: link) }
     }
     private func prepareDelete(_ faces: [SavedFace]) {
         guard canManage, !faces.isEmpty else { return }

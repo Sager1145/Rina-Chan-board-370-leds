@@ -116,7 +116,13 @@ public final class BoardGroupStore {
 
     @discardableResult
     public func create(name: String) -> BoardGroup {
-        let group = BoardGroup(name: name)
+        var uniqueName = name
+        var suffix = 2
+        while groups.contains(where: { $0.name == uniqueName }) {
+            uniqueName = "\(name) \(suffix)"
+            suffix += 1
+        }
+        let group = BoardGroup(name: uniqueName)
         groups.append(group)
         persist()
         return group
@@ -169,6 +175,51 @@ public final class BoardGroupStore {
         persist()
     }
 
+    /// Removes a physical board from every group that contains it. Used when
+    /// the saved board itself is forgotten rather than from one group editor.
+    public func removeMember(physicalBoardID: String) {
+        var changed = false
+        for groupIndex in groups.indices {
+            guard let memberIndex = groups[groupIndex].members.firstIndex(where: {
+                $0.physicalBoardID == physicalBoardID
+            }) else { continue }
+            groups[groupIndex].members.remove(at: memberIndex)
+            if !groups[groupIndex].gapsAfter.isEmpty {
+                groups[groupIndex].gapsAfter.remove(
+                    at: min(memberIndex, groups[groupIndex].gapsAfter.count - 1)
+                )
+            }
+            let expectedGapCount = max(0, groups[groupIndex].members.count - 1)
+            if groups[groupIndex].gapsAfter.count > expectedGapCount {
+                groups[groupIndex].gapsAfter.removeLast(
+                    groups[groupIndex].gapsAfter.count - expectedGapCount
+                )
+            } else if groups[groupIndex].gapsAfter.count < expectedGapCount {
+                groups[groupIndex].gapsAfter.append(contentsOf: repeatElement(
+                    0, count: expectedGapCount - groups[groupIndex].gapsAfter.count
+                ))
+            }
+            groups[groupIndex].layoutRevision += 1
+            changed = true
+        }
+        if changed { persist() }
+    }
+
+    /// Refreshes the offline snapshot name everywhere this physical board is
+    /// a member. A name-only change does not alter the layout revision.
+    public func updateMemberName(physicalBoardID: String, name: String) {
+        var changed = false
+        for groupIndex in groups.indices {
+            for memberIndex in groups[groupIndex].members.indices
+            where groups[groupIndex].members[memberIndex].physicalBoardID == physicalBoardID
+                && groups[groupIndex].members[memberIndex].displayName != name {
+                groups[groupIndex].members[memberIndex].displayName = name
+                changed = true
+            }
+        }
+        if changed { persist() }
+    }
+
     /// Moves the member at `from` to `to` (both valid indices into `members`).
     public func moveMember(groupID: UUID, from: Int, to: Int) {
         guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return }
@@ -219,13 +270,19 @@ public final class BoardGroupStore {
     /// able to dial it directly. A no-op (no persist) if every matching
     /// member already has it, so this can be called on every connect without
     /// spamming `UserDefaults` writes.
-    public func rememberKnownBoardID(_ knownBoardID: String, forPhysicalBoardID physicalBoardID: String) {
+    public func rememberKnownBoardID(_ knownBoardID: String, forPhysicalBoardID physicalBoardID: String,
+                                     name: String? = nil) {
         var changed = false
         for groupIndex in groups.indices {
             for memberIndex in groups[groupIndex].members.indices
             where groups[groupIndex].members[memberIndex].physicalBoardID == physicalBoardID {
                 if !groups[groupIndex].members[memberIndex].knownBoardIDs.contains(knownBoardID) {
                     groups[groupIndex].members[memberIndex].knownBoardIDs.append(knownBoardID)
+                    changed = true
+                }
+                if let name, !name.isEmpty,
+                   groups[groupIndex].members[memberIndex].displayName != name {
+                    groups[groupIndex].members[memberIndex].displayName = name
                     changed = true
                 }
             }

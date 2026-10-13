@@ -125,7 +125,7 @@ struct GroupScrollPreview: View {
     private func boardRow(members: [BoardGroup.Member], frame: @escaping (Int) -> PackedFrame) -> some View {
         let usePhoto = LEDBoardPreview.drawsPhoto(showBoardImage: showBoardPhoto)
         let layout = BoardRowLayout(
-            gapColumns: group.gapsAfter,
+            gapColumns: group.mode == .mirror ? [] : group.gapsAfter,
             columnFraction: LEDBoardLayout.columnWidthFraction(usePhoto: usePhoto),
             matrixInsetsFraction: LEDBoardLayout.matrixSideInsetsFraction(usePhoto: usePhoto),
             minBoardWidth: Self.minCellSide

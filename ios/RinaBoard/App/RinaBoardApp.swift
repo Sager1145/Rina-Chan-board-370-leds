@@ -179,15 +179,17 @@ struct RinaBoardApp: App {
                         groupAutoCycler.suspendForBackground()
                     }
                 }
-                .onChange(of: controlTargetGroupIDStorage, initial: true) { _, stored in
+                .onChange(of: controlTargetGroupIDStorage, initial: true) { previousStored, stored in
                     // The very first call (`initial: true`) is a launch-time
                     // restore of the persisted target, not a user choice —
                     // `isExplicit: false` so it never force-selects a primary
                     // the user didn't pick (F6: only explicit choices switch
                     // control). Every later call is a real change to the
                     // stored value, i.e. an explicit selection.
+                    let oldTarget = ControlTarget(storedGroupIDString: previousStored)
                     let newTarget = ControlTarget(storedGroupIDString: stored)
                     let isExplicitChange = hasRestoredControlTarget
+                    groupAutoCycler.controlTargetDidChange(from: oldTarget, to: newTarget)
                     groupControlFanOut.setTarget(newTarget, isExplicit: isExplicitChange)
                     hasRestoredControlTarget = true
                     // Auto-connect every member of a freshly-targeted group —

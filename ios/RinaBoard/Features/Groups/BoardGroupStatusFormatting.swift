@@ -6,13 +6,13 @@ import RinaCore
 enum BoardGroupStatusFormatting {
     static func text(_ status: BoardGroupCoordinator.MemberStatus) -> String {
         switch status {
-        case .offline: return "离线"
-        case .connected: return "已连接"
-        case .unsupported: return "不支持"
-        case .uploading(let progress): return "上传中 \(Int(progress * 100))%"
-        case .ready: return "就绪"
-        case .playing: return "播放中"
-        case .error(let message): return "错误：\(message)"
+        case .offline: return String(localized: "离线")
+        case .connected: return String(localized: "已连接")
+        case .unsupported: return String(localized: "不支持")
+        case .uploading(let progress): return String(localized: "上传中 \(Int(progress * 100))%")
+        case .ready: return String(localized: "就绪")
+        case .playing: return String(localized: "播放中")
+        case .error(let message): return String(localized: "错误：\(message)")
         }
     }
 

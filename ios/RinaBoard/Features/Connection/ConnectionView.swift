@@ -10,7 +10,11 @@ struct ConnectionView: View {
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardStore.self) private var boardStore
+    @Environment(BoardGroupStore.self) private var groupStore
+    @Environment(BoardGroupCoordinator.self) private var coordinator
     @Bindable private var viewModel: ConnectionViewModel
+
+    @State private var pendingForget: ForgetRequest?
 
     /// Shown beside the category list without the user having opened it: does not
     /// touch the network.
@@ -39,6 +43,20 @@ struct ConnectionView: View {
             // A saved hotspot board reconnects through the phone's current
             // join; refresh that cache whenever the page (re)appears.
             await HotspotJoiner.revalidateLastJoinedSSID()
+        }
+        .confirmationDialog(forgetTitle, isPresented: Binding(
+            get: { pendingForget != nil },
+            set: { if !$0 { pendingForget = nil } }
+        ), titleVisibility: .visible) {
+            Button("忘记", role: .destructive) { confirmForget() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            if let pendingForget, pendingForget.groupCount > 0 {
+                Text("它也会从 \(pendingForget.groupCount) 个多板组中移除")
+                if pendingForget.stopsPlayingGroup {
+                    Text("正在播放的多板组会停止。")
+                }
+            }
         }
         .errorAlert(workspace.connectionError(for: .connection))
     }
@@ -184,6 +202,16 @@ struct ConnectionView: View {
         var saved: KnownBoard? { records.first }
     }
 
+    private struct ForgetRequest {
+        let name: String
+        let sessionBoardID: String?
+        let recordIDs: [String]
+        let physicalBoardIDs: Set<String>
+        let affectedGroupIDs: [UUID]
+        let groupCount: Int
+        let stopsPlayingGroup: Bool
+    }
+
     /// Saved boards in their saved order, then any live board session that no
     /// saved board accounts for — one row per board, where the page used to
     /// list sessions and saved boards separately.
@@ -312,9 +340,10 @@ struct ConnectionView: View {
                         Button("断开", systemImage: "xmark.circle", role: .destructive) {
                             session.connection.disconnect(userInitiated: true)
                         }
+                        Divider()
                     }
                     Button("忘记", systemImage: "trash", role: .destructive) {
-                        forget(row)
+                        requestForget(row, name: name)
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -322,7 +351,7 @@ struct ConnectionView: View {
                         .frame(minWidth: AppLayout.minimumTapTarget, minHeight: AppLayout.minimumTapTarget)
                         .contentShape(Rectangle())
                 }
-                .accessibilityLabel(Text("更多操作"))
+                .accessibilityLabel(Text("\(name) 的更多操作"))
                 .accessibilityIdentifier("connection.boardMore.\(row.id)")
             }
         }
@@ -340,12 +369,61 @@ struct ConnectionView: View {
         }
     }
 
-    /// Drops every saved record of the board and its session.
-    private func forget(_ row: BoardRow) {
-        if let id = row.session?.boardID { sessions.remove(id: id) }
-        for board in row.records {
-            sessions.remove(id: board.id)
-            boardStore.remove(id: board.id)
+    private var forgetTitle: String {
+        guard let pendingForget else { return String(localized: "忘记璃奈板？") }
+        return String(localized: "忘记“\(pendingForget.name)”？")
+    }
+
+    private func requestForget(_ row: BoardRow, name: String) {
+        let recordIDs = row.records.map(\.id)
+        var physicalBoardIDs = Set<String>()
+        if let identity = row.session?.connection.boardIdentity ?? row.session?.connection.lastKnownBoardIdentity {
+            physicalBoardIDs.insert(identity)
+        }
+        let knownIDs = Set(recordIDs)
+        for group in groupStore.groups {
+            for member in group.members
+            where knownIDs.contains(member.physicalBoardID)
+                || !knownIDs.isDisjoint(with: member.knownBoardIDs) {
+                physicalBoardIDs.insert(member.physicalBoardID)
+            }
+        }
+        let affectedGroups = groupStore.groups.filter { group in
+            group.members.contains { physicalBoardIDs.contains($0.physicalBoardID) }
+        }
+        let affectedGroupIDs = Set(affectedGroups.map(\.id))
+        pendingForget = ForgetRequest(
+            name: name,
+            sessionBoardID: row.session?.boardID,
+            recordIDs: recordIDs,
+            physicalBoardIDs: physicalBoardIDs,
+            affectedGroupIDs: Array(affectedGroupIDs),
+            groupCount: affectedGroups.count,
+            stopsPlayingGroup: (coordinator.activeGroupID.map { affectedGroupIDs.contains($0) } == true
+                && (coordinator.isPlaying || coordinator.isPaused))
+                || (coordinator.startingGroupID.map { affectedGroupIDs.contains($0) } == true && coordinator.isStarting)
+        )
+    }
+
+    /// Drops every saved record of the board, its session, and its group slots.
+    private func confirmForget() {
+        guard let request = pendingForget else { return }
+        pendingForget = nil
+        Task {
+            for groupID in request.affectedGroupIDs {
+                guard let group = groupStore.groups.first(where: { $0.id == groupID }) else { continue }
+                let active = coordinator.activeGroupID == groupID && (coordinator.isPlaying || coordinator.isPaused)
+                let starting = coordinator.startingGroupID == groupID && coordinator.isStarting
+                if active || starting { await coordinator.stop(group: group) }
+            }
+            if let id = request.sessionBoardID { sessions.remove(id: id) }
+            for id in request.recordIDs {
+                sessions.remove(id: id)
+                boardStore.remove(id: id)
+            }
+            for physicalBoardID in request.physicalBoardIDs {
+                groupStore.removeMember(physicalBoardID: physicalBoardID)
+            }
         }
     }
 

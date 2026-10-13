@@ -1,6 +1,49 @@
 import SwiftUI
 import RinaCore
 
+/// One physical board in the control-target menu. Saved records that resolve
+/// to the same retained session share a row, matching `ConnectionView`.
+struct ControlTargetBoardRow: Identifiable {
+    let id: String
+    var records: [KnownBoard]
+    let sessionID: UUID?
+
+    var preferredBoard: KnownBoard { records[0] }
+}
+
+enum ControlTargetBoardRows {
+    static func make(
+        boards: [KnownBoard],
+        sessionIDForBoard: (String) -> UUID?
+    ) -> [ControlTargetBoardRow] {
+        var rows: [ControlTargetBoardRow] = []
+        var rowForSession: [UUID: Int] = [:]
+        for board in boards {
+            let sessionID = sessionIDForBoard(board.id)
+            if let sessionID, let index = rowForSession[sessionID] {
+                rows[index].records.append(board)
+                continue
+            }
+            if let sessionID { rowForSession[sessionID] = rows.count }
+            rows.append(ControlTargetBoardRow(id: board.id, records: [board], sessionID: sessionID))
+        }
+        return rows
+    }
+
+    static func selectedRowID(
+        in rows: [ControlTargetBoardRow],
+        activeSessionID: UUID?,
+        currentBoardID: String?
+    ) -> String? {
+        if let activeSessionID,
+           let row = rows.first(where: { $0.sessionID == activeSessionID }) {
+            return row.id
+        }
+        guard let currentBoardID else { return nil }
+        return rows.first { row in row.records.contains { $0.id == currentBoardID } }?.id
+    }
+}
+
 /// The global Control Center (design guide §5–§11).
 ///
 /// Board-wide state only: status, brightness, previous/next, auto mode,
@@ -353,31 +396,52 @@ struct BoardControlCenterView: View {
         case group(UUID)
     }
 
+    private var controlTargetBoardRows: [ControlTargetBoardRow] {
+        ControlTargetBoardRows.make(boards: boardStore.boards) {
+            sessions.existingSession(for: $0)?.id
+        }
+    }
+
+    private var selectedBoardRowID: String? {
+        ControlTargetBoardRows.selectedRowID(
+            in: controlTargetBoardRows,
+            activeSessionID: sessions.active.boardID == nil ? nil : sessions.active.id,
+            currentBoardID: currentBoardID
+        )
+    }
+
     /// True when the live board has no saved-board row to check, including
     /// when nothing is saved at all.
     private var showsCurrentSingleRow: Bool {
-        !boardStore.boards.contains { $0.id == currentBoardID }
+        selectedBoardRowID == nil
     }
 
-    /// The row currently checked by the picker. `.board("")` when no saved
-    /// board matches the live connection (not yet connected, or connected to
-    /// something not saved) — it simply leaves every row unchecked.
+    /// The row currently checked by the picker. The active session remains the
+    /// selection while disconnected, when there is no live transport id.
     private var controlSelectionTag: ControlSelection {
         if let group = targetedGroup { return .group(group.id) }
-        if isConnected, let id = currentBoardID,
-           boardStore.boards.contains(where: { $0.id == id }) { return .board(id) }
-        return showsCurrentSingleRow ? .currentSingle : .board("")
+        if let id = selectedBoardRowID { return .board(id) }
+        return .currentSingle
     }
 
     /// One checkmark row of the 控制对象 menu. Turning a checked row off is
     /// ignored: the menu always has exactly one target.
-    private func controlTargetToggle(_ title: String, systemImage: String,
+    private func controlTargetToggle(_ title: Text, subtitle: Text, systemImage: String,
                                      selection: ControlSelection) -> some View {
         Toggle(isOn: Binding(
             get: { controlSelectionTag == selection },
             set: { isOn in if isOn { handleControlSelection(selection) } }
         )) {
-            Label(title, systemImage: systemImage)
+            Label {
+                VStack(alignment: .leading, spacing: 1) {
+                    title
+                    subtitle
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: systemImage)
+            }
         }
     }
 
@@ -433,14 +497,23 @@ struct BoardControlCenterView: View {
             Section("单板") {
                 if showsCurrentSingleRow {
                     controlTargetToggle(
-                        isConnected ? "单板：\(boardName)" : "单板（未连接）",
-                        systemImage: "rectangle.on.rectangle",
+                        isConnected ? Text("单板：\(boardName)") : Text("单板（未连接）"),
+                        subtitle: isConnected ? Text("已连接") : Text("未连接"),
+                        systemImage: "rectangle",
                         selection: .currentSingle
                     )
                 }
-                ForEach(boardStore.boards) { board in
-                    controlTargetToggle(board.name, systemImage: "rectangle.on.rectangle",
-                                        selection: .board(board.id))
+                ForEach(controlTargetBoardRows) { row in
+                    let board = row.preferredBoard
+                    let connected = row.sessionID.flatMap { id in
+                        sessions.sessions.first(where: { $0.id == id })
+                    }?.connection.connectionState == .connected
+                    controlTargetToggle(
+                        Text(verbatim: board.name),
+                        subtitle: connected ? Text("已连接") : Text("未连接"),
+                        systemImage: "rectangle",
+                        selection: .board(row.id)
+                    )
                 }
             }
 
@@ -448,8 +521,11 @@ struct BoardControlCenterView: View {
                 Section("多板组") {
                     ForEach(groupStore.groups) { group in
                         controlTargetToggle(
-                            "\(group.name) · \(onlineMemberCount(group))/\(group.members.count) 在线",
-                            systemImage: "rectangle.split.3x1",
+                            Text(verbatim: group.name),
+                            subtitle: group.mode == .stitched
+                                ? Text("\(group.members.count) 块 · 拼接 · \(onlineMemberCount(group))/\(group.members.count) 在线")
+                                : Text("\(group.members.count) 块 · 镜像 · \(onlineMemberCount(group))/\(group.members.count) 在线"),
+                            systemImage: group.mode == .stitched ? "rectangle.split.3x1" : "rectangle.on.rectangle",
                             selection: .group(group.id)
                         )
                     }
@@ -508,13 +584,14 @@ struct BoardControlCenterView: View {
     /// multi-board glyph.
     private var controlTargetLabel: String {
         if let group = targetedGroup {
-            return "\(group.name) · \(group.members.count) 块"
+            return String(localized: "\(group.name) · \(group.members.count) 块")
         }
         return boardName
     }
 
     private var controlTargetIcon: String {
-        targetedGroup != nil ? "rectangle.split.3x1" : "rectangle.on.rectangle"
+        guard let group = targetedGroup else { return "rectangle" }
+        return group.mode == .stitched ? "rectangle.split.3x1" : "rectangle.on.rectangle"
     }
 
     private func onlineMemberCount(_ group: BoardGroup) -> Int {
@@ -538,7 +615,7 @@ struct BoardControlCenterView: View {
                 // the ordinary single-board path; say so rather than leaving
                 // it looking like group control silently did nothing.
                 if fanOut.primaryID == nil, isConnected {
-                    Text("当前面板不在组内，未同步")
+                    Text("当前板子不在该组中，操作只作用于 \(boardName)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

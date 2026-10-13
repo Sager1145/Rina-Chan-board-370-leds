@@ -111,7 +111,7 @@ final class WatchLinkService {
         case phoneActive(BoardConnection, groupSynced: Bool)
         /// One or more other boards, driven directly; nothing on the phone's
         /// screens changes except through the boards' own status echoes.
-        case direct([BoardConnection])
+        case direct([BoardConnection], group: BoardGroup?)
     }
 
     private var phoneControlTarget: ControlTarget {
@@ -185,7 +185,7 @@ final class WatchLinkService {
                 // the user asked for *this board*, not the phone's group.
                 return (.phoneActive(session.connection, groupSynced: false), choice, true)
             }
-            return (.direct([session.connection]), choice, true)
+            return (.direct([session.connection], group: nil), choice, true)
         case .group:
             let raw = String(choice.id.dropFirst("group:".count))
             guard let id = UUID(uuidString: raw),
@@ -201,7 +201,7 @@ final class WatchLinkService {
             let connections = members(of: group)
                 .filter { $0.connection.connectionState == .connected }
                 .map(\.connection)
-            return (.direct(connections), choice, true)
+            return (.direct(connections, group: group), choice, true)
         }
     }
 
@@ -230,7 +230,7 @@ final class WatchLinkService {
         case .phoneActive(let c, let synced):
             connection = c
             groupSynced = synced
-        case .direct(let connections):
+        case .direct(let connections, _):
             connection = connections.first
             groupSynced = false
         }
@@ -301,7 +301,7 @@ final class WatchLinkService {
         let lipSyncAvailable: Bool
         switch route {
         case .phoneActive: lipSyncAvailable = true
-        case .direct(let connections): lipSyncAvailable = connections.count == 1
+        case .direct(let connections, _): lipSyncAvailable = connections.count == 1
         }
         let lipSync = WatchBoardSnapshot.LipSync(
             isRunning: lip.isRunning,
@@ -349,6 +349,10 @@ final class WatchLinkService {
                           phone: { model, c, _ in model.setBrightness(raw, connection: c) },
                           direct: { c in _ = try await c.command(.setBrightness(raw: Self.clamp(raw, RinaLinkConstants.brightnessMin, RinaLinkConstants.brightnessMax))) })
         case .stepFace(let direction):
+            if case .direct(_, .some(_)) = route {
+                lastCommandError = String(localized: "多板组未同步时无法从手表切换表情")
+                return
+            }
             await forEach(route,
                           phone: { model, c, synced in
                               if synced { await self.deps.groupAutoCycler.step(direction: direction) }
@@ -356,6 +360,10 @@ final class WatchLinkService {
                           },
                           direct: { c in try await Self.step(direction: direction, on: c) })
         case .setAutoMode(let enabled):
+            if enabled, case .direct(_, .some(_)) = route {
+                lastCommandError = String(localized: "多板组未同步时无法从手表开启自动播放")
+                return
+            }
             await forEach(route,
                           phone: { model, c, synced in
                               if synced {
@@ -381,6 +389,11 @@ final class WatchLinkService {
                           direct: { c in _ = try await c.command(.setColor(hex: normalized)) })
         case .setScrollFps(let fps):
             let clamped = Self.clamp(fps, RinaLinkConstants.scrollFpsMin, RinaLinkConstants.scrollFpsMax)
+            if case .direct(_, let group?) = route, groupScrollActive(group) {
+                deps.text.requestedFps = Double(clamped)
+                await deps.groupCoordinator.updatePlayback(group: group, fps: clamped, loop: nil)
+                return
+            }
             await forEach(route,
                           phone: { _, c, synced in
                               if synced {
@@ -431,7 +444,7 @@ final class WatchLinkService {
     private func lipSyncConnection(for route: Route) -> BoardConnection? {
         switch route {
         case .phoneActive(let c, _): return c
-        case .direct(let connections): return connections.count == 1 ? connections.first : nil
+        case .direct(let connections, _): return connections.count == 1 ? connections.first : nil
         }
     }
 
@@ -453,7 +466,7 @@ final class WatchLinkService {
             } catch {
                 lastCommandError = error.localizedDescription
             }
-        case .direct(let connections):
+        case .direct(let connections, _):
             // One task per member, all awaited: members run concurrently and
             // independently, so one failing (or stalling) never stops the rest.
             let tasks = connections

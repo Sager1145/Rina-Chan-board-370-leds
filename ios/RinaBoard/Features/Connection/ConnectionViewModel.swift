@@ -228,7 +228,8 @@ public final class ConnectionViewModel {
 
     /// Renames the board. An empty name clears the override and restores the
     /// MAC-derived default, which is the only way back from a bad name.
-    public func renameBoard(connection: BoardConnection, boardStore: BoardStore, ble: any BLEConnecting) async {
+    public func renameBoard(connection: BoardConnection, boardStore: BoardStore,
+                            groupStore: BoardGroupStore, ble: any BLEConnecting) async {
         let requested = boardNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
         switch DeviceNameValidator.validateDeviceName(requested) {
         case .tooLong(let bytes):
@@ -299,6 +300,9 @@ public final class ConnectionViewModel {
                 known.name = effective
                 known.lastSeen = Date()
                 boardStore.upsert(known)
+            }
+            if let physicalBoardID = connection.boardIdentity {
+                groupStore.updateMemberName(physicalBoardID: physicalBoardID, name: effective)
             }
             if connection.transportKind == .bluetooth {
                 ble.updateConnectedPeripheralName(effective)

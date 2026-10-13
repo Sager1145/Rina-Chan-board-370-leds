@@ -50,10 +50,15 @@ struct BoardGroupEditorView: View {
                 ContentUnavailableView("多板组已删除", systemImage: "square.stack.3d.up.slash")
             }
         }
-        .navigationTitle(group?.name ?? "多板组")
+        .navigationTitle(group?.name ?? String(localized: "多板组"))
         .navigationBarTitleDisplayMode(.inline)
         .errorAlert($errorMessage)
+        .onAppear {
+            if let group { nameDraft = group.name }
+        }
         .onDisappear {
+            commitName()
+            guard isIdentifying else { return }
             isIdentifying = false
             // N4: the loop must stop even if the group was deleted out from
             // under this screen while it was open — `stopIdentifyLoop()`
@@ -70,7 +75,8 @@ struct BoardGroupEditorView: View {
     private func editor(for group: BoardGroup) -> some View {
         List {
             Section("名称") {
-                TextField("组名称", text: nameBinding(group))
+                TextField("组名称", text: $nameDraft)
+                    .onSubmit { commitName() }
             }
 
             Section("模式") {
@@ -108,7 +114,7 @@ struct BoardGroupEditorView: View {
                 Section {
                     ForEach(Array(group.gapsAfter.enumerated()), id: \.offset) { index, gap in
                         Stepper(
-                            "第 \(index + 1)、\(index + 2) 块面板之间：\(gap) 列",
+                            String(localized: "\(index + 1)–\(index + 2) 间隙：\(gap) 列"),
                             value: gapBinding(group: group, slot: index),
                             in: 0...BoardGroup.maxGap
                         )
@@ -301,11 +307,15 @@ struct BoardGroupEditorView: View {
 
     // MARK: - Bindings / actions
 
-    private func nameBinding(_ group: BoardGroup) -> Binding<String> {
-        Binding(
-            get: { group.name },
-            set: { store.rename(id: group.id, to: $0) }
-        )
+    private func commitName() {
+        guard let group = store.groups.first(where: { $0.id == groupID }) else { return }
+        let trimmed = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            nameDraft = group.name
+            return
+        }
+        nameDraft = trimmed
+        if trimmed != group.name { store.rename(id: group.id, to: trimmed) }
     }
 
     private func modeBinding(_ group: BoardGroup) -> Binding<BoardGroup.Mode> {

@@ -90,4 +90,51 @@ final class ControlTargetTests: XCTestCase {
 
         XCTAssertEqual(stored, "")
     }
+
+    func testBoardRowsMergeRecordsResolvedToTheSameSessionAndPreferFirstRecord() {
+        let sharedSessionID = UUID()
+        let bluetooth = KnownBoard(id: "ble", name: "客厅板", preferredTransport: "bluetooth")
+        let wifi = KnownBoard(id: "wifi", name: "客厅板 Wi-Fi", preferredTransport: "wifi")
+        let bedroom = KnownBoard(id: "bedroom", name: "卧室板", preferredTransport: "bluetooth")
+
+        let rows = ControlTargetBoardRows.make(boards: [bluetooth, wifi, bedroom]) { id in
+            id == "ble" || id == "wifi" ? sharedSessionID : nil
+        }
+
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].id, bluetooth.id)
+        XCTAssertEqual(rows[0].records.map(\.id), [bluetooth.id, wifi.id])
+        XCTAssertEqual(rows[0].preferredBoard, bluetooth)
+        XCTAssertEqual(rows[1].records, [bedroom])
+    }
+
+    func testDisconnectedActiveSessionKeepsItsSavedBoardRowSelected() {
+        let activeSessionID = UUID()
+        let first = KnownBoard(id: "ble", name: "客厅板", preferredTransport: "bluetooth")
+        let alias = KnownBoard(id: "wifi", name: "客厅板 Wi-Fi", preferredTransport: "wifi")
+        let rows = ControlTargetBoardRows.make(boards: [first, alias]) { _ in activeSessionID }
+
+        let selected = ControlTargetBoardRows.selectedRowID(
+            in: rows,
+            activeSessionID: activeSessionID,
+            currentBoardID: nil
+        )
+
+        XCTAssertEqual(selected, first.id)
+    }
+
+    func testLiveAliasSelectsMergedPreferredBoardRow() {
+        let sharedSessionID = UUID()
+        let first = KnownBoard(id: "ble", name: "客厅板", preferredTransport: "bluetooth")
+        let alias = KnownBoard(id: "wifi", name: "客厅板 Wi-Fi", preferredTransport: "wifi")
+        let rows = ControlTargetBoardRows.make(boards: [first, alias]) { _ in sharedSessionID }
+
+        let selected = ControlTargetBoardRows.selectedRowID(
+            in: rows,
+            activeSessionID: nil,
+            currentBoardID: alias.id
+        )
+
+        XCTAssertEqual(selected, first.id)
+    }
 }

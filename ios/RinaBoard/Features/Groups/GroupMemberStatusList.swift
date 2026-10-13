@@ -112,11 +112,11 @@ struct GroupMemberStatusList: View {
     private func connectionStateText(status: BoardGroupCoordinator.MemberStatus, connection: BoardConnection?, member: BoardGroup.Member) -> String {
         switch connection?.connectionState {
         case .connected: return BoardGroupStatusFormatting.text(status)
-        case .connecting, .reconnecting: return "连接中"
+        case .connecting, .reconnecting: return String(localized: "连接中")
         case .disconnected, .failed, nil:
-            if autoConnector.isHotspotOnlyMember(member) { return "热点直连的板需手动连接" }
-            if autoConnector.hasGivenUp(member) { return "连接失败，点击重试" }
-            return "离线"
+            if autoConnector.isHotspotOnlyMember(member) { return String(localized: "热点直连的板需手动连接") }
+            if autoConnector.hasGivenUp(member) { return String(localized: "连接失败，点击重试") }
+            return String(localized: "离线")
         }
     }
 
