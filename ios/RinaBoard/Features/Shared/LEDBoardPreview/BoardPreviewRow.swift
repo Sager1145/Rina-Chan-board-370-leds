@@ -39,6 +39,24 @@ struct BoardPreviewRow: View {
     /// never showing a stale draft/default frame the board is about to
     /// override.
     var holdsForLaunchSync = true
+    #if DEBUG
+    /// PR-11 item 3 measurement harness only: opts this row's preview into
+    /// `LEDPreviewFrameDropProbe` under this label. `nil` (the default) is a
+    /// no-op; only the call sites the harness drives (Text, Video) pass one,
+    /// and even then only `-perfProbeScenario <label>` actually starts it.
+    var probeLabel: String? = nil
+    /// PR-11 item 3 measurement harness only: `-perfProbeBloom off` forces
+    /// every row's `bloom` flag off for a like-for-like comparison run,
+    /// without adding a `BloomQuality` setting. `nil` (absent) changes
+    /// nothing — every row keeps `LEDBoardPreview`'s own default (`true`).
+    static let debugBloomOverride: Bool? = {
+        switch UserDefaults.standard.string(forKey: "perfProbeBloom") {
+        case "off": return false
+        case "on": return true
+        default: return nil
+        }
+    }()
+    #endif
 
     /// Optional on purpose. A non-optional `@Environment` object traps during
     /// `DynamicProperty.update()` — before `body` ever reads it — so declaring
@@ -66,12 +84,25 @@ struct BoardPreviewRow: View {
         brightness ?? controlCenter.map(\.draftBrightness) ?? RinaLinkConstants.brightnessDefault
     }
 
+    /// `LEDBoardPreview.bloom`'s default (`true`) everywhere except a PR-11
+    /// item 3 measurement run with `-perfProbeBloom off/on`. A plain
+    /// computed property (rather than an `#if` inside the `body` expression
+    /// below) so the two configurations stay a single call site.
+    private var resolvedBloom: Bool {
+        #if DEBUG
+        return Self.debugBloomOverride ?? true
+        #else
+        return true
+        #endif
+    }
+
     var body: some View {
         let holding = isHoldingForLaunch
         LEDBoardPreview(frame: holding ? PackedFrame() : frame,
                         color: resolvedColor,
                         brightness: resolvedBrightness,
                         showBoardImage: showBoardPhoto,
+                        bloom: resolvedBloom,
                         // Always asked for; the preview itself draws the grid
                         // only when no photo is behind the matrix. Without the
                         // photo there is otherwise nothing to show which part
@@ -95,6 +126,9 @@ struct BoardPreviewRow: View {
             // clips the board photo at the left and right edges.
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
+            #if DEBUG
+            .modifier(OptionalProbeModifier(label: probeLabel))
+            #endif
     }
 }
 

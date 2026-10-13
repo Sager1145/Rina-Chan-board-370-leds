@@ -87,10 +87,18 @@ struct VideoPlayerView: View {
 
     @ViewBuilder
     private var previewBoard: some View {
+        #if DEBUG
+        BoardPreviewRow(
+            frame: model.previewFrame,
+            accessibilityDescription: previewAccessibilityDescription,
+            probeLabel: "video"
+        )
+        #else
         BoardPreviewRow(
             frame: model.previewFrame,
             accessibilityDescription: previewAccessibilityDescription
         )
+        #endif
     }
 
     @ViewBuilder

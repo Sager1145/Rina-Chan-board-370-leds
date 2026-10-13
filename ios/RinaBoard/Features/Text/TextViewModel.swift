@@ -1037,3 +1037,57 @@ final class TextViewModel {
         return false
     }
 }
+
+#if DEBUG
+/// PR-11 item 3 measurement harness only: gets the Text preview's Canvas
+/// genuinely redrawing from a cold launch, for the bloom/frame-drop probes,
+/// without a human typing text and tapping Send. `#if DEBUG`, and only
+/// reachable when `-perfProbeScenario textHighFps` was passed (wired from
+/// `RootTabView`) — with the argument absent this extension is never called
+/// and changes nothing.
+///
+/// `TextPreviewInvalidationTests` (perf/pr9-text-preview) binds a timeline
+/// through the real `send(connection:)` upload path against a
+/// `FakeRinaTransport`, so it can also assert on what the *board* received.
+/// This harness only needs the local preview loop (`pll` + `startPreviewLoop`)
+/// to be genuinely ticking so the Canvas redraws — `send(connection:)`'s
+/// network round trip (`setScrollLoop`, the bitmap upload, `getPreviewSync`)
+/// has nothing to do with that, and `FakeRinaTransport` lives in the test
+/// target, which app code cannot import. So this builds the timeline the same
+/// way `sendDraft` does (`ScrollRasterizer.makeTimeline`, the same font
+/// loader) and starts `pll`/`startPreviewLoop()` directly, skipping the
+/// network entirely — cheaper, and never touches `BoardConnection`.
+extension TextViewModel {
+    /// Seeds a draft (if the restored one is empty) and starts the local
+    /// preview loop at `requestedFps` (already clamped by the caller against
+    /// `RinaLinkConstants.scrollFpsMax`, i.e. 60 — the real ceiling for
+    /// on-board scroll content; the loop cannot be forced to a literal
+    /// 120 Hz *content* rate, only the display can redraw an unchanging
+    /// frame at up to its own refresh rate).
+    func debugBootstrapPreviewLoop() async {
+        guard boundTimelineId == nil else { return }
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            text = "Rina PR-11 bloom/frame-drop probe — text preview scenario"
+        }
+        requestedFps = Double(RinaLinkConstants.scrollFpsMax)
+        let fpsInt = clampFps(requestedFps)
+        do {
+            let loadedFont = try await loadFontIfNeeded()
+            let sourceText = text
+            let built = try await Task.detached(priority: .userInitiated) {
+                try ScrollRasterizer.makeTimeline(text: sourceText, font: loadedFont, fps: fpsInt)
+            }.value
+            timeline = built
+            boundTimelineId = built.timelineId
+            pll = ScrollPreviewController(frameCount: built.frameCount, userFps: Double(fpsInt))
+            pll.bind(timelineId: built.timelineId, frameCount: built.frameCount)
+            lastBoardFps = fpsInt
+            startPreviewLoop()
+        } catch {
+            // Measurement-harness-only path: nothing downstream depends on
+            // this succeeding, so just leave the tab in its normal
+            // nothing-bound state rather than surfacing a user-facing error.
+        }
+    }
+}
+#endif

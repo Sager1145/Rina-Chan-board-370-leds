@@ -232,6 +232,17 @@ struct LEDBoardPreview: View {
 
     private func draw(in context: inout GraphicsContext, layout: LEDBoardLayout, at date: Date) {
         guard layout.cell > 0 else { return }
+        let state = RinaPerf.signposter.beginInterval("LEDBoardPreviewDraw")
+        #if DEBUG || RINA_PERF_LOG
+        let start = ContinuousClock.now
+        defer {
+            RinaPerf.signposter.endInterval("LEDBoardPreviewDraw", state)
+            BloomFrameTiming.record(stage: "LEDBoardPreviewDraw", elapsed: ContinuousClock.now - start)
+            BloomFrameTiming.drawCompleted()
+        }
+        #else
+        defer { RinaPerf.signposter.endInterval("LEDBoardPreviewDraw", state) }
+        #endif
         let intensity = Self.intensity(forBrightness: brightness)
         let fading = fader.levels(at: date.timeIntervalSinceReferenceDate)
 

@@ -619,10 +619,18 @@ private struct TextPreviewBoard: View {
         #if DEBUG
         let _ = PR9BodyProbe.hit("TextPreviewBoard")
         #endif
+        #if DEBUG
+        BoardPreviewRow(
+            frame: model.previewFrame,
+            accessibilityDescription: previewAccessibilityDescription,
+            probeLabel: "textHighFps"
+        )
+        #else
         BoardPreviewRow(
             frame: model.previewFrame,
             accessibilityDescription: previewAccessibilityDescription
         )
+        #endif
     }
 
     private var previewAccessibilityDescription: String {
