@@ -120,10 +120,12 @@ final class AuditConnectionRegressionTests: XCTestCase {
         let transport = FakeRinaTransport()
         _ = await connection.connect(using: transport)
         defer { connection.disconnect() }
+        let commandName = "set_brightness"
+        let rejection = String(localized: "面板拒绝指令：\(commandName)")
         let replies: [([String: Any], String)] = [
-            (["ok": false], "面板拒绝指令：set_brightness"),
-            (["ok": false, "error": ""], "面板拒绝指令：set_brightness"),
-            (["ok": false, "error": "denied"], "面板拒绝指令：set_brightness：denied")
+            (["ok": false], rejection),
+            (["ok": false, "error": ""], rejection),
+            (["ok": false, "error": "denied"], rejection + "：denied")
         ]
         for (reply, expected) in replies {
             transport.commandReply = reply

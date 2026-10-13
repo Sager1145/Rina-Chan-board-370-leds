@@ -38,10 +38,12 @@ enum VideoFrameTiming {
     /// Frames per summary line: a few seconds of playback at typical frame
     /// rates (10–30 fps), long enough to average over per-frame jitter.
     private static let batchSize = 120
-    private static var totalsMs: [String: Double] = [:]
-    private static var order: [String] = []
-    private static var frameCount = 0
-    private static let lock = NSLock()
+    private struct Batch: Sendable {
+        var totalsMs: [String: Double] = [:]
+        var order: [String] = []
+        var frameCount = 0
+    }
+    private static let storage = OSAllocatedUnfairLock(initialState: Batch())
 
     /// Converts a `Duration` to milliseconds, matching `LaunchTiming.ms(_:)`.
     static func ms(_ duration: Duration) -> Double {
@@ -51,10 +53,10 @@ enum VideoFrameTiming {
 
     /// Adds `elapsed` to `stage`'s running total for the current batch.
     static func record(stage: String, elapsed: Duration) {
-        lock.lock()
-        defer { lock.unlock() }
-        if totalsMs[stage] == nil { order.append(stage) }
-        totalsMs[stage, default: 0] += ms(elapsed)
+        storage.withLock { batch in
+            if batch.totalsMs[stage] == nil { batch.order.append(stage) }
+            batch.totalsMs[stage, default: 0] += ms(elapsed)
+        }
     }
 
     /// Call once per processed frame, after all of that frame's stages have
@@ -62,16 +64,17 @@ enum VideoFrameTiming {
     /// (each stage's total and share of the whole-frame `VideoFrameProcess`
     /// total, plus the frame count) and resets for the next batch.
     static func frameCompleted() {
-        lock.lock()
-        frameCount += 1
-        guard frameCount >= batchSize else { lock.unlock(); return }
-        let snapshotTotals = totalsMs
-        let snapshotOrder = order
-        let frames = frameCount
-        totalsMs.removeAll()
-        order.removeAll()
-        frameCount = 0
-        lock.unlock()
+        let snapshot = storage.withLock { batch -> Batch? in
+            batch.frameCount += 1
+            guard batch.frameCount >= batchSize else { return nil }
+            let completed = batch
+            batch = Batch()
+            return completed
+        }
+        guard let snapshot else { return }
+        let snapshotTotals = snapshot.totalsMs
+        let snapshotOrder = snapshot.order
+        let frames = snapshot.frameCount
 
         let wholeFrameMs = snapshotTotals["VideoFrameProcess"] ?? 0
         guard wholeFrameMs > 0 else { return }
@@ -103,10 +106,12 @@ enum BloomFrameTiming {
     /// far lower rate it still covers several seconds of playback — long
     /// enough to average over per-draw jitter either way.
     private static let batchSize = 240
-    private static var totalsMs: [String: Double] = [:]
-    private static var order: [String] = []
-    private static var drawCount = 0
-    private static let lock = NSLock()
+    private struct Batch: Sendable {
+        var totalsMs: [String: Double] = [:]
+        var order: [String] = []
+        var drawCount = 0
+    }
+    private static let storage = OSAllocatedUnfairLock(initialState: Batch())
 
     /// Converts a `Duration` to milliseconds.
     static func ms(_ duration: Duration) -> Double {
@@ -116,10 +121,10 @@ enum BloomFrameTiming {
 
     /// Adds `elapsed` to `stage`'s running total for the current batch.
     static func record(stage: String, elapsed: Duration) {
-        lock.lock()
-        defer { lock.unlock() }
-        if totalsMs[stage] == nil { order.append(stage) }
-        totalsMs[stage, default: 0] += ms(elapsed)
+        storage.withLock { batch in
+            if batch.totalsMs[stage] == nil { batch.order.append(stage) }
+            batch.totalsMs[stage, default: 0] += ms(elapsed)
+        }
     }
 
     /// Call once per `LEDBoardPreview.draw`, after all of that draw's stages
@@ -128,16 +133,17 @@ enum BloomFrameTiming {
     /// `LEDBoardPreviewDraw` total, plus the draw count) and resets for the
     /// next batch.
     static func drawCompleted() {
-        lock.lock()
-        drawCount += 1
-        guard drawCount >= batchSize else { lock.unlock(); return }
-        let snapshotTotals = totalsMs
-        let snapshotOrder = order
-        let draws = drawCount
-        totalsMs.removeAll()
-        order.removeAll()
-        drawCount = 0
-        lock.unlock()
+        let snapshot = storage.withLock { batch -> Batch? in
+            batch.drawCount += 1
+            guard batch.drawCount >= batchSize else { return nil }
+            let completed = batch
+            batch = Batch()
+            return completed
+        }
+        guard let snapshot else { return }
+        let snapshotTotals = snapshot.totalsMs
+        let snapshotOrder = snapshot.order
+        let draws = snapshot.drawCount
 
         let wholeDrawMs = snapshotTotals["LEDBoardPreviewDraw"] ?? 0
         guard wholeDrawMs > 0 else { return }
@@ -158,9 +164,11 @@ enum BloomFrameTiming {
 /// Debug-only; compiled out of Release unless `RINA_PERF_LOG` is defined.
 enum LaunchTiming {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "RinaBoard", category: "LaunchTiming")
-    private static var entries: [(name: String, ms: Double)] = []
-    private static var didLogSummary = false
-    private static let lock = NSLock()
+    private struct State: Sendable {
+        var entries: [(name: String, ms: Double)] = []
+        var didLogSummary = false
+    }
+    private static let storage = OSAllocatedUnfairLock(initialState: State())
 
     /// Converts a `Duration` to milliseconds for the recorded entries above.
     static func ms(_ duration: Duration) -> Double {
@@ -182,10 +190,10 @@ enum LaunchTiming {
     }()
 
     static func record(name: String, milliseconds: Double) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didLogSummary else { return }
-        entries.append((name, milliseconds))
+        storage.withLock { state in
+            guard !state.didLogSummary else { return }
+            state.entries.append((name, milliseconds))
+        }
     }
 
     /// Logs one summary line with every recorded model's duration, the
@@ -195,10 +203,10 @@ enum LaunchTiming {
     /// are dropped instead of growing the buffer for a summary that already
     /// fired.
     static func logSummary(eventName: String) {
-        lock.lock()
-        let snapshot = entries
-        didLogSummary = true
-        lock.unlock()
+        let snapshot = storage.withLock { state in
+            state.didLogSummary = true
+            return state.entries
+        }
         guard !snapshot.isEmpty else { return }
         let perModel = snapshot
             .map { String(format: "%@=%.2fms", $0.name, $0.ms) }

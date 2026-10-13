@@ -562,7 +562,8 @@ final class MacFeatureHardwareTests: XCTestCase {
         let peripheralID = try XCTUnwrap(rig.transport.peripheralIdentifier).uuidString
         boards.upsert(KnownBoard(id: peripheralID, name: rig.id))
         model.boardNameInput = "Test\(rig.id.suffix(4))"
-        await model.renameBoard(connection: rig.connection, boardStore: boards, ble: rig.transport)
+        await model.renameBoard(connection: rig.connection, boardStore: boards,
+                                groupStore: BoardGroupStore(defaults: defaults), ble: rig.transport)
         let reply = try await rig.connection.command(.getInfo)
         try require(model.lastErrorMessage == nil && reply.name == model.boardNameInput && reply.customName == true,
                     "\(rig.id): production board rename readback")
