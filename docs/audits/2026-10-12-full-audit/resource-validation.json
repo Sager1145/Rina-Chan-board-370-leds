@@ -1,0 +1,417 @@
+[
+  {
+    "file": "ios/RinaBoard/Resources/performance_lumf.rinalive",
+    "keyframes": 171,
+    "fps": 10,
+    "durationMs": 103100,
+    "title": "Love U my friends",
+    "directives": [
+      [
+        1,
+        "converted",
+        "from 738NGX/RinaChanBoard (AGPL-3.0) by"
+      ],
+      [
+        2,
+        "tools/convert_upstream_timelines.py",
+        "— timing data only, no audio."
+      ],
+      [
+        3,
+        "timed",
+        "to: Love U my friends — 虹ヶ咲学園スクールアイドル同好会"
+      ],
+      [
+        4,
+        "supply",
+        "your own copy of the track; none is bundled with this app."
+      ],
+      [
+        5,
+        "fps",
+        "10"
+      ],
+      [
+        6,
+        "title",
+        "Love U my friends"
+      ]
+    ],
+    "catalog": true,
+    "audioPresent": true
+  },
+  {
+    "file": "ios/RinaBoard/Resources/performance_poppin_up.rinalive",
+    "keyframes": 316,
+    "fps": 10,
+    "durationMs": 87300,
+    "title": "Poppin' Up!",
+    "directives": [
+      [
+        1,
+        "converted",
+        "from flyAkari/RinaChanBoard (GPL-3.0) by"
+      ],
+      [
+        2,
+        "tools/convert_flyakari_script.py",
+        "— timing data only, no audio."
+      ],
+      [
+        3,
+        "upstream",
+        "sprite indices were resolved to our part ids by bitmap"
+      ],
+      [
+        4,
+        "matching",
+        "against expression_parts.json; run with --report to see it."
+      ],
+      [
+        5,
+        "timed",
+        "to: Poppin' Up! (track identity inferred from the upstream commit title)"
+      ],
+      [
+        6,
+        "supply",
+        "your own copy of the track; none is distributed with this app."
+      ],
+      [
+        7,
+        "fps",
+        "10"
+      ],
+      [
+        8,
+        "title",
+        "Poppin' Up!"
+      ]
+    ],
+    "catalog": true,
+    "audioPresent": true
+  },
+  {
+    "file": "ios/RinaBoard/Resources/performance_solo0.rinalive",
+    "keyframes": 317,
+    "fps": 10,
+    "durationMs": 96800,
+    "title": "ツナガルコネクト",
+    "directives": [
+      [
+        1,
+        "converted",
+        "from 738NGX/RinaChanBoard (AGPL-3.0) by"
+      ],
+      [
+        2,
+        "tools/convert_upstream_timelines.py",
+        "— timing data only, no audio."
+      ],
+      [
+        3,
+        "timed",
+        "to: ツナガルコネクト — 天王寺璃奈"
+      ],
+      [
+        4,
+        "supply",
+        "your own copy of the track; none is bundled with this app."
+      ],
+      [
+        5,
+        "fps",
+        "10"
+      ],
+      [
+        6,
+        "title",
+        "ツナガルコネクト"
+      ]
+    ],
+    "catalog": true,
+    "audioPresent": true
+  },
+  {
+    "file": "ios/RinaBoard/Resources/performance_solo1.rinalive",
+    "keyframes": 273,
+    "fps": 10,
+    "durationMs": 90100,
+    "title": "ドキピポ☆エモーション",
+    "directives": [
+      [
+        1,
+        "converted",
+        "from 738NGX/RinaChanBoard (AGPL-3.0) by"
+      ],
+      [
+        2,
+        "tools/convert_upstream_timelines.py",
+        "— timing data only, no audio."
+      ],
+      [
+        3,
+        "timed",
+        "to: ドキピポ☆エモーション — 天王寺璃奈"
+      ],
+      [
+        4,
+        "supply",
+        "your own copy of the track; none is bundled with this app."
+      ],
+      [
+        5,
+        "fps",
+        "10"
+      ],
+      [
+        6,
+        "title",
+        "ドキピポ☆エモーション"
+      ]
+    ],
+    "catalog": true,
+    "audioPresent": true
+  },
+  {
+    "file": "ios/RinaBoard/Resources/performance_solo2.rinalive",
+    "keyframes": 278,
+    "fps": 10,
+    "durationMs": 112000,
+    "title": "テレテレパシー",
+    "directives": [
+      [
+        1,
+        "converted",
+        "from 738NGX/RinaChanBoard (AGPL-3.0) by"
+      ],
+      [
+        2,
+        "tools/convert_upstream_timelines.py",
+        "— timing data only, no audio."
+      ],
+      [
+        3,
+        "timed",
+        "to: テレテレパシー — 天王寺璃奈"
+      ],
+      [
+        4,
+        "supply",
+        "your own copy of the track; none is bundled with this app."
+      ],
+      [
+        5,
+        "fps",
+        "10"
+      ],
+      [
+        6,
+        "title",
+        "テレテレパシー"
+      ]
+    ],
+    "catalog": true,
+    "audioPresent": true
+  },
+  {
+    "file": "ios/RinaBoard/Resources/performance_solo3.rinalive",
+    "keyframes": 299,
+    "fps": 10,
+    "durationMs": 103900,
+    "title": "アナログハート",
+    "directives": [
+      [
+        1,
+        "converted",
+        "from 738NGX/RinaChanBoard (AGPL-3.0) by"
+      ],
+      [
+        2,
+        "tools/convert_upstream_timelines.py",
+        "— timing data only, no audio."
+      ],
+      [
+        3,
+        "timed",
+        "to: アナログハート — 天王寺璃奈"
+      ],
+      [
+        4,
+        "supply",
+        "your own copy of the track; none is bundled with this app."
+      ],
+      [
+        5,
+        "fps",
+        "10"
+      ],
+      [
+        6,
+        "title",
+        "アナログハート"
+      ]
+    ],
+    "catalog": true,
+    "audioPresent": true
+  },
+  {
+    "file": "ios/RinaBoard/Resources/performance_solo4.rinalive",
+    "keyframes": 197,
+    "fps": 10,
+    "durationMs": 119100,
+    "title": "First Love Again",
+    "directives": [
+      [
+        1,
+        "converted",
+        "from 738NGX/RinaChanBoard (AGPL-3.0) by"
+      ],
+      [
+        2,
+        "tools/convert_upstream_timelines.py",
+        "— timing data only, no audio."
+      ],
+      [
+        3,
+        "timed",
+        "to: First Love Again — 天王寺璃奈"
+      ],
+      [
+        4,
+        "supply",
+        "your own copy of the track; none is bundled with this app."
+      ],
+      [
+        5,
+        "fps",
+        "10"
+      ],
+      [
+        6,
+        "title",
+        "First Love Again"
+      ]
+    ],
+    "catalog": true,
+    "audioPresent": true
+  },
+  {
+    "file": "ios/RinaBoard/Resources/performance_solo5.rinalive",
+    "keyframes": 238,
+    "fps": 10,
+    "durationMs": 91200,
+    "title": "私はマグネット",
+    "directives": [
+      [
+        1,
+        "converted",
+        "from 738NGX/RinaChanBoard (AGPL-3.0) by"
+      ],
+      [
+        2,
+        "tools/convert_upstream_timelines.py",
+        "— timing data only, no audio."
+      ],
+      [
+        3,
+        "timed",
+        "to: 私はマグネット — 天王寺璃奈"
+      ],
+      [
+        4,
+        "supply",
+        "your own copy of the track; none is bundled with this app."
+      ],
+      [
+        5,
+        "fps",
+        "10"
+      ],
+      [
+        6,
+        "title",
+        "私はマグネット"
+      ]
+    ],
+    "catalog": true,
+    "audioPresent": true
+  },
+  {
+    "file": "ios/RinaBoard/Resources/performance_tkmk.rinalive",
+    "keyframes": 262,
+    "fps": 10,
+    "durationMs": 87100,
+    "title": "TOKIMEKI Runners",
+    "directives": [
+      [
+        1,
+        "converted",
+        "from 738NGX/RinaChanBoard (AGPL-3.0) by"
+      ],
+      [
+        2,
+        "tools/convert_upstream_timelines.py",
+        "— timing data only, no audio."
+      ],
+      [
+        3,
+        "timed",
+        "to: TOKIMEKI Runners — 虹ヶ咲学園スクールアイドル同好会"
+      ],
+      [
+        4,
+        "supply",
+        "your own copy of the track; none is bundled with this app."
+      ],
+      [
+        5,
+        "fps",
+        "10"
+      ],
+      [
+        6,
+        "title",
+        "TOKIMEKI Runners"
+      ]
+    ],
+    "catalog": true,
+    "audioPresent": true
+  },
+  {
+    "file": "ios/RinaBoard/Resources/preset_live_demo.rinalive",
+    "keyframes": 23,
+    "fps": 10,
+    "durationMs": 7900,
+    "title": "演示",
+    "directives": [
+      [
+        1,
+        "rinaboard",
+        "demo preset-live script (see LivePerformanceScript.swift)."
+      ],
+      [
+        2,
+        "format",
+        "ported from flyAkari/RinaChanBoard's PresetLiveActivity:"
+      ],
+      [
+        4,
+        "frame",
+        "is in units of 1/fps seconds."
+      ],
+      [
+        5,
+        "fps",
+        "10"
+      ],
+      [
+        6,
+        "title",
+        "演示"
+      ]
+    ],
+    "catalog": false,
+    "audioPresent": false
+  }
+]

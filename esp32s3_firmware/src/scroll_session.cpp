@@ -207,6 +207,7 @@ void scrollSessionSetLoop(bool loop) {
     withScrollLock([&]() {
         changed = runtimeState().scrollLoop != loop;
         runtimeState().scrollLoop = loop;
+        runtimeState().groupLoop = loop;
     });
     if (changed) {
         touchRuntimeState();
@@ -602,6 +603,7 @@ bool scrollSessionGroupStart(uint64_t atUs, uint16_t startFrame, uint16_t interv
         runtimeState().groupStartFrame = startFrame;
         runtimeState().groupIntervalMs = intervalMs;
         runtimeState().groupLoop = loop;
+        runtimeState().scrollLoop = loop;
         runtimeState().scrollIntervalMs = intervalMs;
         runtimeState().firmwareScrollActive = true;
         runtimeState().firmwareScrollPaused = false;
@@ -667,12 +669,14 @@ bool scrollSessionTickCursorLocked(uint32_t now, uint8_t* outFrameBits) {
             // Latch (and present) it exactly once, on the tick that first
             // detects the end; a later tick with the same cursor.frame is a
             // no-op, matching the legacy path's steady "already there" state.
-            if (!group_math::groupCursorEndLatchDue(cursor, runtimeState().scrollFrameIndex))
-                return false;
-            runtimeState().scrollFrameIndex = static_cast<uint16_t>(cursor.frame);
+            const bool needsFinalFrame =
+                group_math::groupCursorEndLatchDue(cursor, runtimeState().scrollFrameIndex);
             runtimeState().firmwareScrollUserPaused = true;
             runtimeState().firmwareScrollPaused = true;
             sScrollEndPausePending = true;
+            if (!needsFinalFrame)
+                return false;
+            runtimeState().scrollFrameIndex = static_cast<uint16_t>(cursor.frame);
             const uint8_t* src = runtimeScrollFrameBits(runtimeState().scrollFrameIndex);
             if (!src)
                 return false;
@@ -689,9 +693,6 @@ bool scrollSessionTickCursorLocked(uint32_t now, uint8_t* outFrameBits) {
         return true;
     }
 
-    if (runtimeState().lastScrollFrameMs == 0)
-        runtimeState().lastScrollFrameMs = now;
-
     const uint16_t intervalMs = constrain(runtimeState().scrollIntervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
     const uint32_t elapsedMs = now - runtimeState().lastScrollFrameMs;
     if (elapsedMs < intervalMs)
@@ -706,12 +707,27 @@ bool scrollSessionTickCursorLocked(uint32_t now, uint8_t* outFrameBits) {
         return false;
     }
 
-    runtimeState().scrollFrameIndex = (runtimeState().scrollFrameIndex + 1) % runtimeState().scrollFrameCount;
-
-    if (elapsedMs <= static_cast<uint32_t>(intervalMs) * SCROLL_DRIFT_RESET_INTERVALS)
-        runtimeState().lastScrollFrameMs += intervalMs;
-    else
-        runtimeState().lastScrollFrameMs = now;
+    // Keep playback phase when rendering or scheduling takes longer than an
+    // interval. Present the newest due frame once; never replay stale frames
+    // in a catch-up burst. Unsigned elapsed/anchor arithmetic also handles a
+    // millis() wrap, and zero is a valid anchor set by start/resume.
+    const uint32_t dueSteps = elapsedMs / intervalMs;
+    runtimeState().lastScrollFrameMs += dueSteps * intervalMs;
+    if (runtimeState().scrollLoop) {
+        runtimeState().scrollFrameIndex = static_cast<uint16_t>(
+            (runtimeState().scrollFrameIndex + dueSteps) % runtimeState().scrollFrameCount);
+    } else {
+        const uint16_t remaining = runtimeState().scrollFrameCount - 1U - runtimeState().scrollFrameIndex;
+        if (dueSteps > remaining) {
+            // A late tick may pass the end without ever presenting the last
+            // frame. Latch it below once, then publish the usual end pause.
+            runtimeState().firmwareScrollUserPaused = true;
+            runtimeState().firmwareScrollPaused = true;
+            sScrollEndPausePending = true;
+        }
+        runtimeState().scrollFrameIndex += static_cast<uint16_t>(
+            dueSteps < remaining ? dueSteps : remaining);
+    }
 
     const uint8_t* src = runtimeScrollFrameBits(runtimeState().scrollFrameIndex);
     if (!src)

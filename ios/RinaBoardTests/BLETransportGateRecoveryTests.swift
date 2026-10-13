@@ -109,7 +109,7 @@ final class BLETransportGateRecoveryTests: XCTestCase {
         let peripheral = UUID()
         _ = gate.begin(peripheral)
         let next = Task { try await gate.wait(for: peripheral) }
-        try await Task.sleep(for: .milliseconds(10))
+        await waitUntilTrue { gate.registeredWaiterCount(for: peripheral) == 1 }
         gate.wakeAllWaiters()
         let result = try await next.value
         XCTAssertEqual(result, .superseded)
@@ -132,7 +132,7 @@ final class BLETransportGateRecoveryTests: XCTestCase {
         let newlySelectedBoard = UUID() // never begun/waited on in this gate
         _ = gate.begin(oldBoard)
         let parkedOnOldBoard = Task { try await gate.wait(for: oldBoard) }
-        try await Task.sleep(for: .milliseconds(10))
+        await waitUntilTrue { gate.registeredWaiterCount(for: oldBoard) == 1 }
         // Nothing was ever begun for `newlySelectedBoard`; waking must still
         // resolve the waiter genuinely parked on `oldBoard`.
         gate.wakeAllWaiters()
@@ -151,7 +151,7 @@ final class BLETransportGateRecoveryTests: XCTestCase {
         _ = gate.begin(second)
         let firstWaiter = Task { try await gate.wait(for: first) }
         let secondWaiter = Task { try await gate.wait(for: second) }
-        try await Task.sleep(for: .milliseconds(10))
+        await waitUntilTrue { gate.registeredWaiterCount(for: first) == 1 && gate.registeredWaiterCount(for: second) == 1 }
         gate.wakeAllWaiters()
         let firstResult = try await firstWaiter.value
         let secondResult = try await secondWaiter.value
@@ -163,32 +163,10 @@ final class BLETransportGateRecoveryTests: XCTestCase {
 
     // MARK: connect() single-flight attempt token (finding 2)
 
-    /// Pure model of `BLETransport.connect()`'s attempt-token bookkeeping:
-    /// entering claims the slot, and the matching `defer` only releases it if
-    /// it is still held by the same attempt. This is what lets a superseded
-    /// attempt's own unwind run (in any order) without clobbering a newer
-    /// attempt that a `disconnect()` in between already let claim the slot.
-    private struct SingleFlightSlot {
-        private(set) var inProgressAttempt: UUID?
-
-        mutating func enter() -> UUID? {
-            guard inProgressAttempt == nil else { return nil }
-            let attempt = UUID()
-            inProgressAttempt = attempt
-            return attempt
-        }
-
-        mutating func exit(_ attempt: UUID) {
-            if inProgressAttempt == attempt { inProgressAttempt = nil }
-        }
-
-        mutating func disconnect() {
-            inProgressAttempt = nil
-        }
-    }
-
+    // Exercises the value type used by BLETransport itself, rather than a
+    // private test copy that can drift away from production bookkeeping.
     func testSupersededAttemptsUnwindDoesNotClearNewerAttemptsSlot() {
-        var slot = SingleFlightSlot()
+        var slot = BLEConnectAttemptSlot()
         guard let firstAttempt = slot.enter() else { return XCTFail("expected first enter to succeed") }
         // disconnect() frees the slot immediately, before the first attempt's
         // own suspended call stack has unwound...
@@ -205,7 +183,7 @@ final class BLETransportGateRecoveryTests: XCTestCase {
     }
 
     func testSlotRejectsConcurrentEntryUntilExit() {
-        var slot = SingleFlightSlot()
+        var slot = BLEConnectAttemptSlot()
         guard let attempt = slot.enter() else { return XCTFail("expected first enter to succeed") }
         XCTAssertNil(slot.enter(), "a second connect() must be rejected while one is in flight")
         slot.exit(attempt)

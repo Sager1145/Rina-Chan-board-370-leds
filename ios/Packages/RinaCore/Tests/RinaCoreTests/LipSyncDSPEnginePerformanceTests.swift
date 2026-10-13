@@ -1,7 +1,7 @@
 import XCTest
 @testable import RinaCore
 
-/// PR-3 performance gate: reference (rebuild-everything) `LipSyncAnalyzer`
+/// PR-3 analyze performance gate and diagnostic measure benchmark: reference (rebuild-everything) `LipSyncAnalyzer`
 /// path vs the cached `LipSyncDSPEngine` path. Skipped unless
 /// `RINA_PERF_GATE=1`, and only asserts a speed ratio in release builds,
 /// since debug builds are dominated by bounds-check/ARC overhead that a
@@ -77,7 +77,9 @@ final class LipSyncDSPEnginePerformanceTests: XCTestCase {
         #endif
     }
 
-    func testMeasureVoicedWindowRatio() {
+    /// Diagnostic only: PR-3 documents a ratio threshold for analyze, not
+    /// measure. These measurements inform profiling and do not define a gate.
+    func testDiagnosticMeasureVoicedWindowTimings() {
         let samples = Self.voicedWindow
         let reference = LipSyncAnalyzer()
         let engineAnalyzer = LipSyncAnalyzer()

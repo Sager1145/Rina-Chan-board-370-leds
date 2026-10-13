@@ -1,0 +1,36 @@
+{
+  "80b54ef48e08": {
+    "partitions": {
+      "path": "/tmp/rina-80b54ef48e08-partitions-before.bin",
+      "bytes": 4096,
+      "sha256": "ff9f80d1838ce087004255a57df4daddc84b409169006a280a1c5b043eddee17"
+    },
+    "nvs-ota": {
+      "path": "/tmp/rina-80b54ef48e08-nvs-ota-before.bin",
+      "bytes": 28672,
+      "sha256": "cef68762b2c05c65bb1cd7ba6fc640dd741bb6263927d8e15a690cc95994d0e0"
+    },
+    "littlefs": {
+      "path": "/tmp/rina-80b54ef48e08-littlefs-before.bin",
+      "bytes": 4194304,
+      "sha256": "4b8a904b9ab01e0caaec4a309ccfabe0f5e928ca8152f231e7e46f0b9657eff6"
+    }
+  },
+  "80b54ef74800": {
+    "partitions": {
+      "path": "/tmp/rina-80b54ef74800-partitions-before.bin",
+      "bytes": 4096,
+      "sha256": "ff9f80d1838ce087004255a57df4daddc84b409169006a280a1c5b043eddee17"
+    },
+    "nvs-ota": {
+      "path": "/tmp/rina-80b54ef74800-nvs-ota-before.bin",
+      "bytes": 28672,
+      "sha256": "e667269cbb047a94d2e27c070a1906da2a7b4a387fcc50ca9683f41a55649491"
+    },
+    "littlefs": {
+      "path": "/tmp/rina-80b54ef74800-littlefs-before.bin",
+      "bytes": 4194304,
+      "sha256": "0dbb7d4f44c4c615c96f4c93e98e658735c65331edfa7dc39c9518be6bd255e2"
+    }
+  }
+}

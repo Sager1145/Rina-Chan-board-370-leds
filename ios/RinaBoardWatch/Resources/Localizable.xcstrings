@@ -45,6 +45,28 @@
         }
       }
     },
+    "%lld / %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld / %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld / %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld / %lld"
+          }
+        }
+      }
+    },
     "%lld fps": {
       "localizations": {
         "en": {
@@ -584,13 +606,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scroll speed"
+            "value": "Speed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スクロール速度"
+            "value": "速度"
           }
         },
         "zh-Hant": {
@@ -667,6 +689,28 @@
         }
       }
     },
+    "自定义": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂"
+          }
+        }
+      }
+    },
     "表情": {
       "localizations": {
         "en": {
@@ -738,13 +782,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Follow the iPhone's current selection"
+            "value": "Follow the iPhone"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone の現在の選択に従う"
+            "value": "iPhone に従う"
           }
         },
         "zh-Hant": {
@@ -782,7 +826,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mic sensitivity"
+            "value": "Sensitivity"
           }
         },
         "ja": {

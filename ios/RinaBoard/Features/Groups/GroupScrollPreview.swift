@@ -1,20 +1,18 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import RinaCore
 
 /// Multi-board scroll preview for a targeted `BoardGroup` (BOARD_GROUP_SPEC.md
 /// §3): every member is drawn side by side with a visible gap and a label
 /// (number + name + status) underneath, and can be reordered by long-press
-/// dragging one board onto another. Cells only light up for content the boards
+/// dragging one board to a new position. Cells only light up for content the boards
 /// are confirmed to be running; nothing uploaded or synced means a dark row.
 struct GroupScrollPreview: View {
     let group: BoardGroup
     /// `nil` follows the Control Center draft, like `BoardPreviewRow`.
     var color: Color? = nil
     var brightness: Int? = nil
-    /// Called with the dragged board's and the drop target's
-    /// `physicalBoardID`.
-    let onSwap: (String, String) -> Void
+    /// Commits one insertion move after the local drag preview settles.
+    let onMove: (String, String) async throws -> Void
 
     @Environment(BoardGroupCoordinator.self) private var coordinator
     /// Optional for the same reason as in `BoardPreviewRow`: test hosts and
@@ -36,21 +34,34 @@ struct GroupScrollPreview: View {
         brightness ?? controlCenter.map(\.draftBrightness) ?? RinaLinkConstants.brightnessDefault
     }
 
-    @State private var targetedIndex: Int?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var isDragging = false
+    @State private var drag: MemberDrag?
+    @State private var dragTranslation: CGSize = .zero
+    @State private var memberFrames: [String: CGRect] = [:]
+
+    private struct MemberDrag {
+        let sourceID: String
+        let originalIDs: [String]
+        let slotCenters: [CGFloat]
+        var previewIDs: [String]
+        var released = false
+    }
+
+    private var reorderAnimation: Animation? {
+        reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.9)
+    }
 
     private static let minCellSide: CGFloat = 70
-    /// App-private drag type: a board can't be dropped into a text field as
-    /// text, and outside text can't trigger a swap.
-    private static let boardDragType = UTType(exportedAs: "com.rinaboard.group-member", conformingTo: .data)
 
     var body: some View {
         Group {
             if router?.launchPreviewPending == true {
                 boardRow(members: group.members) { _ in PackedFrame() }
             } else {
-                let snapshot = coordinator.playbackSnapshot
+                let snapshot = coordinator.previewSnapshot
                 let mode = GroupPreviewPolicy.mode(
-                    snapshotGroupID: snapshot?.groupID, groupID: group.id, isPaused: coordinator.isPaused
+                    snapshotGroupID: snapshot?.groupID, groupID: group.id, isPaused: coordinator.previewIsPaused
                 )
                 if let snapshot, mode != .dark {
                     livePreview(snapshot: snapshot)
@@ -61,6 +72,18 @@ struct GroupScrollPreview: View {
                 }
             }
         }
+        .onChange(of: isDragging) { _, active in
+            // GestureState also resets when the system cancels a drag.
+            if !active, drag?.released == false { cancelDrag() }
+        }
+        .onChange(of: coordinator.isStarting) { _, starting in
+            if starting, drag?.released == false { cancelDrag() }
+        }
+        .onChange(of: group.members.map(\.physicalBoardID)) { _, ids in
+            if let drag, !drag.released, ids != drag.originalIDs { cancelDrag() }
+        }
+        .onChange(of: group.id) { _, _ in cancelDrag() }
+        .onDisappear { cancelDrag() }
     }
 
     // MARK: - Live (playing/paused) preview
@@ -71,13 +94,13 @@ struct GroupScrollPreview: View {
     /// uploading, not yet a participant) draws a dark placeholder frame.
     @ViewBuilder
     private func livePreview(snapshot: BoardGroupCoordinator.PlaybackSnapshot) -> some View {
-        let groupPaused = coordinator.isPaused
+        let groupPaused = coordinator.previewIsPaused
         let row = { (frameIndex: Int) in
             boardRow(members: snapshot.memberOrder) { index in
                 let member = snapshot.memberOrder[index]
                 let isLive = GroupPreviewPolicy.cellIsLive(
-                    coordinator.status(for: member),
-                    isLiveParticipant: coordinator.isLiveParticipant(member),
+                    coordinator.previewStatus(for: member),
+                    isLiveParticipant: coordinator.isLivePreviewParticipant(member),
                     groupPaused: groupPaused
                 )
                 guard isLive else { return PackedFrame() }
@@ -86,10 +109,10 @@ struct GroupScrollPreview: View {
         }
         if groupPaused {
             // A still frame; step() changes pausedFrame, which re-renders.
-            row(coordinator.currentFrame() ?? 0)
+            row(coordinator.previewFrame() ?? 0)
         } else {
             TimelineView(.animation(minimumInterval: Double(max(snapshot.intervalMs, 1)) / 1000)) { _ in
-                row(coordinator.currentFrame() ?? 0)
+                row(coordinator.previewFrame() ?? 0)
             }
         }
     }
@@ -116,12 +139,40 @@ struct GroupScrollPreview: View {
                 layout { boardCells(members: members, frame: frame) }
             }
         }
+        .coordinateSpace(name: group.id)
+        .onPreferenceChange(MemberFrameKey.self) { memberFrames = $0 }
     }
 
     @ViewBuilder
     private func boardCells(members: [BoardGroup.Member], frame: @escaping (Int) -> PackedFrame) -> some View {
         ForEach(Array(members.enumerated()), id: \.element.physicalBoardID) { index, member in
-            boardCell(member: member, index: index, frame: frame(index))
+            let ids = members.map(\.physicalBoardID)
+            let previewIndex = drag?.previewIDs.firstIndex(of: member.physicalBoardID) ?? index
+            let tracksPointer = drag?.sourceID == member.physicalBoardID && drag?.released == false
+            boardCell(member: member, index: previewIndex, frame: frame(index))
+                // Keep the dragged view at its original slot until release;
+                // changing preview slots must never move it away from the finger.
+                .layoutValue(key: BoardSlotKey.self, value: tracksPointer ? index : previewIndex)
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(key: MemberFrameKey.self, value: [
+                            member.physicalBoardID: geometry.frame(in: .named(group.id))
+                        ])
+                    }
+                }
+                .offset(tracksPointer ? dragTranslation : .zero)
+                .zIndex(drag?.sourceID == member.physicalBoardID ? 1 : 0)
+                // A short swipe remains available to the horizontal scroll
+                // view; only a completed long press activates board movement.
+                .gesture(memberDrag(memberID: member.physicalBoardID, ids: ids))
+                .accessibilityActions {
+                    if index > 0 {
+                        Button("向左移动") { moveAccessibly(member.physicalBoardID, to: ids[index - 1]) }
+                    }
+                    if index + 1 < ids.count {
+                        Button("向右移动") { moveAccessibly(member.physicalBoardID, to: ids[index + 1]) }
+                    }
+                }
         }
     }
 
@@ -129,7 +180,7 @@ struct GroupScrollPreview: View {
     private func boardCell(member: BoardGroup.Member, index: Int, frame: PackedFrame) -> some View {
         let status = coordinator.status(for: member)
         let name = coordinator.session(for: member)?.connection.deviceName ?? member.displayName
-        let isTargeted = targetedIndex == index
+        let isTargeted = drag?.sourceID == member.physicalBoardID
         VStack(spacing: 4) {
             LEDBoardPreview(
                 frame: frame,
@@ -165,28 +216,101 @@ struct GroupScrollPreview: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("板 \(index + 1)，\(name)，\(BoardGroupStatusFormatting.text(status))")
         .disabled(coordinator.isStarting)
-        .onDrag {
-            let provider = NSItemProvider()
-            let id = member.physicalBoardID
-            provider.registerDataRepresentation(forTypeIdentifier: Self.boardDragType.identifier, visibility: .ownProcess) { completion in
-                completion(Data(id.utf8), nil)
-                return nil
+    }
+
+    private func memberDrag(memberID: String, ids: [String]) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.25)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(group.id)))
+            .updating($isDragging) { value, active, _ in
+                if case .second(true, _) = value { active = true }
             }
-            return provider
+            .onChanged { value in
+                guard !coordinator.isStarting, drag?.released != true,
+                      case .second(true, let movement) = value else { return }
+                if drag == nil {
+                    let centers = ids.compactMap { memberFrames[$0]?.midX }
+                    guard centers.count == ids.count else { return }
+                    drag = MemberDrag(sourceID: memberID, originalIDs: ids,
+                                      slotCenters: centers, previewIDs: ids)
+                }
+                guard let movement else { return }
+                updateDrag(translation: movement.translation)
+            }
+            .onEnded { value in
+                guard drag?.released != true else { return }
+                guard case .second(true, let movement) = value, let movement else {
+                    cancelDrag()
+                    return
+                }
+                updateDrag(translation: movement.translation)
+                finishDrag()
+            }
+    }
+
+    private func updateDrag(translation: CGSize) {
+        guard var current = drag, !current.released,
+              let source = current.originalIDs.firstIndex(of: current.sourceID) else { return }
+        // Tracking is direct; only discrete neighbour displacement gets a spring.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { dragTranslation = translation }
+        let center = current.slotCenters[source] + translation.width
+        let target = current.slotCenters.indices.min {
+            abs(current.slotCenters[$0] - center) < abs(current.slotCenters[$1] - center)
+        } ?? source
+        var order = current.originalIDs
+        order.remove(at: source)
+        order.insert(current.sourceID, at: target)
+        guard order != current.previewIDs else { return }
+        current.previewIDs = order
+        withAnimation(reorderAnimation) { drag = current }
+    }
+
+    private func finishDrag() {
+        guard var current = drag, !current.released,
+              let source = current.originalIDs.firstIndex(of: current.sourceID),
+              let destination = current.previewIDs.firstIndex(of: current.sourceID) else {
+            cancelDrag()
+            return
         }
-        .onDrop(of: [Self.boardDragType], isTargeted: Binding(
-            get: { targetedIndex == index },
-            set: { targeted in targetedIndex = targeted ? index : (targetedIndex == index ? nil : targetedIndex) }
-        )) { providers in
-            guard !coordinator.isStarting, let provider = providers.first else { return false }
-            let targetID = member.physicalBoardID
-            _ = provider.loadDataRepresentation(forTypeIdentifier: Self.boardDragType.identifier) { data, _ in
-                guard let data, let sourceID = String(data: data, encoding: .utf8), sourceID != targetID else { return }
-                Task { @MainActor in onSwap(sourceID, targetID) }
+        guard source != destination else {
+            cancelDrag()
+            return
+        }
+        // The target is the original occupant of the destination slot. The
+        // coordinator commits the same remove/insert operation once, on release.
+        let targetID = current.originalIDs[destination]
+        current.released = true
+        withAnimation(reorderAnimation) {
+            drag = current
+            dragTranslation = .zero
+        }
+        Task { @MainActor in
+            do { try await onMove(current.sourceID, targetID) }
+            catch { /* The caller presents the existing reorder error. */ }
+            // Retain the local order until the commit/replay completes, avoiding
+            // a flash back to the old playback snapshot while it restarts.
+            if drag?.sourceID == current.sourceID, drag?.released == true {
+                cancelDrag()
             }
-            return true
         }
     }
+
+    private func moveAccessibly(_ memberID: String, to targetID: String) {
+        guard !coordinator.isStarting, drag == nil else { return }
+        Task { @MainActor in
+            do { try await onMove(memberID, targetID) }
+            catch { /* The caller presents the existing reorder error. */ }
+        }
+    }
+
+    private func cancelDrag() {
+        withAnimation(reorderAnimation) {
+            drag = nil
+            dragTranslation = .zero
+        }
+    }
+
 }
 
 /// Boards left to right at one shared width. Adjacent boards sit one LED
@@ -240,10 +364,28 @@ private struct BoardRowLayout: Layout {
         // Centre the row when the boards hit their minimum width limit
         // exactly and leave slack.
         var x = bounds.minX + max(0, (bounds.width - totalWidth(boardWidth: width, count: subviews.count)) / 2)
-        for (index, subview) in subviews.enumerated() {
-            subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
-                          proposal: ProposedViewSize(width: width, height: nil))
+        var slotXs: [CGFloat] = []
+        for index in subviews.indices {
+            slotXs.append(x)
             x += width + gap(after: index, boardWidth: width)
         }
+        for subview in subviews {
+            let slot = min(max(0, subview[BoardSlotKey.self]), max(0, slotXs.count - 1))
+            subview.place(at: CGPoint(x: slotXs[slot], y: bounds.minY), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: width, height: nil))
+        }
+    }
+}
+
+
+private struct BoardSlotKey: LayoutValueKey {
+    static let defaultValue = 0
+}
+
+private struct MemberFrameKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }

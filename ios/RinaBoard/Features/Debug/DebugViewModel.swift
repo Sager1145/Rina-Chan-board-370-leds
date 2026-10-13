@@ -485,6 +485,9 @@ final class DebugViewModel {
     /// (it holds the old connection), the header still claimed the firmware log
     /// was on, and the overview stayed on the previous board.
     @ObservationIgnored private var lastSessionKey: String?
+    @ObservationIgnored private weak var snapshotConnection: BoardConnection?
+    @ObservationIgnored private var snapshotEpoch = UUID()
+    @ObservationIgnored private var overviewRefreshID: UUID?
 
     /// How old an overview may be before the page reloads it on appearing.
     static let overviewFreshness: TimeInterval = 10
@@ -495,6 +498,10 @@ final class DebugViewModel {
     func pageAppeared(sessionKey: String, connection: BoardConnection) async {
         if sessionKey != lastSessionKey {
             lastSessionKey = sessionKey
+            snapshotConnection = connection
+            snapshotEpoch = UUID()
+            overviewRefreshID = nil
+            isRefreshingOverview = false
             handleSessionChange()
             // The model outlives the page; never show one board's snapshot
             // as another's, which a disconnected board would otherwise do.
@@ -517,6 +524,7 @@ final class DebugViewModel {
         statusUpdatedAt = nil
         powerUpdatedAt = nil
         deviceInfoUpdatedAt = nil
+        estimatedWatts = nil
     }
 
     func handleSessionChange() {
@@ -608,19 +616,46 @@ final class DebugViewModel {
 
     // MARK: C2/C3 refresh
 
+    /// Every read retains its board and session provenance across awaits.
+    /// A page switch releases the old overview gate immediately; its delayed
+    /// replies cannot publish into the newly selected board's snapshots.
+    private func snapshotScope(for connection: BoardConnection) -> UUID? {
+        if snapshotConnection == nil { snapshotConnection = connection }
+        guard snapshotConnection === connection else { return nil }
+        return snapshotEpoch
+    }
+
+    private func ownsSnapshot(_ epoch: UUID, connection: BoardConnection, generation: UUID) -> Bool {
+        snapshotEpoch == epoch && snapshotConnection === connection
+            && connection.connectionGeneration == generation && !Task.isCancelled
+    }
+
     func refreshOverview(connection: BoardConnection) async {
-        guard !isRefreshingOverview else { return }
-        guard connection.connectionState == .connected else { return }
+        guard connection.connectionState == .connected,
+              let epoch = snapshotScope(for: connection), overviewRefreshID == nil else { return }
+        let refreshID = UUID()
+        let generation = connection.connectionGeneration
+        overviewRefreshID = refreshID
         isRefreshingOverview = true
-        defer { isRefreshingOverview = false }
+        defer {
+            if overviewRefreshID == refreshID {
+                overviewRefreshID = nil
+                isRefreshingOverview = false
+            }
+        }
         await refreshStatus(connection: connection)
+        guard ownsSnapshot(epoch, connection: connection, generation: generation) else { return }
         await refreshPower(connection: connection)
+        guard ownsSnapshot(epoch, connection: connection, generation: generation) else { return }
         await refreshDeviceInfo(connection: connection)
     }
 
     func refreshStatus(connection: BoardConnection) async {
+        guard let epoch = snapshotScope(for: connection) else { return }
+        let generation = connection.connectionGeneration
         do {
             let data = try await connection.getStatusRaw()
+            guard ownsSnapshot(epoch, connection: connection, generation: generation) else { return }
             statusRows = DebugJSON.flatten(data)
             statusRawText = DebugJSON.prettyString(from: data)
             statusSnapshot = try JSONDecoder().decode(DeviceStatus.self, from: data)
@@ -633,14 +668,18 @@ final class DebugViewModel {
             lastLocalError = nil
             log(.info, NSLocalizedString("刷新状态成功", comment: "debug status refresh succeeded"))
         } catch {
+            guard ownsSnapshot(epoch, connection: connection, generation: generation) else { return }
             lastLocalError = error.localizedDescription
             log(.error, String(format: NSLocalizedString("刷新状态失败：%@", comment: "debug status refresh failed"), error.localizedDescription))
         }
     }
 
     func refreshPower(connection: BoardConnection) async {
+        guard let epoch = snapshotScope(for: connection) else { return }
+        let generation = connection.connectionGeneration
         do {
             let data = try await connection.getPowerRaw()
+            guard ownsSnapshot(epoch, connection: connection, generation: generation) else { return }
             powerRows = DebugJSON.flatten(data)
             powerRawText = DebugJSON.prettyString(from: data)
             powerSnapshot = try JSONDecoder().decode(PowerStatus.self, from: data)
@@ -648,18 +687,24 @@ final class DebugViewModel {
             lastLocalError = nil
             log(.info, NSLocalizedString("刷新电源成功", comment: "debug power refresh succeeded"))
         } catch {
+            guard ownsSnapshot(epoch, connection: connection, generation: generation) else { return }
             lastLocalError = error.localizedDescription
             log(.error, String(format: NSLocalizedString("刷新电源失败：%@", comment: "debug power refresh failed"), error.localizedDescription))
         }
     }
 
     func refreshDeviceInfo(connection: BoardConnection) async {
+        guard let epoch = snapshotScope(for: connection) else { return }
+        let generation = connection.connectionGeneration
         do {
-            deviceInfo = try await connection.getDeviceInfo()
+            let info = try await connection.getDeviceInfo()
+            guard ownsSnapshot(epoch, connection: connection, generation: generation) else { return }
+            deviceInfo = info
             deviceInfoUpdatedAt = Date()
             lastLocalError = nil
             log(.info, NSLocalizedString("获取设备信息成功", comment: "debug device info refresh succeeded"))
         } catch {
+            guard ownsSnapshot(epoch, connection: connection, generation: generation) else { return }
             lastLocalError = error.localizedDescription
             log(.error, String(format: NSLocalizedString("获取设备信息失败：%@", comment: "debug device info refresh failed"), error.localizedDescription))
         }
@@ -908,7 +953,8 @@ final class DebugViewModel {
         appendMonitor(.info, "TX → \(input)")
         do {
             let reply: RinaLinkFrame
-            if request.type == .cmd {
+            if request.type == .cmd,
+               request.commandName.map(DebugCommandCatalog.takesOutputOwnership(commandName:)) == true {
                 let session = connection.output.begin(.debug)
                 reply = try await connection.withOutput(session) {
                     try await connection.send(type: request.type, payload: request.payload)

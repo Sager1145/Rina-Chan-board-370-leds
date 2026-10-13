@@ -32,8 +32,9 @@ public final class ConnectionViewModel {
     public private(set) var connectingHomeBoardID: String?
     public private(set) var connectingSavedBoardID: String?
     public private(set) var isScanningNetworks = false
+    public private(set) var isSwitchingTransport = false
+    public private(set) var isApplyingWifiMode = false
     public var manualHost: String = ""
-    public var manualPhoneSSID: String = ""
     public var lastErrorMessage: String?
 
     public var wifiNetworks: [WifiNetwork] = []
@@ -53,28 +54,11 @@ public final class ConnectionViewModel {
     public private(set) var boardBuild: String?
     public private(set) var boardHasCustomName = false
 
-    // MARK: iPhone Personal Hotspot profile (RINALINK_PROTOCOL_V1 §8)
-
-    /// iOS doesn't expose a reliable Personal Hotspot SSID. This starts with
-    /// the last SSID that successfully connected a board, or remains empty.
-    public var hotspotName: String
-    /// The Personal Hotspot password iOS never exposes to apps — typed once,
-    /// then remembered in the Keychain (`KeychainStore`), keyed by SSID.
-    public var hotspotPassword: String = ""
-    public private(set) var isProvisioningHotspot = false
-    public private(set) var hotspotPasswordIsSaved = false
     public private(set) var directAPStage: DirectAPStage = .idle
     public private(set) var homeProvisionStage: ProvisionStage = .idle
-    public private(set) var hotspotProvisionStage: ProvisionStage = .idle
-
-    private static let confirmedHotspotSSIDKey = "com.rinachan.board.confirmedHotspotSSID"
 
     public init(startBonjourBrowsing: Bool = true) {
         if startBonjourBrowsing { bonjour.start() }
-        hotspotName = UserDefaults.standard.string(forKey: Self.confirmedHotspotSSIDKey) ?? ""
-        let savedPassword = KeychainStore.load(account: hotspotName)
-        hotspotPassword = savedPassword ?? ""
-        hotspotPasswordIsSaved = savedPassword != nil
     }
 
     deinit {
@@ -111,6 +95,7 @@ public final class ConnectionViewModel {
                     id: boardID,
                     name: connection.deviceName ?? peripheral.name,
                     preferredTransport: "bluetooth",
+                    physicalBoardID: connection.boardIdentity,
                     lastSeen: Date()
                 ))
             }
@@ -155,8 +140,10 @@ public final class ConnectionViewModel {
             return
         }
         boardStore.upsert(KnownBoard(id: boardID, name: connection.deviceName ?? peripheral.name,
-                                      preferredTransport: "bluetooth", lastSeen: Date()))
+                                      preferredTransport: "bluetooth", physicalBoardID: connection.boardIdentity,
+                                      lastSeen: Date()))
         await refreshBoardName(connection: connection)
+        await refreshSavedAPMetadata(connection: connection, boardStore: boardStore, savedID: boardID)
     }
 
     // MARK: Board name
@@ -355,16 +342,27 @@ public final class ConnectionViewModel {
     }
 
     public func connectManualHost(connection: BoardConnection, boardStore: BoardStore) async {
+        await connectManualHost(connection: connection, boardStore: boardStore,
+                                transportFactory: { TCPTransport(host: $0) })
+    }
+
+    func connectManualHost(
+        connection: BoardConnection,
+        boardStore: BoardStore,
+        transportFactory: @MainActor (String) -> any RinaTransport
+    ) async {
         let host = manualHost.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !host.isEmpty else { return }
         guard !isConnectingHome else { return }
         isConnectingHome = true
         lastErrorMessage = nil
         defer { isConnectingHome = false }
-        let transport = TCPTransport(host: host)
-        await connection.connect(using: transport)
-        guard connection.connectionState == .connected else {
-            lastErrorMessage = NSLocalizedString("连接失败", comment: "board connection failed")
+        let transport = transportFactory(host)
+        let connected = await connection.connect(using: transport)
+        guard connected, connection.connectionState == .connected else {
+            // A nil error identifies an intentional disconnect or a newer
+            // connection superseding this attempt. Keep that outcome quiet.
+            lastErrorMessage = connection.lastError
             return
         }
         boardStore.upsert(KnownBoard(id: host, name: connection.deviceName ?? host, preferredTransport: "wifi",
@@ -373,8 +371,7 @@ public final class ConnectionViewModel {
 
     // MARK: Hotspot ("direct")
 
-    /// - Parameter disconnectOtherHotspotSessions: Every board's SoftAP shares
-    ///   one IP, so the phone can only ever be usefully associated with one at
+    /// - Parameter disconnectOtherHotspotSessions: The phone can only associate with one board SoftAP at
     ///   a time. Called right before joining so any other session's hotspot
     ///   connection cannot later reconnect its TCP link onto *this* board once
     ///   the phone's Wi-Fi moves — the caller is expected to disconnect every
@@ -384,7 +381,10 @@ public final class ConnectionViewModel {
             sessions: sessions, boardStore: boardStore,
             joinBoardHotspot: { try await HotspotJoiner.join() },
             connectTransport: { session, transport in
-                await session.connection.connect(using: transport)
+                await session.connection.connect(using: transport,
+                    expectedBoardIdentity: session.connection.boardIdentity
+                        ?? session.connection.lastKnownBoardIdentity
+                        ?? session.connection.expectedHotspotSSID.flatMap(BoardIdentity.boardID(fromAPSSID:)))
             }
         )
     }
@@ -416,34 +416,51 @@ public final class ConnectionViewModel {
         }
         directAPStage = .joiningPhoneToBoardAP
         lastErrorMessage = nil
-        // Every board's SoftAP shares one IP: stop any hotspot reconnect loop
-        // before the join moves the phone's Wi-Fi onto a possibly other board.
-        for session in sessions.sessions where session.connection.transportKind == .hotspot {
-            session.connection.disconnect()
-        }
         do {
             let joinedSSID = try await joinBoardHotspot()
             directAPStage = .connectingToBoard
             let boardID = KnownBoard.hotspotStorageID(ssid: joinedSSID)
+            let physicalID = BoardIdentity.boardID(fromAPSSID: joinedSSID)
+            let known = boardStore.boards.first {
+                $0.hotspotSSID == joinedSSID
+                    || (physicalID != nil && $0.physicalBoardID == physicalID)
+            }
             let target = sessions.existingSession(for: boardID)
+                ?? known.map { sessions.session(for: $0.id, name: $0.name) }
                 ?? sessions.session(for: boardID, name: joinedSSID)
+            // One Wi-Fi interface can reach one board AP at a time. Once
+            // association succeeds, retire other AP retry loops while keeping
+            // BLE and Home Wi-Fi siblings available.
+            for session in sessions.sessions where session !== target && session.connection.transportKind == .hotspot {
+                session.connection.disconnect()
+            }
             sessions.select(target)
             let connection = target.connection
+            let identifiers = Set(target.knownIdentifiers)
+            let savedID = boardStore.boards.first(where: { identifiers.contains($0.id) })?.id
+                ?? target.boardID ?? boardID
             connection.expectedHotspotSSID = joinedSSID
-            let connected = await connectTransport(target, HotspotJoiner.makeTransport())
-            guard connected, connection.connectionState == .connected else {
+            let host = hotspotHost(ssid: joinedSSID, connection: connection, known: known)
+            let attempt = await connectHotspotGateway(ssid: joinedSSID, host: host, known: known,
+                connection: connection, boardStore: boardStore,
+                connectTransport: { await connectTransport(target, $0) })
+            guard attempt.connected, connection.connectionState == .connected else {
                 let message = connection.lastError ?? NSLocalizedString("已连接璃奈板热点，但未能建立控制连接", comment: "direct AP control connection failed")
                 directAPStage = .failed(message)
                 return
             }
+            sessions.consolidateVerifiedSession(target)
             boardStore.upsert(KnownBoard(
-                id: KnownBoard.hotspotStorageID(ssid: joinedSSID),
+                id: savedID,
                 name: connection.deviceName ?? joinedSSID,
                 preferredTransport: "hotspot",
-                lastHost: RinaLinkConstants.apIP,
+                lastHost: known?.lastHostForHomeWifi,
                 hotspotSSID: joinedSSID,
+                hotspotIP: connection.wifi?.apIp.flatMap(BoardAPAddress.canonicalPrivateAddress) ?? attempt.host,
+                physicalBoardID: connection.boardIdentity,
                 lastSeen: Date()
             ))
+            await refreshSavedAPMetadata(connection: connection, boardStore: boardStore, savedID: savedID)
             directAPStage = .connected
         } catch {
             directAPStage = .failed(error.localizedDescription)
@@ -467,6 +484,169 @@ public final class ConnectionViewModel {
             boardStore.upsert(KnownBoard(id: ip, name: connection.deviceName ?? ssid, preferredTransport: "wifi", lastHost: ip, lastSeen: Date()))
         }
         homeProvisionStage = .connected
+    }
+
+    // MARK: Selected board transport
+
+    public enum TransportSelection: String, Hashable {
+        case bluetooth, wifi, hotspot
+    }
+
+    public func selectedTransport(for session: BoardSession) -> TransportSelection {
+        switch session.connection.transportKind {
+        case .bluetooth: .bluetooth
+        case .wifi: .wifi
+        case .hotspot: .hotspot
+        case nil: .bluetooth
+        }
+    }
+
+    public func canSelectTransport(_ selection: TransportSelection, session: BoardSession,
+                                   boardStore: BoardStore) -> Bool {
+        switch selection {
+        case .bluetooth: bluetoothIdentifier(for: session) != nil
+        case .wifi: wifiHost(for: session, boardStore: boardStore) != nil
+        case .hotspot: selectedAPSSID(for: session, boardStore: boardStore) != nil
+        }
+    }
+
+    public func selectTransport(_ selection: TransportSelection, session: BoardSession? = nil, sessions: BoardSessionStore,
+                                boardStore: BoardStore) async {
+        await selectTransport(selection, session: session, sessions: sessions, boardStore: boardStore,
+                              connectTransport: { session, transport, expectedIdentity in
+            await session.connection.connect(using: transport, expectedBoardIdentity: expectedIdentity)
+        })
+    }
+
+    func selectTransport(
+        _ selection: TransportSelection,
+        session: BoardSession? = nil,
+        sessions: BoardSessionStore,
+        boardStore: BoardStore,
+        joinBoardHotspot: @escaping @MainActor (String) async throws -> String = { try await HotspotJoiner.join(ssid: $0) },
+        connectTransport: @escaping @MainActor (BoardSession, any RinaTransport, String?) async -> Bool
+    ) async {
+        guard !isSwitchingTransport else { return }
+        let target = session ?? sessions.active
+        guard sessions.sessions.contains(where: { $0 === target }) else { return }
+        guard let fallbackID = target.boardID else { return }
+        if target.connection.connectionState == .connected, selectedTransport(for: target) == selection { return }
+        // Read the old carrier before connecting clears it, retaining its
+        // identity for saved-board lookup and forgetting after a switch.
+        let oldIdentifiers = Set(target.knownIdentifiers)
+        let known = boardStore.boards.first { oldIdentifiers.contains($0.id) }
+        let expectedIdentity = target.connection.boardIdentity ?? target.connection.lastKnownBoardIdentity
+            ?? known?.physicalBoardID ?? known?.hotspotSSID.flatMap(BoardIdentity.boardID(fromAPSSID:))
+        let bluetoothID = bluetoothIdentifier(for: target)
+        let name = target.connection.deviceName ?? target.name
+        let host = wifiHost(for: target, boardStore: boardStore)
+        let transport: any RinaTransport
+        var joinedAPSSID: String?
+        var joinedAPHost: String?
+        isSwitchingTransport = true
+        lastErrorMessage = nil
+        defer { isSwitchingTransport = false }
+        switch selection {
+        case .bluetooth:
+            guard let bluetoothID else {
+                lastErrorMessage = NSLocalizedString("请先在添加璃奈板中扫描并连接这块板的蓝牙", comment: "selected board missing BLE address")
+                return
+            }
+            target.bleTransport.peripheralIdentifier = bluetoothID
+            transport = target.bleTransport
+        case .wifi:
+            guard let host else {
+                lastErrorMessage = NSLocalizedString("请先在 Wi-Fi 与热点中选择扫描到的网络，让板子加入 Wi-Fi", comment: "selected board missing Wi-Fi address")
+                return
+            }
+            transport = TCPTransport(host: host)
+        case .hotspot:
+            guard let ssid = selectedAPSSID(for: target, boardStore: boardStore) else {
+                lastErrorMessage = NSLocalizedString("请先通过蓝牙连接这块板，读取热点设置", comment: "selected board missing AP address")
+                return
+            }
+            do {
+                let joined = try await joinBoardHotspot(ssid)
+                guard !Task.isCancelled, sessions.sessions.contains(where: { $0 === target }) else { return }
+                guard joined == ssid else {
+                    lastErrorMessage = NSLocalizedString("连接地址对应另一块璃奈板，已停止连接", comment: "joined wrong selected hotspot")
+                    return
+                }
+                for other in sessions.sessions where other !== target && other.connection.transportKind == .hotspot {
+                    other.connection.disconnect()
+                }
+                target.connection.expectedHotspotSSID = joined
+                let apHost = hotspotHost(ssid: joined, connection: target.connection, known: known)
+                joinedAPSSID = joined
+                joinedAPHost = apHost
+                transport = HotspotJoiner.makeTransport(host: apHost)
+            } catch {
+                if sessions.active === target { lastErrorMessage = error.localizedDescription }
+                return
+            }
+        }
+        let connected: Bool
+        if let joinedAPSSID, let host = joinedAPHost {
+            let attempt = await connectHotspotGateway(ssid: joinedAPSSID, host: host, known: known,
+                connection: target.connection, boardStore: boardStore,
+                connectTransport: { await connectTransport(target, $0, expectedIdentity) })
+            connected = attempt.connected
+            joinedAPHost = attempt.host
+        } else {
+            connected = await connectTransport(target, transport, expectedIdentity)
+        }
+        guard connected, target.connection.connectionState == .connected else {
+            if sessions.active === target { lastErrorMessage = target.connection.lastError }
+            return
+        }
+        // The user's selection can change while this board connects. Keep its
+        // own carrier, but never select it over the board the user chose next.
+        guard sessions.sessions.contains(where: { $0 === target }) else { return }
+        sessions.consolidateVerifiedSession(target)
+        let id = bluetoothID?.uuidString ?? fallbackID
+        var saved = boardStore.boards.first { $0.id == id }
+            ?? boardStore.boards.first { oldIdentifiers.contains($0.id) }
+            ?? KnownBoard(id: id, name: name)
+        saved.id = id
+        let savedHomeHost = saved.lastHostForHomeWifi
+        saved.name = target.connection.deviceName ?? name
+        saved.preferredTransport = selection.rawValue
+        saved.physicalBoardID = target.connection.boardIdentity
+        if selection == .wifi { saved.lastHost = host }
+        if selection == .hotspot {
+            saved.lastHost = savedHomeHost
+            saved.hotspotSSID = joinedAPSSID
+            saved.hotspotIP = target.connection.wifi?.apIp.flatMap(BoardAPAddress.canonicalPrivateAddress) ?? joinedAPHost
+        }
+        saved.lastSeen = Date()
+        boardStore.upsert(saved)
+        await refreshSavedAPMetadata(connection: target.connection, boardStore: boardStore, savedID: id)
+        // Register the successful Wi-Fi spelling against the same session.
+        _ = target.knownIdentifiers
+    }
+
+    private func selectedAPSSID(for session: BoardSession, boardStore: BoardStore) -> String? {
+        let identifiers = Set(session.knownIdentifiers)
+        let ssid = session.connection.wifi?.apSsid ?? session.connection.expectedHotspotSSID
+            ?? boardStore.boards.first(where: { identifiers.contains($0.id) })?.hotspotSSID
+        return ssid.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    private func bluetoothIdentifier(for session: BoardSession) -> UUID? {
+        session.bleTransport.peripheralIdentifier
+            ?? session.knownIdentifiers.compactMap(UUID.init(uuidString:)).first
+    }
+
+    private func wifiHost(for session: BoardSession, boardStore: BoardStore) -> String? {
+        if session.connection.wifi?.staConnected == true,
+           let ip = session.connection.wifi?.ip, !ip.isEmpty { return ip }
+        if case .wifi(let host, _) = session.connection.transportKind { return host }
+        let identifiers = Set(session.knownIdentifiers)
+        return boardStore.boards.filter {
+            identifiers.contains($0.id)
+        }
+            .sorted { ($0.lastSeen ?? .distantPast) > ($1.lastSeen ?? .distantPast) }
+            .compactMap(\.lastHostForHomeWifi).first
     }
 
     // MARK: Saved boards
@@ -510,7 +690,10 @@ public final class ConnectionViewModel {
             board, sessions: sessions, boardStore: boardStore,
             joinBoardHotspot: { ssid in try await HotspotJoiner.join(ssid: ssid) },
             connectTransport: { session, transport in
-                await session.connection.connect(using: transport)
+                await session.connection.connect(using: transport,
+                    expectedBoardIdentity: board.physicalBoardID
+                        ?? board.hotspotSSID.flatMap(BoardIdentity.boardID(fromAPSSID:))
+                        ?? session.connection.boardIdentity ?? session.connection.lastKnownBoardIdentity)
             }
         )
     }
@@ -549,6 +732,7 @@ public final class ConnectionViewModel {
                 }
             }
         )
+        sessions.consolidateVerifiedSession(target)
     }
 
     public func connectSavedBoard(
@@ -565,7 +749,10 @@ public final class ConnectionViewModel {
             connection: connection,
             boardStore: boardStore,
             joinBoardHotspot: { ssid in try await HotspotJoiner.join(ssid: ssid) },
-            connectTransport: { transport in await connection.connect(using: transport) },
+            connectTransport: { transport in
+                await connection.connect(using: transport, expectedBoardIdentity: board.physicalBoardID
+                    ?? board.hotspotSSID.flatMap(BoardIdentity.boardID(fromAPSSID:)))
+            },
             updateLastSeen: updateLastSeen,
             disconnectOtherHotspotSessions: disconnectOtherHotspotSessions
         )
@@ -605,6 +792,7 @@ public final class ConnectionViewModel {
         // concrete SSID, so the final upsert below can migrate it onto the
         // SSID-keyed id instead of re-saving the shared-IP legacy id.
         var migratedHotspotSSID: String?
+        var dialedHotspotHost: String?
         switch target {
         case .bluetooth(let id):
             ble.peripheralIdentifier = id
@@ -619,7 +807,7 @@ public final class ConnectionViewModel {
             connected = await connectTransport(TCPTransport(
                 host: host, kind: .wifi(host: host, port: RinaLinkConstants.tcpPort)
             ))
-        case .boardHotspot(let host, let ssid):
+        case .boardHotspot(_, let ssid):
             disconnectOtherHotspotSessions()
             let joinedSSID: String
             do {
@@ -632,9 +820,22 @@ public final class ConnectionViewModel {
             // The user can forget this board while the iOS association
             // prompt is pending. Do not continue into TCP or recreate it.
             guard boardStore.boards.contains(where: { $0.id == board.id }) else { return }
+            if let ssid, ssid != joinedSSID {
+                lastErrorMessage = NSLocalizedString("连接地址对应另一块璃奈板，已停止连接", comment: "joined wrong saved hotspot")
+                return
+            }
             if board.hotspotSSID == nil { migratedHotspotSSID = joinedSSID }
             connection.expectedHotspotSSID = joinedSSID
-            connected = await connectTransport(TCPTransport(host: host, kind: .hotspot))
+            // Prefix association may have landed on another known board; read
+            // that board's gateway only after the actual SSID is known.
+            let joinedKnown = boardStore.boards.first { $0.hotspotSSID == joinedSSID }
+            let actualHost = hotspotHost(ssid: joinedSSID, connection: connection,
+                known: ssid == nil ? joinedKnown : board)
+            let attempt = await connectHotspotGateway(ssid: joinedSSID, host: actualHost,
+                known: ssid == nil ? joinedKnown : board, connection: connection, boardStore: boardStore,
+                connectTransport: { await connectTransport($0) })
+            dialedHotspotHost = attempt.host
+            connected = attempt.connected
         }
 
         // Forgetting an in-flight connection cancels it intentionally. Do not
@@ -656,109 +857,80 @@ public final class ConnectionViewModel {
             refreshed.id = KnownBoard.hotspotStorageID(ssid: migratedHotspotSSID)
             refreshed.hotspotSSID = migratedHotspotSSID
         }
+        if let dialedHotspotHost {
+            refreshed.hotspotIP = connection.wifi?.apIp.flatMap(BoardAPAddress.canonicalPrivateAddress) ?? dialedHotspotHost
+            refreshed.lastHost = board.lastHostForHomeWifi
+        }
         refreshed.name = connection.deviceName ?? board.name
+        refreshed.physicalBoardID = connection.boardIdentity ?? board.physicalBoardID
         if updateLastSeen { refreshed.lastSeen = Date() }
         boardStore.upsert(refreshed)
         await refreshBoardName(connection: connection)
+        await refreshSavedAPMetadata(connection: connection, boardStore: boardStore, savedID: refreshed.id)
     }
 
-    // MARK: iPhone Personal Hotspot provisioning (RINALINK_PROTOCOL_V1 §8)
-
-    /// Provisions the board with this phone's Personal Hotspot credentials
-    /// over the active connection (BLE, or any other transport that's up),
-    /// switches the board to `sta_or_ap`, tells it to connect, and waits for
-    /// `EV_WIFI` to report it joined the `hotspot` profile — then opens TCP
-    /// to the reported IP and remembers `hotspot-tcp` as this board's
-    /// preferred transport.
-    public func provisionPhoneHotspot(connection: BoardConnection, boardStore: BoardStore) async {
-        guard connection.connectionState == .connected else {
-            lastErrorMessage = NSLocalizedString("请先连接璃奈板", comment: "connect board first")
-            return
-        }
-        let ssid = hotspotName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !ssid.isEmpty else {
-            lastErrorMessage = NSLocalizedString("请输入热点名称", comment: "enter hotspot name")
-            return
-        }
-        let password = hotspotPassword
-        isProvisioningHotspot = true
-        hotspotProvisionStage = .sendingCredentials
-        lastErrorMessage = nil
-        defer {
-            isProvisioningHotspot = false
-        }
-        let (subID, stream) = connection.subscribeToEvents()
-        defer { connection.unsubscribe(subID) }
-        do {
-            _ = try await connection.command(.wifiSetHotspotCredentials(ssid: ssid, password: password))
-            _ = try await connection.command(.wifiSetMode(mode: "sta_or_ap"))
-            _ = try await connection.command(.wifiConnect)
-            hotspotProvisionStage = .waitingForBoard
-
-            let joined = await waitForAssociation(
-                in: stream, profile: "hotspot", expectedSSID: ssid)
-
-            // Prefer the IP carried by the matching association; fall back to
-            // the merged snapshot only for firmware that omits it.
-            let joinedIP = joined.flatMap { status -> String? in
-                if let ip = status.ip, !ip.isEmpty { return ip }
-                return connection.wifi?.ip
-            }
-            guard joined != nil, let ip = joinedIP, !ip.isEmpty else {
-                hotspotProvisionStage = .failed(NSLocalizedString(
-                    "板子未能加入热点。请确认个人热点已开启，名称和密码正确，并按需打开“最大兼容性”。",
-                    comment: "board failed to join phone hotspot"
-                ))
-                return
-            }
-
-            hotspotProvisionStage = .connectingToBoard
-            let transport = TCPTransport(host: ip, kind: .wifi(host: ip, port: RinaLinkConstants.tcpPort))
-            await connection.connect(using: transport)
-            guard connection.connectionState == .connected else {
-                hotspotProvisionStage = .failed(NSLocalizedString(
-                    "板子已加入热点，但 App 未能建立连接。",
-                    comment: "board joined hotspot but control connection failed"
-                ))
-                return
-            }
-            boardStore.upsert(KnownBoard(id: ip, name: connection.deviceName ?? ssid, preferredTransport: "hotspot-tcp", lastHost: ip, lastSeen: Date()))
-            KeychainStore.save(password: password, account: ssid)
-            hotspotPasswordIsSaved = true
-            UserDefaults.standard.set(ssid, forKey: Self.confirmedHotspotSSIDKey)
-            hotspotProvisionStage = .connected
-        } catch {
-            hotspotProvisionStage = .failed(error.localizedDescription)
-        }
+    /// One upgrade attempt shared by direct, saved, and selected-board AP dials.
+    /// Older rows stored a factory gateway in lastHost; explicit AP overrides
+    /// never fall back, and cancelled/forgotten attempts stop immediately.
+    private func connectHotspotGateway(ssid: String, host: String, known: KnownBoard?,
+                                       connection: BoardConnection, boardStore: BoardStore,
+                                       connectTransport: @MainActor (TCPTransport) async -> Bool) async -> (connected: Bool, host: String) {
+        let connected = await connectTransport(HotspotJoiner.makeTransport(host: host))
+        guard !connected, !Task.isCancelled, connection.lastError != nil,
+              let known, known.hotspotIP == nil, host == known.lastHost,
+              boardStore.boards.contains(where: { $0.id == known.id }),
+              let identity = BoardIdentity.boardID(fromAPSSID: ssid),
+              let factoryHost = BoardAPAddress.defaultAddress(boardID: identity),
+              factoryHost != host else { return (connected, host) }
+        return (await connectTransport(HotspotJoiner.makeTransport(host: factoryHost)), factoryHost)
     }
 
-    public func setHotspotName(_ name: String) {
-        hotspotName = name
-        let account = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let savedPassword = KeychainStore.load(account: account)
-        hotspotPassword = savedPassword ?? ""
-        hotspotPasswordIsSaved = savedPassword != nil
-        hotspotProvisionStage = .idle
+    /// The caller must resolve the joined board's session first. A selected
+    /// sibling's previous status is never a source for this gateway.
+    private func hotspotHost(ssid: String, connection: BoardConnection, known: KnownBoard?) -> String {
+        let expectedID = known?.physicalBoardID ?? BoardIdentity.boardID(fromAPSSID: ssid)
+        let liveID = connection.boardIdentity ?? connection.lastKnownBoardIdentity
+        if let liveID, let expectedID, liveID.uppercased() == expectedID.uppercased(),
+           let host = connection.wifi?.apIp.flatMap(BoardAPAddress.canonicalPrivateAddress) { return host }
+        if let host = known?.resolvedHotspotIP { return host }
+        return BoardIdentity.boardID(fromAPSSID: ssid)
+            .flatMap { BoardAPAddress.defaultAddress(boardID: $0) } ?? RinaLinkConstants.apIP
     }
 
-    /// Clears the board's stored hotspot credentials and the locally cached
-    /// Keychain password.
-    public func clearPhoneHotspot(connection: BoardConnection) async {
-        do {
-            _ = try await connection.command(.wifiClearHotspotCredentials)
-            KeychainStore.delete(account: hotspotName.trimmingCharacters(in: .whitespacesAndNewlines))
-            hotspotPassword = ""
-            hotspotPasswordIsSaved = false
-            hotspotProvisionStage = .idle
-        } catch {
-            lastErrorMessage = String(describing: error)
-        }
+    /// Capture configured AP metadata even while BLE is the preferred carrier.
+    /// Router Wi-Fi and AP addresses have separate persistence lifetimes.
+    private func refreshSavedAPMetadata(connection: BoardConnection, boardStore: BoardStore,
+                                        savedID: String) async {
+        let generation = connection.connectionGeneration
+        let previous = connection.wifi
+        let refreshed = try? await connection.refreshWifiStatus()
+        guard connection.connectionGeneration == generation,
+              connection.connectionState == .connected else { return }
+        let identity = connection.boardIdentity
+        guard var board = boardStore.boards.first(where: { $0.id == savedID })
+                ?? boardStore.boards.first(where: {
+                    identity != nil && $0.physicalBoardID?.uppercased() == identity?.uppercased()
+                }) else { return }
+        let reported = refreshed?.apIp == nil ? previous : refreshed
+        if let reportedID = reported?.boardId, let identity,
+           reportedID.uppercased() != identity.uppercased() { return }
+        board.hotspotIP = reported?.apIp.flatMap(BoardAPAddress.canonicalPrivateAddress) ?? board.hotspotIP
+        board.hotspotSSID = reported?.apSsid ?? board.hotspotSSID
+        board.physicalBoardID = identity ?? board.physicalBoardID
+        if reported?.staConnected == true, let host = reported?.ip, !host.isEmpty { board.lastHost = host }
+        boardStore.upsert(board)
     }
 
     // MARK: On-board Wi-Fi management
 
     public func setMode(_ mode: String, connection: BoardConnection) async {
-        do { _ = try await connection.command(.wifiSetMode(mode: mode)) }
+        guard !isApplyingWifiMode else { return }
+        isApplyingWifiMode = true
+        defer { isApplyingWifiMode = false }
+        do {
+            _ = try await connection.command(.wifiSetMode(mode: mode))
+            _ = try await connection.refreshWifiStatus()
+        }
         catch { lastErrorMessage = String(describing: error) }
     }
 
@@ -807,44 +979,82 @@ public final class ConnectionViewModel {
         catch { lastErrorMessage = String(describing: error) }
     }
 
-    public func setAp(ssid: String, password: String, connection: BoardConnection, boardStore: BoardStore) async {
+    @discardableResult
+    public func setAp(ssid: String, password: String, ip: String? = nil,
+                      connection: BoardConnection, boardStore: BoardStore) async -> Bool {
+        lastErrorMessage = nil
+        let canonicalIP: String?
+        if let ip {
+            guard let canonical = BoardAPAddress.canonicalPrivateAddress(ip) else {
+                lastErrorMessage = NSLocalizedString("请输入有效的私有 IPv4 地址，末位需为 1–254", comment: "invalid AP IP")
+                return false
+            }
+            let identity = connection.boardIdentity ?? connection.lastKnownBoardIdentity
+            let currentSSID = connection.wifi?.apSsid ?? connection.expectedHotspotSSID
+            let conflicts = boardStore.boards.contains { board in
+                let savedIdentity = board.physicalBoardID ?? board.hotspotSSID.flatMap(BoardIdentity.boardID(fromAPSSID:))
+                let sameBoard = identity != nil && savedIdentity?.uppercased() == identity?.uppercased()
+                let sameSSID = currentSSID != nil && board.hotspotSSID == currentSSID
+                    && (identity == nil || savedIdentity == nil)
+                return !sameBoard && !sameSSID && board.resolvedHotspotIP == canonical
+            }
+            guard !conflicts else {
+                lastErrorMessage = NSLocalizedString("此热点 IP 已被另一块已保存的璃奈板使用", comment: "AP IP conflicts with sibling")
+                return false
+            }
+            canonicalIP = canonical
+        } else { canonicalIP = nil }
+        let generation = connection.connectionGeneration
+        let previousSSID = connection.expectedHotspotSSID ?? connection.wifi?.apSsid
         do {
-            let reply = try await connection.command(.wifiSetAp(ssid: ssid, password: password))
-            guard reply.ok else { return }
-            applyRenamedAp(ssid, connection: connection, boardStore: boardStore)
-        } catch { lastErrorMessage = String(describing: error) }
-    }
-
-    /// After a successful `wifi_set_ap` on a hotspot-connected session, the
-    /// board's own SoftAP SSID just changed under us: keep this session's
-    /// `expectedHotspotSSID` (RINALINK_PROTOCOL_V1 "Board identity") and the
-    /// saved `KnownBoard` record for it in sync, rather than letting the next
-    /// identity check or reconnect attempt see a stale expectation. Only runs
-    /// when we can be reasonably sure this is still the same board (its
-    /// reported `boardId`, if any, still matches the id embedded in the
-    /// *previous* expected SSID) so a race with an unrelated board can't
-    /// smear its record onto this one.
-    private func applyRenamedAp(_ newSSID: String, connection: BoardConnection, boardStore: BoardStore) {
-        guard connection.transportKind == .hotspot else { return }
-        let oldSSID = connection.expectedHotspotSSID
-        if let boardId = connection.boardIdentity,
-           let oldSSID, let expectedID = BoardIdentity.boardID(fromAPSSID: oldSSID),
-           boardId.uppercased() != expectedID {
-            return
+            let reply = try await connection.command(.wifiSetAp(ssid: ssid, password: password, ip: canonicalIP))
+            guard connection.connectionGeneration == generation else { return false }
+            guard reply.ok else {
+                lastErrorMessage = reply.error ?? NSLocalizedString("热点设置未能保存", comment: "AP settings rejected")
+                return false
+            }
+            if !ssid.isEmpty, connection.transportKind == .hotspot { connection.expectedHotspotSSID = ssid }
+            let reported = try await connection.refreshWifiStatus()
+            guard connection.connectionGeneration == generation else { return false }
+            if let canonicalIP, reported.apIp.flatMap(BoardAPAddress.canonicalPrivateAddress) != canonicalIP {
+                lastErrorMessage = NSLocalizedString("未能确认热点 IP 已保存，请重新读取后重试", comment: "AP IP save not verified")
+                return false
+            }
+            let identity = connection.boardIdentity
+            if let reportedID = reported.boardId, let identity,
+               reportedID.uppercased() != identity.uppercased() {
+                lastErrorMessage = NSLocalizedString("连接地址对应另一块璃奈板，已停止连接", comment: "AP settings board identity mismatch")
+                return false
+            }
+            let identifiedBoard = identity.flatMap { physicalID in
+                boardStore.boards.first { board in
+                    let savedIdentity = board.physicalBoardID ?? board.hotspotSSID.flatMap(BoardIdentity.boardID(fromAPSSID:))
+                    return savedIdentity?.uppercased() == physicalID.uppercased()
+                }
+            }
+            let ssidCandidates = boardStore.boards.filter { board in
+                guard previousSSID != nil, board.hotspotSSID == previousSSID else { return false }
+                let savedIdentity = board.physicalBoardID ?? board.hotspotSSID.flatMap(BoardIdentity.boardID(fromAPSSID:))
+                // An SSID alone cannot override a known different identity.
+                return identity == nil || savedIdentity == nil
+            }
+            if var saved = identifiedBoard ?? (ssidCandidates.count == 1 ? ssidCandidates.first : nil) {
+                let newSSID = reported.apSsid ?? (ssid.isEmpty ? saved.hotspotSSID : ssid)
+                if saved.id.hasPrefix("hotspot:"), let newSSID, newSSID != saved.hotspotSSID {
+                    boardStore.remove(id: saved.id)
+                    saved.id = KnownBoard.hotspotStorageID(ssid: newSSID)
+                }
+                saved.hotspotSSID = newSSID
+                saved.hotspotIP = reported.apIp.flatMap(BoardAPAddress.canonicalPrivateAddress) ?? canonicalIP ?? saved.hotspotIP
+                saved.physicalBoardID = identity ?? saved.physicalBoardID
+                boardStore.upsert(saved)
+            }
+            return true
+        } catch {
+            guard connection.connectionGeneration == generation else { return false }
+            lastErrorMessage = error.localizedDescription
+            return false
         }
-        connection.expectedHotspotSSID = newSSID
-        guard let oldSSID else { return }
-        let oldID = KnownBoard.hotspotStorageID(ssid: oldSSID)
-        guard let existing = boardStore.boards.first(where: { $0.id == oldID }) else { return }
-        boardStore.remove(id: oldID)
-        boardStore.upsert(KnownBoard(
-            id: KnownBoard.hotspotStorageID(ssid: newSSID),
-            name: existing.name,
-            preferredTransport: "hotspot",
-            lastHost: existing.lastHost,
-            hotspotSSID: newSSID,
-            lastSeen: existing.lastSeen
-        ))
     }
 
     /// Waits for the board to report that it actually associated with

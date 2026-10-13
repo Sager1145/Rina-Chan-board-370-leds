@@ -54,7 +54,7 @@ public enum RinaCommand: Sendable {
     case wifiClearCredentials
     case wifiSetMode(mode: String)
     case wifiConnect
-    case wifiSetAp(ssid: String, password: String)
+    case wifiSetAp(ssid: String, password: String, ip: String? = nil)
     // iPhone Personal Hotspot profile (RINALINK_PROTOCOL_V1 §8): a second
     // station credential set the board tries when `home` isn't visible.
     case wifiSetHotspotCredentials(ssid: String, password: String)
@@ -188,9 +188,10 @@ public enum RinaCommand: Sendable {
             fields["password"] = password
         case .wifiSetMode(let mode):
             fields["mode"] = mode
-        case .wifiSetAp(let ssid, let password):
+        case .wifiSetAp(let ssid, let password, let ip):
             fields["ssid"] = ssid
             fields["password"] = password
+            if let ip { fields["ip"] = ip }
         case .wifiSetHotspotCredentials(let ssid, let password):
             fields["ssid"] = ssid
             fields["password"] = password

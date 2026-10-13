@@ -65,28 +65,75 @@ enum Stress {
         return nil
     }
 
-    static func count(_ value: Any?) -> Int {
-        guard let value else { return -1 }
-        if let collection = value as? any Collection { return collection.count }
-        return -1
+    /// Private-layout drift is a harness failure, never an empty/zero metric.
+    /// Stop after recording it because continuing would fabricate evidence.
+    static func requiredValue<T>(_ subject: Any, path: String, as type: T.Type,
+                                 file: StaticString = #filePath, line: UInt = #line) -> T {
+        var value: Any = subject
+        for name in path.split(separator: ".") {
+            guard let field = reflect(value, String(name)) else {
+                XCTFail("Stress harness missing private field: \(path)", file: file, line: line)
+                fatalError("Stress reflection cannot continue without \(path)")
+            }
+            value = field
+        }
+        guard let typed = value as? T else {
+            XCTFail("Stress harness field \(path) has type \(Swift.type(of: value)); expected \(type)", file: file, line: line)
+            fatalError("Stress reflection cannot continue with mistyped \(path)")
+        }
+        return typed
     }
 
-    @MainActor static func pendingCount(_ c: BoardConnection) -> Int { count(reflect(c, "pending")) }
-    @MainActor static func quarantined(_ c: BoardConnection) -> Set<UInt8> { reflect(c, "quarantinedSeqs") as? Set<UInt8> ?? [] }
-    @MainActor static func nextSeq(_ c: BoardConnection) -> UInt8 { reflect(c, "nextSeq") as? UInt8 ?? 0 }
-    @MainActor static func eventSubscriberCount(_ c: BoardConnection) -> Int { count(reflect(c, "eventContinuations")) }
-    @MainActor static func operationsCount(_ o: BoardPlaybackCoordinator) -> Int { count(reflect(o, "operations")) }
-
-    /// Sum of `PendingRequest.accumulated` sizes across all pending requests.
-    @MainActor static func accumulatedBytes(_ c: BoardConnection) -> Int {
-        guard let dict = reflect(c, "pending") else { return -1 }
-        var total = 0
-        for entry in Mirror(reflecting: dict).children {
-            guard let value = reflect(entry.value, "value"),
-                  let data = reflect(value, "accumulated") as? Data else { continue }
-            total += data.count
+    static func count(_ value: Any?, file: StaticString = #filePath, line: UInt = #line) -> Int {
+        guard let collection = value as? any Collection else {
+            XCTFail("Stress harness expected an available collection", file: file, line: line)
+            fatalError("Stress collection metric is unavailable")
         }
-        return total
+        return collection.count
+    }
+
+    @MainActor static func pendingCount(_ c: BoardConnection) -> Int {
+        requiredValue(c, path: "broker.pending", as: [UInt8: Any].self).count
+    }
+    @MainActor static func quarantined(_ c: BoardConnection) -> Set<UInt8> {
+        Set(requiredValue(c, path: "broker.quarantinedSeqs", as: [UInt8: Any].self).keys)
+    }
+    @MainActor static func nextSeq(_ c: BoardConnection) -> UInt8 {
+        requiredValue(c, path: "broker.nextSeq", as: UInt8.self)
+    }
+    @MainActor static func eventSubscriberCount(_ c: BoardConnection) -> Int {
+        // In this checkout subscriptions still live on BoardConnection.
+        requiredValue(c, path: "eventContinuations", as: [UUID: Any].self).count
+    }
+    @MainActor static func operationsCount(_ o: BoardPlaybackCoordinator) -> Int {
+        requiredValue(o, path: "operations", as: [UUID: Any].self).count
+    }
+
+    /// Sum of the actual broker pending-request aggregation buffers.
+    @MainActor static func accumulatedBytes(_ c: BoardConnection) -> Int {
+        let pending = requiredValue(c, path: "broker.pending", as: [UInt8: Any].self)
+        return pending.values.reduce(0) { total, request in
+            total + requiredValue(request, path: "accumulated", as: Data.self).count
+        }
+    }
+
+    /// The decoder retains consumed storage until compaction; only unread
+    /// bytes represent its incomplete-frame buffer.
+    static func decoderBufferedBytes(_ decoder: RinaLinkDecoder) -> Int {
+        let storage = requiredValue(decoder, path: "storage", as: Data.self)
+        let readOffset = requiredValue(decoder, path: "readOffset", as: Int.self)
+        return storage.count - readOffset
+    }
+
+    /// Every encoded stress fixture must satisfy the real throwing encoder.
+    /// An invalid fixture fails the test instead of silently dropping input.
+    static func encode(_ frame: RinaLinkFrame, file: StaticString = #filePath, line: UInt = #line) -> Data {
+        do {
+            return try RinaLinkEncoder.encode(frame)
+        } catch {
+            XCTFail("Stress fixture could not be encoded: \(error)", file: file, line: line)
+            fatalError("Stress input cannot continue after encoder rejection")
+        }
     }
 
     // MARK: Waiting
@@ -131,7 +178,11 @@ enum Stress {
     // MARK: Recording
 
     static func record(case id: String, layer: String, load: String, seed: String = "-",
-                       status: String, metrics: [String: Any], evidence: String) {
+                       status: String, metrics: [String: Any], evidence: String,
+                       file: StaticString = #filePath, line: UInt = #line) {
+        if status == "FAIL" {
+            XCTFail("STRESSCASE \(id) reported FAIL: \(evidence)", file: file, line: line)
+        }
         let object: [String: Any] = [
             "case_id": id, "layer": layer, "load": load, "seed": seed,
             "status": status, "metrics": sanitize(metrics), "evidence": evidence,
@@ -232,7 +283,7 @@ final class StressTransport: @MainActor RinaTransport {
 
     func emit(_ state: TransportState) { states?.yield(state) }
     func injectRaw(_ data: Data) { incoming?.yield(data) }
-    func inject(_ frame: RinaLinkFrame) { incoming?.yield(RinaLinkEncoder.encode(frame)) }
+    func inject(_ frame: RinaLinkFrame) { incoming?.yield(Stress.encode(frame)) }
 
     func reply(to request: RinaLinkFrame, payload: Data, flags: UInt8 = 0) {
         inject(RinaLinkFrame(type: request.type | 0x80, seq: request.seq, flags: flags, payload: payload))

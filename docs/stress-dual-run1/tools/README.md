@@ -82,6 +82,14 @@ Lists `[BLE]`/`[PROTO]` events, reboot markers
 
 ## 4. `oracle.py --steps STEPS.csv --board A=LOGFILE --board B=LOGFILE [...] --out ROUTING.csv`
 
+The default verdict checks routing and duplicate subscriptions. Its `delivery`
+column is `NOT_CHECKED` for expected boards without an action contract. For
+positive delivery checks, add `expected_commands` (semicolon-separated names),
+`expected_state` (a JSON object matching final STATUS fields), and/or
+`expected_accepted_delta` to the step CSV. Use `--require-delivery` to reject
+missing contracts and return a nonzero exit status for any failed or unknown
+verdict. Selection-only steps can use `expected_boards=none`.
+
 Merges per-board logs against a step CSV and judges INV-1 (zero cross-talk)
 and INV-2 (session uniqueness) per `docs/STRESS_TEST_DUAL_BOARD_PLAN_ZH.md`
 section 3.

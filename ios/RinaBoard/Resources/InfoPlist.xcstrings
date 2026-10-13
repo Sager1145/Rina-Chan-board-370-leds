@@ -74,31 +74,31 @@
       }
     },
     "NSLocationWhenInUseUsageDescription" : {
-      "comment" : "Location permission prompt used only when the user asks to read the current Wi-Fi name",
+      "comment" : "Location permission protects Wi-Fi names; requested only for reading Wi-Fi or joining a board hotspot on Mac.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Used only when you tap Read to show the name of the Wi-Fi network your iPhone is using"
+            "value" : "Used only when you read the current Wi-Fi name or connect to a board hotspot. Wi-Fi names require location permission."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「読み取る」をタップしたときだけ、iPhone が使用中の Wi-Fi 名を表示するために使用します"
+            "value" : "現在の Wi-Fi 名を読み取るとき、またはボードのホットスポットに接続するときだけ使用します。Wi-Fi 名の取得には位置情報の許可が必要です。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "仅在你点按读取时，用于显示 iPhone 当前连接的 Wi-Fi 名称"
+            "value" : "仅在你读取 Wi-Fi 或连接璃奈板热点时，用于确认当前 Wi-Fi 名称"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "只有在你點一下讀取時，才會用於顯示 iPhone 目前連線的 Wi-Fi 名稱"
+            "value" : "僅在你讀取 Wi-Fi 或連接璃奈板熱點時，用於確認目前 Wi-Fi 名稱"
           }
         }
       }
@@ -163,8 +163,36 @@
         }
       }
     },
-    "RinaBoard group member" : {
-
+    "RinaBoard group member" : {},
+    "NSLocationUsageDescription" : {
+      "comment" : "Location permission protects Wi-Fi names; requested only for reading Wi-Fi or joining a board hotspot on Mac.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Used only when you read the current Wi-Fi name or connect to a board hotspot. Wi-Fi names require location permission."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の Wi-Fi 名を読み取るとき、またはボードのホットスポットに接続するときだけ使用します。Wi-Fi 名の取得には位置情報の許可が必要です。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅在你读取 Wi-Fi 或连接璃奈板热点时，用于确认当前 Wi-Fi 名称"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "僅在你讀取 Wi-Fi 或連接璃奈板熱點時，用於確認目前 Wi-Fi 名稱"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

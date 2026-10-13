@@ -1,0 +1,19 @@
+# App test audit, alphabetical files 32–61
+
+Reviewed all 30 assigned files listed in `/tmp/rina-audit-app-tests-b-reviewed.txt` in full, including their test fixtures. No source edits or new test runs. The parent’s complete app run recorded 621 tests and four assertion failures in two video tests; the targeted rerun repeated those failures (`/tmp/rina-audit-video-rerun.log`).
+
+## Confirmed findings
+
+1. **P2 — Sink deallocation regression test cannot reach the claimed lifetime case.** `ios/RinaBoardTests/GroupControlFanOutTests.swift:385` stores the sink in a strong local `let sink`, then `:391` removes its session and `:396` dispatches work. The test still uses `sink` at `:398`, so ARC must keep its `BoardSession` and `BoardConnection` alive through the assertion. `BoardSessionStore.remove` does disconnect and remove the session (`ios/RinaBoard/Services/BoardSessionStore.swift:237–253`), but the `SinkChannel.connection` weak-versus-unowned lifetime regression described at test lines 377–379 and 393–395 is not exercised. An `unowned` implementation could pass this test because the local retains the connection. Fix by obtaining the key without retaining the session across removal; hold a weak reference and assert it becomes nil before dispatching queued sink work, or use a scoped helper so the strong local exits scope before the dispatch.
+
+2. **P2 — Watch sensitivity lock has no test coverage despite its test name.** `ios/RinaBoardTests/WatchLinkTests.swift:152–158` sends two sensitivity changes while the lip-sync model is idle and asserts only the lower and upper clamps. The production guard `ios/RinaBoard/Services/WatchLinkService.swift:418–421` uses `deps.lipSync.canEditOptions` to reject changes while running. Removing that guard would leave this test green. Start the model (using an injected capture seam) or otherwise put it in a real running state, send a sensitivity change, and assert the setting remains unchanged. Keep the clamp assertions as the idle case.
+
+## Reproduced failures and unresolved diagnosis
+
+- `VideoPlaybackRecoveryTests.testMatchingSavedVideoResumesBoardPositionWithOriginalStreamID` fails with `CancellationError()` while awaiting the first `.setFrame` at `ios/RinaBoardTests/VideoPlaybackRecoveryTests.swift:64`. `FakeRinaTransport.waitForSent` sleeps with `try await Task.sleep`, which can propagate task cancellation, so the failure does not by itself prove the board frame path is wrong. The same rerun shows Fig errors `-12900` and player errors `-12843` around this test. Check whether the generated H.264 fixture decodes and whether `AVPlayerItemVideoOutput` ever yields a frame before assigning a production cause.
+- `VideoProgressPublishingTests.testCheckpointAtEndOfPlaybackIsExactDuration` fails at `ios/RinaBoardTests/VideoProgressPublishingTests.swift:270–272`: after 10 seconds, `isPlaying` remains true and position/checkpoint remain zero rather than 2000. The same Fig/player errors occur during this test. It starts local playback against an unconnected `BoardConnection` (`:232–234`), which production explicitly permits, so lack of a board link alone does not explain the failure. This is a real red test, with decoder/fixture versus playback-loop cause still unproven.
+
+## Lower-confidence gaps
+
+- `TextPreviewInvalidationTests.swift:75` uses a fixed `UserDefaults` suite named `TextPreviewInvalidationTests` while describing it as isolated and empty. The test never clears that suite. If a prior run or another test populated it, preview rendering could depend on persisted groups. A UUID suite with cleanup would make the fixture independent. I did not establish that existing data currently changes this test’s result.
+- Several group/watch harnesses create UUID-named `UserDefaults` suites without `removePersistentDomain` cleanup. This leaves test data on the simulator, but the unique names prevent a demonstrated cross-test failure in this audit.

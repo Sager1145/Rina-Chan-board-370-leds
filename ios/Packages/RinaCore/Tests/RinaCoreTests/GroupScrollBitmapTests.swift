@@ -11,26 +11,10 @@ final class GroupScrollBitmapTests: XCTestCase {
 
     private func loadFont() throws -> ArkPixelFont {
         guard FileManager.default.fileExists(atPath: Self.fontURL.path) else {
-            throw XCTSkip("ark12.json not found at \(Self.fontURL.path)")
+            XCTFail("Required tracked font fixture missing at \(Self.fontURL.path)")
+            throw CocoaError(.fileNoSuchFile)
         }
         return try ArkPixelFont.loadBundled(url: Self.fontURL)
-    }
-
-    /// All permutations of `elements` (used for the "all 120 orderings of 5
-    /// boards" requirement — the layout math only depends on slot index, not
-    /// board identity, so every permutation must produce the same result;
-    /// this test exercises that directly rather than assuming it).
-    private func permutations<T>(_ elements: [T]) -> [[T]] {
-        guard elements.count > 1 else { return [elements] }
-        var result: [[T]] = []
-        for (i, element) in elements.enumerated() {
-            var rest = elements
-            rest.remove(at: i)
-            for perm in permutations(rest) {
-                result.append([element] + perm)
-            }
-        }
-        return result
     }
 
     // MARK: - Build
@@ -155,54 +139,23 @@ final class GroupScrollBitmapTests: XCTestCase {
         XCTAssertEqual(actual.litCount, expectedLitIndices.count)
     }
 
-    // MARK: - Window sampler vs. virtual canvas — all 120 orderings x 2 gap configs
+    // MARK: - Window sampler vs. virtual canvas
 
-    /// Each board's window frame must equal the crop of the virtual canvas
-    /// frame at its own `viewportX`, for every frame of a short CJK+ASCII+
-    /// space text, for all 120 orderings of 5 boards and 2 gap configurations,
-    /// and separately for 2/3/4-board layouts (BOARD_GROUP_SPEC.md §2).
-    func testAllOrderingsMatchVirtualCanvasCrop() throws {
+    /// Core owns viewport math; physical-board assignment is exercised by
+    /// BoardGroupCoordinatorTests against each board's actual upload metadata.
+    func testFiveSlotWindowsMatchVirtualCanvasCrop() throws {
         let font = try loadFont()
-        let text = "你好 Hi!"
-        let boardIDs = ["board-1", "board-2", "board-3", "board-4", "board-5"]
-        let orderings = permutations(boardIDs)
-        XCTAssertEqual(orderings.count, 120)
-
-        let gapConfigs: [[Int]] = [[0, 0, 0, 0], [3, 0, 5, 2]]
-
-        for gapsAfter in gapConfigs {
+        for gapsAfter in [[0, 0, 0, 0], [3, 0, 5, 2]] {
             let layout = try StitchedScreenLayout(slotCount: 5, gapsAfter: gapsAfter)
-            let bitmap = try GroupScrollBitmap.build(text: text, font: font, virtualWidth: layout.virtualWidth)
+            let bitmap = try GroupScrollBitmap.build(text: "你好 Hi!", font: font, virtualWidth: layout.virtualWidth)
             let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: bitmap.width, virtualWidth: layout.virtualWidth)
-
-            // The window-sampler/virtual-canvas equality only depends on
-            // (slot, frameIndex), never on which physical board sits in that
-            // slot, so compute the per-slot/per-frame match once per gap
-            // config (this is the expensive part: frameCount * 5 PackedFrame
-            // pairs)...
-            var matchesBySlot = [Int: Bool](uniqueKeysWithValues: (0..<layout.slotCount).map { ($0, true) })
             for frameIndex in 0..<frameCount {
                 let canvas = GroupScrollBitmap.virtualCanvasFrame(bitmap: bitmap, layout: layout, frameIndex: frameIndex)
                 for slot in 0..<layout.slotCount {
                     let viewportX = layout.viewportX(slot: slot)
                     let boardFrame = GroupScrollBitmap.frame(bitmap: bitmap, viewportX: viewportX, frameIndex: frameIndex)
                     let expected = ScrollRasterizer.frame(from: canvas, offset: viewportX)
-                    if boardFrame != expected {
-                        matchesBySlot[slot] = false
-                    }
-                }
-            }
-            for slot in 0..<layout.slotCount {
-                XCTAssertEqual(matchesBySlot[slot], true, "gaps=\(gapsAfter) slot=\(slot)")
-            }
-
-            // ...then, for each of the 120 orderings, confirm every physical
-            // board is assigned to exactly one slot and that slot's match
-            // held (cheap: no PackedFrame work inside this loop).
-            for ordering in orderings {
-                XCTAssertEqual(Set(ordering), Set(boardIDs))
-                for slot in 0..<layout.slotCount {
-                    XCTAssertEqual(matchesBySlot[slot], true, "gaps=\(gapsAfter) ordering=\(ordering) slot=\(slot)")
+                    XCTAssertEqual(boardFrame, expected, "gaps=\(gapsAfter) frame=\(frameIndex) slot=\(slot)")
                 }
             }
         }

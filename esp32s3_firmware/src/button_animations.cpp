@@ -532,6 +532,11 @@ void startOverlay(const AnimationState& next) {
     sAnim.batteryPhaseCount = next.batteryPhaseCount;
     sAnim.batteryNextPhaseMs = next.batteryNextPhaseMs;
     sAnim.batteryDisplayStartedMs = next.batteryDisplayStartedMs;
+    sAnim.batValid = next.batValid;
+    sAnim.batCharging = next.batCharging;
+    sAnim.batPercent = next.batPercent;
+    sAnim.batVbat = next.batVbat;
+    sAnim.batVcharge = next.batVcharge;
     sAnim.resetWifi = next.resetWifi;
     portEXIT_CRITICAL(&sAnimMux);
 

@@ -190,9 +190,20 @@ final class FaceLibraryModel {
             }
             return
         }
+        // Set before the gate (not after) so a second concurrent first-caller
+        // that arrives while this call is suspended on `beginLocalMutation()`
+        // sees `isLocalLoading` already true and becomes a waiter instead of
+        // redundantly loading too.
         isLocalLoading = true
+        // Every caller reaches this first load either directly or through
+        // `loadLocalForMutation()`, which always completes (and releases
+        // this gate) before its caller acquires it again for the mutation
+        // itself — so acquiring it here cannot deadlock against any
+        // `beginLocalMutation()` site in this file.
+        await beginLocalMutation()
         defer {
             isLocalLoading = false
+            endLocalMutation()
             let waiters = localLoadWaiters
             localLoadWaiters.removeAll()
             waiters.forEach { $0.resume() }
@@ -200,12 +211,35 @@ final class FaceLibraryModel {
         do {
             if var stored = try await localStore.load() {
                 normalize(&stored, requireDefault: false)
-                localDocument = mergedWithBundledDefaults(stored, bundle: bundle)
+                let candidate = mergedWithBundledDefaults(stored, bundle: bundle)
+                localDocument = candidate
             } else {
-                localDocument = bundledDefaults(bundle: bundle)
-                try await localStore.save(localDocument)
+                let candidate = bundledDefaults(bundle: bundle)
+                try await localStore.save(candidate)
+                localDocument = candidate
             }
             isLocalLoaded = true
+        } catch let LocalFaceStoreError.partiallyUnreadable(document, skippedCount) {
+            var partial = document
+            normalize(&partial, requireDefault: false)
+            localDocument = mergedWithBundledDefaults(partial, bundle: bundle)
+            // The partial parse is safe to display, but it is not a complete
+            // read of the file. Keep persistence blocked so a later edit
+            // cannot overwrite the still-recoverable local_faces.json with a
+            // library that is missing whatever failed to parse. Also drop any
+            // pending undo record: `undoLocalDelete()` would otherwise be
+            // able to write over this damaged file once the load-gate below
+            // clears, restoring faces on top of a document that was never
+            // fully read.
+            isLocalLoaded = false
+            localDeletion = nil
+            errorMessage = String(
+                format: NSLocalizedString(
+                    "本机表情库有 %lld 个表情无法解析，为保护原文件已禁止保存",
+                    comment: "local face library partially unreadable, saving disabled"
+                ),
+                Int64(skippedCount)
+            )
         } catch {
             localDocument = bundledDefaults(bundle: bundle)
             // Defaults are safe to display, but they are not a successfully
@@ -225,9 +259,14 @@ final class FaceLibraryModel {
     /// library. Deliberately does not route through `loadLocalIfNeeded`: a
     /// failed re-read must never replace a previously loaded
     /// `localDocument` with bundled defaults (that fallback only applies to
-    /// the very first load, when nothing was loaded before). On failure the
-    /// in-memory document and `isLocalLoaded` are left exactly as they were;
-    /// only `errorMessage` reports the failure.
+    /// the very first load, when nothing was loaded before). On most failures
+    /// the in-memory document and `isLocalLoaded` are left exactly as they
+    /// were, and only `errorMessage` reports the failure — except when the
+    /// file on disk is now known to be partially unreadable (some entries
+    /// failed to parse): that case does flip `isLocalLoaded` back to false
+    /// and replaces `localDocument` with the partial result, since the prior
+    /// in-memory document can no longer be trusted as a faithful copy of a
+    /// file now known to be damaged.
     func reloadLocal(bundle: Bundle = .main) async {
         await beginLocalMutation()
         defer { endLocalMutation() }
@@ -241,13 +280,38 @@ final class FaceLibraryModel {
         do {
             if var stored = try await localStore.load() {
                 normalize(&stored, requireDefault: false)
-                localDocument = mergedWithBundledDefaults(stored, bundle: bundle)
+                let candidate = mergedWithBundledDefaults(stored, bundle: bundle)
+                localDocument = candidate
             } else {
-                localDocument = bundledDefaults(bundle: bundle)
-                try await localStore.save(localDocument)
+                let candidate = bundledDefaults(bundle: bundle)
+                try await localStore.save(candidate)
+                localDocument = candidate
             }
             isLocalLoaded = true
             errorMessage = nil
+        } catch let LocalFaceStoreError.partiallyUnreadable(document, skippedCount) {
+            var partial = document
+            normalize(&partial, requireDefault: false)
+            localDocument = mergedWithBundledDefaults(partial, bundle: bundle)
+            // Unlike other reload failures, this one *does* flip a previously
+            // loaded library back to unloaded: the file on disk is now known
+            // to be damaged (some entries didn't parse), so treating the
+            // prior in-memory document as still trustworthy would let a later
+            // edit persist over that damaged file without ever having read
+            // it fully. Show what parsed and block saves until it's fixed.
+            // Also drop any pending undo record: `undoLocalDelete()` would
+            // otherwise be able to write over this damaged file once the
+            // load-gate below clears, restoring faces on top of a document
+            // that was never fully read.
+            isLocalLoaded = false
+            localDeletion = nil
+            errorMessage = String(
+                format: NSLocalizedString(
+                    "本机表情库有 %lld 个表情无法解析，为保护原文件已禁止保存",
+                    comment: "local face library partially unreadable, saving disabled"
+                ),
+                Int64(skippedCount)
+            )
         } catch {
             errorMessage = String(
                 format: NSLocalizedString("无法读取本机表情库：%@", comment: "local face library load failed"),
@@ -733,8 +797,23 @@ final class FaceLibraryModel {
 
     @discardableResult
     func undoLocalDelete() async -> Bool {
+        // Does not call `loadLocalForMutation()` first, unlike every other
+        // local mutation: `localDeletion` can only be non-nil after a gated
+        // `deleteLocal` already required a successful load, but a later
+        // `reloadLocal` (e.g. pull-to-refresh) can hit a partially unreadable
+        // file and flip `isLocalLoaded` back to false while leaving
+        // `localDeletion` set. The explicit gate below covers that case:
+        // without it, this would happily write the restored faces (plus
+        // whatever partial document that reload produced) over a
+        // local_faces.json that was never fully read, destroying the entries
+        // that failed to parse.
         await beginLocalMutation()
         defer { endLocalMutation() }
+        guard isLocalLoaded else {
+            errorMessage = errorMessage
+                ?? NSLocalizedString("无法读取本机表情库", comment: "local face library unavailable")
+            return false
+        }
         // Read the current undo record only after acquiring the same gate as
         // deletion. A queued delete may replace the record while this undo is
         // waiting, and consuming a snapshot captured before the gate would

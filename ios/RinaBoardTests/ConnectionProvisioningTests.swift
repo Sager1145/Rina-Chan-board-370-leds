@@ -2,8 +2,8 @@ import XCTest
 import RinaCore
 @testable import RinaBoard
 
-/// Covers the association predicate behind both Wi-Fi provisioning paths
-/// (`provisionPhoneHotspot` and `connectNetwork`).
+/// Covers the association predicate used by `connectNetwork`, including
+/// legacy firmware hotspot-profile events retained by the protocol.
 ///
 /// `wifiManagerSetHotspotCredentials` / `wifiManagerSetCredentials` only start an
 /// async scan (`startStaSelection` in `esp32s3_firmware/src/wifi_manager.cpp`)

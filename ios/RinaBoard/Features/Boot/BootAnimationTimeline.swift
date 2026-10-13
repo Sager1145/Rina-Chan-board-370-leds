@@ -107,7 +107,7 @@ enum BootTimeline {
 
     // MARK: Easing (CSS `cubic-bezier` parity)
 
-    enum Curve {
+    @MainActor enum Curve {
         static let breath = CAMediaTimingFunction(controlPoints: 0.42, 0, 0.58, 1)
         /// `.flash-halo` declares per-property transitions, but adding
         /// `.is-ring-contracting` changes only `animation`, so no transition

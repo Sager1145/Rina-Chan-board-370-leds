@@ -1,0 +1,101 @@
+path,status,note
+esp32s3_firmware/.gitattributes,pending,Current full file review not yet completed.
+esp32s3_firmware/.gitignore,pending,Current full file review not yet completed.
+esp32s3_firmware/.vscode/extensions.json,pending,Current full file review not yet completed.
+esp32s3_firmware/data/resources/battery_calib.json,pending,Current full file review not yet completed.
+esp32s3_firmware/data/resources/runtime_settings.json,pending,Current full file review not yet completed.
+esp32s3_firmware/data/resources/saved_faces.json,pending,Current full file review not yet completed.
+esp32s3_firmware/partitions.csv,pending,Current full file review not yet completed.
+esp32s3_firmware/plan.md,pending,Current full file review not yet completed.
+esp32s3_firmware/platformio.ini,pending,Current full file review not yet completed.
+esp32s3_firmware/src/ap_address_policy.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/battery_calibration.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/battery_calibration.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/ble_frame_sender.h,partial,Tool output truncated; full review not established.
+esp32s3_firmware/src/board_identity.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/board_identity.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/button_animations.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/button_animations.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/buttons.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/buttons.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/config.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/config.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/faces.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/faces.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/group_math.h,reviewed,"Read complete; group cursor, viewport and identify math."
+esp32s3_firmware/src/inbound_frame.h,partial,Tool output truncated; full review not established.
+esp32s3_firmware/src/ipc_stack.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/led_driver.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/led_driver.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/led_presentation.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/led_renderer.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/led_renderer.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/main.cpp,reviewed,Read complete; setup/loop task scheduling and render fallback.
+esp32s3_firmware/src/power_monitor.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/power_monitor.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/protocol.cpp,partial,"Read framing, status/Wi-Fi, face mutation, blob begin/chunk/end, inbound/registry/events; command dispatcher middle still incomplete."
+esp32s3_firmware/src/protocol.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/psram_json.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/scroll.cpp,reviewed,Read complete; task/fallback render iteration.
+esp32s3_firmware/src/scroll.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/scroll_session.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/scroll_session.h,reviewed,Read complete; scroll interface and ownership contract.
+esp32s3_firmware/src/serial_console.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/serial_console.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/serial_log.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/serial_log.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/state.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/state.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/storage.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/storage.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/sync.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/sync.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/tcp_frame_sender.h,partial,Tool output truncated; full review not established.
+esp32s3_firmware/src/transport.h,partial,Tool output truncated; full review not established.
+esp32s3_firmware/src/transport_ble.cpp,partial,Read callback/send/teardown portions; remaining service/setup detail not complete.
+esp32s3_firmware/src/transport_ble.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/transport_tcp.cpp,partial,Tool output truncated; full review not established.
+esp32s3_firmware/src/transport_tcp.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/utils.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/utils.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/web_setup.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/src/web_setup.h,pending,Current full file review not yet completed.
+esp32s3_firmware/src/wifi_manager.cpp,partial,Read lines 1-400; remaining mode/scan/mutation code not complete.
+esp32s3_firmware/src/wifi_manager.h,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/ap_address_integration_cases.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/ap_address_policy_test.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/ap_address_test.py,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_fakes/DNSServer.h,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_fakes/ESPmDNS.h,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_fakes/IPAddress.h,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_fakes/Preferences.h,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_fakes/WebServer.h,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_fakes/WiFi.h,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_fakes/dhcpserver/dhcpserver.h,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_fakes/esp_netif.h,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_fakes/esp_wifi.h,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_fakes/platform_hooks.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_protocol_test.py,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_repairs_cases.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/audit_repairs_test.py,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/battery_calibration_test.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/ble_frame_sender_test.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/blob_ownership_test.py,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/face_identity_test.py,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/group_identify_test.py,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/group_math_test.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/group_start_range_test.py,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/hint_led_test.py,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/inbound_recovery_test.py,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/ipc_stack_test.py,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/output_mode_test.py,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/playback_ownership_test.py,reviewed,Read complete; compiler failure diagnosed.
+esp32s3_firmware/test/host/presentation_telemetry_test.py,executed,Passed independently after aggregate halted; source review pending.
+esp32s3_firmware/test/host/rmt_recovery_test.py,executed,Passed independently after aggregate halted; source review pending.
+esp32s3_firmware/test/host/serial_network_scheduling_test.py,executed,Passed independently after aggregate halted; source review pending.
+esp32s3_firmware/test/host/stream_transport_test.cpp,pending,Current full file review not yet completed.
+esp32s3_firmware/test/host/stress_findings_test.py,executed,Passed independently after aggregate halted; source review pending.
+esp32s3_firmware/test/host/web_setup_test.py,executed,Passed independently after aggregate halted; source review pending.
+esp32s3_firmware/tools/build_ark12_merged.py,pending,Current full file review not yet completed.
+esp32s3_firmware/tools/compile_ark_bdf.py,pending,Current full file review not yet completed.
+esp32s3_firmware/tools/merge_mona12_emoji.py,pending,Current full file review not yet completed.

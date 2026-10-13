@@ -130,6 +130,9 @@ struct RinaBoardApp: App {
     var body: some Scene {
         WindowGroup {
             RootTabView()
+                #if targetEnvironment(macCatalyst)
+                .modifier(MacWindowLayout())
+                #endif
                 .background { KeyboardDismissal().allowsHitTesting(false) }
                 .environment(sessions)
                 .environment(sessions.active.connection)
@@ -161,7 +164,7 @@ struct RinaBoardApp: App {
                     // Control Center momentarily covering the app) must not
                     // suspend the cycle — only a real background transition
                     // does (L2).
-                    if newPhase == .active {
+                    if newPhase == .active, !MacHardwareTestLaunch.isActive {
                         groupAutoCycler.resumeForForeground()
                         // Re-kick the auto-connector on every foreground, not
                         // just launch — a member that dropped while
@@ -193,7 +196,9 @@ struct RinaBoardApp: App {
                     // app launch/foreground when the persisted target is a
                     // group"). Only an explicit change clears user-
                     // disconnect blocks and retry caps.
-                    groupAutoConnector.setTarget(newTarget, isExplicit: isExplicitChange)
+                    if !MacHardwareTestLaunch.isActive {
+                        groupAutoConnector.setTarget(newTarget, isExplicit: isExplicitChange)
+                    }
                     // "target → single" stop condition: leaving group control
                     // must not leave the cycler still sending to the old
                     // primary underneath the now-single-board UI.
@@ -228,5 +233,18 @@ struct RinaBoardApp: App {
                     }
                 }
         }
+    }
+}
+
+/// Test hosts own their links; saved app targets must not reconnect during
+/// unit tests or behind hardware cleanup. Release apps use normal behavior.
+enum MacHardwareTestLaunch {
+    static var isActive: Bool {
+        #if DEBUG && targetEnvironment(macCatalyst)
+        ProcessInfo.processInfo.environment["RINA_MAC_HARDWARE_TESTS"] == "1"
+            || ProcessInfo.processInfo.environment["RINA_MAC_TEST_HOST"] == "1"
+        #else
+        false
+        #endif
     }
 }

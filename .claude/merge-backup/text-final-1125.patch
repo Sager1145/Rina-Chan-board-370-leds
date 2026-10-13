@@ -1,0 +1,132 @@
+diff --git a/ios/RinaBoard/Features/Text/ScrollTextView.swift b/ios/RinaBoard/Features/Text/ScrollTextView.swift
+index 00ad1b7..cb37b72 100644
+--- a/ios/RinaBoard/Features/Text/ScrollTextView.swift
++++ b/ios/RinaBoard/Features/Text/ScrollTextView.swift
+@@ -46,6 +46,7 @@ struct ScrollTextView: View {
+     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+     /// Ark Pixel editor size; follows Dynamic Type, snapped to crisp steps.
+     @ScaledMetric(relativeTo: .body) private var editorFontSize: CGFloat = 16
++    private static let editorMinHeight: CGFloat = 132
+ 
+     /// Mirrors the Control Center's "控制对象" choice (BOARD_GROUP_SPEC.md
+     /// §3): empty string = `.single`. When a group is targeted, send/stop
+@@ -163,6 +164,8 @@ struct ScrollTextView: View {
+                 TextPlaybackControls(
+                     isConnected: allOnline,
+                     hasTimeline: playing,
++                    // The group's own session gates the transport here.
++                    boardHasScroll: false,
+                     isPaused: false,
+                     isUploading: starting,
+                     isGeneratingFont: false,
+@@ -216,6 +219,7 @@ struct ScrollTextView: View {
+             TextPlaybackControls(
+                 isConnected: isConnected,
+                 hasTimeline: model.boundTimelineId != nil,
++                boardHasScroll: model.boardHasScroll(connection: connection),
+                 isPaused: model.boardPaused,
+                 isUploading: model.isUploading,
+                 isGeneratingFont: model.isGeneratingFont,
+@@ -340,15 +344,32 @@ struct ScrollTextView: View {
+ 
+             // The list row is already the card; the editor fills it directly
+             // (an inner bordered card read as a double border).
+-            TextEditor(text: Binding(
+-                get: { model.text },
+-                set: { model.editText($0) }
+-            ))
+-            .frame(minHeight: 132)
++            ZStack(alignment: .topLeading) {
++                // Invisible copy of the text sizes the editor: it grows with
++                // the text block from the base height up to twice that, then
++                // the editor scrolls inside. Padding mirrors UITextView's
++                // text container insets (5 pt line padding, 8 pt top/bottom).
++                Text(model.text.hasSuffix("\n") || model.text.isEmpty ? model.text + " " : model.text)
++                    .padding(.horizontal, 5)
++                    .padding(.vertical, 8)
++                    .frame(
++                        maxWidth: .infinity,
++                        minHeight: Self.editorMinHeight,
++                        maxHeight: Self.editorMinHeight * 2,
++                        alignment: .topLeading
++                    )
++                    .hidden()
++                    .accessibilityHidden(true)
++                TextEditor(text: Binding(
++                    get: { model.text },
++                    set: { model.editText($0) }
++                ))
++                .scrollContentBackground(.hidden)
++                .accessibilityLabel("滚动文字内容")
++            }
+             // Same Ark Pixel font the WebUI uses for this field and the
+             // frame generator rasterizes, so the draft previews its glyphs.
+             .font(ArkPixelInputFont.font(size: editorFontSize, displayScale: displayScale))
+-            .scrollContentBackground(.hidden)
+             .padding(.top, 6)
+             // Leaves room for the character counter in the bottom corner.
+             .padding(.bottom, 24)
+@@ -380,7 +401,6 @@ struct ScrollTextView: View {
+                 if !focused { model.restoreDefaultTextIfEmpty() }
+             }
+             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+-            .accessibilityLabel("滚动文字内容")
+         } footer: {
+             if model.exceedsByteLimit {
+                 Text("超出固件 \(ScrollText.maxTextBytes) 字节上限，发送前请缩短文字；不会自动截断。")
+diff --git a/ios/RinaBoard/Features/Text/TextPlaybackControls.swift b/ios/RinaBoard/Features/Text/TextPlaybackControls.swift
+index f80fec2..954812a 100644
+--- a/ios/RinaBoard/Features/Text/TextPlaybackControls.swift
++++ b/ios/RinaBoard/Features/Text/TextPlaybackControls.swift
+@@ -10,6 +10,8 @@ import SwiftUI
+ struct TextPlaybackControls: View {
+     var isConnected: Bool
+     var hasTimeline: Bool
++    /// The board reports a scroll of its own, bound here or not.
++    var boardHasScroll: Bool
+     var isPaused: Bool
+     var isUploading: Bool
+     var isGeneratingFont: Bool
+@@ -27,8 +29,10 @@ struct TextPlaybackControls: View {
+     var onStepBackward: () -> Void
+     var onStepForward: () -> Void
+ 
+-    /// Stepping, pausing and stopping all need a timeline on the board.
+-    private var transportEnabled: Bool { isConnected && hasTimeline && !transportLimitedToSendStop }
++    /// Stepping, pausing and stopping act on the board's scroll session, so
++    /// they only need one to exist there, not a timeline bound in the app.
++    private var hasBoardScroll: Bool { hasTimeline || boardHasScroll }
++    private var transportEnabled: Bool { isConnected && hasBoardScroll && !transportLimitedToSendStop }
+ 
+     var body: some View {
+         HStack(spacing: 8) {
+@@ -58,7 +62,7 @@ struct TextPlaybackControls: View {
+ 
+     @ViewBuilder
+     private var stopOrSendControl: some View {
+-        if hasTimeline {
++        if hasBoardScroll {
+             control("stop.fill", label: "停止并清屏", action: onStop)
+                 .disabled(!transportEnabled)
+         } else {
+diff --git a/ios/RinaBoard/Features/Text/TextViewModel.swift b/ios/RinaBoard/Features/Text/TextViewModel.swift
+index 3fd533f..f3c33d8 100644
+--- a/ios/RinaBoard/Features/Text/TextViewModel.swift
++++ b/ios/RinaBoard/Features/Text/TextViewModel.swift
+@@ -867,6 +867,16 @@ final class TextViewModel {
+ 
+     // MARK: Labels
+ 
++    /// Whether the board itself has a scroll it can pause, step or stop, even
++    /// when nothing is bound here (sent from the WebUI or another phone, or a
++    /// restore that could not rebuild the timeline). The transport commands
++    /// act on the board's own session and need no local timeline.
++    func boardHasScroll(connection: BoardConnection) -> Bool {
++        let renderer = connection.status?.renderer
++        if let count = renderer?.scrollFrameCount { return count > 0 }
++        return (renderer?.firmwareScrollActive ?? connection.preview?.firmwareScrollActive) == true
++    }
++
+     func phaseKey(connection: BoardConnection) -> String {
+         if let localPhase { return localPhase }
+         if isStepping { return "STEPPING" }

@@ -149,12 +149,26 @@ final class WatchLinkTests: XCTestCase {
         XCTAssertEqual(h.transports["B"]!.lastCmdField("set_mode", "mode") as? String, "manual")
     }
 
-    func testLipSyncSensitivityIsClampedAndLockedWhileRunning() async throws {
+    func testIdleLipSyncSensitivityIsClamped() async throws {
         let h = await harness(["A"])
         await h.service.handle(.setLipSyncSensitivity(db: -200))
         XCTAssertEqual(h.lipSync.sensitivityDb, -70)
         await h.service.handle(.setLipSyncSensitivity(db: 5))
         XCTAssertEqual(h.lipSync.sensitivityDb, -10)
+    }
+
+    func testRunningLipSyncRejectsWatchSensitivityChanges() async throws {
+        let h = await harness(["A"])
+        h.lipSync.sensitivityDb = -42
+        await h.lipSync.start(connection: h.sessions.active.connection)
+        defer { h.lipSync.stop(); h.sessions.active.connection.disconnect() }
+        XCTAssertTrue(h.lipSync.isRunning, "The lock must be tested against real recognition startup")
+        XCTAssertFalse(h.lipSync.canEditOptions)
+        await h.service.handle(.setLipSyncSensitivity(db: -20))
+        XCTAssertEqual(h.lipSync.sensitivityDb, -42)
+        h.lipSync.stop()
+        await h.service.handle(.setLipSyncSensitivity(db: -20))
+        XCTAssertEqual(h.lipSync.sensitivityDb, -20, "Edits become available after recognition stops")
     }
 
     func testDisconnectedTargetIgnoresCommands() async throws {
@@ -212,14 +226,14 @@ final class WatchLinkTests: XCTestCase {
 
     private func harness(_ memberIDs: [String], phoneTargetsGroup: Bool = false) async -> Harness {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "watchlink.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let fanOut = GroupControlFanOut(sessions: sessions, groups: store, coordinator: coordinator)
         let controlCenter = BoardControlCenterModel()
         controlCenter.loadDefaultsIfNeeded()
         let faceLibrary = FaceLibraryModel()
         let cycler = GroupAutoCycler(fanOut: fanOut, faceLibrary: faceLibrary, intervalProvider: { 3 })
-        let lipSync = LipSyncModel(defaults: UserDefaults(suiteName: "watchlink.lip.\(UUID())")!)
+        let lipSync = LipSyncModel(defaults: makeIsolatedDefaults(), capture: WatchLinkTestCapture(), permissionRequest: { .granted })
         var transports: [String: WatchLinkFakeTransport] = [:]
         var first: BoardSession?
         for id in memberIDs {
@@ -324,5 +338,17 @@ private final class WatchLinkFakeTransport: RinaTransport {
         default:
             return Data(#"{"ok":true}"#.utf8)
         }
+    }
+}
+
+/// Starts the real LipSyncModel lifecycle without microphone hardware or a
+/// permission alert. Silent windows keep recognition active without frames.
+private final class WatchLinkTestCapture: LipSyncCapturing {
+    private(set) var isRunning = false
+    var currentSampleRate: Double { 16_000 }
+    @MainActor func start() async throws { isRunning = true }
+    func stop() { isRunning = false }
+    func latestWindow(count: Int) -> (samples: [Float], sampleRate: Double) {
+        (Array(repeating: 0, count: count), currentSampleRate)
     }
 }

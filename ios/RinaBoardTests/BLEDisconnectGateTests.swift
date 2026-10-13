@@ -10,7 +10,7 @@ final class BLEDisconnectGateTests: XCTestCase {
         XCTAssertFalse(gate.begin(peripheral))
         var resumed = false
         let next = Task { try await gate.wait(for: peripheral); resumed = true }
-        try await Task.sleep(for: .milliseconds(10))
+        await waitUntilTrue { gate.registeredWaiterCount(for: peripheral) == 1 }
         XCTAssertFalse(resumed)
         XCTAssertTrue(gate.complete(peripheral))
         try await next.value
@@ -54,7 +54,7 @@ final class BLEDisconnectGateTests: XCTestCase {
         let peripheral = UUID()
         _ = gate.begin(peripheral)
         let next = Task { try await gate.wait(for: peripheral) }
-        try await Task.sleep(for: .milliseconds(10))
+        await waitUntilTrue { gate.registeredWaiterCount(for: peripheral) == 1 }
         gate.forceComplete(peripheral)
         let result = try await next.value
         XCTAssertEqual(result, .drained)

@@ -6,11 +6,11 @@ import XCTest
 @MainActor
 final class GroupAutoConnectorTests: XCTestCase {
     private func freshBoardStore() -> BoardStore {
-        BoardStore(defaults: UserDefaults(suiteName: "gac.boards.\(UUID())")!)
+        BoardStore(defaults: makeIsolatedDefaults())
     }
 
     private func freshGroupStore() -> BoardGroupStore {
-        BoardGroupStore(defaults: UserDefaults(suiteName: "gac.groups.\(UUID())")!)
+        BoardGroupStore(defaults: makeIsolatedDefaults())
     }
 
     private func waitUntil(timeout: TimeInterval = 5, _ condition: @escaping () -> Bool) async {
@@ -447,6 +447,46 @@ final class GroupAutoConnectorTests: XCTestCase {
         await waitUntil { memberState() == .connected }
         XCTAssertEqual(dials, 3)
         XCTAssertEqual(sessions.sessions.count, 1, "every dial reused the member's one session")
+    }
+
+    func testConnectedAliasCannotClearStoppedRetryLatchOrRedialAfterItDrops() async throws {
+        let sessions = realSessions()
+        let boardStore = freshBoardStore()
+        let groupStore = freshGroupStore()
+        let (group, members) = try makeGroup(["AAAA"], boardStore: boardStore, groupStore: groupStore)
+        let stopped = sessions.session(for: "known-AAAA", name: "A")
+        let peer = sessions.session(for: "second-alias", name: "A over another carrier")
+        let stoppedConnected = await stopped.connection.connect(using: ScriptedTransport(.succeed("AAAA")))
+        let peerConnected = await peer.connection.connect(using: ScriptedTransport(.succeed("AAAA")))
+        XCTAssertTrue(stoppedConnected)
+        XCTAssertTrue(peerConnected)
+        defer { sessions.sessions.forEach { $0.connection.disconnect() } }
+
+        stopped.connection.disconnect()
+        stopped.connection.stopAutomaticReconnect()
+        XCTAssertTrue(stopped.connection.wasUserDisconnected)
+        XCTAssertFalse(stopped.connection.isAutomaticReconnectEnabled)
+
+        let clock = ScaledClock()
+        var dials = 0
+        let connector = makeConnector(sessions, groupStore, boardStore, clock: clock, backoff: []) { _, session in
+            dials += 1
+            _ = await session.connection.connect(using: ScriptedTransport(.succeed("AAAA")))
+        }
+        connector.setTarget(.group(group.id), isExplicit: false)
+        XCTAssertTrue(stopped.connection.wasUserDisconnected,
+                      "a connected same-board alias must not undo the stopped retry choice")
+
+        peer.connection.disconnect()
+        connector.setTarget(.group(group.id), isExplicit: false)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(dials, 0, "the group must not automatically redial a stopped member")
+        XCTAssertTrue(stopped.connection.wasUserDisconnected)
+
+        connector.connectNow(members[0])
+        await waitUntil { dials == 1 && stopped.connection.connectionState == .connected }
+        XCTAssertEqual(dials, 1, "an explicit per-member action still permits a new dial")
+        XCTAssertTrue(stopped.connection.isAutomaticReconnectEnabled)
     }
 
     // MARK: R3. Target → single drops queued attempts; the in-flight one finishes

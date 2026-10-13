@@ -3,7 +3,7 @@ import RinaCore
 
 /// "Wi-Fi 与热点" category: the selected board's own network settings
 /// (`wifi_*` over the active transport, RINALINK_PROTOCOL_V1 §8) — which
-/// network it joins, the iPhone hotspot it falls back to and its SoftAP.
+/// network it joins and its own SoftAP.
 struct BoardNetworkSettingsView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BoardStore.self) private var boardStore
@@ -22,8 +22,8 @@ struct BoardNetworkSettingsView: View {
             Group {
                 statusSection
                 joinNetworkSection
-                phoneHotspotSection
                 boardHotspotSection
+                hotspotAddressSection
             }
             .rinaTranslucentRows()
         }
@@ -47,15 +47,16 @@ struct BoardNetworkSettingsView: View {
                 Text("家庭 Wi-Fi").tag("sta")
                 Text("家庭 Wi-Fi（热点备用）").tag("sta_or_ap")
             }
-            .disabled(!isConnected)
+            .disabled(!isConnected || viewModel.isApplyingWifiMode)
+            .accessibilityIdentifier("network.mode")
+            if viewModel.isApplyingWifiMode { ProgressView() }
 
             if let wifi = connection.wifi {
                 LabeledContent("已连接网络", value: (wifi.staConnected == true ? wifi.ssid : nil) ?? "无")
-                LabeledContent("当前使用", value: profileLabel(wifi.activeProfile))
-                LabeledContent("IP", value: wifi.ip ?? "—")
+                LabeledContent("家庭 Wi-Fi IP", value: wifi.ip ?? "—")
                 LabeledContent("信号", value: wifi.rssi.map { "\($0) dBm" } ?? "—")
                 LabeledContent("热点状态", value: wifi.apActive == true ? "开启" : "关闭")
-                if let apIp = wifi.apIp { LabeledContent("热点 IP", value: apIp) }
+                LabeledContent("热点 IP", value: wifi.apIp ?? "—")
             }
         } header: {
             Text("板载 Wi-Fi 设置")
@@ -71,14 +72,6 @@ struct BoardNetworkSettingsView: View {
             get: { connection.wifi?.mode ?? "sta_or_ap" },
             set: { newValue in workspace.run(from: .network) { await viewModel.setMode(newValue, connection: connection) } }
         )
-    }
-
-    private func profileLabel(_ profile: String?) -> String {
-        switch profile {
-        case "home": return "家庭"
-        case "hotspot": return "手机热点"
-        default: return "无"
-        }
     }
 
     // MARK: Home network
@@ -99,10 +92,16 @@ struct BoardNetworkSettingsView: View {
                     Text("扫描网络")
                 }
             }
-            .disabled(!isConnected)
+            .disabled(!isConnected || viewModel.isScanningNetworks)
+            .accessibilityIdentifier("network.scan")
 
             if let status = homeStatusText {
                 Text(status).font(.footnote).foregroundStyle(.secondary)
+            }
+
+            if !viewModel.isScanningNetworks && viewModel.wifiNetworks.isEmpty {
+                Text("点击扫描网络，选择璃奈板附近的 Wi-Fi。")
+                    .foregroundStyle(.secondary)
             }
 
             ForEach(viewModel.wifiNetworks) { network in
@@ -119,6 +118,7 @@ struct BoardNetworkSettingsView: View {
                         Text("\(network.rssi) dBm").foregroundStyle(.secondary)
                     }
                 }
+                .accessibilityIdentifier("network.result.\(network.ssid)")
             }
             .disabled(!isConnected)
 
@@ -151,56 +151,6 @@ struct BoardNetworkSettingsView: View {
         }
     }
 
-    // MARK: iPhone 热点
-
-    @ViewBuilder
-    private var phoneHotspotSection: some View {
-        Section("iPhone 热点") {
-            if let wifi = connection.wifi {
-                LabeledContent("手机热点", value: wifi.hotspotSsid ?? "无")
-            }
-
-            TextField("热点名称", text: $viewModel.hotspotName)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-
-            SecureField(viewModel.hotspotPassword.isEmpty ? "热点密码" : "使用已保存的密码", text: $viewModel.hotspotPassword)
-
-            Button {
-                workspace.run(from: .network) { await viewModel.provisionPhoneHotspot(connection: connection, boardStore: boardStore) }
-            } label: {
-                if viewModel.isProvisioningHotspot {
-                    ProgressView()
-                } else {
-                    Text("发送到板子并连接")
-                }
-            }
-            .disabled(!isConnected || viewModel.isProvisioningHotspot || viewModel.hotspotName.trimmingCharacters(in: .whitespaces).isEmpty)
-
-            if let status = hotspotStatusText {
-                Text(status).font(.footnote).foregroundStyle(.secondary)
-            }
-
-            Button("清除", role: .destructive) {
-                workspace.run(from: .network) { await viewModel.clearPhoneHotspot(connection: connection) }
-            }
-            .disabled(!isConnected)
-        }
-    }
-
-    private var hotspotStatusText: String? {
-        switch viewModel.hotspotProvisionStage {
-        case .idle:
-            nil
-        case .sendingCredentials, .waitingForBoard, .boardJoined, .connectingToBoard:
-            "等待板子加入热点…"
-        case .connected:
-            "已连接到板子（手机热点）"
-        case .failed(let message):
-            message
-        }
-    }
-
     // MARK: Board SoftAP
 
     @ViewBuilder
@@ -214,12 +164,87 @@ struct BoardNetworkSettingsView: View {
                 .autocorrectionDisabled()
             SecureField("密码 (留空为开放网络)", text: $workspace.apPassword)
             Button("保存") {
-                workspace.run(from: .network) { await viewModel.setAp(ssid: workspace.apSSID, password: workspace.apPassword, connection: connection, boardStore: boardStore) }
+                let capturedSSID = workspace.apSSID
+                let capturedPassword = workspace.apPassword
+                let capturedConnection = connection
+                workspace.run(from: .network) {
+                    await viewModel.setAp(ssid: capturedSSID, password: capturedPassword,
+                                          connection: capturedConnection, boardStore: boardStore)
+                }
             }
             .disabled(workspace.apSSID.isEmpty)
         } header: {
             Text("热点名称与密码")
         }
         .disabled(!isConnected)
+    }
+
+    @ViewBuilder
+    private var hotspotAddressSection: some View {
+        Section {
+            TextField("热点 IPv4 地址", text: $workspace.apIP,
+                      prompt: Text(verbatim: connection.wifi?.apIp ?? "—"))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("network.apIP")
+                .disabled(!isConnected || workspace.apIPSaveID != nil)
+
+            if !workspace.apIP.isEmpty,
+               BoardAPAddress.canonicalPrivateAddress(workspace.apIP) == nil {
+                Text("请输入私有 IPv4 地址（10.x.x.x、172.16–31.x.x 或 192.168.x.x），最后一段须为 1–254。")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("network.apIP.validation")
+            }
+            if let status = workspace.apIPStatus,
+               workspace.apIP.isEmpty || BoardAPAddress.canonicalPrivateAddress(workspace.apIP) != nil {
+                Text(status)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("network.apIP.status")
+            }
+
+            Button("保存 IP", action: saveHotspotAddress)
+                .disabled(!isConnected || connection.transportKind != .bluetooth || workspace.apIPSaveID != nil)
+                .accessibilityIdentifier("network.saveAPIP")
+            if workspace.apIPSaveID != nil { ProgressView() }
+
+            if isConnected && connection.transportKind != .bluetooth {
+                Text("请先在连接页面切换到蓝牙，再保存热点 IP；修改地址会断开热点连接。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("打开连接设置") { workspace.selection = .connection }
+            }
+        } header: {
+            Text("热点 IP")
+        } footer: {
+            Text("仅保存热点 IP，不改变热点名称、密码或开启状态。")
+        }
+    }
+
+    private func saveHotspotAddress() {
+        guard isConnected, connection.transportKind == .bluetooth,
+              workspace.apIPSaveID == nil else { return }
+        guard let address = BoardAPAddress.canonicalPrivateAddress(workspace.apIP) else {
+            workspace.apIPStatus = NSLocalizedString(
+                "请输入私有 IPv4 地址（10.x.x.x、172.16–31.x.x 或 192.168.x.x），最后一段须为 1–254。",
+                comment: "invalid board hotspot address")
+            return
+        }
+        let capturedConnection = connection
+        let capturedDraft = workspace.apIP
+        let saveID = UUID()
+        workspace.apIPSaveID = saveID
+        workspace.apIPStatus = nil
+        workspace.run(from: .network) {
+            let saved = await viewModel.setAp(ssid: "", password: "", ip: address,
+                                              connection: capturedConnection, boardStore: boardStore)
+            guard workspace.apIPSaveID == saveID else { return }
+            workspace.apIPSaveID = nil
+            if saved && workspace.apIP == capturedDraft {
+                workspace.apIP = address
+                workspace.apIPStatus = NSLocalizedString("热点 IP 已保存", comment: "board hotspot address saved")
+            }
+        }
     }
 }

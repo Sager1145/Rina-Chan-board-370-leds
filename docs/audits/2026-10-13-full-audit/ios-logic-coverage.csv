@@ -1,0 +1,131 @@
+path,status,note
+ios/Packages/.DS_Store,pending,Not reviewed before interruption
+ios/Packages/RinaCore/.DS_Store,pending,Not reviewed before interruption
+ios/Packages/RinaCore/.swiftpm/xcode/xcuserdata/sager.xcuserdatad/xcschemes/xcschememanagement.plist,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Package.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/AppDefaults.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/ArkPixelFont.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/BoardAPAddress.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/ClockOffsetEstimator.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/ColorPresets.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/DeviceName.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/FaceDocument.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/GroupSchedule.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/GroupScrollBitmap.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/LEDContourBuilder.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/LipSync.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/LipSyncDSPEngine.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/LipSyncDefaultProfiles.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/LipSyncSampleRing.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/LivePerformanceScript.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/MatrixGeometry.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/Messages.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/PackedFrame.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/PartsLibrary.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/ResourceLoader.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/RinaCommand.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/RinaLinkCodec.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/RinaLinkConstants.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/RinaLinkError.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/RinaLinkMessageType.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/ScrollPreviewController.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/ScrollRasterizer.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/ScrollText.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/StitchedScreenLayout.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Sources/RinaCore/VideoFrameQuantizer.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/BoardAPAddressTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/BoardGroupCommandTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/BoardGroupMessagesTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/BoardIdentityTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/BoardOutputStatusTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/BundledPerformanceTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/ClockOffsetEstimatorTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/ColorPresetsTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/FaceDocumentDecodingTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/GroupFanOutPolicyTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/GroupScheduleTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/GroupScrollBitmapTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/GroupTimedDecodingTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/GroupTimelineMathTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/LEDContourBuilderPerformanceTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/LEDContourBuilderTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/LipSyncDSPEnginePerformanceTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/LipSyncDSPEngineTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/LipSyncDefaultProfilesTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/LipSyncPerformanceTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/LipSyncSampleRingTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/LipSyncTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/LivePerformanceScriptTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/MatrixGeometryTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/PackedFramePR10Tests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/PackedFrameTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/PartsLibraryPR10Tests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/PartsLibraryPerformanceTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/PartsLibraryTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/PowerStatusDecodingTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/RinaCommandTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/RinaLinkCodecTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/RinaLinkDecoderBaselineTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/RinaLinkDecoderDifferentialTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/RinaLinkDecoderPerformanceTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/ScrollPreviewControllerTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/ScrollRasterizerPR10Tests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/ScrollRasterizerPerformanceTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/ScrollRasterizerTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/StitchedScreenLayoutTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/TestResources.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/VideoFrameQuantizerDifferentialTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/VideoFrameQuantizerPerformanceTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaCore/Tests/RinaCoreTests/VideoFrameQuantizerTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaFaceSync/.DS_Store,pending,Not reviewed before interruption
+ios/Packages/RinaFaceSync/AppleIntegration/CloudKitFaceSync.swift,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/AppleIntegration/CloudKitFetchedCheckpoint.swift,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/AppleIntegration/CloudKitLibraryBootstrap.swift,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/AppleIntegration/RinaFaceSync.entitlements.example,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/AppleIntegration/Tests/AuditBehaviorCloudKitCheckpointTests.swift,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/AppleIntegration/Tests/AuditBehaviorRunCloudKitTests.sh,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/Firmware/FacesSyncGuard.hpp,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/Firmware/guard_test.cpp,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/Package.swift,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/Sources/CSQLite/module.modulemap,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/Sources/CSQLite/shim.h,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/Sources/FaceSyncCore/Board.swift,partial,Only excerpts or structural search inspected; full review pending
+ios/Packages/RinaFaceSync/Sources/FaceSyncCore/Model.swift,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/Sources/FaceSyncCore/Reducer.swift,partial,Only excerpts or structural search inspected; full review pending
+ios/Packages/RinaFaceSync/Sources/FaceSyncCore/Repository.swift,partial,Only excerpts or structural search inspected; full review pending
+ios/Packages/RinaFaceSync/Sources/FaceSyncCore/SHA256.swift,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/Sources/FaceSyncCore/SQLite.swift,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/Sources/FaceSyncCore/Transfer.swift,reviewed,Full source inspected before interruption
+ios/Packages/RinaFaceSync/Tests/FaceSyncCoreTests/BoardFixTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaFaceSync/Tests/FaceSyncCoreTests/CoreTests.swift,pending,Not reviewed before interruption
+ios/Packages/RinaFaceSync/Tests/FaceSyncCoreTests/ReducerFixTests.swift,pending,Not reviewed before interruption
+ios/RinaBoard/App/AppRouter.swift,pending,Not reviewed before interruption
+ios/RinaBoard/App/BoardSyncCoordinator.swift,pending,Not reviewed before interruption
+ios/RinaBoard/App/RinaBoardApp.swift,pending,Not reviewed before interruption
+ios/RinaBoard/App/RootTabView.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/BLEDisconnectGate.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/BLETransport.swift,partial,Only excerpts or structural search inspected; full review pending
+ios/RinaBoard/Services/BoardConnection.swift,partial,Only excerpts or structural search inspected; full review pending
+ios/RinaBoard/Services/BoardGroup.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/BoardGroupCoordinator.swift,partial,Only excerpts or structural search inspected; full review pending
+ios/RinaBoard/Services/BoardPlaybackCoordinator.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/BoardResumeMode.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/BoardSessionStore.swift,reviewed,Full source inspected before interruption
+ios/RinaBoard/Services/BoardStore.swift,partial,Only excerpts or structural search inspected; full review pending
+ios/RinaBoard/Services/BonjourBrowser.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/ControlTarget.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/DraftStorage.swift,reviewed,Full source inspected before interruption
+ios/RinaBoard/Services/GroupAutoConnector.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/GroupAutoCycler.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/GroupControlFanOut.swift,partial,Only excerpts or structural search inspected; full review pending
+ios/RinaBoard/Services/HotspotJoiner.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/KeychainStore.swift,reviewed,Full source inspected before interruption
+ios/RinaBoard/Services/LocalFaceStore.swift,reviewed,Full source inspected before interruption
+ios/RinaBoard/Services/MacWiFiAdapter.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/MacWiFiBridgeProtocol.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/MacWiFiScanPolicy.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/PhoneNetworkInfo.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/RinaRequestBroker.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/RinaTransport.swift,pending,Not reviewed before interruption
+ios/RinaBoard/Services/TCPTransport.swift,partial,Only excerpts or structural search inspected; full review pending
+ios/RinaBoard/Services/WatchLinkService.swift,pending,Not reviewed before interruption

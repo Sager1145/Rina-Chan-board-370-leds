@@ -5,6 +5,10 @@ import UIKit
 @MainActor
 final class AcceptanceUITests: XCTestCase {
     private var app = XCUIApplication()
+    // Keep decorative animation from holding XCTest's idle/snapshot checks
+    // open across launches. The restore case still omits -initialTab on its
+    // second launch, so selection must come from the persisted preference.
+    private let deterministicLaunchArguments = ["-disableStarAnimation", "YES"]
 
     override func setUpWithError() throws { continueAfterFailure = false }
 
@@ -21,7 +25,8 @@ final class AcceptanceUITests: XCTestCase {
     }
 
     private func launch(tab: String = "control", language: String = "zh-Hans", extra: [String] = []) {
-        app.launchArguments = ["-AppleLanguages", "(\(language))", "-initialTab", tab] + extra
+        app.launchArguments = ["-AppleLanguages", "(\(language))", "-initialTab", tab]
+            + deterministicLaunchArguments + extra
         app.launch()
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
             app.tabBars.firstMatch.exists || app.buttons["lightbulb.fill"].firstMatch.exists
@@ -121,7 +126,7 @@ final class AcceptanceUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         app.activate()
         app.terminate()
-        app.launchArguments = ["-AppleLanguages", "(zh-Hans)"]
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)"] + deterministicLaunchArguments
         app.launch()
         let restoredPerformance = app.tabBars.buttons["演出"]
         XCTAssertTrue(restoredPerformance.waitForExistence(timeout: 15))

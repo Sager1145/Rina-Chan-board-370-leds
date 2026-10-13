@@ -4,7 +4,6 @@ import SwiftUI
 
 private struct LipSyncSubmission: Sendable {
     let frame: PackedFrame
-    let vowel: LipSyncVowel?
     let reason: String
     let token: UUID
     /// True for the close-mouth frame sent from `stop()`. That frame is
@@ -25,10 +24,9 @@ private struct LipSyncSubmission: Sendable {
 ///
 /// Two rules are carried over from upstream deliberately:
 ///
-/// 1. **Only send on change.** Upstream sends a face update only when the
-///    detected phoneme differs from the last one. At 30 Hz a per-tick send
-///    would mean 30 frames/s down a link whose pump is 20 ms deep — and the
-///    board would be redrawing an identical mouth.
+/// 1. **Only send on change.** Deduplicate the composed frame, so live
+///    costume/mapping edits reach the board even during a steady phoneme,
+///    while repeated identical faces consume no link bandwidth.
 /// 2. **Options lock while running.** Upstream takes a mutex over its options
 ///    page during lip sync. Here `canEditOptions` is false while running, so
 ///    the DSP's configuration can never change underneath a live loop.
@@ -159,9 +157,9 @@ final class LipSyncModel {
     private var calibrationTask: Task<Void, Never>?
     private var calibrationGeneration = UUID()
     @ObservationIgnored private var lastDiagnosticsPublish: ContinuousClock.Instant?
-    /// The vowel whose mouth was last pushed, so a tick that classifies the
-    /// same vowel again sends nothing. `.some(nil)` means "silence was sent".
-    private var lastSentVowel: LipSyncVowel??
+    /// The last submitted composition, including both the classified mouth
+    /// and the user's live costume/mapping choices.
+    private var lastSentFrame: PackedFrame?
 
     // MARK: Init
 
@@ -361,7 +359,7 @@ final class LipSyncModel {
             stop(connection: connection)
             return
         }
-        lastSentVowel = nil
+        lastSentFrame = nil
         isRunning = true
         awaitingAudioSince = Date()
         errorMessage = nil
@@ -416,11 +414,11 @@ final class LipSyncModel {
 
         // Stopping mid-syllable would leave an open mouth frozen on the
         // physical panel, so close it on the board too — not just in this
-        // app's preview. `lastSentVowel` is cleared first so the send gate
-        // treats this as a change even if silence was the last thing sent.
-        lastSentVowel = nil
+        // app's preview. `lastSentFrame` is cleared first so the send gate
+        // treats this as a change even if a closed mouth was already sent.
+        lastSentFrame = nil
         if let connection {
-            push(previewFrame, vowel: nil, connection: connection, closing: true)
+            push(previewFrame, connection: connection, closing: true)
         }
         outputSession = nil
     }
@@ -460,14 +458,13 @@ final class LipSyncModel {
             lastDiagnosticsPublish = now
         }
 
-        // Gate on what the *board* was last told, not on what this app is
-        // displaying. Comparing against `vowel` conflated the two: after a
-        // disconnect and reconnect, both operands were equal and the board
-        // was never resynced until the vowel happened to change again.
-        guard lastSentVowel != .some(result.vowel) else { return }
-        vowel = result.vowel
-        refreshPreviewFrame()
-        push(previewFrame, vowel: result.vowel, connection: connection)
+        if vowel != result.vowel { vowel = result.vowel }
+        let composed = frame(for: result.vowel)
+        if previewFrame != composed { previewFrame = composed }
+        // Composition can change while the classifier stays on one vowel.
+        // The gate tracks wire submissions, not merely the local preview.
+        guard lastSentFrame != composed else { return }
+        push(composed, connection: connection)
     }
 
     /// The most recent analysis window: enough input samples that, once
@@ -480,14 +477,14 @@ final class LipSyncModel {
         return capture.latestWindow(count: count)
     }
 
-    private func push(_ frame: PackedFrame, vowel: LipSyncVowel?, connection: BoardConnection,
+    private func push(_ frame: PackedFrame, connection: BoardConnection,
                        closing: Bool = false) {
         guard connection.connectionState == .connected, let token = outputSession,
               connection.output.isCurrent(token), let streamID else { return }
         let reason = "lipsync:\(streamID):0"
-        lastSentVowel = .some(vowel)
+        lastSentFrame = frame
         lastConnection = connection
-        sender?.submit(LipSyncSubmission(frame: frame, vowel: vowel, reason: reason, token: token,
+        sender?.submit(LipSyncSubmission(frame: frame, reason: reason, token: token,
                                           closing: closing))
     }
 
@@ -505,9 +502,9 @@ final class LipSyncModel {
             // mouth if the vowel has not moved on — otherwise a dropped
             // frame strands the board on the previous mouth until the
             // speaker happens to change vowel again.
-            forgetLastSentVowel(ifStill: submission.vowel)
+            forgetLastSentFrame(ifStill: submission.frame)
         } catch {
-            forgetLastSentVowel(ifStill: submission.vowel)
+            forgetLastSentFrame(ifStill: submission.frame)
             errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),
                                   error.localizedDescription)
         }
@@ -516,9 +513,9 @@ final class LipSyncModel {
     /// Clears the send gate, but only if nothing newer has been sent since —
     /// a late failure for an old mouth must not force a resend of one the
     /// board has already moved past.
-    private func forgetLastSentVowel(ifStill vowel: LipSyncVowel?) {
-        guard lastSentVowel == .some(vowel) else { return }
-        lastSentVowel = nil
+    private func forgetLastSentFrame(ifStill frame: PackedFrame) {
+        guard lastSentFrame == frame else { return }
+        lastSentFrame = nil
     }
 
     // MARK: Calibration

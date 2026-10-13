@@ -3,12 +3,12 @@ import XCTest
 import RinaCore
 @testable import RinaBoard
 
-/// P1-c playback ownership: every directed source switch (7 x 6 = 42) plus
-/// same-source restarts (7), 100 loops per direction per phase, directions
+/// P1-c playback ownership: every directed source switch (9 x 8 = 72) plus
+/// same-source restarts (9), 100 loops per direction per phase, directions
 /// run concurrently on independent connections.
 @MainActor
 final class StressOwnershipTests: XCTestCase {
-    static let sources: [BoardOutputSource] = [.manual, .automatic, .text, .lipSync, .performance, .video, .debug]
+    static let sources: [BoardOutputSource] = [.manual, .automatic, .text, .lipSync, .performance, .video, .debug, .group, .groupControl]
 
     /// Fails to compile if a source is added, so the matrix cannot silently miss one.
     static func ordinal(_ source: BoardOutputSource) -> Int {
@@ -20,6 +20,8 @@ final class StressOwnershipTests: XCTestCase {
         case .performance: return 4
         case .video: return 5
         case .debug: return 6
+        case .group: return 7
+        case .groupControl: return 8
         }
     }
 
@@ -34,7 +36,7 @@ final class StressOwnershipTests: XCTestCase {
     }
 
     func testP1_c_TakeoverMatrix() async {
-        XCTAssertEqual(Set(Self.sources.map(Self.ordinal)).count, 7)
+        XCTAssertEqual(Set(Self.sources.map(Self.ordinal)).count, 9)
         let loops = 100
         let start = Stress.nowNs()
         var totals: [Phase: Tally] = [:]
@@ -64,7 +66,7 @@ final class StressOwnershipTests: XCTestCase {
         for phase in Phase.allCases {
             let tally = totals[phase] ?? Tally()
             Stress.record(case: "P1-c-takeover-\(phase.rawValue)", layer: "BoardPlaybackCoordinator + BoardConnection.setFrame",
-                          load: "\(directions) directions (42 switches + 7 restarts) x \(loops) loops, concurrent connections",
+                          load: "\(directions) directions (72 switches + 9 restarts) x \(loops) loops, concurrent connections",
                           status: tally.failures == 0 && tally.iterations == directions * loops ? "PASS" : "FAIL",
                           metrics: ["iterations": tally.iterations, "failures": tally.failures,
                                     "old_writes_after_takeover": tally.oldWritesAfterTakeover,

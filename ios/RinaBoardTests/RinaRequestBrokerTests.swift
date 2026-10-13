@@ -44,6 +44,9 @@ final class RinaRequestBrokerTests: XCTestCase {
         let seq = try XCTUnwrap(sent.seqs.first)
         XCTAssertEqual(broker.quarantinedSequenceCount, 1)
 
+        broker.deliver(RinaLinkFrame(type: 0x83, seq: seq, flags: 0, payload: Data([9])))
+        XCTAssertEqual(broker.quarantinedSequenceCount, 1, "Wrong reply type must not release a retired seq")
+
         broker.deliver(RinaLinkFrame(type: 0x82, seq: seq, flags: RinaLinkFrameConstants.flagMore, payload: Data([1])))
         XCTAssertEqual(broker.quarantinedSequenceCount, 1)
         broker.deliver(RinaLinkFrame(type: 0x82, seq: seq, flags: RinaLinkFrameConstants.flagMore, payload: Data([2])))
@@ -74,6 +77,9 @@ final class RinaRequestBrokerTests: XCTestCase {
         let seq = try XCTUnwrap(sent.seqs.first)
         XCTAssertEqual(broker.quarantinedSequenceCount, 1)
 
+        broker.deliver(RinaLinkFrame(type: RinaLinkMessageType.error.rawValue, seq: seq,
+                                     flags: RinaLinkFrameConstants.flagMore, payload: Data([1])))
+        XCTAssertEqual(broker.quarantinedSequenceCount, 1, "A fragmented ERR must finish before reuse")
         broker.deliver(RinaLinkFrame(type: RinaLinkMessageType.error.rawValue, seq: seq, flags: 0,
                                      payload: try JSONEncoder().encode(RinaLinkError(error: "nope"))))
         XCTAssertEqual(broker.quarantinedSequenceCount, 0)

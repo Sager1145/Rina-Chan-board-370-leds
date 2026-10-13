@@ -327,6 +327,19 @@ private struct PresetLiveTransportSliderView: View {
                 }
             )
             .disabled(!model.canPlay)
+            .accessibilityLabel("播放进度")
+            .accessibilityValue(Text(verbatim: "\(PresetLiveView.formatMs(model.positionMs)) / \(PresetLiveView.formatMs(model.durationMs))"))
+            .accessibilityAdjustableAction { direction in
+                let delta: Int
+                switch direction {
+                case .increment: delta = max(1, model.durationMs / 20)
+                case .decrement: delta = -max(1, model.durationMs / 20)
+                @unknown default: return
+                }
+                let target = min(model.durationMs, max(0, model.positionMs + delta))
+                seekPositionMs = Double(target)
+                model.seek(toMs: target)
+            }
 
             HStack {
                 Text(PresetLiveView.formatMs(isSeeking ? Int(seekPositionMs) : model.positionMs))

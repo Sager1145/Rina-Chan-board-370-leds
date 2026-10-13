@@ -155,13 +155,13 @@ final class BoardSyncCoordinator {
             let streamID = stream.id.flatMap { $0.isEmpty ? nil : $0 }
             if mode != .performance { deps.performance.pause() }
             if mode != .video { deps.video.pause() }
-            // Mode first, preview second: the right tab is already showing
-            // before anything is mirrored, and only the tab that owns the
-            // board's mode mirrors it. A connection made from Settings stays
-            // in Settings: the user is still managing boards there, and the
-            // playback resumes below already skip when their tab isn't shown.
+            // First connection and explicit board selection restore the tab
+            // owning the board's mode. A genuine reconnect preserves the tab
+            // the user chose before the transport dropped, while still
+            // reconciling board state below. Connections made from Settings
+            // also stay there; playback resumes skip when their tab isn't shown.
             let stayInSettings = initialTab == .settings
-            if !stayInSettings { deps.router.showBoardMode(mode) }
+            if !stayInSettings, !isGenuineReconnect { deps.router.showBoardMode(mode) }
             // Neither of these is user-initiated, and written back to back
             // they land in one SwiftUI update: the sheet's collapse and a tab
             // change then play over each other. Crossing a frame first lets

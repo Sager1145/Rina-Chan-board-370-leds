@@ -257,10 +257,23 @@ bool validateSavedFaces(JsonVariant document, String& error) {
     }
 
     uint16_t defaultCount = 0;
+    const char* seenIds[MAX_AUTO_FACES] = {};
+    uint16_t seenCount = 0;
     uint8_t frame[FRAME_BYTES];
     for (JsonObject face : faces) {
         const char* type = face["type"] | "";
         const char* id = face["id"] | "";
+        if (id[0] == '\0') {
+            error = "face id must be non-empty";
+            return false;
+        }
+        for (uint16_t i = 0; i < seenCount; ++i) {
+            if (strcmp(seenIds[i], id) == 0) {
+                error = "face ids must be unique";
+                return false;
+            }
+        }
+        seenIds[seenCount++] = id;
         if (!face["order"].is<int32_t>() || face["order"].as<int32_t>() < 1) {
             error = "face order must be 1-based and >= 1";
             return false;

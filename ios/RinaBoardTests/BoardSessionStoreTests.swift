@@ -5,6 +5,163 @@ import RinaCore
 
 @MainActor
 final class BoardSessionStoreTests: XCTestCase {
+    func testLegacySavedBLEHandshakeConsolidatesPreviouslyKnownAPSession() async throws {
+        let store = BoardSessionStore(scanner: StubScanner(), makeBLETransport: { StubBLECarrier() })
+        let ssid = "RinaChanBoard-80B54EF48E09"
+        let apID = KnownBoard.hotspotStorageID(ssid: ssid)
+        let ap = store.session(for: apID, name: "A AP")
+        let apWire = SessionTransport(kind: .hotspot)
+        apWire.hotspotBoardID = "80B54EF48E09"
+        ap.connection.expectedHotspotSSID = ssid
+        _ = await ap.connection.connect(using: apWire)
+        let sibling = store.session(for: UUID().uuidString, name: "B")
+        let siblingWire = SessionTransport(kind: .bluetooth)
+        siblingWire.hotspotBoardID = "80B54EF74801"
+        _ = await sibling.connection.connect(using: siblingWire)
+        defer { store.sessions.forEach { $0.connection.disconnect() } }
+        let suite = "BoardSessionStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let boards = BoardStore(defaults: defaults)
+        boards.upsert(KnownBoard(id: apID, name: "A AP", preferredTransport: "hotspot",
+            lastHost: RinaLinkConstants.apIP, hotspotSSID: ssid))
+        let bleBoard = KnownBoard(id: UUID().uuidString, name: "A BLE")
+        boards.upsert(bleBoard)
+        let bleWire = SessionTransport(kind: .bluetooth)
+        bleWire.hotspotBoardID = "80B54EF48E09"
+        await ConnectionViewModel(startBonjourBrowsing: false).connectSavedBoard(
+            bleBoard, sessions: store, boardStore: boards,
+            joinBoardHotspot: { _ in XCTFail("BLE must not join AP"); return ssid },
+            connectTransport: { target, _ in await target.connection.connect(using: bleWire) })
+        let retained = try XCTUnwrap(store.existingSession(for: bleBoard.id))
+        XCTAssertEqual(store.sessions.count, 2)
+        XCTAssertTrue(store.active === retained)
+        XCTAssertTrue(store.existingSession(for: apID) === retained)
+        XCTAssertFalse(store.sessions.contains { $0 === ap })
+        XCTAssertEqual(ap.connection.connectionState, .disconnected)
+        XCTAssertEqual(apWire.disconnectCount, 1)
+        XCTAssertEqual(retained.connection.transportKind, .bluetooth)
+        XCTAssertEqual(siblingWire.disconnectCount, 0)
+        XCTAssertEqual(boards.boards.count, 1)
+        XCTAssertEqual(boards.boards.first?.id, bleBoard.id)
+        XCTAssertEqual(boards.boards.first?.hotspotSSID, ssid)
+        XCTAssertEqual(boards.boards.first?.preferredTransport, "bluetooth")
+    }
+
+    func testDirectHotspotJoinSwitchesSamePhysicalBLEBoardAndKeepsSibling() async throws {
+        let store = BoardSessionStore(scanner: StubScanner(), makeBLETransport: { StubBLECarrier() })
+        let bleID = "6F2161EE-AFE4-5C51-758C-B358FA08DDDE"
+        let ssid = "RinaChanBoard-80B54EF48E09"
+        let board = store.session(for: bleID, name: "A")
+        board.bleTransport.peripheralIdentifier = UUID(uuidString: bleID)
+        let sibling = store.session(for: UUID().uuidString, name: "B")
+        let ble = SessionTransport(kind: .bluetooth)
+        ble.hotspotBoardID = "80B54EF48E09"
+        let siblingWire = SessionTransport(kind: .bluetooth)
+        siblingWire.hotspotBoardID = "80B54EF74801"
+        _ = await board.connection.connect(using: ble)
+        _ = await sibling.connection.connect(using: siblingWire)
+        defer { store.sessions.forEach { $0.connection.disconnect() } }
+        let suite = "BoardSessionStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let boards = BoardStore(defaults: defaults)
+        boards.upsert(KnownBoard(id: bleID, name: "A"))
+        let tcp = SessionTransport(kind: .hotspot)
+        tcp.hotspotBoardID = "80B54EF48E09"
+        await ConnectionViewModel(startBonjourBrowsing: false).connectHotspot(
+            sessions: store, boardStore: boards, joinBoardHotspot: { ssid },
+            connectTransport: { target, _ in
+                XCTAssertTrue(target === board)
+                return await target.connection.connect(using: tcp,
+                    expectedBoardIdentity: target.connection.lastKnownBoardIdentity)
+            }
+        )
+        XCTAssertEqual(store.sessions.count, 2)
+        XCTAssertTrue(store.active === board)
+        XCTAssertTrue(store.existingSession(for: KnownBoard.hotspotStorageID(ssid: ssid)) === board)
+        XCTAssertTrue(store.existingSession(for: bleID) === board)
+        XCTAssertEqual(board.connection.transportKind, .hotspot)
+        XCTAssertEqual(ble.disconnectCount, 1)
+        XCTAssertEqual(siblingWire.disconnectCount, 0)
+        XCTAssertEqual(sibling.connection.connectionState, .connected)
+        XCTAssertEqual(boards.boards.count, 1)
+        let saved = try XCTUnwrap(BoardStore(defaults: defaults).boards.first)
+        XCTAssertEqual(saved.id, bleID)
+        XCTAssertEqual(saved.hotspotSSID, ssid)
+        XCTAssertEqual(saved.connectionTarget, .boardHotspot(host: "10.244.142.9", ssid: ssid))
+        var bluetooth = saved
+        bluetooth.preferredTransport = "bluetooth"
+        XCTAssertEqual(bluetooth.connectionTarget, .bluetooth(try XCTUnwrap(UUID(uuidString: bleID))))
+        XCTAssertEqual(saved.physicalBoardID, "80B54EF48E09")
+    }
+
+    func testFailedSameBoardHotspotHandshakeKeepsSavedIdentityAndSibling() async throws {
+        let store = BoardSessionStore(scanner: StubScanner(), makeBLETransport: { StubBLECarrier() })
+        let bleID = UUID().uuidString
+        let board = store.session(for: bleID, name: "A")
+        let sibling = store.session(for: UUID().uuidString, name: "B")
+        let ble = SessionTransport(kind: .bluetooth)
+        ble.hotspotBoardID = "AAAAAAAAAAAA"
+        let other = SessionTransport(kind: .bluetooth)
+        other.hotspotBoardID = "BBBBBBBBBBBB"
+        _ = await board.connection.connect(using: ble)
+        _ = await sibling.connection.connect(using: other)
+        defer { store.sessions.forEach { $0.connection.disconnect() } }
+        let suite = "BoardSessionStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let boards = BoardStore(defaults: defaults)
+        let saved = KnownBoard(id: bleID, name: "A")
+        boards.upsert(saved)
+        let wrongTCP = SessionTransport(kind: .hotspot)
+        wrongTCP.hotspotBoardID = "BBBBBBBBBBBB"
+        let ssid = "RinaChanBoard-AAAAAAAAAAAA"
+        let model = ConnectionViewModel(startBonjourBrowsing: false)
+        await model.connectHotspot(sessions: store, boardStore: boards,
+            joinBoardHotspot: { ssid }, connectTransport: { target, _ in
+                XCTAssertTrue(target === board)
+                return await target.connection.connect(using: wrongTCP,
+                    expectedBoardIdentity: target.connection.lastKnownBoardIdentity)
+            })
+        XCTAssertEqual(store.sessions.count, 2)
+        XCTAssertEqual(board.connection.lastKnownBoardIdentity, "AAAAAAAAAAAA")
+        XCTAssertNil(board.connection.boardIdentity)
+        XCTAssertFalse(board.knownIdentifiers.contains(KnownBoard.hotspotStorageID(ssid: ssid)))
+        XCTAssertEqual(boards.boards, [saved])
+        XCTAssertEqual(other.disconnectCount, 0)
+        XCTAssertEqual(sibling.connection.connectionState, .connected)
+        if case .failed = model.directAPStage {} else { XCTFail("wrong board must fail the AP join") }
+    }
+
+    func testColdDirectHotspotJoinUsesPersistedBLESlotAndBothCarrierAddresses() async throws {
+        let suite = "BoardSessionStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let bleID = UUID().uuidString
+        let ssid = "RinaChanBoard-80B54EF48E09"
+        BoardStore(defaults: defaults).upsert(KnownBoard(id: bleID, name: "A",
+            preferredTransport: "bluetooth", lastHost: RinaLinkConstants.apIP,
+            hotspotSSID: ssid, physicalBoardID: "80B54EF48E09"))
+        let boards = BoardStore(defaults: defaults)
+        let sessions = BoardSessionStore(scanner: StubScanner(), makeBLETransport: { StubBLECarrier() })
+        let tcp = SessionTransport(kind: .hotspot)
+        tcp.hotspotBoardID = "80B54EF48E09"
+        defer { sessions.sessions.forEach { $0.connection.disconnect() } }
+        await ConnectionViewModel(startBonjourBrowsing: false).connectHotspot(
+            sessions: sessions, boardStore: boards, joinBoardHotspot: { ssid },
+            connectTransport: { target, _ in
+                XCTAssertEqual(target.boardID, bleID)
+                return await target.connection.connect(using: tcp, expectedBoardIdentity: "80B54EF48E09")
+            })
+        XCTAssertEqual(sessions.sessions.count, 1)
+        XCTAssertTrue(sessions.existingSession(for: bleID) === sessions.active)
+        XCTAssertTrue(sessions.existingSession(for: KnownBoard.hotspotStorageID(ssid: ssid)) === sessions.active)
+        XCTAssertEqual(boards.boards.count, 1)
+        XCTAssertEqual(boards.boards.first?.id, bleID)
+        XCTAssertEqual(boards.boards.first?.hotspotSSID, ssid)
+    }
+
     func testSavedBoardSwitchReusesOnlineSessionWithoutConnectingAgain() async throws {
         let store = BoardSessionStore()
         let firstID = UUID().uuidString

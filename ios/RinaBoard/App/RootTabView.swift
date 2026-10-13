@@ -254,6 +254,9 @@ struct RootTabView: View {
                 .tag(AppTab.settings)
         }
         .environment(controlCenterColumnScroll)
+        #if targetEnvironment(macCatalyst)
+        .modifier(MacWindowScrollEdges())
+        #endif
     }
 
     private func preloadTabContent() async {
@@ -302,7 +305,7 @@ struct RootTabView: View {
         ifSelectionRemains initialSession: BoardSession,
         boardID initialBoardID: String?
     ) async {
-        guard !didAutoReconnect else {
+        guard !didAutoReconnect, !MacHardwareTestLaunch.isActive else {
             router.releaseLaunchPreviewGate()
             return
         }
@@ -337,6 +340,30 @@ struct RootTabView: View {
         }
     }
 }
+
+#if targetEnvironment(macCatalyst)
+/// The Mac title/tab bar spans the window, while each split column has its
+/// own scroll view. Independent top-edge washes otherwise paint only one
+/// half of that shared bar as a column scrolls. Keep one continuous backdrop.
+private struct MacWindowScrollEdges: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.scrollEdgeEffectHidden(true, for: .top)
+                // The lists' bounds extend under Catalyst's native titlebar.
+                // Clip the shared page at its safe-area-sized container so
+                // scrolling one column cannot paint into half of that bar.
+                .clipped()
+                .background { RinaAppBackdrop() }
+                .toolbarBackground(.hidden, for: .tabBar)
+        } else {
+            content
+                .background { RinaAppBackdrop() }
+                .toolbarBackground(.hidden, for: .tabBar)
+        }
+    }
+}
+#endif
 
 /// Attaches the collapsed Control Center to the system tab bar, and the
 /// expanded sheet it opens into, where iOS provides that surface (26+).
@@ -487,6 +514,7 @@ enum ControlCenterPlacement {
     /// (iOS 26+, single column).
     case tabBarAccessory
     /// Inline under each page's board preview (the two-column iPad layout).
+    /// Mac also embeds it in the single-column page's scrolling list.
     /// Settings has no preview and so shows no panel at all; it is one column
     /// away on every other tab.
     case previewColumn
@@ -496,9 +524,15 @@ enum ControlCenterPlacement {
     case settingsLink
 
     static func resolve(splitLayout: Bool) -> ControlCenterPlacement {
+        #if targetEnvironment(macCatalyst)
+        // Mac pages embed the panel in either the preview column or the
+        // single scrolling list; the native titlebar has no bottom accessory.
+        return .previewColumn
+        #else
         if splitLayout { return .previewColumn }
         if #available(iOS 26.0, *) { return .tabBarAccessory }
         return .settingsLink
+        #endif
     }
 }
 

@@ -24,13 +24,24 @@ struct SettingsView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    #if targetEnvironment(macCatalyst)
+    @Environment(\.macWindowWidth) private var windowWidth
+    #endif
+
+    private var layoutSizeClass: UserInterfaceSizeClass? {
+        #if targetEnvironment(macCatalyst)
+        windowWidth.map { MacWindowLayoutPolicy.sizeClass(forWidth: $0) } ?? horizontalSizeClass
+        #else
+        horizontalSizeClass
+        #endif
+    }
 
     var body: some View {
         GeometryReader { proxy in
             // Resolved in the same pass that measures, so the first frame is
             // already the right layout; `previous` carries the hysteresis.
             let mode = SettingsLayoutPolicy.resolve(
-                width: proxy.size.width, horizontalSizeClass: horizontalSizeClass,
+                width: proxy.size.width, horizontalSizeClass: layoutSizeClass,
                 dynamicTypeSize: dynamicTypeSize, previous: workspace.layoutMode)
             Group {
                 switch mode {
@@ -316,7 +327,7 @@ private struct SettingsDialogs: ViewModifier {
         let debug = workspace.debug
         content
             .sheet(item: $workspace.networkForPassword) { network in
-                ConnectionPasswordSheet(network: network)
+                ConnectionPasswordSheet(network: network, workspace: workspace, connection: connection)
             }
             // Board page.
             .confirmationDialog(rebootTitle, isPresented: $workspace.confirmBoardReboot,

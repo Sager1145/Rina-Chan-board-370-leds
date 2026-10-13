@@ -26,7 +26,7 @@ final class SettingsAdaptiveLayoutUITests: XCTestCase {
 
     private func launch(initialTab: String) {
         app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
-                               "-initialTab", initialTab]
+                               "-initialTab", initialTab, "-disableStarAnimation", "YES"]
         app.launch()
         for label in ["页面加载中", "页面加载完成"] {
             let overlay = app.descendants(matching: .any)[label]
@@ -37,10 +37,21 @@ final class SettingsAdaptiveLayoutUITests: XCTestCase {
     private var isSplit: Bool { app.descendants(matching: .any)["settings.sidebar"].exists }
 
     private func rotate(_ orientation: UIDeviceOrientation) {
+        let wasSplit = isSplit
         XCUIDevice.shared.orientation = orientation
-        // Let the rotation and any layout switch settle.
-        _ = app.wait(for: .runningForeground, timeout: 1)
-        Thread.sleep(forTimeInterval: 1.5)
+        let expectsLandscape = orientation.isLandscape
+        let rotated = NSPredicate { _, _ in
+            let frame = self.app.windows.firstMatch.frame
+            return frame.width > 0 && frame.height > 0 && (frame.width > frame.height) == expectsLandscape
+        }
+        let rotationWait = XCTNSPredicateExpectation(predicate: rotated, object: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [rotationWait], timeout: 5), .completed,
+                       "Window did not reach the requested orientation")
+        let expectsSplit = app.windows.firstMatch.frame.width >= (wasSplit ? 770 : 800)
+        let layoutSettled = NSPredicate { _, _ in self.isSplit == expectsSplit }
+        let layoutWait = XCTNSPredicateExpectation(predicate: layoutSettled, object: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [layoutWait], timeout: 5), .completed,
+                       "Settings did not settle into the layout for its window width")
     }
 
     func testDebugTerminalSurvivesLayoutChanges() {

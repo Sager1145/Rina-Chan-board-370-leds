@@ -21,6 +21,7 @@
 #include <freertos/task.h>
 
 static bool g_syncReady = false;
+static bool g_renderTaskReady = false;
 
 // LED、LittleFS、按钮、电源监控和 Web API，并在 Core 0 主循环中调度控制面。
 
@@ -78,7 +79,7 @@ void setup() {
 
     // 从 RinaLink 协议调度和按钮轮询中隔离出来。
     if (g_syncReady)
-        startScrollRenderTask();
+        g_renderTaskReady = startScrollRenderTask();
 
     initHardwareButtons();
 
@@ -104,8 +105,8 @@ void setup() {
 void loop() {
     // 稳定后，再执行延迟恢复和自动播放。
     servicePackedFrameQueue();
-    if (!g_syncReady) {
-        renderCurrentFrameToLedStrip();
+    if (!g_renderTaskReady) {
+        serviceScrollRender();
     }
     wifiManagerService();
     webSetupService();

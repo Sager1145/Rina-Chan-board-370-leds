@@ -13,6 +13,9 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FIRMWARE = ROOT / "esp32s3_firmware"
+IMPLEMENTATIONS = {
+    "battery_calibration_test.cpp": [FIRMWARE / "src/battery_calibration.cpp"],
+}
 
 
 def main():
@@ -23,7 +26,8 @@ def main():
             executable = Path(scratch) / source.stem
             print(f"Running {source.name}", flush=True)
             subprocess.run(compiler + ["-std=c++17", "-Wall", "-Wextra", "-Werror",
-                           f"-I{FIRMWARE / 'src'}", str(source), "-o", str(executable)],
+                           f"-I{FIRMWARE / 'src'}", str(source),
+                           *map(str, IMPLEMENTATIONS.get(source.name, [])), "-o", str(executable)],
                            cwd=ROOT, check=True)
             subprocess.run([str(executable)], cwd=ROOT, check=True)
         for source in sorted(tests.glob("*_test.py")):

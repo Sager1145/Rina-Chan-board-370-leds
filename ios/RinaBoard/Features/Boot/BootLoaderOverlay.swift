@@ -192,11 +192,11 @@ private final class BootStageView: UIView {
         activeObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.replayAfterForeground()
+            MainActor.assumeIsolated { self?.replayAfterForeground() }
         }
     }
 
-    deinit {
+    isolated deinit {
         if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
     }
 
@@ -455,7 +455,7 @@ private final class BootStageView: UIView {
     }
 }
 
-private extension CAMediaTimingFunction {
+@MainActor private extension CAMediaTimingFunction {
     static let linear = CAMediaTimingFunction(name: .linear)
     static let haloContract = BootTimeline.Curve.haloContract
     static let avatarPop = BootTimeline.Curve.avatarPop

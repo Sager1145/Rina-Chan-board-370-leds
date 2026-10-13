@@ -6,7 +6,7 @@ import RinaCore
 /// `TextPreviewInvalidationTests` to prove that the Text tab's per-tick
 /// preview updates invalidate only the small subviews that read them, not
 /// the parent page. Compiled out of Release.
-enum PR9BodyProbe {
+@MainActor enum PR9BodyProbe {
     private static var counts: [String: Int] = [:]
 
     @discardableResult
@@ -140,15 +140,14 @@ struct ScrollTextView: View {
         if let group = targetedGroup {
             GroupScrollPreview(
                 group: group,
-                onSwap: { boardA, boardB in
-                        Task {
-                            do {
-                                try await groupCoordinator.swapMembers(group: group, boardA, boardB)
-                            } catch {
-                                model.errorMessage = String(localized: "调整顺序失败：\(error.localizedDescription)")
-                            }
-                        }
+                onMove: { sourceID, targetID in
+                    do {
+                        try await groupCoordinator.moveMember(group: group, from: sourceID, to: targetID)
+                    } catch {
+                        model.errorMessage = String(localized: "调整顺序失败：\(error.localizedDescription)")
+                        throw error
                     }
+                }
             )
         } else {
             // `.inert` by default: the scroll preview mirrors the board's
@@ -162,7 +161,7 @@ struct ScrollTextView: View {
             model: model,
             connection: connection,
             groupPhase: groupPhase,
-            groupFrame: pausedGroupSnapshot.flatMap { _ in groupCoordinator.currentFrame() },
+            groupFrame: pausedGroupSnapshot.flatMap { _ in groupCoordinator.previewFrame() },
             groupFrameCount: pausedGroupSnapshot?.frameCount
         )
     }
@@ -170,8 +169,8 @@ struct ScrollTextView: View {
     /// The footer's frame counter is not clock-driven, so it only shows the
     /// group's position while that is a fixed frame: the targeted group, paused.
     private var pausedGroupSnapshot: BoardGroupCoordinator.PlaybackSnapshot? {
-        guard let group = targetedGroup, groupCoordinator.isPaused,
-              let snapshot = groupCoordinator.playbackSnapshot, snapshot.groupID == group.id else { return nil }
+        guard let group = targetedGroup, groupCoordinator.previewIsPaused,
+              let snapshot = groupCoordinator.previewSnapshot, snapshot.groupID == group.id else { return nil }
         return snapshot
     }
 
@@ -888,9 +887,11 @@ private struct GroupMeasuredFpsRow: View {
     @Environment(BoardGroupCoordinator.self) private var coordinator
 
     var body: some View {
+        let holdsPausedPreview = coordinator.previewIsPaused && coordinator.previewSnapshot?.groupID == group.id
         let telemetry = GroupScrollTelemetry(
             group: group, coordinator: coordinator,
-            active: coordinator.groupIsActive(group), paused: coordinator.groupIsPaused(group)
+            active: coordinator.groupIsActive(group) || holdsPausedPreview,
+            paused: coordinator.groupIsPaused(group) || holdsPausedPreview
         )
         LabeledContent("面板配置帧率") {
             Text(label(telemetry.boardFps))

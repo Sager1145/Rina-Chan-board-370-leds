@@ -28,7 +28,11 @@
 #
 # Usage:
 #   RINA_SIM_ID=<simulator UDID> ./tools/verify_ios.sh [core] [app] [concurrency]
-# With no lane names it runs all three. `xcrun simctl list devices available`
+# With no lane names it runs core, facesync, facesync-guard, app, concurrency and mac.
+# The Mac lane runs the same app unit tests on Mac Catalyst; physical boards
+# are opt-in through tools/test_mac_boards.sh.
+# The UI lane is explicit: add `ui` when a simulator is available for UI automation.
+# `xcrun simctl list devices available`
 # lists UDIDs. Pass a UDID rather than a name, because several simulators can
 # share a name. Build products go under $RINA_VERIFY_DIR (default
 # $TMPDIR/rinaboard-verify), outside ~/Documents: SwiftPM's test bundle fails
@@ -37,36 +41,34 @@
 set -uo pipefail
 
 # Distinct file:line sites, counted the way lane_concurrency counts them.
-APP_STRICT_CONCURRENCY_BASELINE=44
+APP_STRICT_CONCURRENCY_BASELINE=29
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORK=${RINA_VERIFY_DIR:-${TMPDIR:-/tmp}/rinaboard-verify}
 mkdir -p "$WORK"
 
 lanes=("$@")
-[ ${#lanes[@]} -eq 0 ] && lanes=(core app concurrency)
+[ ${#lanes[@]} -eq 0 ] && lanes=(core facesync facesync-guard app concurrency mac)
 
 failed=()
 summary=()
 
 # Prints "executed skipped failures" from the last top-level summary line.
 test_counts() {
-    grep -E 'Executed [0-9]+ tests?, with' "$1" | tail -1 | sed -E \
-        -e 's/.*Executed ([0-9]+) tests?, with (([0-9]+) tests? skipped and )?([0-9]+) failures?.*/\1 \3 \4/' \
-        | awk '{ print $1, ($3 == "" ? 0 : $2), ($3 == "" ? $2 : $3) }'
+    python3 "$ROOT/tools/ios_test_counts.py" "$1"
 }
 
 # $1 lane, $2 log, $3 exit status of the run.
 judge_tests() {
     local lane=$1 log=$2 status=$3 counts executed skipped failures
-    counts=$(test_counts "$log")
+    counts=$(test_counts "$log" "$lane")
     if [ -z "$counts" ]; then
         failed+=("$lane")
         summary+=("$lane: FAIL, no test summary found (build failure?); see $log")
         return
     fi
     read -r executed skipped failures <<<"$counts"
-    if [ "$status" -ne 0 ] || [ "$failures" -ne 0 ] || [ "$executed" -eq 0 ]; then
+    if [ "$status" -ne 0 ] || [ "$failures" -ne 0 ] || [ "$((executed - skipped))" -le 0 ]; then
         failed+=("$lane")
         summary+=("$lane: FAIL, $executed executed, $skipped skipped, $failures failed (exit $status); see $log")
     else
@@ -80,6 +82,37 @@ lane_core() {
     swift test --package-path "$ROOT/ios/Packages/RinaCore" \
         --scratch-path "$WORK/rinacore-build" >"$log" 2>&1
     judge_tests core "$log" $?
+}
+
+lane_facesync() {
+    local log="$WORK/facesync.log"
+    echo "==> facesync: swift test (RinaFaceSync)"
+    swift test --package-path "$ROOT/ios/Packages/RinaFaceSync" \
+        --scratch-path "$WORK/facesync-build" >"$log" 2>&1
+    judge_tests facesync "$log" $?
+}
+
+lane_facesync_guard() {
+    local log="$WORK/facesync-guard.log"
+    echo "==> facesync-guard: integration boundary checks"
+    if c++ -std=c++17 -Wall -Wextra -Werror "$ROOT/ios/Packages/RinaFaceSync/Firmware/guard_test.cpp" \
+            -o "$WORK/facesync-guard" >"$log" 2>&1 && "$WORK/facesync-guard" >>"$log" 2>&1; then
+        summary+=("facesync-guard: ok; see $log")
+    else
+        failed+=(facesync-guard)
+        summary+=("facesync-guard: FAIL; see $log")
+    fi
+}
+
+lane_ui() {
+    local log="$WORK/ui.log"
+    require_sim || { failed+=(ui); summary+=("ui: FAIL, RINA_SIM_ID not set"); return; }
+    echo "==> ui: RinaBoardUITests on $RINA_SIM_ID"
+    xcodebuild test -project "$ROOT/ios/RinaBoard.xcodeproj" -scheme RinaBoard \
+        -destination "platform=iOS Simulator,id=$RINA_SIM_ID" -derivedDataPath "$WORK/ui-dd" \
+        CODE_SIGNING_ALLOWED=NO -only-testing:RinaBoardUITests \
+        -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 >"$log" 2>&1
+    judge_tests ui "$log" $?
 }
 
 require_sim() {
@@ -112,6 +145,20 @@ lane_app() {
     judge_tests app "$log" $?
 }
 
+lane_mac() {
+    local log="$WORK/mac.log" sign_identity="${RINA_MAC_SIGN_IDENTITY:--}"
+    echo "==> mac: shared RinaBoardTests on Mac Catalyst"
+    TEST_RUNNER_RINA_MAC_TEST_HOST=1 xcodebuild test -project "$ROOT/ios/RinaBoard.xcodeproj" -scheme RinaBoardMac \
+        -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath "$WORK/mac-dd" \
+        CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$sign_identity" DEVELOPMENT_TEAM= \
+        -only-testing:RinaBoardTests -skip-testing:RinaBoardTests/MacBoardHardwareTests \
+        -skip-testing:RinaBoardTests/MacFeatureHardwareTests \
+        -skip-testing:RinaBoardTests/MacBoardStressHardwareTests \
+        -collect-test-diagnostics never -test-timeouts-enabled YES \
+        -maximum-test-execution-time-allowance 120 >"$log" 2>&1
+    judge_tests mac "$log" $?
+}
+
 lane_concurrency() {
     local log="$WORK/concurrency.log" sites
     echo "==> concurrency: app with SWIFT_STRICT_CONCURRENCY=complete"
@@ -140,9 +187,13 @@ lane_concurrency() {
 for lane in "${lanes[@]}"; do
     case "$lane" in
         core) lane_core ;;
+        facesync) lane_facesync ;;
+        facesync-guard) lane_facesync_guard ;;
         app) lane_app ;;
+        ui) lane_ui ;;
         concurrency) lane_concurrency ;;
-        *) echo "unknown lane: $lane (expected core, app, concurrency)" >&2; exit 2 ;;
+        mac) lane_mac ;;
+        *) echo "unknown lane: $lane (expected core, facesync, facesync-guard, app, ui, concurrency, mac)" >&2; exit 2 ;;
     esac
 done
 

@@ -222,9 +222,12 @@ public final class GroupAutoConnector {
                 && $0.connection.boardIdentity == id }) {
                 cancelQueued(id)
                 if failureCount[id] != nil { failureCount[id] = nil }
-                // Connected elsewhere clears the user-disconnect block on
-                // every session that is this member, not just the live one.
-                for session in matching where session.connection.wasUserDisconnected {
+                // A live alias may clear a past ordinary disconnect, but a
+                // person's "stop automatic retries" choice is persistent.
+                // Only explicit target selection or connectNow may clear it.
+                for session in matching
+                where session.connection.wasUserDisconnected
+                    && session.connection.isAutomaticReconnectEnabled {
                     session.connection.resetUserDisconnected()
                 }
                 if let proven = sessions.session(matchingGroupMember: id),

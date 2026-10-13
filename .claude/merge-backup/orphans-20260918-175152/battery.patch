@@ -1,0 +1,321 @@
+diff --git a/ios/RinaBoard/Features/ControlCenter/BoardBattery.swift b/ios/RinaBoard/Features/ControlCenter/BoardBattery.swift
+index 8c9d8b6..da31ed4 100644
+--- a/ios/RinaBoard/Features/ControlCenter/BoardBattery.swift
++++ b/ios/RinaBoard/Features/ControlCenter/BoardBattery.swift
+@@ -120,3 +120,81 @@ struct BoardBatteryRow: View {
+         }
+     }
+ }
++
++/// A battery glyph plus the percentage, for places that list several boards
++/// (the group member list, the group editor) so every board shows an icon,
++/// not just a number. The fill tracks the level to the percent (not SF
++/// Symbols' five steps). Red at 20% and below, like the accessory's ring.
++struct BoardBatteryLabel: View {
++    let reading: BatteryReading?
++    let charging: Bool
++    let connectionState: BoardConnectionState
++
++    var body: some View {
++        HStack(spacing: 4) {
++            BatteryGlyph(level: level, fill: fillColor, charging: charging)
++            Text(text)
++                .monospacedDigit()
++        }
++        .accessibilityElement(children: .ignore)
++        .accessibilityLabel("剩余电量")
++        .accessibilityValue(charging ? "\(text) 充电中" : text)
++        .animation(.snappy, value: reading)
++    }
++
++    private var level: Double {
++        if case .level(let percent) = reading { return Double(percent) / 100 }
++        return 0
++    }
++
++    private var fillColor: Color {
++        guard case .level(let percent) = reading else { return .secondary }
++        if charging { return .green }
++        return percent > 20 ? .secondary : .red
++    }
++
++    private var text: String {
++        switch reading {
++        case .level(let percent): return "\(percent)%"
++        case .notDetected: return String(localized: "未检测到电池")
++        case nil:
++            return connectionState == .connected ? "—" : String(localized: "未连接")
++        }
++    }
++}
++
++/// A horizontal battery outline whose inner bar is `level` (0...1) of the
++/// full width, sized with the surrounding text.
++private struct BatteryGlyph: View {
++    var level: Double
++    var fill: Color
++    var charging: Bool
++
++    @ScaledMetric(relativeTo: .caption) private var height: CGFloat = 10
++
++    var body: some View {
++        let width = height * 2.1
++        let line = max(1, height / 10)
++        let inset = line * 2
++        HStack(spacing: line) {
++            ZStack(alignment: .leading) {
++                RoundedRectangle(cornerRadius: height * 0.28)
++                    .strokeBorder(.secondary.opacity(0.6), lineWidth: line)
++                RoundedRectangle(cornerRadius: height * 0.16)
++                    .fill(fill)
++                    .frame(width: max(0, (width - inset * 2) * min(1, max(0, level))))
++                    .padding(inset)
++                if charging {
++                    Image(systemName: "bolt.fill")
++                        .font(.system(size: height * 0.8, weight: .bold))
++                        .foregroundStyle(.primary)
++                        .frame(maxWidth: .infinity)
++                }
++            }
++            .frame(width: width, height: height)
++            RoundedRectangle(cornerRadius: line)
++                .fill(.secondary.opacity(0.6))
++                .frame(width: line * 1.5, height: height * 0.4)
++        }
++    }
++}
+diff --git a/ios/RinaBoard/Features/ControlCenter/BoardControlCenterAccessory.swift b/ios/RinaBoard/Features/ControlCenter/BoardControlCenterAccessory.swift
+index b35e9f3..e5e741b 100644
+--- a/ios/RinaBoard/Features/ControlCenter/BoardControlCenterAccessory.swift
++++ b/ios/RinaBoard/Features/ControlCenter/BoardControlCenterAccessory.swift
+@@ -283,43 +283,51 @@ struct BoardControlCenterAccessory: View {
+     /// percentage in white. Otherwise it is the connection-state symbol. The
+     /// cell is the ring's size in every state, so the title never shifts when
+     /// the badge changes.
++    ///
++    /// While a group is targeted it is one ring per member instead, in slot
++    /// order (user requirement: every board shows its own battery), shrunk as
++    /// the group grows so the title keeps its room. A member that is offline
++    /// or hasn't reported yet gets an empty gray ring.
+     @ViewBuilder
+     private var statusBadge: some View {
+-        Group {
+-            if let battery {
+-                BatteryRing(reading: battery)
+-            } else if targetedGroup != nil {
+-                Image(systemName: "rectangle.split.3x1")
+-                    .foregroundStyle(.tint)
+-                    .imageScale(.medium)
+-            } else {
+-                Image(systemName: symbol)
+-                    .foregroundStyle(tint)
+-                    .imageScale(.medium)
++        if let targetedGroup {
++            let diameter = Self.groupRingDiameter(memberCount: targetedGroup.members.count)
++            HStack(spacing: 3) {
++                ForEach(targetedGroup.members, id: \.physicalBoardID) { member in
++                    BatteryRing(reading: memberBattery(member))
++                        .frame(width: diameter, height: diameter)
++                }
++            }
++            .frame(height: Self.ringDiameter)
++            .accessibilityHidden(true)
++        } else {
++            Group {
++                if let battery = connection.batteryReading {
++                    BatteryRing(reading: battery)
++                } else {
++                    Image(systemName: symbol)
++                        .foregroundStyle(tint)
++                        .imageScale(.medium)
++                }
+             }
++            .frame(width: Self.ringDiameter, height: Self.ringDiameter)
++            .accessibilityHidden(true)
+         }
+-        .frame(width: Self.ringDiameter, height: Self.ringDiameter)
+-        .accessibilityHidden(true)
+     }
+ 
+-    /// What the ring shows, or `nil` for the plain connection symbol (not
+-    /// connected, or no power report yet). While a group is targeted this is
+-    /// the lowest reported level among online members (user requirement:
+-    /// "keep showing lowest battery" — the one board most likely to need
+-    /// attention), falling back to the fallback icon above while no member
+-    /// has reported one yet. Otherwise the primary's own reading, same as
+-    /// the Control Center's battery bar (`BoardConnection.batteryReading`).
+-    private var battery: BatteryReading? {
+-        guard let targetedGroup else { return connection.batteryReading }
+-        let levels = targetedGroup.members.compactMap { member -> Int? in
+-            guard let memberConnection = groupCoordinator.session(for: member)?.connection,
+-                  memberConnection.connectionState == .connected,
+-                  case .level(let percent) = memberConnection.batteryReading
+-            else { return nil }
+-            return percent
++    /// Full size for one or two boards, smaller for bigger groups (up to
++    /// `BoardGroup.maxMembers`, 5) so five rings still leave the title room.
++    private static func groupRingDiameter(memberCount: Int) -> CGFloat {
++        switch memberCount {
++        case ...2: return ringDiameter
++        case 3: return 28
++        default: return 24
+         }
+-        guard let lowest = levels.min() else { return nil }
+-        return .level(lowest)
++    }
++
++    /// One member's battery, or `nil` while it's offline or has no report.
++    private func memberBattery(_ member: BoardGroup.Member) -> BatteryReading? {
++        groupCoordinator.session(for: member)?.connection.batteryReading
+     }
+ 
+     /// Routes the mode toggle to the synced group cycler while a group is
+@@ -455,17 +463,23 @@ struct BoardControlCenterAccessory: View {
+         return "\(online)/\(group.members.count) 在线"
+     }
+ 
+-    /// The state line plus the battery level, which is only drawn in the ring.
++    /// The state line plus the battery level, which is only drawn in the
++    /// ring(s). While a group is targeted every member's level is read out,
++    /// in slot order.
+     private var accessibilitySummary: String {
+-        switch battery {
+-        case .level(let percent):
+-            return subtitle + " · "
+-                + String(format: NSLocalizedString("电量 %lld%%", comment: "battery percent"), percent)
+-        case .notDetected:
+-            return subtitle + " · " + NSLocalizedString("未检测到电池", comment: "battery not detected")
+-        case nil:
+-            return subtitle
++        let readings: [BatteryReading?] = targetedGroup.map { $0.members.map(memberBattery) }
++            ?? [connection.batteryReading]
++        let parts = readings.compactMap { reading -> String? in
++            switch reading {
++            case .level(let percent):
++                return String(format: NSLocalizedString("电量 %lld%%", comment: "battery percent"), percent)
++            case .notDetected:
++                return NSLocalizedString("未检测到电池", comment: "battery not detected")
++            case nil:
++                return nil
++            }
+         }
++        return parts.isEmpty ? subtitle : subtitle + " · " + parts.joined(separator: "，")
+     }
+ 
+     private var stateText: String {
+@@ -503,7 +517,9 @@ struct BoardControlCenterAccessory: View {
+ /// exclamation mark instead of a number.
+ @available(iOS 26.0, *)
+ private struct BatteryRing: View {
+-    var reading: BatteryReading
++    /// `nil` draws an empty gray ring: a group member that is offline or
++    /// hasn't reported yet.
++    var reading: BatteryReading?
+ 
+     private static let lineWidth: CGFloat = 3
+     private static let gap: CGFloat = 2
+@@ -514,8 +530,11 @@ private struct BatteryRing: View {
+     }
+ 
+     private var color: Color {
+-        if case .level(let percent) = reading, percent > 20 { return .green }
+-        return .red
++        switch reading {
++        case .level(let percent) where percent > 20: return .green
++        case nil: return Color.gray.opacity(0.35)
++        default: return .red
++        }
+     }
+ 
+     var body: some View {
+@@ -540,6 +559,8 @@ private struct BatteryRing: View {
+                 case .notDetected:
+                     Image(systemName: "exclamationmark")
+                         .font(.system(size: 11, weight: .heavy))
++                case nil:
++                    EmptyView()
+                 }
+             }
+             .foregroundStyle(.white)
+diff --git a/ios/RinaBoard/Features/Groups/BoardGroupEditorView.swift b/ios/RinaBoard/Features/Groups/BoardGroupEditorView.swift
+index 840b5db..6e028ad 100644
+--- a/ios/RinaBoard/Features/Groups/BoardGroupEditorView.swift
++++ b/ios/RinaBoard/Features/Groups/BoardGroupEditorView.swift
+@@ -138,9 +138,17 @@ struct BoardGroupEditorView: View {
+         let connection = coordinator.session(for: member)?.connection
+         let nameAndStatus = VStack(alignment: .leading, spacing: 2) {
+             Text("\(slot + 1). \(displayName(for: member))")
+-            Text(statusAndBatteryText(status: status, connection: connection))
+-                .font(.caption)
+-                .foregroundStyle(BoardGroupStatusFormatting.color(status))
++            HStack(spacing: 6) {
++                Text(BoardGroupStatusFormatting.text(status))
++                    .foregroundStyle(BoardGroupStatusFormatting.color(status))
++                if let connection, connection.batteryReading != nil {
++                    BoardBatteryLabel(reading: connection.batteryReading,
++                                      charging: connection.isBatteryCharging,
++                                      connectionState: connection.connectionState)
++                        .foregroundStyle(.secondary)
++                }
++            }
++            .font(.caption)
+         }
+         let reorderButtons = HStack(spacing: 4) {
+             Button {
+@@ -187,20 +195,6 @@ struct BoardGroupEditorView: View {
+         coordinator.session(for: member)?.connection.deviceName ?? member.displayName
+     }
+ 
+-    /// The status text plus a battery reading, cheaply appended (user
+-    /// requirement: "显示所有板子的电池信息") — no extra row, just the
+-    /// existing status caption gaining a "· 82%" suffix.
+-    private func statusAndBatteryText(status: BoardGroupCoordinator.MemberStatus, connection: BoardConnection?) -> String {
+-        let base = BoardGroupStatusFormatting.text(status)
+-        guard let connection, let reading = connection.batteryReading else { return base }
+-        switch reading {
+-        case .level(let percent):
+-            return connection.isBatteryCharging ? "\(base) · \(percent)% ⚡︎" : "\(base) · \(percent)%"
+-        case .notDetected:
+-            return "\(base) · 未检测到电池"
+-        }
+-    }
+-
+     // MARK: - Add member sheet
+ 
+     private var availableSessions: [BoardSession] {
+diff --git a/ios/RinaBoard/Features/Groups/GroupMemberStatusList.swift b/ios/RinaBoard/Features/Groups/GroupMemberStatusList.swift
+index 5c11e67..601160c 100644
+--- a/ios/RinaBoard/Features/Groups/GroupMemberStatusList.swift
++++ b/ios/RinaBoard/Features/Groups/GroupMemberStatusList.swift
+@@ -123,13 +123,11 @@ struct GroupMemberStatusList: View {
+     @ViewBuilder
+     private func batteryLine(_ connection: BoardConnection?) -> some View {
+         if let connection {
+-            HStack(spacing: 6) {
+-                if connection.isBatteryCharging { Image(systemName: "bolt.fill") }
+-                Text(batteryText(connection.batteryReading, connectionState: connection.connectionState))
+-                    .monospacedDigit()
+-            }
+-            .font(.caption)
+-            .foregroundStyle(.secondary)
++            BoardBatteryLabel(reading: connection.batteryReading,
++                              charging: connection.isBatteryCharging,
++                              connectionState: connection.connectionState)
++                .font(.caption)
++                .foregroundStyle(.secondary)
+         }
+     }
+ 
+@@ -141,12 +139,4 @@ struct GroupMemberStatusList: View {
+                 .foregroundStyle(.red)
+         }
+     }
+-
+-    private func batteryText(_ reading: BatteryReading?, connectionState: BoardConnectionState) -> String {
+-        switch reading {
+-        case .level(let percent): return "\(percent)%"
+-        case .notDetected: return "未检测到电池"
+-        case nil: return connectionState == .connected ? "—" : "未连接"
+-        }
+-    }
+ }

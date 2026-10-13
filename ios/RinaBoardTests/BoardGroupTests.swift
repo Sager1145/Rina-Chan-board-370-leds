@@ -159,6 +159,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         /// "now" as a lower bound before an operation that will itself call
         /// `next()` many more times.
         func peek() -> Int64 { value }
+        func advance(by microseconds: Int64) { value += microseconds }
     }
 
     private func connectedSession(
@@ -186,9 +187,51 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         }
     }
 
+    func testAutomaticAdoptionDuringFontPreparationDoesNotCancelExplicitPlay() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+        let font = try BoardGroupCoordinator.loadDefaultFont()
+        var fontGate: CheckedContinuation<ArkPixelFont, Error>?
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, loadFont: {
+            try await withCheckedThrowingContinuation { fontGate = $0 }
+        })
+        let a = GroupFakeTransport()
+        let b = GroupFakeTransport()
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: a)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: b)
+        let created = store.create(name: "Reentrant adoption")
+        try store.addMember(groupID: created.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: created.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        let group = store.groups[0]
+        let play = Task { try await coordinator.play(group: group, text: "A", fps: 10, loop: true) }
+        await waitUntil { fontGate != nil }
+        XCTAssertNotNil(fontGate)
+        XCTAssertTrue(coordinator.isStarting)
+
+        // The Text view can request adoption while a new explicit start is
+        // preparing, because member status still describes the old scroll.
+        let adopted = await coordinator.adoptRunningScrollIfNeeded(group: group)
+        XCTAssertFalse(adopted)
+        XCTAssertTrue(coordinator.isStarting)
+        XCTAssertEqual(coordinator.startingGroupID, group.id)
+        fontGate?.resume(returning: font)
+        do {
+            try await play.value
+        } catch {
+            XCTFail("Automatic adoption must not cancel explicit playback: \(error)")
+        }
+
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertFalse(coordinator.isStarting)
+        XCTAssertNil(coordinator.startingGroupID)
+        XCTAssertEqual(a.sentGroupStartAtUs.count, 1)
+        XCTAssertEqual(b.sentGroupStartAtUs.count, 1)
+        await coordinator.stop(group: group)
+    }
+
     func testStopDuringFontPreparationPreventsLatePlay() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         var fontGate: CheckedContinuation<ArkPixelFont, Error>?
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, loadFont: {
             try await withCheckedThrowingContinuation { fontGate = $0 }
@@ -221,7 +264,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testStopDuringClockSamplingClearsStartingState() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let a = GroupFakeTransport()
         let b = GroupFakeTransport()
@@ -248,7 +291,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testStopPreservesOfflineAndRejectedMemberOutcomes() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let a = GroupFakeTransport()
         let b = GroupFakeTransport()
@@ -278,7 +321,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testUnsupportedMemberBlocksPlay() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -302,7 +345,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testAtUsMatchesAcrossBoardsWithIdenticalClocks() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let counter = Counter()
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, nowUs: { counter.next() })
 
@@ -341,7 +384,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testOfflineMemberBlocksPlay() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -362,7 +405,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testAbortsWhenMemberGenerationChangesMidPlay() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -399,7 +442,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testStopDuringPlaySendsNoFurtherGroupStart() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -434,7 +477,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testPartialGroupStartFailureStopsTheSuccessfulBoard() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -484,7 +527,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testReanchorAfterSingleBoardTakeoverSkipsThatMember() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -516,7 +559,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testReanchorNeverSendsGroupStartToANonMember() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -540,7 +583,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testSelectDoesNotInvalidateGroupOwnedSession() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         sessions.isGroupOwned = { [weak coordinator] session in coordinator?.isGroupOwned(session) ?? false }
 
@@ -562,7 +605,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// release every board it touched — not just the board that failed.
     func testUploadFailureOnOneBoardAbortsBothWithNoGroupStart() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -597,7 +640,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// at play() time (B4), so this exercises the guard the fix depends on.
     func testSecondPlaySupersedesFirstRunsReanchor() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -633,7 +676,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// original play() established.
     func testGenerationChangeTriggersRejoinOfThatBoardOnly() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -672,7 +715,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// completely alone.
     func testStopLeavesNonGroupOwnedMemberUntouched() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -700,13 +743,13 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testRequestReliableNotDroppedUnderBurst() async throws {
         let transport = GroupFakeTransport()
-        transport.cmdReplyDelay["set_color"] = 0.3
+        transport.holdCommands = ["set_color"]
         let connection = BoardConnection()
         _ = await connection.connect(using: transport)
 
         // Occupy the depth-4 drop-oldest command pump with one slow command.
         let occupier = Task { try await connection.command(.setColor(hex: "#ffffff")) }
-        try await Task.sleep(nanoseconds: 20_000_000)
+        await waitUntilTrue { transport.heldCommands["set_color"]?.isEmpty == false }
 
         var results: [Task<CommandReply, Error>] = []
         for _ in 0..<10 {
@@ -716,6 +759,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
             let reply = try await result.value
             XCTAssertEqual(reply.ok, true)
         }
+        transport.releaseCommandReplies("set_color")
         _ = try await occupier.value
     }
 
@@ -723,7 +767,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testUpdatePlaybackSendsOneGroupStartPerParticipantWithNewIntervalAndFrame() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let counter = Counter()
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, nowUs: { counter.next() })
 
@@ -753,7 +797,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testUpdatePlaybackDoesNothingWhenNotPlaying() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -777,7 +821,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testPauseSendsPauseScrollThenSameFrameSeekToEveryParticipantAndStopsReanchor() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -814,7 +858,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testResumeSendsGroupStartWithStartFrameEqualToPausedFrame() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -844,7 +888,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testStepWhilePausedSeeksAllParticipantsToPausedFramePlusDirection() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -871,7 +915,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testStepWhilePlayingPausesFirstThenSeeks() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -902,7 +946,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
 
     func testStopFromPausedWorks() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -935,7 +979,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// from there.
     func testStopEnabledFromPausedCoordinatorState() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -961,7 +1005,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// one out after the pause.
     func testPauseDuringMidSamplingReanchorSendsNoFurtherGroupStart() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1001,7 +1045,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// interval/loop — never send anything on the wire.
     func testUpdatePlaybackWhilePausedSendsNothing() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1031,7 +1075,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// anchor must reflect the new fps.
     func testReanchorMidSamplingSpeedChangeSendsNewIntervalNotStale() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1069,7 +1113,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// the interval `resume()` captured before sampling started.
     func testResumeMidSamplingSpeedChangeSendsNewIntervalNotStale() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1102,12 +1146,149 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.debugAnchorIntervalMs, expectedIntervalMs)
     }
 
+    func testResumeMidDeliveryPlaybackEditsReachEveryParticipant() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let a = GroupFakeTransport()
+        let b = GroupFakeTransport()
+        a.caps.append("group_60fps")
+        b.caps.append("group_60fps")
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: a)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: b)
+        let group = store.create(name: "Resume delivery edits")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        let frame = coordinator.pausedFrame
+        a.holdCommands.insert("group_start")
+        b.holdCommands.insert("group_start")
+        let resume = Task { await coordinator.resume(group: store.groups[0]) }
+        await waitUntilTrue {
+            a.heldCommands["group_start"]?.isEmpty == false || b.heldCommands["group_start"]?.isEmpty == false
+        }
+        await coordinator.updatePlayback(group: store.groups[0], fps: 25, loop: false)
+        await coordinator.updatePlayback(group: store.groups[0], fps: 60, loop: nil)
+        a.releaseCommandReplies("group_start")
+        b.releaseCommandReplies("group_start")
+        await resume.value
+
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertFalse(coordinator.isPaused)
+        XCTAssertFalse(coordinator.isStarting)
+        XCTAssertNil(coordinator.startingGroupID)
+        XCTAssertEqual(a.sentGroupStartIntervalMs.last, 17)
+        XCTAssertEqual(b.sentGroupStartIntervalMs.last, 17)
+        XCTAssertEqual(a.sentGroupStartLoops.last, false)
+        XCTAssertEqual(b.sentGroupStartLoops.last, false)
+        XCTAssertEqual(a.sentGroupStartFrames.last, frame)
+        XCTAssertEqual(b.sentGroupStartFrames.last, frame)
+        XCTAssertEqual(coordinator.playbackSnapshot?.intervalMs, 17)
+        await coordinator.stop(group: store.groups[0])
+    }
+
+    func testResumeDeliveryEditNeverReachesAReplacementPhysicalBoard() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let a = GroupFakeTransport()
+        let b = GroupFakeTransport()
+        a.caps.append("group_60fps")
+        b.caps.append("group_60fps")
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: a)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: b)
+        let group = store.create(name: "Resume identity replacement")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        a.holdCommands.insert("group_start")
+        b.holdCommands.insert("group_start")
+        let resume = Task { await coordinator.resume(group: store.groups[0]) }
+        await waitUntilTrue {
+            a.heldCommands["group_start"]?.isEmpty == false || b.heldCommands["group_start"]?.isEmpty == false
+        }
+        let aIsHeld = a.heldCommands["group_start"]?.isEmpty == false
+        let replacedSession = aIsHeld ? sessionB : sessionA
+        let replacedTransport = aIsHeld ? b : a
+        let survivor = aIsHeld ? a : b
+        await coordinator.updatePlayback(group: store.groups[0], fps: 60, loop: false)
+        let replacement = GroupFakeTransport()
+        replacement.wifiBoardId = "C"
+        _ = await replacedSession.connection.connect(using: replacement)
+        a.releaseCommandReplies("group_start")
+        b.releaseCommandReplies("group_start")
+        await resume.value
+
+        XCTAssertTrue(replacement.sentGroupStartAtUs.isEmpty, "a reused session now represents a different physical board")
+        XCTAssertEqual(replacedTransport.sentGroupStartAtUs.count, 1, "the stale connection must receive no resume commands")
+        XCTAssertEqual(survivor.sentGroupStartIntervalMs.last, 17)
+        XCTAssertEqual(survivor.sentGroupStartLoops.last, false)
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertFalse(coordinator.isStarting)
+        await coordinator.stop(group: store.groups[0])
+    }
+
+    func testPausedOfflineSpeedEditResumesCapableBoardsAt60Fps() async throws {
+        try await checkPausedOfflineSpeedEdit(reconnectCapable: true, expectedIntervalMs: 17)
+    }
+
+    func testPausedOfflineSpeedEditResumesLegacyBoardsAt50Fps() async throws {
+        try await checkPausedOfflineSpeedEdit(reconnectCapable: false, expectedIntervalMs: 20)
+    }
+
+    private func checkPausedOfflineSpeedEdit(reconnectCapable: Bool, expectedIntervalMs: Int) async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        let a = GroupFakeTransport()
+        let b = GroupFakeTransport()
+        let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: a)
+        let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: b)
+        let group = store.create(name: "Offline paused speed")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        let frame = coordinator.pausedFrame
+        sessionA.connection.disconnect()
+        sessionB.connection.disconnect()
+        await waitUntilTrue {
+            sessionA.connection.connectionState != .connected && sessionB.connection.connectionState != .connected
+        }
+        await coordinator.updatePlayback(group: store.groups[0], fps: 60, loop: false)
+        XCTAssertTrue(coordinator.isPaused)
+        let reconnectedA = GroupFakeTransport()
+        let reconnectedB = GroupFakeTransport()
+        reconnectedA.wifiBoardId = "A"
+        reconnectedB.wifiBoardId = "B"
+        if reconnectCapable {
+            reconnectedA.caps.append("group_60fps")
+            reconnectedB.caps.append("group_60fps")
+        }
+        _ = await sessionA.connection.connect(using: reconnectedA)
+        _ = await sessionB.connection.connect(using: reconnectedB)
+        await coordinator.resume(group: store.groups[0])
+
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertFalse(coordinator.isStarting)
+        XCTAssertEqual(reconnectedA.sentGroupStartIntervalMs.last, expectedIntervalMs)
+        XCTAssertEqual(reconnectedB.sentGroupStartIntervalMs.last, expectedIntervalMs)
+        XCTAssertEqual(reconnectedA.sentGroupStartLoops.last, false)
+        XCTAssertEqual(reconnectedB.sentGroupStartLoops.last, false)
+        XCTAssertEqual(reconnectedA.sentGroupStartFrames.last, frame)
+        XCTAssertEqual(reconnectedB.sentGroupStartFrames.last, frame)
+        XCTAssertEqual(coordinator.playbackSnapshot?.intervalMs, expectedIntervalMs)
+        await coordinator.stop(group: store.groups[0])
+    }
+
     /// R14 residue: if EVERY board's pause send fails, the coordinator must
     /// heal back to reporting `isPlaying`, not strand the UI on `isPaused`
     /// over boards that never actually paused.
     func testPauseHealsBackToPlayingWhenEveryBoardsPauseSendFails() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1146,7 +1327,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// tap is ignored outright, not sent as a second, possibly different, n.
     func testOverlappingPauseTapsSendASingleConsistentFrame() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1183,7 +1364,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// straight through.
     func testPlayAt60FpsClampsIntervalMsToFirmwareMinimum() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1204,7 +1385,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// Same floor, via `updatePlayback` (the live fps-change path).
     func testUpdatePlaybackAt60FpsClampsIntervalMsToFirmwareMinimum() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1228,7 +1409,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// advertises it plays and updates at a real 60 fps.
     func testGroup60FpsCapableBoardsGet17Ms() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1256,7 +1437,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// One legacy member holds the whole group to the 20 ms / 50 fps floor.
     func testGroupWithOneLegacyBoardStaysAt20Ms() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1273,6 +1454,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         try await coordinator.play(group: store.groups[0], text: "快", fps: 60, loop: true)
         XCTAssertEqual(transportA.sentGroupStartIntervalMs.last, 20)
         XCTAssertEqual(transportB.sentGroupStartIntervalMs.last, 20)
+        XCTAssertEqual(coordinator.activeFps, 50, "configured FPS must still reflect the legacy capability cap")
     }
 
     /// Starting group two stops group one's boards that group two doesn't
@@ -1282,7 +1464,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// work again.
     func testFreshCoordinatorAdoptsStillRunningGroupScroll() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let first = BoardGroupCoordinator(store: store, sessions: sessions)
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
@@ -1318,12 +1500,47 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertTrue(relaunched.isPaused, "controls work again after adoption")
     }
 
+    func testAdoptionRetainsOnlyValidCompatibleRequestedFps() async throws {
+        for (reportedFps, expectedFps) in [(60, 60), (500, 59), (30, 59)] {
+            let sessions = BoardSessionStore()
+            let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+            let first = BoardGroupCoordinator(store: store, sessions: sessions)
+            let a = GroupFakeTransport()
+            let b = GroupFakeTransport()
+            a.caps.append("group_60fps")
+            b.caps.append("group_60fps")
+            _ = await connectedSession(sessions: sessions, identity: "A", transport: a)
+            _ = await connectedSession(sessions: sessions, identity: "B", transport: b)
+            let group = store.create(name: "Requested adoption FPS")
+            try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+            try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+            try await first.play(group: store.groups[0], text: Self.longScrollText, fps: 60, loop: true)
+            let frameCount = try XCTUnwrap(first.playbackSnapshot?.frameCount)
+            let timelineId = try XCTUnwrap(a.lastBlobBeginMeta?["timelineId"] as? String)
+            first.markSupersededByControl()
+            for transport in [a, b] {
+                transport.scrollMeta = [
+                    "ok": true, "scrollTimelineId": timelineId, "sourceText": Self.longScrollText,
+                    "frameCount": frameCount, "frameIndex": 5, "scrollIntervalMs": 17,
+                    "uiFps": reportedFps, "firmwareScrollActive": true,
+                    "scrollLoop": true, "groupTimed": true,
+                ]
+            }
+            let adopted = BoardGroupCoordinator(store: store, sessions: sessions)
+            let didAdopt = await adopted.adoptRunningScroll(group: store.groups[0])
+            XCTAssertTrue(didAdopt)
+            XCTAssertEqual(adopted.activeFps, expectedFps)
+            XCTAssertEqual(adopted.playbackSnapshot?.intervalMs, 17)
+            await adopted.stop(group: store.groups[0])
+        }
+    }
+
     /// A group paused from the app has left group-timed mode on every board
     /// (the firmware drops it on `pause_scroll`). Adoption must still take it
     /// back — paused — or play/pause do nothing after a reconnect.
     func testFreshCoordinatorAdoptsPausedGroupScroll() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let first = BoardGroupCoordinator(store: store, sessions: sessions)
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
@@ -1360,7 +1577,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// is sent to them.
     func testAdoptionRefusedWhenBoardsDisagree() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
@@ -1392,7 +1609,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// so cancelling the awaiting task must not stop the adoption underneath.
     func testAdoptionCompletesWhenCallerIsCancelled() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let first = BoardGroupCoordinator(store: store, sessions: sessions)
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
@@ -1435,7 +1652,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// hammer disagreeing boards with `GET_SCROLL_META` on every restart.
     func testFailedAdoptionIsNotRetriedImmediately() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
@@ -1464,7 +1681,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// output lease the reconnect cleared (`source == nil`), not skip them.
     func testStopReachesStillScrollingBoardsAfterRelaunch() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
@@ -1488,7 +1705,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// back (re-upload + group_start) instead of silently skipping it.
     func testResumeAfterMemberReconnectedWhilePausedIncludesIt() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
@@ -1518,7 +1735,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// group ends paused on the stepped frame.
     func testStepAfterMemberReconnectedWhilePausedIncludesIt() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
@@ -1546,7 +1763,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// Drag-swap on an idle group only reorders.
     func testSwapMembersOnIdleGroupJustReorders() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let group = store.create(name: "换序组")
         for id in ["A", "B", "C"] {
@@ -1557,11 +1774,392 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isPlaying)
     }
 
+    func testMoveMemberInsertsAndShiftsNeighborsInBothDirections() async throws {
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+        let coordinator = BoardGroupCoordinator(store: store, sessions: BoardSessionStore())
+        let group = store.create(name: "Insertion order")
+        for id in ["A", "B", "C"] {
+            try store.addMember(groupID: group.id, member: .init(physicalBoardID: id, displayName: id))
+        }
+        let revision = store.groups[0].layoutRevision
+        try await coordinator.moveMember(group: store.groups[0], from: "A", to: "C")
+        XCTAssertEqual(store.groups[0].members.map(\.physicalBoardID), ["B", "C", "A"])
+        XCTAssertEqual(store.groups[0].layoutRevision, revision + 1)
+        try await coordinator.moveMember(group: store.groups[0], from: "A", to: "B")
+        XCTAssertEqual(store.groups[0].members.map(\.physicalBoardID), ["A", "B", "C"])
+        XCTAssertEqual(store.groups[0].layoutRevision, revision + 2)
+    }
+
+    func testMoveMemberWhilePlayingReplaysEachShiftedViewport() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
+        var transports: [GroupFakeTransport] = []
+        let group = store.create(name: "Playing insertion")
+        for id in ["A", "B", "C"] {
+            let transport = GroupFakeTransport()
+            transports.append(transport)
+            _ = await connectedSession(sessions: sessions, identity: id, transport: transport)
+            try store.addMember(groupID: group.id, member: .init(physicalBoardID: id, displayName: id))
+        }
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        try await coordinator.moveMember(group: store.groups[0], from: "A", to: "C")
+        XCTAssertEqual(coordinator.playbackSnapshot?.memberOrder.map(\.physicalBoardID), ["B", "C", "A"])
+        XCTAssertEqual(transports[0].lastBlobBeginMeta?["viewportX"] as? Int, 2 * MatrixGeometry.cols)
+        XCTAssertEqual(transports[1].lastBlobBeginMeta?["viewportX"] as? Int, 0)
+        XCTAssertEqual(transports[2].lastBlobBeginMeta?["viewportX"] as? Int, MatrixGeometry.cols)
+        XCTAssertTrue(coordinator.isPlaying)
+        await coordinator.stop(group: store.groups[0])
+    }
+
+    func testMoveMemberFailedReplayRestoresOrderAndRevision() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+        let font = try BoardGroupCoordinator.loadDefaultFont()
+        var failFont = false
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, loadFont: {
+            if failFont { throw RinaTransportError.underlying("Scripted font failure") }
+            return font
+        })
+        let group = store.create(name: "Insertion rollback")
+        for id in ["A", "B", "C"] {
+            _ = await connectedSession(sessions: sessions, identity: id, transport: GroupFakeTransport())
+            try store.addMember(groupID: group.id, member: .init(physicalBoardID: id, displayName: id))
+        }
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        let revision = store.groups[0].layoutRevision
+        failFont = true
+        do {
+            try await coordinator.moveMember(group: store.groups[0], from: "A", to: "C")
+            XCTFail("The failed replay must surface its error")
+        } catch {}
+        XCTAssertEqual(store.groups[0].members.map(\.physicalBoardID), ["A", "B", "C"])
+        XCTAssertEqual(store.groups[0].layoutRevision, revision)
+        XCTAssertEqual(coordinator.playbackSnapshot?.memberOrder.map(\.physicalBoardID), ["A", "B", "C"])
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertFalse(coordinator.isStarting)
+        await coordinator.pause(group: store.groups[0])
+        XCTAssertTrue(coordinator.isPaused)
+        await coordinator.stop(group: store.groups[0])
+    }
+
+    func testMoveMemberWhilePausedPreservesFrameAndPendingPlaybackSettings() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+        let clock = Counter()
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, nowUs: { clock.next() })
+        let group = store.create(name: "Paused insertion")
+        var connected: [BoardSession] = []
+        for id in ["A", "B", "C"] {
+            connected.append(await connectedSession(sessions: sessions, identity: id, transport: GroupFakeTransport()))
+            try store.addMember(groupID: group.id, member: .init(physicalBoardID: id, displayName: id))
+        }
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        await coordinator.step(group: store.groups[0], direction: 3)
+        XCTAssertEqual(coordinator.pausedFrame, 3)
+        await coordinator.updatePlayback(group: store.groups[0], fps: 60, loop: false)
+        XCTAssertEqual(coordinator.playbackSnapshot?.intervalMs, 20, "the original legacy connections cap the stored anchor")
+
+        var reconnected: [GroupFakeTransport] = []
+        for (index, id) in ["A", "B", "C"].enumerated() {
+            let transport = GroupFakeTransport()
+            transport.wifiBoardId = id
+            transport.caps.append("group_60fps")
+            // Replay delivery consumes enough time for its start instant to
+            // pass. Re-pausing must still seek the original held frame.
+            transport.onGroupStart = { _ in clock.advance(by: 1_000_000) }
+            _ = await connected[index].connection.connect(using: transport)
+            reconnected.append(transport)
+        }
+        try await coordinator.moveMember(group: store.groups[0], from: "A", to: "C")
+
+        XCTAssertTrue(coordinator.isPaused)
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertFalse(coordinator.isStarting)
+        XCTAssertEqual(coordinator.currentFrame(), 3)
+        XCTAssertEqual(coordinator.playbackSnapshot?.memberOrder.map(\.physicalBoardID), ["B", "C", "A"])
+        XCTAssertEqual(coordinator.playbackSnapshot?.intervalMs, 17, "replay must retain the requested 60 FPS, then use the new capabilities")
+        for transport in reconnected {
+            XCTAssertEqual(transport.sentGroupStartFrames.last, 3)
+            XCTAssertEqual(transport.sentGroupStartIntervalMs.last, 17)
+            XCTAssertEqual(transport.sentGroupStartLoops.last, false)
+            XCTAssertEqual(transport.sentScrollSeekFrames.last, 3)
+            transport.onGroupStart = nil
+        }
+        await coordinator.resume(group: store.groups[0])
+        XCTAssertTrue(coordinator.isPlaying)
+        for transport in reconnected {
+            XCTAssertEqual(transport.sentGroupStartFrames.last, 3)
+            XCTAssertEqual(transport.sentGroupStartIntervalMs.last, 17)
+            XCTAssertEqual(transport.sentGroupStartLoops.last, false)
+        }
+        await coordinator.stop(group: store.groups[0])
+    }
+
+    func testPausedMoveRetainsRequested60FpsWithoutPausedSpeedEdit() async throws {
+        for (initialFps, reconnect) in [(60, false), (10, false), (60, true)] {
+            let sessions = BoardSessionStore()
+            let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+            let clock = Counter()
+            let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, nowUs: { clock.next() })
+            let group = store.create(name: "Exact requested FPS")
+            var connected: [BoardSession] = []
+            var transports: [GroupFakeTransport] = []
+            for id in ["A", "B"] {
+                let transport = GroupFakeTransport()
+                transport.caps.append("group_60fps")
+                transports.append(transport)
+                connected.append(await connectedSession(sessions: sessions, identity: id, transport: transport))
+                try store.addMember(groupID: group.id, member: .init(physicalBoardID: id, displayName: id))
+            }
+            try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: initialFps, loop: true)
+            if initialFps != 60 { await coordinator.updatePlayback(group: store.groups[0], fps: 60, loop: nil) }
+            await coordinator.pause(group: store.groups[0])
+            await coordinator.step(group: store.groups[0], direction: 3)
+            if reconnect {
+                transports.removeAll()
+                for (index, id) in ["A", "B"].enumerated() {
+                    connected[index].connection.disconnect()
+                    let transport = GroupFakeTransport()
+                    transport.wifiBoardId = id
+                    transport.caps.append("group_60fps")
+                    _ = await connected[index].connection.connect(using: transport)
+                    transports.append(transport)
+                }
+            }
+            try await coordinator.moveMember(group: store.groups[0], from: "A", to: "B")
+            XCTAssertTrue(coordinator.isPaused)
+            XCTAssertEqual(coordinator.currentFrame(), 3)
+            XCTAssertEqual(coordinator.activeFps, 60, "requested FPS is distinct from the reciprocal of its rounded millisecond interval")
+            XCTAssertEqual(coordinator.playbackSnapshot?.intervalMs, 17)
+            for transport in transports {
+                XCTAssertEqual(transport.lastBlobBeginMeta?["fps"] as? Int, 60)
+                XCTAssertEqual(transport.sentGroupStartIntervalMs.last, 17)
+                XCTAssertEqual(transport.sentScrollSeekFrames.last, 3)
+            }
+            await coordinator.stop(group: store.groups[0])
+        }
+    }
+
+    func testPausedReorderRetainsConfirmedPreviewThroughClockPreparationAndClearsOnExit() async throws {
+        enum Exit: CaseIterable, Equatable { case success, failedStart, stop, cancel, takeover, superseded }
+        for exit in Exit.allCases {
+            let sessions = BoardSessionStore()
+            let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+            let clock = Counter()
+            let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, nowUs: { clock.next() })
+            let created = store.create(name: "Held preview \(exit)")
+            let a = GroupFakeTransport()
+            let b = GroupFakeTransport()
+            a.caps.append("group_60fps")
+            b.caps.append("group_60fps")
+            _ = await connectedSession(sessions: sessions, identity: "A", transport: a)
+            _ = await connectedSession(sessions: sessions, identity: "B", transport: b)
+            for id in ["A", "B"] {
+                try store.addMember(groupID: created.id, member: .init(physicalBoardID: id, displayName: id))
+            }
+            try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 60, loop: true)
+            await coordinator.pause(group: store.groups[0])
+            await coordinator.step(group: store.groups[0], direction: 244 - coordinator.pausedFrame)
+            XCTAssertEqual(coordinator.currentFrame(), 244)
+            let original = try XCTUnwrap(coordinator.playbackSnapshot)
+            let group = store.groups[0]
+            let expectedFrame = GroupScrollBitmap.frame(bitmap: original.bitmap,
+                                                       viewportX: original.viewportXs[0], frameIndex: 244)
+            a.holdCommands.insert("clock_sample")
+            b.holdCommands.insert("clock_sample")
+            let move = Task { try await coordinator.moveMember(group: group, from: "A", to: "B") }
+            await waitUntilTrue {
+                a.heldCommands["clock_sample"]?.isEmpty == false
+                    && b.heldCommands["clock_sample"]?.isEmpty == false
+            }
+            XCTAssertTrue(a.heldCommands["clock_sample"]?.isEmpty == false, "\(exit): replay must be stalled after upload")
+            XCTAssertTrue(coordinator.isStarting)
+            XCTAssertNil(coordinator.playbackSnapshot, "actual playback has not restarted")
+            XCTAssertNil(coordinator.activeFps, "held preview must not fabricate an active schedule")
+            XCTAssertNil(coordinator.currentFrame())
+            let held = try XCTUnwrap(coordinator.previewSnapshot)
+            XCTAssertEqual(held.memberOrder.map(\.physicalBoardID), ["A", "B"], "old physical viewports stay attached to their boards")
+            XCTAssertEqual(held.viewportXs, original.viewportXs)
+            XCTAssertEqual(coordinator.previewFrame(), 244)
+            XCTAssertTrue(coordinator.previewIsPaused)
+            XCTAssertEqual(GroupScrollBitmap.frame(bitmap: held.bitmap, viewportX: held.viewportXs[0], frameIndex: 244), expectedFrame)
+            for member in group.members {
+                XCTAssertFalse(coordinator.isLiveParticipant(member), "service participants have been torn down")
+                XCTAssertTrue(coordinator.isLivePreviewParticipant(member))
+                XCTAssertTrue(GroupPreviewPolicy.cellIsLive(coordinator.previewStatus(for: member),
+                    isLiveParticipant: coordinator.isLivePreviewParticipant(member), groupPaused: coordinator.previewIsPaused))
+            }
+
+            var stopTask: Task<Void, Never>?
+            var replacementTask: Task<Void, Error>?
+            switch exit {
+            case .success: break
+            case .failedStart: a.rejectGroupStart = true
+            case .stop:
+                stopTask = Task { await coordinator.stop(group: store.groups[0]) }
+                await waitUntilTrue { !coordinator.isStarting }
+                XCTAssertNil(coordinator.previewSnapshot, "stop discards held evidence before its transport awaits")
+            case .cancel: move.cancel()
+            case .takeover:
+                coordinator.markSupersededByControl()
+                XCTAssertNil(coordinator.previewSnapshot)
+            case .superseded:
+                let replacement = store.create(name: "Replacement")
+                for id in ["A", "B"] {
+                    try store.addMember(groupID: replacement.id, member: .init(physicalBoardID: id, displayName: id))
+                }
+                let replacementGroup = try XCTUnwrap(store.groups.first { $0.id == replacement.id })
+                replacementTask = Task { try await coordinator.play(group: replacementGroup, text: "B", fps: 10, loop: false) }
+                await waitUntilTrue { coordinator.startingGroupID == replacement.id }
+                XCTAssertNil(coordinator.previewSnapshot, "a new start must not reuse another attempt's paused image")
+            }
+            a.releaseCommandReplies("clock_sample")
+            b.releaseCommandReplies("clock_sample")
+            do {
+                try await move.value
+                if exit != .success { XCTFail("\(exit): interrupted reorder must not succeed") }
+            } catch {
+                if exit == .success { throw error }
+            }
+            await stopTask?.value
+            if let replacementTask { try await replacementTask.value }
+            if exit == .success {
+                XCTAssertEqual(coordinator.previewSnapshot?.memberOrder.map(\.physicalBoardID), ["B", "A"], "successful replay releases the old image")
+                XCTAssertEqual(coordinator.previewFrame(), 244)
+                XCTAssertTrue(coordinator.isPaused)
+                XCTAssertEqual(coordinator.activeFps, 60)
+            } else if exit == .superseded {
+                XCTAssertEqual(coordinator.previewSnapshot?.sourceText, "B", "stale completion cannot restore the held image over a newer play")
+                XCTAssertFalse(coordinator.previewIsPaused)
+            } else {
+                XCTAssertNil(coordinator.previewSnapshot, "\(exit): no held image may survive failed/stopped playback")
+                XCTAssertNil(coordinator.previewFrame())
+                XCTAssertFalse(coordinator.previewIsPaused)
+                XCTAssertNil(coordinator.activeFps)
+            }
+            let finalGroup = store.groups.first { $0.id == coordinator.activeGroupID } ?? store.groups[0]
+            await coordinator.stop(group: finalGroup)
+        }
+    }
+
+    func testMoveMemberPausedPreparationFailurePreservesFrameAndPendingSettings() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+        let clock = Counter()
+        let font = try BoardGroupCoordinator.loadDefaultFont()
+        var holdFont = false
+        var fontGate: CheckedContinuation<ArkPixelFont, Error>?
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, nowUs: { clock.next() }, loadFont: {
+            if holdFont { return try await withCheckedThrowingContinuation { fontGate = $0 } }
+            return font
+        })
+        let group = store.create(name: "Paused insertion rollback")
+        var connected: [BoardSession] = []
+        for id in ["A", "B", "C"] {
+            connected.append(await connectedSession(sessions: sessions, identity: id, transport: GroupFakeTransport()))
+            try store.addMember(groupID: group.id, member: .init(physicalBoardID: id, displayName: id))
+        }
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 10, loop: true)
+        await coordinator.pause(group: store.groups[0])
+        await coordinator.step(group: store.groups[0], direction: 3)
+        await coordinator.updatePlayback(group: store.groups[0], fps: 60, loop: false)
+        let revision = store.groups[0].layoutRevision
+        holdFont = true
+        let move = Task { try await coordinator.moveMember(group: store.groups[0], from: "A", to: "C") }
+        await waitUntilTrue { fontGate != nil }
+        XCTAssertTrue(coordinator.isPaused, "preparing a reorder must keep the held frame paused")
+        XCTAssertFalse(coordinator.isPlaying)
+        XCTAssertEqual(coordinator.currentFrame(), 3)
+        fontGate?.resume(throwing: RinaTransportError.underlying("Scripted font failure"))
+        do {
+            try await move.value
+            XCTFail("The failed replay must surface its error")
+        } catch {}
+        XCTAssertEqual(store.groups[0].members.map(\.physicalBoardID), ["A", "B", "C"])
+        XCTAssertEqual(store.groups[0].layoutRevision, revision)
+        XCTAssertTrue(coordinator.isPaused)
+        XCTAssertEqual(coordinator.currentFrame(), 3)
+        XCTAssertFalse(coordinator.isStarting)
+
+        holdFont = false
+        var reconnected: [GroupFakeTransport] = []
+        for (index, id) in ["A", "B", "C"].enumerated() {
+            let transport = GroupFakeTransport()
+            transport.wifiBoardId = id
+            transport.caps.append("group_60fps")
+            _ = await connected[index].connection.connect(using: transport)
+            reconnected.append(transport)
+        }
+        await coordinator.resume(group: store.groups[0])
+        XCTAssertTrue(coordinator.isPlaying)
+        XCTAssertEqual(coordinator.playbackSnapshot?.intervalMs, 17, "rollback must preserve the pending requested 60 FPS")
+        for transport in reconnected {
+            XCTAssertEqual(transport.sentGroupStartFrames.last, 3)
+            XCTAssertEqual(transport.sentGroupStartIntervalMs.last, 17)
+            XCTAssertEqual(transport.sentGroupStartLoops.last, false)
+        }
+        await coordinator.stop(group: store.groups[0])
+    }
+
+    /// Every physical identity reaches the slot selected by the current
+    /// ordering. Read the real per-board BLOB_BEGIN metadata after each
+    /// production play() call, so reversed/stale identity mapping fails.
+    func testAllFiveBoardOrderingsUploadEachIdentityItsOwnViewport() async throws {
+        func permutations(_ ids: [String]) -> [[String]] {
+            guard ids.count > 1 else { return [ids] }
+            return ids.enumerated().flatMap { index, id in
+                var remaining = ids
+                remaining.remove(at: index)
+                return permutations(remaining).map { [id] + $0 }
+            }
+        }
+        let ids = ["A", "B", "C", "D", "E"]
+        let orderings = permutations(ids)
+        XCTAssertEqual(orderings.count, 120)
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+        let font = try BoardGroupCoordinator.loadDefaultFont()
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, loadFont: { font })
+        var transports: [String: GroupFakeTransport] = [:]
+        for id in ids {
+            let transport = GroupFakeTransport()
+            _ = await connectedSession(sessions: sessions, identity: id, transport: transport)
+            transports[id] = transport
+        }
+        defer { sessions.sessions.forEach { $0.connection.disconnect() } }
+        let created = store.create(name: "Ordering oracle")
+        for gaps in [[0, 0, 0, 0], [3, 0, 5, 2]] {
+            for ordering in orderings {
+                var group = created
+                group.members = ordering.map { .init(physicalBoardID: $0, displayName: $0) }
+                group.gapsAfter = gaps
+                group.layoutRevision = (store.groups.first?.layoutRevision ?? 0) + 1
+                store.restore(group)
+                let before = transports.mapValues { $0.blobBeginCount }
+                try await coordinator.play(group: group, text: "AB", fps: 10, loop: true)
+                XCTAssertEqual(coordinator.playbackSnapshot?.memberOrder.map(\.physicalBoardID), ordering)
+                for (slot, id) in ordering.enumerated() {
+                    let transport = try XCTUnwrap(transports[id])
+                    XCTAssertGreaterThan(transport.blobBeginCount, before[id] ?? 0,
+                                         "Must inspect a fresh upload for \(id), ordering \(ordering)")
+                    let expectedX = slot * MatrixGeometry.cols + gaps.prefix(slot).reduce(0, +)
+                    XCTAssertEqual(transport.lastBlobBeginMeta?["viewportX"] as? Int, expectedX,
+                                   "board=\(id) ordering=\(ordering) gaps=\(gaps)")
+                    XCTAssertEqual(transport.lastBlobBeginMeta?["virtualWidth"] as? Int,
+                                   ids.count * MatrixGeometry.cols + gaps.reduce(0, +))
+                }
+            }
+        }
+        await coordinator.stop(group: try XCTUnwrap(store.groups.first))
+    }
+
     /// Drag-swap while playing restarts with the new layout: each board's
     /// fresh upload carries its new slot's viewport.
     func testSwapMembersWhilePlayingReplaysWithNewViewports() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
@@ -1590,7 +2188,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// as it was, so the running playback keeps its controls.
     func testSwapMembersWithOfflineMemberFailsAndKeepsPlaybackControllable() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
@@ -1625,7 +2223,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// use, and leaves the shared board to group two.
     func testPlayingAnotherGroupStopsThePreviousGroupsOtherBoards() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1670,7 +2268,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// the next re-anchor/rejoin pass computes against) exactly as it was.
     func testUpdatePlaybackRejectedByAllBoardsLeavesAnchorUnchanged() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1710,16 +2308,14 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// stale re-claim.
     func testManualClaimBetweenUploadAndClockSamplingAbortsPlay() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
-        // Slow the clock-sample exchange (not the upload) so there's a real
-        // window between "both uploads landed" and "group_start about to
-        // send" for the test to steal A's lease in.
-        transportA.clockSampleReplyDelay = 0.05
-        transportB.clockSampleReplyDelay = 0.05
+        // Hold the real clock-sample request after upload has completed.
+        transportA.holdCommands = ["clock_sample"]
+        transportB.holdCommands = ["clock_sample"]
         let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
         _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
 
@@ -1728,12 +2324,10 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
 
         let playTask = Task { try await coordinator.play(group: store.groups[0], text: "测试", fps: 10, loop: true) }
-        // Wait for both boards' uploads to reach BEGIN (and settle), then
-        // steal A's output lease before the (slowed) clock-sample phase
-        // finishes.
-        await waitUntil { transportA.lastBlobBeginMeta != nil && transportB.lastBlobBeginMeta != nil }
-        try await Task.sleep(nanoseconds: 50_000_000)
+        await waitUntilTrue { transportA.heldCommands["clock_sample"]?.isEmpty == false }
         sessionA.connection.output.claim(.manual)
+        transportA.releaseCommandReplies("clock_sample")
+        transportB.releaseCommandReplies("clock_sample")
 
         do {
             try await playTask.value
@@ -1755,13 +2349,13 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// this and leave the new play alone.
     func testUnwaitedStopFollowedByPlaySucceeds() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
-        transportA.cmdReplyDelay["stop_scroll"] = 0.3
-        transportB.cmdReplyDelay["stop_scroll"] = 0.3
+        transportA.holdCommands = ["stop_scroll"]
+        transportB.holdCommands = ["stop_scroll"]
         let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
         _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
 
@@ -1773,10 +2367,16 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertTrue(coordinator.isPlaying)
 
         let stopTask = Task { await coordinator.stop(group: store.groups[0]) }
-        // Give stop() time to claim its lease and send the (slow) stop_scroll.
-        try await Task.sleep(nanoseconds: 20_000_000)
+        await waitUntilTrue { transportA.heldCommands["stop_scroll"]?.isEmpty == false }
 
-        try await coordinator.play(group: store.groups[0], text: "第二次", fps: 10, loop: true)
+        let newerPlay = Task { try await coordinator.play(group: store.groups[0], text: "第二次", fps: 10, loop: true) }
+        await waitUntilTrue { coordinator.isStarting && coordinator.startingGroupID == group.id }
+        // The newer attempt has claimed its boards; release the stale stop
+        // now, before awaiting playback, so the command channel never has
+        // to escape through a request timeout.
+        transportA.releaseCommandReplies("stop_scroll")
+        transportB.releaseCommandReplies("stop_scroll")
+        try await newerPlay.value
         await stopTask.value
 
         XCTAssertTrue(coordinator.isPlaying, "the second play must win over the stale, still-in-flight stop()")
@@ -1791,7 +2391,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// this coordinator's state is wiped.
     func testFailedSecondPlayWithTooWideTextLeavesFirstPlayRunning() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1842,7 +2442,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// directly comparable to real elapsed wall time.
     func testUpdatePlaybackPicksSwitchTimeAfterItsOwnSampling() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -1884,6 +2484,65 @@ final class BoardGroupCoordinatorTests: XCTestCase {
                               "switch time must be chosen after this pass's own clock sampling, not before it")
     }
 
+    func testSpeedIncreaseWithMixedClockRttsDoesNotFreezeFastBoard() async throws {
+        let sessions = BoardSessionStore()
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
+        let clock = Counter(1_000_000)
+        let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, nowUs: { clock.next() })
+        let fast = GroupFakeTransport()
+        let slow = GroupFakeTransport()
+        defer {
+            fast.onClockSample = nil
+            slow.onClockSample = nil
+        }
+        for transport in [fast, slow] {
+            transport.caps.append("group_60fps")
+            transport.onClockSample = {
+                transport.clockRxUs = clock.peek()
+                transport.clockTxUs = clock.peek()
+            }
+        }
+        _ = await connectedSession(sessions: sessions, identity: "A", transport: fast)
+        _ = await connectedSession(sessions: sessions, identity: "B", transport: slow)
+        let group = store.create(name: "Mixed RTT speed increase")
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
+        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
+        try await coordinator.play(group: store.groups[0], text: Self.longScrollText, fps: 1, loop: true)
+        // The slow connection consumes 200 ms per exchange, with its board
+        // receive/transmit midpoint on the same clock as the fast board.
+        slow.onClockSample = {
+            slow.clockRxUs = clock.peek() + 100_000
+            slow.clockTxUs = slow.clockRxUs
+            clock.advance(by: 200_000)
+        }
+        // Keep slow replies gated until the fast board has completed its
+        // fresh burst. Advancing virtual time during every fast outbound
+        // request would manufacture an asymmetric 200 ms fast RTT and a
+        // false +100 ms clock offset, rather than model a fast connection.
+        var fastSampleCount = 0
+        fast.onClockSample = {
+            fast.clockRxUs = clock.peek()
+            fast.clockTxUs = clock.peek()
+            fastSampleCount += 1
+        }
+        slow.holdCommands.insert("clock_sample")
+        var fastArrival: (atUs: Int64, nowUs: Int64)?
+        fast.onGroupStart = { atUs in fastArrival = (atUs, clock.peek()) }
+        let update = Task { await coordinator.updatePlayback(group: store.groups[0], fps: 60, loop: nil) }
+        await waitUntilTrue {
+            fastSampleCount == 4 && slow.heldCommands["clock_sample"]?.isEmpty == false
+        }
+        slow.releaseCommandReplies("clock_sample")
+        await update.value
+
+        let arrival = try XCTUnwrap(fastArrival)
+        XCTAssertLessThanOrEqual(arrival.atUs, arrival.nowUs,
+                                 "a fast board must advance immediately, without holding until the slow board's RTT margin")
+        XCTAssertEqual(fast.sentGroupStartIntervalMs.last, 17)
+        XCTAssertEqual(slow.sentGroupStartIntervalMs.last, 17)
+        await coordinator.stop(group: store.groups[0])
+    }
+
     // MARK: - Cross-group stop / overlapping play / resume rejection (reviewer fixes)
 
     /// Reviewer fix: a `stop()` for G1={A,B,C} whose `stop_scroll` reply from
@@ -1899,14 +2558,14 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// token) -- must be left alone by the stale `stop()`.
     func testCrossGroupStopLeavesUnclaimedSiblingsStopped() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
         let transportC = GroupFakeTransport()
         let transportD = GroupFakeTransport()
-        transportA.cmdReplyDelay["stop_scroll"] = 0.3
+        transportA.holdCommands = ["stop_scroll"]
         let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
         let sessionB = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
         let sessionC = await connectedSession(sessions: sessions, identity: "C", transport: transportC)
@@ -1924,10 +2583,14 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertTrue(coordinator.isPlaying)
 
         let stopTask = Task { await coordinator.stop(group: store.groups.first { $0.id == group1.id }!) }
-        // Give stop() time to reach A (the first member) and start its slow stop_scroll.
-        try await Task.sleep(nanoseconds: 20_000_000)
+        await waitUntilTrue { transportA.heldCommands["stop_scroll"]?.isEmpty == false }
 
-        try await coordinator.play(group: store.groups.first { $0.id == group2.id }!, text: "组二", fps: 10, loop: true)
+        let newerPlay = Task {
+            try await coordinator.play(group: store.groups.first { $0.id == group2.id }!, text: "组二", fps: 10, loop: true)
+        }
+        await waitUntilTrue { coordinator.isStarting && coordinator.startingGroupID == group2.id }
+        transportA.releaseCommandReplies("stop_scroll")
+        try await newerPlay.value
         await stopTask.value
 
         XCTAssertTrue(transportB.receivedStopScroll, "B must still be stopped despite the cross-group race")
@@ -1949,20 +2612,20 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// wipe out the second play's still-in-flight upload spinner state.
     func testStalePlayAbortDoesNotClearNewerPlaysIsStarting() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
         let transportB = GroupFakeTransport()
-        transportA.clockSampleReplyDelay = 0.05
-        transportB.clockSampleReplyDelay = 0.05
+        transportA.holdCommands = ["clock_sample"]
+        transportB.holdCommands = ["clock_sample"]
         let sessionA = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
         _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
 
         let transportC = GroupFakeTransport()
         let transportD = GroupFakeTransport()
-        transportC.clockSampleReplyDelay = 0.1
-        transportD.clockSampleReplyDelay = 0.1
+        transportC.holdCommands = ["clock_sample"]
+        transportD.holdCommands = ["clock_sample"]
         _ = await connectedSession(sessions: sessions, identity: "C", transport: transportC)
         _ = await connectedSession(sessions: sessions, identity: "D", transport: transportD)
 
@@ -1976,8 +2639,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         let playTask1 = Task {
             try await coordinator.play(group: store.groups.first { $0.id == group1.id }!, text: "第一次", fps: 10, loop: true)
         }
-        await waitUntil { transportA.lastBlobBeginMeta != nil && transportB.lastBlobBeginMeta != nil }
-        try await Task.sleep(nanoseconds: 50_000_000)
+        await waitUntilTrue { transportA.heldCommands["clock_sample"]?.isEmpty == false }
         // Forces play1 to abort at its next `stillValid()` check (after its
         // own clock-sampling phase finishes), the same technique
         // `testManualClaimBetweenUploadAndClockSamplingAbortsPlay` uses.
@@ -1989,7 +2651,9 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         // Wait until play2 has become the coordinator's active isStarting
         // attempt (and so has already bumped `playEpoch` past play1's own)
         // before letting play1's abort run.
-        await waitUntil { coordinator.startingGroupID == group2.id }
+        await waitUntilTrue { coordinator.startingGroupID == group2.id && transportC.heldCommands["clock_sample"]?.isEmpty == false }
+        transportA.releaseCommandReplies("clock_sample")
+        transportB.releaseCommandReplies("clock_sample")
 
         do {
             try await playTask1.value
@@ -2002,6 +2666,8 @@ final class BoardGroupCoordinatorTests: XCTestCase {
         XCTAssertTrue(coordinator.isStarting)
         XCTAssertEqual(coordinator.startingGroupID, group2.id)
 
+        transportC.releaseCommandReplies("clock_sample")
+        transportD.releaseCommandReplies("clock_sample")
         try await playTask2.value
         XCTAssertTrue(coordinator.isPlaying)
         XCTAssertEqual(coordinator.activeGroupID, group2.id)
@@ -2015,7 +2681,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// `reply.ok` here at all.
     func testResumeStaysPausedWhenEveryBoardRejectsGroupStart() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -2051,7 +2717,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// gone would be stuck unable to accept any other single-board action.
     func testStopThenRemoveFromStoreReleasesEveryBoard() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -2086,7 +2752,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// bitmap re-upload — only clock samples + one `group_start`.
     func testRejoinSkipsUploadWhenBoardStillHoldsTheContent() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -2129,7 +2795,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// inside the board's own uptime without ever touching `currentAnchor`.
     func testRejoinOfRebootedBoardSendsNonNegativeAtUs() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let counter = Counter()
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions, nowUs: { counter.next() })
 
@@ -2173,7 +2839,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// re-anchor pass.
     func testDebugRejoinReconnectedNowRejoinsWithoutFullReanchor() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -2205,7 +2871,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// and steal it from whatever now owns it.
     func testTakeoverThenReconnectIsNeverRejoined() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -2246,7 +2912,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// would freeze a playing board instead of switching smoothly.
     func testUpdatePlaybackNeverSendsAFutureAtUs() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -2288,7 +2954,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// no longer plays.
     func testStopClearsPlaybackSnapshotAndPolicyGivesDark() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -2318,7 +2984,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// stop treating the group as playing the instant the coordinator does.
     func testMarkSupersededByControlClearsPlaybackSnapshotAndPolicyGivesDark() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -2348,7 +3014,7 @@ final class BoardGroupCoordinatorTests: XCTestCase {
     /// until rejoined, while an untouched sibling stays live throughout.
     func testDisconnectedMemberIsNotLiveParticipantWhileOthersStayLive() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
 
         let transportA = GroupFakeTransport()
@@ -2397,10 +3063,20 @@ private final class GroupFakeTransport: RinaTransport {
     /// real elapsed wall time instead of it being dominated by a pinned
     /// constant.
     var clockUsesRealTime = false
+    var onClockSample: (() -> Void)?
+    var onGroupStart: ((Int64) -> Void)?
     /// Per-`cmd`-name reply delay, so a burst test can keep one slot of the
     /// command pump busy without delaying every reply.
     var cmdReplyDelay: [String: TimeInterval] = [:]
     var clockSampleReplyDelay: TimeInterval = 0
+    var holdCommands: Set<String> = []
+    private(set) var heldCommands: [String: [RinaLinkFrame]] = [:]
+
+    func releaseCommandReplies(_ name: String) {
+        holdCommands.remove(name)
+        let requests = heldCommands.removeValue(forKey: name) ?? []
+        for request in requests { emitReply(request, payload: replyPayload(for: request)) }
+    }
     /// B3: makes `BLOB_BEGIN` reply with undecodable JSON, so
     /// `uploadGroupScrollBitmap` throws for this board's upload without
     /// needing a timeout.
@@ -2425,6 +3101,7 @@ private final class GroupFakeTransport: RinaTransport {
     private(set) var sentGroupStartAtUs: [Int64] = []
     private(set) var sentGroupStartIntervalMs: [Int] = []
     private(set) var sentGroupStartFrames: [Int] = []
+    private(set) var sentGroupStartLoops: [Bool] = []
     private(set) var lastBlobBeginMeta: [String: Any]?
     private(set) var receivedStopScroll = false
     /// One entry per `pause_scroll` this board received.
@@ -2443,6 +3120,12 @@ private final class GroupFakeTransport: RinaTransport {
 
     func send(_ data: Data) async throws {
         for request in decoder.feed(data) {
+            if request.type == RinaLinkMessageType.cmd.rawValue,
+               let object = try? JSONSerialization.jsonObject(with: request.payload) as? [String: Any],
+               let name = object["cmd"] as? String, holdCommands.contains(name) {
+                heldCommands[name, default: []].append(request)
+                continue
+            }
             let delay = delay(for: request)
             if delay > 0 {
                 Task { @MainActor [weak self] in
@@ -2507,6 +3190,7 @@ private final class GroupFakeTransport: RinaTransport {
             case "get_info":
                 return (try? JSONSerialization.data(withJSONObject: ["ok": true, "proto": 1, "bootId": bootId, "caps": caps])) ?? Data()
             case "clock_sample":
+                onClockSample?()
                 let rx: Int64
                 let tx: Int64
                 if clockUsesRealTime {
@@ -2519,9 +3203,11 @@ private final class GroupFakeTransport: RinaTransport {
                 }
                 return (try? JSONSerialization.data(withJSONObject: ["ok": true, "rxUs": rx, "txUs": tx, "bootId": bootId])) ?? Data()
             case "group_start":
+                if let atUs = object["atUs"] as? NSNumber { onGroupStart?(atUs.int64Value) }
                 if let atUs = object["atUs"] as? NSNumber { sentGroupStartAtUs.append(atUs.int64Value) }
                 if let intervalMs = object["intervalMs"] as? NSNumber { sentGroupStartIntervalMs.append(intervalMs.intValue) }
                 sentGroupStartFrames.append(object["startFrame"] as? Int ?? 0)
+                sentGroupStartLoops.append(object["loop"] as? Bool ?? false)
                 if rejectGroupStart {
                     return (try? JSONSerialization.data(withJSONObject: ["ok": false])) ?? Data()
                 }

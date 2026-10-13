@@ -51,6 +51,12 @@ final class SettingsWorkspace {
     var bluetoothFilter = ""
     var apSSID = ""
     var apPassword = ""
+    var apIP = "" {
+        didSet { apIPStatus = nil }
+    }
+    var apIPStatus: String?
+    /// Identifies the board-scoped save so an old reply cannot update a new board's editor.
+    var apIPSaveID: UUID?
     var networkForPassword: WifiNetwork?
     /// In memory only; never persisted.
     var passwordInput = ""
@@ -145,6 +151,9 @@ final class SettingsWorkspace {
         boardRebootError = nil
         apSSID = ""
         apPassword = ""
+        apIP = ""
+        apIPStatus = nil
+        apIPSaveID = nil
         networkForPassword = nil
         passwordInput = ""
         confirmBoardReboot = false

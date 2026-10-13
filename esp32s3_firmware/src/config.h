@@ -39,13 +39,15 @@ constexpr uint32_t TCP_HINT_SILENCE_MS = 12000;
 
 #include <IPAddress.h>
 
-extern const IPAddress AP_IP_ADDR;
-extern const IPAddress AP_GATEWAY_ADDR;
 extern const IPAddress AP_SUBNET_MASK;
 
-inline const IPAddress& apIP() { return AP_IP_ADDR; }
-inline const IPAddress& apGateway() { return AP_GATEWAY_ADDR; }
+// Resolved lazily after the board MAC is ready, then replaced by a validated
+// NVS override at wifiManagerBegin(). The board itself is its AP gateway.
+const IPAddress& apIP();
+inline const IPAddress& apGateway() { return apIP(); }
 inline const IPAddress& apSubnet() { return AP_SUBNET_MASK; }
+IPAddress factoryApIP();
+void setApIP(const IPAddress& ip);
 
 constexpr uint16_t LED_PIN = 2;
 constexpr uint16_t LED_COUNT = 370;

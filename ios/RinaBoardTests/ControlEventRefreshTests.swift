@@ -320,35 +320,34 @@ final class ControlEventRefreshTests: XCTestCase {
                        "A cancelled fetch must never adopt a frame that lands after teardown")
     }
 
-    /// The property the single-flight removal (perf PR-12) now relies on: a
-    /// `BoardSyncCoordinator`-style direct call overlapping the loop's own
-    /// in-flight fetch is harmless. Neither caller coordinates with the
-    /// other, so both requests are genuinely concurrent; the draft must
-    /// still converge on the board's current frame rather than getting
-    /// corrupted or stuck on a stale value.
-    func testDirectCallOverlappingALoopFetchIsHarmlessAndConvergesOnTheNewerFrame() async throws {
+    /// Capture an old request's bytes, complete the newer request first,
+    /// then let the old response land. Both production refresh calls finish
+    /// before asserting, so cancellation cannot hide stale adoption.
+    func testOlderOverlappingRefreshReplyCannotOverwriteNewerFrame() async throws {
         let (model, connection, transport) = try await connectedFixture()
-        model.refreshTiming.reconciliationInterval = .seconds(1000) // isolate from the 1 Hz tick
-        transport.getFrameDelay = .milliseconds(150)
+        transport.holdFrameReplies = true
+        var old = PackedFrame()
+        old.set(7)
+        transport.displayFrame = old
+        let first = Task { await model.refreshBoardDisplay(connection: connection) }
+        await waitUntilTrue { transport.heldFrameReplies[1] != nil }
 
-        let task = Task { await model.runDisplayRefreshLoop(connection: connection) }
-        await waitUntilTrue { transport.getFrameStarted >= 1 } // the loop's entry fetch is in flight
-
-        // A direct, uncoordinated call — exactly what `BoardSyncCoordinator`
-        // does — fires while that fetch is still in flight, against a newer
-        // frame than the one the loop's fetch was issued against.
         var newer = PackedFrame()
         newer.set(23)
         transport.displayFrame = newer
-        await model.refreshBoardDisplay(connection: connection)
+        let second = Task { await model.refreshBoardDisplay(connection: connection) }
+        await waitUntilTrue { transport.heldFrameReplies[2] != nil }
+        XCTAssertEqual(transport.heldFrameReplies[1]?.payload, Data(old.bytes))
+        XCTAssertEqual(transport.heldFrameReplies[2]?.payload, Data(newer.bytes))
 
-        await waitUntilTrue { model.draftFrame == newer }
-        XCTAssertEqual(model.draftFrame, newer,
-                       "An uncoordinated direct call overlapping the loop's fetch must still converge " +
-                       "on the board's current frame")
-
-        task.cancel()
-        await task.value
+        transport.releaseFrameReply(2)
+        await second.value
+        XCTAssertEqual(model.draftFrame, newer)
+        transport.releaseFrameReply(1)
+        await first.value
+        XCTAssertEqual(transport.getFrameCount, 2)
+        XCTAssertEqual(model.draftFrame, newer, "The old response arrived last and must not replace the newer frame")
+        connection.disconnect()
     }
 
     // MARK: Fixture
@@ -388,6 +387,17 @@ private final class ControlEventRefreshTransport: @MainActor RinaTransport {
     /// Artificial delay before a GET_FRAME reply is sent, so a test can
     /// observe a fetch "in flight" while pushing a burst of events.
     var getFrameDelay: Duration?
+    var holdFrameReplies = false
+    private(set) var heldFrameReplies: [Int: (request: RinaLinkFrame, payload: Data)] = [:]
+
+    func releaseFrameReply(_ number: Int) {
+        guard let held = heldFrameReplies.removeValue(forKey: number) else {
+            XCTFail("No held GET_FRAME reply \(number)")
+            return
+        }
+        getFrameCount += 1
+        reply(to: held.request, payload: held.payload)
+    }
     private(set) var getFrameCount = 0
     /// Incremented the moment a GET_FRAME request is received, before any
     /// artificial delay — lets a test know the first fetch has started
@@ -428,9 +438,14 @@ private final class ControlEventRefreshTransport: @MainActor RinaTransport {
             switch request.type {
             case RinaLinkMessageType.getFrame.rawValue:
                 getFrameStarted += 1
+                let payload = Data(displayFrame.bytes)
+                if holdFrameReplies {
+                    heldFrameReplies[getFrameStarted] = (request, payload)
+                    continue
+                }
                 if let delay = getFrameDelay { try? await Task.sleep(for: delay) }
                 getFrameCount += 1
-                reply(to: request, payload: Data(displayFrame.bytes))
+                reply(to: request, payload: payload)
             case RinaLinkMessageType.getStatus.rawValue:
                 reply(to: request, payload: statusJSON(version: initialVersion, controlMode: initialControlMode))
             default:

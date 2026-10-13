@@ -34,6 +34,7 @@ Usage:
 
 import argparse
 import csv
+import json
 import sys
 from collections import defaultdict
 
@@ -198,7 +199,7 @@ def accepted_delta(before, after):
     return aval - bval
 
 
-def evaluate(steps, boards):
+def evaluate(steps, boards, require_delivery=False):
     """boards: dict label -> (status_records, events, dup_subscribe_ts_set)."""
     rows = []
     summary = defaultdict(int)
@@ -224,6 +225,17 @@ def evaluate(steps, boards):
 
             is_expected = label in expected
             has_activity = bool(routable) or bool(changes) or (delta not in (None, 0))
+            required_commands = {n.strip() for n in step.get("expected_commands", "").split(";") if n.strip()}
+            expected_state = json.loads(step.get("expected_state", "") or "{}")
+            expected_delta = step.get("expected_accepted_delta", "")
+            has_contract = bool(required_commands or expected_state or expected_delta != "")
+            delivery = "NOT_APPLICABLE" if not is_expected else "NOT_CHECKED"
+            if is_expected and has_contract:
+                state_matches = after is not None and all(
+                    str(after["fields"].get(key)) == str(value) for key, value in expected_state.items()
+                )
+                delivery = "PASS" if (required_commands.issubset(set(names)) and state_matches
+                                      and (expected_delta == "" or delta == int(expected_delta))) else "FAIL"
 
             if window_dup:
                 verdict = "DUP_SESSION"
@@ -231,6 +243,10 @@ def evaluate(steps, boards):
                 verdict = "ROUTING_FAIL"
             elif before is None or after is None:
                 verdict = "UNKNOWN"
+            elif delivery == "FAIL":
+                verdict = "DELIVERY_FAIL"
+            elif require_delivery and is_expected and not has_contract:
+                verdict = "DELIVERY_UNKNOWN"
             else:
                 verdict = "PASS"
 
@@ -259,6 +275,7 @@ def evaluate(steps, boards):
                 "disconnects": disconnects,
                 "subscribes": subscribes,
                 "verdict": verdict,
+                "delivery": delivery,
             })
 
     return rows, summary
@@ -273,7 +290,7 @@ FIELDNAMES = [
     "color_before", "color_after",
     "intervalMs_before", "intervalMs_after",
     "connects", "disconnects", "subscribes",
-    "verdict",
+    "verdict", "delivery",
 ]
 
 
@@ -289,6 +306,9 @@ def main():
         help="A board label and its serial_logger.py log path; repeat per board",
     )
     parser.add_argument("--out", required=True, help="Path to write ROUTING.csv")
+    parser.add_argument("--require-delivery", action="store_true",
+                        help="Require action-specific expected_commands, expected_state (JSON), or "
+                             "expected_accepted_delta contracts for expected boards; fail on any finding")
     args = parser.parse_args()
 
     steps = load_steps(args.steps)
@@ -299,7 +319,7 @@ def main():
         dup_ts = find_duplicate_subscribe_timestamps(events)
         boards[label] = (status_records, events, dup_ts)
 
-    rows, summary = evaluate(steps, boards)
+    rows, summary = evaluate(steps, boards, require_delivery=args.require_delivery)
 
     with open(args.out, "w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=FIELDNAMES)
@@ -309,9 +329,10 @@ def main():
 
     total = sum(summary.values())
     print("oracle: {} rows written to {}".format(total, args.out))
-    for verdict in ("PASS", "ROUTING_FAIL", "DUP_SESSION", "UNKNOWN"):
+    for verdict in ("PASS", "ROUTING_FAIL", "DUP_SESSION", "UNKNOWN", "DELIVERY_FAIL", "DELIVERY_UNKNOWN"):
         print("  {}: {}".format(verdict, summary.get(verdict, 0)))
+    return int(args.require_delivery and any(verdict != "PASS" for verdict in summary))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -586,7 +586,7 @@ static void handleWifiCmd(ClientSlot& c, uint8_t seq, const char* cmd, JsonDocum
             out["error"] = "ssid required";
         sendJsonReply(c, msg::CMD, seq, out);
     } else if (strcmp(cmd, "wifi_clear_credentials") == 0) {
-        wifiManagerClearCredentials();
+        wifiManagerClearCredentials(c.carrier == Carrier::Tcp);
         DynamicJsonDocument out(64);
         out["ok"] = true;
         sendJsonReply(c, msg::CMD, seq, out);
@@ -598,12 +598,12 @@ static void handleWifiCmd(ClientSlot& c, uint8_t seq, const char* cmd, JsonDocum
             out["error"] = "ssid required";
         sendJsonReply(c, msg::CMD, seq, out);
     } else if (strcmp(cmd, "wifi_clear_hotspot_credentials") == 0) {
-        wifiManagerClearHotspotCredentials();
+        wifiManagerClearHotspotCredentials(c.carrier == Carrier::Tcp);
         DynamicJsonDocument out(64);
         out["ok"] = true;
         sendJsonReply(c, msg::CMD, seq, out);
     } else if (strcmp(cmd, "wifi_set_mode") == 0) {
-        bool ok = wifiManagerSetMode(cstr(d, p, "mode", ""));
+        bool ok = wifiManagerSetMode(cstr(d, p, "mode", ""), c.carrier == Carrier::Tcp);
         DynamicJsonDocument out(128);
         out["ok"] = ok;
         if (!ok)
@@ -615,11 +615,24 @@ static void handleWifiCmd(ClientSlot& c, uint8_t seq, const char* cmd, JsonDocum
         out["ok"] = true;
         sendJsonReply(c, msg::CMD, seq, out);
     } else if (strcmp(cmd, "wifi_set_ap") == 0) {
-        bool ok = wifiManagerSetAp(cstr(d, p, "ssid", ""), cstr(d, p, "password", ""));
-        DynamicJsonDocument out(128);
+        const bool hasIp = (!p.isNull() && p.containsKey("ip")) || d.containsKey("ip");
+        const char* ip = cstr(d, p, "ip", nullptr);
+        DynamicJsonDocument out(256);
+        // The shared settings UI uses BLE for an IP edit. A TCP reply cannot
+        // survive changing its own AP interface, so reject before any mutation.
+        if (hasIp && ip && String(ip) != apIP().toString() && c.carrier == Carrier::Tcp) {
+            out["ok"] = false;
+            out["error"] = "AP IP changes require Bluetooth";
+            out["apIp"] = apIP().toString();
+            sendJsonReply(c, msg::CMD, seq, out);
+            return;
+        }
+        const bool ok = !(hasIp && !ip) &&
+            wifiManagerSetAp(cstr(d, p, "ssid", ""), cstr(d, p, "password", ""), ip);
         out["ok"] = ok;
+        out["apIp"] = apIP().toString();
         if (!ok)
-            out["error"] = "ssid required";
+            out["error"] = "invalid AP settings (private canonical IPv4 host 1-254 required) or AP start failed";
         sendJsonReply(c, msg::CMD, seq, out);
     } else {
         sendErrorReply(c, seq, 400, String("unknown command: ") + cmd);
@@ -2618,16 +2631,15 @@ static void finalizePendingRegistryChanges() {
 
         if (doDisconnect) {
             Carrier carrier = c.carrier;
-            // Item A3: capture the transport before clearing the slot so we can
-            // still tell the carrier to tear this client down after the registry
-            // no longer claims it (TCP stops the socket + clears its slot
-            // mapping; BLE clears its own mapping and disconnects the peer).
-            // Without this, a carrier could keep pushing bytes into a slot that
-            // a different client later claims.
+            // Keep the slot claimed until the carrier clears its old mapping.
+            // A BLE connect callback can run during disconnect(); it must not
+            // reuse this slot before the old teardown has finished targeting it.
             ITransport* transport = c.transport;
             // A hint left lit by a client that is gone would never be cleared.
             clearHintLedOwnedBy(static_cast<uint8_t>(i));
             resetSlotSessionState(c);
+            if (transport)
+                transport->disconnect(ClientId{i});
             portENTER_CRITICAL(&g_registryMux);
             c.transport = nullptr;
             c.carrier = Carrier::None;
@@ -2635,8 +2647,6 @@ static void finalizePendingRegistryChanges() {
             c.disconnectPending = false;
             c.used = false;
             portEXIT_CRITICAL(&g_registryMux);
-            if (transport)
-                transport->disconnect(ClientId{i});
             RLOG_INFO("PROTO", "event=client_disconnect slot=%u carrier=%d", (unsigned)i, (int)carrier);
         } else if (doConnect) {
             // The peer can send between onConnect and this loop pass. Those

@@ -1,0 +1,1213 @@
+diff --git a/ios/RinaBoard/App/RootTabView.swift b/ios/RinaBoard/App/RootTabView.swift
+index 408b532..454c349 100644
+--- a/ios/RinaBoard/App/RootTabView.swift
++++ b/ios/RinaBoard/App/RootTabView.swift
+@@ -87,6 +87,9 @@ struct RootTabView: View {
+     @State private var wasBackgrounded = false
+     @State private var resumeGeneration = 0
+     @State private var syncCoordinator = BoardSyncCoordinator()
++    /// One scroll offset for the Control Center column every tab's
++    /// `BoardSplitPage` shows on iPad, so the column stays put across tabs.
++    @State private var controlCenterColumnScroll = ControlCenterColumnScroll()
+ 
+     var body: some View {
+         ZStack {
+@@ -234,6 +237,7 @@ struct RootTabView: View {
+                 .tabItem { Label("设定", image: "TabRinaSettings") }
+                 .tag(AppTab.settings)
+         }
++        .environment(controlCenterColumnScroll)
+     }
+ 
+     private func configureOutputHandlers() {
+diff --git a/ios/RinaBoard/Features/Control/ControlView.swift b/ios/RinaBoard/Features/Control/ControlView.swift
+index 8f20367..5318f9f 100644
+--- a/ios/RinaBoard/Features/Control/ControlView.swift
++++ b/ios/RinaBoard/Features/Control/ControlView.swift
+@@ -190,9 +190,9 @@ struct ControlView: View {
+     // MARK: §18 Command section
+ 
+     /// Editor commands (§18), one section per row: the untitled send /
+-    /// saved-list / save row, part selection (live preview, random, eye sync)
+-    /// and manual drawing (clear, the brush that decides whether a touch on
+-    /// the board lights or clears, invert, undo). Nothing is hidden behind a
++    /// saved-list / save row, part selection (live preview, random, part
++    /// mirror) and manual drawing (clear, the brush that decides whether a
++    /// touch on the board lights or clears, invert, undo, drawing mirror). Nothing is hidden behind a
+     /// toolbar menu any more.
+     private var commandSection: some View {
+         Group {
+@@ -268,21 +268,16 @@ struct ControlView: View {
+                 .buttonStyle(.pill)
+ 
+                 Toggle(isOn: Binding(
+-                    get: { model.syncEyes },
+-                    set: { model.setSyncEyes($0, connection: connection) }
++                    get: { model.mirrorParts },
++                    set: { model.setMirrorParts($0, connection: connection) }
+                 )) {
+-                    CommandChip("左右眼同步", systemImage: "arrow.triangle.2.circlepath")
++                    CommandChip("镜像", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
+                 }
+                 .toggleStyle(.pill)
+-                .disabled(!model.canSyncEyes)
+             }
+             .pillButtonRow()
+         } header: {
+             Text("部件选择")
+-        } footer: {
+-            if !model.canSyncEyes {
+-                Text("当前部件数据与左右眼映射不一致，已停用逐灯同步。")
+-            }
+         }
+     }
+ 
+@@ -313,6 +308,14 @@ struct ControlView: View {
+                     CommandChip("撤销", systemImage: "arrow.uturn.backward")
+                 }
+                 .disabled(!model.canUndo)
++
++                Toggle(isOn: Binding(
++                    get: { model.mirrorDrawing },
++                    set: { model.setMirrorDrawing($0, connection: connection) }
++                )) {
++                    CommandChip("镜像", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
++                }
++                .toggleStyle(.pill)
+             }
+             .buttonStyle(.pill)
+             .pillButtonRow()
+diff --git a/ios/RinaBoard/Features/Control/ControlViewModel.swift b/ios/RinaBoard/Features/Control/ControlViewModel.swift
+index 12c1e81..81bf5a6 100644
+--- a/ios/RinaBoard/Features/Control/ControlViewModel.swift
++++ b/ios/RinaBoard/Features/Control/ControlViewModel.swift
+@@ -65,10 +65,16 @@ final class ControlViewModel {
+ 
+     /// Starts on so edits reach a connected board immediately.
+     var livePreview = true
+-    /// §18.3: mirrors edits between the two eyes through an explicit,
+-    /// verified topology. Set through `setSyncEyes(_:connection:)` so that
+-    /// enabling it also aligns the eyes that are already selected.
+-    private(set) var syncEyes = false
++    /// §18.3, 部件选择「镜像」: an eye part chosen (or randomized) for one
++    /// eye brings the mirrored part to the other. Part-level only — it never
++    /// touches hand-drawn LEDs. Set through `setMirrorParts(_:connection:)`
++    /// so that enabling it also aligns the eye parts already selected.
++    private(set) var mirrorParts = false
++    /// §18.3, 手动绘画「镜像」: a tap or stroke anywhere on the board writes
++    /// the same value to the LED reflected across the board's vertical
++    /// centre line, on every row. Drawing only — part selection ignores it,
++    /// and turning it on leaves the current drawing as it is.
++    private(set) var mirrorDrawing = false
+     /// §18.5: what a drag across the preview writes. `true` lights the LEDs
+     /// the finger crosses, `false` puts them out. Painting an explicit value —
+     /// rather than toggling each LED — is what makes dragging usable: a
+@@ -313,26 +319,19 @@ final class ControlViewModel {
+ 
+     let library: PartsLibrary?
+     let loadError: String?
+-    /// Nil when the shipped part data doesn't match the derived eye mapping,
+-    /// in which case LED-level eye sync is unavailable.
+-    let eyeTopology: EyeTopology?
+     private let draftStorage: DraftStorage
+ 
+-    var canSyncEyes: Bool { eyeTopology != nil }
+-
+     init(bundle: Bundle = .main, draftStorage: DraftStorage = .shared) {
+         self.draftStorage = draftStorage
+         do {
+             let library = try RinaResources.partsLibrary(bundle: bundle)
+             self.library = library
+             self.loadError = nil
+-            self.eyeTopology = EyeTopology.make(from: library)
+             self.selectedCall = .defaultCall
+             self.draftFrame = library.compose(call: .defaultCall)
+             self.fromParts = true
+         } catch {
+             self.library = nil
+-            self.eyeTopology = nil
+             self.loadError = String(format: NSLocalizedString("无法加载部件库：%@", comment: "parts library load failed"),
+                                     error.localizedDescription)
+         }
+@@ -397,40 +396,37 @@ final class ControlViewModel {
+         }
+     }
+ 
+-    /// Turns eye sync on or off. Enabling it projects the **left** eye onto
+-    /// the right immediately, so the two eyes are never left mismatched
+-    /// until the next edit happens to touch them.
+-    func setSyncEyes(_ enabled: Bool, connection: BoardConnection) {
+-        guard syncEyes != enabled else { return }
+-        syncEyes = enabled
++    /// Turns part mirroring on or off. Enabling it on a parts-composed draft
++    /// swaps the right eye part for the left one's mirror immediately; a
++    /// hand-drawn draft is left alone until the next part is chosen.
++    func setMirrorParts(_ enabled: Bool, connection: BoardConnection) {
++        guard mirrorParts != enabled else { return }
++        mirrorParts = enabled
++        guard enabled, fromParts, let library,
++              let mirrored = library.mirroredEyeId(selectedCall[.leye]),
++              selectedCall[.reye] != mirrored else { return }
++        var call = selectedCall
++        call[.reye] = mirrored
++        applyCall(call, library: library, connection: connection)
++    }
++
++    /// Turns drawing mirroring on or off. Only later taps and strokes are
++    /// mirrored: the drawing already on the board is not reflected.
++    func setMirrorDrawing(_ enabled: Bool, connection: BoardConnection) {
++        guard mirrorDrawing != enabled else { return }
++        mirrorDrawing = enabled
+         // A pencil hovering now gains or loses its partner LED on the board.
+-        defer { syncBoardHint(connection: connection) }
+-        guard enabled else { return }
+-
+-        // A parts-composed draft syncs at the part level, which keeps
+-        // `fromParts` (and therefore the part rows) meaningful.
+-        if fromParts, let library,
+-           let mirrored = library.mirroredEyeId(selectedCall[.leye]),
+-           selectedCall[.reye] != mirrored {
+-            var call = selectedCall
+-            call[.reye] = mirrored
+-            applyCall(call, library: library, connection: connection)
+-            return
+-        }
++        syncBoardHint(connection: connection)
++    }
+ 
+-        guard let eyeTopology else { return }
+-        let before = snapshot
+-        var changed = false
+-        for pair in eyeTopology.leftToRightPairs where draftFrame[pair.right] != draftFrame[pair.left] {
+-            draftFrame[pair.right] = draftFrame[pair.left]
+-            changed = true
+-        }
+-        guard changed else { return }
+-        recordEdit(before)
+-        userHasEdited = true
+-        // The frame no longer matches the selected parts once pixels moved.
+-        fromParts = false
+-        pushLiveIfNeeded(connection: connection)
++    /// `led`'s partner across the vertical centre line while drawing is
++    /// mirrored. Every row is an even-length run centred in the grid, so
++    /// every LED has a distinct partner in its own row.
++    private func drawingMirror(of led: Int) -> Int? {
++        guard mirrorDrawing, let position = MatrixGeometry.xy(ofLed: led),
++              let mirrored = MatrixGeometry.ledIndex(x: MatrixGeometry.cols - 1 - position.x, y: position.y),
++              mirrored != led else { return nil }
++        return mirrored
+     }
+ 
+     // MARK: Direct LED editing (§16)
+@@ -441,7 +437,7 @@ final class ControlViewModel {
+         recordEdit(snapshot)
+         userHasEdited = true
+         draftFrame.toggle(led)
+-        if syncEyes, let mirrored = eyeTopology?.mirroredLED(of: led), mirrored != led {
++        if let mirrored = drawingMirror(of: led) {
+             // Mirror the resulting *state*, not another toggle, so repeated
+             // edits can't desynchronise the two eyes.
+             draftFrame[mirrored] = draftFrame[led]
+@@ -460,8 +456,8 @@ final class ControlViewModel {
+     func paint(led: Int, connection: BoardConnection) -> Bool {
+         let on = brushOn
+         // Mirror the brush *value*, not a toggle, so a stroke that crosses
+-        // both eyes can't desynchronise them.
+-        let mirrored = syncEyes ? eyeTopology?.mirroredLED(of: led).flatMap { $0 == led ? nil : $0 } : nil
++        // the centre line can't desynchronise the two halves.
++        let mirrored = drawingMirror(of: led)
+         guard draftFrame[led] != on || mirrored.map({ draftFrame[$0] != on }) == true else { return false }
+ 
+         // One undo step per stroke, recorded at its first real change;
+@@ -505,7 +501,7 @@ final class ControlViewModel {
+         guard let library else { return }
+         var call = selectedCall
+         call[group] = id
+-        if syncEyes, group == .leye || group == .reye,
++        if mirrorParts, group == .leye || group == .reye,
+            let mirrored = library.mirroredEyeId(id) {
+             call[group == .leye ? .reye : .leye] = mirrored
+         }
+@@ -515,7 +511,7 @@ final class ControlViewModel {
+     func randomizeParts(connection: BoardConnection) {
+         guard let library else { return }
+         var generator = SystemRandomNumberGenerator()
+-        let call = syncEyes
++        let call = mirrorParts
+             ? library.randomSymmetricCall(using: &generator)
+             : library.randomCall(using: &generator)
+         applyCall(call, library: library, connection: connection)
+@@ -614,17 +610,16 @@ final class ControlViewModel {
+ 
+     // MARK: Apple Pencil hover
+ 
+-    /// The other eye's LED to hover with `led`, while the eyes are edited as
+-    /// a pair — the LED an edit there would also change.
++    /// The other eye's LED to hover with `led`, while drawing is mirrored —
++    /// the LED an edit there would also change.
+     func pencilHoverMirror(of led: Int) -> Int? {
+-        guard syncEyes, let mirrored = eyeTopology?.mirroredLED(of: led), mirrored != led else { return nil }
+-        return mirrored
++        drawingMirror(of: led)
+     }
+ 
+     /// The LED an Apple Pencil hovers over on the editor, or `nil` once it
+     /// hovers over none. The preview already draws it at half brightness; with
+     /// 即时预览 on, the board shows the same LED at half brightness too (and
+-    /// its partner, while the eyes are edited as a pair), and loses it the
++    /// its mirror, while drawing is mirrored), and loses it the
+     /// moment the pencil leaves.
+     func pencilHover(led: Int?, connection: BoardConnection) {
+         hoveredLED = led
+diff --git a/ios/RinaBoard/Features/Control/EyeTopology.swift b/ios/RinaBoard/Features/Control/EyeTopology.swift
+deleted file mode 100644
+index 2ad5e74..0000000
+--- a/ios/RinaBoard/Features/Control/EyeTopology.swift
++++ /dev/null
+@@ -1,97 +0,0 @@
+-import Foundation
+-import RinaCore
+-
+-/// Explicit left↔right eye LED mapping for the "Sync Eyes" editing mode
+-/// (design guide §47).
+-///
+-/// The mapping is **not** assumed to be a naive reflection of the whole board.
+-/// It is derived from the parts library's own layout boxes — `eye_left` sits
+-/// at x 2…9 and `eye_right` at x 12…19, both 8×8 on rows 1…8 — and is then
+-/// corroborated against the shipped part data: left-eye variants pushed
+-/// through the candidate mapping must reproduce the right-eye variant at the
+-/// same display index.
+-///
+-/// Agreement is required from a strong majority rather than every pair,
+-/// because some pairs are *intentionally* asymmetric — variants 122/222 are a
+-/// "?" and a "!" eye, not mirror images. A genuinely wrong mapping (a
+-/// translation instead of a reflection, or a future board that rewires the
+-/// eyes) disagrees on nearly every pair, so the majority test still catches
+-/// it; when it fails, LED-level eye sync is disabled rather than silently
+-/// mirroring the wrong pixels, and part-level sync still works through
+-/// `PartsLibrary.mirroredEyeId`.
+-struct EyeTopology {
+-    /// Logical LED index → its partner on the other eye. Symmetric: the map
+-    /// contains both directions.
+-    private let partner: [Int: Int]
+-
+-    /// One entry per pair, oriented left eye → right eye. Needed when a
+-    /// mirror has a direction (projecting the left eye onto the right),
+-    /// which the symmetric `partner` map cannot express.
+-    let leftToRightPairs: [(left: Int, right: Int)]
+-
+-    func mirroredLED(of led: Int) -> Int? { partner[led] }
+-
+-    var ledCount: Int { partner.count }
+-
+-    static func make(from library: PartsLibrary) -> EyeTopology? {
+-        guard let left = library.layout[PartGroup.leye.partType]?.first,
+-              let right = library.layout[PartGroup.reye.partType]?.first,
+-              left.w == right.w, left.h == right.h, left.y == right.y
+-        else { return nil }
+-
+-        // Candidate mapping: the two boxes hold mirror-image artwork, so
+-        // column `i` from the left edge of one box pairs with column `i` from
+-        // the *right* edge of the other.
+-        var partner: [Int: Int] = [:]
+-        var leftToRightPairs: [(left: Int, right: Int)] = []
+-        for row in 0..<left.h {
+-            let y = left.y + row
+-            for column in 0..<left.w {
+-                let leftX = left.x + column
+-                let rightX = right.x + (right.w - 1 - column)
+-                guard let leftLED = MatrixGeometry.ledIndex(x: leftX, y: y),
+-                      let rightLED = MatrixGeometry.ledIndex(x: rightX, y: y)
+-                else { return nil }
+-                partner[leftLED] = rightLED
+-                partner[rightLED] = leftLED
+-                leftToRightPairs.append((left: leftLED, right: rightLED))
+-            }
+-        }
+-        let topology = EyeTopology(partner: partner, leftToRightPairs: leftToRightPairs)
+-        guard topology.matchesShippedVariants(in: library) else { return nil }
+-        return topology
+-    }
+-
+-    /// Fraction of non-empty variant pairs that must mirror exactly. The
+-    /// shipped data agrees on 26 of 27 pairs; a wrong mapping agrees on
+-    /// almost none.
+-    private static let requiredAgreement = 0.8
+-
+-    private func matchesShippedVariants(in library: PartsLibrary) -> Bool {
+-        let leftIds = library.ids(for: .leye)
+-        let rightIds = library.ids(for: .reye)
+-        guard leftIds.count == rightIds.count else { return false }
+-
+-        var compared = 0
+-        var agreed = 0
+-        for index in leftIds.indices {
+-            let leftFrame = library.frame(for: library.resolvedPart(group: .leye, id: leftIds[index]))
+-            let rightFrame = library.frame(for: library.resolvedPart(group: .reye, id: rightIds[index]))
+-            guard leftFrame.litCount > 0 || rightFrame.litCount > 0 else { continue }
+-            compared += 1
+-
+-            var projected = PackedFrame()
+-            var withinBoxes = true
+-            for led in 0..<PackedFrame.ledCount where leftFrame[led] {
+-                guard let mirrored = partner[led] else { withinBoxes = false; break }
+-                projected.set(mirrored)
+-            }
+-            // A lit LED outside the eye boxes means the boxes themselves are
+-            // wrong, which no amount of agreement elsewhere can excuse.
+-            guard withinBoxes else { return false }
+-            if projected == rightFrame { agreed += 1 }
+-        }
+-        guard compared >= 4 else { return false }
+-        return Double(agreed) / Double(compared) >= Self.requiredAgreement
+-    }
+-}
+diff --git a/ios/RinaBoard/Features/ControlCenter/BoardControlCenterView.swift b/ios/RinaBoard/Features/ControlCenter/BoardControlCenterView.swift
+index 4c9aa97..77b3660 100644
+--- a/ios/RinaBoard/Features/ControlCenter/BoardControlCenterView.swift
++++ b/ios/RinaBoard/Features/ControlCenter/BoardControlCenterView.swift
+@@ -39,6 +39,13 @@ struct BoardControlCenterView: View {
+ 
+     private var isConnected: Bool { connection.connectionState == .connected }
+ 
++    private var canDisconnect: Bool {
++        switch connection.connectionState {
++        case .connected, .connecting, .reconnecting: return true
++        case .disconnected, .failed: return false
++        }
++    }
++
+     /// Read through the store rather than injected: `any BLEConnecting` cannot
+     /// go in the environment (`@Environment(T.self)` needs a concrete
+     /// observable type).
+@@ -134,9 +141,20 @@ struct BoardControlCenterView: View {
+             }
+             LabeledContent("连接状态") {
+                 // State is never communicated by colour alone (§7, §41).
+-                Label(connectionStateText, systemImage: connectionStateSymbol)
+-                    .labelStyle(.titleAndIcon)
+-                    .foregroundStyle(connectionStateTint)
++                HStack(spacing: 10) {
++                    Label(connectionStateText, systemImage: connectionStateSymbol)
++                        .labelStyle(.titleAndIcon)
++                        .foregroundStyle(connectionStateTint)
++                    // Also stops a connect or reconnect loop in progress:
++                    // `disconnect()` cancels the retry task too.
++                    if canDisconnect {
++                        Button(isConnected ? "断开" : "取消", role: .destructive) {
++                            connection.disconnect()
++                        }
++                        .buttonStyle(.borderless)
++                        .accessibilityIdentifier("controlCenter.disconnect")
++                    }
++                }
+             }
+             if let error = connection.lastError, !isConnected {
+                 Text(error)
+diff --git a/ios/RinaBoard/Features/LipSync/LipSyncModel.swift b/ios/RinaBoard/Features/LipSync/LipSyncModel.swift
+index e24c194..b9c03b6 100644
+--- a/ios/RinaBoard/Features/LipSync/LipSyncModel.swift
++++ b/ios/RinaBoard/Features/LipSync/LipSyncModel.swift
+@@ -240,7 +240,7 @@ final class LipSyncModel {
+         refreshPreviewFrame()
+     }
+ 
+-    /// Mirrors eye choices onto the other eye, like the Control tab's 同步.
++    /// Mirrors eye choices onto the other eye, like the Control tab's 部件「镜像」.
+     /// Enabling it projects the left eye onto the right immediately.
+     private(set) var syncEyes = false
+ 
+diff --git a/ios/RinaBoard/Features/LipSync/LipSyncView.swift b/ios/RinaBoard/Features/LipSync/LipSyncView.swift
+index b15d465..2473970 100644
+--- a/ios/RinaBoard/Features/LipSync/LipSyncView.swift
++++ b/ios/RinaBoard/Features/LipSync/LipSyncView.swift
+@@ -31,6 +31,13 @@ struct LipSyncView: View {
+                 if let message = model.loadError {
+                     loadErrorSection(message)
+                 }
++                // Last on every layout: the editor is a detour off this page,
++                // not one of its options.
++                Section {
++                    // Not gated like the options: the mapping can be edited
++                    // while sync runs, and the preview reflects it immediately.
++                    mouthMappingLink
++                }
+             }
+             .listSectionSpacing(.compact)
+             .rinaScrollBackground()
+@@ -211,9 +218,6 @@ struct LipSyncView: View {
+         Section {
+             recognitionOptions(model: model)
+                 .disabled(!self.model.canEditOptions)
+-            // Not gated like the options above: the mapping can be edited
+-            // while sync runs, and the preview reflects it immediately.
+-            mouthMappingLink
+         }
+     }
+ 
+@@ -327,11 +331,15 @@ struct LipSyncView: View {
+                     }
+                     .contentShape(Rectangle())
+                 }
+-                // Opening downward keeps it over the controls column; a
+-                // sideways popover would cover the board it relies on.
+-                .popover(isPresented: $isMouthMappingPresented, arrowEdge: .top) {
++                // The row is last on the page, so it opens upward over the
++                // controls column; a sideways popover would cover the board
++                // it relies on.
++                .popover(isPresented: $isMouthMappingPresented, arrowEdge: .bottom) {
++                    // Ideal, not fixed: in a short window the system shrinks
++                    // the popover, and a fixed 600 pt list was clipped there
++                    // instead of scrolling to its last rows.
+                     mouthMappingView(library: library, showsPreview: false)
+-                        .frame(width: 400, height: 600)
++                        .frame(idealWidth: 400, maxWidth: 400, idealHeight: 600, maxHeight: 600)
+                         .presentationCompactAdaptation(.popover)
+                 }
+             } else {
+diff --git a/ios/RinaBoard/Features/Shared/Components/BoardSplitPage.swift b/ios/RinaBoard/Features/Shared/Components/BoardSplitPage.swift
+index 0548228..c394b78 100644
+--- a/ios/RinaBoard/Features/Shared/Components/BoardSplitPage.swift
++++ b/ios/RinaBoard/Features/Shared/Components/BoardSplitPage.swift
+@@ -60,6 +60,7 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
+                         }
+                         .rinaTranslucentRows()
+                     }
++                    .modifier(SharedControlCenterScroll())
+                 }
+                 // Equal halves, measured against the page rather than laid
+                 // out by the stack, so rotating keeps them equal.
+@@ -101,3 +102,133 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
+         .padding(.bottom, 4)
+     }
+ }
++
++/// The scroll offset of the Control Center under the preview, shared by every
++/// tab in one window.
++///
++/// Each tab builds its own `BoardSplitPage`, so each has its own copy of the
++/// panel's list. Without this, switching tabs lands on a copy scrolled
++/// somewhere else and the left column visibly jumps; with it the panel reads
++/// as one fixed column that the tabs only change the right side of.
++@Observable
++final class ControlCenterColumnScroll {
++    /// Distance scrolled from the top of the content, insets excluded.
++    var offset: CGFloat = 0
++}
++
++/// Keeps one copy of the Control Center list in step with the window's
++/// `ControlCenterColumnScroll`: the copy on screen records the user's
++/// scrolling, and a copy that comes on screen is moved to the stored offset
++/// before its first frame.
++///
++/// Reaches the list's `UIScrollView` directly. SwiftUI's `ScrollPosition`
++/// cannot do this on a `List`: it is applied before a newly shown tab's list
++/// has laid out, and re-assigning the same offset later is not a change, so
++/// the copy stays where it was. A no-op when no `ControlCenterColumnScroll` is
++/// in the environment (unit-test hosts).
++private struct SharedControlCenterScroll: ViewModifier {
++    @Environment(ControlCenterColumnScroll.self) private var shared: ControlCenterColumnScroll?
++
++    func body(content: Content) -> some View {
++        if let shared {
++            content.background(ScrollViewLink(shared: shared))
++        } else {
++            content
++        }
++    }
++}
++
++/// A zero-content view laid out exactly over the list, used to find the list's
++/// scroll view and to learn when this tab's copy enters or leaves the window.
++private struct ScrollViewLink: UIViewRepresentable {
++    let shared: ControlCenterColumnScroll
++
++    func makeUIView(context: Context) -> LinkView {
++        let view = LinkView()
++        view.isUserInteractionEnabled = false
++        view.shared = shared
++        return view
++    }
++
++    func updateUIView(_ view: LinkView, context: Context) {
++        view.shared = shared
++    }
++
++    final class LinkView: UIView {
++        var shared: ControlCenterColumnScroll?
++        private weak var scrollView: UIScrollView?
++        private var observation: NSKeyValueObservation?
++
++        override func didMoveToWindow() {
++            super.didMoveToWindow()
++            guard window != nil else { return }
++            restore()
++            // A tab shown for the first time has not laid its list out yet.
++            DispatchQueue.main.async { [weak self] in self?.restore() }
++        }
++
++        private func restore() {
++            guard window != nil, let shared, let scrollView = linkScrollView() else { return }
++            let top = -scrollView.adjustedContentInset.top
++            let bottom = scrollView.contentSize.height + scrollView.adjustedContentInset.bottom
++                - scrollView.bounds.height
++            let target = min(max(top, top + shared.offset), max(top, bottom))
++            guard abs(scrollView.contentOffset.y - target) > 0.5 else { return }
++            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: target),
++                                        animated: false)
++        }
++
++        private func linkScrollView() -> UIScrollView? {
++            if let scrollView, scrollView.window != nil { return scrollView }
++            guard let found = findScrollView() else { return nil }
++            scrollView = found
++            // Only the user's own scrolling is recorded. Offsets UIKit sets —
++            // a restore clamped on a shorter page, a relayout — would
++            // otherwise overwrite the position every other tab should show.
++            observation = found.observe(\.contentOffset) { [weak self] scrollView, _ in
++                MainActor.assumeIsolated {
++                    guard let self, self.window != nil,
++                          scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating
++                    else { return }
++                    self.shared?.offset = max(0, scrollView.contentOffset.y + scrollView.adjustedContentInset.top)
++                }
++            }
++            return found
++        }
++
++        /// The scroll view that occupies the same frame as this background:
++        /// the list's own. Searched outward from here, nearest first.
++        private func findScrollView() -> UIScrollView? {
++            let frame = convert(bounds, to: nil)
++            var ancestor = superview
++            while let container = ancestor {
++                if let match = Self.scrollView(in: container, matching: frame, excluding: self) {
++                    return match
++                }
++                ancestor = container.superview
++            }
++            return nil
++        }
++
++        private static func scrollView(in view: UIView, matching frame: CGRect,
++                                       excluding link: UIView) -> UIScrollView? {
++            for subview in view.subviews where subview !== link {
++                if let scrollView = subview as? UIScrollView,
++                   sameFrame(scrollView.convert(scrollView.bounds, to: nil), frame) {
++                    return scrollView
++                }
++                if subview is UIScrollView { continue }
++                if let match = scrollView(in: subview, matching: frame, excluding: link) {
++                    return match
++                }
++            }
++            return nil
++        }
++
++        /// Height is left out: a list's scroll view can run on under the
++        /// home indicator while its SwiftUI frame stops at the safe area.
++        private static func sameFrame(_ a: CGRect, _ b: CGRect) -> Bool {
++            abs(a.minX - b.minX) < 1 && abs(a.minY - b.minY) < 1 && abs(a.width - b.width) < 1
++        }
++    }
++}
+diff --git a/ios/RinaBoard/Features/Text/ScrollTextView.swift b/ios/RinaBoard/Features/Text/ScrollTextView.swift
+index 2d7bf98..e3dcf99 100644
+--- a/ios/RinaBoard/Features/Text/ScrollTextView.swift
++++ b/ios/RinaBoard/Features/Text/ScrollTextView.swift
+@@ -43,6 +43,7 @@ struct ScrollTextView: View {
+     @Environment(\.displayScale) private var displayScale
+     /// Ark Pixel editor size; follows Dynamic Type, snapped to crisp steps.
+     @ScaledMetric(relativeTo: .body) private var editorFontSize: CGFloat = 16
++    private static let editorMinHeight: CGFloat = 132
+ 
+     private var isConnected: Bool { connection.connectionState == .connected }
+ 
+@@ -117,6 +118,7 @@ struct ScrollTextView: View {
+             TextPlaybackControls(
+                 isConnected: isConnected,
+                 hasTimeline: model.boundTimelineId != nil,
++                boardHasScroll: model.boardHasScroll(connection: connection),
+                 isPaused: model.boardPaused,
+                 isUploading: model.isUploading,
+                 isGeneratingFont: model.isGeneratingFont,
+@@ -174,15 +176,32 @@ struct ScrollTextView: View {
+ 
+             // The list row is already the card; the editor fills it directly
+             // (an inner bordered card read as a double border).
+-            TextEditor(text: Binding(
+-                get: { model.text },
+-                set: { model.editText($0) }
+-            ))
+-            .frame(minHeight: 132)
++            ZStack(alignment: .topLeading) {
++                // Invisible copy of the text sizes the editor: it grows with
++                // the text block from the base height up to twice that, then
++                // the editor scrolls inside. Padding mirrors UITextView's
++                // text container insets (5 pt line padding, 8 pt top/bottom).
++                Text(model.text.hasSuffix("\n") || model.text.isEmpty ? model.text + " " : model.text)
++                    .padding(.horizontal, 5)
++                    .padding(.vertical, 8)
++                    .frame(
++                        maxWidth: .infinity,
++                        minHeight: Self.editorMinHeight,
++                        maxHeight: Self.editorMinHeight * 2,
++                        alignment: .topLeading
++                    )
++                    .hidden()
++                    .accessibilityHidden(true)
++                TextEditor(text: Binding(
++                    get: { model.text },
++                    set: { model.editText($0) }
++                ))
++                .scrollContentBackground(.hidden)
++                .accessibilityLabel("滚动文字内容")
++            }
+             // Same Ark Pixel font the WebUI uses for this field and the
+             // frame generator rasterizes, so the draft previews its glyphs.
+             .font(ArkPixelInputFont.font(size: editorFontSize, displayScale: displayScale))
+-            .scrollContentBackground(.hidden)
+             .padding(.top, 6)
+             // Leaves room for the character counter in the bottom corner.
+             .padding(.bottom, 24)
+@@ -214,7 +233,6 @@ struct ScrollTextView: View {
+                 if !focused { model.restoreDefaultTextIfEmpty() }
+             }
+             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+-            .accessibilityLabel("滚动文字内容")
+         } footer: {
+             if model.exceedsByteLimit {
+                 Text("超出固件 \(ScrollText.maxTextBytes) 字节上限，发送前请缩短文字；不会自动截断。")
+diff --git a/ios/RinaBoard/Features/Text/TextPlaybackControls.swift b/ios/RinaBoard/Features/Text/TextPlaybackControls.swift
+index 426241b..ae9e466 100644
+--- a/ios/RinaBoard/Features/Text/TextPlaybackControls.swift
++++ b/ios/RinaBoard/Features/Text/TextPlaybackControls.swift
+@@ -10,6 +10,8 @@ import SwiftUI
+ struct TextPlaybackControls: View {
+     var isConnected: Bool
+     var hasTimeline: Bool
++    /// The board reports a scroll of its own, bound here or not.
++    var boardHasScroll: Bool
+     var isPaused: Bool
+     var isUploading: Bool
+     var isGeneratingFont: Bool
+@@ -23,8 +25,10 @@ struct TextPlaybackControls: View {
+     var onStepBackward: () -> Void
+     var onStepForward: () -> Void
+ 
+-    /// Stepping, pausing and stopping all need a timeline on the board.
+-    private var transportEnabled: Bool { isConnected && hasTimeline }
++    /// Stepping, pausing and stopping act on the board's scroll session, so
++    /// they only need one to exist there, not a timeline bound in the app.
++    private var hasBoardScroll: Bool { hasTimeline || boardHasScroll }
++    private var transportEnabled: Bool { isConnected && hasBoardScroll }
+ 
+     var body: some View {
+         HStack(spacing: 8) {
+@@ -54,7 +58,7 @@ struct TextPlaybackControls: View {
+ 
+     @ViewBuilder
+     private var stopOrSendControl: some View {
+-        if hasTimeline {
++        if hasBoardScroll {
+             control("stop.fill", label: "停止并清屏", action: onStop)
+                 .disabled(!transportEnabled)
+         } else {
+diff --git a/ios/RinaBoard/Features/Text/TextViewModel.swift b/ios/RinaBoard/Features/Text/TextViewModel.swift
+index bab8dba..71a2384 100644
+--- a/ios/RinaBoard/Features/Text/TextViewModel.swift
++++ b/ios/RinaBoard/Features/Text/TextViewModel.swift
+@@ -867,6 +867,16 @@ final class TextViewModel {
+ 
+     // MARK: Labels
+ 
++    /// Whether the board itself has a scroll it can pause, step or stop, even
++    /// when nothing is bound here (sent from the WebUI or another phone, or a
++    /// restore that could not rebuild the timeline). The transport commands
++    /// act on the board's own session and need no local timeline.
++    func boardHasScroll(connection: BoardConnection) -> Bool {
++        let renderer = connection.status?.renderer
++        if let count = renderer?.scrollFrameCount { return count > 0 }
++        return (renderer?.firmwareScrollActive ?? connection.preview?.firmwareScrollActive) == true
++    }
++
+     func phaseKey(connection: BoardConnection) -> String {
+         if let localPhase { return localPhase }
+         if isStepping { return "STEPPING" }
+diff --git a/ios/RinaBoard/Resources/Localizable.xcstrings b/ios/RinaBoard/Resources/Localizable.xcstrings
+index 94f7db1..621a533 100644
+--- a/ios/RinaBoard/Resources/Localizable.xcstrings
++++ b/ios/RinaBoard/Resources/Localizable.xcstrings
+@@ -6929,6 +6929,9 @@
+         }
+       }
+     },
++    "导入失败：文件中有 %d 个表情无法解析，未做任何改动" : {
++      "comment" : "face document import skipped entries"
++    },
+     "导入失败：文件格式无效" : {
+       "comment" : "face document import invalid",
+       "localizations" : {
+@@ -6952,6 +6955,9 @@
+         }
+       }
+     },
++    "导入失败：无法读取所选文件" : {
++      "comment" : "face document import unreadable file"
++    },
+     "导入视频…" : {
+       "comment" : "choose a video",
+       "localizations" : {
+@@ -6975,28 +6981,6 @@
+         }
+       }
+     },
+-    "清除视频" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "Clear Video"
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "ビデオを消去"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "清除影片"
+-          }
+-        }
+-      }
+-    },
+     "导入视频失败：%@" : {
+       "comment" : "video import failed",
+       "localizations" : {
+@@ -8809,6 +8793,7 @@
+       }
+     },
+     "当前部件数据与左右眼映射不一致，已停用逐灯同步。" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -13231,6 +13216,28 @@
+         }
+       }
+     },
++    "清除视频" : {
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "Clear Video"
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "ビデオを消去"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "清除影片"
++          }
++        }
++      }
++    },
+     "清除错误" : {
+       "extractionState" : "stale",
+       "localizations" : {
+@@ -16907,6 +16914,28 @@
+         }
+       }
+     },
++    "语言" : {
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "Language"
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "言語"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "語言"
++          }
++        }
++      }
++    },
+     "请先导入视频" : {
+       "comment" : "play pressed with no video",
+       "localizations" : {
+@@ -17456,6 +17485,28 @@
+         }
+       }
+     },
++    "跟随系统" : {
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "System"
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "システムに従う"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "跟隨系統"
++          }
++        }
++      }
++    },
+     "转换" : {
+       "extractionState" : "stale",
+       "localizations" : {
+@@ -18691,6 +18742,9 @@
+         }
+       }
+     },
++    "重启命令未送达：%@" : {
++      "comment" : "reboot command failed to reach the board"
++    },
+     "重启设备" : {
+       "localizations" : {
+         "en" : {
+@@ -18825,6 +18879,28 @@
+         }
+       }
+     },
++    "重新打开应用后将切换为所选语言。" : {
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "The selected language takes effect the next time you open the app."
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "アプリを再度開くと、選択した言語に切り替わります。"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "重新開啟 App 後將切換為所選語言。"
++          }
++        }
++      }
++    },
+     "重新播放启动动画" : {
+       "localizations" : {
+         "en" : {
+@@ -20282,72 +20358,6 @@
+           }
+         }
+       }
+-    },
+-    "语言" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "Language"
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "言語"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "語言"
+-          }
+-        }
+-      }
+-    },
+-    "跟随系统" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "System"
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "システムに従う"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "跟隨系統"
+-          }
+-        }
+-      }
+-    },
+-    "重新打开应用后将切换为所选语言。" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "The selected language takes effect the next time you open the app."
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "アプリを再度開くと、選択した言語に切り替わります。"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "重新開啟 App 後將切換為所選語言。"
+-          }
+-        }
+-      }
+     }
+   },
+   "version" : "1.0"
+diff --git a/ios/RinaBoardTests/AcceptanceControlTests.swift b/ios/RinaBoardTests/AcceptanceControlTests.swift
+index 4027bf6..7ec89a1 100644
+--- a/ios/RinaBoardTests/AcceptanceControlTests.swift
++++ b/ios/RinaBoardTests/AcceptanceControlTests.swift
+@@ -33,34 +33,45 @@ final class AcceptanceControlTests: XCTestCase {
+                        "Crossing an already-cleared LED must remain a no-op")
+     }
+ 
+-    func testSyncedEyePaintMirrorsTheBrushValueInBothDirections() throws {
++    func testMirroredPaintWritesTheBrushValueOnBothSidesOfEveryRow() throws {
+         let model = ControlViewModel()
+         let connection = BoardConnection()
+-        let topology = try XCTUnwrap(model.eyeTopology, "The shipped parts must provide a verified eye topology")
+-        let pair = try XCTUnwrap(topology.leftToRightPairs.first)
+ 
+         model.clear(connection: connection)
+         model.brushOn = true
+-        XCTAssertTrue(model.paint(led: pair.left, connection: connection))
+-        XCTAssertTrue(model.draftFrame[pair.left])
+-        XCTAssertFalse(model.draftFrame[pair.right], "Eye sync is still off")
+-
+-        model.setSyncEyes(true, connection: connection)
+-        XCTAssertTrue(model.draftFrame[pair.left])
+-        XCTAssertTrue(model.draftFrame[pair.right], "Enabling sync must project the left eye immediately")
++        let first = try mirrorPair(x: 3, y: 0)
++        XCTAssertTrue(model.paint(led: first.left, connection: connection))
++        XCTAssertFalse(model.draftFrame[first.right], "Drawing mirror is still off")
++
++        model.setMirrorDrawing(true, connection: connection)
++        XCTAssertFalse(model.draftFrame[first.right], "Turning mirror on must not reflect the existing drawing")
++
++        // Top row, the middle of the board (mouth, not eye) and the last row.
++        for (x, y) in [(3, 0), (5, 12), (4, 17)] {
++            let pair = try mirrorPair(x: x, y: y)
++            model.brushOn = true
++            XCTAssertTrue(model.paint(led: pair.left, connection: connection))
++            XCTAssertTrue(model.draftFrame[pair.left])
++            XCTAssertTrue(model.draftFrame[pair.right], "row \(y) must be mirrored")
++
++            model.brushOn = false
++            XCTAssertTrue(model.paint(led: pair.right, connection: connection))
++            XCTAssertFalse(model.draftFrame[pair.left])
++            XCTAssertFalse(model.draftFrame[pair.right])
++            XCTAssertFalse(model.paint(led: pair.right, connection: connection),
++                           "A repeated mirrored erase must not report another edit")
++        }
+ 
+-        model.brushOn = false
+-        XCTAssertTrue(model.paint(led: pair.right, connection: connection))
+-        XCTAssertFalse(model.draftFrame[pair.left])
+-        XCTAssertFalse(model.draftFrame[pair.right])
+-        XCTAssertFalse(model.paint(led: pair.right, connection: connection),
+-                       "A repeated mirrored erase must not report another edit")
++        let tapped = try mirrorPair(x: 10, y: 6)
++        model.toggle(led: tapped.right, connection: connection)
++        XCTAssertTrue(model.draftFrame[tapped.left])
++        XCTAssertTrue(model.draftFrame[tapped.right])
+     }
+ 
+-    func testEyePartSelectionStaysMirroredWhileSyncIsEnabled() throws {
++    func testEyePartSelectionStaysMirroredWhilePartMirrorIsEnabled() throws {
+         let (model, library) = try loadedModel()
+         let connection = BoardConnection()
+-        model.setSyncEyes(true, connection: connection)
++        model.setMirrorParts(true, connection: connection)
+ 
+         let leftID = try differentPartID(in: .leye, from: model.selectedCall[.leye], library: library)
+         let expectedRight = try XCTUnwrap(library.mirroredEyeId(leftID))
+@@ -80,6 +91,32 @@ final class AcceptanceControlTests: XCTestCase {
+         XCTAssertEqual(model.draftFrame, library.compose(call: model.selectedCall))
+     }
+ 
++    func testPartMirrorLeavesDrawingAlone() throws {
++        let model = ControlViewModel()
++        let connection = BoardConnection()
++        let pair = try mirrorPair(x: 3, y: 4)
++
++        model.setMirrorParts(true, connection: connection)
++        model.clear(connection: connection)
++        model.brushOn = true
++        XCTAssertTrue(model.paint(led: pair.left, connection: connection))
++        XCTAssertFalse(model.draftFrame[pair.right], "Part mirror must not mirror strokes")
++        XCTAssertNil(model.pencilHoverMirror(of: pair.left))
++    }
++
++    func testDrawingMirrorLeavesPartSelectionAlone() throws {
++        let (model, library) = try loadedModel()
++        let connection = BoardConnection()
++        model.setMirrorDrawing(true, connection: connection)
++        let rightBefore = model.selectedCall[.reye]
++
++        let leftID = try differentPartID(in: .leye, from: model.selectedCall[.leye], library: library)
++        model.selectPart(group: .leye, id: leftID, connection: connection)
++
++        XCTAssertEqual(model.selectedCall[.leye], leftID)
++        XCTAssertEqual(model.selectedCall[.reye], rightBefore, "Drawing mirror must not pick eye parts")
++    }
++
+     func testSelectingEveryPartGroupRecomposesTheDisplayedFrame() throws {
+         let (model, library) = try loadedModel()
+         let connection = BoardConnection()
+diff --git a/ios/RinaBoardTests/ControlPencilHoverTests.swift b/ios/RinaBoardTests/ControlPencilHoverTests.swift
+index 76f5a0a..f08251e 100644
+--- a/ios/RinaBoardTests/ControlPencilHoverTests.swift
++++ b/ios/RinaBoardTests/ControlPencilHoverTests.swift
+@@ -48,42 +48,42 @@ final class ControlPencilHoverTests: XCTestCase {
+         }
+     }
+ 
+-    /// With the eyes edited as a pair, hovering one eye shows the LED an edit
+-    /// would also change in the other eye — in the preview and on the board.
+-    func testSyncedEyesHoverTheMirroredLEDToo() async throws {
++    /// With drawing mirrored, hovering one side shows the LED an edit
++    /// would also change on the other side — in the preview and on the board.
++    func testMirroredDrawingHoversTheMirroredLEDToo() async throws {
+         let (connection, transport) = await connectedBoard()
+         let model = ControlViewModel()
+         model.livePreview = true
+-        let pair = try XCTUnwrap(model.eyeTopology?.leftToRightPairs.first)
++        let pair = try mirrorPair(x: 3, y: 4)
+ 
+-        XCTAssertNil(model.pencilHoverMirror(of: pair.left), "eye sync is off")
+-        model.setSyncEyes(true, connection: connection)
++        XCTAssertNil(model.pencilHoverMirror(of: pair.left), "drawing mirror is off")
++        model.setMirrorDrawing(true, connection: connection)
+         XCTAssertEqual(model.pencilHoverMirror(of: pair.left), pair.right)
+         XCTAssertEqual(model.pencilHoverMirror(of: pair.right), pair.left)
+ 
+         model.pencilHover(led: pair.left, connection: connection)
+-        await waitFor("the board must show both eyes") { hintPairs(transport) == [[pair.left, pair.right]] }
++        await waitFor("the board must show both sides") { hintPairs(transport) == [[pair.left, pair.right]] }
+         model.pencilHover(led: nil, connection: connection)
+         await waitFor { hintPairs(transport) == [[pair.left, pair.right], [-1, nil]] }
+         connection.disconnect()
+     }
+ 
+-    /// Turning eye sync on or off while the pencil is held still re-sends the
++    /// Turning the drawing mirror on or off while the pencil is held still re-sends the
+     /// hint with or without its partner.
+-    func testTogglingEyeSyncMidHoverUpdatesTheBoard() async throws {
++    func testTogglingDrawingMirrorMidHoverUpdatesTheBoard() async throws {
+         let (connection, transport) = await connectedBoard()
+         let model = ControlViewModel()
+         model.livePreview = true
+-        let pair = try XCTUnwrap(model.eyeTopology?.leftToRightPairs.first)
++        let pair = try mirrorPair(x: 3, y: 4)
+ 
+         model.pencilHover(led: pair.left, connection: connection)
+         await waitFor { hintPairs(transport) == [[pair.left, nil]] }
+-        model.setSyncEyes(true, connection: connection)
+-        await waitFor("sync on adds the partner") {
++        model.setMirrorDrawing(true, connection: connection)
++        await waitFor("mirror on adds the partner") {
+             hintPairs(transport) == [[pair.left, nil], [pair.left, pair.right]]
+         }
+-        model.setSyncEyes(false, connection: connection)
+-        await waitFor("sync off drops it again") {
++        model.setMirrorDrawing(false, connection: connection)
++        await waitFor("mirror off drops it again") {
+             hintPairs(transport) == [[pair.left, nil], [pair.left, pair.right], [pair.left, nil]]
+         }
+         connection.disconnect()
+diff --git a/ios/RinaBoardTests/TextTransportTests.swift b/ios/RinaBoardTests/TextTransportTests.swift
+index f7a9e0d..8b69281 100644
+--- a/ios/RinaBoardTests/TextTransportTests.swift
++++ b/ios/RinaBoardTests/TextTransportTests.swift
+@@ -39,6 +39,36 @@ final class TextTransportTests: XCTestCase {
+         XCTAssertEqual(model.frameCount, 0)
+     }
+ 
++    /// A scroll the app did not upload or could not restore (WebUI, another
++    /// phone, a font mismatch) left pause/step/stop greyed out, although the
++    /// firmware commands act on the board's own session.
++    func testBoardScrollEnablesTransportWithoutBoundTimeline() async throws {
++        let (connection, transport) = try await connectedBoard()
++        let model = TextViewModel()
++        XCTAssertFalse(model.boardHasScroll(connection: connection))
++
++        transport.pushStatus(#"{"renderer":{"firmwareScrollActive":true,"scrollFrameCount":40,"scrollFrameIndex":3}}"#)
++        let deadline = Date().addingTimeInterval(2)
++        while connection.status?.renderer?.scrollFrameCount == nil, Date() < deadline {
++            try await Task.sleep(for: .milliseconds(5))
++        }
++        XCTAssertNil(model.boundTimelineId)
++        XCTAssertTrue(model.boardHasScroll(connection: connection))
++
++        await model.pause(connection: connection)
++        XCTAssertTrue(model.boardPaused)
++        await model.stepFrame(direction: 1, connection: connection)
++        await model.stop(connection: connection)
++        XCTAssertEqual(transport.scrollCommands.map(\.name), ["pause_scroll", "scroll_step", "stop_scroll"])
++        XCTAssertNil(model.errorMessage)
++
++        transport.pushStatus(#"{"renderer":{"firmwareScrollActive":false,"scrollFrameCount":0}}"#)
++        while connection.status?.renderer?.scrollFrameCount != 0, Date() < deadline {
++            try await Task.sleep(for: .milliseconds(5))
++        }
++        XCTAssertFalse(model.boardHasScroll(connection: connection))
++    }
++
+     func testSeekClampsToTimelineAndClearsScrub() async throws {
+         let (connection, transport) = try await connectedBoard()
+         let model = TextViewModel()
+@@ -906,6 +936,13 @@ private final class RecordingTextTransport: @MainActor RinaTransport {
+         var description: String { "timed out with \(parked) parked request(s), wanted \(wanted)" }
+     }
+ 
++    /// An unsolicited EV_STATUS frame, as the firmware broadcasts one.
++    func pushStatus(_ json: String) {
++        incomingContinuation?.yield(try! RinaLinkEncoder.encode(
++            RinaLinkFrame(type: RinaLinkMessageType.evStatus.rawValue, seq: 0, flags: 0, payload: Data(json.utf8))
++        ))
++    }
++
+     func clearRecordedRequests() { requests.removeAll() }
+ 
+     var restoreRequests: [RinaLinkMessageType] {

@@ -1,0 +1,18 @@
+{
+  "firmware.bin": {
+    "bytes": 1447696,
+    "sha256": "0787c69f14091a1462f26217b06c06d391f28f7a958c806adffb38cf3341f8d3"
+  },
+  "firmware.elf": {
+    "bytes": 22076848,
+    "sha256": "cfffc42a17dccd2e4ebd5f0e769964715327f6bb4a17d2948a3f9a1e4456afd3"
+  },
+  "bootloader.bin": {
+    "bytes": 19984,
+    "sha256": "3a06e81d78e928687d7acd8abcd069543a4413de4398e2e2940a97b3fc739fd8"
+  },
+  "partitions.bin": {
+    "bytes": 3072,
+    "sha256": "147499e8be02e063348e12255445d468222433e537b907af4902e06240b72456"
+  }
+}

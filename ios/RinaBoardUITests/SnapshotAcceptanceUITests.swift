@@ -39,7 +39,9 @@ final class SnapshotAcceptanceUITests: XCTestCase {
     /// No accessibility hook exposes the boot loader overlay's state, so we
     /// wait for the tab bar to become hittable and give the outro a further
     /// margin to finish before capturing the reference frame.
-    func testRinaBackgroundStarReferenceFrame() {
+    /// Screenshot artifact for human review; starfield rendering behavior
+    /// is asserted in RinaStarfieldTests, not inferred from this attachment.
+    func testCaptureRinaBackgroundStarReferenceFrameForReview() {
         launch("control")
         let tabBar = app.tabBars.firstMatch
         var isHittable = false
@@ -78,11 +80,8 @@ final class SnapshotAcceptanceUITests: XCTestCase {
                       "The local ('本机') library location must be offered when no board is connected")
         XCTAssertTrue(localSegment.isSelected,
                       "Offline, the picker must default to the local library, not the (empty) board one")
-        // `FaceLibraryView` puts the thumbnail, name and caption inside a
-        // `Button`'s label, so SwiftUI collapses that subtree into a single
-        // element carrying the button trait — "预设" is a fragment of the
-        // button's accessibility label, never a standalone `staticText`.
-        let presetRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "预设")).firstMatch
+        // Preset captions are Text children of the row HStack.
+        let presetRow = app.staticTexts["预设"].firstMatch
         XCTAssertTrue(presetRow.waitForExistence(timeout: 3),
                       "Bundled preset faces must be available offline")
         XCTAssertFalse(app.staticTexts["暂无"].exists,
@@ -98,7 +97,7 @@ final class SnapshotAcceptanceUITests: XCTestCase {
         launch("control")
         XCTAssertTrue(FaceLibraryUITestPath.openFaceLibrary(in: app),
                       "The face library was not reachable from the Control tab")
-        let presetRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "预设")).firstMatch
+        let presetRow = app.staticTexts["预设"].firstMatch
         XCTAssertTrue(presetRow.waitForExistence(timeout: 3),
                       "Local presets should be showing by default while offline")
 
@@ -127,7 +126,7 @@ final class SnapshotAcceptanceUITests: XCTestCase {
         launch("control")
         XCTAssertTrue(FaceLibraryUITestPath.openFaceLibrary(in: app),
                       "The face library was not reachable from the Control tab")
-        let presetRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "预设")).firstMatch
+        let presetRow = app.staticTexts["预设"].firstMatch
         XCTAssertTrue(presetRow.waitForExistence(timeout: 3))
         presetRow.press(forDuration: 0.6)
         let copyAction = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "复制到")).firstMatch

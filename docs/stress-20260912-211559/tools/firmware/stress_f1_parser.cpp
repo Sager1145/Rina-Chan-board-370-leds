@@ -36,6 +36,17 @@ static void deliver(const Bytes& b, unsigned maxPasses = 100) {
     }
 }
 static int errCode(const std::string& body) { auto d = parse(body); return d["code"] | 0; }
+static bool hasError413(const std::vector<RxFrame>& frames, uint8_t seq) {
+    for (const auto& frame : frames) {
+        if (frame.type == 0xFF && frame.seq == seq &&
+            errCode(std::string(frame.payload.begin(), frame.payload.end())) == 413) return true;
+    }
+    return false;
+}
+static bool hasReply(const std::vector<RxFrame>& frames, uint8_t type, uint8_t seq) {
+    for (const auto& frame : frames) if (frame.type == type && frame.seq == seq) return true;
+    return false;
+}
 
 int main(int argc, char** argv) {
     const unsigned long iters = argc > 1 ? std::strtoul(argv[1], nullptr, 0) : 1000000UL;
@@ -90,8 +101,18 @@ int main(int argc, char** argv) {
       C.push(g); C.push(frameOf(0x06, 9, {})); serviceProtocol();
       auto rep = C.replyFor(9); L.check("F1-BADMAGIC-1000B-THEN-PING", rep.first == 0x86, "replyType=" + std::to_string(rep.first)); }
     fresh();
-    C.push(Bytes{0xA5, 0x01, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x13}); C.push(frameOf(0x06, 10, {})); serviceProtocol();
-    { auto rep = C.replyFor(10); L.check("F1-MAGIC-LEN65535-HEADER-THEN-PING", rep.first == 0x86, "replyType=" + std::to_string(rep.first)); }
+    { const unsigned closesBefore = T.disconnects;
+      C.push(Bytes{0xA5, 0x01, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x13}); C.push(frameOf(0x06, 10, {})); serviceProtocol();
+      const auto replies = C.take();
+      const bool rejected = hasError413(replies, 0);
+      const bool noPhantomPing = !hasReply(replies, 0x86, 10);
+      serviceProtocol();
+      const bool closed = !g_clients[C.id.slot].used && T.disconnects == closesBefore + 1;
+      fresh();
+      const auto recovered = C.request(0x06, 10, {});
+      L.check("F1-MAGIC-LEN65535-HEADER-THEN-PING", rejected && noPhantomPing && closed && recovered.first == 0x86,
+              "err413=" + std::to_string(rejected) + " oldPingBlocked=" + std::to_string(noPhantomPing) +
+                  " closed=" + std::to_string(closed) + " newCarrierPing=" + std::to_string(recovered.first)); }
 
     // --- F1-LEN: payload length boundaries (unknown type 0x7E -> ERR 400) -------------
     for (size_t len : {0UL, 4095UL, 4096UL}) {
@@ -105,16 +126,23 @@ int main(int argc, char** argv) {
     }
     for (size_t len : {4097UL, 65535UL}) {
         fresh();
+        const unsigned closesBefore = T.disconnects;
         Bytes f = frameOf(0x7E, 22, {});
         f[4] = static_cast<uint8_t>(len & 0xFF); f[5] = static_cast<uint8_t>(len >> 8);
         f.insert(f.end(), len, 0);
         deliver(f, 1000);
         auto rep = C.replyFor(22);
-        C.push(frameOf(0x06, 23, {})); serviceProtocol();
-        auto ping = C.replyFor(23);
-        L.check("F1-LEN-" + std::to_string(len) + "-RESYNC", ping.first == 0x86, "nextPingReply=" + std::to_string(ping.first));
-        L.check("F1-LEN-" + std::to_string(len) + "-EXPLICIT-REJECT", rep.first == 0xFF,
-                "oversizeReplyType=" + std::to_string(rep.first) + " (0=silently skipped; no ERR; no disconnect)");
+        serviceProtocol();
+        const bool closed = !g_clients[C.id.slot].used && T.disconnects == closesBefore + 1;
+        const Bytes pingFrame = frameOf(0x06, 23, {});
+        const size_t oldCarrierAccepted = rinalink::transportPushInbound(C.id, pingFrame.data(), pingFrame.size());
+        fresh();
+        const auto recovered = C.request(0x06, 23, {});
+        L.check("F1-LEN-" + std::to_string(len) + "-RESYNC", closed && oldCarrierAccepted == 0 && recovered.first == 0x86,
+                "closed=" + std::to_string(closed) + " oldCarrierAccepted=" + std::to_string(oldCarrierAccepted) +
+                    " newCarrierPing=" + std::to_string(recovered.first));
+        L.check("F1-LEN-" + std::to_string(len) + "-EXPLICIT-REJECT", rep.first == 0xFF && errCode(rep.second) == 413,
+                "oversizeReplyType=" + std::to_string(rep.first) + " code=" + std::to_string(errCode(rep.second)));
     }
 
     // --- F1-TRUNC: truncated frame followed by a valid one -----------------------------
@@ -125,9 +153,14 @@ int main(int argc, char** argv) {
       C.push(Bytes(84, 0x20)); serviceProtocol();
       auto after = C.take();
       bool got30 = false, got31 = false; for (auto& f : after) { got30 |= f.seq == 30; got31 |= f.seq == 31; }
-      L.check("F1-TRUNC-THEN-VALID", ping31.first == 0x86,
-              "validPingAnswered=" + std::to_string(ping31.first == 0x86) + " swallowedIntoTruncated=1 afterFill:seq30=" +
-                  std::to_string(got30) + " seq31=" + std::to_string(got31)); }
+      rinalink::transportUnregisterClient(C.id); serviceProtocol();
+      const bool closed = !g_clients[C.id.slot].used;
+      fresh();
+      const auto recovered = C.request(0x06, 32, {});
+      L.check("F1-TRUNC-THEN-VALID", ping31.first == 0 && got30 && !got31 && closed && recovered.first == 0x86,
+              "phantomPing=" + std::to_string(ping31.first) + " filledSeq30=" + std::to_string(got30) +
+                  " swallowedSeq31=" + std::to_string(!got31) + " closed=" + std::to_string(closed) +
+                  " newCarrierPing=" + std::to_string(recovered.first)); }
 
     // --- F1-PHANTOM: oversize frame payload containing a frame-shaped byte run --------
     fresh();
@@ -181,21 +214,57 @@ int main(int argc, char** argv) {
     // --- F1-FUZZ-POP: direct popInboundFrame differential vs reference model -----------
     {
         XorShift r(seed);
-        uint8_t buf[INBOUND_BUFFER_BYTES]; size_t len = 0; std::vector<uint8_t> ref; uint8_t out[FRAME_HEADER_BYTES + MAX_PAYLOAD_BYTES];
+        uint8_t buf[INBOUND_BUFFER_BYTES]; size_t len = 0; size_t oversizedRemaining = 0;
+        std::vector<uint8_t> ref; size_t refOversizedRemaining = 0;
+        uint8_t out[FRAME_HEADER_BYTES + MAX_PAYLOAD_BYTES];
         unsigned long mismatches = 0, frames = 0, capViolations = 0;
-        auto refPop = [&](Bytes& fr) -> size_t {
+        auto refPop = [&](Bytes& fr) -> rinalink::InboundFrameResult {
+            rinalink::InboundFrameResult result;
+            if (refOversizedRemaining) {
+                const size_t discarded = std::min(ref.size(), refOversizedRemaining);
+                ref.erase(ref.begin(), ref.begin() + static_cast<long>(discarded));
+                refOversizedRemaining -= discarded;
+                if (refOversizedRemaining) return result;
+            }
             size_t i = 0;
             while (ref.size() - i >= 6) {
                 if (ref[i] != 0xA5) { ++i; continue; }
                 size_t n = ref[i + 4] | (static_cast<size_t>(ref[i + 5]) << 8);
-                if (n > 4096) { ++i; continue; }
+                if (n > MAX_PAYLOAD_BYTES) {
+                    result.oversized = true;
+                    result.rejectedSeq = ref[i + 2];
+                    i += FRAME_HEADER_BYTES;
+                    const size_t discarded = std::min(n, ref.size() - i);
+                    i += discarded;
+                    refOversizedRemaining = n - discarded;
+                    break;
+                }
                 if (ref.size() - i < 6 + n) break;
                 fr.assign(ref.begin() + static_cast<long>(i), ref.begin() + static_cast<long>(i + 6 + n));
                 ref.erase(ref.begin(), ref.begin() + static_cast<long>(i + 6 + n));
-                return fr.size();
+                result.frameBytes = fr.size();
+                return result;
             }
             ref.erase(ref.begin(), ref.begin() + static_cast<long>(i));
-            return 0;
+            return result;
+        };
+        auto popAndCompare = [&]() -> rinalink::InboundFrameResult {
+            Bytes fr;
+            const auto got = rinalink::popInboundFrame(buf, len, out, oversizedRemaining);
+            const auto want = refPop(fr);
+            const bool frameWithinCapacity = got.frameBytes <= FRAME_HEADER_BYTES + MAX_PAYLOAD_BYTES;
+            const bool bufferWithinCapacity = len <= INBOUND_BUFFER_BYTES;
+            if (got.frameBytes != want.frameBytes || got.oversized != want.oversized ||
+                got.rejectedSeq != want.rejectedSeq || oversizedRemaining != refOversizedRemaining ||
+                (got.frameBytes && frameWithinCapacity && got.frameBytes == fr.size() &&
+                 std::memcmp(out, fr.data(), got.frameBytes) != 0) ||
+                len != ref.size() || (len && bufferWithinCapacity && len == ref.size() &&
+                 std::memcmp(buf, ref.data(), len) != 0)) {
+                ++mismatches;
+            }
+            if (!bufferWithinCapacity || !frameWithinCapacity ||
+                oversizedRemaining > UINT16_MAX) ++capViolations;
+            return got;
         };
         const auto t0 = std::chrono::steady_clock::now();
         for (unsigned long it = 0; it < iters; ++it) {
@@ -208,16 +277,20 @@ int main(int argc, char** argv) {
                 buf[len++] = b; ref.push_back(b);
             }
             for (int k = 0; k < 8; ++k) {
-                Bytes fr;
-                size_t n = rinalink::popInboundFrame(buf, len, out);
-                size_t rn = refPop(fr);
-                if (n != rn || (n && std::memcmp(out, fr.data(), n) != 0) || len != ref.size() || std::memcmp(buf, ref.data(), len) != 0) { ++mismatches; ref.assign(buf, buf + len); }
-                if (len > INBOUND_BUFFER_BYTES || n > FRAME_HEADER_BYTES + MAX_PAYLOAD_BYTES) ++capViolations;
-                if (!n) break;
+                const auto popped = popAndCompare();
+                if (!popped.frameBytes) break;
                 ++frames;
             }
             // Deadlock guard: a full buffer must always make progress.
-            if (len == INBOUND_BUFFER_BYTES) { Bytes fr; size_t n = rinalink::popInboundFrame(buf, len, out); refPop(fr); if (!n && len == INBOUND_BUFFER_BYTES) { ++capViolations; len = 0; ref.clear(); } }
+            if (len == INBOUND_BUFFER_BYTES) {
+                const auto popped = popAndCompare();
+                if (!popped.frameBytes && !popped.oversized && len == INBOUND_BUFFER_BYTES) {
+                    ++capViolations;
+                    break;
+                }
+                if (popped.frameBytes) ++frames;
+            }
+            if (len > INBOUND_BUFFER_BYTES) break;
         }
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         L.check("F1-FUZZ-POP", mismatches == 0 && capViolations == 0,
@@ -232,6 +305,7 @@ int main(int argc, char** argv) {
         XorShift r(seed ^ 0x5151);
         std::deque<uint8_t> pending;
         unsigned long passes = 0, maxGroups = 0, budgetViolations = 0, capViolations = 0, replyGroups = 0;
+        unsigned long expectedOversizeDisconnects = 0, unexpectedDisconnects = 0;
         const char* cmds[] = {"{\"cmd\":\"set_brightness\",\"raw\":77}", "{\"cmd\":\"pause\"}", "{\"cmd\":\"resume\"}", "{bad json", "",
                               "{\"cmd\":\"scroll_seek\",\"frameIndex\":3}", "{\"cmd\":\"subscribe\",\"preview\":false}", "{\"cmd\":\"nope\"}"};
         const uint8_t types[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x10, 0x11, 0x20, 0x21, 0x22, 0x23, 0x24, 0x7E, 0xFF};
@@ -266,28 +340,57 @@ int main(int argc, char** argv) {
             }
             size_t freeB = rinalink::transportInboundFree(C.id);
             size_t n = std::min<size_t>({pending.size(), freeB, 1 + r.below(512)});
-            if (n) { Bytes chunk(pending.begin(), pending.begin() + static_cast<long>(n)); pending.erase(pending.begin(), pending.begin() + static_cast<long>(n)); C.push(chunk); }
+            if (n) {
+                Bytes chunk(pending.begin(), pending.begin() + static_cast<long>(n));
+                const size_t accepted = rinalink::transportPushInbound(C.id, chunk.data(), n);
+                if (accepted != n) ++capViolations;
+                pending.erase(pending.begin(), pending.begin() + static_cast<long>(accepted));
+            }
             if (g_clients[C.id.slot].inboundLen > INBOUND_BUFFER_BYTES) ++capViolations;
             if (r.below(10) < 7) {
                 serviceProtocol(); ++passes;
-                unsigned g = groups(C.take());
+                const auto replies = C.take();
+                unsigned g = groups(replies);
                 replyGroups += g;
-                // one extra group allowed: the ERR(413) resync notice
                 if (g > MAX_FRAMES_PER_CLIENT_PASS) ++budgetViolations;
                 maxGroups = std::max<unsigned long>(maxGroups, g);
-                if (!g_clients[C.id.slot].used) { ++capViolations; fresh(); }
+                bool oversized413 = false;
+                for (const auto& frame : replies) {
+                    if (frame.type == 0xFF &&
+                        std::string(frame.payload.begin(), frame.payload.end()).find("frame payload too large") != std::string::npos &&
+                        errCode(std::string(frame.payload.begin(), frame.payload.end())) == 413) oversized413 = true;
+                }
+                if (g_clients[C.id.slot].disconnectPending) {
+                    const unsigned closesBefore = T.disconnects;
+                    serviceProtocol(); ++passes;
+                    const bool closed = !g_clients[C.id.slot].used && T.disconnects == closesBefore + 1;
+                    if (oversized413 && closed) ++expectedOversizeDisconnects;
+                    else ++unexpectedDisconnects;
+                    pending.clear(); // Unread bytes belonged to the retired carrier.
+                    fresh();
+                } else if (!g_clients[C.id.slot].used || oversized413) {
+                    ++unexpectedDisconnects;
+                    pending.clear();
+                    fresh();
+                }
+                if (g_clients[C.id.slot].inboundLen > INBOUND_BUFFER_BYTES) ++capViolations;
                 ClientSlot& cs = g_clients[C.id.slot]; cs.subPreview = cs.subStatus = cs.subPower = false;
             }
             if ((it & 0x3F) == 0) advanceMs(1);
         }
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        L.check("F1-FUZZ-DISPATCH", budgetViolations == 0 && capViolations == 0 && g_lockRecursion == 0 && g_lockOrderViolations == 0,
+        L.check("F1-FUZZ-DISPATCH", budgetViolations == 0 && capViolations == 0 &&
+                    expectedOversizeDisconnects > 0 && unexpectedDisconnects == 0 &&
+                    g_lockRecursion == 0 && g_lockOrderViolations == 0,
                 "iters=" + std::to_string(iters) + " passes=" + std::to_string(passes) + " replyGroups=" + std::to_string(replyGroups) +
                     " maxGroupsPerPass=" + std::to_string(maxGroups) + " budgetViolations=" + std::to_string(budgetViolations) +
-                    " capViolations=" + std::to_string(capViolations) + " lockRecursion=" + std::to_string(g_lockRecursion) +
+                    " capViolations=" + std::to_string(capViolations) +
+                    " expectedOversizeDisconnects=" + std::to_string(expectedOversizeDisconnects) +
+                    " unexpectedDisconnects=" + std::to_string(unexpectedDisconnects) +
+                    " lockRecursion=" + std::to_string(g_lockRecursion) +
                     " lockOrder=" + std::to_string(g_lockOrderViolations) + " secs=" + std::to_string(secs),
                 std::to_string(iters), "0x" + hex64(seed ^ 0x5151));
     }
     std::cout << "SUMMARY F1 pass=" << L.pass << " fail=" << L.fail << std::endl;
-    return 0;
+    return L.fail == 0 ? 0 : 1;
 }

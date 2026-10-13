@@ -28,8 +28,10 @@
 	<string>用于口型同步：实时识别你的元音并驱动璃奈板的嘴型</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>用于在局域网/热点中发现并连接璃奈板</string>
+	<key>NSLocationUsageDescription</key>
+	<string>Wi-Fi 名称由系统定位权限保护；仅在你读取 Wi-Fi 或连接璃奈板热点时使用。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>仅在你点按读取时，用于显示 iPhone 当前连接的 Wi-Fi 名称</string>
+	<string>仅在你读取 Wi-Fi 或连接璃奈板热点时，用于确认当前 Wi-Fi 名称</string>
 	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
 	<dict>
 		<key>ReadCurrentWiFiSSID</key>

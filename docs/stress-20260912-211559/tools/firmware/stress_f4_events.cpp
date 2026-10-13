@@ -139,5 +139,5 @@ int main() {
               "trials=200 stuckStatus=" + std::to_string(stuckStatus) + " stuckPreview=" + std::to_string(stuckPreview) + " dropP=0.5 per burst change",
               "200 trials", "0xf4f4"); }
     std::cout << "SUMMARY F4 pass=" << L.pass << " fail=" << L.fail << std::endl;
-    return 0;
+    return L.fail == 0 ? 0 : 1;
 }

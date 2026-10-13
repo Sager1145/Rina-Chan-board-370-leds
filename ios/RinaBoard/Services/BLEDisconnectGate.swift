@@ -95,6 +95,12 @@ final class BLEDisconnectGate {
     private var pending: Set<UUID> = []
     private var waiters: [UUID: (peripheral: UUID, continuation: CheckedContinuation<GateWaitResult, Error>)] = [:]
 
+    /// Observes real continuation registration so tests can target a parked
+    /// waiter without guessing how long the task scheduler needs.
+    func registeredWaiterCount(for peripheral: UUID) -> Int {
+        waiters.values.filter { $0.peripheral == peripheral }.count
+    }
+
     func begin(_ peripheral: UUID) -> Bool { pending.insert(peripheral).inserted }
     func contains(_ peripheral: UUID) -> Bool { pending.contains(peripheral) }
 

@@ -104,13 +104,8 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
     private var connectContinuation: CheckedContinuation<Void, Error>?
     private var connectTimeoutTask: Task<Void, Never>?
     private var connectAttemptID = UUID()
-    /// The attempt currently holding `connect()`'s single-flight slot, or nil
-    /// when no `connect()` call is in progress. An attempt token (rather than
-    /// a bare `Bool`) lets a superseded attempt's own unwind (`defer` in
-    /// `connect()`) tell whether it still owns the slot before clearing it,
-    /// so it can never clobber a newer attempt that has already claimed it.
-    private var inProgressAttempt: UUID?
-    private var isConnectInProgress: Bool { inProgressAttempt != nil }
+    private var connectSlot = BLEConnectAttemptSlot()
+    private var isConnectInProgress: Bool { connectSlot.inProgressAttempt != nil }
     private let disconnectGate = BLEDisconnectGate()
     /// Retains the `CBPeripheral` for a cancel that is still pending a
     /// terminal CoreBluetooth callback. Without this, callers clear
@@ -192,7 +187,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
     public func startScan() {
         guard centralManager.state == .poweredOn else {
             lastError = bluetoothUnavailableMessage(centralManager.state)
-            logger.error("BLE scan rejected: \(self.lastError ?? "Bluetooth unavailable", privacy: .public)")
+            logger.error("BLE scan rejected: \(self.lastError ?? "Bluetooth unavailable", privacy: .public), state=\(self.centralManager.state.rawValue), authorization=\(CBManager.authorization.rawValue)")
             return
         }
         guard !isScanning else { return }
@@ -278,16 +273,14 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
     }
 
     public func connect() async throws {
-        guard inProgressAttempt == nil else {
+        guard let attempt = connectSlot.enter() else {
             throw RinaTransportError.cancelled
         }
-        let attempt = UUID()
-        inProgressAttempt = attempt
         // Only clear the slot if it is still this attempt's: `disconnect()`
         // (e.g. a board switch racing this same unwind) may have already
         // handed the slot to a newer attempt, and this `defer` must not steal
         // it back out from under that newer attempt.
-        defer { if inProgressAttempt == attempt { inProgressAttempt = nil } }
+        defer { connectSlot.exit(attempt) }
         connectAttemptID = attempt
         do {
             try await withTaskCancellationHandler {
@@ -629,7 +622,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
         // the superseded attempt's own suspended call stack to unwind. That
         // unwind's `defer` in `connect()` is keyed on its own attempt token,
         // so it cannot clobber the new attempt's claim on this slot.
-        inProgressAttempt = nil
+        connectSlot.disconnect()
         let peripheral = targetPeripheral
         let identifier = peripheral?.identifier
         // Wake a connect attempt that might be parked inside
@@ -660,6 +653,36 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
         if let identifier {
             logger.info("BLE disconnected by app from \(identifier.uuidString, privacy: .public)")
         }
+    }
+
+    /// Cancels only this transport's links and retains their peripheral objects
+    /// until CoreBluetooth confirms disconnection. UI state is cleared earlier
+    /// by `disconnect()`, so it cannot serve as terminal cleanup evidence.
+    func disconnectAndWait(timeout: TimeInterval = 5) async throws -> Bool {
+        var peripherals = cancellingPeripherals
+        if let peripheral = targetPeripheral {
+            peripherals[peripheral.identifier] = peripheral
+        }
+        disconnect()
+        stopScan()
+        var disconnected = true
+        for (identifier, peripheral) in peripherals {
+            let confirmed = try await Self.waitForTerminalDisconnection(
+                gate: disconnectGate, identifier: identifier, timeout: timeout,
+                state: { peripheral.state })
+            disconnected = confirmed && disconnected
+        }
+        return disconnected
+    }
+
+    /// The gate can also be force-cleared during recovery. Require independent
+    /// peripheral state evidence so that bookkeeping never proves link teardown.
+    static func waitForTerminalDisconnection(
+        gate: BLEDisconnectGate, identifier: UUID, timeout: TimeInterval,
+        state: @MainActor () -> CBPeripheralState
+    ) async throws -> Bool {
+        let result = try await gate.wait(for: identifier, timeout: timeout)
+        return result == .drained && state() == .disconnected
     }
 
     public func send(_ data: Data) async throws {
@@ -1016,5 +1039,26 @@ extension BLETransport: CBPeripheralDelegate {
             guard isCurrent(peripheral) else { return }
             resumeWriteReady()
         }
+    }
+}
+
+/// The actual single-flight slot used by BLETransport.connect/disconnect.
+/// An old attempt's deferred unwind cannot release a newer owner's token.
+struct BLEConnectAttemptSlot {
+    private(set) var inProgressAttempt: UUID?
+
+    mutating func enter() -> UUID? {
+        guard inProgressAttempt == nil else { return nil }
+        let attempt = UUID()
+        inProgressAttempt = attempt
+        return attempt
+    }
+
+    mutating func exit(_ attempt: UUID) {
+        if inProgressAttempt == attempt { inProgressAttempt = nil }
+    }
+
+    mutating func disconnect() {
+        inProgressAttempt = nil
     }
 }

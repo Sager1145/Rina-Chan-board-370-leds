@@ -11,12 +11,13 @@ final class StressSequenceTests: XCTestCase {
     func testP0_0_ConstantsMatchBrief() {
         let connection = BoardConnection()
         func pump(_ name: String) -> (interval: Double, depth: Int) {
-            guard let pump = Stress.reflect(connection, name) else { return (-1, -1) }
-            return (Stress.reflect(pump, "minInterval") as? TimeInterval ?? -1, Stress.reflect(pump, "depth") as? Int ?? -1)
+            let pump: Any = Stress.requiredValue(connection, path: name, as: Any.self)
+            return (Stress.requiredValue(pump, path: "minInterval", as: TimeInterval.self),
+                    Stress.requiredValue(pump, path: "depth", as: Int.self))
         }
         let frame = pump("framePump"), command = pump("commandPump"), blob = pump("blobPump"), output = pump("outputPump")
-        let handshake = Stress.reflect(connection, "handshakeTimeout") as? TimeInterval ?? -1
-        let maxReconnect = Stress.reflect(connection, "maxReconnectAttempts") as? Int ?? -1
+        let handshake = Stress.requiredValue(connection, path: "handshakeTimeout", as: TimeInterval.self)
+        let maxReconnect = Stress.requiredValue(connection, path: "maxReconnectAttempts", as: Int.self)
         let labels = Mirror(reflecting: connection).children.compactMap(\.label)
         let capLike = labels.filter { $0.lowercased().contains("cap") || $0.lowercased().contains("maxaccum") || $0.lowercased().contains("limit") }
         let ok = frame == (0.020, 6) && command == (0.120, 4) && blob == (0, 4) && output == (0, 64) && handshake == 5
@@ -210,7 +211,7 @@ final class StressSequenceTests: XCTestCase {
         let a = Task { @MainActor in doneA.value = (try? await c.send(type: .ping, payload: tagA, timeout: 1.5).payload) ?? Data("err".utf8) }
         _ = await Stress.wait(timeout: 1) { t.held.contains { $0.payload == tagA } }
         let seqA = t.held.first { $0.payload == tagA }?.seq
-        oldStream?.yield(RinaLinkEncoder.encode(RinaLinkFrame(type: oldRequest.type | 0x80, seq: oldRequest.seq, flags: 0, payload: oldTag)))
+        oldStream?.yield(Stress.encode(RinaLinkFrame(type: oldRequest.type | 0x80, seq: oldRequest.seq, flags: 0, payload: oldTag)))
         try? await Task.sleep(nanoseconds: 30_000_000)
         let oldStreamDelivered = doneA.value == oldTag
         // (ii) stale reply for the same seq/type arriving on the new link.

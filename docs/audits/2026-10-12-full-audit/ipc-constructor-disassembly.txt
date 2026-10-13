@@ -1,0 +1,64 @@
+
+esp32s3_firmware/.pio/build/esp32s3-rmt-dma/firmware.elf:     file format elf32-xtensa-le
+
+
+Disassembly of section .iram0.vectors:
+
+Disassembly of section .iram0.text:
+
+Disassembly of section .flash.text:
+
+4204a638 <esp_ipc_init>:
+4204a638:	008136        	entry	a1, 64
+4204a63b:	d882b1        	l32r	a11, 42040844 <_ZN9IPAddress10fromStringEPKc+0xa48> (3c11a945 <_ZTV25NimBLELocalValueAttribute+0xa825>)
+4204a63e:	1bc132        	addi	a3, a1, 27
+4204a641:	05a0c2        	movi	a12, 5
+4204a644:	20a330        	or	a10, a3, a3
+4204a647:	d60c81        	l32r	a8, 4203fe78 <_ZN9IPAddress10fromStringEPKc+0x7c> (400011f4 <memcpy>)
+4204a64a:	0008e0        	callx8	a8
+4204a64d:	050c      	movi.n	a5, 0
+4204a64f:	070c      	movi.n	a7, 0
+4204a651:	30c782        	addi	a8, a7, 48
+4204a654:	034382        	s8i	a8, a3, 3
+4204a657:	d87c81        	l32r	a8, 42040848 <_ZN9IPAddress10fromStringEPKc+0xa4c> (3fc9f124 <s_ipc_mutex_buffer>)
+4204a65a:	01a0a2        	movi	a10, 1
+4204a65d:	80b850        	add	a11, a8, a5
+4204a660:	d88081        	l32r	a8, 42040860 <_ZN9IPAddress10fromStringEPKc+0xa64> (403829e8 <xQueueCreateMutexStatic>)
+4204a663:	0008e0        	callx8	a8
+4204a666:	d86d81        	l32r	a8, 4204081c <_ZN9IPAddress10fromStringEPKc+0xa20> (3fcb3814 <s_ipc_mutex>)
+4204a669:	f46070        	extui	a6, a7, 0, 16
+4204a66c:	1166e0        	slli	a6, a6, 2
+4204a66f:	d877d1        	l32r	a13, 4204084c <_ZN9IPAddress10fromStringEPKc+0xa50> (3fc9f06c <s_ipc_ack_buffer>)
+4204a672:	808680        	add	a8, a6, a8
+4204a675:	08a9      	s32i.n	a10, a8, 0
+4204a677:	3e0c      	movi.n	a14, 3
+4204a679:	dd5a      	add.n	a13, a13, a5
+4204a67b:	0c0c      	movi.n	a12, 0
+4204a67d:	0b0c      	movi.n	a11, 0
+4204a67f:	1a0c      	movi.n	a10, 1
+4204a681:	d87881        	l32r	a8, 42040864 <_ZN9IPAddress10fromStringEPKc+0xa68> (40382718 <xQueueGenericCreateStatic>)
+4204a684:	0008e0        	callx8	a8
+4204a687:	d86981        	l32r	a8, 4204082c <_ZN9IPAddress10fromStringEPKc+0xa30> (3fcb380c <s_ipc_ack>)
+4204a68a:	d863f1        	l32r	a15, 42040818 <_ZN9IPAddress10fromStringEPKc+0xa1c> (3fcb381c <s_ipc_task_handle>)
+4204a68d:	868a      	add.n	a8, a6, a8
+4204a68f:	08a9      	s32i.n	a10, a8, 0
+4204a691:	d86fa1        	l32r	a10, 42040850 <_ZN9IPAddress10fromStringEPKc+0xa54> (40375c00 <ipc_task>)
+4204a694:	0179      	s32i.n	a7, a1, 0
+4204a696:	07dd      	mov.n	a13, a7
+4204a698:	ff6a      	add.n	a15, a15, a6
+4204a69a:	8e1c      	movi.n	a14, 24
+4204a69c:	00a4c2        	movi	a12, 0x400
+4204a69f:	03bd      	mov.n	a11, a3
+4204a6a1:	da1ee5        	call8	42024890 <__wrap_xTaskCreatePinnedToCore>
+4204a6a4:	074d      	mov.n	a4, a7
+4204a6a6:	0a7d      	mov.n	a7, a10
+4204a6a8:	111a26        	beqi	a10, 1, 4204a6bd <esp_ipc_init+0x85>
+4204a6ab:	d86ad1        	l32r	a13, 42040854 <_ZN9IPAddress10fromStringEPKc+0xa58> (3c11a937 <_ZTV25NimBLELocalValueAttribute+0xa817>)
+4204a6ae:	d86ac1        	l32r	a12, 42040858 <_ZN9IPAddress10fromStringEPKc+0xa5c> (3c13423e <__func__$1>)
+4204a6b1:	d86aa1        	l32r	a10, 4204085c <_ZN9IPAddress10fromStringEPKc+0xa60> (3c11a92d <_ZTV25NimBLELocalValueAttribute+0xa80d>)
+4204a6b4:	74a0b2        	movi	a11, 116
+4204a6b7:	d69a81        	l32r	a8, 42040120 <_ZN9IPAddress10fromStringEPKc+0x324> (40389184 <__assert_func>)
+4204a6ba:	0008e0        	callx8	a8
+4204a6bd:	5cc552        	addi	a5, a5, 92
+4204a6c0:	8d1466        	bnei	a4, 1, 4204a651 <esp_ipc_init+0x19>
+4204a6c3:	f01d      	retw.n

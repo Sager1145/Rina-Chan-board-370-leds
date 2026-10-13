@@ -393,5 +393,5 @@ int main(int argc, char** argv) {
     L.check("F5-LOCK-DISCIPLINE", g_lockRecursion == 0 && g_lockOrderViolations == 0,
             "recursion=" + std::to_string(g_lockRecursion) + " orderViolations=" + std::to_string(g_lockOrderViolations));
     std::cout << "SUMMARY F5F7 pass=" << L.pass << " fail=" << L.fail << std::endl;
-    return 0;
+    return L.fail == 0 ? 0 : 1;
 }

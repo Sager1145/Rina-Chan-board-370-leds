@@ -1,0 +1,35 @@
+diff --git a/docs/BOARD_GROUP_SPEC.md b/docs/BOARD_GROUP_SPEC.md
+index 41649c7..cca185d 100644
+--- a/docs/BOARD_GROUP_SPEC.md
++++ b/docs/BOARD_GROUP_SPEC.md
+@@ -84,7 +84,7 @@ has the same frameCount.
+ - `atUs`: u64, **this board's** `esp_timer_get_time()` value at which frame
+   `startFrame` (default 0) must be latched. `bootId` must equal the board's
+   current bootId, else `ERR 409` (`"error":"boot_mismatch"`).
+-- `intervalMs`: 20…2000. `loop`: default true.
++- `intervalMs`: 17…2000 (floor = single-board `MIN_SCROLL_INTERVAL_MS`, so the app's 60 fps maximum is accepted). `loop`: default true.
+ - Requires a loaded scroll timeline, else `ERR 409` (`"no_timeline"`).
+ - Enters **group-timed playback**: the cursor is computed from absolute time,
+   never by per-tick accumulation:
+diff --git a/esp32s3_firmware/src/protocol.cpp b/esp32s3_firmware/src/protocol.cpp
+index 345e66a..2c90937 100644
+--- a/esp32s3_firmware/src/protocol.cpp
++++ b/esp32s3_firmware/src/protocol.cpp
+@@ -1060,11 +1060,14 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
+         const int intervalMs = cint(d, p, "intervalMs", -1);
+         const int startFrame = cint(d, p, "startFrame", 0);
+         const bool loop = cbool(d, p, "loop", true);
+-        if (!atUsSrc.is<uint64_t>() || intervalMs < 20 || intervalMs > 2000 ||
+-            startFrame < 0 || startFrame > 65535) {
++        // The lower bound must match single-board scroll (MIN_SCROLL_INTERVAL_MS,
++        // 60 fps -> 17 ms): the app's speed slider reaches 60 fps, and a
++        // stricter floor here rejected every group play/re-anchor above 51 fps.
++        if (!atUsSrc.is<uint64_t>() || intervalMs < static_cast<int>(MIN_SCROLL_INTERVAL_MS) ||
++            intervalMs > 2000 || startFrame < 0 || startFrame > 65535) {
+             ++runtimeState().commandsRejected;
+             sendErrorReply(c, seq, 400,
+-                           "group_start requires atUs (u64), intervalMs 20..2000, startFrame 0..65535");
++                           "group_start requires atUs (u64), intervalMs 17..2000, startFrame 0..65535");
+             return;
+         }
+         const uint64_t atUs = cu64(d, p, "atUs", 0);

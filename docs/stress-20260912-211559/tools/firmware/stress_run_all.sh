@@ -24,7 +24,9 @@ build f4_events stress_f4_events.cpp asan & PIDS+=($!)
 build f5_f7_blob stress_f5_f7_blob.cpp asan & PIDS+=($!)
 build f6_scroll_timing stress_f6_scroll_timing.cpp plain & PIDS+=($!)
 build json_capacity stress_json_capacity.cpp plain & PIDS+=($!)
-for p in "${PIDS[@]}"; do wait "$p"; done
+build_failed=0
+for p in "${PIDS[@]}"; do wait "$p" || build_failed=1; done
+[ "$build_failed" -eq 0 ] || exit 1
 
 run() { # name args...
   local n="$1"; shift
@@ -34,16 +36,19 @@ run() { # name args...
   local rc=$?
   set -e
   echo "$n exit=$rc secs=$(( $(date +%s) - t0 ))" | tee -a "$LOG/run_summary.txt"
+  return "$rc"
 }
 : > "$LOG/run_summary.txt"
-run f1_parser "$ITERS" 0xC0FFEE &
-run f2_senders &
-run f3_queue &
-run f4_events &
-run f5_f7_blob "$BUILD/fakefs" &
-run f6_scroll_timing &
-run json_capacity "$FW/data/resources/saved_faces.json" &
-wait
+PIDS=()
+run f1_parser "$ITERS" 0xC0FFEE & PIDS+=($!)
+run f2_senders & PIDS+=($!)
+run f3_queue & PIDS+=($!)
+run f4_events & PIDS+=($!)
+run f5_f7_blob "$BUILD/fakefs" & PIDS+=($!)
+run f6_scroll_timing & PIDS+=($!)
+run json_capacity "$FW/data/resources/saved_faces.json" & PIDS+=($!)
+run_failed=0
+for p in "${PIDS[@]}"; do wait "$p" || run_failed=1; done
 
 {
   echo "case_id,layer,load,seed,status,metrics,evidence"
@@ -58,3 +63,5 @@ cp "$HERE"/stress_fakes/*.h "$HERE"/stress_fakes/*.cpp "$OUT/tools/firmware/stre
 cp "$HERE"/stress_fakes/freertos/*.h "$OUT/tools/firmware/stress_fakes/freertos/"
 awk -F, 'NR>1{c[$5]++} END{for(k in c) printf "%s=%d ", k, c[k]; print ""}' "$OUT/metrics/firmware/cases.csv" | tee -a "$LOG/run_summary.txt"
 rm -rf "$BUILD"
+
+[ "$run_failed" -eq 0 ] && awk -F, 'NR>1 {total++; if ($5 == "FAIL") bad++} END {exit (total == 0 || bad > 0)}' "$OUT/metrics/firmware/cases.csv"

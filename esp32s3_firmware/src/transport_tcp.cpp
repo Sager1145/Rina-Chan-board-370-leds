@@ -47,26 +47,64 @@ class TcpTransport final : public ITransport {
 
     bool send(ClientId id, const uint8_t* data, size_t len, bool isEvent = false) override {
         TcpSlot* s = findSlot(id);
-        if (!s || !s->client.connected())
+        const uint32_t startedMs = millis();
+        const auto logFailure = [&](const char* reason, size_t bytesSent, int socket,
+                                    int sendErrno, bool connected, bool deadline) {
+            // Header: magic, type, sequence, flags, little-endian payload size.
+            // A wholly unsent event is expected back-pressure and stays DEBUG.
+            RLOG_AT(!isEvent || bytesSent > 0 ? RINA_LOG_WARN : RINA_LOG_DEBUG, "TCP",
+                    "event=send_failed reason=%s slot=%u fd=%d errno=%d connected=%d deadline=%d deadline_ms=250 sent=%u total=%u is_event=%d type=%u seq=%u flags=%u elapsed_ms=%lu",
+                    reason, static_cast<unsigned>(id.slot), socket, sendErrno,
+                    connected ? 1 : 0, deadline ? 1 : 0,
+                    static_cast<unsigned>(bytesSent), static_cast<unsigned>(len), isEvent ? 1 : 0,
+                    data && len > 1 ? static_cast<unsigned>(data[1]) : 0U,
+                    data && len > 2 ? static_cast<unsigned>(data[2]) : 0U,
+                    data && len > 3 ? static_cast<unsigned>(data[3]) : 0U,
+                    static_cast<unsigned long>(millis() - startedMs));
+        };
+        if (!s || !s->client.connected()) {
+            logFailure(s ? "disconnected" : "slot_missing", 0, s ? s->client.fd() : -1,
+                       0, false, false);
             return false;
+        }
 
         // NetworkClient inherits Print::availableForWrite(), which returns 0
         // in the pinned Arduino 3.3.9 core. NetworkClient::write() also retries
         // select() internally for seconds, outside any deadline around it.
         // Use the socket's nonblocking send directly so this layer owns pacing.
         const int socket = s->client.fd();
+        int lastSendErrno = 0;
+        bool brokenSocket = false;
+        bool predicateDisconnected = false;
         const auto result = rinalink::sendTcpFrame(
             data, len, isEvent,
             [&](const uint8_t* bytes, size_t count) -> ptrdiff_t {
                 const int n = ::send(socket, bytes, count, MSG_DONTWAIT);
                 if (n >= 0)
                     return n;
-                return (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) ? -1 : -2;
+                // connected()/logging may change errno, so retain the syscall's
+                // value before calling either or consulting the retry policy.
+                const int sendErrno = errno;
+                lastSendErrno = sendErrno;
+                const bool retryable = sendErrno == EAGAIN || sendErrno == EWOULDBLOCK || sendErrno == EINTR;
+                brokenSocket = !retryable;
+                return retryable ? -1 : -2;
             },
-            [&]() { return socket >= 0 && s->client.fd() == socket && s->client.connected(); },
+            [&]() {
+                const bool connected = socket >= 0 && s->client.fd() == socket && s->client.connected();
+                predicateDisconnected = !connected;
+                return connected;
+            },
             [](uint32_t ms) { delay(ms); },
             []() { return millis(); });
         if (!result.complete) {
+            const bool deadline = !predicateDisconnected && !brokenSocket &&
+                                  static_cast<uint32_t>(millis() - startedMs) >= 250;
+            const char* reason = predicateDisconnected ? "disconnected" :
+                                 brokenSocket ? "socket_error" :
+                                 deadline ? "deadline" : "event_backpressure";
+            logFailure(reason, result.bytesSent, socket, lastSendErrno,
+                       !predicateDisconnected, deadline);
             if (!isEvent || result.bytesSent > 0)
                 rinalink::transportUnregisterClient(id);
             else

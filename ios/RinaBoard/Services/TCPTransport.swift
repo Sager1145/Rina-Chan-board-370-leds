@@ -8,7 +8,7 @@ import RinaCore
 public final class TCPTransport: RinaTransport, @unchecked Sendable {
     public let kind: TransportKind
 
-    private let host: String
+    let host: String
     private let port: UInt16
     private let endpoint: NWEndpoint?
     private var connection: NWConnection?
@@ -41,6 +41,15 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
         self.host = ""
         self.port = 0
         self.kind = kind
+    }
+
+    /// A board hotspot is reachable over the phone's Wi-Fi link even when
+    /// another interface supplies the system's default route. Home-network
+    /// TCP keeps Network.framework's ordinary interface selection.
+    static func parameters(for kind: TransportKind) -> NWParameters {
+        let parameters = NWParameters.tcp
+        if kind == .hotspot { parameters.requiredInterfaceType = .wifi }
+        return parameters
     }
 
     public func stateStream() -> AsyncStream<TransportState> {
@@ -89,7 +98,7 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
         displaced.1?.resume(throwing: RinaTransportError.cancelled)
 
         emitState(.connecting)
-        let params = NWParameters.tcp
+        let params = Self.parameters(for: kind)
         let resolvedEndpoint = endpoint ?? .hostPort(host: .init(host), port: .init(rawValue: port)!)
         let connection = NWConnection(to: resolvedEndpoint, using: params)
         stateLock.withLock { self.connection = connection }

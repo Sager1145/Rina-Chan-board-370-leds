@@ -19,6 +19,18 @@ public enum BoardEvent: Sendable {
     case wifiScan(WifiScanReply)
 }
 
+/// A locally reachable carrier for the same physical board. The handshake
+/// must report `expectedBoardIdentity` before this carrier can become ready.
+public struct BoardReconnectCandidate {
+    public let transport: any RinaTransport
+    public let expectedBoardIdentity: String?
+
+    public init(transport: any RinaTransport, expectedBoardIdentity: String?) {
+        self.transport = transport
+        self.expectedBoardIdentity = expectedBoardIdentity
+    }
+}
+
 /// Owns the single active `RinaTransport`, decodes/encodes RinaLink frames,
 /// matches replies to requests by `seq`, aggregates `MORE`-flagged chunked
 /// replies, fans out unsolicited events to published properties, and applies
@@ -132,6 +144,22 @@ public final class BoardConnection {
     /// — never by this object's own internal retry loop, which never calls
     /// the public `connect(using:)` entry point.
     public private(set) var wasUserDisconnected = false
+    public private(set) var isAutomaticReconnectEnabled = true
+    public var canRetry: Bool {
+        connectionState != .connected && (transport != nil || originalReconnectTransport != nil)
+    }
+    /// Identity pinned for this connection attempt or proven by its handshake.
+    /// A past session's `lastKnownBoardIdentity` is deliberately excluded:
+    /// an explicit switch to an unidentified board must not borrow its peers.
+    var reconnectCandidateIdentity: String? {
+        originalReconnectIdentity ?? expectedBoardIdentity ?? boardIdentity
+    }
+
+    /// Read the last live snapshot before a dropped carrier clears it. The
+    /// provider supplies local same-board alternatives without changing the
+    /// user's saved transport preference or the active board selection.
+    @ObservationIgnored public var reconnectCandidatesProvider:
+        (@MainActor (TransportKind?, WifiStatus?) -> [BoardReconnectCandidate])?
 
     /// Explicit hook for `GroupAutoConnector`/UI code that wants to clear the
     /// user-disconnect block without an intervening successful connect, e.g.
@@ -154,7 +182,17 @@ public final class BoardConnection {
     private var stateTask: Task<Void, Never>?
     private var pingTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
+    private var reconnectCandidates: [BoardReconnectCandidate] = []
+    private var reconnectCandidateIndex = 0
+    private var manualRetryEpoch = UUID()
+    private var isManualRetryInProgress = false
+    private var originalReconnectTransport: (any RinaTransport)?
+    private var originalReconnectIdentity: String?
+    private var originalHotspotSSID: String?
+    private var isReconnectAttempt = false
+    private var currentReconnectIsOriginal = false
     private var connectionReadyHandler: (@MainActor () -> Void)?
+    private var expectedBoardIdentity: String?
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 5
     private var transportSessionID = UUID()
@@ -235,6 +273,7 @@ public final class BoardConnection {
     @discardableResult
     public func connect(
         using transport: RinaTransport,
+        expectedBoardIdentity: String? = nil,
         onReady: (@MainActor () -> Void)? = nil
     ) async -> Bool {
         disconnect()
@@ -246,7 +285,14 @@ public final class BoardConnection {
         clearBoardSnapshot()
         lastError = nil
         reconnectAttempts = 0
+        reconnectCandidates.removeAll()
+        reconnectCandidateIndex = 0
+        isAutomaticReconnectEnabled = true
         self.transport = transport
+        originalReconnectTransport = transport
+        originalHotspotSSID = transport.kind == .hotspot ? expectedHotspotSSID : nil
+        self.expectedBoardIdentity = expectedBoardIdentity?.uppercased()
+        originalReconnectIdentity = self.expectedBoardIdentity
         transportKind = transport.kind
         wasUserDisconnected = false
         if transport.kind != .hotspot {
@@ -329,8 +375,32 @@ public final class BoardConnection {
             // saved-face/draft identity to a different board that happens to
             // share the address.
             let reuseEligibleKey = fallbackKey?.hasPrefix("ble:") == true ? fallbackKey : nil
-            if let freshIdentity = Self.normalizedBoardIdentity(wifiBoardID: wifi?.boardId,
-                                                                defaultName: setupDefaultName) {
+            let freshIdentity = Self.normalizedBoardIdentity(wifiBoardID: wifi?.boardId,
+                                                             defaultName: setupDefaultName)
+            let candidateIdentity = freshIdentity
+                ?? (setupStatusReadFailed && setupGetInfoReadFailed
+                    ? reuseEligibleKey.flatMap { rememberedIdentityByFallbackKey[$0] } : nil)
+            if let expectedBoardIdentity, candidateIdentity != expectedBoardIdentity {
+                // Carrier handshakes prove reachability, not physical identity.
+                // A reused DHCP address must not replace this session's board,
+                // including its remembered identity, before readiness is published.
+                let message = candidateIdentity == nil
+                    ? NSLocalizedString("无法确认正在连接的璃奈板身份", comment: "carrier switch board identity unavailable")
+                    : NSLocalizedString("连接地址对应另一块璃奈板，已停止连接", comment: "carrier switch board identity mismatch")
+                if isReconnectAttempt && !currentReconnectIsOriginal {
+                    connectionFailed(message)
+                } else {
+                    stopCarrier()
+                    self.transport = nil
+                    connectionReadyHandler = nil
+                    reconnectTask?.cancel()
+                    reconnectTask = nil
+                    lastError = message
+                    connectionState = .failed(message)
+                }
+                return false
+            }
+            if let freshIdentity {
                 boardIdentity = freshIdentity
                 if let reuseEligibleKey { rememberedIdentityByFallbackKey[reuseEligibleKey] = freshIdentity }
             } else if setupStatusReadFailed, setupGetInfoReadFailed {
@@ -343,17 +413,28 @@ public final class BoardConnection {
                 boardIdentity = nil
             }
             if let mismatch = hotspotIdentityMismatchMessage(transport) {
-                stopCarrier()
-                self.transport = nil
-                connectionReadyHandler = nil
-                reconnectTask?.cancel()
-                reconnectTask = nil
-                lastError = mismatch
-                connectionState = .failed(mismatch)
+                if isReconnectAttempt && !currentReconnectIsOriginal {
+                    connectionFailed(mismatch)
+                } else {
+                    stopCarrier()
+                    self.transport = nil
+                    connectionReadyHandler = nil
+                    reconnectTask?.cancel()
+                    reconnectTask = nil
+                    lastError = mismatch
+                    connectionState = .failed(mismatch)
+                }
                 return false
             }
             isEstablishing = false
             reconnectAttempts = 0
+            reconnectCandidates.removeAll()
+            reconnectCandidateIndex = 0
+            isReconnectAttempt = false
+            currentReconnectIsOriginal = false
+            originalReconnectTransport = transport
+            originalReconnectIdentity = boardIdentity ?? originalReconnectIdentity
+            originalHotspotSSID = transport.kind == .hotspot ? expectedHotspotSSID : nil
             lastError = nil
             let readyHandler = connectionReadyHandler
             connectionReadyHandler = nil
@@ -405,12 +486,22 @@ public final class BoardConnection {
     /// default `false` so they don't block `GroupAutoConnector` from ever
     /// redialing this board.
     public func disconnect(userInitiated: Bool = false) {
+        manualRetryEpoch = UUID()
+        isManualRetryInProgress = false
         if userInitiated { wasUserDisconnected = true }
         reconnectTask?.cancel()
         reconnectTask = nil
         stopCarrier()
         transport = nil
+        originalReconnectTransport = nil
+        originalReconnectIdentity = nil
+        originalHotspotSSID = nil
+        reconnectCandidates.removeAll()
+        reconnectCandidateIndex = 0
+        isReconnectAttempt = false
+        currentReconnectIsOriginal = false
         connectionReadyHandler = nil
+        expectedBoardIdentity = nil
         lastError = nil
         deviceName = nil
         connectionState = .disconnected
@@ -440,15 +531,24 @@ public final class BoardConnection {
     }
 
     private func connectionFailed(_ message: String) {
+        if reconnectAttempts == 0, isAutomaticReconnectEnabled, !isManualRetryInProgress {
+            let expected = originalReconnectIdentity
+            reconnectCandidates = (reconnectCandidatesProvider?(transportKind, wifi) ?? []).filter {
+                let candidateID = $0.expectedBoardIdentity?.uppercased()
+                return candidateID != nil && (expected == nil || candidateID == expected)
+            }
+            reconnectCandidateIndex = 0
+        }
         stopCarrier()
         deviceName = nil
         lastError = message
         connectionState = .failed(message)
-        attemptReconnect()
+        if !isManualRetryInProgress { attemptReconnect() }
     }
 
     private func attemptReconnect() {
-        guard let transport else { return }
+        guard isAutomaticReconnectEnabled, !wasUserDisconnected,
+              let original = originalReconnectTransport else { return }
         guard reconnectAttempts < maxReconnectAttempts else {
             connectionReadyHandler = nil
             connectionState = .failed("重连失败，已达到最大尝试次数：" + (lastError ?? ""))
@@ -457,6 +557,16 @@ public final class BoardConnection {
         reconnectTask?.cancel()
         reconnectAttempts += 1
         let attempt = reconnectAttempts
+        let candidate: BoardReconnectCandidate
+        if reconnectCandidateIndex < reconnectCandidates.count {
+            candidate = reconnectCandidates[reconnectCandidateIndex]
+            reconnectCandidateIndex += 1
+            currentReconnectIsOriginal = false
+        } else {
+            candidate = BoardReconnectCandidate(transport: original,
+                                                expectedBoardIdentity: originalReconnectIdentity)
+            currentReconnectIsOriginal = true
+        }
         connectionState = .reconnecting(attempt: attempt)
         let session = transportSessionID
         reconnectTask = Task { [weak self] in
@@ -465,8 +575,87 @@ public final class BoardConnection {
             catch { return }
             guard !Task.isCancelled, self.transportSessionID == session else { return }
             self.reconnectTask = nil
-            _ = await self.establish(transport)
+            self.transport = candidate.transport
+            self.transportKind = candidate.transport.kind
+            self.expectedBoardIdentity = candidate.expectedBoardIdentity?.uppercased()
+            self.expectedHotspotSSID = candidate.transport.kind == .hotspot ? self.originalHotspotSSID : nil
+            self.isReconnectAttempt = true
+            _ = await self.establish(candidate.transport)
         }
+    }
+
+    /// Stops pending and future automatic attempts while retaining the last
+    /// carrier so the user can issue a bounded manual retry. It also blocks group
+    /// auto-connect from silently redialing this session.
+    public func stopAutomaticReconnect() {
+        manualRetryEpoch = UUID()
+        isManualRetryInProgress = false
+        isAutomaticReconnectEnabled = false
+        wasUserDisconnected = true
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        if connectionState != .connected {
+            stopCarrier()
+            connectionReadyHandler = nil
+            isReconnectAttempt = false
+            currentReconnectIsOriginal = false
+            connectionState = .disconnected
+        }
+    }
+
+    /// Tries the last proven carrier, then each same-board local alternate
+    /// once. A previous stop remains in force; only explicit `connect(using:)`
+    /// reenables background automatic retries.
+    @discardableResult
+    public func retryNow() async -> Bool {
+        if connectionState == .connected { return true }
+        guard let original = originalReconnectTransport ?? transport else { return false }
+        let identity = reconnectCandidateIdentity
+        // Carrier teardown clears the status snapshot. Retain alternatives
+        // learned before the drop (notably a station IP reported over BLE).
+        let available = (reconnectCandidatesProvider?(original.kind, wifi) ?? []) + reconnectCandidates
+        var seen = Set<ObjectIdentifier>()
+        var seenWiFiEndpoints: [TransportKind] = []
+        if case .wifi = original.kind { seenWiFiEndpoints.append(original.kind) }
+        var alternatives: [BoardReconnectCandidate] = []
+        for candidate in available {
+            if alternatives.count == maxReconnectAttempts - 1 { break }
+            guard let identity, let candidateID = candidate.expectedBoardIdentity?.uppercased() else { continue }
+            guard candidateID == identity, candidate.transport !== original,
+                  seen.insert(ObjectIdentifier(candidate.transport)).inserted else { continue }
+            // Providers may create a fresh TCP object for an already learned
+            // endpoint. Spend the bounded retry budget on distinct addresses.
+            if case .wifi = candidate.transport.kind {
+                guard !seenWiFiEndpoints.contains(candidate.transport.kind) else { continue }
+                seenWiFiEndpoints.append(candidate.transport.kind)
+            }
+            alternatives.append(candidate)
+        }
+        let candidates = [BoardReconnectCandidate(transport: original, expectedBoardIdentity: identity)] + alternatives
+        let epoch = UUID()
+        manualRetryEpoch = epoch
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectAttempts = 0
+        reconnectCandidateIndex = 0
+        isManualRetryInProgress = true
+        defer {
+            if manualRetryEpoch == epoch { isManualRetryInProgress = false }
+        }
+        stopCarrier()
+        for candidate in candidates {
+            guard manualRetryEpoch == epoch, !Task.isCancelled else { return false }
+            self.transport = candidate.transport
+            self.transportKind = candidate.transport.kind
+            self.expectedBoardIdentity = candidate.expectedBoardIdentity?.uppercased()
+            self.expectedHotspotSSID = candidate.transport.kind == .hotspot ? originalHotspotSSID : nil
+            isReconnectAttempt = true
+            currentReconnectIsOriginal = false
+            if await establish(candidate.transport) { return true }
+        }
+        guard manualRetryEpoch == epoch, !Task.isCancelled else { return false }
+        if isAutomaticReconnectEnabled { attemptReconnect() }
+        return false
     }
 
     private func startPingLoopIfNeeded() {
@@ -801,7 +990,10 @@ public final class BoardConnection {
             try self.checkSubmission(generation: generation, carrier: carrier)
             if let token { try self.output.check(token) }
             let reply = try JSONDecoder().decode(CommandReply.self, from: frame.payload)
-            guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)") }
+            guard reply.ok else {
+                let detail = reply.error.flatMap { $0.isEmpty ? nil : "：\($0)" } ?? ""
+                throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)\(detail)")
+            }
             self.updateDeviceName(from: reply, for: cmd, transport: activeTransport, generation: generation)
             if self.output.source != .debug, case .resolveFace = cmd.groupFanOutPolicy {
                 if let ticket = self.fanOut?.beginLeasedAction(from: self) {
@@ -822,7 +1014,10 @@ public final class BoardConnection {
     @discardableResult
     public func requestReliable(_ cmd: RinaCommand, timeout: TimeInterval = 5) async throws -> CommandReply {
         let reply: CommandReply = try await requestReliableDecoding(cmd, timeout: timeout)
-        guard reply.ok else { throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)") }
+        guard reply.ok else {
+            let detail = reply.error.flatMap { $0.isEmpty ? nil : "：\($0)" } ?? ""
+            throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)\(detail)")
+        }
         return reply
     }
 
@@ -1377,11 +1572,19 @@ public final class BoardConnection {
     /// The firmware may reply synchronously with `{ok,networks:[...]}` (legacy
     /// behavior) or immediately with `{ok,scanning:true}` and push the real
     /// results a moment later as an `EV_WIFI_SCAN` (0x95) event — in that case
-    /// this waits (up to 8s) for the next `.wifiScan` event. The event stream
+    /// this waits (up to 65s, covering the firmware's 60s scan deadline) for
+    /// the next `.wifiScan` event, then queries
+    /// `wifi_scan_result` if the completion event was missed. An unfinished
+    /// scan throws a timeout rather than presenting an empty network list.
+    /// The event stream
     /// is subscribed to *before* the command is sent so a fast reply can't
     /// race the subscription.
     @discardableResult
     public func wifiScan() async throws -> WifiScanReply {
+        try await wifiScan(eventTimeout: .seconds(65))
+    }
+
+    func wifiScan(eventTimeout: Duration) async throws -> WifiScanReply {
         let generation = connectionGeneration
         let carrier = transportSessionID
         let (subID, stream) = subscribeEvents()
@@ -1397,19 +1600,20 @@ public final class BoardConnection {
             return try JSONDecoder().decode(WifiScanReply.self, from: frame.payload)
         }
         try checkSubmission(generation: generation, carrier: carrier)
-        if decoded.networks != nil {
+        if decoded.scanning != true, decoded.networks != nil {
             lastWifiScan = decoded
             return decoded
         }
         let result: WifiScanReply? = await withTaskGroup(of: WifiScanReply?.self) { group in
             group.addTask {
                 for await event in stream {
-                    if case .wifiScan(let reply) = event { return reply }
+                    if case .wifiScan(let reply) = event,
+                       reply.scanning != true, reply.networks != nil { return reply }
                 }
                 return nil
             }
             group.addTask {
-                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                try? await Task.sleep(for: eventTimeout)
                 return nil
             }
             let first = await group.next() ?? nil
@@ -1417,7 +1621,25 @@ public final class BoardConnection {
             return first
         }
         try checkSubmission(generation: generation, carrier: carrier)
-        return result ?? decoded
+        if let result {
+            lastWifiScan = result
+            return result
+        }
+        // The scan may have completed even when its event did not arrive.
+        // Firmware retains the result for this explicit query. While still
+        // scanning it can return the previous list, which is not completion.
+        let fallback = try await commandPump.run { @MainActor in
+            try self.checkSubmission(generation: generation, carrier: carrier)
+            let payload = try RinaCommand.wifiScanResult.encode()
+            let frame = try await self.send(type: .cmd, payload: payload)
+            return try JSONDecoder().decode(WifiScanReply.self, from: frame.payload)
+        }
+        try checkSubmission(generation: generation, carrier: carrier)
+        guard fallback.scanning != true, fallback.networks != nil else {
+            throw RinaTransportError.timeout
+        }
+        lastWifiScan = fallback
+        return fallback
     }
 
     /// `wifi_status`: refreshes `wifi` immediately instead of waiting for the

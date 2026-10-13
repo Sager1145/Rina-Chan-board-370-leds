@@ -1,0 +1,51 @@
+
+esp32s3_firmware/.pio/build/esp32s3-rmt-dma/firmware.elf:     file format elf32-xtensa-le
+
+
+Disassembly of section .iram0.vectors:
+
+Disassembly of section .iram0.text:
+
+Disassembly of section .flash.text:
+
+42024890 <__wrap_xTaskCreatePinnedToCore>:
+42024890:	008136        	entry	a1, 64
+42024893:	7169      	s32i.n	a6, a1, 28
+42024895:	102162        	l32i	a6, a1, 64
+42024898:	c3ac      	beqz.n	a3, 420248c8 <__wrap_xTaskCreatePinnedToCore+0x38>
+4202489a:	042656        	bnez	a6, 420248e0 <__wrap_xTaskCreatePinnedToCore+0x50>
+4202489d:	7313b1        	l32r	a11, 420014ec <_stext+0x14cc> (3c114428 <_ZTV25NimBLELocalValueAttribute+0x4308>)
+420248a0:	20a330        	or	a10, a3, a3
+420248a3:	705781        	l32r	a8, 42000a00 <_stext+0x9e0> (40001230 <strcmp>)
+420248a6:	0008e0        	callx8	a8
+420248a9:	180c      	movi.n	a8, 1
+420248ab:	9386a0        	movnez	a8, a6, a10
+420248ae:	74a080        	extui	a10, a8, 0, 8
+420248b1:	ffa782        	movi	a8, 0x7ff
+420248b4:	628840        	saltu	a8, a8, a4
+420248b7:	880b      	addi.n	a8, a8, -1
+420248b9:	608080        	neg	a8, a8
+420248bc:	748080        	extui	a8, a8, 0, 8
+420248bf:	588c      	beqz.n	a8, 420248c8 <__wrap_xTaskCreatePinnedToCore+0x38>
+420248c1:	3a8c      	beqz.n	a10, 420248c8 <__wrap_xTaskCreatePinnedToCore+0x38>
+420248c3:	140c      	movi.n	a4, 1
+420248c5:	114450        	slli	a4, a4, 11
+420248c8:	71e8      	l32i.n	a14, a1, 28
+420248ca:	0169      	s32i.n	a6, a1, 0
+420248cc:	07fd      	mov.n	a15, a7
+420248ce:	05dd      	mov.n	a13, a5
+420248d0:	04cd      	mov.n	a12, a4
+420248d2:	03bd      	mov.n	a11, a3
+420248d4:	02ad      	mov.n	a10, a2
+420248d6:	730781        	l32r	a8, 420014f4 <_stext+0x14d4> (40385cc4 <xTaskCreatePinnedToCore>)
+420248d9:	0008e0        	callx8	a8
+420248dc:	0a2d      	mov.n	a2, a10
+420248de:	f01d      	retw.n
+420248e0:	e41666        	bnei	a6, 1, 420248c8 <__wrap_xTaskCreatePinnedToCore+0x38>
+420248e3:	7303b1        	l32r	a11, 420014f0 <_stext+0x14d0> (3c11442d <_ZTV25NimBLELocalValueAttribute+0x430d>)
+420248e6:	03ad      	mov.n	a10, a3
+420248e8:	704681        	l32r	a8, 42000a00 <_stext+0x9e0> (40001230 <strcmp>)
+420248eb:	0008e0        	callx8	a8
+420248ee:	40faa0        	nsau	a10, a10
+420248f1:	41a5a0        	srli	a10, a10, 5
+420248f4:	ffee46        	j	420248b1 <__wrap_xTaskCreatePinnedToCore+0x21>

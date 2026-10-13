@@ -137,6 +137,7 @@ struct AddBoardView: View {
                 guard target.connection.connectionState != .connected else { return }
                 sessions.scanner.stopScan()
                 await viewModel.connectBLE(peripheral, ble: target.bleTransport, connection: target.connection, boardStore: boardStore)
+                sessions.consolidateVerifiedSession(target)
             }
         } label: {
             HStack(spacing: 12) {
@@ -261,13 +262,28 @@ struct AddBoardView: View {
     /// `isJoiningHotspot` maps `.failed` to "not joining", which made the
     /// spinner disappear with the reason discarded.
     private var directAPStatusText: String? {
-        switch viewModel.directAPStage {
-        case .idle, .joiningPhoneToBoardAP:
+        Self.directAPStatusText(stage: viewModel.directAPStage,
+                                connections: sessions.sessions.map(\.connection))
+    }
+
+    /// The join stage records the outcome of the last attempt. A later TCP
+    /// disconnect does not change it, so success must also check the live
+    /// carrier rather than reporting a stale completed join.
+    @MainActor
+    static func directAPStatusText(stage: ConnectionViewModel.DirectAPStage,
+                                   connections: [BoardConnection]) -> String? {
+        let hasConnectedHotspot = connections.contains {
+            $0.transportKind == .hotspot && $0.connectionState == .connected
+        }
+        return switch stage {
+        case .idle:
+            hasConnectedHotspot ? "已连接到板子（板载热点）" : nil
+        case .joiningPhoneToBoardAP:
             nil
         case .connectingToBoard:
             "正在连接板子…"
         case .connected:
-            "已连接到板子（板载热点）"
+            hasConnectedHotspot ? "已连接到板子（板载热点）" : "热点连接已断开，请重新连接"
         case .failed(let message):
             message
         }

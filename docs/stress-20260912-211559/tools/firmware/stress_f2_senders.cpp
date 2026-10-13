@@ -67,13 +67,20 @@ int main() {
             !r.complete && r.bytesSent == 40 && l.rx.size() == 40 && bleSendFailureRequiresDisconnect(r, ev),
             "bytesSent=" + std::to_string(r.bytesSent) + " teardown=1");
     }
-    // Deadline: cumulative stall via N failed notifies of 1 ms each at slice 0 (reply).
-    for (unsigned n : {249U, 250U, 251U}) {
+    // The 250 ms deadline covers the entire frame, including three 1 ms
+    // inter-slice pauses for this 67-byte reply at ATT payload 20.
+    for (unsigned n : {246U, 247U, 248U, 249U, 250U, 251U}) {
         BleLink l; l.pause2Cost = 1; l.fail = [n](size_t a, size_t) { return a <= n; };
         auto r = l.send(reply, 20, false);
-        bool expectOk = n <= 250;
-        rec("F2-BLE-DEADLINE-STALL-" + std::to_string(n) + "MS", std::to_string(n), "-", r.complete == expectOk,
-            "complete=" + std::to_string(r.complete) + " blockedMs=" + std::to_string(l.now) + " (tolerates exactly 250 ms of 1 ms stalls)");
+        const bool expectOk = n < 247;
+        const size_t expectedBytes = expectOk ? reply.size() : (n < 250 ? (250 - n) * 20 : 0);
+        const uint32_t expectedElapsed = expectOk ? n + 3 : 250;
+        const Bytes expectedPrefix(reply.begin(), reply.begin() + static_cast<long>(expectedBytes));
+        rec("F2-BLE-DEADLINE-STALL-" + std::to_string(n) + "MS", std::to_string(n), "-",
+            r.complete == expectOk && r.bytesSent == expectedBytes && l.rx == expectedPrefix &&
+                l.now == expectedElapsed && (r.complete || bleSendFailureRequiresDisconnect(r, false)),
+            "complete=" + std::to_string(r.complete) + " bytes=" + std::to_string(r.bytesSent) +
+                " expectedBytes=" + std::to_string(expectedBytes) + " blockedMs=" + std::to_string(l.now) + " totalFrameDeadlineMs=250");
     }
     // Deadline with coarse pauses (scheduler hiccup): one pause of X ms, then another failure.
     for (unsigned x : {249U, 250U, 251U}) {
@@ -167,5 +174,5 @@ int main() {
       rec("F2-TCP-STREAM-INTEGRITY", "3000 frames", "0x7c9", violations == 0, "teardowns=" + std::to_string(teardowns) + " droppedEvents=" + std::to_string(dropped) + " violations=" + std::to_string(violations)); }
 
     std::cout << "SUMMARY F2 pass=" << gPass << " fail=" << gFail << std::endl;
-    return 0;
+    return gFail == 0 ? 0 : 1;
 }

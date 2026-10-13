@@ -136,7 +136,7 @@ public:
             // callback (which may arrive after this call returns) sees
             // wasConnected==false in onPeerDisconnected() and does NOT call
             // transportUnregisterClient() again for a slot the registry has
-            // already reclaimed.
+            // may have reclaimed by the time that callback runs.
             mConnected = false;
             mTxSubscribed = false;
             mMtu = DEFAULT_ATT_MTU;

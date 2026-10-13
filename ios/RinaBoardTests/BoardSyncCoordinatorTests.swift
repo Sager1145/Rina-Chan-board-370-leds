@@ -169,6 +169,61 @@ final class BoardSyncCoordinatorTests: XCTestCase {
         }
     }
 
+    // MARK: Reconnection preserves the user's tab
+
+    func testIdleBoardReconnectPreservesTextTabAndReconcilesBoardState() async throws {
+        let sessions = BoardSessionStore()
+        let coordinator = BoardSyncCoordinator()
+        let deps = makeDeps(sessions: sessions)
+        let connection = sessions.active.connection
+        let connected = await connection.connect(using: SyncTransport())
+        XCTAssertTrue(connected)
+        await synchronize(coordinator, connection: connection, deps: deps, draftsRestored: true)
+
+        deps.router.selectedTab = .text
+        deps.textModel.editText("draft survives reconnect")
+        deps.textModel.boundTimelineId = "stale-board-timeline"
+        connection.disconnect()
+        await synchronize(coordinator, connection: connection, deps: deps, draftsRestored: true)
+
+        let reconnectTransport = SyncTransport()
+        reconnectTransport.status = DeviceStatus(ok: true, renderer: RendererStatus(
+            brightness: 73, mode: "manual", playback: "idle"
+        ))
+        let reconnected = await connection.connect(using: reconnectTransport)
+        XCTAssertTrue(reconnected)
+        deps.controlCenter.brightnessDraft = 12
+        await synchronize(coordinator, connection: connection, deps: deps, draftsRestored: true)
+
+        XCTAssertEqual(deps.router.selectedTab, .text,
+                       "recovering the same idle board must preserve the user's Text tab")
+        XCTAssertNil(deps.textModel.boundTimelineId, "reconnection must still clear stale board-relative state")
+        XCTAssertEqual(deps.textModel.text, "draft survives reconnect")
+        XCTAssertEqual(deps.controlCenter.brightnessDraft, 73,
+                       "reconnection must still read and synchronize board controls")
+    }
+
+    func testInitialConnectionAndExplicitBoardSwitchRestoreIdleBoardTab() async throws {
+        let sessions = BoardSessionStore()
+        let coordinator = BoardSyncCoordinator()
+        let deps = makeDeps(sessions: sessions)
+        let sessionA = sessions.session(for: "board-a", name: "A")
+        let sessionB = sessions.session(for: "board-b", name: "B")
+
+        deps.router.selectedTab = .text
+        let connectedA = await sessionA.connection.connect(using: SyncTransport())
+        XCTAssertTrue(connectedA)
+        await synchronize(coordinator, connection: sessionA.connection, deps: deps, draftsRestored: true)
+        XCTAssertEqual(deps.router.selectedTab, .control, "initial connection must restore the board's mode")
+
+        deps.router.selectedTab = .text
+        let connectedB = await sessionB.connection.connect(using: SyncTransport())
+        XCTAssertTrue(connectedB)
+        sessions.select(sessionB)
+        await synchronize(coordinator, connection: sessionB.connection, deps: deps, draftsRestored: true)
+        XCTAssertEqual(deps.router.selectedTab, .control, "explicit board selection must restore its mode")
+    }
+
     // MARK: Launch preview gate release points
 
     /// The connected resync path (§40's re-read-then-reconcile) is the only
@@ -233,8 +288,7 @@ final class BoardSyncCoordinatorTests: XCTestCase {
     private func makeDeps(
         sessions: BoardSessionStore, scenePhase: @escaping @MainActor () -> ScenePhase = { .active }
     ) -> BoardSyncCoordinator.Dependencies {
-        let suiteName = "BoardSyncCoordinatorTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName) ?? .standard
+        let defaults = makeIsolatedDefaults()
         return BoardSyncCoordinator.Dependencies(
             sessions: sessions,
             router: AppRouter(),

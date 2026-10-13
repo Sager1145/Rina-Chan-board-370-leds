@@ -4,7 +4,7 @@ import RinaCore
 @testable import RinaBoard
 
 /// P2 boundaries: scroll frame counts, UTF-8 text sizes, face counts,
-/// malformed raw bytes (built directly, bypassing the encoder precondition).
+/// malformed raw bytes (built directly, bypassing encoder validation).
 @MainActor
 final class StressBoundaryTests: XCTestCase {
     static func font() throws -> ArkPixelFont {
@@ -128,7 +128,7 @@ final class StressBoundaryTests: XCTestCase {
                       status: reachable.isEmpty ? "PASS" : "FAIL",
                       metrics: ["rasterizer_accepted_overflowing_candidates": reachable.joined(separator: "|"),
                                 "candidates": candidates.joined(separator: " ; "),
-                                "note": "derived size; trap confirmed separately by StressCrashReproTests"],
+                                "note": "derived size; guarded rejection checked separately by StressCrashReproTests"],
                       evidence: "StressBoundaryTests/testP2_TextUtf8Boundaries")
     }
 
@@ -150,7 +150,7 @@ final class StressBoundaryTests: XCTestCase {
             guard try RinaCommand.faceReorder(ids: ids).encode().count <= 4096 else { break }
             fit = ids.count
         }
-        Stress.record(case: "P2-faces-127-128-129-reorder-payload", layer: "BoardConnection.faceReorder -> RinaLinkEncoder precondition",
+        Stress.record(case: "P2-faces-127-128-129-reorder-payload", layer: "BoardConnection.faceReorder -> RinaLinkEncoder payload validation",
                       load: "face_reorder with 127/128/129 ids (board-style ~15 chars, local-style 42 chars)",
                       status: overflowAtOrBelowMax ? "FAIL" : "PASS",
                       metrics: ["rows": rows.joined(separator: " ; "), "max_local_style_ids_fitting_4096": fit,
@@ -186,7 +186,7 @@ final class StressBoundaryTests: XCTestCase {
         while remaining > 0 {
             let n = min(remaining, Int.random(in: 1...2048, using: &rng))
             parsed += decoder.feed(randomData(n)).count
-            maxBuffer = max(maxBuffer, Stress.count(Stress.reflect(decoder, "buffer")))
+            maxBuffer = max(maxBuffer, Stress.decoderBufferedBytes(decoder))
             remaining -= n
         }
         let fuzzMs = Stress.ms(since: fuzzStart)
@@ -201,7 +201,7 @@ final class StressBoundaryTests: XCTestCase {
         }
 
         // 3. Oversized length field then a valid frame.
-        let valid = RinaLinkEncoder.encode(RinaLinkFrame(type: 0x86, seq: 9, flags: 0, payload: Data("ok".utf8)))
+        let valid = Stress.encode(RinaLinkFrame(type: 0x86, seq: 9, flags: 0, payload: Data("ok".utf8)))
         let d3 = RinaLinkDecoder()
         let oversized = d3.feed(Data([0xA5, 0x86, 1, 0, 0x01, 0x10]) + valid).count
 
@@ -261,7 +261,9 @@ final class StressBoundaryTests: XCTestCase {
     }
 }
 
-/// Run each test ALONE (`-only-testing:`): a reproduced defect traps the host app.
+/// Historical test names remain stable for archived selectors. The encoder
+/// now throws on oversized payloads, so these check graceful rejection. No
+/// trap/crash is expected and the original run's logs remain untouched.
 @MainActor
 final class StressCrashReproTests: XCTestCase {
     func testCrashRepro_TextSendBitmapBeginOverflow() async throws {
@@ -274,15 +276,18 @@ final class StressCrashReproTests: XCTestCase {
             chosen = (name, s, tl.frameCount, tl.text.utf8.count)
             break
         }
-        guard let chosen else { throw XCTSkip("no rasterizer-accepted byte-heavy candidate") }
+        let candidate = try XCTUnwrap(chosen, "no rasterizer-accepted byte-heavy candidate")
         let t = StressTransport()
         let c = await stressConnected(t)
         let model = TextViewModel()
-        model.text = chosen.text
-        print("CRASHREPRO text filler=\(chosen.name) textBytes=\(chosen.bytes) frames=\(chosen.frames) -> TextViewModel.send")
+        model.text = candidate.text
+        print("CRASHREPRO text filler=\(candidate.name) textBytes=\(candidate.bytes) frames=\(candidate.frames) -> TextViewModel.send")
         await model.send(connection: c)
-        print("CRASHREPRO survived: error=\(model.errorMessage ?? "nil") blobBeginWrites=\(t.writes(of: .blobBegin).count)")
-        XCTFail("expected RinaLinkEncoder precondition trap did not occur")
+        print("OVERFLOWREPRO text error=\(model.errorMessage ?? "nil") blobBeginWrites=\(t.writes(of: .blobBegin).count)")
+        XCTAssertNotNil(model.errorMessage, "Oversized BLOB_BEGIN must surface an error")
+        XCTAssertTrue(t.writes(of: .blobBegin).isEmpty, "Rejected metadata must not acquire a board-side blob")
+        XCTAssertEqual(c.connectionState, .connected)
+        c.disconnect()
     }
 
     func testCrashRepro_FaceReorderOverflow() async throws {
@@ -291,8 +296,15 @@ final class StressCrashReproTests: XCTestCase {
         let ids = (0..<128).map { _ in "local_" + UUID().uuidString.lowercased() }
         let bytes = try RinaCommand.faceReorder(ids: ids).encode().count
         print("CRASHREPRO faceReorder ids=\(ids.count) payloadBytes=\(bytes) -> BoardConnection.faceReorder")
-        _ = try? await c.faceReorder(ids: ids)
-        print("CRASHREPRO survived faceReorder")
-        XCTFail("expected RinaLinkEncoder precondition trap did not occur")
+        XCTAssertGreaterThan(bytes, RinaLinkFrameConstants.maxPayloadBytes)
+        do {
+            _ = try await c.faceReorder(ids: ids)
+            XCTFail("Oversized face reorder must be rejected")
+        } catch let error as RinaLinkEncoder.EncodingError {
+            XCTAssertEqual(error, .payloadTooLarge(actual: bytes, maximum: RinaLinkFrameConstants.maxPayloadBytes))
+        }
+        XCTAssertTrue(t.writes(of: .cmd).isEmpty, "Rejected payload must not reach the board")
+        XCTAssertEqual(c.connectionState, .connected)
+        c.disconnect()
     }
 }

@@ -1,0 +1,144 @@
+diff --git a/ios/RinaBoard/Features/Text/ScrollTextView.swift b/ios/RinaBoard/Features/Text/ScrollTextView.swift
+index e17062e..75675c8 100644
+--- a/ios/RinaBoard/Features/Text/ScrollTextView.swift
++++ b/ios/RinaBoard/Features/Text/ScrollTextView.swift
+@@ -43,7 +43,6 @@ struct ScrollTextView: View {
+     @Environment(\.scenePhase) private var scenePhase
+     @FocusState private var isEditorFocused: Bool
+     @Environment(\.displayScale) private var displayScale
+-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+     /// Ark Pixel editor size; follows Dynamic Type, snapped to crisp steps.
+     @ScaledMetric(relativeTo: .body) private var editorFontSize: CGFloat = 16
+     private static let editorMinHeight: CGFloat = 132
+@@ -80,7 +79,6 @@ struct ScrollTextView: View {
+             } status: {
+                 previewStatus
+             } controls: {
+-                groupTargetBanner
+                 playbackSection
+                 editorSection
+                 speedSection
+@@ -260,36 +258,6 @@ struct ScrollTextView: View {
+ 
+     // MARK: Board group target (BOARD_GROUP_SPEC.md §3)
+ 
+-    /// A compact banner shown only while the 控制对象 menu targets a group:
+-    /// "发送" below then plays to the whole group instead of the single
+-    /// connected board.
+-    @ViewBuilder
+-    private var groupTargetBanner: some View {
+-        if let group = targetedGroup {
+-            Section {
+-                let bannerText = Text("发送到多板组：\(group.name)（\(group.mode == .stitched ? "拼接" : "镜像")）")
+-                    .font(.footnote)
+-                let backButton = Button("切回单板") {
+-                    controlTargetGroupIDStorage = ControlTarget.single.storedGroupIDString
+-                }
+-                .buttonStyle(.borderless)
+-
+-                if dynamicTypeSize.isAccessibilitySize {
+-                    VStack(alignment: .leading, spacing: 8) {
+-                        bannerText
+-                        backButton
+-                    }
+-                } else {
+-                    HStack {
+-                        bannerText
+-                        Spacer()
+-                        backButton
+-                    }
+-                }
+-            }
+-        }
+-    }
+-
+     /// Send: plays to the targeted group when one is set, otherwise the
+     /// single-board `model.send(connection:)` — byte-for-byte unchanged in
+     /// that case.
+diff --git a/ios/RinaBoard/Features/Text/TextPlaybackControls.swift b/ios/RinaBoard/Features/Text/TextPlaybackControls.swift
+index 6019258..fbc30e5 100644
+--- a/ios/RinaBoard/Features/Text/TextPlaybackControls.swift
++++ b/ios/RinaBoard/Features/Text/TextPlaybackControls.swift
+@@ -3,10 +3,9 @@ import SwiftUI
+ /// Scrolling-text transport row (design guide §24). System buttons and SF
+ /// Symbols only — no custom icon artwork.
+ ///
+-/// Five pills, no separate send row: play/pause and stop sit on the left,
+-/// frame stepping in the middle and the loop toggle on the right. The second
+-/// slot is the stop button while the board is scrolling a bound timeline, and
+-/// turns into "send and play" once there is nothing to stop.
++/// Five pills, no separate send row: play/pause, stop, loop, « and ». The
++/// first slot is "send and play" while the board has nothing to scroll, and
++/// pause/resume once it does; stop is greyed out until there is a scroll.
+ struct TextPlaybackControls: View {
+     var isConnected: Bool
+     var hasTimeline: Bool
+@@ -36,18 +35,10 @@ struct TextPlaybackControls: View {
+ 
+     var body: some View {
+         HStack(spacing: 8) {
+-            if isPaused {
+-                control("play.fill", label: "继续", action: onPlay)
+-                    .disabled(!transportEnabled)
+-            } else {
+-                control("pause.fill", label: "暂停", action: onPause)
+-                    .disabled(!transportEnabled)
+-            }
+-            stopOrSendControl
+-            control("backward.frame.fill", label: "上一帧", action: onStepBackward)
+-                .disabled(!transportEnabled)
+-            control("forward.frame.fill", label: "下一帧", action: onStepForward)
+-                .disabled(!transportEnabled)
++            playPauseControl
++            // Stop keeps working in group mode, like send.
++            control("stop.fill", label: "停止并清屏", action: onStop)
++                .disabled(!isConnected || !hasBoardScroll)
+             Toggle(isOn: $loopPlayback) {
+                 RepeatSymbol(isOn: loopPlayback)
+                     .frame(maxWidth: .infinity)
+@@ -55,25 +46,25 @@ struct TextPlaybackControls: View {
+             .toggleStyle(.pill)
+             .accessibilityLabel(LocalizedStringKey("循环播放"))
+             .disabled(loopDisabled)
++            control("chevron.backward.2", label: "上一帧", action: onStepBackward)
++                .disabled(!transportEnabled)
++            control("chevron.forward.2", label: "下一帧", action: onStepForward)
++                .disabled(!transportEnabled)
+         }
+         .buttonStyle(.pill)
+         .pillButtonRow()
+     }
+ 
+     @ViewBuilder
+-    private var stopOrSendControl: some View {
+-        if hasBoardScroll {
+-            // Stop keeps working in group mode, like send.
+-            control("stop.fill", label: "停止并清屏", action: onStop)
+-                .disabled(!isConnected)
+-        } else {
++    private var playPauseControl: some View {
++        if !hasBoardScroll {
+             Button(action: onSend) {
+                 Group {
+                     if isUploading {
+                         ProgressView()
+                             .controlSize(.mini)
+                     } else {
+-                        Image(systemName: isGeneratingFont ? "hourglass" : "play.circle.fill")
++                        Image(systemName: isGeneratingFont ? "hourglass" : "play.fill")
+                     }
+                 }
+                 .frame(maxWidth: .infinity)
+@@ -83,6 +74,12 @@ struct TextPlaybackControls: View {
+                                 ? LocalizedStringKey("加载字体…")
+                                 : LocalizedStringKey("发送并播放"))
+             .disabled(!isConnected || isUploading || !canSend)
++        } else if isPaused {
++            control("play.fill", label: "继续", action: onPlay)
++                .disabled(!transportEnabled)
++        } else {
++            control("pause.fill", label: "暂停", action: onPause)
++                .disabled(!transportEnabled)
+         }
+     }
+ 

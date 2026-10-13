@@ -46,7 +46,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A30000000000000000000003"
             BuildableName = "RinaBoardWatch.app"
-            BlueprintName = "RinaBoardWatch"
             ReferencedContainer = "container:RinaBoard.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -63,7 +62,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A30000000000000000000003"
             BuildableName = "RinaBoardWatch.app"
-            BlueprintName = "RinaBoardWatch"
             ReferencedContainer = "container:RinaBoard.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

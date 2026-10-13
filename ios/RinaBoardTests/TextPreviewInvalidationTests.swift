@@ -63,14 +63,33 @@ final class TextPreviewInvalidationTests: XCTestCase {
         self.window = window
         // ScrollTextView reads the board-group target too; an isolated,
         // empty store keeps it on the single-board path under test.
-        let groupStore = BoardGroupStore(defaults: UserDefaults(suiteName: "TextPreviewInvalidationTests")!)
-        let groupCoordinator = BoardGroupCoordinator(store: groupStore, sessions: BoardSessionStore())
+        let groupStore = BoardGroupStore(defaults: makeIsolatedDefaults())
+        // Regular-width iPad and Catalyst hosts also mount the embedded
+        // Control Center through BoardSplitPage. Supply its real app
+        // dependencies so this fixture exercises that layout as well.
+        let sessions = BoardSessionStore(makeConnection: { connection })
+        let groupCoordinator = BoardGroupCoordinator(store: groupStore, sessions: sessions)
+        let fanOut = GroupControlFanOut(sessions: sessions, groups: groupStore, coordinator: groupCoordinator)
+        let controlCenter = BoardControlCenterModel()
+        let faceLibrary = FaceLibraryModel()
+        let groupAutoCycler = GroupAutoCycler(
+            fanOut: fanOut,
+            faceLibrary: faceLibrary,
+            intervalProvider: { controlCenter.autoIntervalDraft }
+        )
         let hosting = UIHostingController(
             rootView: ScrollTextView()
                 .environment(connection)
                 .environment(model)
                 .environment(groupStore)
                 .environment(groupCoordinator)
+                .environment(sessions)
+                .environment(AppRouter())
+                .environment(BoardStore(defaults: makeIsolatedDefaults()))
+                .environment(controlCenter)
+                .environment(faceLibrary)
+                .environment(fanOut)
+                .environment(groupAutoCycler)
         )
         window.rootViewController = hosting
         window.isHidden = false

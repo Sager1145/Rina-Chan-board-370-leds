@@ -32,7 +32,7 @@ final class GroupAutoCyclerTests: XCTestCase {
 
     private func harness(_ memberIDs: [String], interval: Double = 0.05) async -> (Harness, GroupAutoCycler) {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "gac.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let fanOut = GroupControlFanOut(sessions: sessions, groups: store, coordinator: coordinator)
         let faceLibrary = FaceLibraryModel()
@@ -217,7 +217,7 @@ final class GroupAutoCyclerTests: XCTestCase {
 
     func testPrimaryInFirmwareAutoStartsCyclerAndForcesMembersManual() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "gac.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let fanOut = GroupControlFanOut(sessions: sessions, groups: store, coordinator: coordinator)
         let faceLibrary = FaceLibraryModel()

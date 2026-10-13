@@ -28,15 +28,12 @@ final class RinaBoardUITests: XCTestCase {
         // navigation bar's presence is the actual assertion; the row match
         // below only confirms the sheet actually finished loading.
         //
-        // Rows put their thumbnail, name and caption inside a `Button`'s
-        // label, so SwiftUI collapses that subtree into a single element
-        // carrying the button trait: "预设" is a fragment of the button's
-        // accessibility label, never a standalone `staticText`.
         XCTAssertTrue(FaceLibraryUITestPath.openFaceLibrary(in: app, timeout: 4),
                       "The face library was not reachable from the Control tab")
         XCTAssertTrue(app.navigationBars["表情库"].exists)
-        let presetRow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "预设")).firstMatch
-        XCTAssertTrue(presetRow.waitForExistence(timeout: 2))
+        let localSegment = app.segmentedControls.buttons["本机"]
+        XCTAssertTrue(localSegment.waitForExistence(timeout: 2))
+        XCTAssertTrue(localSegment.isSelected)
     }
 
     func testDebugWorkspacesAreReachable() throws {

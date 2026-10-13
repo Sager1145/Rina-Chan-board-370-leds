@@ -126,6 +126,32 @@ final class SavedConnectionRecoveryTests: XCTestCase {
         XCTAssertTrue(store.value.boards.contains { $0.id == KnownBoard.hotspotStorageID(ssid: ssidB) })
     }
 
+    func testVerifiedPhysicalIdentityRepairsDuplicateSavedCarriersAndRetainsBLEAddress() {
+        let store = makeStore()
+        defer { clear(store.defaultsSuiteName) }
+        let ssid = "RinaChanBoard-80B54EF48E09"
+        let bleID = "6F2161EE-AFE4-5C51-758C-B358FA08DDDE"
+        let sibling = KnownBoard(id: KnownBoard.hotspotStorageID(ssid: "RinaChanBoard-80B54EF74801"),
+            name: "B", preferredTransport: "hotspot", lastHost: RinaLinkConstants.apIP,
+            hotspotSSID: "RinaChanBoard-80B54EF74801")
+        // The earlier release could persist AP before BLE; repair must not
+        // depend on record order or merge a sibling sharing the same IP.
+        store.value.upsert(KnownBoard(id: KnownBoard.hotspotStorageID(ssid: ssid), name: "A",
+            preferredTransport: "hotspot", lastHost: RinaLinkConstants.apIP, hotspotSSID: ssid))
+        store.value.upsert(KnownBoard(id: bleID, name: "A"))
+        store.value.upsert(sibling)
+        store.value.upsert(KnownBoard(id: bleID, name: "A", preferredTransport: "hotspot",
+            lastHost: RinaLinkConstants.apIP, hotspotSSID: ssid, physicalBoardID: "80B54EF48E09"))
+        XCTAssertEqual(store.value.boards.count, 2)
+        XCTAssertTrue(store.value.boards.contains(sibling))
+        XCTAssertEqual(store.value.boards.first { $0.id == bleID }?.hotspotSSID, ssid)
+        store.value.upsert(KnownBoard(id: bleID, name: "A", preferredTransport: "bluetooth",
+            physicalBoardID: "80B54EF48E09"))
+        let saved = BoardStore(defaults: UserDefaults(suiteName: store.defaultsSuiteName)!).boards.first { $0.id == bleID }
+        XCTAssertEqual(saved?.hotspotSSID, ssid)
+        XCTAssertEqual(saved?.connectionTarget, .bluetooth(UUID(uuidString: bleID)!))
+    }
+
     func testConnectSavedBoardPassesSavedHotspotSSIDToJoinBoardHotspot() async {
         let store = makeStore()
         defer { clear(store.defaultsSuiteName) }

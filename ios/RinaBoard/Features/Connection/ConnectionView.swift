@@ -98,9 +98,46 @@ struct ConnectionView: View {
                 }
             }
 
-            if case .bluetooth = connection.transportKind, connection.wifi?.staConnected == true {
-                Button("切换到 Wi-Fi") {
-                    workspace.run(from: .connection) { await viewModel.switchToWifi(connection: connection, boardStore: boardStore) }
+            if hasBoard, connection.canRetry, !isConnected {
+                HStack {
+                    Button("立即重试") {
+                        let target = connection
+                        workspace.run(from: .connection) {
+                            _ = await target.retryNow()
+                        }
+                    }
+                    .disabled(viewModel.isSwitchingTransport)
+                    .accessibilityIdentifier("connection.retryNow")
+
+                    if connection.isAutomaticReconnectEnabled {
+                        Button("停止自动重试", role: .destructive) {
+                            connection.stopAutomaticReconnect()
+                        }
+                        .accessibilityIdentifier("connection.stopAutomaticRetry")
+                    }
+                }
+                if !connection.isAutomaticReconnectEnabled {
+                    Text("自动重试已停止")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("connection.automaticRetryStopped")
+                }
+            }
+
+            if hasBoard {
+                Picker("选择连接方式", selection: transportBinding) {
+                    Text("蓝牙").tag(ConnectionViewModel.TransportSelection.bluetooth)
+                        .disabled(!viewModel.canSelectTransport(.bluetooth, session: sessions.active, boardStore: boardStore))
+                    Text("家庭 Wi-Fi").tag(ConnectionViewModel.TransportSelection.wifi)
+                        .disabled(!viewModel.canSelectTransport(.wifi, session: sessions.active, boardStore: boardStore))
+                    Text("热点直连").tag(ConnectionViewModel.TransportSelection.hotspot)
+                        .disabled(!viewModel.canSelectTransport(.hotspot, session: sessions.active, boardStore: boardStore))
+                }
+                .disabled(viewModel.isSwitchingTransport)
+                .accessibilityIdentifier("connection.transport")
+                if viewModel.isSwitchingTransport { ProgressView() }
+                if !viewModel.canSelectTransport(.wifi, session: sessions.active, boardStore: boardStore) {
+                    Button("Wi-Fi 与热点") { workspace.selection = .network }
                 }
             }
 
@@ -114,6 +151,18 @@ struct ConnectionView: View {
         } header: {
             Text("当前璃奈板")
         }
+    }
+
+    private var transportBinding: Binding<ConnectionViewModel.TransportSelection> {
+        Binding(
+            get: { viewModel.selectedTransport(for: sessions.active) },
+            set: { selection in
+                let target = sessions.active
+                workspace.run(from: .connection) {
+                    await viewModel.selectTransport(selection, session: target, sessions: sessions, boardStore: boardStore)
+                }
+            }
+        )
     }
 
     /// "蓝牙 · 已连接"; just the state while no transport is chosen. The
@@ -236,6 +285,29 @@ struct ConnectionView: View {
 
             if canDisconnect || row.session != nil || row.saved != nil {
                 Menu {
+                    if let session = row.session, session.connection.canRetry {
+                        Button("立即重试", systemImage: "arrow.clockwise") {
+                            // Group-primary promotion may change the visible
+                            // board while this member recovers. Keep this
+                            // operation on the row's own connection throughout.
+                            let target = session.connection
+                            workspace.run(from: .connection) {
+                                _ = await target.retryNow()
+                            }
+                        }
+                        .disabled(viewModel.isSwitchingTransport)
+                        .accessibilityIdentifier("connection.boardRetryNow.\(row.id)")
+
+                        if session.connection.isAutomaticReconnectEnabled {
+                            Button("停止自动重试", systemImage: "stop.circle", role: .destructive) {
+                                session.connection.stopAutomaticReconnect()
+                            }
+                            .accessibilityIdentifier("connection.boardStopAutomaticRetry.\(row.id)")
+                        } else {
+                            Text("自动重试已停止")
+                                .accessibilityIdentifier("connection.boardAutomaticRetryStopped.\(row.id)")
+                        }
+                    }
                     if canDisconnect, let session = row.session {
                         Button("断开", systemImage: "xmark.circle", role: .destructive) {
                             session.connection.disconnect(userInitiated: true)
@@ -251,6 +323,7 @@ struct ConnectionView: View {
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel(Text("更多操作"))
+                .accessibilityIdentifier("connection.boardMore.\(row.id)")
             }
         }
         .buttonStyle(.borderless)
@@ -347,11 +420,10 @@ struct CurrentBoardBadge: View {
 /// survives the Settings layout changing under it.
 struct ConnectionPasswordSheet: View {
     let network: WifiNetwork
-    @Environment(SettingsWorkspace.self) private var workspace
-    @Environment(BoardConnection.self) private var connection
+    @Bindable var workspace: SettingsWorkspace
+    let connection: BoardConnection
 
     var body: some View {
-        @Bindable var workspace = workspace
         NavigationStack {
             Form {
                 Section(network.ssid) {

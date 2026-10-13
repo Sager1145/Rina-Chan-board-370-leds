@@ -83,9 +83,9 @@ def measure_lag(reference: np.ndarray, test: np.ndarray, rate: int,
     correlating silence against silence localises nothing.
     """
     window = int(window_s * rate)
-    start = int(start_s * rate)
+    start = max(max_lag, int(start_s * rate))
     if len(reference) < start + window + max_lag or len(test) < start + window + max_lag:
-        start = 0
+        start = max_lag
         window = min(len(reference), len(test)) - 2 * max_lag
         if window <= 0:
             raise ValueError("tracks too short to correlate")
@@ -113,6 +113,7 @@ def main() -> int:
     catalog = json.loads(CATALOG.read_text())
 
     failures = 0
+    checked = 0
     print(f"{'performance':14} {'lag(smp)':>9} {'lag(ms)':>9} {'corr':>7} "
           f"{'timeline(s)':>12} {'audio(s)':>9}  verdict")
 
@@ -129,21 +130,32 @@ def main() -> int:
 
             if not m4a.exists():
                 print(f"{cover:14} {'-':>9} {'-':>9} {'-':>7} {timeline_s:12.1f} {'-':>9}  "
-                      f"SKIP (no audio; run tools/fetch_preset_live_audio.sh)")
+                      f"FAIL (no audio; run tools/fetch_preset_live_audio.sh)")
+                failures += 1
                 continue
 
-            decode_to_wav(m4a, tmp_path / f"{cover}_test.wav")
+            try:
+                decode_to_wav(m4a, tmp_path / f"{cover}_test.wav")
+            except subprocess.CalledProcessError as error:
+                print(f"{cover:14} FAIL (audio decode: {error.stderr.decode(errors='replace').strip()})")
+                failures += 1
+                continue
             test, rate = read_wav(tmp_path / f"{cover}_test.wav")
             audio_s = len(test) / rate
 
+            if extension == "mp3":
+                print(f"{cover:14} copied MP3, no transcode; audio {audio_s:.2f}s, timeline {timeline_s:.1f}s")
+                continue
             if not ogg.exists():
                 print(f"{cover:14} {'-':>9} {'-':>9} {'-':>7} {timeline_s:12.1f} {audio_s:9.2f}  "
-                      f"SKIP transcode check (no Ogg; use --keep-intermediate)")
+                      f"FAIL transcode check (no Ogg; use --keep-intermediate)")
+                failures += 1
                 continue
 
             decode_to_wav(ogg, tmp_path / f"{cover}_ref.wav")
             reference, _ = read_wav(tmp_path / f"{cover}_ref.wav")
             lag, peak = measure_lag(reference, test, rate)
+            checked += 1
             lag_ms = lag / rate * 1000
 
             notes = []
@@ -163,7 +175,10 @@ def main() -> int:
                   f"{timeline_s:12.1f} {audio_s:9.2f}  {verdict}")
 
     print()
-    if failures:
+    print(f"Transcodes correlated: {checked}")
+    if failures or checked == 0:
+        if checked == 0:
+            print("FAILED: no transcodes were correlated")
         print(f"FAILED: {failures} problem(s). One keyframe is {KEYFRAME_MS:.0f} ms at 10 fps.")
         return 1
     print(f"All transcodes are sample-aligned with the Ogg originals "

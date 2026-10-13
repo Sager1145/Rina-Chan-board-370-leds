@@ -11,7 +11,7 @@ message through one `protocol.cpp` command handler.
 |---|---|---|---|
 | **BLE** | GATT service, 2 characteristics | BLE scan, service UUID filter | Always on. Used for first-time Wi-Fi provisioning, and can carry *all* features (slower for big uploads). |
 | **Wi-Fi STA** | TCP :5370 on the user's LAN | mDNS/Bonjour `_rinalink._tcp.local`, host `rinaboard-<id>.local`, Bonjour instance `RinaBoard-<ID>`; manual IP fallback | Board joins the router with credentials provisioned over BLE. |
-| **Wi-Fi hotspot ("direct")** | TCP :5370 on board SoftAP `RinaChanBoard-<ID>`, board IP `192.168.1.14` | Fixed IP; iOS joins via `NEHotspotConfiguration` | No router needed. iOS does not expose Wi-Fi Direct/P2P to apps, so the board's SoftAP *is* the direct link. |
+| **Wi-Fi hotspot ("direct")** | TCP :5370 on board SoftAP `RinaChanBoard-<ID>`, address reported as `wifi_status.apIp` | Persisted per-board IP; iOS joins via `NEHotspotConfiguration` | No router needed. iOS does not expose Wi-Fi Direct/P2P to apps, so the board's SoftAP *is* the direct link. |
 
 Wi-Fi run mode is persisted in NVS: `off | ap | sta | sta_or_ap` (default `ap` until
 credentials exist, then `sta_or_ap`: try STA for 15 s, fall back to AP). BLE is
@@ -276,6 +276,13 @@ status `playback:"scroll_paused"`), with the current `scrollLoop` value reported
 in status. Calling `resume_scroll` or `resume` while sitting on the last frame
 with loop off restarts playback from frame 0.
 
+Legacy `start_scroll` uses elapsed time to advance the logical frame cursor.
+If rendering or scheduling misses intervals, it skips expired frames and presents
+the newest due frame once per tick, preserving wall-clock phase without a replay
+burst. Non-looping playback still latches its final frame and holds paused.
+Actual presented FPS remains limited by rendering and scheduling;
+`scrollAdvanceSeq` counts successful presentations, not skipped logical steps.
+
 **`set_device_name{name}`** — sets the BLE advertised local name (§1.1). An
 empty or omitted `name` clears the override and restores the MAC-derived
 default. Limit is **24 UTF-8 bytes**, not characters (≈8 CJK characters); the
@@ -312,19 +319,21 @@ Clients enable/disable event classes with `CMD subscribe{preview:bool,status:boo
 
 | cmd | payload | reply |
 |---|---|---|
-| `wifi_status` | — | `{"ok":true,"mode":"off|ap|sta|sta_or_ap","staConnected":bool,"ssid":"…","ip":"…","rssi":n,"apActive":bool,"apSsid":"RinaChanBoard-80B54EF48E09","apIp":"192.168.1.14","hostname":"rinaboard-80b54ef48e09","boardId":"80B54EF48E09","tcpPort":5370,"clients":n}` |
+| `wifi_status` | — | `{"ok":true,"mode":"off|ap|sta|sta_or_ap","staConnected":bool,"ssid":"…","ip":"…","rssi":n,"apActive":bool,"apSsid":"RinaChanBoard-80B54EF48E09","apIp":"10.244.142.9","hostname":"rinaboard-80b54ef48e09","boardId":"80B54EF48E09","tcpPort":5370,"clients":n}` |
 | `wifi_scan` | — | async: `{"ok":true,"scanning":true}` immediately (or `500` if a scan could not be started); the result (≤ 20 networks, sorted by RSSI) arrives as `EV_WIFI_SCAN` (§3.5) when the scan completes. If a scan is already in progress, replies `{"ok":true,"scanning":true}` and the caller becomes the new requester for the in-flight scan's `EV_WIFI_SCAN`. |
 | `wifi_scan_result` | — | `{"ok":true,"scanning":bool,"networks":[…]}` — the last completed scan's results (or empty if none yet), without starting a new scan |
 | `wifi_set_credentials` | `{"ssid":"…","password":"…"}` | `{"ok":true}` — stored in NVS namespace `rinawifi` |
 | `wifi_clear_credentials` | — | `{"ok":true}` |
 | `wifi_set_mode` | `{"mode":"off|ap|sta|sta_or_ap"}` | `{"ok":true}` — persisted; applied immediately |
 | `wifi_connect` | — | `{"ok":true}`; result arrives as `EV_WIFI` |
-| `wifi_set_ap` | `{"ssid":"…","password":"…"|""}` | `{"ok":true}` — SoftAP name/password (default `RinaChanBoard-<ID>` / `rinachan`; open when empty; sending the retired shared SSID `RinaChanBoard-V2` resets to the board's unique default) |
+| `wifi_set_ap` | `{"ssid":"…","password":"…"|"","ip":"…"}` (`ip` optional) | `{"ok":true,"apIp":"…"}` — SoftAP name/password and optional private /24 gateway. IP changes require BLE. With `ip` present and both credential fields empty, only the address changes. Omitting `ip` preserves the address and the legacy credential behavior. Defaults: `RinaChanBoard-<ID>` / `rinachan`; an empty password opens the AP during credential edits. The retired shared SSID `RinaChanBoard-V2` resets the name to the board's default. |
 
 Flow in the app: BLE connect → `wifi_scan` → `wifi_set_credentials` →
 `wifi_set_mode sta_or_ap` → wait `EV_WIFI staConnected` → app switches to TCP via
 Bonjour or the reported `ip`. "Hotspot" flow: `wifi_set_mode ap` (or the default) →
-app joins the SoftAP → TCP `192.168.1.14:5370`.
+app reads `apIp` over BLE, joins the selected board's SoftAP, then connects to that address on TCP port 5370. `apIp` reports the configured address even when the AP is off; `ip` separately reports the router-assigned station address.
+
+On first boot, firmware derives a private gateway from the board ID's final 24 bits and persists it in `rinawifi.apip`. The same production image works on both boards: `80B54EF48E09` defaults to `10.244.142.9`, and `80B54EF74801` to `10.247.72.1`. See `src/ap_address_policy.h` for the reserved-host mapping and DHCP pool selection. Different full IDs with the same 24-bit suffix share a default, so manufacturing should check reported addresses and use the manual override if needed. Valid overrides use canonical RFC1918 IPv4 with last octet 1–254. A changed address restarts the AP to renew client DHCP; BLE remains available. Factory reset restores the derived default.
 
 ## 5. Firmware layout after the refactor
 

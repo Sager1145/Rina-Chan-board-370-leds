@@ -15,7 +15,7 @@ final class GroupControlFanOutTests: XCTestCase {
 
     private func harness(_ memberIDs: [String]) async -> Harness {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "gcf.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let fanOut = GroupControlFanOut(sessions: sessions, groups: store, coordinator: coordinator)
         var transports: [String: GroupControlFakeTransport] = [:]
@@ -382,20 +382,21 @@ final class GroupControlFanOutTests: XCTestCase {
         let h = await harness(["AAAA", "BBBB"])
         h.fanOut.setTarget(.group(h.group.id))
         let primary = session(h, "AAAA")
-        let sink = session(h, "BBBB")
+        weak let sinkConnection = session(h, "BBBB").connection
+        let sinkKey = try XCTUnwrap(session(h, "BBBB").boardID)
 
         _ = try await primary.connection.command(.setBrightness(raw: 42))
         await waitUntil { h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int == 42 }
-
-        guard let sinkKey = sink.boardID else { return XCTFail("sink has no boardID") }
         h.sessions.remove(id: sinkKey)
+        await waitUntilTrue("Removed sink connection is still retained") { sinkConnection == nil }
+        XCTAssertNil(sinkConnection, "The lifetime case requires actual connection deallocation")
 
-        // Would trap under the old `unowned` reference if a queued/racing
-        // worker touched a deallocated connection; must instead simply drop
-        // the sink.
+        // Dispatch only after ARC has released the removed connection. The
+        // sink must be dropped while the surviving primary still succeeds.
         _ = try await primary.connection.command(.setBrightness(raw: 43))
-        try? await Task.sleep(nanoseconds: 200_000_000)
-        XCTAssertFalse(h.sessions.sessions.contains { $0 === sink })
+        h.fanOut.reconcile()
+        XCTAssertFalse(h.sessions.sessions.contains { $0.boardID == sinkKey })
+        XCTAssertEqual(h.transports["BBBB"]?.lastCmdField("set_brightness", "raw") as? Int, 42)
         XCTAssertNil(h.fanOut.memberErrors["BBBB"])
     }
 
@@ -539,7 +540,7 @@ final class GroupControlFanOutTests: XCTestCase {
         // at attach time (setting the flag only after `harness()`'s own
         // `connect()` already ran would be too late).
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "gcf.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let fanOut = GroupControlFanOut(sessions: sessions, groups: store, coordinator: coordinator)
 
@@ -576,7 +577,7 @@ final class GroupControlFanOutTests: XCTestCase {
 
     func testMemberResolutionPrefersConnectedSessionOverStaleDuplicate() async throws {
         let sessions = BoardSessionStore()
-        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "gcf.\(UUID())")!)
+        let store = BoardGroupStore(defaults: makeIsolatedDefaults())
         let coordinator = BoardGroupCoordinator(store: store, sessions: sessions)
         let fanOut = GroupControlFanOut(sessions: sessions, groups: store, coordinator: coordinator)
 

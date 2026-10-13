@@ -9,19 +9,25 @@ enum ArkPixelInputFont {
     /// One em of the font is 12 font pixels.
     static let gridSize: CGFloat = 12
 
-    private static let descriptor: CTFontDescriptor? = {
+    // Core Text descriptors are immutable. The cached descriptor is created
+    // once, never mutated, and used only by CTFontCreateWithFontDescriptor.
+    // Keep its load off the main actor while expressing that ownership here.
+    private struct CachedDescriptor: @unchecked Sendable {
+        let value: CTFontDescriptor?
+    }
+    private static let cachedDescriptor: CachedDescriptor = {
         guard let url = Bundle.main.url(forResource: "ark12", withExtension: "woff2"),
               let data = try? Data(contentsOf: url),
               let descriptors = CTFontManagerCreateFontDescriptorsFromData(data as CFData) as? [CTFontDescriptor]
-        else { return nil }
-        return descriptors.first
+        else { return CachedDescriptor(value: nil) }
+        return CachedDescriptor(value: descriptors.first)
     }()
 
     /// The font near `size`, snapped so every font pixel covers a whole number
     /// of device pixels at `displayScale` (4 pt steps on 3×, 6 pt on 2×), or
     /// the system body font if the bundled file is missing.
     static func font(size: CGFloat, displayScale: CGFloat) -> Font {
-        guard let descriptor else { return .body }
+        guard let descriptor = cachedDescriptor.value else { return .body }
         let step = gridSize / max(1, displayScale.rounded())
         let snapped = max(gridSize, (size / step).rounded() * step)
         return Font(CTFontCreateWithFontDescriptor(descriptor, snapped, nil))
@@ -33,6 +39,6 @@ enum ArkPixelInputFont {
     /// thread-safe, so this can run from a background task started at boot;
     /// the result is unchanged either way.
     nonisolated static func prewarm() {
-        _ = descriptor
+        _ = cachedDescriptor
     }
 }

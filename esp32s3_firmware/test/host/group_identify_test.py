@@ -77,18 +77,7 @@ def test_identify_marks_rate_ineligible():
     print("test_identify_marks_rate_ineligible: OK")
 
 
-def test_identify_priority_over_hint_and_button_overlay():
-    render_fn = function(RENDERER, "void renderCurrentFrameToLedStrip()")
-    # Priority: identify > hint > button overlay > content. The identify branch
-    # must be the first arm of the if/else-if/else chain that also covers
-    # overlayActive (button animation) and the hint LED.
-    identify_idx = render_fn.index("if (identifyNumber >= 0) {")
-    overlay_idx = render_fn.index("overlayActive) {")
-    hint_idx = render_fn.index("hint >= 0 && hint <")
-    check(identify_idx < overlay_idx < hint_idx,
-          "identify must be checked before the button overlay and the hint LED")
-    print("test_identify_priority_over_hint_and_button_overlay: OK")
-
+# Pixel precedence is exercised against the real renderer in audit_repairs_test.py.
 
 def test_cmd_identify_never_touches_scroll_frame_face_state():
     match = re.search(r'if \(strcmp\(cmd, "identify"\) == 0\) \{', PROTOCOL)
@@ -137,7 +126,6 @@ def main():
     test_identify_state_only_touched_in_led_renderer()
     test_identify_drawn_only_in_render_pass()
     test_identify_marks_rate_ineligible()
-    test_identify_priority_over_hint_and_button_overlay()
     test_cmd_identify_never_touches_scroll_frame_face_state()
     test_scroll_bitmap_rotation_skipped_for_viewport_uploads()
     test_scroll_task_forces_render_on_identify_expiry()

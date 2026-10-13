@@ -46,6 +46,19 @@ enum DebugCommandCatalog {
         destructiveNames.contains(commandName)
     }
 
+    /// Only activity-changing commands replace a live producer. Queries,
+    /// subscriptions, color/brightness and stored settings remain board-local
+    /// operations without stopping the microphone or media playback.
+    private static let outputNames: Set<String> = [
+        "set_mode", "apply_saved_face", "button", "pause", "resume",
+        "terminate_other_activities", "start_scroll", "scroll_step", "scroll_seek",
+        "pause_scroll", "resume_scroll", "stop_scroll", "group_start", "reboot"
+    ]
+
+    static func takesOutputOwnership(commandName: String) -> Bool {
+        outputNames.contains(commandName)
+    }
+
     static let commands: [DebugCommandTemplate] = [
         // MARK: query
         .init(name: "PING", example: "PING", group: .query, isDestructive: false),

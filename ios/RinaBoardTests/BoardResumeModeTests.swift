@@ -136,8 +136,12 @@ final class BoardResumeModeTests: XCTestCase {
     @MainActor
     func testRouterSelectsTheVideoAndPerformancePages() {
         let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: PerformanceTabMode.storageKey)
+        defer {
+            if let previous { defaults.set(previous, forKey: PerformanceTabMode.storageKey) }
+            else { defaults.removeObject(forKey: PerformanceTabMode.storageKey) }
+        }
         defaults.removeObject(forKey: PerformanceTabMode.storageKey)
-        defer { defaults.removeObject(forKey: PerformanceTabMode.storageKey) }
 
         let router = AppRouter()
         router.showBoardMode(.video)

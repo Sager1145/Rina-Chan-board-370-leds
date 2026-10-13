@@ -29,16 +29,22 @@ bool wifiManagerScanResultReady();
 void wifiManagerGetScanJson(JsonArray out);
 
 bool wifiManagerSetCredentials(const String& ssid, const String& password);
-void wifiManagerClearCredentials();
+// Forget this profile from manager/driver NVS and disconnect it if active or
+// connecting. Preserve the other station profile, requested mode, AP and BLE.
+// RinaLink TCP callers defer radio disruption until the queued reply has had
+// time to leave the socket; credential persistence remains synchronous.
+void wifiManagerClearCredentials(bool deferRadio = false);
 
 // v1.2 (docs/RINALINK_PROTOCOL_V1.md §8): second station profile, the phone's
 // Personal Hotspot. Stored in NVS keys hssid/hpass alongside the home ssid/pass.
 bool wifiManagerSetHotspotCredentials(const String& ssid, const String& password);
-void wifiManagerClearHotspotCredentials();
+void wifiManagerClearHotspotCredentials(bool deferRadio = false);
 
-bool wifiManagerSetMode(const String& mode);
+bool wifiManagerSetMode(const String& mode, bool deferRadio = false);
 void wifiManagerConnect();
-bool wifiManagerSetAp(const String& ssid, const String& password);
+// nullptr retains the configured address. An explicit IP with empty SSID and
+// password updates only the address; legacy credential-only calls are unchanged.
+bool wifiManagerSetAp(const String& ssid, const String& password, const char* ip = nullptr);
 
 // Current SoftAP SSID (board-unique default unless overridden). Used by
 // serial_console.cpp's STATUS line.

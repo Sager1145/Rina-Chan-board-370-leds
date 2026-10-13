@@ -119,10 +119,20 @@ final class AuditConnectionRegressionTests: XCTestCase {
         let connection = BoardConnection()
         let transport = FakeRinaTransport()
         _ = await connection.connect(using: transport)
-        transport.commandReply = ["ok": false]
-        do {
-            _ = try await connection.requestReliable(.setBrightness(raw: 10))
-            XCTFail("Business rejection must throw")
-        } catch RinaTransportError.underlying { }
+        defer { connection.disconnect() }
+        let replies: [([String: Any], String)] = [
+            (["ok": false], "面板拒绝指令：set_brightness"),
+            (["ok": false, "error": ""], "面板拒绝指令：set_brightness"),
+            (["ok": false, "error": "denied"], "面板拒绝指令：set_brightness：denied")
+        ]
+        for (reply, expected) in replies {
+            transport.commandReply = reply
+            do {
+                _ = try await connection.requestReliable(.setBrightness(raw: 10))
+                XCTFail("Business rejection must throw")
+            } catch RinaTransportError.underlying(let message) {
+                XCTAssertEqual(message, expected)
+            }
+        }
     }
 }

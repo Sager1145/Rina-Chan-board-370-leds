@@ -1,3 +1,5 @@
+import SwiftUI
+import UIKit
 import XCTest
 @testable import RinaBoard
 
@@ -286,6 +288,38 @@ final class RinaStarfieldTests: XCTestCase {
         // even though a same-size intersects test would not, so this count
         // is one higher than a plain-rect / opacity>0.02 check would give.
         XCTAssertEqual(visible, 14)
+    }
+
+    /// Render the actual frozen view onto a transparent image. Placement
+    /// tests cannot catch missing bundled assets or a removed Canvas draw
+    /// pass; visible ink and transparent empty space are semantic oracles,
+    /// independent of an OS-specific golden screenshot.
+    @MainActor
+    func testFrozenStarfieldRendersVisibleInkOnTransparentCanvas() throws {
+        for appearance in RinaStarAppearance.allCases {
+            XCTAssertNotNil(UIImage(named: "RinaBackgroundStar\(appearance.rawValue)"),
+                            "Required star asset must be packaged in the host app")
+        }
+        let renderer = ImageRenderer(content: RinaStarfield(isFrozen: true).frame(width: 402, height: 874))
+        renderer.scale = 1
+        renderer.isOpaque = false
+        let image = try XCTUnwrap(renderer.uiImage?.cgImage, "Frozen starfield must render")
+        let width = image.width
+        let height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let rendered = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        XCTAssertTrue(rendered)
+        let visiblePixels = stride(from: 3, to: pixels.count, by: 4).filter { pixels[$0] > 0 }.count
+        XCTAssertGreaterThan(visiblePixels, 0, "A removed draw pass or missing star assets must fail")
+        XCTAssertLessThan(visiblePixels, width * height / 2,
+                          "Stars occupy sparse transparent space, not an opaque substitute background")
     }
 
     // MARK: 14. Clock

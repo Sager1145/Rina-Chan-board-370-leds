@@ -1,6 +1,246 @@
 {
   "sourceLanguage" : "zh-Hans",
   "strings" : {
+    "请输入有效的私有 IPv4 地址，末位需为 1–254" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a valid private IPv4 address with a final octet from 1 to 254."
+          }
+        }
+      }
+    },
+    "此热点 IP 已被另一块已保存的璃奈板使用" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This hotspot IP is already used by another saved board."
+          }
+        }
+      }
+    },
+    "热点设置未能保存" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The hotspot settings could not be saved."
+          }
+        }
+      }
+    },
+    "未能确认热点 IP 已保存，请重新读取后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not confirm that the hotspot IP was saved. Read the settings again and retry."
+          }
+        }
+      }
+    },
+    "请先通过蓝牙连接这块板，读取热点设置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect this board over Bluetooth first to read its hotspot settings"
+          }
+        }
+      }
+    },
+    "家庭 Wi-Fi IP" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Home Wi-Fi IP"
+          }
+        }
+      }
+    },
+    "热点 IPv4 地址" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hotspot IPv4 address"
+          }
+        }
+      }
+    },
+    "请输入私有 IPv4 地址（10.x.x.x、172.16–31.x.x 或 192.168.x.x），最后一段须为 1–254。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a private IPv4 address (10.x.x.x, 172.16–31.x.x, or 192.168.x.x) with a final octet from 1 to 254."
+          }
+        }
+      }
+    },
+    "保存 IP" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save IP"
+          }
+        }
+      }
+    },
+    "请先在连接页面切换到蓝牙，再保存热点 IP；修改地址会断开热点连接。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch to Bluetooth on the Connection page before saving the hotspot IP. Changing the address disconnects the hotspot connection."
+          }
+        }
+      }
+    },
+    "打开连接设置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Connection Settings"
+          }
+        }
+      }
+    },
+    "仅保存热点 IP，不改变热点名称、密码或开启状态。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saves only the hotspot IP. Keeps its name, password, and enabled state."
+          }
+        }
+      }
+    },
+    "热点 IP 已保存" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hotspot IP saved"
+          }
+        }
+      }
+    },
+    "无法确认正在连接的璃奈板身份" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to verify the identity of the board being connected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続先のボードの識別情報を確認できません。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法確認正在連接的璃奈板身分"
+          }
+        }
+      }
+    },
+    "连接地址对应另一块璃奈板，已停止连接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This address belongs to a different board. The connection was stopped."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このアドレスは別のボードに対応しています。接続を中止しました。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連接位址對應另一塊璃奈板，已停止連接"
+          }
+        }
+      }
+    },
+    "点击扫描网络，选择璃奈板附近的 Wi-Fi。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap Scan Networks to choose Wi-Fi near the board."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワークをスキャンして、ボード付近の Wi-Fi を選択してください。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "點擊掃描網路，選擇璃奈板附近的 Wi-Fi。"
+          }
+        }
+      }
+    },
+    "请先在添加璃奈板中扫描并连接这块板的蓝牙" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "First scan for and connect this board via Bluetooth in Add Board."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "まず「ボードを追加」で、このボードをスキャンして Bluetooth で接続してください。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請先在新增璃奈板中掃描並連接這塊板的藍牙"
+          }
+        }
+      }
+    },
+    "请先在 Wi-Fi 与热点中选择扫描到的网络，让板子加入 Wi-Fi" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "First choose a scanned network in Wi-Fi & Hotspot to connect the board to Wi-Fi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "まず「Wi-Fi とホットスポット」でスキャンしたネットワークを選択し、ボードを Wi-Fi に接続してください。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請先在 Wi-Fi 與熱點中選擇掃描到的網路，讓板子加入 Wi-Fi"
+          }
+        }
+      }
+    },
     "·" : {
       "shouldTranslate" : false
     },
@@ -1089,7 +1329,6 @@
       }
     },
     "partGroup.cheek" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1118,7 +1357,6 @@
       }
     },
     "partGroup.leye" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1147,7 +1385,6 @@
       }
     },
     "partGroup.mouth" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1176,7 +1413,6 @@
       }
     },
     "partGroup.reye" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1378,6 +1614,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wi-Fi 密碼"
+          }
+        }
+      }
+    },
+    "faces 字段不是数组" : {
+      "comment" : "local face store malformed: faces not an array",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The \"faces\" field is not an array"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「faces」フィールドが配列ではありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "faces 欄位不是陣列"
           }
         }
       }
@@ -12100,7 +12359,6 @@
       }
     },
     "操作已取消" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -14185,6 +14443,52 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本機"
+          }
+        }
+      }
+    },
+    "本机表情库中有 %lld 个表情无法解析" : {
+      "comment" : "local face library partially unreadable",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld faces in the local library could not be parsed"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ローカル表情ライブラリの %lld 件の表情を解析できませんでした"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本機表情庫中有 %lld 個表情無法解析"
+          }
+        }
+      }
+    },
+    "本机表情库有 %lld 个表情无法解析，为保护原文件已禁止保存" : {
+      "comment" : "local face library partially unreadable, saving disabled",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld faces in the local library could not be parsed; saving has been disabled to protect the original file"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ローカル表情ライブラリの %lld 件の表情を解析できなかったため、元のファイルを保護するために保存を禁止しました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本機表情庫有 %lld 個表情無法解析，為保護原文件已禁止儲存"
           }
         }
       }
@@ -18242,7 +18546,6 @@
       }
     },
     "等待中的面板请求过多，请稍后重试" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -18818,6 +19121,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "編輯組"
+          }
+        }
+      }
+    },
+    "缺少 faces 字段" : {
+      "comment" : "local face store malformed: missing faces field",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Missing \"faces\" field"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「faces」フィールドがありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缺少 faces 欄位"
           }
         }
       }
@@ -23603,7 +23929,6 @@
       }
     },
     "面板响应超时" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -23626,7 +23951,6 @@
       }
     },
     "面板回复无法解析" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -23851,7 +24175,6 @@
       }
     },
     "面板未连接" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -24136,6 +24459,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "頁面載入完成"
+          }
+        }
+      }
+    },
+    "顶层结构不是 JSON 对象" : {
+      "comment" : "local face store malformed: not an object",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The top-level structure is not a JSON object"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "トップレベルの構造が JSON オブジェクトではありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "頂層結構不是 JSON 物件"
           }
         }
       }

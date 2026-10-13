@@ -1,0 +1,5 @@
+All 92 expression parts validated, including physical-to-logical strip-index parity.
+All 11 default faces valid; IDs unique, packed frame ranges and startup reference valid.
+Every matrix coordinate and 370-entry wiring permutation agrees.
+All 33,476 glyph tuples, scalar keys, row encodings and metadata counts structurally valid; zero-height skin-tone glyphs correctly use empty rows.
+All 10 .rinalive scripts / 2,374 keyframes valid; nine catalog count/duration pairs exactly agree, no missing script references (full directives in resource-validation.json).

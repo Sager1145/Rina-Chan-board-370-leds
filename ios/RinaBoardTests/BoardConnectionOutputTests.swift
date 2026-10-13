@@ -66,6 +66,77 @@ final class BoardConnectionOutputTests: XCTestCase {
         XCTAssertEqual(transport.sentCount(type: .blobBegin), 0)
     }
 
+    func testFourHundredCancelledSentFramesReclaimLateRepliesWithoutReconnect() async throws {
+        let transport = FakeRinaTransport(kind: .bluetooth)
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        defer { connection.disconnect() }
+        transport.resetRecordedFrames()
+        transport.automaticallyReplies = false
+        let disconnects = transport.disconnectCount
+
+        for count in 1...400 {
+            let request = Task { @MainActor in
+                try await connection.send(type: .setFrame, payload: PackedFrame().data, timeout: 30)
+            }
+            try await transport.waitForSent(type: .setFrame, count: count)
+            request.cancel()
+            await assertCancelled(request)
+            XCTAssertEqual(connection.quarantinedSequenceCount, 1)
+            transport.replyToNext(type: .setFrame, payload: Data(#"{"ok":true}"#.utf8))
+            try await waitForSequenceCondition { connection.quarantinedSequenceCount == 0 }
+        }
+
+        transport.automaticallyReplies = true
+        _ = try await connection.command(.getInfo)
+        XCTAssertEqual(connection.quarantineEventCount, 400)
+        XCTAssertEqual(transport.disconnectCount, disconnects)
+        XCTAssertEqual(connection.connectionState, .connected)
+    }
+
+    func testMissingRepliesAtQuarantineThresholdReconnectBLEAndRestoreCommands() async throws {
+        let transport = FakeRinaTransport(kind: .bluetooth)
+        let connection = BoardConnection(reconnectDelay: { _ in 0.01 })
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        defer { connection.disconnect() }
+        let generation = connection.connectionGeneration
+        let disconnects = transport.disconnectCount
+        transport.resetRecordedFrames()
+        transport.automaticallyReplies = false
+
+        for count in 1...128 {
+            let request = Task { @MainActor in
+                try await connection.send(type: .setFrame, payload: PackedFrame().data, timeout: 30)
+            }
+            try await transport.waitForSent(type: .setFrame, count: count)
+            // Allow the next carrier's handshake before cancellation triggers recovery.
+            if count == 128 { transport.automaticallyReplies = true }
+            request.cancel()
+            await assertCancelled(request)
+            if count < 128 {
+                XCTAssertEqual(transport.disconnectCount, disconnects)
+                XCTAssertEqual(connection.quarantinedSequenceCount, count)
+            }
+        }
+
+        try await waitForSequenceCondition {
+            connection.connectionGeneration != generation && connection.connectionState == .connected
+        }
+        XCTAssertEqual(transport.disconnectCount, disconnects + 1)
+        XCTAssertEqual(connection.quarantinedSequenceCount, 0)
+        _ = try await connection.command(.getInfo)
+    }
+
+    private func waitForSequenceCondition(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while !condition() {
+            guard ContinuousClock.now < deadline else { throw FakeTransportError.timedOutWaitingForSend }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+    }
+
     func testSequenceExhaustionFailsWithoutReplacingAnInflightRequest() async throws {
         let transport = FakeRinaTransport()
         let connection = BoardConnection()
@@ -406,6 +477,25 @@ final class BoardConnectionOutputTests: XCTestCase {
             XCTFail("Firmware rejection must not be reported as cancellation")
         } catch {
             XCTAssertTrue(String(describing: error).contains("面板拒绝指令"))
+            XCTAssertTrue(error.localizedDescription.contains("denied"))
+            XCTAssertTrue(error.localizedDescription.contains("pause_scroll"))
+        }
+    }
+
+    func testRejectedCommandWithoutFirmwareReasonKeepsGenericCommandMessage() async throws {
+        let transport = FakeRinaTransport()
+        let connection = BoardConnection()
+        _ = await connection.connect(using: transport)
+        defer { connection.disconnect() }
+        let replies: [[String: Any]] = [["ok": false], ["ok": false, "error": ""]]
+        for reply in replies {
+            transport.commandReply = reply
+            do {
+                _ = try await connection.command(.pauseScroll)
+                XCTFail("Expected a rejected command to throw")
+            } catch {
+                XCTAssertEqual(error.localizedDescription, "面板拒绝指令：pause_scroll")
+            }
         }
     }
 

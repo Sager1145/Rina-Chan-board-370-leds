@@ -31,6 +31,7 @@ private struct VideoSubmission: Sendable {
 private struct VideoFrameJob: @unchecked Sendable {
     let buffer: CVPixelBuffer
     let settings: VideoFrameQuantizer.Settings
+    let transform: CGAffineTransform
 }
 
 private struct VideoFrameResult: Sendable {
@@ -164,6 +165,8 @@ final class VideoPlayerModel {
     @ObservationIgnored private var frameLoop: Task<Void, Never>?
     @ObservationIgnored private var stillTask: Task<Void, Never>?
     @ObservationIgnored private var sender: LatestValueSender<VideoSubmission>?
+    @ObservationIgnored private var preferredTransform = CGAffineTransform.identity
+    @ObservationIgnored private var playbackClockStarted = false
     @ObservationIgnored private var frameProcessor: LatestFrameProcessor<VideoFrameJob, VideoFrameResult>?
     @ObservationIgnored private var lastLuma: VideoFrameQuantizer.LumaImage?
     @ObservationIgnored private var lastSubmitted: PackedFrame?
@@ -369,14 +372,13 @@ final class VideoPlayerModel {
             let tracks = try await asset.loadTracks(withMediaType: .video)
             guard !tracks.isEmpty else { throw VideoImportError.noVideoTrack }
             let duration = try await asset.load(.duration)
-            // Applies each track's orientation transform, so portrait phone
-            // videos reach the output upright instead of rotated.
-            let composition = try await AVMutableVideoComposition.videoComposition(withPropertiesOf: asset)
+            let size = try await tracks[0].load(.naturalSize)
+            let transform = try await tracks[0].load(.preferredTransform)
             guard generation == loadGeneration else {
                 if isNewImport { store.remove(url) }
                 return
             }
-            install(asset: asset, composition: composition, duration: duration,
+            install(asset: asset, naturalSize: size, transform: transform, duration: duration,
                     url: url, title: title)
         } catch {
             guard generation == loadGeneration else { return }
@@ -391,20 +393,19 @@ final class VideoPlayerModel {
         }
     }
 
-    private func install(asset: AVURLAsset, composition: AVMutableVideoComposition,
+    private func install(asset: AVURLAsset, naturalSize: CGSize, transform: CGAffineTransform,
                          duration: CMTime, url: URL, title: String) {
         stop()
         teardownPlayer()
         if let previous = storedURL, previous != url { store.remove(previous) }
 
-        let size = Self.samplingSize(for: composition.renderSize)
+        let size = Self.samplingSize(for: naturalSize)
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: Int(size.width),
             kCVPixelBufferHeightKey as String: Int(size.height),
         ])
         let item = AVPlayerItem(asset: asset)
-        item.videoComposition = composition
         item.add(output)
 
         let player = AVPlayer(playerItem: item)
@@ -418,11 +419,13 @@ final class VideoPlayerModel {
 
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = size
+        let uprightSize = CGRect(origin: .zero, size: naturalSize).applying(transform).size
+        generator.maximumSize = Self.samplingSize(for: uprightSize)
         generator.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 20)
         generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 20)
 
         self.player = player
+        preferredTransform = transform
         videoOutput = output
         imageGenerator = generator
         storedURL = url
@@ -549,6 +552,7 @@ final class VideoPlayerModel {
             precisePositionMs = 0
         }
         stillTask?.cancel()
+        playbackClockStarted = false
         player.play()
         isPlaying = true
         preparePlaybackStream(restoring: validateRestore)
@@ -759,6 +763,13 @@ final class VideoPlayerModel {
 
     private func tick() {
         guard let player, let videoOutput else { return }
+        if player.currentItem?.status == .failed {
+            let failure = player.currentItem?.error
+            pause()
+            errorMessage = failure?.localizedDescription
+            return
+        }
+        if player.timeControlStatus == .playing { playbackClockStarted = true }
         let seconds = player.currentTime().seconds
         if seconds.isFinite {
             let now = max(0, min(durationMs, Int((seconds * 1000).rounded())))
@@ -769,14 +780,15 @@ final class VideoPlayerModel {
         // headphones. Follow it, or the page keeps claiming playback while
         // the board freezes on one face. Reaching the end also stops the
         // player; that case belongs to `playbackReachedEnd`.
-        if player.rate == 0, precisePositionMs < durationMs - 250 {
+        if playbackClockStarted, player.timeControlStatus == .paused,
+           player.rate == 0, precisePositionMs < durationMs - 250 {
             pause()
             return
         }
         let itemTime = videoOutput.itemTime(forHostTime: CACurrentMediaTime())
         guard videoOutput.hasNewPixelBuffer(forItemTime: itemTime),
               let buffer = videoOutput.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: nil) else { return }
-        frameProcessor?.submit(VideoFrameJob(buffer: buffer, settings: settings))
+        frameProcessor?.submit(VideoFrameJob(buffer: buffer, settings: settings, transform: preferredTransform))
     }
 
     /// Off-main-actor transform run by `frameProcessor`: decode luma, then
@@ -784,7 +796,8 @@ final class VideoPlayerModel {
     @Sendable nonisolated private static func processFrame(_ job: VideoFrameJob) -> VideoFrameResult? {
         let state = RinaPerf.signposter.beginInterval("VideoFrameProcess")
         defer { RinaPerf.signposter.endInterval("VideoFrameProcess", state) }
-        guard let luma = luma(from: job.buffer) else { return nil }
+        guard let decoded = luma(from: job.buffer),
+              let luma = orientedLuma(decoded, transform: job.transform) else { return nil }
         let frame = VideoFrameQuantizer.frame(from: luma, settings: job.settings)
         return VideoFrameResult(luma: luma, frame: frame, settings: job.settings)
     }
@@ -923,6 +936,31 @@ final class VideoPlayerModel {
             }
         }
         return VideoFrameQuantizer.LumaImage(width: w, height: h, pixels: pixels)
+    }
+
+    /// Apply the track's orientation to the small decoded image. Keeping the
+    /// player on its native decode path avoids a video-compositor service for
+    /// an app that consumes pixel buffers without an AVPlayerLayer.
+    nonisolated static func orientedLuma(_ image: VideoFrameQuantizer.LumaImage,
+                                        transform: CGAffineTransform) -> VideoFrameQuantizer.LumaImage? {
+        let linear = CGAffineTransform(a: transform.a, b: transform.b,
+                                       c: transform.c, d: transform.d, tx: 0, ty: 0)
+        guard !linear.isIdentity else { return image }
+        let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height).applying(linear)
+        let width = Int(bounds.width.rounded()), height = Int(bounds.height.rounded())
+        guard width > 0, height > 0 else { return nil }
+        let inverse = linear.inverted()
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        for y in 0..<height {
+            for x in 0..<width {
+                let source = CGPoint(x: bounds.minX + CGFloat(x) + 0.5,
+                                     y: bounds.minY + CGFloat(y) + 0.5).applying(inverse)
+                let sx = min(image.width - 1, max(0, Int(source.x.rounded(.down))))
+                let sy = min(image.height - 1, max(0, Int(source.y.rounded(.down))))
+                pixels[y * width + x] = image.pixels[sy * image.width + sx]
+            }
+        }
+        return VideoFrameQuantizer.LumaImage(width: width, height: height, pixels: pixels)
     }
 
     nonisolated private static func luma(from image: CGImage) -> VideoFrameQuantizer.LumaImage? {

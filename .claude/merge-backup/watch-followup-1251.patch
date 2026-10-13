@@ -1,0 +1,135 @@
+diff --git a/ios/README.md b/ios/README.md
+index 68a5d74..0780f07 100644
+--- a/ios/README.md
++++ b/ios/README.md
+@@ -55,6 +55,13 @@ suspended the watch shows "iPhone 不可达" until the app is back.
+   each command per member, and cannot start lip sync.
+ - Strings: the watch has its own `RinaBoardWatch/Resources/Localizable.xcstrings`,
+   hand-maintained in the same four languages (`tools/i18n/README.md`).
++- Testing without hardware: pair an iPhone and a Watch simulator (`xcrun simctl
++  pair`), install `RinaBoard.app` on the phone and `RinaBoard.app/Watch/RinaBoardWatch.app`
++  on the watch, run `python3 tools/rinalink_board_emulator.py`, and add the board
++  by host (`127.0.0.1`; the Mac's LAN IP gives a second board for a group). The
++  phone's session only reports the watch app as installed/reachable after the
++  watch's first message, which the simulator can hold for the better part of a
++  minute; until then the watch shows "等待 iPhone…".
+ 
+ On-device: real Bluetooth/Wi-Fi/hotspot connectivity requires a physical
+ iPhone/iPad; the simulator can still exercise the UI and TCP paths against a
+diff --git a/ios/RinaBoard/Services/WatchLinkService.swift b/ios/RinaBoard/Services/WatchLinkService.swift
+index 9796e12..591dacb 100644
+--- a/ios/RinaBoard/Services/WatchLinkService.swift
++++ b/ios/RinaBoard/Services/WatchLinkService.swift
+@@ -77,11 +77,20 @@ final class WatchLinkService {
+             }
+             Task { @MainActor in
+                 guard let self else { reply?(Data()); return }
+-                // Reply straight away: a start that waits on the microphone
+-                // permission prompt would otherwise outlive WatchConnectivity's
+-                // reply timeout. The result reaches the watch as a push.
+-                reply?((try? WatchLinkCodec.encode(self.snapshot())) ?? Data())
+-                await self.handle(command)
++                if case .lipSyncStart = command {
++                    // A start can block on the microphone permission prompt
++                    // and outlive WatchConnectivity's reply timeout: answer
++                    // now, and let the result reach the watch as a push.
++                    reply?((try? WatchLinkCodec.encode(self.snapshot())) ?? Data())
++                    await self.handle(command)
++                } else {
++                    // Everything else replies with the state *after* the
++                    // command, so the watch's optimistic toggle/value is
++                    // confirmed rather than overwritten by a stale snapshot.
++                    await self.handle(command)
++                    reply?((try? WatchLinkCodec.encode(self.snapshot())) ?? Data())
++                    self.lastCommandError = nil
++                }
+                 self.publish(force: true)
+             }
+         }
+@@ -542,8 +551,11 @@ final class WatchLinkService {
+     /// reachable. Skipped when nothing changed.
+     func publish(force: Bool = false) {
+         pendingSince = nil
+-        guard let session, session.activationState == .activated,
+-              session.isPaired, session.isWatchAppInstalled else { return }
++        // Not gated on `isWatchAppInstalled`: the flag lags behind reality
++        // (it only flips once the watch has spoken, and a simulator pair
++        // never sets it), and both sends below already fail harmlessly when
++        // there is no counterpart.
++        guard let session, session.activationState == .activated, session.isPaired else { return }
+         let snap = snapshot()
+         guard force || snap != lastPublished else { return }
+         lastPublished = snap
+diff --git a/ios/RinaBoardWatch/WatchRootView.swift b/ios/RinaBoardWatch/WatchRootView.swift
+index ab9516e..e084584 100644
+--- a/ios/RinaBoardWatch/WatchRootView.swift
++++ b/ios/RinaBoardWatch/WatchRootView.swift
+@@ -61,13 +61,20 @@ struct WatchRootView: View {
+                           : NSLocalizedString("已连接", comment: "watch: board connected"),
+                           systemImage: "checkmark.circle.fill")
+                         .foregroundStyle(.green)
+-                    Spacer()
++                        .lineLimit(1)
++                        .minimumScaleFactor(0.7)
++                    Spacer(minLength: 4)
+                     if let percent = snapshot.board.batteryPercent {
+-                        Text("\(percent)%")
++                        // One glyph plus the number: the row must fit beside
++                        // "已连接" even on a 42 mm case.
++                        Label("\(percent)%", systemImage: snapshot.board.isCharging
++                              ? "battery.100percent.bolt" : "battery.50percent")
++                            .labelStyle(.titleAndIcon)
++                            .font(.footnote)
+                             .foregroundStyle(.secondary)
+                             .monospacedDigit()
+-                        Image(systemName: snapshot.board.isCharging ? "battery.100percent.bolt" : "battery.50percent")
+-                            .foregroundStyle(.secondary)
++                            .lineLimit(1)
++                            .fixedSize()
+                     }
+                 }
+             } else {
+diff --git a/ios/RinaBoardWatch/WatchSessionModel.swift b/ios/RinaBoardWatch/WatchSessionModel.swift
+index 7eacbe8..3382bf8 100644
+--- a/ios/RinaBoardWatch/WatchSessionModel.swift
++++ b/ios/RinaBoardWatch/WatchSessionModel.swift
+@@ -69,6 +69,17 @@ final class WatchSessionModel {
+         if let data = WatchLinkCodec.payload(in: session.receivedApplicationContext) {
+             apply(data)
+         }
++        // Activation and reachability can complete in either order, and a
++        // request sent before activation is dropped: keep asking, at a
++        // gentle pace, until the first snapshot lands.
++        Task { [weak self] in
++            for _ in 0..<8 {
++                try? await Task.sleep(for: .seconds(1.5))
++                guard let self, self.snapshot == nil else { return }
++                self.sessionStateChanged()
++                self.refresh()
++            }
++        }
+     }
+ 
+     private func sessionStateChanged() {
+@@ -181,7 +192,20 @@ final class WatchSessionModel {
+ 
+     func toggleLipSync() {
+         guard let snapshot else { return }
+-        send(snapshot.lipSync.isRunning ? .lipSyncStop : .lipSyncStart)
++        if snapshot.lipSync.isRunning {
++            send(.lipSyncStop)
++        } else {
++            send(.lipSyncStart)
++            // A start is answered before it runs (it may wait on the
++            // microphone prompt); ask again for the outcome in case the
++            // phone's push does not reach us.
++            Task { [weak self] in
++                for delay in [2.0, 5.0] {
++                    try? await Task.sleep(for: .seconds(delay))
++                    self?.refresh()
++                }
++            }
++        }
+     }
+ 
+     /// Percentage label for a raw brightness, matching the phone's label.

@@ -87,6 +87,15 @@ bool copyButtonAnimationOverlay(uint8_t*, uint16_t) { return false; }
 void initHardwareButtons() {}
 void serviceHardwareButtons() {}
 bool runButtonAction(const String&, const String&) { return true; }
+// Match the production trim/case-insensitive brightness classification. Weak
+// adapters let a harness with the real buttons TU (or its own adapter) override
+// these definitions without changing archived scenarios.
+__attribute__((weak)) bool isBrightnessButtonCode(const String& button) {
+    String code = button;
+    code.trim();
+    code.toLowerCase();
+    return code == "b4" || code == "b5";
+}
 __attribute__((weak)) void notifyScrollRenderTask() {}
 
 // ---- Wi-Fi manager (event fan-out inputs are harness controlled) -----------
@@ -101,12 +110,19 @@ bool wifiManagerScanInProgress() { return false; }
 bool wifiManagerScanResultReady() { bool v = g_fakeWifiScanReady; g_fakeWifiScanReady = false; return v; }
 void wifiManagerGetScanJson(JsonArray) {}
 bool wifiManagerSetCredentials(const String&, const String&) { return true; }
-void wifiManagerClearCredentials() {}
+void wifiManagerClearCredentials(bool) {}
 bool wifiManagerSetHotspotCredentials(const String&, const String&) { return true; }
-void wifiManagerClearHotspotCredentials() {}
-bool wifiManagerSetMode(const String&) { return true; }
+void wifiManagerClearHotspotCredentials(bool) {}
+bool wifiManagerSetMode(const String&, bool) { return true; }
 void wifiManagerConnect() {}
 bool wifiManagerSetAp(const String&, const String&) { return true; }
+// Keep the archived two-argument harness usable while current protocol host
+// tests exercise the optional-IP command signature.
+bool wifiManagerSetAp(const String&, const String&, const char*) { return true; }
+const char* boardId() { return "000000000001"; }
+// Fixed for the lifetime of each fresh harness process, with the production
+// eight-lowercase-hex shape. Real ESP boot entropy is intentionally not used.
+__attribute__((weak)) const char* boardBootId() { return "00000001"; }
 void wifiManagerFactoryReset() {}
 
 PowerStatus powerStatus;

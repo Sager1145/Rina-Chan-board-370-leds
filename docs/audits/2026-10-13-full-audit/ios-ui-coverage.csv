@@ -1,0 +1,166 @@
+path,status,note
+ios/MacSupport/RinaMacWiFiBridge.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Boot/BootAnimationTimeline.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Boot/BootLoaderModel.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Boot/BootLoaderOverlay.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Boot/BootRevealModifier.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Connection/AddBoardView.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Connection/BoardNetworkSettingsView.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Connection/ConnectionView.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Connection/ConnectionViewModel.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Control/ControlView.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Control/ControlViewModel.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Control/FacePartSelectorView.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/ControlCenter/BoardBattery.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/ControlCenter/BoardControlCenterAccessory.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/ControlCenter/BoardControlCenterModel.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/ControlCenter/BoardControlCenterView.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Debug/BoardConnection+Debug.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Debug/DebugCommandCatalog.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Debug/DebugSerialMonitor.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Debug/DebugView.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Debug/DebugViewModel.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Debug/RingBuffer.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Faces/BoardConnection+Faces.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Faces/FaceLibraryModel.swift,focused-path-reviewed,Finding or repair call path inspected; full current-file audit still incomplete
+ios/RinaBoard/Features/Faces/FaceLibraryView.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Faces/FaceNameEditorSheet.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Faces/FaceNumberLedger.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Faces/FaceNumberRegistry.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Groups/BoardGroupEditorView.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Groups/BoardGroupListView.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Groups/BoardGroupStatusFormatting.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Groups/GroupMemberStatusList.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Groups/GroupPreviewPolicy.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Groups/GroupScrollPreview.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/LipSync/LipSyncAudioCapture.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/LipSync/LipSyncModel.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/LipSync/LipSyncProcessor.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/LipSync/LipSyncView.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/PresetLive/PerformanceTabView.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/PresetLive/PresetLiveModel.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/PresetLive/PresetLiveView.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Settings/AboutView.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Settings/AppSettings.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Settings/ApplicationSettingsView.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Settings/BoardSettingsView.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Settings/SettingsCategory.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Settings/SettingsView.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Settings/SettingsWorkspace.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Shared/Background/RinaAppBackdrop.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/Background/RinaPalette.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/Background/RinaStarfield.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/Background/RinaStarfieldSourceSpec.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/CardContainer.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/Components/AppLayout.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/Components/BoardSplitPage.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Shared/Components/ColorHex.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/Components/ErrorAlert.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Shared/Components/KeyboardDismissal.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/Components/MacWindowLayout.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Shared/Components/PillButtonStyle.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/LEDBoardPreview/BoardPreviewRow.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/LEDBoardPreview/BoardPreviewZoom.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/LEDBoardPreview/LEDBloomRenderer.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/LEDBoardPreview/LEDBoardGeometry.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/LEDBoardPreview/LEDBoardPreview.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/LEDBoardPreview/PencilHoverTracker.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/LEDBoardPreview/SavedFaceThumbnail.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/LatestFrameProcessor.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/LatestValueSender.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/PlaybackAudioSession.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Shared/RinaPerf.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Text/ArkPixelInputFont.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Text/ScrollTextView.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Text/TextPlaybackControls.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Text/TextPreviewPlayhead.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Text/TextViewModel.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Features/Video/VideoPlayerModel.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Features/Video/VideoPlayerView.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Info.plist,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Resources/.DS_Store,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Assets.xcassets/AccentColor.colorset/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024-Dark.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Assets.xcassets/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Assets.xcassets/LaunchBackground.colorset/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Assets.xcassets/RinaBackgroundStar1.imageset/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Assets.xcassets/RinaBackgroundStar1.imageset/RinaBackgroundStar1.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Assets.xcassets/RinaBackgroundStar2.imageset/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Assets.xcassets/RinaBackgroundStar2.imageset/RinaBackgroundStar2.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Assets.xcassets/RinaBackgroundStar3.imageset/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Assets.xcassets/RinaBackgroundStar3.imageset/RinaBackgroundStar3.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Assets.xcassets/RinaBackgroundStar4.imageset/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Assets.xcassets/RinaBackgroundStar4.imageset/RinaBackgroundStar4.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Assets.xcassets/RinaBackgroundStar5.imageset/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Assets.xcassets/RinaBackgroundStar5.imageset/RinaBackgroundStar5.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Assets.xcassets/TabRinaFace.imageset/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Assets.xcassets/TabRinaFace.imageset/TabRinaFace.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Assets.xcassets/TabRinaFace.imageset/TabRinaFace@2x.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Assets.xcassets/TabRinaFace.imageset/TabRinaFace@3x.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Assets.xcassets/TabRinaSettings.imageset/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Assets.xcassets/TabRinaSettings.imageset/TabRinaSettings.svg,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Fonts/UnifontLoading-NOTICE.txt,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/Fonts/UnifontLoading.ttf,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Fonts/ark12.woff2,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Images/Signature-rina.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Images/rina_icon1_default.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Images/rina_icon2_hover.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Images/rina_icon3_surprised.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/Images/rinaboard.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/InfoPlist.xcstrings,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Resources/Localizable.xcstrings,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard/Resources/PresetNames.xcstrings,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/README.md,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/ark12.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/ark12_meta.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/audio_lumf.m4a,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/audio_poppin_up.mp3,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/audio_solo0.m4a,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/audio_solo1.m4a,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/audio_solo2.m4a,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/audio_solo3.m4a,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/audio_solo4.m4a,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/audio_solo5.m4a,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/audio_tkmk.m4a,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoard/Resources/color_presets.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/default_faces.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/expression_parts.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/matrix_geometry.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/performance_lumf.rinalive,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/performance_poppin_up.rinalive,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/performance_solo0.rinalive,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/performance_solo1.rinalive,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/performance_solo2.rinalive,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/performance_solo3.rinalive,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/performance_solo4.rinalive,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/performance_solo5.rinalive,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/performance_tkmk.rinalive,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/preset_live_catalog.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/preset_live_demo.rinalive,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/scroll_text_defaults.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/Resources/webui_config.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/RinaBoard.entitlements,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard/RinaBoardMac.entitlements,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard.xcodeproj/project.pbxproj,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard.xcodeproj/project.xcworkspace/contents.xcworkspacedata,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard.xcodeproj/xcshareddata/xcschemes/MacDragUITests.xcscheme,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard.xcodeproj/xcshareddata/xcschemes/RinaBoard.xcscheme,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoard.xcodeproj/xcshareddata/xcschemes/RinaBoardMac.xcscheme,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoard.xcodeproj/xcshareddata/xcschemes/RinaBoardWatch.xcscheme,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoardWatch/.DS_Store,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoardWatch/Resources/Assets.xcassets/AccentColor.colorset/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoardWatch/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png,binary-presence,Binary resource; presence/metadata scope only
+ios/RinaBoardWatch/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoardWatch/Resources/Assets.xcassets/Contents.json,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoardWatch/Resources/Localizable.xcstrings,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoardWatch/RinaBoardWatchApp.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaBoardWatch/WatchColorPickerView.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoardWatch/WatchCrownValueView.swift,focused-path-reviewed,Finding or repair call path inspected; full current-file audit still incomplete
+ios/RinaBoardWatch/WatchRootView.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaBoardWatch/WatchSessionModel.swift,focused-path-reviewed,Finding or repair call path inspected; full current-file audit still incomplete
+ios/RinaBoardWatch/WatchTargetPickerView.swift,pending-current-review,Current working-tree change; rereview required
+ios/RinaWatchLink/WatchCrownInput.swift,focused-path-reviewed,Finding or repair call path inspected; full current-file audit still incomplete
+ios/RinaWatchLink/WatchLinkMessage.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree
+ios/RinaWatchLink/WatchLinkSessionRelay.swift,prior-full-review-current-unchanged,Covered in 2026-10-12 full audit; unchanged in current tree

@@ -80,6 +80,7 @@ final class SettingsNavigationTests: XCTestCase {
         let workspace = SettingsWorkspace(initialSelection: .connection)
         workspace.apSSID = "RinaBoard-AP"
         workspace.apPassword = "draft"
+        workspace.apIP = "10.244.142.9"
         workspace.debugWorkspace = 4
         workspace.layoutMode = .split
         workspace.layoutMode = .compact
@@ -87,6 +88,7 @@ final class SettingsNavigationTests: XCTestCase {
         XCTAssertEqual(workspace.selection, .connection)
         XCTAssertEqual(workspace.apSSID, "RinaBoard-AP")
         XCTAssertEqual(workspace.apPassword, "draft")
+        XCTAssertEqual(workspace.apIP, "10.244.142.9")
         XCTAssertEqual(workspace.debugWorkspace, 4)
     }
 
@@ -118,16 +120,26 @@ final class SettingsNavigationTests: XCTestCase {
         let boardB = BoardConnection()
         workspace.boardChanged(to: boardA)
         workspace.apSSID = "A-net"
+        workspace.apIP = "10.244.142.9"
+        workspace.apIPStatus = "saved"
+        let saveID = UUID()
+        workspace.apIPSaveID = saveID
         workspace.bluetoothFilter = "rina"
         workspace.confirmBoardReboot = true
 
         // Re-announcing the same board (a page rebuilt by a resize) keeps all.
         workspace.boardChanged(to: boardA)
         XCTAssertEqual(workspace.apSSID, "A-net")
+        XCTAssertEqual(workspace.apIP, "10.244.142.9")
+        XCTAssertEqual(workspace.apIPStatus, "saved")
+        XCTAssertEqual(workspace.apIPSaveID, saveID)
         XCTAssertTrue(workspace.confirmBoardReboot)
 
         workspace.boardChanged(to: boardB)
         XCTAssertEqual(workspace.apSSID, "")
+        XCTAssertEqual(workspace.apIP, "")
+        XCTAssertNil(workspace.apIPStatus)
+        XCTAssertNil(workspace.apIPSaveID)
         XCTAssertFalse(workspace.confirmBoardReboot)
         // Not tied to a board.
         XCTAssertEqual(workspace.bluetoothFilter, "rina")

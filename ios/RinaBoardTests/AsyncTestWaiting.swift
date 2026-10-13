@@ -29,3 +29,17 @@ func waitUntilTrue(
     }
     XCTAssertTrue(condition(), message, file: file, line: line)
 }
+
+/// A fresh persistent domain per fixture, removed after each test even when
+/// an assertion fails. Never falls back to the app's shared preferences.
+extension XCTestCase {
+    func makeIsolatedDefaults(prefix: String = "RinaBoardTests") -> UserDefaults {
+        let suite = "\(prefix).\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            preconditionFailure("Could not create isolated defaults suite \(suite)")
+        }
+        defaults.removePersistentDomain(forName: suite)
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        return defaults
+    }
+}

@@ -19,6 +19,7 @@ static uint32_t lastLedShowUs = 0;
 // renderCurrentFrameToLedStrip() consumes it and, after the LED latch, stores latestPresentedSample.
 static portMUX_TYPE ledPresentationMux = portMUX_INITIALIZER_UNLOCKED;
 static LedPresentationContext pendingPresentationContext;
+static uint32_t presentationContextGeneration = 0;
 static LedPresentedSample latestPresentedSample;
 static uint32_t presentedSeq = 0;
 static uint32_t scrollAdvanceSeq = 0;
@@ -26,13 +27,15 @@ static uint32_t scrollAdvanceSeq = 0;
 void setPendingLedPresentationContext(const LedPresentationContext& ctx) {
     portENTER_CRITICAL(&ledPresentationMux);
     pendingPresentationContext = ctx;
+    ++presentationContextGeneration;
     portEXIT_CRITICAL(&ledPresentationMux);
 }
 
-static LedPresentationContext consumePendingLedPresentationContext() {
+static LedPresentationContext consumePendingLedPresentationContext(uint32_t& generation) {
     LedPresentationContext ctx;
     portENTER_CRITICAL(&ledPresentationMux);
     ctx = pendingPresentationContext;
+    generation = presentationContextGeneration;
     pendingPresentationContext = LedPresentationContext{};
     portEXIT_CRITICAL(&ledPresentationMux);
     return ctx;
@@ -289,11 +292,12 @@ bool identifyOverlayExpiryDue(uint64_t nowUs) {
 // because its callers are mutually exclusive by construction:
 //   - setup() calls it once, BEFORE the Core 1 render task starts;
 //   - after startScrollRenderTask(), ONLY the Core 1 task calls it;
-//   - the Core 0 loop calls it ONLY in the !g_syncReady fallback, in which case the
+//   - the Core 0 loop calls it ONLY when the render task did not start, in which case the
 //     Core 1 task was never started.
 // Do not add new call sites without revisiting this invariant.
 void renderCurrentFrameToLedStrip() {
     LedPresentationContext ctx;
+    uint32_t contextGeneration = 0;
     uint8_t localFrame[FRAME_BYTES];
     static uint8_t overlayRgb[LED_COUNT * 3];
     uint8_t brightness = DEFAULT_BRIGHTNESS;
@@ -303,7 +307,7 @@ void renderCurrentFrameToLedStrip() {
     int16_t identifyNumber = -1;
     const uint64_t identifyNowUs = static_cast<uint64_t>(esp_timer_get_time());
     withFrameLock([&]() {
-        ctx = consumePendingLedPresentationContext();
+        ctx = consumePendingLedPresentationContext(contextGeneration);
         hint = g_hintLed;
         hintMirror = g_hintMirrorLed;
         // Self-expiry: a call to renderCurrentFrameToLedStrip() after ttlMs has
@@ -370,6 +374,9 @@ void renderCurrentFrameToLedStrip() {
             else
                 leddrv::setPixel(logicalToPhysicalMap[logical], 0, 0, 0);
         }
+    }
+    // A hint covers the selected content or button overlay, except identify.
+    if (identifyNumber < 0) {
         // Half the colour is half the PWM duty at the same global brightness.
         // A channel that is on never halves to off, or a very dim colour would
         // show the hint as a dark LED.
@@ -390,8 +397,16 @@ void renderCurrentFrameToLedStrip() {
     // The LED has now actually latched this frame: record it as the presented sample.
     if (presented)
         publishLedPresentedSample(ctx, renderStartUs, renderEndUs);
-    else if (leddrv::ready())
+    else if (leddrv::ready()) {
+        // Requeue the exact failed frame identity only while its publication
+        // still owns the pixels. A newer frame (including an untracked manual
+        // frame) increments this generation and must keep its own context.
+        portENTER_CRITICAL(&ledPresentationMux);
+        if (presentationContextGeneration == contextGeneration)
+            pendingPresentationContext = ctx;
+        portEXIT_CRITICAL(&ledPresentationMux);
         requestLedRender();
+    }
     delayMicroseconds(LED_SIGNAL_RESET_US);
 }
 

@@ -1,0 +1,13 @@
+performance     lag(smp)   lag(ms)    corr  timeline(s)  audio(s)  verdict
+tkmk                   0     0.000  0.9986         87.1     94.10  ok
+lumf                   0     0.000  0.9992        103.1    102.06  timeline outruns audio by 1.0s (upstream data)
+solo0                  0     0.000  0.9995         96.8    104.70  ok
+solo1                  0     0.000  0.9983         90.1     94.80  ok
+solo2                  0     0.000  0.9989        112.0    114.71  ok
+solo3                  0     0.000  0.9991        103.9    107.41  ok
+solo4                  0     0.000  0.9998        119.1    120.51  ok
+solo5                  0     0.000  0.9996         91.2     93.80  ok
+poppin_up      copied MP3, no transcode; audio 93.51s, timeline 87.3s
+
+Transcodes correlated: 8
+All transcodes are sample-aligned with the Ogg originals (tolerance: 0 samples; one keyframe = 100 ms).

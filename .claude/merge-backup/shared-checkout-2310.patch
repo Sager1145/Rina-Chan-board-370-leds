@@ -1,0 +1,964 @@
+diff --git a/ios/RinaBoard/Resources/Localizable.xcstrings b/ios/RinaBoard/Resources/Localizable.xcstrings
+index dccdea2..5cd72b4 100644
+--- a/ios/RinaBoard/Resources/Localizable.xcstrings
++++ b/ios/RinaBoard/Resources/Localizable.xcstrings
+@@ -26,6 +26,9 @@
+           }
+         }
+       }
++    },
++    "《LoveLive!》相关名称、角色与音乐归各自权利人所有，不属于上述开源许可的范围。本项目是爱好者作品，与官方无关。" : {
++
+     },
+     "#RRGGBB" : {
+       "shouldTranslate" : false
+@@ -304,9 +307,6 @@
+     "%lld dBm" : {
+       "shouldTranslate" : false
+     },
+-    "%lld fps" : {
+-      "shouldTranslate" : false
+-    },
+     "%lld µs" : {
+       "shouldTranslate" : false
+     },
+@@ -527,9 +527,6 @@
+         }
+       }
+     },
+-    "738NGX / RinaChanBoard" : {
+-      "shouldTranslate" : false
+-    },
+     "A" : {
+       "shouldTranslate" : false
+     },
+@@ -668,9 +665,6 @@
+         }
+       }
+     },
+-    "flyAkari / RinaChanBoard" : {
+-      "shouldTranslate" : false
+-    },
+     "GitHub 项目主页" : {
+       "localizations" : {
+         "en" : {
+@@ -867,6 +861,7 @@
+       }
+     },
+     "JSON 对象无效" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -889,6 +884,7 @@
+       }
+     },
+     "JSON 对象有效" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -911,6 +907,7 @@
+       }
+     },
+     "JSON 指令" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -1822,6 +1819,7 @@
+       }
+     },
+     "亮度原始值" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -1844,6 +1842,7 @@
+       }
+     },
+     "亮度在界面上以百分比显示；此处为固件使用的 %lld–%lld 原始值。" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -2750,6 +2749,29 @@
+         }
+       }
+     },
++    "信息及以上" : {
++      "comment" : "debug log filter",
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "Info and above"
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "情報以上"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "資訊及以上"
++          }
++        }
++      }
++    },
+     "修改仅保存在本机，点击发送表情后才更新面板。" : {
+       "comment" : "live preview disabled explanation",
+       "extractionState" : "stale",
+@@ -4441,6 +4463,7 @@
+       }
+     },
+     "原始命令" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -4463,6 +4486,7 @@
+       }
+     },
+     "原始命令控制台" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -4485,6 +4509,7 @@
+       }
+     },
+     "原始回复" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -4553,6 +4578,7 @@
+     },
+     "原始指令失败：%@" : {
+       "comment" : "debug raw command failed",
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -4576,6 +4602,7 @@
+     },
+     "原始指令已发送" : {
+       "comment" : "debug raw command sent",
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -4598,7 +4625,7 @@
+       }
+     },
+     "原始指令已被新的输出操作替代" : {
+-      "comment" : "debug command superseded\ndebug raw command superseded",
++      "comment" : "debug command superseded",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -4622,6 +4649,7 @@
+     },
+     "原始指令被设备拒绝" : {
+       "comment" : "debug raw command rejected",
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -5005,6 +5033,7 @@
+       }
+     },
+     "发送原始指令" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -5412,6 +5441,9 @@
+           }
+         }
+       }
++    },
++    "口型同步与预设 Live 分别参照 738NGX 与 flyAkari 的实现，用 Swift 重新编写。" : {
++
+     },
+     "口型同步预览，当前口型 %@" : {
+       "comment" : "lip sync preview accessibility summary",
+@@ -5548,6 +5580,9 @@
+           }
+         }
+       }
++    },
++    "只有这块面板会断开连接并重新启动，多板组里的其他面板不受影响。" : {
++
+     },
+     "可以从另一个表情库复制表情。" : {
+       "comment" : "empty face library help",
+@@ -6006,6 +6041,9 @@
+           }
+         }
+       }
++    },
++    "命令终端" : {
++
+     },
+     "嘴巴 %@" : {
+       "comment" : "current silence mouth part id",
+@@ -6269,9 +6307,11 @@
+           }
+         }
+       }
++    },
++    "固件构建" : {
++
+     },
+     "固件版本" : {
+-      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -6360,6 +6400,9 @@
+           }
+         }
+       }
++    },
++    "在文字页播放此组" : {
++
+     },
+     "在线" : {
+       "localizations" : {
+@@ -6863,6 +6906,29 @@
+         }
+       }
+     },
++    "多板组…" : {
++      "extractionState" : "stale",
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "Board groups…"
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "ボードグループ…"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "多板組…"
++          }
++        }
++      }
++    },
+     "多板组最多支持 5 块面板，已达到上限。" : {
+       "localizations" : {
+         "en" : {
+@@ -7018,6 +7084,9 @@
+           }
+         }
+       }
++    },
++    "字体" : {
++
+     },
+     "字体资源缺失" : {
+       "comment" : "font resource missing",
+@@ -7043,6 +7112,7 @@
+       }
+     },
+     "字段直接来自固件回复，包含当前 App 尚未建模的未知键。原始命令可能改变面板输出。" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -7063,6 +7133,9 @@
+           }
+         }
+       }
++    },
++    "字段直接来自固件回复，包含当前 App 尚未建模的未知键。发送指令请使用「终端」。" : {
++
+     },
+     "字符" : {
+       "localizations" : {
+@@ -9070,6 +9143,7 @@
+     },
+     "已请求重启设备" : {
+       "comment" : "debug reboot requested",
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -10122,6 +10196,7 @@
+       }
+     },
+     "循环" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -11581,6 +11656,7 @@
+       }
+     },
+     "文字" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -11603,6 +11679,7 @@
+       }
+     },
+     "文字滚动" : {
++      "comment" : "debug command group",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -12398,6 +12475,29 @@
+         }
+       }
+     },
++    "显示与播放" : {
++      "comment" : "debug command group",
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "Display and playback"
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "表示と再生"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "顯示與播放"
++          }
++        }
++      }
++    },
+     "显示全部可用指令" : {
+       "localizations" : {
+         "en" : {
+@@ -13952,6 +14052,9 @@
+           }
+         }
+       }
++    },
++    "构建工具" : {
++
+     },
+     "查看" : {
+       "extractionState" : "stale",
+@@ -14022,6 +14125,29 @@
+         }
+       }
+     },
++    "查询" : {
++      "comment" : "debug command group",
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "Queries"
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "照会"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "查詢"
++          }
++        }
++      }
++    },
+     "标准" : {
+       "comment" : "lip sync preset: standard voice",
+       "localizations" : {
+@@ -14650,7 +14776,6 @@
+     },
+     "正在连接" : {
+       "comment" : "board connecting status",
+-      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -14674,6 +14799,7 @@
+     },
+     "正常" : {
+       "comment" : "debug log filter",
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -14762,6 +14888,9 @@
+           }
+         }
+       }
++    },
++    "此面板" : {
++
+     },
+     "每个元音对应一个嘴巴部件；眼睛和脸颊在同步期间保持不变。" : {
+       "extractionState" : "stale",
+@@ -15123,6 +15252,9 @@
+           }
+         }
+       }
++    },
++    "清空此面板的用户表情" : {
++
+     },
+     "清空用户表情" : {
+       "localizations" : {
+@@ -16992,6 +17124,7 @@
+       }
+     },
+     "确定要重启设备吗？" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -17782,6 +17915,9 @@
+           }
+         }
+       }
++    },
++    "维护" : {
++
+     },
+     "编辑" : {
+       "comment" : "edit face",
+@@ -17876,6 +18012,29 @@
+         }
+       }
+     },
++    "网络" : {
++      "comment" : "debug command group",
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "Network"
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "ネットワーク"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "網路"
++          }
++        }
++      }
++    },
+     "网络 (详见连接页)" : {
+       "extractionState" : "stale",
+       "localizations" : {
+@@ -18676,6 +18835,7 @@
+       }
+     },
+     "表情库" : {
++      "comment" : "debug command group",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -18814,6 +18974,7 @@
+       }
+     },
+     "要滚动的文字" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -18948,6 +19109,29 @@
+         }
+       }
+     },
++    "订阅" : {
++      "comment" : "debug command group",
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "Subscriptions"
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "購読"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "訂閱"
++          }
++        }
++      }
++    },
+     "让 iPhone 加入板子发出的 Wi-Fi 后直接连接" : {
+       "extractionState" : "stale",
+       "localizations" : {
+@@ -19084,6 +19268,29 @@
+         }
+       }
+     },
++    "设备与电源" : {
++      "comment" : "debug command group",
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "Device and power"
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "デバイスと電源"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "裝置與電源"
++          }
++        }
++      }
++    },
+     "设备拒绝" : {
+       "localizations" : {
+         "en" : {
+@@ -19884,6 +20091,7 @@
+     },
+     "警告以上" : {
+       "comment" : "debug log filter",
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -19905,6 +20113,29 @@
+         }
+       }
+     },
++    "警告及以上" : {
++      "comment" : "debug log filter",
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "Warnings and above"
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "警告以上"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "警告及以上"
++          }
++        }
++      }
++    },
+     "超出固件 %lld 字节上限，发送前请缩短文字；不会自动截断。" : {
+       "localizations" : {
+         "en" : {
+@@ -21229,6 +21460,7 @@
+       }
+     },
+     "通信监视器" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -21273,6 +21505,7 @@
+       }
+     },
+     "速度" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -21473,6 +21706,29 @@
+         }
+       }
+     },
++    "重启「%@」？" : {
++      "comment" : "reboot confirmation, board name",
++      "localizations" : {
++        "en" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "Restart “%@”?"
++          }
++        },
++        "ja" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "「%@」を再起動しますか？"
++          }
++        },
++        "zh-Hant" : {
++          "stringUnit" : {
++            "state" : "translated",
++            "value" : "重新啟動「%@」？"
++          }
++        }
++      }
++    },
+     "重启命令未送达：%@" : {
+       "comment" : "reboot command failed to reach the board",
+       "localizations" : {
+@@ -21495,8 +21751,12 @@
+           }
+         }
+       }
++    },
++    "重启此面板" : {
++
+     },
+     "重启设备" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -21519,6 +21779,7 @@
+       }
+     },
+     "重启面板" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -21541,6 +21802,7 @@
+       }
+     },
+     "重启面板？" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -21993,6 +22255,7 @@
+     },
+     "错误：%@" : {
+       "comment" : "debug raw command result error",
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -22462,6 +22725,7 @@
+       }
+     },
+     "面板将断开连接并重新启动。" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -22639,6 +22903,7 @@
+       }
+     },
+     "面板状态" : {
++      "extractionState" : "stale",
+       "localizations" : {
+         "en" : {
+           "stringUnit" : {
+@@ -23293,207 +23558,6 @@
+           }
+         }
+       }
+-    },
+-    "Wi-Fi" : {
+-      "shouldTranslate" : false
+-    },
+-    "信息及以上" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "Info and above"
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "情報以上"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "資訊及以上"
+-          }
+-        }
+-      }
+-    },
+-    "多板组…" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "Board groups…"
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "ボードグループ…"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "多板組…"
+-          }
+-        }
+-      }
+-    },
+-    "显示与播放" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "Display and playback"
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "表示と再生"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "顯示與播放"
+-          }
+-        }
+-      }
+-    },
+-    "查询" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "Queries"
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "照会"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "查詢"
+-          }
+-        }
+-      }
+-    },
+-    "网络" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "Network"
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "ネットワーク"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "網路"
+-          }
+-        }
+-      }
+-    },
+-    "警告及以上" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "Warnings and above"
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "警告以上"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "警告及以上"
+-          }
+-        }
+-      }
+-    },
+-    "订阅" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "Subscriptions"
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "購読"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "訂閱"
+-          }
+-        }
+-      }
+-    },
+-    "设备与电源" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "Device and power"
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "デバイスと電源"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "裝置與電源"
+-          }
+-        }
+-      }
+-    },
+-    "重启「%@」？" : {
+-      "localizations" : {
+-        "en" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "Restart “%@”?"
+-          }
+-        },
+-        "ja" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "「%@」を再起動しますか？"
+-          }
+-        },
+-        "zh-Hant" : {
+-          "stringUnit" : {
+-            "state" : "translated",
+-            "value" : "重新啟動「%@」？"
+-          }
+-        }
+-      }
+     }
+   },
+   "version" : "1.0"
+diff --git a/ios/RinaBoard/Services/BoardGroupCoordinator.swift b/ios/RinaBoard/Services/BoardGroupCoordinator.swift
+index 3016528..f2ac40a 100644
+--- a/ios/RinaBoard/Services/BoardGroupCoordinator.swift
++++ b/ios/RinaBoard/Services/BoardGroupCoordinator.swift
+@@ -443,7 +443,12 @@ public final class BoardGroupCoordinator {
+               let frameCount = first.frameCount, frameCount > 0,
+               let intervalMs = first.scrollIntervalMs, intervalMs > 0,
+               metas.allSatisfy({
+-                  $0.groupTimed == true && $0.firmwareScrollActive == true && $0.uploadComplete != false
++                  // A user pause (`pause_scroll`, step, seek — what `pause(group:)`
++                  // sends) makes the firmware leave group-timed mode, so a paused
++                  // group reports `groupTimed == false`. The shared timeline id
++                  // below still proves it is one group upload.
++                  ($0.groupTimed == true || $0.firmwareScrollPaused == true)
++                      && $0.firmwareScrollActive == true && $0.uploadComplete != false
+                       && $0.scrollTimelineId == timelineId && $0.sourceText == text
+                       && $0.frameCount == frameCount && $0.scrollIntervalMs == intervalMs
+               }) else { return false }
+diff --git a/ios/RinaBoardTests/BoardGroupTests.swift b/ios/RinaBoardTests/BoardGroupTests.swift
+index 3bf5bae..6f4a9ff 100644
+--- a/ios/RinaBoardTests/BoardGroupTests.swift
++++ b/ios/RinaBoardTests/BoardGroupTests.swift
+@@ -1228,6 +1228,44 @@ final class BoardGroupCoordinatorTests: XCTestCase {
+         XCTAssertTrue(relaunched.isPaused, "controls work again after adoption")
+     }
+ 
++    /// A group paused from the app has left group-timed mode on every board
++    /// (the firmware drops it on `pause_scroll`). Adoption must still take it
++    /// back — paused — or play/pause do nothing after a reconnect.
++    func testFreshCoordinatorAdoptsPausedGroupScroll() async throws {
++        let sessions = BoardSessionStore()
++        let store = BoardGroupStore(defaults: UserDefaults(suiteName: "grp.\(UUID())")!)
++        let first = BoardGroupCoordinator(store: store, sessions: sessions)
++        let transportA = GroupFakeTransport()
++        let transportB = GroupFakeTransport()
++        _ = await connectedSession(sessions: sessions, identity: "A", transport: transportA)
++        _ = await connectedSession(sessions: sessions, identity: "B", transport: transportB)
++        let group = store.create(name: "暂停接管组")
++        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "A", displayName: "A"))
++        try store.addMember(groupID: group.id, member: .init(physicalBoardID: "B", displayName: "B"))
++        try await first.play(group: store.groups[0], text: "接管", fps: 10, loop: true)
++        let frameCount = try XCTUnwrap(first.playbackSnapshot?.frameCount)
++        let timelineId = try XCTUnwrap(transportA.lastBlobBeginMeta?["timelineId"] as? String)
++
++        for transport in [transportA, transportB] {
++            transport.scrollMeta = [
++                "ok": true, "scrollTimelineId": timelineId, "hasSourceText": true, "sourceText": "接管",
++                "frameCount": frameCount, "frameIndex": 5, "scrollIntervalMs": 100,
++                "firmwareScrollActive": true, "firmwareScrollPaused": true, "scrollLoop": true, "groupTimed": false,
++            ]
++        }
++        let uploadsBefore = transportA.blobBeginCount
++        let relaunched = BoardGroupCoordinator(store: store, sessions: sessions)
++
++        let adopted = await relaunched.adoptRunningScroll(group: store.groups[0])
++
++        XCTAssertTrue(adopted)
++        XCTAssertTrue(relaunched.isPaused, "a paused group is taken back paused")
++        XCTAssertEqual(transportA.blobBeginCount, uploadsBefore, "adoption must not re-upload")
++
++        await relaunched.resume(group: store.groups[0])
++        XCTAssertTrue(relaunched.isPlaying, "play works again after adoption")
++    }
++
+     /// Boards that don't agree (different text) are not adopted, and nothing
+     /// is sent to them.
+     func testAdoptionRefusedWhenBoardsDisagree() async throws {

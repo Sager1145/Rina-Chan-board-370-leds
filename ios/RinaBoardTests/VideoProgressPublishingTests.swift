@@ -13,6 +13,65 @@ import RinaCore
 @MainActor
 final class VideoProgressPublishingTests: XCTestCase {
 
+    func testGeneratedFixtureDecodesWithPlainPlayer() async throws {
+        let context = try Self.makeContext()
+        defer { context.cleanUp() }
+        let url = try await Self.makeVideo(at: context.root.appendingPathComponent("decode.mp4"))
+        let item = AVPlayerItem(url: url)
+        let player = AVPlayer(playerItem: item)
+        player.isMuted = true
+        player.play()
+        defer { player.pause() }
+        let deadline = Date().addingTimeInterval(5)
+        while player.currentTime().seconds < 0.2, item.status != .failed, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertNil(item.error)
+        XCTAssertGreaterThan(player.currentTime().seconds, 0.1,
+                             "fixture failed to decode: \(String(describing: item.error))")
+    }
+
+    func testFrameOrientationPreservesPortraitAndMirroredVideo() throws {
+        let image = try XCTUnwrap(VideoFrameQuantizer.LumaImage(width: 3, height: 2,
+                                                               pixels: [1, 2, 3, 4, 5, 6]))
+        let portrait = try XCTUnwrap(VideoPlayerModel.orientedLuma(image,
+            transform: CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 2, ty: 0)))
+        XCTAssertEqual(portrait.width, 2)
+        XCTAssertEqual(portrait.height, 3)
+        XCTAssertEqual(portrait.pixels, [4, 1, 5, 2, 6, 3])
+        let mirror = try XCTUnwrap(VideoPlayerModel.orientedLuma(image,
+            transform: CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 3, ty: 0)))
+        XCTAssertEqual(mirror.pixels, [3, 2, 1, 6, 5, 4])
+        XCTAssertEqual(VideoPlayerModel.orientedLuma(image, transform: .identity), image)
+    }
+
+    func testPortraitStillUsesUprightSamplingBox() async throws {
+        let context = try Self.makeContext()
+        defer { context.cleanUp() }
+        let transform = CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 108, ty: 0)
+        let url = try await Self.makeVideo(at: context.root.appendingPathComponent("portrait.mp4"),
+                                           width: 192, height: 108, transform: transform)
+        let model = context.makeModel()
+        await model.importFile(from: url)
+        XCTAssertTrue(model.hasVideo)
+        // Inspect the actual installed AVFoundation adapter, rather than a
+        // duplicate sampling-size formula or a test-only production setter.
+        let generator = try XCTUnwrap(Mirror(reflecting: model).children.first {
+            $0.label == "imageGenerator"
+        }?.value as? AVAssetImageGenerator)
+        XCTAssertEqual(generator.maximumSize, CGSize(width: 90, height: 160))
+        // Decode with a separate adapter so the assertion does not race the
+        // model's in-flight initial-preview request on the same generator.
+        let decoder = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        decoder.appliesPreferredTrackTransform = generator.appliesPreferredTrackTransform
+        decoder.maximumSize = generator.maximumSize
+        let image = try await decoder.image(at: .zero).image
+        // maximumSize is a bounding box; AVFoundation may round the fitted
+        // dimension down by one pixel for the encoded clean aperture.
+        XCTAssertTrue((89...90).contains(image.width))
+        XCTAssertTrue((159...160).contains(image.height))
+    }
+
     // MARK: Coarse publishing (no player needed: `applyExactPosition` only
     // touches `precisePositionMs` / `positionMs`)
 
@@ -234,9 +293,8 @@ final class VideoProgressPublishingTests: XCTestCase {
         model.play(connection: connection)
 
         // Wait for the async `startPlayback()` to actually flip `isPlaying`
-        // before polling for completion, so restarting it below is a bounded
-        // recovery from a one-off simulator quirk, not a first-iteration
-        // formality that fires on every run.
+        // before polling for completion. A decoder failure or premature pause
+        // fails the final exact-duration assertions without restarting it.
         let startDeadline = Date().addingTimeInterval(2)
         while !model.isPlaying, Date() < startDeadline {
             try await Task.sleep(for: .milliseconds(10))
@@ -244,27 +302,8 @@ final class VideoProgressPublishingTests: XCTestCase {
         XCTAssertTrue(model.isPlaying, "playback did not start")
 
         let deadline = Date().addingTimeInterval(10)
-        var restartsRemaining = 3
-        while model.positionMs < durationMs, Date() < deadline {
+        while model.isPlaying, model.positionMs < durationMs, Date() < deadline {
             try await Task.sleep(for: .milliseconds(50))
-            if !model.isPlaying, model.positionMs < durationMs {
-                // A simulator with no real display/audio pipeline can take a
-                // tick or two for `AVPlayer.play()`'s rate to actually ramp
-                // up, and `tick()`'s stall detector (pre-existing, unrelated
-                // to this PR — it reads `precisePositionMs`, which holds
-                // exactly what `positionMs` used to hold here) can catch
-                // that narrow window as "the system stopped it" and pause.
-                // Restart a bounded number of times to absorb that one-off
-                // quirk; a real regression that keeps re-pausing playback
-                // fails loudly here instead of silently spinning to the
-                // deadline.
-                guard restartsRemaining > 0 else {
-                    XCTFail("playback kept pausing before reaching the end (position \(model.positionMs)/\(durationMs))")
-                    return
-                }
-                restartsRemaining -= 1
-                model.play(connection: connection)
-            }
         }
 
         XCTAssertFalse(model.isPlaying, "playback should have reached the end")
@@ -279,11 +318,11 @@ final class VideoProgressPublishingTests: XCTestCase {
     private static func reasonString(from frame: RinaLinkFrame) throws -> String {
         let payload = [UInt8](frame.payload)
         guard payload.count >= 2 else {
-            throw XCTSkip("setFrame payload too short to contain a reason")
+            throw CocoaError(.coderReadCorrupt)
         }
         let length = Int(payload[1])
         guard payload.count >= 2 + length else {
-            throw XCTSkip("setFrame payload too short for its declared reason length")
+            throw CocoaError(.coderReadCorrupt)
         }
         return String(decoding: payload[2..<(2 + length)], as: UTF8.self)
     }
@@ -320,19 +359,21 @@ final class VideoProgressPublishingTests: XCTestCase {
     /// Short, silent, solid-color video: enough for `AVPlayerItemVideoOutput`
     /// to have a video track and a real duration, without needing anything
     /// about the decoded picture itself.
-    private static func makeVideo(at url: URL) async throws -> URL {
+    private static func makeVideo(at url: URL, width: Int = 64, height: Int = 64,
+                                  transform: CGAffineTransform = .identity) async throws -> URL {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: 64,
-            AVVideoHeightKey: 64,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
         ])
+        input.transform = transform
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: input,
             sourcePixelBufferAttributes: [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: 64,
-                kCVPixelBufferHeightKey as String: 64,
+                kCVPixelBufferWidthKey as String: width,
+                kCVPixelBufferHeightKey as String: height,
             ]
         )
         XCTAssertTrue(writer.canAdd(input))

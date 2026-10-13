@@ -24,10 +24,6 @@ with tempfile.TemporaryDirectory(prefix='rina-face-identity-') as directory:
     harness = sandbox / 'tools/firmware'
     harness.mkdir(parents=True)
     shutil.copytree(HARNESS / 'stress_fakes', harness / 'stress_fakes')
-    fake_platform = harness / 'stress_fakes/fake_platform.cpp'
-    with fake_platform.open('a') as stream:
-        stream.write('\nconst char* boardBootId() { return "face-identity-boot"; }\n'
-                     'bool isBrightnessButtonCode(const String&) { return false; }\n')
     for name in ('stress_build.sh', 'stress_common.h'):
         shutil.copy2(HARNESS / name, harness / name)
     os.symlink(FW / 'src', sandbox / 'src')

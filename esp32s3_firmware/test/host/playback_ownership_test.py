@@ -102,6 +102,7 @@ for file, signature in [
     ('scroll_session.cpp','static bool setFirmwareScrollPauseFlag('),
     ('scroll_session.cpp','bool scrollSessionWriteFrames('),
     ('scroll_session.cpp','ScrollUploadResult scrollSessionCommitUpload('),
+    ('scroll.cpp','void serviceScrollRender('),
     ('scroll.cpp','static void scrollRenderTask('),
     ('led_renderer.cpp','static bool packedFrameRateReady('),
     ('led_renderer.cpp','static void copyText('),

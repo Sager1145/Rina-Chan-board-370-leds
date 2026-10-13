@@ -36,7 +36,7 @@ final class StressMemoryEventTests: XCTestCase {
         }
         _ = await Stress.wait(timeout: 1) { !t.held.isEmpty }
         guard let r = t.takeHeld({ _ in true }) else { return XCTFail("request not written") }
-        let wire = RinaLinkEncoder.encode(RinaLinkFrame(type: r.type | 0x80, seq: r.seq,
+        let wire = Stress.encode(RinaLinkFrame(type: r.type | 0x80, seq: r.seq,
                                                         flags: RinaLinkFrameConstants.flagMore,
                                                         payload: Data(repeating: 0x41, count: 4096)))
         var fed = 0
@@ -158,7 +158,7 @@ final class StressMemoryEventTests: XCTestCase {
                 var data = Data()
                 for k in i..<end {
                     let payload = Data("{\"level\":\"I\",\"tag\":\"s\",\"msg\":\"\(k)-\(filler)\"}".utf8)
-                    data.append(RinaLinkEncoder.encode(RinaLinkFrame(type: RinaLinkMessageType.evLog.rawValue, seq: 0, flags: 0, payload: payload)))
+                    data.append(Stress.encode(RinaLinkFrame(type: RinaLinkMessageType.evLog.rawValue, seq: 0, flags: 0, payload: payload)))
                 }
                 t.injectRaw(data)
                 let marker = "\(end - 1)-"

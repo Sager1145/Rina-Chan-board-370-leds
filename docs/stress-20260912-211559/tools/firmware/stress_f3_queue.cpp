@@ -71,8 +71,9 @@ int main() {
     L.layer = "fw-frame-queue"; L.evidence = "logs/firmware/f3_queue.log";
     protocolBegin();
     initRuntimeScrollFrameBuffer();
-    L.check("F3-CONST", PACKED_FRAME_QUEUE_DEPTH == 3 && PACKED_FRAME_MIN_INTERVAL_MS == 33,
-            "PACKED_FRAME_QUEUE_DEPTH=3 (array) PACKED_FRAME_MIN_INTERVAL_MS=33");
+    L.check("F3-CONST", PACKED_FRAME_QUEUE_DEPTH == 1 && PACKED_FRAME_MIN_INTERVAL_MS == 33,
+            "PACKED_FRAME_QUEUE_DEPTH=" + std::to_string(PACKED_FRAME_QUEUE_DEPTH) +
+                " PACKED_FRAME_MIN_INTERVAL_MS=" + std::to_string(PACKED_FRAME_MIN_INTERVAL_MS));
     for (unsigned hz : {10U, 25U, 50U, 75U, 100U}) {
         for (uint32_t loopMs : {2U, 5U}) {
             const uint64_t seed = 0xF300 + hz;
@@ -96,17 +97,17 @@ int main() {
                   " finalShown=" + std::to_string(R.finalShown) +
                   " maxPending=" + std::to_string(R.maxQueue) + " order=" + std::to_string(R.orderViolations) + " minGapMs=" + std::to_string(R.minGap),
               "8 frames/pass x10Hz", "0xf3b"); }
-    // Expectation confirmed: array depth 3 is advertised, effective pending depth is 1.
+    // Advertised capacity and the effective pending capacity are both latest-only.
     { TestClient c; c.connect(T);
       advanceMs(40);
       c.request(0x10, 6, setFrame(9000));
       auto rep = c.request(0x10, 7, setFrame(9001)); // second within 33 ms -> pending
       auto d = parse(rep.second);
       int depth = d["queueDepth"] | -1, count = d["queueCount"] | -1;
-      L.check("F3-STATUS-QUEUEDEPTH-SEMANTICS", depth == 3 && count == 1,
+      L.check("F3-STATUS-QUEUEDEPTH-SEMANTICS", depth == 1 && count == 1,
               "SET_FRAME reply queueDepth=" + std::to_string(depth) + " queueCount=" + std::to_string(count) +
-                  " (advertised depth 3; effective pending depth 1 latest-only)");
+                  " (advertised depth 1; effective pending depth 1 latest-only)");
       rinalink::transportUnregisterClient(c.id); serviceProtocol(); }
     std::cout << "SUMMARY F3 pass=" << L.pass << " fail=" << L.fail << std::endl;
-    return 0;
+    return L.fail == 0 ? 0 : 1;
 }
