@@ -206,6 +206,14 @@ struct RootTabView: View {
             // waterfall while the disk reads below are in flight.
             contentReady = true
             RinaPerf.signposter.emitEvent("ContentReady")
+            // PR-14 measurement: one summary line covering every model's
+            // construction time (recorded during `RinaBoardApp.init()` and
+            // this view's `reconnectModel` init) plus process-start →
+            // `ContentReady`, for reading numbers without attaching
+            // Instruments. Debug-only; see `LaunchTiming`.
+            #if DEBUG || RINA_PERF_LOG
+            LaunchTiming.logSummary(eventName: "ContentReady")
+            #endif
             // Everything the tabs would otherwise load on first use runs
             // now, behind the loader, which holds its outro until it is done.
             async let preload: Void = preloadTabContent()

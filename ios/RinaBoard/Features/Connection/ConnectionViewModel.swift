@@ -58,7 +58,22 @@ public final class ConnectionViewModel {
     public private(set) var homeProvisionStage: ProvisionStage = .idle
 
     public init(startBonjourBrowsing: Bool = true) {
-        if startBonjourBrowsing { bonjour.start() }
+        // Signposts for PR-14 measurement: `RootTabView`'s `reconnectModel`
+        // constructs this with `startBonjourBrowsing: false`, so only the
+        // Keychain read below runs synchronously on the main actor at
+        // launch; `bonjour.start()` runs later, from `ConnectionView` and
+        // `BoardControlCenterView`, when browsing is actually needed.
+        if startBonjourBrowsing {
+            let state = RinaPerf.signposter.beginInterval("ConnectionInit.bonjourStart")
+            #if DEBUG || RINA_PERF_LOG
+            let bonjourStart = ContinuousClock.now
+            bonjour.start()
+            LaunchTiming.record(name: "ConnectionInit.bonjourStart", milliseconds: LaunchTiming.ms(ContinuousClock.now - bonjourStart))
+            #else
+            bonjour.start()
+            #endif
+            RinaPerf.signposter.endInterval("ConnectionInit.bonjourStart", state)
+        }
     }
 
     deinit {

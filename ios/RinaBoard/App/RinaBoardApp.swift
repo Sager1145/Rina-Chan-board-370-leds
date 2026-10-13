@@ -17,7 +17,7 @@ struct RinaBoardApp: App {
     // Draft models remain app-scoped so switching tabs preserves unsent work.
     @State private var router: AppRouter
     @State private var sessions: BoardSessionStore
-    @State private var boardStore = BoardStore()
+    @State private var boardStore = RinaPerf.measure("ModelInit.boardStore") { BoardStore() }
     @State private var boardGroupStore: BoardGroupStore
     @State private var boardGroupCoordinator: BoardGroupCoordinator
     @State private var groupControlFanOut: GroupControlFanOut
@@ -33,15 +33,15 @@ struct RinaBoardApp: App {
     /// `controlCenter`/`faceLibrary`, which are likewise built as `init()`
     /// locals below rather than via their own property-default expressions.
     @State private var groupAutoCycler: GroupAutoCycler
-    @State private var bootLoader = BootLoaderModel()
+    @State private var bootLoader = RinaPerf.measure("ModelInit.bootLoader") { BootLoaderModel() }
     @State private var controlCenter: BoardControlCenterModel
     @State private var settingsWorkspace = SettingsWorkspace()
     @State private var faceLibrary: FaceLibraryModel
-    @State private var editor = ControlViewModel()
-    @State private var textModel = TextViewModel()
-    @State private var lipSyncModel = LipSyncModel()
-    @State private var presetLiveModel = PresetLiveModel()
-    @State private var videoModel = VideoPlayerModel()
+    @State private var editor = RinaPerf.measure("ModelInit.editor") { ControlViewModel() }
+    @State private var textModel = RinaPerf.measure("ModelInit.textModel") { TextViewModel() }
+    @State private var lipSyncModel = RinaPerf.measure("ModelInit.lipSyncModel") { LipSyncModel() }
+    @State private var presetLiveModel = RinaPerf.measure("ModelInit.presetLiveModel") { PresetLiveModel() }
+    @State private var videoModel = RinaPerf.measure("ModelInit.videoModel") { VideoPlayerModel() }
     /// The Apple Watch companion's phone end (`WatchLinkService`): built in
     /// `.task` below, once every model it mirrors exists as installed state,
     /// and kept for the app's lifetime.
@@ -57,10 +57,10 @@ struct RinaBoardApp: App {
         // same session store instance the app injects everywhere else, and
         // `sessions.select(_:)` needs a way to ask the coordinator whether a
         // session is currently group-owned without a hard dependency on it.
-        let sessions = BoardSessionStore()
-        let boardStore = BoardStore()
+        let sessions = RinaPerf.measure("ModelInit.sessions") { BoardSessionStore() }
+        let boardStore = RinaPerf.measure("ModelInit.boardStore") { BoardStore() }
         _boardStore = State(initialValue: boardStore)
-        let router = AppRouter()
+        let router = RinaPerf.measure("ModelInit.router") { AppRouter() }
         // Only when a board is known to reconnect to — a fresh install has
         // nothing for `autoReconnect` to wait on, so gating its preview would
         // just hold a blank board for the unused `timeout` for no reason.
@@ -81,8 +81,8 @@ struct RinaBoardApp: App {
         _groupAutoConnector = State(initialValue: GroupAutoConnector(
             sessions: sessions, groupStore: boardGroupStore, boardStore: boardStore
         ))
-        let controlCenter = BoardControlCenterModel()
-        let faceLibrary = FaceLibraryModel()
+        let controlCenter = RinaPerf.measure("ModelInit.controlCenter") { BoardControlCenterModel() }
+        let faceLibrary = RinaPerf.measure("ModelInit.faceLibrary") { FaceLibraryModel() }
         _controlCenter = State(initialValue: controlCenter)
         _faceLibrary = State(initialValue: faceLibrary)
         _groupAutoCycler = State(initialValue: GroupAutoCycler(
