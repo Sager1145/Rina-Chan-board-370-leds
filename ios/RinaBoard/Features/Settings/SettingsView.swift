@@ -112,10 +112,12 @@ private struct SettingsSplitLayout: View {
         }
     }
     private func division(in proxy: GeometryProxy) -> CGRect? {
+        #if !targetEnvironment(macCatalyst)
         if #available(iOS 27.1, *), duoWorkspace {
             return proxy.reservedRegions(kind: .division, options: .includeInactive)
                 .first(where: \.isActive)?.frame
         }
+        #endif
         return nil
     }
 

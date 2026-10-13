@@ -43,10 +43,10 @@ struct FoldedControlCenterToolbar: ViewModifier {
             .toolbar {
                 if #available(iOS 27.1, *), let launcher {
                     ToolbarItem(placement: .topBarTrailing) {
-                        let layout = isVertical ? AnyLayout(VStackLayout(spacing: 0))
-                                                : AnyLayout(HStackLayout(spacing: 0))
+                        let layout = isVertical ? AnyLayout(VStackLayout(spacing: 6))
+                                                : AnyLayout(HStackLayout(spacing: 6))
                         layout {
-                            ForEach(launcher.isFolded ? [FoldedBoardControl.mode, .color, .status] : [.mode, .previous, .next, .color, .status], id: \.self) { control in
+                            ForEach(launcher.isFolded ? [FoldedBoardControl.mode, .color, .status] : [.mode, .previous, .next, .color], id: \.self) { control in
                                 BoardControlCenterAccessory(transitionSourceID: "controlCenter",
                                                             transitionNamespace: launcher.namespace,
                                                             toolbarControl: control,
@@ -56,7 +56,9 @@ struct FoldedControlCenterToolbar: ViewModifier {
                         }
                     }
                     .sharedBackgroundVisibility(.hidden)
+                    #if !targetEnvironment(macCatalyst)
                     .axisBehavior(.verticalPreferred)
+                    #endif
                     .visibilityPriority(.high)
                 }
             }

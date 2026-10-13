@@ -62,7 +62,11 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
 
     var body: some View {
         if #available(iOS 27.1, *), duoWorkspace {
+            #if targetEnvironment(macCatalyst)
+            EmptyView()
+            #else
             duoPage
+            #endif
         } else if isSplit {
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
@@ -104,6 +108,7 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
         }
     }
 
+    #if !targetEnvironment(macCatalyst)
     @available(iOS 27.1, *)
     private var duoPage: some View {
         GeometryReader { proxy in
@@ -115,6 +120,8 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
                 pinnedPreview
                 .environment(\.boardPreviewMaximumHeight,
                              frames.tabControls.minY > 0 ? max(44, frames.preview.height - 64) : 420)
+                .frame(maxHeight: frames.tabControls.minY > 0 ? .infinity : nil,
+                       alignment: .center)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("board.workspace.preview")
 
@@ -137,6 +144,7 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
             }
         }
     }
+    #endif
 
     private var isSplit: Bool {
         #if targetEnvironment(macCatalyst)

@@ -108,4 +108,28 @@ Streams started before identity reporting was added can select their page,
 but must be started once from the updated app before automatic live recovery
 can identify them reliably.
 
-Duo uses the public reserved-region APIs for its inner-screen workspace. Folded mode places M, color and the status/expand button above the native tab sidebar; the last button opens the full Control Center. Expanded and half-folded landscape show M, previous/next and color; the full Control Center is inline. Column previews are pinned and fill their column width. Half-folded portrait pins the preview above the fold with board controls and tab controls below. Landscape keeps preview and board controls on the left and tab controls on the right. At accessibility text sizes, the lower portrait panes stack so labels and controls remain usable. The downloaded research guide is `docs/APPLE_ADAPTIVE_UI_GUIDE_2026_10_13.md`; its matrix is a research plan, not a record of local test passes.
+Duo uses the public reserved-region APIs for its inner-screen workspace. Folded mode supports portrait only and places M, color and the status/expand button above the native tab sidebar. These are separate 44-point circular controls with 6-point gaps. The last button opens the full Control Center as a menu sliding up inside the safe app content area, leaving the native navbar and tabbar uncovered. Expanded and half-folded modes show M, previous/next and color, with no status button; the full Control Center is inline. Column previews are pinned and fill their column width. Half-folded portrait pins the preview above the fold with board controls and tab controls below. Landscape keeps preview and board controls on the left and tab controls on the right. An active vertical fold uses the full available region on each side of the hinge; the flat display keeps equal columns. Segmented picker rows use the native rounded surface without an additional list-card background. At accessibility text sizes, the lower portrait panes stack so labels and controls remain usable. The downloaded research guide is `docs/APPLE_ADAPTIVE_UI_GUIDE_2026_10_13.md`; its matrix is a research plan, not a record of local test passes.
+
+### Simulator multi-board preview fixtures
+
+Debug simulator builds accept `-seedTestGroups YES`. This adds `Test · 2 boards`,
+`Test · 3 boards`, `Test · 5 boards`, and `Test · 3 mirrors` once, preserving
+existing groups and their ordering. These fixtures are not included in Release
+builds and do not claim to be physical boards.
+
+Run `python3 tools/run_simulator_group_boards.py` from the repository root to start
+five local RinaLink boards on ports 15370–15374. Terminate any running app instance, then launch the simulator app with:
+
+```sh
+xcrun simctl launch <simulator-id> com.rinachan.board \
+  -initialTab text -seedTestGroups YES -connectTestBoards YES \
+  -testGroupName 'Test · 3 boards' -playTestGroup YES -pauseTestGroup YES
+```
+
+Omit `-pauseTestGroup YES` for scrolling playback. The fixture uses the regular
+TCP connection, handshake, bitmap upload, synchronization, and reorder paths.
+`GroupPreviewSimulatorUITests` checks forward and reverse long-press dragging,
+a no-move release, and visible LED content for 2/3/5-board stitched groups and a
+3-board mirror group. On narrow previews it checks short horizontal swipes and scrolls an offscreen source into view before dragging. iOS uses a native long-press recognizer so scrolling and board reordering coexist; the existing spring animation and the Mac gesture path are preserved. Drag displacement uses an explicit window conversion from the touch view, so Duo's rotated display keeps the same direction as the preview's layout.
+`testFiveBoardPreviewCanDragInLandscape` requires the inner display rotated to landscape in Device Hub and asserts the actual app window is landscape before dragging. Set the desired fold posture in Device Hub before each run. Start the local boards before running the UI tests. Stop
+all five listeners with Ctrl-C in the fixture runner.

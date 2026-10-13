@@ -103,10 +103,7 @@ struct PerformanceModeSection: View {
                 Text("演出").tag(PerformanceTabMode.performance)
                 Text("视频").tag(PerformanceTabMode.video)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
+            .rinaSegmentedRow()
         }
     }
 }

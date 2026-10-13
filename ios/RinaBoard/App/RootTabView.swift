@@ -464,26 +464,34 @@ private struct ControlCenterPresenter: ViewModifier {
                 .overlay {
                     if placement == .statusToolbar || duoWorkspace {
                         GeometryReader { proxy in
-                            // Anchor within the page's usable content, rather
-                            // than inside the native bar's separate host.
-                            Color.clear
-                                .frame(width: 1, height: 1)
-                                .allowsHitTesting(false)
-                                .popover(isPresented: $isPresented, attachmentAnchor: .rect(.bounds),
-                                         arrowEdge: .trailing) {
+                            // This overlay belongs to the safe page area;
+                            // the native navbar and tabbar remain outside it.
+                            ZStack(alignment: .bottom) {
+                                if isPresented {
+                                    Color.black.opacity(0.12)
+                                        .contentShape(.rect)
+                                        .onTapGesture { isPresented = false }
+                                        .accessibilityLabel("关闭控制中心")
                                     NavigationStack {
-                                        BoardControlCenterView(onDismiss: { isPresented = false })
+                                        BoardControlCenterView(onDismiss: { isPresented = false }, usesAppBackground: true)
                                     }
+                                    .environment(\.rinaBackdropIsShared, true)
                                     .toolbarTitleDisplayMode(.inline)
+                                    .scrollContentBackground(.hidden)
                                     .accessibilityElement(children: .contain)
                                     .accessibilityIdentifier("controlCenter.popup")
-                                    .frame(width: min(360, max(200, proxy.size.width - 32)),
-                                           height: min(600, max(200, proxy.size.height - 32)))
-                                    .presentationCompactAdaptation(.none)
+                                    .frame(width: min(420, max(200, proxy.size.width - 24)),
+                                           height: min(600, proxy.size.height * 0.7))
+                                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+                                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                                    .padding(.bottom, 12)
                                     .tint(Color("AccentColor"))
+                                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                                 }
-                                .position(x: proxy.size.width - 8,
-                                          y: proxy.size.height / 2)
+                            }
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .clipped()
+                            .animation(.snappy(duration: 0.25), value: isPresented)
                         }
                     }
                 }

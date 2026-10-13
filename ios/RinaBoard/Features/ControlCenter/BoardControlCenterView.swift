@@ -89,8 +89,9 @@ struct BoardControlCenterView: View {
     /// `newGroupEditorTarget` itself has already gone back to `nil`.
     @State private var pendingNewGroupID: UUID?
 
-    /// Non-nil when presented as a sheet, so it can offer a Done button.
+    /// Non-nil in a sheet or page menu, so it can offer a Done button.
     var onDismiss: (() -> Void)?
+    var usesAppBackground = false
 
     /// True when the sections are dropped straight into another page's list
     /// instead of owning one. An embedded panel brings no list, no navigation
@@ -268,13 +269,13 @@ struct BoardControlCenterView: View {
                     modeSection
                     colorSection
                 }
-                .rinaTranslucentRows(onDismiss == nil)
+                .rinaTranslucentRows(onDismiss == nil || usesAppBackground)
             }
         )
         .listSectionSpacing(.compact)
         // Pushed from Settings before iOS 26; with `onDismiss` it is the
         // tab-bar accessory's sheet, which keeps its presentation background.
-        .rinaScrollBackground(onDismiss == nil)
+        .rinaScrollBackground(onDismiss == nil || usesAppBackground)
         .errorAlert(errorMessage)
         .navigationTitle("面板控制")
         .navigationBarTitleDisplayMode(.inline)
@@ -791,6 +792,7 @@ struct BoardControlCenterView: View {
                               systemImage: isAutoModeOn
                                            ? "arrow.triangle.2.circlepath"
                                            : "hand.tap.fill")
+                        .fixedSize(horizontal: true, vertical: false)
                         .frame(maxWidth: .infinity, minHeight: 22)
                 }
                 .toggleStyle(.pill)

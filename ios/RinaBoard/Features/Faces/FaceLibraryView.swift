@@ -112,7 +112,7 @@ struct FaceLibraryView: View {
             Picker("库", selection: Binding(get: { location }, set: { pickedLocation = $0 })) {
                 ForEach(FaceLibraryLocation.allCases) { Text($0.title).tag($0) }
             }
-            .pickerStyle(.segmented)
+            .rinaSegmentedRow()
             .disabled(editMode.isEditing || isWorking)
             .listRowSeparator(.hidden)
 

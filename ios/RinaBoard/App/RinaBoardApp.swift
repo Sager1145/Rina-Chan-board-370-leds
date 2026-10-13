@@ -3,6 +3,7 @@ import RinaCore
 
 @main
 struct RinaBoardApp: App {
+    @UIApplicationDelegateAdaptor(RinaOrientationDelegate.self) private var orientationDelegate
     @Environment(\.scenePhase) private var scenePhase
     /// Board-group control fan-out addendum: the same persisted "控制对象"
     /// selection `Settings`/`BoardControlCenterView`/etc. read, watched here
@@ -92,6 +93,15 @@ struct RinaBoardApp: App {
         ))
         #if DEBUG
         Self.seedDemoGroupIfNeeded(store: boardGroupStore)
+        #if targetEnvironment(simulator)
+        if SimulatorBoardGroupFixtures.requested {
+            SimulatorBoardGroupFixtures.seed(in: boardGroupStore)
+            let name = SimulatorBoardGroupFixtures.argument("testGroupName") ?? "Test · 3 boards"
+            if let group = boardGroupStore.groups.first(where: { $0.name == name }) {
+                UserDefaults.standard.set(group.id.uuidString, forKey: ControlTargetKey.groupID)
+            }
+        }
+        #endif
         #endif
     }
 
@@ -233,6 +243,13 @@ struct RinaBoardApp: App {
                     groupControlFanOut.primaryWasAutoHook = { [groupAutoCycler] in
                         groupAutoCycler.start()
                     }
+                    #if DEBUG && targetEnvironment(simulator)
+                    await SimulatorBoardGroupFixtures.prepare(store: boardGroupStore, sessions: sessions,
+                        coordinator: boardGroupCoordinator, textModel: textModel)
+                    if SimulatorBoardGroupFixtures.requested {
+                        router.selectedTab = .text
+                    }
+                    #endif
                 }
         }
     }

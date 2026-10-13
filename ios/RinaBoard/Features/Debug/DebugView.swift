@@ -216,7 +216,7 @@ struct DebugView: View {
                     Text(source.label).tag(source as DebugLogSource?)
                 }
             }
-            .pickerStyle(.segmented)
+            .rinaSegmentedRow()
 
             Picker("最低级别", selection: $vm.logFilter) {
                 ForEach(DebugLogFilter.allCases) { filter in

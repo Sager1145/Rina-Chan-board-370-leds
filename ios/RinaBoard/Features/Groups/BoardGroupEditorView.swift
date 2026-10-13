@@ -84,7 +84,7 @@ struct BoardGroupEditorView: View {
                     Text("拼接").tag(BoardGroup.Mode.stitched)
                     Text("镜像").tag(BoardGroup.Mode.mirror)
                 }
-                .pickerStyle(.segmented)
+                .rinaSegmentedRow()
                 .disabled(isLocked(group))
             }
 

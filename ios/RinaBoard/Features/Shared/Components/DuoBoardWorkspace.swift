@@ -32,6 +32,9 @@ struct DuoWorkspaceAdapter: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
+        #if targetEnvironment(macCatalyst)
+        content
+        #else
         if #available(iOS 27.1, *) {
             GeometryReader { proxy in
                 let regions = proxy.reservedRegions(kind: .division, options: .includeInactive)
@@ -44,9 +47,13 @@ struct DuoWorkspaceAdapter: ViewModifier {
                     && min(proxy.size.width, proxy.size.height) >= 600
                 let inner = widePhone || (!folded && (hasDivision || lastInnerDisplay))
                 content
-                    .environment(\.boardToolbarIsVertical, proxy.safeAreaInsets.trailing > 0)
+                    .environment(\.boardToolbarIsVertical,
+                                 proxy.safeAreaInsets.leading > 0 || proxy.safeAreaInsets.trailing > 0)
                     .environment(\.duoWorkspace, inner)
                     .environment(\.foldedDuo, folded && !inner)
+                    .onChange(of: inner, initial: true) { _, _ in
+                        RinaPhoneOrientationPolicy.updateConnectedScenes()
+                    }
                     .onChange(of: hasDivision || widePhone, initial: true) { _, detected in
                         if detected && (!folded || widePhone) { lastInnerDisplay = true }
                     }
@@ -58,6 +65,7 @@ struct DuoWorkspaceAdapter: ViewModifier {
         } else {
             content
         }
+        #endif
     }
 }
 
@@ -100,10 +108,10 @@ struct DuoWorkspaceFrames {
               frame.width.isFinite, frame.height.isFinite,
               size.width > 0, size.height > 0 else { return nil }
         if frame.width > frame.height {
-            guard frame.width >= size.width * 0.9,
+            guard frame.width >= size.width * 0.9, frame.width <= size.width * 1.1,
                   frame.minY >= 0, frame.minY < size.height else { return nil }
         } else {
-            guard frame.height >= size.height * 0.9,
+            guard frame.height >= size.height * 0.9, frame.height <= size.height * 1.1,
                   frame.minX >= 0, frame.minX < size.width else { return nil }
         }
         return frame
@@ -112,18 +120,16 @@ struct DuoWorkspaceFrames {
     private static func columns(size: CGSize, division: CGRect?) -> Self {
         let leftWidth = max(0, min(size.width, division?.minX ?? size.width / 2))
         let rightX = max(leftWidth, min(size.width, division?.maxX ?? size.width / 2))
-        // The sidebar can leave unequal usable regions beside the hinge.
-        // Give both columns the same width without crossing its reserved band.
+        // An active hinge divides the available regions, which can differ
+        // because the native sidebar occupies one edge. Fill each region;
+        // the flat display still uses equal halves.
         let rightWidth = max(0, size.width - rightX)
-        let columnWidth = min(leftWidth, rightWidth)
-        let leftX = (leftWidth - columnWidth) / 2
-        let tabX = size.width - columnWidth
         let previewHeight = min(360, size.height * 0.48)
         return Self(
-            preview: CGRect(x: leftX, y: 0, width: columnWidth, height: previewHeight),
-            controlCenter: CGRect(x: leftX, y: previewHeight, width: columnWidth,
+            preview: CGRect(x: 0, y: 0, width: leftWidth, height: previewHeight),
+            controlCenter: CGRect(x: 0, y: previewHeight, width: leftWidth,
                                   height: size.height - previewHeight),
-            tabControls: CGRect(x: tabX, y: 0, width: columnWidth, height: size.height)
+            tabControls: CGRect(x: rightX, y: 0, width: rightWidth, height: size.height)
         )
     }
 }

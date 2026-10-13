@@ -35,7 +35,15 @@ struct GroupScrollPreview: View {
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @GestureState private var isDragging = false
+    @GestureState private var isSwiftUIDragging = false
+    @State private var isNativeDragging = false
+    private var isDragging: Bool {
+        #if targetEnvironment(macCatalyst)
+        isSwiftUIDragging
+        #else
+        isNativeDragging
+        #endif
+    }
     @State private var drag: MemberDrag?
     @State private var dragTranslation: CGSize = .zero
     @State private var memberFrames: [String: CGRect] = [:]
@@ -138,6 +146,7 @@ struct GroupScrollPreview: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 layout { boardCells(members: members, frame: frame) }
             }
+            .accessibilityIdentifier("group.preview.scroll")
         }
         .coordinateSpace(name: group.id)
         .onPreferenceChange(MemberFrameKey.self) { memberFrames = $0 }
@@ -164,7 +173,29 @@ struct GroupScrollPreview: View {
                 .zIndex(drag?.sourceID == member.physicalBoardID ? 1 : 0)
                 // A short swipe remains available to the horizontal scroll
                 // view; only a completed long press activates board movement.
+                #if targetEnvironment(macCatalyst)
                 .gesture(memberDrag(memberID: member.physicalBoardID, ids: ids))
+                #else
+                .overlay {
+                    NativeMemberDragHandle(
+                        isEnabled: !coordinator.isStarting && drag?.released != true,
+                        onBegan: {
+                            beginMemberDrag(memberID: member.physicalBoardID, ids: ids)
+                            isNativeDragging = drag != nil
+                        },
+                        onChanged: { updateDrag(translation: $0) },
+                        onEnded: {
+                            updateDrag(translation: $0)
+                            finishDrag()
+                            isNativeDragging = false
+                        },
+                        onCancelled: {
+                            isNativeDragging = false
+                            cancelDrag()
+                        }
+                    )
+                }
+                #endif
                 .accessibilityActions {
                     if index > 0 {
                         Button("向左移动") { moveAccessibly(member.physicalBoardID, to: ids[index - 1]) }
@@ -215,24 +246,21 @@ struct GroupScrollPreview: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("板 \(index + 1)，\(name)，\(BoardGroupStatusFormatting.text(status))")
+        .accessibilityIdentifier("group.preview.member.\(member.physicalBoardID)")
+        .accessibilityValue("\(frame.litCount) / \(PackedFrame.ledCount)")
         .disabled(coordinator.isStarting)
     }
 
     private func memberDrag(memberID: String, ids: [String]) -> some Gesture {
         LongPressGesture(minimumDuration: 0.25)
             .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(group.id)))
-            .updating($isDragging) { value, active, _ in
+            .updating($isSwiftUIDragging) { value, active, _ in
                 if case .second(true, _) = value { active = true }
             }
             .onChanged { value in
                 guard !coordinator.isStarting, drag?.released != true,
                       case .second(true, let movement) = value else { return }
-                if drag == nil {
-                    let centers = ids.compactMap { memberFrames[$0]?.midX }
-                    guard centers.count == ids.count else { return }
-                    drag = MemberDrag(sourceID: memberID, originalIDs: ids,
-                                      slotCenters: centers, previewIDs: ids)
-                }
+                beginMemberDrag(memberID: memberID, ids: ids)
                 guard let movement else { return }
                 updateDrag(translation: movement.translation)
             }
@@ -245,6 +273,14 @@ struct GroupScrollPreview: View {
                 updateDrag(translation: movement.translation)
                 finishDrag()
             }
+    }
+
+    private func beginMemberDrag(memberID: String, ids: [String]) {
+        guard !coordinator.isStarting, drag == nil else { return }
+        let centers = ids.compactMap { memberFrames[$0]?.midX }
+        guard centers.count == ids.count else { return }
+        drag = MemberDrag(sourceID: memberID, originalIDs: ids,
+                          slotCenters: centers, previewIDs: ids)
     }
 
     private func updateDrag(translation: CGSize) {
@@ -305,6 +341,7 @@ struct GroupScrollPreview: View {
     }
 
     private func cancelDrag() {
+        isNativeDragging = false
         withAnimation(reorderAnimation) {
             drag = nil
             dragTranslation = .zero
@@ -389,3 +426,92 @@ private struct MemberFrameKey: PreferenceKey {
         value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
+
+#if !targetEnvironment(macCatalyst)
+/// One native recognizer covers the hold and the movement. A scroll pan waits
+/// for this recognizer to fail: short swipes exceed its movement tolerance and
+/// scroll normally, while a completed long press owns the subsequent drag.
+@MainActor
+private struct NativeMemberDragHandle: UIViewRepresentable {
+    var isEnabled: Bool
+    var onBegan: () -> Void
+    var onChanged: (CGSize) -> Void
+    var onEnded: (CGSize) -> Void
+    var onCancelled: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> HandleView {
+        let view = HandleView()
+        let recognizer = UILongPressGestureRecognizer(target: context.coordinator,
+                                                       action: #selector(Coordinator.handle(_:)))
+        recognizer.minimumPressDuration = 0.25
+        recognizer.allowableMovement = 10
+        recognizer.cancelsTouchesInView = false
+        view.addGestureRecognizer(recognizer)
+        view.recognizer = recognizer
+        return view
+    }
+
+    func updateUIView(_ view: HandleView, context: Context) {
+        context.coordinator.parent = self
+        view.recognizer?.isEnabled = isEnabled
+        view.bindScrollPans()
+    }
+
+    final class HandleView: UIView {
+        weak var recognizer: UILongPressGestureRecognizer?
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            bindScrollPans()
+        }
+        func bindScrollPans() {
+            guard let recognizer else { return }
+            var ancestor = superview
+            while let current = ancestor {
+                if let scroll = current as? UIScrollView {
+                    scroll.panGestureRecognizer.require(toFail: recognizer)
+                }
+                ancestor = current.superview
+            }
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var parent: NativeMemberDragHandle
+        private var origin: CGPoint?
+        init(_ parent: NativeMemberDragHandle) { self.parent = parent }
+
+        @objc func handle(_ recognizer: UILongPressGestureRecognizer) {
+            guard let view = recognizer.view, let window = view.window else { return }
+            let location = view.convert(recognizer.location(in: view), to: window)
+            // Keep the origin in window space so moving the cell cannot feed
+            // back into tracking. Convert both points using the current view:
+            // their difference follows its rotated axes and cancels its offset.
+            let translation: CGSize
+            if let origin {
+                let start = view.convert(origin, from: window)
+                let current = view.convert(location, from: window)
+                translation = CGSize(width: current.x - start.x, height: current.y - start.y)
+            } else {
+                translation = .zero
+            }
+            switch recognizer.state {
+            case .began:
+                origin = location
+                parent.onBegan()
+            case .changed:
+                parent.onChanged(translation)
+            case .ended:
+                parent.onEnded(translation)
+                origin = nil
+            case .cancelled, .failed:
+                if origin != nil { parent.onCancelled() }
+                origin = nil
+            default: break
+            }
+        }
+    }
+}
+#endif

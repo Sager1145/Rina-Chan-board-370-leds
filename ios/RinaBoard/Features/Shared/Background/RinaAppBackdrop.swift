@@ -77,6 +77,17 @@ extension View {
         }
     }
 
+    /// Native segmented controls own their rounded surface. An additional
+    /// grouped-list card creates a second opaque block around that surface.
+    func rinaSegmentedRow() -> some View {
+        self
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+    }
+
     /// See-through cards, so the backdrop's stars show under the rows like
     /// they do under the pill buttons. Apply to a `List`'s content: set on
     /// the `List` itself the row background never reaches its rows. A row
