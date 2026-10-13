@@ -85,9 +85,17 @@ struct RinaStarfield: View {
     /// default so previews and other callers that do not track visibility
     /// keep drawing.
     var isPageVisible = true
+    /// Identifies which page hosts this instance, for the DEBUG-only
+    /// per-second frame probe (PR-12 energy investigation). Never read in a
+    /// Release build.
+    var debugTag: String = "unknown"
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    #if DEBUG
+    @State private var frameProbe = RinaStarfieldFrameProbe()
+    #endif
 
     var body: some View {
         let isRunning = !isFrozen && !reduceMotion && !isPaused && scenePhase == .active
@@ -97,11 +105,13 @@ struct RinaStarfield: View {
                 let time: TimeInterval = isFrozen
                     ? RinaStarfieldSourceSpec.snapshotTime
                     : (reduceMotion ? 0 : RinaStarClock.shared.time(at: timeline.date))
-                // Energy investigation (PR-12): lets a signpost trace show
-                // whether this instance's timeline content closure keeps
-                // firing while its page is not visible (background tab,
-                // covered NavigationStack push).
+                // Measurement only (PR-12): confirms whether this instance's
+                // timeline content closure keeps firing while its page is not
+                // visible (background tab, covered NavigationStack push).
                 let _ = RinaPerf.signposter.emitEvent("StarfieldFrame")
+                #if DEBUG
+                let _ = frameProbe.recordFrame(tag: debugTag)
+                #endif
                 Canvas(rendersAsynchronously: true) { context, size in
                     Self.draw(elements: elements, in: &context, size: size, time: time)
                 }
@@ -114,6 +124,36 @@ struct RinaStarfield: View {
         .accessibilityHidden(true)
     }
 }
+
+#if DEBUG
+// MARK: - Frame probe (PR-12 measurement only)
+
+/// Counts how many times one `RinaStarfield` instance's `TimelineView`
+/// content closure fires, logging a rate once per second. A plain (non
+/// `@Observable`) reference type so incrementing it never itself triggers a
+/// SwiftUI re-render — it only observes frames that were already going to
+/// happen. DEBUG-only; not present in Release builds.
+@MainActor
+final class RinaStarfieldFrameProbe {
+    private let instanceID = UUID().uuidString.prefix(8)
+    private var frameCount = 0
+    private var windowStart = Date.now
+
+    /// Call once per `TimelineView` tick. `tag` identifies the hosting page
+    /// (e.g. "SettingsView"), so background/foreground pages can be told
+    /// apart in the log.
+    func recordFrame(tag: String) {
+        frameCount += 1
+        let now = Date.now
+        let elapsed = now.timeIntervalSince(windowStart)
+        guard elapsed >= 1.0 else { return }
+        let fps = Double(frameCount) / elapsed
+        print(String(format: "[StarfieldProbe] %@#%@ frames=%d (%.1f/s)", tag, String(instanceID), frameCount, fps))
+        frameCount = 0
+        windowStart = now
+    }
+}
+#endif
 
 // MARK: - Placement
 
