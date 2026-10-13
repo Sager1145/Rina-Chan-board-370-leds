@@ -11,6 +11,7 @@ struct LipSyncView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(LipSyncModel.self) private var model
     @Environment(BoardControlCenterModel.self) private var controlCenter
+    @Environment(\.duoWorkspace) private var duoWorkspace
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isMouthMappingPresented = false
 
@@ -43,7 +44,7 @@ struct LipSyncView: View {
             .rinaScrollBackground()
             .errorAlert($model.errorMessage)
             .navigationTitle("口型同步")
-            .toolbar(.hidden, for: .navigationBar)
+            .modifier(FoldedControlCenterToolbar())
             .contentMargins(.top, 0, for: .scrollContent)
         }
     }
@@ -322,7 +323,7 @@ struct LipSyncView: View {
     @ViewBuilder
     private var mouthMappingLink: some View {
         if let library = model.library {
-            if BoardPageColumns.isSplit(horizontalSizeClass) {
+            if BoardPageColumns.isSplit(horizontalSizeClass, duoWorkspace: duoWorkspace) {
                 Button {
                     isMouthMappingPresented = true
                 } label: {

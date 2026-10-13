@@ -5,6 +5,18 @@ import SwiftUI
 /// The Settings layout rule and the route that must survive it.
 @MainActor
 final class SettingsNavigationTests: XCTestCase {
+    func testExpandedDuoKeepsSettingsSplitAcrossRepeatedRotations() {
+        var mode: SettingsLayoutMode? = nil
+        for width: CGFloat in [950, 668, 950, 668, 950] {
+            mode = SettingsLayoutPolicy.resolve(width: width, horizontalSizeClass: .compact,
+                                                dynamicTypeSize: .large, previous: mode,
+                                                duoWorkspace: true)
+            XCTAssertEqual(mode, .split)
+        }
+        XCTAssertEqual(SettingsLayoutPolicy.resolve(width: 393, horizontalSizeClass: .compact,
+                                                     dynamicTypeSize: .large, previous: mode), .compact)
+    }
+
     private func resolve(_ width: CGFloat,
                          _ previous: SettingsLayoutMode?,
                          sizeClass: UserInterfaceSizeClass? = .regular,

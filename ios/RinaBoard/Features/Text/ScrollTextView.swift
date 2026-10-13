@@ -100,7 +100,7 @@ struct ScrollTextView: View {
             .listSectionSpacing(.compact)
             .rinaScrollBackground()
             .errorAlert(Bindable(model).errorMessage)
-            .toolbar(.hidden, for: .navigationBar)
+            .modifier(FoldedControlCenterToolbar())
             .contentMargins(.top, 0, for: .scrollContent)
         }
         .onAppear {

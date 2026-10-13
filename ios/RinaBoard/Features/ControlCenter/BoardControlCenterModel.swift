@@ -295,6 +295,7 @@ final class BoardControlCenterModel {
         selectedParentId = colorPresets?.parent(containing: normalized).map { String($0.id) }
         colorTouchUntil = Date().addingTimeInterval(2)
         activeConnection = connection
+        guard connection.connectionState == .connected else { return }
         colorSender.submit(normalized)
     }
 

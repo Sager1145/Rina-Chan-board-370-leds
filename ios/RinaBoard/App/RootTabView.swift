@@ -103,10 +103,10 @@ struct RootTabView: View {
         ZStack {
             if contentReady {
                 tabs
-                .tint(Color("AccentColor"))
                 .modifier(ControlCenterPresenter(isPresented: $showControlCenter,
                                                  detent: $controlCenterDetent,
                                                  namespace: controlCenterNamespace))
+                .tint(Color("AccentColor"))
                 .onChange(of: selectedTab) { previous, tab in
                     // Leaving 口型 releases the microphone. Beyond not leaving
                     // a recording indicator lit on a tab the user walked away
@@ -262,6 +262,7 @@ struct RootTabView: View {
             await textModel.debugBootstrapPreviewLoop()
         }
         #endif
+        .modifier(DuoWorkspaceAdapter())
     }
 
     private var tabs: some View {
@@ -271,7 +272,7 @@ struct RootTabView: View {
                 .tag(AppTab.control)
 
             ScrollTextView()
-                .tabItem { Label("文字滚动", systemImage: "t.square.fill") }
+                .tabItem { Label("文字滚动", image: "TabScrollText") }
                 .tag(AppTab.text)
 
             LipSyncView()
@@ -417,6 +418,8 @@ private struct MacWindowScrollEdges: ViewModifier {
 private struct ControlCenterPresenter: ViewModifier {
     @Environment(BoardConnection.self) private var connection
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.duoWorkspace) private var duoWorkspace
+    @Environment(\.foldedDuo) private var foldedDuo
     @Binding var isPresented: Bool
     @Binding var detent: PresentationDetent
     var namespace: Namespace.ID
@@ -439,7 +442,8 @@ private struct ControlCenterPresenter: ViewModifier {
     static let transitionSourceID = "controlCenter"
 
     private var placement: ControlCenterPlacement {
-        .resolve(splitLayout: BoardPageColumns.isSplit(horizontalSizeClass))
+        .resolve(splitLayout: BoardPageColumns.isSplit(horizontalSizeClass, duoWorkspace: duoWorkspace),
+                 foldedDuo: foldedDuo)
     }
 
     func body(content: Content) -> some View {
@@ -452,6 +456,37 @@ private struct ControlCenterPresenter: ViewModifier {
         // never presented in the two-column layout.
         if #available(iOS 26.0, *), placement != .settingsLink {
             accessoryHost(content)
+                .environment(\.boardControlCenterLauncher, (placement == .statusToolbar || duoWorkspace)
+                    ? BoardControlCenterLauncher(namespace: namespace, canExpand: true,
+                                                 isFolded: placement == .statusToolbar,
+                                                 isPresented: $isPresented,
+                                                 open: { openControlCenter() }) : nil)
+                .overlay {
+                    if placement == .statusToolbar || duoWorkspace {
+                        GeometryReader { proxy in
+                            // Anchor within the page's usable content, rather
+                            // than inside the native bar's separate host.
+                            Color.clear
+                                .frame(width: 1, height: 1)
+                                .allowsHitTesting(false)
+                                .popover(isPresented: $isPresented, attachmentAnchor: .rect(.bounds),
+                                         arrowEdge: .trailing) {
+                                    NavigationStack {
+                                        BoardControlCenterView(onDismiss: { isPresented = false })
+                                    }
+                                    .toolbarTitleDisplayMode(.inline)
+                                    .accessibilityElement(children: .contain)
+                                    .accessibilityIdentifier("controlCenter.popup")
+                                    .frame(width: min(360, max(200, proxy.size.width - 32)),
+                                           height: min(600, max(200, proxy.size.height - 32)))
+                                    .presentationCompactAdaptation(.none)
+                                    .tint(Color("AccentColor"))
+                                }
+                                .position(x: proxy.size.width - 8,
+                                          y: proxy.size.height / 2)
+                        }
+                    }
+                }
                 // Reopening starts at the detent it was opened at, not the one
                 // it was last dragged to: a sheet left at `.large` would
                 // otherwise collapse across twice the distance next time, into
@@ -475,7 +510,7 @@ private struct ControlCenterPresenter: ViewModifier {
                 // removing the modifier used to, so it does not reappear when
                 // the window is narrowed again.
                 .onChange(of: placement) { _, placement in
-                    if placement != .tabBarAccessory { isPresented = false }
+                    if placement == .previewColumn { isPresented = false }
                 }
         } else {
             content
@@ -503,6 +538,12 @@ private struct ControlCenterPresenter: ViewModifier {
         } else {
             content
         }
+    }
+
+    private func openControlCenter() {
+        guard !isPresented else { return }
+        useZoomTransition = !reduceMotion
+        isPresented = true
     }
 
     @available(iOS 26.0, *)
@@ -546,6 +587,8 @@ enum ControlCenterPlacement {
     /// The system tab-bar bottom accessory, which expands into a sheet
     /// (iOS 26+, single column).
     case tabBarAccessory
+    /// One status-only button in Duo’s native vertical bar.
+    case statusToolbar
     /// Inline under each page's board preview (the two-column iPad layout).
     /// Mac also embeds it in the single-column page's scrolling list.
     /// Settings has no preview and so shows no panel at all; it is one column
@@ -556,13 +599,14 @@ enum ControlCenterPlacement {
     /// one (§2).
     case settingsLink
 
-    static func resolve(splitLayout: Bool) -> ControlCenterPlacement {
+    static func resolve(splitLayout: Bool, foldedDuo: Bool = false) -> ControlCenterPlacement {
         #if targetEnvironment(macCatalyst)
         // Mac pages embed the panel in either the preview column or the
         // single scrolling list; the native titlebar has no bottom accessory.
         return .previewColumn
         #else
         if splitLayout { return .previewColumn }
+        if foldedDuo { return .statusToolbar }
         if #available(iOS 26.0, *) { return .tabBarAccessory }
         return .settingsLink
         #endif

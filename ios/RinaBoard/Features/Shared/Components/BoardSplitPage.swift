@@ -12,12 +12,13 @@ import SwiftUI
     /// windows are both regular-width, so the two columns hold in every
     /// orientation and only a genuinely narrow window (Slide Over, a thin
     /// Split View pane) drops back to one.
-    static func isSplit(_ horizontalSizeClass: UserInterfaceSizeClass?, windowWidth: CGFloat? = nil) -> Bool {
+    static func isSplit(_ horizontalSizeClass: UserInterfaceSizeClass?, windowWidth: CGFloat? = nil, duoWorkspace: Bool = false) -> Bool {
         #if targetEnvironment(macCatalyst)
         if let windowWidth {
             return MacWindowLayoutPolicy.sizeClass(forWidth: windowWidth) == .regular
         }
         #endif
+        if duoWorkspace { return true }
         return UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 }
@@ -41,6 +42,8 @@ import SwiftUI
 /// is apply `rinaTranslucentRows()` — this view applies it to both columns.
 struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.duoWorkspace) private var duoWorkspace
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #if targetEnvironment(macCatalyst)
     @Environment(\.macWindowWidth) private var windowWidth
     #endif
@@ -58,7 +61,9 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
     }
 
     var body: some View {
-        if isSplit {
+        if #available(iOS 27.1, *), duoWorkspace {
+            duoPage
+        } else if isSplit {
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
                     pinnedPreview
@@ -99,11 +104,45 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
         }
     }
 
+    @available(iOS 27.1, *)
+    private var duoPage: some View {
+        GeometryReader { proxy in
+            let division = proxy.reservedRegions(kind: .division, options: .includeInactive)
+                .first(where: \.isActive)?.frame
+            let frames = DuoWorkspaceFrames.resolve(size: proxy.size, division: division,
+                                                     stackLowerPanels: dynamicTypeSize.isAccessibilitySize)
+            DuoWorkspacePlacement(frames: frames, size: proxy.size) {
+                pinnedPreview
+                .environment(\.boardPreviewMaximumHeight,
+                             frames.tabControls.minY > 0 ? max(44, frames.preview.height - 64) : 420)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("board.workspace.preview")
+
+                List {
+                    Group { BoardControlCenterView(isEmbedded: true) }
+                        .rinaTranslucentRows()
+                }
+                .modifier(SharedControlCenterScroll())
+                .contentMargins(.leading, 12, for: .scrollContent)
+                .contentMargins(.trailing, 12 + (frames.controlCenter.maxX >= proxy.size.width
+                                               ? proxy.safeAreaInsets.trailing : 0), for: .scrollContent)
+                .accessibilityIdentifier("board.workspace.controlCenter")
+
+                List {
+                    Group { controls }.rinaTranslucentRows()
+                }
+                .contentMargins(.leading, 12, for: .scrollContent)
+                .contentMargins(.trailing, 12 + proxy.safeAreaInsets.trailing, for: .scrollContent)
+                .accessibilityIdentifier("board.workspace.tabControls")
+            }
+        }
+    }
+
     private var isSplit: Bool {
         #if targetEnvironment(macCatalyst)
         BoardPageColumns.isSplit(horizontalSizeClass, windowWidth: windowWidth)
         #else
-        BoardPageColumns.isSplit(horizontalSizeClass)
+        BoardPageColumns.isSplit(horizontalSizeClass, duoWorkspace: duoWorkspace)
         #endif
     }
 
@@ -117,7 +156,7 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
             status
                 .padding(.horizontal, 16)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, duoWorkspace ? 12 : 20)
         .padding(.bottom, 4)
     }
 }

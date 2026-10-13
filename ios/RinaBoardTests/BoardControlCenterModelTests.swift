@@ -32,4 +32,16 @@ final class BoardControlCenterModelTests: XCTestCase {
         XCTAssertEqual(model.effectiveFaceIndex(status: replacement), 2)
         XCTAssertNil(model.errorMessage)
     }
+    func testOfflineColorSelectionUpdatesDraftWithoutSendingACommand() async throws {
+        let model = BoardControlCenterModel()
+        let connection = BoardConnection()
+        await model.setColor(hex: "#abcdef", connection: connection)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(model.colorHexDraft, "#abcdef")
+        XCTAssertEqual(model.hexFieldText, "#abcdef")
+        XCTAssertTrue(model.hexFieldIsValid)
+        XCTAssertNil(model.errorMessage)
+        XCTAssertEqual(connection.connectionState, .disconnected)
+    }
+
 }

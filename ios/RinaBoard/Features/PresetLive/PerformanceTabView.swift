@@ -77,7 +77,7 @@ struct PerformanceTabView: View {
             }
             .listSectionSpacing(.compact)
             .rinaScrollBackground()
-            .toolbar(.hidden, for: .navigationBar)
+            .modifier(FoldedControlCenterToolbar())
             .contentMargins(.top, 0, for: .scrollContent)
             .errorAlert(Bindable(presetLive).errorMessage)
         }

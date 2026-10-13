@@ -41,6 +41,10 @@ struct BoardControlCenterAccessory: View {
     var transitionSourceID: String
     var transitionNamespace: Namespace.ID
 
+    /// Folded Duo exposes the existing controls as individual native toolbar items.
+    var toolbarControl: FoldedBoardControl? = nil
+    var foldedPresentation: Binding<Bool>? = nil
+
     /// Opens the expanded Control Center sheet.
     var onExpand: () -> Void
 
@@ -103,6 +107,40 @@ struct BoardControlCenterAccessory: View {
     }
 
     var body: some View {
+        if let toolbarControl {
+            switch toolbarControl {
+            case .mode: toolbarModeButton.disabled(!isConnected).accessibilityIdentifier("controlCenter.toolbar.mode")
+            case .previous: stepButton(direction: -1, symbol: "chevron.left", label: "上一个表情").disabled(!isConnected).accessibilityIdentifier("controlCenter.toolbar.previous")
+            case .next: stepButton(direction: 1, symbol: "chevron.right", label: "下一个表情").disabled(!isConnected).accessibilityIdentifier("controlCenter.toolbar.next")
+            case .color: colorControl.accessibilityIdentifier("controlCenter.toolbar.color")
+            case .status: statusButton
+            }
+        } else {
+            fullAccessory
+        }
+    }
+
+    private var statusButton: some View {
+            Button {
+                if let foldedPresentation { foldedPresentation.wrappedValue = true }
+                else { onExpand() }
+            } label: { toolbarStatus }
+            .buttonStyle(.plain)
+            .buttonBorderShape(.circle)
+            .accessibilityLabel(Text(accessibilityTitle))
+            .accessibilityValue(Text(accessibilitySummary))
+            .accessibilityHint("展开控制中心")
+            .accessibilityIdentifier("controlCenter.statusButton")
+
+    }
+
+    private var toolbarStatus: some View {
+        statusBadge
+            .modifier(ToolbarCircleGlyph(isEnabled: true))
+            .contentShape(.circle)
+    }
+
+    private var fullAccessory: some View {
         HStack(spacing: 0) {
             summary
             // Always present, dimmed while there is no board: the bar keeps a
@@ -221,13 +259,31 @@ struct BoardControlCenterAccessory: View {
         } label: {
             Image(systemName: symbol)
                 .font(.subheadline.weight(.semibold))
-                .frame(width: Self.slot, height: Self.slot)
-                .background(controlRing())
+                .frame(width: toolbarControl == nil ? Self.slot : nil,
+                       height: toolbarControl == nil ? Self.slot : nil)
+                .background { if toolbarControl == nil { controlRing() } }
+                .modifier(ToolbarCircleGlyph(isEnabled: toolbarControl != nil))
                 .contentShape(.rect)
         }
-        .buttonStyle(AccessoryControlStyle())
+        .modifier(AccessoryButtonChrome(isToolbar: toolbarControl != nil))
         .foregroundStyle(.primary)
         .accessibilityLabel(label)
+    }
+
+    /// An icon button keeps the native toolbar's circular button geometry.
+    private var toolbarModeButton: some View {
+        Button {
+            modeTicks += 1
+            Task { await toggleAutoMode() }
+        } label: {
+            Text(isAuto ? "A" : "M")
+                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .modifier(ToolbarCircleGlyph(isEnabled: true))
+        }
+        .buttonStyle(.plain)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel("自动模式")
+        .accessibilityValue(Text(isAuto ? "自动" : "手动"))
     }
 
     /// Auto/manual as a chrome-free toggle, the way Music draws shuffle and
@@ -251,12 +307,13 @@ struct BoardControlCenterAccessory: View {
                 .contentTransition(.opacity)
                 .font(.system(.subheadline, design: .rounded).weight(isAuto ? .bold : .semibold))
                 .foregroundStyle(isAuto ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                .frame(width: Self.slot, height: Self.slot)
-                .background(controlRing(filled: isAuto))
+                .frame(width: toolbarControl == nil ? Self.slot : nil,
+                       height: toolbarControl == nil ? Self.slot : nil)
+                .background { if toolbarControl == nil { controlRing(filled: isAuto) } }
                 .contentShape(.rect)
         }
         .toggleStyle(.button)
-        .buttonStyle(AccessoryControlStyle())
+        .modifier(AccessoryButtonChrome(isToolbar: toolbarControl != nil))
         .animation(.snappy(duration: 0.18), value: isAuto)
         .accessibilityLabel("自动模式")
         .accessibilityValue(Text(isAuto ? "自动" : "手动"))
@@ -292,15 +349,33 @@ struct BoardControlCenterAccessory: View {
     @ViewBuilder
     private var statusBadge: some View {
         if let targetedGroup {
-            let diameter = Self.groupRingDiameter(memberCount: targetedGroup.members.count)
-            HStack(spacing: 3) {
-                ForEach(targetedGroup.members, id: \.physicalBoardID) { member in
-                    BatteryRing(reading: memberBattery(member))
-                        .frame(width: diameter, height: diameter)
+            if toolbarControl == .status {
+                // The toolbar has one fixed circular slot. Detailed member
+                // rings remain in the accessory and full Control Center.
+                let readings = targetedGroup.members.map(memberBattery)
+                let levels = readings.compactMap { reading -> Int? in
+                    if case .level(let percent) = reading { return percent }
+                    return nil
                 }
+                let hasMissingBattery = readings.contains { reading in
+                    if case .notDetected = reading { return true }
+                    return false
+                }
+                BatteryRing(reading: hasMissingBattery ? .notDetected
+                            : (levels.count == readings.count ? levels.min().map { .level($0) } : nil))
+                    .frame(width: Self.ringDiameter, height: Self.ringDiameter)
+                    .accessibilityHidden(true)
+            } else {
+                let diameter = Self.groupRingDiameter(memberCount: targetedGroup.members.count)
+                HStack(spacing: 3) {
+                    ForEach(targetedGroup.members, id: \.physicalBoardID) { member in
+                        BatteryRing(reading: memberBattery(member))
+                            .frame(width: diameter, height: diameter)
+                    }
+                }
+                .frame(height: Self.ringDiameter)
+                .accessibilityHidden(true)
             }
-            .frame(height: Self.ringDiameter)
-            .accessibilityHidden(true)
         } else {
             Group {
                 if let battery = connection.batteryReading {
@@ -381,23 +456,29 @@ struct BoardControlCenterAccessory: View {
                 }
             }
         } label: {
-            Circle()
-                .fill(model.draftColor)
+            swatchImage(hex: model.colorHexDraft)
+                .renderingMode(.original)
+                .resizable()
                 .frame(width: Self.dotDiameter, height: Self.dotDiameter)
                 // Same cell as the buttons, so the dot sits on the row's rhythm.
-                .frame(width: Self.slot, height: Self.slot)
-                .background(controlRing())
+                .frame(width: toolbarControl == nil ? Self.slot : nil,
+                       height: toolbarControl == nil ? Self.slot : nil)
+                .background { if toolbarControl == nil { controlRing() } }
+                .modifier(ToolbarCircleGlyph(isEnabled: toolbarControl != nil))
                 .contentShape(.rect)
         }
-        .buttonStyle(AccessoryControlStyle())
+        .modifier(AccessoryButtonChrome(isToolbar: toolbarControl != nil))
         // The accessory sits at the bottom of the screen, so the menu opens
         // upwards; keep the presets in their JSON order rather than reversed.
         .menuOrder(.fixed)
+        .menuIndicator(.hidden)
+        .modifier(ToolbarColorMenuStyle(isEnabled: toolbarControl != nil))
         .disabled(model.colorPresets?.parents.isEmpty != false)
         // The dot is custom-filled, so it keeps full strength when disabled;
         // the cluster's grayscale handles the hue, this handles the weight.
-        .opacity(isConnected ? 1 : 0.4)
+        .opacity(isConnected || toolbarControl != nil ? 1 : 0.4)
         .accessibilityLabel("面板颜色")
+        .accessibilityValue(Text(model.colorHexDraft))
     }
 
     /// The solid colour dot's diameter, inside the 32pt ring.
@@ -421,9 +502,12 @@ struct BoardControlCenterAccessory: View {
     /// swatch is baked into an original-rendering `UIImage` instead.
     private func swatchImage(hex: String) -> Image {
         let color = UIColor(Color(hex: hex) ?? .rinaPink)
-        let symbol = UIImage(systemName: "circle.fill")?
-            .withTintColor(color, renderingMode: .alwaysOriginal)
-        return symbol.map { Image(uiImage: $0) } ?? Image(systemName: "circle.fill")
+        let size = CGSize(width: Self.dotDiameter, height: Self.dotDiameter)
+        let bitmap = UIGraphicsImageRenderer(size: size).image { context in
+            color.setFill()
+            context.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
+        }
+        return Image(uiImage: bitmap.withRenderingMode(.alwaysOriginal))
     }
 
     private func isCurrentColor(_ hex: String) -> Bool {
@@ -620,5 +704,41 @@ private struct BarHeightKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
+    }
+}
+
+@available(iOS 26.0, *)
+private struct AccessoryButtonChrome: ViewModifier {
+    let isToolbar: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if isToolbar { content.buttonStyle(AccessoryControlStyle()).buttonBorderShape(.circle) }
+        else { content.buttonStyle(AccessoryControlStyle()) }
+    }
+}
+
+@available(iOS 26.0, *)
+private struct ToolbarCircleGlyph: ViewModifier {
+    let isEnabled: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if isEnabled {
+            content
+                .frame(width: AppLayout.minimumTapTarget, height: AppLayout.minimumTapTarget)
+                .glassEffect(.regular, in: .circle)
+        } else {
+            content
+        }
+    }
+}
+
+@available(iOS 26.0, *)
+private struct ToolbarColorMenuStyle: ViewModifier {
+    let isEnabled: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if isEnabled {
+            content.menuStyle(.button)
+                .frame(width: AppLayout.minimumTapTarget, height: AppLayout.minimumTapTarget)
+        } else {
+            content
+        }
     }
 }

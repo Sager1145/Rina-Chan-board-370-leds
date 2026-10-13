@@ -24,6 +24,7 @@ struct SettingsView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.duoWorkspace) private var duoWorkspace
     #if targetEnvironment(macCatalyst)
     @Environment(\.macWindowWidth) private var windowWidth
     #endif
@@ -42,7 +43,8 @@ struct SettingsView: View {
             // already the right layout; `previous` carries the hysteresis.
             let mode = SettingsLayoutPolicy.resolve(
                 width: proxy.size.width, horizontalSizeClass: layoutSizeClass,
-                dynamicTypeSize: dynamicTypeSize, previous: workspace.layoutMode)
+                dynamicTypeSize: dynamicTypeSize, previous: workspace.layoutMode,
+                duoWorkspace: duoWorkspace)
             Group {
                 switch mode {
                 case .split: SettingsSplitLayout()
@@ -59,6 +61,7 @@ struct SettingsView: View {
             workspace.boardChanged(to: connection)
         }
         .modifier(SettingsDialogs())
+        .modifier(SettingsTitleVisibility())
     }
 }
 
@@ -70,49 +73,52 @@ struct SettingsView: View {
 /// only the category list.
 private struct SettingsSplitLayout: View {
     @Environment(SettingsWorkspace.self) private var workspace
-
+    @Environment(\.duoWorkspace) private var duoWorkspace
     var body: some View {
         let shown = workspace.selection ?? workspace.lastVisited
-        HStack(spacing: 0) {
-            // A stack of its own, bar hidden, like the other tabs' pages:
-            // outside one, the list slides up under the tab bar whenever the
-            // page beside it shows a navigation bar (多板组, a pushed editor).
-            NavigationStack {
-                List {
-                    Group {
-                        // Highlights the page on screen, which is the last
-                        // one visited when the single-column layout was left
-                        // on its list.
-                        SettingsCategoryRows(shown: shown) { workspace.selection = $0 }
+        NavigationStack {
+            GeometryReader { proxy in
+                SettingsColumnPlacement(size: proxy.size, division: division(in: proxy)) {
+                    List {
+                        Group {
+                            SettingsCategoryRows(shown: shown) { workspace.selection = $0 }
+                        }
+                        .rinaTranslucentRows()
                     }
-                    .rinaTranslucentRows()
-                }
-                .listSectionSpacing(.compact)
-                .rinaScrollBackground()
-                .toolbar(.hidden, for: .navigationBar)
-                .contentMargins(.top, 0, for: .scrollContent)
-                .accessibilityIdentifier("settings.sidebar")
-            }
-            // Equal halves, measured against the page — see `BoardSplitPage`.
-            .containerRelativeFrame(.horizontal, count: 2, span: 1, spacing: 0)
+                    .listSectionSpacing(.compact)
+                    .rinaScrollBackground()
+                    .contentMargins(.top, 0, for: .scrollContent)
+                    .contentMargins(.horizontal, 12, for: .scrollContent)
+                    .accessibilityIdentifier("settings.sidebar")
 
-            // Its own stack so a page can push further pages inside the
-            // detail column. Keyed on the category so switching category
-            // starts that page at its root instead of inheriting a push.
-            NavigationStack {
-                // With nothing selected (the single-column layout was left
-                // on its list) the last page is only shown, not opened: it
-                // must not start network work just because the window grew.
-                SettingsDetail(category: shown, isPassive: workspace.selection == nil,
-                               hidesBar: true)
+                    // Keep pushed editors in the detail column. Only the
+                    // outer stack owns the window's control toolbar, so its
+                    // safe content width is divided once, above both lists.
+                    NavigationStack {
+                        SettingsDetail(category: shown, isPassive: workspace.selection == nil,
+                                       hidesBar: true)
+                    }
+                    .contentMargins(.leading, 12, for: .scrollContent)
+                    // Scroll views extend beneath the native trailing bar.
+                    // Preserve its measured exclusion when setting margins.
+                    .contentMargins(.trailing, 12 + proxy.safeAreaInsets.trailing, for: .scrollContent)
+                    .environment(\.boardControlCenterLauncher, nil)
+                    .id(shown)
+                }
             }
-            .id(shown)
+            .modifier(FoldedControlCenterToolbar())
+            .background { RinaAppBackdrop() }
+            .environment(\.rinaBackdropIsShared, true)
         }
-        // One backdrop under both columns; the pages' own would each fill
-        // only the detail column and leave a seam down the middle.
-        .background { RinaAppBackdrop() }
-        .environment(\.rinaBackdropIsShared, true)
     }
+    private func division(in proxy: GeometryProxy) -> CGRect? {
+        if #available(iOS 27.1, *), duoWorkspace {
+            return proxy.reservedRegions(kind: .division, options: .includeInactive)
+                .first(where: \.isActive)?.frame
+        }
+        return nil
+    }
+
 }
 
 /// The category list, pushing the selected page.
@@ -129,6 +135,7 @@ private struct SettingsStackLayout: View {
             }
             .listSectionSpacing(.compact)
             .rinaScrollBackground()
+            .modifier(FoldedControlCenterToolbar(hidesNavigationBar: false))
             .navigationTitle("设置")
             // A large title sits under a bar row that has nothing in it here,
             // which reads as a blank band above the page.
@@ -293,10 +300,26 @@ private struct SettingsDetail: View {
         // a container would be stamped onto every element inside it.
         // In the detail column the bar row above a large title is empty too.
         .toolbarTitleDisplayMode(.inline)
-        .toolbar(hidesBar && category != .groups ? .hidden : .automatic, for: .navigationBar)
+        .modifier(SettingsTitleVisibility())
+        .modifier(FoldedControlCenterToolbar(hidesNavigationBar: hidesBar && category != .groups))
         .modifier(BarlessTopMargin(isEnabled: hidesBar && category != .groups))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("settings.detail.\(category.rawValue)")
+    }
+}
+
+/// Retain native controls and navigation while omitting menu titles on Duo.
+private struct SettingsTitleVisibility: ViewModifier {
+    @Environment(\.duoWorkspace) private var duoWorkspace
+    @Environment(\.foldedDuo) private var foldedDuo
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *), duoWorkspace || foldedDuo {
+            content.toolbar(removing: .title)
+        } else {
+            content
+        }
     }
 }
 

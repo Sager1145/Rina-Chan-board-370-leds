@@ -38,16 +38,18 @@ struct FacePartSelectorView: View {
                     }
                 }
                 .padding(.vertical, 6)
-                // Callers inset the row 16pt on the leading side only; mirror
-                // it at the end so the last option's selection border isn't
-                // cut off by the row's trailing edge.
-                .padding(.trailing, 16)
+                // Both ends stay inside the card's rounded boundary.
+                .padding(.horizontal, 16)
             }
-            .scrollClipDisabled()
             .onChange(of: selectedId, initial: true) { _, id in
                 if let id { proxy.scrollTo(id, anchor: .center) }
             }
         }
+        .background {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground).opacity(0.75))
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func option(id: String, number: Int) -> some View {

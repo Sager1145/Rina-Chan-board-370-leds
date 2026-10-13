@@ -62,7 +62,8 @@ struct DebugView: View {
             .accessibilityIdentifier("debug.workspace")
             .padding(.horizontal)
             .padding(.vertical, 10)
-            .background(.bar)
+            // Keep the inset transparent; the native segmented picker owns
+            // its rounded surface over the page's shared Rina backdrop.
         }
         // The model outlives this page, so being rebuilt by a Settings
         // layout change is not a new session and does not reload what is

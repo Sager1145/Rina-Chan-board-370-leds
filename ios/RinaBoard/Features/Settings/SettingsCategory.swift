@@ -116,7 +116,9 @@ enum SettingsLayoutPolicy {
     static func resolve(width: CGFloat,
                         horizontalSizeClass: UserInterfaceSizeClass?,
                         dynamicTypeSize: DynamicTypeSize,
-                        previous: SettingsLayoutMode?) -> SettingsLayoutMode {
+                        previous: SettingsLayoutMode?,
+                        duoWorkspace: Bool = false) -> SettingsLayoutMode {
+        if duoWorkspace, width > 0, !dynamicTypeSize.isAccessibilitySize { return .split }
         // The other tabs' pages are one column in a compact width class
         // (`BoardPageColumns`); two columns here would not match them.
         guard horizontalSizeClass == .regular, width > 0 else { return .compact }

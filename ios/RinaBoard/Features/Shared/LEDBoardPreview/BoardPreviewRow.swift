@@ -67,6 +67,7 @@ struct BoardPreviewRow: View {
     /// Same reasoning as `controlCenter` above: optional so `#Preview`s and
     /// test hosts that don't inject `AppRouter` don't crash.
     @Environment(AppRouter.self) private var router: AppRouter?
+    @Environment(\.boardPreviewMaximumHeight) private var paneMaximumHeight
     @AppStorage(AppSettingsKey.showBoardPhoto) private var showBoardPhoto = true
 
     /// True while the launch gate is holding this row blank.
@@ -121,7 +122,7 @@ struct BoardPreviewRow: View {
             // Inside the row sizing, so the frame the magnified board is
             // clipped and faded against is the board's own box.
             .boardPreviewZoom(zoom)
-            .boardPreviewRow(showBoardImage: showBoardPhoto, maxHeight: maxHeight)
+            .boardPreviewRow(showBoardImage: showBoardPhoto, maxHeight: min(maxHeight, paneMaximumHeight))
             // Zero insets: the row must not bleed past the cell, or the cell
             // clips the board photo at the left and right edges.
             .listRowInsets(EdgeInsets())
@@ -342,7 +343,7 @@ private struct BoardPreviewRowLayout: Layout {
             // the preview answer for itself.
             return subviews.first?.sizeThatFits(proposal) ?? .zero
         }
-        return CGSize(width: width, height: min(width / aspectRatio, maxHeight))
+        return CGSize(width: width, height: min(width / aspectRatio, maxHeight, proposal.height ?? .infinity))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {

@@ -84,7 +84,7 @@ struct ControlView: View {
             .onChange(of: ObjectIdentifier(connection)) { _, _ in
                 model.syncBoardHint(connection: connection)
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .modifier(FoldedControlCenterToolbar())
             // No navigation bar, so the list's default top margin only pushes
             // the board away from the status bar.
             .contentMargins(.top, 0, for: .scrollContent)
@@ -377,7 +377,8 @@ struct ControlView: View {
                         model.selectPart(group: group, id: id, connection: connection)
                         toggleCount += 1
                     }
-                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 0))
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
                 }
             }
             .bootReveal(index: 2)

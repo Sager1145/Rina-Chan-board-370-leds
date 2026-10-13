@@ -1,0 +1,71 @@
+import SwiftUI
+import XCTest
+@testable import RinaBoard
+
+final class DuoWorkspaceLayoutTests: XCTestCase {
+    func testHorizontalFoldKeepsBothControlPanelsBelowTheReservedBand() {
+        let frames = DuoWorkspaceFrames.resolve(
+            size: CGSize(width: 668, height: 900),
+            division: CGRect(x: 0, y: 420, width: 668, height: 24), stackLowerPanels: false)
+        XCTAssertEqual(frames.preview, CGRect(x: 0, y: 0, width: 668, height: 420))
+        XCTAssertEqual(frames.controlCenter, CGRect(x: 0, y: 444, width: 334, height: 456))
+        XCTAssertEqual(frames.tabControls, CGRect(x: 334, y: 444, width: 334, height: 456))
+    }
+
+    func testVerticalFoldSeparatesTheTabAndLeavesRoomForBoardControls() {
+        let frames = DuoWorkspaceFrames.resolve(
+            size: CGSize(width: 950, height: 668),
+            division: CGRect(x: 450, y: 0, width: 24, height: 668), stackLowerPanels: false)
+        XCTAssertEqual(frames.preview.minX, 0)
+        XCTAssertEqual(frames.preview.maxX, 450)
+        XCTAssertEqual(frames.controlCenter.maxX, 450)
+        XCTAssertEqual(frames.tabControls, CGRect(x: 500, y: 0, width: 450, height: 668))
+        XCTAssertEqual(frames.controlCenter.width, frames.tabControls.width)
+        XCTAssertEqual(frames.preview.maxY, frames.controlCenter.minY)
+        XCTAssertGreaterThan(frames.controlCenter.height, 300)
+        XCTAssertEqual(frames.controlCenter.maxY, 668)
+    }
+
+    func testKeyboardCannotLeaveTheEditorAtZeroHeightAboveAHorizontalFold() {
+        let frames = DuoWorkspaceFrames.resolve(
+            size: CGSize(width: 668, height: 400),
+            division: CGRect(x: 0, y: 420, width: 668, height: 24), stackLowerPanels: false)
+        XCTAssertGreaterThan(frames.tabControls.height, 160)
+        XCTAssertLessThanOrEqual(frames.preview.maxY, 400)
+        XCTAssertLessThanOrEqual(frames.controlCenter.maxY, 400)
+        XCTAssertLessThanOrEqual(frames.tabControls.maxY, 400)
+    }
+
+    func testFlatDisplayHasNoArtificialFoldGap() {
+        let frames = DuoWorkspaceFrames.resolve(size: CGSize(width: 950, height: 668),
+                                                division: nil, stackLowerPanels: false)
+        XCTAssertEqual(frames.preview.maxX, 475)
+        XCTAssertEqual(frames.controlCenter.maxX, 475)
+        XCTAssertEqual(frames.tabControls.minX, 475)
+        XCTAssertEqual(frames.tabControls.maxX, 950)
+    }
+
+    func testAccessibilityPanelsStackWithinTheLowerRegion() {
+        let frames = DuoWorkspaceFrames.resolve(
+            size: CGSize(width: 668, height: 900),
+            division: CGRect(x: 0, y: 420, width: 668, height: 24), stackLowerPanels: true)
+        XCTAssertEqual(frames.controlCenter, CGRect(x: 0, y: 444, width: 668, height: 228))
+        XCTAssertEqual(frames.tabControls, CGRect(x: 0, y: 672, width: 668, height: 228))
+    }
+    func testRotationDiscardsThePreviousOrientationsDivision() {
+        let landscape = CGSize(width: 950, height: 668)
+        let portrait = CGSize(width: 668, height: 950)
+        let oldHorizontal = CGRect(x: 0, y: 450, width: 668, height: 24)
+        let oldVertical = CGRect(x: 450, y: 0, width: 24, height: 668)
+        XCTAssertNil(DuoWorkspaceFrames.validDivision(oldHorizontal, in: landscape))
+        XCTAssertNil(DuoWorkspaceFrames.validDivision(oldVertical, in: portrait))
+        for size in [landscape, portrait, landscape, portrait] {
+            let stale = size == landscape ? oldHorizontal : oldVertical
+            let frames = DuoWorkspaceFrames.resolve(size: size, division: stale, stackLowerPanels: false)
+            XCTAssertEqual(frames.tabControls.minY, 0)
+            XCTAssertEqual(frames.tabControls.width, frames.controlCenter.width)
+            XCTAssertEqual(frames.tabControls.maxX, size.width)
+        }
+    }
+
+}

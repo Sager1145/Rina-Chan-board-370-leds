@@ -1,9 +1,9 @@
 # RinaBoard iOS app
 
-Open `RinaBoard.xcodeproj` in Xcode 27.0 (the verified toolchain), or run the
+Open `RinaBoard.xcodeproj` in Xcode 27.1 or newer (Duo layout APIs require the iOS 27.1 SDK), or run the
 command below, and build the `RinaBoard` scheme for an iOS 17+ simulator or device.
 The minimum deployment target is iOS 17; this is separate from the build SDK.
-Sources reference iOS 26.1 APIs behind runtime availability checks, so Xcode 16
+Sources reference iOS 27.1 APIs behind runtime availability checks, so Xcode 16
 cannot compile them. Older Xcode releases have not been validated by this audit.
 The app remains in Swift 5 language mode; RinaCore uses Swift 6. Run
 `tools/verify_ios.sh` from the repository root for the package, app tests and
@@ -107,3 +107,5 @@ firmware falls back to its last frame reason.
 Streams started before identity reporting was added can select their page,
 but must be started once from the updated app before automatic live recovery
 can identify them reliably.
+
+Duo uses the public reserved-region APIs for its inner-screen workspace. Folded mode places M, color and the status/expand button above the native tab sidebar; the last button opens the full Control Center. Expanded and half-folded landscape show M, previous/next and color; the full Control Center is inline. Column previews are pinned and fill their column width. Half-folded portrait pins the preview above the fold with board controls and tab controls below. Landscape keeps preview and board controls on the left and tab controls on the right. At accessibility text sizes, the lower portrait panes stack so labels and controls remain usable. The downloaded research guide is `docs/APPLE_ADAPTIVE_UI_GUIDE_2026_10_13.md`; its matrix is a research plan, not a record of local test passes.

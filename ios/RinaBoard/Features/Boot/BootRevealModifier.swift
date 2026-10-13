@@ -17,11 +17,13 @@ private struct BootRevealModifier: ViewModifier {
     func body(content: Content) -> some View {
         let revealed = model.isCardRevealed(index: index)
         content
-            .opacity(revealed ? 1 : 0)
-            .animation(reduceMotion ? nil : Self.fade, value: revealed)
+            .animation(reduceMotion ? nil : Self.fade) { view in
+                view.opacity(revealed ? 1 : 0)
+            }
             // Reduced motion: `transition-duration: 1ms; transform: none`.
-            .offset(y: revealed || reduceMotion ? 0 : 10)
-            .animation(reduceMotion ? nil : Self.rise, value: revealed)
+            .animation(reduceMotion ? nil : Self.rise) { view in
+                view.offset(y: revealed || reduceMotion ? 0 : 10)
+            }
     }
 }
 
