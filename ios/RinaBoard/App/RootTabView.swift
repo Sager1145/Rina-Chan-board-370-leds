@@ -229,6 +229,17 @@ struct RootTabView: View {
             guard !Task.isCancelled else { return }
             bootLoader.replay()
         }
+        #if DEBUG || RINA_PERF_LOG
+        .task {
+            // `-videoPerfProbe`: PR-11 item 2 measurement bootstrap. See
+            // `VideoPerfProbe` for what it does; inert unless the launch
+            // argument is set. `connection` here is whatever this session
+            // holds, typically disconnected on a simulator with no paired
+            // board — sufficient, since `tick()` decodes/converts/quantizes
+            // every frame regardless of connection state.
+            await VideoPerfProbe.run(video: video, connection: connection)
+        }
+        #endif
     }
 
     private var tabs: some View {

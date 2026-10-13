@@ -795,10 +795,27 @@ final class VideoPlayerModel {
     /// quantize to a board frame.
     @Sendable nonisolated private static func processFrame(_ job: VideoFrameJob) -> VideoFrameResult? {
         let state = RinaPerf.signposter.beginInterval("VideoFrameProcess")
-        defer { RinaPerf.signposter.endInterval("VideoFrameProcess", state) }
+        #if DEBUG || RINA_PERF_LOG
+        let frameStart = ContinuousClock.now
+        #endif
+        defer {
+            RinaPerf.signposter.endInterval("VideoFrameProcess", state)
+            #if DEBUG || RINA_PERF_LOG
+            VideoFrameTiming.record(stage: "VideoFrameProcess", elapsed: ContinuousClock.now - frameStart)
+            VideoFrameTiming.frameCompleted()
+            #endif
+        }
         guard let decoded = luma(from: job.buffer),
               let luma = orientedLuma(decoded, transform: job.transform) else { return nil }
+        let quantizeState = RinaPerf.signposter.beginInterval("VideoQuantize")
+        #if DEBUG || RINA_PERF_LOG
+        let quantizeStart = ContinuousClock.now
+        #endif
         let frame = VideoFrameQuantizer.frame(from: luma, settings: job.settings)
+        RinaPerf.signposter.endInterval("VideoQuantize", quantizeState)
+        #if DEBUG || RINA_PERF_LOG
+        VideoFrameTiming.record(stage: "VideoQuantize", elapsed: ContinuousClock.now - quantizeStart)
+        #endif
         return VideoFrameResult(luma: luma, frame: frame, settings: job.settings)
     }
 
@@ -914,16 +931,37 @@ final class VideoPlayerModel {
     /// Rec. 709 luma from a BGRA buffer. Strides over the source when the
     /// output ignored the requested size, so cost stays bounded either way.
     nonisolated private static func luma(from buffer: CVPixelBuffer) -> VideoFrameQuantizer.LumaImage? {
+        let state = RinaPerf.signposter.beginInterval("VideoLumaConvert")
+        #if DEBUG || RINA_PERF_LOG
+        let start = ContinuousClock.now
+        #endif
+        defer {
+            RinaPerf.signposter.endInterval("VideoLumaConvert", state)
+            #if DEBUG || RINA_PERF_LOG
+            VideoFrameTiming.record(stage: "VideoLumaConvert", elapsed: ContinuousClock.now - start)
+            #endif
+        }
+        let lockState = RinaPerf.signposter.beginInterval("VideoPixelLock")
+        #if DEBUG || RINA_PERF_LOG
+        let lockStart = ContinuousClock.now
+        #endif
         CVPixelBufferLockBaseAddress(buffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
         guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA,
-              let base = CVPixelBufferGetBaseAddress(buffer) else { return nil }
+              let base = CVPixelBufferGetBaseAddress(buffer) else {
+            RinaPerf.signposter.endInterval("VideoPixelLock", lockState)
+            return nil
+        }
         let width = CVPixelBufferGetWidth(buffer)
         let height = CVPixelBufferGetHeight(buffer)
         let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
         let stride = max(1, Int((Double(max(width, height)) / Double(samplingEdge)).rounded(.up)))
         let w = width / stride
         let h = height / stride
+        RinaPerf.signposter.endInterval("VideoPixelLock", lockState)
+        #if DEBUG || RINA_PERF_LOG
+        VideoFrameTiming.record(stage: "VideoPixelLock", elapsed: ContinuousClock.now - lockStart)
+        #endif
         guard w > 0, h > 0 else { return nil }
         let source = base.assumingMemoryBound(to: UInt8.self)
         var pixels = [UInt8](repeating: 0, count: w * h)
