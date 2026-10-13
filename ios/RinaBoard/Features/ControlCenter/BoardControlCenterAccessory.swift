@@ -112,7 +112,11 @@ struct BoardControlCenterAccessory: View {
             case .mode: toolbarModeButton.disabled(!isConnected).accessibilityIdentifier("controlCenter.toolbar.mode")
             case .previous: stepButton(direction: -1, symbol: "chevron.left", label: "上一个表情").disabled(!isConnected).accessibilityIdentifier("controlCenter.toolbar.previous")
             case .next: stepButton(direction: 1, symbol: "chevron.right", label: "下一个表情").disabled(!isConnected).accessibilityIdentifier("controlCenter.toolbar.next")
-            case .color: colorControl.accessibilityIdentifier("controlCenter.toolbar.color")
+            case .color:
+                NativeToolbarColorMenu(hex: model.colorHexDraft, presets: model.colorPresets) { hex in
+                    Task { await model.setColor(hex: hex, connection: connection) }
+                }
+                .frame(width: Self.slot, height: Self.slot)
             case .status: statusButton
             }
         } else {
@@ -125,8 +129,7 @@ struct BoardControlCenterAccessory: View {
                 if let foldedPresentation { foldedPresentation.wrappedValue = true }
                 else { onExpand() }
             } label: { toolbarStatus }
-            .buttonStyle(.plain)
-            .buttonBorderShape(.circle)
+            .modifier(AccessoryButtonChrome(isToolbar: true))
             .accessibilityLabel(Text(accessibilityTitle))
             .accessibilityValue(Text(accessibilitySummary))
             .accessibilityHint("展开控制中心")
@@ -136,7 +139,6 @@ struct BoardControlCenterAccessory: View {
 
     private var toolbarStatus: some View {
         statusBadge
-            .modifier(ToolbarCircleGlyph(isEnabled: true))
             .contentShape(.circle)
     }
 
@@ -262,11 +264,11 @@ struct BoardControlCenterAccessory: View {
                 .frame(width: toolbarControl == nil ? Self.slot : nil,
                        height: toolbarControl == nil ? Self.slot : nil)
                 .background { if toolbarControl == nil { controlRing() } }
-                .modifier(ToolbarCircleGlyph(isEnabled: toolbarControl != nil))
                 .contentShape(.rect)
         }
         .modifier(AccessoryButtonChrome(isToolbar: toolbarControl != nil))
         .foregroundStyle(.primary)
+        .controlSize(toolbarControl == nil ? .regular : .large)
         .accessibilityLabel(label)
     }
 
@@ -278,11 +280,10 @@ struct BoardControlCenterAccessory: View {
         } label: {
             Text(isAuto ? "A" : "M")
                 .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                .modifier(ToolbarCircleGlyph(isEnabled: true))
         }
-        .buttonStyle(.plain)
-        .buttonBorderShape(.circle)
+        .modifier(AccessoryButtonChrome(isToolbar: true))
         .accessibilityLabel("自动模式")
+        .controlSize(.large)
         .accessibilityValue(Text(isAuto ? "自动" : "手动"))
     }
 
@@ -464,7 +465,6 @@ struct BoardControlCenterAccessory: View {
                 .frame(width: toolbarControl == nil ? Self.slot : nil,
                        height: toolbarControl == nil ? Self.slot : nil)
                 .background { if toolbarControl == nil { controlRing() } }
-                .modifier(ToolbarCircleGlyph(isEnabled: toolbarControl != nil))
                 .contentShape(.rect)
         }
         .modifier(AccessoryButtonChrome(isToolbar: toolbarControl != nil))
@@ -472,7 +472,6 @@ struct BoardControlCenterAccessory: View {
         // upwards; keep the presets in their JSON order rather than reversed.
         .menuOrder(.fixed)
         .menuIndicator(.hidden)
-        .modifier(ToolbarColorMenuStyle(isEnabled: toolbarControl != nil))
         .disabled(model.colorPresets?.parents.isEmpty != false)
         // The dot is custom-filled, so it keeps full strength when disabled;
         // the cluster's grayscale handles the hue, this handles the weight.
@@ -501,13 +500,7 @@ struct BoardControlCenterAccessory: View {
     /// Menus re-tint SwiftUI foreground styles to the label colour, so the
     /// swatch is baked into an original-rendering `UIImage` instead.
     private func swatchImage(hex: String) -> Image {
-        let color = UIColor(Color(hex: hex) ?? .rinaPink)
-        let size = CGSize(width: Self.dotDiameter, height: Self.dotDiameter)
-        let bitmap = UIGraphicsImageRenderer(size: size).image { context in
-            color.setFill()
-            context.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
-        }
-        return Image(uiImage: bitmap.withRenderingMode(.alwaysOriginal))
+        Image(uiImage: toolbarColorSwatch(hex: hex))
     }
 
     private func isCurrentColor(_ hex: String) -> Bool {
@@ -711,34 +704,94 @@ private struct BarHeightKey: PreferenceKey {
 private struct AccessoryButtonChrome: ViewModifier {
     let isToolbar: Bool
     @ViewBuilder func body(content: Content) -> some View {
-        if isToolbar { content.buttonStyle(AccessoryControlStyle()).buttonBorderShape(.circle) }
+        if isToolbar {
+            content
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .buttonSizing(.flexible)
+                .frame(width: AppLayout.minimumTapTarget, height: AppLayout.minimumTapTarget)
+        }
         else { content.buttonStyle(AccessoryControlStyle()) }
     }
 }
 
+
 @available(iOS 26.0, *)
-private struct ToolbarCircleGlyph: ViewModifier {
-    let isEnabled: Bool
-    @ViewBuilder func body(content: Content) -> some View {
-        if isEnabled {
-            content
-                .frame(width: AppLayout.minimumTapTarget, height: AppLayout.minimumTapTarget)
-                .glassEffect(.regular, in: .circle)
+@MainActor
+private struct NativeToolbarColorMenu: UIViewRepresentable {
+    let hex: String
+    let presets: ColorPresets?
+    let onSelect: @MainActor (String) -> Void
+
+    @MainActor
+    final class Coordinator {
+        var hex: String?
+        var parents: [ColorPresets.Parent]?
+        var children: [String: [ColorPresets.Child]]?
+        var onSelect: (@MainActor (String) -> Void)?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.showsMenuAsPrimaryAction = true
+        button.accessibilityIdentifier = "controlCenter.toolbar.color"
+        button.accessibilityLabel = NSLocalizedString("面板颜色", comment: "")
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.onSelect = onSelect
+        button.isEnabled = presets?.parents.isEmpty == false
+        // Keep the native menu and press state alive across unrelated model
+        // updates; only a palette or selected-colour change replaces them.
+        guard coordinator.hex != hex || coordinator.parents != presets?.parents || coordinator.children != presets?.children else { return }
+        coordinator.hex = hex
+        coordinator.parents = presets?.parents
+        coordinator.children = presets?.children
+        var configuration = UIButton.Configuration.glass()
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = .zero
+        configuration.image = toolbarColorSwatch(hex: hex)
+        configuration.indicator = .none
+        button.configuration = configuration
+        button.accessibilityValue = hex
+        button.menu = UIMenu(children: (presets?.parents ?? []).map { parent in
+            let children = presets?.children(of: parent) ?? []
+            let parentAction = action(name: parent.name, color: parent.color, coordinator: coordinator)
+            guard !children.isEmpty else { return parentAction as UIMenuElement }
+            return UIMenu(title: ColorPresets.displayName(parent.name), image: toolbarColorSwatch(hex: parent.color),
+                          children: [parentAction] + children.map { action(name: $0.name, color: $0.hex, coordinator: coordinator) })
+        })
+    }
+
+    private func action(name: String, color: String, coordinator: Coordinator) -> UIAction {
+        let selected: Bool
+        if let candidate = RGBHex.parseHex(color), let current = RGBHex.parseHex(hex) {
+            selected = candidate == current
         } else {
-            content
+            selected = false
         }
+        return UIAction(title: ColorPresets.displayName(name), image: toolbarColorSwatch(hex: color),
+                 state: selected ? .on : .off) { _ in
+            coordinator.onSelect?(color)
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIButton, context: Context) -> CGSize? {
+        CGSize(width: AppLayout.minimumTapTarget, height: AppLayout.minimumTapTarget)
     }
 }
 
-@available(iOS 26.0, *)
-private struct ToolbarColorMenuStyle: ViewModifier {
-    let isEnabled: Bool
-    @ViewBuilder func body(content: Content) -> some View {
-        if isEnabled {
-            content.menuStyle(.button)
-                .frame(width: AppLayout.minimumTapTarget, height: AppLayout.minimumTapTarget)
-        } else {
-            content
-        }
+@MainActor
+private func toolbarColorSwatch(hex: String) -> UIImage {
+    let color = UIColor(Color(hex: hex) ?? .rinaPink)
+    let size = CGSize(width: 22, height: 22)
+    let bitmap = UIGraphicsImageRenderer(size: size).image { context in
+        color.setFill()
+        context.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
     }
+    return bitmap.withRenderingMode(.alwaysOriginal)
 }

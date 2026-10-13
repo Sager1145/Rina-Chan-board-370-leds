@@ -3909,6 +3909,9 @@
         }
       }
     },
+    "关闭控制中心" : {
+
+    },
     "关闭错误提示" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -9462,6 +9465,9 @@
           }
         }
       }
+    },
+    "展开控制中心" : {
+
     },
     "左右眼同步" : {
       "extractionState" : "stale",

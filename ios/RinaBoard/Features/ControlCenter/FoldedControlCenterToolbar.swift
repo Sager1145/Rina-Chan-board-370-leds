@@ -32,7 +32,6 @@ extension EnvironmentValues {
 /// Other phones retain their existing navigation-bar visibility.
 struct FoldedControlCenterToolbar: ViewModifier {
     @Environment(\.boardControlCenterLauncher) private var launcher
-    @Environment(\.boardToolbarIsVertical) private var isVertical
     var hidesNavigationBar = true
 
     func body(content: Content) -> some View {
@@ -42,24 +41,20 @@ struct FoldedControlCenterToolbar: ViewModifier {
             .toolbar(launcher == nil && hidesNavigationBar ? .hidden : .visible, for: .navigationBar)
             .toolbar {
                 if #available(iOS 27.1, *), let launcher {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        let layout = isVertical ? AnyLayout(VStackLayout(spacing: 6))
-                                                : AnyLayout(HStackLayout(spacing: 6))
-                        layout {
-                            ForEach(launcher.isFolded ? [FoldedBoardControl.mode, .color, .status] : [.mode, .previous, .next, .color], id: \.self) { control in
-                                BoardControlCenterAccessory(transitionSourceID: "controlCenter",
-                                                            transitionNamespace: launcher.namespace,
-                                                            toolbarControl: control,
-                                                            foldedPresentation: launcher.canExpand ? launcher.isPresented : nil,
-                                                            onExpand: launcher.open)
-                            }
+                    ForEach(launcher.isFolded ? [FoldedBoardControl.mode, .color, .status] : [.mode, .previous, .next, .color], id: \.self) { control in
+                        ToolbarItem(placement: .topBarTrailing) {
+                            BoardControlCenterAccessory(transitionSourceID: "controlCenter",
+                                                        transitionNamespace: launcher.namespace,
+                                                        toolbarControl: control,
+                                                        foldedPresentation: launcher.canExpand ? launcher.isPresented : nil,
+                                                        onExpand: launcher.open)
                         }
+                        .sharedBackgroundVisibility(.hidden)
+                        #if !targetEnvironment(macCatalyst)
+                        .axisBehavior(.verticalPreferred)
+                        #endif
+                        .visibilityPriority(.high)
                     }
-                    .sharedBackgroundVisibility(.hidden)
-                    #if !targetEnvironment(macCatalyst)
-                    .axisBehavior(.verticalPreferred)
-                    #endif
-                    .visibilityPriority(.high)
                 }
             }
     }

@@ -87,6 +87,35 @@ final class DuoWorkspaceUITests: XCTestCase {
     }
 
     @MainActor
+    func testNativeToolbarColorMenuUpdatesItsSwatch() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+                               "-initialTab", "control", "-disableStarAnimation", "YES"]
+        app.launch()
+        defer { app.terminate() }
+        let color = app.descendants(matching: .any)["controlCenter.toolbar.color"].firstMatch
+        XCTAssertTrue(color.waitForExistence(timeout: 10))
+        for label in ["Page loading", "Page loaded", "页面加载中", "页面加载完成"] {
+            let overlay = app.descendants(matching: .any)[label].firstMatch
+            if overlay.exists { XCTAssertTrue(overlay.waitForNonExistence(timeout: 15)) }
+        }
+        let original = (color.value as? String)?.lowercased()
+        let presetName = original == "#ff9547" ? "Riko Sakurauchi · Sakura pink" : "Chika Takami · Mikan orange"
+        let expected = original == "#ff9547" ? "#ff9eac" : "#ff9547"
+        color.tap()
+        let group = app.buttons["Aqours"].firstMatch
+        XCTAssertTrue(group.waitForExistence(timeout: 5))
+        group.tap()
+        let preset = app.buttons[presetName].firstMatch
+        XCTAssertTrue(preset.waitForExistence(timeout: 5))
+        preset.tap()
+        let changed = NSPredicate { _, _ in
+            (color.value as? String)?.lowercased() == expected
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: changed, object: color)], timeout: 5), .completed)
+    }
+
+    @MainActor
     func testExpandedControlsAndPanesSurviveRepeatedRotations() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
