@@ -272,12 +272,15 @@ final class GroupControlFanOutTests: XCTestCase {
         readBack.set(9)
         h.transports["AAAA"]?.getFrameReply = readBack
         let primary = session(h, "AAAA")
+        let framesBefore = h.transports["AAAA"]?.getFrameCount ?? 0
 
         _ = try await primary.connection.command(.applySavedFace(index: 3, id: nil, reason: nil, playback: nil))
 
         await waitUntil(timeout: 2) { !(h.transports["BBBB"]?.receivedFrameBytes.isEmpty ?? true) }
         XCTAssertEqual(h.transports["BBBB"]?.receivedFrameBytes.last, readBack.bytes)
         XCTAssertFalse(h.transports["BBBB"]?.receivedCmdNames.contains("apply_saved_face") == true)
+        // First of the two readback attempts succeeds, so the second is not sent.
+        XCTAssertEqual(h.transports["AAAA"]?.getFrameCount, framesBefore + 1)
     }
 
     // MARK: 5c. Read-back also failing records a per-sink error instead of
@@ -288,12 +291,76 @@ final class GroupControlFanOutTests: XCTestCase {
         h.fanOut.setTarget(.group(h.group.id))
         h.transports["AAAA"]?.failGetFrame = true
         let primary = session(h, "AAAA")
+        let framesBefore = h.transports["AAAA"]?.getFrameCount ?? 0
 
         _ = try await primary.connection.command(.applySavedFace(index: 4, id: nil, reason: nil, playback: nil))
 
         await waitUntil(timeout: 2) { h.fanOut.memberErrors["BBBB"] != nil }
         XCTAssertNotNil(h.fanOut.memberErrors["BBBB"])
         XCTAssertFalse(h.transports["BBBB"]?.receivedCmdNames.contains("apply_saved_face") == true)
+        // Both 150 ms attempts run when neither readback decodes.
+        XCTAssertEqual(h.transports["AAAA"]?.getFrameCount, framesBefore + 2)
+    }
+
+    // MARK: 5d. A parseable frameHex is the frame the sink gets. No getFrame.
+
+    func testApplySavedFaceFrameHexMirrorsThatFrameWithoutGetFrame() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.fanOut.setTarget(.group(h.group.id))
+        var fromReply = PackedFrame()
+        fromReply.set(11)
+        var fromResolver = PackedFrame()
+        fromResolver.set(3)
+        h.fanOut.faceFrameResolver = { _, _ in fromResolver }
+        h.transports["AAAA"]?.applySavedFaceFrameHex = fromReply.hex94
+        let primary = session(h, "AAAA")
+        let framesBefore = h.transports["AAAA"]?.getFrameCount ?? 0
+
+        _ = try await primary.connection.command(.applySavedFace(index: 2, id: nil, reason: nil, playback: nil))
+
+        await waitUntil { h.transports["BBBB"]?.receivedFrameBytes.last == fromReply.bytes }
+        XCTAssertEqual(h.transports["BBBB"]?.receivedFrameBytes.last, fromReply.bytes)
+        XCTAssertNotEqual(fromReply.bytes, fromResolver.bytes)
+        XCTAssertEqual(h.transports["AAAA"]?.getFrameCount, framesBefore)
+        XCTAssertFalse(h.transports["BBBB"]?.receivedCmdNames.contains("apply_saved_face") == true)
+    }
+
+    // MARK: 5e. A bad frameHex falls through to the resolver, not getFrame.
+
+    func testBadFrameHexFallsThroughToResolver() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.fanOut.setTarget(.group(h.group.id))
+        var resolved = PackedFrame()
+        resolved.set(4)
+        h.fanOut.faceFrameResolver = { _, _ in resolved }
+        h.transports["AAAA"]?.applySavedFaceFrameHex = "zz"
+        let primary = session(h, "AAAA")
+        let framesBefore = h.transports["AAAA"]?.getFrameCount ?? 0
+
+        _ = try await primary.connection.command(.applySavedFace(index: 1, id: nil, reason: nil, playback: nil))
+
+        await waitUntil { h.transports["BBBB"]?.receivedFrameBytes.last == resolved.bytes }
+        XCTAssertEqual(h.transports["BBBB"]?.receivedFrameBytes.last, resolved.bytes)
+        XCTAssertEqual(h.transports["AAAA"]?.getFrameCount, framesBefore)
+    }
+
+    // MARK: 5f. B1 has no frameHex, so it still readbacks.
+
+    func testButtonB1WithoutFrameHexReadsBackPrimaryFrame() async throws {
+        let h = await harness(["AAAA", "BBBB"])
+        h.fanOut.setTarget(.group(h.group.id))
+        var readBack = PackedFrame()
+        readBack.set(8)
+        h.transports["AAAA"]?.getFrameReply = readBack
+        let primary = session(h, "AAAA")
+        let framesBefore = h.transports["AAAA"]?.getFrameCount ?? 0
+
+        _ = try await primary.connection.command(.button(button: "B1"))
+
+        await waitUntil(timeout: 2) { h.transports["BBBB"]?.receivedFrameBytes.last == readBack.bytes }
+        XCTAssertEqual(h.transports["BBBB"]?.receivedFrameBytes.last, readBack.bytes)
+        XCTAssertFalse(h.transports["BBBB"]?.receivedCmdNames.contains("button") == true)
+        XCTAssertEqual(h.transports["AAAA"]?.getFrameCount, framesBefore + 1)
     }
 
     // MARK: 6. A face during group play supersedes the Text-tab playback
@@ -407,7 +474,7 @@ final class GroupControlFanOutTests: XCTestCase {
 
         await waitUntil { sink.connection.output.source != .groupControl }
         XCTAssertNotEqual(sink.connection.output.source, .groupControl)
-        XCTAssertNil(primary.connection.fanOut)
+        XCTAssertNil(primary.connection.outboundHook)
     }
 
     // MARK: 8. Group target with a non-member active selects the first online member
@@ -805,6 +872,11 @@ private final class GroupControlFakeTransport: RinaTransport {
     /// What `get_frame` replies with; overridable so a test can prove a
     /// sink actually receives the primary's *read-back* frame (F5).
     var getFrameReply = PackedFrame()
+    /// How many `GET_FRAME` replies this transport has built, including the
+    /// handshake. Tests snapshot it around a face apply.
+    private(set) var getFrameCount = 0
+    /// When set, `apply_saved_face` includes this `frameHex`. Nil omits the key.
+    var applySavedFaceFrameHex: String?
     /// `get_frame` isn't a `.cmd`-typed message (so `failCmds` can't reach
     /// it) — this makes it reply with a payload `PackedFrame(data:)` can't
     /// decode, so `BoardConnection.getFrame()` throws (F5's read-back-fails
@@ -915,6 +987,7 @@ private final class GroupControlFakeTransport: RinaTransport {
         case .getPreviewSync:
             return (try? JSONSerialization.data(withJSONObject: ["ok": true, "mode": "manual"])) ?? Data()
         case .getFrame:
+            getFrameCount += 1
             return failGetFrame ? Data() : getFrameReply.data
         case .setFrame:
             let bytes = Array(request.payload.suffix(PackedFrame.byteCount))
@@ -954,9 +1027,14 @@ private final class GroupControlFakeTransport: RinaTransport {
                 return Data(#"{"ok":true}"#.utf8)
             case "apply_saved_face":
                 let index = object["index"] as? Int ?? 0
-                return (try? JSONSerialization.data(withJSONObject: [
+                var reply: [String: Any] = [
                     "ok": true, "autoFaceIndex": index, "autoFaceId": "face-\(index)",
-                ])) ?? Data()
+                ]
+                if let applySavedFaceFrameHex {
+                    reply["frameEncoding"] = "packed-lsb-first"
+                    reply["frameHex"] = applySavedFaceFrameHex
+                }
+                return (try? JSONSerialization.data(withJSONObject: reply)) ?? Data()
             default:
                 return Data(#"{"ok":true}"#.utf8)
             }

@@ -253,10 +253,10 @@ final class TextViewModel {
 
     var previewFrame: PackedFrame {
         let index = scrubIndex ?? displayIndex
-        guard let frames = timeline?.frames, index >= 0, index < frames.count else {
+        guard let timeline, index >= 0, index < timeline.frameCount else {
             return PackedFrame()
         }
-        return frames[index]
+        return timeline.frame(at: index)
     }
 
     var visibleCharCount: Int { ScrollText.visibleCharCount(text) }
@@ -468,7 +468,7 @@ final class TextViewModel {
                 )
                 guard revision == uploadRevision, !Task.isCancelled else { return }
                 uploadSummary = String(format: NSLocalizedString("已发送 %lld B（位图）", comment: "scroll bitmap upload size"),
-                                       built.bitmap.packedBytes().count)
+                                       built.bitmap.stride * built.bitmap.rows.count)
             } catch ScrollUploadError.timelineMismatch(let expected, let got) {
                 guard revision == uploadRevision, !Task.isCancelled else { return }
                 // Firmware predating the bitmap upload path, or a rasterisation
@@ -477,7 +477,7 @@ final class TextViewModel {
                 localPhase = "UPLOADING"
                 uploadProgress = 0.36
                 reply = try await connection.startScrollUpload(
-                    frames: built.frames,
+                    frames: built.materializedFrames(),
                     fps: Double(fpsInt),
                     timelineId: built.timelineId,
                     fontId: ScrollRasterizer.fontId,
@@ -489,7 +489,7 @@ final class TextViewModel {
                 uploadSummary = String(
                     format: NSLocalizedString("已发送 %1$lld B（逐帧回退，位图预期 frames=%2$lld rotation=%3$lld，实际 frames=%4$lld rotation=%5$lld）",
                                               comment: "scroll per-frame fallback upload size"),
-                    built.frames.count * PackedFrame.byteCount,
+                    built.frameCount * PackedFrame.byteCount,
                     expected.frames, expected.rotation, got.frames, got.rotation
                 )
             }

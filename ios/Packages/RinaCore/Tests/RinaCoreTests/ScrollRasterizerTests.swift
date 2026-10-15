@@ -82,11 +82,12 @@ final class ScrollRasterizerTests: XCTestCase {
     func testFramesAreValidAndFirstFrameAfterRotationIsLit() throws {
         let font = try loadFont()
         let timeline = try ScrollRasterizer.makeTimeline(text: "A", font: font, fps: 10)
-        XCTAssertFalse(timeline.frames.isEmpty)
-        for frame in timeline.frames {
+        let frames = timeline.materializedFrames()
+        XCTAssertFalse(frames.isEmpty)
+        for frame in frames {
             XCTAssertTrue(frame.validate())
         }
-        XCTAssertGreaterThan(timeline.frames[0].litCount, 0)
+        XCTAssertGreaterThan(timeline.frame(at: 0).litCount, 0)
     }
 
     func testEmojiPresentationNormalisation() {
@@ -112,7 +113,7 @@ final class ScrollRasterizerTests: XCTestCase {
         print("[ScrollRasterizerTests] default-text rasterisation took \(elapsed * 1000) ms, frameCount=\(timeline.frameCount)")
         XCTAssertGreaterThan(timeline.frameCount, 100)
         XCTAssertLessThanOrEqual(timeline.frameCount, ScrollRasterizer.maxFrames)
-        for frame in timeline.frames {
+        for frame in timeline.materializedFrames() {
             XCTAssertTrue(frame.validate())
         }
     }
@@ -156,7 +157,28 @@ final class ScrollRasterizerTests: XCTestCase {
         let timeline = try ScrollRasterizer.makeTimeline(text: text, font: font, fps: 10)
         XCTAssertEqual(timeline.rotation, expectedRotation)
         XCTAssertGreaterThan(timeline.rotation, 0)
-        XCTAssertEqual(timeline.frames[0].litCount, unrotatedFrames[expectedRotation].litCount)
+        XCTAssertEqual(timeline.frame(at: 0).litCount, unrotatedFrames[expectedRotation].litCount)
+    }
+
+    func testMaterializedFramesMatchFrameAtAndRotatedOffset() throws {
+        let font = try loadFont()
+        let timeline = try ScrollRasterizer.makeTimeline(text: "A", font: font, fps: 10)
+        XCTAssertGreaterThan(timeline.rotation, 0)
+        XCTAssertGreaterThan(timeline.frameCount, 1)
+
+        let materialized = timeline.materializedFrames()
+        var viaFrameAt: [PackedFrame] = []
+        viaFrameAt.reserveCapacity(timeline.frameCount)
+        for i in 0..<timeline.frameCount {
+            viaFrameAt.append(timeline.frame(at: i))
+            let offset = (i + timeline.rotation) % timeline.frameCount
+            XCTAssertEqual(
+                timeline.frame(at: i),
+                ScrollRasterizer.frame(from: timeline.bitmap, offset: offset),
+                "index \(i) must be bitmap offset \(offset)"
+            )
+        }
+        XCTAssertEqual(materialized, viaFrameAt)
     }
 
     func testVeryLongTextThrowsTooManyFrames() throws {

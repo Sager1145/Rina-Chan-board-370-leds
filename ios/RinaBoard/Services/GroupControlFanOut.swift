@@ -11,9 +11,9 @@ import RinaCore
 /// `apply_saved_face`/B1/B2 is re-resolved to the primary's actual resulting
 /// frame (`faceFrameResolver`) and that bitmap is what a sink receives.
 ///
-/// Holds no UI. `BoardConnection.command(_:)`/`setFrame(_:...)` call into
-/// this type on the primary's connection only (`BoardConnection.fanOut`);
-/// this type never calls back into the primary's own send path, so a slow or
+/// Holds no UI. `BoardConnection.command(_:)`/`setFrame(_:...)` call the
+/// neutral `outboundHook` installed on the primary's connection only; this
+/// type never calls back into the primary's own send path, so a slow or
 /// failing sink can never delay or fail the primary's own request.
 @Observable
 @MainActor
@@ -42,10 +42,11 @@ public final class GroupControlFanOut {
     /// the frame it actually applied, so a sink can be sent that bitmap
     /// directly instead of an id/index its own (unsynced) face library may
     /// not share. Wired in `RinaBoardApp` to
-    /// `FaceLibraryModel.boardFaceFrame(id:index:generation:)`. Returning nil
-    /// (or this being unset) falls back to reading the primary's resulting
-    /// frame back via `getFrame()` instead — never to replaying the original
-    /// command verbatim (`primaryFaceApplied(reply:original:ticket:from:)`).
+    /// `FaceLibraryModel.boardFaceFrame(id:index:generation:)`. A reply whose
+    /// `frameHex` parses wins over this cache. Returning nil (or this being
+    /// unset) falls back to reading the primary's resulting frame back via
+    /// `getFrame()` instead — never to replaying the original command
+    /// verbatim (`primaryFaceApplied(reply:original:ticket:from:)`).
     public var faceFrameResolver: ((BoardConnection, CommandReply) -> PackedFrame?)?
 
     /// Called with a promoted primary's `boardKey` right before this type
@@ -90,6 +91,10 @@ public final class GroupControlFanOut {
     /// (product rule: only explicit choices switch control).
     private var pendingExplicitTargetChange = false
     private weak var primaryConnectionRef: BoardConnection?
+    /// Retains the hook the primary connection holds weakly. Ignored by
+    /// observation so installing it inside `performReconcile` cannot re-arm
+    /// that loop.
+    @ObservationIgnored private var primaryHook: BoardOutboundHook?
     private var dispatchSeq = 0
     private var channels: [String: SinkChannel] = [:]
     private var lastDispatchedFrame: (packed: PackedFrame, playback: Playback, reason: String)?
@@ -321,9 +326,24 @@ public final class GroupControlFanOut {
         }
 
         for other in sessions.sessions where other !== session {
-            if other.connection.fanOut === self { other.connection.fanOut = nil }
+            if other.connection.outboundHook === primaryHook { other.connection.outboundHook = nil }
         }
-        primaryConnection.fanOut = self
+        let hook = BoardOutboundHook(
+            willSendCommand: { [weak self, weak primaryConnection] command, leased in
+                guard let self, let primaryConnection else { return }
+                self.willSendCommand(command, leased: leased, from: primaryConnection)
+            },
+            didApplyFace: { [weak self, weak primaryConnection] reply, command in
+                guard let self, let primaryConnection else { return }
+                self.didApplyFace(reply, command: command, from: primaryConnection)
+            },
+            willSendFrame: { [weak self, weak primaryConnection] frame, playback, reason in
+                guard let self, let primaryConnection else { return }
+                self.willSendFrame(frame, playback: playback, reason: reason, from: primaryConnection)
+            }
+        )
+        primaryHook = hook
+        primaryConnection.outboundHook = hook
 
         let connectedSinks = memberSessions.filter {
             $0.session !== session && $0.session.connection.connectionState == .connected
@@ -439,13 +459,41 @@ public final class GroupControlFanOut {
 
     private func detachAllSinks() {
         for id in channels.keys { detachSink(id: id) }
-        if let primary = primaryConnectionRef, primary.fanOut === self { primary.fanOut = nil }
+        if let primary = primaryConnectionRef, primary.outboundHook === primaryHook {
+            primary.outboundHook = nil
+        }
+        primaryHook = nil
         primaryConnectionRef = nil
         memberErrors.removeAll()
         primaryAutoCheckDone = false
     }
 
-    // MARK: - Dispatch (called from `BoardConnection` on the primary)
+    // MARK: - Dispatch (called from the primary's outbound hook)
+
+    /// `.verbatim` mirrors unless this connection is under debug output.
+    /// `.group` still mirrors: the coordinator holds `.group` during text
+    /// play and only sends `requestReliable`, so a `command(_:)` that arrives
+    /// here is a real control action.
+    private func willSendCommand(_ command: RinaCommand, leased: Bool, from connection: BoardConnection) {
+        guard connection.output.source != .debug else { return }
+        guard case .verbatim = command.groupFanOutPolicy else { return }
+        dispatch(command, leased: leased, from: connection)
+    }
+
+    /// Face applies only. The connection calls this after `reply.ok`. Debug
+    /// output does not mirror. `.group` still does, matching `willSendCommand`.
+    private func didApplyFace(_ reply: CommandReply, command: RinaCommand, from connection: BoardConnection) {
+        guard reply.ok, connection.output.source != .debug else { return }
+        guard case .resolveFace = command.groupFanOutPolicy else { return }
+        guard let ticket = beginLeasedAction(from: connection) else { return }
+        primaryFaceApplied(reply: reply, original: command, ticket: ticket, from: connection)
+    }
+
+    /// Frames skip debug output and a board already owned by group text.
+    private func willSendFrame(_ packed: PackedFrame, playback: Playback, reason: String, from connection: BoardConnection) {
+        guard connection.output.source != .debug, connection.output.source != .group else { return }
+        dispatchFrame(packed, playback: playback, reason: reason, from: connection)
+    }
 
     private func isCurrentPrimary(_ connection: BoardConnection) -> Bool {
         primaryConnectionRef === connection
@@ -555,30 +603,29 @@ public final class GroupControlFanOut {
 
     public func primaryFaceApplied(reply: CommandReply, original: RinaCommand, ticket: Int, from primary: BoardConnection) {
         guard isCurrentPrimary(primary), ticket == dispatchSeq else { return }
-        if let resolved = faceFrameResolver?(primary, reply) {
-            lastDispatchedFrame = (resolved, .idle, "group_control_face")
-            for channel in channels.values {
-                guard let lease = channel.currentLease, lease.dispatchRevision == ticket else { continue }
-                enqueueAndWake(.frame(resolved, .idle, reason: "group_control_face", lease: lease), to: channel)
-            }
+        // The board's own packed frame wins over the library cache, which
+        // can be stale. A bad hex value falls through.
+        if let hex = reply.frameHex, let frame = PackedFrame(hex94: hex) {
+            mirrorResolvedFace(frame, ticket: ticket)
             return
         }
-        // No resolver, or it returned nil: never replay the original
-        // apply_saved_face/B1/B2 verbatim — a sink's own (unsynced) face
-        // library may not share the id/index, so it would end up showing a
-        // different face than the primary. Instead read back the primary's
+        if let resolved = faceFrameResolver?(primary, reply) {
+            mirrorResolvedFace(resolved, ticket: ticket)
+            return
+        }
+        // No frame on the reply and no resolver hit: never replay the
+        // original apply_saved_face/B1/B2 verbatim — a sink's own (unsynced)
+        // face library may not share the id/index, so it would end up showing
+        // a different face than the primary. Instead read back the primary's
         // own resulting frame once the apply has settled and mirror that
         // bitmap; if that also fails, record a per-sink error rather than
-        // guess.
+        // guess. Two attempts, 150 ms apart. Kept until the supported
+        // firmware range drops the readback.
         Task { @MainActor [weak self, weak primary] in
             guard let self, let primary else { return }
             if let frame = await self.primaryFrameAfterApply(primary: primary, ticket: ticket) {
                 guard self.isCurrentPrimary(primary), ticket == self.dispatchSeq else { return }
-                self.lastDispatchedFrame = (frame, .idle, "group_control_face")
-                for channel in self.channels.values {
-                    guard let lease = channel.currentLease, lease.dispatchRevision == ticket else { continue }
-                    self.enqueueAndWake(.frame(frame, .idle, reason: "group_control_face", lease: lease), to: channel)
-                }
+                self.mirrorResolvedFace(frame, ticket: ticket)
             } else {
                 guard self.isCurrentPrimary(primary), ticket == self.dispatchSeq else { return }
                 for channel in self.channels.values {
@@ -586,6 +633,14 @@ public final class GroupControlFanOut {
                     self.refreshMemberError(channel)
                 }
             }
+        }
+    }
+
+    private func mirrorResolvedFace(_ frame: PackedFrame, ticket: Int) {
+        lastDispatchedFrame = (frame, .idle, "group_control_face")
+        for channel in channels.values {
+            guard let lease = channel.currentLease, lease.dispatchRevision == ticket else { continue }
+            enqueueAndWake(.frame(frame, .idle, reason: "group_control_face", lease: lease), to: channel)
         }
     }
 

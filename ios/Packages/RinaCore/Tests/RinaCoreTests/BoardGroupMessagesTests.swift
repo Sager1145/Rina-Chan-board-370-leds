@@ -52,6 +52,33 @@ final class BoardGroupMessagesTests: XCTestCase {
         XCTAssertEqual(BoardCapability.clockSample.rawValue, "clock_sample")
         XCTAssertEqual(BoardCapability.scrollViewport.rawValue, "scroll_viewport")
         XCTAssertEqual(BoardCapability.groupStart.rawValue, "group_start")
+        XCTAssertEqual(BoardCapability.group60Fps.rawValue, "group_60fps")
+        XCTAssertEqual(BoardCapability.applyFaceFrame.rawValue, "apply_face_frame")
+    }
+
+    /// `apply_saved_face` carries `frameHex` on current firmware and omits it
+    /// on older firmware. Both documents must decode.
+    func testCommandReplyDecodesFrameHexWhenPresentAndAbsent() throws {
+        let hex = String(repeating: "0a", count: 47)
+        let withHex = """
+        {"ok":true,"autoFaceId":"face-1","autoFaceIndex":1,\
+        "frameEncoding":"packed-lsb-first","frameHex":"\(hex)"}
+        """
+        let present = try JSONDecoder().decode(CommandReply.self, from: Data(withHex.utf8))
+        XCTAssertTrue(present.ok)
+        XCTAssertEqual(present.autoFaceId, "face-1")
+        XCTAssertEqual(present.autoFaceIndex, 1)
+        XCTAssertEqual(present.frameEncoding, "packed-lsb-first")
+        XCTAssertEqual(present.frameHex, hex)
+
+        let withoutHex = """
+        {"ok":true,"autoFaceId":"face-2","autoFaceIndex":0}
+        """
+        let absent = try JSONDecoder().decode(CommandReply.self, from: Data(withoutHex.utf8))
+        XCTAssertTrue(absent.ok)
+        XCTAssertEqual(absent.autoFaceId, "face-2")
+        XCTAssertEqual(absent.autoFaceIndex, 0)
+        XCTAssertNil(absent.frameHex)
     }
 
     // MARK: - scroll_bitmap END reply echoes (§1.4)

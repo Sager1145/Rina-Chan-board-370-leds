@@ -309,11 +309,13 @@ public final class BoardGroupCoordinator {
         return .connected
     }
 
-    /// The four caps every board-group feature requires. `.group60Fps` is
-    /// deliberately excluded — it's an optional speed upgrade
-    /// (`maxFps(for:)`/`groupIntervalMs(forFps:)`), not a baseline
-    /// requirement, so a board that lacks it must still read `.connected`/
-    /// join a group, just capped at the legacy 50 fps.
+    /// The four caps every board-group feature requires. `.group60Fps` and
+    /// `.applyFaceFrame` are deliberately excluded. `group60Fps` is an
+    /// optional speed upgrade (`maxFps(for:)`/`groupIntervalMs(forFps:)`),
+    /// not a baseline requirement, so a board that lacks it must still read
+    /// `.connected` / join a group, just capped at the legacy 50 fps.
+    /// `applyFaceFrame` only means `apply_saved_face` replies include
+    /// `frameHex`; missing it keeps the frame readback.
     private static let requiredCaps: [BoardCapability] = [.identify, .clockSample, .scrollViewport, .groupStart]
 
     private func hasAllCaps(_ connection: BoardConnection) -> Bool {
@@ -747,6 +749,8 @@ public final class BoardGroupCoordinator {
             // lease. Skipped when adopting: every board already holds this
             // timeline.
             if adoption == nil {
+            // One encode for every member. Viewport meta still differs per board.
+            let bitmapBytes = bitmap.packedBytes()
             try await withThrowingTaskGroup(of: Void.self) { taskGroup in
                 for captured in online {
                     let viewportX = self.viewportX(for: captured.slot, mode: mode, layout: layout)
@@ -756,7 +760,8 @@ public final class BoardGroupCoordinator {
                         do {
                             try await captured.session.connection.withOutput(token) {
                                 _ = try await captured.session.connection.uploadGroupScrollBitmap(
-                                    bitmap: bitmap, viewportX: viewportX, virtualWidth: virtualWidth,
+                                    bitmap: bitmap, packedBytes: bitmapBytes,
+                                    viewportX: viewportX, virtualWidth: virtualWidth,
                                     fps: effectiveFps, intervalMs: intervalMs,
                                     timelineId: timelineId, sourceText: text, start: false,
                                     onProgress: { progress in
@@ -1279,9 +1284,12 @@ public final class BoardGroupCoordinator {
         }
         do {
             if !skipUpload {
+                let bitmap = playState.bitmap
+                let bitmapBytes = bitmap.packedBytes()
                 try await session.connection.withOutput(token) {
                     _ = try await session.connection.uploadGroupScrollBitmap(
-                        bitmap: playState.bitmap, viewportX: viewportX, virtualWidth: playState.virtualWidth,
+                        bitmap: bitmap, packedBytes: bitmapBytes,
+                        viewportX: viewportX, virtualWidth: playState.virtualWidth,
                         fps: uploadFps, intervalMs: uploadIntervalMs,
                         timelineId: playState.timelineId, sourceText: playState.sourceText, start: false,
                         onProgress: { progress in

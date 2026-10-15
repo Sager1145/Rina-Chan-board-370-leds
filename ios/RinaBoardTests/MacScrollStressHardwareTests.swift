@@ -267,7 +267,7 @@ final class MacScrollStressHardwareTests: XCTestCase {
             let index = min(31, timeline.frameCount - 1)
             for edit in [1, 60, 10, 20, fps] { model.setRequestedFps(Double(edit), connection: rig.connection) }
             try await verifyPlayback(rig, timeline: timelineID, fps: fps, frameCount: timeline.frameCount, group: false, paused: true)
-            try await heldFrame(rig, expected: timeline.frames[index], index: index, timeline: timelineID)
+            try await heldFrame(rig, expected: timeline.frame(at: index), index: index, timeline: timelineID)
             await model.resume(connection: rig.connection)
             try await verifyPlayback(rig, timeline: timelineID, fps: fps, frameCount: timeline.frameCount, group: false, paused: false)
             try await measureRates([rig], fps: fps, timeline: timelineID, duration: fps == 1 ? 3.2 : 1.5, label: "single-resumed")

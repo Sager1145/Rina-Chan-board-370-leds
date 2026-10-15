@@ -93,7 +93,7 @@ final class TextTransportTests: XCTestCase {
 
         model.beginScrub()
         for index in [1, 3, 8, 12] { model.updateScrub(toFrame: index) }
-        XCTAssertEqual(model.previewFrame, timeline.frames[12])
+        XCTAssertEqual(model.previewFrame, timeline.frame(at: 12))
         XCTAssertTrue(transport.scrollCommands.isEmpty)
         // Even a stray direct seek cannot write while the finger is down.
         await model.seek(toFrame: 3, connection: connection)
@@ -590,7 +590,7 @@ final class TextTransportTests: XCTestCase {
         XCTAssertEqual(model.frameCount, expected.frameCount)
         XCTAssertEqual(model.displayIndex, freshIndex,
                        "The post-build preview cursor must replace the stale metadata cursor")
-        XCTAssertEqual(model.previewFrame, expected.frames[freshIndex])
+        XCTAssertEqual(model.previewFrame, expected.frame(at: freshIndex))
         XCTAssertEqual(transport.restoreRequests, [.getScrollMeta, .getPreviewSync])
         XCTAssertEqual(connection.output.source, .text)
     }

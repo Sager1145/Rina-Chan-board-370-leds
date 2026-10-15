@@ -124,8 +124,9 @@ final class ScrollRasterizerPR10Tests: XCTestCase {
         switch (fastResult, referenceResult) {
         case let (.success(fast), .success(reference)):
             XCTAssertEqual(fast.rotation, reference.rotation, file: file, line: line)
-            XCTAssertEqual(fast.frames.count, reference.frames.count, file: file, line: line)
-            for (i, pair) in zip(fast.frames, reference.frames).enumerated() {
+            XCTAssertEqual(fast.frameCount, reference.frames.count, file: file, line: line)
+            let fastFrames = fast.materializedFrames()
+            for (i, pair) in zip(fastFrames, reference.frames).enumerated() {
                 XCTAssertEqual(pair.0, pair.1, "frame \(i) mismatch for text \(text.prefix(20))...", file: file, line: line)
             }
         case let (.failure(fastError), .failure(referenceError)):

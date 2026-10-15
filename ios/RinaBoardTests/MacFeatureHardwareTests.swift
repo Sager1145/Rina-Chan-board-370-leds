@@ -434,9 +434,9 @@ final class MacFeatureHardwareTests: XCTestCase {
         let paused = try await connection.getPreviewSync()
         try require(paused.frameIndex == 2 || paused.presentedFrameIndex == 2, "\(rig.id): text seek telemetry")
         let timeline = try XCTUnwrap(text.timeline)
-        try require(try await connection.getFrame() == timeline.frames[2], "\(rig.id): text seek exact frame")
+        try require(try await connection.getFrame() == timeline.frame(at: 2), "\(rig.id): text seek exact frame")
         await text.stepFrame(direction: 1, connection: connection)
-        try require(try await connection.getFrame() == timeline.frames[3], "\(rig.id): text step exact frame")
+        try require(try await connection.getFrame() == timeline.frame(at: 3), "\(rig.id): text step exact frame")
         // Pause/resume's documented tap lockout is 250 ms.
         try await Task.sleep(for: .milliseconds(300))
         await text.resume(connection: connection)

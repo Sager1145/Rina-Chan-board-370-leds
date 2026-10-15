@@ -29,9 +29,10 @@ public struct ScrollBitmap: Sendable {
     }
 }
 
-/// A fully rasterised, ready-to-upload scroll timeline.
+/// A fully rasterised, ready-to-upload scroll timeline. Windows are not stored;
+/// `frame(at:)` extracts bitmap offset `(index + rotation) % frameCount`, the
+/// same order `rotateScrollTimelineToFirstLitFrame` used to materialise.
 public struct ScrollTimeline: Sendable {
-    public let frames: [PackedFrame]
     public let bitmap: ScrollBitmap
     public let bitmapWidth: Int
     public let frameCount: Int
@@ -43,6 +44,17 @@ public struct ScrollTimeline: Sendable {
     /// sequence to make index 0 the first lit frame (0 if nothing lit). Must
     /// match the firmware's `BLOB_END` reply `rotation` for `kind:"scroll_bitmap"`.
     public let rotation: Int
+
+    /// Display index `index` is bitmap offset `(index + rotation) % frameCount`.
+    public func frame(at index: Int) -> PackedFrame {
+        let offset = (index + rotation) % frameCount
+        return ScrollRasterizer.frame(from: bitmap, offset: offset)
+    }
+
+    /// Every window in rotated order. Raw upload is not rotated again on the device.
+    public func materializedFrames() -> [PackedFrame] {
+        (0..<frameCount).map { frame(at: $0) }
+    }
 }
 
 /// Ports the WebUI scroll-text rasterizer (app.js `buildTextScrollBitmap`,
@@ -227,8 +239,9 @@ public enum ScrollRasterizer {
     }
 
     /// Full pipeline: normalise -> truncate -> byte check -> build -> cap
-    /// check -> extract -> rotate to first lit frame (app.js
-    /// `prepareTextScrollTimeline`, ~11494-11556).
+    /// check -> rotation to the first lit frame (app.js
+    /// `prepareTextScrollTimeline`, ~11494-11556). Windows stay in the bitmap
+    /// and are extracted by `ScrollTimeline.frame(at:)`.
     public static func makeTimeline(
         text: String,
         font: ArkPixelFont,
@@ -258,19 +271,20 @@ public enum ScrollRasterizer {
             throw RasterizerError.tooManyFrames(projected: projected)
         }
 
-        var frames: [PackedFrame] = []
-        frames.reserveCapacity(projected)
+        // Same predicate as the old stored array (`!frame.isEmpty`), but each
+        // window is dropped. Rotation does not change the frame count.
+        var rotation = 0
         for offset in 0...maxOffset {
-            frames.append(frame(from: bitmap, offset: offset, geometry: geometry))
+            if !frame(from: bitmap, offset: offset, geometry: geometry).isEmpty {
+                rotation = offset
+                break
+            }
         }
-        let rotation = frames.firstIndex(where: { !$0.isEmpty }) ?? 0
-        frames = rotatedToFirstLitFrame(frames)
 
         return ScrollTimeline(
-            frames: frames,
             bitmap: bitmap,
             bitmapWidth: bitmap.width,
-            frameCount: frames.count,
+            frameCount: projected,
             text: truncated,
             timelineId: makeTimelineId(),
             fps: fps,

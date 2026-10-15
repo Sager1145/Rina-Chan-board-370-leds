@@ -19,6 +19,26 @@ public enum BoardEvent: Sendable {
     case wifiScan(WifiScanReply)
 }
 
+/// Per-connection callbacks for a group's control primary. `BoardConnection`
+/// invokes them inside `command` / `setFrame` and does not await them, and
+/// does not decide which commands or frames are mirrored.
+@MainActor
+public final class BoardOutboundHook {
+    public let willSendCommand: (RinaCommand, Bool) -> Void
+    public let didApplyFace: (CommandReply, RinaCommand) -> Void
+    public let willSendFrame: (PackedFrame, Playback, String) -> Void
+
+    public init(
+        willSendCommand: @escaping (RinaCommand, Bool) -> Void,
+        didApplyFace: @escaping (CommandReply, RinaCommand) -> Void,
+        willSendFrame: @escaping (PackedFrame, Playback, String) -> Void
+    ) {
+        self.willSendCommand = willSendCommand
+        self.didApplyFace = didApplyFace
+        self.willSendFrame = willSendFrame
+    }
+}
+
 /// A locally reachable carrier for the same physical board. The handshake
 /// must report `expectedBoardIdentity` before this carrier can become ready.
 public struct BoardReconnectCandidate {
@@ -43,12 +63,11 @@ public final class BoardConnection {
     // MARK: Published state
 
     public let output = BoardPlaybackCoordinator()
-    /// Set by `GroupControlFanOut` on exactly one connection at a time — the
-    /// board group's current control primary — so its `command(_:)`/
-    /// `setFrame(_:...)` calls can mirror to the group's other members. Never
-    /// awaited from the primary's own send path (mirroring is fire-and-forget
-    /// from the primary's perspective).
-    @ObservationIgnored public weak var fanOut: GroupControlFanOut?
+    /// Installed on a group's control primary only. `command(_:)` and
+    /// `setFrame(_:playback:reason:outputSession:)` call it inside their pumps
+    /// and do not await it. Nil on every sink. Not called from
+    /// `requestReliable`, `send`, or `sendUnqueued`.
+    @ObservationIgnored public weak var outboundHook: BoardOutboundHook?
     public private(set) var connectionGeneration = UUID()
     public private(set) var connectionState: BoardConnectionState = .disconnected {
         didSet {
@@ -73,10 +92,10 @@ public final class BoardConnection {
     }
     /// The last non-nil `boardIdentity` this connection object has ever
     /// reported, surviving `clearBoardSnapshot()`/`disconnect()` (unlike
-    /// `boardIdentity` itself). Group-member resolution (`GroupControlFanOut`,
-    /// `BoardGroupCoordinator.session(for:)`) must match against this, not
-    /// `boardIdentity`, so a just-disconnected primary/sink doesn't
-    /// momentarily look like a different board.
+    /// `boardIdentity` itself). Group-member resolution
+    /// (`BoardGroupCoordinator.session(for:)` and the control fan-out) must
+    /// match against this, not `boardIdentity`, so a just-disconnected
+    /// primary/sink doesn't momentarily look like a different board.
     public private(set) var lastKnownBoardIdentity: String?
     private var setupDefaultName: String?
     /// Remembers, per transport fallback key (the `ble:<uuid>` / `wifi:<host>`
@@ -1025,27 +1044,11 @@ public final class BoardConnection {
         return try await commandPump.run { @MainActor in
             try self.checkSubmission(generation: generation, carrier: carrier)
             if let token { try self.output.check(token) }
-            // Board-group control fan-out: mirror this command to the
-            // group's other members before sending it on the wire, unless
-            // this connection is under debug output (see
-            // `GroupControlFanOut`). Deliberately still mirrors while
-            // `output.source == .group` — the coordinator holds `.group` on
-            // every member during group Text-tab play, and only ever calls
-            // `requestReliable` (never `command(_:)`) itself, so a
-            // `command(_:)` reaching here during play is always a genuine
-            // control action (e.g. brightness) that must still reach every
-            // sink. Never awaited — fire-and-forget from the primary's
-            // perspective.
-            // `.verbatim` still claims/mirrors synchronously before the send
-            // (dispatch's own doc: kept for latency, and a failing/slow send
-            // is the primary's own concern either way). `.resolveFace` is
-            // different: claiming sinks (`beginLeasedAction`) here, before
-            // the send, would hand them over to a group-control lease even
-            // if the primary's own apply then throws — so it's deferred
-            // until after a confirmed `reply.ok` below instead (F7).
-            if self.output.source != .debug, case .verbatim = cmd.groupFanOutPolicy {
-                self.fanOut?.dispatch(cmd, leased: token != nil, from: self)
-            }
+            // Primary-only mirror hook. Not awaited. Which commands mirror,
+            // and the face-apply lease, are the hook's decision. A face lease
+            // waits until `reply.ok` (`didApplyFace` below) so a rejected
+            // apply does not hand the sinks over.
+            self.outboundHook?.willSendCommand(cmd, token != nil)
             guard let activeTransport = self.transport else {
                 throw RinaTransportError.notConnected
             }
@@ -1062,11 +1065,7 @@ public final class BoardConnection {
                 throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)\(detail)")
             }
             self.updateDeviceName(from: reply, for: cmd, transport: activeTransport, generation: generation)
-            if self.output.source != .debug, case .resolveFace = cmd.groupFanOutPolicy {
-                if let ticket = self.fanOut?.beginLeasedAction(from: self) {
-                    self.fanOut?.primaryFaceApplied(reply: reply, original: cmd, ticket: ticket, from: self)
-                }
-            }
+            self.outboundHook?.didApplyFace(reply, cmd)
             return reply
         }
     }
@@ -1214,13 +1213,9 @@ public final class BoardConnection {
         let token = outputSession ?? BoardOutputContext.session ?? output.claim(.manual)
         let reply = try await framePump.run { @MainActor in
             try self.output.check(token)
-            // Board-group control fan-out: mirror every SET_FRAME (Faces/
-            // Live/video/lip-sync/performance) to the group's other members.
-            // Skipped when this board is itself a group Text-tab member or
-            // under debug output.
-            if self.output.source != .debug, self.output.source != .group {
-                self.fanOut?.dispatchFrame(packed, playback: playback, reason: reason, from: self)
-            }
+            // Primary-only mirror hook. Not awaited. The hook skips debug
+            // output and a board whose output is already group text.
+            self.outboundHook?.willSendFrame(packed, playback, reason)
             var payload = Data()
             payload.append(playback.rawValue)
             let reasonBytes = Array(reason.utf8.prefix(255))
@@ -1535,9 +1530,12 @@ public final class BoardConnection {
     /// and only `viewportX` differs. `start: false` lets the caller upload to
     /// every member before any of them starts scrolling locally (§3's
     /// `play(text:fps:loop:)` sends the real start via `group_start` once
-    /// every board has been re-anchored).
+    /// every board has been re-anchored). `packedBytes` is the bitmap
+    /// already encoded by the caller so a group upload does not pack the
+    /// same canvas once per member. Viewport fields stay per board.
     public func uploadGroupScrollBitmap(
         bitmap: ScrollBitmap,
+        packedBytes: Data,
         viewportX: Int,
         virtualWidth: Int,
         fps: Int,
@@ -1547,7 +1545,6 @@ public final class BoardConnection {
         start: Bool,
         onProgress: ((Double) -> Void)? = nil
     ) async throws -> ScrollUploadReply {
-        let bytes = bitmap.packedBytes()
         var meta: [String: Any] = [
             "width": bitmap.width,
             "rows": MatrixGeometry.rows,
@@ -1563,7 +1560,7 @@ public final class BoardConnection {
         if sourceText.utf8.count <= 4096 {
             meta["sourceText"] = sourceText
         }
-        let replyData = try await uploadBlob(kind: .scrollBitmap, meta: meta, data: bytes,
+        let replyData = try await uploadBlob(kind: .scrollBitmap, meta: meta, data: packedBytes,
                                              endStart: start, onProgress: onProgress)
         return try JSONDecoder().decode(ScrollUploadReply.self, from: replyData)
     }

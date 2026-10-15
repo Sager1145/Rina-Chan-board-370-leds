@@ -692,6 +692,10 @@ public struct CommandReply: Codable, Equatable, Sendable {
     public var autoFaceIndex: Int?
     public var frameBytes: Int?
     public var frameEncoding: String?
+    /// `apply_saved_face` success only: 94 lowercase hex chars, packed
+    /// LSB-first (`PackedFrame(hex94:)`). Absent on older firmware and on
+    /// every other command. A value that does not parse is not a frame.
+    public var frameHex: String?
     public var queueCount: Int?
     public var lastReason: String?
     public var lit: Int?
@@ -733,7 +737,8 @@ public struct CommandReply: Codable, Equatable, Sendable {
     public init(ok: Bool, error: String? = nil, code: Int? = nil, v: Int? = nil, cmd: String? = nil,
                 color: String? = nil, brightness: Int? = nil, mode: String? = nil, playback: String? = nil,
                 paused: Bool? = nil, autoIntervalMs: Int? = nil, autoFaceIndex: Int? = nil,
-                frameBytes: Int? = nil, frameEncoding: String? = nil, queueCount: Int? = nil,
+                frameBytes: Int? = nil, frameEncoding: String? = nil, frameHex: String? = nil,
+                queueCount: Int? = nil,
                 lastReason: String? = nil, lit: Int? = nil, autoFaceId: String? = nil, autoFaceName: String? = nil,
                 firmwareScrollActive: Bool? = nil, firmwareScrollPaused: Bool? = nil,
                 firmwareScrollUserPaused: Bool? = nil, firmwareScrollSystemPaused: Bool? = nil,
@@ -759,6 +764,7 @@ public struct CommandReply: Codable, Equatable, Sendable {
         self.autoFaceIndex = autoFaceIndex
         self.frameBytes = frameBytes
         self.frameEncoding = frameEncoding
+        self.frameHex = frameHex
         self.queueCount = queueCount
         self.lastReason = lastReason
         self.lit = lit
@@ -1001,6 +1007,11 @@ public enum BoardCapability: String, Sendable, CaseIterable {
     /// board join a group at all" (e.g. `BoardGroupCoordinator.hasAllCaps`)
     /// must not include it in that set.
     case group60Fps = "group_60fps"
+    /// `apply_saved_face` replies include `frameHex` for the applied face.
+    /// Optional, same as `group60Fps`: not part of the baseline group-join
+    /// set. Old firmware omits the token and the frame, and the app falls
+    /// back to reading the frame back.
+    case applyFaceFrame = "apply_face_frame"
 }
 
 // MARK: - `EV_LOG` (0x94) — `{"level":"I","tag":"…","msg":"…"}`, docs §3.5
