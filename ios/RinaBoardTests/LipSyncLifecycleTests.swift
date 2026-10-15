@@ -83,7 +83,9 @@ final class LipSyncLifecycleTests: XCTestCase {
         while model.isCalibrating && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        XCTAssertTrue(model.errorMessage?.hasPrefix("声音不足：最高") == true, model.errorMessage ?? "No error")
+        XCTAssertEqual(model.errorMessage, String(format: NSLocalizedString(
+            "声音不足：最高 %.0f dB，识别阈值 %.0f dB。请降低阈值或靠近麦克风再试一次",
+            comment: ""), Double(model.volumeDb), Double(model.sensitivityDb)))
         XCTAssertLessThan(model.volumeDb, model.sensitivityDb)
         model.cancelCalibration()
     }

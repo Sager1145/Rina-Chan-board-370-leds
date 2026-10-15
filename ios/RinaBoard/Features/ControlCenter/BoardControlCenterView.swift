@@ -217,7 +217,7 @@ struct BoardControlCenterView: View {
         }
     }
 
-    private static let defaultNewGroupName = "多板组"
+    private static var defaultNewGroupName: String { String(localized: "多板组") }
 
     @ViewBuilder
     private var content: some View {
@@ -601,7 +601,9 @@ struct BoardControlCenterView: View {
         if let group = targetedGroup {
             Section("多板组控制") {
                 LabeledContent("名称", value: group.name)
-                LabeledContent("模式", value: group.mode == .stitched ? "拼接" : "镜像")
+                LabeledContent("模式") {
+                    Text(group.mode == .stitched ? "拼接" : "镜像")
+                }
                 // H1: the active board is targeting this group but isn't
                 // (yet) one of its members, so the fan-out has no primary to
                 // mirror through — the mode row/prev/next below fell back to

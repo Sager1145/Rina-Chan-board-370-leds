@@ -2,7 +2,7 @@
   "sourceLanguage" : "zh-Hans",
   "strings" : {
     "" : {
-
+      "shouldTranslate" : false
     },
     "·" : {
       "shouldTranslate" : false
@@ -1468,7 +1468,6 @@
       }
     },
     "partGroup.cheek" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1497,7 +1496,6 @@
       }
     },
     "partGroup.leye" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1526,7 +1524,6 @@
       }
     },
     "partGroup.mouth" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1555,7 +1552,6 @@
       }
     },
     "partGroup.reye" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2337,6 +2333,18 @@
             "state" : "translated",
             "value" : "Saves only the hotspot IP. Keeps its name, password, and enabled state."
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホットスポット IP のみを保存します。名前、パスワード、有効状態は変更しません。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "僅儲存熱點 IP，不會變更熱點名稱、密碼或開啟狀態。"
+          }
         }
       }
     },
@@ -2880,6 +2888,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Save IP"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IP を保存"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "儲存 IP"
           }
         }
       }
@@ -3499,7 +3519,26 @@
       }
     },
     "停止自动重试" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop automatic retries"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動再試行を停止"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止自動重試"
+          }
+        }
+      }
     },
     "停止识别编号" : {
       "localizations" : {
@@ -3642,13 +3681,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Full brightness turns on all 370 LEDs and may draw more than an estimated 40 W."
+            "value" : "Turning on all 370 LEDs may draw more than 40 W."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最大輝度では 370 個すべての LED が点灯し、推定消費電力が 40 W を超える場合があります。"
+            "value" : "370 個すべての LED が点灯し、推定消費電力が 40 W を超える場合があります。"
           }
         },
         "zh-Hant" : {
@@ -3910,7 +3949,26 @@
       }
     },
     "关闭控制中心" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Control Center"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コントロールセンターを閉じる"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉控制中心"
+          }
+        }
+      }
     },
     "关闭错误提示" : {
       "extractionState" : "stale",
@@ -4464,7 +4522,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Delete face?"
+            "value" : "Delete expression?"
           }
         },
         "ja" : {
@@ -5303,7 +5361,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The original face no longer exists; save as a new one"
+            "value" : "The original expression no longer exists; save as a new one"
           }
         },
         "ja" : {
@@ -5506,19 +5564,19 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Send full brightness"
+            "value" : "Send all-on pattern"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最大輝度を送信"
+            "value" : "全点灯パターンを送信"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "傳送全亮"
+            "value" : "傳送全亮圖樣"
           }
         }
       }
@@ -5551,13 +5609,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Send full-brightness pattern?"
+            "value" : "Send all-on pattern?"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最大輝度のパターンを送信しますか？"
+            "value" : "全点灯パターンを送信しますか？"
           }
         },
         "zh-Hant" : {
@@ -6087,7 +6145,7 @@
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "口型同步與預設 Live 分別參照 738NGX 與 flyAkari 的實作，以 Swift 重新撰寫。"
+            "value" : "嘴型同步與預設 Live 分別參照 738NGX 與 flyAkari 的實作，以 Swift 重新撰寫。"
           }
         }
       }
@@ -6663,10 +6721,48 @@
       }
     },
     "向右移动" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move right"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右へ移動"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向右移動"
+          }
+        }
+      }
     },
     "向左移动" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move left"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左へ移動"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向左移動"
+          }
+        }
+      }
     },
     "否" : {
       "comment" : "optional boolean no",
@@ -6842,10 +6938,16 @@
             "value" : "口形認識"
           }
         },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "口型识别"
+          }
+        },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "嘴形識別"
+            "value" : "嘴型辨識"
           }
         }
       }
@@ -7930,7 +8032,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Faces can't be switched from the watch while the group isn't synced"
+            "value" : "Expressions can't be switched from the watch while the group isn't synced"
           }
         },
         "ja" : {
@@ -7986,7 +8088,7 @@
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "多板組未同步時無法從手錶開始口型同步"
+            "value" : "多板組未同步時無法從手錶開始嘴型同步"
           }
         }
       }
@@ -8660,6 +8762,18 @@
             "state" : "translated",
             "value" : "Home Wi-Fi IP"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自宅の Wi-Fi IP"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "家用 Wi-Fi IP"
+          }
         }
       }
     },
@@ -8758,7 +8872,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Password (leave blank for open network)"
+            "value" : "Password (blank for open Wi-Fi)"
           }
         },
         "ja" : {
@@ -9287,7 +9401,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Will delete %lld face(s)"
+            "value" : "Will delete %lld expression(s)"
           }
         },
         "ja" : {
@@ -9467,7 +9581,26 @@
       }
     },
     "展开控制中心" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expand Control Center"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コントロールセンターを展開"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展開控制中心"
+          }
+        }
+      }
     },
     "左右眼同步" : {
       "extractionState" : "stale",
@@ -9868,7 +10001,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Face sent"
+            "value" : "Expression sent"
           }
         },
         "ja" : {
@@ -10985,6 +11118,18 @@
             "state" : "translated",
             "value" : "On"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オン"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟"
+          }
         }
       }
     },
@@ -11078,7 +11223,27 @@
       }
     },
     "当前 Wi-Fi 与选择的璃奈板不一致" : {
-      "comment" : "Mac Wi-Fi identity mismatch"
+      "comment" : "Mac Wi-Fi identity mismatch",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The current Wi-Fi does not match the selected board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の Wi-Fi が選択した璃奈ちゃんボードと一致しません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目前 Wi-Fi 與所選璃奈板不一致"
+          }
+        }
+      }
     },
     "当前 Wi-Fi 名称" : {
       "extractionState" : "stale",
@@ -11588,7 +11753,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Forget Rina board?"
+            "value" : "Forget Rina-chan Board?"
           }
         },
         "ja" : {
@@ -12112,6 +12277,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Open Connection Settings"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続設定を開く"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟連線設定"
           }
         }
       }
@@ -12962,7 +13139,6 @@
       }
     },
     "操作已取消" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -13287,6 +13463,18 @@
             "state" : "translated",
             "value" : "None"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "なし"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無"
+          }
         }
       }
     },
@@ -13341,7 +13529,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Couldn't assign a face number"
+            "value" : "Couldn't assign an expression number"
           }
         },
         "ja" : {
@@ -13359,7 +13547,27 @@
       }
     },
     "无法加载 Mac Wi-Fi 连接组件" : {
-      "comment" : "Mac Wi-Fi bridge missing"
+      "comment" : "Mac Wi-Fi bridge missing",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not load the Mac Wi-Fi connection component"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac の Wi-Fi 接続コンポーネントを読み込めませんでした"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法載入 Mac Wi-Fi 連線元件"
+          }
+        }
+      }
     },
     "无法加载部件库" : {
       "comment" : "parts library unavailable",
@@ -13442,6 +13650,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "以前のリップシンクを再開できません。この端末に対応する同期記録がありません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法恢复原来的口型同步：本机没有对应的同步记录。"
           }
         },
         "zh-Hant" : {
@@ -13592,7 +13806,27 @@
       }
     },
     "无法确认已连接的 Wi-Fi 名称，请检查定位权限" : {
-      "comment" : "Mac Wi-Fi SSID unavailable"
+      "comment" : "Mac Wi-Fi SSID unavailable",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not verify the connected Wi-Fi name. Check location permissions."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続中の Wi-Fi 名を確認できません。位置情報の権限を確認してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法確認已連線的 Wi-Fi 名稱，請檢查定位權限"
+          }
+        }
+      }
     },
     "无法确认正在连接的璃奈板身份" : {
       "comment" : "carrier switch board identity unavailable",
@@ -13694,7 +13928,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Unable to read the local face library"
+            "value" : "Unable to read the local expression library"
           }
         },
         "ja" : {
@@ -13786,7 +14020,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Couldn't read face numbers; the original IDs still work"
+            "value" : "Couldn't read expression numbers; the original IDs still work"
           }
         },
         "ja" : {
@@ -14802,6 +15036,18 @@
             "state" : "translated",
             "value" : "Could not confirm that the hotspot IP was saved. Read the settings again and retry."
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホットスポット IP の保存を確認できませんでした。設定を読み取り直してから再試行してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法確認熱點 IP 已儲存，請重新讀取後再試一次"
+          }
         }
       }
     },
@@ -15229,7 +15475,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld faces in the local library could not be parsed"
+            "value" : "%lld expressions in the local library could not be parsed"
           }
         },
         "ja" : {
@@ -15252,7 +15498,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld faces in the local library could not be parsed; saving has been disabled to protect the original file"
+            "value" : "%lld expressions in the local library could not be parsed; saving has been disabled to protect the original file"
           }
         },
         "ja" : {
@@ -16688,6 +16934,18 @@
             "state" : "translated",
             "value" : "This hotspot IP is already used by another saved board."
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このホットスポット IP は、別の保存済み璃奈ちゃんボードで使用されています"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此熱點 IP 已被另一塊已儲存的璃奈板使用"
+          }
         }
       }
     },
@@ -16697,7 +16955,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This face was changed elsewhere. Save it as a new face, or reload the face and edit again."
+            "value" : "This expression was changed elsewhere. Save it as a new expression, or reload the expression and edit again."
           }
         },
         "ja" : {
@@ -16876,7 +17134,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No matching faces"
+            "value" : "No matching expressions"
           }
         },
         "ja" : {
@@ -17213,7 +17471,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Clear User Faces on This Board"
+            "value" : "Clear User Expressions on This Board"
           }
         },
         "ja" : {
@@ -17853,19 +18111,25 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Turn on LED"
+            "value" : "Lit LEDs"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "LED を点灯"
+            "value" : "点灯 LED 数"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已点亮 LED 数"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "點亮 LED"
+            "value" : "已點亮 LED 數"
           }
         }
       }
@@ -17993,6 +18257,18 @@
             "state" : "translated",
             "value" : "Hotspot IP saved"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホットスポット IP を保存しました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "熱點 IP 已儲存"
+          }
         }
       }
     },
@@ -18002,6 +18278,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Hotspot IPv4 address"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホットスポット IPv4 アドレス"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "熱點 IPv4 位址"
           }
         }
       }
@@ -18169,6 +18457,18 @@
             "state" : "translated",
             "value" : "The hotspot settings could not be saved."
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホットスポット設定を保存できませんでした"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法儲存熱點設定"
+          }
         }
       }
     },
@@ -18315,13 +18615,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rina Board"
+            "value" : "Rina-chan Board"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "璃奈ボード"
+            "value" : "璃奈ちゃんボード"
           }
         },
         "zh-Hant" : {
@@ -19425,7 +19725,26 @@
       }
     },
     "立即重试" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry now"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今すぐ再試行"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即重試"
+          }
+        }
+      }
     },
     "第 %lld 次重新连接" : {
       "comment" : "board reconnect attempt",
@@ -19527,7 +19846,6 @@
       }
     },
     "等待中的面板请求过多，请稍后重试" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -20496,7 +20814,26 @@
       }
     },
     "自动重试已停止" : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic retries stopped"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動再試行を停止しました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動重試已停止"
+          }
+        }
+      }
     },
     "自动阈值" : {
       "localizations" : {
@@ -21030,7 +21367,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This face no longer exists; refresh the list"
+            "value" : "This expression no longer exists; refresh the list"
           }
         },
         "ja" : {
@@ -21098,7 +21435,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Faces"
+            "value" : "Expressions"
           }
         },
         "ja" : {
@@ -21872,6 +22209,18 @@
             "state" : "translated",
             "value" : "Switch to Bluetooth on the Connection page before saving the hotspot IP. Changing the address disconnects the hotspot connection."
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続画面で Bluetooth に切り替えてから、ホットスポット IP を保存してください。アドレスを変更するとホットスポット接続が切断されます。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請先在連線頁面切換至藍牙，再儲存熱點 IP；變更位址會中斷熱點連線。"
+          }
         }
       }
     },
@@ -21998,6 +22347,18 @@
             "state" : "translated",
             "value" : "Connect this board over Bluetooth first to read its hotspot settings"
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先にこのボードへ Bluetooth で接続し、ホットスポット設定を読み取ってください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請先透過藍牙連線此板，以讀取熱點設定"
+          }
         }
       }
     },
@@ -22078,6 +22439,18 @@
             "state" : "translated",
             "value" : "Enter a valid private IPv4 address with a final octet from 1 to 254."
           }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有効なプライベート IPv4 アドレスを入力してください。最後の区切りは 1〜254 にしてください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請輸入有效的私有 IPv4 位址，最後一段須為 1–254"
+          }
         }
       }
     },
@@ -22112,6 +22485,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Enter a private IPv4 address (10.x.x.x, 172.16–31.x.x, or 192.168.x.x) with a final octet from 1 to 254."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プライベート IPv4 アドレス（10.x.x.x、172.16〜31.x.x、192.168.x.x）を入力してください。最後の区切りは 1〜254 にしてください。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請輸入私有 IPv4 位址（10.x.x.x、172.16–31.x.x 或 192.168.x.x），最後一段須為 1–254。"
           }
         }
       }
@@ -23487,10 +23872,50 @@
       }
     },
     "连接璃奈板 Wi-Fi 需要定位权限，请在系统设置中允许" : {
-      "comment" : "Mac Wi-Fi location permission denied"
+      "comment" : "Mac Wi-Fi location permission denied",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Location access is required to connect to the board Wi-Fi. Allow it in system settings."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈ちゃんボードの Wi-Fi に接続するには位置情報の許可が必要です。システム設定で許可してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連線璃奈板 Wi-Fi 需要定位權限，請在系統設定中允許"
+          }
+        }
+      }
     },
     "连接璃奈板 Wi-Fi 需要精确定位权限" : {
-      "comment" : "Mac Wi-Fi precise location required"
+      "comment" : "Mac Wi-Fi precise location required",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Precise Location is required to connect to the board Wi-Fi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈ちゃんボードの Wi-Fi に接続するには「正確な位置情報」の許可が必要です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連線璃奈板 Wi-Fi 需要精確位置權限"
+          }
+        }
+      }
     },
     "连接璃奈板后可修改这些设置。" : {
       "localizations" : {
@@ -25167,7 +25592,6 @@
       }
     },
     "面板响应超时" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -25190,7 +25614,6 @@
       }
     },
     "面板回复无法解析" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -25407,6 +25830,12 @@
             "value" : "ボードから元の同期記録が得られなかったため、リップシンクを自動で再開できません。"
           }
         },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板未提供原同步记录，无法自动恢复口型同步。"
+          }
+        },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
@@ -25460,7 +25889,6 @@
       }
     },
     "面板未连接" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -25586,7 +26014,7 @@
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "面板設定幀率"
+            "value" : "面板設定影格率"
           }
         }
       }
@@ -25888,7 +26316,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Color"
+            "value" : "Colour"
           }
         },
         "ja" : {
@@ -26310,6 +26738,578 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "預設表情無法刪除"
+          }
+        }
+      }
+    },
+    "全屏" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full screen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全画面"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全螢幕"
+          }
+        }
+      }
+    },
+    "半屏" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Half screen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "半画面"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "半螢幕"
+          }
+        }
+      }
+    },
+    "已收起" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collapsed"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "折りたたみ済み"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已收合"
+          }
+        }
+      }
+    },
+    "关闭窗口" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "閉じる"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉"
+          }
+        }
+      }
+    },
+    "开始播放" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再生"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放"
+          }
+        }
+      }
+    },
+    "蓝牙已关闭，请在控制中心或设置中打开" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bluetooth is off. Turn it on in Control Center or Settings."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bluetooth はオフです。コントロールセンターまたは設定でオンにしてください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "藍牙已關閉，請在控制中心或設定中開啟"
+          }
+        }
+      }
+    },
+    "未获得蓝牙权限，请在 设置 › 隐私与安全性 › 蓝牙 中允许" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bluetooth access is not allowed. Allow it in Settings › Privacy & Security › Bluetooth."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bluetooth へのアクセスが許可されていません。「設定 › プライバシーとセキュリティ › Bluetooth」で許可してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未取得藍牙權限，請在「設定 › 隱私權與安全性 › 藍牙」中允許"
+          }
+        }
+      }
+    },
+    "此设备不支持蓝牙" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This device does not support Bluetooth"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このデバイスは Bluetooth に対応していません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此裝置不支援藍牙"
+          }
+        }
+      }
+    },
+    "蓝牙正在重置，请稍后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bluetooth is resetting. Try again shortly."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bluetooth をリセット中です。少し待ってから再試行してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "藍牙正在重置，請稍後再試"
+          }
+        }
+      }
+    },
+    "蓝牙不可用" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bluetooth is unavailable"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bluetooth を利用できません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "藍牙無法使用"
+          }
+        }
+      }
+    },
+    "未选择要连接的璃奈板" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No board selected to connect to"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続する璃奈ちゃんボードが選択されていません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未選擇要連線的璃奈板"
+          }
+        }
+      }
+    },
+    "未找到已保存的璃奈板，请确认板子已开机并在附近" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not find the saved board. Make sure it is on and nearby."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存済みの璃奈ちゃんボードが見つかりません。電源が入っていて近くにあることを確認してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "找不到已儲存的璃奈板，請確認板子已開機且位於附近"
+          }
+        }
+      }
+    },
+    "璃奈板未能启用蓝牙通知，请重新连接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not enable Bluetooth notifications on the board. Reconnect."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードの Bluetooth 通知を有効にできませんでした。接続し直してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法啟用璃奈板的藍牙通知，請重新連線"
+          }
+        }
+      }
+    },
+    "璃奈板（未命名）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rina-chan Board (unnamed)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈ちゃんボード（名前なし）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈板（未命名）"
+          }
+        }
+      }
+    },
+    "璃奈板（%@）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rina-chan Board (%@)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈ちゃんボード（%@）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈板（%@）"
+          }
+        }
+      }
+    },
+    "重连失败，已达到最大尝试次数：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnection failed after the maximum number of attempts: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再接続の試行回数が上限に達しました：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新連線失敗，已達嘗試次數上限：%@"
+          }
+        }
+      }
+    },
+    "面板拒绝指令：%@%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board rejected the command: %@%@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードがコマンドを拒否しました：%@%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板拒絕指令：%@%@"
+          }
+        }
+      }
+    },
+    "面板拒绝表情" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board rejected the expression"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードが表情を拒否しました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板拒絕表情"
+          }
+        }
+      }
+    },
+    "已连接到板子（板载热点）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connected to the board (board hotspot)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードに接続済み（ボードのホットスポット）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已連線至板子（板載熱點）"
+          }
+        }
+      }
+    },
+    "热点连接已断开，请重新连接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The hotspot connection was lost. Reconnect."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホットスポット接続が切れました。接続し直してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "熱點連線已中斷，請重新連線"
+          }
+        }
+      }
+    },
+    "单板 · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Single board · %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 台 · %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "單板 · %@"
+          }
+        }
+      }
+    },
+    "声音不足：最高 %.0f dB，识别阈值 %.0f dB。请降低阈值或靠近麦克风再试一次" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio level too low: peak %.0f dB, recognition threshold %.0f dB. Lower the threshold or move closer to the microphone and try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音量が不足しています：最大 %.0f dB、認識しきい値 %.0f dB。しきい値を下げるか、マイクに近づいて再試行してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音量不足：最高 %.0f dB，辨識閾值 %.0f dB。請降低閾值或靠近麥克風後再試一次"
+          }
+        }
+      }
+    },
+    "未找到 Mac Wi-Fi 接口" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Mac Wi-Fi interface found"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac の Wi-Fi インターフェースが見つかりません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "找不到 Mac Wi-Fi 介面"
+          }
+        }
+      }
+    },
+    "请先打开 Mac Wi-Fi" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn on Mac Wi-Fi first"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先に Mac の Wi-Fi をオンにしてください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請先開啟 Mac Wi-Fi"
+          }
+        }
+      }
+    },
+    "失败 · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed · %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "失敗 · %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "失敗 · %@"
+          }
+        }
+      }
+    },
+    "%@ 充电中" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ charging"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 充電中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 充電中"
           }
         }
       }

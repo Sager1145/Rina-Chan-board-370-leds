@@ -476,7 +476,7 @@ final class BoardConnectionOutputTests: XCTestCase {
         } catch is CancellationError {
             XCTFail("Firmware rejection must not be reported as cancellation")
         } catch {
-            XCTAssertTrue(String(describing: error).contains("面板拒绝指令"))
+            XCTAssertEqual(error.localizedDescription, String(format: NSLocalizedString("面板拒绝指令：%@%@", comment: ""), "pause_scroll", "：denied"))
             XCTAssertTrue(error.localizedDescription.contains("denied"))
             XCTAssertTrue(error.localizedDescription.contains("pause_scroll"))
         }
@@ -494,7 +494,7 @@ final class BoardConnectionOutputTests: XCTestCase {
                 _ = try await connection.command(.pauseScroll)
                 XCTFail("Expected a rejected command to throw")
             } catch {
-                XCTAssertEqual(error.localizedDescription, "面板拒绝指令：pause_scroll")
+                XCTAssertEqual(error.localizedDescription, String(format: NSLocalizedString("面板拒绝指令：%@%@", comment: ""), "pause_scroll", ""))
             }
         }
     }

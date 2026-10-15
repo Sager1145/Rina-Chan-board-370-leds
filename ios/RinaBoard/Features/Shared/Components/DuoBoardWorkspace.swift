@@ -80,12 +80,16 @@ struct DuoWorkspaceAdapter: ViewModifier {
 enum DuoWorkspaceDetection {
     static func isInnerDisplay(viewportSize: CGSize, displaySize: CGSize?, isPhone: Bool,
                                folded: Bool, hasDivision: Bool, previousInner: Bool) -> Bool {
+        // Hinge delivery can precede the scene's resize/rotation. A closed
+        // phone must stop using the inner layout even while the geometry
+        // still describes the inner screen.
+        guard !folded else { return false }
         let wideViewport = isPhone && min(viewportSize.width, viewportSize.height) >= 600
         let wideDisplay = isPhone && displaySize.map { min($0.width, $0.height) >= 600 } == true
         // The native bar temporarily reduces viewport height while rotating.
         // Display bounds still identify the inner screen when this view remounts.
         // A confirmed closed hinge excludes a stale inner display during handoff.
-        return wideViewport || (!folded && (wideDisplay || hasDivision || previousInner))
+        return wideViewport || wideDisplay || hasDivision || previousInner
     }
 }
 

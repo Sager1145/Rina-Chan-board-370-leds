@@ -270,7 +270,7 @@ struct ControlView: View {
 
     private var drawingCommandSection: some View {
         Section {
-            HStack(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 8)], spacing: 8) {
                 Button {
                     model.clear(connection: connection)
                 } label: {
@@ -302,6 +302,8 @@ struct ControlView: View {
                 }
                 .disabled(!model.canUndo)
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("control.drawingCommands")
             .buttonStyle(.pill)
             .pillButtonRow()
         } header: {
@@ -319,7 +321,7 @@ struct ControlView: View {
             FaceLibraryView()
                 .toolbar {
                     MenuToolbarItem(placement: .cancellationAction) {
-                        Button("关闭", systemImage: "xmark") { isShowingSavedFaces = false }
+                        Button("关闭窗口", systemImage: "xmark") { isShowingSavedFaces = false }
                     }
                 }
         }

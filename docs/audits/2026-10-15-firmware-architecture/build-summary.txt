@@ -1,0 +1,6 @@
+Command: /Users/sager/.platformio/penv/bin/pio run -d esp32s3_firmware -e esp32s3-rmt-dma
+Result: INCOMPLETE, not a compiler/test failure.
+Initial workspace-sandbox attempt could not acquire ~/.platformio/platforms.lock.
+Escalated attempt installed tool-scons and reached LDF Scanning dependencies; no compiler invocation was observed after about 5 minutes.
+The two tracked build processes were interrupted with SIGINT; runner exit=1. No board flashing was requested or performed.
+No firmware build success is claimed. See build.log.

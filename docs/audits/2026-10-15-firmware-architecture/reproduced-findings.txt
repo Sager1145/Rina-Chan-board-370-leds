@@ -1,0 +1,5 @@
+empty_start: ok=true active=false reply_bytes=617
+generic_pause: paused=true firmwareScrollPaused=false cursor_advanced=1
+group_exit: reported_interval_ms=1500 actual_advance_after_ms=1000
+set_brightness_reply_bytes=637
+set_frame_request_payload_bytes=49 reply_bytes=297

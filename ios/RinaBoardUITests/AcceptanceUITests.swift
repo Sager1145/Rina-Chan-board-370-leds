@@ -64,7 +64,7 @@ final class AcceptanceUITests: XCTestCase {
 
     func testFiveTabsRemainReachableOfflineAndAfterBackgroundReturn() {
         launch()
-        for tab in ["文字滚动", "嘴形识别", "演出", "设定", "表情显示"] {
+        for tab in ["文字滚动", "口型识别", "演出", "设定", "表情显示"] {
             let item = app.tabBars.buttons[tab]
             XCTAssertTrue(item.waitForExistence(timeout: 3))
             item.tap()

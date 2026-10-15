@@ -42,8 +42,9 @@ final class BootLoaderModel {
     }
 
     private var minimumDisplay: TimeInterval {
-        #if DEBUG && targetEnvironment(simulator)
-        // Keep the real breathing phase visible for physical hinge regressions.
+        #if DEBUG
+        // Shared by the Debug slider and launch arguments, including iPad
+        // hardware runs. Release always uses the normal minimum.
         return max(BootTimeline.minDisplay, min(300, UserDefaults.standard.double(forKey: "bootMinimumDisplay")))
         #else
         return BootTimeline.minDisplay

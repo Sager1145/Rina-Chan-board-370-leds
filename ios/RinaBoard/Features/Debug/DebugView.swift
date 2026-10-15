@@ -5,6 +5,9 @@ import RinaCore
 struct DebugView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(BootLoaderModel.self) private var bootLoader
+    #if DEBUG
+    @AppStorage("bootMinimumDisplay") private var bootMinimumDisplay = 0.0
+    #endif
     /// The model, the selected workspace and the open confirmations live in
     /// the app-scoped Settings workspace: a resize that swaps the Settings
     /// layout rebuilds this page, and must not drop the terminal, the log or
@@ -100,33 +103,33 @@ struct DebugView: View {
                 }
             }
 
-            LabeledContent("设备", value: vm.deviceInfo?.device ?? vm.statusSnapshot?.device ?? "未知")
+            LabeledContent("设备", value: vm.deviceInfo?.device ?? vm.statusSnapshot?.device ?? String(localized: "未知"))
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 125), alignment: .leading)], alignment: .leading, spacing: 16) {
-                metric("播放", value: vm.statusSnapshot?.renderer?.playback ?? "未知", symbol: "play.circle")
-                metric("亮度", value: vm.statusSnapshot?.renderer?.brightness.map(String.init) ?? "未知", symbol: "sun.max")
-                metric("点亮 LED", value: vm.statusSnapshot?.renderer?.lit.map(String.init) ?? "未知", symbol: "lightbulb")
-                metric("电池", value: vm.powerSnapshot?.batteryPercent.map { "\($0)%" } ?? "未知", symbol: "battery.100percent")
+                metric("播放", value: vm.statusSnapshot?.renderer?.playback ?? String(localized: "未知"), symbol: "play.circle")
+                metric("亮度", value: vm.statusSnapshot?.renderer?.brightness.map(String.init) ?? String(localized: "未知"), symbol: "sun.max")
+                metric("点亮 LED", value: vm.statusSnapshot?.renderer?.lit.map(String.init) ?? String(localized: "未知"), symbol: "lightbulb")
+                metric("电池", value: vm.powerSnapshot?.batteryPercent.map { "\($0)%" } ?? String(localized: "未知"), symbol: "battery.100percent")
             }
             .padding(.vertical, 6)
 
             DisclosureGroup("硬件与网络详情") {
-                LabeledContent("固件", value: vm.deviceInfo?.fw ?? "未知")
-                LabeledContent("LED 后端", value: vm.deviceInfo?.ledBackend ?? vm.statusSnapshot?.renderer?.ledBackend ?? "未知")
-                LabeledContent("构建", value: vm.deviceInfo?.build ?? "未知")
-                LabeledContent("空闲堆内存", value: vm.deviceInfo?.heapFree.map { "\($0) B" } ?? "未知")
-                LabeledContent("空闲 PSRAM", value: vm.deviceInfo?.psramFree.map { "\($0) B" } ?? "未知")
-                LabeledContent("网络模式", value: vm.statusSnapshot?.wifi?.mode ?? "未知")
-                LabeledContent("SSID", value: vm.statusSnapshot?.wifi?.ssid ?? "未知")
-                LabeledContent("IP", value: vm.statusSnapshot?.wifi?.ip ?? "未知")
+                LabeledContent("固件", value: vm.deviceInfo?.fw ?? String(localized: "未知"))
+                LabeledContent("LED 后端", value: vm.deviceInfo?.ledBackend ?? vm.statusSnapshot?.renderer?.ledBackend ?? String(localized: "未知"))
+                LabeledContent("构建", value: vm.deviceInfo?.build ?? String(localized: "未知"))
+                LabeledContent("空闲堆内存", value: vm.deviceInfo?.heapFree.map { "\($0) B" } ?? String(localized: "未知"))
+                LabeledContent("空闲 PSRAM", value: vm.deviceInfo?.psramFree.map { "\($0) B" } ?? String(localized: "未知"))
+                LabeledContent("网络模式", value: vm.statusSnapshot?.wifi?.mode ?? String(localized: "未知"))
+                LabeledContent("SSID", value: vm.statusSnapshot?.wifi?.ssid ?? String(localized: "未知"))
+                LabeledContent("IP", value: vm.statusSnapshot?.wifi?.ip ?? String(localized: "未知"))
                 LabeledContent("热点已开启", value: DebugViewModel.triState(vm.statusSnapshot?.wifi?.apActive))
             }
 
             if let power = vm.powerSnapshot {
-                LabeledContent("电池电压", value: power.vbat.map { String(format: "%.2f V", $0) } ?? "未知")
+                LabeledContent("电池电压", value: power.vbat.map { String(format: "%.2f V", $0) } ?? String(localized: "未知"))
                 LabeledContent("正在充电", value: DebugViewModel.triState(power.charging))
                 DisclosureGroup("电源详情") {
                     LabeledContent("读数正常", value: DebugViewModel.triState(power.ok))
-                    LabeledContent("充电电压", value: power.vcharge.map { String(format: "%.2f V", $0) } ?? "未知")
+                    LabeledContent("充电电压", value: power.vcharge.map { String(format: "%.2f V", $0) } ?? String(localized: "未知"))
                     LabeledContent("充电电压有效", value: DebugViewModel.triState(power.chargeValid))
                     LabeledContent("电池读数有效", value: DebugViewModel.triState(power.batteryValid))
                     LabeledContent("电池供电", value: DebugViewModel.triState(power.batteryPowered))
@@ -134,7 +137,7 @@ struct DebugView: View {
                     LabeledContent("低压且无外部电源", value: DebugViewModel.triState(power.batteryLowVoltageUnpowered))
                 }
             } else {
-                LabeledContent("电源", value: "未采样")
+                LabeledContent("电源") { Text("未采样") }
             }
 
             if let watts = vm.estimatedWatts {
@@ -303,7 +306,19 @@ struct DebugView: View {
             powerMaintenance
 
             DisclosureGroup("App 工具") {
+                #if DEBUG
+                VStack(alignment: .leading) {
+                    Text("启动动画最短停留：\(Int(bootMinimumDisplay)) 秒")
+                    Slider(value: $bootMinimumDisplay, in: 0...60, step: 5)
+                        .accessibilityLabel("启动动画最短停留秒数")
+                        .accessibilityIdentifier("debug.boot.minimumDisplay")
+                    Text("临时调试：延长呼吸阶段，便于测试折叠和旋转；0 秒恢复默认。下次播放生效。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                #endif
                 Button("重新播放启动动画") { bootLoader.replay() }
+                    .accessibilityIdentifier("debug.boot.replay")
                 Text("只在当前 App 中重放启动动画，不向面板发送数据。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -475,7 +490,7 @@ struct DebugView: View {
     private func rawJSONBlock(_ title: String, _ text: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption.weight(.semibold))
-            Text(text.isEmpty ? "未采样" : text)
+            Text(text.isEmpty ? String(localized: "未采样") : text)
                 .font(.caption2.monospaced())
                 .foregroundStyle(text.isEmpty ? .secondary : .primary)
                 .textSelection(.enabled)
@@ -484,11 +499,11 @@ struct DebugView: View {
 
     private var connectionLabel: String {
         switch connection.connectionState {
-        case .disconnected: return "未连接"
-        case .connecting: return "连接中"
-        case .connected: return "已连接"
-        case .reconnecting(let attempt): return "重连中 · 第 \(attempt) 次"
-        case .failed(let message): return "失败 · \(message)"
+        case .disconnected: return String(localized: "未连接")
+        case .connecting: return String(localized: "连接中")
+        case .connected: return String(localized: "已连接")
+        case .reconnecting(let attempt): return String(format: NSLocalizedString("重连中 · 第 %lld 次", comment: "debug reconnect attempt"), Int64(attempt))
+        case .failed(let message): return String(format: NSLocalizedString("失败 · %@", comment: "debug connection failure"), message)
         }
     }
 

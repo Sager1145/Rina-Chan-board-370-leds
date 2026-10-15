@@ -1,0 +1,5 @@
+admitted_text_bytes=4096 timeline_frames=37 begin_payload_bytes=4322 frame_limit=4096
+observed_upload_rejection=payloadTooLarge(actual: 4322, maximum: 4096)
+production_ui_scroll_interval_range=17...1000
+minimal_ack_decodes=true face_result_fields_absent=true
+nested_power_envelope_decodes=true

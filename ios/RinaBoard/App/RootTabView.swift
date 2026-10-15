@@ -44,11 +44,9 @@ enum AppTab: String, CaseIterable {
 /// Root navigation: a native `TabView` with the five primary destinations,
 /// plus the global Control Center.
 ///
-/// The Control Center never replaces the selected tab. On iOS 26 it rides in
-/// the system tab-bar bottom accessory and expands into a real detented
-/// sheet; on iOS 17–25, where no such persistent system surface exists, it
-/// lives at the top of Settings instead of being faked with a custom
-/// draggable panel (§2, §4.2). The two-column iPad layout has neither: every
+/// The Control Center never replaces the selected tab. On iOS 26 it is a
+/// draggable menu card above the native tab bar. On iOS 17–25 it lives at
+/// the top of Settings. The two-column iPad layout has neither: every
 /// page carries the panel under its own board preview — see
 /// `ControlCenterPlacement`.
 struct RootTabView: View {
@@ -76,9 +74,8 @@ struct RootTabView: View {
     /// `-openControlCenter YES` presents the Control Center at launch, the
     /// same automated-simulator-run affordance as `-initialTab`.
     @State private var showControlCenter = UserDefaults.standard.bool(forKey: "openControlCenter")
-    @State private var controlCenterDetent: PresentationDetent = .medium
-    /// Ties the collapsed accessory to the expanded sheet so the system can
-    /// zoom one into the other instead of sliding an unrelated sheet up.
+    @State private var controlCenterCardStop: ControlCenterCardStop = UserDefaults.standard.bool(forKey: "openControlCenter") ? .half : .collapsed
+    /// Shared identity for native Control Center buttons in cards and Duo toolbars.
     @Namespace private var controlCenterNamespace
     /// The loader is the first frame; the tabs mount one frame later so
     /// nothing is built before the animation is on screen.
@@ -104,7 +101,6 @@ struct RootTabView: View {
             if contentReady {
                 tabs
                 .modifier(ControlCenterPresenter(isPresented: $showControlCenter,
-                                                 detent: $controlCenterDetent,
                                                  namespace: controlCenterNamespace))
                 .tint(Color("AccentColor"))
                 .onChange(of: selectedTab) { previous, tab in
@@ -141,7 +137,12 @@ struct RootTabView: View {
                             scenePhase: { liveScenePhase }
                         ),
                         draftsRestored: draftsRestored,
-                        showControlCenter: $showControlCenter,
+                        showControlCenter: Binding(
+                            get: { showControlCenter || controlCenterCardStop != .collapsed },
+                            set: { presented in
+                                showControlCenter = presented
+                                if !presented { controlCenterCardStop = .collapsed }
+                            }),
                         configureOutputHandlers: configureOutputHandlers
                     )
                 }
@@ -268,22 +269,27 @@ struct RootTabView: View {
     private var tabs: some View {
         TabView(selection: Bindable(router).selectedTab) {
             ControlView()
+                .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
                 .tabItem { Label("表情显示", image: "TabRinaFace") }
                 .tag(AppTab.control)
 
             ScrollTextView()
+                .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
                 .tabItem { Label("文字滚动", image: "TabScrollText") }
                 .tag(AppTab.text)
 
             LipSyncView()
+                .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
                 .tabItem { Label("嘴形识别", systemImage: "waveform") }
                 .tag(AppTab.lipSync)
 
             PerformanceTabView()
+                .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
                 .tabItem { Label("演出", systemImage: "music.note") }
                 .tag(AppTab.presetLive)
 
             SettingsView()
+                .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
                 .tabItem { Label("设定", image: "TabRinaSettings") }
                 .tag(AppTab.settings)
         }
@@ -399,47 +405,16 @@ private struct MacWindowScrollEdges: ViewModifier {
 }
 #endif
 
-/// Attaches the collapsed Control Center to the system tab bar, and the
-/// expanded sheet it opens into, where iOS provides that surface (26+).
-///
-/// Expanding and collapsing use the system zoom transition: the sheet grows
-/// out of the accessory's summary region and shrinks back into it on
-/// dismissal (including the interactive drag-to-dismiss), so the two surfaces
-/// read as one control that changes size rather than two unrelated screens.
-/// With Reduce Motion on, the transition falls back to the system default,
-/// which is a plain cross-fade/slide with no scaling.
-///
-/// On earlier releases it adds nothing at all — not even the sheet — because
-/// the Settings tab hosts the Control Center there; leaving the sheet attached
-/// would give those releases a second, undocumented way in. The two-column
-/// iPad layout gets no accessory and never presents the sheet, since every
-/// page carries the panel in its preview column: the user asked for no
-/// separate bottom bar there.
+/// Duo retains its toolbar-launched popup. Ordinary single-column pages
+/// host their draggable card inside the native tab bar's safe area.
 private struct ControlCenterPresenter: ViewModifier {
-    @Environment(BoardConnection.self) private var connection
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.duoWorkspace) private var duoWorkspace
     @Environment(\.foldedDuo) private var foldedDuo
     @Binding var isPresented: Bool
-    @Binding var detent: PresentationDetent
     var namespace: Namespace.ID
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// Reduce Motion resolved at the moment the sheet is opened, not read
-    /// live: the zoom and the plain transition are different types, so the
-    /// choice has to be a branch, and a branch that flips while the sheet is
-    /// up would swap the `NavigationStack`'s identity and rebuild its content
-    /// mid-presentation. It is only ever written while nothing is presented.
-    ///
-    /// Seeded from UIKit rather than defaulted to `true`, because
-    /// `-openControlCenter YES` has the sheet presented on the very first
-    /// update: the `onChange` below is already blocked by its own guard by
-    /// then, and there is no ordering guarantee that it would run before the
-    /// sheet's content is built anyway.
-    @State private var useZoomTransition = !UIAccessibility.isReduceMotionEnabled
-
-    static let transitionSourceID = "controlCenter"
 
     private var placement: ControlCenterPlacement {
         .resolve(splitLayout: BoardPageColumns.isSplit(horizontalSizeClass, duoWorkspace: duoWorkspace),
@@ -447,15 +422,8 @@ private struct ControlCenterPresenter: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        // The branch is on the OS version only, never on the width class.
-        // Everything this modifier wraps is the root `TabView`, so a branch
-        // that flips when a Stage Manager window is resized or snapped to
-        // full screen would tear the tab bar down and rebuild it — the items
-        // visibly re-tint and fade in mid-resize. The width class only turns
-        // the accessory on and off; the sheet stays attached and is simply
-        // never presented in the two-column layout.
         if #available(iOS 26.0, *), placement != .settingsLink {
-            accessoryHost(content)
+            content
                 .environment(\.boardControlCenterLauncher, (placement == .statusToolbar || duoWorkspace)
                     ? BoardControlCenterLauncher(namespace: namespace, canExpand: true,
                                                  isFolded: placement == .statusToolbar,
@@ -495,25 +463,6 @@ private struct ControlCenterPresenter: ViewModifier {
                         }
                     }
                 }
-                // Reopening starts at the detent it was opened at, not the one
-                // it was last dragged to: a sheet left at `.large` would
-                // otherwise collapse across twice the distance next time, into
-                // the same small region of the bar. Reset after the collapse
-                // has finished, so it cannot re-detent mid-transition.
-                .sheet(isPresented: sheetPresented, onDismiss: { detent = .medium }) {
-                    expandedSheet
-                    .presentationDetents([.medium, .rinaTall], selection: $detent)
-                    .presentationDragIndicator(.visible)
-                    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
-                }
-                // Keeps the flag current while nothing is presented. The
-                // launch-argument presentation is already up when this first
-                // runs, so it is the seeded default above that covers that
-                // path, not this.
-                .onChange(of: reduceMotion, initial: true) { _, reduced in
-                    guard !isPresented else { return }
-                    useZoomTransition = !reduced
-                }
                 // Widening into the two-column layout closes the sheet, as
                 // removing the modifier used to, so it does not reappear when
                 // the window is narrowed again.
@@ -525,66 +474,8 @@ private struct ControlCenterPresenter: ViewModifier {
         }
     }
 
-    /// The sheet only exists in the single-column layout; the two-column one
-    /// carries the panel in every preview column instead.
-    private var sheetPresented: Binding<Bool> {
-        Binding(get: { isPresented && placement == .tabBarAccessory },
-                set: { isPresented = $0 })
-    }
-
-    @available(iOS 26.0, *)
-    @ViewBuilder
-    private func accessoryHost(_ content: Content) -> some View {
-        if #available(iOS 26.1, *) {
-            content.tabViewBottomAccessory(isEnabled: placement == .tabBarAccessory) {
-                accessory
-            }
-        } else if placement == .tabBarAccessory {
-            // iOS 26.0 has no way to switch the accessory off in place, so
-            // only there does a width-class change still rebuild the tab bar.
-            content.tabViewBottomAccessory { accessory }
-        } else {
-            content
-        }
-    }
-
     private func openControlCenter() {
-        guard !isPresented else { return }
-        useZoomTransition = !reduceMotion
         isPresented = true
-    }
-
-    @available(iOS 26.0, *)
-    private var accessory: some View {
-        // The accessory hosts real controls, so it wires up its own expand
-        // affordance instead of being wrapped in one button that would
-        // swallow every tap.
-        BoardControlCenterAccessory(transitionSourceID: Self.transitionSourceID,
-                                    transitionNamespace: namespace) {
-            // Never while presented: swapping the flag under a live sheet is
-            // the identity change the flag exists to prevent. Unreachable
-            // today, since the sheet covers the bar, but a smaller detent
-            // would expose the accessory again.
-            guard !isPresented else { return }
-            useZoomTransition = !reduceMotion
-            isPresented = true
-        }
-    }
-
-    /// The zoom and the plain transition are different `NavigationTransition`
-    /// types, so the choice has to be a branch, not a ternary — see
-    /// `useZoomTransition` for why it is not read from the environment here.
-    @available(iOS 26.0, *)
-    @ViewBuilder
-    private var expandedSheet: some View {
-        let stack = NavigationStack {
-            BoardControlCenterView(onDismiss: { isPresented = false })
-        }
-        if useZoomTransition {
-            stack.navigationTransition(.zoom(sourceID: Self.transitionSourceID, in: namespace))
-        } else {
-            stack
-        }
     }
 }
 
@@ -592,9 +483,8 @@ private struct ControlCenterPresenter: ViewModifier {
 /// the OS version alone: the two-column iPad layout has a home for it on every
 /// page and therefore wants neither the accessory nor the Settings link.
 enum ControlCenterPlacement {
-    /// The system tab-bar bottom accessory, which expands into a sheet
-    /// (iOS 26+, single column).
-    case tabBarAccessory
+    /// A draggable card above the native tab bar (iOS 26+, single column).
+    case menuCard
     /// One status-only button in Duo’s native vertical bar.
     case statusToolbar
     /// Inline under each page's board preview (the two-column iPad layout).
@@ -615,7 +505,7 @@ enum ControlCenterPlacement {
         #else
         if splitLayout { return .previewColumn }
         if foldedDuo { return .statusToolbar }
-        if #available(iOS 26.0, *) { return .tabBarAccessory }
+        if #available(iOS 26.0, *) { return .menuCard }
         return .settingsLink
         #endif
     }

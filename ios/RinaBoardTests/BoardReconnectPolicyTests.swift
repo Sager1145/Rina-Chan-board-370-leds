@@ -252,7 +252,7 @@ final class BoardReconnectPolicyTests: XCTestCase {
         original.emit(.disconnected)
         await waitUntilTrue {
             if case .failed(let message) = board.connectionState {
-                return message.contains("最大尝试次数")
+                return message == String(format: NSLocalizedString("重连失败，已达到最大尝试次数：%@", comment: ""), board.lastError ?? "")
             }
             return false
         }

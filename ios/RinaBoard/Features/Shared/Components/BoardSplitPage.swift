@@ -63,9 +63,10 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
         self.controls = controls()
     }
 
+    // Display handoff already has a system transition. Animating the
+    // replacement List/two-pane tree also interpolates obsolete sizes.
     var body: some View {
         page
-            .animation(.easeOut(duration: reduceMotion ? 0.15 : 0.25), value: duoWorkspace)
     }
 
     @ViewBuilder
@@ -122,7 +123,8 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
     private var duoPage: some View {
         GeometryReader { proxy in
             let division = proxy.reservedRegions(kind: .division, options: .includeInactive)
-                .first(where: \.isActive)?.frame
+                .first(where: \.isActive)
+                .flatMap { DuoWorkspaceFrames.validDivision($0.frame, in: proxy.size) }
             let frames = DuoWorkspaceFrames.resolve(size: proxy.size, division: division,
                                                      stackLowerPanels: dynamicTypeSize.isAccessibilitySize)
             DuoWorkspacePlacement(frames: frames, size: proxy.size,
@@ -152,6 +154,11 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
                 .contentMargins(.trailing, 12 + proxy.safeAreaInsets.trailing, for: .scrollContent)
                 .accessibilityIdentifier("board.workspace.tabControls")
             }
+            // Rotation and display handoff resize the scene themselves.
+            // Do not animate towards a second set of dimensions at the same
+            // time; a fold-only reflow at a stable size can still animate.
+            // Keep this inside .animation so it clears that animation too.
+            .transaction(value: proxy.size) { $0.animation = nil }
             .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: division != nil)
         }
     }

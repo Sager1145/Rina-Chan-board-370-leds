@@ -296,7 +296,7 @@ struct BoardGroupEditorView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             MenuToolbarItem(placement: .cancellationAction) {
-                Button("关闭") { isPresentingAddSheet = false }
+                Button("关闭窗口") { isPresentingAddSheet = false }
             }
         }
     }

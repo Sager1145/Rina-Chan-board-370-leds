@@ -1,0 +1,4 @@
+==> core: swift test (RinaCore)
+
+core: ok, 376 executed, 11 skipped, 0 failed
+all lanes passed

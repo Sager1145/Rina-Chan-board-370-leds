@@ -54,7 +54,7 @@ struct SettingsView: View {
                 case .compact: SettingsStackLayout()
                 }
             }
-            .animation(.easeOut(duration: reduceMotion ? 0.15 : 0.25), value: mode)
+            .animation(duoWorkspace || foldedDuo ? nil : .easeOut(duration: reduceMotion ? 0.15 : 0.25), value: mode)
             // Only a change of layout writes anything; a resize within one
             // layout is not a navigation, a reload or a reconnect.
             .onChange(of: mode, initial: true) { _, mode in
@@ -117,6 +117,7 @@ private struct SettingsSplitLayout: View {
                     .environment(\.boardControlCenterLauncher, nil)
                     .id(shown)
                 }
+                .transaction(value: proxy.size) { $0.animation = nil }
                 .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: activeDivision != nil)
             }
             .modifier(FoldedControlCenterToolbar())
@@ -277,10 +278,10 @@ private struct SettingsCategoryRows: View {
     private var controlTargetSummary: String {
         switch ControlTarget.resolved(storedGroupIDString: controlTargetGroupIDStorage, in: groupStore) {
         case .single:
-            return "单板 · \(connection.deviceName ?? "未连接")"
+            return String(format: NSLocalizedString("单板 · %@", comment: "single-board control target summary"), connection.deviceName ?? String(localized: "未连接"))
         case .group(let id):
-            let name = groupStore.groups.first { $0.id == id }?.name ?? "多板组"
-            return "多板组 · \(name)"
+            let name = groupStore.groups.first { $0.id == id }?.name ?? String(localized: "多板组")
+            return String(format: NSLocalizedString("多板组 · %@", comment: "board-group control target summary"), name)
         }
     }
 

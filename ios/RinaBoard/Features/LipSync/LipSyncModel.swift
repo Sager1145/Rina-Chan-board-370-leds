@@ -597,7 +597,7 @@ final class LipSyncModel {
                 } else if !receivedSignal {
                     self.errorMessage = String(localized: "麦克风传入的音频全部为静音，请检查输入设备是否被静音")
                 } else {
-                    self.errorMessage = String(format: "声音不足：最高 %.0f dB，识别阈值 %.0f dB。请降低阈值或靠近麦克风再试一次",
+                    self.errorMessage = String(format: NSLocalizedString("声音不足：最高 %.0f dB，识别阈值 %.0f dB。请降低阈值或靠近麦克风再试一次", comment: "calibration audio below recognition threshold"),
                                                Double(loudestDb), Double(self.sensitivityDb))
                 }
                 #if DEBUG

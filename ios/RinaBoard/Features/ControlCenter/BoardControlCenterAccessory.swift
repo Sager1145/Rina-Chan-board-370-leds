@@ -1,23 +1,9 @@
 import SwiftUI
 import RinaCore
 
-/// Collapsed Control Center (design guide §6.1).
-///
-/// On iOS 26 this is the content of the system's tab-bar bottom accessory —
-/// Apple's own persistent-bottom-surface presentation (the same one Music uses
-/// for its mini player) — so there is no custom drag interaction anywhere in
-/// the expansion path.
-///
-/// It carries the glanceable board state *and*, while the board is connected,
-/// the controls that are worth reaching without expanding anything:
-/// previous/next face, the auto/manual switch and the board colour (§9, §10).
-/// Sending the editor's draft lives on the Control tab; everything else still
-/// lives behind the expanded sheet.
-///
-/// Only the summary region expands the sheet. The controls are real controls,
-/// so the accessory is deliberately *not* wrapped in one big button — nesting
-/// them inside a parent button would make every step or colour tap also open
-/// the sheet.
+/// Compact board controls shared by the menu card and Duo's native toolbar.
+/// Each control stays a real Button or UIKit menu button, so tapping a mode,
+/// face or colour never also expands the card. Only the status button opens it.
 @available(iOS 26.0, *)
 struct BoardControlCenterAccessory: View {
     @Environment(BoardConnection.self) private var connection

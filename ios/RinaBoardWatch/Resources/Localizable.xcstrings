@@ -312,7 +312,7 @@
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "口型同步"
+            "value" : "嘴型同步"
           }
         }
       }
@@ -357,7 +357,7 @@
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "多板組 · 上線 %lld / %lld"
+            "value" : "多板組 · 線上 %lld / %lld"
           }
         }
       }
@@ -379,7 +379,7 @@
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "多板組未同步時無法從手錶開始口型同步"
+            "value" : "多板組未同步時無法從手錶開始嘴型同步"
           }
         }
       }
@@ -579,6 +579,12 @@
             "value" : "iPhone のマイクで口を動かしています"
           }
         },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在用 iPhone 的麦克风驱动口型"
+          }
+        },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
@@ -636,13 +642,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "RinaBoard"
+            "value" : "Rina-chan Board"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "璃奈ボード"
+            "value" : "璃奈ちゃんボード"
           }
         },
         "zh-Hant" : {
@@ -726,7 +732,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Faces"
+            "value" : "Expressions"
           }
         },
         "ja" : {
@@ -749,7 +755,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Face %lld / %lld"
+            "value" : "Expression %lld / %lld"
           }
         },
         "ja" : {

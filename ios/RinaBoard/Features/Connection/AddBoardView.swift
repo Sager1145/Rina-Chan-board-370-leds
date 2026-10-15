@@ -276,13 +276,13 @@ struct AddBoardView: View {
         }
         return switch stage {
         case .idle:
-            hasConnectedHotspot ? "已连接到板子（板载热点）" : nil
+            hasConnectedHotspot ? String(localized: "已连接到板子（板载热点）") : nil
         case .joiningPhoneToBoardAP:
             nil
         case .connectingToBoard:
-            "正在连接板子…"
+            String(localized: "正在连接板子…")
         case .connected:
-            hasConnectedHotspot ? "已连接到板子（板载热点）" : "热点连接已断开，请重新连接"
+            hasConnectedHotspot ? String(localized: "已连接到板子（板载热点）") : String(localized: "热点连接已断开，请重新连接")
         case .failed(let message):
             message
         }

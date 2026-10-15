@@ -593,7 +593,7 @@ public final class BoardConnection {
               let original = originalReconnectTransport else { return }
         guard reconnectAttempts < maxReconnectAttempts else {
             connectionReadyHandler = nil
-            connectionState = .failed("重连失败，已达到最大尝试次数：" + (lastError ?? ""))
+            connectionState = .failed(String(format: NSLocalizedString("重连失败，已达到最大尝试次数：%@", comment: "reconnection failed with last error"), lastError ?? ""))
             return
         }
         reconnectTask?.cancel()
@@ -1076,7 +1076,7 @@ public final class BoardConnection {
             }
             guard reply.ok else {
                 let detail = reply.error.flatMap { $0.isEmpty ? nil : "：\($0)" } ?? ""
-                throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)\(detail)")
+                throw RinaTransportError.underlying(String(format: NSLocalizedString("面板拒绝指令：%@%@", comment: "rejected command name and firmware error detail"), cmd.name, detail))
             }
             self.updateDeviceName(from: reply, for: cmd, transport: activeTransport, generation: generation)
             self.outboundHook?.didApplyFace(reply, cmd)
@@ -1252,7 +1252,7 @@ public final class BoardConnection {
                 try await self.send(type: .setFrame, payload: payload)
             }
             let reply = try JSONDecoder().decode(CommandReply.self, from: frame.payload)
-            guard reply.ok else { throw RinaTransportError.underlying("面板拒绝表情") }
+            guard reply.ok else { throw RinaTransportError.underlying(NSLocalizedString("面板拒绝表情", comment: "board rejected face")) }
             return reply
         }
         try output.check(token)

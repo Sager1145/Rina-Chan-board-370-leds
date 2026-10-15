@@ -281,7 +281,9 @@ final class WatchLinkService {
             colorHex: colorHex,
             faceIndex: faceIndex,
             faceCount: renderer?.autoFaceCount,
-            presets: (model.colorPresets?.parents ?? []).map { .init(name: $0.name, hex: $0.color) },
+            presets: (model.colorPresets?.parents ?? []).map {
+                .init(name: ColorPresets.displayName($0.name), hex: $0.color)
+            },
             isScrollActive: groupSynced
                 ? phoneSyncedGroup.map(groupScrollActive) == true
                 : isConnected && renderer?.firmwareScrollActive == true,

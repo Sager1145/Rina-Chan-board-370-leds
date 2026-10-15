@@ -157,7 +157,7 @@ struct VideoPlayerView: View {
                 }
                 .accessibilityLabel(model.isPlaying
                                     ? LocalizedStringKey("暂停")
-                                    : LocalizedStringKey("播放"))
+                                    : LocalizedStringKey("开始播放"))
                 .disabled(!model.isPlaying && (!model.hasVideo || model.isLoading))
 
                 Button {

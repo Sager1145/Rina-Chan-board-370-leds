@@ -1,695 +1,230 @@
-# RinaChanBoard ESP32-S3 Firmware
+# RinaChanBoard · 370 LED 璃奈板
 
-> 基于 ESP32-S3 的 370 颗 WS2812B LED 表情板固件。设备不再内置 WebUI/HTTP 服务，改为通过 RinaBoard iOS App 使用 RinaLink v1 二进制协议控制表情、颜色、亮度、自动轮播、文字滚动、电池状态和调试功能。
+把表情画在璃奈板上，让文字横跨多块板滚动，或让嘴型跟着你的声音和音乐变化。
 
-# 模型文件
-https://makerworld.com/zh/models/2569348-rina-chan-board-rina-board-rina-chan-board#profileId-2832058
+RinaChanBoard 使用 **ESP32-S3 + 370 颗 WS2812B LED**，通过 RinaBoard 原生应用控制。仓库包含板端固件、iPhone / iPad 应用、Mac Catalyst 应用和 Apple Watch 控制端。设备通过蓝牙或本地 Wi-Fi 通信，日常使用无需外部服务器。
 
-RinaChanBoard 是一个完全本地运行的 LED 表情显示系统。烧录固件与 LittleFS 后，用户通过 RinaBoard iOS App 连接设备：蓝牙（BLE，用于首次 Wi‑Fi 配网及全部功能）、家庭 Wi‑Fi（TCP `5370` 端口，Bonjour 域名 `rinaboard-<ID>.local`），或设备自建热点 `RinaChanBoard-<ID>`（TCP `192.168.1.14:5370`）。`<ID>` 是该板蓝牙 MAC 地址的 12 位大写十六进制字符（与 BLE 名称后缀相同，串口 `status` 命令会输出 `STATUS boardId=`），详见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md) 的 “Board identity” 一节。项目不依赖路由器、云服务或外部服务器；所有表情、运行设置和电池校准数据都保存在设备本地 LittleFS 中。协议细节见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md)。
+[3D 打印模型](https://makerworld.com/zh/models/2569348-rina-chan-board-rina-board-rina-chan-board#profileId-2832058) · [Apple 应用开发说明](ios/README.zh-CN.md) · [Mac 构建与使用](docs/mac/README.md) · [RinaLink 协议](docs/RINALINK_PROTOCOL_V1.md)
 
----
+## 可以做什么
 
-## 目录
+### 画出、组合并收藏表情
 
-- [1. 功能概览](#1-功能概览)
-- [2. 硬件与引脚](#2-硬件与引脚)
-- [3. 技术栈与系统组成](#3-技术栈与系统组成)
-- [4. 快速开始](#4-快速开始)
-- [5. WebUI 使用说明](#5-webui-使用说明)
-- [6. 物理按钮操作](#6-物理按钮操作)
-- [7. HTTP API](#7-http-api)
-- [8. 数据文件与持久化](#8-数据文件与持久化)
-- [9. 配置项](#9-配置项)
-- [10. 项目结构](#10-项目结构)
-- [11. 构建与资源流水线](#11-构建与资源流水线)
-- [12. 调试与验证](#12-调试与验证)
-- [13. 已知限制与开发者注意](#13-已知限制与开发者注意)
-- [14. 第三方组件与许可证](#14-第三方组件与许可证)
+在 370 点画布上点按或拖动绘制，切换画笔与橡皮擦，使用镜像绘制、反选、清空和撤销。画布支持缩放、草稿恢复和实时发送；支持悬停的 Apple Pencil 还可以在预览与实体板上提示对应 LED 位置。
 
----
+也可以直接组合左眼、右眼、嘴巴和脸颊部件，开启眼睛对称，随机生成组合，再继续手绘修改。
 
-## 1. 功能概览
+表情库分为**本机收藏**和**板端收藏**，可应用、重命名、复制、排序、编辑、批量删除及 JSON 导入 / 导出。预设表情受保护，本机删除支持撤销。单帧点阵可通过 M370 十六进制、字节数组或 Base64 导入 / 导出。
 
-### 1.1 核心功能
+### 随时调整整块板
 
-- 通过 RinaBoard iOS App 控制：蓝牙 BLE、家庭 Wi‑Fi（TCP `5370`，Bonjour `rinaboard-<ID>.local`），或设备自建热点 `RinaChanBoard-<ID>`（默认 SSID，`<ID>` 为每块板唯一的蓝牙 MAC 十六进制后缀）三种连接方式，详见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md)。
-- 370 颗 WS2812B / NeoPixel LED 控制。
-- 逻辑 M370 帧格式，支持 370 bit LED 状态导入、导出和 API 控制。
-- 主颜色、亮度、手动/自动模式、自动轮播间隔控制。
-- 默认表情、用户自定义表情、部件组合表情统一管理。
-- 自定义 LED 点阵绘制、全亮、全灭、反选、复制/导入 M370。
-- 表情部件组合：左眼、右眼、嘴巴、脸颊，可随机组合并保存。
-- 文字滚动：iOS App 生成滚动帧，固件缓存到 RAM/PSRAM 后独立播放。
-- 文字滚动支持发送、暂停、继续、停止清屏、逐格控制和 FPS 设置。
-- B1–B6 物理按钮控制表情、模式、亮度、自动间隔和电池显示。
-- 电池电压、充电状态、百分比、最低/最高记录和校准数据保存。
-- Debug 页面提供测试图案、状态 JSON、ADC/电源状态和日志工具。
+控制中心集中提供连接状态、上一张 / 下一张表情、手动 / 自动轮播、轮播间隔、亮度和颜色。颜色可手动输入，也可选择内置 Love Live! 系列角色预设。
 
-### 1.2 运行方式
+- **iOS 26+ 单列布局**：控制中心位于底部导航上方，可拖动到收起、半页和整页高度；展开后仍可切换功能页，切换时保留展开高度。
+- **宽屏 iPad 与 Mac**：预览与操作并排显示，板端控制嵌入页面；窗口变窄时切换布局。
+- **Duo 布局**：根据折叠状态与方向安排预览和操作区，折叠时通过工具栏展开控制中心。
+- **iOS 17–25 单列布局**：从设置进入控制中心。
 
-本项目不是传统的“前端 + 独立后端 + 数据库”架构。ESP32-S3 固件同时承担：
+### 播放滚动文字
 
-1. Wi‑Fi AP 和 DNS 服务。
-2. HTTP 静态文件服务器。
-3. REST API 后端。
-4. LED 渲染与滚动播放任务。
-5. 物理按钮扫描。
-6. 电池/充电 ADC 采样。
-7. LittleFS JSON 文件读写。
+输入文字后，应用使用 Ark Pixel 12px 位图字体生成点阵，可先预览再上传。支持播放、暂停、继续、停止、循环、逐帧移动、拖动定位和速度调整，标称速度范围为 **1–60 fps**。
 
----
+上传完成后，板端独立播放这段文字；应用重连会读取板端进度。文字帧保存在 RAM / PSRAM，断电后需要重新发送。
 
-## 2. 硬件与引脚
+### 让嘴型跟随声音
 
-### 2.1 默认硬件
+使用控制设备的麦克风实时分析声音，切换元音和闭嘴口型。可选择声音识别预设，调整灵敏度、刷新率和平滑，并进行元音校准与嘴型映射。
 
-| 项目 | 默认值 |
+口型分析由应用完成，需要麦克风权限，并在运行时持续向板端发送画面。
+
+### 用音乐和视频驱动画面
+
+**预设演出**将本地音频与 `.rinalive` 关键帧脚本配对，按音频播放位置切换表情，支持暂停、定位和循环。仓库提供预设时间轴，曲目音频需自行准备。
+
+**视频播放**可从文件或相册导入视频，将画面转换为 370 点开关图案并实时发送。支持适配方式、阈值、抖动、反相、镜像、帧率、循环、静音和定位。输出使用全板主颜色与亮度。
+
+演出与视频需要应用持续运行。重连或返回前台时，应用读取板端输出模式，并尝试用本机保留的对应素材恢复播放位置；素材缺失时会提示，板端暂停状态也会保留。
+
+### 把多块板组成一块长屏
+
+应用可以同时保持多个 BLE 或同一局域网 TCP 连接，选择单板或多板组作为控制对象。每组最多 **5 块板**，支持两种显示方式：
+
+| 方式 | 显示效果 |
 |---|---|
-| 主控 | ESP32-S3 DevKitC / ESP32-S3-WROOM 兼容板 |
-| 框架 | Arduino on PlatformIO |
-| LED | 370 × WS2812B / NeoPixel |
-| LED 数据脚 | `GPIO2` |
-| 电池 ADC | `GPIO10` |
-| 充电检测 ADC | `GPIO1` |
-| 默认 PSRAM | QSPI PSRAM |
-| 文件系统 | LittleFS |
+| 拼接 | 把文字横向分配到各块板，组成连续长屏，可设置板间间距 |
+| 镜像 | 每块板显示同一内容 |
 
-### 2.2 按钮引脚
+可显示实体板识别编号，并在组预览中拖动调整成员顺序。组文字播放使用时钟采样和定时启动同步；表情、颜色、亮度及应用驱动的实时内容也支持组控制。
 
-| 按钮 | GPIO | 默认行为 |
-|---|---:|---|
-| B1 | 17 | 松开时下一张 saved face（滚动中会停止滚动并切回表情模式）；长按 10 s 重置蓝牙设定 |
-| B2 | 16 | 上一张 saved face；滚动中按下会停止滚动并切回表情模式 |
-| B3 | 15 | 松开时切换 Manual / Auto；也作为组合键修饰键 |
-| B4 | 40 | 亮度降低，每次 `-8`，长按连续降低 |
-| B5 | 41 | 亮度增加，每次 `+8`，长按连续增加 |
-| B6 | 42 | 短按显示电量；长按 ≥700 ms 循环显示电池详情；长按 10 s 重置 Wi-Fi 设定 |
-| B3 + B1 | 15 + 17 | 自动轮播间隔 `-500 ms`，最小 `500 ms` |
-| B3 + B2 | 15 + 16 | 自动轮播间隔 `+500 ms`，最大 `10000 ms` |
+已知设备、连接偏好和分组信息保存在本机。启动时自动重连最近使用的已保存设备，其余设备可从连接列表加入。
 
-### 2.3 LED 矩阵几何
+### 在 Apple Watch 上控制
 
-| 项目 | 值 |
+Watch 经配对 iPhone 调整亮度、表情、颜色、自动轮播与间隔、正在播放的文字速度，以及口型同步开关和灵敏度；数值可用数码表冠调整。还可选择连接中的单板或组，独立于手机当前选择的控制对象。
+
+Watch 操作由 iPhone 转发，**iPhone 应用需要在前台运行**。Watch 不直接连接璃奈板；非手机当前同步组不能从 Watch 启动口型同步。
+
+应用和 Watch 提供简体中文、繁体中文、日语和英语本地化。
+
+## 从零开始
+
+### 1. 准备硬件与工具
+
+默认固件面向 **8 MB Flash、8 MB OPI PSRAM 的 ESP32-S3** 和 370 颗 WS2812B LED，使用 PlatformIO + Arduino。外壳可参考上方的 3D 打印模型。
+
+| 部分 | 开发与运行要求 |
 |---|---|
-| LED 总数 | `370` |
-| 逻辑行数 | `18` |
-| M370 bit 数 | `370` |
-| M370 hex 长度 | `93` |
-| 帧存储字节 | `(370 + 7) / 8 = 47 bytes` |
-| 走线 | 蛇形 serpentine |
-| 奇数行方向 | 反向 |
+| 固件 | PlatformIO Core 或 VS Code PlatformIO 插件 |
+| iPhone / iPad | Xcode 27.1 或更新版本构建；最低运行版本 iOS / iPadOS 17 |
+| Mac | Mac Catalyst；最低运行版本 macOS 14 |
+| Apple Watch | `RinaBoardWatch` scheme；最低运行版本 watchOS 10 |
 
-逻辑行长度：
+构建 SDK 与最低运行版本不同：当前源码引用了受运行时版本检查保护的 iOS 27.1 API。真机安装需在 Xcode 配置开发签名。
 
-```text
-18, 20, 20, 20, 22, 22, 22, 22, 22,
-22, 22, 22, 22, 20, 20, 20, 18, 16
+```sh
+git clone https://github.com/Sager1145/Rina-Chan-board-370-leds.git
+cd Rina-Chan-board-370-leds
 ```
 
-M370 始终使用逻辑 row-major 顺序；固件在输出到 WS2812B 前负责转换到实际蛇形物理 LED 顺序。
+### 2. 烧录璃奈板
 
----
-
-## 3. 技术栈与系统组成
-
-| 层级 | 技术 / 文件 | 说明 |
-|---|---|---|
-| 固件框架 | PlatformIO + Arduino | `platformio.ini` 定义 ESP32-S3 构建环境 |
-| LED 驱动 | Adafruit NeoPixel | 控制 WS2812B LED 链 |
-| JSON | ArduinoJson | 状态、配置、表情库和 API 请求/响应 |
-| Web 后端 | Arduino `WebServer` | 固件内置 HTTP API 和静态资源服务 |
-| 前端 | 原生 HTML / CSS / JS | `data/index.html`、`data/styles.css`、`data/app.js` |
-| 存储 | LittleFS | 保存 WebUI、表情库、运行设置、电池校准 |
-| 网络 | ESP32 SoftAP + DNS | 默认 `192.168.1.14` 和 `rina.io` |
-| 任务 | FreeRTOS | Core 0 处理 Web/按钮/电源，Core 1 处理 LED 渲染/滚动 |
-| 字体 | Ark Pixel + GNU Unifont subset | 文字滚动输入与 WebUI 字体显示 |
-
----
-
-## 4. 快速开始
-
-### 4.1 环境要求
-
-- PlatformIO Core 或 PlatformIO VS Code 插件。
-- Python 3.9+。
-- Windows PowerShell 5+，如果使用项目内置构建脚本。
-- USB 数据线和 ESP32-S3 串口驱动。
-
-Python 依赖：
-
-```bash
-pip install pillow fonttools brotli
-```
-
-PlatformIO 依赖由 `platformio.ini` 自动安装：
-
-- `bblanchon/ArduinoJson@^6.21.5`
-- `adafruit/Adafruit NeoPixel@^1.12.3`
-
-### 4.2 克隆项目
-
-```bash
-git clone https://github.com/yourusername/Rina-Chan-board-370-leds.git
-cd Rina-Chan-board-370-leds/esp32s3_firmware
-```
-
-### 4.3 一键构建、烧录固件和上传文件系统
-
-Windows / PowerShell：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_rinachan_unifont.ps1 -UploadFirmware -UploadFS
-```
-
-该脚本会执行以下工作：
-
-1. 检查 Python 依赖。
-2. 生成或验证 WebUI 字体资源。
-3. 生成 GNU Unifont WebUI 子集。
-4. 验证 Ark Pixel 12px 字体资源。
-5. 构建 PlatformIO 固件。
-6. 上传固件。
-7. 上传 LittleFS 文件系统。
-
-### 4.4 仅构建
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_rinachan_unifont.ps1
-```
-
-### 4.5 手动 PlatformIO 命令
-
-```bash
+```sh
+cd esp32s3_firmware
 pio run
 pio run -t upload
 pio run -t uploadfs
-```
-
-> 注意：只上传固件不够。WebUI、表情库、字体和 JSON 资源位于 LittleFS 中，必须执行 `pio run -t uploadfs` 或使用 `-UploadFS`。
-
-### 4.6 连接设备
-
-烧录完成后，连接设备热点：
-
-| 字段 | 默认值 |
-|---|---|
-| Wi‑Fi SSID | `RinaChanBoard-<ID>`（`<ID>` 为本板蓝牙 MAC 的 12 位大写十六进制，见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md) “Board identity”） |
-| Wi‑Fi 密码 | `rinachan` |
-| 本地域名 | `http://rina.io/` |
-| IP 地址 | `http://192.168.1.14/` |
-
-如果浏览器缓存旧资源，可以强制刷新：
-
-```text
-http://rina.io/?v=latest
-```
-
----
-
-## 5. WebUI 使用说明
-
-固件不再内置完整 WebUI，原先的基础控制、自定义表情、表情部件、文字滚动和调试页面已全部迁移到 RinaBoard iOS App 中实现（LED 点阵编辑、部件组合、Ark Pixel 文字滚动光栅化、日志/调试工具等均在 App 侧完成，固件只负责接收 RinaLink 消息并渲染/持久化）。固件仅保留一个约 10 KB 的 Wi‑Fi 设置页（内嵌在 flash 中，无需 LittleFS 资源），用于没有安装 App 的手机或电脑给板子配网：先连接热点 `RinaChanBoard-<ID>`（密码 `rinachan`，`<ID>` 为本板唯一标识），再用浏览器打开 `http://rina.io`（热点模式下的验证码域名）或 `http://192.168.1.14`。页面上可以查看当前工作模式、家庭 Wi‑Fi 连接状态和热点信息，扫描并选择附近的 Wi‑Fi、填写密码后一键连接，以及修改热点名称和密码；页面本身不提供表情、颜色、动画或文字滚动等功能。除配网外的所有其它控制，都必须通过 RinaBoard iOS App 经蓝牙或 Wi‑Fi 连接固件后完成，具体消息格式和命令列表见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md)。
-
----
-
-## 6. 物理按钮操作
-
-### 6.1 单键操作
-
-| 操作 | 行为 |
-|---|---|
-| B1 松开 | 下一张 saved face（B1 不再连发） |
-| B2 短按 | 上一张 saved face |
-| B3 松开 | 切换 Manual / Auto |
-| B4 短按 | 亮度降低 8 |
-| B5 短按 | 亮度增加 8 |
-| B6 短按（松开） | 显示电量百分比 2 s |
-
-### 6.2 长按操作
-
-| 操作 | 行为 |
-|---|---|
-| B1 长按 10 s | 重置所有蓝牙设定：清除自定义设备名（恢复 `RinaBoard-<MAC>`）、删除配对记录并立即重新广播；矩阵蓝色闪 3 次。松开后不切换表情 |
-| B2 长按 | 连续上一张表情 |
-| B4 长按 | 连续降低亮度 |
-| B5 长按 | 连续增加亮度 |
-| B6 长按 ≥700 ms | 按住期间循环显示电量 / 电池电压 / 充电电压，松开关闭 |
-| B6 长按 10 s | 重置所有 Wi-Fi 设定：清除 home / hotspot 凭据、SoftAP 名称密码恢复默认、模式恢复 `ap` 并立即生效；矩阵绿色闪 3 次 |
-
-默认长按参数：
-
-| 项目 | 值 |
-|---|---:|
-| B2 长按触发 | `650 ms` 后开始 |
-| B2 连发间隔 | `350 ms` |
-| B1 / B6 重置触发 | 按住 `10000 ms`（按住 B3 时 B1 不触发；按住 B2 或 B3 时 B6 不触发） |
-| B4/B5 长按触发 | `450 ms` 后开始 |
-| B4/B5 连发间隔 | `120 ms` |
-
-### 6.3 组合键
-
-| 操作 | 行为 |
-|---|---|
-| B3 + B1 | 自动轮播间隔减少 `500 ms` |
-| B3 + B2 | 自动轮播间隔增加 `500 ms` |
-
-### 6.4 滚动播放中的按钮行为
-
-当文字滚动正在播放时：
-
-- B1/B2/B3 会中断滚动。
-- 固件会通知 WebUI 滚动已被硬件按钮停止。
-- WebUI 应停止本地滚动预览并显示当前表情状态。
-
----
-
-## 7. HTTP API
-
-固件已移除 HTTP/REST API；旧的 `/api/*` endpoint（`status`、`power`、`frame`、`scroll`、`command`、`saved_faces`）已由 RinaLink v1 二进制协议（TCP `5370` / BLE GATT）上的等价消息类型取代，例如 `GET_STATUS`、`GET_POWER`、`SET_FRAME`、`BLOB_*`（scroll/faces）和 `CMD`。完整的消息格式、命令集和字段说明见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md)，客户端实现请参考 RinaBoard iOS App。
-
----
-
-## 8. 数据文件与持久化
-
-### 8.1 LittleFS 文件
-
-| 路径 | 用途 |
-|---|---|
-| `/index.html` | WebUI HTML |
-| `/app.js` | WebUI 主逻辑 |
-| `/styles.css` | WebUI 样式 |
-| `/resources/saved_faces.json` | 统一表情库 |
-| `/resources/runtime_settings.json` | Manual/Auto 模式和自动间隔 |
-| `/resources/battery_calib.json` | 电池最低/最高校准记录 |
-| `/resources/loading/rina_icon1_default.png` | 加载页默认图标 |
-| `/resources/loading/rina_icon2_hover.png` | 加载页 hover/结束图标 |
-| `/resources/fonts/ark12.woff2` | Ark Pixel 浏览器字体 |
-| `/resources/fonts/ark12_fallback.woff2` | Ark Pixel fallback 字体 |
-| `/resources/fonts/ark12.json` | LED 文字滚动 bitmap glyph 表 |
-
-### 8.2 saved_faces.json
-
-表情库格式：
-
-```json
-{
-  "format": "rina_faces_370_v2",
-  "version": 2,
-  "category": "...",
-  "matrix": {
-    "ledCount": 370
-  },
-  "startupDefaultId": "...",
-  "updatedAt": "...",
-  "faces": []
-}
-```
-
-单个 face 示例：
-
-```json
-{
-  "id": "face_01_surprised_winking_with_mouth",
-  "name": "surprised / winking with mouth",
-  "type": "default",
-  "m370": "M370:<93 hex>",
-  "order": 1,
-  "editable": true,
-  "deletable": false,
-  "locked": true,
-  "is_startup_default": false
-}
-```
-
-face 类型：
-
-| 类型 | 说明 |
-|---|---|
-| `default` | 出厂/内置表情；通常不可删除 |
-| `custom` | 用户在 6.2 自定义点阵中保存的表情 |
-| `parts` | 用户在 6.3 表情部件中组合保存的表情 |
-
-### 8.3 runtime_settings.json
-
-保存运行设置：
-
-```json
-{
-  "mode": "manual",
-  "autoIntervalMs": 3000
-}
-```
-
-### 8.4 battery_calib.json
-
-保存电池学习/校准数据，例如：
-
-```json
-{
-  "v_min": 6.2,
-  "v_max": 8.4,
-  "max_learned": false,
-  "cutoff_learned": false,
-  "updatedAt": 0
-}
-```
-
-`v_max`（可测到的最高电压，含 ADC 打满时的读数）在读数持续高于当前值 ≥60 秒后，
-取该时间窗内的最小读数自动学习，避免噪声/瞬时尖峰误判；`v_min`（放电截止电压）只在
-真正掉电/欠压复位（`esp_reset_reason` 为 `ESP_RST_POWERON`/`ESP_RST_BROWNOUT`）时，
-采纳掉电前写入 NVS（命名空间 `rina_batt`）的放电低点，软重启不会提前采纳。手动命令
-`reset_battery_min`/`reset_battery_max` 仍可覆盖以上自动学习结果。
-
-实际字段以固件版本输出为准。
-
----
-
-## 9. 配置项
-
-主要配置位于：
-
-```text
-src/config.h
-platformio.ini
-partitions.csv
-```
-
-### 9.1 网络配置
-
-| 常量 | 默认值 |
-|---|---|
-| `AP_SSID_PREFIX` | `RinaChanBoard-`（每块板的默认 SSID 是 `AP_SSID_PREFIX` 加上本板唯一标识 `<ID>`，见 [`docs/RINALINK_PROTOCOL_V1.md`](docs/RINALINK_PROTOCOL_V1.md) “Board identity”；不再有单一共享的 `AP_SSID` 常量） |
-| `AP_PASSWORD` | `rinachan` |
-| `AP_DOMAIN` | `rina.io` |
-| `AP_IP_ADDR` | `192.168.1.14` |
-| `AP_GATEWAY_ADDR` | `192.168.1.14` |
-| `AP_SUBNET_MASK` | `255.255.255.0` |
-
-### 9.2 LED 与显示配置
-
-| 常量 | 默认值 |
-|---|---:|
-| `LED_PIN` | `2` |
-| `LED_COUNT` | `370` |
-| `M370_HEX_CHARS` | `93` |
-| `M370_BITS` | `370` |
-| `MATRIX_ROWS` | `18` |
-| `SERPENTINE_WIRING` | `true` |
-| `SERPENTINE_ODD_ROWS_REVERSED` | `true` |
-| `LED_RENDER_TASK_CORE` | `1` |
-
-### 9.3 亮度与颜色
-
-| 常量 | 默认值 |
-|---|---:|
-| `DEFAULT_BRIGHTNESS` | `50` |
-| `MIN_BRIGHTNESS` | `10` |
-| `MAX_BRIGHTNESS` | `200` |
-| `BRIGHTNESS_BUTTON_STEP` | `8` |
-| `DEFAULT_COLOR` | `#f971d4` |
-
-### 9.4 自动轮播
-
-| 常量 | 默认值 |
-|---|---:|
-| `DEFAULT_MODE` | `manual` |
-| `DEFAULT_AUTO_INTERVAL_MS` | `3000` |
-| `MIN_AUTO_INTERVAL_MS` | `500` |
-| `MAX_AUTO_INTERVAL_MS` | `10000` |
-| `AUTO_INTERVAL_BUTTON_STEP_MS` | `500` |
-| `MAX_AUTO_FACES` | `128` |
-
-### 9.5 文字滚动
-
-| 常量 | 默认值 |
-|---|---:|
-| `MAX_SCROLL_FRAMES` | `3072` |
-| `DEFAULT_SCROLL_INTERVAL_MS` | `100` |
-| `MIN_SCROLL_INTERVAL_MS` | `33` |
-| `MAX_SCROLL_INTERVAL_MS` | `1000` |
-
-### 9.6 PlatformIO PSRAM 配置
-
-默认 QSPI PSRAM：
-
-```ini
-board_build.psram_type = qspi
-board_build.arduino.memory_type = qio_qspi
-```
-
-如果使用 OPI PSRAM 模块，可改为：
-
-```ini
-board_build.psram_type = opi
-board_build.arduino.memory_type = qio_opi
-```
-
-### 9.7 分区配置
-
-`partitions.csv` 当前关闭 OTA，保留一个 factory app 和较大的 LittleFS：
-
-| 分区 | 类型 | 大小 | 说明 |
-|---|---|---:|---|
-| `nvs` | data/nvs | `0x5000` | NVS |
-| `otadata` | data/ota | `0x2000` | OTA 元数据占位 |
-| `app0` | app/factory | `0x200000` | 固件 |
-| `littlefs` | data/spiffs | `0x5F0000` | WebUI、字体、JSON 资源 |
-
----
-
-## 10. 项目结构
-
-```text
-esp32s3_firmware/
-├─ data/                         # LittleFS WebUI 与资源
-│  ├─ index.html                  # WebUI DOM 结构
-│  ├─ app.js                      # WebUI 状态、API、页面逻辑
-│  ├─ styles.css                  # WebUI 样式
-│  └─ resources/                  # 表情库、运行设置、电池校准、字体、图片
-├─ src/                          # 固件源码
-│  ├─ main.cpp                    # setup 和主 loop
-│  ├─ config.*                    # 引脚、常量、矩阵几何、默认值
-│  ├─ web_api.*                   # AP、DNS、WebServer、REST API、静态文件服务
-│  ├─ led_renderer.*              # M370 解析、LED 映射、NeoPixel 输出
-│  ├─ scroll.*                    # Core 1 滚动/渲染任务
-│  ├─ faces.*                     # saved face、manual/auto、滚动恢复
-│  ├─ buttons.*                   # 按钮扫描、消抖、长按、组合键
-│  ├─ button_animations.*         # 按钮触发的覆盖层/动画
-│  ├─ power_monitor.*             # 电池与充电 ADC 采样、百分比、校准
-│  ├─ storage.*                   # LittleFS、settings、saved_faces 读写校验
-│  ├─ state.*                     # 全局运行状态、buffer、计数器
-│  ├─ sync.*                      # FreeRTOS mutex / critical section
-│  ├─ utils.*                     # hex、颜色、JSON 辅助函数
-│  ├─ web_json.*                  # 大 JSON 请求的轻量字段读取
-│  └─ psram_json.h                # ArduinoJson PSRAM allocator
-├─ scripts/                       # PlatformIO 构建脚本
-│  ├─ patch_webserver_timeout.py   # WebServer timeout patch
-│  └─ gzip_webui_assets.py         # LittleFS WebUI gzip 资源生成
-├─ tools/                         # 字体与资源生成工具
-├─ licenses/                      # 第三方 license notice
-├─ platformio.ini                 # PlatformIO 配置
-├─ partitions.csv                 # ESP32 flash 分区
-├─ run_rinachan_unifont.ps1        # 一键构建/字体/上传脚本
-└─ README.md
-```
-
----
-
-## 11. 构建与资源流水线
-
-### 11.1 `run_rinachan_unifont.ps1`
-
-项目主构建脚本。主要职责：
-
-- 检查 Python 依赖。
-- 扫描 WebUI 和资源中实际使用的字符。
-- 构建 GNU Unifont WebUI 子集。
-- 验证 Ark Pixel 12px 字体和 bitmap glyph 表。
-- 运行 PlatformIO 构建。
-- 可选上传固件。
-- 可选上传 LittleFS。
-
-### 11.2 `scripts/patch_webserver_timeout.py`
-
-PlatformIO pre-build 脚本，用于降低 Arduino WebServer 阻塞等待时间，减少 ESP32 WebServer 在大请求或断连时对主循环造成的影响。
-
-### 11.3 `scripts/gzip_webui_assets.py`
-
-PlatformIO 构建脚本，用于为 WebUI 静态资源生成 `.gz` 文件。固件静态服务器会根据浏览器 `Accept-Encoding: gzip` 优先返回压缩资源。
-
-### 11.4 字体工具
-
-| 工具 | 用途 |
-|---|---|
-| `tools/build_unifont_webui_subset_from_png.py` | 生成 WebUI 使用的 GNU Unifont 子集 |
-| `tools/build_ark12_merged.py` | 生成合并 Ark Pixel 12px 资源 |
-| `tools/compile_ark_bdf.py` | 将 BDF 字体编译为浏览器字体和 bitmap 表 |
-
-### 11.5 Ark12 字体资源
-
-当前项目使用 fused Ark12 字体资源：
-
-| 文件 | 用途 |
-|---|---|
-| `/resources/fonts/ark12.json` | LED 文字滚动 bitmap glyph 表 |
-| `/resources/fonts/ark12.woff2` | Ark12 基础浏览器字体 |
-| `/resources/fonts/ark12_fallback.woff2` | CJK fallback 字体 |
-
-已知需要覆盖/验证的补字包括：
-
-```text
-然 / 燃 / 滚 / 滾
-```
-
-修改 WebUI 文案、字体、`data/index.html`、`data/styles.css` 或 runtime JSON 后，应重新运行构建脚本，避免 LittleFS 上传旧的 gzip 资源。
-
----
-
-## 12. 调试与验证
-
-### 12.1 串口监视器
-
-```bash
 pio device monitor -b 115200
 ```
 
-### 12.2 API 手动检查
+首次安装需要上传固件和 LittleFS 文件系统。`uploadfs` 会重写文件系统镜像，已有板端表情、运行设置或电池校准数据时，先备份再执行。
 
-连接设备热点后：
+默认环境 `esp32s3-rmt-dma` 使用 RMT + DMA 输出 LED。另提供 `esp32s3-rmt`（RMT，无 DMA）与 `esp32s3`（Adafruit NeoPixel）后端，可通过 `pio run -e <环境名>` 选择。平台版本、依赖和 PSRAM 配置见 [platformio.ini](esp32s3_firmware/platformio.ini)。
 
-```bash
-curl http://rina.io/api/status
-curl http://rina.io/api/power
-curl http://rina.io/api/saved_faces
+### 3. 安装控制应用
+
+从仓库根目录打开 `ios/RinaBoard.xcodeproj`，选择 `RinaBoard` scheme，在 iPhone / iPad 真机或模拟器运行。命令行示例：
+
+```sh
+xcodebuild -project ios/RinaBoard.xcodeproj -scheme RinaBoard \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
-发送命令示例：
+Mac 本地开发版：
 
-```bash
-curl -X POST http://rina.io/api/command \
-  -H "Content-Type: application/json" \
-  -d '{"cmd":"set_brightness","payload":{"raw":80}}'
+```sh
+./tools/build_mac.sh
+open "$HOME/Applications/RinaBoard-Mac/RinaBoard.app"
 ```
 
-发送全灭帧示例：
+Mac 脚本生成本地签名应用，输出与签名选项见 [Mac 文档](docs/mac/README.md)。Watch 应用随 iPhone 应用嵌入安装，可使用 `RinaBoardWatch` scheme 单独运行与调试。
 
-```bash
-curl -X POST http://rina.io/api/frame \
-  -H "Content-Type: application/json" \
-  -d '{"m370":"M370:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","reason":"manual_test"}'
-```
+### 4. 连接并显示第一张表情
 
-### 12.3 烧录后检查清单
+在应用的 **设置 → 添加璃奈板** 中先通过蓝牙连接，然后选择表情发送，或直接在画布上绘制并发送。后续可在 **设置 → Wi-Fi 与热点** 中配置网络，在 **设置 → 连接** 中管理设备和选择控制对象。
 
-建议每次烧录后按顺序检查：
+| 连接方式 | 如何连接 |
+|---|---|
+| 蓝牙 BLE | 扫描并选择默认名称为 `RinaBoard-<ID>` 的设备，可直接控制和配网 |
+| 家庭 Wi-Fi | 应用与板子加入同一局域网，通过 Bonjour 发现或手动输入板端 IP；TCP 端口 `5370` |
+| 板端热点 | 加入默认名称为 `RinaChanBoard-<ID>` 的热点，初始密码 `rinachan`，连接该板的热点 IP |
 
-- [ ] 串口输出正常，无反复重启。
-- [ ] 能看到 Wi‑Fi 热点 `RinaChanBoard-<ID>`（`<ID>` 为本板唯一标识）。
-- [ ] 浏览器可打开 `http://rina.io/`。
-- [ ] `/api/status` 返回 JSON。
-- [ ] `/api/power` 返回电池/充电状态。
-- [ ] WebUI 6.1 可控制颜色和亮度。
-- [ ] saved face 可上一张/下一张切换。
-- [ ] Auto 模式按设定间隔轮播。
-- [ ] 6.2 自定义表情可发送和保存。
-- [ ] 6.3 部件表情可组合、随机和保存。
-- [ ] 6.4 文字滚动可发送、暂停、继续、停止、逐格。
-- [ ] B1/B2/B3/B4/B5 按钮行为正确。
-- [ ] B6 电池覆盖层行为符合硬件预期。
-- [ ] 6.5 测试图案正常。
-- [ ] 重启后 saved_faces、runtime_settings 和 battery_calib 能正确加载。
+`<ID>` 是由蓝牙 MAC 地址生成的 12 位大写十六进制标识。设备名可以修改，连接仍核对物理身份。
 
-### 12.4 LittleFS 缺失诊断
+每块板有自己的热点 IP，可通过蓝牙在网络设置中读取或修改，也可在 USB 串口查看。热点直连时，一台手机或电脑一次只能加入一个 Wi-Fi 网络；同时控制多板可使用 BLE 或共同的家庭 Wi-Fi。
 
-如果只上传了固件、没有上传 LittleFS：
+也可加入板端热点后，打开 `http://rina.io/` 或该板实际热点 IP，通过轻量浏览器页面配网。
 
-- AP 仍可能启动。
-- 根页面会显示 LittleFS 诊断页。
-- LED 会显示短红色文件系统错误图案。
+## 不打开应用也能操作
 
-恢复方法：
+六个物理按钮提供表情、模式、亮度与电池操作：
 
-```bash
-pio run -t uploadfs
-```
+| 按钮 | GPIO | 操作 |
+|---|---:|---|
+| B1 | 17 | 松开切换下一张表情；长按 10 秒重置蓝牙设置 |
+| B2 | 16 | 切换上一张表情；长按连续切换 |
+| B3 | 15 | 松开切换手动 / 自动轮播；配合 B1 / B2 调整间隔 |
+| B4 | 40 | 亮度减 8；长按连续调整 |
+| B5 | 41 | 亮度加 8；长按连续调整 |
+| B6 | 42 | 短按显示电量；长按约 700 ms 显示电池详情；长按 10 秒重置 Wi-Fi 设置 |
+| 按住 B3，再按 B1 / B2 | — | 轮播间隔分别减 / 加 500 ms |
 
-或：
+亮度范围 **10–200**，默认 **50**；轮播间隔 **0.5–10 秒**，默认 **3 秒**。切换表情会接管输出并结束文字滚动；调节亮度可以作用于正在播放的内容。
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_rinachan_unifont.ps1 -UploadFS
-```
+应用也可读取电池电压、电量估计、充电状态和 ADC 信息，并保存校准数据。电量百分比取决于实际电池、采样电路与校准结果。
 
----
-
-## 13. 已知限制与开发者注意
-
-### 13.1 无 OTA 回滚分区
-
-当前 `partitions.csv` 使用一个 factory app 分区和较大的 LittleFS 分区，没有可用的双 OTA app 槽。远程 OTA、自动回滚和 A/B 更新不在当前分区设计范围内。
-
-### 13.2 文字滚动只缓存到 RAM/PSRAM
-
-`/api/scroll` 明确拒绝 flash 持久化。滚动帧序列断电后不会保存，需要 WebUI 重新生成并上传。
-
-### 13.3 B6 的 API 模拟不等同于真实硬件行为
-
-B6 与电池/充电覆盖层相关，真实行为依赖按钮扫描和动画模块。普通 `/api/command` 的 `button` 模拟主要覆盖 B1/B2/B3/B4/B5 和部分组合键，不应假设完全等价于 B6 硬件按下。
-
-### 13.4 Debug 手动 JSON 命令需要核对固件命令表
-
-WebUI Debug 页面存在高级调试入口。开发时应以 `src/web_api.cpp` 中实际支持的 `/api/command` 命令为准。如果某个 Debug 命令返回 `unknown command`，说明 UI 入口与当前固件命令表未完全对齐。
-
-### 13.5 ESP32 WebServer 是同步模型
-
-Arduino `WebServer` 为同步处理模型。前端已经对高频帧发送做了队列和节流，固件也有 timeout patch；开发新功能时仍应避免高频、大体积、阻塞型 API 请求。
-
-### 13.6 电池百分比需要真实硬件校准
-
-电池百分比基于 2S LiPo 风格 LUT、ADC 分压、去极值采样和 EMA 平滑。不同电池、分压电阻误差、负载电流和充电状态会影响实际显示，需要真机验证。
-
-### 13.7 字体和 gzip 资源可能出现缓存问题
-
-如果修改了 WebUI、字体或 JSON 资源，但浏览器仍显示旧页面：
-
-1. 重新运行构建脚本。
-2. 确认 `uploadfs` 已执行。
-3. 使用 `http://rina.io/?v=latest` 强制刷新。
-4. 必要时清除浏览器缓存。
-
----
-
-## 14. 第三方组件与许可证
-
-本项目使用：
-
-- ESP32 Arduino core（LGPL-2.1）与 ESP-IDF（Apache-2.0）。
-- PlatformIO（Apache-2.0），平台为 pioarduino platform-espressif32（Apache-2.0）。
-- NimBLE-Arduino（Apache-2.0）。
-- ArduinoJson（MIT）。
-- Adafruit NeoPixel（LGPL-3.0）。
-- GNU Unifont（SIL OFL 1.1）。
-- Ark Pixel Font（SIL OFL 1.1）。
-- flyAkari/RinaChanBoard（GPL-3.0）、738NGX/RinaChanBoard（AGPL-3.0）及其口型同步算法来源 hecomi/uLipSync（MIT），见 `docs/LIVE_FEATURES_ZH.md`。
-- NumPy（BSD-3-Clause），仅 `tools/` 下的校验脚本使用。
-
-iOS App 的「设置 → 关于」列出同一份清单，两处应保持一致。
-
-GNU Unifont 子集 notice 位于：
+## 开发入口
 
 ```text
-licenses/GNU_UNIFONT_WEBUI_SUBSET_NOTICE.txt
+esp32s3_firmware/       ESP32-S3 固件、LittleFS 初始资源与主机测试
+ios/RinaBoard/         iPhone / iPad / Mac 共用界面与服务
+ios/RinaBoardWatch/    Apple Watch 界面
+ios/RinaWatchLink/     Watch 与 iPhone 的消息与转发
+ios/Packages/          RinaCore 协议核心、独立 RinaFaceSync 模块
+tools/                 构建、验证、模拟板与资源维护脚本
+docs/                  协议、功能说明、设计与验证记录
+legacy/webui_v1/       历史浏览器控制端归档
 ```
 
-当前固件目录中未发现顶层项目 license 文件。添加正式项目 license 前，不应默认假设项目源码可自由再分发。第三方组件仍遵循各自许可证。
+### 硬件映射与点阵格式
 
----
+| 项目 | 当前配置 |
+|---|---|
+| LED 数据 | `GPIO2` |
+| 电池电压 / 充电检测 ADC | `GPIO10` / `GPIO1` |
+| 点阵 | 22 × 18 外接网格，370 个有效位置，蛇形物理走线 |
+| 默认颜色 | `#f971d4` |
+| 板端存储 | LittleFS + NVS |
 
-## 维护建议
+M370 一帧用 **47 字节**保存 370 个开关位，十六进制表示为 **94 个字符**。位序按逻辑 LED 索引、每字节 LSB-first，最后一字节高 6 位为零；颜色和亮度是全板参数。具体引脚、行长和限制见 [config.h](esp32s3_firmware/src/config.h)。
 
-后续维护 README 时，建议同步更新以下内容：
+LittleFS 的 `resources/saved_faces.json`、`resources/runtime_settings.json` 和 `resources/battery_calib.json` 分别保存表情、运行设置和电池校准。网络与设备设置通过 NVS 保存。应用字体、表情部件和演出时间轴位于 [应用资源目录](ios/RinaBoard/Resources/README.md)。
 
-- 新增或删除 WebUI 页面控件时，同步更新 [WebUI 使用说明](#5-webui-使用说明)。
-- 新增 `/api/command` 命令时，同步更新 [HTTP API](#7-http-api)。
-- 修改 `src/config.h` 常量时，同步更新 [配置项](#9-配置项)。
-- 修改按钮逻辑时，同步更新 [物理按钮操作](#6-物理按钮操作)。
-- 修改 LittleFS 文件路径或 JSON schema 时，同步更新 [数据文件与持久化](#8-数据文件与持久化)。
+### 验证与无硬件调试
+
+在仓库根目录运行：
+
+```sh
+# 核心包与独立同步模块检查，无需模拟器
+./tools/verify_ios.sh core facesync facesync-guard
+
+# 默认包含核心包、同步模块、应用测试、并发检查与 Mac 测试
+RINA_SIM_ID=<模拟器-UDID> ./tools/verify_ios.sh
+
+# UI 测试需显式选择
+RINA_SIM_ID=<模拟器-UDID> ./tools/verify_ios.sh ui
+
+# 单板 TCP 模拟器
+python3 tools/rinalink_board_emulator.py
+
+# 五块本地模拟板，端口 15370–15374
+python3 tools/run_simulator_group_boards.py
+```
+
+同机 iOS 模拟器可手动连接 `127.0.0.1`，真机使用电脑的局域网 IP。模拟器可验证界面和 TCP 路径，真实蓝牙、热点和 LED 输出需实体设备验证。
+
+应用 **设置 → 调试** 提供设备状态、测试图案、诊断导出、RinaLink 命令终端和固件日志；终端通过 BLE / TCP 工作。USB 串口另有诊断与测试控制台。实体板测试脚本会操作设备，运行方式与恢复行为见 [Mac 验证说明](docs/mac/README.md)。
+
+### 当前范围
+
+- 表情与已上传文字由板端播放；口型、演出和视频依赖应用持续处理与发送。
+- 应用未启用蓝牙后台运行模式；强制退出后需重新打开才能恢复自动连接，Watch 转发也要求 iPhone 应用在前台。
+- 演出 / 视频恢复依赖本机对应素材，口型同步依赖麦克风权限。
+- `RinaFaceSync` 为独立模块与集成代码，主应用尚未接入 iCloud 表情同步。
+- 历史 WebUI 和显示控制 REST API 位于归档范围；当前浏览器入口用于 Wi-Fi 配网。
+
+## 进一步阅读
+
+| 文档 | 内容 |
+|---|---|
+| [Apple 应用开发说明](ios/README.zh-CN.md) | Xcode 构建、Watch、连接恢复、布局与模拟器 |
+| [Mac 构建与验证](docs/mac/README.md) | Catalyst、本地签名、热点连接和实体板测试 |
+| [RinaLink v1](docs/RINALINK_PROTOCOL_V1.md) | BLE / TCP 帧格式、命令、事件与设备身份 |
+| [口型同步与演出](docs/LIVE_FEATURES_ZH.md) | 音频处理、脚本格式与素材 |
+| [多板组协议设计](docs/BOARD_GROUP_SPEC.md) | 拼接、识别、时钟同步与定时启动 |
+| [文字光栅化](docs/SCROLL_RASTERIZER_SPEC.md) | 位图字体排版与点阵生成 |
+| [本地化工具](tools/i18n/README.md) | 字符串目录与翻译维护 |
+
+## 许可证
+
+项目使用 [GNU GPL v3](LICENSE)。第三方库、字体、表情和演出资源按各自许可使用，请保留随资源提供的来源与许可说明；演出音频不随仓库分发。

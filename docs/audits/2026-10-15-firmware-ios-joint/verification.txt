@@ -1,0 +1,21 @@
+Joint audit verification - 2026-10-15 America/Toronto
+
+RinaCore: PASS, 376 reported / 11 skipped / 0 failed (365 not skipped).
+Command: RINA_VERIFY_DIR=/tmp/rina-joint-audit-20261015/verify bash tools/verify_ios.sh core
+Full log: /tmp/rina-joint-audit-20261015/verify/core.log
+
+Selected simulator App tests: PASS, 63 reported / 0 skipped / 0 failed, xcodebuild exit=0.
+Suites: AddBoardHotspotStatusTests (3), AuditConnectionRegressionTests (6), BoardConnectionOutputTests (32), BoardReconnectPolicyTests (12), BoardSessionReconnectTests (10).
+Command: xcodebuild test -project ios/RinaBoard.xcodeproj -scheme RinaBoard -destination "platform=iOS Simulator,id=1AD636A2-0B32-4E4C-84EF-2F52699CB072" -derivedDataPath /tmp/rina-joint-audit-20261015/app-dd CODE_SIGNING_ALLOWED=NO -only-testing:RinaBoardTests/BoardConnectionOutputTests -only-testing:RinaBoardTests/AuditConnectionRegressionTests -only-testing:RinaBoardTests/BoardReconnectPolicyTests -only-testing:RinaBoardTests/BoardSessionReconnectTests -only-testing:RinaBoardTests/AddBoardHotspotStatusTests -test-timeouts-enabled YES -maximum-test-execution-time-allowance 60
+Full log: /tmp/rina-joint-audit-20261015/app-tests.log
+xcresult: /tmp/rina-joint-audit-20261015/app-dd/Logs/Test/Test-RinaBoard-2026.10.15_06-47-52--0400.xcresult
+
+Production RinaCore contract probe: PASS exit=0; asserts current metadata budget defect, supported interval range, ack decoding and nested power decoding. See contract-probe-output.txt.
+
+44 CMD name sets equal; 13 request and 6 event opcodes traced.
+131 source files in this audit manifest unchanged after verification.
+All 54 firmware source hashes match the prior firmware audit; prior firmware findings reused as still-valid evidence, no repeated full firmware build.
+
+J1/J2 are statically traced production entry-point omissions, not physical-board/DHCP runtime reproductions. Existing selected tests do not exercise these missing LAN completion calls.
+No physical BLE/STA/AP board tests, no complete UI suite, no firmware flash, no board-side perf measurements.
+Initial sandbox test/cache errors were resolved through supported host escalation; final successful runs above are authoritative.

@@ -121,11 +121,11 @@ final class AuditConnectionRegressionTests: XCTestCase {
         _ = await connection.connect(using: transport)
         defer { connection.disconnect() }
         let commandName = "set_brightness"
-        let rejection = String(localized: "面板拒绝指令：\(commandName)")
+        let rejection = String(format: NSLocalizedString("面板拒绝指令：%@%@", comment: ""), commandName, "")
         let replies: [([String: Any], String)] = [
             (["ok": false], rejection),
             (["ok": false, "error": ""], rejection),
-            (["ok": false, "error": "denied"], rejection + "：denied")
+            (["ok": false, "error": "denied"], String(format: NSLocalizedString("面板拒绝指令：%@%@", comment: ""), commandName, "：denied"))
         ]
         for (reply, expected) in replies {
             transport.commandReply = reply

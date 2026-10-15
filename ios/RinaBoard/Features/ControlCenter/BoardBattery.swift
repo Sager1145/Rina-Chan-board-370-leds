@@ -122,7 +122,9 @@ struct BoardBatteryLabel: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("剩余电量")
-        .accessibilityValue(charging ? "\(text) 充电中" : text)
+        .accessibilityValue(charging
+            ? String(format: NSLocalizedString("%@ 充电中", comment: "battery value while charging"), text)
+            : text)
         .animation(.snappy, value: reading)
     }
 

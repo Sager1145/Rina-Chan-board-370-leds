@@ -112,7 +112,7 @@ struct PresetLiveView: View {
                 }
                 .accessibilityLabel(model.isPlaying
                                     ? LocalizedStringKey("暂停")
-                                    : LocalizedStringKey("播放"))
+                                    : LocalizedStringKey("开始播放"))
                 // Starting needs a script and audio; connectivity never
                 // gates this. Pausing an already-running performance must
                 // always be reachable, connected or not.

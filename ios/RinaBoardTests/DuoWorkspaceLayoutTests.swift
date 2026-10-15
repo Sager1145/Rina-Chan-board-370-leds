@@ -3,6 +3,16 @@ import XCTest
 @testable import RinaBoard
 
 final class DuoWorkspaceLayoutTests: XCTestCase {
+    func testClosedHingeOverridesInnerGeometryStillInFlightDuringRotation() {
+        for viewport in [CGSize(width: 668, height: 950), CGSize(width: 950, height: 668),
+                         CGSize(width: 800, height: 720), CGSize(width: 466, height: 678)] {
+            XCTAssertFalse(DuoWorkspaceDetection.isInnerDisplay(
+                viewportSize: viewport, displaySize: CGSize(width: 950, height: 668),
+                isPhone: true, folded: true, hasDivision: true, previousInner: true),
+                "A closed hinge must not retain the two-column inner layout: \(viewport)")
+        }
+    }
+
     func testNativeBarReflowDoesNotMisclassifyTheInnerDisplay() {
         XCTAssertTrue(DuoWorkspaceDetection.isInnerDisplay(viewportSize: CGSize(width: 951, height: 553), displaySize: CGSize(width: 951, height: 669), isPhone: true, folded: false, hasDivision: false, previousInner: false))
         XCTAssertFalse(DuoWorkspaceDetection.isInnerDisplay(viewportSize: CGSize(width: 466, height: 562), displaySize: CGSize(width: 669, height: 951), isPhone: true, folded: true, hasDivision: false, previousInner: true))

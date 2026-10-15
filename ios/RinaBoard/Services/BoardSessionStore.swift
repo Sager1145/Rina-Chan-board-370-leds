@@ -24,7 +24,7 @@ public final class BoardSession: Identifiable {
 
     fileprivate init(
         boardID: String? = nil,
-        name: String = "璃奈板",
+        name: String = String(localized: "璃奈板"),
         makeBLETransport: @MainActor () -> any BLEConnecting,
         makeConnection: @MainActor () -> BoardConnection
     ) {

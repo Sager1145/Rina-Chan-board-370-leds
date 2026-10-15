@@ -60,7 +60,7 @@ final class BoardSessionReconnectTests: XCTestCase {
         XCTAssertFalse(first)
         await waitUntilTrue {
             if case .failed(let message) = session.connection.connectionState {
-                return message.contains("最大尝试次数")
+                return message == String(format: NSLocalizedString("重连失败，已达到最大尝试次数：%@", comment: ""), session.connection.lastError ?? "")
             }
             return false
         }
@@ -82,7 +82,7 @@ final class BoardSessionReconnectTests: XCTestCase {
         XCTAssertFalse(first)
         await waitUntilTrue {
             if case .failed(let message) = session.connection.connectionState {
-                return message.contains("最大尝试次数")
+                return message == String(format: NSLocalizedString("重连失败，已达到最大尝试次数：%@", comment: ""), session.connection.lastError ?? "")
             }
             return false
         }
@@ -107,7 +107,7 @@ final class BoardSessionReconnectTests: XCTestCase {
         XCTAssertNil(session.connection.reconnectCandidateIdentity)
         await waitUntilTrue {
             if case .failed(let message) = session.connection.connectionState {
-                return message.contains("最大尝试次数")
+                return message == String(format: NSLocalizedString("重连失败，已达到最大尝试次数：%@", comment: ""), session.connection.lastError ?? "")
             }
             return false
         }

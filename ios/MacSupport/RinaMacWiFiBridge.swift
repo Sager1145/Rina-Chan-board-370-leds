@@ -20,10 +20,10 @@ public final class RinaMacWiFiBridge: NSObject, MacWiFiBridgeProtocol {
         Self.associationQueue.async {
             do {
                 guard let interface = CWWiFiClient.shared().interface() else {
-                    throw Self.failure(1, "未找到 Mac Wi-Fi 接口")
+                    throw Self.failure(1, NSLocalizedString("未找到 Mac Wi-Fi 接口", comment: "Mac Wi-Fi association failure"))
                 }
                 guard interface.powerOn() else {
-                    throw Self.failure(2, "请先打开 Mac Wi-Fi")
+                    throw Self.failure(2, NSLocalizedString("请先打开 Mac Wi-Fi", comment: "Mac Wi-Fi association failure"))
                 }
                 if let current = interface.ssid(),
                    ssid.map({ current == $0 }) ?? current.hasPrefix(prefix) {
@@ -56,6 +56,6 @@ public final class RinaMacWiFiBridge: NSObject, MacWiFiBridgeProtocol {
 
     private static func failure(_ code: Int, _ message: String) -> NSError {
         NSError(domain: "com.rinachan.board.mac.wifi", code: code,
-                userInfo: [NSLocalizedDescriptionKey: NSLocalizedString(message, comment: "Mac Wi-Fi association failure")])
+                userInfo: [NSLocalizedDescriptionKey: message])
     }
 }

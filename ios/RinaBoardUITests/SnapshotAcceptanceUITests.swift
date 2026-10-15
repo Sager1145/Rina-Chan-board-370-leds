@@ -18,7 +18,13 @@ final class SnapshotAcceptanceUITests: XCTestCase {
     private func launch(_ tab: String) {
         app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-initialTab", tab, "-disableStarAnimation", "YES"]
         app.launch()
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 15))
+        // Duo exposes native sidebar tabs without an XCUI TabBar container.
+        let navigationReady = NSPredicate { [app] _, _ in
+            app.tabBars.firstMatch.exists || app.buttons["设置"].firstMatch.exists
+                || app.buttons["Settings"].firstMatch.exists
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: navigationReady, object: app)],
+                                     timeout: 15), .completed)
         XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 10))
     }
 
@@ -155,7 +161,7 @@ final class SnapshotAcceptanceUITests: XCTestCase {
 
     func testFiveTabsAndOfflineSendGate() {
         launch("control")
-        for label in ["文字滚动", "嘴形识别", "演出", "设定", "表情显示"] {
+        for label in ["文字滚动", "口型识别", "演出", "设定", "表情显示"] {
             let tab = app.tabBars.buttons[label]
             tab.tap()
             XCTAssertTrue(tab.isSelected)

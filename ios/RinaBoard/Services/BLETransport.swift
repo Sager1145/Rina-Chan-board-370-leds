@@ -16,7 +16,7 @@ public final class DiscoveredPeripheral: Identifiable {
     /// gone away; BLE has no "disappeared" callback while scanning.
     public var lastSeen: Date
 
-    public var name: String { advertisedName ?? "璃奈板（未命名）" }
+    public var name: String { advertisedName ?? NSLocalizedString("璃奈板（未命名）", comment: "Bluetooth connection status or error") }
 
     /// Last 4 hex characters of the CoreBluetooth identifier. The only thing
     /// that tells two anonymous boards apart in the list.
@@ -264,11 +264,11 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
 
     private func bluetoothUnavailableMessage(_ state: CBManagerState) -> String {
         switch state {
-        case .poweredOff: return "蓝牙已关闭，请在控制中心或设置中打开"
-        case .unauthorized: return "未获得蓝牙权限，请在 设置 › 隐私与安全性 › 蓝牙 中允许"
-        case .unsupported: return "此设备不支持蓝牙"
-        case .resetting: return "蓝牙正在重置，请稍后重试"
-        default: return "蓝牙不可用"
+        case .poweredOff: return NSLocalizedString("蓝牙已关闭，请在控制中心或设置中打开", comment: "Bluetooth connection status or error")
+        case .unauthorized: return NSLocalizedString("未获得蓝牙权限，请在 设置 › 隐私与安全性 › 蓝牙 中允许", comment: "Bluetooth connection status or error")
+        case .unsupported: return NSLocalizedString("此设备不支持蓝牙", comment: "Bluetooth connection status or error")
+        case .resetting: return NSLocalizedString("蓝牙正在重置，请稍后重试", comment: "Bluetooth connection status or error")
+        default: return NSLocalizedString("蓝牙不可用", comment: "Bluetooth connection status or error")
         }
     }
 
@@ -311,7 +311,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
         }
         guard let identifier = peripheralIdentifier else {
             clearConnectionTarget()
-            let message = "未选择要连接的璃奈板"
+            let message = NSLocalizedString("未选择要连接的璃奈板", comment: "Bluetooth connection status or error")
             lastError = message
             logger.error("BLE connect rejected: no peripheral identifier")
             emitState(.failed(message))
@@ -437,7 +437,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
             if let peripheral = discoveredPeripheralObjects[identifier] { return peripheral }
             try await Task.sleep(for: .milliseconds(100))
         }
-        throw RinaTransportError.underlying("未找到已保存的璃奈板，请确认板子已开机并在附近")
+        throw RinaTransportError.underlying(NSLocalizedString("未找到已保存的璃奈板，请确认板子已开机并在附近", comment: "Bluetooth connection status or error"))
     }
 
     /// A3: never overwrite a still-pending `poweredOnContinuation` — resume
@@ -512,7 +512,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
     private func displayName(for identifier: UUID) -> String {
         discoveredPeripherals.first(where: { $0.id == identifier })?.name
             ?? targetPeripheral?.name
-            ?? "璃奈板（\(String(identifier.uuidString.suffix(4))))"
+            ?? String(format: NSLocalizedString("璃奈板（%@）", comment: "unnamed board with short identifier"), String(identifier.uuidString.suffix(4)))
     }
 
     private func clearConnectionTarget() {
@@ -1002,7 +1002,7 @@ extension BLETransport: CBPeripheralDelegate {
                 return
             }
             guard characteristic.isNotifying else {
-                resumeConnect(.failure(RinaTransportError.underlying("璃奈板未能启用蓝牙通知，请重新连接")))
+                resumeConnect(.failure(RinaTransportError.underlying(NSLocalizedString("璃奈板未能启用蓝牙通知，请重新连接", comment: "Bluetooth connection status or error"))))
                 return
             }
             guard rxCharacteristic != nil else { return }

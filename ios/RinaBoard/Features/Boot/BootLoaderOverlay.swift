@@ -69,7 +69,7 @@ private struct BootStage: UIViewRepresentable {
 
 /// The legacy `.loading-overlay`: `.blur-screen` (scrim + backdrop blur with
 /// the reveal mask) under a `.loader-stage` of halo, avatar and label.
-private final class BootStageView: UIView {
+final class BootStageView: UIView {
     /// The legacy scrim is the page background at 55 % (`--bg: #0f1117`).
     /// Light mode uses the app's grouped background the same way, so the
     /// backdrop reads as a frosted version of the screen behind it in both
@@ -101,6 +101,8 @@ private final class BootStageView: UIView {
 
     private var breathing: (period: TimeInterval, since: Date)?
     private var outroSince: Date?
+    private var outroBeginTime: CFTimeInterval?
+    private var maskSize: CGSize = .zero
     private var activeObserver: NSObjectProtocol?
 
     override init(frame: CGRect) {
@@ -235,20 +237,26 @@ private final class BootStageView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let centre = CGPoint(x: bounds.midX, y: bounds.midY)
-
-        blur.frame = bounds
-        holeMask.frame = bounds
-        holeMask.configure(for: bounds.size)
-
-        // Bare sublayers get implicit 0.25 s actions on geometry changes;
-        // a resize mid-animation must not tween them.
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        halo.position = centre
-        avatar.center = centre
-        label.center = CGPoint(x: centre.x, y: centre.y + BootTimeline.textOffset)
-        CATransaction.commit()
+        // UIKit rotation transactions also animate UIView geometry; keep all
+        // stage geometry atomic, including the blur and radial end point.
+        UIView.performWithoutAnimation {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            let centre = CGPoint(x: bounds.midX, y: bounds.midY)
+            blur.frame = bounds
+            holeMask.frame = bounds
+            holeMask.configure(for: bounds.size)
+            halo.position = centre
+            avatar.center = centre
+            label.center = CGPoint(x: centre.x, y: centre.y + BootTimeline.textOffset)
+            if maskSize != bounds.size {
+                maskSize = bounds.size
+                // Stops are normalized against the current radius. Rebuild
+                // only this geometry-dependent track, on its original clock.
+                if let outroBeginTime { animateReveal(begin: outroBeginTime) }
+            }
+            CATransaction.commit()
+        }
     }
 
     // MARK: P0 — breathe
@@ -284,6 +292,7 @@ private final class BootStageView: UIView {
         outroSince = since
 
         let t0 = CACurrentMediaTime() - max(0, Date().timeIntervalSince(since))
+        outroBeginTime = t0
         let presented = halo.presentation() ?? halo
         let haloOpacity = presented.opacity
         // `transform.scale` reads back as the mean of x/y/z (m33 included);
@@ -375,6 +384,19 @@ private final class BootStageView: UIView {
         // is exactly the feather widening in place, and `featherIn` brings it
         // to rest just as the hole starts moving.
         blur.mask = holeMask
+        animateReveal(begin: t0)
+
+        // P5 — the (by now fully punched-through) overlay snaps to opacity 0
+        // (`.loading-overlay.is-hidden` has no transition); the model removes
+        // it `extra` later.
+        layer.opacity = 0
+        layer.add(hold("opacity", at: 1, from: t0, for: BootTimeline.overlayFadeStart), forKey: "hold")
+
+        CATransaction.commit()
+    }
+
+    /// A resize changes the normalized stops, never the phase or its timing.
+    private func animateReveal(begin t0: CFTimeInterval) {
         holeMask.gradient.locations = holeMask.locations(progress: 1)
         let revealEnd = BootTimeline.revealStart + BootTimeline.reveal
         let revealAt = BootTimeline.revealStart / revealEnd
@@ -389,14 +411,6 @@ private final class BootStageView: UIView {
                                         curves: [.linear, BootTimeline.Curve.featherIn,
                                                  BootTimeline.Curve.reveal],
                                         begin: t0, duration: revealEnd), forKey: "reveal")
-
-        // P5 — the (by now fully punched-through) overlay snaps to opacity 0
-        // (`.loading-overlay.is-hidden` has no transition); the model removes
-        // it `extra` later.
-        layer.opacity = 0
-        layer.add(hold("opacity", at: 1, from: t0, for: BootTimeline.overlayFadeStart), forKey: "hold")
-
-        CATransaction.commit()
     }
 
     // MARK: Animation builders
