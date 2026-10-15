@@ -332,35 +332,9 @@ bool ensureSavedFacesLoaded() {
     return loadSavedFaces(false) && runtimeAutoFaceCount() > 0;
 }
 
-bool loadSavedFaces(bool applyStartupFace) {
-    if (!runtimeFsMounted()) {
-        Serial.println("LittleFS not mounted; saved faces cannot be loaded");
-        return false;
-    }
-    size_t savedFacesSize = 0;
-    char* contentBuf = nullptr;
-    if (!readBufferFromFileLocked(SAVED_FACES_PATH, contentBuf, savedFacesSize)) {
-        Serial.println("No saved_faces.json or failed to read; LED output starts blank");
-        runtimeAutoFaceCount() = 0;
-        touchRuntimeState();
-        return false;
-    }
-
-    PsramJsonDocument doc(savedFacesJsonCapacityFor(savedFacesSize));
-    // Deserialize from a const pointer so ArduinoJson COPIES strings into the
-    // document; a non-const char* selects zero-copy mode and the free() below
-    // would leave every string in `doc` dangling.
-    DeserializationError err = deserializeJson(doc, static_cast<const char*>(contentBuf), DeserializationOption::NestingLimit(32));
-    free(contentBuf);
-    if (err) {
-        Serial.printf("saved_faces.json parse failed: %s\n", err.c_str());
-        runtimeAutoFaceCount() = 0;
-        touchRuntimeState();
-        return false;
-    }
-
-    const String startupId = doc["startupDefaultId"] | "";
-    JsonArray faces = doc["faces"].as<JsonArray>();
+bool installSavedFacesDocument(JsonVariant document, bool applyStartupFace) {
+    const String startupId = document["startupDefaultId"] | "";
+    JsonArray faces = document["faces"].as<JsonArray>();
     String previousFaceId;
     const uint16_t previousFaceIndex = runtimeState().autoFaceIndex;
     if (runtimeAutoFaceCount() > 0 && runtimeState().autoFaceIndex < runtimeAutoFaceCount())
@@ -428,4 +402,34 @@ bool loadSavedFaces(bool applyStartupFace) {
         Serial.printf("Loaded startup face index: %u\n", runtimeState().autoFaceIndex);
     }
     return true;
+}
+
+bool loadSavedFaces(bool applyStartupFace) {
+    if (!runtimeFsMounted()) {
+        Serial.println("LittleFS not mounted; saved faces cannot be loaded");
+        return false;
+    }
+    size_t savedFacesSize = 0;
+    char* contentBuf = nullptr;
+    if (!readBufferFromFileLocked(SAVED_FACES_PATH, contentBuf, savedFacesSize)) {
+        Serial.println("No saved_faces.json or failed to read; LED output starts blank");
+        runtimeAutoFaceCount() = 0;
+        touchRuntimeState();
+        return false;
+    }
+
+    PsramJsonDocument doc(savedFacesJsonCapacityFor(savedFacesSize));
+    // Deserialize from a const pointer so ArduinoJson COPIES strings into the
+    // document; a non-const char* selects zero-copy mode and the free() below
+    // would leave every string in `doc` dangling.
+    DeserializationError err = deserializeJson(doc, static_cast<const char*>(contentBuf), DeserializationOption::NestingLimit(32));
+    free(contentBuf);
+    if (err) {
+        Serial.printf("saved_faces.json parse failed: %s\n", err.c_str());
+        runtimeAutoFaceCount() = 0;
+        touchRuntimeState();
+        return false;
+    }
+
+    return installSavedFacesDocument(doc.as<JsonVariant>(), applyStartupFace);
 }

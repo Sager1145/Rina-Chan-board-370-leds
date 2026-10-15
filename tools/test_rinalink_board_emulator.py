@@ -141,6 +141,23 @@ class EmulatorProtocolTests(unittest.TestCase):
         self.assertGreaterEqual(second["txUs"], second["rxUs"])
         self.assertFalse(self.command("group_start", bootId="bad", atUs=self.clock, intervalMs=100)["ok"])
 
+    def test_apply_saved_face_reply_and_optional_cap(self):
+        info = self.command("get_info")
+        self.assertEqual(info["caps"], ["identify", "clock_sample", "scroll_viewport", "group_start", "apply_face_frame"])
+        reply = self.command("apply_saved_face", index=7)
+        self.assertEqual(set(reply), {"ok", "autoFaceId", "autoFaceIndex", "frameEncoding", "frameHex"})
+        self.assertTrue(reply["ok"])
+        self.assertEqual(reply["autoFaceIndex"], 7 % 5)
+        self.assertEqual(reply["autoFaceId"], "face%d" % (7 % 5))
+        self.assertEqual(reply["frameEncoding"], "packed-lsb-first")
+        self.assertEqual(len(reply["frameHex"]), 94)
+        self.assertEqual(reply["frameHex"], reply["frameHex"].lower())
+        self.assertTrue(all(ch in "0123456789abcdef" for ch in reply["frameHex"]))
+        selected = bytes([reply["autoFaceIndex"] & 0xFF]) + bytes(46)
+        self.assertEqual(reply["frameHex"], selected.hex())
+        self.assertEqual(self.command("set_brightness", raw=40), {"ok": True})
+        self.assertEqual(self.request(0x10, bytes(47)), {"ok": True})
+
 
 if __name__ == "__main__":
     unittest.main()

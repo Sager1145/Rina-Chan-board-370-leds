@@ -103,9 +103,14 @@ int main() {
       c.request(0x10, 6, setFrame(9000));
       auto rep = c.request(0x10, 7, setFrame(9001)); // second within 33 ms -> pending
       auto d = parse(rep.second);
-      int depth = d["queueDepth"] | -1, count = d["queueCount"] | -1;
+      const bool setFrameOkOnly = d["ok"] == true && d.size() == 1;
+      L.check("F3-SET-FRAME-OK-ONLY", setFrameOkOnly,
+              std::string("SET_FRAME reply=") + rep.second);
+      auto status = c.request(0x02, 8, {});
+      auto sd = parse(status.second);
+      int depth = sd["renderer"]["frameQueueDepth"] | -1, count = sd["renderer"]["frameQueueCount"] | -1;
       L.check("F3-STATUS-QUEUEDEPTH-SEMANTICS", depth == 1 && count == 1,
-              "SET_FRAME reply queueDepth=" + std::to_string(depth) + " queueCount=" + std::to_string(count) +
+              "GET_STATUS renderer.frameQueueDepth=" + std::to_string(depth) + " frameQueueCount=" + std::to_string(count) +
                   " (advertised depth 1; effective pending depth 1 latest-only)");
       rinalink::transportUnregisterClient(c.id); serviceProtocol(); }
     std::cout << "SUMMARY F3 pass=" << L.pass << " fail=" << L.fail << std::endl;

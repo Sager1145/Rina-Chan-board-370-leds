@@ -93,11 +93,11 @@ struct BlobSession {
 
     // scroll_bitmap (§7.1): raw bitmap bytes are staged here. At BLOB_END, every
     // frame is expanded into a full PSRAM staging buffer BEFORE
-    // scrollSessionBeginUpload() is ever called, so a BLOB_ABORT or a validation
+    // scrollSessionPublishReplace() is called, so a BLOB_ABORT or a validation
     // failure before that point never disturbs the currently-playing timeline.
-    // Expansion itself is deterministic bit math, so once the staging allocation
-    // succeeds, a failure between BeginUpload and the commit (which does wipe the
-    // live timeline) is possible only on OOM, not on malformed input.
+    // Expansion itself is deterministic bit math. Publish then copies those
+    // bytes into the live buffer and flips count and meta together; a rejected
+    // publish leaves the old timeline untouched. Staging is freed after publish.
     uint8_t* bitmapBuf = nullptr;
     uint16_t bitmapWidth = 0;
     uint16_t bitmapStride = 0;
@@ -259,7 +259,7 @@ static void resetBlob(ClientSlot& c) {
 }
 
 // Loop-task only. A stopped/replaced timeline invalidates outstanding uploads
-// from every carrier, including a bitmap still staged before BeginUpload.
+// from every carrier, including a bitmap still staged before publish.
 static void expireBlobSessions() {
     const uint32_t generation = scrollSessionGeneration();
     const uint32_t now = millis();
@@ -527,25 +527,13 @@ static uint16_t cScrollInterval(JsonDocument& d, JsonVariant p) {
                                    (int)MAX_SCROLL_INTERVAL_MS);
     return runtimeState().scrollIntervalMs;
 }
-static void reply(JsonDocument& d, const char* cmd) {
-    FrameStateSnapshot fs = readFrameStateSnapshot();
+static void reply(JsonDocument& d) {
     d["ok"] = true;
-    d["v"] = runtimeStateVersion();
-    d["cmd"] = cmd;
-    d["color"] = fs.colorHex;
-    d["brightness"] = fs.brightness;
-    d["mode"] = runtimeState().mode;
-    d["playback"] = runtimeState().playback;
-    d["paused"] = runtimeState().paused;
-    d["autoIntervalMs"] = runtimeState().autoIntervalMs;
+    // Always present so B1/B2 can resolve the slot. autoFaceId matches addFace:
+    // omitted when no saved face is in range. autoFaceName stays on GET_STATUS.
     d["autoFaceIndex"] = runtimeState().autoFaceIndex;
-    d["frameBytes"] = FRAME_BYTES;
-    d["frameEncoding"] = "packed-lsb-first";
-    d["queueCount"] = queuedPackedFrameCount();
-    d["lastReason"] = fs.lastReason;
-    d["lit"] = fs.litLeds;
-    addFace(d.as<JsonObject>());
-    addScroll(d.as<JsonObject>());
+    if (runtimeAutoFaceCount() != 0 && runtimeState().autoFaceIndex < runtimeAutoFaceCount())
+        d["autoFaceId"] = runtimeAutoFaces()[runtimeState().autoFaceIndex].id;
 }
 
 // --- CMD dispatcher (docs/RINALINK_PROTOCOL_V1.md §3.4) ---------------------------------
@@ -640,7 +628,7 @@ static void handleWifiCmd(ClientSlot& c, uint8_t seq, const char* cmd, JsonDocum
 }
 
 static void handleGetInfo(ClientSlot& c, uint8_t seq) {
-    DynamicJsonDocument out(768);
+    DynamicJsonDocument out(1024);
     out["ok"] = true;
     out["device"] = "RinaChanBoard";
     // Board identity: `name` is what the board advertises over BLE and what the
@@ -672,12 +660,15 @@ static void handleGetInfo(ClientSlot& c, uint8_t seq) {
     // group_start accepts intervalMs down to MIN_SCROLL_INTERVAL_MS (17 ms,
     // 60 fps); firmware without this cap rejects anything below 20 ms.
     caps.add("group_60fps");
+    // Optional. Tells a later client that apply_saved_face success carries
+    // frameHex. Unknown tokens stay in the app's [String] caps list.
+    caps.add("apply_face_frame");
     sendJsonReply(c, msg::CMD, seq, out);
 }
 
 // --- Incremental saved-face commands (docs/RINALINK_PROTOCOL_V1.md §7.2) ---------------
-// Read saved_faces.json -> mutate in place -> validate -> atomic write -> hot reload ->
-// gen++ -> reply {ok,v,gen,count}. `mutate` returns false with (errCode,errMsg) set to
+// Read saved_faces.json -> mutate in place -> validate -> atomic write -> install the
+// in-memory document -> gen++ -> reply {ok,v,gen,count}. `mutate` returns false with (errCode,errMsg) set to
 // abort before any write; a false result with errCode==0 is treated as 400.
 template <typename Fn>
 static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName, Fn mutate) {
@@ -723,7 +714,7 @@ static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName,
         sendErrorReply(c, seq, 500, err);
         return;
     }
-    loadSavedFaces(false);
+    installSavedFacesDocument(doc.as<JsonVariant>(), false);
     touchRuntimeState();
 
     const size_t count = doc["faces"].as<JsonArray>().size();
@@ -732,6 +723,33 @@ static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName,
     out["v"] = runtimeStateVersion();
     out["gen"] = savedFacesGeneration();
     out["count"] = count;
+    sendJsonReply(c, msg::CMD, seq, out);
+}
+
+// Inverse of the frameHex decode in parseFaceFrameInput: 47 bytes -> 94 lowercase hex chars.
+static void writePackedFrameHex(const uint8_t* bits, char* out) {
+    static const char kHex[] = "0123456789abcdef";
+    for (size_t i = 0; i < FRAME_BYTES; ++i) {
+        out[i * 2] = kHex[bits[i] >> 4];
+        out[i * 2 + 1] = kHex[bits[i] & 0x0F];
+    }
+    out[FRAME_BYTES * 2] = '\0';
+}
+
+static void sendApplySavedFaceReply(ClientSlot& c, uint8_t seq) {
+    const uint16_t index = runtimeState().autoFaceIndex;
+    const uint16_t count = runtimeAutoFaceCount();
+    DynamicJsonDocument out(1024);
+    out["ok"] = true;
+    if (count > 0 && index < count) {
+        const RuntimeFace& face = runtimeAutoFaces()[index];
+        out["autoFaceId"] = face.id;
+        out["autoFaceIndex"] = index;
+        out["frameEncoding"] = "packed-lsb-first";
+        char hex[FRAME_BYTES * 2 + 1];
+        writePackedFrameHex(face.frameBits, hex);
+        out["frameHex"] = hex;
+    }
     sendJsonReply(c, msg::CMD, seq, out);
 }
 
@@ -1410,8 +1428,12 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
     }
     ++runtimeState().commandsAccepted;
     touchRuntimeState();
-    DynamicJsonDocument out(2048);
-    reply(out, cmd);
+    if (strcmp(cmd, "apply_saved_face") == 0) {
+        sendApplySavedFaceReply(c, seq);
+        return;
+    }
+    DynamicJsonDocument out(512);
+    reply(out);
     sendJsonReply(c, msg::CMD, seq, out);
 }
 
@@ -1580,27 +1602,8 @@ static void handleSetFrame(ClientSlot& c, uint8_t seq, const uint8_t* payload, u
         return;
     }
     setRuntimeOutputFromFrameReason(reason.c_str());
-    DynamicJsonDocument d(1024);
-    FrameStateSnapshot fs = readFrameStateSnapshot();
+    DynamicJsonDocument d(128);
     d["ok"] = true;
-    d["accepted"] = true;
-    d["binary"] = true;
-    d["v"] = runtimeStateVersion();
-    d["frameBytes"] = FRAME_BYTES;
-    d["frameEncoding"] = "packed-lsb-first";
-    d["queued"] = queuedPackedFrameCount() > 0;
-    d["queueCount"] = queuedPackedFrameCount();
-    d["queueDepth"] = PACKED_FRAME_QUEUE_DEPTH;
-    d["leds"] = LED_COUNT;
-    d["color"] = fs.colorHex;
-    d["brightness"] = fs.brightness;
-    d["reason"] = fs.lastReason;
-    d["mode"] = runtimeState().mode;
-    d["playback"] = runtimeState().playback;
-    d["autoIntervalMs"] = runtimeState().autoIntervalMs;
-    d["autoFaceIndex"] = runtimeState().autoFaceIndex;
-    d["lit"] = fs.litLeds;
-    addFace(d.as<JsonObject>());
     sendJsonReply(c, msg::SET_FRAME, seq, d);
 }
 
@@ -1985,10 +1988,26 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
             start = d["start"] | false;
     }
     if (c.blob.kind == BlobKind::Scroll) {
-        // BEGIN and CHUNK only fill a PSRAM staging buffer. Replace the live
-        // timeline now that the complete upload has been validated.
+        // BEGIN and CHUNK only fill a PSRAM staging buffer. Replace publishes
+        // that buffer into the live timeline in one locked section. Append
+        // still uses BeginAppend + WriteFrames + Commit.
+        ScrollUploadResult res;
         if (c.blob.append) {
             c.blob.txn = scrollSessionBeginAppend();
+            if (c.blob.framesReceived > 0 &&
+                !scrollSessionWriteFrames(c.blob.txn, c.blob.txn.baseIndex,
+                                          c.blob.scrollBuf, c.blob.framesReceived)) {
+                resetBlob(c);
+                sendErrorReply(c, seq, 500, "failed to write scroll frames");
+                return;
+            }
+            res = scrollSessionCommitUpload(c.blob.txn, c.blob.framesReceived,
+                                            c.blob.hasExplicitTiming, c.blob.intervalMs, c.blob.uiFps);
+            if (!res.valid) {
+                resetBlob(c);
+                sendErrorReply(c, seq, 409, "scroll upload was superseded");
+                return;
+            }
         } else {
             ScrollUploadMeta meta;
             meta.timelineId = c.blob.scrollTimelineId.c_str();
@@ -1999,21 +2018,13 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
             meta.sourceTextBytes = (uint16_t)c.blob.scrollSourceText.length();
             meta.totalFrames = c.blob.totalFrames;
             meta.uiFps = c.blob.uiFps;
-            c.blob.txn = scrollSessionBeginUpload(meta);
-        }
-        if (c.blob.framesReceived > 0 &&
-            !scrollSessionWriteFrames(c.blob.txn, c.blob.txn.baseIndex,
-                                      c.blob.scrollBuf, c.blob.framesReceived)) {
-            resetBlob(c);
-            sendErrorReply(c, seq, 500, "failed to write scroll frames");
-            return;
-        }
-        ScrollUploadResult res = scrollSessionCommitUpload(c.blob.txn, c.blob.framesReceived,
-                                                            c.blob.hasExplicitTiming, c.blob.intervalMs, c.blob.uiFps);
-        if (!res.valid) {
-            resetBlob(c);
-            sendErrorReply(c, seq, 409, "scroll upload was superseded");
-            return;
+            res = scrollSessionPublishReplace(meta, c.blob.scrollBuf, c.blob.framesReceived,
+                                              c.blob.hasExplicitTiming, c.blob.intervalMs, c.blob.uiFps);
+            if (!res.valid) {
+                resetBlob(c);
+                sendErrorReply(c, seq, 500, "failed to write scroll frames");
+                return;
+            }
         }
         const bool started = start &&
             startFirmwareScroll(c.blob.intervalMs, c.blob.uiFps);
@@ -2061,13 +2072,11 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
             }
         }
 
-        // Item A7: expand every frame into a PSRAM staging buffer BEFORE touching
-        // the live timeline. Expansion is deterministic bit math over
-        // c.blob.bitmapBuf, so once this allocation succeeds it cannot fail;
-        // scrollSessionBeginUpload() (which wipes the currently-playing timeline)
-        // and the single WriteFrames call below only run after the full
-        // expansion already exists in hand, so a failure after BeginUpload is
-        // possible only on OOM.
+        // Expand every frame into a staging buffer BEFORE touching the live
+        // timeline. Expansion is deterministic bit math over c.blob.bitmapBuf.
+        // scrollSessionPublishReplace() copies that buffer and flips count and
+        // meta together; a rejected publish leaves the old timeline alone.
+        // Free the staging buffer only after publish returns.
         const size_t stagingBytes = (size_t)frameCount * FRAME_BYTES;
         uint8_t* stagingBuf = static_cast<uint8_t*>(heap_caps_malloc(stagingBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         if (!stagingBuf)
@@ -2099,24 +2108,15 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
         meta.sourceTextBytes = (uint16_t)c.blob.bitmapSourceText.length();
         meta.totalFrames = frameCount;
         meta.uiFps = c.blob.uiFps;
-        ScrollUploadTxn txn = scrollSessionBeginUpload(meta);
-
-        bool writeOk = scrollSessionWriteFrames(txn, 0, stagingBuf, frameCount);
+        ScrollUploadResult res = scrollSessionPublishReplace(meta, stagingBuf, frameCount,
+                                                              c.blob.hasExplicitTiming, c.blob.intervalMs, c.blob.uiFps);
         heap_caps_free(stagingBuf);
-        if (!writeOk) {
+        if (!res.valid) {
             resetBlob(c);
             sendErrorReply(c, seq, 500, "failed to write scroll frames");
             return;
         }
         uint16_t written = frameCount;
-
-        ScrollUploadResult res = scrollSessionCommitUpload(txn, written, c.blob.hasExplicitTiming,
-                                                            c.blob.intervalMs, c.blob.uiFps);
-        if (!res.valid) {
-            resetBlob(c);
-            sendErrorReply(c, seq, 409, "scroll upload was superseded");
-            return;
-        }
         const bool started = start &&
             startFirmwareScroll(c.blob.intervalMs, c.blob.uiFps);
         ScrollSessionSnapshot snap = scrollSessionSnapshot();
@@ -2163,7 +2163,7 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
             sendErrorReply(c, seq, 500, err);
             return;
         }
-        loadSavedFaces(false);
+        installSavedFacesDocument(doc, false);
         DynamicJsonDocument out(384);
         out["ok"] = true;
         out["v"] = runtimeStateVersion();

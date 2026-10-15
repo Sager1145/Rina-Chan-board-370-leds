@@ -476,6 +476,91 @@ static void wifiReplyOrdering(const std::string& name) {
     require(WiFi.apCalls == apCalls + 1, "coalesced mode is applied exactly once");
 }
 
+static void scrollPublish() {
+    ScrollUploadMeta oldMeta;
+    oldMeta.timelineId = "old-timeline";
+    oldMeta.fontId = "old-font";
+    oldMeta.generatorVersion = "old-gen";
+    oldMeta.sourceText = "old-text";
+    oldMeta.sourceTextBytes = 8;
+    oldMeta.totalFrames = 3;
+    oldMeta.uiFps = 10;
+    std::vector<uint8_t> oldBits(static_cast<size_t>(3) * FRAME_BYTES, 0);
+    for (uint16_t i = 0; i < 3; ++i)
+        oldBits[static_cast<size_t>(i) * FRAME_BYTES] = static_cast<uint8_t>(0x10 + i);
+    const auto seeded = scrollSessionPublishReplace(oldMeta, oldBits.data(), 3, true, 100, 10);
+    require(seeded.valid && seeded.frameCount == 3, "seed publish");
+    require(std::string(runtimeScrollMeta().timelineId) == "old-timeline", "seed timeline id");
+    require(std::string(runtimeScrollMeta().fontId) == "old-font", "seed font");
+    require(runtimeScrollMeta().hasSourceText && std::string(runtimeScrollSourceText()) == "old-text", "seed source text");
+
+    runtimeState().scrollFrameIndex = 2;
+    runtimeState().firmwareScrollPaused = true;
+    runtimeState().firmwareScrollUserPaused = true;
+    runtimeState().groupTimed = true;
+    const uint32_t generation = scrollSessionGeneration();
+    const uint16_t intervalBefore = runtimeState().scrollIntervalMs;
+
+    ScrollUploadMeta rejectedMeta;
+    rejectedMeta.timelineId = "should-not-land";
+    rejectedMeta.fontId = "nope";
+    rejectedMeta.totalFrames = 1;
+    uint8_t junk[FRAME_BYTES] = {};
+    junk[0] = 0x7F;
+    const auto rejected = scrollSessionPublishReplace(
+        rejectedMeta, junk, static_cast<uint16_t>(MAX_SCROLL_FRAMES + 1), true, 50, 20);
+    require(!rejected.valid, "invalid count rejected");
+    require(runtimeState().scrollFrameCount == 3, "rejected replace keeps count");
+    require(runtimeState().scrollFrameIndex == 2, "rejected replace keeps index");
+    require(runtimeState().groupTimed, "rejected replace keeps group timing");
+    require(runtimeState().firmwareScrollPaused && runtimeState().firmwareScrollUserPaused, "rejected replace keeps pause flags");
+    require(scrollSessionGeneration() == generation, "rejected replace keeps generation");
+    require(runtimeState().scrollIntervalMs == intervalBefore, "rejected replace keeps interval");
+    require(std::string(runtimeScrollMeta().timelineId) == "old-timeline", "rejected replace keeps timeline id");
+    require(std::string(runtimeScrollMeta().fontId) == "old-font", "rejected replace keeps font");
+    require(memcmp(runtimeScrollFrameBits(0), oldBits.data(), oldBits.size()) == 0, "rejected replace keeps frame bytes");
+
+    const auto rejectedNull = scrollSessionPublishReplace(rejectedMeta, nullptr, 1, false, 50, 0);
+    require(!rejectedNull.valid, "null source rejected");
+    require(runtimeState().scrollFrameCount == 3 &&
+            memcmp(runtimeScrollFrameBits(0), oldBits.data(), oldBits.size()) == 0,
+            "null source leaves count and frame bytes");
+
+    ScrollUploadMeta next;
+    next.timelineId = "new-timeline";
+    next.fontId = "new-font";
+    next.generatorVersion = "new-gen";
+    next.sourceText = "new-text";
+    next.sourceTextBytes = 8;
+    next.totalFrames = 2;
+    next.uiFps = 12;
+    std::vector<uint8_t> nextBits(static_cast<size_t>(2) * FRAME_BYTES, 0);
+    nextBits[0] = 0x21;
+    nextBits[FRAME_BYTES] = 0x22;
+    const auto published = scrollSessionPublishReplace(next, nextBits.data(), 2, true, 80, 12);
+    require(published.valid && published.frameCount == 2, "replace publishes count");
+    require(runtimeState().scrollFrameCount == 2, "live count matches publish");
+    require(std::string(runtimeScrollMeta().timelineId) == "new-timeline", "meta id published with count");
+    require(std::string(runtimeScrollMeta().fontId) == "new-font", "meta font published with count");
+    require(std::string(runtimeScrollMeta().generatorVersion) == "new-gen", "meta generator published with count");
+    require(runtimeScrollMeta().hasSourceText && std::string(runtimeScrollSourceText()) == "new-text", "meta text published with count");
+    require(runtimeScrollMeta().uploadComplete, "count and uploadComplete publish together");
+    require(memcmp(runtimeScrollFrameBits(0), nextBits.data(), nextBits.size()) == 0, "new frame bytes published with count");
+    require(runtimeState().scrollFrameIndex == 0, "replace rewinds index");
+    require(!runtimeState().groupTimed, "replace exits group timing");
+    require(scrollSessionGeneration() == generation + 1, "replace bumps generation once");
+    require(runtimeState().firmwareScrollPaused && runtimeState().firmwareScrollUserPaused, "pause flags unchanged");
+    require(runtimeState().scrollIntervalMs == 80, "explicit timing applied with the publish");
+
+    ScrollUploadMeta cleared;
+    cleared.timelineId = "cleared";
+    cleared.totalFrames = 0;
+    const auto zero = scrollSessionPublishReplace(cleared, nullptr, 0, false, 80, 0);
+    require(zero.valid && zero.frameCount == 0 && runtimeState().scrollFrameCount == 0, "zero-frame replace clears count");
+    require(std::string(runtimeScrollMeta().timelineId) == "cleared", "zero-frame replace installs meta");
+    require(runtimeState().firmwareScrollPaused && runtimeState().firmwareScrollUserPaused, "zero-frame replace keeps pause flags");
+}
+
 static void hintPriority() {
     initLedIndexMap(); showSettingsResetOverlay(true);
     String error; require(setHintLed(0, 1, 0, error), "hint accepted"); renderCurrentFrameToLedStrip();
@@ -495,6 +580,7 @@ int main(int argc, char** argv) {
     else if (name == "scroll_end_stall") scrollEndStall();
     else if (name == "scroll_pause_phase") scrollPausePhase();
     else if (name == "scroll_clock_wrap") scrollClockWrap();
+    else if (name == "scroll_publish") scrollPublish();
     else if (name == "ap_validation") apValidation();
     else if (name == "ap_failure") apFailure();
     else if (name == "ap_initial_failure") apInitialFailure();

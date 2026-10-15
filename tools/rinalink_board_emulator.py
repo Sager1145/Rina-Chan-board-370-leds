@@ -127,7 +127,7 @@ def _handle_cmd(obj):
         changed = False
         ident = getattr(IDENT, "id", "EMU-1")
         return {"ok": True, "proto": 1, "name": BOARD_NAME or "模拟板 " + ident, "defaultName": "模拟板 " + ident, "bootId": "deadbeef",
-                "caps": ["identify", "clock_sample", "scroll_viewport", "group_start"]}, changed
+                "caps": ["identify", "clock_sample", "scroll_viewport", "group_start", "apply_face_frame"]}, changed
     if c == "set_brightness": current_state()["brightness"] = int(obj.get("raw", current_state()["brightness"]))
     elif c == "set_color": current_state()["color"] = obj.get("hex", current_state()["color"])
     elif c == "set_mode": current_state()["mode"] = obj.get("mode", current_state()["mode"])
@@ -173,6 +173,23 @@ def _handle_cmd(obj):
     elif c == "clock_sample":
         rx = now_us()
         return {"ok": True, "rxUs": rx, "txUs": now_us(), "bootId": "deadbeef"}, False
+    elif c == "apply_saved_face":
+        state = current_state()
+        nested = obj.get("payload") if isinstance(obj.get("payload"), dict) else {}
+        raw_index = nested.get("index", obj.get("index", state["autoFaceIndex"]))
+        count = state["autoFaceCount"] or 1
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            index = state["autoFaceIndex"]
+        if index < 0:
+            index = 0
+        index %= count
+        state["autoFaceIndex"] = index
+        # Slot bytes, not the live scroll/presented frame.
+        frame = bytes([index & 0xFF]) + bytes(46)
+        return {"ok": True, "autoFaceId": "face%d" % index, "autoFaceIndex": index,
+                "frameEncoding": "packed-lsb-first", "frameHex": frame.hex()}, True
     else: changed = False
     return {"ok": True}, changed
 def handle_cmd(obj):

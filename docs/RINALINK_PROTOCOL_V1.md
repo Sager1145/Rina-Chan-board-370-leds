@@ -124,7 +124,7 @@ connections are part of recovery, not a substitute for a wire-level session ID.
 
 | type | name | request payload | reply payload |
 |---|---|---|---|
-| 0x01 | `CMD` | `{"cmd":"…", …fields}` — exact same command set as the old `/api/command` (§3.4) | same JSON as the old `reply()` object |
+| 0x01 | `CMD` | `{"cmd":"…", …fields}` — exact same command set as the old `/api/command` (§3.4) | generic success: `{"ok":true,"autoFaceIndex":n,"autoFaceId":"…"?}` (`autoFaceId` only when a saved face is in range). Commands with their own replies are unchanged. `apply_saved_face` is §3.4 |
 | 0x02 | `GET_STATUS` | `{}` or `{"lite":true}` | old `/api/status` JSON (full) or the `renderer`+`power` subset when `lite` |
 | 0x03 | `GET_POWER` | — | old `/api/power` JSON |
 | 0x04 | `GET_SCROLL_META` | — | scroll source/timeline metadata plus the current cursor, active/pause flags, and `scrollLoop` |
@@ -176,7 +176,7 @@ remain supported, but cannot identify the original media across clients.
 
 | type | name | request payload | reply |
 |---|---|---|---|
-| 0x10 | `SET_FRAME` | `u8 playback` (0 idle, 1 paused, 2 scroll, 3 auto) · `u8 reasonLen` · `reason[reasonLen]` · `47 B packed frame` | JSON: old `/api/frame` POST reply |
+| 0x10 | `SET_FRAME` | `u8 playback` (0 idle, 1 paused, 2 scroll, 3 auto) · `u8 reasonLen` · `reason[reasonLen]` · `47 B packed frame` | `{"ok":true}` |
 | 0x11 | `GET_FRAME` | — | `47 B` current frame (binary) |
 
 Packed frame: 47 bytes = 370 bits, logical LED index, LSB-first per byte, tail bits
@@ -191,7 +191,7 @@ Used for **scroll frame sets** and **saved-faces JSON**.
 |---|---|---|---|
 | 0x20 | `BLOB_BEGIN` | JSON `{"kind":"scroll"|"faces","totalBytes":n, …meta}` — scroll meta = `{append,intervalMs|fps,totalFrames,timelineId,fontId,generatorVersion}` (same semantics as old `/api/scroll` query args) | `{"ok":true,"chunkMax":<bytes>,"offset":<resume offset>}` |
 | 0x21 | `BLOB_CHUNK` | `u32 offset LE` · bytes (for `scroll` the chunk must be a whole number of 47-byte frames) | `{"ok":true,"offset":<next>,"frames":<count so far>}` |
-| 0x22 | `BLOB_END` | JSON `{"start":bool}` (scroll) / `{}` (faces) | scroll: old `/api/scroll` 200 JSON; faces: `{"ok":true,"v":n,"bytes":n}` after validate + atomic write + hot reload |
+| 0x22 | `BLOB_END` | JSON `{"start":bool}` (scroll) / `{}` (faces) | scroll: old `/api/scroll` 200 JSON; faces: `{"ok":true,"v":n,"bytes":n}` after validate + atomic write + install of that in-memory document |
 | 0x23 | `BLOB_ABORT` | — | `{"ok":true}` |
 | 0x24 | `GET_FACES` | `{"offset":n,"gen"?:n}` | `u32 gen LE` · raw `saved_faces.json` bytes from `offset`, MORE flag set while more remain; last message has MORE=0 |
 
@@ -213,9 +213,16 @@ library within the face-count limit.
 `chunkMax` is 4032 B (= 85 frames·47 B + slack) on TCP, `min(2048, 8·(MTU−3))` on BLE.
 A second `BLOB_BEGIN{"kind":"scroll"}` from another client while one scroll upload
 is already in progress is rejected with `0xFF ERR code:409`.
-Raw scroll uploads stage their bytes separately from the active timeline; the
-new timeline is committed at END. Abort or disconnection before END leaves the
-previous timeline intact, as with bitmap uploads.
+Raw scroll uploads stage their bytes separately from the active timeline.
+A non-append `BLOB_END` (both `scroll` and `scroll_bitmap`) publishes under one
+scroll lock: a failed validation replies `ERR 500` and leaves the previous
+timeline's count, frame bytes, meta, index, generation, and pause flags
+untouched. On success the staged frames are copied into the existing live
+buffer and count, meta, index 0, the generation bump, and the group-timing
+exit apply together. Append still uses begin/write/commit and can still reply
+`ERR 409` when that upload was superseded. Abort or disconnection before END
+leaves the previous timeline intact. Bitmap expansion finishes before publish,
+and that staging buffer is freed only after publish returns.
 
 ### 3.4 `CMD` command set (unchanged from `/api/command`)
 
@@ -228,7 +235,14 @@ current interval — clients should send both),
 `pause_scroll`, `resume_scroll`, `stop_scroll{restoreAuto?,clear?}`,
 `pause`, `resume`, `apply_saved_face{index,id?,reason?,playback?}` (`id`, when
 non-empty, pins the apply to that saved face and ignores `index` — 404 if the
-id is not found; without `id`, behaves as before), `button{button}`,
+id is not found; without `id`, behaves as before). Success is
+`{"ok":true,"autoFaceId","autoFaceIndex","frameEncoding":"packed-lsb-first","frameHex"}`:
+`autoFaceIndex` is the slot after `index % count`, and `frameHex` is 94
+lowercase hex chars of that saved face's packed bytes, not the frame currently
+latched on the LEDs. A 404 has no frame. Generic success (commands with no
+dedicated reply) is only `{"ok":true,"autoFaceIndex","autoFaceId?"}` —
+`autoFaceId` is omitted when no saved face is in range. `SET_FRAME` success is
+`{"ok":true}`. Error replies are unchanged. `button{button}`,
 `terminate_other_activities{targetMode?}`, `reset_battery_min`, `reset_battery_max`,
 `battery_overlay{singleShot?}` — plus new device commands:
 `reboot`, `get_info` (fw/build/led backend/heap/psram/name), `set_device_name{name}`,
@@ -448,7 +462,10 @@ for the full spec this section summarizes.
 
 ### 9.1 `get_info` additions
 `bootId`: 8 lowercase hex chars from `esp_random()`, generated once at boot/wake (changes
-on every boot). `caps`: `["identify","clock_sample","scroll_viewport","group_start","group_60fps"]`.
+on every boot). `caps`: `["identify","clock_sample","scroll_viewport","group_start","group_60fps","apply_face_frame"]`.
+`group_60fps` and `apply_face_frame` are optional. `apply_face_frame` means an
+`apply_saved_face` success reply includes `frameHex`. An unknown cap string stays
+in the list; clients must not drop the other caps because of it.
 
 ### 9.2 `CMD identify{number, ttlMs}`
 `number` 1…9, `ttlMs` 0…30000 (default 5000, `0` cancels; out-of-range → `ERR 400`). Draws a

@@ -112,6 +112,16 @@ bool scrollSessionWriteFrames(const ScrollUploadTxn& txn, uint16_t startIndex,
                               const uint8_t* packedFrames, uint16_t count);
 ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_t count,
                                              bool hasExplicitTiming, uint16_t intervalMs, uint8_t uiFps = 0);
+// Atomic non-append replace. Under one scroll lock: reject (buffer missing,
+// count > MAX_SCROLL_FRAMES, or a non-empty source that is null) without
+// touching the live timeline; otherwise memcpy staged frames into the existing
+// full-size buffer, then apply BeginUpload+Commit's success effects together
+// (generation bump, exit group timing, meta, count, index 0, explicit timing).
+// Pause flags stay as they are. A count of 0 still clears. Append does not use this.
+ScrollUploadResult scrollSessionPublishReplace(const ScrollUploadMeta& meta,
+                                               const uint8_t* packedFrames, uint16_t count,
+                                               bool hasExplicitTiming, uint16_t intervalMs,
+                                               uint8_t uiFps = 0);
 bool scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize);
 ScrollSessionSnapshot scrollSessionSnapshot();
 

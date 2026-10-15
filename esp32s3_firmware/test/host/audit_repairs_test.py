@@ -81,7 +81,7 @@ with tempfile.TemporaryDirectory(prefix='rina-audit-repairs-') as directory:
     binary = sandbox / 'audit_repairs'
     subprocess.run(common + [str(obj) for obj in objects] + ['-o', str(binary)], check=True)
     cases = sys.argv[1:] or ['battery', 'group_end', 'group_loop',
-                            'scroll_phase', 'scroll_end_stall', 'scroll_pause_phase', 'scroll_clock_wrap', 'ap_validation',
+                            'scroll_phase', 'scroll_end_stall', 'scroll_pause_phase', 'scroll_clock_wrap', 'scroll_publish', 'ap_validation',
                             'ap_failure', 'ap_initial_failure', 'scan_visibility', 'scan_restore',
                             'clear_home', 'clear_hotspot', 'clear_pending', 'clear_ap', 'clear_off', 'clear_ap_retained',
                             'face_identity', 'render_fallback', 'registry_teardown',

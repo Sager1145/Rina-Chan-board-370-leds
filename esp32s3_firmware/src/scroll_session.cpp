@@ -528,6 +528,73 @@ ScrollUploadResult scrollSessionCommitUpload(const ScrollUploadTxn& txn, uint16_
     return result;
 }
 
+ScrollUploadResult scrollSessionPublishReplace(const ScrollUploadMeta& upload,
+                                               const uint8_t* packedFrames, uint16_t count,
+                                               bool hasExplicitTiming, uint16_t intervalMs,
+                                               uint8_t uiFps) {
+    ScrollUploadResult result;
+
+    withScrollLock([&]() {
+        if (!runtimeScrollFrameBufferReady() || count > MAX_SCROLL_FRAMES ||
+            (count > 0 && packedFrames == nullptr))
+            return;
+        uint8_t* live = runtimeScrollFrameBits(0);
+        if (live == nullptr)
+            return;
+        // Bytes land before count and meta change, so a tick waiting on this
+        // lock sees either the previous timeline or the new one.
+        if (count > 0)
+            memcpy(live, packedFrames, static_cast<size_t>(count) * FRAME_BYTES);
+
+        scrollSessionExitGroupTimedLocked();
+        ++sScrollGeneration;
+        runtimeState().scrollFrameCount = 0;
+        runtimeState().scrollFrameIndex = 0;
+        clearScrollTimelineMetaLocked();
+
+        ScrollTimelineMeta& meta = runtimeScrollMeta();
+        if (upload.timelineId && upload.timelineId[0] != '\0') {
+            strncpy(meta.timelineId, upload.timelineId, MAX_SCROLL_TIMELINE_ID_CHARS);
+            meta.timelineId[MAX_SCROLL_TIMELINE_ID_CHARS] = '\0';
+        }
+        if (upload.fontId && upload.fontId[0] != '\0') {
+            strncpy(meta.fontId, upload.fontId, MAX_SCROLL_FONT_ID_CHARS);
+            meta.fontId[MAX_SCROLL_FONT_ID_CHARS] = '\0';
+        }
+        if (upload.generatorVersion && upload.generatorVersion[0] != '\0') {
+            strncpy(meta.generatorVersion, upload.generatorVersion, MAX_SCROLL_GENERATOR_CHARS);
+            meta.generatorVersion[MAX_SCROLL_GENERATOR_CHARS] = '\0';
+        }
+        if (upload.sourceText && runtimeScrollSourceTextReady()) {
+            memcpy(runtimeScrollSourceText(), upload.sourceText,
+                   static_cast<size_t>(upload.sourceTextBytes) + 1U);
+            meta.sourceTextByteLength = upload.sourceTextBytes;
+            meta.hasSourceText = true;
+        }
+        meta.uiFps = upload.uiFps;
+        meta.totalFramesExpected = upload.totalFrames;
+        meta.nextChunkIndex = 1;
+
+        runtimeState().scrollFrameCount = count;
+        runtimeState().scrollFrameIndex = 0;
+        if (hasExplicitTiming) {
+            runtimeState().scrollIntervalMs =
+                constrain(intervalMs, MIN_SCROLL_INTERVAL_MS, MAX_SCROLL_INTERVAL_MS);
+            meta.uiFps = normalizedUiFps(uiFps, runtimeState().scrollIntervalMs);
+        }
+        meta.framesReceived = count;
+        if (meta.totalFramesExpected > 0 && meta.framesReceived >= meta.totalFramesExpected)
+            meta.uploadComplete = true;
+
+        result.valid = true;
+        result.frameCount = runtimeState().scrollFrameCount;
+        result.uploadComplete = meta.uploadComplete;
+        memcpy(result.timelineId, meta.timelineId, sizeof(result.timelineId));
+    });
+
+    return result;
+}
+
 bool scrollSessionCopyMeta(ScrollMetaOut& out, char* textBuf, size_t textBufSize) {
     if (textBuf && textBufSize > 0)
         textBuf[0] = '\0';

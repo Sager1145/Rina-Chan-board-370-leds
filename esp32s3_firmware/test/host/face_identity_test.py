@@ -181,6 +181,19 @@ int main(int argc, char** argv) {
         auto doc = parse(reply.second);
         assert(doc["ok"].as<bool>() == true);
         assert(std::string(doc["autoFaceId"] | "") == "custom1");
+        // custom1 is order 2, so the post-modulo slot is 1. frameHex is that
+        // RuntimeFace, not the still-unpresented boot frame.
+        assert(doc["autoFaceIndex"].as<int>() == 1);
+        assert(std::string(doc["frameEncoding"] | "") == "packed-lsb-first");
+        const std::string hex = doc["frameHex"] | "";
+        assert(hex.size() == 94);
+        assert(hex == frameB);
+        for (char ch : hex)
+            assert((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'));
+        const std::vector<uint8_t> stored = bytesFromHex(frameB);
+        const std::vector<uint8_t> decoded = bytesFromHex(hex);
+        assert(decoded == stored);
+        std::cout << "apply_saved_face reply bytes=" << reply.second.size() << "\n";
     }
 
     // (e) apply_saved_face with id "nope" -> rejected.
@@ -201,6 +214,46 @@ int main(int argc, char** argv) {
         auto doc = parse(reply.second);
         assert(doc["ok"].as<bool>() == true);
         assert(std::string(doc["autoFaceId"] | "") == "default1");
+        assert(doc["autoFaceIndex"].as<int>() == 0);
+        const std::string hex = doc["frameHex"] | "";
+        assert(hex.size() == 94);
+        assert(hex == hexOf(0x00, FRAME_BYTES));
+    }
+
+    // (g) index past the face count is reduced modulo the table. 5 % 2 == 1,
+    // which is custom1 (order 2) and its stored packed bytes.
+    {
+        std::string json = "{\"cmd\":\"apply_saved_face\",\"payload\":{\"index\":5}}";
+        auto reply = client.cmd(seq++, json);
+        assert(reply.first == 0x81);
+        auto doc = parse(reply.second);
+        assert(doc["ok"].as<bool>() == true);
+        assert(doc["autoFaceIndex"].as<int>() == 1);
+        assert(std::string(doc["autoFaceId"] | "") == "custom1");
+        const std::string hex = doc["frameHex"] | "";
+        assert(hex.size() == 94);
+        assert(hex == frameB);
+        assert(bytesFromHex(hex) == bytesFromHex(frameB));
+    }
+
+    // (h) generic success keeps only ok / autoFaceId / autoFaceIndex.
+    {
+        std::string json = "{\"cmd\":\"set_brightness\",\"payload\":{\"brightness\":40}}";
+        auto reply = client.cmd(seq++, json);
+        assert(reply.first == 0x81);
+        auto doc = parse(reply.second);
+        assert(doc["ok"].as<bool>() == true);
+        assert(doc.size() == 3);
+        assert(doc["autoFaceIndex"].as<int>() == 1);
+        assert(std::string(doc["autoFaceId"] | "") == "custom1");
+        assert(doc["scrollFps"].isNull());
+        assert(doc["color"].isNull());
+        assert(doc["v"].isNull());
+        assert(doc["cmd"].isNull());
+        assert(doc["autoFaceName"].isNull());
+        assert(doc["frameEncoding"].isNull());
+        assert(doc["frameHex"].isNull());
+        std::cout << "set_brightness reply bytes=" << reply.second.size() << "\n";
     }
 
     std::cout << "Face identity: apply_saved_face id pinning and face_upsert optimistic-concurrency expect passed\n";
