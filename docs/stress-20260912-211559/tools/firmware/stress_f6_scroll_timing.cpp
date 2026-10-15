@@ -12,6 +12,8 @@
 
 extern uint64_t g_fakeMicros;
 extern uint32_t g_fakeRefreshUs;
+// Pre-1d3e867 drift-reset threshold; only feeds the informational legacy metric.
+static constexpr uint32_t kLegacyDriftResetIntervals = 4;
 static unsigned gPass = 0, gFail = 0, gPhysicalReferenceShortfalls = 0;
 static void rec(const std::string& id, const std::string& load, bool ok, std::string m) {
     for (auto& c : m) if (c == ',') c = ';';
@@ -117,8 +119,8 @@ static std::string metrics(const Out& o, bool legacyPhysicalOk) {
 
 int main() {
     initRuntimeScrollFrameBuffer();
-    rec("F6-CONST", "-", MIN_SCROLL_INTERVAL_MS == 17 && SCROLL_DRIFT_RESET_INTERVALS == 4 && MAX_SCROLL_FRAMES == 3072,
-        "MIN_SCROLL_INTERVAL_MS=17 SCROLL_DRIFT_RESET_INTERVALS=4");
+    rec("F6-CONST", "-", MIN_SCROLL_INTERVAL_MS == 17 && MAX_SCROLL_FRAMES == 3072,
+        "MIN_SCROLL_INTERVAL_MS=17 MAX_SCROLL_FRAMES=3072");
     for (uint32_t refresh : {11100U, 16000U, 20000U}) {
         Out o = run(17, {}, 10000, refresh);
         bool ok = o.speed > 0.99 && o.speed < 1.01;
@@ -130,7 +132,7 @@ int main() {
         for (uint32_t stall : {0U, 50U, 100U, 500U}) {
             std::vector<std::pair<uint32_t, uint32_t>> st; if (stall) st.push_back({2000, stall});
             Out o = run(interval, st, 5000, 11100);
-            const uint32_t threshold = interval * SCROLL_DRIFT_RESET_INTERVALS;
+            const uint32_t threshold = interval * kLegacyDriftResetIntervals;
             // Design expectation: stall under the drift threshold (minus one render) is fully caught up;
             // beyond it, at most ceil(stall/interval) frames are skipped and playback resumes at 1.0x.
             bool under = stall + 13 <= threshold;

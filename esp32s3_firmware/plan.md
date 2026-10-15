@@ -348,10 +348,13 @@ presentation context; (4) TRACE log rate-limited to ≤1/s; (5) if anything need
 rendering, `renderCurrentFrameToLedStrip()`; (6) `ulTaskNotifyTake(pdTRUE, 1 ms)`.
 
 Scroll tick timing (`scrollSessionTickCursorLocked`): requires active && !paused &&
-frameCount>0 && buffer ready. Advances `scrollFrameIndex = (i+1) % count` when
-`now − lastScrollFrameMs ≥ intervalMs` (interval constrained 17..1000). Drift control:
-if elapsed ≤ `SCROLL_DRIFT_RESET_INTERVALS` (4) × interval, `lastScrollFrameMs +=
-interval` (keeps long-term rate exact); otherwise snap to `now`.
+frameCount>0 && buffer ready. When `elapsed = now − lastScrollFrameMs ≥ intervalMs`
+(interval constrained 17..1000), `dueSteps = elapsed / interval`;
+`lastScrollFrameMs += dueSteps × interval` (keeps wall-clock phase exact, wrap-safe)
+and the cursor jumps `dueSteps` frames (`% count` when looping). A late tick presents
+only the newest due frame once — skipped frames are never replayed in a burst. With
+loop off it clamps to the last frame, latches it once, then sets the end pause.
+Group-timed playback instead derives the frame from `group_math::groupCursorAt`.
 
 ### 4.5 Rendering path (`renderCurrentFrameToLedStrip`, `src/led_renderer.cpp`)
 

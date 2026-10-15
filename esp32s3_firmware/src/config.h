@@ -145,7 +145,6 @@ constexpr uint16_t MAX_SCROLL_FRAMES = 3072;
 constexpr uint16_t MIN_SCROLL_INTERVAL_MS = 17; // 60 fps nominal scroll playback.
 constexpr uint16_t MAX_SCROLL_INTERVAL_MS = 1000;
 constexpr uint16_t DEFAULT_SCROLL_INTERVAL_MS = 100;
-constexpr uint8_t SCROLL_DRIFT_RESET_INTERVALS = 4;
 
 constexpr uint16_t MAX_SCROLL_TEXT_BYTES = 4096;
 constexpr uint8_t MAX_SCROLL_TIMELINE_ID_CHARS = 47;
