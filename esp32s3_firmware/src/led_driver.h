@@ -2,17 +2,15 @@
 #include <Arduino.h>
 #include "config.h"
 
-// 中文说明：LED 物理传输后端抽象层。
-// 业务代码（led_renderer / scroll / button_animation）只通过这里的接口输出像素，
-// 不直接依赖 Adafruit_NeoPixel 或 ESP-IDF RMT API。后端由编译开关
-// RINACHAN_LED_BACKEND 选择（见 config.h），方便 A/B 测试与回滚。
+// 中文说明：LED 物理传输抽象层。业务代码（led_renderer / scroll / button_animation）
+// 只通过这里的接口输出像素，不直接调用 ESP-IDF RMT API。传输固定为 RMT，
+// DMA 由 RINACHAN_LED_RMT_WITH_DMA 选择（见 config.h / platformio.ini）。
 //
-// English: thin LED transport abstraction. The active backend is chosen at
-// compile time (RINACHAN_LED_BACKEND); pixel indices passed in are PHYSICAL
-// (already serpentine-mapped by led_renderer). Color values are the *unscaled*
-// 0..255 RGB; per-pixel brightness scaling is applied inside the driver so that
-// behaviour matches the previous Adafruit_NeoPixel::setBrightness() semantics
-// regardless of backend.
+// English: thin LED transport. The implementation is ESP-IDF RMT; pixel indices
+// passed in are PHYSICAL (already serpentine-mapped by led_renderer). Color
+// values are the *unscaled* 0..255 RGB; per-pixel brightness scaling is applied
+// inside the driver so that behaviour matches the previous
+// Adafruit_NeoPixel::setBrightness() semantics.
 
 namespace leddrv {
 
@@ -37,7 +35,7 @@ void clear();
 bool refresh();
 
 // ---- Diagnostics ----------------------------------------------------------
-// Human-readable backend id: "adafruit" | "rmt" | "rmt-dma".
+// Human-readable backend id: "rmt" or "rmt-dma".
 const char* backendName();
 // True when the RMT backend was built with DMA enabled.
 bool dmaEnabled();

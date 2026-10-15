@@ -10,11 +10,8 @@
     ((type*)((char*)(ptr) - offsetof(type, member)))
 #endif
 
-// 中文说明：本文件实现 LED 抽象层的两种后端：
-//   1. Adafruit_NeoPixel（默认，行为与历史版本完全一致，作为安全回退）
-//   2. Espressif RMT（ESP-IDF 5.x 新 RMT 驱动），可选启用 DMA
-// 后端选择见 config.h 的 RINACHAN_LED_BACKEND。两个后端互斥编译，避免在
-// 不支持新 RMT 驱动的核心版本上引入头文件依赖。
+// 中文说明：LED 传输只有 ESP-IDF 5.x RMT TX。DMA 由 RINACHAN_LED_RMT_WITH_DMA
+// 选择（esp32s3-rmt-dma 为 1，其余 env 为 0）。
 
 namespace leddrv {
 
@@ -45,55 +42,7 @@ static inline uint8_t scale8(uint8_t value, uint8_t brightness) {
 
 } // namespace leddrv
 
-// ===========================================================================
-// Backend 1: Adafruit_NeoPixel (default / fallback)
-// ===========================================================================
-#if RINACHAN_LED_BACKEND == RINACHAN_LED_BACKEND_ADAFRUIT
-
-#include <Adafruit_NeoPixel.h>
-
-namespace leddrv {
-
-static Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
-
-const char* backendName() { return "adafruit"; }
-bool dmaEnabled() { return false; }
-
-bool begin() {
-    strip.begin();
-    strip.setBrightness(DEFAULT_BRIGHTNESS);
-    strip.clear();
-    sReady = true;
-    RLOG_INFO("LEDDRV", "event=begin backend=adafruit dma=0 ready=1");
-    return true;
-}
-
-// Adafruit applies brightness inside show(); forward the value natively so the
-// default build is byte-for-byte identical to the previous firmware.
-void setBrightness(uint8_t brightness) {
-    strip.setBrightness(brightness);
-}
-
-void setPixel(uint16_t physicalIndex, uint8_t r, uint8_t g, uint8_t b) {
-    strip.setPixelColor(physicalIndex, strip.Color(r, g, b));
-}
-
-void clear() { strip.clear(); }
-
-bool refresh() {
-    const uint32_t startUs = micros();
-    strip.show();
-    recordRefresh(startUs, true);
-    return true;
-}
-
-} // namespace leddrv
-
-// ===========================================================================
-// Backend 2: Espressif RMT (ESP-IDF 5.x new RMT TX driver), optional DMA
-// ===========================================================================
-#elif RINACHAN_LED_BACKEND == RINACHAN_LED_BACKEND_RMT
-
+// ESP-IDF 5.x RMT TX, optional DMA.
 #include "driver/rmt_tx.h"
 #include "driver/rmt_encoder.h"
 #include "esp_err.h"
@@ -269,9 +218,12 @@ static esp_err_t rmtChannelCreate(size_t memSymbols) {
 bool begin() {
     // 候选缓冲大小，从大到小，逐级降级，保证一定能初始化成功不黑屏。
     // 注意：RMT DMA 上限 2047 且必须偶数，所以最大用 2046（不能用 2048/整帧）。
-    size_t candidates[] = {
+    // 钳位后的同一大小只试一次：DMA 默认宏已是 2046，不再重试字面量 2046。
+    const size_t candidates[] = {
         RINACHAN_LED_RMT_MEM_BLOCK_SYMBOLS, // 用户/默认值（DMA 默认 2046）
         2046, 1024, 512, 256, 64};
+    size_t tried[sizeof(candidates) / sizeof(candidates[0])] = {};
+    size_t triedCount = 0;
 
     esp_err_t chErr = ESP_FAIL;
     for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
@@ -286,6 +238,17 @@ bool begin() {
         } else if (mem > 512) {
             continue; // 非 DMA 硬件块很小，跳过超大候选
         }
+
+        bool seen = false;
+        for (size_t n = 0; n < triedCount; ++n) {
+            if (tried[n] == mem) {
+                seen = true;
+                break;
+            }
+        }
+        if (seen)
+            continue;
+        tried[triedCount++] = mem;
 
         const esp_err_t err = rmtChannelCreate(mem);
         if (err == ESP_OK) {
@@ -385,7 +348,3 @@ bool refresh() {
 }
 
 } // namespace leddrv
-
-#else
-#error "Unknown RINACHAN_LED_BACKEND; expected RINACHAN_LED_BACKEND_ADAFRUIT or RINACHAN_LED_BACKEND_RMT"
-#endif

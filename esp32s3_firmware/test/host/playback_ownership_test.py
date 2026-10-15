@@ -25,7 +25,7 @@ code = r'''
 #include <iostream>
 constexpr unsigned FRAME_BYTES=2, MAX_SCROLL_FRAMES=4;
 constexpr unsigned MIN_SCROLL_INTERVAL_MS=1, MAX_SCROLL_INTERVAL_MS=1000;
-constexpr unsigned PACKED_FRAME_QUEUE_DEPTH=8, PACKED_FRAME_REASON_CHARS=40;
+constexpr unsigned PACKED_FRAME_REASON_CHARS=40;
 constexpr unsigned PACKED_FRAME_MIN_INTERVAL_MS=20;
 using String=std::string;
 struct LedPresentationContext {};
@@ -91,8 +91,8 @@ void touchRuntimeState(){}
 struct EndIteration {};
 void ulTaskNotifyTake(int,int){throw EndIteration{};}
 struct QueuedPackedFrame {uint8_t bits[FRAME_BYTES]={}; char reason[PACKED_FRAME_REASON_CHARS]={};};
-QueuedPackedFrame packedFrameQueue[PACKED_FRAME_QUEUE_DEPTH];
-uint8_t packedFrameQueueHead=0,packedFrameQueueCount=0;
+QueuedPackedFrame packedFrameSlot;
+uint8_t packedFrameQueueCount=0;
 uint32_t lastPackedFrameApplyMs=20;
 void publishPackedFrameNow(const uint8_t* bits,const char*){memcpy(frame,bits,FRAME_BYTES);lastPackedFrameApplyMs=millis();}
 '''
@@ -150,7 +150,7 @@ int main(){
  // Bursty preview retains exactly the latest pending frame.
  for(uint8_t i=1;i<=100;++i){bits[0]=i;enqueuePackedFrame(bits,"preview");}
  assert(packedFrameQueueCount==1);
- assert(packedFrameQueue[0].bits[0]==100);
+ assert(packedFrameSlot.bits[0]==100);
  assert(rs.framesDropped==99);
  std::cout << "PASS: tick takeover, inactive/paused ticks, stale upload write/commit, current append, overlay/user pause ownership, latest preview (100 frames)\n";
 }

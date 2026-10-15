@@ -8,7 +8,9 @@ not actual RMT timing or hardware behaviour.
 import subprocess
 import tempfile
 from pathlib import Path
-src=(Path(__file__).resolve().parents[2] / 'src/led_driver.cpp').read_text().split('#elif RINACHAN_LED_BACKEND == RINACHAN_LED_BACKEND_RMT')[1]
+text=(Path(__file__).resolve().parents[2] / 'src/led_driver.cpp').read_text()
+marker='#elif RINACHAN_LED_BACKEND == RINACHAN_LED_BACKEND_RMT'
+src=text.split(marker,1)[1] if marker in text else text
 def extract(sig):
  s=src.index(sig); a=src.index('{',s); n=1; i=a+1
  while n:

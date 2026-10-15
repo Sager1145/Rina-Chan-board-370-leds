@@ -167,17 +167,9 @@ constexpr uint8_t LED_RENDER_TASK_PRIORITY = 3;
 constexpr uint16_t LED_SIGNAL_RESET_US = 300;
 constexpr uint16_t LED_RENDER_MIN_GAP_US = 2500;
 
-// 中文说明：LED 物理传输后端选择（见 led_driver.cpp）。
-//   ADAFRUIT = 历史 Adafruit_NeoPixel 后端，作为默认与安全回退；
-//   RMT      = ESP-IDF 5.x 新 RMT TX 驱动，可选 DMA（ESP32-S3 支持）。
-// 通过 platformio.ini 的 build_flags 选择，例如 -D RINACHAN_LED_BACKEND=1。
-// 三组测试固件：默认(adafruit) / esp32s3-rmt(无DMA) / esp32s3-rmt-dma(DMA)。
-#define RINACHAN_LED_BACKEND_ADAFRUIT 0
-#define RINACHAN_LED_BACKEND_RMT      1
-#ifndef RINACHAN_LED_BACKEND
-#define RINACHAN_LED_BACKEND RINACHAN_LED_BACKEND_ADAFRUIT
-#endif
-// RMT backend tunables (only used when RINACHAN_LED_BACKEND == RMT).
+// LED transport is ESP-IDF 5.x RMT only (led_driver.cpp). platformio.ini sets
+// RINACHAN_LED_BACKEND=1 on every env. DMA: 0 on esp32s3, esp32s3-test, and
+// esp32s3-rmt; 1 on esp32s3-rmt-dma.
 #ifndef RINACHAN_LED_RMT_WITH_DMA
 #define RINACHAN_LED_RMT_WITH_DMA 0
 #endif

@@ -4,8 +4,9 @@
 #include <freertos/portmacro.h>
 #include "config.h"
 
-// 本头文件定义固件共享运行时状态、保存表情缓存和 RuntimeStore
-// 单例接口。跨模块读写这些字段时，调用方需要按 sync.h 的锁策略保护。
+// 本头文件定义固件共享运行时状态和保存表情缓存。存储放在 state.cpp 的
+// 自由函数里（非平凡类型首次调用时构造）。跨模块读写这些字段时，调用方
+// 需要按 sync.h 的锁策略保护。
 
 // Runtime state
 // 统计计数、文字滚动状态和延迟恢复标记。
@@ -122,45 +123,6 @@ struct RuntimeFace {
     uint16_t jsonIndex = 0;
     bool isDefault = false;
     bool isStartupDefault = false;
-};
-
-class RuntimeStore final {
-  public:
-    static RuntimeStore& instance();
-    RuntimeState& state() { return state_; }
-    const RuntimeState& state() const { return state_; }
-    RuntimeFace* autoFaces() { return autoFaces_; }
-    const RuntimeFace* autoFaces() const { return autoFaces_; }
-    uint16_t& autoFaceCount() { return autoFaceCount_; }
-    const uint16_t& autoFaceCount() const { return autoFaceCount_; }
-    uint8_t* frameBits() { return frameBits_; }
-    const uint8_t* frameBits() const { return frameBits_; }
-    bool initScrollFrameBuffer();
-    bool scrollFrameBufferReady() const { return scrollFrameBits_ != nullptr; }
-    uint8_t* scrollFrameBits(uint16_t index);
-    const uint8_t* scrollFrameBits(uint16_t index) const;
-    ScrollTimelineMeta& scrollMeta() { return scrollMeta_; }
-    const ScrollTimelineMeta& scrollMeta() const { return scrollMeta_; }
-    char* scrollSourceText() { return scrollSourceText_; }
-    const char* scrollSourceText() const { return scrollSourceText_; }
-    bool scrollSourceTextReady() const { return scrollSourceText_ != nullptr; }
-    bool& fsMounted() { return fsMounted_; }
-    const bool& fsMounted() const { return fsMounted_; }
-
-  private:
-    RuntimeStore() = default;
-    RuntimeStore(const RuntimeStore&) = delete;
-    RuntimeStore& operator=(const RuntimeStore&) = delete;
-
-    RuntimeState state_;
-    RuntimeFace autoFaces_[MAX_AUTO_FACES] = {};
-    uint16_t autoFaceCount_ = 0;
-    uint8_t frameBits_[FRAME_BYTES] = {};
-    uint8_t* scrollFrameBits_ = nullptr;
-    bool scrollFrameBitsInPsram_ = false;
-    ScrollTimelineMeta scrollMeta_;
-    char* scrollSourceText_ = nullptr;
-    bool fsMounted_ = false;
 };
 
 RuntimeState& runtimeState();

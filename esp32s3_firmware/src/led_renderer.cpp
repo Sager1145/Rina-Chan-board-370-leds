@@ -102,8 +102,7 @@ struct QueuedPackedFrame {
     char reason[PACKED_FRAME_REASON_CHARS] = "";
 };
 
-static QueuedPackedFrame packedFrameQueue[PACKED_FRAME_QUEUE_DEPTH];
-static uint8_t packedFrameQueueHead = 0;
+static QueuedPackedFrame packedFrameSlot;
 static uint8_t packedFrameQueueCount = 0;
 static uint32_t lastPackedFrameApplyMs = 0;
 
@@ -180,11 +179,9 @@ static void enqueuePackedFrame(const uint8_t* packedBits, const String& reason) 
     // Interactive preview has one pending slot: retain the newest desired
     // frame instead of replaying obsolete faces after a burst of commands.
     runtimeState().framesDropped += packedFrameQueueCount;
-    packedFrameQueueHead = 0;
     packedFrameQueueCount = 1;
-    const uint8_t target = 0;
-    memcpy(packedFrameQueue[target].bits, packedBits, FRAME_BYTES);
-    copyText(packedFrameQueue[target].reason, sizeof(packedFrameQueue[target].reason), reason.c_str());
+    memcpy(packedFrameSlot.bits, packedBits, FRAME_BYTES);
+    copyText(packedFrameSlot.reason, sizeof(packedFrameSlot.reason), reason.c_str());
     ++runtimeState().framesQueued;
 }
 
@@ -462,9 +459,8 @@ void servicePackedFrameQueue() {
     const uint32_t now = millis();
     if (!packedFrameRateReady(now))
         return;
-    QueuedPackedFrame& item = packedFrameQueue[packedFrameQueueHead];
-    packedFrameQueueHead = static_cast<uint8_t>((packedFrameQueueHead + 1) % PACKED_FRAME_QUEUE_DEPTH);
-    --packedFrameQueueCount;
+    QueuedPackedFrame& item = packedFrameSlot;
+    packedFrameQueueCount = 0;
     ++runtimeState().framesDequeued;
     publishPackedFrameNow(item.bits, item.reason);
 }
@@ -473,7 +469,6 @@ void clearQueuedPackedFrames() {
     if (packedFrameQueueCount == 0)
         return;
     runtimeState().framesDropped += packedFrameQueueCount;
-    packedFrameQueueHead = 0;
     packedFrameQueueCount = 0;
 }
 
