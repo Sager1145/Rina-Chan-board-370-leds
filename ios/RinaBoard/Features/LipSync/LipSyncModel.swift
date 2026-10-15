@@ -215,7 +215,7 @@ final class LipSyncModel {
         self.syncEyes = defaults.bool(forKey: Key.syncEyes)
 
         refreshPreviewFrame()
-        sender = LatestValueSender(minInterval: 0.01) { [weak self] submission in
+        sender = LatestValueSender(minInterval: 0) { [weak self] submission in
             await self?.send(submission)
         }
     }

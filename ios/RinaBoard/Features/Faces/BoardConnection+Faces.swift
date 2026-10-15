@@ -12,13 +12,4 @@ extension BoardConnection {
     public func applySavedFace(index: Int, id: String? = nil) async throws -> CommandReply {
         try await command(.applySavedFace(index: index, id: id, reason: nil, playback: nil))
     }
-
-    /// Loads the on-board face library (B10), falling back to the bundled
-    /// default set when the board can't be reached.
-    public func loadFaceDocument(bundle: Bundle = .main) async -> FaceDocument {
-        if let data = try? await getFaces(), let doc = try? FaceDocument(jsonData: data) {
-            return doc
-        }
-        return (try? RinaResources.defaultFaces(bundle: bundle)) ?? FaceDocument()
-    }
 }

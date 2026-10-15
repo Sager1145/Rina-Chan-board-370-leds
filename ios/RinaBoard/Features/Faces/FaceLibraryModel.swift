@@ -399,11 +399,6 @@ final class FaceLibraryModel {
     // MARK: Apply
 
     @discardableResult
-    func apply(_ face: SavedFace, connection: BoardConnection) async -> Bool {
-        await apply(face, from: .board, connection: connection)
-    }
-
-    @discardableResult
     func apply(_ face: SavedFace, from location: FaceLibraryLocation, connection: BoardConnection) async -> Bool {
         errorMessage = nil
         operationMessage = nil
@@ -609,29 +604,6 @@ final class FaceLibraryModel {
         return .saved(id: id)
     }
 
-    func upsertPayload(editingFaceId: String?, name: String, frame: PackedFrame,
-                       fromParts: Bool, call: PartsCall) -> FaceUpsertPayload {
-        upsertPayload(editingFaceId: editingFaceId, location: .board,
-                      name: name, frame: frame, fromParts: fromParts, call: call)
-    }
-
-    func upsertPayload(editingFaceId: String?, location: FaceLibraryLocation,
-                       name: String, frame: PackedFrame, fromParts: Bool,
-                       call: PartsCall) -> FaceUpsertPayload {
-        let existing = editingFaceId.flatMap { face(id: $0, in: location) }
-        let overwriteID = (existing != nil && !isProtected(existing!)) ? existing?.id : nil
-        let isCopy = overwriteID == nil && editingFaceId != nil
-        return FaceUpsertPayload(
-            id: location == .board ? overwriteID : nil,
-            name: isCopy ? fittedName(name, suffix: "_copy") : cleanName(name),
-            type: (fromParts ? SavedFace.Kind.parts : .custom).rawValue,
-            frameHex: frame.hex94,
-            call: fromParts
-                ? SavedFace.CallIds(leye: call.leye, reye: call.reye, mouth: call.mouth, cheek: call.cheek)
-                : nil
-        )
-    }
-
     func boardUpsertPayload(editingFaceId: String?, canOverwrite: Bool,
                             name: String, frame: PackedFrame,
                             fromParts: Bool, call: PartsCall,
@@ -652,10 +624,6 @@ final class FaceLibraryModel {
     }
 
     // MARK: Rename / duplicate / copy
-
-    func rename(_ face: SavedFace, to newName: String, connection: BoardConnection) async {
-        await rename(face, to: newName, in: .board, connection: connection)
-    }
 
     @discardableResult
     func rename(_ face: SavedFace, to newName: String, in location: FaceLibraryLocation,
@@ -743,10 +711,6 @@ final class FaceLibraryModel {
     }
 
     // MARK: Delete and undo
-
-    func delete(_ face: SavedFace, connection: BoardConnection) async {
-        _ = await delete(face, from: .board, connection: connection)
-    }
 
     @discardableResult
     func delete(_ face: SavedFace, from location: FaceLibraryLocation,
@@ -876,11 +840,6 @@ final class FaceLibraryModel {
     // MARK: Reorder
 
     @discardableResult
-    func reorderUserFaces(_ newUserOrder: [SavedFace], connection: BoardConnection) async -> Bool {
-        await reorderUserFaces(newUserOrder, in: .board, connection: connection)
-    }
-
-    @discardableResult
     func reorderUserFaces(_ newUserOrder: [SavedFace], in location: FaceLibraryLocation,
                           connection: BoardConnection) async -> Bool {
         errorMessage = nil
@@ -983,8 +942,6 @@ final class FaceLibraryModel {
 
     // MARK: Import / export
 
-    func exportData() -> Data? { try? faceDocument.encoded() }
-
     func exportData(faces: [SavedFace], from location: FaceLibraryLocation) -> Data? {
         var selected = FaceDocument(format: document(in: location).format,
                                     version: document(in: location).version,
@@ -1003,10 +960,6 @@ final class FaceLibraryModel {
     func reportImportUnreadable() {
         errorMessage = NSLocalizedString("导入失败：无法读取所选文件",
                                          comment: "face document import unreadable file")
-    }
-
-    func importDocument(from data: Data, connection: BoardConnection) async {
-        await importDocument(from: data, to: .board, connection: connection)
     }
 
     func importDocument(from data: Data, to location: FaceLibraryLocation,

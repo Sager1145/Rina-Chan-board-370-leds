@@ -192,7 +192,7 @@ final class PresetLiveModel {
            let decoded = try? JSONDecoder().decode([BuiltInPerformance].self, from: data) {
             self.builtInPerformances = decoded
         }
-        sender = LatestValueSender(minInterval: 0.01) { [weak self] submission in
+        sender = LatestValueSender(minInterval: 0) { [weak self] submission in
             await self?.send(submission)
         }
     }

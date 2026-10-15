@@ -134,7 +134,7 @@ public final class BoardGroupCoordinator {
     /// time `isStarting` flips) can't hammer disagreeing/offline boards with
     /// `GET_SCROLL_META` on every restart.
     private var lastAdoptFailure: (groupID: UUID, at: Date)?
-    private var currentAnchor: (phoneUs: Int64, startFrame: Int, intervalMs: Int, loop: Bool)?
+    private var currentAnchor: GroupSchedule.Anchor?
     /// Retain the requested rate while paused, even with no live boards;
     /// reconnect must clamp against the new connections' capabilities.
     private var requestedPausedFps: Int?
@@ -870,7 +870,7 @@ public final class BoardGroupCoordinator {
             lastPlayError = nil
             lastPlayErrorGroupID = nil
             allMembersOffline = false
-            currentAnchor = (phoneUs: phoneStart, startFrame: firstFrame, intervalMs: intervalMs, loop: loop)
+            currentAnchor = GroupSchedule.Anchor(phoneUs: phoneStart, startFrame: firstFrame, intervalMs: intervalMs, loop: loop)
             playState = PlayState(
                 bitmap: bitmap, layout: layout, mode: mode, virtualWidth: virtualWidth, fps: fps,
                 timelineId: timelineId, sourceText: text, loop: loop, memberOrder: group.members
@@ -993,17 +993,6 @@ public final class BoardGroupCoordinator {
             session.connection.output.invalidate(ifCurrent: token)
             memberStatus.removeValue(forKey: id)
         }
-    }
-
-    /// Converts `currentAnchor`'s tuple shape to/from `GroupSchedule.Anchor`
-    /// for the pure scheduling helpers — `currentAnchor` itself keeps its
-    /// tuple type (another branch edits guards comparing `currentAnchor?.phoneUs`).
-    private func scheduleAnchor(_ anchor: (phoneUs: Int64, startFrame: Int, intervalMs: Int, loop: Bool)) -> GroupSchedule.Anchor {
-        GroupSchedule.Anchor(phoneUs: anchor.phoneUs, startFrame: anchor.startFrame, intervalMs: anchor.intervalMs, loop: anchor.loop)
-    }
-
-    private func tupleAnchor(_ anchor: GroupSchedule.Anchor) -> (phoneUs: Int64, startFrame: Int, intervalMs: Int, loop: Bool) {
-        (phoneUs: anchor.phoneUs, startFrame: anchor.startFrame, intervalMs: anchor.intervalMs, loop: anchor.loop)
     }
 
     /// R6e: called every time a board becomes a participant (`play()`'s own
@@ -1177,7 +1166,7 @@ public final class BoardGroupCoordinator {
         // so the sent anchor is never in the future (firmware would show the
         // next frame early and hold it). `currentAnchor` itself is never
         // updated to this rolled value — only the value SENT.
-        let sendAnchor = GroupSchedule.rolledForward(scheduleAnchor(anchor), toUs: nowUs(), frameCount: frameCount)
+        let sendAnchor = GroupSchedule.rolledForward(anchor, toUs: nowUs(), frameCount: frameCount)
         let commands = GroupSchedule.reanchorCommands(
             phoneAnchorUs: sendAnchor.phoneUs, startFrame: sendAnchor.startFrame, intervalMs: sendAnchor.intervalMs,
             loop: sendAnchor.loop, estimators: estimators.filter { participants[$0.key] != nil }, bootIds: bootIds
@@ -1340,7 +1329,7 @@ public final class BoardGroupCoordinator {
             // this board was uploading or sampling must reach it too, or it
             // would run the old rate until the next full re-anchor.
             guard let liveAnchor = currentAnchor else { return }
-            let sendAnchor = GroupSchedule.rolledForward(scheduleAnchor(liveAnchor), toUs: nowUs(), frameCount: frameCount)
+            let sendAnchor = GroupSchedule.rolledForward(liveAnchor, toUs: nowUs(), frameCount: frameCount)
             guard let bootId = session.connection.bootId,
                   let cmd = GroupSchedule.reanchorCommands(
                     phoneAnchorUs: sendAnchor.phoneUs, startFrame: sendAnchor.startFrame, intervalMs: sendAnchor.intervalMs,
@@ -1435,7 +1424,7 @@ public final class BoardGroupCoordinator {
                 self.playState?.fps = fps
             }
             pausedPlaybackRevision += 1
-            currentAnchor = (phoneUs: anchor.phoneUs, startFrame: anchor.startFrame, intervalMs: newIntervalMs, loop: newLoop)
+            currentAnchor = GroupSchedule.Anchor(phoneUs: anchor.phoneUs, startFrame: anchor.startFrame, intervalMs: newIntervalMs, loop: newLoop)
             return
         }
         guard !participants.isEmpty else { return }
@@ -1495,7 +1484,7 @@ public final class BoardGroupCoordinator {
         // that delay over the frame interval.
         let switchUs = nowUs()
         let next = GroupSchedule.speedChange(
-            from: scheduleAnchor(anchor), intervalMs: newIntervalMs, loop: newLoop, frameCount: frameCount,
+            from: anchor, intervalMs: newIntervalMs, loop: newLoop, frameCount: frameCount,
             switchUs: switchUs
         )
 
@@ -1535,7 +1524,7 @@ public final class BoardGroupCoordinator {
         // `currentAnchor` forward would desync the next re-anchor/rejoin
         // pass from what the boards are actually showing.
         guard anyAccepted, playEpoch == epoch, controlGeneration == gen, !isPaused else { return } // N3/B1
-        currentAnchor = tupleAnchor(next)
+        currentAnchor = next
         if let fps { self.playState?.fps = fps }
 
         // A member that finished a rejoin while this pass was sampling or
@@ -1726,7 +1715,7 @@ public final class BoardGroupCoordinator {
         if isPaused { return pausedFrame }
         guard let anchor = currentAnchor else { return nil }
         let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
-        return frame(atPhoneUs: nowUs(), anchor: anchor, frameCount: frameCount)
+        return GroupSchedule.frame(of: anchor, atPhoneUs: nowUs(), frameCount: frameCount)
     }
 
     /// Drag-to-swap from the group preview, by board identity (the preview
@@ -1806,9 +1795,9 @@ public final class BoardGroupCoordinator {
                 requestedPausedFps = pausedFps
                 await pauseCore(group: live, atFrame: heldFrame)
             } else {
-                let restartFrame = frame(atPhoneUs: nowUs(), anchor: anchor,
-                                         frameCount: GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width,
-                                                                                  virtualWidth: playState.virtualWidth))
+                let restartFrame = GroupSchedule.frame(of: anchor, atPhoneUs: nowUs(),
+                                                       frameCount: GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width,
+                                                                                                virtualWidth: playState.virtualWidth))
                 try await startGroup(group: live, text: playState.sourceText, fps: fps, loop: anchor.loop,
                                      startFrame: restartFrame, adoption: nil)
             }
@@ -1819,23 +1808,6 @@ public final class BoardGroupCoordinator {
             }
             throw error
         }
-    }
-
-    /// The global frame index at `phoneUs` under `anchor`, wrapped (loop) or
-    /// clamped (no loop) to `frameCount` — same math `updatePlayback` uses to
-    /// find the frame to resume from at a new rate.
-    private func frame(atPhoneUs phoneUs: Int64, anchor: (phoneUs: Int64, startFrame: Int, intervalMs: Int, loop: Bool), frameCount: Int) -> Int {
-        guard frameCount > 0 else { return 0 }
-        let intervalUs = Int64(anchor.intervalMs) * 1000
-        let elapsedUs = phoneUs - anchor.phoneUs
-        let rawFrame = elapsedUs < 0
-            ? Int64(anchor.startFrame)
-            : Int64(anchor.startFrame) + elapsedUs / max(intervalUs, 1)
-        if anchor.loop {
-            let m = Int64(frameCount)
-            return Int(((rawFrame % m) + m) % m)
-        }
-        return Int(min(max(rawFrame, 0), Int64(frameCount - 1)))
     }
 
     /// N4: median of `values`, or `nil` if empty — used for the pause-frame
@@ -1893,7 +1865,7 @@ public final class BoardGroupCoordinator {
         let margin = median(halfRtts) ?? 0
         let phoneNow = nowUs() + margin
         let frameCount = GroupScrollBitmap.frameCount(bitmapWidth: playState.bitmap.width, virtualWidth: playState.virtualWidth)
-        let n = heldFrame ?? frame(atPhoneUs: phoneNow, anchor: anchor, frameCount: frameCount)
+        let n = heldFrame ?? GroupSchedule.frame(of: anchor, atPhoneUs: phoneNow, frameCount: frameCount)
 
         // B1: flip state and bump `controlGeneration` synchronously, before
         // any await — including the send fan-out below. An in-flight
@@ -2074,7 +2046,7 @@ public final class BoardGroupCoordinator {
                 lastPlayErrorGroupID = group.id
                 return
             }
-            currentAnchor = (phoneUs: phoneStart, startFrame: pausedFrame, intervalMs: intervalMs, loop: loop)
+            currentAnchor = GroupSchedule.Anchor(phoneUs: phoneStart, startFrame: pausedFrame, intervalMs: intervalMs, loop: loop)
             requestedPausedFps = nil
             isPaused = false
             isPlaying = true

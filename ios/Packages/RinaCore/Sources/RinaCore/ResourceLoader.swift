@@ -24,8 +24,6 @@ public enum RinaResources {
     nonisolated(unsafe) private static var partsLibraryCache: [ObjectIdentifier: PartsLibrary] = [:]
     nonisolated(unsafe) private static var colorPresetsCache: [ObjectIdentifier: ColorPresets] = [:]
     nonisolated(unsafe) private static var defaultFacesCache: [ObjectIdentifier: FaceDocument] = [:]
-    nonisolated(unsafe) private static var appDefaultsCache: [ObjectIdentifier: AppDefaults] = [:]
-    nonisolated(unsafe) private static var matrixGeometryJSONCache: [ObjectIdentifier: Data] = [:]
 
     /// `expression_parts.json`, decoded once per `bundle`.
     public static func partsLibrary(bundle: Bundle = .main) throws -> PartsLibrary {
@@ -75,30 +73,6 @@ public enum RinaResources {
         return value
     }
 
-    /// The app-relevant subset of `webui_config.json`, merged with
-    /// `scroll_text_defaults.json` where useful, decoded once per `bundle`.
-    /// Falls back to `AppDefaults.fallback` if either resource is missing.
-    public static func appDefaults(bundle: Bundle = .main) -> AppDefaults {
-        let key = ObjectIdentifier(bundle)
-        lock.lock()
-        if let cached = appDefaultsCache[key] {
-            lock.unlock()
-            return cached
-        }
-        lock.unlock()
-        let value: AppDefaults
-        if let configData = try? data(named: "webui_config", ext: "json", in: bundle),
-           let decoded = try? AppDefaults(webuiConfigJSON: configData) {
-            value = decoded
-        } else {
-            value = .fallback
-        }
-        lock.lock()
-        appDefaultsCache[key] = value
-        lock.unlock()
-        return value
-    }
-
     /// `scroll_text_defaults.json`, or `ScrollTextDefaults.fallback` if missing.
     public static func scrollTextDefaults(bundle: Bundle = .main) -> ScrollTextDefaults {
         guard let raw = try? data(named: "scroll_text_defaults", ext: "json", in: bundle),
@@ -106,23 +80,6 @@ public enum RinaResources {
             return .fallback
         }
         return decoded
-    }
-
-    /// Raw `matrix_geometry.json` bytes, decoded once per `bundle`. Callers
-    /// decode the fields they need (e.g. `physical_to_logical_index`).
-    public static func matrixGeometryJSON(bundle: Bundle = .main) throws -> Data {
-        let key = ObjectIdentifier(bundle)
-        lock.lock()
-        if let cached = matrixGeometryJSONCache[key] {
-            lock.unlock()
-            return cached
-        }
-        lock.unlock()
-        let value = try data(named: "matrix_geometry", ext: "json", in: bundle)
-        lock.lock()
-        matrixGeometryJSONCache[key] = value
-        lock.unlock()
-        return value
     }
 
 }

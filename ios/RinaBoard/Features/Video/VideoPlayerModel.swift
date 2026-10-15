@@ -205,7 +205,7 @@ final class VideoPlayerModel {
         frameRate = Self.frameRates.contains(storedRate) ? storedRate : 15
         loops = defaults.object(forKey: Self.loopsKey) as? Bool ?? true
         isMuted = defaults.bool(forKey: Self.mutedKey)
-        sender = LatestValueSender(minInterval: 0.01) { [weak self] submission in
+        sender = LatestValueSender(minInterval: 0) { [weak self] submission in
             await self?.send(submission)
         }
         frameProcessor = LatestFrameProcessor(
