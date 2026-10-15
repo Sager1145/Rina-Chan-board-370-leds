@@ -73,3 +73,18 @@
 - 已在 `9eb9cb3`/`7857cfd` 上验证：iOS `RinaBoardTests` 761 项 0 失败，RinaCore 378 项 0 失败；固件构建成功，17 个 host 测试全部通过（含合并 `8303488` 后修复的 `playback_ownership`）；模拟板测试通过。
 - 两块板已刷写 `62e202f` 固件（与 `7857cfd` 固件源码相同），串口确认启动正常、11 个表情已载入。
 - **未做**：Mac 硬件功能测试因本机 shell 无蓝牙权限（TCC）无法运行；没有 BLE/STA/AP 实机连接、换板、DHCP 复用或吞吐测量。J1/J2/H1 为静态调用链与时序分析结论，J3 的字节数由重建请求计算得出。
+
+## 9. 修复记录（2026-10-15 晚）
+
+| 编号 | 处理 | 说明 |
+|---|---|---|
+| H1 | 已修 | 首次同步恢复为总是重新读取 `GET_STATUS`/`GET_PREVIEW_SYNC`；连接后改名刷新仍复用握手 `get_info` |
+| J1 | 已修 | Bonjour、手动 host、`switchToWifi` 三处保存都写入握手验证过的 `physicalBoardID`；新测试覆盖“手动 host 换板在 ready 前被拒” |
+| J2 | 已修 | BLE、Bonjour、手动 host 成功后统一调用已有 `consolidateVerifiedSession`（移入 `ConnectionViewModel`）；新测试覆盖 BLE→LAN 只剩一个 session。Bonjour 路径无传输假件，未单测 |
+| J3 | 已修 | 三条上传路径共用一个预算检查：完整 BEGIN 超过 4096 B 时不附 `sourceText`（固件本就视为可选），上传照常成功；新测试覆盖三条路径 |
+| E1 | 已修 | 模拟板 `BLOB_END` 回复键、`chunkMax` 4032、`SET_FRAME` 帧字节、`group_start` 错误帧与码均与固件一致 |
+| F2 | 已修 | 退出组计时时把存储的 `scrollIntervalMs` 夹到 17…1000，状态与本地 tick 一致；`group_start` 仍接受 ≤2000；新 host 测试 |
+| P1 P2 P3 F1 F3 | 文档 | 协议文档补 503、Wi-Fi 设置失败的回复形状、`{ok}` 专用回复、`pause` 与 `pause_scroll` 区别、空时间线 `start_scroll` 行为；线上行为不变 |
+| A4 | 已修 | 删除 `RuntimeStore` 类；原自由函数保留，各自持有函数内静态对象，仍为首次使用时构造，调用点不变 |
+| A5 | 已修 | 所有 env 统一 RMT 后端，删除 Adafruit 代码与依赖；`esp32s3-rmt-dma` 编译参数不变；RMT 缓冲区递降回退保留并去掉重复档 |
+| A6 | 已修 | 深度 1 的环形队列改为单槽，语义不变（最新覆盖、计数器、清空计入丢弃） |
