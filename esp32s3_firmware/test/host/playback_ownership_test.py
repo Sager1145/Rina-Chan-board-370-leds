@@ -25,7 +25,6 @@ code = r'''
 #include <iostream>
 constexpr unsigned FRAME_BYTES=2, MAX_SCROLL_FRAMES=4;
 constexpr unsigned MIN_SCROLL_INTERVAL_MS=1, MAX_SCROLL_INTERVAL_MS=1000;
-constexpr unsigned SCROLL_DRIFT_RESET_INTERVALS=3;
 constexpr unsigned PACKED_FRAME_QUEUE_DEPTH=8, PACKED_FRAME_REASON_CHARS=40;
 constexpr unsigned PACKED_FRAME_MIN_INTERVAL_MS=20;
 using String=std::string;
@@ -37,7 +36,7 @@ struct Runtime {
  bool scrollLoop=true;
  String playback="scroll";
  uint16_t scrollFrameIndex=0, scrollFrameCount=2, scrollIntervalMs=10;
- uint32_t lastScrollFrameMs=1, framesAccepted=0, framesDropped=0, framesQueued=0;
+ uint32_t lastScrollFrameMs=11, framesAccepted=0, framesDropped=0, framesQueued=0;
  // Board group v1 (§1.5): unused by these tests (groupTimed stays false), but
  // scrollSessionTickCursorLocked()/setFirmwareScrollPauseFlag() reference them.
  bool groupTimed=false;
@@ -115,8 +114,10 @@ int main(){
  // snapshot-then-publish implementation overwrote 99 with tick bits (2).
  takeOverOnUnlock=true;
  try {scrollRenderTask(nullptr);} catch(const EndIteration&){}
+ // One interval is due (nowMs 21, anchor 11): the cursor advances exactly one
+ // frame and the anchor keeps phase, but the face's 99 must survive.
  assert(frame[0]==99);
- assert(rs.scrollFrameIndex==1);
+ assert(rs.scrollFrameIndex==1 && rs.lastScrollFrameMs==21);
  // Stop/pause must prevent ticks, including a paused step frame.
  uint8_t out[FRAME_BYTES]={};
  assert(!scrollSessionTickCursorLocked(40,out));
