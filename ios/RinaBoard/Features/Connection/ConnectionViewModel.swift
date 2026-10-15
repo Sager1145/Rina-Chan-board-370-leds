@@ -96,10 +96,10 @@ public final class ConnectionViewModel {
         }
     }
 
-    public func connectBLE(_ peripheral: DiscoveredPeripheral, ble: any BLEConnecting, connection: BoardConnection, boardStore: BoardStore) async {
+    public func connectBLE(_ peripheral: DiscoveredPeripheral, ble: any BLEConnecting, connection: BoardConnection, boardStore: BoardStore, sessions: BoardSessionStore? = nil) async {
         let boardID = peripheral.id.uuidString
         let reconnectingSavedBoard = boardStore.boards.contains { $0.id == boardID }
-        await connectBLE(peripheral, ble: ble, connection: connection, boardStore: boardStore) { [connection, boardStore] transport in
+        await connectBLE(peripheral, ble: ble, connection: connection, boardStore: boardStore, sessions: sessions) { [connection, boardStore] transport in
             await connection.connect(using: transport) { [weak connection, weak boardStore] in
                 guard let connection, let boardStore else { return }
                 if reconnectingSavedBoard,
@@ -122,6 +122,7 @@ public final class ConnectionViewModel {
         ble: any BLEConnecting,
         connection: BoardConnection,
         boardStore: BoardStore,
+        sessions: BoardSessionStore? = nil,
         connectTransport: @escaping @MainActor (any BLEConnecting) async -> Bool
     ) async {
         guard !isConnectingBLE else { return }
@@ -159,6 +160,7 @@ public final class ConnectionViewModel {
                                       lastSeen: Date()))
         await refreshBoardName(connection: connection)
         await refreshSavedAPMetadata(connection: connection, boardStore: boardStore, savedID: boardID)
+        consolidateVerifiedConnection(connection, sessions: sessions)
     }
 
     // MARK: Board name
@@ -330,7 +332,7 @@ public final class ConnectionViewModel {
 
     // MARK: Home Wi-Fi (Bonjour / manual)
 
-    public func connectBonjour(_ board: DiscoveredBoard, connection: BoardConnection, boardStore: BoardStore) async {
+    public func connectBonjour(_ board: DiscoveredBoard, connection: BoardConnection, boardStore: BoardStore, sessions: BoardSessionStore? = nil) async {
         // `board.name` is a Bonjour service name, not a hostname — never use
         // it as a connection target. Callers should disable this row in the
         // UI until `board.isResolved` (endpoint or host present).
@@ -370,18 +372,21 @@ public final class ConnectionViewModel {
         boardStore.upsert(KnownBoard(id: serviceIdentity?.storageID ?? displayHost,
                                       name: connection.deviceName ?? board.name,
                                       preferredTransport: "wifi", lastHost: board.host,
-                                      bonjourService: serviceIdentity, lastSeen: Date()))
+                                      bonjourService: serviceIdentity,
+                                      physicalBoardID: connection.boardIdentity, lastSeen: Date()))
+        consolidateVerifiedConnection(connection, sessions: sessions)
     }
 
-    public func connectManualHost(connection: BoardConnection, boardStore: BoardStore) async {
+    public func connectManualHost(connection: BoardConnection, boardStore: BoardStore, sessions: BoardSessionStore? = nil) async {
         await connectManualHost(connection: connection, boardStore: boardStore,
-                                transportFactory: { TCPTransport(host: $0) })
+                                transportFactory: { TCPTransport(host: $0) }, sessions: sessions)
     }
 
     func connectManualHost(
         connection: BoardConnection,
         boardStore: BoardStore,
-        transportFactory: @MainActor (String) -> any RinaTransport
+        transportFactory: @MainActor (String) -> any RinaTransport,
+        sessions: BoardSessionStore? = nil
     ) async {
         let host = manualHost.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !host.isEmpty else { return }
@@ -398,7 +403,17 @@ public final class ConnectionViewModel {
             return
         }
         boardStore.upsert(KnownBoard(id: host, name: connection.deviceName ?? host, preferredTransport: "wifi",
-                                      lastHost: host, lastSeen: Date()))
+                                      lastHost: host, physicalBoardID: connection.boardIdentity, lastSeen: Date()))
+        consolidateVerifiedConnection(connection, sessions: sessions)
+    }
+
+    /// Add-board BLE and LAN success share this. The view used to call it only
+    /// after Bluetooth; a second carrier for the same physical board would
+    /// otherwise stay as its own session.
+    private func consolidateVerifiedConnection(_ connection: BoardConnection, sessions: BoardSessionStore?) {
+        guard let sessions,
+              let session = sessions.sessions.first(where: { $0.connection === connection }) else { return }
+        sessions.consolidateVerifiedSession(session)
     }
 
     // MARK: Hotspot ("direct")
@@ -513,7 +528,8 @@ public final class ConnectionViewModel {
             return
         }
         if let ssid {
-            boardStore.upsert(KnownBoard(id: ip, name: connection.deviceName ?? ssid, preferredTransport: "wifi", lastHost: ip, lastSeen: Date()))
+            boardStore.upsert(KnownBoard(id: ip, name: connection.deviceName ?? ssid, preferredTransport: "wifi",
+                                          lastHost: ip, physicalBoardID: connection.boardIdentity, lastSeen: Date()))
         }
         homeProvisionStage = .connected
     }

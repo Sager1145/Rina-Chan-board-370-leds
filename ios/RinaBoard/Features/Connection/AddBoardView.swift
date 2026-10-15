@@ -136,8 +136,7 @@ struct AddBoardView: View {
                 let target = selectSession(id: peripheral.id.uuidString, name: peripheral.name)
                 guard target.connection.connectionState != .connected else { return }
                 sessions.scanner.stopScan()
-                await viewModel.connectBLE(peripheral, ble: target.bleTransport, connection: target.connection, boardStore: boardStore)
-                sessions.consolidateVerifiedSession(target)
+                await viewModel.connectBLE(peripheral, ble: target.bleTransport, connection: target.connection, boardStore: boardStore, sessions: sessions)
             }
         } label: {
             HStack(spacing: 12) {
@@ -197,7 +196,7 @@ struct AddBoardView: View {
                         guard board.isResolved else { return }
                         let target = selectSession(id: board.serviceIdentity?.storageID ?? board.host ?? board.name, name: board.name)
                         guard target.connection.connectionState != .connected else { return }
-                        await viewModel.connectBonjour(board, connection: target.connection, boardStore: boardStore)
+                        await viewModel.connectBonjour(board, connection: target.connection, boardStore: boardStore, sessions: sessions)
                     }
                 } label: {
                     HStack {
@@ -216,7 +215,7 @@ struct AddBoardView: View {
                         let host = viewModel.manualHost.trimmingCharacters(in: .whitespacesAndNewlines)
                         let target = selectSession(id: host, name: host)
                         guard target.connection.connectionState != .connected else { return }
-                        await viewModel.connectManualHost(connection: target.connection, boardStore: boardStore)
+                        await viewModel.connectManualHost(connection: target.connection, boardStore: boardStore, sessions: sessions)
                     }
                 }
                 .disabled(viewModel.manualHost.trimmingCharacters(in: .whitespaces).isEmpty)

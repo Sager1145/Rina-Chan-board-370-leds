@@ -446,6 +446,54 @@ final class BoardAPConnectionTests: XCTestCase {
         }
     }
 
+    /// A manual-host connect must persist the handshake `boardId`. Restoring
+    /// that record against a host that now answers as a different board stops
+    /// before the connection is published ready.
+    func testManualHostSavesHandshakeIdentityAndRejectsDifferentBoardBeforeReady() async throws {
+        let (boards, defaults, suite) = try makeStore()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let host = "192.168.1.40"
+        let model = ConnectionViewModel(startBonjourBrowsing: false)
+        model.manualHost = host
+        let connection = BoardConnection(reconnectDelay: { _ in 60 })
+        defer { connection.disconnect() }
+        let transport = wire(identity: identityA, ssid: ssidA, ip: host,
+                             kind: .wifi(host: host, port: RinaLinkConstants.tcpPort))
+        await model.connectManualHost(connection: connection, boardStore: boards,
+                                      transportFactory: { _ in transport })
+        let saved = try XCTUnwrap(boards.boards.first)
+        XCTAssertEqual(saved.id, host)
+        XCTAssertEqual(saved.physicalBoardID, identityA)
+        XCTAssertEqual(connection.boardIdentity, identityA)
+        connection.disconnect()
+
+        let sessions = makeSessions()
+        defer { sessions.sessions.forEach { $0.connection.disconnect() } }
+        var becameReady = false
+        let impostor = wire(identity: identityB, ssid: ssidB, ip: host,
+                            kind: .wifi(host: host, port: RinaLinkConstants.tcpPort))
+        await model.connectSavedBoard(saved, sessions: sessions, boardStore: boards,
+            joinBoardHotspot: { _ in
+                XCTFail("a saved home-Wi-Fi host must not join a hotspot")
+                return ""
+            },
+            connectTransport: { target, _ in
+                await target.connection.connect(using: impostor,
+                    expectedBoardIdentity: saved.physicalBoardID,
+                    onReady: { becameReady = true })
+            })
+        XCTAssertFalse(becameReady, "a different boardId must be rejected before ready")
+        guard case .failed(let message) = sessions.active.connection.connectionState else {
+            XCTFail("identity mismatch must fail the restore, state=\(sessions.active.connection.connectionState)")
+            return
+        }
+        XCTAssertNil(sessions.active.connection.boardIdentity)
+        XCTAssertEqual(boards.boards.first?.physicalBoardID, identityA)
+        XCTAssertEqual(model.lastErrorMessage, message)
+        XCTAssertEqual(message, Bundle(identifier: "com.rinachan.board")?.localizedString(
+            forKey: "连接地址对应另一块璃奈板，已停止连接", value: nil, table: nil))
+    }
+
     private func wire(identity: String, ssid: String, ip: String, kind: TransportKind = .bluetooth) -> APTestWire {
         let wire = APTestWire(kind: kind)
         wire.commandReply = ["ok": true, "boardId": identity, "defaultName": "RinaBoard-\(identity)", "apSsid": ssid, "apIp": ip]

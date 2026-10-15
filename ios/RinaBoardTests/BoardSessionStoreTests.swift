@@ -630,6 +630,44 @@ final class BoardSessionStoreTests: XCTestCase {
         XCTAssertFalse(store.active.bleTransport is BLETransport,
                        "The replacement placeholder session built a real BLETransport")
     }
+
+    /// BLE then LAN for one physical board must leave the LAN session, with
+    /// the BLE id kept as an alias. The add-board LAN path does that merge.
+    func testBLEThenLANConnectLeavesOneSessionWhoseAliasesIncludeTheBLEID() async throws {
+        let store = BoardSessionStore(scanner: StubScanner(), makeBLETransport: { StubBLECarrier() })
+        defer { store.sessions.forEach { $0.connection.disconnect() } }
+        let suite = "BoardSessionStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let boards = BoardStore(defaults: defaults)
+        let model = ConnectionViewModel(startBonjourBrowsing: false)
+        let identity = "80B54EF48E09"
+        let bleID = UUID().uuidString
+        let host = "192.168.1.50"
+
+        let ble = store.session(for: bleID, name: "A")
+        let bleWire = SessionTransport(kind: .bluetooth)
+        bleWire.hotspotBoardID = identity
+        let bleConnected = await ble.connection.connect(using: bleWire)
+        XCTAssertTrue(bleConnected)
+        XCTAssertEqual(ble.connection.boardIdentity, identity)
+
+        let lan = store.session(for: host, name: host)
+        store.select(lan)
+        model.manualHost = host
+        let lanWire = SessionTransport(host: host)
+        lanWire.hotspotBoardID = identity
+        await model.connectManualHost(connection: lan.connection, boardStore: boards,
+                                      transportFactory: { _ in lanWire }, sessions: store)
+
+        XCTAssertEqual(store.sessions.count, 1)
+        let retained = try XCTUnwrap(store.sessions.first)
+        XCTAssertTrue(retained === lan)
+        XCTAssertTrue(store.existingSession(for: bleID) === retained)
+        XCTAssertTrue(retained.knownIdentifiers.contains(bleID))
+        XCTAssertEqual(retained.connection.boardIdentity, identity)
+        XCTAssertEqual(boards.boards.first?.physicalBoardID, identity)
+    }
 }
 
 /// A BLE carrier that never opens CoreBluetooth. Answers the discovery half

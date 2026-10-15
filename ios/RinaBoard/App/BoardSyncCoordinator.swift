@@ -93,8 +93,7 @@ final class BoardSyncCoordinator {
             await resynchronizeWithBoard(connection: connection, deps: deps,
                                          showControlCenter: showControlCenter,
                                          isFirstConnectionThisRun: isFirstConnectionThisRun,
-                                         isGenuineReconnect: isGenuineReconnect,
-                                         consumeHandshake: !isResumeOnly)
+                                         isGenuineReconnect: isGenuineReconnect)
         }
     }
 
@@ -105,8 +104,7 @@ final class BoardSyncCoordinator {
         deps: Dependencies,
         showControlCenter: Binding<Bool>,
         isFirstConnectionThisRun: Bool = false,
-        isGenuineReconnect: Bool = false,
-        consumeHandshake: Bool = false
+        isGenuineReconnect: Bool = false
     ) async {
         // This is the connected resync path — the only place the launch
         // preview gate is released. `defer` so every early return below
@@ -125,31 +123,15 @@ final class BoardSyncCoordinator {
         // re-triggers a sync when the phase returns to `.active` from there.
         let startedActive = deps.scenePhase() == .active
         guard connection.connectionState == .connected, !Task.isCancelled else { return }
-        // A non-resume sync consumes the handshake snapshot when status is
-        // already in hand. Resume-only, and a handshake whose status never
-        // decoded, still read the wire. Foreground recovery needs that read:
-        // the board can change modes while the app is suspended.
-        var status: DeviceStatus
-        let preview: PreviewSync?
-        if consumeHandshake, let handshakeStatus = connection.status {
-            status = handshakeStatus
-            if let handshakePreview = connection.preview {
-                preview = handshakePreview
-            } else {
-                preview = try? await connection.getPreviewSync()
-                // A status event during this await is newer than the
-                // snapshot taken above. Events do not rewrite a nil status,
-                // so keep the handshake value when the live one is missing.
-                status = connection.status ?? handshakeStatus
-            }
-        } else {
-            guard let fetched = try? await connection.getStatus() else { return }
-            status = fetched
-            preview = try? await connection.getPreviewSync()
-        }
+        // Always re-read. Status events are held for at least 200 ms and
+        // preview for 100/250 ms, and preview is sent only when it changes,
+        // so a change between the handshake read and this sync may not have
+        // arrived as an event yet. Resume mode must not decide from that gap.
+        guard let status = try? await connection.getStatus() else { return }
+        let preview = try? await connection.getPreviewSync()
         // `deps.scenePhase()` is read live here. A status or preview round
-        // trip above can outlast foregrounding; a consumed handshake has no
-        // such gap. This is the last check before playback or mic restores.
+        // trip above can outlast foregrounding. This is the last check before
+        // playback or mic restores.
         guard !Task.isCancelled, generation == connection.connectionGeneration,
               deps.sessions.active.connection === connection,
               session == connection.output.session,

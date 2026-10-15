@@ -260,12 +260,14 @@ final class BoardSyncCoordinatorTests: XCTestCase {
                        "a failed getStatus must still open the gate, not leave every preview blank")
     }
 
-    // MARK: Handshake snapshot is not read twice
+    // MARK: First sync re-reads status and preview
 
-    /// A non-resume sync whose handshake already decoded status must not
-    /// send another `GET_STATUS`. Preview rides along. The control frame is
-    /// read again: the handshake frame is not updated by later events.
-    func testNonResumeSyncWithPopulatedHandshakeSendsNoSecondGetStatus() async throws {
+    /// A change between the handshake snapshot and sync start must be read
+    /// from the wire. Status and preview events can still be inside their
+    /// rate limit, so the handshake values are not authoritative here. The
+    /// control frame is read as well: the handshake frame is not updated by
+    /// later events.
+    func testNonResumeSyncReadsStatusAndPreviewAfterHandshake() async throws {
         let sessions = BoardSessionStore()
         let coordinator = BoardSyncCoordinator()
         let deps = makeDeps(sessions: sessions)
@@ -275,49 +277,27 @@ final class BoardSyncCoordinatorTests: XCTestCase {
         ))
         let connected = await sessions.active.connection.connect(using: transport)
         XCTAssertTrue(connected)
-        XCTAssertNotNil(sessions.active.connection.status)
+        XCTAssertEqual(sessions.active.connection.status?.renderer?.brightness, 55)
+        transport.status = DeviceStatus(ok: true, renderer: RendererStatus(
+            brightness: 72, mode: "manual", playback: "idle"
+        ))
         let statusBefore = transport.getStatusCount
         let previewBefore = transport.getPreviewSyncCount
         let frameBefore = transport.getFrameCount
 
         await synchronize(coordinator, connection: sessions.active.connection, deps: deps, draftsRestored: true)
 
-        XCTAssertEqual(transport.getStatusCount, statusBefore,
-                       "a populated handshake must not be followed by another getStatus")
-        XCTAssertEqual(transport.getPreviewSyncCount, previewBefore,
-                       "a populated handshake preview must not be fetched again")
+        XCTAssertEqual(transport.getStatusCount, statusBefore + 1,
+                       "the first sync must send getStatus even when the handshake already decoded one")
+        XCTAssertEqual(transport.getPreviewSyncCount, previewBefore + 1,
+                       "the first sync must send getPreviewSync even when the handshake already decoded one")
         XCTAssertEqual(transport.getFrameCount, frameBefore + 1,
                        "control mode must send getFrame even when the handshake already has a frame")
-        XCTAssertEqual(deps.controlCenter.brightnessDraft, 55,
-                       "the handshake status must still drive the control draft")
-    }
-
-    /// `setupStatusReadFailed` leaves `status` nil. That sync still sends one
-    /// `GET_STATUS` and returns through today's failure path when it fails.
-    func testNilHandshakeStatusStillSendsOneGetStatus() async throws {
-        let sessions = BoardSessionStore()
-        let coordinator = BoardSyncCoordinator()
-        let deps = makeDeps(sessions: sessions)
-        let transport = SyncTransport()
-        transport.status = DeviceStatus(ok: true, renderer: RendererStatus(
-            brightness: 41, mode: "manual", playback: "idle"
-        ))
-        transport.failNextGetStatus = 1
-        let connected = await sessions.active.connection.connect(using: transport)
-        XCTAssertTrue(connected)
-        XCTAssertNil(sessions.active.connection.status)
-        let statusBefore = transport.getStatusCount
-
-        await synchronize(coordinator, connection: sessions.active.connection, deps: deps, draftsRestored: true)
-
-        XCTAssertEqual(transport.getStatusCount, statusBefore + 1,
-                       "a nil handshake status must still send one getStatus")
-        XCTAssertEqual(deps.controlCenter.brightnessDraft, 41,
-                       "the wire getStatus must still synchronize controls")
+        XCTAssertEqual(deps.controlCenter.brightnessDraft, 72,
+                       "the sync must apply the fresh status, not the handshake snapshot")
     }
 
     /// R19's resume path: same generation and session, foreground return.
-    /// That re-run still hits `GET_STATUS` even when the handshake is populated.
     func testResumeOnlySyncStillSendsGetStatus() async throws {
         let sessions = BoardSessionStore()
         let coordinator = BoardSyncCoordinator()
@@ -439,9 +419,6 @@ private final class SyncTransport: RinaTransport {
     /// Forces `getStatus` to fail decode, so a test can drive the resync
     /// path's early-return branch without a real transport error.
     var failGetStatus = false
-    /// The next this-many `GET_STATUS` replies are not JSON. One leaves the
-    /// handshake `status` nil while a later resync read can still succeed.
-    var failNextGetStatus = 0
     private(set) var getStatusCount = 0
     private(set) var getPreviewSyncCount = 0
     private(set) var getFrameCount = 0
@@ -479,10 +456,6 @@ private final class SyncTransport: RinaTransport {
     private func replyPayload(for request: RinaLinkFrame) -> Data {
         switch RinaLinkMessageType(rawValue: request.type) {
         case .getStatus:
-            if failNextGetStatus > 0 {
-                failNextGetStatus -= 1
-                return Data("not json".utf8)
-            }
             if failGetStatus { return Data("not json".utf8) }
             return (try? JSONEncoder().encode(status)) ?? Data()
         case .getPreviewSync:
