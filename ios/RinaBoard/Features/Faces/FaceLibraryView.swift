@@ -24,6 +24,10 @@ struct FaceLibraryView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(FaceLibraryModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.duoWorkspace) private var duoWorkspace
+    @Environment(\.foldedDuo) private var foldedDuo
+
+    private var keepsActionsInMenu: Bool { duoWorkspace || foldedDuo }
 
     @State private var editMode: EditMode = .inactive
     @State private var orderDraft: [SavedFace]?
@@ -102,6 +106,36 @@ struct FaceLibraryView: View {
         canManage && !isSearching && confirmedFaces.count > 1
     }
 
+    private var editLibraryButton: some View {
+        EditButton()
+            .disabled(isWorking || isLoading || !libraryReady || isSearching || confirmedFaces.isEmpty)
+            .accessibilityIdentifier("faces.editMode")
+    }
+
+    private var managementMenu: some View {
+        Menu {
+            Button("导出全部", systemImage: "square.and.arrow.up") { exportAll() }
+                .disabled(!libraryReady || confirmedFaces.isEmpty)
+            Button("导入表情列表", systemImage: "square.and.arrow.down") {
+                importLocation = location
+                importGeneration = connection.connectionGeneration
+                isImporting = true
+            }.disabled(!canManage)
+            Button("刷新", systemImage: "arrow.clockwise") {
+                let source = location
+                let link = connection
+                perform { await refresh(source, connection: link) }
+            }
+            .disabled(!libraryReady)
+            if location == .local, model.canUndoLocalDelete {
+                Button("撤销删除", systemImage: "arrow.uturn.backward") {
+                    perform { _ = await model.undoLocalDelete() }
+                }
+            }
+        } label: { Label("更多", systemImage: "ellipsis.circle") }
+        .disabled(isWorking || editMode.isEditing)
+    }
+
     var body: some View {
         let all = displayedFaces
         let visible = all.filter(matchesSearch)
@@ -109,6 +143,14 @@ struct FaceLibraryView: View {
         let ranks = Dictionary(all.enumerated().map { ($0.element.id, $0.offset + 1) },
                                uniquingKeysWith: { first, _ in first })
         List {
+            if keepsActionsInMenu {
+                Section {
+                    TextField("搜索表情", text: $searchText)
+                        .accessibilityIdentifier("faces.search")
+                    editLibraryButton
+                    managementMenu
+                }
+            }
             Picker("库", selection: Binding(get: { location }, set: { pickedLocation = $0 })) {
                 ForEach(FaceLibraryLocation.allCases) { Text($0.title).tag($0) }
             }
@@ -154,35 +196,11 @@ struct FaceLibraryView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("表情库")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, prompt: "搜索表情")
+        .modifier(FaceLibrarySearchPlacement(text: $searchText, inMenu: keepsActionsInMenu))
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                EditButton()
-                    .disabled(isWorking || isLoading || !libraryReady || isSearching || confirmedFaces.isEmpty)
-                    .accessibilityIdentifier("faces.editMode")
-            }
-            ToolbarItem(placement: .secondaryAction) {
-                Menu {
-                    Button("导出全部", systemImage: "square.and.arrow.up") { exportAll() }
-                        .disabled(!libraryReady || confirmedFaces.isEmpty)
-                    Button("导入表情列表", systemImage: "square.and.arrow.down") {
-                        importLocation = location
-                        importGeneration = connection.connectionGeneration
-                        isImporting = true
-                    }.disabled(!canManage)
-                    Button("刷新", systemImage: "arrow.clockwise") {
-                        let source = location
-                        let link = connection
-                        perform { await refresh(source, connection: link) }
-                    }
-                    .disabled(!libraryReady)
-                    if location == .local, model.canUndoLocalDelete {
-                        Button("撤销删除", systemImage: "arrow.uturn.backward") {
-                            perform { _ = await model.undoLocalDelete() }
-                        }
-                    }
-                } label: { Label("更多", systemImage: "ellipsis.circle") }
-                .disabled(isWorking || editMode.isEditing)
+            if !keepsActionsInMenu {
+                MenuToolbarItem(placement: .primaryAction) { editLibraryButton }
+                MenuToolbarItem(placement: .secondaryAction) { managementMenu }
             }
         }
         // Bind the container for both List and toolbar. Not `.constant`, so
@@ -471,5 +489,15 @@ struct JSONFileDocument: FileDocument {
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: data)
+    }
+}
+
+private struct FaceLibrarySearchPlacement: ViewModifier {
+    @Binding var text: String
+    let inMenu: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if inMenu { content }
+        else { content.searchable(text: $text, prompt: "搜索表情") }
     }
 }

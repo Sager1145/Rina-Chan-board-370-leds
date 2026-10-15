@@ -3,6 +3,130 @@ import XCTest
 /// Regression: Duo used the phone list instead of its expanded workspace.
 final class DuoWorkspaceUITests: XCTestCase {
     @MainActor
+    func testNativeModeButtonTracksAutomaticAndManualBoardState() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["RINA_TEST_BOARDS"] == "1",
+                          "Requires the local simulator board fixtures")
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+                               "-initialTab", "control", "-disableStarAnimation", "YES",
+                               "-seedTestGroups", "YES", "-connectTestBoards", "YES",
+                               "-testBoardPort", "15370", "-testGroupName", "Test · 3 mirrors"]
+        app.launch()
+        defer { app.terminate() }
+        let mode = app.buttons["controlCenter.toolbar.mode"].firstMatch
+        XCTAssertTrue(mode.waitForExistence(timeout: 15))
+        let connected = NSPredicate { _, _ in mode.isEnabled }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: connected, object: mode)], timeout: 30), .completed)
+        for label in ["Page loading", "Page loaded", "页面加载中", "页面加载完成"] {
+            let overlay = app.descendants(matching: .any)[label].firstMatch
+            if overlay.exists { XCTAssertTrue(overlay.waitForNonExistence(timeout: 15)) }
+        }
+        let status = app.buttons["controlCenter.statusButton"].firstMatch
+        if status.exists { status.tap() }
+        let single = app.buttons["Back to single board"].firstMatch
+        let panel = status.exists ? app.otherElements["controlCenter.popup"].firstMatch.collectionViews.firstMatch
+            : app.collectionViews["board.workspace.controlCenter"].firstMatch
+        for _ in 0..<6 {
+            if single.exists && single.isHittable { break }
+            panel.swipeUp()
+        }
+        XCTAssertTrue(single.exists)
+        single.tap()
+        if status.exists { app.buttons["Done"].firstMatch.tap() }
+        let frame = mode.frame
+        for _ in 0..<4 {
+            let expected = (mode.value as? String) == "Auto" ? "Manual" : "Auto"
+            mode.tap()
+            let changed = NSPredicate { _, _ in (mode.value as? String) == expected }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: changed, object: mode)], timeout: 5), .completed)
+            XCTAssertEqual(mode.frame.midX, frame.midX, accuracy: 2)
+            XCTAssertEqual(mode.frame.midY, frame.midY, accuracy: 2)
+        }
+    }
+
+    @MainActor
+    func testNavbarPositionsStayFixedWhenSwitchingTabsAndOpeningControls() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+                               "-initialTab", "control", "-disableStarAnimation", "YES"]
+        if ProcessInfo.processInfo.environment["RINA_TEST_BOARDS"] == "1" {
+            app.launchArguments += ["-seedTestGroups", "YES", "-connectTestBoards", "YES",
+                                    "-testBoardPort", "15370", "-testGroupName", "Test · 3 mirrors"]
+        }
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.buttons["controlCenter.toolbar.mode"].waitForExistence(timeout: 10))
+        for label in ["Page loading", "Page loaded", "页面加载中", "页面加载完成"] {
+            let overlay = app.descendants(matching: .any)[label].firstMatch
+            if overlay.exists { XCTAssertTrue(overlay.waitForNonExistence(timeout: 15)) }
+        }
+        let folded = app.buttons["controlCenter.statusButton"].exists
+        if let expected = ProcessInfo.processInfo.environment["RINA_DUO_POSTURE"] {
+            XCTAssertEqual(folded, expected == "folded", "The hardware posture must remain fixed for this run")
+        }
+        let landscape = app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height
+        let ids = folded ? ["controlCenter.toolbar.mode", "controlCenter.toolbar.color", "controlCenter.statusButton"]
+            : (landscape ? ["mode", "previous", "next"] : ["mode", "previous", "next", "color"])
+                .map { "controlCenter.toolbar." + $0 }
+        assertSeparateToolbarControls(app, ids: ids)
+        let baseline = ids.map { app.descendants(matching: .any)[$0].firstMatch.frame }
+        let tabs = ["Expressions", "Text", "Speak", "Live", "Settings"].map { app.buttons[$0].firstMatch }
+        for tab in tabs { XCTAssertTrue(tab.exists, tab.description) }
+        let tabFrames = tabs.map(\.frame)
+        let boardControls = app.collectionViews["board.workspace.controlCenter"].firstMatch
+        let panelFrame = boardControls.exists ? boardControls.frame : nil
+        func assertPositions() {
+            if let panelFrame, boardControls.exists {
+                XCTAssertEqual(boardControls.frame.minY, panelFrame.minY, accuracy: 2,
+                               "Switching tabs must not move the shared control-center column")
+            }
+            for (id, frame) in zip(ids, baseline) {
+                let current = app.descendants(matching: .any)[id].firstMatch.frame
+                XCTAssertEqual(current.midX, frame.midX, accuracy: 2, id)
+                XCTAssertEqual(current.midY, frame.midY, accuracy: 2, id)
+            }
+            for (tab, frame) in zip(tabs, tabFrames) {
+                XCTAssertEqual(tab.frame.midX, frame.midX, accuracy: 2, tab.label)
+                XCTAssertEqual(tab.frame.midY, frame.midY, accuracy: 2, tab.label)
+            }
+        }
+        for tab in tabs + tabs.reversed() {
+            tab.tap()
+            assertPositions()
+        }
+        for id in ids where id != "controlCenter.toolbar.color" && id != "controlCenter.statusButton" {
+            let button = app.buttons[id].firstMatch
+            if button.isEnabled {
+                button.tap()
+                assertPositions()
+            }
+        }
+        if folded || !landscape {
+            let color = app.descendants(matching: .any)["controlCenter.toolbar.color"].firstMatch
+            color.tap()
+            let group = app.buttons["Aqours"].firstMatch
+            XCTAssertTrue(group.waitForExistence(timeout: 5))
+            assertPositions()
+            group.tap()
+            let preset = app.buttons["Chika Takami · Mikan orange"].firstMatch
+            XCTAssertTrue(preset.waitForExistence(timeout: 5))
+            preset.tap()
+            assertPositions()
+        } else {
+            XCTAssertFalse(app.buttons["controlCenter.toolbar.color"].exists)
+        }
+        if folded {
+            app.buttons["controlCenter.statusButton"].tap()
+            XCTAssertTrue(app.otherElements["controlCenter.popup"].firstMatch.waitForExistence(timeout: 5))
+            assertPositions()
+            app.buttons["Done"].firstMatch.tap()
+            XCTAssertTrue(app.otherElements["controlCenter.popup"].firstMatch.waitForNonExistence(timeout: 5))
+            assertPositions()
+        }
+    }
+
+    @MainActor
     func testLandscapeKeepsTheSelectedTabAndExposesBothControlPanes() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
@@ -134,7 +258,9 @@ final class DuoWorkspaceUITests: XCTestCase {
             // page and controls after the device's rotation action settles.
             XCTAssertTrue(app.collectionViews["board.workspace.tabControls"].exists)
             XCTAssertTrue(app.textViews["滚动文字内容"].exists)
-            assertSeparateToolbarControls(app, ids: ["mode", "previous", "next", "color"].map { "controlCenter.toolbar." + $0 })
+            let window = app.windows.firstMatch.frame
+            let names = window.width > window.height ? ["mode", "previous", "next"] : ["mode", "previous", "next", "color"]
+            assertSeparateToolbarControls(app, ids: names.map { "controlCenter.toolbar." + $0 })
             XCTAssertFalse(app.buttons["controlCenter.statusButton"].exists)
             XCTAssertTrue(app.collectionViews["board.workspace.controlCenter"].exists)
         }

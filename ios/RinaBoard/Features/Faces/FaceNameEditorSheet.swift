@@ -44,11 +44,11 @@ struct FaceNameEditorSheet: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                MenuToolbarItem(placement: .cancellationAction) {
                     Button("取消", role: .cancel) { dismiss() }
                         .disabled(isSubmitting)
                 }
-                ToolbarItem(placement: .confirmationAction) {
+                MenuToolbarItem(placement: .confirmationAction) {
                     Button("保存") { save() }
                         .disabled(!isValid || isSubmitting)
                 }

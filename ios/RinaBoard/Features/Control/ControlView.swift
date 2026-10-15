@@ -318,7 +318,7 @@ struct ControlView: View {
         NavigationStack {
             FaceLibraryView()
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
+                    MenuToolbarItem(placement: .cancellationAction) {
                         Button("关闭", systemImage: "xmark") { isShowingSavedFaces = false }
                     }
                 }

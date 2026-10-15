@@ -515,13 +515,13 @@ struct ConnectionPasswordSheet: View {
             .listSectionSpacing(.compact)
             .navigationTitle("连接网络")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                MenuToolbarItem(placement: .cancellationAction) {
                     Button("取消") {
                         workspace.passwordInput = ""
                         workspace.networkForPassword = nil
                     }
                 }
-                ToolbarItem(placement: .confirmationAction) {
+                MenuToolbarItem(placement: .confirmationAction) {
                     Button("连接") {
                         let ssid = network.ssid
                         let password = workspace.passwordInput

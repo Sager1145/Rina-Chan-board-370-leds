@@ -45,16 +45,24 @@ struct DuoWorkspaceAdapter: ViewModifier {
                 // inner phone display remains wide in both orientations.
                 let widePhone = UIDevice.current.userInterfaceIdiom == .phone
                     && min(proxy.size.width, proxy.size.height) >= 600
-                let inner = widePhone || (!folded && (hasDivision || lastInnerDisplay))
+                let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                let displaySize = (scenes.first { $0.activationState == .foregroundActive }
+                    ?? scenes.first { $0.activationState == .foregroundInactive })?.screen.bounds.size
+                let wideDisplayPhone = UIDevice.current.userInterfaceIdiom == .phone
+                    && displaySize.map { min($0.width, $0.height) >= 600 } == true
+                let inner = DuoWorkspaceDetection.isInnerDisplay(
+                    viewportSize: proxy.size, displaySize: displaySize,
+                    isPhone: UIDevice.current.userInterfaceIdiom == .phone,
+                    folded: folded, hasDivision: hasDivision, previousInner: lastInnerDisplay)
                 content
                     .environment(\.boardToolbarIsVertical,
                                  proxy.safeAreaInsets.leading > 0 || proxy.safeAreaInsets.trailing > 0)
                     .environment(\.duoWorkspace, inner)
                     .environment(\.foldedDuo, folded && !inner)
-                    .onChange(of: inner, initial: true) { _, _ in
-                        RinaPhoneOrientationPolicy.updateConnectedScenes()
+                    .onChange(of: folded || !inner, initial: true) { _, _ in
+                        RinaPhoneOrientationPolicy.updateConnectedScenes(innerDisplay: inner, folded: folded)
                     }
-                    .onChange(of: hasDivision || widePhone, initial: true) { _, detected in
+                    .onChange(of: hasDivision || widePhone || wideDisplayPhone, initial: true) { _, detected in
                         if detected && (!folded || widePhone) { lastInnerDisplay = true }
                     }
             }
@@ -66,6 +74,18 @@ struct DuoWorkspaceAdapter: ViewModifier {
             content
         }
         #endif
+    }
+}
+
+enum DuoWorkspaceDetection {
+    static func isInnerDisplay(viewportSize: CGSize, displaySize: CGSize?, isPhone: Bool,
+                               folded: Bool, hasDivision: Bool, previousInner: Bool) -> Bool {
+        let wideViewport = isPhone && min(viewportSize.width, viewportSize.height) >= 600
+        let wideDisplay = isPhone && displaySize.map { min($0.width, $0.height) >= 600 } == true
+        // The native bar temporarily reduces viewport height while rotating.
+        // Display bounds still identify the inner screen when this view remounts.
+        // A confirmed closed hinge excludes a stale inner display during handoff.
+        return wideViewport || (!folded && (wideDisplay || hasDivision || previousInner))
     }
 }
 
@@ -137,6 +157,8 @@ struct DuoWorkspaceFrames {
 struct DuoWorkspacePlacement: Layout {
     let frames: DuoWorkspaceFrames
     let size: CGSize
+    let previewAspectRatio: CGFloat
+    let previewFooterHeight: CGFloat
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         size
@@ -144,10 +166,12 @@ struct DuoWorkspacePlacement: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var placement = frames
-        if placement.tabControls.minY == 0, let preview = subviews.first {
-            // In columns, the board's actual aspect ratio sets its height.
-            // Do not shrink a width-fitting preview to a fixed fraction.
-            let naturalHeight = preview.sizeThatFits(ProposedViewSize(width: placement.preview.width, height: nil)).height
+        if placement.tabControls.minY == 0 {
+            // Reserve the same width-fitting board slot for every tab.
+            // Measuring each page's content moved the shared panel whenever
+            // a single-board preview was replaced by a shorter group preview.
+            let naturalHeight = min(max(0, placement.preview.width - 24) / previewAspectRatio, 420)
+                + previewFooterHeight
             let availableHeight = placement.controlCenter.maxY
             let previewHeight = min(naturalHeight, max(0, availableHeight - 44))
             placement.preview.size.height = previewHeight

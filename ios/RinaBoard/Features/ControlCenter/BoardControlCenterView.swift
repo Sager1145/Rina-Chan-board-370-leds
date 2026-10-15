@@ -273,7 +273,7 @@ struct BoardControlCenterView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let onDismiss {
-                ToolbarItem(placement: .confirmationAction) {
+                MenuToolbarItem(placement: .confirmationAction) {
                     Button("完成", action: onDismiss)
                 }
             }
@@ -934,7 +934,7 @@ private struct SheetDoneButton: ViewModifier {
 
     func body(content: Content) -> some View {
         content.toolbar {
-            ToolbarItem(placement: .confirmationAction) {
+            MenuToolbarItem(placement: .confirmationAction) {
                 Button("完成") { dismiss() }
             }
         }

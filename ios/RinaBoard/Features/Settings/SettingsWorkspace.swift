@@ -36,6 +36,11 @@ final class SettingsWorkspace {
     /// second-level page, kept here so crossing between the layouts, which
     /// rebuilds the stack, reopens it.
     var editingGroupID: UUID?
+    var newGroupName = ""
+    var isPresentingCreateGroup = false
+    /// Duo uses the same in-place routes on both displays; a temporary
+    /// compact frame must not let a native stack clear the retained route.
+    var usesDuoMenuRouting = false
     /// Decided by `SettingsLayoutPolicy` from the width Settings gets.
     var layoutMode: SettingsLayoutMode?
 

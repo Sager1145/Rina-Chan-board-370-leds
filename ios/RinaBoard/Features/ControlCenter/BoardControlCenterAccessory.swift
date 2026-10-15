@@ -54,6 +54,7 @@ struct BoardControlCenterAccessory: View {
     /// buzz the phone with no one touching it.
     @State private var stepTicks = 0
     @State private var modeTicks = 0
+    @State private var showsToolbarColors = false
     /// The accessory's own height, i.e. twice the capsule's corner radius.
     @State private var barHeight: CGFloat = 0
 
@@ -112,11 +113,7 @@ struct BoardControlCenterAccessory: View {
             case .mode: toolbarModeButton.disabled(!isConnected).accessibilityIdentifier("controlCenter.toolbar.mode")
             case .previous: stepButton(direction: -1, symbol: "chevron.left", label: "上一个表情").disabled(!isConnected).accessibilityIdentifier("controlCenter.toolbar.previous")
             case .next: stepButton(direction: 1, symbol: "chevron.right", label: "下一个表情").disabled(!isConnected).accessibilityIdentifier("controlCenter.toolbar.next")
-            case .color:
-                NativeToolbarColorMenu(hex: model.colorHexDraft, presets: model.colorPresets) { hex in
-                    Task { await model.setColor(hex: hex, connection: connection) }
-                }
-                .frame(width: Self.slot, height: Self.slot)
+            case .color: toolbarColorButton
             case .status: statusButton
             }
         } else {
@@ -280,11 +277,79 @@ struct BoardControlCenterAccessory: View {
         } label: {
             Text(isAuto ? "A" : "M")
                 .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .contentTransition(.opacity)
+                .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.18), value: isAuto)
         }
         .modifier(AccessoryButtonChrome(isToolbar: true))
         .accessibilityLabel("自动模式")
         .controlSize(.large)
         .accessibilityValue(Text(isAuto ? "自动" : "手动"))
+    }
+
+    /// A real native button keeps the same circle and press feedback as M/A.
+    /// Duo extracts a toolbar Menu as a bare icon, so its palette is presented
+    /// from this button in a native popover instead.
+    private var toolbarColorButton: some View {
+        Button { showsToolbarColors = true } label: {
+            // The label slot determines native chrome size; the overlay
+            // keeps the same 22pt swatch used by every other color control.
+            Color.clear
+                .frame(width: 16, height: 16)
+                .overlay {
+                    swatchImage(hex: model.colorHexDraft)
+                        .renderingMode(.original)
+                        .resizable()
+                        .frame(width: Self.dotDiameter, height: Self.dotDiameter)
+                }
+        }
+        .modifier(AccessoryButtonChrome(isToolbar: true))
+        .controlSize(.large)
+        .disabled(model.colorPresets?.parents.isEmpty != false)
+        .accessibilityIdentifier("controlCenter.toolbar.color")
+        .accessibilityLabel("面板颜色")
+        .accessibilityValue(Text(model.colorHexDraft))
+        .popover(isPresented: $showsToolbarColors, arrowEdge: .trailing) {
+            List {
+                if let presets = model.colorPresets {
+                    ForEach(presets.parents) { parent in
+                        let children = presets.children(of: parent)
+                        if children.isEmpty {
+                            toolbarColorRow(name: parent.name, hex: parent.color)
+                        } else {
+                            DisclosureGroup {
+                                toolbarColorRow(name: parent.name, hex: parent.color)
+                                ForEach(children, id: \.hex) { child in
+                                    toolbarColorRow(name: child.name, hex: child.hex)
+                                }
+                            } label: {
+                                Label {
+                                    Text(ColorPresets.displayName(parent.name))
+                                } icon: {
+                                    swatchImage(hex: parent.color)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .rinaScrollBackground()
+            .frame(width: 320, height: 380)
+            .tint(Color("AccentColor"))
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private func toolbarColorRow(name: String, hex: String) -> some View {
+        Button {
+            showsToolbarColors = false
+            Task { await model.setColor(hex: hex, connection: connection) }
+        } label: {
+            Label {
+                Text(ColorPresets.displayName(name))
+            } icon: {
+                swatchImage(hex: hex)
+            }
+        }
     }
 
     /// Auto/manual as a chrome-free toggle, the way Music draws shuffle and
@@ -449,7 +514,11 @@ struct BoardControlCenterAccessory: View {
                 }
             }
         } label: {
-            swatchImage(hex: model.colorHexDraft)
+            if toolbarControl != nil {
+                Image(systemName: "circle.fill")
+                    .foregroundStyle(model.draftColor)
+            } else {
+                swatchImage(hex: model.colorHexDraft)
                 .renderingMode(.original)
                 .resizable()
                 .frame(width: Self.dotDiameter, height: Self.dotDiameter)
@@ -458,6 +527,7 @@ struct BoardControlCenterAccessory: View {
                        height: toolbarControl == nil ? Self.slot : nil)
                 .background { if toolbarControl == nil { controlRing() } }
                 .contentShape(.rect)
+            }
         }
         .modifier(AccessoryButtonChrome(isToolbar: toolbarControl != nil))
         // The accessory sits at the bottom of the screen, so the menu opens
