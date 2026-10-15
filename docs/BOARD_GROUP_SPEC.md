@@ -107,6 +107,9 @@ has the same frameCount.
   Exception: the brightness buttons (`B4`/`B5`) do not affect scroll timing
   and never exit group-timed mode, matching the physical gpio buttons (which
   never exit group-timed mode for any button).
+  On exit, the stored local `scrollIntervalMs` is clamped to 17…1000 so status
+  and the legacy tick use the same interval. `group_start` still accepts and
+  stores 17…2000 for as long as playback stays group-timed.
   (v1 has no timed pause.)
 - Status/scroll meta add `"groupTimed":<bool>`. `GET_PREVIEW_SYNC` adds
   `"groupTimed":<bool>`.

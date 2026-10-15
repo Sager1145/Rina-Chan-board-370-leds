@@ -97,8 +97,17 @@ large `sourceText`) is split across multiple frames of the same `type | 0x80` an
 `seq`, with the MORE flag (bit0) set on every frame but the last; clients must
 concatenate payloads across MORE-flagged frames before parsing.
 Errors reply with type `0xFF` and JSON `{"ok":false,"error":"...","code":<int>}`
-(codes mirror the old HTTP statuses: 400 bad request, 404, 409 conflict, 413 too
-large, 500, 507 no memory).
+(codes mirror the old HTTP statuses):
+
+| code | meaning |
+|---|---|
+| 400 | bad request |
+| 404 | not found |
+| 409 | conflict |
+| 413 | too large |
+| 500 | internal failure |
+| 503 | service unavailable. LittleFS is not mounted, for saved-face mutations (`face_rename`, `face_reorder`, `face_delete`, `face_upsert`, `faces_clear_user`) and for `GET_FACES`. Also `apply_saved_face` when the request includes an `id` and the saved-face list cannot be loaded (`"saved faces unavailable"`). |
+| 507 | no memory |
 
 Both transports carry a byte stream: a successful send must deliver the complete
 frame, or close the carrier on a partial write. After a valid header, payload bytes
@@ -124,7 +133,7 @@ connections are part of recovery, not a substitute for a wire-level session ID.
 
 | type | name | request payload | reply payload |
 |---|---|---|---|
-| 0x01 | `CMD` | `{"cmd":"…", …fields}` — exact same command set as the old `/api/command` (§3.4) | generic success: `{"ok":true,"autoFaceIndex":n,"autoFaceId":"…"?}` (`autoFaceId` only when a saved face is in range). Commands with their own replies are unchanged. `apply_saved_face` is §3.4 |
+| 0x01 | `CMD` | `{"cmd":"…", …fields}` — exact same command set as the old `/api/command` (§3.4) | generic success: `{"ok":true,"autoFaceIndex":n,"autoFaceId":"…"?}` (`autoFaceId` only when a saved face is in range). `reboot`, `subscribe`, and `log_subscribe` reply `{"ok":true}` only. Commands with their own replies are unchanged. `apply_saved_face` is §3.4 |
 | 0x02 | `GET_STATUS` | `{}` or `{"lite":true}` | old `/api/status` JSON (full) or the `renderer`+`power` subset when `lite` |
 | 0x03 | `GET_POWER` | — | old `/api/power` JSON |
 | 0x04 | `GET_SCROLL_META` | — | scroll source/timeline metadata plus the current cursor, active/pause flags, and `scrollLoop` |
@@ -233,7 +242,10 @@ sets the interval to `round(1000/fps)`, and only a request with neither keeps th
 current interval — clients should send both),
 `scroll_step{direction}`, `scroll_seek{frameIndex}`, `set_scroll_loop{loop}`,
 `pause_scroll`, `resume_scroll`, `stop_scroll{restoreAuto?,clear?}`,
-`pause`, `resume`, `apply_saved_face{index,id?,reason?,playback?}` (`id`, when
+`pause`, `resume` (these set `paused` / `playback` for auto-face cycling and
+do not pause firmware scroll — use `pause_scroll` / `resume_scroll` to pause
+and resume scroll; `resume` also clears an existing firmware-scroll user pause),
+`apply_saved_face{index,id?,reason?,playback?}` (`id`, when
 non-empty, pins the apply to that saved face and ignores `index` — 404 if the
 id is not found; without `id`, behaves as before). Success is
 `{"ok":true,"autoFaceId","autoFaceIndex","frameEncoding":"packed-lsb-first","frameHex"}`:
@@ -241,7 +253,9 @@ id is not found; without `id`, behaves as before). Success is
 lowercase hex chars of that saved face's packed bytes, not the frame currently
 latched on the LEDs. A 404 has no frame. Generic success (commands with no
 dedicated reply) is only `{"ok":true,"autoFaceIndex","autoFaceId?"}` —
-`autoFaceId` is omitted when no saved face is in range. `SET_FRAME` success is
+`autoFaceId` is omitted when no saved face is in range. `reboot`, `subscribe`,
+and `log_subscribe` reply `{"ok":true}` only — not that generic
+`{ok, autoFaceIndex, autoFaceId?}` document. `SET_FRAME` success is
 `{"ok":true}`. Error replies are unchanged. `button{button}`,
 `terminate_other_activities{targetMode?}`, `reset_battery_min`, `reset_battery_max`,
 `battery_overlay{singleShot?}` — plus new device commands:
@@ -297,6 +311,10 @@ is loaded.
 scroll timeline; default is `true`. It is a RAM-only preference that survives
 uploads and `stop_scroll`/`start_scroll` (not persisted across reboot).
 `start_scroll` accepts an optional `loop` field that sets it in the same call.
+`start_scroll` on an empty timeline (no loaded frames) still replies generic
+success (`ok:true`) but does not start playback, and it leaves group-timed
+mode. `BLOB_END {"start":true}` in that same empty-timeline case also does not
+start: the scroll END reply is still `ok:true` and reports `started:false`.
 With loop off, the scroll advances normally but holds on its last frame instead
 of wrapping to frame 0: it goes into a paused state (`firmwareScrollPaused:true`,
 status `playback:"scroll_paused"`), with the current `scrollLoop` value reported
@@ -347,13 +365,20 @@ Clients enable/disable event classes with `CMD subscribe{preview:bool,status:boo
 | cmd | payload | reply |
 |---|---|---|
 | `wifi_status` | — | `{"ok":true,"mode":"off|ap|sta|sta_or_ap","staConnected":bool,"ssid":"…","ip":"…","rssi":n,"apActive":bool,"apSsid":"RinaChanBoard-80B54EF48E09","apIp":"10.244.142.9","hostname":"rinaboard-80b54ef48e09","boardId":"80B54EF48E09","tcpPort":5370,"clients":n}` |
-| `wifi_scan` | — | async: `{"ok":true,"scanning":true}` immediately (or `500` if a scan could not be started); the result (≤ 20 networks, sorted by RSSI) arrives as `EV_WIFI_SCAN` (§3.5) when the scan completes. If a scan is already in progress, replies `{"ok":true,"scanning":true}` and the caller becomes the new requester for the in-flight scan's `EV_WIFI_SCAN`. |
+| `wifi_scan` | — | async: `{"ok":true,"scanning":true}` immediately on CMD reply type `0x81` (or `0xFF` `code:500` if a scan could not be started); the result (≤ 20 networks, sorted by RSSI) arrives as `EV_WIFI_SCAN` (§3.5) when the scan completes. If a scan is already in progress, replies `{"ok":true,"scanning":true}` and the caller becomes the new requester for the in-flight scan's `EV_WIFI_SCAN`. |
 | `wifi_scan_result` | — | `{"ok":true,"scanning":bool,"networks":[…]}` — the last completed scan's results (or empty if none yet), without starting a new scan |
 | `wifi_set_credentials` | `{"ssid":"…","password":"…"}` | `{"ok":true}` — stored in NVS namespace `rinawifi` |
 | `wifi_clear_credentials` | — | `{"ok":true}` |
 | `wifi_set_mode` | `{"mode":"off|ap|sta|sta_or_ap"}` | `{"ok":true}` — persisted; applied immediately |
 | `wifi_connect` | — | `{"ok":true}`; result arrives as `EV_WIFI` |
 | `wifi_set_ap` | `{"ssid":"…","password":"…"|"","ip":"…"}` (`ip` optional) | `{"ok":true,"apIp":"…"}` — SoftAP name/password and optional private /24 gateway. IP changes require BLE. With `ip` present and both credential fields empty, only the address changes. Omitting `ip` preserves the address and the legacy credential behavior. Defaults: `RinaChanBoard-<ID>` / `rinachan`; an empty password opens the AP during credential edits. The retired shared SSID `RinaChanBoard-V2` resets the name to the board's default. |
+
+`wifi_set_credentials`, `wifi_set_hotspot_credentials`, `wifi_set_mode`, and
+`wifi_set_ap` failures reply on the CMD reply type (`0x81`) as
+`{"ok":false,"error":"…"}` with no `code`, unlike `0xFF` errors.
+`wifi_set_ap` may include `apIp` on that failure reply. A scan that cannot
+start is `0xFF` with `code:500`. An unknown `wifi_*` command is `0xFF` with
+`code:400`.
 
 Flow in the app: BLE connect → `wifi_scan` → `wifi_set_credentials` →
 `wifi_set_mode sta_or_ap` → wait `EV_WIFI staConnected` → app switches to TCP via
@@ -449,7 +474,7 @@ the Keychain, and provisions the board over BLE.
 
 | cmd | payload | reply |
 |---|---|---|
-| `wifi_set_hotspot_credentials` | `{ssid, password}` | `{ok}` — stored under NVS keys `hssid`/`hpass` |
+| `wifi_set_hotspot_credentials` | `{ssid, password}` | `{ok}` — stored under NVS keys `hssid`/`hpass`. Failure is a CMD reply (`0x81`) `{"ok":false,"error":"…"}` with no `code` (§4), not `0xFF`. |
 | `wifi_clear_hotspot_credentials` | — | `{ok}` |
 | `wifi_status` | — | gains `homeSsid`, `hotspotSsid` (names only, never passwords), `activeProfile: "home"|"hotspot"|"none"`, `scanPending: bool` |
 
@@ -521,5 +546,8 @@ takeover — **except** the brightness buttons (`B4`/`B5`, `CMD button`), which 
 scroll timing and so never exit group-timed mode, matching the physical gpio buttons (which
 already never call the group-timed exit for any button). Every other button (`B1`…`B3`,
 `B6`, `B3B1`, `B3B2`) still ends group-timed mode even if that button does not itself
-stop/replace the scroll. `GET_SCROLL_META`, status `renderer`, and `GET_PREVIEW_SYNC` all gain
+stop/replace the scroll. On that exit the stored `scrollIntervalMs` is clamped
+to 17…1000 (the legacy tick range) so status and the local tick agree;
+`group_start` itself still accepts and stores 17…2000 while group-timed.
+`GET_SCROLL_META`, status `renderer`, and `GET_PREVIEW_SYNC` all gain
 `"groupTimed":bool`. Reply: `{"ok":true,"nowUs":u64,"frameCount":n}`.

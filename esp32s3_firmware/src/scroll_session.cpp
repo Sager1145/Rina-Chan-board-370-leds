@@ -60,6 +60,12 @@ void scrollSessionExitGroupTimedLocked() {
         return;
     runtimeState().groupTimed = false;
     runtimeState().lastScrollFrameMs = millis();
+    // group_start stores intervalMs unclamped (17..2000). Legacy ticks and
+    // status both use scrollIntervalMs, and the tick cap is 1000 ms. Clamp
+    // once here so a later status read matches the interval the tick uses.
+    runtimeState().scrollIntervalMs = constrain(runtimeState().scrollIntervalMs,
+                                                 MIN_SCROLL_INTERVAL_MS,
+                                                 MAX_SCROLL_INTERVAL_MS);
 }
 
 void scrollSessionExitGroupTimed() {
