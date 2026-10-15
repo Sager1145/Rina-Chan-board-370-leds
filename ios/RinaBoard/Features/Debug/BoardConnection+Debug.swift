@@ -10,30 +10,26 @@ public extension BoardConnection {
     /// Debug device-overview grid (C2) can show everything the firmware sends.
     func getStatusRaw(lite: Bool = false) async throws -> Data {
         let payload = try JSONSerialization.data(withJSONObject: lite ? ["lite": true] : [:])
-        let frame = try await send(type: .getStatus, payload: payload)
-        return frame.payload
+        return try await transactPayload(payload, type: .getStatus)
     }
 
     /// Raw `GET_POWER` JSON.
     func getPowerRaw() async throws -> Data {
-        let frame = try await send(type: .getPower, payload: Data())
-        return frame.payload
+        try await transactPayload(type: .getPower)
     }
 
     /// `CMD get_info` (fw/build/led backend/heap/psram), §3.4.
     func getDeviceInfo() async throws -> DeviceInfo {
-        let payload = try RinaCommand.getInfo.encode()
-        let frame = try await send(type: .cmd, payload: payload)
-        return try JSONDecoder().decode(DeviceInfo.self, from: frame.payload)
+        try await transact(.getInfo)
     }
 
     /// `PING` round trip; returns firmware-reported uptime and measured RTT (ms).
     func pingRoundTrip() async throws -> (uptimeMs: Int, rttMs: Double) {
         struct PingReply: Codable { var ok: Bool?; var uptimeMs: Int? }
         let start = Date()
-        let frame = try await send(type: .ping, payload: Data())
+        let payload = try await transactPayload(type: .ping)
         let rtt = Date().timeIntervalSince(start) * 1000
-        let decoded = try JSONDecoder().decode(PingReply.self, from: frame.payload)
+        let decoded = try JSONDecoder().decode(PingReply.self, from: payload)
         return (decoded.uptimeMs ?? 0, rtt)
     }
 

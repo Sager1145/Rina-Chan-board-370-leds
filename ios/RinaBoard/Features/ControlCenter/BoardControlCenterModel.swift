@@ -254,6 +254,35 @@ final class BoardControlCenterModel {
         }
     }
 
+    /// Group-synced controls go through `cycler`; otherwise the single-board
+    /// path. Callers that toggle re-read the live mode here rather than
+    /// passing a mode captured before the await.
+    func toggleAutoMode(connection: BoardConnection, groupSynced: Bool, cycler: GroupAutoCycler) async {
+        if groupSynced {
+            if cycler.isRunning { cycler.stop() } else { _ = cycler.start() }
+        } else {
+            await toggleAutoMode(connection: connection)
+        }
+    }
+
+    func step(face direction: Int, connection: BoardConnection, groupSynced: Bool, cycler: GroupAutoCycler) async {
+        if groupSynced {
+            await cycler.step(direction: direction)
+        } else {
+            await step(face: direction, connection: connection)
+        }
+    }
+
+    /// Absolute auto on/off. A synced group starts or stops the cycler; a
+    /// single board toggles only when its effective mode differs.
+    func applyAutoMode(_ enabled: Bool, connection: BoardConnection, groupSynced: Bool, cycler: GroupAutoCycler) async {
+        if groupSynced {
+            if enabled { _ = cycler.start() } else { cycler.stop() }
+        } else if isAutoMode(status: connection.status) != enabled {
+            await toggleAutoMode(connection: connection)
+        }
+    }
+
     // MARK: Auto interval
 
     func setAutoInterval(_ seconds: Double, connection: BoardConnection) {

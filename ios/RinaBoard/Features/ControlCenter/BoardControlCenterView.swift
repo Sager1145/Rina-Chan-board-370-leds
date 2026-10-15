@@ -133,22 +133,14 @@ struct BoardControlCenterView: View {
     /// own independent, unsynced firmware auto timer). Falls back to the
     /// ordinary single-board path otherwise (H1).
     private func toggleAutoMode() async {
-        if groupControlSynced {
-            if groupAutoCycler.isRunning { groupAutoCycler.stop() } else { _ = groupAutoCycler.start() }
-        } else {
-            await model.toggleAutoMode(connection: connection)
-        }
+        await model.toggleAutoMode(connection: connection, groupSynced: groupControlSynced, cycler: groupAutoCycler)
     }
 
     /// Routes prev/next to the group cycler's own index while a group is
     /// targeted and synced, so every member receives the identical resulting
     /// frame. Falls back to the ordinary single-board path otherwise (H1).
     private func stepFace(direction: Int) async {
-        if groupControlSynced {
-            await groupAutoCycler.step(direction: direction)
-        } else {
-            await model.step(face: direction, connection: connection)
-        }
+        await model.step(face: direction, connection: connection, groupSynced: groupControlSynced, cycler: groupAutoCycler)
     }
 
     private var canDisconnect: Bool {

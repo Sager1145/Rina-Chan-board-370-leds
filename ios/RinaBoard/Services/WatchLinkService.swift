@@ -355,8 +355,7 @@ final class WatchLinkService {
             }
             await forEach(route,
                           phone: { model, c, synced in
-                              if synced { await self.deps.groupAutoCycler.step(direction: direction) }
-                              else { await model.step(face: direction, connection: c) }
+                              await model.step(face: direction, connection: c, groupSynced: synced, cycler: self.deps.groupAutoCycler)
                           },
                           direct: { c in try await Self.step(direction: direction, on: c) })
         case .setAutoMode(let enabled):
@@ -366,11 +365,7 @@ final class WatchLinkService {
             }
             await forEach(route,
                           phone: { model, c, synced in
-                              if synced {
-                                  if enabled { _ = self.deps.groupAutoCycler.start() } else { self.deps.groupAutoCycler.stop() }
-                              } else if model.isAutoMode(status: c.status) != enabled {
-                                  await model.toggleAutoMode(connection: c)
-                              }
+                              await model.applyAutoMode(enabled, connection: c, groupSynced: synced, cycler: self.deps.groupAutoCycler)
                           },
                           direct: { c in try await Self.setAutoMode(enabled, on: c) })
         case .setAutoInterval(let seconds):

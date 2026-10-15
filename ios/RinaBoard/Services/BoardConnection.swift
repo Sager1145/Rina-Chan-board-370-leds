@@ -980,6 +980,43 @@ public final class BoardConnection {
 
     // MARK: Typed helpers
 
+    /// Encode or accept a payload, transmit, then decode. A nil `transmit`
+    /// is `send(type:payload:timeout:)` with `aggregateMore` left at its
+    /// default; it adds no output lease and no submission check. Callers
+    /// that need those pass a closure and keep the checks themselves.
+    func transact<Reply: Decodable & Sendable>(
+        _ cmd: RinaCommand,
+        type: RinaLinkMessageType = .cmd,
+        timeout: TimeInterval = 5,
+        transmit: ((Data) async throws -> RinaLinkFrame)? = nil
+    ) async throws -> Reply {
+        try await transact(payload: try cmd.encode(), type: type, timeout: timeout, transmit: transmit)
+    }
+
+    func transact<Reply: Decodable & Sendable>(
+        payload: Data,
+        type: RinaLinkMessageType = .cmd,
+        timeout: TimeInterval = 5,
+        transmit: ((Data) async throws -> RinaLinkFrame)? = nil
+    ) async throws -> Reply {
+        let frame: RinaLinkFrame
+        if let transmit {
+            frame = try await transmit(payload)
+        } else {
+            frame = try await send(type: type, payload: payload, timeout: timeout)
+        }
+        return try JSONDecoder().decode(Reply.self, from: frame.payload)
+    }
+
+    func transactPayload(
+        _ payload: Data = Data(),
+        type: RinaLinkMessageType,
+        timeout: TimeInterval = 5
+    ) async throws -> Data {
+        let frame = try await send(type: type, payload: payload, timeout: timeout)
+        return frame.payload
+    }
+
     @discardableResult
     public func command(_ cmd: RinaCommand) async throws -> CommandReply {
         let token = BoardOutputContext.session
@@ -1012,13 +1049,14 @@ public final class BoardConnection {
             guard let activeTransport = self.transport else {
                 throw RinaTransportError.notConnected
             }
-            let payload = try cmd.encode()
-            let frame = try await BoardOutputContext.$session.withValue(token) {
-                try await self.send(type: .cmd, payload: payload)
+            let reply: CommandReply = try await self.transact(cmd) { payload in
+                let frame = try await BoardOutputContext.$session.withValue(token) {
+                    try await self.send(type: .cmd, payload: payload)
+                }
+                try self.checkSubmission(generation: generation, carrier: carrier)
+                if let token { try self.output.check(token) }
+                return frame
             }
-            try self.checkSubmission(generation: generation, carrier: carrier)
-            if let token { try self.output.check(token) }
-            let reply = try JSONDecoder().decode(CommandReply.self, from: frame.payload)
             guard reply.ok else {
                 let detail = reply.error.flatMap { $0.isEmpty ? nil : "：\($0)" } ?? ""
                 throw RinaTransportError.underlying("面板拒绝指令：\(cmd.name)\(detail)")
@@ -1062,13 +1100,14 @@ public final class BoardConnection {
         if let token { try output.check(token) }
         let generation = connectionGeneration
         guard transport != nil else { throw RinaTransportError.notConnected }
-        let payload = try cmd.encode()
-        let frame = try await BoardOutputContext.$session.withValue(token) {
-            try await self.send(type: .cmd, payload: payload, timeout: timeout)
+        return try await transact(cmd, timeout: timeout) { payload in
+            let frame = try await BoardOutputContext.$session.withValue(token) {
+                try await self.send(type: .cmd, payload: payload, timeout: timeout)
+            }
+            guard generation == self.connectionGeneration else { throw CancellationError() }
+            if let token { try self.output.check(token) }
+            return frame
         }
-        guard generation == connectionGeneration else { throw CancellationError() }
-        if let token { try output.check(token) }
-        return try JSONDecoder().decode(Reply.self, from: frame.payload)
     }
 
     private func refreshDeviceNameDuringSetup(
@@ -1574,9 +1613,11 @@ public final class BoardConnection {
         let carrier = transportSessionID
         let reply: FaceOpReply = try await commandPump.run { @MainActor in
             try self.checkSubmission(generation: generation, carrier: carrier)
-            let frame = try await self.send(type: .cmd, payload: payload)
-            try self.checkSubmission(generation: generation, carrier: carrier)
-            return try JSONDecoder().decode(FaceOpReply.self, from: frame.payload)
+            return try await self.transact(payload: payload) { payload in
+                let frame = try await self.send(type: .cmd, payload: payload)
+                try self.checkSubmission(generation: generation, carrier: carrier)
+                return frame
+            }
         }
         try checkSubmission(generation: generation, carrier: carrier)
         // The reply's generation is the only evidence that nobody else mutated
@@ -1623,11 +1664,9 @@ public final class BoardConnection {
         // the synchronous-reply fast path below would leak the continuation
         // in `eventContinuations` forever (it's never iterated in that case).
         defer { eventContinuations.removeValue(forKey: subID) }
-        let decoded = try await commandPump.run { @MainActor in
+        let decoded: WifiScanReply = try await commandPump.run { @MainActor in
             try self.checkSubmission(generation: generation, carrier: carrier)
-            let payload = try RinaCommand.wifiScan.encode()
-            let frame = try await self.send(type: .cmd, payload: payload)
-            return try JSONDecoder().decode(WifiScanReply.self, from: frame.payload)
+            return try await self.transact(RinaCommand.wifiScan)
         }
         try checkSubmission(generation: generation, carrier: carrier)
         if decoded.scanning != true, decoded.networks != nil {
@@ -1658,11 +1697,9 @@ public final class BoardConnection {
         // The scan may have completed even when its event did not arrive.
         // Firmware retains the result for this explicit query. While still
         // scanning it can return the previous list, which is not completion.
-        let fallback = try await commandPump.run { @MainActor in
+        let fallback: WifiScanReply = try await commandPump.run { @MainActor in
             try self.checkSubmission(generation: generation, carrier: carrier)
-            let payload = try RinaCommand.wifiScanResult.encode()
-            let frame = try await self.send(type: .cmd, payload: payload)
-            return try JSONDecoder().decode(WifiScanReply.self, from: frame.payload)
+            return try await self.transact(RinaCommand.wifiScanResult)
         }
         try checkSubmission(generation: generation, carrier: carrier)
         guard fallback.scanning != true, fallback.networks != nil else {
@@ -1678,11 +1715,9 @@ public final class BoardConnection {
     public func refreshWifiStatus() async throws -> WifiStatus {
         let generation = connectionGeneration
         let carrier = transportSessionID
-        let decoded = try await commandPump.run { @MainActor in
+        let decoded: WifiStatus = try await commandPump.run { @MainActor in
             try self.checkSubmission(generation: generation, carrier: carrier)
-            let payload = try RinaCommand.wifiStatus.encode()
-            let frame = try await self.send(type: .cmd, payload: payload)
-            return try JSONDecoder().decode(WifiStatus.self, from: frame.payload)
+            return try await self.transact(RinaCommand.wifiStatus)
         }
         try checkSubmission(generation: generation, carrier: carrier)
         wifi = decoded
