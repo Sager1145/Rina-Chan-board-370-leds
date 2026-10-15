@@ -240,9 +240,7 @@ struct GroupScrollPreview: View {
                     .truncationMode(.middle)
             }
             .foregroundStyle(.secondary)
-            Text(BoardGroupStatusFormatting.text(status))
-                .font(.caption2)
-                .foregroundStyle(BoardGroupStatusFormatting.color(status))
+            GroupPreviewMemberStatus(status: status)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("板 \(index + 1)，\(name)，\(BoardGroupStatusFormatting.text(status))")
@@ -348,6 +346,19 @@ struct GroupScrollPreview: View {
         }
     }
 
+}
+
+/// Playback restarts during a reorder. Every status uses the same line
+/// height so uploading or error text cannot move the whole preview row.
+struct GroupPreviewMemberStatus: View {
+    let status: BoardGroupCoordinator.MemberStatus
+
+    var body: some View {
+        Text(BoardGroupStatusFormatting.text(status))
+            .font(.caption2)
+            .lineLimit(1)
+            .foregroundStyle(BoardGroupStatusFormatting.color(status))
+    }
 }
 
 /// Boards left to right at one shared width. Adjacent boards sit one LED

@@ -32,6 +32,7 @@ struct BootLoaderOverlay: View {
             // or the tab bar and the list behind it stay focusable.
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(accessibilityLabel))
+            .accessibilityIdentifier("boot.loader")
             .accessibilityAddTraits(.isModal)
     }
 }

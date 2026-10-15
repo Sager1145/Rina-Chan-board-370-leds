@@ -44,6 +44,9 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.duoWorkspace) private var duoWorkspace
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(AppSettingsKey.showBoardPhoto) private var showBoardPhoto = true
+    @ScaledMetric(relativeTo: .caption) private var previewFooterHeight = 34
     #if targetEnvironment(macCatalyst)
     @Environment(\.macWindowWidth) private var windowWidth
     #endif
@@ -61,6 +64,12 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
     }
 
     var body: some View {
+        page
+            .animation(.easeOut(duration: reduceMotion ? 0.15 : 0.25), value: duoWorkspace)
+    }
+
+    @ViewBuilder
+    private var page: some View {
         if #available(iOS 27.1, *), duoWorkspace {
             #if targetEnvironment(macCatalyst)
             EmptyView()
@@ -116,12 +125,13 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
                 .first(where: \.isActive)?.frame
             let frames = DuoWorkspaceFrames.resolve(size: proxy.size, division: division,
                                                      stackLowerPanels: dynamicTypeSize.isAccessibilitySize)
-            DuoWorkspacePlacement(frames: frames, size: proxy.size) {
+            DuoWorkspacePlacement(frames: frames, size: proxy.size,
+                                  previewAspectRatio: LEDBoardPreview.wholeBoardAspectRatio(showBoardImage: showBoardPhoto),
+                                  previewFooterHeight: previewFooterHeight) {
                 pinnedPreview
                 .environment(\.boardPreviewMaximumHeight,
                              frames.tabControls.minY > 0 ? max(44, frames.preview.height - 64) : 420)
-                .frame(maxHeight: frames.tabControls.minY > 0 ? .infinity : nil,
-                       alignment: .center)
+                .frame(maxHeight: .infinity, alignment: .center)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("board.workspace.preview")
 
@@ -142,6 +152,7 @@ struct BoardSplitPage<Board: View, Status: View, Controls: View>: View {
                 .contentMargins(.trailing, 12 + proxy.safeAreaInsets.trailing, for: .scrollContent)
                 .accessibilityIdentifier("board.workspace.tabControls")
             }
+            .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: division != nil)
         }
     }
     #endif

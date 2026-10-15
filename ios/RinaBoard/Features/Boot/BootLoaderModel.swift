@@ -41,6 +41,15 @@ final class BootLoaderModel {
         reduceMotion ? BootTimeline.breathReduced : BootTimeline.breath
     }
 
+    private var minimumDisplay: TimeInterval {
+        #if DEBUG && targetEnvironment(simulator)
+        // Keep the real breathing phase visible for physical hinge regressions.
+        return max(BootTimeline.minDisplay, min(300, UserDefaults.standard.double(forKey: "bootMinimumDisplay")))
+        #else
+        return BootTimeline.minDisplay
+        #endif
+    }
+
     private var sequence: Task<Void, Never>?
     private var waterfall: Task<Void, Never>?
     private var safetyNet: Task<Void, Never>?
@@ -143,7 +152,7 @@ final class BootLoaderModel {
             // Hold the loader for at least `minDisplay` so a fast launch does
             // not flash it, then land the outro on a halo peak if one is near.
             let shown = Date().timeIntervalSince(since)
-            let minWait = max(0, BootTimeline.minDisplay - shown)
+            let minWait = max(0, minimumDisplay - shown)
             let peakWait = BootTimeline.delayToHaloPeak(elapsed: shown + minWait, period: period)
             let wait = minWait + peakWait
             if wait > 0 {

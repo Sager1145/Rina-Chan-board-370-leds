@@ -22,9 +22,12 @@ import RinaCore
 struct SettingsView: View {
     @Environment(SettingsWorkspace.self) private var workspace
     @Environment(BoardConnection.self) private var connection
+    @Environment(BoardGroupStore.self) private var groupStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.duoWorkspace) private var duoWorkspace
+    @Environment(\.foldedDuo) private var foldedDuo
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #if targetEnvironment(macCatalyst)
     @Environment(\.macWindowWidth) private var windowWidth
     #endif
@@ -51,6 +54,7 @@ struct SettingsView: View {
                 case .compact: SettingsStackLayout()
                 }
             }
+            .animation(.easeOut(duration: reduceMotion ? 0.15 : 0.25), value: mode)
             // Only a change of layout writes anything; a resize within one
             // layout is not a navigation, a reload or a reconnect.
             .onChange(of: mode, initial: true) { _, mode in
@@ -59,6 +63,12 @@ struct SettingsView: View {
         }
         .onChange(of: ObjectIdentifier(connection), initial: true) {
             workspace.boardChanged(to: connection)
+        }
+        .onChange(of: duoWorkspace || foldedDuo, initial: true) { _, isDuo in
+            if isDuo { workspace.usesDuoMenuRouting = true }
+        }
+        .onChange(of: groupStore.groups.map(\.id)) { _, ids in
+            if let id = workspace.editingGroupID, !ids.contains(id) { workspace.editingGroupID = nil }
         }
         .modifier(SettingsDialogs())
         .modifier(SettingsTitleVisibility())
@@ -74,11 +84,13 @@ struct SettingsView: View {
 private struct SettingsSplitLayout: View {
     @Environment(SettingsWorkspace.self) private var workspace
     @Environment(\.duoWorkspace) private var duoWorkspace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         let shown = workspace.selection ?? workspace.lastVisited
         NavigationStack {
             GeometryReader { proxy in
-                SettingsColumnPlacement(size: proxy.size, division: division(in: proxy)) {
+                let activeDivision = division(in: proxy)
+                SettingsColumnPlacement(size: proxy.size, division: activeDivision) {
                     List {
                         Group {
                             SettingsCategoryRows(shown: shown) { workspace.selection = $0 }
@@ -105,6 +117,7 @@ private struct SettingsSplitLayout: View {
                     .environment(\.boardControlCenterLauncher, nil)
                     .id(shown)
                 }
+                .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: activeDivision != nil)
             }
             .modifier(FoldedControlCenterToolbar())
             .background { RinaAppBackdrop() }
@@ -128,24 +141,33 @@ private struct SettingsStackLayout: View {
     @Environment(SettingsWorkspace.self) private var workspace
 
     var body: some View {
-        NavigationStack(path: path) {
-            Form {
-                Group {
-                    SettingsCategoryRows()
+        if workspace.usesDuoMenuRouting {
+            NavigationStack {
+                if let category = workspace.selection {
+                    SettingsDetail(category: category, isPassive: false, hidesBar: false)
+                } else {
+                    categoryList(open: { workspace.selection = $0 })
                 }
-                .rinaTranslucentRows()
             }
-            .listSectionSpacing(.compact)
-            .rinaScrollBackground()
-            .modifier(FoldedControlCenterToolbar(hidesNavigationBar: false))
-            .navigationTitle("设置")
-            // A large title sits under a bar row that has nothing in it here,
-            // which reads as a blank band above the page.
-            .toolbarTitleDisplayMode(.inline)
-            .navigationDestination(for: SettingsCategory.self) { category in
-                SettingsDetail(category: category, isPassive: false, hidesBar: false)
+        } else {
+            NavigationStack(path: path) {
+                categoryList(open: nil)
+                    .navigationDestination(for: SettingsCategory.self) { category in
+                        SettingsDetail(category: category, isPassive: false, hidesBar: false)
+                    }
             }
         }
+    }
+
+    private func categoryList(open: ((SettingsCategory) -> Void)?) -> some View {
+        Form {
+            Group { SettingsCategoryRows(open: open) }.rinaTranslucentRows()
+        }
+        .listSectionSpacing(.compact)
+        .rinaScrollBackground()
+        .modifier(FoldedControlCenterToolbar(hidesNavigationBar: false))
+        .navigationTitle("设置")
+        .toolbarTitleDisplayMode(.inline)
     }
 
     /// The stack is a projection of `selection`: one page deep, or the list.
@@ -280,9 +302,12 @@ private struct SettingsDetail: View {
     let isPassive: Bool
     /// Beside the category list the page needs no back button and the list
     /// names it, so the bar is only a blank band, as on the other tabs.
-    /// 多板组 keeps it for its add button.
+    /// Ordinary devices keep the groups toolbar; Duo keeps its actions in the menu.
     let hidesBar: Bool
     @Environment(SettingsWorkspace.self) private var workspace
+    @Environment(\.duoWorkspace) private var duoWorkspace
+    @Environment(\.foldedDuo) private var foldedDuo
+    private var hidesDetailBar: Bool { hidesBar && (category != .groups || duoWorkspace || foldedDuo) }
 
     var body: some View {
         Group {
@@ -290,7 +315,12 @@ private struct SettingsDetail: View {
             case .controlCenter: BoardControlCenterView()
             case .connection: ConnectionView(workspace: workspace, isPassive: isPassive)
             case .addBoard: AddBoardView(workspace: workspace, isPassive: isPassive)
-            case .groups: BoardGroupListView(editing: Bindable(workspace).editingGroupID)
+            case .groups:
+                if let id = workspace.editingGroupID, workspace.usesDuoMenuRouting || duoWorkspace || foldedDuo {
+                    BoardGroupEditorView(groupID: id, onReturn: { workspace.editingGroupID = nil })
+                } else {
+                    BoardGroupListView(editing: Bindable(workspace).editingGroupID, workspace: workspace)
+                }
             case .board: BoardSettingsView(isPassive: isPassive)
             case .network: BoardNetworkSettingsView(workspace: workspace)
             case .application: ApplicationSettingsView()
@@ -303,8 +333,23 @@ private struct SettingsDetail: View {
         // In the detail column the bar row above a large title is empty too.
         .toolbarTitleDisplayMode(.inline)
         .modifier(SettingsTitleVisibility())
-        .modifier(FoldedControlCenterToolbar(hidesNavigationBar: hidesBar && category != .groups))
-        .modifier(BarlessTopMargin(isEnabled: hidesBar && category != .groups))
+        .modifier(FoldedControlCenterToolbar(hidesNavigationBar: hidesDetailBar))
+        .modifier(BarlessTopMargin(isEnabled: hidesDetailBar))
+        .navigationBarBackButtonHidden(foldedDuo)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if foldedDuo {
+                Button {
+                    workspace.editingGroupID = nil
+                    workspace.selection = nil
+                } label: {
+                    Label("设置", systemImage: "chevron.left")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .accessibilityIdentifier("settings.returnToMenu")
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("settings.detail.\(category.rawValue)")
     }

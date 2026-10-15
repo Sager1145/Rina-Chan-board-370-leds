@@ -9,12 +9,17 @@ struct BoardGroupEditorView: View {
     /// Set by the Control Center, whose sheets would otherwise stay up over
     /// the Text tab: closes every one of them, which `dismiss` cannot.
     var onPlayed: (() -> Void)?
+    /// Duo Settings replaces its detail page in place to retain both columns.
+    var onReturn: (() -> Void)?
 
     @Environment(BoardGroupStore.self) private var store
     @Environment(BoardGroupCoordinator.self) private var coordinator
     @Environment(BoardSessionStore.self) private var sessions
     @Environment(AppRouter.self) private var router
     @Environment(\.editMode) private var editMode
+    @Environment(\.duoWorkspace) private var duoWorkspace
+    @Environment(\.foldedDuo) private var foldedDuo
+    @Environment(\.dismiss) private var dismiss
     @AppStorage(ControlTargetKey.groupID) private var controlTargetGroupIDStorage = ""
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -22,6 +27,7 @@ struct BoardGroupEditorView: View {
     @State private var isIdentifying = false
     @State private var isPresentingAddSheet = false
     @State private var errorMessage: String?
+    private var keepsActionsInMenu: Bool { duoWorkspace || foldedDuo || onReturn != nil }
 
     private var group: BoardGroup? {
         store.groups.first { $0.id == groupID }
@@ -52,6 +58,7 @@ struct BoardGroupEditorView: View {
         }
         .navigationTitle(group?.name ?? String(localized: "多板组"))
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(keepsActionsInMenu)
         .errorAlert($errorMessage)
         .onAppear {
             if let group { nameDraft = group.name }
@@ -74,6 +81,14 @@ struct BoardGroupEditorView: View {
     @ViewBuilder
     private func editor(for group: BoardGroup) -> some View {
         List {
+            if keepsActionsInMenu {
+                Section {
+                    Button {
+                        if let onReturn { onReturn() } else { dismiss() }
+                    } label: { Label("多板组", systemImage: "chevron.left") }
+                    EditButton().accessibilityIdentifier("groups.editMode")
+                }
+            }
             Section("名称") {
                 TextField("组名称", text: $nameDraft)
                     .onSubmit { commitName() }
@@ -161,8 +176,10 @@ struct BoardGroupEditorView: View {
         .listSectionSpacing(.compact)
         .rinaScrollBackground()
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                EditButton()
+            if !keepsActionsInMenu {
+                MenuToolbarItem(placement: .primaryAction) {
+                    EditButton().accessibilityIdentifier("groups.editMode")
+                }
             }
         }
         .sheet(isPresented: $isPresentingAddSheet) {
@@ -278,7 +295,7 @@ struct BoardGroupEditorView: View {
         .navigationTitle("添加板子")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
+            MenuToolbarItem(placement: .cancellationAction) {
                 Button("关闭") { isPresentingAddSheet = false }
             }
         }

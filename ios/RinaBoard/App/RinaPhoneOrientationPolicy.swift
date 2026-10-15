@@ -2,19 +2,44 @@ import UIKit
 
 /// The outer phone display stays portrait; Duo's inner display can rotate.
 enum RinaPhoneOrientationPolicy {
-    static func mask(displaySize: CGSize, idiom: UIUserInterfaceIdiom) -> UIInterfaceOrientationMask {
-        idiom == .phone && min(displaySize.width, displaySize.height) < 600 ? .portrait : .all
+    static func mask(displaySize: CGSize?, idiom: UIUserInterfaceIdiom,
+                     innerDisplay: Bool? = nil, folded: Bool = false) -> UIInterfaceOrientationMask {
+        guard idiom == .phone else { return .all }
+        if folded { return .portrait }
+        if let innerDisplay { return innerDisplay ? .all : .portrait }
+        guard let displaySize else { return .portrait }
+        return min(displaySize.width, displaySize.height) < 600 ? .portrait : .all
+    }
+
+    @MainActor private static var sceneMasks: [String: UIInterfaceOrientationMask] = [:]
+
+    @MainActor
+    static func mask(for window: UIWindow?) -> UIInterfaceOrientationMask {
+        let scene = window?.windowScene
+            ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                .first { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }
+        if let scene, let observed = sceneMasks[scene.session.persistentIdentifier] {
+            return observed
+        }
+        return mask(displaySize: window?.screen.bounds.size ?? scene?.screen.bounds.size,
+                    idiom: window?.traitCollection.userInterfaceIdiom ?? UIDevice.current.userInterfaceIdiom)
     }
 
     @MainActor
-    static func updateConnectedScenes() {
+    static func updateConnectedScenes(innerDisplay: Bool, folded: Bool) {
         #if !targetEnvironment(macCatalyst)
         guard UIDevice.current.userInterfaceIdiom == .phone else { return }
-        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
-            scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-            if mask(displaySize: scene.screen.bounds.size, idiom: .phone) == .portrait {
-                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
-            }
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes
+            where scene.activationState == .foregroundActive || scene.activationState == .foregroundInactive {
+            let supported = mask(displaySize: scene.screen.bounds.size, idiom: .phone,
+                                 innerDisplay: innerDisplay, folded: folded)
+            sceneMasks[scene.session.persistentIdentifier] = supported
+            // Refresh the app controller, excluding keyboard and accessibility
+            // windows, which have independent orientation policies.
+            scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+            // Supported orientations are sufficient on the outer display.
+            // Do not leave a programmatic portrait geometry preference attached
+            // to a scene that is about to move to the resizable inner display.
         }
         #endif
     }
@@ -26,9 +51,7 @@ final class RinaOrientationDelegate: NSObject, UIApplicationDelegate {
         #if targetEnvironment(macCatalyst)
         return .all
         #else
-        guard let window else { return .all }
-        return RinaPhoneOrientationPolicy.mask(displaySize: window.screen.bounds.size,
-                                               idiom: window.traitCollection.userInterfaceIdiom)
+        return RinaPhoneOrientationPolicy.mask(for: window)
         #endif
     }
 }

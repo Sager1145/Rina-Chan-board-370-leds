@@ -3,6 +3,11 @@ import XCTest
 @testable import RinaBoard
 
 final class DuoWorkspaceLayoutTests: XCTestCase {
+    func testNativeBarReflowDoesNotMisclassifyTheInnerDisplay() {
+        XCTAssertTrue(DuoWorkspaceDetection.isInnerDisplay(viewportSize: CGSize(width: 951, height: 553), displaySize: CGSize(width: 951, height: 669), isPhone: true, folded: false, hasDivision: false, previousInner: false))
+        XCTAssertFalse(DuoWorkspaceDetection.isInnerDisplay(viewportSize: CGSize(width: 466, height: 562), displaySize: CGSize(width: 669, height: 951), isPhone: true, folded: true, hasDivision: false, previousInner: true))
+        XCTAssertFalse(DuoWorkspaceDetection.isInnerDisplay(viewportSize: CGSize(width: 430, height: 800), displaySize: CGSize(width: 430, height: 932), isPhone: true, folded: false, hasDivision: false, previousInner: false))
+    }
     func testPhoneOuterDisplaySupportsOnlyPortraitWhileInnerDisplayCanRotate() {
         XCTAssertEqual(RinaPhoneOrientationPolicy.mask(displaySize: CGSize(width: 466, height: 678), idiom: .phone), .portrait)
         XCTAssertEqual(RinaPhoneOrientationPolicy.mask(displaySize: CGSize(width: 678, height: 466), idiom: .phone), .portrait)
@@ -10,6 +15,13 @@ final class DuoWorkspaceLayoutTests: XCTestCase {
         XCTAssertEqual(RinaPhoneOrientationPolicy.mask(displaySize: CGSize(width: 950, height: 668), idiom: .phone), .all)
         XCTAssertEqual(RinaPhoneOrientationPolicy.mask(displaySize: CGSize(width: 466, height: 678), idiom: .pad), .all)
     }
+    func testBootAndHingeHandoffKeepClosedPhonePortrait() {
+        XCTAssertEqual(RinaPhoneOrientationPolicy.mask(displaySize: nil, idiom: .phone), .portrait)
+        XCTAssertEqual(RinaPhoneOrientationPolicy.mask(displaySize: CGSize(width: 951, height: 669), idiom: .phone, innerDisplay: true, folded: true), .portrait)
+        XCTAssertEqual(RinaPhoneOrientationPolicy.mask(displaySize: CGSize(width: 466, height: 678), idiom: .phone, innerDisplay: true), .all)
+        XCTAssertEqual(RinaPhoneOrientationPolicy.mask(displaySize: nil, idiom: .pad), .all)
+    }
+
     func testHorizontalFoldKeepsBothControlPanelsBelowTheReservedBand() {
         let frames = DuoWorkspaceFrames.resolve(
             size: CGSize(width: 668, height: 900),

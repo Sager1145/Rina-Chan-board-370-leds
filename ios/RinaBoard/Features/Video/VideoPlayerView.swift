@@ -429,7 +429,7 @@ private struct PhotoVideoPickerSheet: View {
             .navigationTitle(Text("从相册选择"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                MenuToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
                 }
             }
