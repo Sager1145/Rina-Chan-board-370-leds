@@ -125,6 +125,35 @@ def packed_frame():
             led += 1
     return bytes(result)
 
+def bitmap_frame_lit(bitmap, width, offset, viewport=0):
+    """True when frame `offset` shows any lit LED, matching scrollBitmapFrameHasAnyLit."""
+    stride = (width + 7) // 8
+    for y, length in enumerate((18, 20, 20, 20, 22, 22, 22, 22, 22, 22, 22, 22, 22, 20, 20, 20, 18, 16)):
+        x_start = (22 - length) // 2
+        for x in range(x_start, x_start + length):
+            source = offset + viewport + x
+            index = y * stride + source // 8
+            if 0 <= source < width and index < len(bitmap) and bitmap[index] & (1 << (source % 8)):
+                return True
+    return False
+
+def first_lit_rotation(bitmap, width, frame_count):
+    """handleBlobEnd: first lit frame, or 0 when the bitmap is dark. Viewport uploads skip this."""
+    for index in range(frame_count):
+        if bitmap_frame_lit(bitmap, width, index, 0):
+            return index
+    return 0
+
+def scroll_end_reply(meta, state, started, append):
+    """Keys handleBlobEnd writes for kind scroll and scroll_bitmap, before bitmap-only fields."""
+    timeline = meta.get("timelineId")
+    if not isinstance(timeline, str):
+        timeline = ""
+    return {"ok": True, "frames": state["frameCount"], "chunkFrames": state["frameCount"],
+            "append": bool(append), "started": bool(started), "timelineId": timeline,
+            "uploadComplete": True, "frameBytes": 47, "scrollIntervalMs": state["scrollIntervalMs"],
+            "uiFps": state["uiFps"], "scrollFps": state["uiFps"]}
+
 def generic_cmd_ok():
     """Mirror protocol.cpp reply(): ok + autoFaceIndex, autoFaceId only in range."""
     state = current_state()
@@ -139,6 +168,9 @@ class ErrorReply(dict):
 def error_reply(code, message):
     """Mirror protocol.cpp sendErrorReply: ok false, error, code."""
     return ErrorReply({"ok": False, "error": message, "code": code})
+def _json_uint(value):
+    """JSON integer ArduinoJson accepts as uint64 / a non-negative cint."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 def _handle_cmd(obj):
     c = obj.get("cmd"); changed = True
     if c == "get_info":
@@ -158,13 +190,18 @@ def _handle_cmd(obj):
     elif c == "group_start":
         state = current_state()
         if obj.get("bootId") != "deadbeef":
-            return {"ok": False, "error": "boot_mismatch"}, False
-        if not state["frameCount"]:
-            return {"ok": False, "error": "no_timeline"}, False
-        interval = obj.get("intervalMs", 0)
+            return error_reply(409, "boot_mismatch"), False
+        interval = obj.get("intervalMs", -1)
         start = obj.get("startFrame", 0)
-        if not isinstance(obj.get("atUs"), int) or not 17 <= interval <= 2000 or not 0 <= start < state["frameCount"]:
-            return {"ok": False, "error": "invalid schedule"}, False
+        # protocol.cpp checks the schedule before no_timeline, and startFrame's
+        # 0..65535 range before "startFrame exceeds frameCount-1".
+        if not (_json_uint(obj.get("atUs")) and _json_uint(interval) and _json_uint(start)
+                and 17 <= interval <= 2000 and start <= 65535):
+            return error_reply(400, "group_start requires atUs (u64), intervalMs 17..2000, startFrame 0..65535"), False
+        if state["frameCount"] and start > state["frameCount"] - 1:
+            return error_reply(400, "startFrame exceeds frameCount-1"), False
+        if not state["frameCount"]:
+            return error_reply(409, "no_timeline"), False
         state.update(scrollActive=True, scrollPaused=False, groupTimed=True, atUs=obj["atUs"],
                      startFrame=start, frameIndex=start, scrollIntervalMs=interval,
                      uiFps=round(1000 / interval), scrollLoop=obj.get("loop", True))
@@ -252,7 +289,7 @@ def serve(conn):
                 except Exception: obj = {}
                 L("CMD", getattr(IDENT, "id", "?"), obj)
                 reply, changed = handle_cmd(obj)
-                # apply_saved_face failures are ERR (0xFF), same seq as the request.
+                # sendErrorReply failures (apply_saved_face, group_start, ...) are ERR (0xFF).
                 reply_type = 0xFF if isinstance(reply, ErrorReply) else t | 0x80
                 send(frame(reply_type, seq, J(reply)))
                 if changed: send(frame(0x91, 0, J(status())))
@@ -262,13 +299,23 @@ def serve(conn):
             elif t == 0x05: send(frame(t | 0x80, seq, J(preview_sync())))
             elif t == 0x06: send(frame(t | 0x80, seq, J({"ok": True})))
             elif t == 0x10:
-                current_state()["packedFrame"] = payload[:47]
+                # handleSetFrame: playback byte, reason length, reason bytes, then 47 frame bytes.
+                if n < 2:
+                    send(frame(0xFF, seq, J(error_reply(400, "SET_FRAME payload too short"))))
+                    continue
+                reason_len = payload[1]
+                frame_at = 2 + reason_len
+                if n < frame_at + 47:
+                    send(frame(0xFF, seq, J(error_reply(400, "SET_FRAME payload truncated"))))
+                    continue
+                current_state()["packedFrame"] = bytes(payload[frame_at:frame_at + 47])
                 current_state().update(scrollActive=False, groupTimed=False)
                 L("SET_FRAME", n); send(frame(t | 0x80, seq, J({"ok": True})))
             elif t == 0x11: send(frame(t | 0x80, seq, packed_frame()))
             elif t == 0x20:
                 upload_meta, upload_bytes = json.loads(payload), bytearray()
-                send(frame(t | 0x80, seq, J({"ok": True, "offset": 0, "chunkMax": 4000})))
+                # protocol.cpp clamps preferredChunkBytes to 4032.
+                send(frame(t | 0x80, seq, J({"ok": True, "offset": 0, "chunkMax": 4032})))
             elif t == 0x21:
                 off = struct.unpack("<I", payload[:4])[0] if n >= 4 else 0
                 if off != len(upload_bytes):
@@ -278,20 +325,34 @@ def serve(conn):
                 send(frame(t | 0x80, seq, J({"ok": True, "offset": len(upload_bytes)})))
             elif t == 0x22:
                 state = current_state()
-                if upload_meta.get("kind") == "scroll_bitmap":
-                    count = max(1, upload_meta["width"] - upload_meta.get("virtualWidth", 22)) + 1
-                    start = json.loads(payload or b"{}").get("start", True)
+                end = json.loads(payload or b"{}")
+                start = bool(end.get("start", True))
+                kind = upload_meta.get("kind")
+                reply = {"ok": True}
+                if kind == "scroll_bitmap":
+                    width = upload_meta["width"]
+                    count = max(1, width - upload_meta.get("virtualWidth", 22)) + 1
+                    has_viewport = "virtualWidth" in upload_meta and "viewportX" in upload_meta
+                    # Viewport uploads never rotate; every board must show frame f together.
+                    rotation = 0 if has_viewport else first_lit_rotation(upload_bytes, width, count)
                     state.update(scrollMeta=upload_meta.copy(), scrollBitmap=bytes(upload_bytes), scrollFrames=b"", frameCount=count,
                                  frameIndex=0, startFrame=0, atUs=now_us(), scrollActive=start,
                                  scrollPaused=False, groupTimed=False,
                                  scrollIntervalMs=upload_meta.get("intervalMs", 100), uiFps=upload_meta.get("fps", 10))
-                elif upload_meta.get("kind") == "scroll":
-                    start = json.loads(payload or b"{}").get("start", True)
+                    reply = scroll_end_reply(upload_meta, state, start and count > 0, False)
+                    reply["width"] = width
+                    reply["rotation"] = rotation
+                    if has_viewport:
+                        reply["viewportX"] = upload_meta["viewportX"]
+                        reply["virtualWidth"] = upload_meta["virtualWidth"]
+                elif kind == "scroll":
                     state.update(scrollMeta=upload_meta.copy(), scrollFrames=bytes(upload_bytes), scrollBitmap=b"",
                                  frameCount=len(upload_bytes) // 47, frameIndex=0, startFrame=0,
                                  atUs=now_us(), scrollActive=start, scrollPaused=False, groupTimed=False,
                                  scrollIntervalMs=upload_meta.get("intervalMs", 100), uiFps=upload_meta.get("fps", 10))
-                send(frame(t | 0x80, seq, J({"ok": True, "frameCount": state["frameCount"]})))
+                    reply = scroll_end_reply(upload_meta, state, start and state["frameCount"] > 0,
+                                             upload_meta.get("append", False))
+                send(frame(t | 0x80, seq, J(reply)))
                 send(frame(0x91, 0, J(status())))
             elif t == 0x23: send(frame(t | 0x80, seq, J({"ok": True})))
             elif t == 0x24:

@@ -67,12 +67,14 @@ class EmulatorProtocolTests(unittest.TestCase):
         # viewport 22 sees a dark frame. Exercises real bitmap packing/cropping.
         bitmap = bytearray(((width + 7) // 8) * 18)
         bitmap[0] = 1 << 2
-        self.request(0x20, {"kind": "scroll_bitmap", "width": width, "rows": 18,
-                           "virtualWidth": 44, "viewportX": viewport, "totalBytes": len(bitmap),
-                           "timelineId": "shared", "sourceText": "test", "fps": 10, "intervalMs": 100})
+        begin = self.request(0x20, {"kind": "scroll_bitmap", "width": width, "rows": 18,
+                                   "virtualWidth": 44, "viewportX": viewport, "totalBytes": len(bitmap),
+                                   "timelineId": "shared", "sourceText": "test", "fps": 10, "intervalMs": 100})
+        self.assertEqual(begin["chunkMax"], 4032)
         self.request(0x21, struct.pack("<I", 0) + bitmap)
         reply = self.request(0x22, {"start": False})
-        self.assertEqual(reply["frameCount"], 27)
+        self.assertEqual(reply["frames"], 27)
+        self.assertEqual(reply["rotation"], 0)
         self.assertFalse(self.request(4)["firmwareScrollActive"])
 
     def test_group_schedule_pause_seek_resume_and_stop_persist_through_status(self):
@@ -109,7 +111,10 @@ class EmulatorProtocolTests(unittest.TestCase):
         frames = bytes([1]) + bytes(46) + bytes([2]) + bytes(46)
         self.request(0x20, {"kind": "scroll", "totalBytes": len(frames), "fps": 10, "intervalMs": 100})
         self.request(0x21, struct.pack("<I", 0) + frames)
-        self.assertEqual(self.request(0x22, {"start": True})["frameCount"], 2)
+        end = self.request(0x22, {"start": True})
+        self.assertEqual(end["frames"], 2)
+        self.assertNotIn("rotation", end)
+        self.assertNotIn("width", end)
         self.command("set_scroll_loop", loop=False)
         self.assertEqual(self.request(0x11, binary=True)[0], 1)
         self.clock += 100_000
@@ -168,7 +173,7 @@ class EmulatorProtocolTests(unittest.TestCase):
         self.assertEqual(set(bright), {"ok", "autoFaceIndex", "autoFaceId"})
         self.assertEqual(bright["autoFaceIndex"], reply["autoFaceIndex"])
         self.assertEqual(bright["autoFaceId"], reply["autoFaceId"])
-        self.assertEqual(self.request(0x10, bytes(47)), {"ok": True})
+        self.assertEqual(self.request(0x10, bytes([0, 0]) + bytes(47)), {"ok": True})
         self.emulator.FACES.clear()
         # Index-only apply hits applySavedFaceIndex; empty library leaves errCode at 400.
         empty = self.command("apply_saved_face", index=0)
@@ -177,6 +182,121 @@ class EmulatorProtocolTests(unittest.TestCase):
         self.assertEqual(empty["ok"], False)
         self.assertEqual(empty["code"], 400)
         self.assertEqual(empty["error"], "")
+
+    def test_blob_end_uses_firmware_keys_and_chunk_max_is_4032(self):
+        width = 40
+        bitmap = bytearray(((width + 7) // 8) * 18)
+        bitmap[30 // 8] |= 1 << (30 % 8)  # row 0, column 30; that row's rightmost x is 19, so frame 11
+        begin = self.request(0x20, {"kind": "scroll_bitmap", "width": width, "rows": 18,
+                                   "totalBytes": len(bitmap), "timelineId": "plain", "fps": 10, "intervalMs": 100})
+        self.assertEqual(set(begin), {"ok", "offset", "chunkMax"})
+        self.assertEqual(begin["chunkMax"], 4032)
+        self.assertEqual(begin["offset"], 0)
+        self.request(0x21, struct.pack("<I", 0) + bytes(bitmap))
+        plain = self.request(0x22, {"start": False})
+        self.assertEqual(set(plain), {"ok", "frames", "chunkFrames", "append", "started", "timelineId",
+                                      "uploadComplete", "frameBytes", "scrollIntervalMs", "uiFps", "scrollFps",
+                                      "width", "rotation"})
+        self.assertEqual(plain["frames"], 19)
+        self.assertEqual(plain["chunkFrames"], 19)
+        self.assertEqual(plain["rotation"], 11)
+        self.assertEqual(plain["width"], width)
+        self.assertFalse(plain["append"])
+        self.assertFalse(plain["started"])
+        self.assertTrue(plain["uploadComplete"])
+        self.assertEqual(plain["frameBytes"], 47)
+        self.assertEqual(plain["timelineId"], "plain")
+        self.assertEqual(plain["scrollIntervalMs"], 100)
+        self.assertEqual(plain["uiFps"], 10)
+        self.assertEqual(plain["scrollFps"], 10)
+
+        begin = self.request(0x20, {"kind": "scroll_bitmap", "width": width, "rows": 18,
+                                   "virtualWidth": 22, "viewportX": 0, "totalBytes": len(bitmap),
+                                   "timelineId": "group", "fps": 10, "intervalMs": 100})
+        self.assertEqual(begin["chunkMax"], 4032)
+        self.request(0x21, struct.pack("<I", 0) + bytes(bitmap))
+        viewport = self.request(0x22, {"start": True})
+        self.assertEqual(set(viewport), {"ok", "frames", "chunkFrames", "append", "started", "timelineId",
+                                         "uploadComplete", "frameBytes", "scrollIntervalMs", "uiFps", "scrollFps",
+                                         "width", "rotation", "viewportX", "virtualWidth"})
+        self.assertEqual(viewport["frames"], 19)
+        self.assertEqual(viewport["rotation"], 0)
+        self.assertEqual(viewport["viewportX"], 0)
+        self.assertEqual(viewport["virtualWidth"], 22)
+        self.assertTrue(viewport["started"])
+        self.assertEqual(viewport["timelineId"], "group")
+
+        frames = bytes([1]) + bytes(46) + bytes([2]) + bytes(46)
+        raw_begin = self.request(0x20, {"kind": "scroll", "totalBytes": len(frames), "totalFrames": 2,
+                                       "fps": 10, "intervalMs": 100, "timelineId": "raw"})
+        self.assertEqual(raw_begin["chunkMax"], 4032)
+        self.request(0x21, struct.pack("<I", 0) + frames)
+        raw = self.request(0x22, {"start": True})
+        self.assertEqual(set(raw), {"ok", "frames", "chunkFrames", "append", "started", "timelineId",
+                                    "uploadComplete", "frameBytes", "scrollIntervalMs", "uiFps", "scrollFps"})
+        self.assertEqual(raw["frames"], 2)
+        self.assertEqual(raw["chunkFrames"], 2)
+        self.assertTrue(raw["started"])
+        self.assertFalse(raw["append"])
+        self.assertEqual(raw["timelineId"], "raw")
+        self.assertEqual(raw["frameBytes"], 47)
+        self.assertNotIn("rotation", raw)
+        self.assertNotIn("width", raw)
+
+    def test_set_frame_stores_bytes_after_playback_and_reason(self):
+        reason = b"pencil"
+        frame = bytes([0xAB]) + bytes(46)
+        payload = bytes([2, len(reason)]) + reason + frame
+        self.assertEqual(self.request(0x10, payload), {"ok": True})
+        self.assertEqual(self.reply_type, 0x90)
+        self.assertEqual(self.request(0x11, binary=True), frame)
+        short = self.request(0x10, bytes(47))
+        self.assertEqual(self.reply_type, 0xFF)
+        self.assertEqual(self.reply_seq, self.seq)
+        self.assertEqual(short["ok"], False)
+        self.assertEqual(short["code"], 400)
+        self.assertEqual(short["error"], "SET_FRAME payload truncated")
+        # The rejected prefix must not replace the frame stored above.
+        self.assertEqual(self.request(0x11, binary=True), frame)
+        empty = self.request(0x10, b"\x00")
+        self.assertEqual(self.reply_type, 0xFF)
+        self.assertEqual(empty["code"], 400)
+        self.assertEqual(empty["error"], "SET_FRAME payload too short")
+
+    def test_group_start_failures_are_err_frames_with_firmware_codes(self):
+        missing = self.command("group_start", bootId="deadbeef", atUs=self.clock, intervalMs=100, startFrame=0)
+        self.assertEqual(self.reply_type, 0xFF)
+        self.assertEqual(self.reply_seq, self.seq)
+        self.assertEqual(missing["ok"], False)
+        self.assertEqual(missing["code"], 409)
+        self.assertEqual(missing["error"], "no_timeline")
+        mismatch = self.command("group_start", bootId="bad", atUs=self.clock, intervalMs=100)
+        self.assertEqual(self.reply_type, 0xFF)
+        self.assertEqual(mismatch["code"], 409)
+        self.assertEqual(mismatch["error"], "boot_mismatch")
+
+        self.upload()
+        schedule = "group_start requires atUs (u64), intervalMs 17..2000, startFrame 0..65535"
+        bad_interval = self.command("group_start", bootId="deadbeef", atUs=self.clock, intervalMs=16, startFrame=0)
+        self.assertEqual(self.reply_type, 0xFF)
+        self.assertEqual(bad_interval["code"], 400)
+        self.assertEqual(bad_interval["error"], schedule)
+        missing_at = self.command("group_start", bootId="deadbeef", intervalMs=100, startFrame=0)
+        self.assertEqual(self.reply_type, 0xFF)
+        self.assertEqual(missing_at["code"], 400)
+        self.assertEqual(missing_at["error"], schedule)
+        too_far = self.command("group_start", bootId="deadbeef", atUs=self.clock, intervalMs=100, startFrame=65536)
+        self.assertEqual(self.reply_type, 0xFF)
+        self.assertEqual(too_far["code"], 400)
+        self.assertEqual(too_far["error"], schedule)
+        over = self.command("group_start", bootId="deadbeef", atUs=self.clock, intervalMs=100, startFrame=27)
+        self.assertEqual(self.reply_type, 0xFF)
+        self.assertEqual(over["code"], 400)
+        self.assertEqual(over["error"], "startFrame exceeds frameCount-1")
+        ok = self.command("group_start", bootId="deadbeef", atUs=self.clock, intervalMs=100, startFrame=0, loop=True)
+        self.assertEqual(self.reply_type, 0x81)
+        self.assertEqual(ok["ok"], True)
+        self.assertEqual(ok["frameCount"], 27)
 
 
 if __name__ == "__main__":

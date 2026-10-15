@@ -1477,6 +1477,29 @@ public final class BoardConnection {
         return endFrame.payload
     }
 
+    /// Firmware reads `sourceText` as optional (`d["sourceText"] | nullptr`).
+    /// Include it only when the BLOB_BEGIN document still fits in one frame
+    /// after `uploadBlob` appends `kind` and `totalBytes`. A text whose own
+    /// UTF-8 is within 4096 bytes can still push that document over
+    /// `RinaLinkFrameConstants.maxPayloadBytes`.
+    private func scrollBeginMeta(
+        _ meta: [String: Any],
+        sourceText: String,
+        kind: BlobKind,
+        totalBytes: Int
+    ) throws -> [String: Any] {
+        var withText = meta
+        withText["sourceText"] = sourceText
+        var measured = withText
+        measured["kind"] = kind.rawValue
+        measured["totalBytes"] = totalBytes
+        let count = try JSONSerialization.data(withJSONObject: measured).count
+        if count <= RinaLinkFrameConstants.maxPayloadBytes {
+            return withText
+        }
+        return meta
+    }
+
     public func startScrollUpload(
         frames: [PackedFrame],
         fps: Double,
@@ -1494,15 +1517,14 @@ public final class BoardConnection {
         let fpsInt = max(RinaLinkConstants.scrollFpsMin, min(RinaLinkConstants.scrollFpsMax, Int(fps.rounded())))
         // Firmware keeps its previous interval when a begin carries only `fps`,
         // so the tick rate would silently disagree with the reported fps.
-        let meta: [String: Any] = [
+        let meta = try scrollBeginMeta([
             "fps": fpsInt,
             "intervalMs": ScrollRasterizer.intervalMs(forFps: fpsInt),
             "totalFrames": frames.count,
             "timelineId": timelineId,
             "fontId": fontId,
             "generatorVersion": generatorVersion,
-            "sourceText": sourceText,
-        ]
+        ], sourceText: sourceText, kind: .scroll, totalBytes: data.count)
         let replyData = try await uploadBlob(kind: .scroll, meta: meta, data: data, onProgress: onProgress)
         return try JSONDecoder().decode(ScrollUploadReply.self, from: replyData)
     }
@@ -1535,9 +1557,7 @@ public final class BoardConnection {
             "fontId": ScrollRasterizer.fontId,
             "generatorVersion": ScrollRasterizer.generatorVersion,
         ]
-        if sourceText.utf8.count <= 4096 {
-            meta["sourceText"] = sourceText
-        }
+        meta = try scrollBeginMeta(meta, sourceText: sourceText, kind: .scrollBitmap, totalBytes: bytes.count)
         let replyData = try await uploadBlob(kind: .scrollBitmap, meta: meta, data: bytes, onProgress: onProgress)
         let reply = try JSONDecoder().decode(ScrollUploadReply.self, from: replyData)
         guard reply.rotation == timeline.rotation, reply.frames == timeline.frameCount else {
@@ -1583,9 +1603,7 @@ public final class BoardConnection {
             "virtualWidth": virtualWidth,
             "viewportX": viewportX,
         ]
-        if sourceText.utf8.count <= 4096 {
-            meta["sourceText"] = sourceText
-        }
+        meta = try scrollBeginMeta(meta, sourceText: sourceText, kind: .scrollBitmap, totalBytes: packedBytes.count)
         let replyData = try await uploadBlob(kind: .scrollBitmap, meta: meta, data: packedBytes,
                                              endStart: start, onProgress: onProgress)
         return try JSONDecoder().decode(ScrollUploadReply.self, from: replyData)
