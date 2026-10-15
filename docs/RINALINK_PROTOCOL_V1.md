@@ -224,7 +224,7 @@ exit apply together. Append still uses begin/write/commit and can still reply
 leaves the previous timeline intact. Bitmap expansion finishes before publish,
 and that staging buffer is freed only after publish returns.
 
-### 3.4 `CMD` command set (unchanged from `/api/command`)
+### 3.4 `CMD` command set
 
 `set_color{hex}`, `set_brightness{raw}`, `set_mode{mode}`, `set_auto_interval{ms}`,
 `set_scroll_interval{intervalMs|fps}`, `start_scroll{intervalMs|fps,sourceText?,loop?}`
@@ -247,6 +247,19 @@ dedicated reply) is only `{"ok":true,"autoFaceIndex","autoFaceId?"}` —
 `battery_overlay{singleShot?}` — plus new device commands:
 `reboot`, `get_info` (fw/build/led backend/heap/psram/name), `set_device_name{name}`,
 `set_hint_led{led}`, `wifi_*` (§4).
+
+Compatibility: `proto` stays 1. Generic CMD success and `SET_FRAME` replies were
+slimmed. Generic success no longer carries `v`, `cmd`, `color`, `brightness`,
+`mode`, `playback`, `paused`, `autoIntervalMs`, `frameBytes`, `frameEncoding`,
+`queueCount`, `lastReason`, `lit`, `autoFaceName`, or the scroll snapshot
+(`scrollFps`, `uiFps`, `firmwareScrollActive`, `firmwareScrollPaused`,
+`firmwareScrollUserPaused`, `firmwareScrollSystemPaused`, `restoreAutoAfterScroll`,
+`scrollLoop`, `groupTimed`, `scrollFrameCount`, `scrollFrameIndex`,
+`scrollIntervalMs`, `scrollTimelineId`, `scrollUploadComplete`,
+`scrollHasSourceText`). `SET_FRAME` no longer carries that status echo or
+`queueDepth` (queue depth stays on `GET_STATUS`). Clients must only rely on
+`ok`, `autoFaceIndex`, and `autoFaceId`. `get_info` cap `apply_face_frame`
+advertises that an `apply_saved_face` success reply includes `frameHex`.
 
 **`set_hint_led{led, mirror}`** — draws logical LED `led` (0…369) at half the
 board colour on top of whatever frame is showing, lit or not; `-1` clears it.

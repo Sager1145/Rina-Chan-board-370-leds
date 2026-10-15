@@ -153,9 +153,17 @@ class EmulatorProtocolTests(unittest.TestCase):
         self.assertEqual(len(reply["frameHex"]), 94)
         self.assertEqual(reply["frameHex"], reply["frameHex"].lower())
         self.assertTrue(all(ch in "0123456789abcdef" for ch in reply["frameHex"]))
-        selected = bytes([reply["autoFaceIndex"] & 0xFF]) + bytes(46)
-        self.assertEqual(reply["frameHex"], selected.hex())
-        self.assertEqual(self.command("set_brightness", raw=40), {"ok": True})
+        stored = self.emulator.FACES[reply["autoFaceIndex"]]["frame"]
+        self.assertEqual(reply["frameHex"], stored.hex())
+        missing = self.command("apply_saved_face", id="nope")
+        self.assertEqual(missing["ok"], False)
+        self.assertEqual(missing["code"], 404)
+        self.assertEqual(missing["error"], "saved face not found: nope")
+        bright = self.command("set_brightness", raw=40)
+        self.assertEqual(bright["ok"], True)
+        self.assertEqual(set(bright), {"ok", "autoFaceIndex", "autoFaceId"})
+        self.assertEqual(bright["autoFaceIndex"], reply["autoFaceIndex"])
+        self.assertEqual(bright["autoFaceId"], reply["autoFaceId"])
         self.assertEqual(self.request(0x10, bytes(47)), {"ok": True})
 
 

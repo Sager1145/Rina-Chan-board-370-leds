@@ -412,39 +412,46 @@ void scrollSessionSetSourceText(const char* text, uint16_t bytes) {
     touchRuntimeState();
 }
 
+// Caller holds the scroll lock. Shared by BeginUpload and PublishReplace.
+static uint32_t installUploadMetaLocked(const ScrollUploadMeta& upload) {
+    scrollSessionExitGroupTimedLocked();
+    const uint32_t generation = ++sScrollGeneration;
+    runtimeState().scrollFrameCount = 0;
+    runtimeState().scrollFrameIndex = 0;
+    clearScrollTimelineMetaLocked();
+
+    ScrollTimelineMeta& meta = runtimeScrollMeta();
+    if (upload.timelineId && upload.timelineId[0] != '\0') {
+        strncpy(meta.timelineId, upload.timelineId, MAX_SCROLL_TIMELINE_ID_CHARS);
+        meta.timelineId[MAX_SCROLL_TIMELINE_ID_CHARS] = '\0';
+    }
+    if (upload.fontId && upload.fontId[0] != '\0') {
+        strncpy(meta.fontId, upload.fontId, MAX_SCROLL_FONT_ID_CHARS);
+        meta.fontId[MAX_SCROLL_FONT_ID_CHARS] = '\0';
+    }
+    if (upload.generatorVersion && upload.generatorVersion[0] != '\0') {
+        strncpy(meta.generatorVersion, upload.generatorVersion, MAX_SCROLL_GENERATOR_CHARS);
+        meta.generatorVersion[MAX_SCROLL_GENERATOR_CHARS] = '\0';
+    }
+    if (upload.sourceText && runtimeScrollSourceTextReady()) {
+        memcpy(runtimeScrollSourceText(), upload.sourceText, static_cast<size_t>(upload.sourceTextBytes) + 1U);
+        meta.sourceTextByteLength = upload.sourceTextBytes;
+        meta.hasSourceText = true;
+    }
+    meta.uiFps = upload.uiFps;
+    meta.totalFramesExpected = upload.totalFrames;
+    meta.nextChunkIndex = 1;
+    return generation;
+}
+
 ScrollUploadTxn scrollSessionBeginUpload(const ScrollUploadMeta& upload) {
     ScrollUploadTxn txn;
     txn.append = false;
 
     withScrollLock([&]() {
-        scrollSessionExitGroupTimedLocked();
-        txn.generation = ++sScrollGeneration;
-        runtimeState().scrollFrameCount = 0;
-        runtimeState().scrollFrameIndex = 0;
-        clearScrollTimelineMetaLocked();
+        txn.generation = installUploadMetaLocked(upload);
 
-        ScrollTimelineMeta& meta = runtimeScrollMeta();
-        if (upload.timelineId && upload.timelineId[0] != '\0') {
-            strncpy(meta.timelineId, upload.timelineId, MAX_SCROLL_TIMELINE_ID_CHARS);
-            meta.timelineId[MAX_SCROLL_TIMELINE_ID_CHARS] = '\0';
-        }
-        if (upload.fontId && upload.fontId[0] != '\0') {
-            strncpy(meta.fontId, upload.fontId, MAX_SCROLL_FONT_ID_CHARS);
-            meta.fontId[MAX_SCROLL_FONT_ID_CHARS] = '\0';
-        }
-        if (upload.generatorVersion && upload.generatorVersion[0] != '\0') {
-            strncpy(meta.generatorVersion, upload.generatorVersion, MAX_SCROLL_GENERATOR_CHARS);
-            meta.generatorVersion[MAX_SCROLL_GENERATOR_CHARS] = '\0';
-        }
-        if (upload.sourceText && runtimeScrollSourceTextReady()) {
-            memcpy(runtimeScrollSourceText(), upload.sourceText, static_cast<size_t>(upload.sourceTextBytes) + 1U);
-            meta.sourceTextByteLength = upload.sourceTextBytes;
-            meta.hasSourceText = true;
-        }
-        meta.uiFps = upload.uiFps;
-        meta.totalFramesExpected = upload.totalFrames;
-        meta.nextChunkIndex = 1;
-
+        const ScrollTimelineMeta& meta = runtimeScrollMeta();
         txn.totalFramesExpected = meta.totalFramesExpected;
         txn.nextChunkIndex = meta.nextChunkIndex;
         memcpy(txn.timelineId, meta.timelineId, sizeof(txn.timelineId));
@@ -546,35 +553,9 @@ ScrollUploadResult scrollSessionPublishReplace(const ScrollUploadMeta& upload,
         if (count > 0)
             memcpy(live, packedFrames, static_cast<size_t>(count) * FRAME_BYTES);
 
-        scrollSessionExitGroupTimedLocked();
-        ++sScrollGeneration;
-        runtimeState().scrollFrameCount = 0;
-        runtimeState().scrollFrameIndex = 0;
-        clearScrollTimelineMetaLocked();
+        installUploadMetaLocked(upload);
 
         ScrollTimelineMeta& meta = runtimeScrollMeta();
-        if (upload.timelineId && upload.timelineId[0] != '\0') {
-            strncpy(meta.timelineId, upload.timelineId, MAX_SCROLL_TIMELINE_ID_CHARS);
-            meta.timelineId[MAX_SCROLL_TIMELINE_ID_CHARS] = '\0';
-        }
-        if (upload.fontId && upload.fontId[0] != '\0') {
-            strncpy(meta.fontId, upload.fontId, MAX_SCROLL_FONT_ID_CHARS);
-            meta.fontId[MAX_SCROLL_FONT_ID_CHARS] = '\0';
-        }
-        if (upload.generatorVersion && upload.generatorVersion[0] != '\0') {
-            strncpy(meta.generatorVersion, upload.generatorVersion, MAX_SCROLL_GENERATOR_CHARS);
-            meta.generatorVersion[MAX_SCROLL_GENERATOR_CHARS] = '\0';
-        }
-        if (upload.sourceText && runtimeScrollSourceTextReady()) {
-            memcpy(runtimeScrollSourceText(), upload.sourceText,
-                   static_cast<size_t>(upload.sourceTextBytes) + 1U);
-            meta.sourceTextByteLength = upload.sourceTextBytes;
-            meta.hasSourceText = true;
-        }
-        meta.uiFps = upload.uiFps;
-        meta.totalFramesExpected = upload.totalFrames;
-        meta.nextChunkIndex = 1;
-
         runtimeState().scrollFrameCount = count;
         runtimeState().scrollFrameIndex = 0;
         if (hasExplicitTiming) {

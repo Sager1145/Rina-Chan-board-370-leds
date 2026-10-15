@@ -14,7 +14,8 @@ status, power, blob upload, frame and command messages with plausible replies,
 keeps brightness/colour/mode/interval/face state, and pushes an EV_STATUS
 every 2 s and after each change so the phone's echo-driven sync follows. It is
 a focused firmware stand-in: group bitmap uploads and schedules retain
-state and return sampled frames; saved faces are always empty. RINA_EMU_HOST
+state and return sampled frames. `apply_saved_face` uses a fixed five-face
+list (GET_FACES stays an empty document). RINA_EMU_HOST
 and RINA_EMU_PORT override the listening address and port. RINA_EMU_BOARD_ID
 and RINA_EMU_BOARD_NAME optionally distinguish boards on separate local ports.
 """
@@ -23,8 +24,11 @@ HOST = os.environ.get("RINA_EMU_HOST", "0.0.0.0")
 PORT = int(os.environ.get("RINA_EMU_PORT", "5370"))
 BOARD_ID = os.environ.get("RINA_EMU_BOARD_ID")
 BOARD_NAME = os.environ.get("RINA_EMU_BOARD_NAME")
+def stored_face_frame(index):
+    return bytes([index & 0xFF]) + bytes(46)
+FACES = [{"id": "face%d" % i, "frame": stored_face_frame(i)} for i in range(5)]
 DEFAULT_STATE = dict(brightness=80, color="#ec3fc7", mode="manual", autoIntervalMs=3000,
-             autoFaceIndex=0, autoFaceCount=5, scrollActive=False, scrollIntervalMs=100, uiFps=10,
+             autoFaceIndex=0, autoFaceCount=len(FACES), scrollActive=False, scrollIntervalMs=100, uiFps=10,
              scrollPaused=False, groupTimed=False, frameIndex=0, frameCount=0, scrollLoop=True)
 log = sys.stdout
 STATES = {}
@@ -121,6 +125,17 @@ def packed_frame():
             led += 1
     return bytes(result)
 
+def generic_cmd_ok():
+    """Mirror protocol.cpp reply(): ok + autoFaceIndex, autoFaceId only in range."""
+    state = current_state()
+    reply = {"ok": True, "autoFaceIndex": state["autoFaceIndex"]}
+    index = state["autoFaceIndex"]
+    if FACES and 0 <= index < len(FACES):
+        reply["autoFaceId"] = FACES[index]["id"]
+    return reply
+def error_reply(code, message):
+    """Mirror protocol.cpp sendErrorReply: ok false, error, code."""
+    return {"ok": False, "error": message, "code": code}
 def _handle_cmd(obj):
     c = obj.get("cmd"); changed = True
     if c == "get_info":
@@ -176,22 +191,37 @@ def _handle_cmd(obj):
     elif c == "apply_saved_face":
         state = current_state()
         nested = obj.get("payload") if isinstance(obj.get("payload"), dict) else {}
-        raw_index = nested.get("index", obj.get("index", state["autoFaceIndex"]))
-        count = state["autoFaceCount"] or 1
-        try:
-            index = int(raw_index)
-        except (TypeError, ValueError):
-            index = state["autoFaceIndex"]
-        if index < 0:
-            index = 0
-        index %= count
+        raw_id = nested.get("id", obj.get("id", ""))
+        if raw_id is None:
+            raw_id = ""
+        elif not isinstance(raw_id, str):
+            raw_id = str(raw_id)
+        if raw_id:
+            if not FACES:
+                return error_reply(503, "saved faces unavailable"), False
+            found = next((i for i, face in enumerate(FACES) if face["id"] == raw_id), None)
+            if found is None:
+                return error_reply(404, "saved face not found: " + raw_id), False
+            index = found
+        else:
+            if not FACES:
+                return error_reply(400, ""), False
+            raw_index = nested.get("index", obj.get("index", state["autoFaceIndex"]))
+            try:
+                index = int(raw_index)
+            except (TypeError, ValueError):
+                index = state["autoFaceIndex"]
+            if index < 0:
+                index = 0
+            index %= len(FACES)
+        state["mode"] = "manual"
         state["autoFaceIndex"] = index
-        # Slot bytes, not the live scroll/presented frame.
-        frame = bytes([index & 0xFF]) + bytes(46)
-        return {"ok": True, "autoFaceId": "face%d" % index, "autoFaceIndex": index,
+        # Stored face bytes, not the live scroll/presented frame.
+        frame = FACES[index]["frame"]
+        return {"ok": True, "autoFaceId": FACES[index]["id"], "autoFaceIndex": index,
                 "frameEncoding": "packed-lsb-first", "frameHex": frame.hex()}, True
     else: changed = False
-    return {"ok": True}, changed
+    return generic_cmd_ok(), changed
 def handle_cmd(obj):
     with STATE_LOCK:
         return _handle_cmd(obj)

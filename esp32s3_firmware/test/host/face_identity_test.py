@@ -101,6 +101,16 @@ static void assertStoredFace(TestClient& client, uint8_t& seq, const std::string
     assert(found);
 }
 
+static std::string currentAutoFaceId(TestClient& client, uint8_t& seq) {
+    std::string json = "{\"cmd\":\"set_brightness\",\"payload\":{\"brightness\":40}}";
+    auto reply = client.cmd(seq++, json);
+    assert(reply.first == 0x81);
+    auto doc = parse(reply.second);
+    assert(doc["ok"].as<bool>() == true);
+    assert(!doc["autoFaceId"].isNull());
+    return std::string(doc["autoFaceId"] | "");
+}
+
 int main(int argc, char** argv) {
     assert(argc == 2);
     resetFakeFs(argv[1]);
@@ -121,8 +131,10 @@ int main(int argc, char** argv) {
     const std::string frameAWrong = hexOf(0x22, FRAME_BYTES);
     const std::string frameAExpectWrong = hexOf(0x33, FRAME_BYTES);
     const std::string frameB = hexOf(0x44, FRAME_BYTES);
+    int facesGen = 0;
 
-    // (a) face_upsert create -> ok.
+    // (a) face_upsert create -> ok. Hot reload keeps the previous face id
+    // (index 0, default1) and bumps savedFacesGeneration by exactly 1.
     {
         std::string json = "{\"cmd\":\"face_upsert\",\"payload\":{\"face\":{\"id\":\"custom1\","
             "\"type\":\"custom\",\"name\":\"Alpha\",\"frameHex\":\"" + frameA + "\"}}}";
@@ -130,7 +142,11 @@ int main(int argc, char** argv) {
         assert(reply.first == 0x81);
         auto doc = parse(reply.second);
         assert(doc["ok"].as<bool>() == true);
+        assert(doc["gen"].as<int>() == facesGen + 1);
+        facesGen = doc["gen"].as<int>();
     }
+    const std::string faceAfterCreate = currentAutoFaceId(client, seq);
+    assert(faceAfterCreate == "default1");
 
     // (b) face_upsert same id with wrong expect -> 409, document not modified.
     {
@@ -168,7 +184,10 @@ int main(int argc, char** argv) {
         assert(reply.first == 0x81);
         auto doc = parse(reply.second);
         assert(doc["ok"].as<bool>() == true);
+        assert(doc["gen"].as<int>() == facesGen + 1);
+        facesGen = doc["gen"].as<int>();
     }
+    assert(currentAutoFaceId(client, seq) == faceAfterCreate);
     assertStoredFace(client, seq, "custom1", "Beta", frameB);
 
     // (d) apply_saved_face with the created id AND a conflicting index (0 is
@@ -255,6 +274,31 @@ int main(int argc, char** argv) {
         assert(doc["frameHex"].isNull());
         std::cout << "set_brightness reply bytes=" << reply.second.size() << "\n";
     }
+
+    // (i) face_rename / face_upsert hot reload: the current face still exists,
+    // so autoFaceId stays put and reply "gen" advances by exactly 1 each time.
+    {
+        std::string json = "{\"cmd\":\"face_rename\",\"payload\":{\"id\":\"custom1\",\"name\":\"Gamma\"}}";
+        auto reply = client.cmd(seq++, json);
+        assert(reply.first == 0x81);
+        auto doc = parse(reply.second);
+        assert(doc["ok"].as<bool>() == true);
+        assert(doc["gen"].as<int>() == facesGen + 1);
+        facesGen = doc["gen"].as<int>();
+    }
+    assert(currentAutoFaceId(client, seq) == "custom1");
+    {
+        std::string json = "{\"cmd\":\"face_upsert\",\"payload\":{\"face\":{\"id\":\"custom1\","
+            "\"type\":\"custom\",\"name\":\"Gamma\",\"frameHex\":\"" + frameB + "\","
+            "\"expect\":{\"name\":\"Gamma\",\"frameHex\":\"" + frameB + "\"}}}}";
+        auto reply = client.cmd(seq++, json);
+        assert(reply.first == 0x81);
+        auto doc = parse(reply.second);
+        assert(doc["ok"].as<bool>() == true);
+        assert(doc["gen"].as<int>() == facesGen + 1);
+        facesGen = doc["gen"].as<int>();
+    }
+    assert(currentAutoFaceId(client, seq) == "custom1");
 
     std::cout << "Face identity: apply_saved_face id pinning and face_upsert optimistic-concurrency expect passed\n";
 }
