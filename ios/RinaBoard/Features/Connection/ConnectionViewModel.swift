@@ -202,22 +202,9 @@ public final class ConnectionViewModel {
             loadedBoardDetailsKey = .some(nil)
             return
         }
-        // The setup reply is enough for the first load of this generation.
-        // A handshake that never decoded still asks the board.
-        if let info = connection.handshakeDeviceInfo,
-           info.generation == key?.generation,
-           info.generation == connection.connectionGeneration {
-            guard !Task.isCancelled, clearedBoardDetailsKey == .some(key) else { return }
-            loadedBoardDetailsKey = .some(key)
-            boardDefaultName = info.defaultName
-            boardFirmware = info.fw
-            boardBuild = info.build
-            boardHasCustomName = info.customName ?? false
-            if boardNameInput.isEmpty, let name = info.name, !name.isEmpty {
-                boardNameInput = name
-            }
-            return
-        }
+        // Settings can open long after connect, and another client may have
+        // renamed the board. Always ask; `refreshBoardName` still reuses the
+        // handshake tag immediately after connect.
         let reply = try? await connection.command(.getInfo)
         guard !Task.isCancelled, clearedBoardDetailsKey == .some(key) else { return }
         // One attempt per session, as before: an older firmware that cannot

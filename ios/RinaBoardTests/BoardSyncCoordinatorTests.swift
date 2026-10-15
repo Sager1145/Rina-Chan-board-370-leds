@@ -263,7 +263,8 @@ final class BoardSyncCoordinatorTests: XCTestCase {
     // MARK: Handshake snapshot is not read twice
 
     /// A non-resume sync whose handshake already decoded status must not
-    /// send another `GET_STATUS`. Preview and the control frame ride along.
+    /// send another `GET_STATUS`. Preview rides along. The control frame is
+    /// read again: the handshake frame is not updated by later events.
     func testNonResumeSyncWithPopulatedHandshakeSendsNoSecondGetStatus() async throws {
         let sessions = BoardSessionStore()
         let coordinator = BoardSyncCoordinator()
@@ -285,8 +286,8 @@ final class BoardSyncCoordinatorTests: XCTestCase {
                        "a populated handshake must not be followed by another getStatus")
         XCTAssertEqual(transport.getPreviewSyncCount, previewBefore,
                        "a populated handshake preview must not be fetched again")
-        XCTAssertEqual(transport.getFrameCount, frameBefore,
-                       "a handshake frame in control mode must be adopted without getFrame")
+        XCTAssertEqual(transport.getFrameCount, frameBefore + 1,
+                       "control mode must send getFrame even when the handshake already has a frame")
         XCTAssertEqual(deps.controlCenter.brightnessDraft, 55,
                        "the handshake status must still drive the control draft")
     }

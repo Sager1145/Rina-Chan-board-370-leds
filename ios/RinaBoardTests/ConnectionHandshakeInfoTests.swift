@@ -3,8 +3,9 @@ import XCTest
 import RinaCore
 @testable import RinaBoard
 
-/// Connection-page reads of the setup `get_info` snapshot. A decoded
-/// handshake is not asked again; a failed one still is.
+/// Connection-page reads of the setup `get_info` snapshot. Refreshing the
+/// name reuses a decoded handshake. Opening Settings (`loadBoardDetails`)
+/// always sends `get_info`. A failed setup read is still sent from refresh.
 @MainActor
 final class ConnectionHandshakeInfoTests: XCTestCase {
     func testRefreshBoardNameSendsNoGetInfoWhenHandshakeTagIsPresent() async throws {
@@ -29,8 +30,8 @@ final class ConnectionHandshakeInfoTests: XCTestCase {
             connection: ObjectIdentifier(connection), generation: connection.connectionGeneration
         )
         await model.loadBoardDetails(for: key, connection: connection)
-        XCTAssertEqual(transport.getInfoCount, sentDuringHandshake,
-                       "the first loadBoardDetails for this generation must use the handshake tag")
+        XCTAssertEqual(transport.getInfoCount, sentDuringHandshake + 1,
+                       "loadBoardDetails must send get_info even when the handshake tag is present")
         XCTAssertEqual(model.boardFirmware, "1.2.3")
         XCTAssertEqual(model.boardBuild, "2026-10-15")
         connection.disconnect()

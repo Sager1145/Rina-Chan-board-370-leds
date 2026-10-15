@@ -476,3 +476,20 @@ Control 页刷新循环
 - **阶段 4 的依赖**：`apply_saved_face` 与其他控制命令共用通用回复，表情结果应单独定义；删除 150 ms 回读须等阶段 6 确定受支持固件范围，此前保留为 fallback。
 
 另补充：表情修改命令有专用回复；重连没有字面重复的 backoff（两套不同调度）；Watch 回复与随后 publish 之间会清除一次性错误。本次仍只修改审查文档，未改功能代码。
+
+### 11.5 实施记录（2026-10-15，分支 `refactor/interface-audit-1015`）
+
+文件读取与代码修改由 Grok 4.7 完成，主审查者逐份审阅 diff 并运行验证。
+
+| 阶段 | 提交 | 已做 | 未做及原因 |
+|---|---|---|---|
+| 1 | `3d0ba42` | 删除无调用的表情库重载、`loadFaceDocument`、AppDefaults 配置类型与 loader、`CardContainer`、`KeychainStore`、`BoardBatteryRow(connection:)`；协调器改存 `GroupSchedule.Anchor` 并复用其帧计算；三个流 sender 的 `minInterval` 改为 0（framePump 20 ms 保留） | 有测试依赖的 `ControlViewModel.upsertPayload(using:)`、`reorderUserFaces(_:in:)`、`ErrorReply` 保留；调试命令、FaceSync、ScrollTextDefaults 按排除项不动 |
+| 2 | `38a12ce`、`a9ee2a1` | 文字时间线不再存全部帧，按需 `frame(at:)`，仅回退路径 `materializedFrames()`；组位图每次播放/重入只编码一次；摘要直接用 stride×rows；固件表情修改后直接安装已解析文档，不再重读文件 | — |
+| 3 | `6815b8a` | 自动模式/换表情的组同步分支收进 `BoardControlCenterModel`，控制中心、紧凑栏、Watch 共用；`transact`/`transactPayload` 收拢编码→发送→解码，各调用方保留自己的 pump、generation、租约与错误文案 | Watch 快照复用已实现后撤回：只省一次廉价构建，却增加约 30 行无测试分支 |
+| 4 | `38a12ce`、`a9ee2a1` | 通用 CMD 回复改为 `{ok, autoFaceIndex, autoFaceId}`（B1/B2 解析仍需 id/index）；SET_FRAME 回复 `{ok}`；`apply_saved_face` 返回本次选中表情的 `frameHex`；可选 cap `apply_face_frame`；App 收到 `frameHex` 时不再回读 | 150 ms 回读保留为旧固件 fallback，待阶段 6 定支持范围 |
+| 5 | `a9ee2a1`、`71bb9e5` | `BoardConnection.fanOut` 改为中立 `BoardOutboundHook`，镜像策略归 `GroupControlFanOut`；首次同步复用握手 status/preview（事件实时更新），连接后改名刷新复用握手 get_info；恢复前台仍读线上 | 组目标与拨号策略不合并（两种 `isExplicit` 语义，合并会重拨用户已断开的板）；控制页进入时的 GET_FRAME 保留（前台恢复也走此路径）；复审后撤回帧复用（`currentFrame` 不随事件更新，可能过期）与设置页 get_info 复用（可能晚于他端改名） |
+| 6 | `38a12ce` | 滚动替换改为 `scrollSessionPublishReplace`：一次加锁内拷贝帧并同时切换 count/meta，失败不动旧时间线；新增 host 测试 `scroll_publish` | bitmap tick 采样、owner/状态协议收敛、旧固件路径删除：需要支持范围的产品决定与硬件回归 |
+
+**复审**：Grok 对整个分支独立复审，固件锁序/原子替换、hook 生命周期、新旧 App 与新旧固件的回复兼容均未发现问题；阶段 5 的两处过期快照风险已按上表修正。
+
+**验证**：iOS `RinaBoardTests` 761 项 0 失败；RinaCore `swift test` 378 项 0 失败；固件 `pio run -e esp32s3-rmt-dma` 成功；host 测试除 `playback_ownership_test.py` 外全部通过（该测试在未改动的基线上同样失败：harness 未用常量触发 -Werror，修复后仍有过时断言，已另开任务）；模拟板测试 6 项通过。已刷写两块板（`80B54EF48E09`、`80B54EF74801`，仅固件不含 uploadfs），串口确认启动正常、11 个表情已载入。**未做**：未跑 UI 测试与双板硬件回归；固件回复变化需与 App 配套发布。

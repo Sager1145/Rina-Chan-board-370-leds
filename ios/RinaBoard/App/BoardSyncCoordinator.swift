@@ -129,7 +129,7 @@ final class BoardSyncCoordinator {
         // already in hand. Resume-only, and a handshake whose status never
         // decoded, still read the wire. Foreground recovery needs that read:
         // the board can change modes while the app is suspended.
-        let status: DeviceStatus
+        var status: DeviceStatus
         let preview: PreviewSync?
         if consumeHandshake, let handshakeStatus = connection.status {
             status = handshakeStatus
@@ -137,6 +137,10 @@ final class BoardSyncCoordinator {
                 preview = handshakePreview
             } else {
                 preview = try? await connection.getPreviewSync()
+                // A status event during this await is newer than the
+                // snapshot taken above. Events do not rewrite a nil status,
+                // so keep the handshake value when the live one is missing.
+                status = connection.status ?? handshakeStatus
             }
         } else {
             guard let fetched = try? await connection.getStatus() else { return }
@@ -196,15 +200,9 @@ final class BoardSyncCoordinator {
             }
             if mode == .control {
                 deps.editor.boardModeSynchronized(generation: generation)
-                // The handshake already read the frame. Resume-only still
-                // calls `getFrame()` — the board can change while suspended.
-                if consumeHandshake, connection.hasCurrentFrame {
-                    if !deps.editor.isSending {
-                        deps.editor.adoptBoardFrameIfUntouched(connection.currentFrame)
-                    }
-                } else {
-                    await deps.editor.refreshBoardDisplay(connection: connection)
-                }
+                // `currentFrame` is the handshake sample and is not updated
+                // by later status events, so it can be stale. Always read.
+                await deps.editor.refreshBoardDisplay(connection: connection)
             }
             if mode != .text, BoardResumeMode.isPlaybackPaused(status: status, preview: preview) {
                 deps.performance.pause()
