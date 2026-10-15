@@ -202,6 +202,22 @@ public final class ConnectionViewModel {
             loadedBoardDetailsKey = .some(nil)
             return
         }
+        // The setup reply is enough for the first load of this generation.
+        // A handshake that never decoded still asks the board.
+        if let info = connection.handshakeDeviceInfo,
+           info.generation == key?.generation,
+           info.generation == connection.connectionGeneration {
+            guard !Task.isCancelled, clearedBoardDetailsKey == .some(key) else { return }
+            loadedBoardDetailsKey = .some(key)
+            boardDefaultName = info.defaultName
+            boardFirmware = info.fw
+            boardBuild = info.build
+            boardHasCustomName = info.customName ?? false
+            if boardNameInput.isEmpty, let name = info.name, !name.isEmpty {
+                boardNameInput = name
+            }
+            return
+        }
         let reply = try? await connection.command(.getInfo)
         guard !Task.isCancelled, clearedBoardDetailsKey == .some(key) else { return }
         // One attempt per session, as before: an older firmware that cannot
@@ -218,6 +234,16 @@ public final class ConnectionViewModel {
     }
 
     public func refreshBoardName(connection: BoardConnection) async {
+        if let info = connection.handshakeDeviceInfo,
+           info.generation == connection.connectionGeneration {
+            guard !Task.isCancelled else { return }
+            boardDefaultName = info.defaultName
+            boardHasCustomName = info.customName ?? false
+            if let name = info.name, !name.isEmpty {
+                boardNameInput = name
+            }
+            return
+        }
         guard let reply = try? await connection.command(.getInfo), !Task.isCancelled else { return }
         boardDefaultName = reply.defaultName
         boardHasCustomName = reply.customName ?? false

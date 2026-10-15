@@ -93,7 +93,8 @@ final class BoardSyncCoordinator {
             await resynchronizeWithBoard(connection: connection, deps: deps,
                                          showControlCenter: showControlCenter,
                                          isFirstConnectionThisRun: isFirstConnectionThisRun,
-                                         isGenuineReconnect: isGenuineReconnect)
+                                         isGenuineReconnect: isGenuineReconnect,
+                                         consumeHandshake: !isResumeOnly)
         }
     }
 
@@ -104,7 +105,8 @@ final class BoardSyncCoordinator {
         deps: Dependencies,
         showControlCenter: Binding<Bool>,
         isFirstConnectionThisRun: Bool = false,
-        isGenuineReconnect: Bool = false
+        isGenuineReconnect: Bool = false,
+        consumeHandshake: Bool = false
     ) async {
         // This is the connected resync path — the only place the launch
         // preview gate is released. `defer` so every early return below
@@ -123,13 +125,27 @@ final class BoardSyncCoordinator {
         // re-triggers a sync when the phase returns to `.active` from there.
         let startedActive = deps.scenePhase() == .active
         guard connection.connectionState == .connected, !Task.isCancelled else { return }
-        // Foreground recovery also needs fresh reads: the board can change
-        // modes while this app is suspended without dropping the transport.
-        guard let status = try? await connection.getStatus() else { return }
-        let preview = try? await connection.getPreviewSync()
-        // `deps.scenePhase()` is read live here, not a value captured before
-        // the two awaits above: the app can background mid-round-trip, and
-        // this is the last check before playback/mic restores start below.
+        // A non-resume sync consumes the handshake snapshot when status is
+        // already in hand. Resume-only, and a handshake whose status never
+        // decoded, still read the wire. Foreground recovery needs that read:
+        // the board can change modes while the app is suspended.
+        let status: DeviceStatus
+        let preview: PreviewSync?
+        if consumeHandshake, let handshakeStatus = connection.status {
+            status = handshakeStatus
+            if let handshakePreview = connection.preview {
+                preview = handshakePreview
+            } else {
+                preview = try? await connection.getPreviewSync()
+            }
+        } else {
+            guard let fetched = try? await connection.getStatus() else { return }
+            status = fetched
+            preview = try? await connection.getPreviewSync()
+        }
+        // `deps.scenePhase()` is read live here. A status or preview round
+        // trip above can outlast foregrounding; a consumed handshake has no
+        // such gap. This is the last check before playback or mic restores.
         guard !Task.isCancelled, generation == connection.connectionGeneration,
               deps.sessions.active.connection === connection,
               session == connection.output.session,
@@ -180,7 +196,15 @@ final class BoardSyncCoordinator {
             }
             if mode == .control {
                 deps.editor.boardModeSynchronized(generation: generation)
-                await deps.editor.refreshBoardDisplay(connection: connection)
+                // The handshake already read the frame. Resume-only still
+                // calls `getFrame()` — the board can change while suspended.
+                if consumeHandshake, connection.hasCurrentFrame {
+                    if !deps.editor.isSending {
+                        deps.editor.adoptBoardFrameIfUntouched(connection.currentFrame)
+                    }
+                } else {
+                    await deps.editor.refreshBoardDisplay(connection: connection)
+                }
             }
             if mode != .text, BoardResumeMode.isPlaybackPaused(status: status, preview: preview) {
                 deps.performance.pause()

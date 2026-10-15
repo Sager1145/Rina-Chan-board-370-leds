@@ -51,6 +51,16 @@ public struct BoardReconnectCandidate {
     }
 }
 
+/// Fields from a setup `get_info` reply that decoded. Valid only for `generation`.
+struct HandshakeDeviceInfo: Equatable {
+    let generation: UUID
+    let name: String?
+    let defaultName: String?
+    let customName: Bool?
+    let fw: String?
+    let build: String?
+}
+
 /// Owns the single active `RinaTransport`, decodes/encodes RinaLink frames,
 /// matches replies to requests by `seq`, aggregates `MORE`-flagged chunked
 /// replies, fans out unsolicited events to published properties, and applies
@@ -98,6 +108,9 @@ public final class BoardConnection {
     /// primary/sink doesn't momentarily look like a different board.
     public private(set) var lastKnownBoardIdentity: String?
     private var setupDefaultName: String?
+    /// Setup `get_info` fields, kept only when that reply decoded. `generation`
+    /// is the connection generation of the handshake that produced them.
+    private(set) var handshakeDeviceInfo: HandshakeDeviceInfo?
     /// Remembers, per transport fallback key (the `ble:<uuid>` / `wifi:<host>`
     /// key `boardKey` would fall back to without an identity), the last
     /// `board:<id>`-worthy identity this connection object obtained on that
@@ -779,6 +792,7 @@ public final class BoardConnection {
         protocolVersion = nil
         boardIdentity = nil
         setupDefaultName = nil
+        handshakeDeviceInfo = nil
         bootId = nil
         deviceInfoCaps = []
         // A generation only means anything within the carrier that reported it:
@@ -1146,11 +1160,23 @@ public final class BoardConnection {
             guard self.transport === transport,
                   connectionGeneration == generation else { return }
             deviceName = reply.name
+            // A rename or a later get_info supersedes the setup snapshot.
+            if !isEstablishing { handshakeDeviceInfo = nil }
             if case .getInfo = command {
                 protocolVersion = reply.proto
                 bootId = reply.bootId
                 deviceInfoCaps = reply.caps ?? []
-                if isEstablishing { setupDefaultName = reply.defaultName }
+                if isEstablishing {
+                    setupDefaultName = reply.defaultName
+                    handshakeDeviceInfo = HandshakeDeviceInfo(
+                        generation: generation,
+                        name: reply.name,
+                        defaultName: reply.defaultName,
+                        customName: reply.customName,
+                        fw: reply.fw,
+                        build: reply.build
+                    )
+                }
             }
         default:
             return
