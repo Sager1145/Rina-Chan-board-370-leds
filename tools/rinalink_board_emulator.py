@@ -133,16 +133,19 @@ def generic_cmd_ok():
     if FACES and 0 <= index < len(FACES):
         reply["autoFaceId"] = FACES[index]["id"]
     return reply
+class ErrorReply(dict):
+    """JSON body of protocol.cpp sendErrorReply (frame type 0xFF)."""
+
 def error_reply(code, message):
     """Mirror protocol.cpp sendErrorReply: ok false, error, code."""
-    return {"ok": False, "error": message, "code": code}
+    return ErrorReply({"ok": False, "error": message, "code": code})
 def _handle_cmd(obj):
     c = obj.get("cmd"); changed = True
     if c == "get_info":
         changed = False
         ident = getattr(IDENT, "id", "EMU-1")
         return {"ok": True, "proto": 1, "name": BOARD_NAME or "模拟板 " + ident, "defaultName": "模拟板 " + ident, "bootId": "deadbeef",
-                "caps": ["identify", "clock_sample", "scroll_viewport", "group_start", "apply_face_frame"]}, changed
+                "caps": ["identify", "clock_sample", "scroll_viewport", "group_start", "group_60fps", "apply_face_frame"]}, changed
     if c == "set_brightness": current_state()["brightness"] = int(obj.get("raw", current_state()["brightness"]))
     elif c == "set_color": current_state()["color"] = obj.get("hex", current_state()["color"])
     elif c == "set_mode": current_state()["mode"] = obj.get("mode", current_state()["mode"])
@@ -249,7 +252,9 @@ def serve(conn):
                 except Exception: obj = {}
                 L("CMD", getattr(IDENT, "id", "?"), obj)
                 reply, changed = handle_cmd(obj)
-                send(frame(t | 0x80, seq, J(reply)))
+                # apply_saved_face failures are ERR (0xFF), same seq as the request.
+                reply_type = 0xFF if isinstance(reply, ErrorReply) else t | 0x80
+                send(frame(reply_type, seq, J(reply)))
                 if changed: send(frame(0x91, 0, J(status())))
             elif t == 0x02: send(frame(t | 0x80, seq, J(status())))
             elif t == 0x03: send(frame(t | 0x80, seq, J(status()["power"])))

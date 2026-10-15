@@ -53,7 +53,9 @@ class EmulatorProtocolTests(unittest.TestCase):
         while True:
             header = self.read(6)
             result = self.read(struct.unpack("<H", header[4:])[0])
-            if header[1] == kind | 0x80 and header[2] == self.seq:
+            if header[2] == self.seq and header[1] in (kind | 0x80, 0xFF):
+                self.reply_type = header[1]
+                self.reply_seq = header[2]
                 return result if binary else json.loads(result)
 
     def command(self, cmd, **fields):
@@ -143,7 +145,7 @@ class EmulatorProtocolTests(unittest.TestCase):
 
     def test_apply_saved_face_reply_and_optional_cap(self):
         info = self.command("get_info")
-        self.assertEqual(info["caps"], ["identify", "clock_sample", "scroll_viewport", "group_start", "apply_face_frame"])
+        self.assertEqual(info["caps"], ["identify", "clock_sample", "scroll_viewport", "group_start", "group_60fps", "apply_face_frame"])
         reply = self.command("apply_saved_face", index=7)
         self.assertEqual(set(reply), {"ok", "autoFaceId", "autoFaceIndex", "frameEncoding", "frameHex"})
         self.assertTrue(reply["ok"])
@@ -156,6 +158,8 @@ class EmulatorProtocolTests(unittest.TestCase):
         stored = self.emulator.FACES[reply["autoFaceIndex"]]["frame"]
         self.assertEqual(reply["frameHex"], stored.hex())
         missing = self.command("apply_saved_face", id="nope")
+        self.assertEqual(self.reply_type, 0xFF)
+        self.assertEqual(self.reply_seq, self.seq)
         self.assertEqual(missing["ok"], False)
         self.assertEqual(missing["code"], 404)
         self.assertEqual(missing["error"], "saved face not found: nope")
@@ -165,6 +169,14 @@ class EmulatorProtocolTests(unittest.TestCase):
         self.assertEqual(bright["autoFaceIndex"], reply["autoFaceIndex"])
         self.assertEqual(bright["autoFaceId"], reply["autoFaceId"])
         self.assertEqual(self.request(0x10, bytes(47)), {"ok": True})
+        self.emulator.FACES.clear()
+        # Index-only apply hits applySavedFaceIndex; empty library leaves errCode at 400.
+        empty = self.command("apply_saved_face", index=0)
+        self.assertEqual(self.reply_type, 0xFF)
+        self.assertEqual(self.reply_seq, self.seq)
+        self.assertEqual(empty["ok"], False)
+        self.assertEqual(empty["code"], 400)
+        self.assertEqual(empty["error"], "")
 
 
 if __name__ == "__main__":

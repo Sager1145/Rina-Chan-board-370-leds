@@ -257,7 +257,7 @@ slimmed. Generic success no longer carries `v`, `cmd`, `color`, `brightness`,
 `scrollLoop`, `groupTimed`, `scrollFrameCount`, `scrollFrameIndex`,
 `scrollIntervalMs`, `scrollTimelineId`, `scrollUploadComplete`,
 `scrollHasSourceText`). `SET_FRAME` no longer carries that status echo or
-`queueDepth` (queue depth stays on `GET_STATUS`). Clients must only rely on
+`queueDepth` (queue depth lives on `GET_STATUS` as `renderer.frameQueueDepth` / `renderer.frameQueueCount`, not `queueDepth`). Clients must only rely on
 `ok`, `autoFaceIndex`, and `autoFaceId`. `get_info` cap `apply_face_frame`
 advertises that an `apply_saved_face` success reply includes `frameHex`.
 
